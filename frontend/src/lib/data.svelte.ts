@@ -13,6 +13,8 @@ import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown} from './map
 import {updateBearingWithPhoto} from './bearingTracking';
 import {updateSettings} from "$lib/settings";
 
+const doLog = false;
+
 
 // Draggable split store for gallery/map split percentage (0-100, percentage for photo panel)
 export let splitPercent = staggeredLocalStorageSharedStore('splitPercent', 50);

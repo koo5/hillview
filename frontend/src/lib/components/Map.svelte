@@ -63,6 +63,8 @@
 	import {bearingBetween, distanceBetween, destinationPoint} from "$lib/geo";
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
+	const doLog = false;
+
 	export let update_url = false;
 
     //let flying = false;

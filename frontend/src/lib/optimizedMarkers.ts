@@ -7,6 +7,8 @@ import {app} from "$lib/data.svelte";
 import {getBearingColor} from './utils/bearingUtils';
 import {getPhotoSourceId, getPhotoSourceColor} from './photoUtils';
 
+const doLog = false;
+
 export interface OptimizedMarkerOptions {
 	enablePooling: boolean;
 	maxPoolSize: number;
@@ -233,14 +235,14 @@ export class OptimizedMarkerSystem {
 		this.lastVal = bearing;
 
 		if (this.pendingBearingUpdateTimeout) {
-			console.log('Skipping scheduled bearing color update - already pendingBearingUpdateTimeout:', this.pendingBearingUpdateTimeout);
+			if (doLog) console.log('Skipping scheduled bearing color update - already pendingBearingUpdateTimeout:', this.pendingBearingUpdateTimeout);
 			return
 		}
 
 		const timeSinceLastUpdate = Date.now() - this.lastUpdateTime;
 		if (timeSinceLastUpdate < get(bearingDiffColorsUpdateInterval)) {
 			this.pendingBearingUpdateTimeout = setTimeout( this.updateColors.bind(this), get(bearingDiffColorsUpdateInterval));
-			console.log('Scheduled pendingBearingUpdateTimeout in', get(bearingDiffColorsUpdateInterval), 'ms');
+			if (doLog) console.log('Scheduled pendingBearingUpdateTimeout in', get(bearingDiffColorsUpdateInterval), 'ms');
 		} else {
 			this.updateColors();
 		}
@@ -250,7 +252,7 @@ export class OptimizedMarkerSystem {
 
 		this.lastUpdateTime = Date.now();
 		if (this.pendingBearingUpdateTimeout) {
-			console.log('clearing pendingBearingUpdateTimeout:', this.pendingBearingUpdateTimeout);
+			if (doLog) console.log('clearing pendingBearingUpdateTimeout:', this.pendingBearingUpdateTimeout);
 			this.pendingBearingUpdateTimeout = null;
 			//console.log('cleared pendingBearingUpdateTimeout');
 		}
@@ -293,7 +295,7 @@ export class OptimizedMarkerSystem {
 			}
 		}
 
-		console.log(`OptimizedMarkers: Updated selection to ${newPhotoInFront?.id || 'none'}`);
+		if (doLog) console.log(`OptimizedMarkers: Updated selection to ${newPhotoInFront?.id || 'none'}`);
 	}
 
 	/**
@@ -508,7 +510,7 @@ export function setupMarkerClickDelegation(mapContainer: HTMLElement) {
 			if (photoData && photoData.id === photoId) {
 				const callback = optimizedMarkerSystem['options'].onMarkerClick;
 				if (callback) {
-					console.log('OptimizedMarkers: Marker clicked:', photoId);
+					if (doLog) console.log('OptimizedMarkers: Marker clicked:', photoId);
 					callback(photoData);
 				}
 				break;

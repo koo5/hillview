@@ -13,6 +13,7 @@ import androidx.room.Room
 class DevicePhotoLoader(private val context: Context) {
     companion object {
         private const val TAG = "DevicePhotoLoader"
+        private const val doLog = false
     }
 
     private val photoDatabase = PhotoDatabase.getDatabase(context)
@@ -26,10 +27,10 @@ class DevicePhotoLoader(private val context: Context) {
         picks: Set<String> = emptySet()
     ): List<PhotoData> {
         return try {
-            Log.d(TAG, " Loading device photos from database")
-            Log.d(TAG, " Source config: ${source.id}")
-            Log.d(TAG, " Bounds: $bounds")
-            Log.d(TAG, " MaxPhotos: $maxPhotos")
+            if (doLog) Log.d(TAG, " Loading device photos from database")
+            if (doLog) Log.d(TAG, " Source config: ${source.id}")
+            if (doLog) Log.d(TAG, " Bounds: $bounds")
+            if (doLog) Log.d(TAG, " MaxPhotos: $maxPhotos")
 
             val photoEntities = if (bounds != null) {
                 // First get picked photos that are in bounds (they always stay on map)
@@ -88,7 +89,7 @@ class DevicePhotoLoader(private val context: Context) {
             */
 
             if (shouldAbort()) {
-                Log.d(TAG, " Aborted during photo loading")
+                if (doLog) Log.d(TAG, " Aborted during photo loading")
                 return emptyList()
             }
 
@@ -97,7 +98,7 @@ class DevicePhotoLoader(private val context: Context) {
                 convertToPhotoData(photoEntity, source)
             }
 
-            Log.d(TAG, " Loaded ${photos.size} photos from device source ${source.id}")
+            if (doLog) Log.d(TAG, " Loaded ${photos.size} photos from device source ${source.id}")
             photos
 
         } catch (error: Exception) {

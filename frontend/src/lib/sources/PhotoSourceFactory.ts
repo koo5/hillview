@@ -12,9 +12,11 @@ export interface PhotoSourceOptions {
     queryOptionsJson?: string | null;  // Pre-serialized analysis filters, null if no active filters
 }
 
+const doLog = false;
+
 export class PhotoSourceFactory {
     static createLoader(source: SourceConfig, callbacks: PhotoSourceCallbacks, options?: PhotoSourceOptions): PhotoSourceLoader {
-        console.log(`🢄PhotoSourceFactory: Creating loader for source:`, {
+        if (doLog) console.log(`🢄PhotoSourceFactory: Creating loader for source:`, {
             id: source.id,
             type: source.type,
             enabled: source.enabled,
@@ -23,7 +25,7 @@ export class PhotoSourceFactory {
 
         switch (source.type) {
             case 'stream':
-                console.log(`🢄PhotoSourceFactory: Creating StreamSourceLoader for ${source.id}`);
+                if (doLog) console.log(`🢄PhotoSourceFactory: Creating StreamSourceLoader for ${source.id}`);
                 return new StreamSourceLoader(source, callbacks, options);
 
             default:

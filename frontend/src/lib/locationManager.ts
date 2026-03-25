@@ -3,6 +3,7 @@ import {locationTracking, setLocationError, setLocationTracking, updateGpsLocati
 import { writable } from 'svelte/store';
 import { get } from 'svelte/store';
 
+const doLog = false;
 
 export type LocationConsumer = 'user' | 'compass' | string;
 export let locationTrackingLoading = writable<boolean>(false);
@@ -16,19 +17,19 @@ class LocationReferenceManager {
      * Only starts the service if this is the first consumer
      */
     async requestLocation(consumer: LocationConsumer): Promise<void> {
-        console.log(`🢄📍🔢 LocationManager: ${consumer} requesting location service`);
+        if (doLog) console.log(`🢄📍🔢 LocationManager: ${consumer} requesting location service`);
 
         const wasEmpty = this.consumers.size === 0;
         this.consumers.add(consumer);
 
-        console.log(`🢄📍🔢 Active consumers: ${Array.from(this.consumers).join(', ')}`);
+        if (doLog) console.log(`🢄📍🔢 Active consumers: ${Array.from(this.consumers).join(', ')}`);
 
         if (wasEmpty && !this.isServiceRunning) {
-            console.log(`🢄📍🔢 Starting location service (first consumer: ${consumer})`);
+            if (doLog) console.log(`🢄📍🔢 Starting location service (first consumer: ${consumer})`);
             try {
                 await startPreciseLocationUpdates();
                 this.isServiceRunning = true;
-                console.log(`🢄📍🔢 ✅ Location service started successfully`);
+                if (doLog) console.log(`🢄📍🔢 ✅ Location service started successfully`);
             } catch (error) {
                 console.error(`🢄📍🔢 ❌ Failed to start location service:`, error);
                 // Remove the consumer since we failed to start the service
@@ -36,7 +37,7 @@ class LocationReferenceManager {
                 throw error;
             }
         } else if (this.consumers.size > 0 && this.isServiceRunning) {
-            console.log(`🢄📍🔢 Location service already running, added ${consumer} to consumers`);
+            if (doLog) console.log(`🢄📍🔢 Location service already running, added ${consumer} to consumers`);
         }
     }
 
@@ -45,30 +46,30 @@ class LocationReferenceManager {
      * Only stops the service when no consumers remain
      */
     async releaseLocation(consumer: LocationConsumer): Promise<void> {
-        console.log(`🢄📍🔢 LocationManager: ${consumer} releasing location service`);
+        if (doLog) console.log(`🢄📍🔢 LocationManager: ${consumer} releasing location service`);
 
         const hadConsumer = this.consumers.has(consumer);
         this.consumers.delete(consumer);
 
         if (!hadConsumer) {
-            console.log(`🢄📍🔢 ⚠️ Consumer ${consumer} was not actively using location service`);
+            if (doLog) console.log(`🢄📍🔢 ⚠️ Consumer ${consumer} was not actively using location service`);
         }
 
-        console.log(`🢄📍🔢 Active consumers: ${Array.from(this.consumers).join(', ') || 'none'}`);
+        if (doLog) console.log(`🢄📍🔢 Active consumers: ${Array.from(this.consumers).join(', ') || 'none'}`);
 
         if (this.consumers.size === 0 && this.isServiceRunning) {
-            console.log(`🢄📍🔢 No consumers left, stopping location service`);
+            if (doLog) console.log(`🢄📍🔢 No consumers left, stopping location service`);
             try {
                 await stopPreciseLocationUpdates();
                 this.isServiceRunning = false;
-                console.log(`🢄📍🔢 ✅ Location service stopped successfully`);
+                if (doLog) console.log(`🢄📍🔢 ✅ Location service stopped successfully`);
             } catch (error) {
                 console.error(`🢄📍🔢 ❌ Failed to stop location service:`, error);
                 // Still mark as stopped since we tried
                 this.isServiceRunning = false;
             }
         } else if (this.consumers.size > 0) {
-            console.log(`🢄📍🔢 Location service still needed by: ${Array.from(this.consumers).join(', ')}`);
+            if (doLog) console.log(`🢄📍🔢 Location service still needed by: ${Array.from(this.consumers).join(', ')}`);
         }
     }
 
@@ -102,7 +103,7 @@ class LocationReferenceManager {
      * This should be called on page load to avoid stale references
      */
     async reset(): Promise<void> {
-        console.log(`🢄📍🔢 LocationManager: Resetting (clearing ${this.consumers.size} stale consumers)`);
+        if (doLog) console.log(`🢄📍🔢 LocationManager: Resetting (clearing ${this.consumers.size} stale consumers)`);
 
         const hadConsumers = this.consumers.size > 0;
         const wasRunning = this.isServiceRunning;
@@ -112,10 +113,10 @@ class LocationReferenceManager {
 
         // Stop service if it was running
         if (wasRunning) {
-            console.log(`🢄📍🔢 Stopping location service during reset`);
+            if (doLog) console.log(`🢄📍🔢 Stopping location service during reset`);
             try {
                 await stopPreciseLocationUpdates();
-                console.log(`🢄📍🔢 ✅ Location service stopped during reset`);
+                if (doLog) console.log(`🢄📍🔢 ✅ Location service stopped during reset`);
             } catch (error) {
                 console.error(`🢄📍🔢 ❌ Failed to stop location service during reset:`, error);
             }
@@ -124,9 +125,9 @@ class LocationReferenceManager {
         this.isServiceRunning = false;
 
         if (hadConsumers || wasRunning) {
-            console.log(`🢄📍🔢 ✅ Reset complete - cleared stale state`);
+            if (doLog) console.log(`🢄📍🔢 ✅ Reset complete - cleared stale state`);
         } else {
-            console.log(`🢄📍🔢 Reset complete - no stale state found`);
+            if (doLog) console.log(`🢄📍🔢 Reset complete - no stale state found`);
         }
     }
 
@@ -139,8 +140,8 @@ class LocationReferenceManager {
         this.consumers.delete(consumer);
 
         if (had) {
-            console.log(`🢄📍🔢 Force released consumer: ${consumer}`);
-            console.log(`🢄📍🔢 Remaining consumers: ${Array.from(this.consumers).join(', ') || 'none'}`);
+            if (doLog) console.log(`🢄📍🔢 Force released consumer: ${consumer}`);
+            if (doLog) console.log(`🢄📍🔢 Remaining consumers: ${Array.from(this.consumers).join(', ') || 'none'}`);
         }
     }
 }
@@ -167,11 +168,11 @@ export async function startLocationTracking() {
         locationTrackingLoading.set(true);
 
         try {
-            console.log("📍 Map.svelte Starting location tracking");
+            if (doLog) console.log("📍 Starting location tracking");
             await locationManager.requestLocation('user');
 
             locationTrackingLoading.set(false);
-            console.log("📍 Location tracking started successfully");
+            if (doLog) console.log("📍 Location tracking started successfully");
 
         } catch (error: any) {
             console.error("📍 Error starting location tracking:", error);
@@ -207,7 +208,7 @@ export    async function stopLocationTracking() {
         locationTrackingLoading.set(false);
 
         try {
-            console.log("📍 Stopping location tracking");
+            if (doLog) console.log("📍 Stopping location tracking");
             await locationManager.releaseLocation('user');
         } catch (error) {
             console.error("📍 Error stopping location tracking:", error);

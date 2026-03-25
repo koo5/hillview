@@ -15,6 +15,7 @@ import { get } from 'svelte/store';
 import { initSyncStatusListener, isSwAlive, createFgStatusReporter } from '../syncStatus';
 
 const LOG_PREFIX = '🢄[PhotoSync]';
+const doLog = false;
 
 /** Foreground uploader — uses the main-thread secure upload flow */
 async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {

@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit
 class StreamPhotoLoader {
     companion object {
         private const val TAG = "StreamPhotoLoader"
+        private const val doLog = false
         private const val CONNECTION_TIMEOUT_SECONDS = 30L
         private const val READ_TIMEOUT_SECONDS = 60L
 
@@ -114,7 +115,7 @@ class StreamPhotoLoader {
         while (retryCount <= maxRetries && !shouldAbort()) {
             try {
                 val url = buildStreamUrl(source, bounds, maxPhotos, authToken, picks, queryOptionsJson)
-                Log.d(TAG, "StreamPhotoLoader: Starting stream from $url (attempt ${retryCount + 1}/${maxRetries + 1})")
+                if (doLog) Log.d(TAG, "StreamPhotoLoader: Starting stream from $url (attempt ${retryCount + 1}/${maxRetries + 1})")
 
                 var streamCompleted = false
                 var streamError: String? = null
@@ -124,7 +125,7 @@ class StreamPhotoLoader {
 
                     when (message) {
                         is StreamMessage.Photos -> {
-                            Log.d(TAG, "StreamPhotoLoader: Received ${message.photos.size} photos")
+                            if (doLog) Log.d(TAG, "StreamPhotoLoader: Received ${message.photos.size} photos")
 
                             val convertedPhotos = message.photos.map { photo ->
                                 convertToPhotoData(photo, source)
@@ -135,14 +136,14 @@ class StreamPhotoLoader {
                             // Apply bounds filtering and respect maxPhotos limit
                             val filteredPhotos = filterPhotosInBounds(photos, bounds)
                             if (filteredPhotos.size >= maxPhotos) {
-                                Log.d(TAG, "StreamPhotoLoader: Reached maxPhotos limit ($maxPhotos)")
+                                if (doLog) Log.d(TAG, "StreamPhotoLoader: Reached maxPhotos limit ($maxPhotos)")
                                 streamCompleted = true
                                 return@collect
                             }
                         }
 
                         is StreamMessage.StreamComplete -> {
-                            Log.d(TAG, "StreamPhotoLoader: Stream completed for ${source.id}")
+                            if (doLog) Log.d(TAG, "StreamPhotoLoader: Stream completed for ${source.id}")
                             streamCompleted = true
                             return@collect
                         }
@@ -173,7 +174,7 @@ class StreamPhotoLoader {
 
             } catch (e: CancellationException) {
                 // Handle coroutine cancellation gracefully - this is expected during aborts
-                Log.d(TAG, "StreamPhotoLoader: Stream cancelled for ${source.id} (expected during abort)")
+                if (doLog) Log.d(TAG, "StreamPhotoLoader: Stream cancelled for ${source.id} (expected during abort)")
                 throw e // Re-throw to propagate cancellation
             } catch (e: Exception) {
                 Log.e(TAG, "StreamPhotoLoader: Error on attempt ${retryCount + 1}: ${e.message}")
@@ -186,7 +187,7 @@ class StreamPhotoLoader {
                 if (e.message?.contains("401") == true || e.message?.contains("auth") == true) {
                     retryCount++
                     delay(1000) // Brief delay before retry
-                    Log.d(TAG, "StreamPhotoLoader: Retrying with fresh auth token")
+                    if (doLog) Log.d(TAG, "StreamPhotoLoader: Retrying with fresh auth token")
                     continue
                 } else {
                     throw e // Non-auth errors don't retry
@@ -228,7 +229,7 @@ class StreamPhotoLoader {
                                 try {
                                     //Log.d(TAG, "StreamPhotoLoader: Processing event data: '$eventData' with type: '$eventType'")
                                     val message = parseStreamMessage(eventData.toString(), eventType)
-                                    Log.d(TAG, "StreamPhotoLoader: Parsed message type: ${message::class.simpleName}")
+                                    if (doLog) Log.d(TAG, "StreamPhotoLoader: Parsed message type: ${message::class.simpleName}")
                                     emit(message)
                                 } catch (e: Exception) {
                                     Log.e(TAG, "Failed to parse stream message: ${e.message}")
@@ -279,7 +280,7 @@ class StreamPhotoLoader {
                             null
                         }
                     }
-                    Log.d(TAG, "StreamPhotoLoader: Parsed ${photos.size} photos successfully")
+                    if (doLog) Log.d(TAG, "StreamPhotoLoader: Parsed ${photos.size} photos successfully")
                     StreamMessage.Photos(photos)
                 }
 
@@ -290,7 +291,7 @@ class StreamPhotoLoader {
 
                 "region_complete" -> {
                     // Ignore region_complete messages - they're just progress info
-                    Log.d(TAG, "StreamPhotoLoader: Region completed (ignoring)")
+                    if (doLog) Log.d(TAG, "StreamPhotoLoader: Region completed (ignoring)")
                     StreamMessage.IgnoreMessage
                 }
 

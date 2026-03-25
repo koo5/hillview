@@ -11,6 +11,7 @@
 	import {zoomViewData} from '$lib/zoomView.svelte.js';
 	import {singleTap} from '$lib/actions/singleTap';
 	import {panZoom} from '$lib/actions/panZoom';
+	const doLog = false;
 	import {portal} from '$lib/actions/portal';
 	import {getFullPhotoInfo, getPhotoSource} from '$lib/photoUtils';
 	import HideUserDialog from './HideUserDialog.svelte';
@@ -90,7 +91,7 @@
 	let hideMessage = '';
 
 
-	$: console.log('🢄Photo.svelte: photo changed:', JSON.stringify(photo));
+	//$: console.log('🢄Photo.svelte: photo changed:', JSON.stringify(photo));
 
 	// Get current user authentication state
 	$: is_authenticated = $auth.is_authenticated;
@@ -146,7 +147,7 @@
 		}
 
 		if (!photo.sizes) {
-			console.log('🢄Photo.svelte: No sizes, using photo.url:', photo.url);
+			if (doLog) console.log('🢄Photo.svelte: No sizes, using photo.url:', photo.url);
 			selectedUrl = photo.url;
 			return;
 		}
@@ -378,15 +379,15 @@
 		if (!photo) return;
 
 		// Notify parent about the interaction to reset swipe state
-		console.log('🢄Photo: Opening zoom view, notifying parent about interaction');
-		console.log('🢄Photo: onInteraction callback:', onInteraction);
+		if (doLog) console.log('🢄Photo: Opening zoom view, notifying parent about interaction');
+		if (doLog) console.log('🢄Photo: onInteraction callback:', onInteraction);
 		onInteraction?.();
 
 		const fallbackUrl = displayedUrl || selectedUrl || '';
-		console.log('🢄Photo.svelte: [zoomview] Opening zoom view for photo:', JSON.stringify(photo));
+		if (doLog) console.log('🢄Photo.svelte: [zoomview] Opening zoom view for photo:', JSON.stringify(photo));
 		const fullPhotoInfo = getFullPhotoInfo(photo);
 
-		console.log('🢄Photo.svelte: [zoomview] Full photo info:', JSON.stringify(fullPhotoInfo));
+		if (doLog) console.log('🢄Photo.svelte: [zoomview] Full photo info:', JSON.stringify(fullPhotoInfo));
 
 		zoomViewData.set({
 			fallback_url: fallbackUrl,
@@ -451,7 +452,7 @@
 					}));
 				}}
 				onload={() => {
-					console.log('🢄Photo.svelte: Image loaded successfully:', JSON.stringify({
+					if (doLog) console.log('🢄Photo.svelte: Image loaded successfully:', JSON.stringify({
 						photoId: photo?.id,
 						displayedUrl: displayedUrl,
 						is_device_photo: photo?.is_device_photo

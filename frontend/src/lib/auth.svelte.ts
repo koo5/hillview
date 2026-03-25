@@ -8,6 +8,8 @@ import { auth, type User, type AuthState } from './authStore';
 import { myGoto } from './navigation.svelte';
 import { clearAlerts } from './alertSystem.svelte';
 
+const doLog = false;
+
 // Re-export for backward compatibility
 export type { User, AuthState };
 export { auth };
@@ -15,7 +17,7 @@ export { auth };
 
 if (browser) {
 	auth.subscribe(authState => {
-		console.log('🢄auth store updated:', JSON.stringify(authState));
+		if (doLog) console.log('🢄auth store updated:', JSON.stringify(authState));
 	});
 }
 
@@ -28,7 +30,7 @@ export async function completeAuthentication(tokenData: {
     token_type?: string;
     refresh_token_expires_at: string;
 }, source: 'login' | 'oauth' = 'login'): Promise<boolean> {
-        console.log(`🢄[AUTH] Completing ${source} authentication...`);
+        if (doLog) console.log(`🢄[AUTH] Completing ${source} authentication...`);
 
         // Store tokens using the unified TokenManager
         const tokenManager = createTokenManager();
@@ -40,7 +42,7 @@ export async function completeAuthentication(tokenData: {
             refresh_token_expires_at: tokenData.refresh_token_expires_at
         };
 
-        console.log('🢄[AUTH] About to store tokens:', JSON.stringify({
+        if (doLog) console.log('🢄[AUTH] About to store tokens:', JSON.stringify({
             hasAccessToken: !!tokensToStore.access_token,
             hasRefreshToken: !!tokensToStore.refresh_token,
             expiresAt: tokensToStore.expires_at,
@@ -49,7 +51,7 @@ export async function completeAuthentication(tokenData: {
         }));
 
         await tokenManager.storeTokens(tokensToStore);
-        console.log('🢄[AUTH] Tokens stored successfully via TokenManager');
+        if (doLog) console.log('🢄[AUTH] Tokens stored successfully via TokenManager');
 
         // Clear accumulated alerts on successful login
         clearAlerts();
@@ -61,7 +63,7 @@ export async function completeAuthentication(tokenData: {
         if ('registerClientPublicKey' in tokenManager) {
             try {
                 await (tokenManager as any).registerClientPublicKey();
-                console.log('🢄[AUTH] Client public key registered');
+                if (doLog) console.log('🢄[AUTH] Client public key registered');
             } catch (error: any) {
                 console.error('🢄[AUTH] Key registration failed, aborting login:', error);
                 await tokenManager.clearTokens();
@@ -76,9 +78,9 @@ export async function completeAuthentication(tokenData: {
         }));
 
         // Fetch user data
-		console.log('🢄[AUTH] Fetching user data after authentication...');
+		if (doLog) console.log('🢄[AUTH] Fetching user data after authentication...');
         const userData = await fetchUserData();
-        console.log('🢄[AUTH] User data fetched:', userData);
+        if (doLog) console.log('🢄[AUTH] User data fetched:', userData);
 
         if (!userData) {
             console.error('🢄[AUTH] Failed to fetch user data after authentication');
@@ -86,7 +88,7 @@ export async function completeAuthentication(tokenData: {
         }
 
         // Double-check auth state
-        console.log('🢄[AUTH] Auth state after authentication:', debugAuth());
+        if (doLog) console.log('🢄[AUTH] Auth state after authentication:', debugAuth());
 
         return true;
 }
@@ -104,15 +106,15 @@ async function ensureAuthInitialized() {
     const token = await tokenManager.getValidToken();
 
     if (token) {
-        console.log('🢄[AUTH] Valid token found during initialization');
+        if (doLog) console.log('🢄[AUTH] Valid token found during initialization');
         auth.update(state => ({
             ...state,
             is_authenticated: true
         }));
-		console.log('🢄[AUTH] ensureAuthInitialized: Fetching user data during initialization...');
+		if (doLog) console.log('🢄[AUTH] ensureAuthInitialized: Fetching user data during initialization...');
         fetchUserData();
     } else {
-        console.log('🢄[AUTH] No valid token found during initialization');
+        if (doLog) console.log('🢄[AUTH] No valid token found during initialization');
         auth.update(a => ({ ...a, checked: true }));
     }
 }
@@ -120,7 +122,7 @@ async function ensureAuthInitialized() {
 // Auth functions
 export async function login(username: string, password: string) {
     await ensureAuthInitialized();
-        console.log('🢄[AUTH] Logging in with:', { username });
+        if (doLog) console.log('🢄[AUTH] Logging in with:', { username });
         const response = await fetch(backendUrl+'/auth/token', {
             method: 'POST',
             headers: {
@@ -141,19 +143,19 @@ export async function login(username: string, password: string) {
 
         const data = await response.json();
 
-        console.log('🢄[AUTH] Login successful, token received:');
-        console.log('🢄[AUTH] - access_token:', data.access_token ? 'present' : 'missing');
-        console.log('🢄[AUTH] - refresh_token:', data.refresh_token ? 'present' : 'missing');
-        console.log('🢄[AUTH] - expires_at:', data.expires_at);
-        console.log('🢄[AUTH] - refresh_token_expires_at:', data.refresh_token_expires_at);
-        console.log('🢄[AUTH] - token_type:', data.token_type);
+        if (doLog) console.log('🢄[AUTH] Login successful, token received:');
+        if (doLog) console.log('🢄[AUTH] - access_token:', data.access_token ? 'present' : 'missing');
+        if (doLog) console.log('🢄[AUTH] - refresh_token:', data.refresh_token ? 'present' : 'missing');
+        if (doLog) console.log('🢄[AUTH] - expires_at:', data.expires_at);
+        if (doLog) console.log('🢄[AUTH] - refresh_token_expires_at:', data.refresh_token_expires_at);
+        if (doLog) console.log('🢄[AUTH] - token_type:', data.token_type);
 
         // Use shared authentication completion
         return await completeAuthentication(data, 'login');
 }
 
 export async function register(email: string, username: string, password: string) {
-        console.log('🢄[AUTH] Registering user:', { email, username });
+        if (doLog) console.log('🢄[AUTH] Registering user:', { email, username });
         const response = await fetch(backendUrl+'/auth/register', {
             method: 'POST',
             headers: {
@@ -203,7 +205,7 @@ export async function oauthLogin(provider: string, code: string, redirectUri?: s
 
         const data = await response.json();
 
-        console.log('🢄[AUTH] OAuth login successful, token received:', data);
+        if (doLog) console.log('🢄[AUTH] OAuth login successful, token received:', data);
 
         // Use shared authentication completion
         return await completeAuthentication(data, 'oauth');
@@ -215,15 +217,15 @@ export async function logout(reason?: string) {
         console.log('🢄[AUTH] - Reason:', reason);
     }
 
-    console.log('🢄[AUTH] - Clearing tokens via TokenManager');
+    if (doLog) console.log('🢄[AUTH] - Clearing tokens via TokenManager');
     const tokenManager = createTokenManager();
     await tokenManager.clearTokens();
-    console.log('🢄[AUTH] - Tokens cleared successfully');
+    if (doLog) console.log('🢄[AUTH] - Tokens cleared successfully');
 
-    console.log('🢄[AUTH] - Updating auth store');
+    if (doLog) console.log('🢄[AUTH] - Updating auth store');
     auth.update(a => {
-        console.log('🢄[AUTH]   - Setting is_authenticated to false');
-        console.log('🢄[AUTH]   - Clearing token and user data');
+        if (doLog) console.log('🢄[AUTH]   - Setting is_authenticated to false');
+        if (doLog) console.log('🢄[AUTH]   - Clearing token and user data');
         return {
             ...a,
             is_authenticated: false,
@@ -232,9 +234,9 @@ export async function logout(reason?: string) {
         };
     });
 
-    console.log('🢄[AUTH] - Redirecting to login page from auth.svelte.ts');
+    if (doLog) console.log('🢄[AUTH] - Redirecting to login page from auth.svelte.ts');
     myGoto('/login');
-    console.log('🢄[AUTH] === LOGOUT COMPLETE ===');
+    if (doLog) console.log('🢄[AUTH] === LOGOUT COMPLETE ===');
 }
 
 // Deprecated - use TokenManager.isTokenExpired instead
@@ -254,7 +256,7 @@ export async function checkTokenValidity(): Promise<boolean> {
     const token = await getCurrentToken();
 
     if (!token) {
-        console.log('🢄[AUTH] No valid token found');
+        if (doLog) console.log('🢄[AUTH] No valid token found');
         return false;
     }
 
@@ -285,7 +287,7 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
 export async function fetchUserData() {
     const a = get(auth);
 
-    console.log('🢄[AUTH] fetchUserData start - Current auth state: is_authenticated:', a.is_authenticated, 'Has user:', !!a.user);
+    if (doLog) console.log('🢄[AUTH] fetchUserData start - Current auth state: is_authenticated:', a.is_authenticated, 'Has user:', !!a.user);
 
     try {
         //console.log('🢄[AUTH] Making API request to /api/auth/me');
@@ -299,7 +301,7 @@ export async function fetchUserData() {
         }
 
         const userData = await response.json();
-        console.log('🢄[AUTH] fetchUserData - User data received:', JSON.stringify(userData));
+        if (doLog) console.log('🢄[AUTH] fetchUserData - User data received:', JSON.stringify(userData));
 
         // If we successfully got user data, ensure is_authenticated: is true
         auth.update(a => {
@@ -310,7 +312,7 @@ export async function fetchUserData() {
                 user: userData
             };
         });
-        console.log('🢄[AUTH] === USER DATA FETCH COMPLETE ===');
+        if (doLog) console.log('🢄[AUTH] === USER DATA FETCH COMPLETE ===');
         return userData;
     } catch (error) {
         console.error('🢄[AUTH] Error fetching user data:', error);
@@ -325,18 +327,18 @@ export async function fetchUserData() {
 export async function checkAuth() {
     const a = get(auth);
 
-    console.log('🢄[AUTH] - is_authenticated:', a.is_authenticated, 'a.user:', JSON.stringify(a.user));
+    if (doLog) console.log('🢄[AUTH] - is_authenticated:', a.is_authenticated, 'a.user:', JSON.stringify(a.user));
 
     // Check token validity through TokenManager
     const validToken = await getCurrentToken();
     //console.log('🢄[AUTH] - Has valid token:', !!validToken);
     if (validToken) {
-        console.log('🢄[AUTH]3 - Token preview:', validToken.substring(0, 10) + '...');
+        if (doLog) console.log('🢄[AUTH]3 - Token preview:', validToken.substring(0, 10) + '...');
     }
 
     // If we have a valid token, fetch user data
     if (validToken) {
-        console.log('🢄[AUTH] checkAuth: Valid token found, fetching user data');
+        if (doLog) console.log('🢄[AUTH] checkAuth: Valid token found, fetching user data');
         fetchUserData();
     } else if (a.user) {
         // We have user data but no valid token - inconsistent state
@@ -350,7 +352,7 @@ export async function checkAuth() {
         fetchUserData();
     } else {
         // Not authenticated
-        console.log('🢄[AUTH] Not authenticated');
+        if (doLog) console.log('🢄[AUTH] Not authenticated');
         auth.update(a => ({ ...a, checked: true }));
     }
 }
@@ -358,7 +360,7 @@ export async function checkAuth() {
 // Debug function to log auth state
 export function debugAuth() {
     const a = get(auth);
-    console.log('🢄[AUTH] Auth state:', {
+    if (doLog) console.log('🢄[AUTH] Auth state:', {
         is_authenticated: a.is_authenticated,
         hasUser: !!a.user,
         user: a.user

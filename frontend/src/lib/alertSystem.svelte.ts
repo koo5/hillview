@@ -144,8 +144,10 @@ export function unfadeAlert(id: string): void {
 /**
  * Clear all alerts
  */
+const doLog = false;
+
 export function clearAlerts(): void {
-	console.log('🢄 Clearing all alerts');
+	if (doLog) console.log('🢄 Clearing all alerts');
 	alerts.set([]);
 	currentAlert.set(null);
 }

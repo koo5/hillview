@@ -189,6 +189,7 @@ class SavePhotoToMediaStoreArgs {
 class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	companion object {
 		private const val TAG = "🢄HillviewPlugin"
+		private const val doLog = false
 		private var pluginInstance: ExamplePlugin? = null
 		private var initializationCount = 0
 
@@ -985,7 +986,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				false
 			}
 
-			Log.d(TAG, "🔐 Getting auth token (force: $force)")
+			if (doLog) Log.d(TAG, "🔐 Getting auth token (force: $force)")
 
 			// Always use async version that can refresh - both force and normal requests should refresh if needed
 			CoroutineScope(Dispatchers.IO).launch {
@@ -996,7 +997,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 						authManager.refreshTokenIfNeeded()
 						authManager.getValidToken()
 					} else {
-						Log.d(TAG, "🔐 Normal token request with refresh capability")
+						if (doLog) Log.d(TAG, "🔐 Normal token request with refresh capability")
 						// Normal request: get valid token (will refresh if needed)
 						authManager.getValidToken()
 					}
@@ -1828,7 +1829,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					val authTokenProvider: suspend () -> String? = {
 						try {
 							val token = authManager.getValidToken()
-							Log.d(TAG, "🢄📸 Auth token provided: ${if (token != null) "present" else "null"}")
+							if (doLog) Log.d(TAG, "🢄📸 Auth token provided: ${if (token != null) "present" else "null"}")
 							token
 						} catch (e: Exception) {
 							Log.e(TAG, "🢄📸 Error getting auth token", e)

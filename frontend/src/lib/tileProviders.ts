@@ -3,6 +3,8 @@ import 'leaflet-providers';
 import { writable, get } from 'svelte/store';
 import {localStorageSharedStore} from "$lib/svelte-shared-store";
 
+const doLog = false;
+
 export interface TileProviderConfig {
     url: string;
     attribution: string;
@@ -94,7 +96,7 @@ export const currentTileProvider = localStorageSharedStore<ProviderName>('curren
  * Set the current tile provider
  */
 export function setTileProvider(provider: ProviderName): void {
-	console.log('tileProviders.setTileProvider()', provider);
+	if (doLog) console.log('tileProviders.setTileProvider()', provider);
     if (provider in AVAILABLE_PROVIDERS) {
         currentTileProvider.set(provider);
     } else {
@@ -108,25 +110,25 @@ export function setTileProvider(provider: ProviderName): void {
 function processAttributionTemplates(attribution: string, providers: any): string {
     if (!attribution) return '';
 
-    console.log('Processing attribution templates in:', attribution);
+    if (doLog) console.log('Processing attribution templates in:', attribution);
 
     // Replace template patterns like {attribution.OpenStreetMap}
     return attribution.replace(/\{attribution\.([^}]+)\}/g, (match, providerName) => {
-        console.log(`Found template: ${match}, provider: ${providerName}`);
-        console.log(`Looking for provider "${providerName}" in providers:`, providers[providerName]);
-        console.log(`Provider options:`, providers[providerName]?.options);
+        if (doLog) console.log(`Found template: ${match}, provider: ${providerName}`);
+        if (doLog) console.log(`Looking for provider "${providerName}" in providers:`, providers[providerName]);
+        if (doLog) console.log(`Provider options:`, providers[providerName]?.options);
 
         if (providers[providerName] && providers[providerName].options?.attribution) {
             const replacementAttribution = providers[providerName].options.attribution;
-            console.log(`Replacing ${match} with: ${replacementAttribution}`);
+            if (doLog) console.log(`Replacing ${match} with: ${replacementAttribution}`);
             return replacementAttribution;
         }
         // Fallback to a basic OpenStreetMap attribution if not found
         if (providerName === 'OpenStreetMap') {
-            console.log('Using OpenStreetMap fallback attribution');
+            if (doLog) console.log('Using OpenStreetMap fallback attribution');
             return '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
         }
-        console.log(`No attribution found for provider "${providerName}", keeping original template`);
+        if (doLog) console.log(`No attribution found for provider "${providerName}", keeping original template`);
         return match; // Return original if not found
     });
 }
@@ -169,9 +171,9 @@ export function getProviderConfig(providerName: ProviderName): TileProviderConfi
         attribution: processedAttribution  // Put this AFTER the spread to ensure it takes precedence
     };
 
-    console.log('Raw attribution from provider:', provider.options?.attribution);
-    console.log('Processed attribution:', config.attribution);
-    console.log('Available providers keys:', Object.keys(providers));
+    if (doLog) console.log('Raw attribution from provider:', provider.options?.attribution);
+    if (doLog) console.log('Processed attribution:', config.attribution);
+    if (doLog) console.log('Available providers keys:', Object.keys(providers));
 
 
     // Apply variant if specified

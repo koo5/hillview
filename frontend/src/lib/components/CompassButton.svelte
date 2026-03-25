@@ -6,6 +6,8 @@
 	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
     import CompassModeMenu from '$lib/components/CompassModeMenu.svelte';
 
+    const doLog = false;
+
     // Menu state
     let menuOpen = false;
     let menuPosition = { top: 0, right: 0 };
@@ -127,7 +129,7 @@
             event.stopPropagation();
             showMenu();
         } else {
-            console.log('🔘 click: Calling toggleTracking()');
+            if (doLog) console.log('🔘 click: Calling toggleTracking()');
             toggleTracking();
         }
     }

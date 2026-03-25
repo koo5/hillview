@@ -11,6 +11,8 @@ import { triggerPhotoSync } from './browser/photoSync';
 import { auth } from './authStore';
 import { settings } from './settings';
 
+const doLog = false;
+
 export interface CaptureLocation {
 	latitude: number;
 	longitude: number;
@@ -127,7 +129,7 @@ class CaptureQueueManager {
 			this.fastModeCount++;
 		}
 
-		this.log(this.LOG_TAGS.QUEUE_ADD, 'Photo added to capture queue', {
+		if (doLog) this.log(this.LOG_TAGS.QUEUE_ADD, 'Photo added to capture queue', {
 			itemId: item.id,
 			mode: item.mode,
 			queueSize: this.queue.length,

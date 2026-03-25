@@ -7,6 +7,8 @@ import { clientCrypto } from './clientCrypto';
 import { http } from '$lib/http';
 import { authStorage, type IndexedDbTokenData } from './browser/authStorage';
 
+const doLog = false;
+
 /**
  * Web Token Manager
  *
@@ -66,7 +68,7 @@ export class WebTokenManager implements TokenManager {
 
             // If refresh is already in progress, wait for it
             if (this.refreshPromise) {
-                console.log(`${this.LOG_PREFIX} Refresh in progress, waiting...`);
+                if (doLog) console.log(`${this.LOG_PREFIX} Refresh in progress, waiting...`);
                 try {
                     const newToken = await this.refreshPromise;
                     return newToken.access_token;
@@ -77,7 +79,7 @@ export class WebTokenManager implements TokenManager {
             }
 
             if (!this.cachedTokenData) {
-                console.log(`${this.LOG_PREFIX} No token available`);
+                if (doLog) console.log(`${this.LOG_PREFIX} No token available`);
                 return null;
             }
 

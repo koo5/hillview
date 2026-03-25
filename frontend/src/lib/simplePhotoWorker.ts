@@ -341,7 +341,7 @@ class SimplePhotoWorker {
             lastFiltersHash = filtersHash;
 
             lastConfigHash = configHash;
-            console.log(TAG+'Sending config update with sources and queryOptions...');
+            if (doLog) console.log(TAG+'Sending config update with sources and queryOptions...');
 
             const config: WorkerConfigData = {
                 sources: sourceList,

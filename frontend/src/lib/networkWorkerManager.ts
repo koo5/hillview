@@ -4,6 +4,8 @@
 import { currentTileProvider, getProviderConfig, type ProviderName } from './tileProviders';
 import { initSyncStatusListener } from './syncStatus';
 
+const doLog = false;
+
 class NetworkWorkerManager {
     private isInitialized = false;
 
@@ -13,7 +15,7 @@ class NetworkWorkerManager {
         }
 
         try {
-            console.log('Waiting for service worker to be ready...');
+            if (doLog) console.log('Waiting for service worker to be ready...');
 
             // Wait for SvelteKit's auto-registered service worker
             await navigator.serviceWorker.ready;
@@ -28,7 +30,7 @@ class NetworkWorkerManager {
             initSyncStatusListener();
 
             this.isInitialized = true;
-            console.log('Service worker ready for tile handling');
+            if (doLog) console.log('Service worker ready for tile handling');
 
             // Subscribe to provider changes
             this.subscribeToProviderChanges();
@@ -68,7 +70,7 @@ class NetworkWorkerManager {
         };
 
         controller.postMessage(message);
-        console.log('Sent tile provider update to service worker:', providerName);
+        if (doLog) console.log('Sent tile provider update to service worker:', providerName);
     }
 
     private handleWorkerMessage(data: any): void {

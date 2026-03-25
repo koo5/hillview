@@ -12,6 +12,8 @@
 
 import type { PhotoData, Bounds, PhotoId } from './photoWorkerTypes';
 
+const doLog = false;
+
 // Type aliases for clarity
 export type SourceId = string;
 export type CellKey = string; // Format: "row,col" e.g. "3,7"
@@ -75,7 +77,7 @@ export class CullingGrid {
         const remainingSlots = maxPhotos - pickedPhotos.length;
         if (remainingSlots <= 0) {
             // Picks already fill or exceed the limit
-            console.log(`CullingGrid: ${pickedPhotos.length} picked photos fill the limit of ${maxPhotos}`);
+            if (doLog) console.log(`CullingGrid: ${pickedPhotos.length} picked photos fill the limit of ${maxPhotos}`);
             return pickedPhotos.slice(0, maxPhotos);
         }
 
@@ -153,7 +155,7 @@ export class CullingGrid {
         // Combine picked photos first, then regular photos
         const result = [...pickedPhotos, ...regularPhotos];
 
-        console.log(`CullingGrid: ${pickedPhotos.length} picks + ${regularPhotos.length} culled (${photosPerSource.size} sources, ${Array.from(photosPerSource.values()).reduce((sum, photos) => sum + photos.length, 0)} total) = ${result.length} photos in ${round} rounds across ${cellGrid.size} cells`);
+        if (doLog) console.log(`CullingGrid: ${pickedPhotos.length} picks + ${regularPhotos.length} culled (${photosPerSource.size} sources, ${Array.from(photosPerSource.values()).reduce((sum, photos) => sum + photos.length, 0)} total) = ${result.length} photos in ${round} rounds across ${cellGrid.size} cells`);
 
         return result;
     }

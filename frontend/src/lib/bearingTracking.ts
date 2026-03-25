@@ -4,19 +4,21 @@ import { enableCompass, disableCompass } from '$lib/compass.svelte';
 import { enableGpsOrientation, disableGpsOrientation } from '$lib/gpsOrientation.svelte';
 import type {PhotoData, PhotoId} from './types/photoTypes';
 
+const doLog = false;
+
 // Bearing-mode-aware tracking helpers
 export function enableBearingTracking() {
     if (get(bearingMode) === 'walking') {
-        console.log('🧭 Enabling compass tracking (walking mode)');
+        if (doLog) console.log('🧭 Enabling compass tracking (walking mode)');
         enableCompass();
     } else {
-        console.log('🚗 Enabling GPS orientation tracking (car mode)');
+        if (doLog) console.log('🚗 Enabling GPS orientation tracking (car mode)');
         enableGpsOrientation();
     }
 }
 
 export function disableBearingTracking() {
-    console.log('🛑 Disabling all bearing tracking');
+    if (doLog) console.log('🛑 Disabling all bearing tracking');
     disableCompass();
     disableGpsOrientation();
 }

@@ -53,7 +53,7 @@ export class PhotoOperations {
      * Clean up all resources - call this when worker is being terminated
      */
     cleanup(): void {
-        console.log('🢄PhotoOperations: Cleaning up all resources');
+        if (doLog) console.log('🢄PhotoOperations: Cleaning up all resources');
         // Cancel all active loading processes
         for (const [sourceId, process] of this.loadingProcesses.entries()) {
             if (doLog) console.log(`🢄PhotoOperations: Cancelling loader for ${sourceId}`);
@@ -231,7 +231,7 @@ export class PhotoOperations {
                 .map(uid => uid.substring(sourcePrefix.length))
         );
 
-		console.log(`🢄PhotoOperations: picks for source ${source.id} before load start:`, Array.from(sourcePickIds));
+		//console.log(`🢄PhotoOperations: picks for source ${source.id} before load start:`, Array.from(sourcePickIds));
 
         const options: PhotoSourceOptions = {
             maxPhotos: this.maxPhotosInArea,

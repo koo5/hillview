@@ -10,6 +10,8 @@ import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
 import {normalizeBearing, getBearingColor} from './utils/bearingUtils';
 import {invoke} from "@tauri-apps/api/core";
 import {TAURI} from "$lib/tauri";
+
+const doLog = false;
 ;
 
 const angularRangeCuller = new AngularRangeCuller();
@@ -161,7 +163,7 @@ export const newPhotoInFront = derived(
 		if (visual.photoUid) {
 			const selectedPhoto = photos.find(p => p.uid === visual.photoUid);
 			if (selectedPhoto && calculateAbsBearingDiff(selectedPhoto.bearing, visual.bearing) === 0) {
-				console.log(`🢄Navigation: photoInFront ${selectedPhoto.uid} selected by photoUid from bearingState`);
+				if (doLog) console.log(`🢄Navigation: photoInFront ${selectedPhoto.uid} selected by photoUid from bearingState`);
 				return selectedPhoto;
 			}
 		}
@@ -196,7 +198,7 @@ newPhotoInFront.subscribe(photo => {
 		if (photoUid)
 		{
 			picks.set(new Set([photoUid]));
-			console.log(`🢄picks: set to photoInFront uid ${photoUid}`);
+			//console.log(`🢄picks: set to photoInFront uid ${photoUid}`);
 		}
 	}
 });
@@ -211,7 +213,7 @@ export const photoToLeft = derived(
 		if (frontIndex === -1) return null; // Front photo not in range anymore
 		const leftIndex = (frontIndex - 1 + photos.length) % photos.length;
 		const bestPhoto = photos[leftIndex];
-		console.log(`🢄Navigation: photoToLeft is ${bestPhoto ? bestPhoto.uid : 'null'}`);
+		//console.log(`🢄Navigation: photoToLeft is ${bestPhoto ? bestPhoto.uid : 'null'}`);
 		return bestPhoto;
 	}
 );
@@ -226,7 +228,7 @@ export const photoToRight = derived(
 		if (frontIndex === -1) return null; // Front photo not in range anymore
 		const rightIndex = (frontIndex + 1) % photos.length;
 		const bestPhoto = photos[rightIndex];
-		console.log(`🢄Navigation: photoToRight is ${bestPhoto ? bestPhoto.uid : 'null'}`);
+		//console.log(`🢄Navigation: photoToRight is ${bestPhoto ? bestPhoto.uid : 'null'}`);
 		return bestPhoto;
 	}
 );
@@ -302,7 +304,7 @@ function calculateAbsBearingDiff(bearing1: number, bearing2: number): number {
 
 // Update functions with selective reactivity
 export async function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
-	console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}`);
+	if (doLog) console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}`);
 	let old = get(spatialState);
 	if (JSON.stringify(old) === JSON.stringify({...old, ...updates, source})) {
 		//console.log('Spatial: No changes in spatial state, skipping update');
