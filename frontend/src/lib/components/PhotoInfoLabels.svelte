@@ -10,6 +10,10 @@
 	<div class="photo-description" data-testid="photo-description">
 		{photo.description}
 	</div>
+	{:else if photo?.filename}
+	<div class="photo-description" data-testid="photo-filename">
+		{photo.filename}
+	</div>
 {/if}
 
 {#if annotations.length > 0}

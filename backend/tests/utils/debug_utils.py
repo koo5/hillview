@@ -11,6 +11,9 @@ from datetime import datetime, timezone
 import requests
 from .api_client import api_client
 from .auth_utils import auth_helper
+import asyncio
+from .secure_upload_utils import SecureUploadClient
+from .test_utils import wait_for_photo_processing, API_URL
 
 
 def tprint(*args, **kwargs):
@@ -299,10 +302,6 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 		quality: WebP quality (1-100). None=use worker default (97).
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding.
 	"""
-	import asyncio
-	from .secure_upload_utils import SecureUploadClient
-	from .test_utils import wait_for_photo_processing, API_URL
-
 	def get_token():
 		if isinstance(token_or_manager, str):
 			return token_or_manager
