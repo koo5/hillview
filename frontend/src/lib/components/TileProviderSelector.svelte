@@ -87,7 +87,7 @@
     .provider-menu {
         position: absolute;
         top: -100px;
-		left: 1rem;
+		left: 2rem;
 		margin-bottom: 0.25rem;
         background-color: white;
         border: 1px solid #ccc;

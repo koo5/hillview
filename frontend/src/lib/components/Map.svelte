@@ -820,7 +820,7 @@
     }
 
     // Prevent drags from touch events starting near screen edges (accidental touches while holding phone)
-    const EDGE_SAFE_MARGIN = 30; // px
+    const EDGE_SAFE_MARGIN = 40; // px
     let edgeDragGuardInstalled = false;
 
     $: if (map && !edgeDragGuardInstalled) {
