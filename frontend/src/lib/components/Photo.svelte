@@ -459,7 +459,7 @@
 					drawAnnotations();
 				}}
 				class="photo {className}"
-				use:singleTap={() => openZoomView(photo)}
+				use:singleTap={{ callback: () => openZoomView(photo), edgeMargin: 30 }}
 			/>
 
 			<!-- Annotation rectangles overlay -->
