@@ -1,44 +1,57 @@
 <script lang="ts">
-    import { Compass, Disc, Car, PersonStanding, ChevronDown } from 'lucide-svelte';
     import { compassState, compassEnabled, compassAvailable, compassError } from '$lib/compass.svelte';
     import { gpsOrientationInternalState, gpsOrientationEnabled, gpsOrientationError, gpsOrientationFlash } from '$lib/gpsOrientation.svelte';
     import { bearingMode, type BearingMode } from '$lib/mapState';
-    import { enableBearingTracking, disableBearingTracking } from '$lib/bearingTracking';
-    import { createEventDispatcher } from 'svelte';
+    import { enableBearingTracking, disableBearingTracking, selectBearingMode } from '$lib/bearingTracking';
 	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
-
-    const dispatch = createEventDispatcher<{
-        showMenu: { buttonRect: DOMRect };
-        hideMenu: {};
-    }>();
-
-
+    import CompassModeMenu from '$lib/components/CompassModeMenu.svelte';
 
     // Menu state
     let menuOpen = false;
+    let menuPosition = { top: 0, right: 0 };
     let longPressTimer: number | null = null;
     let longPressStarted = false;
-    let buttonElement: HTMLDivElement;
+    let longPressArmed = false;
+    let buttonElement: HTMLButtonElement;
     let pointerHandled = false;
 
     // Long press detection for mobile
     const LONG_PRESS_DURATION = 500; // ms
 
+    function shouldStartLongPress(event: PointerEvent) {
+        if (event.button !== 0) {
+            return false;
+        }
+
+        const target = event.target as HTMLElement | null;
+        return !target?.closest('.dropdown-trigger');
+    }
+
     function showMenu() {
-        menuOpen = true;
         const rect = buttonElement.getBoundingClientRect();
-        dispatch('showMenu', { buttonRect: rect });
+        menuPosition = {
+            top: rect.bottom + 2,
+            right: window.innerWidth - rect.right
+        };
+        menuOpen = true;
     }
 
     function hideMenu() {
         menuOpen = false;
-        dispatch('hideMenu', {});
     }
 
     function handlePointerDown(event: PointerEvent) {
-        event.preventDefault();
-        longPressStarted = false;
         pointerHandled = false;
+        longPressStarted = false;
+        longPressArmed = shouldStartLongPress(event);
+
+        if (!longPressArmed) {
+            return;
+        }
+
+        if (event.pointerType !== 'mouse') {
+            event.preventDefault();
+        }
 
         longPressTimer = window.setTimeout(() => {
             longPressStarted = true;
@@ -47,30 +60,46 @@
     }
 
     function handlePointerUp(event: PointerEvent) {
+        if (!longPressArmed) {
+            return;
+        }
+
         if (longPressTimer) {
             clearTimeout(longPressTimer);
             longPressTimer = null;
         }
 
-        if (!longPressStarted) {
-            // Short click - toggle tracking
-            toggleTracking();
-            pointerHandled = true;
-        } else {
+        if (longPressStarted) {
             // Long press completed - prevent event from bubbling to document
             event.stopPropagation();
             pointerHandled = true;
+        } else if (event.pointerType === 'mouse') {
+            longPressArmed = false;
+            return;
+        } else if (menuOpen) {
+            hideMenu();
+            pointerHandled = true;
+        } else {
+            // Short tap - toggle tracking
+            toggleTracking();
+            pointerHandled = true;
         }
 
         longPressStarted = false;
+        longPressArmed = false;
     }
 
     function handlePointerLeave(event: PointerEvent) {
+        if (!longPressArmed) {
+            return;
+        }
+
         if (longPressTimer) {
             clearTimeout(longPressTimer);
             longPressTimer = null;
         }
         longPressStarted = false;
+        longPressArmed = false;
     }
 
     // For desktop browsers - show dropdown arrow and handle clicks
@@ -81,19 +110,23 @@
             return;
         }
 
-        // On desktop, clicking the dropdown arrow opens the dropdown
-        // Clicking the main button toggles tracking
+        // On desktop, clicking the dropdown arrow opens the dropdown.
+        // Clicking the main button closes an open menu, otherwise toggles tracking.
         const target = event.target as HTMLElement;
         const isDropdownTrigger = target.closest('.dropdown-trigger');
 
+        if (menuOpen) {
+            if (isDropdownTrigger) {
+                event.stopPropagation();
+            }
+            hideMenu();
+            return;
+        }
+
         if (isDropdownTrigger) {
             event.stopPropagation();
-            if (menuOpen) {
-                hideMenu();
-            } else {
-                showMenu();
-            }
-        } else if (!menuOpen) {
+            showMenu();
+        } else {
             console.log('🔘 click: Calling toggleTracking()');
             toggleTracking();
         }
@@ -109,13 +142,10 @@
         }
     }
 
-    export function selectMode(mode: BearingMode) {
-        bearingMode.set(mode);
+    function handleMenuSelect(event: CustomEvent<{ mode: BearingMode }>) {
+        selectBearingMode(event.detail.mode);
         hideMenu();
-        disableBearingTracking();
-        enableBearingTracking();
     }
-
 
     // Browser detection for showing dropdown indicator
     $: isTouch = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
@@ -148,8 +178,9 @@
     $: tooltipText = `Auto bearing updates (${$bearingMode === 'car' ? 'GPS' : 'compass'} mode)${currentError ? ' - Error: ' + currentError : ''}${!isTouch ? ' • Click arrow for mode options' : ' • Long press for mode options'}`;
 </script>
 
-<div class="compass-button-container" bind:this={buttonElement}>
+<div class="compass-button-container">
     <button
+        bind:this={buttonElement}
         class="{buttonClass}{$gpsOrientationFlash ? ' flash' : ''}"
         on:pointerdown={handlePointerDown}
         on:pointerup={handlePointerUp}
@@ -160,11 +191,15 @@
         data-testid="compass-button"
     >
         <CompassButtonInner bearingMode={$bearingMode} />
-
-
-
     </button>
 
+    <CompassModeMenu
+        visible={menuOpen}
+        position={menuPosition}
+        anchorElement={buttonElement}
+        on:selectMode={handleMenuSelect}
+        on:close={hideMenu}
+    />
 </div>
 
 <style>
@@ -223,46 +258,17 @@
     }
 
     .compass-button.dropdown-open {
-        background-color: rgba(255, 255, 255, 1);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     }
 
-    .button-content {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 4px;
-        position: relative;
+    .compass-button.dropdown-open:not(.active):not(.error) {
+        background-color: rgba(255, 255, 255, 1);
     }
 
-    .mode-section {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 1px;
+    .compass-button.dropdown-open.active,
+    .compass-button.dropdown-open.error {
+        color: white;
     }
-
-    .mode-indicator {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .dropdown-trigger {
-        opacity: 0.7;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .long-press-indicator {
-        opacity: 0.6;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        pointer-events: none;
-    }
-
 
     @keyframes pulse {
         0% { opacity: 1; }

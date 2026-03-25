@@ -12,7 +12,6 @@
     import TileProviderSelector from './TileProviderSelector.svelte';
     import CompassButton from './CompassButton.svelte';
     import LocationButtonInner from './LocationButtonInner.svelte';
-    import CompassModeMenu from './CompassModeMenu.svelte';
     import { getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
 	import {
 		disableLocationTracking,
@@ -35,8 +34,7 @@
 		updateSpatialState,
 		updateBearingByDiff,
 
-		bearingMode,
-		type BearingMode, updateBearing,
+		updateBearing,
 		picks,
 		anyFeatured,
 		anyFiltered,
@@ -137,32 +135,6 @@
             showAttribution = false;
         }
     }
-
-    // Compass mode menu state
-    let compassMenuVisible = false;
-    let compassMenuPosition = { top: 0, right: 0 };
-
-    function handleCompassShowMenu(event: CustomEvent<{ buttonRect: DOMRect }>) {
-        const rect = event.detail.buttonRect;
-        compassMenuPosition = {
-            top: rect.bottom + 2,
-            right: window.innerWidth - rect.right
-        };
-        compassMenuVisible = true;
-    }
-
-    function handleCompassHideMenu() {
-        compassMenuVisible = false;
-    }
-
-    let compassButtonRef: any;
-
-    function handleCompassSelectMode(event: CustomEvent<{ mode: BearingMode }>) {
-        // Forward the event back to CompassButton to handle the logic
-        compassButtonRef?.selectMode(event.detail.mode);
-        compassMenuVisible = false;
-    }
-
 
     $: map = elMap?.getMap();
 
@@ -1678,7 +1650,7 @@
     >
         <LocationButtonInner />
     </button>
-    <CompassButton bind:this={compassButtonRef} on:showMenu={handleCompassShowMenu} on:hideMenu={handleCompassHideMenu} />
+    <CompassButton />
 </div>
 
 <div class="source-buttons-container" class:compact={compactSourceButtons}>
@@ -1773,7 +1745,6 @@
         border-color: #3367d6;
         animation: pulse 2s infinite;
     }
-*/
     @keyframes pulse {
         0% {
             box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.7);
@@ -1785,6 +1756,7 @@
             box-shadow: 0 0 0 0 rgba(66, 133, 244, 0);
         }
     }
+*/
 
     .location-button-container {
         position: absolute;
@@ -2103,10 +2075,3 @@
 
 </style>
 
-<!-- Compass mode menu at top level to escape stacking contexts -->
-<CompassModeMenu
-    visible={compassMenuVisible}
-    position={compassMenuPosition}
-    on:selectMode={handleCompassSelectMode}
-    on:close={handleCompassHideMenu}
-/>

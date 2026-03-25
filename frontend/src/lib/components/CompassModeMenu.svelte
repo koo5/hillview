@@ -2,6 +2,7 @@
     import { Car, PersonStanding } from 'lucide-svelte';
     import { bearingMode, type BearingMode } from '$lib/mapState';
     import { createEventDispatcher } from 'svelte';
+    import { portal } from '$lib/actions/portal';
 
     const dispatch = createEventDispatcher<{
         selectMode: { mode: BearingMode };
@@ -10,6 +11,7 @@
 
     export let visible = false;
     export let position = { top: 0, right: 0 };
+    export let anchorElement: HTMLElement | null = null;
 
     function selectMode(mode: BearingMode) {
         dispatch('selectMode', { mode });
@@ -17,14 +19,21 @@
 
     let menuElement: HTMLElement;
 
-    function handleDocumentClick(event: MouseEvent) {
-        if (visible && menuElement && !menuElement.contains(event.target as Node)) {
-            dispatch('close', {});
+    function handleDocumentPointerUp(event: PointerEvent) {
+        const target = event.target as Node | null;
+        if (!visible || !target) {
+            return;
         }
+
+        if (menuElement?.contains(target) || anchorElement?.contains(target)) {
+            return;
+        }
+
+        dispatch('close', {});
     }
 </script>
 
-<svelte:document on:pointerup={handleDocumentClick} />
+<svelte:document on:pointerup={handleDocumentPointerUp} />
 
 {#if visible}
     <div
@@ -32,6 +41,7 @@
         style="top: {position.top}px; right: {position.right}px;"
         data-testid="compass-mode-menu"
         bind:this={menuElement}
+        use:portal
     >
         <div class="compass-mode-menu">
             <button

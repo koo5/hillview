@@ -39,7 +39,7 @@
 		deviceOrientationExif, relativeOrientationExif,
 		type ExifOrientation
 	} from "$lib/deviceOrientationExif";
-	import {enableBearingTracking, disableBearingTracking} from "$lib/bearingTracking";
+	import {enableBearingTracking, selectBearingMode} from "$lib/bearingTracking";
 	import {enableLocationTracking} from "$lib/locationManager";
 	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
 	import LocationButtonInner from "$lib/components/LocationButtonInner.svelte";
@@ -1457,7 +1457,7 @@
 				{:else if $shouldShowSwitchToCarModeHint}
 					<button
 						class="switch-to-car-mode-button"
-						on:click={() => {bearingMode.set('car'); disableBearingTracking(); enableBearingTracking();}}
+						on:click={() => selectBearingMode('car')}
 						data-testid="switch-to-car-mode-btn"
 					>
 						<div class="hint-title">

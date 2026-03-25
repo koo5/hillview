@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import {bearingMode, updateBearing} from '$lib/mapState';
+import {bearingMode, updateBearing, type BearingMode} from '$lib/mapState';
 import { enableCompass, disableCompass } from '$lib/compass.svelte';
 import { enableGpsOrientation, disableGpsOrientation } from '$lib/gpsOrientation.svelte';
 import type {PhotoData, PhotoId} from './types/photoTypes';
@@ -19,6 +19,12 @@ export function disableBearingTracking() {
     console.log('🛑 Disabling all bearing tracking');
     disableCompass();
     disableGpsOrientation();
+}
+
+export function selectBearingMode(mode: BearingMode) {
+    bearingMode.set(mode);
+    disableBearingTracking();
+    enableBearingTracking();
 }
 
 export function updateBearingWithPhoto(photo: PhotoData, source: string = 'photo_navigation') {
