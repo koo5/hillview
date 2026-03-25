@@ -58,6 +58,7 @@ class PhotoUploadLogic(private val context: Context) {
 
 	companion object {
 		private const val TAG = "🢄Upload"
+		private const val doLog = false
 		private const val PREFS_NAME = "hillview_upload_prefs"
 		private const val PREF_SERVER_URL = "server_url"
 
@@ -695,7 +696,7 @@ class PhotoUploadLogic(private val context: Context) {
                 // Get timestamp from multiple EXIF fields
                 timestamp = extractTimestamp(exif, file.lastModified())
 
-                Log.i(TAG, "Extracted EXIF data for ${file.name}: lat=$latitude, lng=$longitude, alt=$altitude, bearing=$bearing, ${width}x${height}")
+                if (doLog) Log.i(TAG, "Extracted EXIF data for ${file.name}: lat=$latitude, lng=$longitude, alt=$altitude, bearing=$bearing, ${width}x${height}")
 
         } catch (e: IOException) {
             Log.w(TAG, "Failed to read EXIF data from ${file.path}: ${e.message}")
@@ -731,7 +732,7 @@ class PhotoUploadLogic(private val context: Context) {
         if (exif.getLatLong(latLong)) {
             latitude = latLong[0].toDouble()
             longitude = latLong[1].toDouble()
-            Log.v(TAG, "GPS coordinates from getLatLong: $latitude, $longitude")
+            if (doLog) Log.v(TAG, "GPS coordinates from getLatLong: $latitude, $longitude")
             return Pair(latitude, longitude)
         }
 
@@ -750,7 +751,7 @@ class PhotoUploadLogic(private val context: Context) {
                 if (latRef == "S") latitude = -latitude
                 if (lonRef == "W") longitude = -longitude
 
-                Log.v(TAG, "GPS coordinates from manual parsing: $latitude, $longitude")
+                if (doLog) Log.v(TAG, "GPS coordinates from manual parsing: $latitude, $longitude")
                 return Pair(latitude, longitude)
             }
         } catch (e: Exception) {

@@ -37,6 +37,7 @@ class PreciseLocationService(
 
     companion object {
         private const val TAG = "🢄PreciseLocationService"
+        private const val doLog = false
 
         // Update intervals in milliseconds
         private const val UPDATE_INTERVAL = 1000L
@@ -275,7 +276,7 @@ class PreciseLocationService(
             fusedLocationClient.lastLocation
                 .addOnSuccessListener { location ->
                     location?.let {
-                        Log.i(TAG, "📍 LAST: ✅ Got last known location: lat=${it.latitude}, lng=${it.longitude}")
+                        if (doLog) Log.i(TAG, "📍 LAST: ✅ Got last known location: lat=${it.latitude}, lng=${it.longitude}")
                         handleLocationUpdate(it)
                     } ?: run {
                         Log.w(TAG, "📍 LAST: ⚠️ Last known location is null")

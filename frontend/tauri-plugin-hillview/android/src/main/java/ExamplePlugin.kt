@@ -828,7 +828,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			data.put("bearing_accuracy", locationData.bearingAccuracy)
 			data.put("speed_accuracy", locationData.speedAccuracy)
 
-			Log.v(
+			if (doLog) Log.v(
 				TAG,
 				"📍 lat=${locationData.latitude}, lng=${locationData.longitude}, accuracy=${locationData.accuracy}m"
 			)

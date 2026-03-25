@@ -12,6 +12,7 @@ import java.util.*
 
 object PhotoUtils {
     private const val TAG = "🢄PhotoUtils"
+    private const val doLog = false
 
     // Thread-local date formatters to avoid creating new instances repeatedly
     // SimpleDateFormat is not thread-safe, so we use ThreadLocal
@@ -192,7 +193,7 @@ object PhotoUtils {
             // Extract timestamp
             timestamp = extractTimestamp(exif, file.lastModified())
 
-            Log.d(TAG, "Extracted EXIF data for ${file.name}: lat=$latitude, lng=$longitude, alt=$altitude, bearing=$bearing, ${width}x${height}")
+            if (doLog) Log.d(TAG, "Extracted EXIF data for ${file.name}: lat=$latitude, lng=$longitude, alt=$altitude, bearing=$bearing, ${width}x${height}")
 
         } catch (e: IOException) {
             Log.w(TAG, "Failed to read EXIF data from ${file.path}: ${e.message}")
@@ -284,7 +285,7 @@ object PhotoUtils {
         if (exif.getLatLong(latLong)) {
             val latitude = latLong[0].toDouble()
             val longitude = latLong[1].toDouble()
-            Log.v(TAG, "GPS coordinates from getLatLong: $latitude, $longitude")
+            if (doLog) Log.v(TAG, "GPS coordinates from getLatLong: $latitude, $longitude")
             return Pair(latitude, longitude)
         }
 
@@ -303,7 +304,7 @@ object PhotoUtils {
                 if (latRef == "S") latitude = -latitude
                 if (lngRef == "W") longitude = -longitude
 
-                Log.v(TAG, "GPS coordinates from manual parsing: $latitude, $longitude")
+                if (doLog) Log.v(TAG, "GPS coordinates from manual parsing: $latitude, $longitude")
                 return Pair(latitude, longitude)
             } catch (e: NumberFormatException) {
                 Log.w(TAG, "Failed to parse GPS coordinates: invalid number format in $latStr, $lngStr")
