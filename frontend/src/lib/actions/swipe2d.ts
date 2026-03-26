@@ -84,6 +84,24 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 		pendingTransitionListener: undefined
 	};
 
+	// Track pending transition-restore timers to prevent them firing during drags
+	let transitionRestoreTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function clearTransitionTimer() {
+		if (transitionRestoreTimer !== null) {
+			clearTimeout(transitionRestoreTimer);
+			transitionRestoreTimer = null;
+		}
+	}
+
+	function scheduleTransitionRestore() {
+		clearTransitionTimer();
+		transitionRestoreTimer = setTimeout(() => {
+			targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
+			transitionRestoreTimer = null;
+		}, 0);
+	}
+
 	// Use transformTarget if provided, otherwise use the node itself
 	let targetElement = transformTarget || node;
 
@@ -112,11 +130,15 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 	function resetTransform() {
 		if (!enableVisualFeedback) return;
 
-		targetElement.style.transform = `translate3d(${dragState.initialTransformX}px, ${dragState.initialTransformY}px, 0)`;
+		if (dragState.initialTransformX === 0 && dragState.initialTransformY === 0) {
+			targetElement.style.transform = '';
+		} else {
+			targetElement.style.transform = `translate3d(${dragState.initialTransformX}px, ${dragState.initialTransformY}px, 0)`;
+		}
 	}
 
 	function startDrag(x: number, y: number) {
-		// If an animation is in progress, complete it immediately
+		// If a slide-out animation is in progress, complete it immediately
 		if (dragState.pendingTransitionListener) {
 			// Manually trigger the completion logic without waiting for transition
 			const listener = dragState.pendingTransitionListener;
@@ -131,6 +153,15 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 			listener(syntheticEvent);
 		}
 
+		// Clear any pending transition-restore timer from a previous swipe
+		clearTransitionTimer();
+
+		// Snap to rest position immediately — cancels any in-progress
+		// bounce-back animation (e.g. from an unsuccessful swipe) so we
+		// don't read an intermediate animated value below.
+		targetElement.style.transition = 'none';
+		targetElement.style.transform = '';
+
 		dragState.startX = x;
 		dragState.startY = y;
 		dragState.currentX = x;
@@ -139,12 +170,8 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 		dragState.hasMoved = false;
 		dragState.axisLocked = 'none';
 
-		// Get initial transform values (should be 0,0 after reset)
-		const initialTransform = getTransformValues();
-		dragState.initialTransformX = initialTransform.x;
-		dragState.initialTransformY = initialTransform.y;
-
-		// Don't disable transitions yet - wait for movement
+		dragState.initialTransformX = 0;
+		dragState.initialTransformY = 0;
 	}
 
 	function updateDrag(x: number, y: number) {
@@ -262,9 +289,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 							targetElement.style.transition = 'none';
 							resetTransform();
 							// Re-enable transitions after reset
-							setTimeout(() => {
-								targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
-							}, 0);
+							scheduleTransitionRestore();
 						}
 					};
 					dragState.pendingTransitionListener = handleTransitionEnd;
@@ -300,9 +325,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 							targetElement.style.transition = 'none';
 							resetTransform();
 							// Re-enable transitions after reset
-							setTimeout(() => {
-								targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
-							}, 0);
+							scheduleTransitionRestore();
 						}
 					};
 					dragState.pendingTransitionListener = handleTransitionEnd;
@@ -344,6 +367,9 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 			dragState.pendingTransitionListener = undefined;
 		}
 
+		// Clear any pending transition-restore timer
+		clearTransitionTimer();
+
 		// Always reset drag state and transform, regardless of current state
 		dragState.isDragging = false;
 		dragState.hasMoved = false;
@@ -354,9 +380,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 			targetElement.style.transition = 'none';
 			resetTransform();
 			// Re-enable transitions for future interactions
-			setTimeout(() => {
-				targetElement.style.transition = originalTransition || 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
-			}, 0);
+			scheduleTransitionRestore();
 		}
 
 		onDragEnd?.();
@@ -431,6 +455,8 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 
 	const actionInstance = {
 		destroy() {
+			clearTransitionTimer();
+
 			node.removeEventListener('touchstart', handleTouchStart);
 			node.removeEventListener('touchmove', handleTouchMove);
 			node.removeEventListener('touchend', handleTouchEnd);
