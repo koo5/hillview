@@ -534,10 +534,6 @@
 		object-fit: contain;
 		background-repeat: no-repeat;
 		overflow: hidden;
-		touch-action: pan-x pan-y;
-	}
-
-	.photo-wrapper.zoomed {
 		touch-action: none;
 	}
 
