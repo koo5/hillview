@@ -3,18 +3,13 @@
 Geo-tag photos using Hillview's exported location and orientation CSV files.
 
 Usage:
-	python geo_tag_photos.py <csv_dir> <time_correction_seconds> <photo1.jpg> [photo2.jpg ...]
+	geo_tag_photos.py --correction auto *.webp
+	geo_tag_photos.py --correction +5.0 *.webp
+	geo_tag_photos.py --correction 0 photo1.jpg photo2.jpg
 
-Arguments:
-	csv_dir                  Directory containing hillview_locations_*.csv and hillview_orientations_*.csv files
-	time_correction_seconds  Seconds to add to photo EXIF timestamps to get real time
-							 Positive = camera was slow (add time)
-							 Negative = camera was fast (subtract time)
-
-Example:
-	python geo_tag_photos.py ./GeoTrackingDumps 0 *.JPG
-	python geo_tag_photos.py ./GeoTrackingDumps +5 photo1.jpg   # camera was 5s slow
-	python geo_tag_photos.py ./GeoTrackingDumps -2.5 photo1.jpg # camera was 2.5s fast
+The --correction flag accepts a numeric value (seconds to add to photo EXIF
+timestamps) or "auto" to detect the correction from QR calibration photos
+among the provided files.
 """
 
 import argparse
@@ -52,6 +47,7 @@ class LocationRecord:
 	accuracy: Optional[float] = None
 	speed: Optional[float] = None
 	bearing: Optional[float] = None
+	source: Optional[str] = None
 
 
 @dataclass
@@ -60,6 +56,7 @@ class OrientationRecord:
 	true_heading: float
 	pitch: Optional[float] = None
 	roll: Optional[float] = None
+	source: Optional[str] = None
 
 
 def parse_float(value: str) -> Optional[float]:
@@ -82,7 +79,7 @@ def load_locations(filepath: Path) -> list[LocationRecord]:
 		reader = csv.reader(f)
 		header = next(reader)
 		col = {name: get_column_index(header, name) for name in [
-			'timestamp', 'latitude', 'longitude', 'altitude', 'accuracy', 'speed', 'bearing'
+			'timestamp', 'latitude', 'longitude', 'altitude', 'accuracy', 'speed', 'bearing', 'source'
 		]}
 		for row in reader:
 			if not row or len(row) < 3:
@@ -96,6 +93,7 @@ def load_locations(filepath: Path) -> list[LocationRecord]:
 					accuracy=parse_float(row[col['accuracy']]) if col['accuracy'] is not None and col['accuracy'] < len(row) else None,
 					speed=parse_float(row[col['speed']]) if col['speed'] is not None and col['speed'] < len(row) else None,
 					bearing=parse_float(row[col['bearing']]) if col['bearing'] is not None and col['bearing'] < len(row) else None,
+					source=row[col['source']].strip() if col['source'] is not None and col['source'] < len(row) and row[col['source']].strip() else None,
 				))
 			except (ValueError, IndexError):
 				continue
@@ -108,7 +106,7 @@ def load_orientations(filepath: Path) -> list[OrientationRecord]:
 		reader = csv.reader(f)
 		header = next(reader)
 		col = {name: get_column_index(header, name) for name in [
-			'timestamp', 'trueHeading', 'pitch', 'roll'
+			'timestamp', 'trueHeading', 'pitch', 'roll', 'source'
 		]}
 		for row in reader:
 			if not row or len(row) < 2:
@@ -119,6 +117,7 @@ def load_orientations(filepath: Path) -> list[OrientationRecord]:
 					true_heading=float(row[col['trueHeading']]),
 					pitch=parse_float(row[col['pitch']]) if col['pitch'] is not None and col['pitch'] < len(row) else None,
 					roll=parse_float(row[col['roll']]) if col['roll'] is not None and col['roll'] < len(row) else None,
+					source=row[col['source']].strip() if col['source'] is not None and col['source'] < len(row) and row[col['source']].strip() else None,
 				))
 			except (ValueError, IndexError):
 				continue
@@ -260,14 +259,22 @@ def process_photo(photo_path: Path, locations: list[LocationRecord],
 		args.append(f'-GPSImgDirection*={orientation.true_heading}')
 		args.append('-GPSImgDirectionRef=True North')
 
-		# Store pitch/roll in UserComment as JSON
-		if orientation.pitch is not None or orientation.roll is not None:
-			existing = get_existing_user_comment(photo_path) or {}
-			if orientation.pitch is not None:
-				existing['pitch'] = round(orientation.pitch, 2)
-			if orientation.roll is not None:
-				existing['roll'] = round(orientation.roll, 2)
-			args.append(f'-UserComment={json.dumps(existing)}')
+	# Build UserComment JSON with extra metadata
+	comment = get_existing_user_comment(photo_path) or {}
+	if location:
+		comment['location_age_s'] = round((corrected_ts - location.timestamp) / 1000, 1)
+		if location.source:
+			comment['location_source'] = location.source
+	if orientation:
+		if orientation.pitch is not None:
+			comment['pitch'] = round(orientation.pitch, 2)
+		if orientation.roll is not None:
+			comment['roll'] = round(orientation.roll, 2)
+		comment['orientation_age_s'] = round((corrected_ts - orientation.timestamp) / 1000, 1)
+		if orientation.source:
+			comment['orientation_source'] = orientation.source
+	if comment:
+		args.append(f'-UserComment={json.dumps(comment)}')
 
 	args.append(str(photo_path))
 
@@ -404,26 +411,68 @@ def run_geotagging(csv_dir: Path, time_correction: float, photos: list[Path],
 	return 0 if success_count == len(photos) else 1
 
 
+def resolve_correction(correction_arg: str, photos: list[Path]) -> float:
+	"""Resolve the time correction value.
+
+	correction_arg is either a numeric string or "auto".
+	"""
+	if correction_arg != "auto":
+		val = float(correction_arg)
+		print(f"Using provided correction: {val:+.3f}s", file=sys.stderr)
+		return val
+
+	env_val = os.environ.get("CORRECTION")
+	if env_val:
+		val = float(env_val)
+		print(f"Using CORRECTION from environment: {val:+.3f}s", file=sys.stderr)
+		return val
+
+	from qr_time_correction import compute_correction
+	print("No numeric correction provided, scanning QR calibration photos...", file=sys.stderr)
+	correction_str = compute_correction(photos)
+	val = float(correction_str)
+	print(f"Auto-detected correction: {val:+.3f}s", file=sys.stderr)
+	return val
+
+
 def main():
 	parser = argparse.ArgumentParser(
 		description='Geo-tag photos using Hillview CSV files.',
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 		epilog=__doc__
 	)
-	parser.add_argument('csv_dir', type=Path, help='Directory containing hillview CSV files')
-	parser.add_argument('time_correction', type=float, help='Seconds to add to photo time (positive = camera slow, negative = camera fast)')
 	parser.add_argument('photos', type=Path, nargs='+', help='Image files to geo-tag')
+	parser.add_argument('--correction', '-c', default='auto',
+						help='Time correction in seconds, or "auto" to detect from QR calibration photos. '
+							 'Positive = camera slow, negative = camera fast. (default: auto)')
+	parser.add_argument('--csv-dir', type=Path, default=Path("~/GeoTrackingDumps").expanduser(),
+						help='Directory containing hillview CSV files (default: ~/GeoTrackingDumps)')
 	parser.add_argument('--dry-run', '-n', action='store_true', help='Show what would be done without writing')
-	parser.add_argument('--parallel', '-p', type=int, nargs='?', const=0, default=None,
-						metavar='N', help='Process photos in parallel (default: CPU count, or specify N workers)')
+	parser.add_argument('--parallel', '-p', type=int, default=40,
+						metavar='N', help='Number of parallel workers (default: 40)')
 	parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed output for each photo')
 
 	args = parser.parse_args()
+
+	existing = [p for p in args.photos if p.exists()]
+	missing = [p for p in args.photos if not p.exists()]
+	for p in missing:
+		print(f"Warning: file not found: {p}", file=sys.stderr)
+	if not existing:
+		print("Error: no existing image files to process", file=sys.stderr)
+		sys.exit(1)
+
+	time_correction = resolve_correction(args.correction, existing)
+
 	sys.exit(run_geotagging(
 		csv_dir=args.csv_dir,
-		time_correction=args.time_correction,
-		photos=args.photos,
+		time_correction=time_correction,
+		photos=existing,
 		dry_run=args.dry_run,
 		parallel=args.parallel,
 		verbose=args.verbose,
 	))
+
+
+if __name__ == "__main__":
+	main()

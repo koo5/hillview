@@ -1,5 +1,4 @@
 exif.py
-geo_tag.py
 geo_tag_photos.py
 pyproject.toml
 qr_time_correction.py

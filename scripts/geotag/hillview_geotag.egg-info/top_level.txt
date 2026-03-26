@@ -1,4 +1,3 @@
 exif
-geo_tag
 geo_tag_photos
 qr_time_correction

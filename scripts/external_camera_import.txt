@@ -1,33 +1,40 @@
-# in a directory of CR2 files:
 
-# convert raws to webp
-~/repos/koo5/hillview/0/hillview/scripts/raw.sh
-
-
-# now we have lossless webp files in webp/ exposed with default dcraw settings.
-# if desired, export any photos with settings different from dcraw defaults:
-darktable .
-cp darktable_exported/* webp/ 
-
-
-/home/koom/repos/koo5/hillview/0/hillview/scripts/exif_tags_from_cr2_to_webp.sh
-
-
-# connect your phone
+# connect your phone and pull geotracking data
 pushd ~
 adb pull '/storage/emulated/0/Android/data/cz.hillview/files/GeoTrackingDumps/'
 popd
 
 
-# determine required exif tag correction in seconds by taking values in photos of phone clock and subtracting their DateTimeOriginal
-exiftool -s *.CR2 | grep -e DateTimeOriginal -e FileName | grep -v SubSec
 
 
-# add location and bearing tags
-set correction -19
-python3 /home/koom/repos/koo5/hillview/0/hillview/scripts/geo_tag_photos.py ~/GeoTrackingDumps $correction --parallel 40 webp/*
+
+# convert raws to webp and geotag
+in a directory of CR2 files:
+```
+~/repos/koo5/hillview/0/hillview/scripts/raw/raw.sh
+```
+
+
+
+
+
+# if desired, export any photos with settings different from defaults:
+(this section needs updating)
+```
+	darktable .; cp darktable_exported/* webp/ 
+	/home/koom/repos/koo5/hillview/0/hillview/scripts/exif_tags_from_cr2_to_webp.sh
+
+	# add location and bearing tags
+	set correction -19
+	python3 /home/koom/repos/koo5/hillview/0/hillview/scripts/geo_tag_photos.py ~/GeoTrackingDumps $correction --parallel 40 webp/*
+```
+
+
+
 
 
 # upload
-/home/koom/repos/koo5/hillview/0/hillview/backend/debug.sh upload-files --parallel 40 (rp webp/*)
-/home/koom/repos/koo5/hillview/0/hillview/backend/debug.sh upload-files --parallel 40 --skip-anonymization --version  (date --utc "+%s") (rp webp_noanon/*)
+```
+	/home/koom/repos/koo5/hillview/0/hillview/backend/debug.sh upload-files --parallel 40 (rp webp/*)
+	/home/koom/repos/koo5/hillview/0/hillview/backend/debug.sh upload-files --parallel 40 --skip-anonymization --version  (date --utc "+%s") (rp webp_noanon/*)
+```
