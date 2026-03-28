@@ -35,7 +35,7 @@ LLM_VARIANT_SIZE = 640
 WEBP_QUALITY_SIZES = 97
 WEBP_QUALITY_DZI = 97
 NORMAL_WEBP_METHOD = 6
-FAST_WEBP_METHOD = 1  # fast encoding (0 can overflow on large images; 6 = slowest/best)
+FAST_WEBP_METHOD = 2  # fast encoding (0 can overflow on large images; 6 = slowest/best)
 
 
 def create_center_crop(image, target_width: int, target_height: int):

@@ -1334,7 +1334,7 @@ async def authorize_upload(
 				photo_id = existing_photo.id
 				await db.delete(existing_photo)
 				after_delete_ts = datetime.datetime.now()
-				log.info(f"Deleted existing photo after {after_delete_ts - duplicate_check_ts:.2f} seconds");
+				log.info(f"Deleted existing photo after {(after_delete_ts - duplicate_check_ts).total_seconds():.2f} seconds");
 
 			elif existing_photo.processing_status == 'completed':
 				# Check if this is a re-upload with higher version (e.g., changed anonymization settings)

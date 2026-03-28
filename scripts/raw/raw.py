@@ -71,11 +71,11 @@ def copy_exif():
     subprocess.run([str(SCRIPT_DIR / "exif_tags_from_cr2_to_webp.sh")], check=True)
 
 def geotag():
-    geotag_project = SCRIPT_DIR / "geotag"
+    geotag_project = SCRIPT_DIR / "../geotag"
     subprocess.run([
         "uv", "run",
         "--project", str(geotag_project),
-        str(geotag_project / "geo_tag.py"),
+        str(geotag_project / "geo_tag.sh"),
     ] + sys.argv[1:], check=True)
 
 if __name__ == "__main__":
