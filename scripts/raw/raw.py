@@ -43,13 +43,31 @@ def cr2_to_tiff(f, tiff_dir):
         "-tz", "-b8",
         "-c", str(f),
     ])
-# rawtherapee-cli outputs .tif instead of .tiff despite -o flag
-def rename_tif_to_tiff(tiff_dir):
-    for f in tiff_dir.glob("*.tif"):
-        tiff = f.with_suffix(".tiff")
-        if not tiff.exists():
-            subprocess.run(["cp", "--reflink=auto", str(f), str(tiff)])
-#mv *.tiff tiff/
+def copy_cr2_tags_to_tiffs(tiff_dir):
+    """Copy lens/camera EXIF tags from CR2 to TIFF for Hugin compatibility."""
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        for cr2 in sorted(Path(".").glob("*.CR2")):
+            tiff_path = find_tiff(tiff_dir, cr2.stem)
+            pool.submit(copy_cr2_tags_to_tiff, cr2, tiff_path)
+
+def copy_cr2_tags_to_tiff(cr2, tiff_path):
+    log(f"Copying EXIF tags {cr2.name} -> {tiff_path.name}")
+    subprocess.run([
+        "exiftool", "-overwrite_original",
+        "-TagsFromFile", str(cr2),
+        "-Make", "-Model", "-LensModel", "-FocalLength", "-FocalLengthIn35mmFilm",
+        "-DateTimeOriginal", "-Orientation",
+        str(tiff_path),
+    ], check=True)
+
+def find_tiff(tiff_dir, stem):
+    """Find a .tif or .tiff file for the given stem (rawtherapee may produce either)."""
+    for ext in (".tiff", ".tif"):
+        p = tiff_dir / f"{stem}{ext}"
+        if p.exists():
+            return p
+    raise FileNotFoundError(f"No .tif or .tiff found for {stem} in {tiff_dir}")
+
 # profile was: -preset photo -q 98  # -m 6 -af -metadata all
 def convert_all_tiff_to_webp(tiff_dir, webp_dir):
   with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
@@ -57,33 +75,38 @@ def convert_all_tiff_to_webp(tiff_dir, webp_dir):
       stem = f.stem
       if (webp_dir / f"{stem}.webp").exists():
           continue
-      pool.submit(tiff_to_webp, stem, tiff_dir, webp_dir)
+      pool.submit(tiff_to_webp, find_tiff(tiff_dir, stem), webp_dir)
 
-def tiff_to_webp(stem, tiff_dir, webp_dir):
-    log(f"Converting {stem}.tiff -> WebP")
+def tiff_to_webp(tiff_path, webp_dir):
+    stem = tiff_path.stem
+    log(f"Converting {tiff_path.name} -> WebP")
     subprocess.run([
         "cwebp", *CWEBP_ARGS,
-        str(tiff_dir / f"{stem}.tiff"),
+        str(tiff_path),
         "-o", str(webp_dir / f"{stem}.webp"),
     ])
 
 def copy_exif():
     subprocess.run([str(SCRIPT_DIR / "exif_tags_from_cr2_to_webp.sh")], check=True)
 
-def geotag():
+def geotag(webp_dir):
+    webp_files = sorted(webp_dir.glob("*.webp"))
+    if not webp_files:
+        log("No webp files to geotag")
+        return
     geotag_project = SCRIPT_DIR / "../geotag"
     subprocess.run([
         "uv", "run",
         "--project", str(geotag_project),
-        str(geotag_project / "geo_tag.sh"),
-    ] + sys.argv[1:], check=True)
+        str(geotag_project / "geo_tag_photos.py"),
+    ] + [str(f) for f in webp_files], check=True)
 
 if __name__ == "__main__":
     tiff_dir = Path("tiff")
     webp_dir = Path("webp")
     setup_dirs()
     convert_all_cr2_to_tiff(tiff_dir)
-    rename_tif_to_tiff(tiff_dir)
+    copy_cr2_tags_to_tiffs(tiff_dir)
     convert_all_tiff_to_webp(tiff_dir, webp_dir)
     copy_exif()
-    geotag()
+    geotag(webp_dir)
