@@ -36,11 +36,18 @@ def normalize_to_srgb(img):
 				return transformed
 		except Exception:
 			pass
-	# For 16-bit images (typically linear light from stitching software),
-	# convert to float 0-1 and mark as scene-referred (linear) sRGB so
-	# colourspace applies the proper sRGB gamma curve.
+	# For 16-bit images, check whether the data is linear or already gamma-encoded.
+	# pyvips sets interpretation='rgb16' for gamma-encoded 16-bit sRGB (e.g. PTGui output),
+	# and interpretation='scrgb' for linear light data.
+	# Only force linear→sRGB gamma when the data is actually linear.
 	if img.format == 'ushort':
-		img = (img.cast('float') / 65535.0).copy(interpretation='scrgb')
+		if img.interpretation not in ('rgb16', 'srgb'):
+			# Linear light (common with some stitching software like Hugin HDR output)
+			logging.info(f"16-bit image with interpretation={img.interpretation}, treating as linear light")
+			img = (img.cast('float') / 65535.0).copy(interpretation='scrgb')
+		else:
+			# Already gamma-encoded 16-bit sRGB; colourspace will handle 16→8 bit scaling
+			logging.info(f"16-bit image with interpretation={img.interpretation}, treating as gamma-encoded sRGB")
 	img = img.colourspace('srgb')
 	return img
 
