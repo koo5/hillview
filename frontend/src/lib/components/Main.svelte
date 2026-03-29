@@ -222,8 +222,6 @@
 			unsubscribePendingZoom();
 			unsubscribeBearing();
 			unsubscribeSpatial();
-			if (bearingUrlUpdateTimeout) clearTimeout(bearingUrlUpdateTimeout);
-			if (spatialUrlUpdateTimeout) clearTimeout(spatialUrlUpdateTimeout);
 			if (urlFlushTimeout) clearTimeout(urlFlushTimeout);
 		};
 
@@ -249,35 +247,15 @@
 	}
 
 
-	let bearingUrlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
-	let lastBearingState: any = undefined;
-
 	function onBearingStateChange(visual: any) {
 		if (!update_url) {
 			return;
 		}
 
-		lastBearingState = visual;
-
-		if (bearingUrlUpdateTimeout) {
+		if (visual === undefined || visual === null || visual.bearing === undefined) {
 			return;
 		}
-
-		bearingUrlUpdateTimeout = setTimeout(() => {
-			bearingUrlUpdateTimeout = null;
-			if (lastBearingState === undefined || lastBearingState === null || lastBearingState.bearing === undefined) {
-				return;
-			}
-			updateUrlParams({ bearing: String(lastBearingState.bearing) });
-
-			/*
-			if (lastBearingState?.photoUid) {
-				updateUrlParams({ photo: encodeURIComponent(lastBearingState.photoUid) });
-			} else {
-				updateUrlParams({ photo: null });
-			}
-			*/
-		}, 2000);
+		updateUrlParams({ bearing: String(visual.bearing) });
 	}
 
 	// Subscribed in onMount, cleaned up on destroy
@@ -311,24 +289,16 @@
 		}, 100);
 	}
 
-	let spatialUrlUpdateTimeout: ReturnType<typeof setTimeout> | null = null;
-
 	function onSpatialStateChange(p: any) {
 		if (!update_url) {
 			return;
 		}
 
-		if (spatialUrlUpdateTimeout) {
-			clearTimeout(spatialUrlUpdateTimeout);
-		}
-		spatialUrlUpdateTimeout = setTimeout(() => {
-			spatialUrlUpdateTimeout = null;
-			updateUrlParams({
-				lat: String(p.center.lat),
-				lon: String(p.center.lng),
-				zoom: String(p.zoom),
-			});
-		}, 500);
+		updateUrlParams({
+			lat: String(p.center.lat),
+			lon: String(p.center.lng),
+			zoom: String(p.zoom),
+		});
 	}
 
 	// Subscribed in onMount, cleaned up on destroy
