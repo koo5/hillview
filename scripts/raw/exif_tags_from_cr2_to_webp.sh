@@ -13,6 +13,7 @@ for f in *.CR2
 	  '-EXIF:PixelXDimension=' \
 	  '-EXIF:PixelYDimension=' \
 	  '-GPS:GPSDateStamp=' \
+	  '-Orientation=1' \
 	  "$final" &
 end
 time wait

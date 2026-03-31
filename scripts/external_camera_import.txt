@@ -1,11 +1,6 @@
 
 # connect your phone and pull geotracking data
-pushd ~
-adb pull '/storage/emulated/0/Android/data/cz.hillview/files/GeoTrackingDumps/'
-popd
-
-
-
+`./geo_tag/pull.sh`
 
 
 # convert raws to webp and geotag
@@ -16,25 +11,28 @@ in a directory of CR2 files:
 
 
 
-
-
 # if desired, export any photos with settings different from defaults:
-(this section needs updating)
 ```
-	darktable .; cp darktable_exported/* webp/ 
-	/home/koom/repos/koo5/hillview/0/hillview/scripts/exif_tags_from_cr2_to_webp.sh
+# export pictures manually in darktable
+darktable .;
 
-	# add location and bearing tags
-	set correction -19
-	python3 /home/koom/repos/koo5/hillview/0/hillview/scripts/geo_tag_photos.py ~/GeoTrackingDumps $correction --parallel 40 webp/*
+# overwrite the auto-developed files
+cp darktable_exported/* webp/
+
+# transfer tags again
+~/repos/koo5/hillview/0/hillview/scripts/exif_tags_from_cr2_to_webp.sh
+
+# geotag again
+set correction -19
+~/repos/koo5/hillview/0/hillview/scripts/geo_tag.sh ~/GeoTrackingDumps --correction $correction --parallel 40 webp/*
+
 ```
-
-
 
 
 
 # upload
+use `--version` when re-uploading.
 ```
-	/home/koom/repos/koo5/hillview/0/hillview/backend/debug.sh upload-files --parallel 40 (rp webp/*)
-	/home/koom/repos/koo5/hillview/0/hillview/backend/debug.sh upload-files --parallel 40 --skip-anonymization --version  (date --utc "+%s") (rp webp_noanon/*)
+~/repos/koo5/hillview/0/hillview/backend/debug.sh upload-files --parallel 40 (rp webp/*)
+~/repos/koo5/hillview/0/hillview/backend/debug.sh upload-files --parallel 40 --skip-anonymization --version  (date --utc "+%s") (rp webp_noanon/*)
 ```
