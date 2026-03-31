@@ -59,7 +59,7 @@ class PhotoUploadManager(private val context: Context) {
             Log.d(TAG, "📤 [scheduleUploadWorker] Constraints built - NetworkType=${if (wifiOnly) "UNMETERED" else "CONNECTED"}, RequiresBatteryNotLow=true")
 
             val uploadWorkRequest = PeriodicWorkRequestBuilder<PhotoUploadWorker>(
-                150, TimeUnit.MINUTES
+                750, TimeUnit.MINUTES
             )
                 .setConstraints(constraints)
                 .setInputData(
@@ -70,7 +70,7 @@ class PhotoUploadManager(private val context: Context) {
                 )
                 .build()
 
-            Log.d(TAG, "📤 [scheduleUploadWorker] Work request created - interval: 150 minutes, workId: ${uploadWorkRequest.id}")
+            Log.d(TAG, "📤 [scheduleUploadWorker] Work request created, workId: ${uploadWorkRequest.id}")
 
             Log.i(TAG, "📤 [scheduleUploadWorker] Enqueueing unique periodic work with name: ${PhotoUploadWorker.WORK_NAME}")
             workManager.enqueueUniquePeriodicWork(

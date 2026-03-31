@@ -27,3 +27,7 @@ photo-upload-retry?
 
 Add vitest mock aliases for openseadragon and @annotorious/openseadragon so OpenSeadragonViewer.svelte can use static imports instead of dynamic ones. See tauri mock pattern in vitest.config.ts.
 
+
+
+https://www.reddit.com/r/androiddev/comments/1rxhmu3/what_i_learned_keeping_an_android_app_alive_247/
+
