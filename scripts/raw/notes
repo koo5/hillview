@@ -1,0 +1,28 @@
+❯ dcraw was invoked automatically by hugin                                                                                                                                                     
+                                                                                                                             
+● That makes sense. Hugin invokes dcraw with -4 (linear, 16-bit, no gamma) by default for raw files, which is mathematically correct for blending but produces linear output.                  
+                                                                                                                                                                                               
+  You have two practical options:                                                                                                                                                              
+                                                                                                                                                                                               
+  Option 1: Change Hugin's output to 8-bit TIFF                                                                                                                                                
+                                                                                                                                                                                               
+  In the Stitcher tab, change output from "TIFF 16bit" to "TIFF 8bit". Hugin applies proper gamma correction when outputting 8-bit. You lose some tonal range, but for a display-ready panorama
+   it's usually fine.
+                                                                                                                                                                                               
+  In the .pto that's changing TIFF_m to TIFF:                                                                                                                                                  
+  n"TIFF c:LZW r:CROP"
+
+  Option 2: Change Hugin's raw converter settings
+
+  In Hugin Preferences > Programs, you can configure how it invokes dcraw. The key flag is:
+  - -4 = linear 16-bit (current, causes the problem)
+  - -6 = 16-bit with gamma correction applied
+
+  Or better yet, switch the raw converter from dcraw to darktable-cli or rawtherapee-cli in the same preferences panel. These produce properly tagged, gamma-encoded output by default and give
+   you much better demosaicing too (dcraw v9.28 is ancient).
+
+  Option 3: Post-convert the linear TIFF
+
+  Keep the current Hugin workflow but convert after stitching:
+  convert input.tif -set colorspace RGB -colorspace sRGB output.tif
+

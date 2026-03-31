@@ -124,6 +124,21 @@ export async function getTestUserToken(): Promise<string> {
 }
 
 /**
+ * Blacklist a JWT token by calling the backend logout endpoint.
+ * Useful for testing token invalidation scenarios.
+ */
+export async function blacklistToken(token: string): Promise<void> {
+    const res = await fetch(`${BACKEND_URL}/api/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`blacklistToken failed (${res.status}): ${body}`);
+    }
+}
+
+/**
  * Query the backend API for user photos.
  * Returns the count and list of photo IDs.
  */

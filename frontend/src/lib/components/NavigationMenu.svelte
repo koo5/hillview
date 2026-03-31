@@ -78,7 +78,7 @@
                 Map
             </a></li>
 
-            <li><a href="/photos" on:click={closeMenu}>
+            <li><a href="/photos" on:click={closeMenu} data-testid="my-photos-link">
                 <Images size={18}/>
                 My Photos
             </a></li>

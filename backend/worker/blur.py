@@ -1,6 +1,7 @@
 import colorsys
 import logging
 import os
+import struct
 import cv2
 import numpy as np
 import security_utils
