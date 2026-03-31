@@ -8,109 +8,116 @@ describe('Photo Workflow', () => {
         await recreateTestUsers();
         await browser.pause(3000);
         await loginAsTestUser();
+
+        // Enable mock camera — draws timestamp overlay on real camera frames
+        // so consecutive captures produce unique images (avoids duplicate detection).
+        await ensureWebViewContext();
+        await browser.execute(() => localStorage.setItem('mockCamera', 'true'));
     });
 
+    let permissionsGranted = false;
+
     /**
-     * Open camera, handle permissions, and capture a photo.
-     * Reuses the permission flow from camera-capture tests.
+     * Open camera, handle permissions on first call, and capture a photo.
      */
-    async function capturePhoto(): Promise<void> {
+    async function openCameraAndCapture(): Promise<void> {
         const cameraBtn = await byTestId(TESTID.cameraButton);
         await cameraBtn.waitForDisplayed({ timeout: 10000 });
         await cameraBtn.click();
         await browser.pause(1000);
 
-        // Handle location permission
-        await acceptPermissionDialogIfPresent();
-        await browser.pause(1000);
+        if (!permissionsGranted) {
+            await acceptPermissionDialogIfPresent();
+            await browser.pause(1000);
 
-        // Click "Allow Camera" in WebView
-        const allowCameraBtn = await byTestId(TESTID.allowCameraBtn);
-        await allowCameraBtn.waitForExist({ timeout: 10000 });
-        await allowCameraBtn.click();
-        await browser.pause(1000);
+            const allowCameraBtn = await byTestId(TESTID.allowCameraBtn);
+            await allowCameraBtn.waitForExist({ timeout: 10000 });
+            await allowCameraBtn.click();
+            await browser.pause(1000);
 
-        // Handle camera permission
-        await acceptPermissionDialogIfPresent();
-        await browser.pause(2000);
+            await acceptPermissionDialogIfPresent();
+            await browser.pause(2000);
+            permissionsGranted = true;
+        } else {
+            await browser.pause(2000);
+        }
 
-        // Click capture button
         const captureBtn = await byTestId('single-capture-button');
         await captureBtn.waitForExist({ timeout: 10000 });
         await captureBtn.click();
         await browser.pause(3000);
     }
 
-    /**
-     * Close camera by clicking the camera button again.
-     */
     async function closeCamera(): Promise<void> {
         const cameraBtn = await byTestId(TESTID.cameraButton);
         await cameraBtn.click();
         await browser.pause(2000);
     }
 
-    it('should capture a photo while logged in', async () => {
-        await capturePhoto();
+    it('should capture and enable auto-upload via prompt', async () => {
+        await openCameraAndCapture();
 
-        // Verify capture button is still available (camera didn't crash)
-        const captureBtn = await byTestId('single-capture-button');
-        expect(await captureBtn.isExisting()).toBe(true);
-
-        await closeCamera();
-
-        // Verify we're back on the map
-        const zoomIn = await byTestId(TESTID.zoomIn);
-        await zoomIn.waitForDisplayed({ timeout: 10000 });
-        expect(await zoomIn.isDisplayed()).toBe(true);
-    });
-
-    it('should show placeholder marker on map after capture', async () => {
-        // Look for photo markers that appeared from the capture
+        // Auto-upload prompt appears in camera view after first capture
         await ensureWebViewContext();
-        const markers = await $$('[data-testid^="photo-marker-"]');
-        console.log(`Found ${markers.length} photo markers on map`);
-
-        // Check for placeholder markers specifically
-        const placeholders = await $$('[data-testid^="photo-marker-"][data-is-placeholder="true"]');
-        console.log(`Found ${placeholders.length} placeholder markers`);
-
-        // At this point we should have at least some markers visible
-        // (either placeholder or already-transitioned real photos)
-        if (markers.length > 0) {
-            // Verify marker has expected data attributes
-            const firstMarker = markers[0];
-            const photoId = await firstMarker.getAttribute('data-photo-id');
-            const source = await firstMarker.getAttribute('data-source');
-            console.log(`First marker: photoId=${photoId}, source=${source}`);
-            expect(photoId).toBeTruthy();
-        }
-    });
-
-    it('should capture a second photo without permission dialogs', async () => {
-        // Permissions already granted from first capture
-        const cameraBtn = await byTestId(TESTID.cameraButton);
-        await cameraBtn.click();
+        const configureBtn = await $('[data-testid="configure-auto-upload"]');
+        await configureBtn.waitForDisplayed({ timeout: 12000 });
+        await configureBtn.click();
         await browser.pause(2000);
 
-        // Capture button should appear directly
-        const captureBtn = await byTestId('single-capture-button');
-        await captureBtn.waitForExist({ timeout: 10000 });
-        await captureBtn.click();
-        await browser.pause(3000);
+        // Now on /settings/upload — accept license first
+        await ensureWebViewContext();
+        const licenseCheckbox = await $('[data-testid="license-checkbox"]');
+        await licenseCheckbox.waitForDisplayed({ timeout: 5000 });
+        if (!(await licenseCheckbox.isSelected())) {
+            await licenseCheckbox.click();
+            await browser.pause(1000);
+        }
 
-        // Still in camera mode
+        // Enable auto-upload
+        const enableRadio = await $('[data-testid="auto-upload-enabled"]');
+        await enableRadio.waitForDisplayed({ timeout: 5000 });
+        await enableRadio.click();
+        await browser.pause(1000);
+
+        // Navigate back to map
+        await browser.back();
+        await browser.pause(2000);
+    });
+
+    it('should capture with auto-upload enabled', async () => {
+        await openCameraAndCapture();
+
+        const captureBtn = await byTestId('single-capture-button');
         expect(await captureBtn.isExisting()).toBe(true);
 
         await closeCamera();
     });
 
-    it('should show multiple markers after multiple captures', async () => {
+    it('should show photo markers on map', async () => {
         await ensureWebViewContext();
-        const markers = await $$('[data-testid^="photo-marker-"]');
-        console.log(`Found ${markers.length} total photo markers after 2 captures`);
 
-        // Log details of each marker
+        // Toggle hillview source off/on to trigger area reloads until markers appear
+        const deadline = Date.now() + 30000;
+        let markers: WebdriverIO.ElementArray = [];
+
+        while (Date.now() < deadline) {
+            markers = await $$('[data-testid^="photo-marker-"]');
+            if (markers.length > 0) break;
+
+            const toggle = await $('[data-testid="source-toggle-hillview"]');
+            if (await toggle.isExisting()) {
+                await toggle.click();
+                await browser.pause(1000);
+                await toggle.click();
+            }
+
+            console.log(`Waiting for markers... (${Math.round((deadline - Date.now()) / 1000)}s left)`);
+            await browser.pause(3000);
+        }
+
+        console.log(`Found ${markers.length} photo markers on map`);
+        expect(markers.length).toBeGreaterThanOrEqual(1);
+
         for (let i = 0; i < Math.min(markers.length, 5); i++) {
             const photoId = await markers[i].getAttribute('data-photo-id');
             const isPlaceholder = await markers[i].getAttribute('data-is-placeholder');
@@ -120,16 +127,20 @@ describe('Photo Workflow', () => {
     });
 
     it('should upload photos to backend', async () => {
-        // Wait for upload processing
-        await browser.pause(10000);
-
-        // Check backend API for uploaded photos
         const token = await getTestUserToken();
-        const photos = await getUserPhotos(token);
-        console.log(`Backend has ${photos.count} photos for test user: ${photos.ids.join(', ')}`);
 
-        // We captured 2 photos — they should eventually appear in the backend
-        // On emulator the camera produces real files, so uploads should work
+        // Poll for uploaded photos — upload pipeline needs time
+        let photos = { count: 0, ids: [] as string[] };
+        const deadline = Date.now() + 30000;
+
+        while (Date.now() < deadline) {
+            photos = await getUserPhotos(token);
+            if (photos.count > 0) break;
+            console.log(`Waiting for uploads... (${Math.round((deadline - Date.now()) / 1000)}s left)`);
+            await browser.pause(3000);
+        }
+
+        console.log(`Backend has ${photos.count} photos for test user: ${photos.ids.join(', ')}`);
         expect(photos.count).toBeGreaterThanOrEqual(1);
     });
 });

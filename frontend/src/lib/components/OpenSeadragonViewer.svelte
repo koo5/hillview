@@ -108,6 +108,7 @@
 	let menuBtnY = 0;
 	let menuBtnEl: HTMLButtonElement | null = null;
 	let textModalContent: string | null = null;
+	let textModalOpenedAt = 0;
 
 	/** Deep clone that preserves Date objects (structuredClone works here). */
 	function deepClone<T>(obj: T): T {
@@ -176,6 +177,7 @@
 				label: `@${ann.owner_username}`,
 				onclick: () => {
 					closeDropdownMenu();
+					onClose();
 					myGoto(constructUserProfileUrl(ann.user_id));
 				},
 				testId: 'annotation-menu-user',
@@ -208,6 +210,7 @@
 					onclick: () => {
 						closeDropdownMenu();
 						textModalContent = text;
+						textModalOpenedAt = Date.now();
 					},
 					testId: `annotation-menu-body-${i}`,
 				});
@@ -215,6 +218,19 @@
 		}
 
 		return items;
+	}
+
+	/** Show annotation context menu when a label pill is clicked. */
+	function handleLabelClick(e: MouseEvent, cmd: LabelDrawCmd) {
+		if (annotationMode !== 'view' || !cmd.id) return;
+		const ann = annotations.find(a => a.id === cmd.id);
+		if (!ann) return;
+		const items = buildAnnotationMenuItems(ann);
+		const target = e.currentTarget as HTMLElement;
+		showDropdownMenu(items, target, {
+			placement: 'below-left',
+			testId: 'annotation-context-menu',
+		});
 	}
 
 	/** Toggle the annotation context menu from the "..." button. */
@@ -440,9 +456,10 @@
 	// Fingerprint of last drawn state — skip redraw if nothing changed
 	let lastDrawFingerprint = '';
 
-	import { buildLabelCommands, resolveOverlaps, LABEL_PAD, type LabelInput } from '$lib/utils/labelLayout';
+	import { buildLabelCommands, resolveOverlaps, LABEL_PAD, type LabelInput, type LabelDrawCmd } from '$lib/utils/labelLayout';
 
 	const LABEL_FONT = 'bold 12px system-ui,sans-serif';
+	let labelDrawCmds: LabelDrawCmd[] = [];
 
 	function drawLabelsNow() {
 		if (!labelCanvas || !viewer?.viewport) return;
@@ -457,14 +474,14 @@
 		const item = getMainTiledImage();
 		if (!item) return;
 		const inputs: LabelInput[] = [];
-		for (const { label, imgCx, imgCy } of parsedAnnotations) {
+		for (const { dbId, label, imgCx, imgCy } of parsedAnnotations) {
 			const vpPt = item.imageToViewportCoordinates(imgCx, imgCy);
 			const scPt = viewer.viewport.viewportToViewerElementCoordinates(vpPt);
 			const cx = Math.round(scPt.x);
 			const cy = Math.round(scPt.y);
 			const tw = ctx.measureText(label).width;
 			const pillW = tw + LABEL_PAD * 2;
-			inputs.push({ label, cx, cy, pillW });
+			inputs.push({ label, cx, cy, pillW, id: dbId });
 		}
 
 		const { cmds, fingerprint: fp } = buildLabelCommands(inputs, W, H, 14);
@@ -473,10 +490,11 @@
 
 		resolveOverlaps(cmds, W, H);
 
-		// Expose resolved label state for Playwright tests
+		// Expose resolved label state for Playwright tests and render clickable overlays
 		if (typeof window !== 'undefined') {
 			(window as any).__labelDebugCmds = cmds;
 		}
+		labelDrawCmds = cmds;
 
 		ctx.clearRect(0, 0, W, H);
 
@@ -1202,10 +1220,25 @@
 		>⋯</button>
 	{/if}
 
+	<!-- Clickable label pill overlays -->
+	{#each labelDrawCmds as cmd (cmd.id ?? cmd.label)}
+		<button
+			class="label-click-target"
+			style:left="{cmd.tx}px"
+			style:top="{cmd.ty}px"
+			style:width="{cmd.pillW}px"
+			style:height="{cmd.pillH}px"
+			data-testid="label-click-{cmd.id}"
+			onclick={(e) => handleLabelClick(e, cmd)}
+			aria-label="Annotation: {cmd.label}"
+		></button>
+	{/each}
+
 	<!-- Annotation text detail modal -->
 	{#if textModalContent}
 		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-		<div class="text-modal-overlay" data-testid="annotation-text-modal" onclick={() => textModalContent = null}>
+		<div class="text-modal-overlay" data-testid="annotation-text-modal"
+			onclick={() => { if (Date.now() - textModalOpenedAt > 40) textModalContent = null; }}>
 			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 			<div class="text-modal" onclick={(e) => e.stopPropagation()}>
 				<p class="text-modal-body">{textModalContent}</p>
@@ -1509,6 +1542,20 @@
 
 	.text-modal-close:hover {
 		background: rgba(255,255,255,0.25);
+	}
+
+	.label-click-target {
+		position: absolute;
+		z-index: 3; /* above the label canvas (z-index: 2) */
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		padding: 0;
+		border-radius: 4px;
+	}
+
+	.label-click-target:hover {
+		background: rgba(255, 255, 255, 0.15);
 	}
 
 	.filename-bar {

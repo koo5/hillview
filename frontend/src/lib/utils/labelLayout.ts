@@ -12,6 +12,7 @@ export interface LabelDrawCmd {
 	edge: Edge;
 	pillW: number; pillH: number;
 	tx: number; ty: number;     // pill top-left corner
+	id?: string;                // annotation identifier (carried from input)
 }
 
 export const LABEL_PAD = 6;
@@ -53,6 +54,7 @@ export interface LabelInput {
 	cx: number;
 	cy: number;
 	pillW: number;
+	id?: string;
 }
 
 /**
@@ -68,13 +70,13 @@ export function buildLabelCommands(
 	const cmds: LabelDrawCmd[] = [];
 	const fpParts: string[] = [];
 
-	for (const { label, cx, cy, pillW } of inputs) {
+	for (const { label, cx, cy, pillW, id } of inputs) {
 		if (cx < 0 || cx > W || cy < 0 || cy > H) continue;
 
 		const { lx, ly, edge } = assignEdge(cx, cy, W, H, margin);
 		const { tx, ty } = computePillRect(lx, ly, pillW, W, H);
 
-		cmds.push({ label, cx, cy, lx, ly, edge, pillW, pillH: LABEL_PILL_H, tx, ty });
+		cmds.push({ label, cx, cy, lx, ly, edge, pillW, pillH: LABEL_PILL_H, tx, ty, id });
 		fpParts.push(`${cx},${cy}`);
 	}
 

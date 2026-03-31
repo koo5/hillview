@@ -15,7 +15,7 @@
     import {invoke} from '@tauri-apps/api/core';
     import {SensorMode, TAURI_MOBILE} from '$lib/tauri';
     import {backendUrl} from "$lib/config";
-    import {mockCamera} from "$lib/data.svelte.js";
+    import {mockCamera, fakeCamera} from "$lib/data.svelte.js";
 
     // Build and time info
     let buildInfo = getBuildInfo();
@@ -214,7 +214,12 @@
     <label class="mock-camera-toggle">
         <input type="checkbox" bind:checked={$mockCamera} data-testid="mock-camera-toggle" />
         <strong>Mock Camera</strong>
-        <span style="font-size: 10px; opacity: 0.7">(draws timestamp instead of video)</span>
+        <span style="font-size: 10px; opacity: 0.7">(timestamp overlay on captures)</span>
+    </label>
+    <label class="mock-camera-toggle">
+        <input type="checkbox" bind:checked={$fakeCamera} data-testid="fake-camera-toggle" />
+        <strong>Fake Camera</strong>
+        <span style="font-size: 10px; opacity: 0.7">(synthetic canvas, no real stream)</span>
     </label>
 </div>
 

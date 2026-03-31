@@ -75,20 +75,28 @@ export async function nativeByDesc(desc: string): Promise<WebdriverIO.Element> {
  * Accept Android permission dialogs (camera, location, etc.).
  * Tries common permission button texts. Safe to call when no dialog is showing.
  */
-export async function acceptPermissionDialogIfPresent(): Promise<boolean> {
+export async function acceptPermissionDialogIfPresent(
+    /** Max time (ms) to wait for a dialog to appear before giving up. */
+    timeout = 5000,
+): Promise<boolean> {
     await ensureNativeContext();
     const buttonTexts = ['While using the app', 'Only this time', 'Allow'];
-    for (const text of buttonTexts) {
-        try {
-            const btn = await $(`android=new UiSelector().text("${text}")`);
-            if (await btn.isDisplayed()) {
-                await btn.click();
-                await driver.pause(1000);
-                return true;
+    const deadline = Date.now() + timeout;
+
+    while (Date.now() < deadline) {
+        for (const text of buttonTexts) {
+            try {
+                const btn = await $(`android=new UiSelector().text("${text}")`);
+                if (await btn.isDisplayed()) {
+                    await btn.click();
+                    await driver.pause(1000);
+                    return true;
+                }
+            } catch {
+                // button not found, try next
             }
-        } catch {
-            // button not found, try next
         }
+        await driver.pause(500);
     }
     return false;
 }

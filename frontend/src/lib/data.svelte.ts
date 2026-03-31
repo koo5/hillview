@@ -360,6 +360,7 @@ export function closeDebug() {
 }
 
 export let mockCamera = localStorageSharedStore('mockCamera', false);
+export let fakeCamera = localStorageSharedStore('fakeCamera', false);
 
 export let maxPhotosInArea = localStorageReadOnceSharedStore('maxPhotosInArea', 100);
 

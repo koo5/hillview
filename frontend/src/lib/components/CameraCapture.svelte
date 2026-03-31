@@ -5,7 +5,7 @@
 	import {invoke} from '@tauri-apps/api/core';
 	import {get} from 'svelte/store';
 	import {playShutterSound} from '$lib/utils/shutterSound';
-	import {app, mockCamera} from "$lib/data.svelte.js";
+	import {app, mockCamera, fakeCamera} from "$lib/data.svelte.js";
 	import DualCaptureButton from './DualCaptureButton.svelte';
 	import CaptureQueueStatus from './CaptureQueueStatus.svelte';
 	import CaptureQueueIndicator from './CaptureQueueIndicator.svelte';
@@ -782,7 +782,7 @@
 	}
 
 	async function handleCapture(event: CustomEvent<{ mode: 'slow' | 'fast' }>) {
-		if ((!video && !$mockCamera) || !cameraReady || !locationData ||
+		if ((!video && !$fakeCamera) || !cameraReady || !locationData ||
 			locationData.latitude === undefined || locationData.longitude === undefined) {
 			console.warn('🢄📍 Cannot capture: camera not ready or no location');
 			return;
@@ -826,8 +826,8 @@
 			let canvas: HTMLCanvasElement;
 			let context: CanvasRenderingContext2D | null;
 
-			if ($mockCamera && mockCanvas) {
-				// Mock mode: draw a fresh frame and use the mock canvas directly
+			if ($fakeCamera && mockCanvas) {
+				// Fake camera: draw a fresh frame and use the mock canvas directly
 				drawMockFrame();
 				canvas = mockCanvas;
 				context = canvas.getContext('2d');
@@ -843,11 +843,25 @@
 				return;
 			}
 
-			// Draw video frame to canvas (skip for mock - already drawn)
+			// Draw video frame to canvas (skip for fake - already drawn)
 			const drawStartTime = performance.now();
 			const drawStartTimestamp = Date.now();
-			if (!$mockCamera) {
+			if (!$fakeCamera) {
 				context.drawImage(video, 0, 0);
+			}
+
+			// mockCamera: overlay timestamp to make each capture unique
+			if ($mockCamera && !$fakeCamera) {
+				const now = new Date();
+				const ms = String(now.getMilliseconds()).padStart(3, '0');
+				const timeStr = now.toLocaleTimeString(undefined, { hour12: false }) + '.' + ms;
+				context.fillStyle = 'rgba(0, 0, 0, 0.5)';
+				context.fillRect(0, 0, canvas.width, 40);
+				context.fillStyle = '#00ff88';
+				context.font = 'bold 28px monospace';
+				context.textAlign = 'left';
+				context.textBaseline = 'top';
+				context.fillText(timeStr, 8, 8);
 			}
 			const drawEndTime = performance.now();
 			const drawEndTimestamp = Date.now();
@@ -1025,8 +1039,8 @@
 
 	// Try to auto-start camera with permission lock coordination
 	$: if (show) {
-		if ($mockCamera) {
-			// Mock camera mode - stop real stream if running, start mock if not running
+		if ($fakeCamera) {
+			// Fake camera mode - synthetic canvas, no real stream
 			if (stream) {
 				stopStream();
 				cameraReady = false;
@@ -1035,7 +1049,7 @@
 				startMockCamera();
 			}
 		} else {
-			// Real camera mode - stop mock if running
+			// Real camera mode - stop fake if running
 			if (mockRafId !== null) {
 				stopMockCamera();
 				cameraReady = false;
@@ -1329,8 +1343,8 @@
 			<div class="camera-view">
 				<!-- Debug: cameraError = {cameraError}, needsPermission = {needsPermission}, cameraReady = {cameraReady} -->
 
-				{#if $mockCamera}
-					<!-- Mock camera canvas -->
+				{#if $fakeCamera}
+					<!-- Fake camera canvas (synthetic frames, no real stream) -->
 					<canvas
 						bind:this={mockCanvas}
 						class="camera-video"

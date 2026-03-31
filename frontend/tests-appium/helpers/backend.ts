@@ -105,7 +105,7 @@ export async function getTestUserToken(): Promise<string> {
         throw new Error('Call recreateTestUsers() before getTestUserToken()');
     }
 
-    const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
+    const res = await fetch(`${BACKEND_URL}/api/auth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -128,7 +128,7 @@ export async function getTestUserToken(): Promise<string> {
  * Returns the count and list of photo IDs.
  */
 export async function getUserPhotos(token: string): Promise<{ count: number; ids: string[] }> {
-    const res = await fetch(`${BACKEND_URL}/api/photos`, {
+    const res = await fetch(`${BACKEND_URL}/api/photos/`, {
         headers: { Authorization: `Bearer ${token}` },
     });
 
