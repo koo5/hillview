@@ -19,7 +19,7 @@ COPY src/routes/+page.server.ts.ssr src/routes/+page.server.ts
 COPY src/routes/+page.svelte.ssr    src/routes/+page.svelte
 
 # Install dependencies
-RUN bun install # --frozen-lockfile
+RUN bun install --frozen-lockfile --production
 
 #COPY src ./src
 #COPY src-tauri/icons ./src-tauri/icons

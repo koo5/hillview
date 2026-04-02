@@ -556,6 +556,8 @@
 			imageLoaderLimit: 1,
 			// Allow zooming well beyond native resolution (default is 1.1)
 			maxZoomPixelRatio: 4,
+			imageSmoothingEnabled: false,
+			placeholderFillStyle: '#009900'
 			// Note: crossOriginPolicy is set per-source (on DZI tile sources), NOT here.
 			// Setting it on the viewer would apply to fallback images too, which share
 			// URLs with regular <img> tags. If the browser cached a non-CORS response,

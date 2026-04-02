@@ -14,40 +14,85 @@ from detections import TARGET_CLASSES
 PRETTY_HUES = [330, 15, 175, 270, 155, 45, 200, 5]
 
 
+def _icc_profile_has_linear_trc(profile_data):
+	"""Check if an ICC profile has linear (gamma 1.0) tone response curves.
+
+	Parses the ICC profile binary to inspect rTRC/gTRC/bTRC tags.
+	Returns True if any TRC tag indicates linear gamma (identity curve or gamma 1.0).
+	"""
+	if len(profile_data) < 132:
+		return False
+	try:
+		tag_count = struct.unpack('>I', profile_data[128:132])[0]
+		for i in range(tag_count):
+			offset = 132 + i * 12
+			if offset + 12 > len(profile_data):
+				break
+			tag_sig = profile_data[offset:offset + 4]
+			if tag_sig not in (b'rTRC', b'gTRC', b'bTRC'):
+				continue
+			tag_offset = struct.unpack('>I', profile_data[offset + 4:offset + 8])[0]
+			if tag_offset + 12 > len(profile_data):
+				continue
+			trc_type = profile_data[tag_offset:tag_offset + 4]
+			if trc_type == b'curv':
+				count = struct.unpack('>I', profile_data[tag_offset + 8:tag_offset + 12])[0]
+				if count == 0:
+					return True  # Identity curve = linear
+				if count == 1 and tag_offset + 14 <= len(profile_data):
+					gamma = struct.unpack('>H', profile_data[tag_offset + 12:tag_offset + 14])[0] / 256.0
+					if abs(gamma - 1.0) < 0.01:
+						return True
+			elif trc_type == b'para':
+				if tag_offset + 16 <= len(profile_data):
+					gamma = struct.unpack('>I', profile_data[tag_offset + 12:tag_offset + 16])[0] / 65536.0
+					if abs(gamma - 1.0) < 0.01:
+						return True
+	except (struct.error, IndexError):
+		return False
+	return False
+
+
 def normalize_to_srgb(img):
 	"""Convert a pyvips image to sRGB 8-bit RGB (3 bands).
 
 	Handles:
 	- Alpha channel removal
-	- ICC profile-based color space conversion
-	- Linear light (gamma 1.0) to sRGB gamma correction for 16-bit images
-	  where the ICC profile is sRGB but the data is actually linear
-	  (common with panorama stitching software)
+	- ICC profiles with linear TRC (gamma 1.0), common with panorama
+	  stitching software like Hugin
+	- ICC profile-based color space conversion (AdobeRGB, ProPhoto, etc.)
 	- 16→8 bit scaling
 	"""
 	if img.bands > 3:
 		img = img[:3]
-	# Try ICC transform for images with non-sRGB profiles
 	if img.get_typeof('icc-profile-data') != 0 and img.format != 'uchar':
+		profile_data = img.get('icc-profile-data')
+		if _icc_profile_has_linear_trc(profile_data):
+			# ICC profile has linear TRC (gamma 1.0). Common with panorama
+			# stitching software (Hugin) that uses sRGB primaries but linear encoding.
+			# Handle explicitly: normalize to float, mark as linear, let colourspace() apply gamma.
+			logging.info("ICC profile has linear TRC (gamma 1.0), converting from linear to sRGB")
+			if img.format == 'ushort':
+				img = (img.cast('float') / 65535.0).copy(interpretation='scrgb')
+			elif img.format in ('float', 'double'):
+				img = img.copy(interpretation='scrgb')
+			else:
+				img = (img.cast('float') / 255.0).copy(interpretation='scrgb')
+			return img.colourspace('srgb')
 		try:
 			transformed = img.icc_transform('srgb')
-			# icc_transform is a no-op when input profile is already sRGB;
-			# detect this by checking if the format/interpretation changed
 			if transformed.format == 'uchar' or transformed.interpretation == 'srgb':
 				return transformed
 		except Exception:
 			pass
-	# For 16-bit images, check whether the data is linear or already gamma-encoded.
-	# pyvips sets interpretation='rgb16' for gamma-encoded 16-bit sRGB (e.g. PTGui output),
+	# For 16-bit images without ICC profile, check interpretation.
+	# pyvips sets interpretation='rgb16' for gamma-encoded 16-bit sRGB,
 	# and interpretation='scrgb' for linear light data.
-	# Only force linear→sRGB gamma when the data is actually linear.
 	if img.format == 'ushort':
 		if img.interpretation not in ('rgb16', 'srgb'):
-			# Linear light (common with some stitching software like Hugin HDR output)
 			logging.info(f"16-bit image with interpretation={img.interpretation}, treating as linear light")
 			img = (img.cast('float') / 65535.0).copy(interpretation='scrgb')
 		else:
-			# Already gamma-encoded 16-bit sRGB; colourspace will handle 16→8 bit scaling
 			logging.info(f"16-bit image with interpretation={img.interpretation}, treating as gamma-encoded sRGB")
 	img = img.colourspace('srgb')
 	return img
