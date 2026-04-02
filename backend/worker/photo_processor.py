@@ -99,9 +99,9 @@ class AnonymizationOverride(BaseModel):
 		return len(self.rectangles) == 0
 
 
-class PhotoDeletedException(Exception):
-	"""Raised when a photo was deleted during processing."""
-	pass
+# Canonical definition lives in exceptions.py (lightweight module) so that
+# app.py can catch this without importing photo_processor at startup.
+from exceptions import PhotoDeletedException
 
 
 def safe_parse_float(value, field_name: str = "value") -> Optional[float]:

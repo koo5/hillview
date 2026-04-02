@@ -3,6 +3,21 @@ FastAPI Worker Service for Photo Processing
 
 This service handles photo processing tasks with JWT authentication.
 It exposes the process_uploaded_photo function as a REST API endpoint.
+
+IMPORTANT — Startup time & lazy loading:
+  On Fly.io with min_machines_running=0, an incoming request wakes the
+  machine and the proxy waits for uvicorn to accept connections.  The proxy
+  timeout is ~8-10 s — much shorter than the health-check grace_period.
+  Heavy libraries (cv2, pyvips, PIL, numpy via photo_processor) take ~10 s
+  to import, so they MUST NOT be imported at module level here.
+
+  - photo_processor is imported lazily inside run_photo_processing_sync().
+  - PhotoDeletedException lives in the lightweight exceptions.py module so
+    we can catch it without importing photo_processor.
+  - numpy (np) is lazy-loaded on first call to validate_json_payload().
+
+  If you add new imports, make sure they don't transitively pull in
+  photo_processor, cv2, pyvips, or PIL at module load time.
 """
 import os
 import asyncio
@@ -21,7 +36,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 import aiofiles
 import httpx
 import math
-import numpy as np
+np = None  # lazy-loaded in validate_json_payload (see module docstring)
 
 from typing import Optional, Any
 from uuid import UUID
@@ -42,7 +57,7 @@ throttle = Throttle('app')
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from jwt_service import validate_upload_authorization_token, sign_processing_result
-from photo_processor import PhotoDeletedException
+from exceptions import PhotoDeletedException
 
 from common.file_utils import (
 	validate_and_prepare_photo_file,
@@ -79,6 +94,10 @@ def validate_json_payload(obj: Any, path: str = "") -> None:
 	- numpy types that haven't been converted
 	- Other non-JSON-serializable types
 	"""
+	global np
+	if np is None:
+		import numpy as np
+
 	if obj is None or isinstance(obj, (bool, str)):
 		return
 	if isinstance(obj, int):
