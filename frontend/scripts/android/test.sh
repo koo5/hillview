@@ -23,12 +23,12 @@ for arg in $argv
             set restart_per_suite true
         case '--spec=*'
             set restart_per_suite true
-            set wdio_args $wdio_args --spec "./tests-appium/specs/"(string sub --start 8 $arg)
+            set wdio_args $wdio_args --spec "./specs/"(string sub --start 8 $arg)
         case '*'
             # If it's a .ts file without --spec prefix, assume it's a spec file
             if string match -q -- '*.ts' $arg
                 set restart_per_suite true
-                set wdio_args $wdio_args --spec "./tests-appium/specs/$arg"
+                set wdio_args $wdio_args --spec "./specs/$arg"
             else
                 set wdio_args $wdio_args $arg
             end
@@ -47,7 +47,9 @@ if not string match -q -- '*platform-tools*' $PATH
     set -gx PATH $PATH $ANDROID_HOME/platform-tools
 end
 
-# Acquire shared test lock, then run wdio.
+# Acquire shared test lock, then run wdio from tests-appium directory.
 # Lock is held before Appium starts, preventing port conflicts
 # and backend state races with Playwright/pytest.
-npx tsx tests-appium/helpers/lockAndRun.ts npx @wdio/cli run wdio.conf.ts $wdio_args
+set -l tests_dir (dirname (status --current-filename))/../../tests-appium
+cd $tests_dir
+npx tsx helpers/lockAndRun.ts npx @wdio/cli run wdio.conf.ts $wdio_args

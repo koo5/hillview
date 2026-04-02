@@ -5,7 +5,7 @@ export const config: WebdriverIO.Config = {
     // ====================
     // WebdriverIO supports running e2e tests as well as unit and component tests.
     runner: 'local',
-    tsConfigPath: './tests-appium/tsconfig.json',
+    tsConfigPath: './tsconfig.json',
     
     port: 4723,
     //
@@ -24,7 +24,7 @@ export const config: WebdriverIO.Config = {
     // of the config file unless it's absolute.
     //
     specs: [
-        './tests-appium/specs/**/*.ts'
+        './specs/**/*.ts'
     ],
     // Patterns to exclude.
     exclude: [

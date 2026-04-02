@@ -3,7 +3,7 @@
  * Ensures the lock is held before Appium/wdio starts,
  * preventing port conflicts between parallel test runs.
  */
-import { acquireTestLock, releaseTestLock } from '../../tests-playwright/helpers/testLock';
+import { acquireTestLock, releaseTestLock } from './testLock';
 import { spawn } from 'child_process';
 
 async function main() {

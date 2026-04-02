@@ -7,7 +7,7 @@ export const config: Options.Testrunner = {
     
     // Only run permission tests
     specs: [
-        './tests-appium/specs/permissions.test.ts'
+        './specs/permissions.test.ts'
     ],
     
     // Override capabilities for permission testing
