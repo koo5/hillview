@@ -7,6 +7,8 @@
     import { constructUserProfileUrl, openExternalUrl } from '$lib/urlUtils';
     import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
     import { myGoto } from '$lib/navigation.svelte.js';
+    import { navigateWithHistory } from '$lib/navigation.svelte.js';
+    import Modal from './Modal.svelte';
     import type { PhotoData } from '$lib/sources';
 	import {getPhotoSource} from "$lib/photoUtils";
 
@@ -55,7 +57,23 @@
     let ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
     let isRating = false;
 
+    // Sign-in prompt modal
+    let showSignInModal = false;
+
     $: is_authenticated = $auth.is_authenticated;
+
+    /** Returns true if authenticated, otherwise shows sign-in modal. */
+    function requireAuth(): boolean {
+        if (is_authenticated) return true;
+        showSignInModal = true;
+        closeMenu();
+        return false;
+    }
+
+    function goToLogin() {
+        showSignInModal = false;
+        navigateWithHistory('/login');
+    }
 
     // User helper functions
     function getUserId(photo: PhotoData | null): string | null {
@@ -98,7 +116,8 @@
 
     // Hide photo function
     async function hidePhoto() {
-        if (!photo || !is_authenticated || isHiding) return;
+        if (!photo || isHiding) return;
+        if (!requireAuth()) return;
 
         isHiding = true;
         hideMessage = '';
@@ -138,7 +157,8 @@
 
     // Show user hide dialog
     function showUserHideDialogAction() {
-        if (!photo || !is_authenticated) return;
+        if (!photo) return;
+        if (!requireAuth()) return;
 
         showHideUserDialog = true;
         closeMenu();
@@ -146,7 +166,8 @@
 
     // Rating functionality
     async function handleRatingClick(rating: 'thumbs_up' | 'thumbs_down') {
-        if (!photo || !is_authenticated || isRating) return;
+        if (!photo || isRating) return;
+        if (!requireAuth()) return;
 
         const photoSource = getPhotoSource(photo);
         isRating = true;
@@ -240,7 +261,8 @@
 
     // Flag photo function
     async function flagPhoto() {
-        if (!photo || !is_authenticated || isFlagging) return;
+        if (!photo || isFlagging) return;
+        if (!requireAuth()) return;
 
         isFlagging = true;
         flagMessage = '';
@@ -288,7 +310,8 @@
 
     // Unflag photo function
     async function unflagPhoto() {
-        if (!photo || !is_authenticated || isFlagging) return;
+        if (!photo || isFlagging) return;
+        if (!requireAuth()) return;
 
         isFlagging = true;
         flagMessage = '';
@@ -411,8 +434,8 @@
         <button
             class="action-button rating-button up {userRating === 'thumbs_up' ? 'active' : ''}"
             on:click={() => handleRatingClick('thumbs_up')}
-            disabled={!is_authenticated || isRating}
-            title={!is_authenticated ? "Sign in to rate photos" : "Thumbs up"}
+            disabled={isRating}
+            title="Thumbs up"
             data-testid="thumbs-up-button"
         >
             <ThumbsUp size={16} />
@@ -422,8 +445,8 @@
         <button
             class="action-button rating-button down {userRating === 'thumbs_down' ? 'active' : ''}"
             on:click={() => handleRatingClick('thumbs_down')}
-            disabled={!is_authenticated || isRating}
-            title={!is_authenticated ? "Sign in to rate photos" : "Thumbs down"}
+            disabled={isRating}
+            title="Thumbs down"
             data-testid="thumbs-down-button"
         >
             <ThumbsDown size={16} />
@@ -486,9 +509,9 @@
                     <button
                         class="menu-item flag-item {isFlagged ? 'flagged' : ''}"
                         on:click={() => handleMenuAction(toggleFlag)}
-                        disabled={!is_authenticated || isFlagging}
+                        disabled={isFlagging}
                         data-testid="menu-flag"
-                        title={!is_authenticated ? "Sign in to flag photos" : (isFlagged ? "Remove flag" : "Flag for review")}
+                        title={isFlagged ? "Remove flag" : "Flag for review"}
                     >
                         <Flag size={16} />
                         <span>{isFlagged ? 'Remove Flag' : 'Flag for Review'}</span>
@@ -502,9 +525,9 @@
                     <button
                         class="menu-item hide-item"
                         on:click={() => handleMenuAction(hidePhoto)}
-                        disabled={!is_authenticated || isHiding}
+                        disabled={isHiding}
                         data-testid="menu-hide-photo"
-                        title={!is_authenticated ? "Sign in to hide photos" : "Hide this photo"}
+                        title="Hide this photo"
                     >
                         <EyeOff size={16} />
                         <span>Hide Photo</span>
@@ -513,9 +536,9 @@
                     <button
                         class="menu-item hide-item"
                         on:click={() => handleMenuAction(showUserHideDialogAction)}
-                        disabled={!is_authenticated || isHiding || !getUserId(photo)}
+                        disabled={isHiding || !getUserId(photo)}
                         data-testid="menu-hide-user"
-                        title={!is_authenticated ? "Sign in to hide users" : `Hide all photos by ${getUserName(photo) || 'this user'}`}
+                        title={`Hide all photos by ${getUserName(photo) || 'this user'}`}
                     >
                         <UserX size={16} />
                         <span>Hide User</span>
@@ -531,6 +554,14 @@
             </div>
         {/if}
     </div>
+
+    <Modal open={showSignInModal} onclose={() => showSignInModal = false} title="Sign in required" testId="sign-in-modal">
+        <p class="sign-in-message">Sign in to rate, flag, and hide photos.</p>
+        <div class="sign-in-actions">
+            <button class="sign-in-btn" on:click={goToLogin} data-testid="sign-in-modal-login">Sign In</button>
+            <button class="sign-in-cancel-btn" on:click={() => showSignInModal = false}>Cancel</button>
+        </div>
+    </Modal>
 {/if}
 
 <style>
@@ -774,6 +805,49 @@
 
     .meta-value {
 		font-size: 10px;
+    }
+
+    /* Sign-in modal */
+    .sign-in-message {
+        margin: 0 0 16px;
+        color: #374151;
+        font-size: 14px;
+    }
+
+    .sign-in-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+    }
+
+    .sign-in-btn {
+        padding: 8px 20px;
+        border: none;
+        border-radius: 6px;
+        background: #2563eb;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        font-size: 14px;
+    }
+
+    .sign-in-btn:hover {
+        background: #1d4ed8;
+    }
+
+    .sign-in-cancel-btn {
+        padding: 8px 20px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        background: white;
+        color: #374151;
+        font-weight: 500;
+        cursor: pointer;
+        font-size: 14px;
+    }
+
+    .sign-in-cancel-btn:hover {
+        background: #f3f4f6;
     }
 
     /* Mobile responsive */
