@@ -13,7 +13,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import PhotoRating, PhotoRatingType, User
-from auth import get_current_active_user
+from auth import get_current_active_user, get_current_user_optional_with_query
 from rate_limiter import rate_limit_photo_operations
 
 logger = logging.getLogger(__name__)
@@ -214,25 +214,28 @@ async def delete_photo_rating(
 async def get_photo_rating(
     source: str,
     photo_id: str,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
+    current_user: Optional[User] = Depends(get_current_user_optional_with_query),
     db: AsyncSession = Depends(get_db)
 ):
     """Get rating information for a photo."""
-    
+
     # Validate inputs
     photo_source = validate_photo_source(source)
-    
+
     try:
-        # Get user's current rating
-        user_rating_query = select(PhotoRating).where(
-            and_(
-                PhotoRating.user_id == current_user.id,
-                PhotoRating.photo_source == photo_source,
-                PhotoRating.photo_id == photo_id
+        # Get user's current rating (only if authenticated)
+        user_rating = None
+        if current_user:
+            user_rating_query = select(PhotoRating).where(
+                and_(
+                    PhotoRating.user_id == current_user.id,
+                    PhotoRating.photo_source == photo_source,
+                    PhotoRating.photo_id == photo_id
+                )
             )
-        )
-        result = await db.execute(user_rating_query)
-        user_rating = result.scalars().first()
+            result = await db.execute(user_rating_query)
+            user_rating = result.scalars().first()
         
         # Get rating counts
         rating_counts = await get_rating_counts(db, photo_source, photo_id)

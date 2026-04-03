@@ -37,14 +37,17 @@ class TestPhotoRatingSystem(BaseAuthTest):
         assert data["status"] == "ok"
     
     def test_unauthorized_rating_access(self):
-        """Test that rating endpoints require authentication"""
+        """Test that write rating endpoints require authentication, but GET is public"""
         print("\n=== Testing Unauthorized Access ===")
-        
-        # Test GET without auth
+
+        # Test GET without auth - should succeed (public read of counts)
         response = requests.get(f"{self.api_url}/ratings/{self.hillview_source}/{self.test_photo_id}")
-        self.assert_unauthorized(response, "GET rating should require auth")
-        
-        # Test POST without auth  
+        self.assert_success(response, "GET rating should work without auth")
+        data = response.json()
+        assert data["user_rating"] is None, "Anonymous user should have no rating"
+        assert "rating_counts" in data, "Response should include rating counts"
+
+        # Test POST without auth
         rating_data = {"rating": "thumbs_up"}
         response = requests.post(
             f"{self.api_url}/ratings/{self.hillview_source}/{self.test_photo_id}",

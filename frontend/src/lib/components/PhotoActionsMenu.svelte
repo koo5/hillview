@@ -196,7 +196,7 @@
 
     // Load rating data when photo changes
     async function loadPhotoRating() {
-        if (!photo || !is_authenticated) {
+        if (!photo) {
             userRating = null;
             ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
             return;
@@ -370,9 +370,13 @@
         }
     }
 
-    // Load rating and flag status when photo changes
-    $: if (photo && is_authenticated) {
+    // Load rating counts when photo changes (works for all users)
+    $: if (photo) {
         loadPhotoRating();
+    }
+
+    // Load flag status when photo changes (authenticated only)
+    $: if (photo && is_authenticated) {
         checkFlagStatus();
     }
 
