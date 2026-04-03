@@ -1932,15 +1932,23 @@
         border-color: #555 !important;
     }
 
-    /* Ensure zoom controls have higher z-index than scale control */
+    /* Enlarge zoom controls for easier touch interaction */
     :global(.leaflet-control-zoom) {
         background-color: rgba(255, 255, 255, 0.5) !important;
 		/*bottom: calc(10px + var(--safe-area-inset-bottom, 0px)) !important;*/
     }
 
+    :global(.leaflet-control-zoom a) {
+        width: 44px !important;
+        height: 44px !important;
+        line-height: 44px !important;
+        font-size: 24px !important;
+        background-color: rgba(255, 255, 255, 0.7) !important;
+    }
+
     .provider-selector-container {
         position: absolute;
-        top: 115px;
+        top: 143px;
         left: 10px;
         z-index: 30000;
 		background-color: rgba(255, 255, 255, 0.5);
@@ -2016,7 +2024,7 @@
 
     .attribution-info-button {
         position: absolute;
-        top: 163px;
+        top: 191px;
         left: 10px;
         z-index: 20000;
         width: 32px;
@@ -2037,7 +2045,7 @@
 
     .attribution-popup {
         position: absolute;
-        top: 190px;
+        top: 218px;
         left: 10px;
         z-index: 30001;
         max-width: 280px;

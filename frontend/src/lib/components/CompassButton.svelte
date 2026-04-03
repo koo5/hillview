@@ -212,7 +212,7 @@
     }
 
     .compass-button {
-        background-color: rgba(255, 255, 255, 0.9);
+        background-color: rgba(255, 255, 255, 0.7);
         border: 2px solid #ddd;
         border-radius: 4px;
         padding: 8px;

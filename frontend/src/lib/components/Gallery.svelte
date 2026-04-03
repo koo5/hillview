@@ -9,6 +9,7 @@
     import type {PhotoData} from '$lib/sources';
 	import PhotoMarkerIcon from "$lib/components/PhotoMarkerIcon.svelte";
     import {zoomViewData} from '$lib/zoomView.svelte.js';
+    import {app} from '$lib/data.svelte';
 
     onDestroy(() => {
         zoomViewData.set(null);

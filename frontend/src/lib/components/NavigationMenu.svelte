@@ -197,7 +197,7 @@
         right: 0;
         bottom: 0;
         background: transparent;
-        z-index: 29999;
+        z-index: 30002;
     }
 
     .nav-menu {
