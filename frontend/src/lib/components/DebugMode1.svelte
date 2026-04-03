@@ -16,6 +16,7 @@
     import {SensorMode, TAURI_MOBILE} from '$lib/tauri';
     import {backendUrl} from "$lib/config";
     import {mockCamera, fakeCamera} from "$lib/data.svelte.js";
+    import {isTouchDevice} from '$lib/deviceCapabilities';
 
     // Build and time info
     let buildInfo = getBuildInfo();
@@ -92,6 +93,10 @@
         <span>{buildBranch || 'Loading...'} @ {buildCommitHash?.slice(0, 7) || '...'}</span>
     </div>
 {/if}
+
+<div class="compact-row">
+    <span><strong>Touch:</strong> {$isTouchDevice ? 'yes' : 'no'}</span>
+</div>
 
 <div class="debug-section backend-section">
     <div><strong>Backend:</strong> {backendUrl}</div>

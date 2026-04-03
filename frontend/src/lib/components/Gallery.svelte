@@ -10,6 +10,7 @@
 	import PhotoMarkerIcon from "$lib/components/PhotoMarkerIcon.svelte";
     import {zoomViewData} from '$lib/zoomView.svelte.js';
     import {app} from '$lib/data.svelte';
+    import {isTouchDevice} from '$lib/deviceCapabilities';
 
     onDestroy(() => {
         zoomViewData.set(null);
@@ -20,6 +21,8 @@
     let photosGrid: HTMLElement;
 
     // Reactive swipe options
+    $: showNavButtons = !$isTouchDevice || $app.debug_enabled;
+
     $: swipeOptions = {
         onSwipe: handleSwipe,
         snapThreshold: 50,
@@ -106,25 +109,25 @@
 
     <div bind:clientWidth bind:this={photoContainer} class="photo-container" use:swipe2d={swipeOptions}>
         <!-- Navigation buttons on sides -->
-        {#if $photoToLeft}
+        {#if showNavButtons && $photoToLeft}
             <button class="nav-button nav-left" on:click={() => handleSwipe('left')} title="Previous photo" data-testid="gallery-nav-left">
                 <PhotoMarkerIcon bearing={-90} />
             </button>
         {/if}
 
-        {#if $photoToRight}
+        {#if showNavButtons && $photoToRight}
             <button class="nav-button nav-right" on:click={() => handleSwipe('right')} title="Next photo" data-testid="gallery-nav-right">
                 <PhotoMarkerIcon bearing={90} />
             </button>
         {/if}
 
-        {#if $photoUp}
+        {#if showNavButtons && $photoUp}
             <button class="nav-button nav-up" on:click={() => handleSwipe('up')} title="Photo above">
                 ↑
             </button>
         {/if}
 
-        {#if $photoDown}
+        {#if showNavButtons && $photoDown}
             <button class="nav-button nav-down" on:click={() => handleSwipe('down')} title="Photo below">
                 ↓
             </button>
@@ -182,7 +185,7 @@
         height: 100%;
         max-height: 100%;
         /*background: linear-gradient(135deg, #388E3C, #689F38);*/
-		background: linear-gradient(135deg, #000000, #388E3C);
+		background: linear-gradient(135deg, #000000, #2D8E5C);
     }
 
     /*.thumbnails-top, .thumbnails-bottom {*/

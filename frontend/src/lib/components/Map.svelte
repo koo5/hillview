@@ -123,9 +123,36 @@
     // Source buttons display mode
     let compactSourceButtons = true;
 
-    // Attribution popup state (mobile only)
+    // Attribution: reactive expand/collapse based on map container width
     let showAttribution = false;
-    let useCompactAttribution = false; // Set on mount based on screen width
+    let useCompactAttribution = false;
+    let attributionControl: L.Control.Attribution | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+
+    function updateCompactAttribution(width: number) {
+        useCompactAttribution = width < 468;
+    }
+
+    // Set up ResizeObserver on the map container
+    $: if (map && !resizeObserver) {
+        const container = map.getContainer();
+        resizeObserver = new ResizeObserver((entries) => {
+            updateCompactAttribution(entries[0]?.contentRect.width ?? 0);
+        });
+        resizeObserver.observe(container);
+        updateCompactAttribution(container.clientWidth);
+    }
+
+    // Reactively add/remove Leaflet's attribution control
+    $: if (map) {
+        if (useCompactAttribution && attributionControl) {
+            map.removeControl(attributionControl);
+            attributionControl = null;
+        } else if (!useCompactAttribution && !attributionControl) {
+            attributionControl = new L.Control.Attribution({ position: 'bottomleft' });
+            map.addControl(attributionControl);
+        }
+    }
 
     // Handle clicks in attribution popup - open links externally, otherwise close
     async function handleAttributionClick(event: Event) {
@@ -855,6 +882,52 @@
     let wheelTimeout: any = null;
     let bearingUpdateTimeout: any = null;
 
+    // Arrow drag state
+    let arrowDragging = false;
+
+    function handleArrowDragStart(e: CustomEvent<{ pointerId: number; clientX: number; clientY: number }>) {
+        arrowDragging = true;
+
+        // Disable compass tracking (same as rotate buttons)
+        if ($compassEnabled) {
+            console.log('🢄🧭 Disabling compass tracking due to arrow drag');
+            disableCompass();
+        }
+
+        // Disable map dragging during arrow drag
+        if (map) map.dragging.disable();
+
+        const container = map?.getContainer();
+        if (!container) return;
+
+        function applyBearing(cx: number, cy: number) {
+            const rect = container!.getBoundingClientRect();
+            const px = cx - rect.left;
+            const py = cy - rect.top;
+            const dx = px - centerX;
+            const dy = py - centerY;
+            const bearing = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+            updateBearing(bearing, 'arrow_drag');
+        }
+
+        function onPointerMove(ev: PointerEvent) {
+            ev.preventDefault();
+            applyBearing(ev.clientX, ev.clientY);
+        }
+
+        function cleanup() {
+            arrowDragging = false;
+            container!.removeEventListener('pointermove', onPointerMove);
+            container!.removeEventListener('pointerup', cleanup);
+            container!.removeEventListener('pointercancel', cleanup);
+            if (map) map.dragging.enable();
+        }
+
+        container.addEventListener('pointermove', onPointerMove);
+        container.addEventListener('pointerup', cleanup);
+        container.addEventListener('pointercancel', cleanup);
+    }
+
     function handleAndroidWheel(e: WheelEvent) {
         console.log('🢄Android wheel event:', { deltaY: e.deltaY, wheelDelta: (e as any).wheelDelta, detail: e.detail });
 
@@ -965,13 +1038,7 @@
             const zoomControl = new L.Control.Zoom({ position: 'topleft' });
             map.addControl(zoomControl);
 
-            // Add attribution control at bottom-left (desktop only)
-            // On mobile/narrow screens, use compact (i) button instead
-            useCompactAttribution = window.innerWidth < 768;
-            if (!useCompactAttribution) {
-                const attributionControl = new L.Control.Attribution({ position: 'bottomleft' });
-                map.addControl(attributionControl);
-            }
+            // Attribution control is added/removed reactively via useCompactAttribution
 
             // Set up zoom control listeners
             setupZoomControlListeners();
@@ -1038,6 +1105,8 @@
 
     onDestroy(async () => {
         console.log('🢄Map component destroyed');
+		resizeObserver?.disconnect();
+		resizeObserver = null;
 		if (invalidateSizeTimeout) {
 			clearTimeout(invalidateSizeTimeout);
 			invalidateSizeTimeout = null;
@@ -1473,6 +1542,7 @@
 				{centerY}
 				{arrowX}
 				{arrowY}
+				on:arrowdragstart={handleArrowDragStart}
 			/>
 
         </div>
