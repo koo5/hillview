@@ -42,7 +42,7 @@ export type BearingMode = 'car' | 'walking';
 // Spatial state - triggers photo filtering in worker
 export const spatialState = localStorageReadOnceSharedStore<SpatialState>('spatialState', {
 	center: {lat: 50.11692048550961, lng: 14.488374441862108},
-	zoom: 20,
+	zoom: 10,
 	bounds: null,
 	range: 1000,
 	source: 'map'

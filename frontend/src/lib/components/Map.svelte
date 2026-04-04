@@ -1482,7 +1482,8 @@
                 bounceAtZoomLimits: true,
                 // Memory optimization settings
                 preferCanvas: true, // Use Canvas renderer for better performance
-                maxBoundsViscosity: 1.0 // Prevent excessive panning
+                maxBoundsViscosity: 1.0, // Prevent excessive panning
+                worldCopyJump: true // Wrap map around edges when panning
             }}
     >
 
@@ -1509,7 +1510,7 @@
                     // Additional performance options
                     updateInterval: 100, // Throttle tile updates
                     tms: tileConfig.tms || false,
-                    noWrap: tileConfig.noWrap !== undefined ? tileConfig.noWrap : true,
+                    noWrap: tileConfig.noWrap !== undefined ? tileConfig.noWrap : false,
                     zoomReverse: tileConfig.zoomReverse || false,
                     opacity: tileConfig.opacity !== undefined ? tileConfig.opacity : 1,
                     zIndex: tileConfig.zIndex || 1,
@@ -1656,13 +1657,13 @@
 <!--            {/if}-->
 <!--        </button>-->
 
-        <button
-                on:click={async (e) => {await handleButtonClick('rotate-ccw', e)}}
-                title="Rotate view 15° counterclockwise"
-                data-testid="rotate-ccw-btn"
-        >
-            <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={5} arrowY={2} />
-        </button>
+<!--        <button-->
+<!--                on:click={async (e) => {await handleButtonClick('rotate-ccw', e)}}-->
+<!--                title="Rotate view 15° counterclockwise"-->
+<!--                data-testid="rotate-ccw-btn"-->
+<!--        >-->
+<!--            <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={5} arrowY={2} />-->
+<!--        </button>-->
 
         <button
                 on:click={(e) => handleButtonClick('forward', e)}
@@ -1684,13 +1685,13 @@
 
         </button>
 
-        <button
-                on:click={(e) => handleButtonClick('rotate-cw', e)}
-                title="Rotate view 15° clockwise"
-                data-testid="rotate-cw-btn"
-        >
-            <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={11} arrowY={2} />
-        </button>
+<!--        <button-->
+<!--                on:click={(e) => handleButtonClick('rotate-cw', e)}-->
+<!--                title="Rotate view 15° clockwise"-->
+<!--                data-testid="rotate-cw-btn"-->
+<!--        >-->
+<!--            <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={11} arrowY={2} />-->
+<!--        </button>-->
 
 <!--        <button-->
 <!--                on:click={(e) => handleButtonClick('right', e)}-->

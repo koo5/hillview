@@ -8,8 +8,9 @@
 	function addLine() {
 		const {center} = get(spatialState);
 		const {bearing} = get(bearingState);
-		const end = destinationPoint(center.lat, center.lng, bearing, 50);
+		const end = destinationPoint(center.lat, center.lng, bearing, 250);
 		lines.update(l => [{label: '', start: {lat: center.lat, lng: center.lng}, end, visible: true}, ...l]);
+		linesVisible.set(true);
 	}
 
 	function removeLine(index: number) {
@@ -25,7 +26,7 @@
 	<div class="toolbar">
 		<label class="toggle-option" data-testid="lines-visible-toggle">
 			<input type="checkbox" bind:checked={$linesVisible} />
-			<span class="option-title">Show on map</span>
+			<span class="option-title">Show lines on map</span>
 		</label>
 		<button class="add-btn" data-testid="lines-add-btn" on:click={addLine}>
 			<Plus size={18} /> Add line
@@ -36,9 +37,9 @@
 		<table class="lines-table" data-testid="lines-table">
 			<thead>
 				<tr>
-					<th>Vis</th>
-					<th>Label</th>
-					<th></th>
+					<th>Show</th>
+					<th>Name</th>
+					<th>Delete</th>
 				</tr>
 			</thead>
 			<tbody>

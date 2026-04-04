@@ -1,6 +1,7 @@
 <script lang="ts">
     export let show = true;
     export let color = '#ffffff';
+    export let reserveSpace = false;
 </script>
 
 <style>
@@ -36,4 +37,6 @@
 <div class="container" style="--spinner-color: {color}">
     <div class="spinner"></div>
 </div>
+{:else if reserveSpace}
+<div class="container"></div>
 {/if}

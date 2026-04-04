@@ -137,7 +137,7 @@ class MapillaryAPIManager:
 				log.error(f"Queue worker error: {e}")
 
 
-	async def make_request(self, params: Dict[str, Any], max_retries: int = 10) -> Dict[str, Any]:
+	async def make_request(self, params: Dict[str, Any], max_retries: int = 3) -> Dict[str, Any]:
 		"""Make a rate-limited request to Mapillary API with retries"""
 		self.stats['total_requests'] += 1
 
@@ -458,7 +458,7 @@ async def stream_mapillary_images(
 						break
 
 					# Ensure region is not too large (larger regions cause internal server errors from Mapillary)
-					region_bbox = shrink_bbox_to_max_area(region_bbox, max_area_sq_deg=0.009)
+					region_bbox = shrink_bbox_to_max_area(region_bbox, max_area_sq_deg=0.0009)
 
 					log.info(f"Processing uncached region {region_idx + 1}/{len(uncached_regions)}: {region_bbox}")
 					# Check if we've already reached the photo limit (including cached photos)

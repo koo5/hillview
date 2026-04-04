@@ -386,9 +386,15 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 		onDragEnd?.();
 	}
 
+	function isInteractiveTarget(target: EventTarget | null): boolean {
+		const el = target as HTMLElement | null;
+		return !!el?.closest('a, button, [role="button"], input, select, textarea');
+	}
+
 	// Touch event handlers
 	function handleTouchStart(e: TouchEvent) {
 		if (e.touches.length > 1) { cancelDrag(); return; }
+		if (isInteractiveTarget(e.target)) return;
 		const touch = e.touches[0];
 		startDrag(touch.clientX, touch.clientY);
 	}
@@ -414,6 +420,7 @@ export function swipe2d(node: HTMLElement, initialOptions: Swipe2DOptions) {
 	function handleMouseDown(e: MouseEvent) {
 		// Only handle left mouse button
 		if (e.button !== 0) return;
+		if (isInteractiveTarget(e.target)) return;
 
 		startDrag(e.clientX, e.clientY);
 		e.preventDefault();

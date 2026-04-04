@@ -19,13 +19,12 @@
 		toggleDebug,
 		turn_to_photo_to,
 		splitPercent,
-		showCalibrationView, onAppActivityChange
+		showCalibrationView
 	} from "$lib/data.svelte.js";
 	import {resizableSplit} from '$lib/actions/resizableSplit';
 	import {
 		bearingState,
 		spatialState,
-		updateSpatialState,
 		updateBearingByDiff,
 		photoInFront
 	} from "$lib/mapState";
@@ -48,6 +47,7 @@
 	import {enableBearingTracking, disableBearingTracking} from '$lib/bearingTracking';
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
 	import {enableLocationTracking} from "$lib/locationManager";
+	import {toggleCamera} from '$lib/appActions';
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
 	let map: any = null;
@@ -461,20 +461,6 @@
 		});
 	}
 
-	function toggleCamera() {
-		const newActivity = get(app).activity === 'capture' ? 'view' : 'capture';
-		onAppActivityChange(newActivity);
-		if (get(spatialState).zoom < 17 && newActivity === 'capture') {
-			updateSpatialState({
-				...get(spatialState),
-				zoom: 17
-			});
-		}
-		app.update(a => ({
-			...a,
-			activity: newActivity
-		}));
-	}
 
 
 	// Reactive statement to ensure geolocation and bearing are enabled when in capture mode
