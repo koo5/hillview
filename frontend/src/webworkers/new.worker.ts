@@ -101,19 +101,24 @@ let currentPicks: Set<PhotoId> = new Set();
 
 
 function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: number } {
+    // Longitude: handle antimeridian crossing
     let lng;
     if (bounds.top_left.lng <= bounds.bottom_right.lng) {
-        // Normal case: simple average
         lng = (bounds.top_left.lng + bounds.bottom_right.lng) / 2;
     } else {
-        // Antimeridian crossing: average via the 360° wrap
         lng = (bounds.top_left.lng + bounds.bottom_right.lng + 360) / 2;
         if (lng > 180) lng -= 360;
     }
-    return {
-        lat: (bounds.top_left.lat + bounds.bottom_right.lat) / 2,
-        lng
-    };
+
+    // Latitude: average in Mercator projection space so the result matches
+    // the visual center of the viewport (Mercator is nonlinear in latitude,
+    // so a geographic midpoint diverges significantly at low zoom).
+    const toRad = Math.PI / 180;
+    const topY = Math.log(Math.tan(Math.PI / 4 + bounds.top_left.lat * toRad / 2));
+    const bottomY = Math.log(Math.tan(Math.PI / 4 + bounds.bottom_right.lat * toRad / 2));
+    const lat = (2 * Math.atan(Math.exp((topY + bottomY) / 2)) - Math.PI / 2) / toRad;
+
+    return { lat, lng };
 }
 
 // Merge and cull photos from all sources, calculate range

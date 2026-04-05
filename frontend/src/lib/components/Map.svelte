@@ -403,6 +403,7 @@
             //console.warn('🢄get_range called before map is ready');
             return 1000; // Default 1km
         }
+		//return 3500000;
         try {
             const pointC = map.latLngToContainerPoint(_center);
             // Move 100px to the right
@@ -1243,15 +1244,28 @@
     $: centerX = width / 2;
     let centerY: number;
     $: centerY = height / 2;
-    let arrowLength = fov_circle_radius_px;
 
-    let arrow_radians;
-    let arrowX;
-    let arrowY;
+    let arrowX: number;
+    let arrowY: number;
 
-    $: arrow_radians = ($bearingState.bearing - 90) * Math.PI / 180; // shift so 0° points "up"
-    $: arrowX = centerX + Math.cos(arrow_radians) * arrowLength;
-    $: arrowY = centerY + Math.sin(arrow_radians) * arrowLength;
+    // Compute arrow endpoint by projecting the range circle edge along the
+    // current bearing onto the screen.  This accounts for Mercator distortion
+    // so the arrow always touches the circle regardless of direction.
+    $: {
+        const bearing = $bearingState.bearing;
+        const range = $spatialState.range;
+        const center = $spatialState.center;
+        if (map && center && range) {
+            const edgeLatLng = destinationPoint(center.lat, center.lng, bearing, range / 1000);
+            const edgePx = map.latLngToContainerPoint(new LatLng(edgeLatLng.lat, edgeLatLng.lng));
+            arrowX = edgePx.x;
+            arrowY = edgePx.y;
+        } else {
+            const fallbackRad = (bearing - 90) * Math.PI / 180;
+            arrowX = centerX + Math.cos(fallbackRad) * fov_circle_radius_px;
+            arrowY = centerY + Math.sin(fallbackRad) * fov_circle_radius_px;
+        }
+    }
 
     // Get the current provider configuration reactively
     $: tileConfig = getCurrentProviderConfig();
