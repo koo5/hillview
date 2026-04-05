@@ -36,7 +36,12 @@ export function isPhotoInBounds(photo: PhotoData, bounds: Bounds, tolerance: num
     const bottomLat = bounds.bottom_right.lat - tolerance;
     const rightLng = bounds.bottom_right.lng + tolerance;
 
-    return lat <= topLat && lat >= bottomLat && lng >= leftLng && lng <= rightLng;
+    const inLat = lat <= topLat && lat >= bottomLat;
+    // When leftLng > rightLng, bounds cross the antimeridian
+    const inLng = leftLng <= rightLng
+        ? (lng >= leftLng && lng <= rightLng)
+        : (lng >= leftLng || lng <= rightLng);
+    return inLat && inLng;
 }
 
 /**

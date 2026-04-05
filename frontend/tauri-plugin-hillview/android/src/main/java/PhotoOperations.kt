@@ -227,11 +227,15 @@ class PhotoOperations(private val context: Context) {
      * Translation from workerUtils.ts filterPhotosByArea
      */
     private fun filterPhotosByArea(photos: List<PhotoData>, bounds: Bounds): List<PhotoData> {
+        val crossesAntimeridian = bounds.top_left.lng > bounds.bottom_right.lng
         return photos.filter { photo ->
             photo.coord.lat <= bounds.top_left.lat &&
             photo.coord.lat >= bounds.bottom_right.lat &&
-            photo.coord.lng >= bounds.top_left.lng &&
-            photo.coord.lng <= bounds.bottom_right.lng
+            if (crossesAntimeridian) {
+                photo.coord.lng >= bounds.top_left.lng || photo.coord.lng <= bounds.bottom_right.lng
+            } else {
+                photo.coord.lng >= bounds.top_left.lng && photo.coord.lng <= bounds.bottom_right.lng
+            }
         }
     }
 

@@ -132,7 +132,7 @@
                         </a>
                     </div>
                     <button class="empty-state-camera" on:click={toggleCamera} data-testid="empty-state-camera">
-                        <Camera size={20} /> Take a photo here
+                        <Camera size={20} /> Take photos here
                     </button>
                 </div>
             {/if}

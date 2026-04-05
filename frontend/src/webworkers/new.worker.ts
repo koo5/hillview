@@ -101,9 +101,18 @@ let currentPicks: Set<PhotoId> = new Set();
 
 
 function calculateCenterFromBounds(bounds: Bounds): { lat: number; lng: number } {
+    let lng;
+    if (bounds.top_left.lng <= bounds.bottom_right.lng) {
+        // Normal case: simple average
+        lng = (bounds.top_left.lng + bounds.bottom_right.lng) / 2;
+    } else {
+        // Antimeridian crossing: average via the 360° wrap
+        lng = (bounds.top_left.lng + bounds.bottom_right.lng + 360) / 2;
+        if (lng > 180) lng -= 360;
+    }
     return {
         lat: (bounds.top_left.lat + bounds.bottom_right.lat) / 2,
-        lng: (bounds.top_left.lng + bounds.bottom_right.lng) / 2
+        lng
     };
 }
 

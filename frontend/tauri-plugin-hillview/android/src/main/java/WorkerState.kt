@@ -56,9 +56,17 @@ class WorkerState {
 
     // Helper function to calculate center from bounds (translation from worker)
     fun calculateCenterFromBounds(bounds: Bounds): LatLng {
+        val lng = if (bounds.top_left.lng <= bounds.bottom_right.lng) {
+            (bounds.top_left.lng + bounds.bottom_right.lng) / 2
+        } else {
+            // Antimeridian crossing: average via the 360° wrap
+            var l = (bounds.top_left.lng + bounds.bottom_right.lng + 360) / 2
+            if (l > 180) l -= 360
+            l
+        }
         return LatLng(
             lat = (bounds.top_left.lat + bounds.bottom_right.lat) / 2,
-            lng = (bounds.top_left.lng + bounds.bottom_right.lng) / 2
+            lng = lng
         )
     }
 }

@@ -2,5 +2,5 @@
 
 DIR="$(dirname "$(readlink -m "$0")")"
 
-../geo_tag/pull.sh
+$DIR/../geotag/pull.sh
 exec python3 "$DIR/raw.py" "$@"
