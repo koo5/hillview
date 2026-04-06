@@ -59,7 +59,7 @@
 	import {parsePhotoUid} from "$lib/urlUtilsServer";
 	import {pendingZoomView} from '$lib/zoomView.svelte';
 	import {openExternalUrl} from "$lib/urlUtils";
-	import {lines, linesVisible} from "$lib/data.svelte.js";
+	import {lines, linesVisible, hunterMode} from "$lib/data.svelte.js";
 	import {bearingBetween, distanceBetween, destinationPoint} from "$lib/geo";
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
@@ -1583,34 +1583,80 @@
 
 	</LeafletMap>
 
-<div class="filters-button-container">
-	<button
-		class="filters-button"
-		class:active={$showAll}
-		class:grayed={!$anyFeatured && !$anyFiltered}
-		on:click={() => showAll.update(v => !v)}
-		data-testid="show-all-button"
-	>
-		<span class="show-all-marker-icon" class:grayed={!$showAll}>
-			<PhotoMarkerIcon bearing={0} />
-		</span>
-		<span class="filters-button-text">{($showAll ? 'All' : 'Top')}</span>
-	</button>
-	<button
-		class="filters-button"
-		class:active={$activeFilterCount > 0}
-		on:click={() => openFiltersModal()}
-		data-testid="filters-button"
-	>
-		<Filter size={18} />
-		<span class="filters-button-text">Filters</span>({$activeFilterCount})
-	</button>
-</div>
-
 <FiltersModal />
 
-<div class="provider-selector-container">
-	<TileProviderSelector />
+<!-- Hunter controls grid: toggle at bottom-right corner, panels extend up and left -->
+<div class="hunter-controls">
+	<div class="hunter-panel-right" class:visible={$hunterMode}>
+		<div class="source-buttons-group">
+			{#each $sources as source}
+				<button
+						class="source-button {source.enabled ? 'active' : ''}"
+						on:click={() => toggleSourceVisibility(source.id)}
+						title={`Toggle ${source.name} photos`}
+						data-testid={`source-toggle-${source.id}`}
+				>
+<!--					<div class="source-icon-wrapper">-->
+<!--						<Spinner show={source.enabled && ($sourceLoadingStatus[source.id]?.is_loading || false)} color="#fff"></Spinner>-->
+<!--						<div class="source-icon" style="background-color: {source.color}"></div>-->
+<!--					</div>-->
+					<span class="source-label">{source.name}</span>
+					{#if source.enabled && ($sourceLoadingStatus[source.id]?.is_loading || false)}
+						<div class="source-spinner"></div>
+					{/if}
+				</button>
+			{/each}
+		</div>
+	</div>
+	<div class="hunter-panel-bottom" class:visible={$hunterMode}>
+<!--		<button-->
+<!--			class="filters-button"-->
+<!--			class:active={$showAll}-->
+<!--			class:grayed={!$anyFeatured && !$anyFiltered}-->
+<!--			on:click={() => showAll.update(v => !v)}-->
+<!--			data-testid="show-all-button"-->
+<!--		>-->
+<!--			<span class="show-all-marker-icon" class:grayed={!$showAll}>-->
+<!--				<PhotoMarkerIcon bearing={0} />-->
+<!--			</span>-->
+<!--			<span class="filters-button-text">{($showAll ? 'All' : 'Top')}</span>-->
+<!--		</button>-->
+		<button
+			class="filters-button"
+			class:active={$activeFilterCount > 0}
+			on:click={() => openFiltersModal()}
+			data-testid="filters-button"
+		>
+			<Filter size={18} />
+			<span class="filters-button-text">Filters</span>({$activeFilterCount})
+		</button>
+		<div class="hunter-panel-separator"></div>
+		<TileProviderSelector />
+	</div>
+	<button
+		class="hunter-mode-toggle"
+		class:active={$hunterMode}
+		on:click={() => hunterMode.update(v => !v)}
+		title={$hunterMode ? "Hide advanced controls" : "Show advanced controls"}
+		data-testid="hunter-mode-toggle"
+	>
+		<div class="hunter-toggle-content">
+			<svg class="hunter-toggle-caret caret-up" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+				{#if $hunterMode}<polyline points="6 9 12 15 18 9" />{:else}<polyline points="18 15 12 9 6 15" />{/if}
+			</svg>
+			<!-- lucide bow-arrow icon (added in 0.499.0, inlined since we have 0.476.0) -->
+			<svg class="hunter-toggle-bow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<path d="M17 3h4v4" />
+				<path d="M18.575 11.082a13 13 0 0 1 1.048 9.027 1.17 1.17 0 0 1-1.914.597L14 17" />
+				<path d="M7 10 3.29 6.29a1.17 1.17 0 0 1 .6-1.91 13 13 0 0 1 9.03 1.05" />
+				<path d="M7 14a1.7 1.7 0 0 0-1.207.5l-2.646 2.646A.5.5 0 0 0 3.5 18H5a1 1 0 0 1 1 1v1.5a.5.5 0 0 0 .854.354L9.5 18.207A1.7 1.7 0 0 0 10 17v-2a1 1 0 0 0-1-1z" />
+				<path d="M9.707 14.293 21 3" />
+			</svg>
+			<svg class="hunter-toggle-caret caret-left" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+				{#if $hunterMode}<polyline points="9 6 15 12 9 18" />{:else}<polyline points="15 18 9 12 15 6" />{/if}
+			</svg>
+		</div>
+	</button>
 </div>
 
 {#if useCompactAttribution}
@@ -1650,81 +1696,7 @@
 <!--    </div>-->
 <!--{/if}-->
 
-<!-- Rotation / navigation buttons -->
-<div class="control-buttons-container">
-	<div class="buttons" role="group">
-<!--        <button-->
-<!--                on:click={async (e) => {await handleButtonClick('left', e)}}-->
-<!--                on:mousedown={(e) => handleMouseDown('left', e)}-->
-<!--                on:mouseup={handleMouseUp}-->
-<!--                on:mouseleave={handleMouseUp}-->
-<!--                title={slideshowActive && slideshowDirection === 'left' ?-->
-<!--                      "Stop slideshow" :-->
-<!--                      "Rotate to next photo on the left (long press for slideshow)"}-->
-
-<!--                class:slideshow-active={slideshowActive && slideshowDirection === 'left'}-->
-<!--        >-->
-<!--            {#if slideshowActive && slideshowDirection === 'left'}-->
-<!--                <Pause />-->
-<!--            {:else}-->
-<!--                <PhotoMarkerIcon bearing={-90} />-->
-<!--            {/if}-->
-<!--        </button>-->
-
-<!--        <button-->
-<!--                on:click={async (e) => {await handleButtonClick('rotate-ccw', e)}}-->
-<!--                title="Rotate view 15° counterclockwise"-->
-<!--                data-testid="rotate-ccw-btn"-->
-<!--        >-->
-<!--            <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={5} arrowY={2} />-->
-<!--        </button>-->
-
-		<button
-				on:click={(e) => handleButtonClick('forward', e)}
-				title="Move forward in viewing direction"
-				data-testid="move-forward-btn"
-		>
-
-			<SpatialStateArrowIcon centerX={8} centerY={8} arrowX={8} arrowY={0} />
-
-		</button>
-
-		<button
-				on:click={(e) => handleButtonClick('backward', e)}
-				title="Move backward"
-				data-testid="move-backward-btn"
-		>
-
-			<SpatialStateArrowIcon centerX={8} centerY={8} arrowX={8} arrowY={16} />
-
-		</button>
-
-<!--        <button-->
-<!--                on:click={(e) => handleButtonClick('rotate-cw', e)}-->
-<!--                title="Rotate view 15° clockwise"-->
-<!--                data-testid="rotate-cw-btn"-->
-<!--        >-->
-<!--            <SpatialStateArrowIcon centerX={8} centerY={8} arrowX={11} arrowY={2} />-->
-<!--        </button>-->
-
-<!--        <button-->
-<!--                on:click={(e) => handleButtonClick('right', e)}-->
-<!--                on:mousedown={(e) => handleMouseDown('right', e)}-->
-<!--                on:mouseup={handleMouseUp}-->
-<!--                on:mouseleave={handleMouseUp}-->
-<!--                title={slideshowActive && slideshowDirection === 'right' ?-->
-<!--                      "Stop slideshow" :-->
-<!--                      "Rotate to next photo on the right (long press for slideshow)"}-->
-<!--                class:slideshow-active={slideshowActive && slideshowDirection === 'right'}-->
-<!--        >-->
-<!--            {#if slideshowActive && slideshowDirection === 'right'}-->
-<!--                <Pause />-->
-<!--            {:else}-->
-<!--                <PhotoMarkerIcon bearing={90} />-->
-<!--            {/if}-->
-<!--        </button>-->
-	</div>
-</div>
+<!-- Right panel moved into .hunter-controls grid -->
 
 <!-- Location/bearing tracking buttons -->
 <div class="location-button-container">
@@ -1738,35 +1710,6 @@
 		<LocationButtonInner />
 	</button>
 	<CompassButton />
-</div>
-
-<div class="source-buttons-container" class:compact={compactSourceButtons}>
-	{#each $sources as source}
-		<button
-
-				class=" source-button {source.enabled ? 'active' : ''}"
-				on:click={() => toggleSourceVisibility(source.id)}
-				title={`Toggle ${source.name} photos`}
-				data-testid={`source-toggle-${source.id}`}
-		>
-			<div class="source-icon-wrapper">
-				<Spinner show={source.enabled && ($sourceLoadingStatus[source.id]?.is_loading || false)} color="#fff"></Spinner>
-				<div class="source-icon" style="background-color: {source.color}"></div>
-			</div>
-			{#if !compactSourceButtons}
-				{source.name}
-				{:else}
-				{source.name.charAt(0)}..
-			{/if}
-		</button>
-	{/each}
-	<button
-		class="toggle-compact {compactSourceButtons ? 'active' : ''}"
-		on:click={() => compactSourceButtons = !compactSourceButtons}
-		title={compactSourceButtons ? "Show labels" : "Hide labels"}
-	>
-		...
-	</button>
 </div>
 
 <style>
@@ -1788,22 +1731,131 @@
 		touch-action: none;
 	}
 
-	.control-buttons-container {
+	/* Hunter controls grid container */
+	.hunter-controls {
 		position: absolute;
-		bottom: var(--safe-area-inset-bottom, 0px);
-		right: calc(0px + var(--safe-area-inset-right, 0px));
+		bottom: calc(4px + var(--safe-area-inset-bottom, 0px));
+		right: calc(6px + var(--safe-area-inset-right, 0px));
 		z-index: 30000;
-		pointer-events: none; /* This makes the container transparent to mouse events */
+		display: grid;
+		grid-template-areas:
+			".            right-panel"
+			"bottom-panel toggle";
+		grid-template-columns: auto auto;
+		grid-template-rows: auto auto;
+		gap: 0;
+		pointer-events: none;
+	}
+
+	/* Hunter mode toggle button */
+	.hunter-mode-toggle {
+		grid-area: toggle;
+		pointer-events: auto;
+		cursor: pointer;
+		background-color: rgba(255, 255, 255, 0.7);
+		border: 1px solid #ccc;
+		border-radius: 0.25rem;
+		padding: 0.5rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		opacity: 0.6;
+	}
+
+	.hunter-mode-toggle:hover {
+		background-color: rgba(255, 255, 255, 0.9);
+		opacity: 1;
+	}
+
+	.hunter-mode-toggle.active {
+		background-color: rgba(255, 255, 255, 0.7);
+		backdrop-filter: blur(4px);
+		color: #4285F4;
+		border-color: rgba(0, 0, 0, 0.1);
+		border-radius: 0 0 0.5rem 0;
+		opacity: 1;
+		box-shadow: none;
+	}
+
+	.hunter-toggle-content {
+		display: grid;
+		grid-template-areas:
+			". caret-up"
+			"caret-left bow";
+		grid-template-columns: auto auto;
+		grid-template-rows: auto auto;
+		align-items: center;
+		justify-items: center;
+		gap: 0;
+		line-height: 0;
+	}
+
+	.caret-up {
+		grid-area: caret-up;
+	}
+
+	.caret-left {
+		grid-area: caret-left;
+	}
+
+	.hunter-toggle-bow {
+		grid-area: bow;
+	}
+
+	/* Hunter panels - shared styles */
+	.hunter-panel-right,
+	.hunter-panel-bottom {
+		background-color: rgba(255, 255, 255, 0.7);
+		backdrop-filter: blur(4px);
+		padding: 4px;
+		pointer-events: none;
+		opacity: 0;
+		transition: opacity 0.3s ease;
+	}
+
+	.hunter-panel-right.visible,
+	.hunter-panel-bottom.visible {
+		pointer-events: auto;
+		opacity: 1;
+	}
+
+	/* Right panel */
+	.hunter-panel-right {
+		grid-area: right-panel;
+		border-radius: 0.5rem 0.5rem 0 0;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		z-index: 30000;
+		max-height: calc(100vh - 120px);
+		overflow: hidden;
+	}
+
+	/* Bottom panel */
+	.hunter-panel-bottom {
+		grid-area: bottom-panel;
+		border-radius: 0.5rem 0 0 0.5rem;
+		display: flex;
+		flex-direction: row;
+		align-items: stretch;
+		gap: 4px;
+		z-index: 30001;
+	}
+
+	.hunter-panel-separator {
+		width: 1px;
+		align-self: center;
+		height: 24px;
+		background-color: rgba(0, 0, 0, 0.15);
+		flex-shrink: 0;
 	}
 
 	.buttons {
 		display: flex;
 		gap: 0.5rem;
-		background-color: rgba(255, 255, 255, 0.1);
-		padding: 0rem;
-		border-radius: 0.5rem 0 0 0;
-		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-		pointer-events: auto; /* This makes the buttons clickable */
+		pointer-events: auto;
 	}
 
 	.buttons button {
@@ -1848,28 +1900,16 @@
 	.location-button-container {
 		position: absolute;
 		top: 16px;
-		right: calc(6px + var(--safe-area-inset-right, 0px));
+		left: 50%;
+		transform: translateX(-50%);
 		z-index: 30000;
 		display: flex;
 		gap: 8px;
 	}
 
-	.filters-button-container {
-		position: absolute;
-		bottom: calc(4px + var(--safe-area-inset-bottom, 0px));
-		left: 10px;
-		z-index: 30000;
-		display: flex;
-		flex-direction: row;
-		gap: 4px;
-	}
-
 	@media (orientation: landscape) {
 		.location-button-container {
 			top: calc(6px + var(--safe-area-inset-top, 0px));
-		}
-		.filters-button-container {
-			bottom: calc(24px + var(--safe-area-inset-bottom, 0px));
 		}
 	}
 
@@ -1880,10 +1920,12 @@
 		border: 1px solid #ccc;
 		border-radius: 0.25rem;
 		padding: 0.5rem;
+		min-width: 60px;
+		min-height: 44px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		transition: all 0.2s;
+		transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 	}
 
@@ -1898,7 +1940,7 @@
 	}
 
 	.location-button-container button.flash {
-		border-radius: 100%;
+		color: #34d399;
 	}
 
 	.location-button-container button:disabled {
@@ -1911,40 +1953,67 @@
 	}
 
 
-	.source-buttons-container {
-		position: absolute;
-		top: calc(75px + var(--safe-area-inset-top, 0px));
-		right: calc(6px + var(--safe-area-inset-right, 0px));
-		z-index: 30000;
+	.source-buttons-group {
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 2px;
 		margin: 0;
 		padding: 0;
-		text-overflow: ellipsis;
+		overflow: hidden;
 	}
 
-	.source-buttons-container button {
+	.source-buttons-group button {
 		cursor: pointer;
 		background-color: white;
 		border: 1px solid #ccc;
 		border-radius: 0.25rem;
-		padding: 0.4rem;
+		padding: 0.3rem 0.2rem;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		transition: all 0.2s;
-		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+		min-height: 0;
+		position: relative;
 	}
 
-	.source-buttons-container button:hover {
+	.source-spinner {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		margin-top: -15px;
+		margin-left: -15px;
+		width: 30px;
+		height: 30px;
+		border-radius: 50%;
+		border: 2px solid rgba(255, 255, 255, 0.3);
+		border-top-color: #fff;
+		animation: source-spin 0.8s linear infinite;
+	}
+
+	@keyframes source-spin {
+		to { transform: rotate(1turn); }
+	}
+
+	.source-buttons-group button:hover {
 		background-color: #f0f0f0;
 	}
 
-	.source-buttons-container button.active {
+	.source-buttons-group button.active {
 		background-color: #4285F4;
 		color: white;
 		border-color: #3367d6;
+	}
+
+	.source-label {
+		writing-mode: vertical-rl;
+		text-orientation: mixed;
+		font-size: 1rem;
+		font-weight: 500;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-height: 100%;
 	}
 
 	.svg-overlay {
@@ -1955,66 +2024,8 @@
 		pointer-events: none;
 	}
 
-	.source-icon-wrapper {
-		position: relative;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		margin-right: 0.5rem;
-		/*background-color: rgba(255, 255, 255, 0.1);*/
-	}
-
-	 .source-buttons-container.compact button {
-		opacity: 0.7;
-	}
-
-	.source-buttons-container:not(.compact) button {
-		opacity: 1;
-	}
-
-	.source-icon {
-		width: 1rem;
-		height: 1rem;
-		border-radius: 5%;
-		border: 1px solid #ccc;
-	}
-
-	.source-icon-wrapper :global(.spinner-container) {
-		position: absolute;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
-	}
-
-	/* Compact mode styles */
-	.source-buttons-container.compact button {
-		justify-content: center;
-	}
-
-	.source-buttons-container.compact .source-icon-wrapper {
-		margin-right: 0;
-	}
-
-	.location-button-container button {
+	.location-button-container button:not(.active) {
 		opacity: 0.6;
-	}
-
-	/* Toggle button styles */
-	.toggle-compact {
-		border: 1px solid #999 !important;
-		background-color: #f8f8f8 !important;
-		transition: all 0.2s;
-
-	}
-
-	.toggle-compact:hover {
-		background-color: #e8e8e8 !important;
-	}
-
-	.toggle-compact.active {
-		background-color: #ddd !important;
-		color: black !important;
-		border-color: #555 !important;
 	}
 
 	/* Enlarge zoom controls for easier touch interaction */
@@ -2031,13 +2042,7 @@
 		background-color: rgba(255, 255, 255, 0.7) !important;
 	}
 
-	.provider-selector-container {
-		position: absolute;
-		top: 143px;
-		left: 10px;
-		z-index: 30000;
-		background-color: rgba(255, 255, 255, 0.5);
-	}
+	/* TileProviderSelector is now inside .hunter-panel-bottom */
 
 	.show-all-marker-icon {
 		display: flex;
@@ -2059,7 +2064,7 @@
 		align-items: center;
 		justify-content: center;
 		gap: 1px;
-		padding: 0px 4px;
+		padding: 6px 8px;
 		border: 1px solid #ccc;
 		border-radius: 4px;
 		background-color: rgba(255, 255, 255, 0.9);
@@ -2109,8 +2114,8 @@
 
 	.attribution-info-button {
 		position: absolute;
-		top: 191px;
-		left: 10px;
+		bottom: 0px;
+		left: 6px;
 		z-index: 20000;
 		width: 32px;
 		height: 32px;

@@ -21,7 +21,7 @@ export function resizableSplit(node: HTMLElement, options: SplitOptions = {}) {
 		defaultSplit = 50,
 		onResize,
 		disabled = false,
-		dividerSize = 12
+		dividerSize = 22
 	} = options;
 
 	let isResizing = false;

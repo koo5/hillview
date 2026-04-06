@@ -58,12 +58,11 @@
 <style>
     .provider-selector {
         position: relative;
-        z-index: 1000;
+        z-index: 30001;
+        display: flex;
     }
 
     .provider-button {
-		position: absolute;
-		top: 0rem;
         display: flex;
         align-items: center;
         padding: 0.6rem 0.3rem;
@@ -86,9 +85,9 @@
 
     .provider-menu {
         position: absolute;
-        top: -100px;
-		left: 2rem;
-		margin-bottom: 0.25rem;
+        bottom: 100%;
+        right: 0;
+        margin-bottom: 0.25rem;
         background-color: white;
         border: 1px solid #ccc;
         border-radius: 0.25rem;

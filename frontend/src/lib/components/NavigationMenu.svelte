@@ -1,11 +1,13 @@
 <script lang="ts">
     import {
-        Map, Images, Activity, Award, Database, Info, Download, User, EyeOff, LogOut, Users, Settings
+        Map, Images, Activity, Award, Database, Info, Download, User, EyeOff, LogOut, Users, Settings, Maximize2, Minimize2
     } from 'lucide-svelte';
     import { auth, logout } from '$lib/auth.svelte.js';
+    import { isFullscreen, toggleFullscreen } from '$lib/fullscreen.svelte';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
     import { BUILD_TIME, BUILD_VERSION, BUILD_GIT_COMMIT, APP_VERSION, formatBuildTime } from '$lib/buildInfo';
     import { TAURI } from '$lib/tauri.js';
+    import { browser } from '$app/environment';
     import { openExternalUrl } from '$lib/urlUtils';
 	import {backendUrl} from "$lib/config";
     import { Bug } from 'lucide-svelte';
@@ -109,6 +111,17 @@
                         <Settings size={18}/>
                         Settings
                     </a>
+                </li>
+                <li>
+                    <button class="menu-button" on:click={toggleFullscreen} data-testid="fullscreen-menu-btn">
+                        {#if $isFullscreen}
+                            <Minimize2 size={18}/>
+                            Exit Fullscreen
+                        {:else}
+                            <Maximize2 size={18}/>
+                            Fullscreen
+                        {/if}
+                    </button>
                 </li>
                 {#if is_authenticated}
                     <li>

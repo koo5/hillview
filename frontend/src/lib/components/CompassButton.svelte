@@ -218,7 +218,7 @@
         padding: 8px;
         cursor: pointer;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-        transition: all 0.2s ease;
+        transition: background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
         position: relative;
         min-width: 60px;
         min-height: 44px;
@@ -246,7 +246,8 @@
     }
 
     .compass-button.loading {
-        animation: pulse 1.5s ease-in-out infinite;
+        animation: pulse 0.8s ease-in-out infinite;
+        will-change: opacity;
     }
 
     .compass-button.error {
@@ -256,7 +257,7 @@
     }
 
     .compass-button.flash {
-        border-radius: 100%;
+        color: #34d399;
     }
 
     .compass-button.dropdown-open {

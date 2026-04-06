@@ -10,8 +10,7 @@
 		Menu,
 		Bug,
 		Maximize2,
-		Minimize2,
-		Ruler
+		Minimize2
 	} from 'lucide-svelte';
 	import {
 		app,
@@ -55,22 +54,7 @@
 	let update_url: boolean = false;
 	let menuOpen = false;
 	let containerElement: HTMLElement;
-	let isFullscreen = false;
 	let screenAngleUnlisten: PluginListener | null = null;
-
-	function toggleFullscreen() {
-		if (!document.fullscreenElement) {
-			document.documentElement.requestFullscreen().then(() => {
-				isFullscreen = true;
-			}).catch(err => {
-				console.warn('Fullscreen request failed:', err);
-			});
-		} else {
-			document.exitFullscreen().then(() => {
-				isFullscreen = false;
-			});
-		}
-	}
 
 	async function handleNativeCapture() {
 		console.log('🢄[NATIVE CAMERA] Starting native camera capture');
@@ -87,12 +71,6 @@
 		}
 	}
 
-	// Listen for fullscreen changes (e.g., user presses Escape)
-	if (browser) {
-		document.addEventListener('fullscreenchange', () => {
-			isFullscreen = !!document.fullscreenElement;
-		});
-	}
 
 	$: showCameraView = $app.activity === 'capture';
 	$: showLinesEditor = $app.activity === 'lines';
@@ -510,11 +488,15 @@
 	title="{showLinesEditor ? 'Close lines view' : 'Show lines view'}"
 	data-testid="lines-button"
 >
-	<Ruler size={24} />
+	<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+		<line x1="5" y1="19" x2="19" y2="5" stroke="#4a90e2" stroke-width="3" stroke-linecap="round"/>
+		<circle cx="5" cy="19" r="3.5" fill="#e24a4a" stroke="white" stroke-width="1.5"/>
+		<circle cx="19" cy="5" r="3.5" fill="#4a90e2" stroke="white" stroke-width="1.5"/>
+	</svg>
 </button>
 
 
-{#if BROWSER}
+<!--{#if BROWSER}
 	<button
 		on:click={toggleFullscreen}
 		class="fullscreen-toggle"
@@ -528,7 +510,7 @@
 			<Maximize2 size={24}/>
 		{/if}
 	</button>
-{/if}
+{/if}-->
 
 <NavigationMenu isOpen={menuOpen} onClose={() => menuOpen = false}/>
 
