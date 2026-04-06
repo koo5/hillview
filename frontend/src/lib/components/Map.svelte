@@ -7,6 +7,7 @@
 	import { activeFilterCount, openFiltersModal, clearFilters } from './filters-modal/filtersStore';
 	import L from 'leaflet';
 	import 'leaflet/dist/leaflet.css';
+	import 'leaflet-textpath';
 	import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
 	import Spinner from './Spinner.svelte';
 	import TileProviderSelector from './TileProviderSelector.svelte';
@@ -1197,6 +1198,10 @@
 			lineLayerGroup.remove();
 			lineLayerGroup = null;
 		}
+		if (lineSvgRenderer) {
+			lineSvgRenderer.remove();
+			lineSvgRenderer = null;
+		}
 		renderedLines = [];
 
 		// Clean up optimized marker system
@@ -1300,6 +1305,7 @@
 
 	// --- Line rendering ---
 	let lineLayerGroup: L.LayerGroup | null = null;
+	let lineSvgRenderer: L.SVG | null = null;
 	// Track rendered line data for touch hit detection
 	let renderedLines: { index: number; polyline: L.Polyline; startMarker: L.Marker; endMarker: L.Marker }[] = [];
 	let lineTouchHandler: ((e: TouchEvent) => void) | null = null;
@@ -1328,6 +1334,10 @@
 			if (!visible || !map) {
 				lineLayerGroup.remove();
 				lineLayerGroup = null;
+				if (lineSvgRenderer) {
+					lineSvgRenderer.remove();
+					lineSvgRenderer = null;
+				}
 				return;
 			}
 		}
@@ -1335,6 +1345,10 @@
 
 		if (!lineLayerGroup) {
 			lineLayerGroup = L.layerGroup().addTo(map);
+		}
+		if (!lineSvgRenderer) {
+			lineSvgRenderer = L.svg();
+			lineSvgRenderer.addTo(map);
 		}
 
 		const endIcon = L.divIcon({ className: 'line-endpoint', iconSize: [14, 14], iconAnchor: [7, 7] });
@@ -1392,9 +1406,27 @@
 
 			const polyline = L.polyline(
 				[[line.start.lat, line.start.lng], [line.end.lat, line.end.lng]],
-				{ color: '#4a90e2', weight: 4, interactive: true }
+				{ color: '#4a90e2', weight: 4, interactive: true, renderer: lineSvgRenderer! }
 			);
 			lineLayerGroup!.addLayer(polyline);
+
+			// Add text label along the line
+			if (line.label) {
+				(polyline as any).setText(line.label, {
+					center: true,
+					offset: -5,
+					attributes: {
+						'font-size': '13px',
+						fill: '#000000',
+						'font-family': 'sans-serif',
+						'paint-order': 'stroke',
+						stroke: '#ffffff',
+						'stroke-width': '3px',
+						'stroke-linecap': 'round',
+						'stroke-linejoin': 'round',
+					}
+				});
+			}
 
 			// Start marker (draggable)
 			const startMarker = L.marker([line.start.lat, line.start.lng], { draggable: true, icon: startIcon });
