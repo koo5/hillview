@@ -10,6 +10,7 @@ import {AngularRangeCuller, sortPhotosByBearing} from './AngularRangeCuller';
 import {normalizeBearing, getBearingColor} from './utils/bearingUtils';
 import {invoke} from "@tauri-apps/api/core";
 import {TAURI} from "$lib/tauri";
+import { overrideFilters } from '$lib/components/filters-modal/filtersStore';
 
 const doLog = false;
 ;
@@ -78,15 +79,54 @@ export const anyFeatured = writable<boolean>(false);
 export const anyFiltered = writable<boolean>(false);
 
 // Hunter mode: disables "featured grays out the rest" behavior + shows advanced UI controls
-export const hunterMode = localStorageReadOnceSharedStore<boolean>('hunterMode', false);
+// Persisted user preference (localStorage)
+const hunterModePref = localStorageReadOnceSharedStore<boolean>('hunterMode', false);
+// Session-only override from URL photo (null = use preference)
+const hunterModeOverride = writable<boolean | null>(null);
+// Effective hunterMode — override wins if set, otherwise falls back to preference
+export const hunterMode = derived(
+	[hunterModePref, hunterModeOverride],
+	([pref, override]) => override !== null ? override : pref
+);
 
-// Override filters: temporarily shows filtered-out photos (toggled by long-pressing Filters button)
-export const overrideFilters = writable<boolean>(false);
+export function toggleHunterMode() {
+	hunterModeOverride.set(null);
+	hunterModePref.update(v => !v);
+}
+
+export function setHunterMode(value: boolean) {
+	hunterModeOverride.set(null);
+	hunterModePref.set(value);
+}
+
+
+// URL photo auto-hunterMode: one-shot mechanism
+// When a URL with a photo param loads, we remember the photo UID here.
+// Once the photo appears in photosInRange, we set hunterMode based on its featured status.
+let urlRequestedPhotoUid: string | null = null;
+
+export function setUrlRequestedPhoto(uid: string) {
+	urlRequestedPhotoUid = uid;
+}
 
 // Update anyFeatured/anyFiltered when photosInRange changes
 photosInRange.subscribe(photos => {
 	anyFeatured.set(photos.some(p => p.featured === true && !p.filtered));
 	anyFiltered.set(photos.some(p => p.filtered === true));
+});
+
+// Auto-set hunterMode when URL-requested photo appears in range
+photosInRange.subscribe(photos => {
+	if (!urlRequestedPhotoUid) return;
+	const photo = photos.find(p => p.uid === urlRequestedPhotoUid);
+	if (photo) {
+		const shouldBeHunterMode = !photo.featured;
+		if (get(hunterMode) !== shouldBeHunterMode) {
+			console.log(`🢄URL photo ${photo.uid}: featured=${photo.featured}, setting hunterMode override=${shouldBeHunterMode}`);
+			hunterModeOverride.set(shouldBeHunterMode);
+		}
+		urlRequestedPhotoUid = null; // one-shot
+	}
 });
 
 // Photos eligible for navigation: exclude filtered, and when featured exist exclude non-featured

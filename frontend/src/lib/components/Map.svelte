@@ -41,9 +41,13 @@
 		anyFeatured,
 		anyFiltered,
 		hunterMode,
-		overrideFilters,
+		toggleHunterMode,
+		setHunterMode,
+
 		mapReady,
+		setUrlRequestedPhoto,
 	} from "$lib/mapState";
+	import { overrideFilters } from '$lib/components/filters-modal/filtersStore';
 	import {updateBearingWithPhoto} from "$lib/bearingTracking";
 	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
@@ -289,6 +293,8 @@
 			picks.set(new Set([photoUid])); // ensure culling grid keeps this photo
 			// Switch to view mode when opening a specific photo
 			app.update(a => ({...a, activity: 'view'}));
+			// Auto-set hunterMode once this photo arrives in range
+			setUrlRequestedPhoto(photoUid);
 		}
 
 		await updateSpatialState({...p}, 'map');
@@ -752,9 +758,9 @@
 		// Clicking a featured photo returns to tourist mode;
 		// clicking a non-featured photo enables hunter mode so it stays navigable
 		if (photo.featured) {
-			if (get(hunterMode)) hunterMode.set(false);
+			if (get(hunterMode)) setHunterMode(false);
 		} else {
-			if (!get(hunterMode)) hunterMode.set(true);
+			if (!get(hunterMode)) setHunterMode(true);
 		}
 		if (photo.filtered && !get(overrideFilters)) {
 			overrideFilters.set(true);
@@ -1682,13 +1688,13 @@
 <!--		</button>-->
 		<button
 			class="filters-button"
-			class:active={$activeFilterCount > 0 || $overrideFilters}
+			class:active={$activeFilterCount > 0}
 			use:longPress={{ onShortPress: () => openFiltersModal(), onLongPress: () => overrideFilters.update(v => !v) }}
 			title={$overrideFilters ? "Filters overridden (long-press to restore)" : "Filters (long-press to override)"}
 			data-testid="filters-button"
 		>
 			<Filter size={18} />
-			<span class="filters-button-text">Filters</span>({$activeFilterCount}{$overrideFilters ? ' ⊘' : ''})
+			<span class="filters-button-text" class:overridden={$overrideFilters}>Filters ({$activeFilterCount})</span>
 		</button>
 		<div class="hunter-panel-separator"></div>
 		<TileProviderSelector />
@@ -1696,7 +1702,7 @@
 	<button
 		class="hunter-mode-toggle"
 		class:active={$hunterMode}
-		on:click={() => hunterMode.update(v => !v)}
+		on:click={toggleHunterMode}
 		title={$hunterMode ? "Hide advanced controls" : "Show advanced controls"}
 		data-testid="hunter-mode-toggle"
 	>
@@ -2179,6 +2185,10 @@
 
 	.filters-button.active:hover {
 		background-color: #2563eb;
+	}
+
+	.filters-button-text.overridden {
+		text-decoration: line-through;
 	}
 
 	@container (max-width: 500px) {

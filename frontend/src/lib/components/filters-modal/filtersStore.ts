@@ -18,6 +18,14 @@ const defaultFilters: QueryOptions = {
 
 export const filters = localStorageReadOnceSharedStore<QueryOptions>('hillview_filters', defaultFilters);
 
+// Override filters: temporarily shows filtered-out photos (toggled by long-pressing Filters button)
+export const overrideFilters = writable<boolean>(false);
+
+filters.subscribe(($filters) => {
+	overrideFilters.set(false);
+});
+
+
 export const activeFilterCount = derived(filters, ($filters) => {
 	let count = 0;
 	if ($filters.time_of_day) count++;

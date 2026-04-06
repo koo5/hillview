@@ -37,8 +37,12 @@
 }
 
 .bearing-circle.grayed {
-  filter: grayscale(1) contrast(20%);
-  opacity: 1;
+  filter: grayscale(1) contrast(20%) opacity(0.71);
+}
+
+/* When circle is grayed, gray the entire marker container */
+.marker-container:has(.bearing-circle.grayed) {
+  opacity: 0.45;
 }
 
 .bearing-circle.selected {
