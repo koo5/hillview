@@ -117,6 +117,33 @@ test.describe('Featured Photos', () => {
 		await expect(circle).not.toHaveClass(/grayed/);
 	});
 
+	test('URL with featured photo auto-sets hunterMode off', async ({ page, testUsers }) => {
+		await setFeatured(photoId1, true);
+		await loginAsTestUser(page, testUsers.passwords.test);
+
+		// Navigate via URL sharing a featured photo
+		const photoUrl = `/?lat=50.1153&lon=14.4938&zoom=18&bearing=0&photo=hillview-${photoId1}`;
+		await page.goto(photoUrl);
+		await page.waitForLoadState('networkidle');
+
+		// Hunter mode should be off because the URL photo is featured
+		const hunterToggle = page.locator('[data-testid="hunter-mode-toggle"]');
+		await expect(hunterToggle).not.toHaveClass(/active/, { timeout: 15000 });
+	});
+
+	test('URL with non-featured photo auto-sets hunterMode on', async ({ page, testUsers }) => {
+		await loginAsTestUser(page, testUsers.passwords.test);
+
+		// Navigate via URL sharing a non-featured photo (photoId2 was never featured)
+		const photoUrl = `/?lat=50.1153&lon=14.4938&zoom=18&bearing=0&photo=hillview-${photoId2}`;
+		await page.goto(photoUrl);
+		await page.waitForLoadState('networkidle');
+
+		// Hunter mode should be on because the URL photo is not featured
+		const hunterToggle = page.locator('[data-testid="hunter-mode-toggle"]');
+		await expect(hunterToggle).toHaveClass(/active/, { timeout: 15000 });
+	});
+
 	test('unfeaturing all photos removes graying', async ({ page, testUsers }) => {
 		await setFeatured(photoId1, false);
 

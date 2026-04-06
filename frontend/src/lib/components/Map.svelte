@@ -1285,7 +1285,7 @@
 		const range = $spatialState.range;
 		const center = $spatialState.center;
 		if (map && center && range) {
-			const edgeLatLng = destinationPoint(center.lat, center.lng, bearing, range / 1000);
+			const edgeLatLng = destinationPoint(center.lat, center.lng, bearing, (range*2.6/2) / 1000);
 			const edgePx = map.latLngToContainerPoint(new LatLng(edgeLatLng.lat, edgeLatLng.lng));
 			arrowX = edgePx.x;
 			arrowY = edgePx.y;

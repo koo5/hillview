@@ -7,11 +7,13 @@
 </script>
 
 {#if photo?.description}
-	<div class="photo-description" data-testid="photo-description">
+	<div class="photo-description" data-testid="photo-description"
+		on:mousedown|stopPropagation on:touchstart|stopPropagation>
 		{photo.description}
 	</div>
 	{:else if photo?.filename}
-	<div class="photo-description" data-testid="photo-filename">
+	<div class="photo-description" data-testid="photo-filename"
+		on:mousedown|stopPropagation on:touchstart|stopPropagation>
 		{photo.filename}
 	</div>
 {/if}
@@ -33,12 +35,13 @@
 		font-size: 0.75rem;
 		padding: 2px 8px;
 		border-radius: 8px;
-		pointer-events: none;
 		z-index: 10;
 		max-width: 80%;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		user-select: text;
+		cursor: text;
 	}
 
 	.annotation-indicator {
