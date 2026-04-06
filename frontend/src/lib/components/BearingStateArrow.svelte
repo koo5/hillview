@@ -8,6 +8,10 @@
 	export let arrowX = width / 2;
 	export let arrowY = 0;
 
+	// Hit area covers the outer third of the arrow
+	$: hitStartX = centerX + (arrowX - centerX) * 1.8 / 3;
+	$: hitStartY = centerY + (arrowY - centerY) * 1.8 / 3;
+
 	const dispatch = createEventDispatcher();
 
 	function handlePointerDown(e: PointerEvent) {
@@ -25,18 +29,6 @@
 	style="pointer-events: none;"
 	data-testid="bearing-arrow-svg"
 >
-	<!-- Fat invisible hit area for easier grabbing -->
-	<line
-		stroke="transparent"
-		stroke-width="30"
-		x1={centerX}
-		x2={arrowX}
-		y1={centerY}
-		y2={arrowY}
-		style="pointer-events: auto; cursor: grab;"
-		on:pointerdown={handlePointerDown}
-		data-testid="bearing-arrow-hitarea"
-	/>
 	<line
 		marker-end="url(#arrowhead)"
 		stroke="rgb(74, 244, 74)"
@@ -46,12 +38,22 @@
 		x2={arrowX}
 		y1={centerY}
 		y2={arrowY}
+	/>
+	<!-- Hit area on outer third of arrow for dragging -->
+	<line
+		x1={hitStartX}
+		y1={hitStartY}
+		x2={arrowX}
+		y2={arrowY}
+		stroke="transparent"
+		stroke-width="30"
 		style="pointer-events: auto; cursor: grab;"
 		on:pointerdown={handlePointerDown}
+		data-testid="bearing-arrow-hitarea"
 	/>
 	<defs>
 		<marker
-			id="arrowhead"
+		id="arrowhead"
 			markerHeight="7"
 			markerWidth="10"
 			orient="auto"

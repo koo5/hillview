@@ -1,5 +1,5 @@
 <script>
-	import SpatialStateArrow from './SpatialStateArrow.svelte';
+	import BearingStateArrow from './BearingStateArrow.svelte';
 
 	export let centerX;
 	export let centerY;
@@ -10,7 +10,7 @@
 
 <div class="spatial-state-arrow-icon">
 
-<SpatialStateArrow
+<BearingStateArrow
 	{centerX}
 	{centerY}
 	{arrowX}

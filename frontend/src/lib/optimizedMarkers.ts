@@ -6,6 +6,7 @@ import {get, writable} from 'svelte/store';
 import {app} from "$lib/data.svelte";
 import {getBearingColor} from './utils/bearingUtils';
 import {getPhotoSourceId, getPhotoSourceColor} from './photoUtils';
+import {getDistance} from './utils/distanceUtils';
 
 const doLog = false;
 
@@ -14,6 +15,14 @@ export interface OptimizedMarkerOptions {
 	maxPoolSize: number;
 	enableSelection: boolean;
 	onMarkerClick?: (photo: PhotoData) => void;
+}
+
+export interface GrayingContext {
+	center: { lat: number; lng: number };
+	range: number;
+	anyFeatured: boolean;
+	hunterMode: boolean;
+	overrideFilters: boolean;
 }
 
 const bearingDiffColorsUpdateIntervalInCaptureMode = 3000; // ms
@@ -62,14 +71,14 @@ export class OptimizedMarkerSystem {
 	/**
 	 * Create optimized marker with separated visual elements
 	 */
-	createOptimizedMarker(photo: PhotoData): L.Marker {
+	createOptimizedMarker(photo: PhotoData, grayingCtx?: GrayingContext): L.Marker {
 		const marker = this.getPooledMarker() || new L.Marker([0, 0], { interactive: true });
 
 		// Update marker position (will be adjusted with CSS transform for bearing offset)
 		marker.setLatLng(photo.coord);
 
 		// Create the separated visual elements
-		const icon = this.createSeparatedIcon(photo);
+		const icon = this.createSeparatedIcon(photo, grayingCtx);
 		marker.setIcon(icon);
 
 		const currentPhotoInFront = get(photoInFront);
@@ -94,7 +103,7 @@ export class OptimizedMarkerSystem {
 	/**
 	 * Create icon with separated arrow and bearing circle
 	 */
-	private createSeparatedIcon(photo: PhotoData): L.DivIcon {
+	private createSeparatedIcon(photo: PhotoData, grayingCtx?: GrayingContext): L.DivIcon {
 		const currentPhotoInFront = get(photoInFront);
 		const isSelected = ((currentPhotoInFront && photo.id === currentPhotoInFront.id) || false) && (get(app).activity != 'capture')
 		const {arrowSize} = this.atlasDimensions;
@@ -105,6 +114,9 @@ export class OptimizedMarkerSystem {
 
 		const bearingColor = photo.featured ? 'gold' : photo.bearing_color;
 
+		// Compute initial grayed state so it's baked into the HTML
+		const grayed = grayingCtx ? this.shouldGray(photo, grayingCtx) : false;
+
 		return L.divIcon({
 			className: 'optimized-photo-marker',
 			html: this.markerDivsHtml(
@@ -113,8 +125,9 @@ export class OptimizedMarkerSystem {
 					isSelected,
 					getPhotoSourceColor(photo),
 					data,
-					12,
-					photo.id
+					7,
+					photo.id,
+					grayed
 				),
 			iconSize: [arrowSize, arrowSize],
 			iconAnchor: [arrowSize / 2, arrowSize / 2]
@@ -129,7 +142,8 @@ export class OptimizedMarkerSystem {
 		sourceColor?: string,
 		data: string = '',
 		offsetPixels: number = 0,
-		photoId?: string
+		photoId?: string,
+		grayed: boolean = false
 	): string {
 
 		const {arrowSize} = this.atlasDimensions;
@@ -156,8 +170,12 @@ export class OptimizedMarkerSystem {
 				   transform: translate(${offsetX.toFixed(1)}px, ${offsetY.toFixed(1)}px);
 				 ">
 
+			  <!-- Dot at actual photo GPS position (counters parent offset) -->
+			  <div class="photo-origin-dot"
+				   style="transform: translate(${(-offsetX).toFixed(1)}px, ${(-offsetY).toFixed(1)}px);"></div>
+
 			  <!-- Bearing diff circle (background) -->
-			  <div class="bearing-circle ${isSelected ? 'selected' : ''}"
+			  <div class="bearing-circle ${isSelected ? 'selected' : ''}${grayed ? ' grayed' : ''}"
 				   style="
 					 background-color: ${color};
 					 width: ${circleSize}px;
@@ -301,7 +319,7 @@ export class OptimizedMarkerSystem {
 	/**
 	 * Update markers for new photo set with pooling
 	 */
-	updateMarkers(map: L.Map, photos: PhotoData[]): L.Marker[] {
+	updateMarkers(map: L.Map, photos: PhotoData[], grayingCtx?: GrayingContext): L.Marker[] {
 
 		////console.log(`OptimizedMarkerSystem: updateMarkers called with ${photos.length} photos`);
 		////console.log(`OptimizedMarkerSystem: current activeMarkers count: ${this.activeMarkers.length}`);
@@ -312,7 +330,7 @@ export class OptimizedMarkerSystem {
 
 		// Create/reuse markers for new photos
 		this.activeMarkers = photos.map((photo, index) => {
-			const marker = this.createOptimizedMarker(photo);
+			const marker = this.createOptimizedMarker(photo, grayingCtx);
 			marker.addTo(map);
 
 			return marker;
@@ -426,11 +444,23 @@ export class OptimizedMarkerSystem {
 	}
 
 	/**
-	 * Update grayed state on all active markers.
+	 * Determine whether a photo should be grayed given the current context.
 	 * Filtered photos are grayed unless overrideFilters is on.
-	 * Non-featured photos in range are grayed when featured photos exist, unless hunterMode is on.
+	 * Non-featured photos within range distance are grayed when featured photos exist, unless hunterMode is on.
 	 */
-	updateGraying(photosInRangeIds: Set<string>, anyFeatured: boolean, hunterMode: boolean, overrideFilters: boolean): void {
+	private shouldGray(photo: PhotoData, ctx: GrayingContext): boolean {
+		if (!ctx.overrideFilters && photo.filtered) return true;
+		if (!ctx.hunterMode && ctx.anyFeatured && !photo.featured) {
+			const dist = getDistance(ctx.center, photo.coord);
+			if (dist <= ctx.range) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Update grayed state on all active markers.
+	 */
+	updateGraying(ctx: GrayingContext): void {
 		for (const marker of this.activeMarkers) {
 			if (!marker) continue;
 			const photoData = (marker as any)._photoData as PhotoData;
@@ -441,11 +471,7 @@ export class OptimizedMarkerSystem {
 			const circle = element.querySelector('.bearing-circle');
 			if (!circle) continue;
 
-			const shouldGray = (
-				(!overrideFilters && photoData.filtered) ||
-				(!hunterMode && anyFeatured && photosInRangeIds.has(photoData.id) && !photoData.featured)
-			);
-			circle.classList.toggle('grayed', shouldGray);
+			circle.classList.toggle('grayed', this.shouldGray(photoData, ctx));
 		}
 	}
 

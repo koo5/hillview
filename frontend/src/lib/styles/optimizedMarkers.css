@@ -131,6 +131,39 @@
 
 /* Disable pointer events on decorative children so clicks bubble to container */
 .bearing-circle,
-.direction-arrow {
+.direction-arrow,
+.photo-origin-dot {
   pointer-events: none;
+}
+
+/* Small cross at the actual GPS position of the photo */
+.photo-origin-dot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  z-index: 1;
+}
+
+.photo-origin-dot::before,
+.photo-origin-dot::after {
+  content: '';
+  position: absolute;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.photo-origin-dot::before {
+  width: 5px;
+  height: 1px;
+  top: 2px;
+  left: 0;
+}
+
+.photo-origin-dot::after {
+  width: 1px;
+  height: 5px;
+  top: 0;
+  left: 2px;
 }

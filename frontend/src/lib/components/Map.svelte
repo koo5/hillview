@@ -23,7 +23,7 @@
 		startLocationTracking,
 		stopLocationTracking
 	} from '$lib/locationManager';
-	import SpatialStateArrow from './SpatialStateArrow.svelte';
+	import BearingStateArrow from './BearingStateArrow.svelte';
 
 	import {
 		spatialState,
@@ -56,7 +56,6 @@
 	import PhotoMarkerIcon from './PhotoMarkerIcon.svelte';
 
 	import {get} from "svelte/store";
-	import SpatialStateArrowIcon from "$lib/components/SpatialStateArrowIcon.svelte";
 	import {stringifyCircularJSON} from "$lib/utils/json";
 	import {TAURI} from "$lib/tauri";
 	import {parsePhotoUid} from "$lib/urlUtilsServer";
@@ -390,17 +389,21 @@
 
 		//console.log(`🢄Map: updateOptimizedMarkers called with ${photos.length} photos, updateId: ${updateId}`);
 
+		// Build graying context so markers are created with correct initial state
+		const spatial = get(spatialState);
+		const grayingCtx = {
+			center: spatial.center,
+			range: spatial.range,
+			anyFeatured: get(anyFeatured),
+			hunterMode: get(hunterMode),
+			overrideFilters: get(overrideFilters),
+		};
+
 		// Use the optimized marker system
-		const updatedMarkers = optimizedMarkerSystem.updateMarkers(map, photos);
+		const updatedMarkers = optimizedMarkerSystem.updateMarkers(map, photos, grayingCtx);
 		if (updatedMarkers) {
 			currentMarkers = updatedMarkers;
 			//console.log(`🢄Map: Updated ${currentMarkers.length} optimized markers`);
-
-			// Apply graying after markers are added to the DOM
-			requestAnimationFrame(() => {
-				const inRangeIds = new Set(get(photosInRange).map(p => p.id));
-				optimizedMarkerSystem.updateGraying(inRangeIds, get(anyFeatured), get(hunterMode), get(overrideFilters));
-			});
 		} else {
 			console.warn('🢄Map: optimizedMarkerSystem.updateMarkers returned undefined');
 		}
@@ -1309,15 +1312,20 @@
 		}
 	}
 
-	// Update grayed state when photosInRange, anyFeatured, anyFiltered, hunterMode, overrideFilters, or markers change
+	// Update grayed state when anyFeatured, anyFiltered, hunterMode, overrideFilters, spatialState, or markers change
 	$: {
 		void $anyFiltered; // track for reactivity
 		void $overrideFilters; // track for reactivity
 		void $hunterMode; // track for reactivity
 		void currentMarkers; // re-apply after marker recreation
-		if ($photosInRange && map && currentMarkers.length > 0) {
-			const inRangeIds = new Set($photosInRange.map(p => p.id));
-			optimizedMarkerSystem.updateGraying(inRangeIds, $anyFeatured, $hunterMode, $overrideFilters);
+		if (map && currentMarkers.length > 0) {
+			optimizedMarkerSystem.updateGraying({
+				center: $spatialState.center,
+				range: $spatialState.range,
+				anyFeatured: $anyFeatured,
+				hunterMode: $hunterMode,
+				overrideFilters: $overrideFilters,
+			});
 		}
 	}
 
@@ -1601,7 +1609,7 @@
 
 		<div class="svg-overlay">
 
-			<SpatialStateArrow
+			<BearingStateArrow
 				{width}
 				{height}
 				{centerX}
