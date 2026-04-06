@@ -9,7 +9,7 @@ import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
 import {TAURI, BROWSER} from "$lib/tauri";
 // Import new mapState for legacy compatibility only
-import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown, hunterMode} from './mapState';
+import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown} from './mapState';
 import {updateBearingWithPhoto} from './bearingTracking';
 import {updateSettings} from "$lib/settings";
 
@@ -30,7 +30,7 @@ export interface Line {
 export let linesVisible = localStorageSharedStore('linesVisible', false);
 export let lines = localStorageSharedStore<Line[]>('lines', []);
 
-export { hunterMode };
+
 
 
 // Device source subtypes

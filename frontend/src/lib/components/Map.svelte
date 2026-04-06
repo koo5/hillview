@@ -1961,7 +1961,6 @@
 		position: absolute;
 		top: 16px;
 		left: 50%;
-		transform: translateX(-50%);
 		z-index: 30000;
 		display: flex;
 		gap: 8px;
@@ -2088,10 +2087,14 @@
 		opacity: 0.6;
 	}
 
-	/* Enlarge zoom controls for easier touch interaction */
+	/* Align scale and zoom controls flush */
+	:global(.leaflet-control-scale) {
+		margin-bottom: 0 !important;
+	}
+
 	:global(.leaflet-control-zoom) {
 		background-color: rgba(255, 255, 255, 0.5) !important;
-		/*bottom: calc(10px + var(--safe-area-inset-bottom, 0px)) !important;*/
+		margin-top: 0 !important;
 	}
 
 	:global(.leaflet-control-zoom a) {
@@ -2100,6 +2103,21 @@
 		line-height: 44px !important;
 		font-size: 24px !important;
 		background-color: rgba(255, 255, 255, 0.7) !important;
+	}
+
+	/* Portrait: map is bottom, offset from divider on top */
+	@media (orientation: portrait) {
+		:global(.leaflet-control-scale) {
+			margin-top: 16px !important;
+		}
+	}
+
+	/* Landscape: map is right, offset from divider on left */
+	@media (orientation: landscape) {
+		:global(.leaflet-control-scale),
+		:global(.leaflet-control-zoom) {
+			margin-left: 16px !important;
+		}
 	}
 
 	/* TileProviderSelector is now inside .hunter-panel-bottom */
