@@ -10,8 +10,7 @@
 	import PhotoMarkerIcon from "$lib/components/PhotoMarkerIcon.svelte";
     import {zoomViewData} from '$lib/zoomView.svelte.js';
     import {app} from '$lib/data.svelte';
-    import {isTouchDevice} from '$lib/deviceCapabilities';
-    import {Camera, Award, Activity, Move} from 'lucide-svelte';
+    import {Camera, Award, Activity, Move, ChevronLeft, ChevronRight, ChevronUp, ChevronDown} from 'lucide-svelte';
     import {toggleCamera} from '$lib/appActions';
 
     onDestroy(() => {
@@ -21,9 +20,6 @@
     let clientWidth: number;
     let photoContainer: HTMLElement;
     let photosGrid: HTMLElement;
-
-    // Reactive swipe options
-    $: showNavButtons = !$isTouchDevice || $app.debug_enabled;
 
     $: swipeOptions = {
         onSwipe: handleSwipe,
@@ -139,28 +135,28 @@
         </div>
     {:else}
     <div bind:clientWidth bind:this={photoContainer} class="photo-container" use:swipe2d={swipeOptions}>
-        <!-- Navigation buttons on sides -->
-        {#if showNavButtons && $photoToLeft}
+        <!-- Navigation buttons -->
+        {#if $photoToLeft}
             <button class="nav-button nav-left" on:click={() => handleSwipe('left')} title="Previous photo" data-testid="gallery-nav-left">
-                <PhotoMarkerIcon bearing={-90} />
+                <ChevronLeft size={20} />
             </button>
         {/if}
 
-        {#if showNavButtons && $photoToRight}
+        {#if $photoToRight}
             <button class="nav-button nav-right" on:click={() => handleSwipe('right')} title="Next photo" data-testid="gallery-nav-right">
-                <PhotoMarkerIcon bearing={90} />
+                <ChevronRight size={20} />
             </button>
         {/if}
 
-        {#if showNavButtons && $photoUp}
-            <button class="nav-button nav-up" on:click={() => handleSwipe('up')} title="Photo above">
-                ↑
+        {#if $photoUp}
+            <button class="nav-button nav-up" on:click={() => handleSwipe('up')} title="Photo above" data-testid="gallery-nav-up">
+                <ChevronUp size={20} />
             </button>
         {/if}
 
-        {#if showNavButtons && $photoDown}
-            <button class="nav-button nav-down" on:click={() => handleSwipe('down')} title="Photo below">
-                ↓
+        {#if $photoDown}
+            <button class="nav-button nav-down" on:click={() => handleSwipe('down')} title="Photo below" data-testid="gallery-nav-down">
+                <ChevronDown size={20} />
             </button>
         {/if}
 
@@ -403,51 +399,61 @@
 
     .nav-button {
         position: absolute;
-        background: rgba(0, 0, 0, 0.6);
+        background: rgba(0, 0, 0, 0.4);
         border: none;
         color: white;
         cursor: pointer;
-        font-size: 1.5rem;
-        font-weight: bold;
-        border-radius: 50%;
-        width: 48px;
-        height: 48px;
         display: flex;
         align-items: center;
         justify-content: center;
         z-index: 10;
-        opacity: 0.7;
-        transition: opacity 0.3s ease, background 0.3s ease;
+        opacity: 0.6;
+        transition: opacity 0.15s, background 0.15s;
         user-select: none;
+        padding: 0;
     }
 
     .nav-button:hover {
         opacity: 1;
-        background: rgba(0, 0, 0, 0.8);
+        background: rgba(0, 0, 0, 0.7);
+    }
+
+    .nav-left, .nav-right {
+        width: 28px;
+        height: 64px;
+        top: 50%;
+        transform: translateY(-50%);
+        border-radius: 6px;
     }
 
     .nav-left {
-        left: 16px;
-        top: 50%;
-        transform: translateY(-50%);
+        left: 0;
     }
 
     .nav-right {
-        right: 16px;
-        top: 50%;
-        transform: translateY(-50%);
+        right: 0;
+    }
+
+    @media (orientation: landscape) {
+        .nav-right {
+            right: 12px;
+        }
+    }
+
+    .nav-up, .nav-down {
+        width: 64px;
+        height: 28px;
+        left: 50%;
+        transform: translateX(-50%);
+        border-radius: 6px;
     }
 
     .nav-up {
-        top: 16px;
-        left: 50%;
-        transform: translateX(-50%);
+        top: 4px;
     }
 
     .nav-down {
-        bottom: 16px;
-        left: 50%;
-        transform: translateX(-50%);
+        bottom: 4px;
     }
 
 

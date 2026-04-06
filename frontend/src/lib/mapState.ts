@@ -77,8 +77,11 @@ export const anyFeatured = writable<boolean>(false);
 // Whether any photo in range is filtered out by analysis filters
 export const anyFiltered = writable<boolean>(false);
 
-// Whether to show all photos or only featured/non-filtered (persisted in localStorage)
-export const showAll = localStorageReadOnceSharedStore<boolean>('showAll', false);
+// Hunter mode: disables "featured grays out the rest" behavior + shows advanced UI controls
+export const hunterMode = localStorageReadOnceSharedStore<boolean>('hunterMode', false);
+
+// Override filters: temporarily shows filtered-out photos (toggled by long-pressing Filters button)
+export const overrideFilters = writable<boolean>(false);
 
 // Update anyFeatured/anyFiltered when photosInRange changes
 photosInRange.subscribe(photos => {
@@ -88,11 +91,10 @@ photosInRange.subscribe(photos => {
 
 // Photos eligible for navigation: exclude filtered, and when featured exist exclude non-featured
 export const navigablePhotos = derived(
-	[photosInRange, anyFeatured, showAll],
-	([photos, hasFeatured, all]) => {
-		if (all) return photos;
-		const navigable = photos.filter(p => !p.filtered);
-		return hasFeatured ? navigable.filter(p => p.featured) : navigable;
+	[photosInRange, anyFeatured, hunterMode, overrideFilters],
+	([photos, hasFeatured, hunter, override]) => {
+		const navigable = override ? photos : photos.filter(p => !p.filtered);
+		return (!hunter && hasFeatured) ? navigable.filter(p => p.featured) : navigable;
 	}
 );
 

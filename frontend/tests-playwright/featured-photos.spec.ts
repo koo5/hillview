@@ -24,9 +24,9 @@ async function goToMapWithMarkers(page: any): Promise<void> {
 	await page.waitForTimeout(3000); // wait for photos to load on map
 }
 
-/** Ensure showAll button is in the desired state. */
-async function ensureShowAll(page: any, desired: boolean): Promise<void> {
-	const btn = page.locator('[data-testid="show-all-button"]');
+/** Ensure hunter mode toggle is in the desired state. */
+async function ensureHunterMode(page: any, desired: boolean): Promise<void> {
+	const btn = page.locator('[data-testid="hunter-mode-toggle"]');
 	const isActive = await btn.evaluate((el: HTMLElement) => el.classList.contains('active'));
 	if (isActive !== desired) {
 		await btn.click();
@@ -49,11 +49,11 @@ test.describe('Featured Photos', () => {
 		expect(photoId2).toBeTruthy();
 	});
 
-	test('show-all button is visible on map', async ({ page, testUsers }) => {
+	test('hunter mode toggle is visible on map', async ({ page, testUsers }) => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 		await goToMapWithMarkers(page);
 
-		await expect(page.locator('[data-testid="show-all-button"]')).toBeVisible();
+		await expect(page.locator('[data-testid="hunter-mode-toggle"]')).toBeVisible();
 	});
 
 	test('featured marker gets gold color', async ({ page, testUsers }) => {
@@ -71,10 +71,10 @@ test.describe('Featured Photos', () => {
 		expect(bgColor).toBe('gold');
 	});
 
-	test('non-featured markers are grayed when showAll is off', async ({ page, testUsers }) => {
+	test('non-featured markers are grayed when hunter mode is off', async ({ page, testUsers }) => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 		await goToMapWithMarkers(page);
-		await ensureShowAll(page, false);
+		await ensureHunterMode(page, false);
 
 		// Non-featured marker should have .grayed class
 		const nonFeaturedCircle = page.locator(`[data-photo-id="${photoId2}"] .bearing-circle`);
@@ -86,31 +86,31 @@ test.describe('Featured Photos', () => {
 		await expect(featuredCircle).not.toHaveClass(/grayed/);
 	});
 
-	test('toggling showAll removes grayed class', async ({ page, testUsers }) => {
+	test('toggling hunter mode removes grayed class', async ({ page, testUsers }) => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 		await goToMapWithMarkers(page);
-		await ensureShowAll(page, false);
+		await ensureHunterMode(page, false);
 
 		const nonFeaturedCircle = page.locator(`[data-photo-id="${photoId2}"] .bearing-circle`);
 		await expect(nonFeaturedCircle).toHaveClass(/grayed/);
 
-		await ensureShowAll(page, true);
+		await ensureHunterMode(page, true);
 		await expect(nonFeaturedCircle).not.toHaveClass(/grayed/);
 	});
 
-	test('clicking a grayed marker enables showAll', async ({ page, testUsers }) => {
+	test('clicking a grayed marker enables hunter mode', async ({ page, testUsers }) => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 		await goToMapWithMarkers(page);
-		await ensureShowAll(page, false);
+		await ensureHunterMode(page, false);
 
 		// Click the grayed (non-featured) marker
 		const nonFeaturedMarker = page.locator(`[data-photo-id="${photoId2}"]`);
 		await nonFeaturedMarker.click();
 		await page.waitForTimeout(500);
 
-		// showAll should now be active
-		const showAllButton = page.locator('[data-testid="show-all-button"]');
-		await expect(showAllButton).toHaveClass(/active/);
+		// hunterMode should now be active
+		const hunterToggle = page.locator('[data-testid="hunter-mode-toggle"]');
+		await expect(hunterToggle).toHaveClass(/active/);
 
 		// The clicked marker should no longer be grayed
 		const circle = page.locator(`[data-photo-id="${photoId2}"] .bearing-circle`);

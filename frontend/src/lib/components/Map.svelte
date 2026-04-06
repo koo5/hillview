@@ -5,6 +5,7 @@
 	import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Filter} from 'lucide-svelte';
 	import FiltersModal from './filters-modal/FiltersModal.svelte';
 	import { activeFilterCount, openFiltersModal, clearFilters } from './filters-modal/filtersStore';
+	import { longPress } from '$lib/actions/longPress';
 	import L from 'leaflet';
 	import 'leaflet/dist/leaflet.css';
 	import 'leaflet-textpath';
@@ -39,7 +40,8 @@
 		picks,
 		anyFeatured,
 		anyFiltered,
-		showAll,
+		hunterMode,
+		overrideFilters,
 		mapReady,
 	} from "$lib/mapState";
 	import {updateBearingWithPhoto} from "$lib/bearingTracking";
@@ -60,7 +62,7 @@
 	import {parsePhotoUid} from "$lib/urlUtilsServer";
 	import {pendingZoomView} from '$lib/zoomView.svelte';
 	import {openExternalUrl} from "$lib/urlUtils";
-	import {lines, linesVisible, hunterMode} from "$lib/data.svelte.js";
+	import {lines, linesVisible} from "$lib/data.svelte.js";
 	import {bearingBetween, distanceBetween, destinationPoint} from "$lib/geo";
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
@@ -393,6 +395,12 @@
 		if (updatedMarkers) {
 			currentMarkers = updatedMarkers;
 			//console.log(`🢄Map: Updated ${currentMarkers.length} optimized markers`);
+
+			// Apply graying after markers are added to the DOM
+			requestAnimationFrame(() => {
+				const inRangeIds = new Set(get(photosInRange).map(p => p.id));
+				optimizedMarkerSystem.updateGraying(inRangeIds, get(anyFeatured), get(hunterMode), get(overrideFilters));
+			});
 		} else {
 			console.warn('🢄Map: optimizedMarkerSystem.updateMarkers returned undefined');
 		}
@@ -738,11 +746,18 @@
 		const inRange = get(photosInRange);
 		const isInRange = inRange.some(p => p.uid === photo.uid);
 
+		// Clicking a featured photo returns to tourist mode;
+		// clicking a non-featured photo enables hunter mode so it stays navigable
+		if (photo.featured) {
+			if (get(hunterMode)) hunterMode.set(false);
+		} else {
+			if (!get(hunterMode)) hunterMode.set(true);
+		}
+		if (photo.filtered && !get(overrideFilters)) {
+			overrideFilters.set(true);
+		}
+
 		if (isInRange) {
-			// If clicking a grayed marker (filtered or non-featured), enable showAll
-			if (!get(showAll) && (photo.filtered || (get(anyFeatured) && !photo.featured))) {
-				showAll.set(true);
-			}
 			// Photo is in range, just update bearing to select it
 			console.log('🢄Photo in range, selecting directly');
 			updateBearingWithPhoto(photo, 'marker_click');
@@ -1294,12 +1309,15 @@
 		}
 	}
 
-	// Update grayed state when photosInRange, anyFeatured, anyFiltered, or showAll changes
+	// Update grayed state when photosInRange, anyFeatured, anyFiltered, hunterMode, overrideFilters, or markers change
 	$: {
 		void $anyFiltered; // track for reactivity
+		void $overrideFilters; // track for reactivity
+		void $hunterMode; // track for reactivity
+		void currentMarkers; // re-apply after marker recreation
 		if ($photosInRange && map && currentMarkers.length > 0) {
 			const inRangeIds = new Set($photosInRange.map(p => p.id));
-			optimizedMarkerSystem.updateGraying(inRangeIds, $anyFeatured, $showAll);
+			optimizedMarkerSystem.updateGraying(inRangeIds, $anyFeatured, $hunterMode, $overrideFilters);
 		}
 	}
 
@@ -1457,6 +1475,7 @@
 
 			// Mouse drag on polyline (works with Canvas renderer for mouse)
 			polyline.on('mousedown', (e: any) => {
+				if (arrowDragging) return;
 				L.DomEvent.stopPropagation(e);
 				startRotationDrag(lineData, line, e.originalEvent.clientX, e.originalEvent.clientY);
 			});
@@ -1465,7 +1484,7 @@
 		// Touch handler on map container — find nearest line within threshold
 		const TOUCH_THRESHOLD_PX = 15;
 		lineTouchHandler = (e: TouchEvent) => {
-			if (!map || renderedLines.length === 0) return;
+			if (!map || renderedLines.length === 0 || arrowDragging) return;
 			const touch = e.touches[0];
 			const rect = map.getContainer().getBoundingClientRect();
 			const touchPt = L.point(touch.clientX - rect.left, touch.clientY - rect.top);
@@ -1655,12 +1674,13 @@
 <!--		</button>-->
 		<button
 			class="filters-button"
-			class:active={$activeFilterCount > 0}
-			on:click={() => openFiltersModal()}
+			class:active={$activeFilterCount > 0 || $overrideFilters}
+			use:longPress={{ onShortPress: () => openFiltersModal(), onLongPress: () => overrideFilters.update(v => !v) }}
+			title={$overrideFilters ? "Filters overridden (long-press to restore)" : "Filters (long-press to override)"}
 			data-testid="filters-button"
 		>
 			<Filter size={18} />
-			<span class="filters-button-text">Filters</span>({$activeFilterCount})
+			<span class="filters-button-text">Filters</span>({$activeFilterCount}{$overrideFilters ? ' ⊘' : ''})
 		</button>
 		<div class="hunter-panel-separator"></div>
 		<TileProviderSelector />

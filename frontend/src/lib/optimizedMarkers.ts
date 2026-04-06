@@ -427,11 +427,10 @@ export class OptimizedMarkerSystem {
 
 	/**
 	 * Update grayed state on all active markers.
-	 * When showAll is off: filtered photos are grayed, and non-featured photos
-	 * in range are grayed when any featured photo exists.
-	 * When showAll is on: nothing is grayed.
+	 * Filtered photos are grayed unless overrideFilters is on.
+	 * Non-featured photos in range are grayed when featured photos exist, unless hunterMode is on.
 	 */
-	updateGraying(photosInRangeIds: Set<string>, anyFeatured: boolean, showAll: boolean): void {
+	updateGraying(photosInRangeIds: Set<string>, anyFeatured: boolean, hunterMode: boolean, overrideFilters: boolean): void {
 		for (const marker of this.activeMarkers) {
 			if (!marker) continue;
 			const photoData = (marker as any)._photoData as PhotoData;
@@ -442,9 +441,9 @@ export class OptimizedMarkerSystem {
 			const circle = element.querySelector('.bearing-circle');
 			if (!circle) continue;
 
-			const shouldGray = !showAll && (
-				photoData.filtered ||
-				(anyFeatured && photosInRangeIds.has(photoData.id) && !photoData.featured)
+			const shouldGray = (
+				(!overrideFilters && photoData.filtered) ||
+				(!hunterMode && anyFeatured && photosInRangeIds.has(photoData.id) && !photoData.featured)
 			);
 			circle.classList.toggle('grayed', shouldGray);
 		}

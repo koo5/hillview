@@ -5,11 +5,21 @@
 	import {get} from 'svelte/store';
 	import {Plus, Trash2} from 'lucide-svelte';
 
+	function nextLabel(): string {
+		const current = get(lines);
+		let max = 0;
+		for (const line of current) {
+			const n = parseInt(line.label, 10);
+			if (!isNaN(n) && n > max) max = n;
+		}
+		return String(max + 1);
+	}
+
 	function addLine() {
 		const {center} = get(spatialState);
 		const {bearing} = get(bearingState);
 		const end = destinationPoint(center.lat, center.lng, bearing, 250);
-		lines.update(l => [{label: '', start: {lat: center.lat, lng: center.lng}, end, visible: true}, ...l]);
+		lines.update(l => [{label: nextLabel(), start: {lat: center.lat, lng: center.lng}, end, visible: true}, ...l]);
 		linesVisible.set(true);
 	}
 
