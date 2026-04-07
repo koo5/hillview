@@ -42,8 +42,9 @@
 	<line
 
 		marker-end="url(#arrowhead)"
-		fill-opacity="0.9"
+		stroke-opacity="0.5"
 		stroke-width="3"
+		stroke="rgb(4, 5, 250)"
 		x1={centerX}
 		x2={arrowX}
 		y1={centerY}
@@ -65,7 +66,7 @@
 		<marker
 		id="arrowhead"
 			markerHeight="12"
-			markerWidth="10"
+			markerWidth="11"
 			orient="auto"
 			refX="9"
 			refY="6"
@@ -73,6 +74,7 @@
 			<polygon
 				fill="rgb(4, 5, 250)"
 				stroke="rgb(250, 0, 0)"
+				stroke-opacity="0.6"
 				fill-opacity="0.6"
 				points="0 0, 10 6, 0 12"
 			/>

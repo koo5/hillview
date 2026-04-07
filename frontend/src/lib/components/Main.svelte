@@ -671,7 +671,7 @@
 		transition: all 0.2s ease, transform 0.3s ease;
 	}
 
-	.fullscreen-toggle {
+/*	.fullscreen-toggle {
 		position: absolute;
 		top: calc(55px + var(--safe-area-inset-top, 10px));
 		left: calc(0px + var(--safe-area-inset-left, 10px));
@@ -689,6 +689,7 @@
 		padding: 0;
 		transition: all 0.2s ease;
 	}
+*/
 
 	.lines-button {
 		position: absolute;

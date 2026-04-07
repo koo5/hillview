@@ -1918,7 +1918,7 @@
 		flex-shrink: 0;
 	}
 
-	.buttons {
+/*	.buttons {
 		display: flex;
 		gap: 0.5rem;
 		pointer-events: auto;
@@ -1944,7 +1944,7 @@
 		background-color: #e0e0e0;
 	}
 
-/*    .buttons button.slideshow-active {
+    .buttons button.slideshow-active {
 		background-color: #4285F4;
 		color: white;
 		border-color: #3367d6;
@@ -1966,7 +1966,7 @@
 	.location-button-container {
 		position: absolute;
 		top: 16px;
-		left: 50%;
+		right: 54px;
 		z-index: 30000;
 		display: flex;
 		gap: 8px;
@@ -2128,7 +2128,7 @@
 
 	/* TileProviderSelector is now inside .hunter-panel-bottom */
 
-	.show-all-marker-icon {
+/*	.show-all-marker-icon {
 		display: flex;
 		align-items: center;
 	}
@@ -2142,6 +2142,7 @@
 		filter: grayscale(1);
 		opacity: 0.35;
 	}
+*/
 
 	.filters-button {
 		display: flex;
@@ -2171,7 +2172,7 @@
 		color: white;
 	}
 
-	.filters-button.grayed {
+/*	.filters-button.grayed {
 		background-color: rgba(255, 255, 255, 0.5);
 		color: rgba(155, 155, 155, 0.5) !important;
 	}
@@ -2181,6 +2182,7 @@
 		border-color: rgba(59, 130, 246, 0.5);
 		color: rgba(155, 155,155, 0.5) !important;
 	}
+*/
 
 
 	.filters-button.active:hover {

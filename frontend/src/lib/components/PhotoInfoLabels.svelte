@@ -8,11 +8,13 @@
 
 {#if photo?.description}
 	<div class="photo-description" data-testid="photo-description"
+		role="presentation"
 		on:mousedown|stopPropagation on:touchstart|stopPropagation>
 		{photo.description}
 	</div>
 	{:else if photo?.filename}
 	<div class="photo-description" data-testid="photo-filename"
+		role="presentation"
 		on:mousedown|stopPropagation on:touchstart|stopPropagation>
 		{photo.filename}
 	</div>

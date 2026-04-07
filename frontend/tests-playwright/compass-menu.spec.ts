@@ -25,7 +25,8 @@ test.describe('Compass menu interactions', () => {
 		await expect(menu).toBeHidden();
 	});
 
-	test('mobile parity: tapping the button closes an open compass menu', async ({ browser }) => {
+	test('mobile parity: tapping the button closes an open compass menu', async ({ browser, browserName }) => {
+		test.skip(browserName === 'firefox', 'Firefox does not support isMobile in browser.newContext');
 		const context = await browser.newContext({
 			hasTouch: true,
 			isMobile: true,
