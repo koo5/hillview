@@ -28,6 +28,9 @@ dependencies = [
 
     # Config
     "pyyaml",
+
+    # Self-hosted Swagger UI assets
+    "swagger-ui-py",
 ]
 
 [project.optional-dependencies]

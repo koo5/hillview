@@ -43,7 +43,6 @@ import time
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, status, Request, Depends
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -82,10 +81,7 @@ async def lifespan(app: FastAPI):
 
 
 from fastapi import FastAPI
-from fastapi.openapi.docs import (
-	get_swagger_ui_html,
-	get_swagger_ui_oauth2_redirect_html,
-)
+from swagger_ui import api_doc
 
 # class Settings(BaseSettings):
 # 	openapi_url: str = "/openapi.json"
@@ -96,23 +92,6 @@ app = FastAPI(
 	docs_url=None, redoc_url=None,
 	title="Hillview API", description="API for Hillview application", lifespan=lifespan
 )
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-
-@app.get("/docs", include_in_schema=False)
-async def custom_swagger_ui_html():
-	return get_swagger_ui_html(
-		openapi_url=app.openapi_url,
-		title=app.title + " - Swagger UI",
-		oauth2_redirect_url=app.swagger_ui_oauth2_redirect_url,
-		swagger_js_url="static/swagger-ui-bundle.js",
-		swagger_css_url="static/swagger-ui.css",
-	)
-
-
-@app.get(app.swagger_ui_oauth2_redirect_url, include_in_schema=False)
-async def swagger_ui_redirect():
-	return get_swagger_ui_oauth2_redirect_html()
 
 
 # Security Headers Middleware
@@ -411,6 +390,11 @@ app.include_router(annotation_routes.router)
 import debug_routes
 
 app.include_router(debug_routes.router)
+
+
+# Self-hosted Swagger UI (assets bundled in swagger-ui-py package, served same-origin under /docs).
+# Must be registered after all routers so app.openapi() reflects the full schema.
+api_doc(app, config=app.openapi(), url_prefix='/docs', title='Hillview API')
 
 
 # Database migration function
