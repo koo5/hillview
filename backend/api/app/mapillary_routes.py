@@ -479,9 +479,15 @@ async def stream_mapillary_images(
 						region_fully_fetched = False
 						while True:
 							log.info(f"Query Mapillary for region {region.id} ...")
-							mapillary_response = await fetch_mapillary_data(
+							fetch_task = asyncio.create_task(fetch_mapillary_data(
 								region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3], limit=effective_max_photos
-							)
+							))
+							while not fetch_task.done():
+								done, _ = await asyncio.wait({fetch_task}, timeout=10)
+								if not done:
+									log.debug(f"Sending heartbeat while waiting for Mapillary API (region {region.id})")
+									yield ": heartbeat\n\n"
+							mapillary_response = fetch_task.result()
 
 							event['inputs'].append({
 								'bbox': region_bbox,
