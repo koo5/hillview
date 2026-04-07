@@ -1,0 +1,12 @@
+* new zoom photo viewer with annotations 
+* new annotations editor
+* new line casting feature ("ruler")
+* new photo filtering feature
+* new "Best of" screen
+* new timestamp QR-code screen for external camera synchronization
+
+* improved car-mode orientation tracking
+* UI fixes - better control positioning
+* photo loading fixes
+
+

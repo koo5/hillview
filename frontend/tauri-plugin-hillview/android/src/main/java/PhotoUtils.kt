@@ -339,19 +339,30 @@ object PhotoUtils {
     }
     
     private fun extractBearing(exif: ExifInterface): Double {
-        val bearingStr = exif.getAttribute(ExifInterface.TAG_GPS_IMG_DIRECTION) ?: return 0.0
-        
-        return try {
-            val bearing = convertRationalToDecimal(bearingStr)
-            Log.v(TAG, "Bearing from EXIF: $bearing")
-            bearing
-        } catch (e: NumberFormatException) {
-            Log.w(TAG, "Failed to parse bearing: invalid number format in $bearingStr")
-            0.0
-        } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "Failed to parse bearing: invalid rational format")
-            0.0
+        // Try multiple bearing/direction tags (matching PhotoUploadLogic robustness)
+        val bearingTags = listOf(
+            ExifInterface.TAG_GPS_IMG_DIRECTION,      // Image direction
+            ExifInterface.TAG_GPS_DEST_BEARING,       // Destination bearing
+            "GPSImgDirection",                        // Alternative tag name
+            "GPSDestBearing"                          // Alternative tag name
+        )
+
+        for (tag in bearingTags) {
+            val bearingStr = exif.getAttribute(tag) ?: continue
+            return try {
+                val bearing = convertRationalToDecimal(bearingStr)
+                if (doLog) Log.v(TAG, "Bearing from $tag: $bearing")
+                bearing
+            } catch (e: NumberFormatException) {
+                Log.w(TAG, "Failed to parse bearing from $tag: invalid number format in $bearingStr")
+                continue
+            } catch (e: IllegalArgumentException) {
+                Log.w(TAG, "Failed to parse bearing from $tag: invalid rational format")
+                continue
+            }
         }
+
+        return 0.0
     }
     
     private fun extractImageDimensions(exif: ExifInterface): Pair<Int, Int> {
