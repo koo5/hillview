@@ -52,7 +52,7 @@ test.describe('Mapillary Marker Consistency', () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     await page.waitForSelector('.leaflet-container', { timeout: 10000 });
-    await page.waitForSelector('.source-buttons-container', { timeout: 5000 });
+    await page.waitForSelector('.source-buttons-group', { timeout: 5000 });
   });
 
   test.afterEach(async ({ page }) => {

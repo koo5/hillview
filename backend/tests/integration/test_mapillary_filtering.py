@@ -19,14 +19,18 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 	"""Test Mapillary photo filtering functionality using mock data."""
 
 	def create_mock_mapillary_data(self):
-		"""Create mock Mapillary data for testing."""
+		"""Create mock Mapillary data for testing.
+
+		Coordinates constrained to fit within test bbox [14.40, 50.07, 14.41, 50.08]
+		(0.01° × 0.01° = 0.0001 sq deg, matches the shrink limit).
+		"""
 		return {
 			"data": [
 				{
 					"id": "mock_mapillary_1",
 					"geometry": {
 						"type": "Point",
-						"coordinates": [14.4378, 50.0755]  # Prague Castle area
+						"coordinates": [14.4020, 50.0720]
 					},
 					"bearing": 45.0,
 					"computed_bearing": 45.0,
@@ -41,10 +45,10 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 					}
 				},
 				{
-					"id": "mock_mapillary_2", 
+					"id": "mock_mapillary_2",
 					"geometry": {
 						"type": "Point",
-						"coordinates": [14.4175, 50.0865]  # Old Town Square area
+						"coordinates": [14.4040, 50.0740]
 					},
 					"bearing": 90.0,
 					"computed_bearing": 90.0,
@@ -54,7 +58,7 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 					"is_pano": False,
 					"thumb_1024_url": "https://mock.mapillary.com/thumb2.jpg",
 					"creator": {
-						"username": "mock_creator_2", 
+						"username": "mock_creator_2",
 						"id": "mock_creator_2"
 					}
 				},
@@ -62,7 +66,7 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 					"id": "mock_mapillary_3",
 					"geometry": {
 						"type": "Point",
-						"coordinates": [14.4362, 50.0819]  # Wenceslas Square area
+						"coordinates": [14.4060, 50.0760]
 					},
 					"bearing": 135.0,
 					"computed_bearing": 135.0,
@@ -79,8 +83,8 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 				{
 					"id": "mock_mapillary_4",
 					"geometry": {
-						"type": "Point", 
-						"coordinates": [14.4208, 50.0870]  # Charles Bridge area
+						"type": "Point",
+						"coordinates": [14.4080, 50.0780]
 					},
 					"bearing": 180.0,
 					"computed_bearing": 180.0,
@@ -203,8 +207,8 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 		mock_data = self.create_mock_mapillary_data()
 		self.set_mock_mapillary_data(mock_data)
 		
-		# Prague area bbox [west, south, east, north]
-		prague_bbox = [14.40, 50.07, 14.45, 50.09]
+		# Test bbox [west, south, east, north] = 0.01° × 0.01° = 0.0001 sq deg (matches shrink limit)
+		prague_bbox = [14.40, 50.07, 14.41, 50.08]
 		
 		try:
 			print("\n--- Testing Baseline Mapillary Photos ---")
@@ -230,10 +234,10 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 			# Verify photo details match mock data
 			for photo in anon_photos:
 				if photo['id'] == 'mock_mapillary_1':
-					assert photo['geometry']['coordinates'] == [14.4378, 50.0755], f"Wrong coordinates for mock_mapillary_1: {photo['geometry']['coordinates']}"
+					assert photo['geometry']['coordinates'] == [14.4020, 50.0720], f"Wrong coordinates for mock_mapillary_1: {photo['geometry']['coordinates']}"
 					assert photo['creator']['username'] == 'mock_creator_1', f"Wrong creator for mock_mapillary_1: {photo['creator']['username']}"
 				elif photo['id'] == 'mock_mapillary_2':
-					assert photo['geometry']['coordinates'] == [14.4175, 50.0865], f"Wrong coordinates for mock_mapillary_2: {photo['geometry']['coordinates']}"
+					assert photo['geometry']['coordinates'] == [14.4040, 50.0740], f"Wrong coordinates for mock_mapillary_2: {photo['geometry']['coordinates']}"
 					assert photo['creator']['username'] == 'mock_creator_2', f"Wrong creator for mock_mapillary_2: {photo['creator']['username']}"
 			
 			print("✓ Verified mock photo details are correct")
@@ -294,8 +298,8 @@ class TestMapillaryFiltering(BaseUserManagementTest):
 				print(f"⚠ Failed to hide user: {response.status_code}")
 			
 			print("\n--- Testing Geographic Filtering ---")
-			# Test smaller bbox that should exclude some photos
-			small_bbox = [14.435, 50.075, 14.440, 50.078]  # Smaller area around Prague Castle
+			# Test smaller bbox that should exclude some photos (only contains mock_mapillary_1)
+			small_bbox = [14.4015, 50.0715, 14.4030, 50.0730]
 			small_area_photos = self.get_mapillary_photos(small_bbox, self.admin_token)  # Admin has no hidden items
 			
 			print(f"Smaller area shows: {len(small_area_photos)} photos")

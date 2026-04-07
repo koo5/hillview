@@ -366,22 +366,18 @@ class TestRatingEndpointIntegration:
     """Integration tests for rating endpoints"""
     
     def test_rating_workflow_without_auth(self):
-        """Test complete rating workflow (should fail without auth)"""
+        """Test that rating mutations fail without auth (GET is covered by test_get_photo_rating_no_auth)"""
         photo_id = "integration_test_photo"
         source = "hillview"
-        
-        # 1. Try to get rating (should fail - no auth)
-        response = client.get(f"/api/ratings/{source}/{photo_id}")
-        assert response.status_code == 401
-        
-        # 2. Try to set rating (should fail - no auth)
+
+        # Try to set rating (should fail - no auth)
         response = client.post(
             f"/api/ratings/{source}/{photo_id}",
             json={"rating": "thumbs_up"}
         )
         assert response.status_code == 401
-        
-        # 3. Try to delete rating (should fail - no auth)
+
+        # Try to delete rating (should fail - no auth)
         response = client.delete(f"/api/ratings/{source}/{photo_id}")
         assert response.status_code == 401
     

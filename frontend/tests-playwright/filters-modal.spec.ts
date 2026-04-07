@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures';
 import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
-import { ensureSourceEnabled } from './helpers/sourceHelpers';
+import { ensureSourceEnabled, ensureHunterMode } from './helpers/sourceHelpers';
 
 // GPS location of the test photos
 const TEST_PHOTO_MAP_URL = '/?lat=50.1153&lon=14.4938&zoom=18';
@@ -23,6 +23,7 @@ test.describe('Filters Modal', () => {
 	test('should open and close the filters modal', async ({ page }) => {
 		await page.goto('/');
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureHunterMode(page, true);
 
 		const filtersButton = page.locator('[data-testid="filters-button"]');
 		await expect(filtersButton).toBeVisible();
@@ -39,6 +40,7 @@ test.describe('Filters Modal', () => {
 	test('clear button and show-unanalyzed toggle should be disabled when no filters active', async ({ page }) => {
 		await page.goto('/');
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureHunterMode(page, true);
 
 		await page.locator('[data-testid="filters-button"]').click();
 		const modal = page.locator('[data-testid="filters-modal"]');
@@ -54,6 +56,7 @@ test.describe('Filters Modal', () => {
 	test('selecting a filter should enable clear button and show-unanalyzed toggle', async ({ page }) => {
 		await page.goto('/');
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureHunterMode(page, true);
 
 		await page.locator('[data-testid="filters-button"]').click();
 		const modal = page.locator('[data-testid="filters-modal"]');
@@ -76,6 +79,7 @@ test.describe('Filters Modal', () => {
 	test('clicking a selected filter should deselect it (toggle behavior)', async ({ page }) => {
 		await page.goto('/');
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureHunterMode(page, true);
 
 		await page.locator('[data-testid="filters-button"]').click();
 		const modal = page.locator('[data-testid="filters-modal"]');
@@ -97,6 +101,7 @@ test.describe('Filters Modal', () => {
 	test('clear all filters should deselect everything', async ({ page }) => {
 		await page.goto('/');
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureHunterMode(page, true);
 
 		await page.locator('[data-testid="filters-button"]').click();
 		const modal = page.locator('[data-testid="filters-modal"]');
@@ -124,6 +129,7 @@ test.describe('Filters Modal', () => {
 	test('filters button should show active filter count', async ({ page }) => {
 		await page.goto('/');
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureHunterMode(page, true);
 
 		const filtersButton = page.locator('[data-testid="filters-button"]');
 
@@ -144,6 +150,7 @@ test.describe('Filters Modal', () => {
 	test('show-unanalyzed toggle should be checked by default', async ({ page }) => {
 		await page.goto('/');
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureHunterMode(page, true);
 
 		await page.locator('[data-testid="filters-button"]').click();
 		const modal = page.locator('[data-testid="filters-modal"]');
@@ -173,6 +180,7 @@ test.describe('Filters with uploaded photos', () => {
 		// Go to map at the test photo's GPS location
 		await page.goto(TEST_PHOTO_MAP_URL);
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureHunterMode(page, true);
 		await ensureSourceEnabled(page, 'hillview', true);
 		await page.waitForTimeout(3000); // wait for photos to load on map
 
@@ -209,6 +217,7 @@ test.describe('Filters with uploaded photos', () => {
 		// Go to map at the test photo's GPS location
 		await page.goto(TEST_PHOTO_MAP_URL);
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureHunterMode(page, true);
 		await ensureSourceEnabled(page, 'hillview', true);
 		await page.waitForTimeout(3000);
 
@@ -249,6 +258,7 @@ test.describe('Filters with uploaded photos', () => {
 		// Go to map at the test photo's GPS location
 		await page.goto(TEST_PHOTO_MAP_URL);
 		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await ensureHunterMode(page, true);
 		await ensureSourceEnabled(page, 'hillview', true);
 		await page.waitForTimeout(3000);
 

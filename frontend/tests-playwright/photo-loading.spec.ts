@@ -21,7 +21,7 @@ test.describe('Photo Loading and Display', () => {
   test('should display photo markers on the map', async ({ page }) => {
     // Wait for initial map load
     await page.waitForSelector('.leaflet-container', { timeout: 10000 });
-    await page.waitForSelector('.source-buttons-container', { timeout: 5000 });
+    await page.waitForSelector('.source-buttons-group', { timeout: 5000 });
 
     // Set up mock Mapillary data (default location is Prague: 50.0755, 14.4378)
     await setupDefaultMockMapillaryData(page);

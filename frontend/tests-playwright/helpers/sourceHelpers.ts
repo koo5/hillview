@@ -7,6 +7,22 @@ import type { Page } from '@playwright/test';
  */
 
 /**
+ * Ensure the hunter mode toggle is in the desired state.
+ * Hunter mode reveals the advanced controls panels (source toggles, filters, etc.).
+ * Most test helpers that interact with these controls call this automatically.
+ */
+export async function ensureHunterMode(page: Page, desired: boolean): Promise<void> {
+    const btn = page.locator('[data-testid="hunter-mode-toggle"]');
+    await btn.waitFor({ state: 'visible', timeout: 10000 });
+    const isActive = await btn.evaluate((el: HTMLElement) => el.classList.contains('active'));
+    if (isActive !== desired) {
+        await btn.click();
+        // Wait for panel transition
+        await page.waitForTimeout(400);
+    }
+}
+
+/**
  * Ensure a map source is enabled or disabled on the main page.
  * Uses proper data-testid selectors and correct state checking logic.
  *
@@ -17,6 +33,9 @@ import type { Page } from '@playwright/test';
  */
 export async function ensureSourceEnabled(page: Page, sourceName: string, enabled: boolean): Promise<boolean> {
     console.log(`🗺️ Ensuring ${sourceName} source is ${enabled ? 'enabled' : 'disabled'}...`);
+
+        // Source toggles live inside the hunter-mode panel — ensure it's open first
+        await ensureHunterMode(page, true);
 
         // Find the source toggle button using proper data-testid
         const sourceButton = page.locator(`[data-testid="source-toggle-${sourceName}"]`);
@@ -67,9 +86,10 @@ export async function configureSources(page: Page, config: { [sourceName: string
     return await test.step(`Configure sources: ${Object.entries(config).map(([name, enabled]) => `${name}=${enabled}`).join(', ')}`, async () => {
         console.log('🗺️ Configuring sources:', config);
 
-        // Wait for the source buttons container to be visible before attempting to configure
+        // Wait for the map and ensure hunter mode is on so source toggles are accessible
         await page.waitForSelector('.leaflet-container', { timeout: 10000 });
-        await page.waitForSelector('.source-buttons-container', { timeout: 5000 });
+        await ensureHunterMode(page, true);
+        await page.waitForSelector('.source-buttons-group', { timeout: 5000 });
 
         let allSucceeded = true;
 

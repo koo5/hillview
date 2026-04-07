@@ -87,7 +87,7 @@ test.describe('Photo UID Functionality', () => {
       // Navigate directly with mapillary photo uid
       await page.goto('/?lat=50.0755&lon=14.4378&photo=mapillary-abc123');
       await page.waitForLoadState('networkidle');
-      await page.waitForSelector('.source-buttons-container', { timeout: 10000 });
+      await page.waitForSelector('.source-buttons-group', { timeout: 10000 });
 
       // Check that mapillary source is enabled
       const mapillaryButton = page.locator('[data-testid="source-toggle-mapillary"]');
@@ -102,7 +102,7 @@ test.describe('Photo UID Functionality', () => {
       // Navigate directly with hillview photo uid
       await page.goto('/?lat=50.0755&lon=14.4378&photo=hillview-test-123');
       await page.waitForLoadState('networkidle');
-      await page.waitForSelector('.source-buttons-container', { timeout: 10000 });
+      await page.waitForSelector('.source-buttons-group', { timeout: 10000 });
 
       // Check that hillview source is enabled
       const hillviewButton = page.locator('[data-testid="source-toggle-hillview"]');

@@ -16,12 +16,13 @@ def create_clustered_mock_data_for_sampling(num_photos=20):
 	photos = []
 
 	# Create photos all clustered in a small area (same grid cell)
-	base_lon, base_lat = 14.4100, 50.0800  # Base coordinates
+	# Constrained to fit within test bbox [14.40, 50.07, 14.41, 50.08] (0.01° × 0.01°)
+	base_lon, base_lat = 14.4030, 50.0730  # Base coordinates
 
 	for i in range(num_photos):
-		# Slight variations within the same grid cell
-		lon_offset = (i % 5) * 0.0001  # Very small offsets
-		lat_offset = (i // 5) * 0.0001
+		# Slight variations within the same grid cell (max 1000 photos in 0.001° × 0.001° area)
+		lon_offset = (i % 32) * 0.00003  # Up to ~0.001° lon range
+		lat_offset = (i // 32) * 0.00003  # Up to ~0.001° lat range for ~1000 photos
 
 		photos.append({
 			"id": f"mock_clustered_sampling_{i+1:03d}",
@@ -47,14 +48,14 @@ def create_clustered_mock_data_for_sampling(num_photos=20):
 def create_half_area_mock_data(num_photos=200):
 	"""Create mock photos that fill exactly half the requested area to test spatial sampling."""
 	photos = []
-	
-	# Test area spans: lon 14.40 to 14.42, lat 50.07 to 50.13 
-	# Grid is 10x10, so each cell is 0.002 lon × 0.006 lat
+
+	# Test area spans: lon 14.40 to 14.41, lat 50.07 to 50.08 (0.01° × 0.01° = 0.0001 sq deg)
+	# Grid is 10x10, so each cell is 0.001 lon × 0.001 lat
 	# Half area = fill 5x10 = 50 cells out of 100 total cells
-	
+
 	base_lon, base_lat = 14.400, 50.070  # Start at bottom-left of test area
-	cell_width = 0.002  # (14.42 - 14.40) / 10
-	cell_height = 0.006  # (50.13 - 50.07) / 10
+	cell_width = 0.001  # (14.41 - 14.40) / 10
+	cell_height = 0.001  # (50.08 - 50.07) / 10
 	
 	photos_per_cell = max(1, num_photos // 50)  # Distribute across 50 cells
 	photo_id = 1
@@ -67,9 +68,9 @@ def create_half_area_mock_data(num_photos=200):
 					break
 				
 				# Place photo in center of cell with small random offset
-				lon = base_lon + (col + 0.5) * cell_width + (p * 0.0001)
-				lat = base_lat + (row + 0.5) * cell_height + (p * 0.0001)
-				
+				lon = base_lon + (col + 0.5) * cell_width + (p * 0.00001)
+				lat = base_lat + (row + 0.5) * cell_height + (p * 0.00001)
+
 				photos.append({
 					"id": f"mock_half_area_{photo_id:03d}",
 					"geometry": {
@@ -101,14 +102,14 @@ def create_half_area_mock_data(num_photos=200):
 def create_full_area_mock_data(num_photos=1000):
 	"""Create mock photos that fill the entire requested area (all 100 grid cells)."""
 	photos = []
-	
-	# Test area spans: lon 14.40 to 14.42, lat 50.07 to 50.13 
-	# Grid is 10x10, so each cell is 0.002 lon × 0.006 lat
+
+	# Test area spans: lon 14.40 to 14.41, lat 50.07 to 50.08 (0.01° × 0.01° = 0.0001 sq deg)
+	# Grid is 10x10, so each cell is 0.001 lon × 0.001 lat
 	# Full area = fill all 10x10 = 100 cells
-	
+
 	base_lon, base_lat = 14.400, 50.070  # Start at bottom-left of test area
-	cell_width = 0.002  # (14.42 - 14.40) / 10
-	cell_height = 0.006  # (50.13 - 50.07) / 10
+	cell_width = 0.001  # (14.41 - 14.40) / 10
+	cell_height = 0.001  # (50.08 - 50.07) / 10
 	
 	photos_per_cell = max(1, num_photos // 100)  # Distribute across all 100 cells
 	photo_id = 1
@@ -121,9 +122,9 @@ def create_full_area_mock_data(num_photos=1000):
 					break
 				
 				# Place photo in center of cell with small random offset
-				lon = base_lon + (col + 0.5) * cell_width + (p * 0.0001)
-				lat = base_lat + (row + 0.5) * cell_height + (p * 0.0001)
-				
+				lon = base_lon + (col + 0.5) * cell_width + (p * 0.00001)
+				lat = base_lat + (row + 0.5) * cell_height + (p * 0.00001)
+
 				photos.append({
 					"id": f"mock_full_area_{photo_id:03d}",
 					"geometry": {
@@ -234,10 +235,8 @@ def test_spatial_sampling_complete_vs_incomplete(num_photos=20):
 	result = set_mock_mapillary_data(mock_data)
 	assert result is not False, "Failed to set mock Mapillary data"
 
-	# Define bbox that contains all our mock photos
-	# For 2000 photos: lat goes up to 50.08 + (1999//5) * 0.0001 = 50.1199
-	# So we need a bbox that covers lat 50.08 to 50.12
-	test_bbox = [14.40, 50.07, 14.42, 50.13]  # [west, south, east, north] - expanded to fit all photos
+	# Define bbox containing all mock photos. Must fit within 0.0001 sq deg shrink limit.
+	test_bbox = [14.40, 50.07, 14.41, 50.08]  # [west, south, east, north] = 0.01° × 0.01° = 0.0001 sq deg
 
 	try:
 		print("\n--- First Request: Populate Cache (request more than available to mark region complete) ---")
@@ -293,7 +292,7 @@ def test_spatial_sampling_complete_vs_incomplete(num_photos=20):
 		print("✓ Cache usage is consistent across requests")
 
 		print("\n--- Test Smaller Area: Should Still Use Cache ---")
-		small_bbox = [14.405, 50.075, 14.415, 50.085]  # Smaller area within the cached region
+		small_bbox = [14.402, 50.072, 14.408, 50.078]  # Smaller area within the cached region
 		result4 = get_mapillary_photos(small_bbox, "test_small_area", max_photos=num_photos)
 
 		print(f"Small area request: {result4['total_count']} total photos ({result4['cached_count']} cached + {result4['live_count']} live)")
@@ -324,13 +323,13 @@ def test_spatial_sampling_with_half_coverage():
 	result = set_mock_mapillary_data(mock_data)
 	assert result is not False, "Failed to set mock Mapillary data"
 
-	# Test area spans: lon 14.40 to 14.42, lat 50.07 to 50.13 
-	test_bbox = [14.40, 50.07, 14.42, 50.13]  # [west, south, east, north]
+	# Test area: 0.01° × 0.01° = 0.0001 sq deg (matches shrink limit)
+	test_bbox = [14.40, 50.07, 14.41, 50.08]  # [west, south, east, north]
 
 	try:
 		print("\n--- First Request: Populate Cache ---")
 		# Request more photos than available to mark region complete
-		cache_request_limit = num_photos + 50  
+		cache_request_limit = num_photos + 50
 		result1 = get_mapillary_photos(test_bbox, "populate_half_cache", max_photos=cache_request_limit)
 		
 		print(f"First request: requested {cache_request_limit}, got {result1['total_count']} total photos ({result1['cached_count']} cached + {result1['live_count']} live)")
@@ -388,7 +387,7 @@ def test_spatial_sampling_with_full_coverage():
 	result = set_mock_mapillary_data(mock_data)
 	assert result is not False, "Failed to set mock Mapillary data"
 
-	test_bbox = [14.40, 50.07, 14.42, 50.13]  # [west, south, east, north]
+	test_bbox = [14.40, 50.07, 14.41, 50.08]  # 0.01° × 0.01° = 0.0001 sq deg
 
 	try:
 		print("\n--- First Request: Populate Cache (request less than available but more than server limit) ---")

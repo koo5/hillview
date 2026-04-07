@@ -182,23 +182,26 @@ class TestPhotoRatingIntegration(BaseAuthTest):
     def test_unauthorized_access(self):
         """Test rating endpoints without authentication"""
         print("\n=== Testing Unauthorized Access ===")
-        
-        # Test without auth header
+
+        # Test POST without auth header
         rating_data = {"rating": "thumbs_up"}
         response = requests.post(
             f"{API_URL}/ratings/{self.test_source}/{self.test_photo_id}",
             json=rating_data,
             headers={"Content-Type": "application/json"}
         )
-        
+
         print(f"No auth - Status: {response.status_code}")
         assert response.status_code == 401
-        
-        # Test GET without auth
+
+        # GET without auth should succeed (returns counts, no user rating)
         response = requests.get(f"{API_URL}/ratings/{self.test_source}/{self.test_photo_id}")
         print(f"Get no auth - Status: {response.status_code}")
-        assert response.status_code == 401
-        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["user_rating"] is None
+        assert "rating_counts" in data
+
         # Test DELETE without auth
         response = requests.delete(f"{API_URL}/ratings/{self.test_source}/{self.test_photo_id}")
         print(f"Delete no auth - Status: {response.status_code}")

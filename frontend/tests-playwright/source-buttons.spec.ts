@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures';
-import { configureSources } from './helpers/sourceHelpers';
+import { configureSources, ensureHunterMode } from './helpers/sourceHelpers';
 import { createMockMapillaryData, setupMockMapillaryData, clearMockMapillaryData } from './helpers/mapillaryMocks';
 import { setMapLocation } from './helpers/mapSetup';
 
@@ -15,8 +15,11 @@ test.describe('Source Buttons Toggle', () => {
     // Wait for map to be ready
     await page.waitForSelector('.leaflet-container', { timeout: 10000 });
 
+    // Open the hunter-mode panel which contains the source buttons
+    await ensureHunterMode(page, true);
+
     // Wait for source buttons to appear
-    await page.waitForSelector('.source-buttons-container', { timeout: 5000 });
+    await page.waitForSelector('.source-buttons-group', { timeout: 5000 });
   });
 
   test('should disable other sources, enable Mapillary, and show Mapillary photos', async ({ page }) => {
@@ -33,26 +36,14 @@ test.describe('Source Buttons Toggle', () => {
     // Wait for initial setup
     await page.waitForTimeout(2000);
 
-    // Find source buttons container
-    const sourceButtonsContainer = page.locator('.source-buttons-container');
+    // Find source buttons group inside the hunter panel
+    const sourceButtonsContainer = page.locator('.source-buttons-group');
     await expect(sourceButtonsContainer).toBeVisible();
 
-    // First, make sure buttons show labels by clicking the compact toggle if needed
-    const compactToggle = sourceButtonsContainer.locator('button.toggle-compact');
-    await expect(compactToggle).toBeVisible();
-
-    // Check if we're in compact mode (labels hidden)
-    const isCompact = await compactToggle.evaluate((el: HTMLElement) => el.classList.contains('active'));
-    if (isCompact) {
-      await compactToggle.click();
-      await page.waitForTimeout(500);
-      console.log('🢄🔄 Expanded source buttons to show labels');
-    }
-
-    // Find specific source buttons using title attributes as backup
-    const hillviewButton = sourceButtonsContainer.locator('button[title*="Hillview"]');
-    const mapillaryButton = sourceButtonsContainer.locator('button[title*="Mapillary"]');
-    const deviceButton = sourceButtonsContainer.locator('button[title*="My Device"]');
+    // Find source buttons by their data-testid
+    const hillviewButton = page.locator('[data-testid="source-toggle-hillview"]');
+    const mapillaryButton = page.locator('[data-testid="source-toggle-mapillary"]');
+    const deviceButton = page.locator('[data-testid="source-toggle-device"]');
 
     // Verify buttons exist
     await expect(hillviewButton).toBeVisible();
@@ -146,19 +137,9 @@ test.describe('Source Buttons Toggle', () => {
   test('should toggle sources independently', async ({ page }) => {
     await page.waitForTimeout(2000);
 
-    const sourceButtonsContainer = page.locator('.source-buttons-container');
-
-    // Expand buttons if in compact mode
-    const compactToggle = sourceButtonsContainer.locator('button.toggle-compact');
-    const isCompact = await compactToggle.evaluate((el: HTMLElement) => el.classList.contains('active'));
-    if (isCompact) {
-      await compactToggle.click();
-      await page.waitForTimeout(500);
-    }
-
-    const hillviewButton = sourceButtonsContainer.locator('button[title*="Hillview"]');
-    const mapillaryButton = sourceButtonsContainer.locator('button[title*="Mapillary"]');
-    //const deviceButton = sourceButtonsContainer.locator('button[title*="My Device"]');
+    const hillviewButton = page.locator('[data-testid="source-toggle-hillview"]');
+    const mapillaryButton = page.locator('[data-testid="source-toggle-mapillary"]');
+    //const deviceButton = page.locator('[data-testid="source-toggle-device"]');
 
     // Get initial states
     const initialHillview = await hillviewButton.evaluate(el => el.classList.contains('active'));

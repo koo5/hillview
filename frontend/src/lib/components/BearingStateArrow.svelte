@@ -29,7 +29,18 @@
 	style="pointer-events: none;"
 	data-testid="bearing-arrow-svg"
 >
+	<circle
+		cx={centerX}
+		cy={centerY}
+		fill="rgb(4, 5, 250)"
+		stroke="rgb(250, 0, 0)"
+		fill-opacity="0.6"
+		stroke-opacity="0.5"
+		r="3"
+	/>
+
 	<line
+
 		marker-end="url(#arrowhead)"
 		fill-opacity="0.9"
 		stroke-width="3"

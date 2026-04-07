@@ -14,8 +14,8 @@ class TestMapillaryGeographicFiltering(BaseIntegrationTest):
 
 	def create_evenly_distributed_mock_data(self):
 		"""Create mock Mapillary data that's evenly distributed across a 10x10 grid."""
-		# Prague area bbox: [14.40, 50.07, 14.45, 50.09] (west, south, east, north)
-		west, south, east, north = 14.40, 50.07, 14.45, 50.09
+		# Test bbox: [14.40, 50.07, 14.41, 50.08] = 0.01° × 0.01° = 0.0001 sq deg (matches shrink limit)
+		west, south, east, north = 14.40, 50.07, 14.41, 50.08
 		
 		photos = []
 		photo_id = 1
@@ -61,12 +61,12 @@ class TestMapillaryGeographicFiltering(BaseIntegrationTest):
 
 	def create_clustered_mock_data(self):
 		"""Create mock Mapillary data that's clustered in one corner (poor distribution)."""
-		# Prague area bbox: [14.40, 50.07, 14.45, 50.09] (west, south, east, north)
-		
+		# Test bbox: [14.40, 50.07, 14.41, 50.08] (matches shrink limit)
+
 		photos = []
 		# Cluster all photos in the southwest corner (first 10% of the area)
-		cluster_area_width = (14.45 - 14.40) * 0.1
-		cluster_area_height = (50.09 - 50.07) * 0.1
+		cluster_area_width = (14.41 - 14.40) * 0.1
+		cluster_area_height = (50.08 - 50.07) * 0.1
 		
 		for i in range(50):  # Create 50 clustered photos
 			# Random position within the small cluster area
@@ -217,7 +217,7 @@ class TestMapillaryGeographicFiltering(BaseIntegrationTest):
 			return False
 		
 		# Prague area bbox
-		prague_bbox = [14.40, 50.07, 14.45, 50.09]
+		prague_bbox = [14.40, 50.07, 14.41, 50.08]
 		
 		try:
 			# First request - should populate cache
@@ -254,7 +254,7 @@ class TestMapillaryGeographicFiltering(BaseIntegrationTest):
 			
 			# Test smaller area - should return subset
 			print("\n--- Testing Smaller Area (Geographic Filtering) ---")
-			small_bbox = [14.40, 50.07, 14.425, 50.08]  # Southwest quarter
+			small_bbox = [14.40, 50.07, 14.405, 50.075]  # Southwest quarter
 			small_area_photos = self.get_mapillary_photos(small_bbox, "client_3")
 			print(f"Small area returned: {len(small_area_photos)} photos")
 			
@@ -287,7 +287,7 @@ class TestMapillaryGeographicFiltering(BaseIntegrationTest):
 			return False
 			
 		# Prague area bbox
-		prague_bbox = [14.40, 50.07, 14.45, 50.09]
+		prague_bbox = [14.40, 50.07, 14.41, 50.08]
 		
 		try:
 			# First request
@@ -319,7 +319,7 @@ class TestMapillaryGeographicFiltering(BaseIntegrationTest):
 			
 			# Test area that should have no photos (most of the bbox is empty)
 			print("\n--- Testing Empty Area (Geographic Filtering) ---")
-			empty_bbox = [14.42, 50.08, 14.45, 50.09]  # Northeast area (should be empty)
+			empty_bbox = [14.405, 50.075, 14.41, 50.08]  # Northeast area (should be empty)
 			empty_area_photos = self.get_mapillary_photos(empty_bbox, "client_6")
 			print(f"Empty area returned: {len(empty_area_photos)} photos")
 			
@@ -351,7 +351,7 @@ class TestMapillaryGeographicFiltering(BaseIntegrationTest):
 		if not self.set_mock_mapillary_data(mock_data):
 			return False
 		
-		prague_bbox = [14.40, 50.07, 14.45, 50.09]
+		prague_bbox = [14.40, 50.07, 14.41, 50.08]
 		
 		try:
 			# Make multiple requests and verify consistency
