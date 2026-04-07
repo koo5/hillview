@@ -289,13 +289,13 @@ object PhotoUtils {
             return Pair(latitude, longitude)
         }
 
-        // Method 2: Manual parsing of GPS attributes
+        // Method 2: Manual parsing of GPS attributes (refs are optional)
         val latRef = exif.getAttribute(ExifInterface.TAG_GPS_LATITUDE_REF)
         val lngRef = exif.getAttribute(ExifInterface.TAG_GPS_LONGITUDE_REF)
         val latStr = exif.getAttribute(ExifInterface.TAG_GPS_LATITUDE)
         val lngStr = exif.getAttribute(ExifInterface.TAG_GPS_LONGITUDE)
 
-        if (latRef != null && lngRef != null && latStr != null && lngStr != null) {
+        if (latStr != null && lngStr != null) {
             try {
                 var latitude = convertDMSToDD(latStr)
                 var longitude = convertDMSToDD(lngStr)
@@ -318,16 +318,24 @@ object PhotoUtils {
     }
     
     private fun extractAltitude(exif: ExifInterface): Double {
+        // Method 1: Built-in getAltitude (most reliable)
+        val builtIn = exif.getAltitude(Double.NaN)
+        if (!builtIn.isNaN()) {
+            if (doLog) Log.v(TAG, "Altitude from getAltitude: $builtIn")
+            return builtIn
+        }
+
+        // Method 2: Manual parsing
         val altitudeStr = exif.getAttribute(ExifInterface.TAG_GPS_ALTITUDE) ?: return 0.0
         val altitudeRefStr = exif.getAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF)
-        
+
         return try {
             var altitude = convertRationalToDecimal(altitudeStr)
             // Apply sea level reference (0 = above sea level, 1 = below sea level)
             if (altitudeRefStr == "1") {
                 altitude = -altitude
             }
-            Log.v(TAG, "Altitude from EXIF: $altitude")
+            Log.v(TAG, "Altitude from manual parsing: $altitude")
             altitude
         } catch (e: NumberFormatException) {
             Log.w(TAG, "Failed to parse altitude: invalid number format in $altitudeStr")
@@ -389,46 +397,25 @@ object PhotoUtils {
     }
     
     private fun extractTimestamp(exif: ExifInterface, fallbackTimestamp: Long): Long {
-        // Try multiple EXIF timestamp fields in order of preference
-        val timestampFields = arrayOf(
+        // Try multiple EXIF timestamp fields in order of preference.
+        // Also accept alternative string tag names for forgiveness.
+        val timestampFields = listOf(
             ExifInterface.TAG_DATETIME_ORIGINAL,
             ExifInterface.TAG_DATETIME_DIGITIZED,
-            ExifInterface.TAG_DATETIME
+            ExifInterface.TAG_DATETIME,
+            "DateTimeOriginal",
+            "DateTimeDigitized",
+            "DateTime"
         )
 
         for (field in timestampFields) {
             val timestampStr = exif.getAttribute(field) ?: continue
-            
-            try {
-                // EXIF timestamp format: "YYYY:MM:DD HH:MM:SS"
-                val parts = timestampStr.split(" ")
-                if (parts.size != 2) continue
-                
-                val dateParts = parts[0].split(":")
-                val timeParts = parts[1].split(":")
-                
-                if (dateParts.size != 3 || timeParts.size != 3) continue
-                
-                val year = dateParts[0].toInt()
-                val month = dateParts[1].toInt() - 1 // Calendar months are 0-based
-                val day = dateParts[2].toInt()
-                val hour = timeParts[0].toInt()
-                val minute = timeParts[1].toInt()
-                val second = timeParts[2].toInt()
-                
-                val calendar = java.util.Calendar.getInstance()
-                calendar.set(year, month, day, hour, minute, second)
-                val timestamp = calendar.timeInMillis
-                
-                Log.v(TAG, "Timestamp from $field: $timestampStr -> $timestamp")
-                return timestamp
-            } catch (e: NumberFormatException) {
-                Log.w(TAG, "Failed to parse timestamp from $field: invalid number format in $timestampStr")
-                continue
-            } catch (e: IllegalArgumentException) {
-                Log.w(TAG, "Failed to parse timestamp from $field: invalid date/time values in $timestampStr")
-                continue
+            val date = parseExifDate(timestampStr)
+            if (date != null) {
+                if (doLog) Log.v(TAG, "Timestamp from $field: $timestampStr -> ${date.time}")
+                return date.time
             }
+            Log.w(TAG, "Failed to parse timestamp from $field: no matching format for $timestampStr")
         }
 
         Log.v(TAG, "Using fallback timestamp: $fallbackTimestamp")
@@ -436,17 +423,24 @@ object PhotoUtils {
     }
     
     private fun convertDMSToDD(dmsStr: String): Double {
-        // Parse degrees/minutes/seconds format: "latitude,longitude"
-        // Example: "37/1,54/1,25883/1000" -> degrees=37, minutes=54, seconds=25.883
-        val parts = dmsStr.split(",")
-        if (parts.size != 3) {
-            throw IllegalArgumentException("Invalid DMS format: expected 3 parts, got ${parts.size}")
+        // Handle different coordinate formats:
+        // "37/1,54/1,25883/1000" (degrees, minutes, seconds as rationals)
+        // "40.123456"             (decimal degrees)
+        // "40,26.076833"          (degrees, decimal minutes)
+        // Partial forms (1 or 2 parts) are tolerated; missing parts default to 0.
+        if (!dmsStr.contains(",")) {
+            return convertRationalToDecimal(dmsStr)
         }
-        
-        val degrees = convertRationalToDecimal(parts[0])
-        val minutes = convertRationalToDecimal(parts[1])
-        val seconds = convertRationalToDecimal(parts[2])
-        
+
+        val parts = dmsStr.split(",")
+        var degrees = 0.0
+        var minutes = 0.0
+        var seconds = 0.0
+
+        if (parts.isNotEmpty()) degrees = convertRationalToDecimal(parts[0])
+        if (parts.size > 1) minutes = convertRationalToDecimal(parts[1])
+        if (parts.size > 2) seconds = convertRationalToDecimal(parts[2])
+
         return degrees + (minutes / 60.0) + (seconds / 3600.0)
     }
     
