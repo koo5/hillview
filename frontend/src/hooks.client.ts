@@ -28,7 +28,7 @@ if (sentryEnabled)
 	console.log('🢄Initializing Sentry');
 	Sentry.init({
 		dsn: import.meta.env.VITE_SENTRY_DSN,
-		_experiments: {enableLogs: true},
+		enableLogs: true,
 		tracesSampleRate: 1.0,
 
 		// This sets the sample rate to be 10%. You may want this to be 100% while

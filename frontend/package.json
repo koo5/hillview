@@ -2,7 +2,7 @@
   "name": "hillview",
   "version": "0.0.2",
   "devDependencies": {
-    "@sentry/sveltekit": "^9",
+    "@sentry/sveltekit": "^10",
     "@sveltejs/adapter-auto": "^4.0.0",
     "@sveltejs/adapter-node": "^5.4.0",
     "@sveltejs/adapter-static": "^3.0.8",
@@ -30,13 +30,13 @@
     "leaflet-providers": "^2.0.0",
     "lucide-svelte": "^0.476.0",
     "quaternion": "^2.2.0",
-    "svelte": "^5.22.6",
+    "svelte": "^5.55.2",
     "svelte-check": "^4.4.6",
     "svelte-leafletjs": "^2.0.0",
     "tauri-plugin-hillview-api": "file:./tauri-plugin-hillview",
     "tsgeo": "^1.2.2",
     "typescript": "^5.7.3",
-    "vite": "^6.4.1",
+    "vite": "^6.4.2",
     "vitest": "^3.2.4"
   },
   "private": true,
@@ -80,6 +80,12 @@
     "precommit": "bun run validate:quick"
   },
   "type": "module",
+  "overrides": {
+    "vite": "^6.4.2",
+    "rollup": "^4.60.1",
+    "yaml": "^2.8.3",
+    "picomatch": "^4.0.4"
+  },
   "dependencies": {
     "@annotorious/openseadragon": "^3.7.20",
     "@lucide/svelte": "^0.577.0",

@@ -1,4 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Screenshot generation config.
@@ -40,7 +44,8 @@ export default defineConfig({
     screenshot: 'off',
   },
   webServer: {
-    command: 'npm run dev',
+    command: 'bun run dev',
+    cwd: path.resolve(__dirname, '..'),
     url: BASE_URL,
     reuseExistingServer: true,
     timeout: 120_000,

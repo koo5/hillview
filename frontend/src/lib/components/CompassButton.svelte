@@ -135,6 +135,8 @@
     }
 
     function toggleTracking() {
+        if (isButtonDisabled) return;
+
         const isAnyTrackingEnabled = $compassEnabled || $gpsOrientationEnabled;
 
         if (isAnyTrackingEnabled) {
@@ -173,6 +175,7 @@
         userWantsTracking ? 'active' : '',
         isTrackingStarting ? 'loading' : '',
         isTrackingError ? 'error' : '',
+        isButtonDisabled ? 'unavailable' : '',
         $bearingMode === 'car' ? 'car-mode' : 'walking-mode',
         menuOpen ? 'dropdown-open' : ''
     ].filter(Boolean).join(' ');
@@ -189,7 +192,7 @@
         on:pointerleave={handlePointerLeave}
         on:click={handleClick}
         title={tooltipText}
-        disabled={isButtonDisabled}
+        aria-disabled={isButtonDisabled}
         data-testid="compass-button"
     >
         <CompassButtonInner bearingMode={$bearingMode} />
@@ -234,9 +237,8 @@
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     }
 
-    .compass-button:disabled {
+    .compass-button.unavailable {
         opacity: 0.5;
-        cursor: not-allowed;
     }
 
     .compass-button.active {

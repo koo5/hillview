@@ -302,6 +302,12 @@
 	const PINCH_PROMOTE_SCALE = 1.15;
 
 	function handlePinchEnd() {
+		console.log('🢄Photo.handlePinchEnd ' + JSON.stringify({
+			isFront,
+			hasPhoto: !!photo,
+			zoomScale,
+			threshold: PINCH_PROMOTE_SCALE,
+		}));
 		if (!isFront || !photo) return;
 		if (zoomScale <= PINCH_PROMOTE_SCALE) {
 			// Not a deliberate zoom — snap back to 1x inline.
@@ -340,11 +346,16 @@
 			const x2 = clamp((vx2 - ix0) / rw, 0, 1);
 			const y2 = clamp((vy2 - iy0) / rw, 0, aspectY);
 
+			console.log('🢄Photo.handlePinchEnd bounds ' + JSON.stringify({
+				cw, ch, width, height, zoomScale, zoomTx, zoomTy,
+				x1, y1, x2, y2,
+			}));
 			if (x2 > x1 && y2 > y1) {
 				pendingZoomView.set({x1, y1, x2, y2});
 			}
 		}
 
+		console.log('🢄Photo.handlePinchEnd calling openZoomView');
 		openZoomView(photo);
 		(containerElement as any)?.__panZoom_action?.reset();
 	}

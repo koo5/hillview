@@ -153,6 +153,7 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 
 	// Touch events
 	function handleTouchStart(event: TouchEvent) {
+		console.log('🢄panZoom.touchstart ' + JSON.stringify({touches: event.touches.length, isEmbedded, scale}));
 		if (event.touches.length === 2) {
 			isPinching = true;
 			pinchGestureInProgress = true;
@@ -231,6 +232,15 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 		isPinching = false;
 		isPanning = false;
 
+		console.log('🢄panZoom.touchend ' + JSON.stringify({
+			touchesLeft: event.touches.length,
+			wasPinching,
+			pinchGestureInProgress,
+			scale,
+			isEmbedded,
+			hasOnPinchEnd: !!options.onPinchEnd,
+		}));
+
 		// In embedded mode, snap back to 1x if pinch ended below threshold.
 		// (Preserves the existing first-touchend reset behavior.)
 		if (isEmbedded && wasPinching && scale <= 1.01) {
@@ -240,6 +250,7 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 			// All fingers off: if this concluded a pinch gesture that left us
 			// zoomed in, notify so the host can promote to a full viewer.
 			if (isEmbedded && pinchGestureInProgress && scale > 1.01) {
+				console.log('🢄panZoom.touchend: firing onPinchEnd ' + JSON.stringify({scale}));
 				options.onPinchEnd?.();
 			}
 			pinchGestureInProgress = false;
