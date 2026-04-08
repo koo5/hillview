@@ -28,6 +28,12 @@ const BASE_URL = process.env.SCREENSHOT_URL || 'http://localhost:8212';
 
 export default defineConfig({
   testDir: './tests-screenshots',
+  /* Acquire the same cross-suite lock the main config uses so screenshot
+   * runs serialize against regular test runs that wipe / recreate DB state.
+   * Screenshots themselves do NOT recreate users — they capture existing
+   * content. */
+  globalSetup: './helpers/globalSetupScreenshots.ts',
+  globalTeardown: './helpers/globalTeardown.ts',
   fullyParallel: true,
   workers: 2,
   reporter: 'list',
