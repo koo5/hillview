@@ -1,4 +1,4 @@
 #!/bin/fish
-cd "$(dirname "$(readlink -f -- "$0")")"
+cd "$(dirname "$(readlink -f -- "$0")")"/tests-playwright
 npx playwright install
-bun run test:playwright --trace on
+bun run test --trace on

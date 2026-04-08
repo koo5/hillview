@@ -2205,7 +2205,7 @@
 	.attribution-info-button {
 		position: absolute;
 		bottom: 0px;
-		left: 6px;
+		left: 15px;
 		z-index: 20000;
 		width: 32px;
 		height: 32px;
@@ -2219,15 +2219,21 @@
 		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 	}
 
+	@media (orientation: portrait) {
+		.attribution-info-button {
+			left: 6px;
+		}
+	}
+
 	.attribution-info-button:hover {
 		background-color: rgba(255, 255, 255, 0.9);
 	}
 
 	.attribution-popup {
 		position: absolute;
-		top: 218px;
-		left: 10px;
-		z-index: 30001;
+		bottom: 2px;
+		left: 50px;
+		z-index: 300001;
 		max-width: 280px;
 		padding: 8px 12px;
 		background-color: rgba(255, 255, 255, 0.95);

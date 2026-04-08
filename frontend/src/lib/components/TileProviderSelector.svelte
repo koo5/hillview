@@ -1,67 +1,60 @@
 <script lang="ts">
     import { Map as MapIcon, ChevronUp, ChevronDown } from 'lucide-svelte';
-    import { getAvailableProviders, setTileProvider, currentTileProvider, getProviderDisplayName } from '$lib/tileProviders';
+    import { getAvailableProviders, setTileProvider, currentTileProvider } from '$lib/tileProviders';
     import type { ProviderName } from '$lib/tileProviders';
+    import {
+        showDropdownMenu,
+        closeDropdownMenu,
+        dropdownMenuState,
+        type DropdownMenuItem
+    } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 
-    let showMenu = false;
-    let availableProviders = getAvailableProviders();
+    const MENU_TEST_ID = 'tile-provider-menu';
+    let buttonElement: HTMLButtonElement;
 
-    function selectProvider(providerKey: ProviderName) {
-        setTileProvider(providerKey);
-        showMenu = false;
+    $: isOpen = $dropdownMenuState.visible && $dropdownMenuState.testId === MENU_TEST_ID;
+
+    function buildItems(current: ProviderName): DropdownMenuItem[] {
+        return [
+            { type: 'header', label: 'Map provider' },
+            ...getAvailableProviders().map(provider => ({
+                id: provider.key,
+                label: provider.name,
+                selected: provider.key === current,
+                testId: `tile-provider-option-${provider.key}`,
+                onclick: () => setTileProvider(provider.key)
+            }))
+        ];
     }
 
     function toggleMenu() {
-        showMenu = !showMenu;
-    }
-
-    // Close menu when clicking outside
-    function handleClickOutside(event: MouseEvent) {
-        const target = event.target as Element;
-        if (!target?.closest?.('.provider-selector')) {
-            showMenu = false;
+        if (isOpen) {
+            closeDropdownMenu();
+            return;
         }
+        showDropdownMenu(buildItems($currentTileProvider), buttonElement, {
+            placement: 'above-right',
+            testId: MENU_TEST_ID
+        });
     }
 </script>
 
-<svelte:window on:click={handleClickOutside} />
-
-<div class="provider-selector">
-    <button
-        class="provider-button"
-        on:click={toggleMenu}
-        title="Select map tile provider"
-    >
-        <MapIcon size={16} />
-        {#if showMenu}
-            <ChevronDown size={12} />
-        {:else}
-            <ChevronUp size={12} />
-        {/if}
-    </button>
-
-    {#if showMenu}
-        <div class="provider-menu">
-            <div class="provider-menu-header">Map Style</div>
-            {#each availableProviders as provider}
-                <button
-                    class="provider-option {provider.key === $currentTileProvider ? 'active' : ''}"
-                    on:click={() => selectProvider(provider.key)}
-                >
-                    {provider.name}
-                </button>
-            {/each}
-        </div>
+<button
+    bind:this={buttonElement}
+    class="provider-button"
+    on:click={toggleMenu}
+    title="Select map tile provider"
+    data-testid="tile-provider-button"
+>
+    <MapIcon size={16} />
+    {#if isOpen}
+        <ChevronDown size={12} />
+    {:else}
+        <ChevronUp size={12} />
     {/if}
-</div>
+</button>
 
 <style>
-    .provider-selector {
-        position: relative;
-        z-index: 30001;
-        display: flex;
-    }
-
     .provider-button {
         display: flex;
         align-items: center;
@@ -81,54 +74,5 @@
 
     .provider-button:hover {
         background-color: #f0f0f0;
-    }
-
-    .provider-menu {
-        position: absolute;
-        bottom: 100%;
-        right: 0;
-        margin-bottom: 0.25rem;
-        background-color: white;
-        border: 1px solid #ccc;
-        border-radius: 0.25rem;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        min-width: 200px;
-        max-height: 300px;
-        overflow-y: auto;
-    }
-
-    .provider-menu-header {
-        padding: 0.5rem;
-        font-weight: bold;
-        font-size: 0.75rem;
-        border-bottom: 1px solid #eee;
-        background-color: #f8f8f8;
-        color: #666;
-    }
-
-    .provider-option {
-        display: block;
-        width: 100%;
-        padding: 0.5rem;
-        text-align: left;
-        background: none;
-        border: none;
-        cursor: pointer;
-        transition: background-color 0.2s;
-        font-size: 0.75rem;
-        border-bottom: 1px solid #f0f0f0;
-    }
-
-    .provider-option:hover {
-        background-color: #f0f0f0;
-    }
-
-    .provider-option.active {
-        background-color: #4285F4;
-        color: white;
-    }
-
-    .provider-option:last-child {
-        border-bottom: none;
     }
 </style>

@@ -51,35 +51,30 @@
 
 ## Android Testing
 
-### Running Specific Test Files
-To run a single Android test file, use:
-```bash
-# Method 1: Using --spec flag (discovered method)
-bun run test:android --spec android-photo-simple.test0.ts
+Android/Appium tests live in `tests-appium/` which is its own package with its own
+`package.json` and `bun.lock`. Dependencies are NOT installed by the main
+`frontend/` package to keep its dependency tree small.
 
-# Method 2: Using pre-configured command
-bun run test:android:test0
+### Installing Android test dependencies
+```bash
+cd tests-appium && bun install
 ```
 
-### Available Android Test Commands
+### Running tests
 ```bash
 # Run all Android tests
-bun run test:android
+bun run test:appium
 
-# Run with clean app state (full isolation)
-bun run test:android:clean
+# Run without clean state (faster development)
+bun run test:appium:fast
 
-# Run without data clearing (faster development)
-bun run test:android:fast
-
-# Run specific test categories
-bun run test:android:auth      # Authentication tests
-bun run test:android:camera    # Camera tests
-bun run test:android:simple    # Simple photo workflow
-
-# Run optimized single test (no restarts)
-bun run test:android:test0     # Runs android-photo-simple.test0.ts
+# Run a single spec by name
+bun run test:appium -- --spec android-photo-simple.test0.ts
 ```
+
+The `test:appium*` scripts in `frontend/package.json` wrap
+`./scripts/android/test.sh`, which `cd`s into `tests-appium/` and runs wdio
+there.
 
 ### Test Configuration Notes
 - **App restarts**: Minimized to single startup only
@@ -106,11 +101,12 @@ Tests automatically handle:
 - Start backend service before running integration tests
 
 ## File Structure
-- `/test/specs/` - Android test files
-- `/test/helpers/` - Test utilities and page objects
-- `/test/pageobjects/` - Page object model implementations
-- `wdio.conf.ts` - WebDriverIO configuration
-- `android-photo-simple.test0.ts` - Optimized single test file
+- `tests-appium/` - Isolated package for Android/Appium tests (own package.json and lockfile)
+  - `tests-appium/specs/` - Android test files
+  - `tests-appium/helpers/` - Test utilities and selectors
+  - `tests-appium/wdio.conf.ts` - WebDriverIO configuration
+- `tests-playwright/` - Playwright web tests
+- `scripts/android/test.sh` - Entry point that cds into tests-appium/ and runs wdio
 
 ## Key Optimizations Applied
 - Removed cascade restart loops from network errors

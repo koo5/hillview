@@ -135,9 +135,37 @@
 		}
 	}
 
-	function handleItemClick(onclick: () => void) {
+	// Block click synthesis from touch so the ghost click can't land on the
+	// element that ends up under the pointer after the menu closes.
+	// NOTE: to actually prevent click synthesis we must preventDefault on
+	// `touchstart` / `touchend`, not just on pointerdown.
+	function swallowEvent(event: Event) {
+		event.preventDefault();
+		event.stopPropagation();
+	}
+
+	function handleItemPointerUp(event: PointerEvent, onclick: () => void) {
+		event.preventDefault();
+		event.stopPropagation();
+		armClickSwallower();
 		onclick();
 		closeDropdownMenu();
+	}
+
+	// After the menu closes, swallow exactly one synthesized click at the
+	// document level to guarantee no control underneath receives it.
+	function armClickSwallower() {
+		const handler = (e: Event) => {
+			e.preventDefault();
+			e.stopPropagation();
+			e.stopImmediatePropagation();
+			document.removeEventListener('click', handler, true);
+		};
+		document.addEventListener('click', handler, { capture: true, once: false });
+		// Safety: if no click comes in a short window, drop the listener.
+		setTimeout(() => {
+			document.removeEventListener('click', handler, true);
+		}, 400);
 	}
 
 	// Stop drag/touch events from propagating to the page underneath
@@ -176,7 +204,14 @@
 	<div
 		class="dropdown-backdrop"
 		use:portal
-		onclick={closeDropdownMenu}
+		ontouchstart={swallowEvent}
+		ontouchmove={swallowEvent}
+		ontouchend={swallowEvent}
+		onpointerdown={swallowEvent}
+		onpointerup={(e) => { swallowEvent(e); armClickSwallower(); closeDropdownMenu(); }}
+		onclick={swallowEvent}
+		onmousedown={swallowEvent}
+		onmouseup={swallowEvent}
 		onkeydown={handleKeydown}
 		role="button"
 		tabindex="-1"
@@ -193,6 +228,8 @@
 			{#each $dropdownMenuState.items as item, index}
 				{#if item.type === 'divider'}
 					<div class="menu-divider"></div>
+				{:else if item.type === 'header'}
+					<div class="menu-header">{item.label}</div>
 				{:else if item.type === 'custom'}
 					{@render item.render({ close: closeDropdownMenu })}
 				{:else}
@@ -202,7 +239,12 @@
 						class:disabled={item.disabled}
 						disabled={item.disabled}
 						data-testid={item.testId}
-						onpointerup={() => handleItemClick(item.onclick)}
+						ontouchstart={swallowEvent}
+						ontouchmove={swallowEvent}
+						ontouchend={swallowEvent}
+						onpointerdown={swallowEvent}
+						onpointerup={(e) => handleItemPointerUp(e, item.onclick)}
+						onclick={swallowEvent}
 					>
 						{#if item.icon}
 							{@const Icon = item.icon}
@@ -228,7 +270,7 @@
 		position: fixed;
 		inset: 0;
 		z-index: 2147483646;
-		background: transparent;
+		background: rgba(0, 0, 0, 0.35);
 		/* Prevent browser handling of touch gestures */
 		touch-action: none;
 	}
@@ -316,5 +358,16 @@
 		height: 1px;
 		background: #e5e7eb;
 		margin: 4px 0;
+	}
+
+	.menu-header {
+		padding: 8px 14px 4px;
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #6b7280;
+		background: #f8f8f8;
+		border-bottom: 1px solid #eee;
 	}
 </style>

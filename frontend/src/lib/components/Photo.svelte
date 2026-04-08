@@ -8,7 +8,7 @@
 	import {myGoto} from '$lib/navigation.svelte.js';
 	import {getDevicePhotoUrl} from '$lib/devicePhotoHelper';
 	import {simplePhotoWorker} from '$lib/simplePhotoWorker';
-	import {zoomViewData} from '$lib/zoomView.svelte.js';
+	import {zoomViewData, pendingZoomView} from '$lib/zoomView.svelte.js';
 	import {singleTap} from '$lib/actions/singleTap';
 	import {panZoom} from '$lib/actions/panZoom';
 	const doLog = false;
@@ -296,6 +296,59 @@
 		}
 	}
 
+	// Scale above which a released pinch promotes the inline preview into the
+	// full ZoomView, carrying the current zoom/pan as initial bounds. Below
+	// this, the gesture is treated as incidental and the inline snaps back.
+	const PINCH_PROMOTE_SCALE = 1.15;
+
+	function handlePinchEnd() {
+		if (!isFront || !photo) return;
+		if (zoomScale <= PINCH_PROMOTE_SCALE) {
+			// Not a deliberate zoom — snap back to 1x inline.
+			(containerElement as any)?.__panZoom_action?.reset();
+			return;
+		}
+
+		const cw = clientWidth2 || containerElement?.clientWidth || 0;
+		const ch = containerElement?.clientHeight || 0;
+		if (width && height && cw && ch) {
+			// The inline image is letterboxed (object-fit: contain) inside a
+			// container of size (cw, ch). Its rendered rect in pre-transform
+			// zoom-container space:
+			const fit = Math.min(cw / width, ch / height);
+			const rw = width * fit;
+			const rh = height * fit;
+			const ix0 = (cw - rw) / 2;
+			const iy0 = (ch - rh) / 2;
+
+			// Visible viewport in pre-transform zoom-container coordinates.
+			// Transform is translate(tx, ty) scale(s) with origin (0,0), so
+			// screen (0..cw, 0..ch) maps back to ((-tx)/s..(cw-tx)/s, ...).
+			const vx1 = -zoomTx / zoomScale;
+			const vy1 = -zoomTy / zoomScale;
+			const vx2 = (cw - zoomTx) / zoomScale;
+			const vy2 = (ch - zoomTy) / zoomScale;
+
+			// Convert to OSD viewport coords (image width = 1 unit, image
+			// height = aspectRatio). Both axes normalize by rw since OSD's
+			// y-axis is in image-width units.
+			const aspectY = height / width;
+			const clamp = (v: number, lo: number, hi: number) =>
+				Math.max(lo, Math.min(hi, v));
+			const x1 = clamp((vx1 - ix0) / rw, 0, 1);
+			const y1 = clamp((vy1 - iy0) / rw, 0, aspectY);
+			const x2 = clamp((vx2 - ix0) / rw, 0, 1);
+			const y2 = clamp((vy2 - iy0) / rw, 0, aspectY);
+
+			if (x2 > x1 && y2 > y1) {
+				pendingZoomView.set({x1, y1, x2, y2});
+			}
+		}
+
+		openZoomView(photo);
+		(containerElement as any)?.__panZoom_action?.reset();
+	}
+
 	// Reset zoom when photo changes
 	let lastPhotoId: string | undefined;
 	$: if (photo?.id !== lastPhotoId) {
@@ -310,6 +363,7 @@
 	$: panZoomOptions = isFront ? {
 		onUpdate: handlePanZoomUpdate,
 		onZoomChange: handleZoomChange,
+		onPinchEnd: handlePinchEnd,
 		isEmbedded: true,
 		minScale: 0.8,
 		maxScale: 5,

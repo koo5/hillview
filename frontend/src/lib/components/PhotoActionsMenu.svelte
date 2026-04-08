@@ -11,6 +11,12 @@
     import Modal from './Modal.svelte';
     import type { PhotoData } from '$lib/sources';
 	import {getPhotoSource} from "$lib/photoUtils";
+    import {
+        showDropdownMenu,
+        closeDropdownMenu,
+        dropdownMenuState,
+        type DropdownMenuItem
+    } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 
     export let photo: PhotoData | null = null;
 
@@ -31,17 +37,16 @@
             clearTimeout(id);
         }
         pendingTimeouts.clear();
-        if (typeof window !== 'undefined') {
-            window.removeEventListener('click', handleClickOutside);
-        }
     });
 
     // Expose show/hide dialog state to parent
     export let showHideUserDialog = false;
 
     // Menu state
-    let isMenuOpen = false;
-    let menuElement: HTMLElement;
+    let menuTriggerButton: HTMLButtonElement;
+    const MENU_TEST_ID = 'photo-actions-dropdown';
+
+    $: isMenuOpen = $dropdownMenuState.visible && $dropdownMenuState.testId === MENU_TEST_ID;
 
     // Action states
     let isHiding = false;
@@ -371,26 +376,85 @@
         }
     }
 
-    // Menu control functions
+    // Build the dropdown menu items from the current photo / action state.
+    function buildItems(): DropdownMenuItem[] {
+        if (!photo) return [];
+
+        const items: DropdownMenuItem[] = [];
+        const userName = getUserName(photo);
+        const capturedAt = formatCapturedAt(photo);
+
+        if (userName) {
+            items.push({
+                id: 'user-profile',
+                label: `@${userName}`,
+                description: getPhotoSource(photo),
+                onclick: viewUserProfile,
+                testId: 'menu-user-profile'
+            });
+            items.push({ type: 'divider' });
+        }
+
+        if (capturedAt) {
+            items.push({
+                id: 'captured-at',
+                label: capturedAt,
+                icon: Clock,
+                onclick: () => {},
+                testId: 'menu-captured-at'
+            });
+            items.push({ type: 'divider' });
+        }
+
+        items.push({
+            id: 'share',
+            label: 'Share Photo',
+            icon: Share,
+            onclick: sharePhoto,
+            testId: 'menu-share'
+        });
+        items.push({
+            id: 'flag',
+            label: isFlagged ? 'Remove Flag' : 'Flag for Review',
+            icon: Flag,
+            disabled: isFlagging,
+            onclick: toggleFlag,
+            testId: 'menu-flag'
+        });
+        items.push({ type: 'divider' });
+        items.push({
+            id: 'hide-photo',
+            label: 'Hide Photo',
+            icon: EyeOff,
+            disabled: isHiding,
+            onclick: hidePhoto,
+            testId: 'menu-hide-photo'
+        });
+        items.push({
+            id: 'hide-user',
+            label: 'Hide User',
+            icon: UserX,
+            disabled: isHiding || !getUserId(photo),
+            onclick: showUserHideDialogAction,
+            testId: 'menu-hide-user'
+        });
+
+        return items;
+    }
+
     function toggleMenu() {
-        isMenuOpen = !isMenuOpen;
+        if (isMenuOpen) {
+            closeDropdownMenu();
+            return;
+        }
+        showDropdownMenu(buildItems(), menuTriggerButton, {
+            placement: 'above-right',
+            testId: MENU_TEST_ID
+        });
     }
 
     function closeMenu() {
-        isMenuOpen = false;
-    }
-
-    // Handle menu action and close
-    function handleMenuAction(action: () => void) {
-        action();
-        closeMenu();
-    }
-
-    // Click outside to close menu
-    function handleClickOutside(event: MouseEvent) {
-        if (menuElement && !menuElement.contains(event.target as Node)) {
-            closeMenu();
-        }
+        closeDropdownMenu();
     }
 
     // Load rating counts when photo changes (works for all users)
@@ -420,16 +484,10 @@
         }
     }
 
-    // Bind click outside handler
-    $: if (isMenuOpen && typeof window !== 'undefined') {
-        scheduleTimeout(() => window.addEventListener('click', handleClickOutside), 0);
-    } else if (typeof window !== 'undefined') {
-        window.removeEventListener('click', handleClickOutside);
-    }
 </script>
 
 {#if photo}
-    <div class="photo-actions-menu" bind:this={menuElement}>
+    <div class="photo-actions-menu">
         <!-- Rating buttons -->
         <button
             class="action-button rating-button up {userRating === 'thumbs_up' ? 'active' : ''}"
@@ -455,6 +513,7 @@
 
         <!-- Menu trigger button -->
         <button
+            bind:this={menuTriggerButton}
             class="menu-trigger"
             on:click={toggleMenu}
             title="More actions"
@@ -462,90 +521,6 @@
         >
             <MoreVertical size={20} />
         </button>
-
-        <!-- Dropdown menu -->
-        {#if isMenuOpen}
-            <div class="menu-dropdown">
-                <!-- User info section -->
-                {#if getUserName(photo)}
-                    <div class="menu-section">
-                        <button
-                            class="menu-item user-item"
-                            on:click={() => handleMenuAction(viewUserProfile)}
-                            data-testid="menu-user-profile"
-                            title="View user profile"
-                        >
-                            <div class="user-info">
-                                <span class="user-name">@{getUserName(photo)}</span>
-                                <span class="user-source">{getPhotoSource(photo)}</span>
-                            </div>
-                        </button>
-                    </div>
-                    <div class="menu-divider"></div>
-                {/if}
-
-                {#if formatCapturedAt(photo)}
-                    <div class="menu-section photo-meta">
-                        <div class="meta-item">
-                            <Clock  size={16} />
-                            <span class="meta-value">{formatCapturedAt(photo)}</span>
-                        </div>
-                    </div>
-                    <div class="menu-divider"></div>
-                {/if}
-
-                <!-- Actions section -->
-                <div class="menu-section">
-                    <button
-                        class="menu-item"
-                        on:click={() => handleMenuAction(sharePhoto)}
-                        data-testid="menu-share"
-                        title="Share photo"
-                    >
-                        <Share size={16} />
-                        <span>Share Photo</span>
-                    </button>
-
-                    <button
-                        class="menu-item flag-item {isFlagged ? 'flagged' : ''}"
-                        on:click={() => handleMenuAction(toggleFlag)}
-                        disabled={isFlagging}
-                        data-testid="menu-flag"
-                        title={isFlagged ? "Remove flag" : "Flag for review"}
-                    >
-                        <Flag size={16} />
-                        <span>{isFlagged ? 'Remove Flag' : 'Flag for Review'}</span>
-                    </button>
-                </div>
-
-                <div class="menu-divider"></div>
-
-                <!-- Hide section -->
-                <div class="menu-section">
-                    <button
-                        class="menu-item hide-item"
-                        on:click={() => handleMenuAction(hidePhoto)}
-                        disabled={isHiding}
-                        data-testid="menu-hide-photo"
-                        title="Hide this photo"
-                    >
-                        <EyeOff size={16} />
-                        <span>Hide Photo</span>
-                    </button>
-
-                    <button
-                        class="menu-item hide-item"
-                        on:click={() => handleMenuAction(showUserHideDialogAction)}
-                        disabled={isHiding || !getUserId(photo)}
-                        data-testid="menu-hide-user"
-                        title={`Hide all photos by ${getUserName(photo) || 'this user'}`}
-                    >
-                        <UserX size={16} />
-                        <span>Hide User</span>
-                    </button>
-                </div>
-            </div>
-        {/if}
 
         <!-- Status messages -->
         {#if flagMessage || hideMessage}
@@ -653,79 +628,6 @@
         color: #111827;
     }
 
-    .menu-dropdown {
-        position: absolute;
-        bottom: 100%;
-        right: 0;
-        min-width: 200px;
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        z-index: 1000;
-        margin-bottom: 4px;
-        padding: 8px 0;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-    }
-
-    .menu-section {
-        padding: 0 0px;
-    }
-
-
-    .menu-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        width: 100%;
-        padding: 10px 12px;
-        border: none;
-        background: transparent;
-        color: #1f2937;
-        cursor: pointer;
-        transition: background-color 0.2s ease, color 0.2s ease;
-        text-align: left;
-        border-radius: 4px;
-        margin: 2px 0;
-        font-weight: 600;
-    }
-
-    .menu-item:hover:not(:disabled) {
-        background: #f3f4f6;
-        color: #111827;
-    }
-
-    .menu-item:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    .menu-divider {
-        height: 1px;
-        background: rgba(255, 255, 255, 0.1);
-        margin: 8px 0;
-    }
-
-
-    .rating-count {
-        margin-left: auto;
-        font-size: 12px;
-        color: rgba(255, 255, 255, 0.7);
-    }
-
-    /* Flag item */
-    .flag-item {
-        color: #000001;
-    }
-
-    .flag-item.flagged {
-        color: #000000;
-    }
-
-    /* Hide items */
-    .hide-item {
-        color: #0c0000;
-    }
-
     /* Status message */
     .status-message {
         position: absolute;
@@ -755,56 +657,6 @@
             opacity: 1;
             transform: translateY(0);
         }
-    }
-
-    /* User info in menu */
-    .user-item {
-        padding: 8px 12px !important;
-    }
-
-    .user-info {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 2px;
-        width: 100%;
-    }
-
-    .user-name {
-        font-weight: 600;
-        color: #1f2937;
-        font-size: 14px;
-    }
-
-    .user-source {
-        color: #6b7280;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        font-weight: 500;
-    }
-
-    .user-item:hover .user-name {
-        color: #111827;
-    }
-
-    .user-item:hover .user-source {
-        color: #4b5563;
-    }
-
-    .photo-meta {
-        padding: 0px 12px;
-    }
-
-    .meta-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-
-    .meta-value {
-		font-size: 10px;
     }
 
     /* Sign-in modal */
@@ -850,16 +702,4 @@
         background: #f3f4f6;
     }
 
-    /* Mobile responsive */
-    @media (max-width: 600px) {
-        .menu-dropdown {
-            right: -8px;
-            min-width: 180px;
-        }
-
-        .menu-item {
-            padding: 8px 10px;
-            font-size: 14px;
-        }
-    }
 </style>

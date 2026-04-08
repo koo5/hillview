@@ -92,10 +92,10 @@ The test configuration has been updated to handle app launching more robustly:
 - Uses `startActivity` to launch the app directly instead of relying on home screen icons
 - Includes retry logic for app launching
 - Verifies WebView is present before proceeding with tests
-- Supports both universal and x86_64 APKs (check wdio.conf.ts)
+- Supports both universal and x86_64 APKs (check tests-appium/wdio.conf.ts)
 
 If tests fail to launch the app:
-1. Check that the APK path in wdio.conf.ts matches your build output
+1. Check that the APK path in tests-appium/wdio.conf.ts matches your build output
 2. Ensure the emulator has enough storage (use clean-android.sh)
 3. Verify the app package and activity names are correct
 

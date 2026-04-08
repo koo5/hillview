@@ -1,5 +1,6 @@
 node_modules
 tests-appium/node_modules
+tests-playwright/node_modules
 
 # Output
 .output

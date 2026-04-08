@@ -1,0 +1,148 @@
+import { test, type Page } from '@playwright/test';
+import path from 'node:path';
+import fs from 'node:fs';
+
+/**
+ * Docs screenshots.
+ *
+ * Produces imagery for:
+ *   - docs/USER_GUIDE.md
+ *   - marketing / landing pages
+ *   - play store listing (web equivalents; real android shots still come from emulator)
+ *
+ * Each test runs once per viewport project defined in
+ * playwright.screenshots.config.ts. Files land in:
+ *   docs/screenshots/<project>/<name>.png
+ *
+ * The HERO shots focus on the annotated panorama — that is the primary
+ * value proposition of Hillview. Technical shots support the detailed
+ * sections of the guide.
+ */
+
+// The flagship annotated panorama (Vyhlídka Prosecké skály - východ).
+// This URL is the one we hand out to new visitors.
+const HERO_PANORAMA_URL =
+  '/?lat=50.11691142317276&lon=14.488375782966616&zoom=20&bearing=139.06&photo=hillview-333e8851-c59b-4133-bce5-2d1ddc2ce335';
+
+const OUT_ROOT = path.resolve(__dirname, '../../../docs/screenshots');
+
+function outPath(project: string, name: string): string {
+  const dir = path.join(OUT_ROOT, project);
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, `${name}.png`);
+}
+
+async function shot(page: Page, project: string, name: string, fullPage = false) {
+  await page.screenshot({
+    path: outPath(project, name),
+    fullPage,
+    animations: 'disabled',
+  });
+}
+
+/** Wait for the map + photo split view to be visually settled. */
+async function waitForMapView(page: Page) {
+  await page.waitForLoadState('networkidle').catch(() => { /* best effort */ });
+  await page.waitForSelector('.leaflet-container', { timeout: 15_000 });
+  // Let tiles, photo, and any annotorious overlays render.
+  await page.waitForTimeout(2500);
+}
+
+/** Wait for a plain content page (no map). */
+async function waitForContent(page: Page) {
+  await page.waitForLoadState('networkidle').catch(() => { /* best effort */ });
+  await page.waitForTimeout(800);
+}
+
+// ---------------------------------------------------------------------------
+// HERO SHOTS — annotated panorama
+// ---------------------------------------------------------------------------
+
+test.describe('hero', () => {
+  test('annotated panorama — first-visit view', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    await page.goto(HERO_PANORAMA_URL);
+    await waitForMapView(page);
+    await shot(page, project, 'hero-panorama');
+  });
+
+  test('annotated panorama — full page', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    await page.goto(HERO_PANORAMA_URL);
+    await waitForMapView(page);
+    await shot(page, project, 'hero-panorama-full', true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TECHNICAL SHOTS — for the detailed guide sections
+// ---------------------------------------------------------------------------
+
+test.describe('guide', () => {
+  test('main map view (default landing)', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    await page.goto('/');
+    await waitForMapView(page);
+    await shot(page, project, '01-main-map-view');
+  });
+
+  test('login page', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    await page.goto('/login');
+    await waitForContent(page);
+    await shot(page, project, '03-login-page');
+  });
+
+  test('activity feed', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    await page.goto('/activity');
+    await waitForContent(page);
+    await shot(page, project, '06-activity-feed');
+  });
+
+  test('best of', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    await page.goto('/bestof');
+    await waitForContent(page);
+    await shot(page, project, '07-best-of');
+  });
+
+  test('settings', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    await page.goto('/settings');
+    await waitForContent(page);
+    await shot(page, project, '08-settings');
+  });
+
+  test('about', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    await page.goto('/about');
+    await waitForContent(page);
+    await shot(page, project, '09-about-page');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// INTERACTIVE STATES — menus / modals opened
+// ---------------------------------------------------------------------------
+
+test.describe('interactive', () => {
+  test('navigation menu opened', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    await page.goto('/');
+    await waitForMapView(page);
+    // Fails the spec (and therefore the run) if the selector doesn't resolve.
+    await page.locator('[data-testid="hamburger-menu"]').click();
+    await page.waitForTimeout(500);
+    await shot(page, project, '02-navigation-menu');
+  });
+
+  test('filters modal opened', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    await page.goto('/');
+    await waitForMapView(page);
+    await page.locator('[data-testid="filters-button"]').click();
+    await page.waitForTimeout(500);
+    await shot(page, project, '05-filters-modal');
+  });
+});

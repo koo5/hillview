@@ -29,7 +29,7 @@
 <style>
 	.photo-description {
 		position: absolute;
-		bottom: 24px;
+		bottom: 34px;
 		left: 50%;
 		transform: translateX(-50%);
 		background: rgba(0, 0, 0, 0.6);
@@ -48,7 +48,7 @@
 
 	.annotation-indicator {
 		position: absolute;
-		bottom: 4px;
+		bottom: 13px;
 		left: 50%;
 		transform: translateX(-50%);
 		background: rgba(0, 0, 0, 0.6);

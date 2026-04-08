@@ -57,7 +57,8 @@ from common.database import get_db
 from common.models import Photo, User, PhotoRating, UserPublicKey
 from common.config import get_pics_dir
 from common.utc import format_utc
-from auth import get_current_active_user
+from auth import get_current_active_user, get_current_user_optional_with_query
+from hidden_content_filters import apply_hidden_content_filters
 from common.file_utils import (
 	get_file_size_from_upload
 )

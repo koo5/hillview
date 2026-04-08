@@ -1,4 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * @see https://playwright.dev/docs/test-configuration
@@ -9,11 +13,12 @@ import { defineConfig, devices } from '@playwright/test';
  * and login failures. Use a single `npx playwright test` invocation instead.
  */
 export default defineConfig({
-  testDir: './tests-playwright',
+  testDir: '.',
+  testIgnore: ['tests-screenshots/**'],
   /* Global setup for database initialization */
-  globalSetup: './tests-playwright/helpers/globalSetup.ts',
+  globalSetup: './helpers/globalSetup.ts',
   /* Global teardown to release cross-suite test lock */
-  globalTeardown: './tests-playwright/helpers/globalTeardown.ts',
+  globalTeardown: './helpers/globalTeardown.ts',
   /* Run tests in series to avoid database conflicts */
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
@@ -92,7 +97,8 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'npm run dev',
+    command: 'bun run dev',
+    cwd: path.resolve(__dirname, '..'),
     url: process.env.FRONTEND_URL || 'http://localhost:8212',
     reuseExistingServer: !process.env.CI,
   },

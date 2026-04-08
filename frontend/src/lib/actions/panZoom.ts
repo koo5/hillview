@@ -7,6 +7,10 @@ interface PanZoomState {
 interface PanZoomOptions {
 	onUpdate: (state: PanZoomState) => void;
 	onZoomChange?: (isZoomed: boolean) => void;
+	/** Fires when a touch pinch gesture ends with the user still zoomed in
+	 *  (scale > 1.01) in embedded mode. Used by the Gallery to promote the
+	 *  inline preview into the full ZoomView after the user releases. */
+	onPinchEnd?: () => void;
 	initialScale?: number;
 	minScale?: number;
 	maxScale?: number;
@@ -52,6 +56,10 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 	let lastTouchY = 0;
 	let isPinching = false;
 	let isPanning = false;
+	// True from 2-finger touchstart until all fingers are fully released,
+	// so we can defer onPinchEnd until event.touches.length === 0 (covers
+	// multi-step releases where one finger lifts before the other).
+	let pinchGestureInProgress = false;
 
 	// Mouse handling
 	let isDragging = false;
@@ -147,6 +155,7 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 	function handleTouchStart(event: TouchEvent) {
 		if (event.touches.length === 2) {
 			isPinching = true;
+			pinchGestureInProgress = true;
 			isPanning = false;
 			initialDistance = getDistance(event.touches);
 			pinchInitialScale = scale;
@@ -217,14 +226,23 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 		}
 	}
 
-	function handleTouchEnd() {
+	function handleTouchEnd(event: TouchEvent) {
 		const wasPinching = isPinching;
 		isPinching = false;
 		isPanning = false;
 
-		// In embedded mode, snap back to 1x if pinch ended below threshold
+		// In embedded mode, snap back to 1x if pinch ended below threshold.
+		// (Preserves the existing first-touchend reset behavior.)
 		if (isEmbedded && wasPinching && scale <= 1.01) {
 			resetToIdentity();
+			pinchGestureInProgress = false;
+		} else if (event.touches.length === 0) {
+			// All fingers off: if this concluded a pinch gesture that left us
+			// zoomed in, notify so the host can promote to a full viewer.
+			if (isEmbedded && pinchGestureInProgress && scale > 1.01) {
+				options.onPinchEnd?.();
+			}
+			pinchGestureInProgress = false;
 		}
 		checkZoomChange();
 	}
@@ -357,7 +375,7 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 		updateState();
 	}
 
-	return {
+	const actionInstance = {
 		update(newOptions: PanZoomOptions) {
 			options = newOptions;
 			minScale = newOptions.minScale || 0.5;
@@ -378,6 +396,10 @@ export function panZoom(node: HTMLElement, options: PanZoomOptions) {
 			node.removeEventListener('click', handleClick);
 			document.removeEventListener('mousemove', handleMouseMove);
 			document.removeEventListener('mouseup', handleMouseUp);
+			delete (node as any).__panZoom_action;
 		}
 	};
+
+	(node as any).__panZoom_action = actionInstance;
+	return actionInstance;
 }

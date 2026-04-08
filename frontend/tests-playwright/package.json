@@ -1,0 +1,17 @@
+{
+  "name": "hillview-tests-playwright",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "^1.57.0"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "test:headed": "playwright test --headed",
+    "screenshots": "playwright test --config=playwright.screenshots.config.ts",
+    "screenshots:desktop": "playwright test --config=playwright.screenshots.config.ts --project=desktop",
+    "screenshots:mobile": "playwright test --config=playwright.screenshots.config.ts --project=mobile"
+  }
+}

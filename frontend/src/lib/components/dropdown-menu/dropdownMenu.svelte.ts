@@ -39,7 +39,15 @@ export type DropdownMenuItemDivider = {
 	type: 'divider';
 };
 
-export type DropdownMenuItem = DropdownMenuItemAction | DropdownMenuItemCustom | DropdownMenuItemDivider;
+/**
+ * A non-interactive header/section title
+ */
+export type DropdownMenuItemHeader = {
+	type: 'header';
+	label: string;
+};
+
+export type DropdownMenuItem = DropdownMenuItemAction | DropdownMenuItemCustom | DropdownMenuItemDivider | DropdownMenuItemHeader;
 
 export type DropdownMenuPlacement = 'below-left' | 'below-right' | 'above-left' | 'above-right';
 
