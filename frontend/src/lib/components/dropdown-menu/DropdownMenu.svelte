@@ -147,25 +147,8 @@
 	function handleItemPointerUp(event: PointerEvent, onclick: () => void) {
 		event.preventDefault();
 		event.stopPropagation();
-		armClickSwallower();
 		onclick();
 		closeDropdownMenu();
-	}
-
-	// After the menu closes, swallow exactly one synthesized click at the
-	// document level to guarantee no control underneath receives it.
-	function armClickSwallower() {
-		const handler = (e: Event) => {
-			e.preventDefault();
-			e.stopPropagation();
-			e.stopImmediatePropagation();
-			document.removeEventListener('click', handler, true);
-		};
-		document.addEventListener('click', handler, { capture: true, once: false });
-		// Safety: if no click comes in a short window, drop the listener.
-		setTimeout(() => {
-			document.removeEventListener('click', handler, true);
-		}, 400);
 	}
 
 	// Stop drag/touch events from propagating to the page underneath
@@ -208,7 +191,7 @@
 		ontouchmove={swallowEvent}
 		ontouchend={swallowEvent}
 		onpointerdown={swallowEvent}
-		onpointerup={(e) => { swallowEvent(e); armClickSwallower(); closeDropdownMenu(); }}
+		onpointerup={(e) => { swallowEvent(e); closeDropdownMenu(); }}
 		onclick={swallowEvent}
 		onmousedown={swallowEvent}
 		onmouseup={swallowEvent}
