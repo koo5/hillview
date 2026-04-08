@@ -19,11 +19,19 @@
 	} from 'lucide-svelte';
 	import { http, handleApiError, TokenExpiredError } from '$lib/http';
 	import { auth } from '$lib/auth.svelte';
-	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
 	import { constructPhotoMapUrl, constructUserProfileUrl } from '$lib/urlUtils';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { myGoto, navigateWithHistory } from '$lib/navigation.svelte';
 	import { TAURI } from '$lib/tauri';
+	import type { PhotoData } from '$lib/sources';
+	import {
+		hidePhotoRequest,
+		togglePhotoRating,
+		flagPhotoRequest,
+		unflagPhotoRequest,
+		fetchIsFlagged,
+		type Rating
+	} from '$lib/photoActions';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
@@ -158,35 +166,19 @@
 		}
 	}
 
-	// --- Rating (same pattern as PhotoActionsMenu.svelte) ---
-	async function handleRatingClick(rating: 'thumbs_up' | 'thumbs_down') {
+	// --- Rating (shared with PhotoActionsMenu.svelte via photoActions.ts) ---
+	async function handleRatingClick(rating: Rating) {
 		if (!photo || isRating) return;
 		if (!requireAuth()) return;
 
 		isRating = true;
-		const source = photo.source;
 		try {
-			let response;
-			if (photo.user_rating === rating) {
-				response = await http.delete(`/ratings/${source}/${photo.id}`);
-				if (!response.ok) throw new Error(`Failed to update rating: ${response.status}`);
-				photo = { ...photo, user_rating: null };
-				// Refresh counts
-				const getRatingResponse = await http.get(`/ratings/${source}/${photo.id}`);
-				if (getRatingResponse.ok) {
-					const data = await getRatingResponse.json();
-					photo = { ...photo, rating_counts: data.rating_counts };
-				}
-			} else {
-				response = await http.post(`/ratings/${source}/${photo.id}`, { rating });
-				if (!response.ok) throw new Error(`Failed to update rating: ${response.status}`);
-				const data = await response.json();
-				photo = {
-					...photo,
-					user_rating: data.user_rating,
-					rating_counts: data.rating_counts
-				};
-			}
+			const state = await togglePhotoRating(
+				photo as unknown as PhotoData,
+				rating,
+				photo.user_rating
+			);
+			photo = { ...photo, user_rating: state.userRating, rating_counts: state.ratingCounts };
 		} catch (err) {
 			console.error('🢄 Error updating rating:', err);
 			setStatus(`Rating error: ${handleApiError(err)}`, true);
@@ -195,7 +187,6 @@
 		}
 	}
 
-	// --- Share (same pattern as PhotoActionsMenu.svelte) ---
 	async function sharePhoto() {
 		if (!photo) return;
 		const result = await sharePhotoUtil(photo);
@@ -204,57 +195,28 @@
 		}
 	}
 
-	// --- Hide photo (same pattern as PhotoActionsMenu.svelte) ---
 	async function hidePhoto() {
 		if (!photo || isHiding) return;
 		if (!requireAuth()) return;
 
 		isHiding = true;
 		try {
-			const response = await http.post('/hidden/photos', {
-				photo_source: photo.source,
-				photo_id: photo.id,
-				reason: 'Hidden from photo detail page'
-			});
-			if (!response.ok) throw new Error(`Failed to hide photo: ${response.status}`);
-			simplePhotoWorker.removePhotoFromCache?.(photo.id, photo.source);
-			setStatus('Photo hidden successfully');
-		} catch (err) {
-			console.error('🢄 Error hiding photo:', err);
-			setStatus(`Error: ${handleApiError(err)}`, true, 5000);
+			const result = await hidePhotoRequest(photo as unknown as PhotoData);
+			setStatus(result.message, result.error, result.error ? 5000 : 3000);
 		} finally {
 			isHiding = false;
 		}
 	}
 
-	// --- Flag (same pattern as PhotoActionsMenu.svelte) ---
 	async function flagPhoto() {
 		if (!photo || isFlagging) return;
 		if (!requireAuth()) return;
 
 		isFlagging = true;
 		try {
-			const response = await http.post('/flagged/photos', {
-				photo_source: photo.source,
-				photo_id: photo.id,
-				reason: 'Flagged for moderation'
-			});
-			if (!response.ok) {
-				const errorData = await response.json().catch(() => ({}));
-				if (errorData.already_flagged) {
-					isFlagged = true;
-					setStatus('Photo already flagged');
-				} else {
-					throw new Error(`Failed to flag photo: ${response.status}`);
-				}
-			} else {
-				const data = await response.json();
-				isFlagged = true;
-				setStatus(data.already_flagged ? 'Photo already flagged' : 'Photo flagged for moderation');
-			}
-		} catch (err) {
-			console.error('🢄 Error flagging photo:', err);
-			setStatus(`Error: ${handleApiError(err)}`, true, 5000);
+			const result = await flagPhotoRequest(photo as unknown as PhotoData);
+			if (result.success) isFlagged = true;
+			setStatus(result.message, result.error, result.error ? 5000 : 3000);
 		} finally {
 			isFlagging = false;
 		}
@@ -266,16 +228,9 @@
 
 		isFlagging = true;
 		try {
-			const response = await http.delete('/flagged/photos', {
-				photo_source: photo.source,
-				photo_id: photo.id
-			});
-			if (!response.ok) throw new Error(`Failed to unflag photo: ${response.status}`);
-			isFlagged = false;
-			setStatus('Photo unflagged');
-		} catch (err) {
-			console.error('🢄 Error unflagging photo:', err);
-			setStatus(`Error: ${handleApiError(err)}`, true, 5000);
+			const result = await unflagPhotoRequest(photo as unknown as PhotoData);
+			if (result.success) isFlagged = false;
+			setStatus(result.message, result.error, result.error ? 5000 : 3000);
 		} finally {
 			isFlagging = false;
 		}
@@ -288,17 +243,7 @@
 
 	async function checkFlagStatus() {
 		if (!photo || !isAuthenticated) return;
-		try {
-			const response = await http.get('/flagged/photos');
-			if (response.ok) {
-				const flaggedPhotos = await response.json();
-				isFlagged = flaggedPhotos.some(
-					(fp: any) => fp.photo_source === photo!.source && fp.photo_id === photo!.id
-				);
-			}
-		} catch (err) {
-			console.error('🢄 Error checking flag status:', err);
-		}
+		isFlagged = await fetchIsFlagged(photo as unknown as PhotoData);
 	}
 
 	// --- Delete (same pattern as /photos/+page.svelte) ---

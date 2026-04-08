@@ -1,16 +1,30 @@
 <script lang="ts">
     import { onDestroy } from 'svelte';
     import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical, Clock } from 'lucide-svelte';
-    import { http, handleApiError } from '$lib/http';
     import { auth } from '$lib/auth.svelte.js';
-    import { simplePhotoWorker } from '$lib/simplePhotoWorker';
-    import { constructUserProfileUrl, openExternalUrl } from '$lib/urlUtils';
     import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
-    import { myGoto } from '$lib/navigation.svelte.js';
     import { navigateWithHistory } from '$lib/navigation.svelte.js';
     import Modal from './Modal.svelte';
     import type { PhotoData } from '$lib/sources';
-	import {getPhotoSource} from "$lib/photoUtils";
+    import {
+        getUserId,
+        getUserName,
+        getPhotoSource,
+        formatCapturedAt,
+        getPhotoDetailUrl
+    } from '$lib/photoUtils';
+    import {
+        hidePhotoRequest,
+        togglePhotoRating,
+        fetchPhotoRating,
+        flagPhotoRequest,
+        unflagPhotoRequest,
+        fetchIsFlagged,
+        viewPhotoUserProfile,
+        openPhotoDetailPage,
+        type Rating,
+        type RatingState
+    } from '$lib/photoActions';
     import {
         showDropdownMenu,
         closeDropdownMenu,
@@ -80,105 +94,6 @@
         navigateWithHistory('/login');
     }
 
-    // User helper functions
-    function getUserId(photo: PhotoData | null): string | null {
-        if (!photo) return null;
-
-        // For Mapillary photos, check if creator info exists in the photo data
-        if ((photo as any).creator?.id) {
-            return (photo as any).creator.id;
-        }
-        // For Hillview photos, check for owner_id field
-        if ((photo as any).owner_id) {
-            return (photo as any).owner_id;
-        }
-        return null;
-    }
-
-    function getUserName(photo: PhotoData | null): string | null {
-        if (!photo) return null;
-
-        // For Mapillary photos, check if creator info exists in the photo data
-        if ((photo as any).creator?.username) {
-            return (photo as any).creator.username;
-        }
-        // For Hillview photos, check for owner_username field
-        if ((photo as any).owner_username) {
-            return (photo as any).owner_username;
-        }
-        return null;
-    }
-
-    function formatCapturedAt(photo: PhotoData | null): string | null {
-        if (!photo?.captured_at) return null;
-        try {
-            const date = new Date(photo.captured_at);
-            return date.toLocaleString();
-        } catch {
-            return String(photo.captured_at);
-        }
-    }
-
-    function getPhotoDetailUrl(photo: PhotoData | null): string | null {
-        if (!photo) return null;
-        // Prefer explicit uid if present; otherwise build from source+id.
-        const explicitUid = (photo as any).uid;
-        if (explicitUid) return `/photo/${encodeURIComponent(explicitUid)}`;
-        const source = getPhotoSource(photo);
-        if (source && photo.id) {
-            return `/photo/${encodeURIComponent(`${source}-${photo.id}`)}`;
-        }
-        return null;
-    }
-
-    function openPhotoDetail() {
-        const url = getPhotoDetailUrl(photo);
-        if (url) {
-            closeMenu();
-            myGoto(url);
-        }
-    }
-
-    // Hide photo function
-    async function hidePhoto() {
-        if (!photo || isHiding) return;
-        if (!requireAuth()) return;
-
-        isHiding = true;
-        hideMessage = '';
-
-        try {
-            const photoSource = getPhotoSource(photo);
-            const response = await http.post('/hidden/photos', {
-                photo_source: photoSource,
-                photo_id: photo.id,
-                reason: 'Hidden from gallery'
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to hide photo: ${response.status}`);
-            }
-
-            // Call webworker to remove from cache
-            if (photoSource) {
-                simplePhotoWorker.removePhotoFromCache?.(photo.id, photoSource);
-            }
-
-            hideMessage = 'Photo hidden successfully';
-            scheduleTimeout(() => hideMessage = '', 2000);
-        } catch (error) {
-            console.error('🢄Error hiding photo:', error);
-            hideMessage = `Error: ${handleApiError(error)}`;
-            hideError = true;
-            scheduleTimeout(() => {
-                hideMessage = '';
-                hideError = false;
-            }, 5000);
-        } finally {
-            isHiding = false;
-        }
-        closeMenu();
-    }
 
     // Show user hide dialog
     function showUserHideDialogAction() {
@@ -189,84 +104,6 @@
         closeMenu();
     }
 
-    // Rating functionality
-    async function handleRatingClick(rating: 'thumbs_up' | 'thumbs_down') {
-        if (!photo || isRating) return;
-        if (!requireAuth()) return;
-
-        const photoSource = getPhotoSource(photo);
-        isRating = true;
-
-        try {
-            let response;
-
-            if (userRating === rating) {
-                // Remove rating if clicking the same rating
-                response = await http.delete(`/ratings/${photoSource}/${photo.id}`);
-                userRating = null;
-            } else {
-                // Set new rating
-                response = await http.post(`/ratings/${photoSource}/${photo.id}`, {
-                    rating: rating
-                });
-                const data = await response.json();
-                userRating = data.user_rating as 'thumbs_up' | 'thumbs_down' | null;
-                ratingCounts = data.rating_counts;
-            }
-
-            if (!response.ok) {
-                throw new Error(`Failed to update rating: ${response.status}`);
-            }
-
-            // If we removed a rating, get updated counts
-            if (!userRating) {
-                const getRatingResponse = await http.get(`/ratings/${photoSource}/${photo.id}`);
-                if (getRatingResponse.ok) {
-                    const data = await getRatingResponse.json();
-                    ratingCounts = data.rating_counts;
-                }
-            }
-        } catch (error) {
-            console.error('🢄Error updating rating:', error);
-            hideMessage = `Rating error: ${handleApiError(error)}`;
-            hideError = true;
-            scheduleTimeout(() => {
-                hideMessage = '';
-                hideError = false;
-            }, 3000);
-        } finally {
-            isRating = false;
-        }
-        closeMenu();
-    }
-
-    // Load rating data when photo changes
-    async function loadPhotoRating() {
-        if (!photo) {
-            userRating = null;
-            ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
-            return;
-        }
-
-        try {
-            const photoSource = getPhotoSource(photo);
-            const response = await http.get(`/ratings/${photoSource}/${photo.id}`);
-
-            if (response.ok) {
-                const data = await response.json();
-                userRating = data.user_rating;
-                ratingCounts = data.rating_counts || { thumbs_up: 0, thumbs_down: 0 };
-            } else {
-                // If rating endpoint fails, set defaults
-                userRating = null;
-                ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
-            }
-        } catch (error) {
-            console.error('🢄Error loading rating:', error);
-            userRating = null;
-            ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
-        }
-    }
 
     // Share photo functionality
     async function sharePhoto() {
@@ -284,117 +121,126 @@
         closeMenu();
     }
 
-    // Flag photo function
+    // Hide photo wrapper — delegates to pure action
+    async function hidePhoto() {
+        if (!photo || isHiding) return;
+        if (!requireAuth()) return;
+
+        isHiding = true;
+        hideMessage = '';
+        try {
+            const result = await hidePhotoRequest(photo);
+            hideMessage = result.message;
+            hideError = result.error;
+            scheduleTimeout(() => {
+                hideMessage = '';
+                hideError = false;
+            }, result.error ? 5000 : 2000);
+        } finally {
+            isHiding = false;
+            closeMenu();
+        }
+    }
+
+    // Rating click wrapper
+    async function handleRatingClick(rating: Rating) {
+        if (!photo || isRating) return;
+        if (!requireAuth()) return;
+
+        isRating = true;
+        try {
+            const state = await togglePhotoRating(photo, rating, userRating);
+            userRating = state.userRating;
+            ratingCounts = state.ratingCounts;
+        } catch (err) {
+            console.error('🢄Error updating rating:', err);
+            hideMessage = 'Rating error';
+            hideError = true;
+            scheduleTimeout(() => {
+                hideMessage = '';
+                hideError = false;
+            }, 3000);
+        } finally {
+            isRating = false;
+            closeMenu();
+        }
+    }
+
     async function flagPhoto() {
         if (!photo || isFlagging) return;
         if (!requireAuth()) return;
 
         isFlagging = true;
         flagMessage = '';
-
         try {
-            const photoSource = getPhotoSource(photo);
-            const response = await http.post('/flagged/photos', {
-                photo_source: photoSource,
-                photo_id: photo.id,
-                reason: 'Flagged for moderation'
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                if (errorData.already_flagged) {
-                    flagMessage = 'Photo already flagged';
-                    isFlagged = true;
-                } else {
-                    throw new Error(`Failed to flag photo: ${response.status}`);
-                }
-            } else {
-                const data = await response.json();
-                if (data.already_flagged) {
-                    flagMessage = 'Photo already flagged';
-                } else {
-                    flagMessage = 'Photo flagged for moderation';
-                }
-                isFlagged = true;
-            }
-
-            scheduleTimeout(() => flagMessage = '', 2000);
-        } catch (error) {
-            console.error('🢄Error flagging photo:', error);
-            flagMessage = `Error: ${handleApiError(error)}`;
-            flagError = true;
+            const result = await flagPhotoRequest(photo);
+            flagMessage = result.message;
+            flagError = result.error;
+            if (result.success) isFlagged = true;
             scheduleTimeout(() => {
                 flagMessage = '';
                 flagError = false;
-            }, 5000);
+            }, result.error ? 5000 : 2000);
         } finally {
             isFlagging = false;
+            closeMenu();
         }
-        closeMenu();
     }
 
-    // Unflag photo function
     async function unflagPhoto() {
         if (!photo || isFlagging) return;
         if (!requireAuth()) return;
 
         isFlagging = true;
         flagMessage = '';
-
         try {
-            const photoSource = getPhotoSource(photo);
-            const response = await http.delete('/flagged/photos', {
-                photo_source: photoSource,
-                photo_id: photo.id
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to unflag photo: ${response.status}`);
-            }
-
-            flagMessage = 'Photo unflagged';
-            isFlagged = false;
-            scheduleTimeout(() => flagMessage = '', 2000);
-        } catch (error) {
-            console.error('🢄Error unflagging photo:', error);
-            flagMessage = `Error: ${handleApiError(error)}`;
-            flagError = true;
+            const result = await unflagPhotoRequest(photo);
+            flagMessage = result.message;
+            flagError = result.error;
+            if (result.success) isFlagged = false;
             scheduleTimeout(() => {
                 flagMessage = '';
                 flagError = false;
-            }, 5000);
+            }, result.error ? 5000 : 2000);
         } finally {
             isFlagging = false;
+            closeMenu();
         }
-        closeMenu();
     }
 
-    // Toggle flag status
     function toggleFlag() {
-        if (isFlagged) {
-            unflagPhoto();
-        } else {
-            flagPhoto();
-        }
+        if (isFlagged) unflagPhoto();
+        else flagPhoto();
     }
 
-    // Check if photo is flagged on component mount
+    async function viewUserProfile() {
+        if (!photo) return;
+        closeMenu();
+        await viewPhotoUserProfile(photo);
+    }
+
+    function openPhotoDetail() {
+        if (!photo) return;
+        closeMenu();
+        openPhotoDetailPage(photo);
+    }
+
+    async function loadPhotoRating() {
+        if (!photo) {
+            userRating = null;
+            ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
+            return;
+        }
+        const state: RatingState = await fetchPhotoRating(photo);
+        userRating = state.userRating;
+        ratingCounts = state.ratingCounts;
+    }
+
     async function checkFlagStatus() {
         if (!photo || !is_authenticated) return;
-
-        try {
-            const response = await http.get('/flagged/photos');
-            if (response.ok) {
-                const flaggedPhotos = await response.json();
-                const photoSource = getPhotoSource(photo);
-                isFlagged = flaggedPhotos.some((fp: any) =>
-                    fp.photo_source === photoSource && fp.photo_id === photo.id
-                );
-            }
-        } catch (error) {
-            console.error('🢄Error checking flag status:', error);
-        }
+        isFlagged = await fetchIsFlagged(photo);
     }
+
 
     // Build the dropdown menu items from the current photo / action state.
     function buildItems(): DropdownMenuItem[] {
@@ -415,11 +261,12 @@
             items.push({ type: 'divider' });
         }
 
-        if (capturedAt) {
+        //if (capturedAt)
+		{
             const detailUrl = getPhotoDetailUrl(photo);
             items.push({
                 id: 'captured-at',
-                label: capturedAt,
+                label: capturedAt ?? 'unknown',
                 icon: Clock,
                 disabled: !detailUrl,
                 onclick: openPhotoDetail,
@@ -489,22 +336,6 @@
         checkFlagStatus();
     }
 
-    // Navigate to user profile for Hillview photos
-    async function viewUserProfile() {
-        if (!photo) return;
-
-        const photoSource = getPhotoSource(photo);
-        const userId = getUserId(photo);
-
-        if (photoSource === 'hillview' && userId) {
-            myGoto(constructUserProfileUrl(userId));
-        }
-        else if (photoSource === 'mapillary' && (photo as any).creator?.username) {
-            const username = (photo as any).creator.username;
-            const profileUrl = `https://www.mapillary.com/app/user/${username}`;
-            await openExternalUrl(profileUrl);
-        }
-    }
 
 </script>
 

@@ -116,3 +116,54 @@ export function getPhotoSourceId(photo: PhotoData | null): string | undefined {
 	return photo.source?.id;
 }
 
+    // User helper functions
+export function getUserId(photo: PhotoData | null): string | null {
+        if (!photo) return null;
+
+        // For Mapillary photos, check if creator info exists in the photo data
+        if ((photo as any).creator?.id) {
+            return (photo as any).creator.id;
+        }
+        // For Hillview photos, check for owner_id field
+        if ((photo as any).owner_id) {
+            return (photo as any).owner_id;
+        }
+        return null;
+}
+
+
+export function getUserName(photo: PhotoData | null): string | null {
+	if (!photo) return null;
+
+	// For Mapillary photos, check if creator info exists in the photo data
+	if ((photo as any).creator?.username) {
+		return (photo as any).creator.username;
+	}
+	// For Hillview photos, check for owner_username field
+	if ((photo as any).owner_username) {
+		return (photo as any).owner_username;
+	}
+	return null;
+}
+
+export function formatCapturedAt(photo: PhotoData | null): string | null {
+	if (!photo?.captured_at) return null;
+	try {
+		const date = new Date(photo.captured_at);
+		return date.toLocaleString();
+	} catch {
+		return String(photo.captured_at);
+	}
+}
+
+export function getPhotoDetailUrl(photo: PhotoData | null): string | null {
+	if (!photo) return null;
+	// Prefer explicit uid if present; otherwise build from source+id.
+	const explicitUid = (photo as any).uid;
+	if (explicitUid) return `/photo/${encodeURIComponent(explicitUid)}`;
+	const source = getPhotoSource(photo);
+	if (source && photo.id) {
+		return `/photo/${encodeURIComponent(`${source}-${photo.id}`)}`;
+	}
+	return null;
+}
