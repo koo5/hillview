@@ -31,6 +31,9 @@ dependencies = [
 
     # Self-hosted Swagger UI assets
     "swagger-ui-py",
+
+    # IP geolocation (featured photo on first visit)
+    "geoip2",
 ]
 
 [project.optional-dependencies]

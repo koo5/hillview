@@ -48,6 +48,7 @@
 		setUrlRequestedPhoto,
 	} from "$lib/mapState";
 	import { overrideFilters } from '$lib/components/filters-modal/filtersStore';
+	import {featuredPhotoData, maybeFetchFeaturedPhoto} from "$lib/featuredPhoto";
 	import {updateBearingWithPhoto} from "$lib/bearingTracking";
 	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
@@ -297,7 +298,10 @@
 			setUrlRequestedPhoto(photoUid);
 		}
 
-		await updateSpatialState({...p}, 'map');
+		// Only stamp spatialState.ts when the user actually directed navigation (URL params).
+		// On a truly blank first visit, leave ts undefined so maybeFetchFeaturedPhoto() can steer.
+		const isUserNavigation = positionChanged || !!photoParam;
+		await updateSpatialState({...p}, 'map', isUserNavigation);
 		mapReady.set(true);
 
 		if (bearingParam) {
@@ -1039,6 +1043,29 @@
 		}
 	}
 
+	// Guard so we only fly to the featured photo once per mount
+	let featuredPhotoApplied = false;
+
+	function tryApplyFeaturedPhoto() {
+		if (featuredPhotoApplied || !get(mapReady)) return;
+		const featured = get(featuredPhotoData);
+		if (!featured) return;
+		// If the user (or URL params) has already established a spatial position, don't override.
+		if (get(spatialState).ts !== undefined) return;
+
+		featuredPhotoApplied = true;
+		const newCenter = new LatLng(featured.latitude, featured.longitude);
+		console.log('🢄Featured: navigating to featured photo', featured.id, 'at', featured.latitude, featured.longitude);
+		if (map) {
+			map.flyTo(newCenter, 6, { animate: true });
+		}
+		updateSpatialState({ center: newCenter, zoom: 6 }, 'map', true);
+
+		if (get(bearingState).ts === undefined && featured.bearing != null) {
+			updateBearing(featured.bearing, 'featured');
+		}
+	}
+
 	onMount(() => {
 		console.log('🢄Map component mounted');
 
@@ -1047,6 +1074,13 @@
 
 		// Signal that we're now on map route
 		isOnMapRoute.set(true);
+
+		// Kick off the first-visit featured-photo fetch. No-op for returning visitors.
+		maybeFetchFeaturedPhoto();
+
+		// Subscribe to both featuredPhotoData and mapReady so we handle either-arrives-first race.
+		const unsubFeatured = featuredPhotoData.subscribe(() => tryApplyFeaturedPhoto());
+		const unsubMapReadyFP = mapReady.subscribe(() => tryApplyFeaturedPhoto());
 
 		// Initialize the simplified photo worker (async)
 		(async () => {
@@ -1124,7 +1158,7 @@
 			}
 		});
 
-		return () => { unsubGps(); unsubLastKnown(); };
+		return () => { unsubGps(); unsubLastKnown(); unsubFeatured(); unsubMapReadyFP(); };
 	});
 
 	//import.meta.hot?.dispose(() => (map = null));

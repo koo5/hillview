@@ -408,7 +408,7 @@
             items.push({
                 id: 'user-profile',
                 label: `@${userName}`,
-                description: getPhotoSource(photo),
+                description: getPhotoSource(photo) ?? undefined,
                 onclick: viewUserProfile,
                 testId: 'menu-user-profile'
             });

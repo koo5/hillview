@@ -110,6 +110,11 @@
 	}
 
 	async function loadPhoto() {
+		if (!photoUid) {
+			error = 'Photo not found';
+			loading = false;
+			return;
+		}
 		loading = true;
 		error = '';
 		try {

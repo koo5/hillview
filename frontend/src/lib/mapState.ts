@@ -28,6 +28,9 @@ export interface SpatialState {
 	bounds: Bounds | null;
 	range: number;
 	source: 'gps' | 'map';
+	// Timestamp of the last intentional update (user interaction, URL params, or persisted-from-previous-session).
+	// Undefined on a true first visit — used to decide whether the featured-photo auto-navigation should kick in.
+	ts?: number;
 }
 
 export interface BearingState {
@@ -35,6 +38,8 @@ export interface BearingState {
 	source: string;
 	photoUid?: string;
 	accuracy_level?: number | null;
+	// Timestamp of the last intentional update. Undefined on a true first visit.
+	ts?: number;
 }
 
 // Bearing mode for controlling automatic bearing source
@@ -345,14 +350,18 @@ function calculateAbsBearingDiff(bearing1: number, bearing2: number): number {
 
 
 // Update functions with selective reactivity
-export async function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map') {
-	if (doLog) console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}`);
+export async function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map', setTimestamp: boolean = true) {
+	if (doLog) console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}, setTimestamp=${setTimestamp}`);
 	let old = get(spatialState);
-	if (JSON.stringify(old) === JSON.stringify({...old, ...updates, source})) {
+	// Compare without `ts` so dedup still works when only the timestamp would change.
+	const {ts: _oldTs, ...oldNoTs} = old;
+	const {ts: _updTs, ...updatesNoTs} = updates;
+	if (JSON.stringify(oldNoTs) === JSON.stringify({...oldNoTs, ...updatesNoTs, source})) {
 		//console.log('Spatial: No changes in spatial state, skipping update');
 		return;
 	}
-	spatialState.update(state => ({...state, ...updates, source}));
+	const nextTs = setTimestamp ? Date.now() : old.ts;
+	spatialState.update(state => ({...state, ...updates, source, ts: nextTs}));
 	if (source !== 'gps' && TAURI)
 	{
 		const state = get(spatialState);
@@ -372,9 +381,16 @@ export async function updateSpatialState(updates: Partial<SpatialState>, source:
 	}
 }
 
-export function updateBearing(bearing: number, source: string = 'map', photoUid?: string, accuracy_level?: number | null) {
+export function updateBearing(bearing: number, source: string = 'map', photoUid?: string, accuracy_level?: number | null, setTimestamp: boolean = true) {
 	//console.log('🢄📍 updateBearing called:', bearing, source, accuracy_level);
-	bearingState.update(state => ({...state, bearing, source, photoUid, accuracy_level}));
+	bearingState.update(state => ({
+		...state,
+		bearing,
+		source,
+		photoUid,
+		accuracy_level,
+		ts: setTimestamp ? Date.now() : state.ts,
+	}));
 	if (!source.startsWith('android') && TAURI) {
 		invoke('plugin:hillview|cmd', {command: 'update_orientation', params: {
 			timestamp: Date.now(),

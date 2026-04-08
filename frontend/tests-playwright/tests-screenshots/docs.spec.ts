@@ -1,6 +1,9 @@
 import { test, type Page } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Docs screenshots.

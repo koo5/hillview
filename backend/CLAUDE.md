@@ -165,6 +165,24 @@ Environment variables required:
 
 Optional configuration:
 - `ENABLE_MAPILLARY_CACHE` - Set to "true", "1", or "yes" to enable caching (disabled by default)
+- `GEOIP_DB_PATH` - Path to MaxMind GeoLite2-City.mmdb (default `/app/data/GeoLite2-City.mmdb`). Used by the `/api/featured/nearest` endpoint to geolocate first-visit clients.
+
+### Featured Photo GeoLite2 Database Setup
+
+The `/api/featured/nearest` endpoint geolocates the client's IP on first visit and returns the nearest well-annotated photo so new visitors immediately land on an interesting view. IP → location lookup uses MaxMind's free **GeoLite2-City** database (not bundled — operator-provided).
+
+1. Create a free MaxMind account at https://www.maxmind.com/en/geolite2/signup
+2. Download **GeoLite2-City.mmdb** (binary format, not CSV)
+3. Mount it into the api container. Either:
+   - Add a docker-compose volume entry:
+     ```yaml
+     api:
+       volumes:
+         - ./backend/data/GeoLite2-City.mmdb:/app/data/GeoLite2-City.mmdb:ro
+     ```
+   - Or set `GEOIP_DB_PATH` to a different location and mount accordingly.
+
+**Graceful degradation**: If the database is missing, unreadable, or the client IP is private/unresolvable, the endpoint falls back to returning the globally best-annotated photo. No setup is strictly required — it just gives a less location-relevant experience.
 
 ### Key Features
 - **Intelligent Caching**: PostGIS-powered spatial caching of Mapillary photos
