@@ -908,3 +908,110 @@ async def get_photo_share_metadata(
 			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 			detail="Failed to get photo metadata"
 		)
+
+
+@router.get("/public/{photo_uid}")
+async def get_public_photo(
+	request: Request,
+	photo_uid: str,
+	current_user: Optional[User] = Depends(get_current_user_optional_with_query),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Get full photo details by composite UID ({source}-{id}) for the detail page.
+
+	Publicly accessible. If the caller is authenticated, the response includes
+	their user_rating and an is_own_photo flag. Respects hidden content filters.
+	"""
+	# Parse composite UID: split on first '-' only (IDs may contain dashes)
+	parts = photo_uid.split('-', 1)
+	if len(parts) != 2:
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Invalid photo UID format"
+		)
+
+	source, photo_id = parts
+
+	if source != "hillview":
+		raise HTTPException(
+			status_code=status.HTTP_501_NOT_IMPLEMENTED,
+			detail=f"Public photo details for source '{source}' not yet implemented"
+		)
+
+	try:
+		query = select(
+			Photo,
+			ST_X(Photo.geometry).label('longitude'),
+			ST_Y(Photo.geometry).label('latitude')
+		).where(Photo.id == photo_id, Photo.deleted == False)
+
+		# Apply hidden content filters so users don't see photos they've hidden
+		query = apply_hidden_content_filters(
+			query,
+			current_user.id if current_user else None,
+			'hillview'
+		)
+
+		result = await db.execute(query)
+		photo_record = result.first()
+
+		if not photo_record:
+			raise HTTPException(
+				status_code=status.HTTP_404_NOT_FOUND,
+				detail="Photo not found"
+			)
+
+		photo, longitude, latitude = photo_record
+
+		# Look up owner username
+		owner_username = None
+		if photo.owner_id:
+			owner_result = await db.execute(
+				select(User.username).where(User.id == photo.owner_id)
+			)
+			owner_username = owner_result.scalar_one_or_none()
+
+		# Get rating data (uses current_user.id if present, else returns counts only)
+		ratings_data = await get_ratings_for_photos(
+			db, [photo.id], current_user.id if current_user else None
+		)
+		photo_rating = ratings_data.get(photo.id, {
+			'user_rating': None,
+			'rating_counts': {'thumbs_up': 0, 'thumbs_down': 0}
+		})
+
+		is_own_photo = bool(current_user and str(current_user.id) == str(photo.owner_id))
+
+		return {
+			"id": photo.id,
+			"uid": f"hillview-{photo.id}",
+			"source": "hillview",
+			"filename": photo.filename,
+			"original_filename": photo.original_filename,
+			"description": photo.description,
+			"is_public": photo.is_public,
+			"latitude": latitude,
+			"longitude": longitude,
+			"bearing": photo.compass_angle,
+			"altitude": photo.altitude,
+			"width": photo.width,
+			"height": photo.height,
+			"captured_at": format_utc(photo.captured_at),
+			"uploaded_at": format_utc(photo.uploaded_at),
+			"processing_status": photo.processing_status,
+			"sizes": photo.sizes,
+			"owner_id": photo.owner_id,
+			"owner_username": owner_username,
+			"user_rating": photo_rating['user_rating'],
+			"rating_counts": photo_rating['rating_counts'],
+			"is_own_photo": is_own_photo
+		}
+
+	except HTTPException:
+		raise
+	except Exception as e:
+		logger.error(f"Error getting public photo {photo_uid}: {str(e)}")
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Failed to get photo"
+		)

@@ -119,6 +119,26 @@
         }
     }
 
+    function getPhotoDetailUrl(photo: PhotoData | null): string | null {
+        if (!photo) return null;
+        // Prefer explicit uid if present; otherwise build from source+id.
+        const explicitUid = (photo as any).uid;
+        if (explicitUid) return `/photo/${encodeURIComponent(explicitUid)}`;
+        const source = getPhotoSource(photo);
+        if (source && photo.id) {
+            return `/photo/${encodeURIComponent(`${source}-${photo.id}`)}`;
+        }
+        return null;
+    }
+
+    function openPhotoDetail() {
+        const url = getPhotoDetailUrl(photo);
+        if (url) {
+            closeMenu();
+            myGoto(url);
+        }
+    }
+
     // Hide photo function
     async function hidePhoto() {
         if (!photo || isHiding) return;
@@ -396,11 +416,13 @@
         }
 
         if (capturedAt) {
+            const detailUrl = getPhotoDetailUrl(photo);
             items.push({
                 id: 'captured-at',
                 label: capturedAt,
                 icon: Clock,
-                onclick: () => {},
+                disabled: !detailUrl,
+                onclick: openPhotoDetail,
                 testId: 'menu-captured-at'
             });
             items.push({ type: 'divider' });
