@@ -1,5 +1,8 @@
 #!/bin/fish
-cd "$(dirname "$(readlink -f -- "$0")")"
+
+set script_dir (dirname (readlink -m (status --current-filename)))
+cd $script_dir
+
 
 ./run_unit_tests.sh;
 and ./run_playwright_tests.sh
