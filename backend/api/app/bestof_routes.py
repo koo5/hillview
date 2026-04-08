@@ -57,7 +57,7 @@ async def get_best_photos(
 
 		# Resolution bonus: floor(max(0, width - 10000) / 1000)
 		resolution_bonus = func.floor(
-			func.greatest(0, func.coalesce(Photo.width, 0) - 10000) / 1000
+			func.greatest(0, func.coalesce(Photo.width, 0) - 10000) / 10000
 		)
 
 		# Total score
