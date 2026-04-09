@@ -1,0 +1,13 @@
+# Development overrides — use with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+
+  api:
+    volumes:
+      - ./backend/api/app:/app/app
+      - ./backend/common:/app/common
+
+  worker:
+    volumes:
+      - ./backend/worker:/app/worker
+      - ./backend/common:/app/common

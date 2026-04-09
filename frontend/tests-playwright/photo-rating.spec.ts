@@ -1,7 +1,6 @@
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
-import { BACKEND_URL } from './helpers/adminAuth';
 
 test.describe('Photo Rating', () => {
 	test.describe.configure({ mode: 'serial' });
@@ -14,14 +13,8 @@ test.describe('Photo Rating', () => {
 		const photoId = await uploadPhoto(page, testPhotos[0]);
 		expect(photoId).toBeTruthy();
 
-		// Get the photo UID from the API so we can navigate to /photo/[uid]
-		const response = await page.request.get(`${BACKEND_URL}/api/photos`, {
-			headers: { 'Accept': 'application/json' }
-		});
-		const photos = await response.json();
-		const uploaded = photos.find((p: any) => p.id === photoId);
-		expect(uploaded).toBeTruthy();
-		photoUid = uploaded.uid;
+		// UID format is {source}-{id}
+		photoUid = `hillview-${photoId}`;
 		console.log(`Uploaded photo: id=${photoId}, uid=${photoUid}`);
 	});
 

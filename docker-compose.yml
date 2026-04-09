@@ -36,8 +36,6 @@ services:
     ports:
       - "${API_PORT:-8055}:8055"
     volumes:
-      - ./backend/api/app:/app/app
-      - ./backend/common:/app/common
       - pics:/app/pics
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@localhost:5432/${POSTGRES_DB:?POSTGRES_DB is required}
@@ -55,7 +53,6 @@ services:
       - USER_ACCOUNTS=${USER_ACCOUNTS:-true}
       - TEST_USERS=${TEST_USERS:-false}
       - DEBUG_ENDPOINTS=${DEBUG_ENDPOINTS:-false}
-      # Configure uvicorn for development with reload
       - MODULE_NAME=app.api
       - VARIABLE_NAME=app
       - HOST=0.0.0.0
@@ -102,8 +99,6 @@ services:
     ports:
       - "${WORKER_PORT:-8056}:8056"
     volumes:
-      - ./backend/worker:/app/worker
-      - ./backend/common:/app/common
       - uploads:/app/uploads
     environment:
       #- MAGICK_TEMPORARY_PATH=/app/worker/tmp/

@@ -36,18 +36,20 @@ test.describe('Settings Pages', () => {
 		await page.goto('/settings/sources');
 		await page.waitForLoadState('networkidle');
 
-		const hillviewCheckbox = page.getByTestId('source-checkbox-hillview');
-		await expect(hillviewCheckbox).toBeVisible({ timeout: 10000 });
+		// The checkbox input is visually hidden; click the visible label/toggle instead
+		const hillviewToggle = page.getByTestId('source-toggle-hillview');
+		await expect(hillviewToggle).toBeVisible({ timeout: 10000 });
 
+		const hillviewCheckbox = page.getByTestId('source-checkbox-hillview');
 		const initialState = await hillviewCheckbox.isChecked();
 
-		// Toggle it
-		await hillviewCheckbox.click();
+		// Toggle via the visible label
+		await hillviewToggle.click();
 		const newState = await hillviewCheckbox.isChecked();
 		expect(newState).toBe(!initialState);
 
 		// Toggle back
-		await hillviewCheckbox.click();
+		await hillviewToggle.click();
 		expect(await hillviewCheckbox.isChecked()).toBe(initialState);
 	});
 });
