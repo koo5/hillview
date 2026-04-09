@@ -59,6 +59,8 @@
 		stroke="transparent"
 		stroke-width="30"
 		style="pointer-events: auto; cursor: grab;"
+		role="slider"
+		aria-label="Bearing direction"
 		on:pointerdown={handlePointerDown}
 		data-testid="bearing-arrow-hitarea"
 	/>

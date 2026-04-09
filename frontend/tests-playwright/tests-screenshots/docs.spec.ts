@@ -28,7 +28,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HERO_PANORAMA_URL =
   '/?lat=50.11691142317276&lon=14.488375782966616&zoom=20&bearing=139.06&photo=hillview-333e8851-c59b-4133-bce5-2d1ddc2ce335';
 
-const OUT_ROOT = path.resolve(__dirname, '../../../docs/screenshots');
+const OUT_ROOT = process.env.SCREENSHOT_OUT_DIR
+  ? path.resolve(process.env.SCREENSHOT_OUT_DIR)
+  : path.resolve(__dirname, '../../../docs/screenshots');
 
 function outPath(project: string, name: string): string {
   const dir = path.join(OUT_ROOT, project);
