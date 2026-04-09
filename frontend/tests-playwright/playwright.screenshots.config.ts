@@ -68,7 +68,10 @@ export default defineConfig({
     {
       name: 'mobile',
       use: {
+        // Use iPhone 13 dimensions but run on Chromium — WebKit crashes
+        // on certain pages (e.g. bestof) during screenshot capture.
         ...devices['iPhone 13'],
+        defaultBrowserType: 'chromium',
       },
     },
   ],

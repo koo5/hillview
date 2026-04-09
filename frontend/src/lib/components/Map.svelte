@@ -2153,12 +2153,12 @@
 	}
 
 	/* Landscape: map is right, offset from divider on left */
-	@media (orientation: landscape) {
+
 		:global(.leaflet-control-scale),
 		:global(.leaflet-control-zoom) {
 			margin-left: 16px !important;
 		}
-	}
+	
 
 	/* TileProviderSelector is now inside .hunter-panel-bottom */
 
