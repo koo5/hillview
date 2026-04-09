@@ -16,9 +16,9 @@ Hillview is available as a **web app** at [hillview.cz](https://hillview.cz) and
 
 ---
 
-## Exploring Annotated Vistas
+# I. Exploring Panoramas
 
-The main screen shows a geotagged photo on the left and an interactive map on the right.
+The main screen shows a geotagged photo alongside an interactive map.
 
 ![Main view with photo and map](https://hillview.cz/docs/screenshots/desktop/hero-panorama.png)
 
@@ -34,7 +34,7 @@ You can:
 
 Use the **left/right arrows** to step through nearby photos. The map updates to show each photo's location and the direction it faces.
 
-The **Best of** page shows top-rated photos, including annotated panoramas — a good starting point for exploring.
+The **Best of** page shows top-rated photos, including annotated panoramas — a good starting point for discovering content.
 
 ![Best of page](https://hillview.cz/docs/screenshots/desktop/07-best-of.png)
 
@@ -42,11 +42,55 @@ The **Activity** page shows recently uploaded photos from all users.
 
 ![Activity feed](https://hillview.cz/docs/screenshots/desktop/06-activity-feed.png)
 
+### Rating photos
+
+Use the **thumbs up / thumbs down** buttons to rate photos. Ratings feed into the Best of rankings.
+
 ---
 
-## Contributing Photos
+# II. Hunting Down Points of Interest
 
-### Taking photos
+Hillview provides tools for investigating and triangulating distant features you can see but can't identify.
+
+### Bearing lines
+
+Switch to **Lines** mode to cast bearing lines on the map. Each line extends from a point on the map in the direction you're facing. By placing lines from multiple vantage points, their intersection reveals the location of a distant feature.
+
+- Tap **Add line** to create a line from the current map position along the current bearing
+- **Drag** the endpoints or the line itself to adjust
+- **Label** each line to keep track of what you're triangulating
+- Lines are saved between sessions
+
+### Photo filters
+
+The **Filters** button lets you narrow down which photos appear on the map — useful for finding photos that show the feature you're investigating.
+
+![Photo filters](https://hillview.cz/docs/screenshots/desktop/05-filters-modal.png)
+
+Available filters include time of day, location type, view distance, scenic score, and visibility. You can also filter by AI-detected feature tags — nature, urban, structures, infrastructure, and even specific objects like cats.
+
+### Photo sources
+
+Hillview shows photos from two sources, toggled independently on the map:
+
+- **H..** (Hillview) — photos uploaded by users
+- **M..** (Mapillary) — street-level imagery from [Mapillary](https://mapillary.com), greatly expanding coverage
+
+Combining both sources and using filters helps you find photos that show a specific area from different angles.
+
+### Map navigation
+
+The map shows photo markers — green circles with directional arrows. The current photo is highlighted.
+
+- **+/−** to zoom
+- **Location tracking** (crosshair icon) — center the map on your GPS position
+- **Compass mode** (compass icon) — auto-rotate the map as you turn your phone
+
+---
+
+# III. Capturing Photos
+
+### Phone camera
 
 1. Tap the **camera button** (top toolbar)
 2. Take a photo — the app captures GPS coordinates and compass bearing automatically
@@ -56,44 +100,20 @@ The **Activity** page shows recently uploaded photos from all users.
 
 Any logged-in user can annotate any photo. Open the zoomable viewer, tap **Draw** to mark a region, then **Edit** to add or modify labels.
 
-### Rating photos
+### External camera workflow
 
-Use the **thumbs up / thumbs down** buttons to rate photos. Ratings feed into the Best of rankings.
+For higher-quality photos from a dedicated camera, Hillview provides tools to synchronize timestamps and location data.
 
----
+**Time synchronization:**
+1. Open **Settings → Advanced → QR Timestamp** on your phone
+2. Point your external camera at the screen and take a photo — the QR code encodes the current time
+3. After importing photos, use the time correction script to calculate and apply the clock offset between your camera and the phone
 
-## Map Navigation
-
-The map shows photo markers — green circles with directional arrows indicating where each photo was taken and which way it faces. The current photo is highlighted.
-
-Controls:
-- **+/−** to zoom
-- **Location tracking** (crosshair icon) — centers the map on your GPS position
-
-<details>
-<summary>Map tile providers</summary>
-
-Tap the layers icon (bottom-right) to switch between map tile providers including Hillview's own tile server and OpenStreetMap.
-
-</details>
-
----
-
-## Photo Sources
-
-Hillview shows photos from two sources, toggled independently on the map:
-
-- **H..** (Hillview) — photos uploaded by users
-- **M..** (Mapillary) — street-level imagery from [Mapillary](https://mapillary.com)
-
----
-
-## Photo Filters
-
-The **Filters** button opens a modal for narrowing down which photos appear on the map.
-
-![Photo filters](https://hillview.cz/docs/screenshots/desktop/05-filters-modal.png)
-
+**Location & orientation export:**
+- The Android app can export CSV files with GPS coordinates and compass bearings recorded during your session
+- Find these under **Settings → Advanced → Export Location and Orientation Data**
+- Auto-export on app start/exit is available for hands-free workflows
+- Use this data to geotag your external camera's photos in post-processing
 
 ---
 
@@ -168,4 +188,3 @@ Hidden content can be managed from Settings.
 ## Android App
 
 Hillview is available as an Android app with the same full feature set as the web version.
-

@@ -1656,6 +1656,7 @@
 				{centerY}
 				{arrowX}
 				{arrowY}
+				bearingDeg={Math.round($bearingState.bearing ?? 0)}
 				on:arrowdragstart={handleArrowDragStart}
 			/>
 

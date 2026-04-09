@@ -7,6 +7,7 @@
 	export let centerY = height / 2;
 	export let arrowX = width / 2;
 	export let arrowY = 0;
+	export let bearingDeg = 0;
 
 	// Hit area covers the outer third of the arrow
 	$: hitStartX = centerX + (arrowX - centerX) * 1.8 / 3;
@@ -60,7 +61,11 @@
 		stroke-width="30"
 		style="pointer-events: auto; cursor: grab;"
 		role="slider"
+		tabindex="0"
 		aria-label="Bearing direction"
+		aria-valuemin={0}
+		aria-valuemax={360}
+		aria-valuenow={bearingDeg}
 		on:pointerdown={handlePointerDown}
 		data-testid="bearing-arrow-hitarea"
 	/>
