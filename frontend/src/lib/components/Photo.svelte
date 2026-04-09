@@ -408,17 +408,20 @@
 
 		const cw = containerElement?.clientWidth || annotationCanvas.clientWidth;
 		const ch = containerElement?.clientHeight || annotationCanvas.clientHeight;
-		if (!width || !height) return;
 
 		annotationCanvas.width = cw;
 		annotationCanvas.height = ch;
 		ctx.clearRect(0, 0, cw, ch);
 
-		// Compute rendered image rect (object-fit: contain letterboxing).
-		// Annotation coords are [0,1] normalized, so multiply by rendered dims.
-		const scale = Math.min(cw / width, ch / height);
-		const rw = width * scale, rh = height * scale;
-		const rx = (cw - rw) / 2, ry = (ch - rh) / 2;
+		// Use the image's actual rendered position and size rather than
+		// computing object-fit: contain math ourselves.  The <img> uses
+		// width:auto / height:auto so it may be smaller than the container
+		// (e.g. when the photo doesn't fill it), and flexbox centers it.
+		const rw = imgElement.offsetWidth;
+		const rh = imgElement.offsetHeight;
+		if (!rw || !rh) return;
+		const rx = imgElement.offsetLeft;
+		const ry = imgElement.offsetTop;
 
 		ctx.strokeStyle = 'rgba(0, 255, 0, 0.8)';
 		ctx.lineWidth = 1.5;

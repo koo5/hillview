@@ -96,13 +96,11 @@ test.describe('Picks Persistence', () => {
 		await setMapLocation(page, TEST_PHOTO_LAT + 0.0001, TEST_PHOTO_LNG + 0.0001, 18);
 		console.log('Panned map to trigger area update');
 
-		// Wait for the area update to complete and photos to reload
-		await page.waitForTimeout(5000);
-
 		// The picked photo's marker should still be on the map
-		// because it was sent as a pick to the backend via the URL params
+		// because it was sent as a pick to the backend via the URL params.
+		// Poll for it instead of using a fixed timeout.
 		const markerAfterPan = page.locator(`[data-photo-id="${pickId}"]`);
-		await expect(markerAfterPan).toBeVisible({ timeout: 10000 });
+		await expect(markerAfterPan).toBeVisible({ timeout: 20000 });
 
 		// Verify the marker is still among the visible markers
 		const markersAfterPan = await getVisibleMarkerIds(page);

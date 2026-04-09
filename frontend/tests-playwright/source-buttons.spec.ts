@@ -207,8 +207,8 @@ test.describe('Source Buttons Toggle', () => {
       'device': false
     });
 
-    // Wait for photos to load
-    await page.waitForTimeout(3000);
+    // Wait for markers to appear (poll instead of fixed timeout)
+    await page.locator('.optimized-photo-marker:visible').first().waitFor({ state: 'visible', timeout: 20000 });
 
     // Wait for initial photos to be loaded and available
     await page.waitForSelector('[data-testid="main-photo"]', { timeout: 30000 });

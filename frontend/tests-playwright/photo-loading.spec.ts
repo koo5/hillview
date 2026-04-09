@@ -34,8 +34,8 @@ test.describe('Photo Loading and Display', () => {
       'mapillary': true
     });
 
-    // Wait for sources to load and photos to appear
-    await page.waitForTimeout(5000);
+    // Wait for sources to load and photos to appear (poll instead of fixed timeout)
+    await page.locator('.optimized-photo-marker:visible').first().waitFor({ state: 'visible', timeout: 20000 });
 
     // Look for photo markers on the map
     const leafletMarkers = page.locator('.optimized-photo-marker:visible');

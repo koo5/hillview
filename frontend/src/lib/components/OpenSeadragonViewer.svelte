@@ -502,9 +502,18 @@
 			const pillCy = ty + pillH / 2;
 			ctx.beginPath();
 			ctx.moveTo(cx, cy);
+			//ctx.setLineDash([15, 15])
 			ctx.lineTo(edge === 'left' || edge === 'right' ? tx + (edge === 'left' ? 0 : pillW) : pillCx,
 			           edge === 'top' || edge === 'bottom' ? ty + (edge === 'top' ? 0 : pillH) : pillCy);
-			ctx.strokeStyle = 'rgba(255,230,50,0.9)';
+			ctx.strokeStyle = 'rgba(255,255,255,1)';
+			ctx.lineWidth = 3;
+			ctx.stroke();
+			ctx.beginPath();
+			ctx.moveTo(cx, cy);
+			ctx.setLineDash([5, 15])
+			ctx.lineTo(edge === 'left' || edge === 'right' ? tx + (edge === 'left' ? 0 : pillW) : pillCx,
+			           edge === 'top' || edge === 'bottom' ? ty + (edge === 'top' ? 0 : pillH) : pillCy);
+			ctx.strokeStyle = 'rgba(0,0,0,1)';
 			ctx.lineWidth = 1.5;
 			ctx.stroke();
 

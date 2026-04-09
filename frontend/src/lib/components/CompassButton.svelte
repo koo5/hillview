@@ -152,7 +152,7 @@
     }
 
     // Browser detection for showing dropdown indicator
-    $: isTouch = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    $: isTouch = typeof window !== 'undefined' && !window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
     // Combined state logic for display
     // Button state primarily reflects user preference

@@ -93,14 +93,11 @@ test.describe('Mapillary Marker Consistency', () => {
 
     // Wait for the full loading cycle: API request → stream → markers
     console.log('⏳ Waiting for Mapillary stream to complete...');
-    await page.waitForTimeout(5000);
+    await expect(page.locator('.optimized-photo-marker:visible')).toHaveCount(15, { timeout: 20000 });
 
     // Count visible markers
     const markerCount = await countVisibleMarkers(page);
     console.log(`📍 Found ${markerCount} visible markers`);
-
-    // Verify we see exactly 15 markers (all our mocked photos)
-    expect(markerCount).toBe(15);
 
     // Verify all markers are properly positioned (not off-screen)
     const markerPositions = await page.evaluate(() => {

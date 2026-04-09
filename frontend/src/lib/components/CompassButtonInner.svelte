@@ -3,7 +3,7 @@
 	import { type BearingMode } from '$lib/mapState';
 	export let bearingMode: BearingMode;
 
-	$: isTouch = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+	$: isTouch = typeof window !== 'undefined' && !window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
 </script>
 
