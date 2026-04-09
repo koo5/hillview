@@ -21,6 +21,7 @@
 	import {kotlinMessageQueue} from '$lib/KotlinMessageQueue';
 	import {app, onAppActivityChange} from "$lib/data.svelte";
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
+	import SignInModal from "$lib/components/SignInModal.svelte";
 
 	interface SafeAreaInsets {
 		top: number;
@@ -200,4 +201,5 @@
 <DropdownMenu/>
 <ZoomView/>
 <InsetGradients />
+<SignInModal/>
 

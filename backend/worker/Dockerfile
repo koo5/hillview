@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.5 /uv /bin/uv
 
 WORKDIR /app
 
@@ -55,7 +55,7 @@ RUN uv export --frozen --no-hashes --no-emit-project --package hillview-worker |
     rm /tmp/requirements.txt
 
 # Run as non-root user
-RUN useradd --create-home --shell /bin/bash worker
+RUN groupadd --gid 1001 worker && useradd --create-home --shell /bin/bash --uid 1001 --gid 1001 worker
 
 # Create uploads directory structure
 RUN mkdir -p /app/uploads/opt \

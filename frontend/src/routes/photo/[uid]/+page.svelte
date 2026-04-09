@@ -21,7 +21,7 @@
 	import { auth } from '$lib/auth.svelte';
 	import { constructPhotoMapUrl, constructUserProfileUrl } from '$lib/urlUtils';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
-	import { myGoto, navigateWithHistory } from '$lib/navigation.svelte';
+	import { myGoto } from '$lib/navigation.svelte';
 	import { TAURI } from '$lib/tauri';
 	import type { PhotoData } from '$lib/sources';
 	import {
@@ -35,7 +35,7 @@
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
-	import Modal from '$lib/components/Modal.svelte';
+	import { requireAuth } from '$lib/components/signInModal.svelte';
 	import HideUserDialog from '$lib/components/HideUserDialog.svelte';
 	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
 	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
@@ -79,7 +79,6 @@
 	let statusMessage = '';
 	let statusError = false;
 	let showHideUserDialog = false;
-	let showSignInModal = false;
 
 	$: photoUid = $page.params.uid;
 	$: isAuthenticated = $auth.is_authenticated;
@@ -106,16 +105,6 @@
 		}
 	}
 
-	function requireAuth(): boolean {
-		if (isAuthenticated) return true;
-		showSignInModal = true;
-		return false;
-	}
-
-	function goToLogin() {
-		showSignInModal = false;
-		navigateWithHistory('/login');
-	}
 
 	async function loadPhoto() {
 		if (!photoUid) {
@@ -468,21 +457,6 @@
 	{/if}
 </StandardBody>
 
-<Modal
-	open={showSignInModal}
-	onclose={() => (showSignInModal = false)}
-	title="Sign in required"
-	testId="sign-in-modal"
->
-	<p class="sign-in-message">Sign in to rate, flag, and hide photos.</p>
-	<div class="sign-in-actions">
-		<button class="sign-in-btn" on:click={goToLogin} data-testid="sign-in-modal-login">
-			Sign In
-		</button>
-		<button class="sign-in-cancel-btn" on:click={() => (showSignInModal = false)}>Cancel</button>
-	</div>
-</Modal>
-
 <DropdownMenu />
 <AnonymizationModal />
 
@@ -669,37 +643,4 @@
 		border-color: rgba(220, 53, 69, 0.3);
 	}
 
-	.sign-in-message {
-		margin: 0 0 16px;
-		color: #374151;
-		font-size: 14px;
-	}
-
-	.sign-in-actions {
-		display: flex;
-		gap: 12px;
-		justify-content: flex-end;
-	}
-
-	.sign-in-btn {
-		padding: 8px 20px;
-		border: none;
-		border-radius: 6px;
-		background: #2563eb;
-		color: white;
-		font-weight: 600;
-		cursor: pointer;
-		font-size: 14px;
-	}
-
-	.sign-in-cancel-btn {
-		padding: 8px 20px;
-		border: 1px solid #d1d5db;
-		border-radius: 6px;
-		background: white;
-		color: #374151;
-		font-weight: 500;
-		cursor: pointer;
-		font-size: 14px;
-	}
 </style>

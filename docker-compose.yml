@@ -8,9 +8,9 @@ services:
     container_name: hillview_postgres
     restart: always
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-hillview}
-      POSTGRES_USER: ${POSTGRES_USER:-hillview}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hillview}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       # Removed POSTGRES_HOST_AUTH_METHOD: trust - use password auth instead
     network_mode: host
     ports:
@@ -18,7 +18,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hillview} -d ${POSTGRES_DB:-hillview}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?POSTGRES_USER is required} -d ${POSTGRES_DB:?POSTGRES_DB is required}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,10 +40,10 @@ services:
       - ./backend/common:/app/common
       - pics:/app/pics
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-hillview}:${POSTGRES_PASSWORD:-hillview}@localhost:5432/${POSTGRES_DB:-hillview}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@localhost:5432/${POSTGRES_DB:?POSTGRES_DB is required}
       #- REDIS_URL=redis://redis:6379/0
       - MAPILLARY_CLIENT_TOKEN_FILE=/run/secrets/mapillary_token
-      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
       - UPLOAD_DIR=/app/uploads
       - PICS_DIR=/app/pics
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}

@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.5 /uv /bin/uv
 
 WORKDIR /app
 
@@ -40,6 +40,11 @@ ENV PYTHONPATH="/app/app:/app:$PYTHONPATH"
 # Copy and setup prestart script
 COPY api/app/prestart.sh /app/prestart.sh
 RUN chmod +x /app/prestart.sh
+
+# Run as non-root user (UID 1001, same as worker container)
+RUN groupadd --gid 1001 api && useradd --create-home --shell /bin/bash --uid 1001 --gid 1001 api
+RUN mkdir -p /app/uploads /app/pics && chown -R api:api /app/uploads /app/pics
+USER api
 
 # Default command (can be overridden by docker-compose)
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8055"]

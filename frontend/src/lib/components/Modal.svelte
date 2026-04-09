@@ -83,7 +83,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		z-index: 100000;
+		z-index: 1100000;
 		padding: 20px;
 	}
 

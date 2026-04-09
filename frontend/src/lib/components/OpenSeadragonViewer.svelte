@@ -29,7 +29,6 @@
 	import { onMount, onDestroy } from 'svelte';
 	import OpenSeadragon from 'openseadragon';
 	import { createOSDAnnotator } from '@annotorious/openseadragon';
-	import { auth } from '$lib/auth.svelte.js';
 	import {
 		fetchAnnotations,
 		createAnnotation,
@@ -43,6 +42,7 @@
 	import type { ZoomViewData } from '$lib/zoomView.svelte';
 	import { zoomViewportBounds, type ZoomViewInitialBounds } from '$lib/zoomView.svelte';
 	import { parseAnnotationBody, type BodyItem } from '$lib/utils/annotationBody';
+	import { requireAuth } from './signInModal.svelte';
 	import {
 		showDropdownMenu,
 		closeDropdownMenu,
@@ -246,8 +246,6 @@
 	let isLoading = true;
 	let labelCanvas: HTMLCanvasElement | null = null;
 	let resizeObserver: ResizeObserver | null = null;
-
-	$: isAuthenticated = $auth.is_authenticated;
 
 	async function loadAnnotations() {
 		if (!data.photo_id) return;
@@ -1122,10 +1120,10 @@
 			} else {
 				onClose();
 			}
-		} else if (e.key === 'd' && isAuthenticated) {
-			setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw');
-		} else if (e.key === 'e' && isAuthenticated) {
-			setAnnotationMode(annotationMode === 'edit' ? 'view' : 'edit');
+		} else if (e.key === 'd') {
+			if (requireAuth()) setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw');
+		} else if (e.key === 'e') {
+			if (requireAuth()) setAnnotationMode(annotationMode === 'edit' ? 'view' : 'edit');
 		}
 	}
 </script>
@@ -1142,26 +1140,24 @@
 
 	<!-- Toolbar -->
 	<div class="annotation-toolbar">
-		{#if isAuthenticated}
-			<button
-				class="toolbar-btn toolbar-btn-draw"
-				class:active={annotationMode === 'draw'}
-				onclick={() => setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw')}
-				title={annotationMode === 'draw' ? 'Stop drawing' : 'Draw annotation'}
-				data-testid="osd-annotate-draw"
-			>
-				✏️ Draw
-			</button>
-			<button
-				class="toolbar-btn toolbar-btn-edit"
-				class:active={annotationMode === 'edit'}
-				onclick={() => setAnnotationMode(annotationMode === 'edit' ? 'view' : 'edit')}
-				title={annotationMode === 'edit' ? 'Stop editing' : 'Edit annotations'}
-				data-testid="osd-annotate-edit"
-			>
-				🔧 Edit
-			</button>
-		{/if}
+		<button
+			class="toolbar-btn toolbar-btn-draw"
+			class:active={annotationMode === 'draw'}
+			onclick={() => { if (requireAuth()) setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw'); }}
+			title={annotationMode === 'draw' ? 'Stop drawing' : 'Draw annotation'}
+			data-testid="osd-annotate-draw"
+		>
+			✏️ Draw
+		</button>
+		<button
+			class="toolbar-btn toolbar-btn-edit"
+			class:active={annotationMode === 'edit'}
+			onclick={() => { if (requireAuth()) setAnnotationMode(annotationMode === 'edit' ? 'view' : 'edit'); }}
+			title={annotationMode === 'edit' ? 'Stop editing' : 'Edit annotations'}
+			data-testid="osd-annotate-edit"
+		>
+			🔧 Edit
+		</button>
 		{#if $photoInFront}
 			<button
 				class="toolbar-btn toolbar-btn-share"
