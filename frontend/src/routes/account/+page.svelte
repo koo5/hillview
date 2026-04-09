@@ -101,7 +101,7 @@
 
 <StandardBody>
 
-    <div class="profile-card">
+    <div class="profile-card" data-testid="profile-card">
         <div class="profile-header">
             <div class="profile-icon">
                 <User size={48} />
@@ -130,7 +130,7 @@
                         <div class="info-item">
                             <User size={16} />
                             <span class="label">Username:</span>
-                            <span class="value">{userInfo.username}</span>
+                            <span class="value" data-testid="account-username">{userInfo.username}</span>
                         </div>
 
                         {#if userInfo.email}
@@ -175,7 +175,7 @@
                     <h2><Settings size={20} /> Account Actions</h2>
 
                     <div class="action-buttons">
-                        <button class="action-button logout" on:click={handleLogout}>
+                        <button class="action-button logout" on:click={handleLogout} data-testid="account-logout-button">
                             <LogOut size={20} />
                             Sign Out
                         </button>
@@ -183,6 +183,7 @@
                         <button
                             class="action-button delete"
                             on:click={() => showDeleteConfirm = true}
+                            data-testid="account-delete-button"
                         >
                             <Trash2 size={20} />
                             Delete Account
@@ -194,7 +195,7 @@
                     <!-- svelte-ignore a11y-click-events-have-key-events -->
                     <!-- svelte-ignore a11y-no-static-element-interactions -->
                     <div class="delete-confirm-overlay" on:click={() => showDeleteConfirm = false} on:keydown={(e) => e.key === 'Escape' && (showDeleteConfirm = false)}>
-                        <div class="delete-confirm-modal" role="dialog" tabindex="-1" on:click|stopPropagation>
+                        <div class="delete-confirm-modal" role="dialog" tabindex="-1" on:click|stopPropagation data-testid="delete-confirm-modal">
                             <h3><Trash2 size={24} /> Delete Account</h3>
                             <p class="warning">
                                 <strong>Warning:</strong> This action cannot be undone.
@@ -210,6 +211,7 @@
                                     id="delete-confirm"
                                     bind:value={deleteConfirmText}
                                     placeholder="Type DELETE here"
+                                    data-testid="delete-confirm-input"
                                 />
                             </div>
 
@@ -217,6 +219,7 @@
                                 <button
                                     class="cancel-button"
                                     on:click={() => showDeleteConfirm = false}
+                                    data-testid="delete-cancel-button"
                                 >
                                     Cancel
                                 </button>
@@ -224,6 +227,7 @@
                                     class="delete-button"
                                     on:click={handleDeleteAccount}
                                     disabled={deleteConfirmText !== 'DELETE'}
+                                    data-testid="delete-confirm-button"
                                 >
                                     <Trash2 size={16} />
                                     Delete Account

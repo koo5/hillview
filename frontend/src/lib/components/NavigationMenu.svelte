@@ -72,7 +72,7 @@
         on:keydown={(e) => e.key === 'Escape' && closeMenu()}
     ></div>
 
-    <nav class="nav-menu">
+    <nav class="nav-menu" data-testid="nav-menu">
 
         <ul class="menu-list" on:click={handleExternalClick} role="presentation">
             <li><a href="/" on:click={closeMenu}>
@@ -87,7 +87,7 @@
 
 			<hr/>
 
-            <li><a href="/activity" on:click={closeMenu}>
+            <li><a href="/activity" on:click={closeMenu} data-testid="nav-activity-link">
                 <Activity size={18}/>
                 Activity
             </a></li>
@@ -97,7 +97,7 @@
                 Best of
             </a></li>
 
-            <li><a href="/users" on:click={closeMenu}>
+            <li><a href="/users" on:click={closeMenu} data-testid="nav-users-link">
                 <Users size={18}/>
                 Users
             </a></li>
@@ -137,14 +137,14 @@
                         </a>
                     </li>
                     <li>
-                        <button class="menu-button logout" on:click={handleLogout}>
+                        <button class="menu-button logout" on:click={handleLogout} data-testid="nav-logout-button">
                             <LogOut size={18}/>
                             Logout{$auth.user ? ` (${$auth.user.username})` : ''}
                         </button>
                     </li>
                 {:else}
                     <li>
-                        <a href="/login" on:click={closeMenu}>
+                        <a href="/login" on:click={closeMenu} data-testid="nav-login-link">
                             <User size={18}/>
                             Login / Register
                         </a>

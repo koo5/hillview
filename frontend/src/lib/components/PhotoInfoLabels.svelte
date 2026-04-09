@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type {PhotoData} from '$lib/sources';
 	import type {AnnotationData} from '$lib/annotationApi';
+	import {app} from "$lib/data.svelte";
 
 	export let photo: PhotoData | null = null;
 	export let annotations: AnnotationData[] = [];
@@ -12,8 +13,9 @@
 		on:mousedown|stopPropagation on:touchstart|stopPropagation>
 		{photo.description}
 	</div>
-	{:else if photo?.filename}
-	<div class="photo-description" data-testid="photo-filename"
+{/if}
+{#if $app.debug_enabled && photo?.filename}
+	<div class="photo-filename" data-testid="photo-filename"
 		role="presentation"
 		on:mousedown|stopPropagation on:touchstart|stopPropagation>
 		{photo.filename}
@@ -29,7 +31,26 @@
 <style>
 	.photo-description {
 		position: absolute;
-		bottom: 34px;
+		bottom: 58px;
+		left: 50%;
+		transform: translateX(-50%);
+		background: rgba(0, 0, 0, 0.6);
+		color: #fff;
+		font-size: 0.75rem;
+		padding: 2px 8px;
+		border-radius: 8px;
+		z-index: 10;
+		max-width: 80%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		user-select: text;
+		cursor: text;
+	}
+
+	.photo-filename {
+		position: absolute;
+		bottom: 30px;
 		left: 50%;
 		transform: translateX(-50%);
 		background: rgba(0, 0, 0, 0.6);
@@ -48,9 +69,8 @@
 
 	.annotation-indicator {
 		position: absolute;
-		bottom: 13px;
-		left: 50%;
-		transform: translateX(-50%);
+		bottom: 8px;
+		left: 0%;
 		background: rgba(0, 0, 0, 0.6);
 		color: #fff;
 		font-size: 0.75rem;

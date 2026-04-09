@@ -176,7 +176,7 @@
 <StandardBody>
 
 		{#if loading}
-			<div class="loading-container">
+			<div class="loading-container" data-testid="activity-loading">
 				<Spinner />
 				<p>Loading recent activity...</p>
 			</div>
@@ -188,12 +188,12 @@
 				</button>
 			</div>
 		{:else if activityData.length === 0}
-			<div class="empty-state">
+			<div class="empty-state" data-testid="activity-empty-state">
 				<p>No recent activity found.</p>
 				<p>Photos will appear here as they are uploaded to Hillview.</p>
 			</div>
 		{:else}
-			<div class="activity-list">
+			<div class="activity-list" data-testid="activity-list">
 				{#each activityData as group, groupIndex}
 					<div class="day-group">
 						<h2 class="day-header">{formatDate(group.date)}</h2>
