@@ -500,23 +500,25 @@
 			// Leader line from centroid to pill center (after overlap resolution)
 			const pillCx = tx + pillW / 2;
 			const pillCy = ty + pillH / 2;
+
 			ctx.beginPath();
 			ctx.moveTo(cx, cy);
-			//ctx.setLineDash([15, 15])
-			ctx.lineTo(edge === 'left' || edge === 'right' ? tx + (edge === 'left' ? 0 : pillW) : pillCx,
-			           edge === 'top' || edge === 'bottom' ? ty + (edge === 'top' ? 0 : pillH) : pillCy);
-			ctx.strokeStyle = 'rgba(255,255,255,1)';
-			ctx.lineWidth = 3;
+			const toX = edge === 'left' || edge === 'right' ? tx + (edge === 'left' ? 0 : pillW) : pillCx;
+			const toY = edge === 'top' || edge === 'bottom' ? ty + (edge === 'top' ? 0 : pillH) : pillCy;
+			ctx.strokeStyle = 'rgba(255,255,55,1)';
+			ctx.lineWidth = 1.5;
+			ctx.lineTo(toX, toY);
 			ctx.stroke();
+
 			ctx.beginPath();
 			ctx.moveTo(cx, cy);
-			ctx.setLineDash([5, 15])
-			ctx.lineTo(edge === 'left' || edge === 'right' ? tx + (edge === 'left' ? 0 : pillW) : pillCx,
-			           edge === 'top' || edge === 'bottom' ? ty + (edge === 'top' ? 0 : pillH) : pillCy);
-			ctx.strokeStyle = 'rgba(0,0,0,1)';
+			ctx.setLineDash([15, 15])
+			ctx.lineTo(toX, toY);
+			ctx.strokeStyle = 'rgba(0,0,0,0.85)';
 			ctx.lineWidth = 1.5;
 			ctx.stroke();
 
+			ctx.setLineDash([])
 			// Label pill
 			ctx.font = LABEL_FONT;
 			ctx.fillStyle = 'rgba(0,0,0,0.75)';

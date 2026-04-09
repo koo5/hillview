@@ -2,6 +2,7 @@ import { test, type Page } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { ensureHunterMode } from '../helpers/sourceHelpers';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -69,11 +70,24 @@ test.describe('hero', () => {
     await shot(page, project, 'hero-panorama');
   });
 
-  test('annotated panorama — full page', async ({ page }, testInfo) => {
+  test('annotated panorama — zoom view', async ({ page }, testInfo) => {
     const project = testInfo.project.name;
     await page.goto(HERO_PANORAMA_URL);
     await waitForMapView(page);
-    await shot(page, project, 'hero-panorama-full', true);
+    // Tap the photo to open the OSD zoom view.
+    await page.locator('[data-testid="main-photo"].front').click();
+    await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 10_000 });
+    // Let OSD fully render tiles + annotations.
+    await page.waitForTimeout(2000);
+    // Zoom in a bit via scroll wheel in the centre of the viewer.
+    // Zoom in — use OSD's built-in keyboard zoom (+ key).
+    // Works on both desktop and mobile emulation.
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press('+');
+      await page.waitForTimeout(200);
+    }
+    await page.waitForTimeout(1500);
+    await shot(page, project, 'hero-panorama-full');
   });
 });
 
@@ -82,13 +96,6 @@ test.describe('hero', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('guide', () => {
-  test('main map view (default landing)', async ({ page }, testInfo) => {
-    const project = testInfo.project.name;
-    await page.goto('/');
-    await waitForMapView(page);
-    await shot(page, project, '01-main-map-view');
-  });
-
   test('login page', async ({ page }, testInfo) => {
     const project = testInfo.project.name;
     await page.goto('/login');
@@ -144,6 +151,7 @@ test.describe('interactive', () => {
     const project = testInfo.project.name;
     await page.goto('/');
     await waitForMapView(page);
+    await ensureHunterMode(page, true);
     await page.locator('[data-testid="filters-button"]').click();
     await page.waitForTimeout(500);
     await shot(page, project, '05-filters-modal');

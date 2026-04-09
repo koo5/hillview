@@ -34,8 +34,8 @@ export default defineConfig({
    * content. */
   globalSetup: './helpers/globalSetupScreenshots.ts',
   globalTeardown: './helpers/globalTeardown.ts',
-  fullyParallel: true,
-  workers: 2,
+  fullyParallel: false,
+  workers: 1,
   reporter: 'list',
   timeout: 60_000,
   // Bail out the entire run on the first failure so missing selectors
