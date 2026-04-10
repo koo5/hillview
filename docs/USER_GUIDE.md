@@ -187,4 +187,4 @@ Hidden content can be managed from Settings.
 
 ## Android App
 
-Hillview is available as an Android app with the same full feature set as the web version.
+Hillview is available as an Android app with the same full feature set as the web version. The Android app is currently looking for testers. Please leave your google email address at the [Contact]( https://hillview.cz/contact) page!
