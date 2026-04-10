@@ -135,6 +135,33 @@ test.describe('guide', () => {
 });
 
 // ---------------------------------------------------------------------------
+// CAPTURE SHOTS — camera and external camera workflow
+// ---------------------------------------------------------------------------
+
+test.describe('capture', () => {
+  test('camera capture view', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    // Enable fake camera via localStorage before navigating.
+    await page.goto('/');
+    await page.evaluate(() => localStorage.setItem('fakeCamera', 'true'));
+    await page.goto('/');
+    await waitForMapView(page);
+    await page.locator('[data-testid="camera-button"]').click();
+    // Wait for the capture UI to render with the fake canvas.
+    await page.waitForTimeout(1500);
+    await shot(page, project, '10-camera-capture');
+  });
+
+  test('qr timestamp page', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    await page.goto('/settings/advanced/qr-timestamp');
+    await page.locator('[data-testid="qr-timestamp-page"]').waitFor({ state: 'visible', timeout: 10_000 });
+    await page.waitForTimeout(1000);
+    await shot(page, project, '11-qr-timestamp');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // INTERACTIVE STATES — menus / modals opened
 // ---------------------------------------------------------------------------
 

@@ -92,19 +92,20 @@ The map shows photo markers — green circles with directional arrows. The curre
 
 ### Phone camera
 
+![Camera capture view](https://hillview.cz/docs/screenshots/desktop/10-camera-capture.png)
+
 1. Tap the **camera button** (top toolbar)
 2. Take a photo — the app captures GPS coordinates and compass bearing automatically
 3. If auto-upload is enabled and you've agreed to the CC BY-SA 4.0 license, it uploads automatically
-
-### Annotating photos
-
-Any logged-in user can annotate any photo. Open the zoomable viewer, tap **Draw** to mark a region, then **Edit** to add or modify labels.
 
 ### External camera workflow
 
 For higher-quality photos from a dedicated camera, Hillview provides tools to synchronize timestamps and location data.
 
 **Time synchronization:**
+
+![QR Timestamp page](https://hillview.cz/docs/screenshots/desktop/11-qr-timestamp.png)
+
 1. Open **Settings → Advanced → QR Timestamp** on your phone
 2. Point your external camera at the screen and take a photo — the QR code encodes the current time
 3. After importing photos, use the time correction script to calculate and apply the clock offset between your camera and the phone
