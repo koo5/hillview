@@ -183,14 +183,18 @@ test.describe('hunting', () => {
         visible: true,
       },
     ];
-    await page.goto('/');
+    await page.goto(HERO_PANORAMA_URL);
     await page.evaluate((data) => {
       localStorage.setItem('lines', JSON.stringify(data));
       localStorage.setItem('linesVisible', 'true');
     }, lines);
-    // Navigate to a zoom level where both lines are visible, with the panorama loaded.
-    await page.goto('/?lat=50.098&lon=14.51&zoom=13&bearing=0&photo=' + HERO_PANORAMA_URL.match(/photo=([^&]+)/)![1]);
+    await page.reload();
     await waitForMapView(page);
+    // Zoom out so both lines are visible.
+    for (let i = 0; i < 7; i++) {
+      await page.locator('.leaflet-control-zoom-out').click();
+      await page.waitForTimeout(300);
+    }
     // Open lines panel.
     await page.locator('[data-testid="lines-button"]').click();
     await page.locator('[data-testid="lines-view"]').waitFor({ state: 'visible', timeout: 5_000 });

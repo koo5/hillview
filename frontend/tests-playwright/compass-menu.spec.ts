@@ -9,6 +9,18 @@ async function waitForMap(page: import('@playwright/test').Page) {
 
 test.describe('Compass menu interactions', () => {
 	test('desktop: clicking the button closes an open compass menu', async ({ page }) => {
+		// Firefox/WebKit in Playwright don't match (hover: hover) and (pointer: fine),
+		// causing the component to render the touch-mode UI instead of .dropdown-trigger.
+		await page.addInitScript(() => {
+			const orig = window.matchMedia.bind(window);
+			window.matchMedia = function(query: string) {
+				const result = orig(query);
+				if (query === '(hover: hover) and (pointer: fine)') {
+					return { ...result, matches: true };
+				}
+				return result;
+			} as typeof window.matchMedia;
+		});
 		await waitForMap(page);
 
 		const compassButton = page.getByTestId('compass-button');
