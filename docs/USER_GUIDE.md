@@ -54,6 +54,8 @@ Hillview provides tools for investigating and triangulating distant features you
 
 ### Bearing lines
 
+![Bearing lines on the map](https://hillview.cz/docs/screenshots/desktop/12-bearing-lines.png)
+
 Switch to **Lines** mode to cast bearing lines on the map. Each line extends from a point on the map in the direction you're facing. By placing lines from multiple vantage points, their intersection reveals the location of a distant feature.
 
 - Tap **Add line** to create a line from the current map position along the current bearing

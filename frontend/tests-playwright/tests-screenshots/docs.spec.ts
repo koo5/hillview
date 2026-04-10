@@ -162,6 +162,44 @@ test.describe('capture', () => {
 });
 
 // ---------------------------------------------------------------------------
+// HUNTING SHOTS — lines / triangulation
+// ---------------------------------------------------------------------------
+
+test.describe('hunting', () => {
+  test('bearing lines on map', async ({ page }, testInfo) => {
+    const project = testInfo.project.name;
+    // Seed two bearing lines from Prosecké skály pointing toward distant towns.
+    const lines = [
+      {
+        label: 'Říčany',
+        start: { lat: 50.117, lng: 14.488 },
+        end: { lat: 49.99, lng: 14.66 },
+        visible: true,
+      },
+      {
+        label: 'Uhříněves',
+        start: { lat: 50.117, lng: 14.488 },
+        end: { lat: 50.03, lng: 14.60 },
+        visible: true,
+      },
+    ];
+    await page.goto('/');
+    await page.evaluate((data) => {
+      localStorage.setItem('lines', JSON.stringify(data));
+      localStorage.setItem('linesVisible', 'true');
+    }, lines);
+    // Navigate to a zoom level where both lines are visible, with the panorama loaded.
+    await page.goto('/?lat=50.098&lon=14.51&zoom=13&bearing=0&photo=' + HERO_PANORAMA_URL.match(/photo=([^&]+)/)![1]);
+    await waitForMapView(page);
+    // Open lines panel.
+    await page.locator('[data-testid="lines-button"]').click();
+    await page.locator('[data-testid="lines-view"]').waitFor({ state: 'visible', timeout: 5_000 });
+    await page.waitForTimeout(500);
+    await shot(page, project, '12-bearing-lines');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // INTERACTIVE STATES — menus / modals opened
 // ---------------------------------------------------------------------------
 
