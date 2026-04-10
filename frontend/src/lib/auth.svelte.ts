@@ -315,9 +315,12 @@ export async function fetchUserData() {
         if (doLog) console.log('🢄[AUTH] === USER DATA FETCH COMPLETE ===');
         return userData;
     } catch (error) {
-        console.error('🢄[AUTH] Error fetching user data:', error);
-        // If it's a TokenExpiredError, logout was already handled by the http client
-        // For other errors, mark as checked so auth-gated pages stop waiting
+        if (error instanceof Error && error.name === 'TokenExpiredError') {
+            // Already handled by HTTP client (tokens cleared, logged out)
+            console.warn('🢄[AUTH] Session expired during user data fetch');
+        } else {
+            console.error('🢄[AUTH] Error fetching user data:', error);
+        }
         auth.update(a => ({ ...a, checked: true }));
         return null;
     }

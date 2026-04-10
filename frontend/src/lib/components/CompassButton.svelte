@@ -192,7 +192,6 @@
         on:pointerleave={handlePointerLeave}
         on:click={handleClick}
         title={tooltipText}
-        aria-disabled={isButtonDisabled}
         data-testid="compass-button"
     >
         <CompassButtonInner bearingMode={$bearingMode} />
