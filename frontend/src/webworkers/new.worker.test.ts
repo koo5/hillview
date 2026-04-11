@@ -1,36 +1,67 @@
 /**
  * Integration tests for the new worker architecture
- * Tests by importing the worker module directly and calling handleMessage
+ * Tests by importing the worker module and using reset/start/stop lifecycle
+ *
+ * Debug harness: set DEBUG_WORKER_MSG=1 to trace bidirectional message flow
+ * between the test (frontend) and the worker. Each line shows:
+ *   [+Xms] → worker  <type> <summary>   (test → worker)
+ *   [+Xms] ← worker  <type> <summary>   (worker → test)
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { PhotoData, SourceConfig } from '../lib/photoWorkerTypes';
+import { handleMessage, reset, start, stop } from './new.worker';
 
-// Track worker reference for auth responses
-let workerRef: typeof import('./new.worker') | null = null;
+// ─── Debug harness ──────────────────────────────────────────────────────────
+const DEBUG_MSG_FLOW = !!process.env.DEBUG_WORKER_MSG;
+let testStartTime = 0;
 
-// Mock the worker globals before importing
-const mockPostMessage = vi.fn().mockImplementation((message: any) => {
-  // Auto-respond to auth token requests
-  if (message?.type === 'getAuthToken' && workerRef) {
-    // Send auth token response back to worker
+/** Format a message as `type {k: v, ...}` with photo arrays collapsed to counts. */
+function summarizeMsg(msg: any): string {
+  if (!msg || typeof msg !== 'object') return String(msg);
+  const { type, ...rest } = msg;
+  const fields: Record<string, any> = {};
+  for (const [k, v] of Object.entries(rest)) {
+    if (v === undefined) continue;
+    if (Array.isArray(v)) {
+      fields[k] = `[${v.length}]`;
+    } else if (v && typeof v === 'object') {
+      // Collapse nested objects to their key set
+      const keys = Object.keys(v);
+      fields[k] = keys.length <= 4 ? `{${keys.join(',')}}` : `{${keys.length} keys}`;
+    } else if (typeof v === 'string' && v.length > 40) {
+      fields[k] = v.slice(0, 37) + '...';
+    } else {
+      fields[k] = v;
+    }
+  }
+  const fieldStr = Object.keys(fields).length > 0 ? ' ' + JSON.stringify(fields) : '';
+  return `${type}${fieldStr}`;
+}
+
+function logToWorker(msg: any) {
+  if (!DEBUG_MSG_FLOW) return;
+  const t = Date.now() - testStartTime;
+  process.stderr.write(`  [+${String(t).padStart(4)}ms] → worker  ${summarizeMsg(msg)}\n`);
+}
+
+function logFromWorker(msg: any) {
+  if (!DEBUG_MSG_FLOW) return;
+  const t = Date.now() - testStartTime;
+  process.stderr.write(`  [+${String(t).padStart(4)}ms] ← worker  ${summarizeMsg(msg)}\n`);
+}
+// ────────────────────────────────────────────────────────────────────────────
+
+// Mock the postMessage spy — auto-responds to auth token requests
+const mockPostMessage = vi.fn().mockImplementation(function(this: any, message: any) {
+  logFromWorker(message);
+  if (message?.type === 'getAuthToken') {
     queueMicrotask(() => {
-      workerRef!.handleMessage({
-        type: 'authToken',
-        token: 'test-auth-token-12345'
-      });
+      const reply = { type: 'authToken', token: 'test-auth-token-12345' };
+      logToWorker(reply);
+      handleMessage(reply);
     });
   }
 });
-const mockSelf = {
-  onmessage: null,
-  postMessage: mockPostMessage
-};
-
-// Mock global worker environment
-(globalThis as any).self = mockSelf;
-(globalThis as any).postMessage = mockPostMessage;
-
-// No longer need fetch mock since we're using EventSource
 
 // Mock EventSource for streaming tests
 const mockEventSourceInstances = new Map<string, any>();
@@ -49,7 +80,7 @@ interface MockEventSourceInstance {
   dispatchEvent: (event: Event) => boolean;
 }
 
-const MockEventSource = vi.fn().mockImplementation((url: string): MockEventSourceInstance => {
+const MockEventSource = vi.fn().mockImplementation(function(this: any, url: string): MockEventSourceInstance {
   const instance: MockEventSourceInstance = {
     url,
     readyState: 1, // OPEN
@@ -146,21 +177,8 @@ Object.assign(MockEventSource, {
   prototype: {}
 });
 
-global.EventSource = MockEventSource as any;
-
-// Keep console logging for debugging infinite loop
-const originalConsole = console.log;
-beforeEach(() => {
-  // Don't mock console.log for debugging
-  // console.log = vi.fn();
-  mockPostMessage.mockClear();
-  MockEventSource.mockClear();
-  mockEventSourceInstances.clear();
-});
-
-afterEach(() => {
-  console.log = originalConsole;
-});
+// EventSource must be global — StreamSourceLoader reads it at call time
+globalThis.EventSource = MockEventSource as any;
 
 // Test data
 const createTestPhoto = (id: string, lat: number, lng: number, bearing: number = 0): PhotoData => ({
@@ -202,46 +220,36 @@ const testPhotosSource2 = [
 
 describe('New Worker Integration Tests', () => {
   let messageId = 1;
-  let worker: typeof import('./new.worker');
 
-  beforeEach(async () => {
-    // Reset message ID counter
+  beforeEach(() => {
     messageId = 1;
-
-    // Clear the module cache to get a fresh worker instance with clean state
-    vi.resetModules();
-
-    // Re-mock globals after module reset (they get cleared too)
-    (globalThis as any).self = {
-      onmessage: null,
-      postMessage: mockPostMessage
-    };
-    (globalThis as any).postMessage = mockPostMessage;
-    // Set EventSource on both global and globalThis for Node.js compatibility
-    (globalThis as any).EventSource = MockEventSource;
-    (global as any).EventSource = MockEventSource;
-
-    // Clear mock state
+    testStartTime = Date.now();
     mockPostMessage.mockClear();
     MockEventSource.mockClear();
     mockEventSourceInstances.clear();
-    mockEventSourceCloseCalls.length = 0;  // Clear close() tracking
+    mockEventSourceCloseCalls.length = 0;
 
-    // Dynamically import the worker after setting up mocks
-    worker = await import('./new.worker');
-    workerRef = worker;  // Set reference for auth token responses
+    // Fresh worker state + inject mock postMessage
+    reset({ postMessage: mockPostMessage });
+    start();
+  });
+
+  afterEach(async () => {
+    await stop();
   });
 
   const sendMessage = async (type: string, data: any): Promise<any> => {
     const id = messageId++;
 
     // Send message to worker
-    worker.handleMessage({
+    const msg = {
       frontendMessageId: `frontend_${id}`,
       type,
       data,
       id
-    });
+    };
+    logToWorker(msg);
+    handleMessage(msg);
 
     // Wait for processing to complete
     await waitForPhotosUpdate();

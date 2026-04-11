@@ -55,6 +55,8 @@ import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from '.
 
 const doLog = false;
 
+// Injectable postMessage — set by reset() or auto-bootstrap
+let _post: (msg: any) => void = () => {};
 
 // Process tracking
 interface ProcessInfo {
@@ -179,7 +181,7 @@ function sendPhotosUpdate(): void {
     const { photos_in_area, photos_in_range } = mergeAndCullPhotos();
 
     // Send raw arrays directly - structured clone algorithm handles transfer efficiently
-    postMessage({
+    _post({
         type: 'photosUpdate',
         photos_in_area: [...photos_in_area],
         photos_in_range: [...photos_in_range],
@@ -193,8 +195,8 @@ function sendPhotosUpdate(): void {
 
 // No longer needed - using direct array transfer via structured clone algorithm
 
-const messageQueue = new MessageQueue();
-const photoOperations = new PhotoOperations();
+let messageQueue = new MessageQueue();
+let photoOperations = new PhotoOperations();
 
 // Set the max photos configuration
 photoOperations.setMaxPhotosInArea(MAX_PHOTOS_IN_AREA);
@@ -387,7 +389,7 @@ function handleMessage(message: any): void {
 		messageQueue.clear();
 
 		// Send confirmation
-		postMessage({ type: 'cleanupComplete' });
+		_post({ type: 'cleanupComplete' });
 		return;
 	}
 
@@ -554,7 +556,7 @@ async function loop(): Promise<void> {
 				case 'toast':
 					// Forward toast messages to main thread
 					if (doLog) console.log(`🢄NewWorker: Forwarding toast message: ${message.level} - ${message.message} (source: ${message.source})`);
-					postMessage(message);
+					_post(message);
 					break;
 
 				case 'exit':
@@ -711,26 +713,59 @@ async function startPendingProcesses(): Promise<boolean> {
 	return true; // Return true to indicate we successfully started or completed processing
 }
 
-// Set up message handler from main thread
-self.onmessage = function(e: MessageEvent) {
-	//if (doLog) console.log('🢄NewWorker: Received message from main thread:', e.data.type);
-	handleMessage(e.data);
-};
+// --- Lifecycle exports for testing ---
 
-// Start the main loop
-loop().catch(error => {
-	console.error('🢄NewWorker: Fatal error in main loop:', error);
+let _loopPromise: Promise<void> | null = null;
+
+export function reset(deps: { postMessage: (msg: any) => void }) {
 	stopProcessMonitor();
-	postMessage({
-		type: 'error',
-		error: {
-			message: error?.message || 'Unknown error in main loop',
-			timestamp: Date.now()
-		}
-	});
-});
+	for (const p of processTable.values()) p.shouldAbort = true;
+	processTable.clear();
+	_post = deps.postMessage;
+	processIdCounter = 0;
+	messageIdCounter = 0;
+	currentState.config = { data: null as any, lastUpdateId: -1, lastProcessedId: -1 };
+	currentState.area = { data: null as any, lastUpdateId: -1, lastProcessedId: -1 };
+	currentState.sourcesPhotosInArea = { data: new Map(), lastUpdateId: -1, lastProcessedId: -1 };
+	isBlocked = false;
+	cullingGrid = null;
+	maxPhotosInAreaValue = MAX_PHOTOS_IN_AREA;
+	sourcesPhotosInAreaVersion = 0;
+	lastProcessedSourcesPhotosInAreaVersion = -1;
+	current_range = DEFAULT_RANGE_METERS;
+	currentPicks = new Set();
+	authTokenPromise = undefined;
+	authTokenPromiseResolve = undefined;
+	messageQueue = new MessageQueue();
+	photoOperations = new PhotoOperations();
+	photoOperations.setMaxPhotosInArea(MAX_PHOTOS_IN_AREA);
+}
 
-if (doLog) console.log('🢄NewWorker: Initialization complete');
+export function start(): void {
+	_loopPromise = loop().catch(error => {
+		console.error('🢄NewWorker: Fatal error in main loop:', error);
+		stopProcessMonitor();
+		_post({ type: 'error', error: { message: error?.message || 'Unknown error', timestamp: Date.now() } });
+	});
+}
+
+export async function stop(): Promise<void> {
+	stopProcessMonitor();
+	handleMessage({ type: 'exit' });
+	if (_loopPromise) {
+		await _loopPromise;
+		_loopPromise = null;
+	}
+	messageQueue.clear();
+}
+
+// Auto-bootstrap when running as a real web worker (not in test/browser env)
+if (typeof window === 'undefined' && typeof self !== 'undefined' && typeof self.postMessage === 'function') {
+	_post = self.postMessage.bind(self);
+	self.onmessage = (e: MessageEvent) => handleMessage(e.data);
+	start();
+	if (doLog) console.log('🢄NewWorker: Initialization complete');
+}
 
 // Cache removal functions for hidden content
 function removePhotoFromCache(photoId: string, source: SourceId): void {
@@ -829,7 +864,7 @@ async function getValidToken(forceRefresh: boolean = false): Promise<string | nu
 			}
 		} else {
 			authTokenPromiseResolve = resolve;
-			postMessage({
+			_post({
         		type: 'getAuthToken',
 				forceRefresh
 			});
