@@ -11,50 +11,41 @@ test.describe('Authentication Integration', () => {
     await page.goto('/login');
     await page.waitForLoadState('networkidle');
 
-    await page.fill('input[type="text"]', 'invaliduser');
-    await page.fill('input[type="password"]', 'anypassword');
-    await page.click('button[type="submit"]');
+    await page.getByTestId('login-username-input').fill('invaliduser');
+    await page.getByTestId('login-password-input').fill('anypassword');
+    await page.getByTestId('login-submit-button').click();
 
     // Should stay on login page and show error
-    await page.waitForTimeout(2000);
+    await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 10000 });
     await expect(page).toHaveURL('/login');
-
-    // Check for error message (adjust selector based on your UI)
-    const errorMessage = page.locator('.error-message, .alert-error, [data-testid="error-message"]');
-    await expect(errorMessage).toBeVisible();
   });
 
   test('should show error for invalid password', async ({ page }) => {
     await page.goto('/login');
     await page.waitForLoadState('networkidle');
 
-    await page.fill('input[type="text"]', 'test');
-    await page.fill('input[type="password"]', 'wrongpassword');
-    await page.click('button[type="submit"]');
+    await page.getByTestId('login-username-input').fill('test');
+    await page.getByTestId('login-password-input').fill('wrongpassword');
+    await page.getByTestId('login-submit-button').click();
 
     // Should stay on login page and show error
-    await page.waitForTimeout(2000);
+    await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 10000 });
     await expect(page).toHaveURL('/login');
-
-    // Check for error message
-    const errorMessage = page.locator('.error-message, .alert-error, [data-testid="error-message"]');
-    await expect(errorMessage).toBeVisible();
   });
 
   test('should show validation popup for empty credentials', async ({ page }) => {
     await page.goto('/login');
     await page.waitForLoadState('networkidle');
 
-    // Check that form has required attributes that will trigger browser validation
-    const usernameInput = page.locator('input[type="text"]');
-    const passwordInput = page.locator('input[type="password"]');
+    const usernameInput = page.getByTestId('login-username-input');
+    const passwordInput = page.getByTestId('login-password-input');
 
     // Verify inputs have required attributes
     await expect(usernameInput).toHaveAttribute('required', '');
     await expect(passwordInput).toHaveAttribute('required', '');
 
     // Try to submit with empty fields - browser will show validation popup
-    await page.click('button[type="submit"]');
+    await page.getByTestId('login-submit-button').click();
 
     // Should stay on login page due to validation
     await page.waitForTimeout(1000);

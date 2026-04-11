@@ -73,7 +73,7 @@ export class WebTokenManager implements TokenManager {
                     const newToken = await this.refreshPromise;
                     return newToken.access_token;
                 } catch (error) {
-                    console.error(`${this.LOG_PREFIX} Refresh failed:`, error);
+                    console.warn(`${this.LOG_PREFIX} Refresh failed:`, error);
                     return null;
                 }
             }
@@ -104,7 +104,7 @@ export class WebTokenManager implements TokenManager {
                     return newToken.access_token;
                 } catch (error) {
                     this.refreshPromise = null;
-                    console.error(`${this.LOG_PREFIX} Refresh failed:`, error);
+                    console.warn(`${this.LOG_PREFIX} Refresh failed:`, error);
                     logout('Token refresh failed');
                     throw new TokenExpiredError('Token expired and refresh failed');
                 }
@@ -204,7 +204,7 @@ export class WebTokenManager implements TokenManager {
                 } catch {
                     errorDetail = errorText;
                 }
-                console.error(`${this.LOG_PREFIX} Refresh failed: ${response.status} ${errorDetail}`);
+                console.warn(`${this.LOG_PREFIX} Refresh failed: ${response.status} ${errorDetail}`);
 
                 if (response.status === 401 || response.status === 403) {
                     // Optimistic recovery: check if another context refreshed

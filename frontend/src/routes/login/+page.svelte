@@ -306,11 +306,11 @@
         <div class="login-card">
 
         {#if errorMessage}
-            <div class="error-message">{errorMessage}</div>
+            <div class="error-message" data-testid="login-error-message">{errorMessage}</div>
         {/if}
 
         {#if successMessage}
-            <div class="success-message">{successMessage}</div>
+            <div class="success-message" data-testid="login-success-message">{successMessage}</div>
         {/if}
 
         {#if isPolling}
@@ -323,7 +323,7 @@
                 on:progress={handleOAuthProgress}
             />
         {:else}
-            <form on:submit|preventDefault={handleSubmit}>
+            <form on:submit|preventDefault={handleSubmit} data-testid="login-form">
             {#if !isLogin}
                 <div class="form-group">
                     <label for="email">
@@ -338,6 +338,7 @@
                         required
                         placeholder="Enter your email"
                         autocomplete="email"
+                        data-testid="login-email-input"
                     />
                 </div>
             {/if}
@@ -356,6 +357,7 @@
                     class:auto-generated={!isLogin && usernameGenerated}
                     autocomplete="username"
                     on:focus={() => usernameGenerated = false}
+                    data-testid="login-username-input"
                 />
             </div>
 
@@ -371,14 +373,15 @@
                     required
                     placeholder="Enter your password"
                     autocomplete="current-password"
+                    data-testid="login-password-input"
                 />
             </div>
 
             <div class="auth-buttons">
-                <button type="submit" class="primary-button" disabled={isLoading}>
+                <button type="submit" class="primary-button" disabled={isLoading} data-testid="login-submit-button">
                     {isLoading ? 'Loading...' : isLogin ? 'Login' : 'Register'}
                 </button>
-                <button type="button" class="secondary-button" on:click={toggleForm}>
+                <button type="button" class="secondary-button" on:click={toggleForm} data-testid="login-toggle-form-button">
                     {isLogin ? 'Create Account' : 'Back to Login'}
                 </button>
             </div>

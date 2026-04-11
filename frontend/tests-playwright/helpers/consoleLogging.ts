@@ -16,7 +16,9 @@ export function isUnexpectedError(text: string): boolean {
         'Failed to load resource',
         'net::ERR_',
         'access control checks',   // WebKit blocks ES module loading in workers from Vite dev server
-        'Worker error'             // consequence of the above in SimplePhotoWorker
+        'Worker error',            // consequence of the above in SimplePhotoWorker
+        'establish a connection to the server',  // Firefox native EventSource connection error
+        'getPosition',             // Leaflet invalidateSize during page navigation (Firefox)
     ];
     return !expectedPatterns.some(pattern => text.includes(pattern));
 }

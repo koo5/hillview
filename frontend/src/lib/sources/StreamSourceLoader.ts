@@ -223,7 +223,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 errorMessage = `Stream error: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`;
             }
 
-            console.error('🢄StreamSourceLoader: Stream error details:', JSON.stringify({
+            console.warn('🢄StreamSourceLoader: Stream error details:', JSON.stringify({
                 error,
                 errorType: error?.constructor?.name,
                 errorMessage,
@@ -236,7 +236,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
 
             // Check if this is an immediate connection failure
             if (this.eventSource?.readyState === EventSource.CLOSED && Date.now() - this.startTime < 1000) {
-                console.error('🢄StreamSourceLoader: EventSource failed immediately after creation - possible network/CORS/URL issue');
+                console.warn('🢄StreamSourceLoader: EventSource failed immediately after creation - possible network/CORS/URL issue');
             }
 
             // Check if we should show toast BEFORE marking as complete

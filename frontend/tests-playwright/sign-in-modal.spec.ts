@@ -235,9 +235,9 @@ test.describe('Sign-In Modal', () => {
       await page.waitForURL('/login', { timeout: 15000 });
 
       // Log in
-      await page.fill('input[type="text"]', 'test');
-      await page.fill('input[type="password"]', testUsers.passwords.test);
-      await page.click('button[type="submit"]');
+      await page.getByTestId('login-username-input').fill('test');
+      await page.getByTestId('login-password-input').fill(testUsers.passwords.test);
+      await page.getByTestId('login-submit-button').click();
       await page.waitForURL('/', { timeout: 15000 });
 
       // Navigate back to map, open viewer

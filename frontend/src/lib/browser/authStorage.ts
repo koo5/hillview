@@ -194,7 +194,7 @@ export class AuthStorage {
             });
 
             if (!response.ok) {
-                console.error(`[AuthStorage] Refresh failed: ${response.status}`);
+                console.warn(`[AuthStorage] Refresh failed: ${response.status}`);
 
                 if (response.status === 401 || response.status === 403) {
                     // Before clearing, check if another context refreshed

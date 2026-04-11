@@ -78,9 +78,9 @@ export async function loginAs(page: any, username: string, password: string) {
   await page.goto('/login');
   await page.waitForLoadState('networkidle');
 
-  await page.fill('input[type="text"]', username);
-  await page.fill('input[type="password"]', password);
-  await page.click('button[type="submit"]');
+  await page.getByTestId('login-username-input').fill(username);
+  await page.getByTestId('login-password-input').fill(password);
+  await page.getByTestId('login-submit-button').click();
 
   // Wait for successful login redirect
   await page.waitForURL('/', { timeout: 15000 });

@@ -78,7 +78,7 @@ export class HttpClient {
               });
             }
           } catch (refreshError) {
-            console.error('🢄[HTTP] Token refresh failed:', refreshError);
+            console.warn('🢄[HTTP] Token refresh failed:', refreshError);
           }
 
         // If refresh failed, logout

@@ -195,6 +195,8 @@ test.describe('hunting', () => {
       await page.locator('.leaflet-control-zoom-out').click();
       await page.waitForTimeout(300);
     }
+    // Let the photo worker re-query for the wider viewport and markers render.
+    await page.waitForTimeout(3000);
     // Open lines panel.
     await page.locator('[data-testid="lines-button"]').click();
     await page.locator('[data-testid="lines-view"]').waitFor({ state: 'visible', timeout: 5_000 });

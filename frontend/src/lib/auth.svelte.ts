@@ -121,7 +121,9 @@ async function ensureAuthInitialized() {
 
 // Auth functions
 export async function login(username: string, password: string) {
-    await ensureAuthInitialized();
+    // Don't call ensureAuthInitialized() here — login replaces any existing auth state.
+    // Calling it with a stale token would fire-and-forget fetchUserData(), whose
+    // eventual 401 → logout() races with and clears the fresh token from completeAuthentication().
         if (doLog) console.log('🢄[AUTH] Logging in with:', { username });
         const response = await fetch(backendUrl+'/auth/token', {
             method: 'POST',
