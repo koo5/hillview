@@ -10,9 +10,9 @@ export const GET: RequestHandler = async () => {
 	const urls = [
 		...STATIC_PATHS.map((path) => `  <url><loc>${HILLVIEW_BASE_URL}${path}</loc></url>`),
 		...photos.map((p) => {
-			let loc = `${HILLVIEW_BASE_URL}/?lat=${p.latitude}&lon=${p.longitude}&zoom=18`;
-			if (p.bearing != null) loc += `&bearing=${p.bearing}`;
-			loc += `&photo=hillview-${p.id}`;
+			let loc = `${HILLVIEW_BASE_URL}/?lat=${p.latitude}&amp;lon=${p.longitude}&amp;zoom=18`;
+			if (p.bearing != null) loc += `&amp;bearing=${p.bearing}`;
+			loc += `&amp;photo=hillview-${p.id}`;
 			return `  <url><loc>${loc}</loc></url>`;
 		}),
 	];
