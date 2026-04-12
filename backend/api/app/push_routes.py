@@ -20,6 +20,7 @@ from common.utc import utcnow
 from auth import get_current_user, get_current_user_optional
 #from push_notifications import create_notification_for_user, create_notification_for_client, send_broadcast_notification
 from push_notifications import send_activity_broadcast_notification
+from internal_guard import require_internal_ip
 
 logger = logging.getLogger(__name__)
 
@@ -400,7 +401,7 @@ async def mark_notifications_read(
 # 	)
 
 
-@router.post("/internal/notifications/cleanup", response_model=PushRegistrationResponse)
+@router.post("/internal/notifications/cleanup", response_model=PushRegistrationResponse, dependencies=[Depends(require_internal_ip)])
 async def cleanup_expired_notifications(
 	db: AsyncSession = Depends(get_db)
 ):
@@ -453,7 +454,7 @@ async def cleanup_expired_notifications(
 # 	)
 
 
-@router.post("/internal/notifications/activity-broadcast", response_model=PushRegistrationResponse)
+@router.post("/internal/notifications/activity-broadcast", response_model=PushRegistrationResponse, dependencies=[Depends(require_internal_ip)])
 async def activity_broadcast_notification(
 	db: AsyncSession = Depends(get_db)
 ):

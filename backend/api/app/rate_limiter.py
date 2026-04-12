@@ -74,7 +74,22 @@ class AsyncRateLimiter:
 
 
 def get_client_ip(request: Request) -> str:
-	"""Get the real client IP address (extracted once by ReverseProxyMiddleware)."""
+	"""Get the real client IP address (extracted once by ReverseProxyMiddleware).
+
+	Raises HTTPException 403 if X-Forwarded-For contains multiple entries,
+	which indicates header injection (we trust Caddy as the sole proxy layer).
+	"""
+	forwarded_for = request.headers.get("X-Forwarded-For")
+	if forwarded_for and "," in forwarded_for:
+		logger.warning(
+			f"Rejecting request with multiple X-Forwarded-For entries: "
+			f"{forwarded_for!r} (path={request.url.path})"
+		)
+		raise HTTPException(
+			status_code=status.HTTP_403_FORBIDDEN,
+			detail="Access denied",
+		)
+
 	# Use the real IP extracted by ReverseProxyMiddleware, fallback to direct connection
 	if hasattr(request.state, 'real_client_ip') and request.state.real_client_ip:
 		return request.state.real_client_ip

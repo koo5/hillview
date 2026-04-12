@@ -18,6 +18,7 @@ from common.utc import format_utc
 from hidden_content_filters import apply_hidden_content_filters
 from auth import get_current_user_optional_with_query
 from rate_limiter import general_rate_limiter
+from internal_guard import require_internal_ip
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -412,7 +413,7 @@ async def get_hillview_images(
 		)
 
 
-@router.post("/internal/set-analysis")
+@router.post("/internal/set-analysis", dependencies=[Depends(require_internal_ip)])
 async def set_photo_analysis(
 	request: SetAnalysisRequest,
 	db: AsyncSession = Depends(get_db)
