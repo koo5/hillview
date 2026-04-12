@@ -37,7 +37,36 @@
     }
   ],
   "categories": ["photo", "navigation", "utilities"],
-  "screenshots": [],
+  "screenshots": [
+    {
+      "src": "https://hillview.cz/docs/screenshots/mobile/hero-panorama.png",
+      "sizes": "1170x1992",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Explore annotated panoramas with labeled landmarks"
+    },
+    {
+      "src": "https://hillview.cz/docs/screenshots/mobile/07-best-of.png",
+      "sizes": "1170x1992",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Browse top-rated photos and panoramas"
+    },
+    {
+      "src": "https://hillview.cz/docs/screenshots/desktop/hero-panorama-full.png",
+      "sizes": "2880x1800",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Zoom into panoramas with detailed annotations"
+    },
+    {
+      "src": "https://hillview.cz/docs/screenshots/desktop/12-bearing-lines.png",
+      "sizes": "2880x1800",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Triangulate distant landmarks with bearing lines"
+    }
+  ],
   "shortcuts": [
     {
       "name": "Take Photo",
