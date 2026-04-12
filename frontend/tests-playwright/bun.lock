@@ -1,10 +1,11 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "hillview-tests-playwright",
       "devDependencies": {
-        "@playwright/test": "^1.57.0",
+        "@playwright/test": "1.59.1",
       },
     },
   },

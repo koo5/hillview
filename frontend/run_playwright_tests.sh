@@ -1,6 +1,7 @@
 #!/bin/fish
 cd "$(dirname "$(readlink -f -- "$0")")"/tests-playwright
-nvm use 22; 
+bun install --frozen-lockfile;
+and nvm use 22;
 and node_modules/.bin/playwright install;
 and bun run test --trace on;
 and begin
