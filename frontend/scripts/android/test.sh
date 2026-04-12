@@ -52,4 +52,4 @@ end
 # and backend state races with Playwright/pytest.
 set -l tests_dir (dirname (status --current-filename))/../../tests-appium
 cd $tests_dir
-npx tsx helpers/lockAndRun.ts npx @wdio/cli run wdio.conf.ts $wdio_args
+node_modules/.bin/tsx helpers/lockAndRun.ts node_modules/.bin/wdio run wdio.conf.ts $wdio_args

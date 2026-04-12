@@ -10,7 +10,7 @@ if ! command -v husky &> /dev/null; then
 fi
 
 # Initialize husky
-npx husky install
+node_modules/.bin/husky install
 
 # Make pre-commit hook executable
 chmod +x .husky/pre-commit
