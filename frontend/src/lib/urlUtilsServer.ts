@@ -4,6 +4,11 @@
  */
 
 /**
+ * Base URL for production Hillview site
+ */
+export const HILLVIEW_BASE_URL = 'https://hillview.cz';
+
+/**
  * Parses photo UID from URL parameter
  * @param photoParam - The raw photo parameter from URL
  * @returns Decoded photo UID or null if invalid

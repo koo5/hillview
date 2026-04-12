@@ -11,6 +11,8 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 
 // Re-export SSR-safe functions from urlUtilsServer
 export { parsePhotoUid, parsePhotoUidParts, constructUserProfileUrl, constructUserPhotosUrl } from './urlUtilsServer';
+import { HILLVIEW_BASE_URL } from './urlUtilsServer';
+export { HILLVIEW_BASE_URL };
 
 /**
  * Extracts coordinates from various photo data formats
@@ -47,11 +49,6 @@ function extractCoordinates(photo: any): { lat: number; lon: number; bearing?: n
 
     return null;
 }
-
-/**
- * Base URL for production Hillview site
- */
-const HILLVIEW_BASE_URL = 'https://hillview.cz';
 
 /**
  * Constructs a map view URL with location parameters

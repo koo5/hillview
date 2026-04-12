@@ -552,7 +552,7 @@
 
 		const options = {
 			element: container,
-			drawer: 'canvas' as const,
+			drawer: 'html' as const,
 			tileSources: initialSource,
 			// Disable default controls – we supply our own close button
 			showNavigationControl: false,

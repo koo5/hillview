@@ -18,11 +18,11 @@
 
 <svelte:head>
 	{#if data?.photoMeta}
-		<title>Photo on Hillview</title>
+		<title>{data.photoMeta.description ? `${data.photoMeta.description} - Hillview` : 'Photo on Hillview'}</title>
 		<meta name="description" content={data.photoMeta.description} />
 
 		<!-- OpenGraph tags for social sharing -->
-		<meta property="og:title" content="Photo on Hillview" />
+		<meta property="og:title" content={data.photoMeta.description ? `${data.photoMeta.description} - Hillview` : 'Photo on Hillview'} />
 		<meta property="og:description" content={data.photoMeta.description} />
 		<meta property="og:type" content="article" />
 		<meta property="og:url" content={$page.url.href} />
@@ -39,7 +39,7 @@
 
 		<!-- Twitter Card tags -->
 		<meta name="twitter:card" content="summary_large_image" />
-		<meta name="twitter:title" content="Photo on Hillview" />
+		<meta name="twitter:title" content={data.photoMeta.description ? `${data.photoMeta.description} - Hillview` : 'Photo on Hillview'} />
 		<meta name="twitter:description" content={data.photoMeta.description} />
 		{#if data.photoMeta.imageUrl}
 			<meta name="twitter:image" content={data.photoMeta.imageUrl} />
