@@ -9,6 +9,10 @@ function isEnvFlagEnabled(value: string | undefined): boolean {
  * Returns true if the error is unexpected and should be flagged.
  */
 export function isUnexpectedError(text: string): boolean {
+    // Firefox emits bare stack traces as separate console.error entries during
+    // page transitions — just the call frames with no error message.
+    if (text.trimStart().startsWith('Stack trace:')) return false;
+
     const expectedPatterns = [
         'favicon.ico',
         'ERR_NAME_NOT_RESOLVED',
@@ -19,6 +23,7 @@ export function isUnexpectedError(text: string): boolean {
         'Worker error',            // consequence of the above in SimplePhotoWorker
         'establish a connection to the server',  // Firefox native EventSource connection error
         'getPosition',             // Leaflet invalidateSize during page navigation (Firefox)
+        'invalidateSize',          // Leaflet resize race during page transition (Firefox)
     ];
     return !expectedPatterns.some(pattern => text.includes(pattern));
 }

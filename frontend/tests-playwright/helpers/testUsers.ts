@@ -78,6 +78,12 @@ export async function loginAs(page: any, username: string, password: string) {
   await page.goto('/login');
   await page.waitForLoadState('networkidle');
 
+  // WebKit can resolve networkidle before the page DOM is fully rendered.
+  // Explicitly wait for the login form to appear with a reasonable timeout
+  // so failures produce an actionable error instead of hitting the global
+  // test timeout.
+  await page.getByTestId('login-username-input').waitFor({ state: 'visible', timeout: 15000 });
+
   await page.getByTestId('login-username-input').fill(username);
   await page.getByTestId('login-password-input').fill(password);
   await page.getByTestId('login-submit-button').click();
