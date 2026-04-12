@@ -4,16 +4,20 @@ import { backendUrl } from '$lib/config';
 
 const STATIC_PATHS = ['/about', '/contact', '/privacy', '/terms', '/download'];
 
+function escapeXml(s: string): string {
+	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
 export const GET: RequestHandler = async () => {
 	const photos = await fetchBestOfPhotos();
 
 	const urls = [
-		...STATIC_PATHS.map((path) => `  <url><loc>${HILLVIEW_BASE_URL}${path}</loc></url>`),
+		...STATIC_PATHS.map((path) => `  <url><loc>${escapeXml(`${HILLVIEW_BASE_URL}${path}`)}</loc></url>`),
 		...photos.map((p) => {
-			let loc = `${HILLVIEW_BASE_URL}/?lat=${p.latitude}&amp;lon=${p.longitude}&amp;zoom=18`;
-			if (p.bearing != null) loc += `&amp;bearing=${p.bearing}`;
-			loc += `&amp;photo=hillview-${p.id}`;
-			return `  <url><loc>${loc}</loc></url>`;
+			let loc = `${HILLVIEW_BASE_URL}/?lat=${p.latitude}&lon=${p.longitude}&zoom=18`;
+			if (p.bearing != null) loc += `&bearing=${p.bearing}`;
+			loc += `&photo=hillview-${p.id}`;
+			return `  <url><loc>${escapeXml(loc)}</loc></url>`;
 		}),
 	];
 
