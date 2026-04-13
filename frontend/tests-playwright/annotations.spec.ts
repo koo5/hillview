@@ -116,7 +116,8 @@ async function openViewer(page: Page) {
   await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 15000 });
   // Wait for OpenSeadragon canvas to initialize (tiled mode)
   await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 15000 });
-  await page.waitForTimeout(500);
+  // Wait for the annotation toolbar to appear (signals annotorious is ready)
+  await page.locator('[data-testid="osd-annotate-draw"]').waitFor({ state: 'visible', timeout: 10000 });
 }
 
 /** Close the OSD viewer. */

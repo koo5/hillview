@@ -410,15 +410,12 @@ test.describe('Map Turning and Rotation Operations', () => {
     for (const operation of operations) {
       console.log(`Performing ${operation.name} operation...`);
       await operation.action();
-      await page.waitForTimeout(400);
-      
-      // Verify map is still responsive after each operation
+
+      // Wait for map to settle after the operation (tiles loaded & visible)
       await expect(mapContainer).toBeVisible();
-      
-      // Check that map tiles are still visible
       const mapTiles = page.locator('.leaflet-tile');
       if (await mapTiles.count() > 0) {
-        await expect(mapTiles.first()).toBeVisible();
+        await expect(mapTiles.first()).toBeVisible({ timeout: 5000 });
       }
     }
   });

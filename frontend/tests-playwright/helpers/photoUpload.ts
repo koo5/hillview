@@ -3,12 +3,51 @@
  */
 
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { Page } from '@playwright/test';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const testAssetsDir = path.join(__dirname, '..', '..', 'test-assets');
+
+/**
+ * Playwright 1.59+ silently fails setInputFiles when the file path contains
+ * non-ASCII characters (emojis, etc.). Work around by copying the file to a
+ * temp path whose name encodes non-ASCII chars as _uXXXX_ escape sequences.
+ *
+ * The resulting filename is deterministic and reversible — when this Playwright
+ * bug is fixed, just remove the workaround and setInputFiles directly.
+ */
+function hasNonAscii(s: string): boolean {
+  return /[^\x00-\x7F]/.test(s);
+}
+
+/** Replace each non-ASCII char with _uXXXX_ (or _uXXXXX_ for astral chars). */
+function escapeNonAscii(name: string): string {
+  return name.replace(/[^\x00-\x7F]/gu, ch => {
+    const code = ch.codePointAt(0)!;
+    return `_u${code.toString(16).toUpperCase()}_`;
+  });
+}
+
+let tempDir: string | null = null;
+function getTempDir(): string {
+  if (!tempDir) {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pw-upload-'));
+  }
+  return tempDir;
+}
+
+function toAsciiTempPath(originalPath: string): string {
+  const dir = path.dirname(originalPath);
+  const basename = path.basename(originalPath);
+  const safeName = escapeNonAscii(basename);
+  const dest = path.join(getTempDir(), safeName);
+  fs.copyFileSync(originalPath, dest);
+  return dest;
+}
 
 /**
  * Wait for a specific photo to finish async worker processing by polling the
@@ -58,6 +97,15 @@ export const testPhotos = [
 ];
 
 /**
+ * Set files on an input element, working around Playwright 1.59+ Unicode path bug.
+ */
+export async function safeSetInputFiles(fileInput: ReturnType<Page['locator']>, filePath: string | string[]): Promise<void> {
+  const paths = Array.isArray(filePath) ? filePath : [filePath];
+  const safePaths = paths.map(p => hasNonAscii(p) ? toAsciiTempPath(p) : p);
+  await fileInput.setInputFiles(safePaths.length === 1 ? safePaths[0] : safePaths);
+}
+
+/**
  * Upload a single photo file. Returns the photo ID assigned by the server.
  */
 export async function uploadPhoto(page: Page, photoFilename: string): Promise<string> {
@@ -67,17 +115,23 @@ export async function uploadPhoto(page: Page, photoFilename: string): Promise<st
   await page.goto('/photos');
   await page.waitForLoadState('networkidle');
 
-  // Select file
-  const fileInput = page.locator('[data-testid="photo-file-input"]');
-  await fileInput.setInputFiles(photoPath);
-
-  // Check the license checkbox if not already checked
+  // Check the license checkbox first (file input is disabled until license is set)
   const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
   await licenseCheckbox.waitFor({ state: 'visible', timeout: 10000 });
   const isChecked = await licenseCheckbox.isChecked();
   if (!isChecked) {
     await licenseCheckbox.check();
   }
+
+  // Wait for the file input to be enabled (user auth + license must be set)
+  const fileInput = page.locator('[data-testid="photo-file-input"]');
+  await page.waitForFunction(() => {
+    const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
+    return input && !input.disabled;
+  }, { timeout: 10000 });
+
+  // Select file (uses ASCII temp copy if filename has non-ASCII chars)
+  await safeSetInputFiles(fileInput, photoPath);
 
   // Wait for upload button to be enabled
   const uploadButton = page.locator('[data-testid="upload-submit-button"]');

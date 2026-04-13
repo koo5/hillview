@@ -222,7 +222,6 @@ test.describe('Photo UID Functionality', () => {
       // Login and upload a test photo with location to ensure test data exists
       await loginAsTestUser(page, testUsers.passwords.test);
       await uploadTestPhotosWithLocation(page, 1);
-      await page.waitForTimeout(2000);
 
       // Navigate to users list
       await page.goto('/users');
@@ -230,7 +229,7 @@ test.describe('Photo UID Functionality', () => {
 
       // Click on the test user's card (the user we just uploaded photos for)
       const testUserCard = page.locator('[data-testid="user-card-test"]');
-      await expect(testUserCard).toBeVisible({ timeout: 10000 });
+      await expect(testUserCard).toBeVisible({ timeout: 15000 });
       await testUserCard.click();
 
       // Wait for navigation to user profile
