@@ -9,7 +9,7 @@ dependencies = [
     "hillview-common[db,auth]",
 
     # Test framework
-    "pytest==7.4.3",
+    "pytest==9.0.3",
     "pytest-asyncio==0.21.1",
 
     # HTTP clients
