@@ -7,6 +7,7 @@ import { createTokenManager } from './tokenManagerFactory';
 import { auth, type User, type AuthState } from './authStore';
 import { myGoto } from './navigation.svelte';
 import { clearAlerts } from './alertSystem.svelte';
+import { identify } from './analytics';
 
 const doLog = false;
 
@@ -314,6 +315,7 @@ export async function fetchUserData() {
                 user: userData
             };
         });
+        identify(userData.id, {name: userData.username});
         if (doLog) console.log('🢄[AUTH] === USER DATA FETCH COMPLETE ===');
         return userData;
     } catch (error) {
