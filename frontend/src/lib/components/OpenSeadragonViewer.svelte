@@ -171,6 +171,8 @@
 	/** Build dropdown menu items for the selected annotation. */
 	function buildAnnotationMenuItems(ann: AnnotationData): DropdownMenuItem[] {
 		const items: DropdownMenuItem[] = [];
+		const annProps = {annotation: ann.id, photo: data.photo_id ?? ''};
+		const trackItem = (label: string) => track('annotationMenuItem:' + label, annProps);
 
 		// @username link
 		if (ann.owner_username) {
@@ -178,6 +180,7 @@
 				id: 'annotation-menu-user',
 				label: `@${ann.owner_username}`,
 				onclick: () => {
+					trackItem('@' + ann.owner_username);
 					closeDropdownMenu();
 					onClose();
 					myGoto(constructUserProfileUrl(ann.user_id));
@@ -199,6 +202,7 @@
 					id: `annotation-menu-body-${i}`,
 					label: item.display,
 					onclick: () => {
+						trackItem(item.display);
 						closeDropdownMenu();
 						openExternalUrl(item.value);
 					},
@@ -206,10 +210,12 @@
 				});
 			} else {
 				const text = item.value;
+				const label = text.length > 30 ? text.slice(0, 30) + '\u2026' : text;
 				items.push({
 					id: `annotation-menu-body-${i}`,
-					label: text.length > 30 ? text.slice(0, 30) + '\u2026' : text,
+					label,
 					onclick: () => {
+						trackItem(label);
 						closeDropdownMenu();
 						textModalContent = text;
 						textModalOpenedAt = Date.now();
@@ -237,6 +243,7 @@
 
 	/** Toggle the annotation context menu from the "..." button. */
 	function toggleAnnotationMenu() {
+		track('annotationMenu');
 		if (!viewSelectedAnnotation || !menuBtnEl) return;
 		const items = buildAnnotationMenuItems(viewSelectedAnnotation);
 		showDropdownMenu(items, menuBtnEl, {
