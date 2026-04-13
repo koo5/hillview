@@ -26,6 +26,7 @@
 	import { openExternalUrl } from '$lib/urlUtils';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { photoInFront } from '$lib/mapState';
+	import { track } from '$lib/analytics';
 	import { onMount, onDestroy } from 'svelte';
 	import OpenSeadragon from 'openseadragon';
 	import { createOSDAnnotator } from '@annotorious/openseadragon';
@@ -73,6 +74,7 @@
 	let shareMessageTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	async function handleShare() {
+		track('share');
 		const photo = $photoInFront;
 		if (!photo) return;
 		const bounds = viewer?.viewport?.getBounds();
@@ -405,12 +407,14 @@
 			viewportBoundsTimeout = null;
 			if (!viewer?.viewport) return;
 			const bounds = viewer.viewport.getBounds();
-			zoomViewportBounds.set({
+			const vp = {
 				x1: bounds.x,
 				y1: bounds.y,
 				x2: bounds.x + bounds.width,
 				y2: bounds.y + bounds.height
-			});
+			};
+			zoomViewportBounds.set(vp);
+			track('zoomViewPan', {id: data.photo_id ?? '', ...vp});
 		}, 500);
 	}
 
@@ -675,6 +679,7 @@
 
 		// When the user finishes drawing a shape, open the edit panel for labelling.
 		annotator.on('createAnnotation', (annotation: any) => {
+			track('annotationCreate', {photo: data.photo_id ?? ''});
 			console.log('[OSD] createAnnotation event — uiId:', annotation.id, 'target:', annotation.target);
 			const textBody =
 				(annotation.body?.find((b: any) => b.purpose === 'commenting')?.value) ?? '';
@@ -703,6 +708,7 @@
 		});
 
 		annotator.on('updateAnnotation', async (annotation: any, previous: any) => {
+			track('annotationUpdate', {photo: data.photo_id ?? ''});
 			console.log('[OSD] updateAnnotation event — uiId:', previous.id, '→ annotation:', annotation.id);
 			// After our own save/cancel, setSelected() may trigger a shape commit — ignore it.
 			if (suppressedUiIds.delete(previous.id)) {
@@ -769,6 +775,7 @@
 
 		annotator.on('clickAnnotation', (annotation: any, originalEvent: PointerEvent) => {
 			console.log('[OSD] clickAnnotation event — uiId:', annotation.id, 'mode:', annotationMode);
+			track('annotationClick', {id: annotation.id});
 		});
 
 		// Open the edit panel when Annotorious actually selects an annotation,

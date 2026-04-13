@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
 import type { PyramidMetadata } from '$lib/types/photoCommon';
+import { track } from '$lib/analytics';
 
 /**
  * Store for managing full-screen photo zoom view state
@@ -16,7 +17,19 @@ export interface ZoomViewData {
 	pyramid?: PyramidMetadata;  // DZI pyramid metadata (when available)
 }
 
-export const zoomViewData = writable<ZoomViewData | null>(null);
+function createZoomViewStore() {
+	const { subscribe, set, update } = writable<ZoomViewData | null>(null);
+	return {
+		subscribe,
+		update,
+		set: (value: ZoomViewData | null) => {
+			if (value) track('zoomView', {id: value.photo_id ?? ''});
+			set(value);
+		}
+	};
+}
+
+export const zoomViewData = createZoomViewStore();
 
 /**
  * Viewport bounds in OSD coordinates (width normalized to 1.0).

@@ -12,6 +12,7 @@
 	import {backendUrl} from "$lib/config";
     import { Bug } from 'lucide-svelte';
     import * as Sentry from '@sentry/sveltekit';
+    import { track } from '$lib/analytics';
 
     export let isOpen = false;
 
@@ -37,7 +38,10 @@
         onClose();
     }
 
-    function closeMenu() {
+    function closeMenu(event?: Event) {
+        const target = event?.target as HTMLElement | undefined;
+        const link = target?.closest('a')?.getAttribute('href');
+        if (link) track('nav', {to: link});
         onClose();
     }
 

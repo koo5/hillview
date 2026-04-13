@@ -15,6 +15,7 @@
     import { TAURI } from '$lib/tauri';
     import { backendUrl } from '$lib/config';
     import { openUrl } from '@tauri-apps/plugin-opener';
+    import { track } from '$lib/analytics';
 
     let username = '';
     let password = '';
@@ -144,6 +145,7 @@
     async function handleSubmit() {
         isLoading = true;
         errorMessage = '';
+        track('auth', {action: isLogin ? 'login' : 'register'});
 
         try {
             if (isLogin) {
@@ -155,6 +157,7 @@
                     throw new Error('Login failed. Please check your credentials and try again.');
                 }
 
+                track('auth', {action: 'loginSuccess'});
                 // After successful login, go back to where user came from or home
                 if (canNavigateBack()) {
                     goBack('/');
@@ -170,6 +173,7 @@
                     throw new Error('Registration failed. Please check the console for more details.');
                 }
 
+                track('auth', {action: 'registerSuccess'});
                 // Switch to login form after successful registration
                 isLogin = true;
                 successMessage = 'Registration successful! Please log in.';
@@ -177,6 +181,7 @@
         } catch (error) {
             console.error('🢄Form submission error:', error);
             errorMessage = error instanceof Error ? error.message : 'An error occurred';
+            track('auth', {action: isLogin ? 'loginFail' : 'registerFail'});
         } finally {
             isLoading = false;
         }
@@ -188,6 +193,7 @@
             return;
         }
 
+        track('auth', {action: 'oauth', provider});
         console.log(`🢄🔐 Starting ${provider} OAuth flow (${TAURI ? 'tauri polling' : 'web'} mode)`);
         isLoading = true;
         errorMessage = '';
@@ -286,6 +292,7 @@
 
     function toggleForm() {
         isLogin = !isLogin;
+        track('auth', {action: isLogin ? 'switchToLogin' : 'switchToRegister'});
         errorMessage = '';
         successMessage = '';
         if (!isLogin && email) {

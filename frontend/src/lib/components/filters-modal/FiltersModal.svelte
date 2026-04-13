@@ -3,36 +3,45 @@
 	import { Sun, Moon, Sunrise, Home, Trees, RotateCcw } from 'lucide-svelte';
 	import { maxPhotosInArea } from '$lib/data.svelte';
 	import { filters, hasActiveFilters, clearFilters, filtersModalState, closeFiltersModal, type QueryOptions } from './filtersStore';
+	import { track } from '$lib/analytics';
 
 	function setTimeOfDay(value: string | null) {
+		track('filter', {name: 'time_of_day', value: value ?? 'off'});
 		filters.update(f => ({ ...f, time_of_day: f.time_of_day === value ? null : value }));
 	}
 
 	function setLocationType(value: string | null) {
+		track('filter', {name: 'location_type', value: value ?? 'off'});
 		filters.update(f => ({ ...f, location_type: f.location_type === value ? null : value }));
 	}
 
 	function setMinFarthestDistance(value: number | null) {
+		track('filter', {name: 'min_farthest_distance', value: value ?? 'off'});
 		filters.update(f => ({ ...f, min_farthest_distance: f.min_farthest_distance === value ? null : value }));
 	}
 
 	function setMaxClosestDistance(value: number | null) {
+		track('filter', {name: 'max_closest_distance', value: value ?? 'off'});
 		filters.update(f => ({ ...f, max_closest_distance: f.max_closest_distance === value ? null : value }));
 	}
 
 	function setMinScenicScore(value: number | null) {
+		track('filter', {name: 'min_scenic_score', value: value ?? 'off'});
 		filters.update(f => ({ ...f, min_scenic_score: f.min_scenic_score === value ? null : value }));
 	}
 
 	function setVisibilityDistance(value: string | null) {
+		track('filter', {name: 'visibility_distance', value: value ?? 'off'});
 		filters.update(f => ({ ...f, visibility_distance: f.visibility_distance === value ? null : value }));
 	}
 
 	function setTallestBuilding(value: string | null) {
+		track('filter', {name: 'tallest_building', value: value ?? 'off'});
 		filters.update(f => ({ ...f, tallest_building: f.tallest_building === value ? null : value }));
 	}
 
 	function toggleFeature(feature: string) {
+		track('filter', {name: 'feature', value: feature});
 		filters.update(f => ({
 			...f,
 			features: f.features.includes(feature)
@@ -42,6 +51,7 @@
 	}
 
 	function handleClear() {
+		track('filter', {name: 'clear'});
 		clearFilters();
 	}
 

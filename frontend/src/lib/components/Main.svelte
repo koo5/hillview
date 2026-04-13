@@ -47,6 +47,7 @@
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
 	import {enableLocationTracking} from "$lib/locationManager";
 	import {toggleCamera} from '$lib/appActions';
+	import {track} from '$lib/analytics';
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
 
 	let map: any = null;
@@ -74,6 +75,12 @@
 
 	$: showCameraView = $app.activity === 'capture';
 	$: showLinesEditor = $app.activity === 'lines';
+
+	function toggleLines() {
+		const mode = showLinesEditor ? 'view' : 'lines';
+		track('activity', {mode});
+		app.update(a => ({...a, activity: mode}));
+	}
 
 	function flushPhotoToUrl(photo: any) {
 		if (!photo) return;
@@ -482,8 +489,8 @@
 
 <button
 	class="lines-button {showLinesEditor ? 'active' : ''}"
-	on:click={() => app.update(a => ({...a, activity: showLinesEditor ? 'view' : 'lines'}))}
-	on:keydown={(e) => e.key === 'Enter' && app.update(a => ({...a, activity: showLinesEditor ? 'view' : 'lines'}))}
+	on:click={toggleLines}
+	on:keydown={(e) => e.key === 'Enter' && toggleLines()}
 	aria-label="{showLinesEditor ? 'Close lines view' : 'Show lines view'}"
 	title="{showLinesEditor ? 'Close lines view' : 'Show lines view'}"
 	data-testid="lines-button"
