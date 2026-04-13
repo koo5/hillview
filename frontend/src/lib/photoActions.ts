@@ -76,8 +76,12 @@ export async function togglePhotoRating(
 ): Promise<RatingState> {
     const photoSource = getPhotoSource(photo);
 
-    track('rating', {rating, id: photo.id});
-    if (currentUserRating === rating) {
+    const removing = currentUserRating === rating;
+    const event = rating === 'thumbs_up'
+        ? (removing ? 'likeUnset' : 'likeSet')
+        : (removing ? 'dislikeUnset' : 'dislikeSet');
+    track(event);
+    if (removing) {
         // Remove rating
         const response = await http.delete(`/ratings/${photoSource}/${photo.id}`);
         if (!response.ok) {

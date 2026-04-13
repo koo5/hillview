@@ -526,6 +526,7 @@ export function setupMarkerClickDelegation(mapContainer: HTMLElement) {
 	let touchStartX = 0;
 	let touchStartY = 0;
 	let isDragging = false;
+	let touchHandledMarkerClick = false; // Guard against double-invocation from touchend + synthetic click
 	const TAP_THRESHOLD = 10; // pixels - movement less than this is considered a tap/click
 
 	const handleMarkerClick = (photoId: string) => {
@@ -575,6 +576,12 @@ export function setupMarkerClickDelegation(mapContainer: HTMLElement) {
 
 		if (markerContainer) {
 			e.stopPropagation();
+			// Skip if already handled by the touchend handler (prevents double-invocation
+			// when Leaflet's Tap handler synthesizes a click after our touchend)
+			if (touchHandledMarkerClick) {
+				touchHandledMarkerClick = false;
+				return;
+			}
 			const photoId = markerContainer.getAttribute('data-photo-id');
 			if (photoId) {
 				handleMarkerClick(photoId);
@@ -607,9 +614,13 @@ export function setupMarkerClickDelegation(mapContainer: HTMLElement) {
 			// Only trigger if it was a tap (minimal movement)
 			if (deltaX < TAP_THRESHOLD && deltaY < TAP_THRESHOLD) {
 				e.preventDefault();
-				e.stopPropagation();
+				// Don't stopPropagation — Leaflet's document-level touchend handler
+				// must fire so it cleans up its drag state. Otherwise its stale
+				// document-level touchmove handler intercepts subsequent swipes
+				// in the gallery and pans the map.
 				const photoId = markerContainer.getAttribute('data-photo-id');
 				if (photoId) {
+					touchHandledMarkerClick = true;
 					handleMarkerClick(photoId);
 				}
 			}

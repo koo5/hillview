@@ -18,7 +18,8 @@
 		toggleDebug,
 		turn_to_photo_to,
 		splitPercent,
-		showCalibrationView
+		showCalibrationView,
+		onAppActivityChange
 	} from "$lib/data.svelte.js";
 	import {resizableSplit} from '$lib/actions/resizableSplit';
 	import {
@@ -78,7 +79,8 @@
 
 	function toggleLines() {
 		const mode = showLinesEditor ? 'view' : 'lines';
-		track('activity', {mode});
+		track(mode === 'lines' ? 'activityLines' : 'activityView');
+		onAppActivityChange(mode);
 		app.update(a => ({...a, activity: mode}));
 	}
 

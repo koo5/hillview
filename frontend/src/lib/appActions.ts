@@ -5,7 +5,7 @@ import { track } from '$lib/analytics';
 
 export function toggleCamera() {
 	const newActivity = get(app).activity === 'capture' ? 'view' : 'capture';
-	track('activity', {mode: newActivity});
+	track(newActivity === 'capture' ? 'activityCamera' : 'activityView');
 	onAppActivityChange(newActivity);
 	if (get(spatialState).zoom < 17 && newActivity === 'capture') {
 		updateSpatialState({

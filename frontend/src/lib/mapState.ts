@@ -98,13 +98,12 @@ export const hunterMode = derived(
 export function toggleHunterMode() {
 	hunterModeOverride.set(null);
 	hunterModePref.update(v => {
-		track('hunterMode', {on: !v, source: 'button'});
+		track(v ? 'hunterModeClickOff' : 'hunterModeClickOn');
 		return !v;
 	});
 }
 
 export function setHunterMode(value: boolean) {
-	track('hunterMode', {on: value, source: 'auto'});
 	hunterModeOverride.set(null);
 	hunterModePref.set(value);
 }

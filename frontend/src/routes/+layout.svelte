@@ -44,7 +44,7 @@
 
 	afterNavigate((navigation) => {
 		const currentPath = get(page).url.pathname;
-		track('pageview', {path: currentPath});
+		track('pageview:' + currentPath);
 		console.log(`🢄🧭 [NAV] Navigation complete: now at "${currentPath}" (type: ${navigation.type})`);
 
 		// Log additional page info

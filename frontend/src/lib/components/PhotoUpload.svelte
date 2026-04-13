@@ -76,7 +76,7 @@
 			uploadResult.results.forEach((result, index) => {
 				const file = uploadFiles[index];
 				if (result.success) {
-					track('upload', {outcome: 'success'});
+					track('uploadSuccess');
 					onLogEntry(`✅ Uploaded: ${file.name}`, 'success', {
 						operation: 'upload',
 						filename: file.name,
@@ -84,7 +84,7 @@
 						outcome: 'success'
 					});
 				} else {
-					track('upload', {outcome: 'failure'});
+					track('uploadFail');
 					onLogEntry(`❌ Failed: ${file.name} - ${result.error}`, 'error', {
 						operation: 'upload',
 						filename: file.name,
