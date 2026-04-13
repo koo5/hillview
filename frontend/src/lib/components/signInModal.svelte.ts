@@ -1,6 +1,7 @@
 import { writable, get } from 'svelte/store';
 import { navigateWithHistory } from '$lib/navigation.svelte.js';
 import { auth } from '$lib/auth.svelte.js';
+import { track } from '$lib/analytics';
 
 export type SignInModalState = {
 	visible: boolean;
@@ -18,6 +19,7 @@ export const signInModalState = writable<SignInModalState>(initialState);
  * Show the sign-in modal with an optional custom message.
  */
 export function openSignInModal(message?: string): void {
+	track('signInPrompt', {message: message ?? initialState.message});
 	signInModalState.set({
 		visible: true,
 		message: message ?? initialState.message
@@ -28,6 +30,7 @@ export function openSignInModal(message?: string): void {
  * Close the sign-in modal.
  */
 export function closeSignInModal(): void {
+	track('signInDismiss');
 	signInModalState.set(initialState);
 }
 
@@ -35,6 +38,7 @@ export function closeSignInModal(): void {
  * Close the modal and navigate to /login.
  */
 export function signInAndNavigate(): void {
+	track('signInAccept');
 	closeSignInModal();
 	navigateWithHistory('/login');
 }

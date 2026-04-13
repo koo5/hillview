@@ -15,6 +15,7 @@ import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 import { openExternalUrl } from '$lib/urlUtils';
 import { getPhotoSource, getUserId, getPhotoDetailUrl } from '$lib/photoUtils';
 import type { PhotoData } from '$lib/sources';
+import { track } from '$lib/analytics';
 
 export type Rating = 'thumbs_up' | 'thumbs_down';
 
@@ -75,6 +76,7 @@ export async function togglePhotoRating(
 ): Promise<RatingState> {
     const photoSource = getPhotoSource(photo);
 
+    track('rating', {rating, id: photo.id});
     if (currentUserRating === rating) {
         // Remove rating
         const response = await http.delete(`/ratings/${photoSource}/${photo.id}`);

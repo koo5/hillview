@@ -3,6 +3,7 @@
     import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical, Clock } from 'lucide-svelte';
     import { auth } from '$lib/auth.svelte.js';
     import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
+    import { track } from '$lib/analytics';
     import { requireAuth } from './signInModal.svelte';
     import type { PhotoData } from '$lib/sources';
     import {
@@ -97,6 +98,7 @@
 
     // Share photo functionality
     async function sharePhoto() {
+        track('share');
         if (!photo) return;
 
         const result = await sharePhotoUtil(photo);

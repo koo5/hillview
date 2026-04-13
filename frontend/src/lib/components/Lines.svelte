@@ -4,6 +4,7 @@
 	import {destinationPoint} from '$lib/geo';
 	import {get} from 'svelte/store';
 	import {Plus, Trash2} from 'lucide-svelte';
+	import {track} from '$lib/analytics';
 
 	function nextLabel(): string {
 		const current = get(lines);
@@ -16,6 +17,7 @@
 	}
 
 	function addLine() {
+		track('lineAdd');
 		const {center} = get(spatialState);
 		const {bearing} = get(bearingState);
 		const end = destinationPoint(center.lat, center.lng, bearing, 250);

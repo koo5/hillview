@@ -58,6 +58,7 @@
     "screenshots": "cd tests-playwright && bun run screenshots",
     "screenshots:desktop": "cd tests-playwright && bun run screenshots:desktop",
     "screenshots:mobile": "cd tests-playwright && bun run screenshots:mobile",
+    "screenshots:android": "cd tests-appium && bun run screenshots",
     "test:appium": "./scripts/android/test.sh",
     "test:appium:fast": "./scripts/android/test.sh --fast",
     "test:appium:test0": "./scripts/android/test.sh --spec android-photo-simple.test0.ts",

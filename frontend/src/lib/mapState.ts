@@ -11,6 +11,7 @@ import {normalizeBearing, getBearingColor} from './utils/bearingUtils';
 import {invoke} from "@tauri-apps/api/core";
 import {TAURI} from "$lib/tauri";
 import { overrideFilters } from '$lib/components/filters-modal/filtersStore';
+import { track } from '$lib/analytics';
 
 const doLog = false;
 ;
@@ -96,10 +97,14 @@ export const hunterMode = derived(
 
 export function toggleHunterMode() {
 	hunterModeOverride.set(null);
-	hunterModePref.update(v => !v);
+	hunterModePref.update(v => {
+		track('hunterMode', {on: !v, source: 'button'});
+		return !v;
+	});
 }
 
 export function setHunterMode(value: boolean) {
+	track('hunterMode', {on: value, source: 'auto'});
 	hunterModeOverride.set(null);
 	hunterModePref.set(value);
 }
@@ -241,6 +246,7 @@ newPhotoInFront.subscribe(photo => {
 	console.log(`picks: photoInFront: ${JSON.stringify(get(photoInFront))}`);*/
 	if (photo?.uid != get(photoInFront)?.uid) {
 		photoInFront.set(photo);
+		if (photo) track('photoInFront', {id: photo.uid, featured: !!photo.featured});
 		const photoUid = photo?.uid;
 		if (photoUid)
 		{

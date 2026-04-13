@@ -7,6 +7,7 @@
 	import type { LogEntryCallback } from '$lib/types/activityLog';
 	import { TAURI_MOBILE } from '$lib/tauri';
 	import { invoke } from '@tauri-apps/api/core';
+	import { track } from '$lib/analytics';
 
 	export let user: User | null = null;
 	export let onLogEntry: LogEntryCallback = () => {};
@@ -75,6 +76,7 @@
 			uploadResult.results.forEach((result, index) => {
 				const file = uploadFiles[index];
 				if (result.success) {
+					track('upload', {outcome: 'success'});
 					onLogEntry(`✅ Uploaded: ${file.name}`, 'success', {
 						operation: 'upload',
 						filename: file.name,
@@ -82,6 +84,7 @@
 						outcome: 'success'
 					});
 				} else {
+					track('upload', {outcome: 'failure'});
 					onLogEntry(`❌ Failed: ${file.name} - ${result.error}`, 'error', {
 						operation: 'upload',
 						filename: file.name,

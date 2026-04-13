@@ -8,6 +8,7 @@
 	import {invoke} from '@tauri-apps/api/core';
 
 	import {TAURI_MOBILE, TAURI} from '$lib/tauri';
+	import {track} from '$lib/analytics';
 	import {backendUrl} from '$lib/config';
 	import {setupDeepLinkListener} from '$lib/authCallback';
 	import AuthStatusWatcher from '$lib/components/AuthStatusWatcher.svelte';
@@ -43,6 +44,7 @@
 
 	afterNavigate((navigation) => {
 		const currentPath = get(page).url.pathname;
+		track('pageview', {path: currentPath});
 		console.log(`🢄🧭 [NAV] Navigation complete: now at "${currentPath}" (type: ${navigation.type})`);
 
 		// Log additional page info
@@ -125,6 +127,16 @@
 		}
 
 		onAppActivityChange($app.activity);
+
+		// Load Umami analytics (web only, not in Tauri/Android)
+		if (!TAURI && import.meta.env.VITE_UMAMI_WEBSITE_ID) {
+			const script = document.createElement('script');
+			script.defer = true;
+			script.src = import.meta.env.VITE_UMAMI_URL + '/script.js';
+			script.dataset.websiteId = import.meta.env.VITE_UMAMI_WEBSITE_ID;
+			script.dataset.autoTrack = 'false';
+			document.head.appendChild(script);
+		}
 	});
 
 

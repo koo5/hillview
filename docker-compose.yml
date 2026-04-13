@@ -17,6 +17,7 @@ services:
       - "${POSTGRES_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/initdb.d:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?POSTGRES_USER is required} -d ${POSTGRES_DB:?POSTGRES_DB is required}"]
       interval: 10s
@@ -138,11 +139,27 @@ services:
       - VITE_DEV_MODE=${DEV_MODE:-false}
       - VITE_SENTRY_ENABLED=${VITE_SENTRY_ENABLED:-false}
       - VITE_SENTRY_DSN=${VITE_SENTRY_DSN:-}
+      - VITE_UMAMI_WEBSITE_ID=${VITE_UMAMI_WEBSITE_ID:-}
+      - VITE_UMAMI_URL=${VITE_UMAMI_URL:-}
     depends_on:
       postgres:
         condition: service_healthy
       api:
         condition: service_started
+
+
+  umami:
+    image: ghcr.io/umami-software/umami:postgresql-latest
+    container_name: hillview_umami
+    restart: always
+    network_mode: host
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/umami
+      APP_SECRET: ${UMAMI_APP_SECRET:-replace-me-with-a-real-secret}
+      PORT: ${UMAMI_PORT:-3333}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 
 volumes:
