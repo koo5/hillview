@@ -166,20 +166,20 @@
 
 	.configure-btn {
 		flex: 1;
-		padding: 0.5rem 1rem;
-		background: #4CAF50;
+		padding: 0.75rem 1.5rem;
+		background: #d32f2f;
 		color: white;
 		border: none;
 		border-radius: 4px;
-		font-size: 0.9rem;
-		font-weight: 500;
+		font-size: 1.1rem;
+		font-weight: 600;
 		cursor: pointer;
 		transition: background 0.2s;
 		white-space: nowrap;
 	}
 
 	.configure-btn:hover {
-		background: #45a049;
+		background: #b71c1c;
 	}
 
 	.configure-btn:active {
