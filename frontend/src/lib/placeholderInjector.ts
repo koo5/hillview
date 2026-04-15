@@ -2,7 +2,8 @@ import { writable, get } from 'svelte/store';
 import type { PlaceholderPhoto } from './types/photoTypes';
 import { sources } from './data.svelte';
 import { createPlaceholderPhoto, type PlaceholderLocation } from './utils/placeholderUtils';
-import { photosInArea, photosInRange } from './mapState';
+import { photosInArea, photosInRange, spatialState, type Bounds } from './mapState';
+import { isInBounds, getDistance } from './utils/distanceUtils';
 
 // Store for placeholder photos that need immediate display
 export const placeholderPhotos = writable<PlaceholderPhoto[]>([]);
@@ -32,7 +33,8 @@ export class PlaceholderInjector {
 
         // Also add directly to map photo stores for immediate display
         if (deviceSource.enabled) {
-			const withPlaceholders = embedPlaceholders(get(photosInArea), get(photosInRange), get(placeholderPhotos));
+			const spatial = get(spatialState);
+			const withPlaceholders = embedPlaceholders(get(photosInArea), get(photosInRange), get(placeholderPhotos), spatial.bounds, spatial.center, spatial.range);
             photosInArea.set(withPlaceholders.photos_in_area);
             photosInRange.set(withPlaceholders.photos_in_range);
         }
@@ -64,13 +66,31 @@ export const removePlaceholder = PlaceholderInjector.removePlaceholder;
 export const clearPlaceholders = PlaceholderInjector.clearAll;
 
 
+// Render placeholders only when they sit inside the current map view:
+//   photos_in_area -> bounds check (on-screen)
+//   photos_in_range -> bounds + range check (inside the navigation/gallery radius)
+// Without this, a placeholder follows the user as an off-screen "ghost": the placeholder
+// store is not cleared until the real device photo appears in a worker photosUpdate,
+// which may never happen if the user doesn't return to the capture location.
 export function embedPlaceholders(
 	currentPhotosInArea: any[],
 	currentPhotosInRange: any[],
-	currentPlaceholders: PlaceholderPhoto[]
+	currentPlaceholders: PlaceholderPhoto[],
+	bounds: Bounds | null,
+	center: { lat: number; lng: number },
+	range: number
 ): { photos_in_area: any[]; photos_in_range: any[] } {
+	if (!bounds) {
+		// Pre-mapReady: no spatial reference yet, include all placeholders defensively
+		return {
+			photos_in_area: [...currentPhotosInArea, ...currentPlaceholders],
+			photos_in_range: [...currentPhotosInRange, ...currentPlaceholders]
+		};
+	}
+	const inArea = currentPlaceholders.filter(p => isInBounds(p.coord, bounds));
+	const inRange = inArea.filter(p => getDistance(p.coord, center) <= range);
 	return {
-		photos_in_area: [...currentPhotosInArea, ...currentPlaceholders],
-		photos_in_range: [...currentPhotosInRange, ...currentPlaceholders]
+		photos_in_area: [...currentPhotosInArea, ...inArea],
+		photos_in_range: [...currentPhotosInRange, ...inRange]
 	};
 }

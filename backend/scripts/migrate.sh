@@ -80,7 +80,7 @@ fi
 DB_USER="${POSTGRES_USER:-hillview}"
 DB_PASS="${POSTGRES_PASSWORD:-hillview}"
 DB_NAME="${POSTGRES_DB:-hillview}"
-DB_PORT="${POSTGRES_PORT:-5432}"
+DB_PORT="${POSTGRES_HOST_PORT:-5432}"
 DATABASE_URL="postgresql://${DB_USER}:${DB_PASS}@localhost:${DB_PORT}/${DB_NAME}"
 
 # Run alembic with host network

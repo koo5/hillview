@@ -28,6 +28,10 @@ export const config: WebdriverIO.Config = {
         'appium:noReset': true,
         'appium:fullReset': false,
     }],
+    mochaOpts: {
+        ...baseConfig.mochaOpts,
+        timeout: 120_000,
+    },
     // Skip the fresh-start pause — we want a continuous session.
     beforeTest: async function (test) {
         console.log(`📸 Screenshot: ${test.title}`);
@@ -35,5 +39,15 @@ export const config: WebdriverIO.Config = {
     afterTest: async function (test, _context, { passed, duration }) {
         const status = passed ? '✅' : '❌';
         console.log(`${status} ${test.title} (${duration}ms)`);
+        if (!passed) {
+            const safe = test.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+            const failPath = `/tmp/screenshots-fail-${safe}-${Date.now()}.png`;
+            try {
+                await browser.saveScreenshot(failPath);
+                console.log(`  🔍 failure screenshot: ${failPath}`);
+            } catch (e) {
+                console.log(`  (could not capture failure screenshot: ${e})`);
+            }
+        }
     },
 };

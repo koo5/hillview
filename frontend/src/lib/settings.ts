@@ -79,11 +79,25 @@ export async function updateSettings(newSettings: Partial<Settings>): Promise<vo
 		// Also persist to IndexedDB so the upload loop (which reads from IDB) sees the change
 		await writeSettings(updated);
 	} else if (TAURI) {
-		const current = get(tauriSettingsStore);
-		const updated = {...current?.value, ...newSettings} as Settings;
+		// Wait for the initial load before merging — otherwise `state.value` may still be
+		// undefined and the partial update collapses to just `newSettings`, stomping on
+		// fields the caller didn't intend to change.
+		const currentValue = await getSettings();
+		const updated = {...currentValue, ...newSettings};
 		await tauriSettingsStore.persist(updated);
 	}
 }
 
 export const settings = TAURI ? tauriSettingsStore : browserSettingsStore;
+
+// On page load in BROWSER mode, mirror localStorage → IndexedDB so the upload
+// loop (service worker / uploadManager.ts, which reads only from IDB) sees the
+// user's current settings even if they haven't touched the settings UI this
+// session. Without this, IDB can drift stale and auto_upload_enabled reads as
+// undefined, causing the upload loop to break early.
+if (BROWSER) {
+	writeSettings(get(browserSettingsStore).value).catch(err => {
+		console.error('Failed to sync settings to IndexedDB on load:', err);
+	});
+}
 

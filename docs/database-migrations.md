@@ -229,7 +229,7 @@ From docker-compose.yml and .env configuration:
 - **Username**: `hillview` (from `POSTGRES_USER`) 
 - **Password**: `hillview` (from `POSTGRES_PASSWORD`)
 - **Host**: `hillview_postgres` (container name)
-- **Port**: `5432` (internal), `5434` (external from `POSTGRES_PORT`)
+- **Port**: `5432` (internal), host port from `POSTGRES_HOST_PORT` (default `5432`)
 
 ### Common Database Commands
 ```bash

@@ -4,6 +4,7 @@ permissions = [
 	"allow-start-sensor",
 	"allow-stop-sensor",
 	"allow-register-listener",
+	"allow-remove-listener",
 	"allow-start-precise-location-listener",
 	"allow-stop-precise-location-listener",
 	"allow-retry-failed-uploads",

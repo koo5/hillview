@@ -23,7 +23,6 @@
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import {updateKotlinPhotoStatuses} from '$lib/photoStatusSync';
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
-	import {invoke} from "@tauri-apps/api/core";
 	import LoadMoreButton from "$lib/components/LoadMoreButton.svelte";
 	import LicenseSelector from '$lib/components/LicenseSelector.svelte';
 	import {photoLicense} from '$lib/data.svelte';

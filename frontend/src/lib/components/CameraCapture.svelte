@@ -43,7 +43,6 @@
 	import {enableLocationTracking} from "$lib/locationManager";
 	import CompassButtonInner from "$lib/components/CompassButtonInner.svelte";
 	import LocationButtonInner from "$lib/components/LocationButtonInner.svelte";
-	import CalibrationFigure from "$lib/components/CalibrationFigure.svelte";
 
 
 	const dispatch = createEventDispatcher();
@@ -1451,6 +1450,7 @@
 						{locationData}
 						{locationError}
 						{locationReady}
+						{showCalibrationHint}
 					/>
 				{/if}
 
@@ -1482,22 +1482,6 @@
 							<CompassButtonInner bearingMode="car"/>
 						</div>
 					</button>
-				{:else if showCalibrationHint && !$shouldShowBearingTrackingHint && !$shouldShowLocationTrackingHint}
-					<div class="instruction-row">
-						<div class="figure8-animation">
-							<CalibrationFigure />
-						</div>
-						<div class="calibration-instruction">
-							Calibrate compass.
-						</div>
-						<div class="calibration-instruction">
-							Verify orientation.
-						</div>
-						<div class="calibration-instruction">
-							Verify location.
-<!--							 <MyExternalLink href="https://calibratecompass.com/" >Help</MyExternalLink>-->
-						</div>
-					</div>
 				{/if}
 
 				<!-- Bearing tracking hint -->
@@ -2054,25 +2038,6 @@
 		border-color: #4285F4;
 		color: white;
 		animation: pulse-hint 2s infinite;
-	}
-
-	.instruction-row {
-		font-size: 0.75em;
-		position: absolute;
-		bottom: 5px;
-		right: 5px;
-		max-width: 150px;
-		background: rgba(255,255,255,0.4);
-		backdrop-filter: blur(2px);
-		border-radius: 6px;
-		padding: 0.3rem;
-
-	}
-
-	.figure8-animation {
-		width: 150px;
-		height: 80px;
-		flex-shrink: 0;
 	}
 
 	.tracking-hint {

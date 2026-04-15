@@ -2,7 +2,10 @@
     import {cameraOverlayOpacity} from "$lib/data.svelte.js";
 	import {get} from "svelte/store";
     import {sensorAccuracy, compassLag} from "$lib/compass.svelte.js";
-    import {bearingState} from "$lib/mapState";
+    import {bearingMode, bearingState} from "$lib/mapState";
+    import {shouldShowBearingTrackingHint, shouldShowLocationTrackingHint} from "$lib/hints.svelte";
+    import CalibrationFigure from "$lib/components/CalibrationFigure.svelte";
+    import BearingStateArrow from "$lib/components/BearingStateArrow.svelte";
 
     export let locationData: {
         latitude?: number;
@@ -14,6 +17,9 @@
 
     export let locationError: string | null = null;
     export let locationReady = false;
+    export let showCalibrationHint = false;
+
+    $: showHint = showCalibrationHint && !$shouldShowBearingTrackingHint && !$shouldShowLocationTrackingHint;
 
     // Convert Android sensor accuracy integer to human-readable string
     function accuracyToString(accuracy: number): string {
@@ -57,7 +63,33 @@
     aria-label="Toggle overlay transparency"
     data-testid="location-overlay"
 >
-    {#if locationError}
+    {#if showHint}
+        <div class="hint-content" data-testid="calibration-hint">
+            <div class="hint-graphic" class:arrow={$bearingMode === 'car'}>
+                {#if $bearingMode === 'car'}
+                    <BearingStateArrow
+                        width={120}
+                        height={80}
+                        centerX={60}
+                        centerY={70}
+                        arrowX={60}
+                        arrowY={10}
+                    />
+                {:else}
+                    <CalibrationFigure />
+                {/if}
+            </div>
+            <ul class="hint-instructions">
+                {#if $bearingMode === 'car'}
+                    <li>Adjust the bearing arrow.</li>
+                {:else}
+                    <li>Calibrate compass.</li>
+                    <li>Verify orientation.</li>
+                {/if}
+                <li>Verify location.</li>
+            </ul>
+        </div>
+    {:else if locationError}
         <div class="location-row">
             <span class="icon">⚠️</span>
             <span>{locationError}</span>
@@ -217,6 +249,45 @@
         font-size: 1rem;
         width: 1.2rem;
         text-align: center;
+    }
+
+    .hint-content {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        padding: 0.25rem 0.4rem;
+        font-size: 0.8rem;
+    }
+
+    .hint-graphic {
+        width: 120px;
+        height: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 0.1rem;
+    }
+
+    /* Rotate the arrow around the blue dot (at 50% 87.5% of the 120x80 svg) */
+    .hint-graphic.arrow :global(svg) {
+        transform-origin: 50% 87.5%;
+        animation: arrow-sweep 2.4s ease-in-out infinite;
+    }
+
+    @keyframes arrow-sweep {
+        0%   { transform: rotate(-35deg); }
+        50%  { transform: rotate(35deg); }
+        100% { transform: rotate(-35deg); }
+    }
+
+    .hint-instructions {
+        margin: 0;
+        padding-left: 1.1rem;
+        list-style: disc;
+    }
+
+    .hint-instructions li {
+        white-space: nowrap;
     }
 
     .spinner {

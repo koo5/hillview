@@ -12,9 +12,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       # Removed POSTGRES_HOST_AUTH_METHOD: trust - use password auth instead
-    network_mode: host
     ports:
-      - "${POSTGRES_PORT:-5434}:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/initdb.d:/docker-entrypoint-initdb.d:ro
@@ -33,13 +32,12 @@ services:
       context: backend
       dockerfile: api/app/Dockerfile
     container_name: hillview_api
-    network_mode: host
     ports:
-      - "${API_PORT:-8055}:8055"
+      - "127.0.0.1:8055:8055"
     volumes:
       - pics:/app/pics
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@localhost:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@${DB_HOST:-postgres}:5432/${POSTGRES_DB:?POSTGRES_DB is required}
       #- REDIS_URL=redis://redis:6379/0
       - MAPILLARY_CLIENT_TOKEN_FILE=/run/secrets/mapillary_token
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
@@ -82,40 +80,6 @@ services:
         condition: service_healthy
 
 
-  worker:
-    init: true
-    restart: always
-    build:
-      context: backend
-      dockerfile: worker/Dockerfile
-      args:
-        MAGICK_MEMORY_LIMIT: ${MAGICK_MEMORY_LIMIT:-2GiB}
-        MAGICK_MAP_LIMIT: ${MAGICK_MAP_LIMIT:-4GiB}
-        MAGICK_DISK_LIMIT: ${MAGICK_DISK_LIMIT:-8GiB}
-        MAGICK_WIDTH_LIMIT: ${MAGICK_WIDTH_LIMIT:-65536}
-        MAGICK_HEIGHT_LIMIT: ${MAGICK_HEIGHT_LIMIT:-65536}
-        MAGICK_AREA_LIMIT: ${MAGICK_AREA_LIMIT:-1GP}
-    container_name: hillview_worker
-    network_mode: host
-    ports:
-      - "${WORKER_PORT:-8056}:8056"
-    volumes:
-      - uploads:/app/uploads
-    environment:
-      #- MAGICK_TEMPORARY_PATH=/app/worker/tmp/
-      - UPLOAD_DIR=/app/uploads
-      - PICS_URL=${PICS_URL:-}
-      - WORKER_PORT=${WORKER_PORT:-8056}
-      - WORKER_HOST=0.0.0.0 # not used
-      - API_URL=${API_URL:-http://localhost:8055/api}
-      - DEV_MODE=${DEV_MODE:-}
-      - BUCKET_NAME=${BUCKET_NAME:-}
-      - CDN_BASE_URL=${CDN_BASE_URL:-}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-      - AWS_ENDPOINT_URL_S3=${AWS_ENDPOINT_URL_S3:-}
-
-
   frontend:
     init: true
     restart: always
@@ -123,9 +87,8 @@ services:
       context: frontend
       dockerfile: Dockerfile
     container_name: hillview_frontend
-    network_mode: host
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - NODE_ENV=production
       - HOST=0.0.0.0
@@ -152,9 +115,10 @@ services:
     image: ghcr.io/umami-software/umami:postgresql-latest
     container_name: hillview_umami
     restart: always
-    network_mode: host
+    ports:
+      - "127.0.0.1:${UMAMI_PORT:-3333}:${UMAMI_PORT:-3333}"
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/umami
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_HOST:-postgres}:5432/umami
       APP_SECRET: ${UMAMI_APP_SECRET:-replace-me-with-a-real-secret}
       PORT: ${UMAMI_PORT:-3333}
     depends_on:

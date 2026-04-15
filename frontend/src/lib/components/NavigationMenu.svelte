@@ -65,6 +65,7 @@
     <!-- Menu backdrop for mobile -->
     <div
         class="menu-backdrop"
+        data-testid="menu-backdrop"
         role="button"
         tabindex="0"
         aria-label="Close menu"

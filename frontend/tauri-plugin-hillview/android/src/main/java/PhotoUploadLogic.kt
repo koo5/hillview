@@ -890,14 +890,6 @@ class PhotoUploadLogic(private val context: Context) {
                 val photoId = params.getString("photo_id")
                 val action = params.getString("action")
 
-                if (photoId == null || action == null) {
-                    val error = JSObject()
-                    error.put("success", false)
-                    error.put("error", "Missing required params: photo_id, action")
-                    invoke.resolve(error)
-                    return@launch
-                }
-
                 // Build action JSON
                 val actionJson = JSONObject()
                 actionJson.put("action", action)
@@ -954,14 +946,6 @@ class PhotoUploadLogic(private val context: Context) {
             try {
                 val photoId = params.getString("photo_id")
 
-                if (photoId == null) {
-                    val error = JSObject()
-                    error.put("success", false)
-                    error.put("error", "Missing required param: photo_id")
-                    invoke.resolve(error)
-                    return@launch
-                }
-
                 val photo = photoDao.getPhotoById(photoId)
 
                 val result = JSObject()
@@ -996,14 +980,6 @@ class PhotoUploadLogic(private val context: Context) {
             try {
                 val serverPhotoId = params.getString("server_photo_id")
 
-                if (serverPhotoId == null) {
-                    val error = JSObject()
-                    error.put("success", false)
-                    error.put("error", "Missing required param: server_photo_id")
-                    invoke.resolve(error)
-                    return@launch
-                }
-
                 val photo = photoDao.getPhotoByServerPhotoId(serverPhotoId)
 
                 val result = JSObject()
@@ -1036,14 +1012,6 @@ class PhotoUploadLogic(private val context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val photoId = params.getString("photo_id")
-
-                if (photoId == null) {
-                    val error = JSObject()
-                    error.put("success", false)
-                    error.put("error", "Missing required param: photo_id")
-                    invoke.resolve(error)
-                    return@launch
-                }
 
                 val photo = photoDao.getPhotoById(photoId)
 

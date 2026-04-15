@@ -86,11 +86,7 @@
 		/>
 		{#if photo.processing_status !== 'completed'}
 			<div class="processing-badge">
-				{#if photo.processing_status === 'error'}
-					error
-				{:else}
-					processing
-				{/if}
+				{photo.processing_status}
 			</div>
 		{/if}
 	</a>

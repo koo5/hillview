@@ -2,6 +2,7 @@ const COMMANDS: &[&str] = &[
     "start_sensor",
     "stop_sensor",
     "register_listener",
+    "remove_listener",
     "retry_failed_uploads",
     "start_precise_location_listener",
     "stop_precise_location_listener",

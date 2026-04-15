@@ -1317,7 +1317,10 @@
 	$: {
 		const bearing = $bearingState.bearing;
 		const range = $spatialState.range;
-		const center = $spatialState.center;
+		// Use the map's live center during a drag — $spatialState.center only
+		// settles on `moveend`, which would otherwise pin the arrow tip to the
+		// pre-pan geographic spot while bearing ticks re-fire this block.
+		const center = map?._loaded ? map.getCenter() : $spatialState.center;
 		if (map && center && range) {
 			const edgeLatLng = destinationPoint(center.lat, center.lng, bearing, (range*2.6/2) / 1000);
 			const edgePx = map.latLngToContainerPoint(new LatLng(edgeLatLng.lat, edgeLatLng.lng));
@@ -2159,7 +2162,7 @@
 		:global(.leaflet-control-zoom) {
 			margin-left: 16px !important;
 		}
-	
+
 
 	/* TileProviderSelector is now inside .hunter-panel-bottom */
 

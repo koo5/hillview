@@ -7,6 +7,7 @@ Default permissions for the plugin
 - `allow-start-sensor`
 - `allow-stop-sensor`
 - `allow-register-listener`
+- `allow-remove-listener`
 - `allow-start-precise-location-listener`
 - `allow-stop-precise-location-listener`
 - `allow-retry-failed-uploads`
@@ -480,6 +481,32 @@ Enables the register_listener command without any pre-configured scope.
 <td>
 
 Denies the register_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:allow-remove-listener`
+
+</td>
+<td>
+
+Enables the remove_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`hillview:deny-remove-listener`
+
+</td>
+<td>
+
+Denies the remove_listener command without any pre-configured scope.
 
 </td>
 </tr>

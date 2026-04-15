@@ -11,7 +11,7 @@ import {TAURI, BROWSER} from "$lib/tauri";
 // Import new mapState for legacy compatibility only
 import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown} from './mapState';
 import {updateBearingWithPhoto} from './bearingTracking';
-import {updateSettings} from "$lib/settings";
+import {getSettings, updateSettings} from "$lib/settings";
 
 const doLog = false;
 
@@ -131,9 +131,15 @@ export let photoLicense = localStorageSharedStore<string | null>('photoLicense',
 photoLicense.subscribe(async value => {
 	if (value === null) {
 		try {
-			await updateSettings({
-				auto_upload_enabled: false
-			});
+			// Skip the write if auto-upload is already disabled — the subscriber fires on
+			// every app start with the initial store value, and we don't want to re-persist
+			// settings each time when nothing would actually change.
+			const current = await getSettings();
+			if (current.auto_upload_enabled) {
+				await updateSettings({
+					auto_upload_enabled: false
+				});
+			}
 		} catch (error) {
 			console.error('Error persisting auto upload settings on photoLicense init:', error);
 		}

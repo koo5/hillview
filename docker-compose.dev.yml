@@ -1,13 +1,52 @@
 # Development overrides — use with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# Uses host networking so ufw controls LAN access (Docker-published ports bypass ufw)
 
 services:
 
+  postgres:
+    network_mode: host
+
   api:
+    network_mode: host
     volumes:
       - ./backend/api/app:/app/app
       - ./backend/common:/app/common
 
+  frontend:
+    network_mode: host
+
+  umami:
+    network_mode: host
+
   worker:
+    init: true
+    restart: always
+    build:
+      context: backend
+      dockerfile: worker/Dockerfile
+      args:
+        MAGICK_MEMORY_LIMIT: ${MAGICK_MEMORY_LIMIT:-2GiB}
+        MAGICK_MAP_LIMIT: ${MAGICK_MAP_LIMIT:-4GiB}
+        MAGICK_DISK_LIMIT: ${MAGICK_DISK_LIMIT:-8GiB}
+        MAGICK_WIDTH_LIMIT: ${MAGICK_WIDTH_LIMIT:-65536}
+        MAGICK_HEIGHT_LIMIT: ${MAGICK_HEIGHT_LIMIT:-65536}
+        MAGICK_AREA_LIMIT: ${MAGICK_AREA_LIMIT:-1GP}
+    container_name: hillview_worker
+    network_mode: host
     volumes:
       - ./backend/worker:/app/worker
       - ./backend/common:/app/common
+      - uploads:/app/uploads
+    environment:
+      #- MAGICK_TEMPORARY_PATH=/app/worker/tmp/
+      - UPLOAD_DIR=/app/uploads
+      - PICS_URL=${PICS_URL:-}
+      - WORKER_PORT=${WORKER_PORT:-8056}
+      - WORKER_HOST=0.0.0.0 # not used
+      - API_URL=${API_URL:-http://localhost:8055/api}
+      - DEV_MODE=${DEV_MODE:-}
+      - BUCKET_NAME=${BUCKET_NAME:-}
+      - CDN_BASE_URL=${CDN_BASE_URL:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_ENDPOINT_URL_S3=${AWS_ENDPOINT_URL_S3:-}

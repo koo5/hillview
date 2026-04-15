@@ -118,7 +118,8 @@ class SimplePhotoWorker {
                 const deviceSourceEnabled = this.isDeviceSourceEnabled();
                 const filteredPlaceholders = deviceSourceEnabled ? currentPlaceholders : [];
 
-				const withPlaceholders = embedPlaceholders(areaPhotos, rangePhotos, filteredPlaceholders);
+				const spatial = get(spatialState);
+				const withPlaceholders = embedPlaceholders(areaPhotos, rangePhotos, filteredPlaceholders, spatial.bounds, spatial.center, spatial.range);
 
                 const mergedAreaPhotos = withPlaceholders.photos_in_area;
                 const mergedRangePhotos = withPlaceholders.photos_in_range;

@@ -643,7 +643,7 @@
 		position: absolute;
 		top: calc(0px + var(--safe-area-inset-top, 10px));
 		left: calc(0px + var(--safe-area-inset-left, 10px));
-		z-index: 30001;
+		z-index: 130101;
 		background: white;
 		border-radius: 50%;
 		width: 40px;
