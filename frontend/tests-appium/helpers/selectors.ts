@@ -46,6 +46,19 @@ export async function allByTestId(testId: string): Promise<WebdriverIO.ElementAr
 }
 
 /**
+ * Open the navigation menu from any page. The map uses Main.svelte's
+ * `hamburger-menu`; other pages (/settings, /photos, etc.) use
+ * StandardHeader's `header-menu-button`. Picks whichever is present.
+ * Mirrors the Playwright openMenu helper in tests-playwright/navigation-menu.spec.ts.
+ */
+export async function openMenu(): Promise<void> {
+    await ensureWebViewContext();
+    const btn = await $(`[data-testid="header-menu-button"], [data-testid="hamburger-menu"]`);
+    await btn.waitForDisplayed({ timeout: 15000 });
+    await btn.click();
+}
+
+/**
  * Find a native Android element by text (for system dialogs, permissions, etc.).
  * Switches to native context first.
  */
@@ -125,4 +138,21 @@ export const TESTID = {
 
     // CameraCapture.svelte
     allowCameraBtn: 'allow-camera-btn',
+
+    // NavigationMenu.svelte
+    settingsMenuLink: 'settings-menu-link',
+
+    // UploadSettings.svelte
+    autoUploadEnabled: 'auto-upload-enabled',
+    autoUploadDisabled: 'auto-upload-disabled',
+    autoUploadDisabledNever: 'auto-upload-disabled-never',
+    wifiOnlyCheckbox: 'wifi-only-checkbox',
+
+    // LicenseSelector.svelte
+    licenseCheckbox: 'license-checkbox',
+
+    // CompassSettings.svelte — writes to compassPrefs via the same set_settings
+    // Kotlin handler that owns the upload prefs, so it's useful for cross-category
+    // merge coverage.
+    landscapeArmor22Checkbox: 'landscape-armor22-checkbox',
 } as const;

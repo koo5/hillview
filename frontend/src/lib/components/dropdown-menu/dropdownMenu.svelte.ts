@@ -17,6 +17,12 @@ export type DropdownMenuItemAction = {
 	selected?: boolean;
 	disabled?: boolean;
 	onclick: () => void;
+	/**
+	 * Optional href. When set, the item renders as an `<a>` so middle-click,
+	 * ctrl/meta-click, and shift-click get the browser's native open-in-new-tab
+	 * / new-window behavior. Primary click still invokes `onclick`.
+	 */
+	url?: string;
 	/** data-testid for testing */
 	testId?: string;
 };

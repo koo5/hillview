@@ -2251,7 +2251,9 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				}
 
 				"geo_tracking_set_auto_export" -> {
-					val enabled = params.getBoolean("enabled") ?: false
+					// JSObject.getBoolean(key) is non-nullable and already defaults to false
+					// for missing keys, so no Elvis fallback is needed (it would be dead code).
+					val enabled = params.getBoolean("enabled")
 					val prefs = activity.getSharedPreferences("hillview_tracking_prefs", Context.MODE_PRIVATE)
 					prefs.edit().putBoolean("auto_export", enabled).apply()
 					Log.i(TAG, "🔧 Set geo tracking auto_export: $enabled")
@@ -2282,29 +2284,23 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					val uploadPrefs = activity.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
 					val compassPrefs = activity.getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
 
-					// Use the two-arg getBoolean(key, default) overload so missing keys fall back to the
-					// previous stored value instead of being silently zeroed. The one-arg getBoolean()
-					// returns false for missing keys, which would stomp on unspecified settings when the
-					// frontend sends a partial params object.
-					val autoUploadEnabled = params.getBoolean("auto_upload_enabled", uploadPrefs.getBoolean("auto_upload_enabled", false))
-					val autoUploadPromptEnabled = params.getBoolean("auto_upload_prompt_enabled", uploadPrefs.getBoolean("auto_upload_prompt_enabled", true))
-					val wifiOnly = params.getBoolean("wifi_only", uploadPrefs.getBoolean("wifi_only", false))
-					val landscapeArmor22 = params.getBoolean("landscape_armor22_workaround", compassPrefs.getBoolean("landscape_armor22_workaround", false))
+					val previous = readStoredUploadSettings(uploadPrefs, compassPrefs)
+					val merged = mergeUploadSettings(params, previous)
 
 					uploadPrefs.edit()
-						.putBoolean("auto_upload_enabled", autoUploadEnabled)
-						.putBoolean("auto_upload_prompt_enabled", autoUploadPromptEnabled)
-						.putBoolean("wifi_only", wifiOnly)
+						.putBoolean("auto_upload_enabled", merged.autoUploadEnabled)
+						.putBoolean("auto_upload_prompt_enabled", merged.autoUploadPromptEnabled)
+						.putBoolean("wifi_only", merged.wifiOnly)
 						.apply()
 
 					compassPrefs.edit()
-						.putBoolean("landscape_armor22_workaround", landscapeArmor22)
+						.putBoolean("landscape_armor22_workaround", merged.landscapeArmor22)
 						.apply()
 
 					// Schedule or cancel the upload worker based on enabled state
 					val workManager = WorkManager.getInstance(activity)
-					if (autoUploadEnabled) {
-						photoUploadManager.scheduleUploadWorker(workManager, autoUploadEnabled, wifiOnly)
+					if (merged.autoUploadEnabled) {
+						photoUploadManager.scheduleUploadWorker(workManager, merged.autoUploadEnabled, merged.wifiOnly)
 						Log.i(TAG, "🔧 Settings saved, upload worker scheduled")
 					} else {
 						workManager.cancelUniqueWork(PhotoUploadWorker.WORK_NAME)

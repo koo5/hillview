@@ -96,10 +96,17 @@ class GeoTrackingManager(private val context: Context) {
 	fun storeOrientationManual(params: JSObject) {
 		CoroutineScope(Dispatchers.IO).launch {
 			try {
-				val timestamp = params.getLong("timestamp") ?: System.currentTimeMillis()
-				val trueHeading = params.getDouble("trueHeading")?.toFloat()
-					?: throw IllegalArgumentException("trueHeading is required")
-				val source = params.getString("source") ?: "manual"
+				// JSObject.getLong is not overridden and JSONObject.getLong throws on missing
+				// keys — the `?: System.currentTimeMillis()` default was dead code. Use has()
+				// for optional fields. Same pattern below for source and storeLocationManual.
+				val timestamp = if (params.has("timestamp")) params.getLong("timestamp") else System.currentTimeMillis()
+				// JSObject.getDouble is non-nullable; a missing key throws. Let that propagate
+				// (caught below); don't dress it up with a dead Elvis throw.
+				val trueHeading = params.getDouble("trueHeading").toFloat()
+				// JSObject.getString(key, default) is the two-arg overload that actually
+				// honors the default when the key is missing; the single-arg overload returns
+				// "" for missing keys, making `?: "manual"` dead code.
+				val source = params.getString("source", "manual") ?: "manual"
 				val sourceId = getOrCreateSourceId(source)
 
 				storeBearingEntity(
@@ -175,12 +182,11 @@ class GeoTrackingManager(private val context: Context) {
 	fun storeLocationManual(params: JSObject) {
 		CoroutineScope(Dispatchers.IO).launch {
 			try {
-				val timestamp = params.getLong("timestamp") ?: System.currentTimeMillis()
+				// See notes in storeOrientationManual for why these patterns changed.
+				val timestamp = if (params.has("timestamp")) params.getLong("timestamp") else System.currentTimeMillis()
 				val latitude = params.getDouble("latitude")
-					?: throw IllegalArgumentException("latitude is required")
 				val longitude = params.getDouble("longitude")
-					?: throw IllegalArgumentException("longitude is required")
-				val source = params.getString("source") ?: "manual"
+				val source = params.getString("source", "manual") ?: "manual"
 				val sourceId = getOrCreateSourceId(source)
 
 				storeLocationEntity(

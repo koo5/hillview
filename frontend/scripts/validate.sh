@@ -13,41 +13,34 @@ echo -e "${YELLOW}Starting validation process...${NC}"
 # Track overall status
 all_passed=true
 
-# 1. Check dependencies
+# Check dependencies
 ensure_dependencies || exit 1
 
-# 2. Run TypeScript type checking
-if ! run_in_project_root run_check "TypeScript type checking" "bun run check"; then
+# Run quick checks (svelte-check + TS unit tests + plugin JVM unit tests).
+# This is the same bundle that dev.sh runs before launching; keeping a single
+# entrypoint avoids drift between the two workflows.
+if ! run_in_project_root run_check "Quick checks" "bun run check:quick"; then
     all_passed=false
 fi
 
-# 3. Run linting (if configured)
+# Run linting (if configured)
 if [ -f "$PROJECT_ROOT/.eslintrc.json" ] || [ -f "$PROJECT_ROOT/.eslintrc.js" ]; then
     if ! run_in_project_root run_check "ESLint" "bun run lint"; then
         all_passed=false
     fi
 fi
 
-# 4. Run build
+# Run build
 if ! run_in_project_root run_check "Build" "bun run build"; then
     all_passed=false
     echo -e "${RED}Build failed - skipping tests${NC}"
     exit 1
 fi
 
-# 5. Run unit tests (if they exist)
-if grep -q '"test:unit"' "$PROJECT_ROOT/package.json"; then
-    if ! run_in_project_root run_check "Unit tests" "bun run test:unit"; then
-        all_passed=false
-    fi
-else
-    echo -e "${YELLOW}No unit tests configured - skipping${NC}"
-fi
-
-# 6. Run Android tests (optional - can be skipped with --skip-android)
+# Run Android tests (optional - can be skipped with --skip-android)
 if [[ "$*" != *"--skip-android"* ]]; then
     echo -e "\n${YELLOW}Checking Android test requirements...${NC}"
-    
+
     if check_android_device; then
         # Build Android APK
         if ! run_in_project_root run_check "Android build" "bun run test:android:build"; then
@@ -72,7 +65,7 @@ else
     echo -e "${YELLOW}Skipping Android build and tests (--skip-android flag used)${NC}"
 fi
 
-# 7. Run code quality checks
+# Run code quality checks
 run_code_quality_checks
 
 # Final status

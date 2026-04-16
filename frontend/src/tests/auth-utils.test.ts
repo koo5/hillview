@@ -18,7 +18,7 @@ describe('buildOAuthUrl', () => {
         expect(url).toContain('/auth/oauth-redirect');
         expect(url).toContain('provider=google');
         // Should use deep link scheme for mobile
-        expect(url).toMatch(/redirect_uri=cz\.hillview(dev)?%3A%2F%2Fauth/);
+        expect(url).toMatch(/redirect_uri=cz\.hillvie(w|dev)%3A%2F%2Fauth/);
     });
 
     it('should build web OAuth URL with web callback', () => {
@@ -41,8 +41,10 @@ describe('buildOAuthUrl', () => {
     it('should properly encode special characters in redirect URI', () => {
         const url = buildOAuthUrl('google', true);
 
-        // The :// in cz.hillview:// should be properly encoded
-        expect(url).toMatch(/cz\.hillview(dev)?%3A%2F%2Fauth/);
+        // The :// in the app scheme should be properly encoded. The actual
+        // package id is "cz.hillview" in production and "cz.hillviedev" in dev
+        // (note: hillvie-dev, not hillview-dev) — accept either.
+        expect(url).toMatch(/cz\.hillvie(w|dev)%3A%2F%2Fauth/);
     });
 
     it('should use backend URL from config', () => {

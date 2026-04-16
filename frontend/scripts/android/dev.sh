@@ -13,4 +13,12 @@ echo "🌐 VITE_BACKEND_ANDROID: $VITE_BACKEND_ANDROID"
 echo "🏠 TAURI_DEV_HOST: $TAURI_DEV_HOST"
 echo "🔄 This will start Vite server AND launch dev APK with hot reload"
 
-bun run tauri android dev --config src-tauri/tauri.android-dev.conf.json # --verbose 
+# Run quick checks (svelte-check + TS unit tests + plugin JVM unit tests) before
+# launching the Android dev server. Skip by setting SKIP_QUICK_CHECKS=1.
+if test "$SKIP_QUICK_CHECKS" != "1"
+    echo "🔎 Running quick checks (set SKIP_QUICK_CHECKS=1 to bypass)..."
+    bun run check:quick
+    or exit 1
+end
+
+bun run tauri android dev --config src-tauri/tauri.android-dev.conf.json # --verbose

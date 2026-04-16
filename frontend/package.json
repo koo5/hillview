@@ -51,6 +51,8 @@
     "test:unit:watch": "bun run --bun vitest",
     "test:unit:ui": "bun run --bun vitest --ui",
     "test:unit:coverage": "bun run --bun vitest --coverage",
+    "test:plugin-unit": "./scripts/android/plugin-unit-test.sh",
+    "check:quick": "bun run check && bun run test:unit && bun run test:plugin-unit",
     "test:playwright": "cd tests-playwright && bun run test",
     "test:playwright:ui": "cd tests-playwright && bun run test:ui",
     "test:playwright:debug": "cd tests-playwright && bun run test:debug",

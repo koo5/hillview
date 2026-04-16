@@ -116,7 +116,7 @@ services:
     container_name: hillview_umami
     restart: always
     ports:
-      - "127.0.0.1:${UMAMI_PORT:-3333}:${UMAMI_PORT:-3333}"
+      - "127.0.0.1:${UMAMI_PORT:-3344}:${UMAMI_PORT:-3344}"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_HOST:-postgres}:5432/umami
       APP_SECRET: ${UMAMI_APP_SECRET:-replace-me-with-a-real-secret}

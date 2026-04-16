@@ -41,6 +41,7 @@
 			checked={landscapeWorkaround}
 			disabled={loading}
 			on:change={handleToggle}
+			data-testid="landscape-armor22-checkbox"
 		/>
 	</label>
 </div>

@@ -109,17 +109,19 @@ class MadgwickAHRSTest {
 
     @Test
     fun testSetGain() {
+        // Use accelerometer values that disagree with the current quaternion orientation
+        // (gravity reading along +x instead of +z) so the gradient-descent correction
+        // is non-zero and beta actually scales it. With gravity = [0,0,1] at identity,
+        // the gradient is zero at the fixed point and beta would have no effect.
         val newBeta = 0.2f
         madgwick.setGain(newBeta)
-
-        // Update with same values but different gain
-        madgwick.updateIMU(0.1f, 0.1f, 0.1f, 0f, 0f, 1f)
+        madgwick.updateIMU(0.1f, 0.1f, 0.1f, 1f, 0f, 0f)
         val angles1 = madgwick.getEulerAngles()
 
         // Reset and try with original gain
         madgwick.reset()
         madgwick.setGain(0.1f)
-        madgwick.updateIMU(0.1f, 0.1f, 0.1f, 0f, 0f, 1f)
+        madgwick.updateIMU(0.1f, 0.1f, 0.1f, 1f, 0f, 0f)
         val angles2 = madgwick.getEulerAngles()
 
         // Results should be different due to different gains

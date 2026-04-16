@@ -168,7 +168,11 @@ describe('Tauri Deep Link Auth Callback', () => {
     it('should handle valid auth callback with all required parameters', async () => {
         const futureDate = new Date(Date.now() + 3600000).toISOString();
         const refreshExpiry = new Date(Date.now() + 86400000).toISOString();
-        const mockUrl = `cz.hillview://auth?token=jwt.token.here&expires_at=${futureDate}&refresh_token=refresh.token&refresh_token_expires_at=${refreshExpiry}`;
+        // handleAuthCallback selects the scheme based on VITE_DEV_MODE — match it
+        // so the test works whether vitest is invoked standalone or from dev.sh
+        // (which exports VITE_DEV_MODE=true and switches the scheme to cz.hillviedev).
+        const scheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'cz.hillviedev' : 'cz.hillview';
+        const mockUrl = `${scheme}://auth?token=jwt.token.here&expires_at=${futureDate}&refresh_token=refresh.token&refresh_token_expires_at=${refreshExpiry}`;
 
         mockCompleteAuth.mockResolvedValueOnce(true);
 

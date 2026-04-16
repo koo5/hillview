@@ -33,6 +33,17 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
+    testOptions {
+        unitTests {
+            // Android's android.jar stub throws "Method not mocked" for every
+            // framework call (e.g., android.util.Log.*) during JVM unit tests.
+            // Returning default values instead lets pure-logic tests run without
+            // Robolectric. Pure JVM classes on the test classpath (the real
+            // org.json.JSONObject pulled via testImplementation) are unaffected.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 kapt {
@@ -92,6 +103,15 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging-ktx")
 
     testImplementation("junit:junit:4.13.2")
+    // Mockito 5.x runs the inline mock-maker by default (so Kotlin's default-final
+    // classes are mockable) and handles JDK 17+ self-attach properly. Source/target
+    // Java 1.8 above is for our own bytecode; the test JVM runs newer.
+    testImplementation("org.mockito:mockito-core:5.11.0")
+    // Android's android.jar stubs org.json.JSONObject with "Method not mocked"
+    // throwers for JVM unit tests. Pulling in the real org.json library puts a
+    // working JSONObject on the test classpath so JSObject (which extends it)
+    // can be instantiated without Robolectric.
+    testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     implementation(project(":tauri-android"))

@@ -25,11 +25,17 @@ data class Result(
     }
 }
 
-class AuthenticationManager(private val context: Context) {
+class AuthenticationManager(
+    private val context: Context,
+    // Injected for testability: JVM unit tests can't instantiate the default
+    // ClientCryptoManager (it calls KeyStore.getInstance("AndroidKeyStore"),
+    // which only exists on a real device / Robolectric). Production callers
+    // keep the zero-arg collaborators via the default values.
+    private val notificationHelper: NotificationHelper = NotificationHelper(context),
+    private val clientCrypto: ClientCryptoManager = ClientCryptoManager(context),
+) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val notificationHelper = NotificationHelper(context)
     private val refreshMutex = Mutex()
-    private val clientCrypto = ClientCryptoManager(context)
 
     companion object {
         private const val TAG = "🢄AuthenticationManager"
