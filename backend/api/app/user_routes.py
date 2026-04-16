@@ -1236,6 +1236,8 @@ async def register_client_public_key(
 		)
 
 # Upload authorization for secure uploads
+ALLOWED_LICENSES = {'ccbysa4'}
+
 class UploadAuthorizationRequest(BaseModel):
 	filename: str
 	file_size: int
@@ -1244,6 +1246,7 @@ class UploadAuthorizationRequest(BaseModel):
 	client_key_id: str  # Key ID that will be used for signing
 	description: Optional[str] = None
 	is_public: bool = True
+	license: Optional[str] = None  # e.g. 'ccbysa4'
 	# Geolocation data from client (EXIF or device GPS)
 	latitude: Optional[float] = None
 	longitude: Optional[float] = None
@@ -1300,6 +1303,12 @@ async def authorize_upload(
 			raise HTTPException(
 				status_code=status.HTTP_400_BAD_REQUEST,
 				detail="Only image files are supported"
+			)
+
+		if auth_request.license and auth_request.license not in ALLOWED_LICENSES:
+			raise HTTPException(
+				status_code=status.HTTP_400_BAD_REQUEST,
+				detail=f"Unknown license identifier: {auth_request.license}"
 			)
 
 		# Validate MD5 hash format (32 hex characters)
@@ -1408,7 +1417,8 @@ async def authorize_upload(
 			altitude=auth_request.altitude,
 			compass_angle=auth_request.compass_angle,
 			captured_at=captured_at_naive,
-			version=auth_request.version
+			version=auth_request.version,
+			legal_rights=auth_request.license
 		)
 
 		db.add(photo)

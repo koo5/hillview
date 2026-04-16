@@ -1,6 +1,6 @@
 /**
  * End-to-end coverage for the settings-persistence bug fixed in this branch:
- * setting auto_upload_enabled with the photoLicense unchecked used to silently
+ * setting auto_upload_enabled with the autoUploadLicense unchecked used to silently
  * reset auto_upload_prompt_enabled (and wifi_only) on every app restart, because
  * the frontend sent a partial params object to Kotlin's set_settings while the
  * tauriSettingsStore hadn't finished loading, and the Kotlin handler silently
@@ -8,7 +8,7 @@
  *
  * These tests exercise the full stack (Svelte UI → Tauri invoke → Kotlin
  * SharedPreferences) across a real app restart, so any regression in any
- * layer (frontend race, Kotlin merge, photoLicense subscriber) would surface
+ * layer (frontend race, Kotlin merge, autoUploadLicense subscriber) would surface
  * here. Tests set their own preconditions explicitly rather than relying on
  * defaults, so they work regardless of ordering within the suite.
  */
@@ -106,7 +106,7 @@ describe('Settings persistence', () => {
 
     /**
      * Regression test for the original bug: with no license selected, the
-     * photoLicense subscriber fires updateSettings({ auto_upload_enabled: false })
+     * autoUploadLicense subscriber fires updateSettings({ auto_upload_enabled: false })
      * on every app start. Before the fix, this stomped auto_upload_prompt_enabled
      * down to false, flipping the radio from "Disabled" (prompt me) to
      * "Disabled (Never prompt)".
@@ -140,7 +140,7 @@ describe('Settings persistence', () => {
         await openSettings();
 
         // After restart, the prompt setting must NOT have flipped to "never".
-        // License is still unchecked, so the photoLicense subscriber fires again
+        // License is still unchecked, so the autoUploadLicense subscriber fires again
         // on this startup — the regression would surface here.
         const licenseAfter = await byTestId(TESTID.licenseCheckbox);
         await licenseAfter.waitForDisplayed({ timeout: 10000 });

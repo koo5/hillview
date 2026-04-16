@@ -29,6 +29,16 @@ MAX_PICKS_PER_REQUEST = int(os.getenv("MAX_HILLVIEW_PICKS", "200"))
 
 from sqlalchemy import or_, and_
 
+LEGAL_RIGHTS_TO_LICENSE = {
+	'full1': 'arr',
+	'ccbysa4': 'ccbysa4',
+}
+
+def legal_rights_to_license(legal_rights: Optional[str]) -> str:
+	if not legal_rights:
+		return 'arr'
+	return LEGAL_RIGHTS_TO_LICENSE.get(legal_rights, legal_rights)
+
 router = APIRouter(prefix="/api/hillview", tags=["hillview"])
 
 
@@ -189,6 +199,9 @@ def convert_photo_to_response(photo, username: str, longitude: float, latitude: 
 
 	if photo.description:
 		photo_data['description'] = photo.description
+
+	photo_data['license'] = legal_rights_to_license(photo.legal_rights)
+
 
 	return photo_data
 

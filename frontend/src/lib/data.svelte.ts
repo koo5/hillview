@@ -127,22 +127,30 @@ export let cameraOverlayOpacity = staggeredLocalStorageSharedStore('cameraOverla
 // Compass calibration view state (takes precedence over camera and gallery views)
 export let showCalibrationView = writable(false);
 
-export let photoLicense = localStorageSharedStore<string | null>('photoLicense', null);
-photoLicense.subscribe(async value => {
-	if (value === null) {
-		try {
-			// Skip the write if auto-upload is already disabled — the subscriber fires on
-			// every app start with the initial store value, and we don't want to re-persist
-			// settings each time when nothing would actually change.
-			const current = await getSettings();
-			if (current.auto_upload_enabled) {
-				await updateSettings({
-					auto_upload_enabled: false
-				});
-			}
-		} catch (error) {
-			console.error('Error persisting auto upload settings on photoLicense init:', error);
+// License identifiers stored on uploaded photos as `legal_rights`:
+//   'full1'   — operator / seed content, full ownership (backfilled by migration, never user-selectable)
+//   'ccbysa4' — CC BY-SA 4.0 granted by the contributor at upload time
+// These stores hold the identifier string the user has consented to for a given upload path.
+// null means "no license selected" — upload is blocked for that path.
+export let autoUploadLicense = localStorageSharedStore<string | null>('autoUploadLicense', null);
+export let manualUploadLicense = localStorageSharedStore<string | null>('manualUploadLicense', null);
+
+// Sync auto-upload license to Settings (bridges to Kotlin SharedPrefs on Android).
+// Also: clearing the license disables auto-upload (can't upload without a license).
+autoUploadLicense.subscribe(async value => {
+	try {
+		const current = await getSettings();
+		const needsUpdate =
+			current.auto_upload_license !== value ||
+			(value === null && current.auto_upload_enabled);
+		if (needsUpdate) {
+			await updateSettings({
+				auto_upload_license: value,
+				...(value === null ? { auto_upload_enabled: false } : {})
+			});
 		}
+	} catch (error) {
+		console.error('Error syncing autoUploadLicense to settings:', error);
 	}
 });
 

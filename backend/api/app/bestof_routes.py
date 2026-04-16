@@ -13,6 +13,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, PhotoRating, PhotoRatingType, User
+from hillview_routes import legal_rights_to_license
 from common.utc import format_utc
 from auth import get_current_user_optional_with_query
 from hidden_content_filters import apply_hidden_content_filters
@@ -137,7 +138,8 @@ async def get_best_photos(
 				"sizes": photo.sizes,
 				"owner_username": username,
 				"owner_id": photo.owner_id,
-				"score": score_int
+				"score": score_int,
+				"license": legal_rights_to_license(photo.legal_rights)
 			})
 			next_cursor = f"{score_int}:{photo.id}"
 

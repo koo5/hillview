@@ -6,7 +6,7 @@
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import {settings, updateSettings} from '$lib/settings';
 	import LicenseSelector from './LicenseSelector.svelte';
-	import {photoLicense} from '$lib/data.svelte';
+	import {autoUploadLicense} from '$lib/data.svelte';
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 	import MyExternalLink from "$lib/components/MyExternalLink.svelte";
 
@@ -93,13 +93,13 @@
 
 		<LicenseSelector />
 
-		<div class="radio-group" class:disabled={$photoLicense === null}>
+		<div class="radio-group" class:disabled={$autoUploadLicense === null}>
 			<label class="radio-option">
 				<input type="radio"
 					   name="autoUpload"
 					   checked={radioState === 'enabled'}
 					   on:change={() => handleRadioChange('enabled')}
-					   disabled={$photoLicense === null}
+					   disabled={$autoUploadLicense === null}
 					   data-testid="auto-upload-enabled"/>
 				<div class="option-content">
 					<span class="option-title">Enabled</span>

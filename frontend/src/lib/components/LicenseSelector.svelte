@@ -1,14 +1,17 @@
 <script lang="ts">
-    import { photoLicense } from '$lib/data.svelte';
+    import type { Writable } from 'svelte/store';
+    import { autoUploadLicense } from '$lib/data.svelte';
     import { CreativeCommons, ExternalLink } from 'lucide-svelte';
     import { openExternalUrl } from '$lib/urlUtils';
 
-    $: isChecked = $photoLicense === 'CC BY-SA 4.0';
-    $: isLicenseSet = $photoLicense !== null;
+    export let licenseStore: Writable<string | null> = autoUploadLicense;
+
+    $: isChecked = $licenseStore === 'ccbysa4';
+    $: isLicenseSet = $licenseStore !== null;
 
     function handleChange(event: Event) {
         const target = event.target as HTMLInputElement;
-        photoLicense.set(target.checked ? 'CC BY-SA 4.0' as const : null);
+        licenseStore.set(target.checked ? 'ccbysa4' : null);
     }
 
     async function openLicenseInfo() {

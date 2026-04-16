@@ -8,6 +8,7 @@ import {writeSettings} from './browser/settingsIndexedDb';
 export interface Settings {
 	auto_upload_enabled: boolean;
 	auto_upload_prompt_enabled: boolean;
+	auto_upload_license: string | null;
 	wifi_only: boolean;
 	landscape_armor22_workaround: boolean;
 };
@@ -15,6 +16,7 @@ export interface Settings {
 export const settingsDefaults: Settings = {
 	auto_upload_enabled: false,
 	auto_upload_prompt_enabled: true,
+	auto_upload_license: null,
 	wifi_only: false,
 	landscape_armor22_workaround: false
 };

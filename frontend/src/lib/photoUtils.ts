@@ -167,3 +167,14 @@ export function getPhotoDetailUrl(photo: PhotoData | null): string | null {
 	}
 	return null;
 }
+
+const LICENSE_LABELS: Record<string, string> = {
+	'arr': 'All rights reserved',
+	'ccbysa4': 'CC BY-SA 4.0',
+};
+
+export function getLicenseLabel(photo: PhotoData | null): string | null {
+	const id = (photo as any)?.license;
+	if (!id) return null;
+	return LICENSE_LABELS[id] ?? id;
+}

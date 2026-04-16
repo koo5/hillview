@@ -28,6 +28,7 @@ export interface UploadAuthorizationRequest {
 	client_key_id: string; // Key ID that will be used for signing
 	description?: string;
 	is_public: boolean;
+	license?: string; // e.g. 'ccbysa4' — the license under which the user contributes this photo
 	// Geolocation data for immediate map display
 	latitude?: number;
 	longitude?: number;

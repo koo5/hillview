@@ -11,6 +11,7 @@ import app.tauri.plugin.JSObject
 data class MergedUploadSettings(
     val autoUploadEnabled: Boolean,
     val autoUploadPromptEnabled: Boolean,
+    val autoUploadLicense: String?,
     val wifiOnly: Boolean,
     val landscapeArmor22: Boolean,
 )
@@ -31,6 +32,8 @@ fun mergeUploadSettings(
 ): MergedUploadSettings = MergedUploadSettings(
     autoUploadEnabled = params.getBoolean("auto_upload_enabled", previous.autoUploadEnabled),
     autoUploadPromptEnabled = params.getBoolean("auto_upload_prompt_enabled", previous.autoUploadPromptEnabled),
+    // has() distinguishes "key absent" (keep previous) from "key present but null" (user cleared license)
+    autoUploadLicense = if (params.has("auto_upload_license")) params.getString("auto_upload_license") else previous.autoUploadLicense,
     wifiOnly = params.getBoolean("wifi_only", previous.wifiOnly),
     landscapeArmor22 = params.getBoolean("landscape_armor22_workaround", previous.landscapeArmor22),
 )
@@ -42,6 +45,7 @@ fun readStoredUploadSettings(
 ): MergedUploadSettings = MergedUploadSettings(
     autoUploadEnabled = uploadPrefs.getBoolean("auto_upload_enabled", false),
     autoUploadPromptEnabled = uploadPrefs.getBoolean("auto_upload_prompt_enabled", true),
+    autoUploadLicense = uploadPrefs.getString("auto_upload_license", null),
     wifiOnly = uploadPrefs.getBoolean("wifi_only", false),
     landscapeArmor22 = compassPrefs.getBoolean("landscape_armor22_workaround", false),
 )

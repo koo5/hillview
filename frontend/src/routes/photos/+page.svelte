@@ -25,7 +25,7 @@
 	import UploadSettingsComponent from '$lib/components/UploadSettings.svelte';
 	import LoadMoreButton from "$lib/components/LoadMoreButton.svelte";
 	import LicenseSelector from '$lib/components/LicenseSelector.svelte';
-	import {photoLicense} from '$lib/data.svelte';
+	import {manualUploadLicense} from '$lib/data.svelte';
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
@@ -432,24 +432,24 @@
 			{#if !TAURI && activeTab === 'upload'}
 				<div class="tab-content">
 					{#if activeTab === 'upload'}
-						<LicenseSelector />
+						<LicenseSelector licenseStore={manualUploadLicense} />
 						<PhotoUpload
 							{user}
 							onLogEntry={addLogEntry}
 							onUploadComplete={handleUploadComplete}
 							{goToLogin}
-							disabled={$photoLicense === null}
+							disabled={$manualUploadLicense === null}
 						/>
 					{:else if activeTab === 'import'}
 						<div class="license-section">
-							<LicenseSelector />
+							<LicenseSelector licenseStore={manualUploadLicense} />
 						</div>
 						<PhotoImport
 							{user}
 							onLogEntry={addLogEntry}
 							onImportComplete={handleImportComplete}
 							{goToLogin}
-							disabled={$photoLicense === null}
+							disabled={$manualUploadLicense === null}
 						/>
 					{/if}
 				</div>

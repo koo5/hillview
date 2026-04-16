@@ -472,6 +472,12 @@ class PhotoUploadLogic(private val context: Context) {
 		val keyInfo = clientCrypto.getPublicKeyInfo()
 			?: throw Exception("Failed to get client key info - ensure crypto keys are available")
 
+		val license = prefs.getString("auto_upload_license", null)
+		if (license == null) {
+			Log.d(TAG, "No upload license configured, skipping upload")
+			throw Exception("No upload license configured")
+		}
+
 		val json = JSONObject().apply {
 			put("filename", photo.filename)
 			put("file_size", photo.fileSize)
@@ -481,6 +487,7 @@ class PhotoUploadLogic(private val context: Context) {
 			put("description", "")  // Could be made configurable
 			put("is_public", true)  // Could be made configurable
 			put("version", photo.version)  // Version for re-upload support
+			put("license", license)
 			// Use PhotoEntity geolocation data
 			put("latitude", photo.latitude)
 			put("longitude", photo.longitude)

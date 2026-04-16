@@ -12,6 +12,7 @@ import { syncProcessingPhotosStatus } from '../uploadProtocol';
 import { auth } from '../authStore';
 import { getSettings } from '../settings';
 import { get } from 'svelte/store';
+import { autoUploadLicense } from '../data.svelte';
 import { initSyncStatusListener, isSwAlive, createFgStatusReporter } from '../syncStatus';
 
 const LOG_PREFIX = '🢄[PhotoSync]';
@@ -37,11 +38,18 @@ async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
         bearing_source: photo.metadata.location.bearing_source
     };
 
+    const license = get(autoUploadLicense);
+    if (!license) {
+        console.log(`${LOG_PREFIX} No auto-upload license selected, skipping`);
+        return { success: false, error: 'No license selected' };
+    }
+
     const result = await secureUploadFile(
         file,
         undefined,  // description
         true,       // isPublic
-        metadata    // browserMetadata
+        metadata,   // browserMetadata
+        license
     );
 
     return {

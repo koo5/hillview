@@ -107,7 +107,8 @@ export async function secureUploadFile(
 	file: File,
 	description?: string,
 	isPublic: boolean = true,
-	browserMetadata?: any  // Metadata from browser capture that can't be written as EXIF
+	browserMetadata?: any,  // Metadata from browser capture that can't be written as EXIF
+	license?: string        // License identifier (e.g. 'ccbysa4')
 ): Promise<SecureUploadResult> {
 	try {
 		console.log(`🢄🔐 Starting secure upload for: ${file.name}`);
@@ -139,6 +140,7 @@ export async function secureUploadFile(
 			client_key_id: keyInfo.key_id,
 			description,
 			is_public: isPublic,
+			license,
 			...geolocation
 		};
 
@@ -190,7 +192,8 @@ export async function secureUploadFiles(
 	isPublic: boolean = true,
 	onProgress?: (completed: number, total: number, currentFile: string) => void,
 	onError?: (file: File, errorMessage: string) => void,
-	browserMetadata?: any  // Metadata from browser capture that can't be written as EXIF
+	browserMetadata?: any,  // Metadata from browser capture that can't be written as EXIF
+	license?: string        // License identifier (e.g. 'ccbysa4')
 ): Promise<{
 	results: SecureUploadResult[];
 	successCount: number;
@@ -208,7 +211,7 @@ export async function secureUploadFiles(
 		// Report progress
 		onProgress?.(i, files.length, file.name);
 
-		const result = await secureUploadFile(file, description, isPublic, browserMetadata);
+		const result = await secureUploadFile(file, description, isPublic, browserMetadata, license);
 		results.push(result);
 
 		if (result.success) {

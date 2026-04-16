@@ -2274,6 +2274,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					val result = JSObject()
 					result.put("auto_upload_enabled", uploadPrefs.getBoolean("auto_upload_enabled", false))
 					result.put("auto_upload_prompt_enabled", uploadPrefs.getBoolean("auto_upload_prompt_enabled", true))
+					result.put("auto_upload_license", uploadPrefs.getString("auto_upload_license", null))
 					result.put("wifi_only", uploadPrefs.getBoolean("wifi_only", false))
 					result.put("landscape_armor22_workaround", compassPrefs.getBoolean("landscape_armor22_workaround", false))
 					invoke.resolve(result)
@@ -2287,11 +2288,16 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					val previous = readStoredUploadSettings(uploadPrefs, compassPrefs)
 					val merged = mergeUploadSettings(params, previous)
 
-					uploadPrefs.edit()
+					val editor = uploadPrefs.edit()
 						.putBoolean("auto_upload_enabled", merged.autoUploadEnabled)
 						.putBoolean("auto_upload_prompt_enabled", merged.autoUploadPromptEnabled)
 						.putBoolean("wifi_only", merged.wifiOnly)
-						.apply()
+					if (merged.autoUploadLicense != null) {
+						editor.putString("auto_upload_license", merged.autoUploadLicense)
+					} else {
+						editor.remove("auto_upload_license")
+					}
+					editor.apply()
 
 					compassPrefs.edit()
 						.putBoolean("landscape_armor22_workaround", merged.landscapeArmor22)

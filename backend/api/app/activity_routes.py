@@ -13,6 +13,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, User
+from hillview_routes import legal_rights_to_license
 from common.utc import format_utc
 from auth import get_current_user_optional_with_query
 from hidden_content_filters import apply_hidden_content_filters
@@ -95,7 +96,8 @@ async def get_recent_activity(
 				"height": photo.height,
 				"sizes": photo.sizes,
 				"owner_username": username,
-				"owner_id": photo.owner_id
+				"owner_id": photo.owner_id,
+				"license": legal_rights_to_license(photo.legal_rights)
 			})
 
 			# Set next_cursor to the last photo's uploaded_at timestamp

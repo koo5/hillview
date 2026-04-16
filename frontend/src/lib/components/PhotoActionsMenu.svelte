@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy } from 'svelte';
-    import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical, Clock } from 'lucide-svelte';
+    import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical, Clock, Copyright, CreativeCommons } from 'lucide-svelte';
     import { auth } from '$lib/auth.svelte.js';
     import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
     import { track } from '$lib/analytics';
@@ -11,7 +11,8 @@
         getUserName,
         getPhotoSource,
         formatCapturedAt,
-        getPhotoDetailUrl
+        getPhotoDetailUrl,
+        getLicenseLabel
     } from '$lib/photoUtils';
     import {
         hidePhotoRequest,
@@ -263,6 +264,19 @@
                 disabled: !detailUrl,
                 onclick: openPhotoDetail,
                 testId: 'menu-captured-at'
+            });
+            items.push({ type: 'divider' });
+        }
+
+        const licenseLabel = getLicenseLabel(photo);
+        if (licenseLabel) {
+            const licenseId = (photo as any)?.license;
+            items.push({
+                id: 'license',
+                label: licenseLabel,
+                icon: licenseId?.startsWith('cc') ? CreativeCommons : Copyright,
+                disabled: true,
+                testId: 'menu-license'
             });
             items.push({ type: 'divider' });
         }

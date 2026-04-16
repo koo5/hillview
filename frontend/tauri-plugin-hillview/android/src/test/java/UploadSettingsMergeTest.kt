@@ -19,6 +19,7 @@ class UploadSettingsMergeTest {
     private val allTrue = MergedUploadSettings(
         autoUploadEnabled = true,
         autoUploadPromptEnabled = true,
+        autoUploadLicense = "ccbysa4",
         wifiOnly = true,
         landscapeArmor22 = true,
     )
@@ -34,6 +35,7 @@ class UploadSettingsMergeTest {
 
         assertFalse("the one field explicitly sent should take effect", merged.autoUploadEnabled)
         assertEquals("missing prompt_enabled must keep previous true", true, merged.autoUploadPromptEnabled)
+        assertEquals("missing license must keep previous value", "ccbysa4", merged.autoUploadLicense)
         assertEquals("missing wifi_only must keep previous true", true, merged.wifiOnly)
         assertEquals("missing landscape_armor22 must keep previous true", true, merged.landscapeArmor22)
     }
@@ -43,6 +45,7 @@ class UploadSettingsMergeTest {
         val previous = MergedUploadSettings(
             autoUploadEnabled = true,
             autoUploadPromptEnabled = false,
+            autoUploadLicense = "ccbysa4",
             wifiOnly = true,
             landscapeArmor22 = true,
         )
@@ -57,6 +60,7 @@ class UploadSettingsMergeTest {
         val previous = MergedUploadSettings(
             autoUploadEnabled = false,
             autoUploadPromptEnabled = true,
+            autoUploadLicense = null,
             wifiOnly = false,
             landscapeArmor22 = false,
         )

@@ -8,6 +8,8 @@
 	import { TAURI_MOBILE } from '$lib/tauri';
 	import { invoke } from '@tauri-apps/api/core';
 	import { track } from '$lib/analytics';
+	import { manualUploadLicense } from '$lib/data.svelte';
+	import { get } from 'svelte/store';
 
 	export let user: User | null = null;
 	export let onLogEntry: LogEntryCallback = () => {};
@@ -50,7 +52,9 @@
 		});
 
 		try {
-			// Use new secure upload service
+			const license = get(manualUploadLicense);
+			if (!license) throw new Error('No license selected');
+
 			const uploadResult = await secureUploadFiles(
 				uploadFiles,
 				description,
@@ -69,7 +73,9 @@
 						filename: file.name,
 						outcome: 'failure'
 					});
-				}
+				},
+				undefined, // browserMetadata
+				license
 			);
 
 			// Process results
