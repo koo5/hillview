@@ -281,7 +281,7 @@
 			testId: 'menu-license'
 		});
 		items.push({ type: 'divider' });
-	
+
 
 		//if (capturedAt)
 		{

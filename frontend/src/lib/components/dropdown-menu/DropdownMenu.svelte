@@ -260,7 +260,11 @@
 		ontouchmove={swallowEvent}
 		ontouchend={swallowEvent}
 		onpointerdown={swallowEvent}
-		onpointerup={(e) => { swallowEvent(e); closeDropdownMenu(); }}
+		onpointerup={(e) => {
+			swallowEvent(e);
+			closeDropdownMenu();
+			if (e.pointerType === 'touch') armClickSwallower();
+		}}
 		onclick={swallowEvent}
 		onmousedown={swallowEvent}
 		onmouseup={swallowEvent}
