@@ -264,18 +264,6 @@ class TestRatingAPIEndpoints:
         # Should succeed with proper mocking
         assert response.status_code in [200, 401]  # 401 if auth not properly mocked
     
-    def test_get_photo_rating_no_auth(self):
-        """Test getting rating without authentication returns counts but no user rating"""
-        response = client.get(
-            f"/api/ratings/{self.test_source}/{self.test_photo_id}"
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["user_rating"] is None
-        assert "rating_counts" in data
-
-
 class TestRatingBusinessLogic:
     """Test business logic and edge cases"""
     

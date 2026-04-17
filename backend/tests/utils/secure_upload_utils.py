@@ -218,7 +218,8 @@ class SecureUploadClient:
 	async def authorize_upload_with_params(self, auth_token: str, filename: str, file_size: int,
 										   latitude: float, longitude: float, description: str,
 										   is_public: bool = True, file_data: bytes = None,
-										   captured_at: str = None, version: int = None):
+										   captured_at: str = None, version: int = None,
+										   license: str = 'ccbysa4+osm'):
 		"""Request upload authorization with custom parameters.
 
 		Args:
@@ -248,6 +249,7 @@ class SecureUploadClient:
 			"longitude": longitude,
 			"description": description,
 			"is_public": is_public,
+			"license": license,
 		}
 
 		# Only include captured_at if explicitly provided

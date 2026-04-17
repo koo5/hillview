@@ -2,6 +2,7 @@ import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
 import type {PhotoForInfo, FullPhotoInfo, PhotoData} from '$lib/types/photoTypes';
 import { get } from 'svelte/store';
 import { sources, type Source } from '$lib/data.svelte';
+import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 
 /**
  * Get the full-size URL for any photo type
@@ -187,4 +188,21 @@ export function getLicenseLabel(photo: PhotoData | null): string | null {
 	const id = getLicenseId(photo);
 	if (!id) return null;
 	return LICENSE_LABELS[id] ?? id;
+}
+
+/**
+ * Returns a URL for the photo creator's profile, or undefined if unavailable.
+ * Hillview → internal user profile URL. Mapillary → external mapillary.com profile.
+ * Used by menu items to enable middle-click / ctrl-click to open in a new tab.
+ */
+export function getUserProfileUrl(photo: PhotoData | null): string | undefined {
+	if (!photo) return undefined;
+	const source = getPhotoSource(photo);
+	const userId = getUserId(photo);
+	if (source === 'hillview' && userId) return constructUserProfileUrl(userId);
+	const mapillaryUsername = (photo as any).creator?.username;
+	if (source === 'mapillary' && mapillaryUsername) {
+		return `https://www.mapillary.com/app/user/${mapillaryUsername}`;
+	}
+	return undefined;
 }

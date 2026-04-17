@@ -13,10 +13,10 @@
 		formatCapturedAt,
 		getPhotoDetailUrl,
 		getLicenseLabel,
-		getLicenseId
+		getLicenseId,
+		getUserProfileUrl
 	} from '$lib/photoUtils';
 	import { openExternalUrl, HILLVIEW_BASE_URL } from '$lib/urlUtils';
-	import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 	import {
 		hidePhotoRequest,
 		togglePhotoRating,
@@ -213,20 +213,6 @@
 		if (!photo) return;
 		closeMenu();
 		await viewPhotoUserProfile(photo);
-	}
-
-	// Expose a link target for the user-profile item so middle-click /
-	// ctrl-click opens the profile in a new tab. Left-click still routes
-	// through `viewUserProfile` (Tauri-aware for external URLs).
-	function getUserProfileUrl(p: PhotoData): string | undefined {
-		const source = getPhotoSource(p);
-		const userId = getUserId(p);
-		if (source === 'hillview' && userId) return constructUserProfileUrl(userId);
-		const mapillaryUsername = (p as any).creator?.username;
-		if (source === 'mapillary' && mapillaryUsername) {
-			return `https://www.mapillary.com/app/user/${mapillaryUsername}`;
-		}
-		return undefined;
 	}
 
 	function openPhotoDetail() {

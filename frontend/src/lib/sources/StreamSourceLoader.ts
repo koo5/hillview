@@ -12,6 +12,74 @@ import type { PhotoSourceOptions } from './PhotoSourceFactory';
 const LOG_PREFIX = '🢄🔍StreamSourceLoader';
 const doLog = false;
 
+export function convertStreamPhoto(photo: any, source: any): PhotoData {
+    let bearing = photo.computed_compass_angle
+    if (bearing === undefined || bearing === null) {
+        bearing = photo.compass_angle
+    }
+    if (bearing === undefined || bearing === null) {
+        bearing = photo.bearing
+    }
+    if (bearing === undefined || bearing === null) {
+        console.warn(`StreamSourceLoader: Photo ${photo.id} missing bearing info, defaulting to 0`);
+        bearing = 0
+    }
+
+    const convertedPhoto: any = {
+        id: photo.id,
+        uid: `${source.id}-${photo.id}`,
+        coord: photo.geometry ?
+            { lat: photo.geometry.coordinates[1], lng: photo.geometry.coordinates[0] } :
+            photo.coord,
+        bearing,
+        url: photo.thumb_1024_url || photo.url || '',
+        filename: photo.filename,
+        source_type: source.type,
+        source,
+        altitude: photo.computed_altitude || photo.altitude || 0,
+        captured_at: photo.captured_at,
+        is_pano: photo.is_pano,
+        sizes: photo.sizes || (photo.thumb_1024_url ? {
+            1024: {
+                url: photo.thumb_1024_url,
+                width: 1024,
+                height: 768
+            }
+        } : undefined)
+    };
+
+    if (photo.description) {
+        convertedPhoto.description = photo.description;
+    }
+
+    if (photo.featured) {
+        convertedPhoto.featured = true;
+    }
+
+    if (photo.filtered) {
+        convertedPhoto.filtered = true;
+    }
+
+    // Add file hash if available for deduplication with device photos
+    if (photo.file_md5) {
+        convertedPhoto.file_hash = photo.file_md5;
+    }
+
+    // Add creator information if available (from Mapillary API)
+    if (photo.creator && typeof photo.creator === 'object') {
+        convertedPhoto.creator = {
+            id: photo.creator.id,
+            username: photo.creator.username
+        };
+    }
+
+    if (photo.license) {
+        convertedPhoto.license = photo.license;
+    }
+
+    return convertedPhoto;
+}
+
 export class StreamSourceLoader extends BasePhotoSourceLoader {
     private eventSource?: EventSource;
     private streamPhotos: PhotoData[] = [];
@@ -356,74 +424,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 if (data.photos && Array.isArray(data.photos)) {
                     if (doLog) console.log(`StreamSourceLoader: Received ${data.photos.length} photos`);
 
-                    const convertedPhotos: PhotoData[] = data.photos.map((photo: any) => {
-
-						let bearing = photo.computed_compass_angle
-						if (bearing === undefined || bearing === null) {
-							bearing = photo.compass_angle
-						}
-						if (bearing === undefined || bearing === null) {
-							bearing = photo.bearing
-						}
-						if (bearing === undefined || bearing === null) {
-							console.warn(`StreamSourceLoader: Photo ${photo.id} missing bearing info, defaulting to 0`);
-							bearing = 0
-						}
-
-                        const convertedPhoto: any = {
-                            id: photo.id,
-                            uid: `${this.source.id}-${photo.id}`,
-                            coord: photo.geometry ?
-                                { lat: photo.geometry.coordinates[1], lng: photo.geometry.coordinates[0] } :
-                                photo.coord,
-                            bearing,
-                            url: photo.thumb_1024_url || photo.url || '',
-                            filename: photo.filename,
-                            source_type: this.source.type,
-                            source: this.source,
-                            altitude: photo.computed_altitude || photo.altitude || 0,
-                            captured_at: photo.captured_at,
-                            is_pano: photo.is_pano,
-                            sizes: photo.sizes || (photo.thumb_1024_url ? {
-                                1024: {
-                                    url: photo.thumb_1024_url,
-                                    width: 1024,
-                                    height: 768
-                                }
-                            } : undefined)
-                        };
-
-                        if (photo.description) {
-                            convertedPhoto.description = photo.description;
-                        }
-
-                        if (photo.featured) {
-                            convertedPhoto.featured = true;
-                        }
-
-                        if (photo.filtered) {
-                            convertedPhoto.filtered = true;
-                        }
-
-                        // Add file hash if available for deduplication with device photos
-                        if (photo.file_md5) {
-                            convertedPhoto.file_hash = photo.file_md5;
-                        }
-
-                        // Add creator information if available (from Mapillary API)
-                        if (photo.creator && typeof photo.creator === 'object') {
-                            convertedPhoto.creator = {
-                                id: photo.creator.id,
-                                username: photo.creator.username
-                            };
-                        }
-
-                        if (photo.license) {
-                            convertedPhoto.license = photo.license;
-                        }
-
-                        return convertedPhoto;
-                    });
+                    const convertedPhotos: PhotoData[] = data.photos.map((photo: any) => convertStreamPhoto(photo, this.source));
 
                     this.streamPhotos.push(...convertedPhotos);
 
