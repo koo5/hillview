@@ -188,19 +188,11 @@ class SimplePhotoWorker {
     }
 
     private pruneStaleplaceholders(deviceQueryStartedAt: number): void {
-        const currentPlaceholders = get(placeholderPhotos);
-        let removedCount = 0;
-
-        for (const placeholder of currentPlaceholders) {
-            if (placeholder.savedAt && placeholder.savedAt < deviceQueryStartedAt) {
-                removePlaceholder(placeholder.id);
-                removedCount++;
-                if (doLog) console.log(`🢄📍 Pruned placeholder ${placeholder.id} — savedAt ${placeholder.savedAt} < deviceQuery ${deviceQueryStartedAt}`);
-            }
-        }
-
-        if (removedCount > 0) {
-            if (doLog) console.log(TAG+`Pruned ${removedCount} stale placeholder(s)`);
+        const before = get(placeholderPhotos);
+        const after = before.filter(p => !(p.savedAt && p.savedAt < deviceQueryStartedAt));
+        if (after.length < before.length) {
+            placeholderPhotos.set(after);
+            if (doLog) console.log(TAG+`Pruned ${before.length - after.length} stale placeholder(s)`);
         }
     }
 
