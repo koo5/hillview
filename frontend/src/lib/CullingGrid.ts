@@ -92,8 +92,14 @@ export class CullingGrid {
         // Populate grid cells with photos from each source (by priority order)
         // Exclude already picked photos
         for (const sourceId of sortedSourceIds) {
-            const photos = photosPerSource.get(sourceId);
-            if (!photos) continue;
+            const sourcePhotos = photosPerSource.get(sourceId);
+            if (!sourcePhotos) continue;
+
+            // Device source: sort by most recent first so that when a cell is over-populated,
+            // the round-robin selection keeps the most recent photos.
+            const photos = sourceId === 'device'
+                ? [...sourcePhotos].sort((a, b) => (b.captured_at ?? 0) - (a.captured_at ?? 0))
+                : sourcePhotos;
 
             for (const photo of photos) {
                 // Skip already picked photos

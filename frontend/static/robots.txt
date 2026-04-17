@@ -5,6 +5,7 @@ Allow: /$
 Allow: /about
 Allow: /privacy
 Allow: /terms
+Allow: /licensing
 Allow: /download
 Allow: /contact
 Disallow: /api/

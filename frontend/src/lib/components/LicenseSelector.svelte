@@ -2,20 +2,22 @@
     import type { Writable } from 'svelte/store';
     import { autoUploadLicense } from '$lib/data.svelte';
     import { CreativeCommons, ExternalLink } from 'lucide-svelte';
-    import { openExternalUrl } from '$lib/urlUtils';
+    import { openExternalUrl, HILLVIEW_BASE_URL } from '$lib/urlUtils';
 
     export let licenseStore: Writable<string | null> = autoUploadLicense;
 
-    $: isChecked = $licenseStore === 'ccbysa4';
+    $: isChecked = $licenseStore === 'ccbysa4+osm';
     $: isLicenseSet = $licenseStore !== null;
 
     function handleChange(event: Event) {
         const target = event.target as HTMLInputElement;
-        licenseStore.set(target.checked ? 'ccbysa4' : null);
+        licenseStore.set(target.checked ? 'ccbysa4+osm' : null);
     }
 
-    async function openLicenseInfo() {
-        await openExternalUrl('https://creativecommons.org/licenses/by-sa/4.0/');
+    async function openLicenseInfo(event: Event) {
+        event.preventDefault();
+        event.stopPropagation();
+        await openExternalUrl(`${HILLVIEW_BASE_URL}/licensing`);
     }
 </script>
 
@@ -31,7 +33,7 @@
         <div class="label-content">
             <div class="label-text">
                 <CreativeCommons size={18} />
-                <span>Share as  CC BY-SA 4.0</span>
+                <span>Share as CC BY-SA 4.0 + OSM grant</span>
                 <button
                     type="button"
                     class="info-link"

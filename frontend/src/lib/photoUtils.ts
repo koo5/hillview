@@ -170,11 +170,21 @@ export function getPhotoDetailUrl(photo: PhotoData | null): string | null {
 
 const LICENSE_LABELS: Record<string, string> = {
 	'arr': 'All rights reserved',
-	'ccbysa4': 'CC BY-SA 4.0',
+	'ccbysa4+osm': 'CC BY-SA 4.0 + OSM mapping grant',
+	'ccbysa4-mapillary': 'CC BY-SA 4.0 (via Mapillary)',
 };
 
+export function getLicenseId(photo: PhotoData | null): string | null {
+	if (!photo) return null;
+	const explicit = (photo as any).license;
+	if (explicit) return explicit;
+	// Mapillary's ToS licenses user content under CC BY-SA 4.0.
+	if (getPhotoSource(photo) === 'mapillary') return 'ccbysa4-mapillary';
+	return null;
+}
+
 export function getLicenseLabel(photo: PhotoData | null): string | null {
-	const id = (photo as any)?.license;
+	const id = getLicenseId(photo);
 	if (!id) return null;
 	return LICENSE_LABELS[id] ?? id;
 }

@@ -61,11 +61,13 @@
 		<section class="document-section">
 			<h2>4. Photo Upload and Content</h2>
 			<p>
-				When you upload photos to Hillview, you retain ownership of your content but grant us
-				certain rights to use it within our service:
+				When you upload photos to Hillview, you retain ownership of your content. You license
+				your photo under the license you select at upload time. The available licenses and
+				their terms are detailed on the <a href="/licensing" class="legal-link">Licensing</a> page.
 			</p>
+			<p>In addition:</p>
 			<ul>
-				<li>You may upload photos that you own or have permission to use</li>
+				<li>You may only upload photos that you own or have permission to use</li>
 				<li>We process photos to extract metadata (GPS, orientation, etc.)</li>
 				<li>Our algorithms detect and blur people and vehicles to try to protect privacy</li>
 				<li>You are responsible for ensuring your content doesn't violate any laws or rights</li>

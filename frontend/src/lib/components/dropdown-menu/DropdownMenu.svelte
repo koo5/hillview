@@ -151,6 +151,40 @@
 		closeDropdownMenu();
 	}
 
+	// Middle-click, ctrl/meta-click, and shift-click should fall through to the
+	// browser's native anchor behavior (open in new tab / new window). Primary
+	// unmodified clicks stay on the SPA path.
+	function isOpenInNewTabClick(e: { button?: number; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean }): boolean {
+		return e.button === 1 || !!e.ctrlKey || !!e.metaKey || !!e.shiftKey;
+	}
+
+	function handleAnchorPointerDown(event: PointerEvent) {
+		if (isOpenInNewTabClick(event)) return;
+		swallowEvent(event);
+	}
+
+	function handleAnchorPointerUp(event: PointerEvent) {
+		if (isOpenInNewTabClick(event)) return;
+		swallowEvent(event);
+	}
+
+	function handleAnchorClick(event: MouseEvent, onclick: () => void) {
+		if (isOpenInNewTabClick(event)) {
+			// Defer close so removing the <a> doesn't cancel the browser's
+			// default action that opens the new tab/window.
+			setTimeout(closeDropdownMenu, 0);
+			return;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		onclick();
+		closeDropdownMenu();
+	}
+
+	function handleAnchorAuxClick() {
+		setTimeout(closeDropdownMenu, 0);
+	}
+
 	// Stop drag/touch events from propagating to the page underneath
 	function stopEvent(event: Event) {
 		event.stopPropagation();
@@ -179,6 +213,21 @@
 		};
 	}
 </script>
+
+{#snippet menuItemBody(item: import('./dropdownMenu.svelte.js').DropdownMenuItemAction)}
+	{#if item.icon}
+		{@const Icon = item.icon}
+		<span class="menu-item-icon">
+			<Icon size={16} />
+		</span>
+	{/if}
+	<span class="menu-item-content">
+		<span class="menu-item-label">{item.label}</span>
+		{#if item.description}
+			<span class="menu-item-description">{item.description}</span>
+		{/if}
+	</span>
+{/snippet}
 
 <svelte:document on:pointerup={handleClickOutside} on:keydown={handleKeydown} />
 
@@ -215,6 +264,22 @@
 					<div class="menu-header">{item.label}</div>
 				{:else if item.type === 'custom'}
 					{@render item.render({ close: closeDropdownMenu })}
+				{:else if item.url && !item.disabled}
+					<a
+						class="menu-item"
+						class:selected={item.selected}
+						href={item.url}
+						data-testid={item.testId}
+						ontouchstart={swallowEvent}
+						ontouchmove={swallowEvent}
+						ontouchend={swallowEvent}
+						onpointerdown={handleAnchorPointerDown}
+						onpointerup={handleAnchorPointerUp}
+						onclick={(e) => handleAnchorClick(e, item.onclick)}
+						onauxclick={handleAnchorAuxClick}
+					>
+						{@render menuItemBody(item)}
+					</a>
 				{:else}
 					<button
 						class="menu-item"
@@ -229,18 +294,7 @@
 						onpointerup={(e) => handleItemPointerUp(e, item.onclick)}
 						onclick={swallowEvent}
 					>
-						{#if item.icon}
-							{@const Icon = item.icon}
-							<span class="menu-item-icon">
-								<Icon size={16} />
-							</span>
-						{/if}
-						<span class="menu-item-content">
-							<span class="menu-item-label">{item.label}</span>
-							{#if item.description}
-								<span class="menu-item-description">{item.description}</span>
-							{/if}
-						</span>
+						{@render menuItemBody(item)}
 					</button>
 				{/if}
 			{/each}
@@ -289,6 +343,8 @@
 		text-align: left;
 		transition: background-color 0.15s ease;
 		font-size: 14px;
+		text-decoration: none;
+		box-sizing: border-box;
 	}
 
 	.menu-item:hover:not(:disabled) {

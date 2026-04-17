@@ -31,7 +31,7 @@ from sqlalchemy import or_, and_
 
 LEGAL_RIGHTS_TO_LICENSE = {
 	'full1': 'arr',
-	'ccbysa4': 'ccbysa4',
+	'ccbysa4+osm': 'ccbysa4+osm',
 }
 
 def legal_rights_to_license(legal_rights: Optional[str]) -> str:

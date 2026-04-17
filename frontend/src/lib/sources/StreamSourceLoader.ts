@@ -418,6 +418,10 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                             };
                         }
 
+                        if (photo.license) {
+                            convertedPhoto.license = photo.license;
+                        }
+
                         return convertedPhoto;
                     });
 
