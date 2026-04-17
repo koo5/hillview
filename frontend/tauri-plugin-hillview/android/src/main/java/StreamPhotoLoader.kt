@@ -408,6 +408,9 @@ class StreamPhotoLoader {
         // Extract fileHash from file_md5 (Hillview endpoint)
         val fileHash = photoJson["file_md5"]?.jsonPrimitive?.content
 
+        // Extract license (Hillview endpoint — identifier like 'arr', 'ccbysa4+osm')
+        val license = photoJson["license"]?.jsonPrimitive?.content
+
         // Extract sizes object (Hillview endpoint)
         val sizes = photoJson["sizes"]?.jsonObject?.let { sizesObj ->
             sizesObj.mapNotNull { (key, value) ->
@@ -442,7 +445,8 @@ class StreamPhotoLoader {
             creator = creator,
             fileHash = fileHash,
             featured = featured,
-            filtered = filtered
+            filtered = filtered,
+            license = license
         )
     }
 

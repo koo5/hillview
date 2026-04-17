@@ -91,7 +91,8 @@ data class PhotoData(
     val is_pano: Boolean? = null,
     val creator: Creator? = null,
     val featured: Boolean? = null,
-    val filtered: Boolean? = null
+    val filtered: Boolean? = null,
+    val license: String? = null
 )
 
 @Serializable

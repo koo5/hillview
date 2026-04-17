@@ -676,6 +676,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             val urlJson = if (photo.url != null) "\"${photo.url}\"" else "null"
             val fileHashJson = if (photo.fileHash != null) "\"${photo.fileHash}\"" else "null"
             val descriptionJson = if (photo.description != null) "\"${photo.description.replace("\\", "\\\\").replace("\"", "\\\"")}\"" else "null"
+            val licenseJson = if (photo.license != null) "\"${photo.license}\"" else "null"
             """
             {
                 "id": "${photo.id}",
@@ -701,7 +702,8 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 "is_pano": ${photo.is_pano ?: "null"},
                 "creator": $creatorJson,
                 "featured": ${photo.featured ?: "null"},
-                "filtered": ${photo.filtered ?: "null"}
+                "filtered": ${photo.filtered ?: "null"},
+                "license": $licenseJson
             }
             """.trimIndent()
         }
