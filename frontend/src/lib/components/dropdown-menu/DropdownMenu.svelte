@@ -144,11 +144,29 @@
 		event.stopPropagation();
 	}
 
+	// On Android webview, touching a menu item can still fire a synthetic click
+	// after we close the dropdown — the target is whatever is under the touch
+	// point now (the gallery), which receives a spurious tap. Arm a brief
+	// document-level capture-phase swallower to catch that stray click.
+	function armClickSwallower() {
+		const handler = (e: Event) => {
+			e.preventDefault();
+			e.stopPropagation();
+			e.stopImmediatePropagation();
+			document.removeEventListener('click', handler, true);
+		};
+		document.addEventListener('click', handler, { capture: true });
+		setTimeout(() => {
+			document.removeEventListener('click', handler, true);
+		}, 150);
+	}
+
 	function handleItemPointerUp(event: PointerEvent, onclick: () => void) {
 		event.preventDefault();
 		event.stopPropagation();
 		onclick();
 		closeDropdownMenu();
+		if (event.pointerType === 'touch') armClickSwallower();
 	}
 
 	// Middle-click, ctrl/meta-click, and shift-click should fall through to the
@@ -172,6 +190,7 @@
 		event.stopPropagation();
 		onclick();
 		closeDropdownMenu();
+		if (event.pointerType === 'touch') armClickSwallower();
 	}
 
 	// Mouse click backup: suppress native anchor nav so we don't double-trigger.
