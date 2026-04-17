@@ -1,7 +1,9 @@
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
-import { setupDefaultMockMapillaryData } from './helpers/mapillaryMocks';
+import { createMockMapillaryData, setupMockMapillaryData, clearMockMapillaryData } from './helpers/mapillaryMocks';
+import { configureSources } from './helpers/sourceHelpers';
+import { setMapLocation } from './helpers/mapSetup';
 
 /**
  * Regression tests for the PhotoActionsMenu link behavior:
@@ -90,8 +92,20 @@ test.describe('Photo actions menu — link semantics', () => {
 	});
 
 	test('Mapillary photo: captured-at item links to mapillary.com, not /photo/<uid>', async ({ page }) => {
-		await setupDefaultMockMapillaryData(page);
-		await openGalleryPhotoMenu(page);
+		// Seed 15 mock Mapillary photos at a known point and pin the map there,
+		// then enable only the Mapillary source so the front photo is Mapillary.
+		await clearMockMapillaryData(page);
+		const centerLat = 50.114;
+		const centerLng = 14.523;
+		const mockData = createMockMapillaryData(centerLat, centerLng);
+		await setupMockMapillaryData(page, mockData);
+
+		await page.goto('/');
+		await page.waitForLoadState('networkidle');
+		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await setMapLocation(page, centerLat, centerLng, 16);
+		await configureSources(page, { hillview: false, device: false, mapillary: true });
+		await page.waitForSelector('[data-testid="main-photo"]', { timeout: 20000 });
 
 		// Sanity-check the front photo's source is mapillary.
 		const source = await page
@@ -103,10 +117,17 @@ test.describe('Photo actions menu — link semantics', () => {
 			});
 		expect(source).toBe('mapillary');
 
+		const menuTrigger = page.locator('[data-testid="photo-actions-menu"]').first();
+		await menuTrigger.waitFor({ state: 'visible', timeout: 10000 });
+		await menuTrigger.click();
+		await page.locator('[data-testid="photo-actions-dropdown"]').waitFor({ state: 'visible', timeout: 5000 });
+
 		const item = page.locator('[data-testid="menu-captured-at"]');
 		await expect(item).toBeVisible();
 		await expect(item).toHaveJSProperty('tagName', 'A');
 		const href = await item.getAttribute('href');
 		expect(href).toMatch(/^https:\/\/www\.mapillary\.com\/app\/\?pKey=/);
+
+		await clearMockMapillaryData(page);
 	});
 });

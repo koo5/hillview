@@ -17,6 +17,8 @@
 		getUserProfileUrl
 	} from '$lib/photoUtils';
 	import { openExternalUrl, HILLVIEW_BASE_URL } from '$lib/urlUtils';
+	import { TAURI } from '$lib/tauri';
+	import { navigateWithHistory } from '$lib/navigation.svelte';
 	import {
 		hidePhotoRequest,
 		togglePhotoRating,
@@ -223,7 +225,11 @@
 
 	async function openLicenseInfo() {
 		closeMenu();
-		await openExternalUrl(`${HILLVIEW_BASE_URL}/licensing`);
+		if (TAURI) {
+			await openExternalUrl(`${HILLVIEW_BASE_URL}/licensing`);
+		} else {
+			navigateWithHistory('/licensing', { reason: 'license-menu' });
+		}
 	}
 
 	async function loadPhotoRating() {
@@ -271,7 +277,7 @@
 			label: licenseLabel,
 			icon: licenseId?.startsWith('cc') ? CreativeCommons : Copyright,
 			onclick: openLicenseInfo,
-			url: `${HILLVIEW_BASE_URL}/licensing`,
+			url: '/licensing',
 			testId: 'menu-license'
 		});
 		items.push({ type: 'divider' });

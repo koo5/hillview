@@ -159,10 +159,12 @@
 		return e.button === 1 || !!e.ctrlKey || !!e.metaKey || !!e.shiftKey;
 	}
 
-	function handleAnchorClick(event: MouseEvent, onclick: () => void) {
+	// Primary anchor activation goes through pointerup so touch input works:
+	// on touch, swallowing ontouchstart/end kills the synthetic click, so
+	// click never fires. pointerup fires for both touch and mouse.
+	function handleAnchorPointerUp(event: PointerEvent, onclick: () => void) {
 		if (isOpenInNewTabClick(event)) {
-			// Defer close so removing the <a> doesn't cancel the browser's
-			// default action that opens the new tab/window.
+			// Modifier/middle: let native click happen so the browser opens a new tab.
 			setTimeout(closeDropdownMenu, 0);
 			return;
 		}
@@ -170,6 +172,14 @@
 		event.stopPropagation();
 		onclick();
 		closeDropdownMenu();
+	}
+
+	// Mouse click backup: suppress native anchor nav so we don't double-trigger.
+	// onclick was already called by pointerup above.
+	function handleAnchorClick(event: MouseEvent) {
+		if (isOpenInNewTabClick(event)) return;
+		event.preventDefault();
+		event.stopPropagation();
 	}
 
 	function handleAnchorAuxClick() {
@@ -264,7 +274,9 @@
 						ontouchstart={swallowEvent}
 						ontouchmove={swallowEvent}
 						ontouchend={swallowEvent}
-						onclick={(e) => handleAnchorClick(e, item.onclick)}
+						onpointerdown={swallowEvent}
+						onpointerup={(e) => handleAnchorPointerUp(e, item.onclick)}
+						onclick={handleAnchorClick}
 						onauxclick={handleAnchorAuxClick}
 					>
 						{@render menuItemBody(item)}
