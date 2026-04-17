@@ -13,7 +13,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       # Removed POSTGRES_HOST_AUTH_METHOD: trust - use password auth instead
     ports:
-      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-25432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/initdb.d:/docker-entrypoint-initdb.d:ro
@@ -37,7 +37,7 @@ services:
     volumes:
       - pics:/app/pics
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@${DB_HOST:-postgres}:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@${postgres:-postgres}:5432/${POSTGRES_DB:?POSTGRES_DB is required}
       #- REDIS_URL=redis://redis:6379/0
       - MAPILLARY_CLIENT_TOKEN_FILE=/run/secrets/mapillary_token
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY is required}
@@ -111,19 +111,40 @@ services:
         condition: service_started
 
 
-  umami:
-    image: ghcr.io/umami-software/umami:postgresql-latest
-    container_name: hillview_umami
-    restart: always
-    ports:
-      - "127.0.0.1:${UMAMI_PORT:-3344}:${UMAMI_PORT:-3344}"
-    environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_HOST:-postgres}:5432/umami
-      APP_SECRET: ${UMAMI_APP_SECRET:-replace-me-with-a-real-secret}
-      PORT: ${UMAMI_PORT:-3333}
+  umami-init:
+    image: postgis/postgis:15-3.5
+    container_name: hillview_umami_init
+    restart: "no"
     depends_on:
       postgres:
         condition: service_healthy
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        psql -h postgres -U ${POSTGRES_USER} -d postgres -tc
+        "SELECT 1 FROM pg_database WHERE datname='umami'" | grep -q 1 ||
+        psql -h postgres -U ${POSTGRES_USER} -d postgres -c
+        "CREATE DATABASE umami"
+
+
+  umami:
+    image: ghcr.io/umami-software/umami@sha256:e3f80c0625aad7179b49da27d475357cabb1068b8cacd9a792cfd6966888b123
+#    image: ghcr.io/umami-software/umami:postgresql-latest
+    container_name: hillview_umami
+    restart: always
+    ports:
+      - "127.0.0.1:3344:3344"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/umami
+      APP_SECRET: ${UMAMI_APP_SECRET:-replace-me-with-a-real-secret}
+      PORT: 3344
+    depends_on:
+      postgres:
+        condition: service_healthy
+      umami-init:
+        condition: service_completed_successfully
 
 
 volumes:

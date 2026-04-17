@@ -276,6 +276,7 @@
                 label: licenseLabel,
                 icon: licenseId?.startsWith('cc') ? CreativeCommons : Copyright,
                 disabled: true,
+                onclick: () => {},
                 testId: 'menu-license'
             });
             items.push({ type: 'divider' });

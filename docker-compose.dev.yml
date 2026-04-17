@@ -3,19 +3,20 @@
 
 services:
 
-  postgres:
-    network_mode: host
-
   api:
     network_mode: host
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_HOST_PORT:-25432}/${POSTGRES_DB}
     volumes:
       - ./backend/api/app:/app/app
       - ./backend/common:/app/common
 
-  frontend:
-    network_mode: host
-
   umami:
+    network_mode: host
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_HOST_PORT:-25432}/umami
+
+  frontend:
     network_mode: host
 
   worker:
