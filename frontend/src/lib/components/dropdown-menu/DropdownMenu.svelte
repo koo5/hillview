@@ -153,19 +153,10 @@
 
 	// Middle-click, ctrl/meta-click, and shift-click should fall through to the
 	// browser's native anchor behavior (open in new tab / new window). Primary
-	// unmodified clicks stay on the SPA path.
+	// unmodified clicks go through `item.onclick` and the browser default is
+	// suppressed, so exactly one navigation happens per click.
 	function isOpenInNewTabClick(e: { button?: number; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean }): boolean {
 		return e.button === 1 || !!e.ctrlKey || !!e.metaKey || !!e.shiftKey;
-	}
-
-	function handleAnchorPointerDown(event: PointerEvent) {
-		if (isOpenInNewTabClick(event)) return;
-		swallowEvent(event);
-	}
-
-	function handleAnchorPointerUp(event: PointerEvent) {
-		if (isOpenInNewTabClick(event)) return;
-		swallowEvent(event);
 	}
 
 	function handleAnchorClick(event: MouseEvent, onclick: () => void) {
@@ -273,8 +264,6 @@
 						ontouchstart={swallowEvent}
 						ontouchmove={swallowEvent}
 						ontouchend={swallowEvent}
-						onpointerdown={handleAnchorPointerDown}
-						onpointerup={handleAnchorPointerUp}
 						onclick={(e) => handleAnchorClick(e, item.onclick)}
 						onauxclick={handleAnchorAuxClick}
 					>
