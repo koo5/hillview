@@ -169,6 +169,19 @@ export function getPhotoDetailUrl(photo: PhotoData | null): string | null {
 	return null;
 }
 
+/**
+ * URL to the photo's canonical location on its originating service.
+ * Mapillary photos resolve to mapillary.com; Hillview photos resolve to the
+ * internal /photo/<uid> detail page (same as `getPhotoDetailUrl`).
+ */
+export function getCanonicalPhotoUrl(photo: PhotoData | null): string | null {
+	if (!photo) return null;
+	if (getPhotoSource(photo) === 'mapillary' && photo.id) {
+		return `https://www.mapillary.com/app/?pKey=${encodeURIComponent(photo.id)}&focus=photo`;
+	}
+	return getPhotoDetailUrl(photo);
+}
+
 const LICENSE_LABELS: Record<string, string> = {
 	'arr': 'All rights reserved',
 	'ccbysa4+osm': 'CC BY-SA 4.0 + OSM mapping grant',

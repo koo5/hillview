@@ -11,7 +11,7 @@
 		getUserName,
 		getPhotoSource,
 		formatCapturedAt,
-		getPhotoDetailUrl,
+		getCanonicalPhotoUrl,
 		getLicenseLabel,
 		getLicenseId,
 		getUserProfileUrl
@@ -279,7 +279,7 @@
 
 		//if (capturedAt)
 		{
-			const detailUrl = getPhotoDetailUrl(photo);
+			const detailUrl = getCanonicalPhotoUrl(photo);
 			items.push({
 				id: 'captured-at',
 				label: capturedAt ?? 'unknown',

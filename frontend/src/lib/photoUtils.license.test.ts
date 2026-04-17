@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getLicenseId, getLicenseLabel, getUserProfileUrl } from './photoUtils';
+import { getCanonicalPhotoUrl, getLicenseId, getLicenseLabel, getUserProfileUrl } from './photoUtils';
 import type { PhotoData } from './types/photoTypes';
 
 // Minimal mock — functions under test only read `source` and `license` off
@@ -103,5 +103,31 @@ describe('getUserProfileUrl', () => {
 
     it('returns undefined for null photo', () => {
         expect(getUserProfileUrl(null)).toBeUndefined();
+    });
+});
+
+describe('getCanonicalPhotoUrl', () => {
+    it('returns an internal /photo/<uid> URL for Hillview photos', () => {
+        const photo = mockPhoto({ source: { id: 'hillview', type: 'stream' }, id: '42', uid: 'hillview-42' });
+        expect(getCanonicalPhotoUrl(photo)).toBe('/photo/hillview-42');
+    });
+
+    it('returns a mapillary.com URL for Mapillary photos', () => {
+        const photo = mockPhoto({ source: { id: 'mapillary', type: 'stream' }, id: 'abc123' });
+        expect(getCanonicalPhotoUrl(photo)).toBe('https://www.mapillary.com/app/?pKey=abc123&focus=photo');
+    });
+
+    it('URL-encodes mapillary photo ids with special characters', () => {
+        const photo = mockPhoto({ source: { id: 'mapillary', type: 'stream' }, id: 'a/b c' });
+        expect(getCanonicalPhotoUrl(photo)).toBe('https://www.mapillary.com/app/?pKey=a%2Fb%20c&focus=photo');
+    });
+
+    it('returns null for a null photo', () => {
+        expect(getCanonicalPhotoUrl(null)).toBeNull();
+    });
+
+    it('returns null for a photo with no id and no uid', () => {
+        const photo = mockPhoto({ source: { id: 'mapillary', type: 'stream' } });
+        expect(getCanonicalPhotoUrl(photo)).toBeNull();
     });
 });

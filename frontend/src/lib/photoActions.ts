@@ -13,7 +13,7 @@ import { simplePhotoWorker } from '$lib/simplePhotoWorker';
 import { myGoto } from '$lib/navigation.svelte';
 import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 import { openExternalUrl } from '$lib/urlUtils';
-import { getPhotoSource, getUserId, getPhotoDetailUrl } from '$lib/photoUtils';
+import { getPhotoSource, getUserId, getPhotoDetailUrl, getCanonicalPhotoUrl } from '$lib/photoUtils';
 import type { PhotoData } from '$lib/sources';
 import { track } from '$lib/analytics';
 
@@ -229,10 +229,18 @@ export async function viewPhotoUserProfile(photo: PhotoData): Promise<boolean> {
     return false;
 }
 
-/** Navigate to the /photo/[uid] detail page. Returns true if navigation happened. */
+/**
+ * Navigate to the photo's canonical detail page. For Mapillary photos this
+ * opens mapillary.com externally; for Hillview photos it SPA-navigates to
+ * /photo/[uid]. Returns true if navigation happened.
+ */
 export function openPhotoDetailPage(photo: PhotoData | null): boolean {
-    const url = getPhotoDetailUrl(photo);
+    const url = getCanonicalPhotoUrl(photo);
     if (!url) return false;
-    myGoto(url);
+    if (/^https?:/i.test(url)) {
+        void openExternalUrl(url);
+    } else {
+        myGoto(url);
+    }
     return true;
 }
