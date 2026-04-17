@@ -25,6 +25,13 @@ class PhotoOperations(private val context: Context) {
     private var picks: Set<String> = emptySet()
     private var queryOptionsJson: String? = null  // Pre-serialized analysis filters
 
+    /** Timestamp (System.currentTimeMillis()) recorded immediately before the most recent
+     *  successful DevicePhotoLoader.loadPhotos() call. The frontend uses this to prune
+     *  placeholder markers: if placeholder.savedAt < lastDeviceQueryStartedAt, the DB row
+     *  was visible to the query, so the placeholder is redundant. */
+    var lastDeviceQueryStartedAt: Long? = null
+        private set
+
 
     fun setPicks(newPicks: Set<String>) {
         picks = newPicks
@@ -96,7 +103,10 @@ class PhotoOperations(private val context: Context) {
 
                 val photos = when (source.type) {
                     "device" -> {
-                        deviceLoader.loadPhotos(source, null, maxPhotosInArea, shouldAbort, sourcePickIds)
+                        val queryStart = System.currentTimeMillis()
+                        val result = deviceLoader.loadPhotos(source, null, maxPhotosInArea, shouldAbort, sourcePickIds)
+                        lastDeviceQueryStartedAt = queryStart
+                        result
                     }
                     "stream" -> {
                         val authToken = authTokenProvider()
@@ -176,7 +186,10 @@ class PhotoOperations(private val context: Context) {
 
                     when (source.type) {
                         "device" -> {
-                            deviceLoader.loadPhotos(source, bounds, maxPhotosInArea, shouldAbort, sourcePickIds)
+                            val queryStart = System.currentTimeMillis()
+                            val result = deviceLoader.loadPhotos(source, bounds, maxPhotosInArea, shouldAbort, sourcePickIds)
+                            lastDeviceQueryStartedAt = queryStart
+                            result
                         }
                         "stream" -> {
                             val authToken = authTokenProvider()

@@ -65,6 +65,16 @@ export const injectPlaceholder = PlaceholderInjector.injectPlaceholder;
 export const removePlaceholder = PlaceholderInjector.removePlaceholder;
 export const clearPlaceholders = PlaceholderInjector.clearAll;
 
+/** Mark a placeholder as persisted to the device DB. Does NOT remove it — the placeholder
+ *  stays visible until the timestamp-based cap prunes it (when the worker next queries the
+ *  device DB after this point, the real photo is guaranteed visible to that query). */
+export function markPlaceholderSaved(photoId: string): void {
+	const now = Date.now();
+	placeholderPhotos.update(photos =>
+		photos.map(p => (p.id === photoId || p.temp_id === photoId) ? { ...p, savedAt: now } : p)
+	);
+}
+
 
 // Render placeholders only when they sit inside the current map view:
 //   photos_in_area -> bounds check (on-screen)

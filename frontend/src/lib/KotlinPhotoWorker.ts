@@ -278,7 +278,8 @@ export class KotlinPhotoWorker {
                         type: 'photosUpdate',
                         photos_in_area: photosInArea,
                         photos_in_range: photosInRange,
-                        timestamp: timestamp
+                        timestamp: timestamp,
+                        device_query_started_at: payload.device_query_started_at
                     }
                 });
                 //console.log('🔥 DEBUG: onMessageCallback completed');

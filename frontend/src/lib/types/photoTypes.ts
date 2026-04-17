@@ -48,6 +48,7 @@ export interface DevicePhotoMetadata {
 export interface PlaceholderPhoto extends PhotoData {
     is_placeholder: true;
     temp_id: string;
+    savedAt?: number; // Set when save_photo_with_metadata succeeds; used to cap the placeholder set
 }
 
 /**

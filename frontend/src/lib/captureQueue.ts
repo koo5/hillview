@@ -1,5 +1,5 @@
 import {writable, get} from 'svelte/store';
-import {removePlaceholder} from './placeholderInjector';
+import {removePlaceholder, markPlaceholderSaved} from './placeholderInjector';
 import type {DevicePhotoMetadata} from './types/photoTypes';
 
 import {invoke} from "@tauri-apps/api/core";
@@ -317,6 +317,11 @@ class CaptureQueueManager {
 							placeholder_replaced: item.placeholder_id,
 							totalProcessed: this.totalProcessed
 						}));
+
+						// Mark placeholder as persisted — the timestamp-based cap in
+						// simplePhotoWorker will drop it once the worker re-queries
+						// the device DB after this point.
+						markPlaceholderSaved(item.placeholder_id);
 
 						// Remove from processing set
 						this.processingSet.delete(item.id);

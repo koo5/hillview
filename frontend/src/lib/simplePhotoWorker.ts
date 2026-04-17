@@ -107,10 +107,12 @@ class SimplePhotoWorker {
                 const areaPhotos = message.photos_in_area || [];
                 const rangePhotos = message.photos_in_range || [];
 
-                // Clean up placeholders that match device photos
-                const devicePhotoIds = areaPhotos.filter((p: any) => p.is_device_photo).map((p: any) => p.id);
-                if (devicePhotoIds.length > 0) {
-                    this.handlePlaceholderCleanup(devicePhotoIds);
+                // Drop placeholders whose backing DB row existed before the worker queried.
+                // Once savedAt < device_query_started_at, the real photo is available to any
+                // future query covering the capture location — the placeholder marker is redundant.
+                const deviceQueryStartedAt: number | undefined = message.device_query_started_at;
+                if (deviceQueryStartedAt) {
+                    this.pruneStaleplaceholders(deviceQueryStartedAt);
                 }
 
                 // Merge placeholders with worker photos for immediate display (only if device source is enabled)
@@ -185,25 +187,20 @@ class SimplePhotoWorker {
         }
     }
 
-    private handlePlaceholderCleanup(devicePhotoIds: string[]): void {
-        if (!devicePhotoIds || devicePhotoIds.length === 0) {
-            return;
-        }
-
+    private pruneStaleplaceholders(deviceQueryStartedAt: number): void {
         const currentPlaceholders = get(placeholderPhotos);
         let removedCount = 0;
 
-        // Check each placeholder to see if it matches any device photo ID
         for (const placeholder of currentPlaceholders) {
-            if (devicePhotoIds.includes(placeholder.id)) {
+            if (placeholder.savedAt && placeholder.savedAt < deviceQueryStartedAt) {
                 removePlaceholder(placeholder.id);
                 removedCount++;
-                if (doLog) console.log(`🢄📍 Removed placeholder ${placeholder.id} - matching device photo found`);
+                if (doLog) console.log(`🢄📍 Pruned placeholder ${placeholder.id} — savedAt ${placeholder.savedAt} < deviceQuery ${deviceQueryStartedAt}`);
             }
         }
 
         if (removedCount > 0) {
-            if (doLog) console.log(TAG+`Cleaned up ${removedCount} placeholder(s) after device photos loaded`);
+            if (doLog) console.log(TAG+`Pruned ${removedCount} stale placeholder(s)`);
         }
     }
 

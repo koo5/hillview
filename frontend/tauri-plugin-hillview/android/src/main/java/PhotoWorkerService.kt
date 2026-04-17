@@ -565,6 +565,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             eventData.put("photos_in_range", serializePhotoDataList(photosInRange))
             eventData.put("timestamp", System.currentTimeMillis())
             generation?.let { eventData.put("generation", it) }
+            photoOperations.lastDeviceQueryStartedAt?.let { eventData.put("device_query_started_at", it) }
 
             if (doLog) Log.d(TAG, "PhotoWorkerService: Queuing photosUpdate message with ${photos.size} area photos and ${photosInRange.size} range photos")
 
