@@ -40,6 +40,10 @@
 
 	export let photo: PhotoData | null = null;
 
+	// Debounce window for per-photo detail fetches (ratings, flag status).
+	// Suppresses bursts of requests when the user rapidly swipes through the gallery.
+	const PHOTO_DETAIL_FETCH_DEBOUNCE_MS = 250;
+
 	// Track pending timeouts for cleanup
 	const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
 
@@ -50,6 +54,12 @@
 		}, delay);
 		pendingTimeouts.add(id);
 		return id;
+	}
+
+	function cancelTimeout(id: ReturnType<typeof setTimeout> | null) {
+		if (id === null) return;
+		clearTimeout(id);
+		pendingTimeouts.delete(id);
 	}
 
 	onDestroy(() => {
@@ -232,20 +242,44 @@
 		}
 	}
 
-	async function loadPhotoRating() {
+	let ratingFetchTimeout: ReturnType<typeof setTimeout> | null = null;
+	let flagFetchTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	function scheduleLoadPhotoRating() {
+		cancelTimeout(ratingFetchTimeout);
+		ratingFetchTimeout = null;
+
 		if (!photo) {
 			userRating = null;
 			ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
 			return;
 		}
-		const state: RatingState = await fetchPhotoRating(photo);
-		userRating = state.userRating;
-		ratingCounts = state.ratingCounts;
+
+		const target = photo;
+		ratingFetchTimeout = scheduleTimeout(async () => {
+			ratingFetchTimeout = null;
+			if (photo !== target) return;
+			const state: RatingState = await fetchPhotoRating(target);
+			if (photo !== target) return;
+			userRating = state.userRating;
+			ratingCounts = state.ratingCounts;
+		}, PHOTO_DETAIL_FETCH_DEBOUNCE_MS);
 	}
 
-	async function checkFlagStatus() {
+	function scheduleCheckFlagStatus() {
+		cancelTimeout(flagFetchTimeout);
+		flagFetchTimeout = null;
+
 		if (!photo || !is_authenticated) return;
-		isFlagged = await fetchIsFlagged(photo);
+
+		const target = photo;
+		flagFetchTimeout = scheduleTimeout(async () => {
+			flagFetchTimeout = null;
+			if (photo !== target) return;
+			const flagged = await fetchIsFlagged(target);
+			if (photo !== target) return;
+			isFlagged = flagged;
+		}, PHOTO_DETAIL_FETCH_DEBOUNCE_MS);
 	}
 
 
@@ -349,14 +383,18 @@
 		closeDropdownMenu();
 	}
 
-	// Load rating counts when photo changes (works for all users)
-	$: if (photo) {
-		loadPhotoRating();
+	// Load rating counts when photo changes (works for all users).
+	// Debounced to suppress bursts of requests while the user swipes rapidly.
+	$: {
+		photo;
+		scheduleLoadPhotoRating();
 	}
 
-	// Load flag status when photo changes (authenticated only)
-	$: if (photo && is_authenticated) {
-		checkFlagStatus();
+	// Load flag status when photo changes (authenticated only). Debounced for the same reason.
+	$: {
+		photo;
+		is_authenticated;
+		scheduleCheckFlagStatus();
 	}
 
 

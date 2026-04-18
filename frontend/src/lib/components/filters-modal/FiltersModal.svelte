@@ -40,6 +40,11 @@
 		filters.update(f => ({ ...f, tallest_building: f.tallest_building === value ? null : value }));
 	}
 
+	function stepMaxPhotos(delta: number) {
+		const current = Number.isFinite($maxPhotosInArea) ? $maxPhotosInArea : 100;
+		maxPhotosInArea.set(Math.min(1000, Math.max(10, current + delta)));
+	}
+
 	function toggleFeature(feature: string) {
 		track('filter', {name: 'feature', value: feature});
 		filters.update(f => ({
@@ -151,19 +156,37 @@
 		<section class="filter-section">
 			<h4>Max Photos in Area</h4>
 			<p class="hint">Maximum number of photos to load and display on the map</p>
-			<input
-				type="number"
-				class="max-photos-input"
-				min="10"
-				max="1000"
-				step="10"
-				value={$maxPhotosInArea}
-				oninput={(e) => {
-					const val = parseInt((e.target as HTMLInputElement).value);
-					if (val !== undefined) maxPhotosInArea.set(val);
-				}}
-				data-testid="max-photos-input"
-			/>
+			<div class="max-photos-stepper">
+				<button
+					type="button"
+					class="stepper-btn"
+					onclick={() => stepMaxPhotos(-10)}
+					disabled={$maxPhotosInArea <= 10}
+					aria-label="Decrease max photos"
+					data-testid="max-photos-decrement"
+				>−</button>
+				<input
+					type="number"
+					class="max-photos-input"
+					min="10"
+					max="1000"
+					step="10"
+					value={$maxPhotosInArea}
+					onchange={(e) => {
+						const val = parseInt((e.target as HTMLInputElement).value);
+						maxPhotosInArea.set(Number.isFinite(val) ? Math.min(1000, Math.max(10, val)) : 100);
+					}}
+					data-testid="max-photos-input"
+				/>
+				<button
+					type="button"
+					class="stepper-btn"
+					onclick={() => stepMaxPhotos(10)}
+					disabled={$maxPhotosInArea >= 1000}
+					aria-label="Increase max photos"
+					data-testid="max-photos-increment"
+				>+</button>
+			</div>
 		</section>
 
 		<section class="filter-section">
@@ -464,6 +487,12 @@
 		cursor: default;
 	}
 
+	.max-photos-stepper {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+
 	.max-photos-input {
 		width: 80px;
 		padding: 6px 10px;
@@ -471,11 +500,38 @@
 		border-radius: 8px;
 		font-size: 14px;
 		color: #374151;
+		text-align: center;
 	}
 
 	.max-photos-input:focus {
 		outline: none;
 		border-color: #3b82f6;
 		box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+	}
+
+	.stepper-btn {
+		width: 32px;
+		height: 32px;
+		border: 1px solid #d1d5db;
+		border-radius: 8px;
+		background: #f9fafb;
+		color: #374151;
+		font-size: 18px;
+		line-height: 1;
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		user-select: none;
+	}
+
+	.stepper-btn:hover:not(:disabled) {
+		background: #f3f4f6;
+		border-color: #9ca3af;
+	}
+
+	.stepper-btn:disabled {
+		opacity: 0.4;
+		cursor: default;
 	}
 </style>
