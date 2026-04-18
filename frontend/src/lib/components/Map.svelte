@@ -1870,6 +1870,15 @@
 		opacity: 0.6;
 	}
 
+	.hunter-mode-toggle,
+	.location-button-container button,
+	.source-buttons-group button,
+	.filters-button,
+	.attribution-info-button {
+		-webkit-user-select: none;
+		user-select: none;
+	}
+
 	.hunter-mode-toggle:hover {
 		background-color: rgba(255, 255, 255, 0.9);
 		opacity: 1;
@@ -2330,4 +2339,3 @@
 	}
 
 </style>
-
