@@ -7,7 +7,7 @@
 	import {onMount} from 'svelte';
 	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
-	import {Trash2, Map, Settings, ThumbsUp, ThumbsDown, Upload, RefreshCw, MoreVertical} from 'lucide-svelte';
+	import {Trash2, Settings, ThumbsUp, ThumbsDown, Upload, RefreshCw, MoreVertical} from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
@@ -143,7 +143,12 @@
 			if (reset) {
 				photos = newPhotos;
 			} else {
-				photos = [...photos, ...newPhotos];
+				const newById = new Map<string, UserPhoto>(newPhotos.map((p: UserPhoto) => [p.id, p]));
+				const existingIds = new Set(photos.map(p => p.id));
+				photos = [
+					...photos.map(p => newById.get(p.id) ?? p),
+					...newPhotos.filter((p: UserPhoto) => !existingIds.has(p.id)),
+				];
 			}
 
 			nextCursor = data.pagination?.next_cursor || null;
