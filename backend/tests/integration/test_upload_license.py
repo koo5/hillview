@@ -30,7 +30,7 @@ class TestUploadLicense:
     @pytest.mark.asyncio
     async def test_valid_license_accepted(self, auth_token):
         """Sending a valid license identifier creates an authorized photo."""
-        token = await auth_token
+        token = auth_token
         client = SecureUploadClient(api_url=os.getenv("API_URL", "http://localhost:8055/api"))
         client_keys = client.generate_client_keys()
         await client.register_client_key(token, client_keys)
@@ -50,7 +50,7 @@ class TestUploadLicense:
     @pytest.mark.asyncio
     async def test_invalid_license_rejected(self, auth_token):
         """Unknown license identifier returns 400."""
-        token = await auth_token
+        token = auth_token
         client = SecureUploadClient(api_url=os.getenv("API_URL", "http://localhost:8055/api"))
         client_keys = client.generate_client_keys()
         await client.register_client_key(token, client_keys)
@@ -70,7 +70,7 @@ class TestUploadLicense:
     @pytest.mark.asyncio
     async def test_missing_license_accepted(self, auth_token):
         """Omitting license (None) is accepted — field is optional."""
-        token = await auth_token
+        token = auth_token
         client = SecureUploadClient(api_url=os.getenv("API_URL", "http://localhost:8055/api"))
         client_keys = client.generate_client_keys()
         await client.register_client_key(token, client_keys)

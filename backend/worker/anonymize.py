@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import hashlib
 import os
 import logging
 import cv2
@@ -22,6 +23,24 @@ model = None
 model_dir = "/app/worker/models"
 model_name = "yolov5s6u.pt"
 model_path = os.path.join(model_dir, model_name)
+
+# sha256 allowlist for YOLO weights. Ultralytics loads these via
+# torch.load(weights_only=False) (see patch in detect_targets), which unpickles
+# arbitrary Python — so only accept operator-shipped files that match a known
+# hash. Rotate the entry here when updating weights.
+MODEL_SHA256 = {
+	"yolov5s6u.pt": "694057a713881b0bbd930ff2be4a9855e5521d639d41643ae050559874da73af",
+}
+
+
+def _verify_model_hash(path: str, expected: str) -> None:
+	h = hashlib.sha256()
+	with open(path, "rb") as f:
+		for chunk in iter(lambda: f.read(1 << 20), b""):
+			h.update(chunk)
+	actual = h.hexdigest()
+	if actual != expected:
+		raise RuntimeError(f"YOLO weights hash mismatch for {path}: expected {expected}, got {actual}")
 
 def _tile_starts(length, tile_size, step):
 	"""Return tile start positions along one axis, always covering the full length."""
@@ -161,6 +180,12 @@ def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2):
 		# Verify model file exists and is valid before loading
 		#if not verify_model_file(model_path):
 		#	raise Exception("No valid YOLO model found")
+
+		expected_hash = MODEL_SHA256.get(model_name)
+		if expected_hash is None:
+			raise RuntimeError(f"No sha256 allowlist entry for YOLO weights '{model_name}'")
+		_verify_model_hash(model_path, expected_hash)
+		logging.info(f"YOLO weights sha256 verified: {model_name}")
 
 		# Temporarily patch torch.load to use weights_only=False for YOLO model loading
 		original_load = torch.load

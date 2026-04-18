@@ -46,7 +46,7 @@ class TestSecureUploadWorkflow:
 	async def test_phase1_client_key_registration(self, test_user_auth, upload_client):
 		"""Test Phase 1: Client authentication and public key registration using utility."""
 		try:
-			auth_token = await test_user_auth
+			auth_token = test_user_auth
 			key_result = await upload_client.register_client_key(auth_token)
 			print("✅ Phase 1: Client key registered successfully")
 			print(f"   Key ID: {key_result}")
@@ -58,7 +58,7 @@ class TestSecureUploadWorkflow:
 	async def test_phase2_upload_authorization(self, test_user_auth, upload_client, filename="secure_test.jpg"):
 		"""Test Phase 2: Request upload authorization from API using utility."""
 		try:
-			auth_token = await test_user_auth
+			auth_token = test_user_auth
 			# Register client key first (required for upload authorization)
 			client_keys = upload_client.generate_client_keys()
 			await upload_client.register_client_key(auth_token, client_keys)
@@ -79,7 +79,7 @@ class TestSecureUploadWorkflow:
 		"""Test Phase 3: Worker processes upload with real authorization token."""
 		# Register client key and get upload authorization using utility
 		client_keys = upload_client.generate_client_keys()
-		auth_token = await test_user_auth
+		auth_token = test_user_auth
 		await upload_client.register_client_key(auth_token, client_keys)
 		auth_data = await upload_client.authorize_upload(auth_token, "secure_test.jpg")
 
@@ -92,7 +92,7 @@ class TestSecureUploadWorkflow:
 	@pytest.mark.asyncio
 	async def test_worker_token_validation(self, test_user_auth, upload_client):
 		"""Test that worker properly validates JWT authorization tokens using utility."""
-		auth_token = await test_user_auth
+		auth_token = test_user_auth
 		# Register client key first (required for upload authorization)
 		client_keys = upload_client.generate_client_keys()
 		await upload_client.register_client_key(auth_token, client_keys)
