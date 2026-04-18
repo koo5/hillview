@@ -66,6 +66,8 @@
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         transition: all 0.2s;
         font-size: 0.75rem;
+        -webkit-user-select: none;
+        user-select: none;
     }
 
     .provider-button :global(svg) {

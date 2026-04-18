@@ -97,6 +97,8 @@
         transition: background-color 0.2s ease;
         flex-direction: column;
         align-items: flex-start;
+        -webkit-user-select: none;
+        user-select: none;
     }
 
     .menu-item:hover {

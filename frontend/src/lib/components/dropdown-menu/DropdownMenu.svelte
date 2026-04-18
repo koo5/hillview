@@ -369,6 +369,8 @@
 		font-size: 14px;
 		text-decoration: none;
 		box-sizing: border-box;
+		-webkit-user-select: none;
+		user-select: none;
 	}
 
 	.menu-item:hover:not(:disabled) {
