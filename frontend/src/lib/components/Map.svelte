@@ -1731,7 +1731,9 @@
 			title={$overrideFilters ? "Filters overridden (long-press to restore)" : "Filters (long-press to override)"}
 			data-testid="filters-button"
 		>
-			<Filter size={18} />
+			<span class="filters-button-icon" class:overridden={$overrideFilters}>
+				<Filter size={18} />
+			</span>
 			<span class="filters-button-text" class:overridden={$overrideFilters}>Filters ({$activeFilterCount})</span>
 		</button>
 		<div class="hunter-panel-separator"></div>
@@ -2229,6 +2231,26 @@
 
 	.filters-button-text.overridden {
 		text-decoration: line-through;
+	}
+
+	.filters-button-icon {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.filters-button-icon.overridden::after {
+		content: '';
+		position: absolute;
+		left: -2px;
+		right: -2px;
+		top: 50%;
+		height: 2px;
+		background-color: currentColor;
+		transform: rotate(-20deg);
+		transform-origin: center;
+		pointer-events: none;
 	}
 
 	@container (max-width: 500px) {
