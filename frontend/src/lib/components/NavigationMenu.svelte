@@ -256,6 +256,8 @@
         width: 100%;
         text-align: left;
         cursor: pointer;
+        -webkit-user-select: none;
+        user-select: none;
     }
 
     .menu-list li a:hover,
