@@ -67,27 +67,6 @@ class DevicePhotoLoader(private val context: Context) {
                 photoDao.getPhotosPaginated(limit = maxPhotos, offset = 0)
             }
 
-            /*
-            // TEMPORARY: Load all photos without bounds filtering for debugging
-            // First, check database status
-            val totalCount = photoDao.getTotalPhotoCount()
-            Log.d(TAG, " Database total photo count: $totalCount")
-
-            // Get all photos to see what's in the database
-            val allPhotos = photoDao.getAllPhotos()
-            Log.d(TAG, " Found ${allPhotos.size} total photos in database")
-
-            if (allPhotos.isNotEmpty()) {
-                Log.d(TAG, " Sample photo details:")
-                allPhotos.take(3).forEach { photo ->
-                    Log.d(TAG, "  Photo ID: ${photo.id}, Path: ${photo.path}, Lat: ${photo.latitude}, Lng: ${photo.longitude}, UploadStatus: ${photo.uploadStatus}")
-                }
-            }
-
-            val photoEntities = photoDao.getPhotosPaginated(limit = maxPhotos, offset = 0)
-            Log.d(TAG, " DEBUG - Loading ALL photos (bounds disabled), found ${photoEntities.size} photos")
-            */
-
             if (shouldAbort()) {
                 if (doLog) Log.d(TAG, " Aborted during photo loading")
                 return emptyList()

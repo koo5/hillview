@@ -113,14 +113,6 @@ class SharePhotoArgs {
 class GetDevicePhotosArgs {
 	var page: Int = 1
 	var page_size: Int = 50
-
-	// Optional bounding box for spatial filtering
-	var min_lat: Double? = null
-	var max_lat: Double? = null
-	var min_lng: Double? = null
-	var max_lng: Double? = null
-
-	var picks: Array<String>? = null
 }
 
 @InvokeArg
@@ -1322,7 +1314,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			val parsedArgs = invoke.parseArgs(GetDevicePhotosArgs::class.java)
 			Log.d(
 				TAG,
-				"📸 Successfully parsed args: page=${parsedArgs?.page}, page_size=${parsedArgs?.page_size}, bounds=[${parsedArgs?.min_lat},${parsedArgs?.min_lng}] to [${parsedArgs?.max_lat},${parsedArgs?.max_lng}]"
+				"📸 Successfully parsed args: page=${parsedArgs?.page}, page_size=${parsedArgs?.page_size}"
 			)
 			parsedArgs ?: GetDevicePhotosArgs() // Use defaults if null
 		} catch (e: Exception) {
@@ -1338,9 +1330,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	}
 
 	private fun processDevicePhotosRequest(invoke: Invoke, args: GetDevicePhotosArgs) {
-		// Check if spatial filtering is requested
-		val hasBounds = args.min_lat != null && args.max_lat != null && args.min_lng != null && args.max_lng != null
-		val pageSize = args.page_size.coerceIn(1, 1000) // Allow larger limits for spatial queries
+		val pageSize = args.page_size.coerceIn(1, 1000)
 
 		CoroutineScope(Dispatchers.IO).launch {
 			val db = database
@@ -1353,53 +1343,16 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				return@launch
 			}
 
-			val page = if (hasBounds) 1 else args.page.coerceAtLeast(1)
-
+			val page = args.page.coerceAtLeast(1)
 			val photoDao = db.photoDao()
 
-			val photos: List<PhotoEntity>
-			val totalCount: Int
-			val totalPages: Int
-			val hasMore: Boolean
+			Log.d(TAG, "📸 Getting all device photos - page: $page, pageSize: $pageSize")
+			val offset = (page - 1) * pageSize
 
-			if (hasBounds) {
-				Log.d(
-					TAG,
-					"📸 Getting device photos in bounds: [${args.min_lat}, ${args.min_lng}] to [${args.max_lat}, ${args.max_lng}] limit: $pageSize (bearing order)"
-				)
-
-				val regularPhotos = photoDao.getPhotosInBounds(
-					args.min_lat!!, args.max_lat!!, args.min_lng!!, args.max_lng!!, pageSize
-				)
-
-				// Get picked photos if any picks are specified
-				val picksSet = args.picks?.toSet() ?: emptySet()
-				val pickedPhotos = if (picksSet.isNotEmpty()) {
-					photoDao.getPickedPhotosInBounds(
-						args.min_lat!!, args.max_lat!!, args.min_lng!!, args.max_lng!!, picksSet
-					)
-				} else {
-					emptyList()
-				}
-
-				// Combine picked photos first (prioritized), then regular photos
-				photos = pickedPhotos + regularPhotos.filter { regular ->
-					pickedPhotos.none { picked -> picked.id == regular.id }
-				}
-
-				// For spatial queries, return simple response without pagination metadata
-				totalCount = photos.size
-				totalPages = 1
-				hasMore = false
-			} else {
-				Log.d(TAG, "📸 Getting all device photos - page: $page, pageSize: $pageSize")
-				val offset = (page - 1) * pageSize
-
-				photos = photoDao.getPhotosPaginated(pageSize, offset)
-				totalCount = photoDao.getTotalPhotoCount()
-				totalPages = (totalCount + pageSize - 1) / pageSize
-				hasMore = page < totalPages
-			}
+			val photos = photoDao.getPhotosPaginated(pageSize, offset)
+			val totalCount = photoDao.getTotalPhotoCount()
+			val totalPages = (totalCount + pageSize - 1) / pageSize
+			val hasMore = page < totalPages
 
 			// Convert PhotoEntity list to JSON array for response
 			val photoList = JSONArray()
@@ -2418,14 +2371,6 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					val args = GetDevicePhotosArgs().apply {
 						params.getInteger("page")?.let { page = it }
 						params.getInteger("page_size")?.let { page_size = it }
-						if (params.has("min_lat")) min_lat = params.getDouble("min_lat")
-						if (params.has("max_lat")) max_lat = params.getDouble("max_lat")
-						if (params.has("min_lng")) min_lng = params.getDouble("min_lng")
-						if (params.has("max_lng")) max_lng = params.getDouble("max_lng")
-						if (params.has("picks")) {
-							val arr = params.getJSONArray("picks")
-							picks = (0 until arr.length()).map { arr.getString(it) }.toTypedArray()
-						}
 					}
 					processDevicePhotosRequest(invoke, args)
 					return
