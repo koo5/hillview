@@ -8,6 +8,7 @@ Allow: /terms
 Allow: /licensing
 Allow: /download
 Allow: /contact
+Allow: /bestof
 Disallow: /api/
 Disallow: /auth/
 Disallow: /oauth/

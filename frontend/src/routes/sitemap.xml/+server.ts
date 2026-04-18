@@ -2,7 +2,7 @@ import type { RequestHandler } from './$types';
 import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 import { backendUrl } from '$lib/config';
 
-const STATIC_PATHS = ['/about', '/contact', '/privacy', '/terms', '/licensing', '/download'];
+const STATIC_PATHS = ['/about', '/contact', '/privacy', '/terms', '/licensing', '/download', '/bestof'];
 
 function escapeXml(s: string): string {
 	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');

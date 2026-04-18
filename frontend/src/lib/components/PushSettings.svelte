@@ -6,6 +6,9 @@
 	import { addAlert } from '$lib/alertSystem.svelte';
 	import MyExternalLink from './MyExternalLink.svelte';
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
+	import {app} from "$lib/data.svelte";
+
+	const FCM_DIRECT_PACKAGE = 'com.google.firebase.messaging.direct';
 
 	let distributors: PushDistributorInfo[] = [];
 	let selectedDistributor = '';
@@ -186,13 +189,19 @@
 			<div class="distributor-options">
 				<!-- Available distributors -->
 				{#each distributors as distributor}
-					<label class="distributor-option" class:unavailable={!distributor.is_available}>
+					{@const isUp = distributor.package_name !== FCM_DIRECT_PACKAGE}
+					{@const upGated = isUp && !$app.debug_enabled}
+					<label
+						class="distributor-option"
+						class:unavailable={!distributor.is_available || upGated}
+						data-testid="push-distributor-option"
+					>
 						<input
 							type="radio"
 							bind:group={selectedDistributor}
 							value={distributor.package_name}
 							on:change={() => selectDistributor(distributor.package_name)}
-							disabled={isLoading || !distributor.is_available}
+							disabled={isLoading || !distributor.is_available || upGated}
 						/>
 						<div class="option-content">
 							<div class="option-header">
@@ -207,6 +216,9 @@
 								{#if !distributor.is_available}
 									<span class="unavailable-badge">Not Available</span>
 								{/if}
+								{#if isUp}
+									<span class="wip-badge" data-testid="push-up-wip-badge">WIP</span>
+								{/if}
 							</div>
 							<div class="option-description">
 								{#if distributor.is_available}
@@ -215,6 +227,11 @@
 									App not installed: {distributor.package_name}
 								{/if}
 							</div>
+							{#if isUp}
+								<div class="wip-note" data-testid="push-up-wip-note">
+									UnifiedPush support is still a work in progress.{#if upGated} Enable debug mode in Advanced Settings to try it.{/if}
+								</div>
+							{/if}
 						</div>
 					</label>
 				{/each}
@@ -356,6 +373,23 @@
 		font-weight: 600;
 		padding: 0.125rem 0.5rem;
 		border-radius: 0.75rem;
+	}
+
+	.wip-badge {
+		background-color: #e0e7ff;
+		color: #3730a3;
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 0.125rem 0.5rem;
+		border-radius: 0.75rem;
+	}
+
+	.wip-note {
+		margin-top: 0.5rem;
+		font-size: 0.8125rem;
+		font-style: italic;
+		color: #6b7280;
+		line-height: 1.4;
 	}
 
 	.option-description {

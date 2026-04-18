@@ -204,8 +204,7 @@
 
 
 <svelte:head>
-<!-- not sure this has effect anywhere -->
-  <title>{((backendUrl === 'https://api.hillview.cz/api') ? 'Hillview' : 'Hillviedev')}</title>
+  <title>{(backendUrl === 'https://api.hillview.cz/api') ? 'Hillview — annotated panoramas' : 'Hillviedev — annotated panoramas'}</title>
 </svelte:head>
 
 <slot/>
