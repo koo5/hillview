@@ -19,11 +19,18 @@
 	} from 'lucide-svelte';
 	import { http, handleApiError, TokenExpiredError } from '$lib/http';
 	import { auth } from '$lib/auth.svelte';
-	import { constructPhotoMapUrl, constructUserProfileUrl } from '$lib/urlUtils';
+	import { constructPhotoMapUrl, constructUserProfileUrl, parsePhotoUidParts } from '$lib/urlUtils';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { TAURI } from '$lib/tauri';
 	import type { PhotoData } from '$lib/sources';
+	import {
+		getDisplayImageUrl,
+		formatDateTime,
+		type PublicPhoto,
+		type PhotoAnnotation
+	} from '$lib/photoDisplay';
+	import PhotoAnnotations from '$lib/components/PhotoAnnotations.svelte';
 	import {
 		hidePhotoRequest,
 		togglePhotoRating,
@@ -42,32 +49,8 @@
 	import { showDropdownMenu } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 	import { getPhotoMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
 
-	interface PublicPhoto {
-		id: string;
-		uid: string;
-		source: string;
-		filename: string | null;
-		original_filename: string | null;
-		description: string | null;
-		is_public: boolean;
-		latitude: number | null;
-		longitude: number | null;
-		bearing: number | null;
-		altitude: number | null;
-		width: number | null;
-		height: number | null;
-		captured_at: string | null;
-		uploaded_at: string | null;
-		processing_status: string;
-		sizes: Record<string, { url: string; width: number; height: number }> | null;
-		owner_id: string | null;
-		owner_username: string | null;
-		user_rating: 'thumbs_up' | 'thumbs_down' | null;
-		rating_counts: { thumbs_up: number; thumbs_down: number };
-		is_own_photo: boolean;
-	}
-
 	let photo: PublicPhoto | null = null;
+	let annotations: PhotoAnnotation[] = [];
 	let loading = true;
 	let error = '';
 
@@ -114,15 +97,25 @@
 		}
 		loading = true;
 		error = '';
+		annotations = [];
+		const parts = parsePhotoUidParts(photoUid);
 		try {
-			const response = await http.get(`/photos/public/${encodeURIComponent(photoUid)}`);
-			if (!response.ok) {
-				if (response.status === 404) {
+			const [photoRes, annotationsRes] = await Promise.all([
+				http.get(`/photos/public/${encodeURIComponent(photoUid)}`),
+				parts?.id
+					? http.get(`/annotations/photos/${encodeURIComponent(parts.id)}`).catch(() => null)
+					: Promise.resolve(null),
+			]);
+			if (!photoRes.ok) {
+				if (photoRes.status === 404) {
 					throw new Error('Photo not found');
 				}
-				throw new Error(`Failed to load photo: ${response.status}`);
+				throw new Error(`Failed to load photo: ${photoRes.status}`);
 			}
-			photo = await response.json();
+			photo = await photoRes.json();
+			if (annotationsRes && annotationsRes.ok) {
+				annotations = await annotationsRes.json();
+			}
 			if (photo && isAuthenticated) {
 				checkFlagStatus();
 			}
@@ -134,24 +127,6 @@
 			}
 		} finally {
 			loading = false;
-		}
-	}
-
-	function getDisplayImageUrl(p: PublicPhoto): string {
-		if (!p.sizes) return '';
-		// Prefer a large display size, falling back progressively
-		for (const key of ['1200', '1024', 'full', '640', '320']) {
-			if (p.sizes[key]?.url) return p.sizes[key].url;
-		}
-		return '';
-	}
-
-	function formatDateTime(value: string | null): string {
-		if (!value) return '';
-		try {
-			return new Date(value).toLocaleString();
-		} catch {
-			return value;
 		}
 	}
 
@@ -447,6 +422,8 @@
 					{/if}
 				</div>
 			{/if}
+
+			<PhotoAnnotations {annotations} />
 
 			{#if statusMessage}
 				<div class="status-message" class:error={statusError} data-testid="photo-detail-status">

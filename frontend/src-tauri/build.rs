@@ -4,6 +4,15 @@ fn main() {
 	// Let Tauri set up its stuff
 	tauri_build::build();
 
+	// 16 KB ELF page alignment for Android (Play Console requirement, Nov 2025).
+	// Tauri's build system overrides rustflags in .cargo/config.toml, so these
+	// must be injected via build.rs. See tauri-apps/tauri#14895.
+	let target = std::env::var("TARGET").unwrap_or_default();
+	if target.contains("android") {
+		println!("cargo:rustc-link-arg=-Wl,-z,max-page-size=16384");
+		println!("cargo:rustc-link-arg=-Wl,-z,common-page-size=16384");
+	}
+
 	// Get current Git commit hash
 	let git_hash = std::process::Command::new("git")
 		.args(["rev-parse", "HEAD"])

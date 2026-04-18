@@ -157,6 +157,17 @@ describe('Android Screenshots', () => {
         await shot('settings');
     });
 
+    it('external camera settings', async () => {
+        await navigateTo('/settings/advanced');
+        await waitForTestId('qr-timestamp-link');
+        // Scroll the QR timestamp link into view so the External Camera section is visible.
+        await browser.execute(() => {
+            document.querySelector('[data-testid="qr-timestamp-link"]')?.scrollIntoView({ block: 'center' });
+        });
+        await browser.pause(500);
+        await shot('external-camera-settings');
+    });
+
     it('camera capture', async () => {
         await navigateTo('/');
         await waitForTestId(TESTID.cameraButton);

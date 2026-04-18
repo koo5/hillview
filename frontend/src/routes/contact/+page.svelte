@@ -1,5 +1,6 @@
 <svelte:head>
 	<title>Contact - Hillview</title>
+	<meta name="description" content="Contact Hillview — questions, feedback, or reports." />
 </svelte:head>
 
 <script lang="ts">

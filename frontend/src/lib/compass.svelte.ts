@@ -3,6 +3,7 @@ import { TAURI, TAURI_MOBILE, tauriSensor, isSensorAvailable, type SensorData, S
 import {PluginListener} from "@tauri-apps/api/core";
 import {bearingMode, bearingState, updateBearing} from "$lib/mapState";
 import {getSettings, settings, settingsDefaults} from "$lib/settings";
+import {getAngularDistance} from "$lib/utils/bearingUtils";
 
 export interface CompassData {
     magnetic_heading: number | null;  // 0-360 degrees from magnetic north
@@ -682,15 +683,9 @@ let lastBearing: number | null = null;
 *  */
 const SMOOTHING_FACTOR = 0; // 0 = no smoothing, 1 = no change
 
-// Helper function to calculate shortest angular distance
-function angleDifference(a: number, b: number): number {
-    const diff = ((a - b + 180) % 360) - 180;
-    return diff < -180 ? diff + 360 : diff;
-}
-
 // Helper function to interpolate between angles
 function lerpAngle(current: number, target: number, factor: number): number {
-    const diff = angleDifference(target, current);
+    const diff = getAngularDistance(current, target);
     const result = current + diff * (1 - factor);
     return (result + 360) % 360;
 }

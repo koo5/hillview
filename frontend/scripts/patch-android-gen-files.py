@@ -34,6 +34,10 @@ class AndroidConfigurer:
 		# External keystore configuration (maintained by user)
 		self.keystore_props_path = Path.home() / "secrets" / "keystore.properties"
 
+		# NDK version pinned for 16 KB ELF page alignment (Play Console, Nov 2025).
+		# Must be r28+; must exist under $ANDROID_HOME/ndk/.
+		self.ndk_version = "29.0.13113456"
+
 		# Google Services configuration paths
 		self.google_services_target = self.android_root / "app" / "google-services.json"
 
@@ -752,6 +756,53 @@ if (file("google-services.json").exists()) {
 			self.log(f"Error fixing app build.gradle.kts: {e}", "ERROR")
 			return False
 
+	def _patch_16kb_alignment(self) -> bool:
+		"""Pin NDK and disable legacy jniLibs packaging for 16 KB ELF page alignment.
+
+		Required by Google Play from Nov 2025 for apps targeting Android 15+.
+		See tauri-apps/tauri#14895. Rust linker flags for this are in build.rs.
+		"""
+		if not self.build_gradle_file.exists():
+			self.log(f"App build.gradle.kts not found at {self.build_gradle_file}", "ERROR")
+			return False
+
+		try:
+			content = self.build_gradle_file.read_text()
+			original_content = content
+
+			marker = "// 16KB page alignment"
+			if marker in content:
+				self.log("16KB alignment patch already present", "SUCCESS")
+				return True
+
+			block = (
+				f'    {marker} (Play Console requirement, Nov 2025)\n'
+				f'    ndkVersion = "{self.ndk_version}"\n'
+				f'    packaging {{\n'
+				f'        jniLibs {{\n'
+				f'            useLegacyPackaging = false\n'
+				f'        }}\n'
+				f'    }}\n'
+			)
+
+			# Insert immediately after the `compileSdk = NN` line in android {}.
+			pattern = r'(^\s*compileSdk\s*=\s*\d+\s*\n)'
+			if not re.search(pattern, content, flags=re.MULTILINE):
+				self.log("Could not find compileSdk line to anchor 16KB patch", "ERROR")
+				return False
+
+			content = re.sub(pattern, r'\1' + block, content, count=1, flags=re.MULTILINE)
+			self.log(f"Added 16KB alignment (ndkVersion={self.ndk_version})", "SUCCESS")
+
+			if content != original_content:
+				self.build_gradle_file.write_text(content)
+
+			return True
+
+		except Exception as e:
+			self.log(f"Error patching 16KB alignment: {e}", "ERROR")
+			return False
+
 	def _fix_plugin_build_gradle(self) -> bool:
 		"""Fix plugin build.gradle.kts for Kotlin 2.x compatibility and add Firebase dependencies"""
 		if not self.plugin_build_gradle_file.exists():
@@ -900,6 +951,7 @@ if (file("google-services.json").exists()) {
 			("Configure build.gradle.kts", self.configure_build_gradle),
 			("Patch colors.xml", self.patch_colors_xml),
 			("Fix Kotlin versions", self.fix_kotlin_versions),
+			("Patch 16KB page alignment", self._patch_16kb_alignment),
 			("Copy google-services.json", self.copy_google_services_json),
 		]
 

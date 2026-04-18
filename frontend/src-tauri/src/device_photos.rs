@@ -614,7 +614,7 @@ async fn determine_final_bearing(
 		}
 	} else {
 		info!(
-			"🢄📡 Bearing source '{}' indicates manual input, using frontend bearing",
+			"🢄📡 Bearing source '{}' has no Kotlin-side history, using frontend bearing",
 			metadata.bearing_source
 		);
 		metadata.bearing
@@ -622,12 +622,16 @@ async fn determine_final_bearing(
 	final_bearing
 }
 
-/// Helper function to determine if a bearing source indicates sensor data
-#[cfg(target_os = "android")]
+/// Helper function to determine if a bearing source is produced Kotlin-side
+/// at high frequency — in that case the DB is the authoritative time-indexed
+/// source and the frontend value is likely stale by the JS-bridge latency.
+/// Sources we own: compass/sensor fusion (walking mode) and gps-kalman (car
+/// mode, since the filter was ported to Kotlin).
+#[cfg(any(target_os = "android", test))]
+#[allow(dead_code)] // unused on non-android non-test builds
 fn is_sensor_bearing_source(bearing_source: &str) -> bool {
 	let source_lower = bearing_source.to_lowercase();
 
-	// Check for sensor-related keywords
 	source_lower.contains("sensor")
 		|| source_lower.contains("compass")
 		|| source_lower.contains("tauri")
@@ -636,4 +640,35 @@ fn is_sensor_bearing_source(bearing_source: &str) -> bool {
 		|| source_lower.contains("rotation")
 		|| source_lower.contains("magnetic")
 		|| source_lower.contains("enhanced")
+		|| source_lower.contains("gps-kalman")
+}
+
+#[cfg(test)]
+mod tests {
+	use super::is_sensor_bearing_source;
+
+	#[test]
+	fn matches_kotlin_owned_sources() {
+		assert!(is_sensor_bearing_source("tauri-compass-true"));
+		assert!(is_sensor_bearing_source("enhanced-sensor"));
+		assert!(is_sensor_bearing_source("magnetometer"));
+		assert!(is_sensor_bearing_source("rotation-vector"));
+		assert!(is_sensor_bearing_source("gyro-fusion"));
+		assert!(is_sensor_bearing_source("gps-kalman"));
+	}
+
+	#[test]
+	fn is_case_insensitive() {
+		assert!(is_sensor_bearing_source("GPS-KALMAN"));
+		assert!(is_sensor_bearing_source("Tauri-Compass"));
+	}
+
+	#[test]
+	fn rejects_unrelated_sources() {
+		assert!(!is_sensor_bearing_source("manual"));
+		assert!(!is_sensor_bearing_source("photo"));
+		assert!(!is_sensor_bearing_source("url"));
+		assert!(!is_sensor_bearing_source("arrow_drag"));
+		assert!(!is_sensor_bearing_source(""));
+	}
 }

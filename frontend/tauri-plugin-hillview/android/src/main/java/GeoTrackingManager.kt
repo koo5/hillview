@@ -39,6 +39,12 @@ class GeoTrackingManager(private val context: Context) {
 	private var lastOrientationStorageTime: Long = 0
 	private var lastLocationStorageTime: Long = 0
 
+	// GPS-derived heading estimator (car mode). Kept here so the filter state
+	// survives across GPS ticks independently of the frontend.
+	// NOTE: temporary source tag `gps-kalman-raw` — step 3 composes it with
+	// mount offset and writes the composed value under `gps-kalman`.
+	private val headingFilter = HeadingFilter()
+
 	private fun rateLimitOrientationStorage(): Boolean {
 		val currentTime = System.currentTimeMillis()
 		val ok = (currentTime - lastOrientationStorageTime >= databaseStorageIntervalMs)
@@ -152,6 +158,61 @@ class GeoTrackingManager(private val context: Context) {
 				Log.e(TAG, "Failed to store location in database: ${e.message}", e)
 			}
 		}
+	}
+
+	// Current camera-mount offset (degrees) applied to GPS-derived travel heading.
+	// Frontend pushes this via set_mount_offset when the user adjusts the shooting
+	// angle; defaults to 0 (camera points in the direction of travel).
+	@Volatile
+	private var mountOffset: Double = 0.0
+
+	fun setMountOffset(offsetDegrees: Double) {
+		mountOffset = normalizeBearingDegrees(offsetDegrees)
+	}
+
+	fun getMountOffset(): Double = mountOffset
+
+	/**
+	 * Run the GPS-derived heading filter on a new location sample and, if it
+	 * produced a heading, compose it with the current mount offset and persist
+	 * the composed absolute as a `gps-kalman` bearing.
+	 *
+	 * Returns the composed bearing (0-360°) so the caller can emit it to the
+	 * frontend, or null when the filter rejected the sample.
+	 */
+	fun feedLocationForHeadingFilter(data: PreciseLocationData): Double? {
+		val travel = headingFilter.update(
+			FilterPosition(
+				lat = data.latitude,
+				lng = data.longitude,
+				speed = data.speed?.toDouble(),
+				timestamp = data.timestamp
+			)
+		) ?: return null
+		val composed = normalizeBearingDegrees(travel + mountOffset)
+		CoroutineScope(Dispatchers.IO).launch {
+			try {
+				val sourceId = getOrCreateSourceId("gps-kalman")
+				storeBearingEntity(
+					BearingEntity(
+						timestamp = data.timestamp,
+						trueHeading = composed.toFloat(),
+						magneticHeading = null,
+						accuracyLevel = null,
+						sourceId = sourceId,
+						pitch = null,
+						roll = null
+					)
+				)
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to store gps-kalman bearing: ${e.message}", e)
+			}
+		}
+		return composed
+	}
+
+	fun resetHeadingFilter() {
+		headingFilter.reset()
 	}
 
 	fun storeLocationPreciseLocationData(data: PreciseLocationData) {

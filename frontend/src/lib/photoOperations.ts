@@ -7,6 +7,7 @@ import { PhotoSourceFactory, type PhotoSourceOptions } from './sources/PhotoSour
 import type { PhotoSourceLoader, PhotoSourceCallbacks } from './sources/PhotoSourceLoader';
 import { filterPhotosByArea } from './workerUtils';
 import { MAX_PHOTOS_IN_AREA } from './photoWorkerConstants';
+import { parsePhotoUidParts } from './urlUtilsServer';
 
 export interface OperationCallbacks {
     shouldAbort: (processId: string) => boolean;
@@ -224,12 +225,11 @@ export class PhotoOperations {
 
         // Extract picks for this specific source
         // picks contain UIDs like "hillview-abc123", we need to extract "abc123" for the backend
-        const sourcePrefix = `${source.id}-`;
-        const sourcePickIds = new Set(
-            Array.from(this.picks)
-                .filter(uid => uid.startsWith(sourcePrefix))
-                .map(uid => uid.substring(sourcePrefix.length))
-        );
+        const sourcePickIds = new Set<string>();
+        for (const uid of this.picks) {
+            const parts = parsePhotoUidParts(uid);
+            if (parts?.source === source.id) sourcePickIds.add(parts.id);
+        }
 
 		//console.log(`🢄PhotoOperations: picks for source ${source.id} before load start:`, Array.from(sourcePickIds));
 

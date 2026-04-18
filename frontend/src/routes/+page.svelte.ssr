@@ -13,52 +13,47 @@
 
 	import {browser} from '$app/environment';
 	import {page} from '$app/stores';
+	import {HILLVIEW_BASE_URL} from '$lib/urlUtilsServer';
+	import PhotoHead from '$lib/components/PhotoHead.svelte';
+
+	$: meta = data?.photoMeta;
+	$: photoTitle = meta
+		? meta.description
+			? `${meta.description} - Hillview`
+			: 'Photo on Hillview'
+		: null;
 </script>
 
 
+{#if meta && photoTitle}
+	<PhotoHead
+		title={photoTitle}
+		description={meta.description ?? ''}
+		ogType="article"
+		ogUrl={$page.url.href}
+		ogImage={meta.imageUrl
+			? { url: meta.imageUrl, width: meta.width, height: meta.height }
+			: null}
+		latitude={meta.latitude ?? null}
+		longitude={meta.longitude ?? null}
+		canonicalUrl={meta.photoUid
+			? `${HILLVIEW_BASE_URL}/photo/${encodeURIComponent(meta.photoUid)}`
+			: null}
+	/>
+{/if}
+
 <svelte:head>
-	{#if data?.photoMeta}
-		<title>{data.photoMeta.description ? `${data.photoMeta.description} - Hillview` : 'Photo on Hillview'}</title>
-		<meta name="description" content={data.photoMeta.description} />
-
-		<!-- OpenGraph tags for social sharing -->
-		<meta property="og:title" content={data.photoMeta.description ? `${data.photoMeta.description} - Hillview` : 'Photo on Hillview'} />
-		<meta property="og:description" content={data.photoMeta.description} />
-		<meta property="og:type" content="article" />
-		<meta property="og:url" content={$page.url.href} />
-
-		{#if data.photoMeta.imageUrl}
-			<meta property="og:image" content={data.photoMeta.imageUrl} />
-			{#if data.photoMeta.width}
-				<meta property="og:image:width" content={data.photoMeta.width.toString()} />
-			{/if}
-			{#if data.photoMeta.height}
-				<meta property="og:image:height" content={data.photoMeta.height.toString()} />
-			{/if}
-		{/if}
-
-		<!-- Twitter Card tags -->
-		<meta name="twitter:card" content="summary_large_image" />
-		<meta name="twitter:title" content={data.photoMeta.description ? `${data.photoMeta.description} - Hillview` : 'Photo on Hillview'} />
-		<meta name="twitter:description" content={data.photoMeta.description} />
-		{#if data.photoMeta.imageUrl}
-			<meta name="twitter:image" content={data.photoMeta.imageUrl} />
-		{/if}
-
-		<!-- Additional geo/location tags if available -->
-		{#if data.photoMeta.latitude && data.photoMeta.longitude}
-			<meta property="place:location:latitude" content={data.photoMeta.latitude.toString()} />
-			<meta property="place:location:longitude" content={data.photoMeta.longitude.toString()} />
-		{/if}
-
-		<meta property="og:logo" content="%sveltekit.assets%/favicon.png" />
-	{:else}
-		<title>Hillview</title>
-		<meta name="description" content="Hillview - Photo mapping application" />
-		<meta property="og:title" content="Hillview" />
-		<meta property="og:description" content="Hillview - Photo mapping application" />
+	{#if !meta}
+		<meta property="og:title" content="Hillview — annotated panoramas" />
+		<meta property="og:description" content="Photos from places where cars can't go" />
 		<meta property="og:type" content="website" />
-		<meta property="og:logo" content="%sveltekit.assets%/favicon.png" />
+		<meta property="og:image" content={`${HILLVIEW_BASE_URL}/og-card.png`} />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content="Hillview — annotated panoramas" />
+		<meta name="twitter:description" content="Photos from places where cars can't go" />
+		<meta name="twitter:image" content={`${HILLVIEW_BASE_URL}/og-card.png`} />
 	{/if}
 </svelte:head>
 

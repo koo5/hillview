@@ -44,6 +44,10 @@ futures = "0.3"
 # Pin async-io to avoid unstable anonymous_pipe feature in 2.6.0
 async-io = ">=2.0.0, <2.6.0"
 tauri-plugin-edge-to-edge = "0.3.3"
-tauri-plugin-camera = "0.1"
 imagesize = "0.13"
 base64 = "0.22"
+
+# tauri-plugin-camera only builds on mobile targets. Scoping it here keeps
+# host `cargo test` working for pure-logic units like device_photos::tests.
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-camera = "0.1"

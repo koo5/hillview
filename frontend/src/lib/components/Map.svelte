@@ -27,6 +27,7 @@
 
 	import {
 		spatialState,
+		bearingMode,
 		bearingState,
 		visiblePhotos,
 		photoToLeft,
@@ -49,7 +50,9 @@
 	} from "$lib/mapState";
 	import { overrideFilters } from '$lib/components/filters-modal/filtersStore';
 	import {featuredPhotoData, maybeFetchFeaturedPhoto} from "$lib/featuredPhoto";
-	import {updateBearingWithPhoto} from "$lib/bearingTracking";
+	import {updateBearingWithPhoto, disableBearingTracking} from "$lib/bearingTracking";
+	import {adjustMountOffset} from "$lib/gpsOrientation.svelte";
+	import {getAngularDistance} from "$lib/utils/bearingUtils";
 	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
 	import { turn_to_photo_to, app, sourceLoadingStatus } from "$lib/data.svelte.js";
@@ -586,12 +589,11 @@
 			stopSlideshow();
 		}
 
-		// Disable compass tracking when any turn button is clicked (but keep GPS orientation)
+		// Disable all bearing tracking when a turn button is clicked — the
+		// user's rotation is meaningless if compass or gps orientation is
+		// about to overwrite it on the next tick.
 		if (action === 'left' || action === 'right' || action === 'rotate-ccw' || action === 'rotate-cw') {
-			if ($compassEnabled) {
-				console.log('🢄🧭 Disabling compass tracking due to manual turn');
-				disableCompass();
-			}
+			disableBearingTracking();
 		}
 
 		if (action === 'left') {
@@ -937,7 +939,13 @@
 			const dx = px - centerX;
 			const dy = py - centerY;
 			const bearing = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
-			updateBearing(bearing, 'arrow_drag');
+			if ($bearingMode === 'car') {
+				// Translate drag into a mount-offset change so Kotlin (Tauri) /
+				// the subsequent gps-kalman diffs (browser) stay consistent.
+				adjustMountOffset(getAngularDistance($bearingState.bearing, bearing));
+			} else {
+				updateBearing(bearing, 'arrow_drag');
+			}
 		}
 
 		function onPointerMove(ev: PointerEvent) {

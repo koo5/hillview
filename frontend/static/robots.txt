@@ -9,6 +9,7 @@ Allow: /licensing
 Allow: /download
 Allow: /contact
 Allow: /bestof
+Allow: /photo/
 Disallow: /api/
 Disallow: /auth/
 Disallow: /oauth/

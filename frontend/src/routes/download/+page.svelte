@@ -1,3 +1,8 @@
+<svelte:head>
+	<title>Download - Hillview</title>
+	<meta name="description" content="Download the Hillview Android app — photo mapping on your phone." />
+</svelte:head>
+
 <script lang="ts">
     import { Download, Smartphone, Send, CheckCircle, AlertCircle } from 'lucide-svelte';
     import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';

@@ -827,6 +827,16 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 
 			geoTrackingManager.storeLocationPreciseLocationData(locationData)
 
+			val kalmanBearing = geoTrackingManager.feedLocationForHeadingFilter(locationData)
+			if (kalmanBearing != null) {
+				val bearingEvent = JSObject()
+				bearingEvent.put("bearing", kalmanBearing)
+				bearingEvent.put("mount_offset", geoTrackingManager.getMountOffset())
+				bearingEvent.put("timestamp", locationData.timestamp)
+				bearingEvent.put("source", "gps-kalman")
+				trigger("gps-kalman-bearing", bearingEvent)
+			}
+
 			trigger("location-update", data)
 
 		}, {
@@ -2184,6 +2194,25 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 						//Log.d(TAG, "🔧 Stored manual orientation data")
 					} catch (e: Exception) {
 						resolveWithError(invoke, "🔧 Failed to store orientation data: ${e.message}", e)
+						return
+					}
+				}
+
+				"set_mount_offset" -> {
+					try {
+						val offset = params.getDouble("offset")
+						geoTrackingManager.setMountOffset(offset)
+					} catch (e: Exception) {
+						resolveWithError(invoke, "🔧 Failed to set mount offset: ${e.message}", e)
+						return
+					}
+				}
+
+				"reset_heading_filter" -> {
+					try {
+						geoTrackingManager.resetHeadingFilter()
+					} catch (e: Exception) {
+						resolveWithError(invoke, "🔧 Failed to reset heading filter: ${e.message}", e)
 						return
 					}
 				}

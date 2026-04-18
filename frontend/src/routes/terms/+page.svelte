@@ -1,5 +1,6 @@
 <svelte:head>
 	<title>Terms of Service - Hillview</title>
+	<meta name="description" content="Hillview terms of service — rules for using the photo mapping platform." />
 </svelte:head>
 
 <script lang="ts">

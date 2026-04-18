@@ -41,15 +41,19 @@ pub fn run() {
         }
         info!("🢄Current dir: {:?}", std::env::current_dir());
     }
-    match tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_edge_to_edge::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_hillview::init())
-        .plugin(tauri_plugin_camera::init())
+        .plugin(tauri_plugin_hillview::init());
+
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_camera::init());
+
+    match builder
         .invoke_handler(tauri::generate_handler![
             commands::log,
             commands::is_debug_mode,

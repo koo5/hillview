@@ -1,10 +1,13 @@
 import {writable, get} from 'svelte/store';
 import {browser} from '$app/environment';
 import {gpsLocation} from './location.svelte';
-import {updateBearingByDiff} from './mapState';
+import {updateBearing, updateBearingByDiff} from './mapState';
 import {isOnMapRoute} from './compass.svelte';
 import {locationManager} from './locationManager';
 import {HeadingFilter} from './utils/headingFilter';
+import {getAngularDistance} from './utils/bearingUtils';
+import {TAURI} from './tauri';
+import {addPluginListener, invoke, type PluginListener} from '@tauri-apps/api/core';
 
 // User preference - simple enabled/disabled
 export const gpsOrientationEnabled = writable(false);
@@ -18,6 +21,12 @@ export type GpsOrientationInternalState =
 
 export const gpsOrientationInternalState = writable<GpsOrientationInternalState>('inactive');
 export const gpsOrientationError = writable<string | null>(null);
+
+// Camera-mount offset (degrees). Applied on top of travel direction in car
+// mode: photo_bearing = travel + mountOffset. In Tauri, Kotlin owns the
+// composition — this store reflects it for UI and is pushed down via
+// set_mount_offset when adjusted.
+export const carMountOffset = writable(0);
 
 // Kalman filter: estimates heading from GPS position pairs instead of raw GPS heading
 let headingFilter = new HeadingFilter();
@@ -46,6 +55,22 @@ export function disableGpsOrientation() {
 	gpsOrientationEnabled.set(false);
 }
 
+// Adjust the camera-mount offset — the angle of the camera relative to the
+// direction of travel. Caller is responsible for only invoking this in car
+// mode (gps orientation enabled); the offset is meaningless otherwise.
+export function adjustMountOffset(diff: number) {
+	const next = ((get(carMountOffset) + diff) % 360 + 360) % 360;
+	carMountOffset.set(next);
+	// Immediate UI feedback; Kotlin reconciles on the next GPS tick.
+	updateBearingByDiff(diff, 'gps-kalman');
+	if (TAURI) {
+		invoke('plugin:hillview|cmd', {
+			command: 'set_mount_offset',
+			params: {offset: next}
+		}).catch(err => console.error('🚗 Failed to push mount offset to Kotlin:', err));
+	}
+}
+
 // Stop GPS orientation tracking internally
 async function stopGpsOrientationInternal() {
 	if (doLog) console.log('🚗 Stopping GPS orientation tracking internal state');
@@ -53,6 +78,9 @@ async function stopGpsOrientationInternal() {
 	headingFilter.reset();
 	lastGpsHeading = null;
 	gpsOrientationError.set(null);
+	if (TAURI) {
+		invoke('plugin:hillview|cmd', {command: 'reset_heading_filter', params: {}}).catch(() => {});
+	}
 	await locationManager.releaseLocation('gps-orientation');
 }
 
@@ -84,6 +112,14 @@ async function updateGpsOrientationState() {
 			lastGpsHeading = null;
 			if (doLog) console.log('🚗 GPS orientation tracking starting, waiting for GPS data');
 
+			// Push the current mount offset down so Kotlin composes correctly from the first tick.
+			if (TAURI) {
+				invoke('plugin:hillview|cmd', {
+					command: 'set_mount_offset',
+					params: {offset: get(carMountOffset)}
+				}).catch(err => console.error('🚗 Failed to push initial mount offset:', err));
+			}
+
 			// Request location service
 			try {
 				await locationManager.requestLocation('gps-orientation');
@@ -97,14 +133,47 @@ async function updateGpsOrientationState() {
 	}
 }
 
+// Listener for Kotlin-emitted composed bearings (Tauri only).
+let kalmanBearingListener: PluginListener | null = null;
+
+async function ensureKalmanBearingListener() {
+	if (!TAURI || kalmanBearingListener) return;
+	try {
+		kalmanBearingListener = await addPluginListener(
+			'hillview',
+			'gps-kalman-bearing',
+			(data: {bearing: number; mount_offset: number; timestamp: number; source: string}) => {
+				const internalState = get(gpsOrientationInternalState);
+				if (internalState !== 'active' && internalState !== 'starting') return;
+				if (internalState === 'starting') {
+					gpsOrientationInternalState.set('active');
+					gpsOrientationError.set(null);
+				}
+				updateBearing(data.bearing, 'gps-kalman');
+				gpsOrientationFlash.set(true);
+				if (gpsOrientationFlashTimer) clearTimeout(gpsOrientationFlashTimer);
+				gpsOrientationFlashTimer = setTimeout(() => gpsOrientationFlash.set(false), 100);
+			}
+		);
+	} catch (e) {
+		console.error('🚗 Failed to set up gps-kalman-bearing listener:', e);
+	}
+}
+
 if (browser) {
 
 // Subscribe to state changes
 	gpsOrientationEnabled.subscribe(updateGpsOrientationState);
 	isOnMapRoute.subscribe(updateGpsOrientationState);
 
+	if (TAURI) {
+		// Kotlin owns the filter — listen for composed bearings instead.
+		ensureKalmanBearingListener();
+	}
+
 // Subscribe to GPS location updates for orientation tracking
 	gpsLocation.subscribe((position) => {
+		if (TAURI) return; // Kotlin-side filter handles this path.
 		const internalState = get(gpsOrientationInternalState);
 
 		if (doLog) console.log('🚗 GPS orientation received location update:', JSON.stringify(position));
@@ -143,9 +212,7 @@ if (browser) {
 
 		// Apply differential updates when active
 		if (internalState === 'active' && lastGpsHeading !== null) {
-			let headingDiff = filteredHeading - lastGpsHeading;
-			// Wrap to shortest angular path
-			headingDiff = ((headingDiff % 360) + 540) % 360 - 180;
+			const headingDiff = getAngularDistance(lastGpsHeading, filteredHeading);
 
 			if (Math.abs(headingDiff) > 1) { // Ignore tiny changes to reduce noise
 				updateBearingByDiff(headingDiff, 'gps-kalman');

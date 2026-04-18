@@ -38,6 +38,17 @@ describe('bearingUtils', () => {
       expect(getAngularDistance(180, 180)).toBe(0);
       expect(getAngularDistance(270, 90)).toBe(-180);
     });
+
+    it('should stay in [-180, 180] for out-of-range inputs', () => {
+      // The raw formula `(to-from+180)%360 - 180` overflows to <-180 for
+      // certain inputs in JS (since % preserves sign). The guard clause
+      // in the implementation catches those; these tests lock that in.
+      expect(getAngularDistance(720, 0)).toBe(0);
+      expect(getAngularDistance(0, 720)).toBe(0);
+      expect(getAngularDistance(-10, 10)).toBe(20);
+      expect(getAngularDistance(10, -10)).toBe(-20);
+      expect(getAngularDistance(-350, 350)).toBe(-20);
+    });
   });
 
   describe('getAbsBearingDiff', () => {

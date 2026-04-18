@@ -515,7 +515,10 @@ class PhotoProcessor:
 				sizes_info[size] = size_info
 
 		# Create cropped thumbnail variants for images wider than the target aspect ratio
-		crop_variants = [('320_crop', 320, 240)]  # (key, width, height)
+		crop_variants = [
+			('320_crop', 320, 240),
+			('1200_crop', 1200, 630),
+		]  # (key, width, height)
 		for crop_key, crop_tw, crop_th in crop_variants:
 			if height > 0 and width / height > crop_tw / crop_th:
 				cropped = create_center_crop(image, crop_tw, crop_th)

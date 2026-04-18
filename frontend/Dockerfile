@@ -6,6 +6,13 @@ COPY . .
 
 COPY src/routes/+page.server.ts.ssr src/routes/+page.server.ts
 COPY src/routes/+page.svelte.ssr    src/routes/+page.svelte
+COPY src/routes/bestof/+page.server.ts.ssr src/routes/bestof/+page.server.ts
+COPY src/routes/bestof/+page.svelte.ssr    src/routes/bestof/+page.svelte
+# Docker COPY interprets `[uid]` as a glob character class and silently fails,
+# so we copy the photo/[uid] shadow files via shell.
+RUN cp "src/routes/photo/[uid]/+page.server.ts.ssr" "src/routes/photo/[uid]/+page.server.ts" \
+ && cp "src/routes/photo/[uid]/+page.svelte.ssr"    "src/routes/photo/[uid]/+page.svelte" \
+ && cp "src/routes/photo/[uid]/+page.ts.ssr"        "src/routes/photo/[uid]/+page.ts"
 
 # Install dependencies
 RUN bun install --frozen-lockfile

@@ -358,9 +358,11 @@
 			turn_to_photo_to('left');
 		} else if (e.key === 'x') {
 			e.preventDefault();
+			disableBearingTracking();
 			updateBearingByDiff(-15);
 		} else if (e.key === 'X') {
 			e.preventDefault();
+			disableBearingTracking();
 			updateBearingByDiff(-1);
 		} else if (e.key === 'c') {
 			e.preventDefault();
@@ -370,9 +372,11 @@
 			mapComponent?.moveBackward?.();
 		} else if (e.key === 'B') {
 			e.preventDefault();
+			disableBearingTracking();
 			updateBearingByDiff(1);
 		} else if (e.key === 'b') {
 			e.preventDefault();
+			disableBearingTracking();
 			updateBearingByDiff(15);
 		} else if (e.key === 'k') {
 			e.preventDefault();

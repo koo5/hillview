@@ -1,5 +1,6 @@
 <svelte:head>
 	<title>Privacy Policy - Hillview</title>
+	<meta name="description" content="Hillview privacy policy — what data we collect and how we use it." />
 </svelte:head>
 
 <script lang="ts">

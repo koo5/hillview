@@ -1,0 +1,38 @@
+import type { PageServerLoad } from './$types';
+import { backendInternalUrl } from '$lib/config.server';
+
+export const ssr = true;
+export const prerender = false;
+
+interface BestOfPhoto {
+	id: string;
+	description: string | null;
+	original_filename: string | null;
+	latitude: number | null;
+	longitude: number | null;
+	bearing: number | null;
+	width: number | null;
+	height: number | null;
+	sizes: Record<string, { url: string; width: number; height: number }> | null;
+	owner_username: string | null;
+}
+
+export const load: PageServerLoad = async ({ fetch }) => {
+	try {
+		const apiUrl = new URL(`${backendInternalUrl}/bestof/photos`);
+		apiUrl.searchParams.set('limit', '40');
+		const response = await fetch(apiUrl.toString());
+
+		if (!response.ok) {
+			console.error('bestof SSR: backend returned HTTP', response.status);
+			return { photos: [] };
+		}
+
+		const data = await response.json();
+		const photos: BestOfPhoto[] = data.photos || [];
+		return { photos };
+	} catch (error) {
+		console.error('bestof SSR: failed to fetch:', error);
+		return { photos: [] };
+	}
+};

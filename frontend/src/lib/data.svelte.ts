@@ -8,6 +8,7 @@ import {backendUrl} from './config';
 import {MAX_DEBUG_MODES} from './constants';
 import {auth} from './auth.svelte';
 import {TAURI, BROWSER} from "$lib/tauri";
+import {parsePhotoUidParts} from "$lib/urlUtilsServer";
 // Import new mapState for legacy compatibility only
 import {photoInFront, photoToLeft, photoToRight, photoUp, photoDown} from './mapState';
 import {updateBearingWithPhoto} from './bearingTracking';
@@ -299,7 +300,7 @@ sources.subscribe(async (s: Source[]) => {
  * @returns The source type that was enabled, or null if no action taken
  */
 export function enableSourceForPhotoUid(photoUid: string): string | null {
-	const sourceType = photoUid.split('-')[0];
+	const sourceType = parsePhotoUidParts(photoUid)?.source;
 
 	if (sourceType && (sourceType === 'hillview' || sourceType === 'mapillary')) {
 		console.log('🢄Attempting to enable source for photo:', sourceType);

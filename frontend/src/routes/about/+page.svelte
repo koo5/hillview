@@ -1,5 +1,6 @@
 <svelte:head>
 	<title>About - Hillview</title>
+	<meta name="description" content="About Hillview — an open photo map of annotated panoramas and viewpoints from places where cars can't go." />
 </svelte:head>
 
 <script lang="ts">

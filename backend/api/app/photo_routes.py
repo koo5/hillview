@@ -859,8 +859,9 @@ async def get_photo_share_metadata(
 			height = None
 
 			if photo_data.sizes:
-				# Try to find a good resolution for OpenGraph (prefer 1024 or 800)
-				for size_key in	 ['1200', '1024', '640', '320', 'full']:
+				# Prefer crop variants for OG (proper 1.91:1 aspect) before raw sizes,
+				# which can be extreme ratios for panoramas.
+				for size_key in ['1200_crop', '320_crop', '1200', '1024', '640', '320', 'full']:
 					if size_key in photo_data.sizes:
 						size_data = photo_data.sizes[size_key]
 						photo_url = size_data.get('url')

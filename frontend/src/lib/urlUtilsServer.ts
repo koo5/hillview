@@ -29,13 +29,34 @@ export function parsePhotoUid(photoParam: string | null): string | null {
  * @returns Object with source and id, or null if invalid format
  */
 export function parsePhotoUidParts(photoUid: string): { source: string; id: string } | null {
-    const parts = photoUid.split('-', 2);
-    if (parts.length !== 2) return null;
+    const dashIdx = photoUid.indexOf('-');
+    if (dashIdx <= 0 || dashIdx === photoUid.length - 1) return null;
 
     return {
-        source: parts[0],
-        id: parts[1]
+        source: photoUid.slice(0, dashIdx),
+        id: photoUid.slice(dashIdx + 1)
     };
+}
+
+/**
+ * Constructs a relative map-view URL pointing at a specific photo.
+ * Pure (no store access) so it is safe for SSR and sitemap generation.
+ */
+export function constructPhotoMapPath(opts: {
+    uid: string;
+    latitude: number | null;
+    longitude: number | null;
+    bearing?: number | null;
+    zoom?: number;
+}): string {
+    const { uid, latitude, longitude, bearing, zoom = 18 } = opts;
+    if (latitude == null || longitude == null) {
+        return `/?photo=${encodeURIComponent(uid)}`;
+    }
+    let url = `/?lat=${latitude}&lon=${longitude}&zoom=${zoom}`;
+    if (bearing != null) url += `&bearing=${bearing}`;
+    url += `&photo=${encodeURIComponent(uid)}`;
+    return url;
 }
 
 /**

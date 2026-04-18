@@ -1,5 +1,6 @@
 <svelte:head>
 	<title>Licensing - Hillview</title>
+	<meta name="description" content="Photo licensing on Hillview — how user-uploaded photos are licensed and reused." />
 </svelte:head>
 
 <script lang="ts">
