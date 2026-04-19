@@ -1,12 +1,9 @@
-<svelte:head>
-	<title>About - Hillview</title>
-	<meta name="description" content="About Hillview — an open photo map of annotated panoramas and viewpoints from places where cars can't go." />
-</svelte:head>
-
 <script lang="ts">
     import { Info, MapPin, Camera, Globe, Github, Heart, FileText, Shield, Mail } from 'lucide-svelte';
     import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
     import StandardBody from '$lib/components/StandardBody.svelte';
+    import PhotoHead from '$lib/components/PhotoHead.svelte';
+    import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
     import type { TileProviderConfig } from '$lib/tileProviders';
     import { openExternalUrl } from '$lib/urlUtils';
     import { onMount } from 'svelte';
@@ -115,6 +112,14 @@
         }
     }
 </script>
+
+<PhotoHead
+    title="About - Hillview"
+    description="About Hillview — an open photo map of annotated panoramas and viewpoints from places where cars can't go."
+    ogType="website"
+    ogImage={{ url: `${HILLVIEW_BASE_URL}/og-card.png`, width: 1200, height: 630 }}
+    canonicalUrl={`${HILLVIEW_BASE_URL}/about`}
+/>
 
 <StandardHeaderWithAlert
     title="About Hillview"

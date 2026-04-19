@@ -1,13 +1,18 @@
-<svelte:head>
-	<title>Terms of Service - Hillview</title>
-	<meta name="description" content="Hillview terms of service — rules for using the photo mapping platform." />
-</svelte:head>
-
 <script lang="ts">
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
+	import PhotoHead from '$lib/components/PhotoHead.svelte';
+	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 	import { FileText, Calendar, Mail, Eye, Shield } from 'lucide-svelte';
 </script>
+
+<PhotoHead
+	title="Terms of Service - Hillview"
+	description="Hillview terms of service — rules for using the photo mapping platform."
+	ogType="website"
+	ogImage={{ url: `${HILLVIEW_BASE_URL}/og-card.png`, width: 1200, height: 630 }}
+	canonicalUrl={`${HILLVIEW_BASE_URL}/terms`}
+/>
 
 <StandardHeaderWithAlert
 	title="Terms of Service"

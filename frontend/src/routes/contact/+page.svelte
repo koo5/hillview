@@ -1,12 +1,9 @@
-<svelte:head>
-	<title>Contact - Hillview</title>
-	<meta name="description" content="Contact Hillview — questions, feedback, or reports." />
-</svelte:head>
-
 <script lang="ts">
     import { Mail, Send, MessageSquare, User, CheckCircle, AlertCircle } from 'lucide-svelte';
     import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
     import StandardBody from '$lib/components/StandardBody.svelte';
+    import PhotoHead from '$lib/components/PhotoHead.svelte';
+    import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
     import { http } from '$lib/http';
     import { auth } from '$lib/auth.svelte';
 
@@ -56,6 +53,14 @@
         error = '';
     }
 </script>
+
+<PhotoHead
+    title="Contact - Hillview"
+    description="Contact Hillview — questions, feedback, or reports."
+    ogType="website"
+    ogImage={{ url: `${HILLVIEW_BASE_URL}/og-card.png`, width: 1200, height: 630 }}
+    canonicalUrl={`${HILLVIEW_BASE_URL}/contact`}
+/>
 
 <StandardHeaderWithAlert
     title="Contact Us"

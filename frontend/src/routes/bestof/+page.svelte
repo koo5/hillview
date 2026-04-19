@@ -6,6 +6,8 @@
 	import Spinner from '$lib/components/Spinner.svelte';
 	import LoadMoreButton from '$lib/components/LoadMoreButton.svelte';
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
+	import PhotoHead from '$lib/components/PhotoHead.svelte';
+	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 
 	interface BestOfPhoto {
 		id: string;
@@ -82,9 +84,13 @@
 	}
 </script>
 
-<svelte:head>
-	<title>Best of - Hillview</title>
-</svelte:head>
+<PhotoHead
+	title="Best of - Hillview"
+	description="Annotated panoramas from places where cars can't go — the best photos on Hillview."
+	ogType="website"
+	ogImage={{ url: `${HILLVIEW_BASE_URL}/og-card.png`, width: 1200, height: 630 }}
+	canonicalUrl={`${HILLVIEW_BASE_URL}/bestof`}
+/>
 
 <StandardHeaderWithAlert
 	title="Best of"

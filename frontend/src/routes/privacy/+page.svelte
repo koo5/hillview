@@ -1,13 +1,18 @@
-<svelte:head>
-	<title>Privacy Policy - Hillview</title>
-	<meta name="description" content="Hillview privacy policy — what data we collect and how we use it." />
-</svelte:head>
-
 <script lang="ts">
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
+	import PhotoHead from '$lib/components/PhotoHead.svelte';
+	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 	import { Shield, Calendar, Mail, Database, Eye, Lock, Users } from 'lucide-svelte';
 </script>
+
+<PhotoHead
+	title="Privacy Policy - Hillview"
+	description="Hillview privacy policy — what data we collect and how we use it."
+	ogType="website"
+	ogImage={{ url: `${HILLVIEW_BASE_URL}/og-card.png`, width: 1200, height: 630 }}
+	canonicalUrl={`${HILLVIEW_BASE_URL}/privacy`}
+/>
 
 <StandardHeaderWithAlert
 	title="Privacy Policy"

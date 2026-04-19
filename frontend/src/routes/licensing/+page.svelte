@@ -1,14 +1,19 @@
-<svelte:head>
-	<title>Licensing - Hillview</title>
-	<meta name="description" content="Photo licensing on Hillview — how user-uploaded photos are licensed and reused." />
-</svelte:head>
-
 <script lang="ts">
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
+	import PhotoHead from '$lib/components/PhotoHead.svelte';
+	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 	import { CreativeCommons, Calendar, Copyright, MapPin } from 'lucide-svelte';
 	import MyExternalLink from '$lib/components/MyExternalLink.svelte';
 </script>
+
+<PhotoHead
+	title="Licensing - Hillview"
+	description="Photo licensing on Hillview — how user-uploaded photos are licensed and reused."
+	ogType="website"
+	ogImage={{ url: `${HILLVIEW_BASE_URL}/og-card.png`, width: 1200, height: 630 }}
+	canonicalUrl={`${HILLVIEW_BASE_URL}/licensing`}
+/>
 
 <StandardHeaderWithAlert
 	title="Licensing"

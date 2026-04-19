@@ -1,14 +1,19 @@
-<svelte:head>
-	<title>Download - Hillview</title>
-	<meta name="description" content="Download the Hillview Android app — photo mapping on your phone." />
-</svelte:head>
-
 <script lang="ts">
     import { Smartphone } from 'lucide-svelte';
     import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
     import StandardBody from '$lib/components/StandardBody.svelte';
+    import PhotoHead from '$lib/components/PhotoHead.svelte';
+    import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
     import MyExternalLink from "$lib/components/MyExternalLink.svelte";
 </script>
+
+<PhotoHead
+    title="Download - Hillview"
+    description="Download the Hillview Android app — photo mapping on your phone."
+    ogType="website"
+    ogImage={{ url: `${HILLVIEW_BASE_URL}/og-card.png`, width: 1200, height: 630 }}
+    canonicalUrl={`${HILLVIEW_BASE_URL}/download`}
+/>
 
 <StandardHeaderWithAlert
     title="Download Hillview"
