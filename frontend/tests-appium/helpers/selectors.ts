@@ -135,6 +135,12 @@ export const TESTID = {
 
     // CompassButton.svelte
     compassButton: 'compass-button',
+    compassModeMenu: 'compass-mode-menu',
+    walkingModeOption: 'walking-mode-option',
+    carModeOption: 'car-mode-option',
+
+    // BearingStateArrow.svelte — has `aria-valuenow` carrying current bearingDeg.
+    bearingArrowHitarea: 'bearing-arrow-hitarea',
 
     // CameraCapture.svelte
     allowCameraBtn: 'allow-camera-btn',

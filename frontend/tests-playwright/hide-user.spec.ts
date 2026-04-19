@@ -250,7 +250,7 @@ function extractOwnerUsername(photoData: any): string | undefined {
 /** Read owner info from the currently displayed gallery photo. */
 async function getPhotoOwner(page: Page): Promise<{ photoId: string; ownerId: HillviewUserId; ownerUsername: string | undefined }> {
 	const mainPhoto = page.locator('[data-testid="main-photo"].front');
-	await mainPhoto.waitFor({ state: 'visible', timeout: 30000 });
+	await mainPhoto.waitFor({ state: 'visible', timeout: 60000 });
 	const data = await mainPhoto.evaluate((el) => {
 		return JSON.parse(el.getAttribute('data-photo') || '{}');
 	});

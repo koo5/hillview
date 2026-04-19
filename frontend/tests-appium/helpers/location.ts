@@ -1,13 +1,17 @@
 import { execFileSync } from 'child_process';
 
 /**
- * Emulator geo-location helper. Wraps `adb emu geo fix|nmea|gnss` so specs
- * can inject position (and, via NMEA, speed) into the running emulator.
+ * Emulator geo-location helper. Wraps `adb emu geo fix` so specs can inject
+ * position *and* speed into the running emulator.
  *
- * `emu geo fix` takes longitude/latitude/altitude/satellites — no speed, so
- * the app's Kalman filter (which has a 1.5 m/s speed gate) never fires.
- * NMEA $GPRMC carries speed-over-ground in knots, so use `emuGeoNmea` +
- * `buildGprmc` when driving the car-mode flow.
+ * `emu geo fix` takes `<longitude> <latitude> [<altitude> [<satellites>
+ * [<velocity_knots>]]]`. Velocity is required for the car-mode heading
+ * filter (1.5 m/s speed gate) — pass `speedMps`.
+ *
+ * Note: `emu geo nmea` is documented but on some Android emulator images it
+ * does not actually advance the FusedLocation provider. `geo fix` is the
+ * reliable path. `emuGeoNmea`/`buildGprmc` remain exported for future use
+ * but are not on the hot path.
  */
 
 let cachedSerial: string | null = null;
@@ -27,8 +31,19 @@ function adbEmu(args: string[], serial = findEmulatorSerial()): void {
 	execFileSync('adb', ['-s', serial, 'emu', ...args], { stdio: 'pipe' });
 }
 
-export function emuGeoFix(lat: number, lng: number, alt = 100, sats = 8): void {
-	adbEmu(['geo', 'fix', String(lng), String(lat), String(alt), String(sats)]);
+export function emuGeoFix(
+	lat: number,
+	lng: number,
+	opts: { alt?: number; sats?: number; speedMps?: number } = {}
+): void {
+	const { alt = 100, sats = 8, speedMps = 0 } = opts;
+	const velocityKnots = metersPerSecondToKnots(speedMps);
+	adbEmu([
+		'geo', 'fix',
+		String(lng), String(lat),
+		String(alt), String(sats),
+		velocityKnots.toFixed(2),
+	]);
 }
 
 export function emuGeoNmea(sentence: string): void {
@@ -120,15 +135,13 @@ export async function streamWaypoints(
 	waypoints: Waypoint[],
 	options: { intervalMs?: number } = {}
 ): Promise<void> {
+	// FusedLocation requires spacing >= request's FASTEST_INTERVAL (1000ms
+	// in PreciseLocationService) or it rejects fixes with "too fast".
 	const intervalMs = options.intervalMs ?? 1100;
 	for (const wp of waypoints) {
-		const sentence = buildGprmc({
-			lat: wp.lat,
-			lng: wp.lng,
-			speedKnots: metersPerSecondToKnots(wp.speedMps ?? 5),
-			courseDeg: wp.courseDeg ?? 0,
+		emuGeoFix(wp.lat, wp.lng, {
+			speedMps: wp.speedMps ?? 5,
 		});
-		emuGeoNmea(sentence);
 		await new Promise(r => setTimeout(r, intervalMs));
 	}
 }

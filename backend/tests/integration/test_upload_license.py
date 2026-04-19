@@ -6,6 +6,7 @@ accepted, validated, and persisted on the Photo row as `legal_rights`.
 import os
 import sys
 import pytest
+import pytest_asyncio
 import httpx
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -19,7 +20,7 @@ class TestUploadLicense:
     def upload_client(self):
         return SecureUploadClient(api_url=os.getenv("API_URL", "http://localhost:8055/api"))
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def auth_token(self, upload_client):
         setup_result = await upload_client.setup_test_environment()
         token = await upload_client.test_user_auth(setup_result)

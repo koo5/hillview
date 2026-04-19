@@ -4,6 +4,7 @@ Tests the real three-phase cryptographic flow using actual JWT tokens.
 """
 
 import pytest
+import pytest_asyncio
 import httpx
 import os
 import sys
@@ -35,7 +36,7 @@ class TestSecureUploadWorkflow:
 		yield temp_file.name
 		os.unlink(temp_file.name)
 
-	@pytest.fixture
+	@pytest_asyncio.fixture
 	async def test_user_auth(self, upload_client):
 		"""Get authentication token for the test user using utility."""
 		setup_result = await upload_client.setup_test_environment()

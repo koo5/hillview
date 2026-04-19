@@ -24,15 +24,17 @@
 		score: number;
 	}
 
-	let loading = true;
+	export let data: { photos?: BestOfPhoto[]; has_more?: boolean; next_cursor?: string | null } | undefined = undefined;
+
+	let loading = !data?.photos;
 	let loadingMore = false;
 	let error = '';
-	let photos: BestOfPhoto[] = [];
-	let hasMorePhotos = false;
-	let nextCursor: string | null = null;
+	let photos: BestOfPhoto[] = data?.photos ?? [];
+	let hasMorePhotos = data?.has_more ?? false;
+	let nextCursor: string | null = data?.next_cursor ?? null;
 
 	onMount(async () => {
-		await loadPhotos();
+		if (!data?.photos) await loadPhotos();
 	});
 
 	async function loadPhotos(cursor?: string) {
