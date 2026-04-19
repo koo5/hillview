@@ -21,22 +21,7 @@ import {
     getTestUserToken,
     getUserPhotos,
 } from '../helpers/backend';
-
-/**
- * Toggle the emulator's network state via the UiAutomator2 driver's
- * `mobile: setConnectivity` endpoint. The older `setNetworkConnection`
- * bitmask is rejected on modern Android ("operation is unsupported"), and
- * the `svc wifi` shell fallback needs Appium's --relaxed-security flag
- * which isn't enabled in this project's setup. We settle for 2.5s so the
- * Kotlin ConnectivityManager callback fires before the next assertion.
- */
-async function setNetwork(online: boolean): Promise<void> {
-    await (driver as any).execute('mobile: setConnectivity', {
-        wifi: online,
-        data: online,
-    });
-    await browser.pause(2500);
-}
+import { setNetwork } from '../helpers/network';
 
 async function openSettings(): Promise<void> {
     await openMenu();

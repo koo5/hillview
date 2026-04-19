@@ -80,7 +80,15 @@ class CullingGrid(private val bounds: Bounds) {
         // Populate grid cells with photos from each source
         // Exclude already picked photos
         for (sourceId in sortedSources) {
-            val photos = photosPerSource[sourceId] ?: continue
+            val sourcePhotos = photosPerSource[sourceId] ?: continue
+
+            // Device source: sort by most recent first so that when a cell is over-populated,
+            // the round-robin selection keeps the most recent photos.
+            val photos = if (sourceId == "device") {
+                sourcePhotos.sortedByDescending { it.captured_at ?: 0L }
+            } else {
+                sourcePhotos
+            }
 
             for (photo in photos) {
                 // Skip already picked photos

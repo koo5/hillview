@@ -20,7 +20,7 @@ interface SimplePhotoDao {
         WHERE latitude BETWEEN :minLat AND :maxLat
         AND longitude BETWEEN :minLng AND :maxLng
         AND deleted = 0
-        ORDER BY bearing ASC, createdAt DESC
+        ORDER BY capturedAt DESC
         LIMIT :limit
     """)
     fun getPhotosInBounds(minLat: Double, maxLat: Double, minLng: Double, maxLng: Double, limit: Int): List<PhotoEntity>
