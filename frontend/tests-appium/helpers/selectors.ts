@@ -154,6 +154,11 @@ export const TESTID = {
     autoUploadDisabledNever: 'auto-upload-disabled-never',
     wifiOnlyCheckbox: 'wifi-only-checkbox',
 
+    // StorageSettings.svelte
+    storagePublicFolder: 'storage-public-folder',
+    storagePrivateFolder: 'storage-private-folder',
+    storageMediaStoreApi: 'storage-mediastore-api',
+
     // LicenseSelector.svelte
     licenseCheckbox: 'license-checkbox',
 

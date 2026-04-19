@@ -35,6 +35,7 @@
 				value="public_folder"
 				bind:group={preferredStorage}
 				on:change={() => handleChange('public_folder')}
+				data-testid="storage-public-folder"
 			/>
 			<div class="option-content">
 				<span class="option-title">Public folder first</span>
@@ -51,6 +52,7 @@
 				value="private_folder"
 				bind:group={preferredStorage}
 				on:change={() => handleChange('private_folder')}
+				data-testid="storage-private-folder"
 			/>
 			<div class="option-content">
 				<span class="option-title">Private folder first</span>
@@ -67,6 +69,7 @@
 				value="mediastore_api"
 				bind:group={preferredStorage}
 				on:change={() => handleChange('mediastore_api')}
+				data-testid="storage-mediastore-api"
 			/>
 			<div class="option-content">
 				<span class="option-title">MediaStore API first</span>

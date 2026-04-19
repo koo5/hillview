@@ -70,7 +70,7 @@ def acquire_lock(owner_pid: int | None = None) -> None:
                     continue
                 if time.monotonic() - start > TIMEOUT_S:
                     raise TimeoutError(f"Timed out waiting for test lock (held by PID {pid})")
-                print(f"\nWaiting for test lock (held by PID {pid})...")
+                print(f"\nWaiting for test lock {LOCK_FILE} (held by PID {pid})...")
             except FileNotFoundError:
                 continue
         time.sleep(POLL_S)
