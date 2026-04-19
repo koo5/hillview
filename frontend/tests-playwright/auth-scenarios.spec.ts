@@ -113,11 +113,13 @@ test.describe('Auth Scenarios', () => {
       // Wipe DB — tokens in IndexedDB are now stale
       await recreateTestUsers();
 
-      // Reload triggers checkAuth() with the stale token.
-      // The app should handle the 401 gracefully and redirect to /login.
+      // Reload triggers checkAuth() with the stale token. The app should handle
+      // the 401 gracefully and redirect to /login, but the chain (401 → refresh
+      // attempt → 401 → logout → redirect) means we need to wait for it all to
+      // finish rather than racing the URL check.
       await page.reload();
-      await page.waitForURL('/login', { timeout: 15000 });
       await page.waitForLoadState('networkidle');
+      await page.waitForURL('/login');
 
       // Re-login with fresh credentials succeeds
       await page.getByTestId('login-username-input').fill('test');
