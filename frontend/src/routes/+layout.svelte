@@ -212,7 +212,7 @@
 </svelte:head>
 
 <slot/>
-<NavigationMenu isOpen={true} onClose={closeNavigationMenu} />
+<NavigationMenu isOpen={$navigationMenuOpen} onClose={closeNavigationMenu} />
 <AuthStatusWatcher/>
 <DropdownMenu/>
 <ZoomView/>

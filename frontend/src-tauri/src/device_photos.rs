@@ -34,12 +34,6 @@ pub struct DevicePhotoMetadata {
 	pub created_at: Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct ProcessedPhoto {
-	pub data: Vec<u8>,
-	pub metadata: PhotoMetadata,
-}
-
 // Memory safety constants
 const MAX_CHUNK_AGE_SECS: u64 = 300; // 5 minute TTL for chunks
 const MAX_SINGLE_PHOTO_SIZE_MB: usize = 100; // 100 MB max per photo

@@ -138,6 +138,12 @@ test.describe('Auth Scenarios', () => {
       // Logout
       await logoutUser(page);
 
+      // Let any post-logout cleanup requests settle against the still-valid DB
+      // before we wipe it, otherwise they can race against the recreation and
+      // trip a 500 (WebKit surfaces it as a CORS error because FastAPI's CORS
+      // middleware doesn't always decorate error responses).
+      await page.waitForLoadState('networkidle');
+
       // Recreate users (wipes DB)
       await recreateTestUsers();
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import { onMount } from 'svelte';
 	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 	import {
 		EyeOff,
@@ -75,6 +76,13 @@
 		loadPhoto();
 	}
 
+	// SSR runs unauthenticated so user-specific fields (user_rating, is_own_photo)
+	// come back null/false. When we hydrated from SSR data, re-fetch once under
+	// the client's auth token to pick those up, without flashing the spinner.
+	onMount(() => {
+		if (data?.photo) loadPhoto(true);
+	});
+
 	function setStatus(message: string, isError = false, timeoutMs = 3000) {
 		statusMessage = message;
 		statusError = isError;
@@ -87,15 +95,17 @@
 	}
 
 
-	async function loadPhoto() {
+	async function loadPhoto(silent = false) {
 		if (!photoUid) {
 			error = 'Photo not found';
 			loading = false;
 			return;
 		}
-		loading = true;
+		if (!silent) {
+			loading = true;
+			annotations = [];
+		}
 		error = '';
-		annotations = [];
 		try {
 			const response = await http.get(`/photos/public/${encodeURIComponent(photoUid)}`);
 			if (!response.ok) {
@@ -110,12 +120,12 @@
 			}
 		} catch (err) {
 			console.error('🢄 Error loading photo:', err);
-			error = handleApiError(err);
+			if (!silent) error = handleApiError(err);
 			if (err instanceof TokenExpiredError) {
 				return;
 			}
 		} finally {
-			loading = false;
+			if (!silent) loading = false;
 		}
 
 		// Annotations load independently — a failure here must not hide the photo.
@@ -315,7 +325,7 @@
 	{:else if error}
 		<div class="error-container" data-testid="photo-detail-error">
 			<p>{error}</p>
-			<button class="retry-button" on:click={loadPhoto}>Try Again</button>
+			<button class="retry-button" on:click={() => loadPhoto()}>Try Again</button>
 		</div>
 	{:else if photo}
 		<div class="photo-detail" data-testid="photo-detail">

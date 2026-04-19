@@ -5,8 +5,6 @@ mod types;
 use log::info;
 #[cfg(debug_assertions)]
 use tauri::Manager;
-#[cfg(mobile)]
-use tauri_plugin_camera::CameraExt;
 
 #[cfg(target_os = "android")]
 fn setup_logging() {
