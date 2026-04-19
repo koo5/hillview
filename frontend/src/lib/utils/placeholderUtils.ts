@@ -1,4 +1,3 @@
-import { LatLng } from 'leaflet';
 import type { PlaceholderPhoto, DevicePhotoMetadata } from '../types/photoTypes';
 import type { Source } from '../data.svelte';
 
@@ -44,7 +43,7 @@ export function createPlaceholderPhoto(
         source_type: 'device',
         filename: 'placeholder.jpg',
         url: 'placeholder://arrow',
-        coord: new LatLng(location.latitude, location.longitude),
+        coord: { lat: location.latitude, lng: location.longitude },
         bearing: location.bearing,
         altitude: location.altitude || 0,
         source: source,

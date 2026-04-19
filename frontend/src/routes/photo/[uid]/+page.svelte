@@ -1,10 +1,6 @@
-<svelte:head>
-	<title>Photo - Hillview</title>
-</svelte:head>
-
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
+	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 	import {
 		EyeOff,
 		UserX,
@@ -27,10 +23,15 @@
 	import {
 		getDisplayImageUrl,
 		formatDateTime,
+		pickSize,
+		displayTitle,
+		parseAnnotationBody,
+		OG_SIZE_KEYS,
 		type PublicPhoto,
 		type PhotoAnnotation
 	} from '$lib/photoDisplay';
 	import PhotoAnnotations from '$lib/components/PhotoAnnotations.svelte';
+	import PhotoHead from '$lib/components/PhotoHead.svelte';
 	import {
 		hidePhotoRequest,
 		togglePhotoRating,
@@ -49,9 +50,11 @@
 	import { showDropdownMenu } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 	import { getPhotoMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
 
-	let photo: PublicPhoto | null = null;
-	let annotations: PhotoAnnotation[] = [];
-	let loading = true;
+	export let data: { photo?: PublicPhoto; annotations?: PhotoAnnotation[] } | undefined = undefined;
+
+	let photo: PublicPhoto | null = data?.photo ?? null;
+	let annotations: PhotoAnnotation[] = data?.annotations ?? [];
+	let loading = !data?.photo;
 	let error = '';
 
 	// Action states (same pattern as PhotoActionsMenu.svelte)
@@ -66,14 +69,9 @@
 	$: photoUid = $page.params.uid;
 	$: isAuthenticated = $auth.is_authenticated;
 
-	onMount(() => {
-		if (photoUid) {
-			loadPhoto();
-		}
-	});
-
-	// Reload when uid changes via navigation
-	$: if (photoUid) {
+	// Load from the network whenever the route uid doesn't match the photo we have.
+	// Covers both first mount without SSR data and SPA navigation to a different photo.
+	$: if (photoUid && (!photo || photo.uid !== photoUid)) {
 		loadPhoto();
 	}
 
@@ -98,24 +96,15 @@
 		loading = true;
 		error = '';
 		annotations = [];
-		const parts = parsePhotoUidParts(photoUid);
 		try {
-			const [photoRes, annotationsRes] = await Promise.all([
-				http.get(`/photos/public/${encodeURIComponent(photoUid)}`),
-				parts?.id
-					? http.get(`/annotations/photos/${encodeURIComponent(parts.id)}`).catch(() => null)
-					: Promise.resolve(null),
-			]);
-			if (!photoRes.ok) {
-				if (photoRes.status === 404) {
+			const response = await http.get(`/photos/public/${encodeURIComponent(photoUid)}`);
+			if (!response.ok) {
+				if (response.status === 404) {
 					throw new Error('Photo not found');
 				}
-				throw new Error(`Failed to load photo: ${photoRes.status}`);
+				throw new Error(`Failed to load photo: ${response.status}`);
 			}
-			photo = await photoRes.json();
-			if (annotationsRes && annotationsRes.ok) {
-				annotations = await annotationsRes.json();
-			}
+			photo = await response.json();
 			if (photo && isAuthenticated) {
 				checkFlagStatus();
 			}
@@ -127,6 +116,17 @@
 			}
 		} finally {
 			loading = false;
+		}
+
+		// Annotations load independently — a failure here must not hide the photo.
+		const parts = parsePhotoUidParts(photoUid);
+		if (photo && parts?.id) {
+			try {
+				const resp = await http.get(`/annotations/photos/${encodeURIComponent(parts.id)}`);
+				if (resp.ok) annotations = await resp.json();
+			} catch (err) {
+				console.error('🢄 Error loading annotations:', err);
+			}
 		}
 	}
 
@@ -250,7 +250,46 @@
 		if (!photo) return;
 		myGoto(constructPhotoMapUrl(photo));
 	}
+
+	function firstAnnotationText(anns: PhotoAnnotation[]): string {
+		for (const a of anns) {
+			if (!a.body) continue;
+			for (const seg of parseAnnotationBody(a.body)) {
+				if (seg.kind !== 'text') continue;
+				const trimmed = seg.value.trim();
+				if (!trimmed || trimmed === '?') continue;
+				return trimmed;
+			}
+		}
+		return '';
+	}
+
+	$: headTitle = photo ? `${displayTitle(photo)} - Hillview` : '';
+	$: headOgImage = photo ? pickSize(photo, OG_SIZE_KEYS) : null;
+	$: headDescription = (() => {
+		if (!photo) return '';
+		const parts: string[] = [];
+		if (photo.description) parts.push(photo.description);
+		const ann = firstAnnotationText(annotations);
+		if (ann) parts.push(ann);
+		if (photo.latitude != null && photo.longitude != null) {
+			parts.push(`${photo.latitude.toFixed(4)}, ${photo.longitude.toFixed(4)}`);
+		}
+		return parts.join(' — ') || 'Photo on Hillview';
+	})();
 </script>
+
+{#if photo}
+	<PhotoHead
+		title={headTitle}
+		description={headDescription}
+		ogType="article"
+		ogImage={headOgImage ? { url: headOgImage.url, width: headOgImage.width, height: headOgImage.height } : null}
+		latitude={photo.latitude}
+		longitude={photo.longitude}
+		canonicalUrl={`${HILLVIEW_BASE_URL}/photo/${encodeURIComponent(photo.uid)}`}
+	/>
+{/if}
 
 <StandardHeaderWithAlert
 	title={photo?.description || photo?.original_filename || 'Photo'}

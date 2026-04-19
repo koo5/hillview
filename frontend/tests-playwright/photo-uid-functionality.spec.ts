@@ -3,6 +3,12 @@ import { configureSources } from './helpers/sourceHelpers';
 import { uploadTestPhotosWithLocation } from './helpers/photoUpload';
 import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { collectErrors } from './helpers/consoleLogging';
+import {
+  createMockMapillaryData,
+  setMockMapillaryData,
+  clearMockMapillaryData,
+} from './helpers/mapillaryMocks';
+import { BACKEND_URL } from './helpers/adminAuth';
 
 test.describe('Photo UID Functionality', () => {
 
@@ -82,6 +88,10 @@ test.describe('Photo UID Functionality', () => {
   test.describe('Automatic Source Enabling', () => {
 
     test('should enable mapillary source when mapillary photo uid is in URL', async ({ page }) => {
+      // Mock the Mapillary backend so enabling the source doesn't fan out to the real API.
+      await page.request.post(`${BACKEND_URL}/api/debug/clear-database`);
+      await setMockMapillaryData(page, createMockMapillaryData());
+
       const { errors } = collectErrors(page);
 
       // Navigate directly with mapillary photo uid
@@ -94,6 +104,8 @@ test.describe('Photo UID Functionality', () => {
       await expect(mapillaryButton).toHaveClass(/active/);
 
       expect(errors.length, `Found errors: ${errors.join(', ')}`).toBe(0);
+
+      await clearMockMapillaryData(page);
     });
 
     test('should enable hillview source when hillview photo uid is in URL', async ({ page }) => {

@@ -4,4 +4,8 @@
 
 </script>
 
+<svelte:head>
+	<title>Hillview - annotated panoramas</title>
+</svelte:head>
+
 <Main />

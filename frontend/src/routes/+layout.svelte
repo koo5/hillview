@@ -204,7 +204,9 @@
 
 
 <svelte:head>
-  <title>{(backendUrl === 'https://api.hillview.cz/api') ? 'Hillview — annotated panoramas' : 'Hillviedev — annotated panoramas'}</title>
+	{#if backendUrl !== 'https://api.hillview.cz/api'}
+		<link rel="icon" href="/favicon-dev.png" type="image/png" />
+	{/if}
 </svelte:head>
 
 <slot/>

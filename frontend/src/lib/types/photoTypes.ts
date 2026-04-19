@@ -1,4 +1,3 @@
-import { LatLng } from 'leaflet';
 import type { Source } from '../data.svelte';
 import type { PhotoItemData } from './photoItemTypes';
 import type { PhotoId, PhotoSize, SimpleCoord, BasePhotoData } from './photoCommon';
@@ -7,10 +6,21 @@ import type { PhotoId, PhotoSize, SimpleCoord, BasePhotoData } from './photoComm
 export type { PhotoId, PhotoSize, SimpleCoord };
 
 /**
- * Main app photo data (extends base with LatLng and Source)
+ * Plain {lat, lng} object; structurally compatible with leaflet's LatLng for all
+ * our call sites (we only ever read .lat/.lng, never call LatLng methods on it).
+ * Keeping it as a plain object keeps this module — and anything that transitively
+ * imports it — free of leaflet's runtime, which is required for SSR.
+ */
+export interface Coord {
+    lat: number;
+    lng: number;
+}
+
+/**
+ * Main app photo data (extends base with Coord and Source)
  */
 export interface PhotoData extends BasePhotoData {
-    coord: LatLng;  // Override with LatLng for main app
+    coord: Coord;
     source?: Source | string;
 }
 
