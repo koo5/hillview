@@ -23,6 +23,8 @@
 	import {app, onAppActivityChange} from "$lib/data.svelte";
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
 	import SignInModal from "$lib/components/SignInModal.svelte";
+	import NavigationMenu from '$lib/components/NavigationMenu.svelte';
+	import { navigationMenuOpen, closeNavigationMenu } from '$lib/navigationMenuStore';
 
 	interface SafeAreaInsets {
 		top: number;
@@ -210,6 +212,7 @@
 </svelte:head>
 
 <slot/>
+<NavigationMenu isOpen={true} onClose={closeNavigationMenu} />
 <AuthStatusWatcher/>
 <DropdownMenu/>
 <ZoomView/>

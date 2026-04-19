@@ -42,7 +42,7 @@
 		screenOrientationAngle
 	} from "$lib/deviceOrientationExif";
 	import AlertArea from './AlertArea.svelte';
-	import NavigationMenu from './NavigationMenu.svelte';
+	import { navigationMenuOpen, toggleNavigationMenu } from '$lib/navigationMenuStore';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {enableBearingTracking, disableBearingTracking} from '$lib/bearingTracking';
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
@@ -54,7 +54,6 @@
 	let map: any = null;
 	let mapComponent: any = null;
 	let update_url: boolean = false;
-	let menuOpen = false;
 	let containerElement: HTMLElement;
 	let screenAngleUnlisten: PluginListener | null = null;
 
@@ -290,9 +289,7 @@
 
 	// Subscribed in onMount, cleaned up on destroy
 
-	const toggleMenu = () => {
-		menuOpen = !menuOpen;
-	}
+	const toggleMenu = toggleNavigationMenu;
 
 	// Handle split resize
 	const handleSplitResize = (newSplitPercent: number) => {
@@ -476,7 +473,7 @@
 	on:click={toggleMenu}
 	on:keydown={(e) => e.key === 'Enter' && toggleMenu()}
 	aria-label="Toggle menu"
-	aria-expanded={menuOpen}
+	aria-expanded={$navigationMenuOpen}
 >
 	<Menu size={24}/>
 </button>
@@ -524,8 +521,6 @@
 		{/if}
 	</button>
 {/if}-->
-
-<NavigationMenu isOpen={menuOpen} onClose={() => menuOpen = false}/>
 
 <!-- Alert area for main page -->
 <div class="main-page-alert-area">

@@ -1,6 +1,6 @@
 <script lang="ts">
     import StandardHeader from './StandardHeader.svelte';
-    import NavigationMenu from './NavigationMenu.svelte';
+    import { toggleNavigationMenu } from '$lib/navigationMenuStore';
 
     import type { Alert } from '$lib/alertSystem.svelte.js';
 
@@ -11,16 +11,6 @@
     export let useSmartBack: boolean = true;
     export let alertMessage: string = '';
     export let alertType: Alert['type'] = 'info';
-
-    let menuOpen = false;
-
-    function toggleMenu() {
-        menuOpen = !menuOpen;
-    }
-
-    function closeMenu() {
-        menuOpen = false;
-    }
 </script>
 
 <div class="header-with-alert">
@@ -28,13 +18,12 @@
         {title}
         {showBackButton}
         {showMenuButton}
-        onMenuClick={toggleMenu}
+        onMenuClick={toggleNavigationMenu}
         {fallbackHref}
         {useSmartBack}
     >
         <slot name="actions" slot="actions" />
     </StandardHeader>
-    <NavigationMenu isOpen={menuOpen} onClose={closeMenu} />
 
 </div>
 

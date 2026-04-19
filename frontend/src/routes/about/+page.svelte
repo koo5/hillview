@@ -6,7 +6,7 @@
     import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
     import type { TileProviderConfig } from '$lib/tileProviders';
     import { openExternalUrl } from '$lib/urlUtils';
-    import { onMount } from 'svelte';
+    import { onMount, onDestroy } from 'svelte';
     import { TAURI } from '$lib/tauri';
 
     let appVersion = __APP_VERSION__;
@@ -14,6 +14,7 @@
     // Lazy-load it on mount so the page is SSR-safe for crawlers.
     let tileConfig: TileProviderConfig | null = null;
     let tileProviderName = '';
+    let unsubscribeTileProvider: () => void = () => {};
 
     onMount(async () => {
         // In Tauri context, get the version from the native API
@@ -27,13 +28,13 @@
         }
 
         const tp = await import('$lib/tileProviders');
-        const { get } = await import('svelte/store');
-        const unsubscribe = tp.currentTileProvider.subscribe((provider) => {
+        unsubscribeTileProvider = tp.currentTileProvider.subscribe((provider) => {
             tileConfig = tp.getProviderConfig(provider);
             tileProviderName = tp.getProviderDisplayName(provider);
         });
-        return unsubscribe;
     });
+
+    onDestroy(() => unsubscribeTileProvider());
 
     const techCategories = [
         {

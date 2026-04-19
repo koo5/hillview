@@ -72,8 +72,15 @@
         on:click={closeMenu}
         on:keydown={(e) => e.key === 'Escape' && closeMenu()}
     ></div>
+{/if}
 
-    <nav class="nav-menu" data-testid="nav-menu">
+<nav
+    class="nav-menu"
+    class:open={isOpen}
+    data-testid="nav-menu"
+    aria-hidden={!isOpen}
+    inert={!isOpen}
+>
 
         <ul class="menu-list" on:click={handleExternalClick} role="presentation">
             <li><a href="/" on:click={closeMenu}>
@@ -200,7 +207,6 @@
         </ul>
 
     </nav>
-{/if}
 
 <style>
 
@@ -225,8 +231,15 @@
         box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
         padding: 0;
         overflow-y: auto;
-        transform: translateX(0);
+        /* Standard drawer pattern: kept in DOM (so text browsers + crawlers see the
+           links) and slid off-screen until opened. `inert` on the element blocks focus
+           and pointer events when closed, so keyboard users don't tab into it. */
+        transform: translateX(-110%);
         transition: transform 0.3s ease;
+    }
+
+    .nav-menu.open {
+        transform: translateX(0);
     }
 
 
