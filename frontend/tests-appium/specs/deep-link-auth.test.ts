@@ -30,18 +30,9 @@ async function openNavMenu(): Promise<void> {
     await ensureWebViewContext();
 }
 
-async function closeNavMenu(): Promise<void> {
-    await ensureWebViewContext();
-    const backdrop = await $('[data-testid="menu-backdrop"]');
-    if (await backdrop.isExisting()) {
-        await backdrop.click();
-        await browser.pause(500);
-    }
-}
-
-function buildAuthDeepLink(token: string): string {
+function buildAuthDeepLink(token: string, expiresAtOverride?: string): string {
     const now = Date.now();
-    const expiresAt = new Date(now + 60 * 60 * 1000).toISOString();
+    const expiresAt = expiresAtOverride ?? new Date(now + 60 * 60 * 1000).toISOString();
     const refreshExpiresAt = new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
     const params = new URLSearchParams({
         token,
@@ -49,6 +40,40 @@ function buildAuthDeepLink(token: string): string {
         refresh_token_expires_at: refreshExpiresAt,
     });
     return `cz.hillviedev://auth?${params.toString()}`;
+}
+
+async function fireDeepLink(url: string): Promise<void> {
+    await (driver as any).execute('mobile: deepLink', {
+        url,
+        package: APP_PACKAGE,
+    });
+    // handleAuthCallback → completeAuthentication → myGoto('/'). 3s covers
+    // the state propagation before we re-query the menu.
+    await browser.pause(3000);
+}
+
+/**
+ * Kill + relaunch the app so each test gets a fresh activity. Appium's
+ * per-session noReset doesn't clear between tests, and back-to-back
+ * `mobile: deepLink` calls on a single activity instance turned out to be
+ * unreliable — the second intent was silently dropped by onNewIntent in
+ * manual runs. Restarting sidesteps that without the overhead of a full
+ * session reset.
+ */
+async function restartApp(): Promise<void> {
+    await driver.switchContext('NATIVE_APP');
+    await driver.terminateApp(APP_PACKAGE);
+    await browser.pause(1000);
+    await driver.activateApp(APP_PACKAGE);
+    await browser.pause(3000);
+
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+        const contexts = await driver.getContexts();
+        if (contexts.some((c: any) => String(c).includes('WEBVIEW'))) break;
+        await browser.pause(500);
+    }
+    await ensureWebViewContext();
 }
 
 describe('Deep-link auth', () => {
@@ -64,62 +89,23 @@ describe('Deep-link auth', () => {
         }
     });
 
-    it('logs the user in when an OAuth callback deep link arrives', async function () {
-        this.timeout(120000);
-
-        // Sanity: fresh-reset app should be unauthenticated. If this fails,
-        // the noReset: false config isn't wiping session state between specs
-        // and the next assertion would be meaningless.
-        await openNavMenu();
-        const loginLinkBefore = await $('[data-testid="nav-login-link"]');
-        await loginLinkBefore.waitForDisplayed({ timeout: 10000 });
-        const logoutBefore = await $('[data-testid="nav-logout-button"]');
-        expect(await logoutBefore.isExisting()).toBe(false);
-        await closeNavMenu();
-
-        const token = await getTestUserToken();
-        const url = buildAuthDeepLink(token);
-
-        await (driver as any).execute('mobile: deepLink', {
-            url,
-            package: APP_PACKAGE,
-        });
-
-        // The plugin dispatches onOpenUrl → handleAuthCallback → completeAuthentication
-        // → myGoto('/'). A 3s settle covers the state propagation before we
-        // re-query the menu; the waitForDisplayed then covers slower cases.
-        await browser.pause(3000);
-
-        await openNavMenu();
-        const logoutBtn = await $('[data-testid="nav-logout-button"]');
-        await logoutBtn.waitForDisplayed({ timeout: 15000 });
-        expect(await logoutBtn.isDisplayed()).toBe(true);
-
-        const loginLinkAfter = await $('[data-testid="nav-login-link"]');
-        expect(await loginLinkAfter.isExisting()).toBe(false);
+    beforeEach(async () => {
+        await restartApp();
     });
+
+    // Order matters: Appium's noReset is per-session, not per-test, so the
+    // happy-path case leaves the user logged-in. Running the expired-token
+    // case first exercises it against a clean unauthenticated state.
 
     it('rejects an expired deep-link token without logging in', async function () {
         this.timeout(60000);
 
-        // Build a deep link whose expires_at is already in the past. The
         // handleAuthCallback expiry check (authCallback.ts:63) must reject
-        // this and surface an error alert, leaving the user unauthenticated.
+        // this and leave the user unauthenticated.
         const token = await getTestUserToken();
         const past = new Date(Date.now() - 60 * 1000).toISOString();
-        const futureRefresh = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-        const params = new URLSearchParams({
-            token,
-            expires_at: past,
-            refresh_token_expires_at: futureRefresh,
-        });
-        const url = `cz.hillviedev://auth?${params.toString()}`;
-
-        await (driver as any).execute('mobile: deepLink', {
-            url,
-            package: APP_PACKAGE,
-        });
-        await browser.pause(3000);
+        const url = buildAuthDeepLink(token, past);
+        await fireDeepLink(url);
 
         await openNavMenu();
         const loginLink = await $('[data-testid="nav-login-link"]');
@@ -128,5 +114,21 @@ describe('Deep-link auth', () => {
 
         const logoutBtn = await $('[data-testid="nav-logout-button"]');
         expect(await logoutBtn.isExisting()).toBe(false);
+    });
+
+    it('logs the user in when an OAuth callback deep link arrives', async function () {
+        this.timeout(120000);
+
+        const token = await getTestUserToken();
+        const url = buildAuthDeepLink(token);
+        await fireDeepLink(url);
+
+        await openNavMenu();
+        const logoutBtn = await $('[data-testid="nav-logout-button"]');
+        await logoutBtn.waitForDisplayed({ timeout: 15000 });
+        expect(await logoutBtn.isDisplayed()).toBe(true);
+
+        const loginLink = await $('[data-testid="nav-login-link"]');
+        expect(await loginLink.isExisting()).toBe(false);
     });
 });
