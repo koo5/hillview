@@ -4,9 +4,6 @@ import { backendInternalUrl } from '$lib/config.server';
 import { parsePhotoUidParts } from '$lib/urlUtilsServer';
 import type { PublicPhoto, PhotoAnnotation } from '$lib/photoDisplay';
 
-export const ssr = true;
-export const prerender = false;
-
 export const load: PageServerLoad = async ({ params, fetch }) => {
 	const photoUid = params.uid;
 	const parts = parsePhotoUidParts(photoUid);

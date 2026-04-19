@@ -532,6 +532,14 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 							message="Photo was deleted during processing"
 						)
 
+					if response.status_code == 404 and os.environ.get('DEV_MODE', 'false').lower() == 'true':
+						logger.info(f"DEV_MODE: photo {photo_id} not found at API (db likely cleared for next test), skipping result submission")
+						return ProcessPhotoResponse(
+							success=True,
+							photo_id=photo_id,
+							message="Photo not found (DEV_MODE)"
+						)
+
 					if response.status_code >= 500 and attempt < max_retries - 1:
 						delay = 2 ** attempt
 						logger.warning(f"Server error {response.status_code} for photo {photo_id} (attempt {attempt+1}/{max_retries}): {response.text}, retrying in {delay}s")

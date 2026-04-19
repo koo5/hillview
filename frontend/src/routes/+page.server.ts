@@ -2,10 +2,6 @@ import type { PageServerLoad } from './$types';
 import { backendInternalUrl } from '$lib/config.server';
 import { parsePhotoUid } from '$lib/urlUtilsServer';
 
-export const ssr = true;
-// Disable prerendering since we need dynamic URL parameters
-export const prerender = false;
-
 export const load: PageServerLoad = async ({ url, fetch }) => {
 	// Check for photo parameter in URL
 	const photoParam = url.searchParams.get('photo');

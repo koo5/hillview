@@ -1,9 +1,6 @@
 import type { PageServerLoad } from './$types';
 import { backendInternalUrl } from '$lib/config.server';
 
-export const ssr = true;
-export const prerender = false;
-
 export const load: PageServerLoad = async ({ fetch }) => {
 	try {
 		const apiUrl = new URL(`${backendInternalUrl}/bestof/photos`);

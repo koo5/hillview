@@ -7,12 +7,16 @@
     import { Info, MapPin, Camera, Globe, Github, Heart, FileText, Shield, Mail } from 'lucide-svelte';
     import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
     import StandardBody from '$lib/components/StandardBody.svelte';
-    import { getCurrentProviderConfig, getProviderDisplayName, currentTileProvider } from '$lib/tileProviders';
+    import type { TileProviderConfig } from '$lib/tileProviders';
     import { openExternalUrl } from '$lib/urlUtils';
     import { onMount } from 'svelte';
     import { TAURI } from '$lib/tauri';
 
     let appVersion = __APP_VERSION__;
+    // tileProviders pulls in leaflet at module top-level, which explodes in SSR.
+    // Lazy-load it on mount so the page is SSR-safe for crawlers.
+    let tileConfig: TileProviderConfig | null = null;
+    let tileProviderName = '';
 
     onMount(async () => {
         // In Tauri context, get the version from the native API
@@ -24,6 +28,14 @@
                 console.warn('Failed to get Tauri version:', e);
             }
         }
+
+        const tp = await import('$lib/tileProviders');
+        const { get } = await import('svelte/store');
+        const unsubscribe = tp.currentTileProvider.subscribe((provider) => {
+            tileConfig = tp.getProviderConfig(provider);
+            tileProviderName = tp.getProviderDisplayName(provider);
+        });
+        return unsubscribe;
     });
 
     const techCategories = [
@@ -76,10 +88,6 @@
             ]
         },
     ];
-
-    // Get current tile provider config
-    $: tileConfig = getCurrentProviderConfig();
-    $: tileProviderName = getProviderDisplayName($currentTileProvider);
 
     // Process attribution HTML to handle external links
     function processAttributionHTML(html: string): string {
@@ -158,18 +166,20 @@
         </p>
 
         <h3>Map Data</h3>
-        <div class="map-attribution">
-            <p class="current-provider">
-                <strong>Current Tile Provider:</strong> {tileProviderName}
-            </p>
-            <div
-                class="attribution-text"
-                on:click={handleAttributionClick}
-                role="presentation"
-            >
-                {@html processAttributionHTML(tileConfig.attribution)}
+        {#if tileConfig}
+            <div class="map-attribution">
+                <p class="current-provider">
+                    <strong>Current Tile Provider:</strong> {tileProviderName}
+                </p>
+                <div
+                    class="attribution-text"
+                    on:click={handleAttributionClick}
+                    role="presentation"
+                >
+                    {@html processAttributionHTML(tileConfig.attribution)}
+                </div>
             </div>
-        </div>
+        {/if}
 
         {#each techCategories as category}
             <h3>{category.title}</h3>

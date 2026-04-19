@@ -117,14 +117,15 @@ export class AuthStorage {
 
         const transaction = this.db!.transaction([AUTH_STORE], 'readwrite');
         const store = transaction.objectStore(AUTH_STORE);
+        store.put(tokenData, 'token');
 
         return new Promise((resolve, reject) => {
-            const request = store.put(tokenData, 'token');
-            request.onsuccess = () => {
+            transaction.oncomplete = () => {
                 this.broadcast({ type: 'auth_changed' });
                 resolve();
             };
-            request.onerror = () => reject(request.error);
+            transaction.onerror = () => reject(transaction.error);
+            transaction.onabort = () => reject(transaction.error);
         });
     }
 
