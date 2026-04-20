@@ -36,10 +36,19 @@ export default defineConfig({
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
+
+    /* Cap navigations (`goto`, `waitForLoadState`, `waitForURL`) at 60s. The
+       default (0) means they wait up to the test timeout, which turns a stuck
+       `waitForLoadState('networkidle')` into a multi-minute wait before the
+       test finally aborts. `actionTimeout` is left at the default because some
+       actions (batch photo uploads, long `expect().toBeVisible` waits) can
+       legitimately take a while and pass their own per-call timeout. */
+    navigationTimeout: 60000,
   },
 
-  /* Global test timeout - 90 seconds for long-running Mapillary tests */
-  timeout: 90000,
+  /* Per-test timeout. Has to accommodate long-running Mapillary/photo-upload
+     tests plus the navigation timeout above. */
+  timeout: 180000,
 
   /* Configure projects for major browsers */
   projects: [

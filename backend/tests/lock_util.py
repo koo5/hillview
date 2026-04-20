@@ -8,7 +8,6 @@ import os
 import time
 
 LOCK_FILE = '/tmp/hillview-test-backend.lock'
-TIMEOUT_S = 5 * 60
 POLL_S = 1
 
 
@@ -51,9 +50,12 @@ def _try_claim_stale_lock(stale_pid: int) -> bool:
 
 
 def acquire_lock(owner_pid: int | None = None) -> None:
-    """Acquire the backend test lock, writing `owner_pid` (default: os.getpid()) into the file."""
+    """Acquire the backend test lock, writing `owner_pid` (default: os.getpid()) into the file.
+
+    Waits indefinitely; the holder's test run may legitimately take longer than
+    any fixed timeout. If you need to abort, interrupt the process.
+    """
     pid_to_write = owner_pid if owner_pid is not None else os.getpid()
-    start = time.monotonic()
     while True:
         try:
             fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -68,8 +70,6 @@ def acquire_lock(owner_pid: int | None = None) -> None:
                 if not _is_process_alive(pid):
                     _try_claim_stale_lock(pid)
                     continue
-                if time.monotonic() - start > TIMEOUT_S:
-                    raise TimeoutError(f"Timed out waiting for test lock (held by PID {pid})")
                 print(f"\nWaiting for test lock {LOCK_FILE} (held by PID {pid})...")
             except FileNotFoundError:
                 continue

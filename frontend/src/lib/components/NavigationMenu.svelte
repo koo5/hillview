@@ -233,13 +233,19 @@
         overflow-y: auto;
         /* Standard drawer pattern: kept in DOM (so text browsers + crawlers see the
            links) and slid off-screen until opened. `inert` on the element blocks focus
-           and pointer events when closed, so keyboard users don't tab into it. */
+           and pointer events when closed, so keyboard users don't tab into it.
+           `visibility: hidden` after the slide-out animation finishes so the element
+           is also hidden to accessibility tools and headless tests (Playwright's
+           `toBeHidden`). Re-shown instantly on open so the slide-in can play. */
         transform: translateX(-110%);
-        transition: transform 0.3s ease;
+        visibility: hidden;
+        transition: transform 0.1s ease, visibility 0s linear 0.1s;
     }
 
     .nav-menu.open {
         transform: translateX(0);
+        visibility: visible;
+        transition: transform 0.1s ease, visibility 0s linear 0s;
     }
 
 

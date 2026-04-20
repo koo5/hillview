@@ -1,7 +1,6 @@
 import fs from 'fs';
 
 const LOCK_FILE = '/tmp/hillview-test-backend.lock';
-const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const POLL_MS = 1000;
 
 function isProcessAlive(pid: number): boolean {
@@ -46,8 +45,11 @@ function tryClaimStaleLock(stalePid: number): boolean {
   return true;
 }
 
+/**
+ * Acquire the backend test lock. Waits indefinitely; a holder's test run may
+ * legitimately take longer than any fixed timeout. Interrupt the process to abort.
+ */
 export async function acquireTestLock(): Promise<void> {
-  const start = Date.now();
   while (true) {
     try {
       const fd = fs.openSync(LOCK_FILE, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
@@ -66,9 +68,6 @@ export async function acquireTestLock(): Promise<void> {
           if (tryClaimStaleLock(pid)) continue;
           // Lost the race — another process claimed it, loop and retry.
           continue;
-        }
-        if (Date.now() - start > TIMEOUT_MS) {
-          throw new Error(`Timed out waiting for test lock (held by PID ${pid})`);
         }
         console.log(`Waiting for test lock (held by PID ${pid})...`);
       } catch (readErr: any) {

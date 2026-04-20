@@ -43,9 +43,13 @@ function isTileRequestForProvider(requestUrl: string, provider: TileProvider): b
     return new RegExp('^' + pattern + '$').test(requestUrl);
 }
 
+const TILE_FETCH_TIMEOUT_MS = 30_000;
+
 async function handleTileRequest(request: Request): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TILE_FETCH_TIMEOUT_MS);
     try {
-        const response = await fetch(request);
+        const response = await fetch(request, { signal: controller.signal });
         if (response.ok) return response;
 
         console.log('[SW] Tile request failed', {
@@ -55,12 +59,15 @@ async function handleTileRequest(request: Request): Promise<Response> {
         });
         return createErrorTile(`${currentTileProvider?.name} failed (${response.status})`);
     } catch (error: any) {
+        const timedOut = error?.name === 'AbortError';
         console.log('[SW] Tile request error', {
             url: request.url,
-            error: error.message,
+            error: timedOut ? `timeout after ${TILE_FETCH_TIMEOUT_MS}ms` : error.message,
             provider: currentTileProvider?.name
         });
-        return createErrorTile('Network error');
+        return createErrorTile(timedOut ? 'Timeout' : 'Network error');
+    } finally {
+        clearTimeout(timeoutId);
     }
 }
 

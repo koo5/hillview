@@ -1,6 +1,7 @@
 import { test as base } from '@playwright/test';
 import { recreateTestUsers, type TestUserSetupResult } from './helpers/testUsers';
 import { setupConsoleLogging } from './helpers/consoleLogging';
+import { trackPendingRequests } from './helpers/pendingRequests';
 
 /**
  * Track which spec file last triggered user recreation.
@@ -52,12 +53,22 @@ export const test = base.extend<{ testUsers: TestUserSetupResult }>({
 			await origTimeout(ms);
 			console.log(`⏱️ [SLEEP] waitForTimeout(${ms}) — done in ${Date.now() - t}ms`);
 		};
+
+		// Track in-flight requests so a networkidle timeout can show what
+		// was still outstanding when the wait failed.
+		const tracker = trackPendingRequests(page);
+
 		const origLoadState = page.waitForLoadState.bind(page);
 		page.waitForLoadState = async (state?: any, options?: any) => {
 			const caller = new Error().stack?.split('\n')[2]?.trim() || '?';
 			console.log(`⏱️ [SLEEP] waitForLoadState(${state}) — start — ${caller}`);
 			const t = Date.now();
-			await origLoadState(state, options);
+			try {
+				await origLoadState(state, options);
+			} catch (e) {
+				tracker.logSnapshot(`⏱️ [SLEEP] waitForLoadState(${state}) — TIMEOUT after ${Date.now() - t}ms; `);
+				throw e;
+			}
 			console.log(`⏱️ [SLEEP] waitForLoadState(${state}) — done in ${Date.now() - t}ms`);
 		};
 

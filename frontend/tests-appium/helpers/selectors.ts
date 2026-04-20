@@ -159,6 +159,13 @@ export const TESTID = {
     storagePrivateFolder: 'storage-private-folder',
     storageMediaStoreApi: 'storage-mediastore-api',
 
+    // settings/+page.svelte sub-nav
+    advancedMenuLink: 'advanced-menu-link',
+
+    // settings/advanced/+page.svelte
+    geoTrackingExportButton: 'geo-tracking-export-button',
+    geoTrackingAutoExportCheckbox: 'geo-tracking-auto-export-checkbox',
+
     // LicenseSelector.svelte
     licenseCheckbox: 'license-checkbox',
 

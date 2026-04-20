@@ -161,7 +161,7 @@
                         <div class="guest-info">
                             <small>
                                 You're sending this message as a guest.
-                                <a href="/login">Log in</a> if you have an account.
+                                <a href="/login" data-testid="contact-guest-login-link">Log in</a> if you have an account.
                             </small>
                         </div>
                     {/if}

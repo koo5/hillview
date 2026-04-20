@@ -2,6 +2,7 @@ package cz.hillview.plugin
 
 import android.app.*
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -39,15 +40,22 @@ class PhotoUploadWorker(
             val triggerSource = inputData.getString("trigger_source") ?: "unknown"
             Log.d(TAG, "Starting upload work with trigger: $triggerSource")
 
-            // Use foreground info for persistent notifications (handled by WorkManager)
+            // Promote to foreground so the user sees the "Uploading Photos"
+            // notification while the queue drains. The earlier Android-12
+            // branch here relied on "expedited work provides foreground
+            // automatically", but that's only true when the WorkRequest is
+            // built with .setExpedited() — and it wasn't. PhotoUploadManager
+            // now sets expedited explicitly; we still call setForeground()
+            // unconditionally so pre-12 devices get the same treatment.
+            //
+            // Long term PhotoUploadForegroundService (currently dormant) is
+            // the better fit for long / continuous uploads: no quota cap,
+            // survives more memory pressure. The WorkManager path here is
+            // bounded by the expedited quota — over-quota runs fall back to
+            // RUN_AS_NON_EXPEDITED_WORK_REQUEST and lose the notification
+            // for that invocation.
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    // Android 12+ - expedited work provides foreground automatically
-                    Log.d(TAG, "Running as expedited work on Android 12+")
-                } else {
-                    // Pre-Android 12 - manually set foreground
-                    setForeground(getForegroundInfo())
-                }
+                setForeground(getForegroundInfo())
             } catch (e: Exception) {
                 Log.w(TAG, "Could not set foreground: ${e.message}")
                 // Continue anyway - work can still run without foreground

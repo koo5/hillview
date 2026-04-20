@@ -78,7 +78,7 @@ test.describe('Contact Form', () => {
 
     // Verify user is NOT logged in (should show guest message)
     await expect(page.locator('text=You\'re sending this message as a guest')).toBeVisible();
-    await expect(page.locator('a[href="/login"]')).toBeVisible();
+    await expect(page.getByTestId('contact-guest-login-link')).toBeVisible();
 
     // Fill out contact form
     const contactInfo = 'guest@example.com';
