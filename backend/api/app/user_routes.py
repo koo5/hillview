@@ -187,6 +187,12 @@ async def login_for_access_token(
 	# Clear failed attempts on successful login
 	await auth_rate_limiter.clear_failed_attempts(identifier)
 
+	# A successful re-auth clears any debug force-logout flag. Same rule
+	# a real session-invalidation system would apply: once the user has
+	# proven password ownership, any stored "please log out" gets dropped.
+	from auth import clear_user_force_logout
+	clear_user_force_logout(user.id)
+
 	# Log successful login to security audit
 	await security_audit.log_successful_login(
 		db=db,

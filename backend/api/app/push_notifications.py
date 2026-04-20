@@ -8,7 +8,8 @@ from common.models import PushRegistration, Notification, User, UserPublicKey
 from common.utc import utcnow
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import and_, text
+from sqlalchemy import and_, delete as sa_delete, text
+import push_toggle
 from fcm_push import send_fcm_push, send_fcm_batch, is_fcm_configured
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,24 @@ class NotificationDict(TypedDict, total=False):
 	body: str
 	route: Optional[str]  # '/activity', '/photos/123', etc. (stored in action_data column)
 	expires_at: Optional[datetime]
+
+
+async def _unregister_stale_endpoints(db: AsyncSession, endpoints: List[str]) -> int:
+	"""Delete `push_registrations` rows whose `push_endpoint` matches an
+	endpoint Firebase flagged as stale (UnregisteredError / SenderIdMismatch /
+	NotFound). Called from the send paths so prod stays clean of tokens
+	for uninstalled apps or tokens issued to a different project.
+
+	Returns the number of rows deleted.
+	"""
+	if not endpoints:
+		return 0
+	stmt = sa_delete(PushRegistration).where(PushRegistration.push_endpoint.in_(endpoints))
+	result = await db.execute(stmt)
+	await db.commit()
+	count = result.rowcount or 0
+	logger.info(f"Unregistered {count} stale push endpoint(s)")
+	return count
 
 
 # Core notification functions (for use by other parts of the app)
@@ -124,6 +143,10 @@ async def send_push_to_user(user_id: str, db: AsyncSession, notif: NotificationD
 
 async def send_push_to_client(client_key_id: str, db: AsyncSession, notif: NotificationDict):
 	"""Send push notification to a specific client device."""
+	if not push_toggle.is_enabled():
+		logger.info(f"push_toggle disabled — skipping send to {client_key_id}")
+		return
+
 	# Get push registration for this client key
 	registration_query = select(PushRegistration).where(
 		PushRegistration.client_key_id == client_key_id
@@ -144,19 +167,24 @@ async def send_push_to_client(client_key_id: str, db: AsyncSession, notif: Notif
 					return
 
 				# Send via FCM with notification content and route
-				success = await send_fcm_push(
+				fcm_result = await send_fcm_push(
 					fcm_token=registration.push_endpoint,
 					title=notif['title'],
 					body=notif['body'],
 					route=notif.get('route')
 				)
 
-				if success:
+				if fcm_result.get('success'):
 					logger.info(f"FCM sent successfully to {client_key_id}")
 					return True
-				else:
-					logger.warning(f"FCM failed for {client_key_id}")
-					return
+
+				# Firebase says this token is dead — remove the
+				# registration so we don't keep sending to it.
+				if fcm_result.get('stale'):
+					await _unregister_stale_endpoints(db, [registration.push_endpoint])
+
+				logger.warning(f"FCM failed for {client_key_id}")
+				return
 
 			# UnifiedPush HTTP endpoint - send poke to trigger fetch
 			response = await client.post(
@@ -350,7 +378,7 @@ async def _send_activity_broadcast_notification_impl(
 			unified_push_endpoints.append(endpoint)
 
 	# Batch send FCM
-	fcm_result = {'success': 0, 'failure': 0}
+	fcm_result: Dict[str, object] = {'success': 0, 'failure': 0, 'stale_tokens': []}
 	if fcm_tokens:
 		fcm_result = await send_fcm_batch(
 			fcm_tokens,
@@ -358,6 +386,13 @@ async def _send_activity_broadcast_notification_impl(
 			body=notification['body'],
 			route=notification.get('route')
 		)
+
+	# Clean up any registrations Firebase reported as stale — next broadcast
+	# won't waste a send on them, and the backend's `push_registrations`
+	# table stays bounded in size.
+	stale_tokens = fcm_result.get('stale_tokens') or []
+	if stale_tokens:
+		await _unregister_stale_endpoints(db, stale_tokens)
 
 	# Send UnifiedPush concurrently
 	unified_push_results = await send_unified_push_batch(unified_push_endpoints)
@@ -372,6 +407,10 @@ async def _send_activity_broadcast_notification_impl(
 async def send_unified_push_batch(endpoints: List[str]) -> Dict[str, int]:
 	"""Send UnifiedPush pokes to multiple endpoints concurrently."""
 	if not endpoints:
+		return {'success': 0, 'failure': 0}
+
+	if not push_toggle.is_enabled():
+		logger.info(f"UnifiedPush batch skipped: outgoing push disabled (push_toggle); would have sent {len(endpoints)}")
 		return {'success': 0, 'failure': 0}
 
 	async def send_one(endpoint: str) -> bool:

@@ -5,6 +5,7 @@ from typing import Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import push_toggle
 from common.database import get_db
 from debug_utils import debug_only, clear_system_tables, cleanup_upload_directories
 
@@ -29,6 +30,12 @@ async def recreate_test_users():
 
 	import auth
 	result = await auth.recreate_test_users()
+
+	# A test that opted in to real outgoing push shouldn't leak that
+	# choice into the next test run. Reset to the DEV_MODE-driven default
+	# (off in dev, on in prod) every time test state gets wiped.
+	push_toggle.reset_to_default()
+
 	return {"status": "success", "message": "Test users re-created", "details": result}
 
 
@@ -84,6 +91,10 @@ async def clear_database():
 
 		await db.commit()
 		break
+
+	# Same reset rule as recreate-test-users — any test-only opt-in to
+	# real push gets cleared when test state is wiped.
+	push_toggle.reset_to_default()
 
 	log.info("Database cleared completely")
 	return {

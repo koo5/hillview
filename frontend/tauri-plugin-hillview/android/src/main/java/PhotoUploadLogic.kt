@@ -497,22 +497,42 @@ class PhotoUploadLogic(private val context: Context) {
 		}
 
 		val requestBody = json.toString().toRequestBody("application/json".toMediaType())
-		val httpRequest = Request.Builder()
-			.url("$serverUrl/photos/authorize-upload")
-			.addHeader("Authorization", "Bearer $authToken")
-			.post(requestBody)
-			.build()
 
 		Log.d(TAG, "Requesting upload authorization for: ${photo.filename}")
 
+		// Do the call. If the server returns 401, the local access token was
+		// invalidated server-side (blacklist, password change, force-logout,
+		// etc.) despite still looking valid locally. forceRefreshToken
+		// exchanges the refresh token for a fresh pair; on refresh failure it
+		// fires showAuthExpiredNotification() internally, so a bubbled-up
+		// exception from here just becomes a regular upload failure and the
+		// user has already been notified.
+		fun buildRequest(token: String) = Request.Builder()
+			.url("$serverUrl/photos/authorize-upload")
+			.addHeader("Authorization", "Bearer $token")
+			.post(requestBody)
+			.build()
+
 		try {
-			client.newCall(httpRequest).execute().use { response ->
-				if (!response.isSuccessful) {
-					val error = response.body?.string() ?: "Unknown error"
-					throw Exception("Upload authorization failed: ${response.code} - $error")
+			var response = client.newCall(buildRequest(authToken)).execute()
+			if (response.code == 401) {
+				response.close()
+				Log.w(TAG, "authorize-upload → 401, forcing token refresh and retrying once")
+				val refreshed = authManager.forceRefreshToken()
+				if (!refreshed) {
+					throw Exception("Upload authorization failed: session invalid and refresh failed")
+				}
+				val newToken = authManager.getValidToken()
+					?: throw Exception("Upload authorization failed: no token after refresh")
+				response = client.newCall(buildRequest(newToken)).execute()
+			}
+			response.use { r ->
+				if (!r.isSuccessful) {
+					val error = r.body?.string() ?: "Unknown error"
+					throw Exception("Upload authorization failed: ${r.code} - $error")
 				}
 
-				val responseJson = JSONObject(response.body!!.string())
+				val responseJson = JSONObject(r.body!!.string())
 
 				// Check if this is a duplicate file detection response
 				if (responseJson.optBoolean("duplicate", false)) {

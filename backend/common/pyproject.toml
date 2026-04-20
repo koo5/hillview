@@ -18,7 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 # Database access (models.py, database.py)
 db = [
-    "sqlalchemy==2.0.23",
+    "sqlalchemy==2.0.36",
     "asyncpg==0.30.0",
     "geoalchemy2==0.14.2",
     "shapely==2.0.6",

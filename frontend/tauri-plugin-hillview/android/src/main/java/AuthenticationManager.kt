@@ -215,6 +215,26 @@ class AuthenticationManager(
         }
     }
 
+    /**
+     * Unconditionally attempt a token refresh against the server, bypassing
+     * the local expiry / renewal checks. Shares all downstream handling
+     * with refreshTokenIfNeeded — including the "no refresh token → notify"
+     * path and the "server returned 401 → clear tokens + notify" path. Use
+     * from HTTP callers that see a 401 when their locally-valid access
+     * token was invalidated server-side (session blacklist, password
+     * change, force-logout, etc.).
+     */
+    suspend fun forceRefreshToken(): Boolean {
+        val refreshToken = getRefreshToken() ?: run {
+            Log.w(TAG, "forceRefreshToken: no refresh token available")
+            if (prefs.getString(KEY_AUTH_TOKEN, null) != null) {
+                notificationHelper.showAuthExpiredNotification()
+            }
+            return false
+        }
+        return performTokenRefresh(refreshToken)
+    }
+
     suspend fun refreshTokenIfNeeded(): Boolean {
         val tokenExpired = isTokenExpired()
         val needsRefreshRenewal = shouldRenewRefreshToken()
