@@ -19,6 +19,15 @@ class NotificationHelper(private val context: Context) {
         private const val TAG = "🢄NotificationHelper"
         private const val CHANNEL_ID_AUTH = "auth_notifications"
         private const val CHANNEL_ID_UPLOAD = "upload_notifications"
+        // Must match the channel_id the backend sets on the FCM
+        // activity-broadcast payload (fcm_push.py: AndroidNotification
+        // channel_id='hillview_activity_notifications'). If no channel
+        // with this id exists, Android falls back to
+        // `fcm_fallback_notification_channel` — which works but
+        // bypasses the importance / vibration / badge preferences we
+        // configure here and hides the channel from the app's
+        // notification settings.
+        private const val CHANNEL_ID_ACTIVITY = "hillview_activity_notifications"
         private const val NOTIFICATION_ID_AUTH_EXPIRED = 1001
         private const val NOTIFICATION_ID_UPLOAD_STATUS = 1002
 
@@ -27,6 +36,8 @@ class NotificationHelper(private val context: Context) {
         private const val AUTH_CHANNEL_DESCRIPTION = "Notifications about login status and authentication issues"
         private const val UPLOAD_CHANNEL_NAME = "Photo Uploads"
         private const val UPLOAD_CHANNEL_DESCRIPTION = "Notifications about photo upload status and progress"
+        private const val ACTIVITY_CHANNEL_NAME = "Activity"
+        private const val ACTIVITY_CHANNEL_DESCRIPTION = "Notifications about new photos and activity on Hillview"
     }
 
     init {
@@ -62,8 +73,21 @@ class NotificationHelper(private val context: Context) {
                 setShowBadge(false)
             }
 
+            // Activity / push channel — receives FCM activity-broadcasts.
+            // See CHANNEL_ID_ACTIVITY comment for why the id is fixed.
+            val activityChannel = NotificationChannel(
+                CHANNEL_ID_ACTIVITY,
+                ACTIVITY_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = ACTIVITY_CHANNEL_DESCRIPTION
+                enableVibration(false)
+                setShowBadge(true)
+            }
+
             notificationManager.createNotificationChannel(authChannel)
             notificationManager.createNotificationChannel(uploadChannel)
+            notificationManager.createNotificationChannel(activityChannel)
 
             Log.d(TAG, "Notification channels created")
         }
