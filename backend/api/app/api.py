@@ -395,6 +395,10 @@ import debug_routes
 
 app.include_router(debug_routes.router)
 
+import internal_debug_routes
+
+app.include_router(internal_debug_routes.router)
+
 
 # Self-hosted Swagger UI (assets bundled in swagger-ui-py package, served same-origin under /docs).
 # Must be registered after all routers so app.openapi() reflects the full schema.

@@ -80,8 +80,14 @@ dependencies {
     implementation("androidx.room:room-common:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
 
-    // WorkManager for background tasks
-    implementation("androidx.work:work-runtime-ktx:2.8.1")
+    // WorkManager for background tasks.
+    // 2.10.x declares `foregroundServiceType="dataSync"` on SystemForegroundService
+    // (plus the matching permission), but it requires compileSdk 35 + AGP 8.6+.
+    // Staying on 2.9.1 and patching the missing type/permission into our own
+    // manifest (see AndroidManifest.xml) keeps the compileSdk/AGP bump out of
+    // scope. When the project moves to compileSdk 35, bump to 2.10.x and drop
+    // the manifest overrides.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     // HTTP client for uploads
     implementation("com.squareup.okhttp3:okhttp:4.11.0")

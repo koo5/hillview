@@ -91,7 +91,15 @@ class PhotoUploadWorker(
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .build()
 
-        return ForegroundInfo(NOTIFICATION_ID, notification)
+        // Android 14+ also needs FOREGROUND_SERVICE_DATA_SYNC in the
+        // manifest — WorkManager 2.8.1 doesn't bundle it, 2.9+ does. Add
+        // the permission (or bump WorkManager) before this path is usable
+        // on physical devices.
+        return ForegroundInfo(
+            NOTIFICATION_ID,
+            notification,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        )
     }
 
     private fun createNotificationChannel() {

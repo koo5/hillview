@@ -139,6 +139,31 @@ export async function blacklistToken(token: string): Promise<void> {
 }
 
 /**
+ * Set (or clear) an artificial delay on a named backend hot-path via
+ * the internal-only knobs endpoint. Seconds=0 clears. The endpoint is
+ * localhost-guarded (`require_internal_ip`) and safe to ship — useful
+ * in dev for tests that need a wider observation window, and in prod
+ * for reproducing slow-network behavior on demand.
+ *
+ * Current knobs:
+ *   - "authorize_upload": sleeps just before returning the JWT in
+ *     POST /api/photos/authorize-upload (each queued upload hits this
+ *     once, so N seconds here stretches the worker's total runtime by
+ *     N × photo-count).
+ */
+export async function setBackendDelay(name: string, seconds: number): Promise<void> {
+    const res = await fetch(`${BACKEND_URL}/api/internal/debug/delays`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, seconds }),
+    });
+    if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`setBackendDelay(${name}=${seconds}) failed (${res.status}): ${body}`);
+    }
+}
+
+/**
  * Query the backend API for user photos.
  * Returns the count and list of photo IDs.
  */

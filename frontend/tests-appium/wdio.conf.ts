@@ -116,7 +116,14 @@ export const config: WebdriverIO.Config = {
     // Services take over a specific job you don't want to take care of. They enhance
     // your test setup with almost no effort. Unlike plugins, they don't add new
     // commands. Instead, they hook themselves up into the test process.
-    services: ['appium', 'visual'],
+    services: [
+        // Enable `adb_shell` so tests can call `mobile: shell` for things
+        // like `dumpsys notification` (used to verify the photo-upload
+        // foreground notification without opening the shade UI). Scoped
+        // to the single feature — safer than the nuclear --relaxed-security.
+        ['appium', { args: { allowInsecure: 'uiautomator2:adb_shell' } }],
+        'visual',
+    ],
 
     // Framework you want to run your specs with.
     // The following are supported: Mocha, Jasmine, and Cucumber

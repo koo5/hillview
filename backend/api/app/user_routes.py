@@ -1448,6 +1448,11 @@ async def authorize_upload(
 		)
 		log.debug(f"Upload authorization response: {r}")
 
+		# Optional artificial delay — set via POST /api/internal/debug/delays
+		# with name="authorize_upload". No-op unless explicitly configured.
+		import debug_delays
+		await debug_delays.sleep_for("authorize_upload")
+
 		return r
 
 	except HTTPException:

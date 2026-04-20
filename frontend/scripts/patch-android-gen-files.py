@@ -38,6 +38,12 @@ class AndroidConfigurer:
 		# Must be r28+; must exist under $ANDROID_HOME/ndk/.
 		self.ndk_version = "29.0.13113456"
 
+		# Keep dev-tree targetSdk aligned with the release tree. Tauri's
+		# generated app build.gradle.kts defaults to whatever AGP ships,
+		# which has drifted behind the release worktree. Bump this when
+		# release bumps (grep for `targetSdk =` in the sibling worktree).
+		self.target_sdk = 35
+
 		# Google Services configuration paths
 		self.google_services_target = self.android_root / "app" / "google-services.json"
 
@@ -756,6 +762,41 @@ if (file("google-services.json").exists()) {
 			self.log(f"Error fixing app build.gradle.kts: {e}", "ERROR")
 			return False
 
+	def _set_target_sdk(self) -> bool:
+		"""Rewrite `targetSdk = N` in the generated app build.gradle.kts to
+		match the release tree (self.target_sdk). Tauri's generator sets
+		this from AGP's default, which has lagged behind the release config.
+		"""
+		if not self.build_gradle_file.exists():
+			self.log(f"App build.gradle.kts not found at {self.build_gradle_file}", "ERROR")
+			return False
+
+		try:
+			content = self.build_gradle_file.read_text()
+			original = content
+
+			pattern = r'(targetSdk\s*=\s*)\d+'
+			match = re.search(pattern, content)
+			if not match:
+				self.log("targetSdk assignment not found in app build.gradle.kts", "WARNING")
+				return True
+
+			current = int(re.search(r'\d+', match.group(0)).group(0))
+			if current == self.target_sdk:
+				self.log(f"targetSdk already = {self.target_sdk}", "SUCCESS")
+				return True
+
+			content = re.sub(pattern, rf'\g<1>{self.target_sdk}', content, count=1)
+			if content != original:
+				self.build_gradle_file.write_text(content)
+				self.log(f"Bumped targetSdk {current} → {self.target_sdk}", "SUCCESS")
+
+			return True
+
+		except Exception as e:
+			self.log(f"Error setting targetSdk: {e}", "ERROR")
+			return False
+
 	def _patch_16kb_alignment(self) -> bool:
 		"""Pin NDK and disable legacy jniLibs packaging for 16 KB ELF page alignment.
 
@@ -951,6 +992,7 @@ if (file("google-services.json").exists()) {
 			("Configure build.gradle.kts", self.configure_build_gradle),
 			("Patch colors.xml", self.patch_colors_xml),
 			("Fix Kotlin versions", self.fix_kotlin_versions),
+			("Set targetSdk", self._set_target_sdk),
 			("Patch 16KB page alignment", self._patch_16kb_alignment),
 			("Copy google-services.json", self.copy_google_services_json),
 		]

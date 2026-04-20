@@ -30,8 +30,17 @@ class PhotoUploadManager(private val context: Context) {
                 .setRequiredNetworkType(networkType)
                 .build()
 
+            // Expedited work is what makes WorkManager call
+            // getForegroundInfo() on Android 12+, surfacing the ongoing
+            // "Uploading Photos" notification. Without it the worker runs
+            // silently as plain background work. The RUN_AS_NON_EXPEDITED
+            // fallback keeps uploads going when the per-app expedited
+            // quota (~10 min per rolling 10-min window for Active apps)
+            // is exhausted — at the cost of the notification for that
+            // specific invocation.
             val workRequest = OneTimeWorkRequestBuilder<PhotoUploadWorker>()
                 .setConstraints(constraints)
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setInputData(
                     Data.Builder()
                         .putString("trigger_source", triggerSource)
