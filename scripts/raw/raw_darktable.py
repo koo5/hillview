@@ -53,7 +53,10 @@ def convert_one(cr2: Path, tiff_dir: Path, bpp: int) -> tuple[Path, bool, str]:
     if proc.returncode != 0 or not out.exists():
         if out.exists():
             out.unlink()
-        return out, False, proc.stderr.strip().splitlines()[-1] if proc.stderr else "unknown error"
+        # Dump full stderr (and stdout as fallback) so the user can actually
+        # diagnose failures instead of staring at "unknown error".
+        err = proc.stderr.strip() or proc.stdout.strip() or f"exit {proc.returncode}, no output"
+        return out, False, err
     return out, True, "ok"
 
 
@@ -110,8 +113,10 @@ def main():
 
     log(f"done: {ok}/{len(cr2s)} ok")
     if failed:
+        print("", file=sys.stderr)
         for out, status in failed:
-            print(f"  failed: {out.name} — {status}", file=sys.stderr)
+            print(f"--- failed: {out.name}", file=sys.stderr)
+            print(status, file=sys.stderr)
         return 1
     return 0
 

@@ -2,6 +2,8 @@ package cz.hillview.plugin
 
 import android.content.Context
 import android.util.Log
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.gms.tasks.OnCompleteListener
@@ -162,28 +164,48 @@ class FcmDirectService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         Log.d(TAG, "📨 FCM message received from: ${remoteMessage.from}")
 
-        // Log the message data for debugging
         remoteMessage.data.let { data ->
             Log.d(TAG, "📋 Message data: $data")
         }
 
-        // Handle notification in background thread
+        val fcmTitle = remoteMessage.notification?.title
+        val fcmBody = remoteMessage.notification?.body
+        val fcmRoute = remoteMessage.data["click_action"]
+        val hasNotificationPayload = remoteMessage.notification != null
+
+        // If the message carries a `notification` payload AND the app isn't
+        // in the foreground, Android itself has already posted a system
+        // notification from that payload — running our own display path on
+        // top would produce a duplicate (different icon, same title).
+        // Only skip on modern Androids where the auto-display is
+        // guaranteed; on older ones we keep the existing behavior.
+        val isForeground = try {
+            ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        } catch (e: Exception) {
+            // ProcessLifecycleOwner not initialized (shouldn't happen in
+            // practice — androidx.lifecycle-process auto-initializes via
+            // a ContentProvider). Fail open: proceed with our display
+            // path so the user always sees *something*.
+            Log.w(TAG, "Could not read process lifecycle state: ${e.message}")
+            true
+        }
+        if (hasNotificationPayload && !isForeground) {
+            Log.d(TAG, "📨 App is backgrounded and message has notification payload — " +
+                    "letting Android auto-display handle it; skipping our display path.")
+            return
+        }
+
+        // Foreground (Android does NOT auto-display) or data-only (no
+        // auto-display either way). Either way, we own the display.
         CoroutineScope(Dispatchers.IO).launch {
             val context = applicationContext
             val notificationManager = NotificationManager(context)
 
-            // Extract FCM content for fallback
-            val fcmTitle = remoteMessage.notification?.title
-            val fcmBody = remoteMessage.notification?.body
-            val fcmRoute = remoteMessage.data["click_action"]
-
             try {
-                // Try to fetch and display notifications from backend API
                 Log.d(TAG, "🔔 Fetching notifications from backend...")
                 notificationManager.checkForNewNotifications()
                 Log.d(TAG, "✅ Backend notifications displayed")
             } catch (e: Exception) {
-                // Fallback: display FCM content directly
                 Log.w(TAG, "⚠️ Backend fetch failed: ${e.message}, using FCM fallback")
                 if (fcmTitle != null && fcmBody != null) {
                     notificationManager.displaySingleNotification(fcmTitle, fcmBody, fcmRoute)

@@ -305,10 +305,15 @@ async def stream_mapillary_images(
 
 	async def generate_stream(db_session: AsyncSession, user: Optional[User] = None):
 		request_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
-		log.info(f"Stream generator started for request {request_id} from client {client_id} (cache_enabled={ENABLE_MAPILLARY_CACHE}, live_enabled={ENABLE_MAPILLARY_LIVE})")
+		# Mock data overrides the env gates so the test suite can exercise the
+		# cache+live pipeline without ENABLE_MAPILLARY_LIVE/CACHE being set.
+		mock_active = mock_mapillary_service.has_mock_data()
+		cache_enabled = ENABLE_MAPILLARY_CACHE or mock_active
+		live_enabled = ENABLE_MAPILLARY_LIVE or mock_active
+		log.info(f"Stream generator started for request {request_id} from client {client_id} (cache_enabled={cache_enabled}, live_enabled={live_enabled}, mock_active={mock_active})")
 
 		# Check if any Mapillary functionality is enabled
-		if not ENABLE_MAPILLARY_CACHE and not ENABLE_MAPILLARY_LIVE:
+		if not cache_enabled and not live_enabled:
 			log.info("Mapillary functionality disabled - both cache and live API are disabled")
 			yield f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n"
 			yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': 0, 'total_all_photos': 0})}\n\n"
@@ -348,11 +353,11 @@ async def stream_mapillary_images(
 		}
 
 		try:
-			if ENABLE_MAPILLARY_CACHE or ENABLE_MAPILLARY_LIVE:
+			if cache_enabled or live_enabled:
 
 				cache_service = MapillaryCacheService(db_session)
 
-				if ENABLE_MAPILLARY_CACHE:
+				if cache_enabled:
 
 					# Send initial response with cached data using spatial sampling
 					cache_result = await cache_service.get_cached_photos_in_bbox(
@@ -447,14 +452,14 @@ async def stream_mapillary_images(
 				# Cache analysis complete - proceeding with any missing data fetch
 
 				# Stream live data from uncached regions (only if live API is enabled)
-				if uncached_regions and ENABLE_MAPILLARY_LIVE:
+				if uncached_regions and live_enabled:
 					log.info(f"Need to fetch data from Mapillary API for {len(uncached_regions)} uncached regions")
-				elif uncached_regions and not ENABLE_MAPILLARY_LIVE:
+				elif uncached_regions and not live_enabled:
 					log.info(f"Found {len(uncached_regions)} uncached regions but live API is disabled - skipping live data fetch")
 
 				for region_idx, region_bbox in enumerate(uncached_regions):
 					# Skip processing if live API is disabled
-					if not ENABLE_MAPILLARY_LIVE:
+					if not live_enabled:
 						break
 
 					# Ensure region is not too large (larger regions cause internal server errors from Mapillary)

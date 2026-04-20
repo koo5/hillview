@@ -10,12 +10,17 @@
 # Install suggestion (so tools that expect `darktable-cli` on PATH find it):
 #   ln -s "$PWD/darktable-cli-flatpak.sh" ~/.local/bin/darktable-cli
 
-# Parse args to locate input raw and output image. Everything else (flags,
+# Parse args to locate input raw and output image, and detect whether the
+# caller already passed --apply-custom-presets. Everything else (flags,
 # --core options, a temp XMP path from Hugin) is forwarded as-is.
 input=""
 output=""
+has_acp=0
 for a in "$@"; do
     case "$a" in
+        --apply-custom-presets)
+            has_acp=1
+            ;;
         *.[Cc][Rr]2|*.[Nn][Ee][Ff]|*.[Aa][Rr][Ww]|*.[Dd][Nn][Gg]|*.[Rr][Ww]2|*.[Rr][Aa][Ff]|*.[Ii][Ii][Qq]|*.[Oo][Rr][Ff]|*.[Pp][Ee][Ff])
             [ -z "$input" ] && input="$a"
             ;;
@@ -24,6 +29,13 @@ for a in "$@"; do
             ;;
     esac
 done
+
+# Default to --apply-custom-presets false so multiple instances don't contend
+# on the shared library database (darktable's documented recommendation for
+# "multiple instances"). Respect an explicit value if the caller passed one.
+if [ "$has_acp" -eq 0 ]; then
+    set -- --apply-custom-presets false "$@"
+fi
 
 flatpak run --command=darktable-cli org.darktable.Darktable "$@"
 rc=$?
