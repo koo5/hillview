@@ -176,6 +176,12 @@ async def get_current_user(
 		logger.warning(f"Blacklisted token used by user: {user_id}")
 		raise credentials_exception
 
+	# Debug force-logout flag (in-memory, set via /api/internal/debug/force-logout-user).
+	# Mirrors blacklist semantics without needing the token itself.
+	if is_user_force_logged_out(user_id):
+		logger.warning(f"Force-logout flag set for user {user_id}; rejecting token")
+		raise credentials_exception
+
 	token_data = TokenData(username=username, user_id=user_id)
 
 	# Fetch user from database
@@ -204,6 +210,31 @@ async def is_token_blacklisted(token: str, db: AsyncSession) -> bool:
 		)
 	)
 	return result.scalars().first() is not None
+
+
+# ------------------------------------------------------------
+# Debug: force-logout flag. Internal-only, in-memory, per-process.
+#
+# Set via POST /api/internal/debug/force-logout-user; read by
+# get_current_user and refresh_access_token to reject any token
+# belonging to the flagged user. Causes the client to observe the
+# same 401 pattern as a real blacklist / session invalidation, which
+# drives the Android "Login Required" notification flow.
+# Cleared automatically on next successful password-auth login.
+# ------------------------------------------------------------
+_force_logout_user_ids: set[str] = set()
+
+
+def force_user_logout(user_id: str) -> None:
+	_force_logout_user_ids.add(str(user_id))
+
+
+def clear_user_force_logout(user_id: str) -> None:
+	_force_logout_user_ids.discard(str(user_id))
+
+
+def is_user_force_logged_out(user_id: str) -> bool:
+	return str(user_id) in _force_logout_user_ids
 
 async def blacklist_token(token: str, user_id: str, reason: str, db: AsyncSession) -> None:
 	"""Add a token to the blacklist."""

@@ -283,6 +283,16 @@ async def refresh_access_token(
 				detail="User not found or inactive"
 			)
 
+		# Debug force-logout flag — same rejection as get_current_user.
+		# Causes the Android client's refresh call to get a 401, which
+		# triggers its "Login Required" notification flow.
+		from auth import is_user_force_logged_out
+		if is_user_force_logged_out(user.id):
+			raise HTTPException(
+				status_code=status.HTTP_401_UNAUTHORIZED,
+				detail="Invalid refresh token"
+			)
+
 		# Create new access token
 		access_token, expires = create_access_token(
 			data={"sub": user.id, "username": user.username},
