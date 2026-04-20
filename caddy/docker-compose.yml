@@ -1,0 +1,18 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: hillview_caddy
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - pics:/pics:ro
+
+volumes:
+  caddy_data:
+  caddy_config:
+  pics:
+    external: true
+    name: pics

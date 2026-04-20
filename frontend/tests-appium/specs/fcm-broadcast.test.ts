@@ -121,111 +121,67 @@ async function getNotificationsDump(): Promise<string> {
 //  deletes the DB rows that the filter checks, and only a fresh FCM
 //  delivery from the backend posts a new notification.)
 
-async function waitForTitle(title: string, timeoutMs: number): Promise<string> {
-    const deadline = Date.now() + timeoutMs;
-    let last = '';
-    while (Date.now() < deadline) {
-        last = await getNotificationsDump();
-        if (last.includes(title)) return last;
-        await browser.pause(1000);
-    }
-    return last;
-}
-
-/**
- * Wait for a notification whose title + `when` timestamp both satisfy
- * the predicate. `when` is posted-at time in epoch ms, parsed out of
- * dumpsys stanzas that precede our target title. Using a post-broadcast
- * cutoff lets repeat tests within a single session tell genuinely new
- * deliveries apart from stale notifications left over from prior runs.
- */
-async function waitForFreshTitle(title: string, minWhenMs: number, timeoutMs: number): Promise<{ dump: string; when: number } | null> {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-        const dump = await getNotificationsDump();
-        const lines = dump.split('\n');
-        // Scan every "when=<ms>" line and check whether the adjacent
-        // stanza (next ~40 lines) contains our title. The stanza layout
-        // puts when= near the top of a NotificationRecord and the title
-        // a few lines later inside extras.
-        for (let i = 0; i < lines.length; i++) {
-            const m = lines[i].match(/when=(\d+)/);
-            if (!m) continue;
-            const when = Number(m[1]);
-            if (when < minWhenMs) continue;
-            const tail = lines.slice(i, i + 50).join('\n');
-            if (tail.includes(title)) {
-                return { dump, when };
-            }
-        }
-        await browser.pause(1000);
-    }
-    return null;
-}
-
-function extractNotificationBlock(dump: string, title: string): string[] {
-    const lines = dump.split('\n');
-    const idx = lines.findIndex((l) => l.includes(title));
-    if (idx < 0) return [];
-    let start = idx;
-    for (let i = idx; i >= Math.max(0, idx - 40); i--) {
-        if (/NotificationRecord|sbn=|pkg=cz\.hillviedev/.test(lines[i])) {
-            start = i;
-            break;
-        }
-    }
-    const end = Math.min(lines.length, idx + 14);
-    return lines.slice(start, end).map((l) => l.replace(/\s+$/, ''));
-}
-
 // -------------------- test --------------------
 
 /**
- * Fire a fresh activity-broadcast and assert a notification arrives.
- * Logs every stanza carrying the expected title with its `when` and
- * notification key, so we can see what actually showed up — useful for
- * understanding how Android's auto-display vs. our in-app path differ
- * across foreground/backgrounded/terminated states.
+ * Extract the set of notification-key strings currently in dumpsys for
+ * our app package. Includes both the active list and the mArchive ring
+ * buffer — the emulator sends some notifications straight to archive
+ * when the shade is never opened, so active-only misses them.
  */
-async function triggerBroadcastAndAwait(label: string): Promise<{ dump: string }> {
+function parseAppNotificationKeys(dump: string): string[] {
+    // Key format: 0|cz.hillviedev|<id>|<tag>|<uid>
+    const re = /key=(0\|cz\.hillviedev\|[^\s|]*\|[^\s|]*\|[^\s|)]+)/g;
+    const out: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(dump)) !== null) out.push(m[1]);
+    return out;
+}
+
+/**
+ * Fire a fresh activity-broadcast and wait for at least one genuinely
+ * new notification key to appear in dumpsys. "New" = a key we didn't
+ * observe before firing (baseline snapshot). Cheaper and more robust
+ * than parsing `when=` timestamps out of NotificationRecord stanzas,
+ * because the emulator parks our notifications in mArchive (which
+ * uses the shorter StatusBarNotification form without `when`) almost
+ * immediately.
+ */
+async function triggerBroadcastAndAwait(label: string): Promise<string[]> {
+    const beforeKeys = new Set(parseAppNotificationKeys(await getNotificationsDump()));
+    console.log(`[fcm-broadcast] [${label}] pre-broadcast, ${beforeKeys.size} app keys in dumpsys`);
+
     const wiped = await clearNotificationsTable();
-    console.log(`[fcm-broadcast] [${label}] cleared ${wiped} rows from notifications table`);
+    console.log(`[fcm-broadcast] [${label}] cleared ${wiped} row(s) from notifications table`);
 
     await setBackendPushEnabled(true);
     await fireActivityBroadcast();
 
-    const deadline = Date.now() + 90000;
-    let dump = '';
+    const deadline = Date.now() + 120000;
+    let newKeys: string[] = [];
     while (Date.now() < deadline) {
-        dump = await getNotificationsDump();
-        if (dump.includes(BROADCAST_TITLE)) break;
+        const dump = await getNotificationsDump();
+        // Contains-title check first — cheap; skip the diff if the FCM
+        // delivery clearly hasn't landed yet.
+        if (dump.includes(BROADCAST_TITLE)) {
+            const current = parseAppNotificationKeys(dump);
+            newKeys = current.filter((k) => !beforeKeys.has(k));
+            if (newKeys.length > 0) break;
+        }
         await browser.pause(1000);
     }
 
-    if (!dump.includes(BROADCAST_TITLE)) {
-        throw new Error(`[${label}] no "${BROADCAST_TITLE}" notification in 90s`);
+    if (newKeys.length === 0) {
+        throw new Error(`[${label}] no new cz.hillviedev notification keys in 120s`);
     }
 
-    // Enumerate every matching stanza so we can tell duplicates apart.
-    const lines = dump.split('\n');
-    const hits: { when?: number; key?: string }[] = [];
-    let current: { when?: number; key?: string } = {};
-    for (const line of lines) {
-        const whenMatch = line.match(/when=(\d+)/);
-        if (whenMatch) current.when = Number(whenMatch[1]);
-        const keyMatch = line.match(/\bkey=(\S+)/);
-        if (keyMatch) current.key = keyMatch[1];
-        if (line.includes(BROADCAST_TITLE)) {
-            hits.push({ ...current });
-            current = {};
-        }
+    console.log(`[fcm-broadcast] [${label}] ${newKeys.length} new key(s) after broadcast:`);
+    for (const k of newKeys) {
+        const slots = k.split('|');
+        const src = slots[3] === 'activity' ? 'android-auto' : 'app';
+        console.log(`[fcm-broadcast] [${label}]   ${k} (${src})`);
     }
-    console.log(`[fcm-broadcast] [${label}] found ${hits.length} notification(s) with title`);
-    for (const h of hits) {
-        console.log(`[fcm-broadcast] [${label}]   when=${h.when ?? '?'} key=${h.key ?? '?'}`);
-    }
-
-    return { dump };
+    return newKeys;
 }
 
 async function waitForWebViewContext(timeoutMs = 30000): Promise<void> {
@@ -290,21 +246,38 @@ describe('Real-FCM broadcast delivery', function () {
         }
     });
 
-    it('delivers to the foregrounded app', async () => {
-        const { dump } = await triggerBroadcastAndAwait('foreground');
-        const block = extractNotificationBlock(dump, BROADCAST_TITLE);
-        console.log('[fcm-broadcast] [foreground] snippet:');
-        for (const line of block) console.log(`[fcm-broadcast]   ${line}`);
+    function tagOf(key: string): string | null {
+        // dumpsys prints "null" when no tag was set (e.g. notify(id, n)),
+        // an empty slot when key came from StatusBarNotification,
+        // or the actual string tag when notify(tag, id, n) was used.
+        const t = key.split('|')[3];
+        return t === '' || t === 'null' ? null : t;
+    }
+
+    it('delivers to the foregrounded app — via our in-app display path', async () => {
+        const newKeys = await triggerBroadcastAndAwait('foreground');
+        // Foreground: Android doesn't auto-display the `notification`
+        // payload; our FcmDirectService.onMessageReceived runs and
+        // NotificationManager posts an untagged notification. Expect at
+        // least one key with tag=null, and NO tag="activity" auto-display.
+        expect(newKeys.some((k) => tagOf(k) === null)).toBe(true);
+        expect(newKeys.every((k) => tagOf(k) !== 'activity')).toBe(true);
     });
 
-    it('delivers to the backgrounded app (process alive, activity stopped)', async () => {
+    it('delivers to the backgrounded app — Android auto-display, our code stays silent', async () => {
         // seconds<0 → stay in background indefinitely. Runs onPause/onStop
         // but leaves the process (and FirebaseMessagingService) alive.
         await (driver as any).execute('mobile: backgroundApp', { seconds: -1 });
         await browser.pause(2000);
 
         try {
-            await triggerBroadcastAndAwait('backgrounded');
+            const newKeys = await triggerBroadcastAndAwait('backgrounded');
+            // Android's auto-display tags with the FCM payload's tag
+            // ("activity"). Our dedup in FcmDirectService.onMessageReceived
+            // should skip the in-app display path, so we do NOT expect a
+            // tag=null NotificationManager entry.
+            expect(newKeys.some((k) => tagOf(k) === 'activity')).toBe(true);
+            expect(newKeys.every((k) => tagOf(k) !== null)).toBe(true);
         } finally {
             await driver.activateApp(APP_PACKAGE);
             await browser.pause(2000);
@@ -312,16 +285,39 @@ describe('Real-FCM broadcast delivery', function () {
         }
     });
 
-    it('delivers to the terminated app (process killed, FCM service restarts)', async () => {
-        // Real "user swiped from recents" path: process killed outright.
-        // Android spawns a fresh process hosting FirebaseMessagingService
-        // when the FCM message arrives, which then posts the notification.
+    it('delivers to a swiped-from-recents app (process killed via `am kill`)', async () => {
+        // `am kill` drops the process without setting the package's
+        // force-stopped flag — Android will still deliver broadcasts
+        // (including FCM) and spawn a fresh FirebaseMessagingService.
+        // That mirrors "user swiped the app off recents" on a real
+        // device.
+        //
+        // NOT `driver.terminateApp()` / `am force-stop`: that sets
+        // PackageManager's force-stopped state, after which Android
+        // refuses to deliver any intent (FCM included) until the user
+        // manually re-launches the app. That's a legitimate Android
+        // guarantee, not something to test for delivery against — any
+        // coverage of that state should assert "no notification", not
+        // "notification arrives".
         await driver.switchContext('NATIVE_APP');
-        await driver.terminateApp(APP_PACKAGE);
+        await (driver as any).execute('mobile: shell', {
+            command: 'am',
+            args: ['kill', APP_PACKAGE],
+            includeStderr: true,
+        });
         await browser.pause(2000);
 
         try {
-            await triggerBroadcastAndAwait('terminated');
+            const newKeys = await triggerBroadcastAndAwait('swiped-from-recents');
+            // Minimum assertion: a notification got posted. The exact
+            // path is different from both the foreground and the
+            // backgrounded cases — when Firebase cold-starts the
+            // service, it invokes `onMessageReceived` but does NOT
+            // auto-display the payload (the auto-display path requires
+            // the app process to already be alive when the push arrives).
+            // So our `NotificationManager` ends up owning the display.
+            // Accept any new cz.hillviedev key.
+            expect(newKeys.length).toBeGreaterThan(0);
         } finally {
             await driver.activateApp(APP_PACKAGE);
             await browser.pause(3000);
