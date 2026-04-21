@@ -7,10 +7,10 @@ Requires-Dist: python-dotenv
 Requires-Dist: python-jose[cryptography]>=3.4.0
 Requires-Dist: cryptography
 Provides-Extra: db
-Requires-Dist: sqlalchemy==2.0.23; extra == "db"
-Requires-Dist: asyncpg==0.28.0; extra == "db"
+Requires-Dist: sqlalchemy[asyncio]==2.0.36; extra == "db"
+Requires-Dist: asyncpg==0.30.0; extra == "db"
 Requires-Dist: geoalchemy2==0.14.2; extra == "db"
-Requires-Dist: shapely==2.0.2; extra == "db"
+Requires-Dist: shapely==2.0.6; extra == "db"
 Requires-Dist: numpy<2; extra == "db"
 Provides-Extra: auth
 Requires-Dist: passlib[bcrypt]; extra == "auth"
