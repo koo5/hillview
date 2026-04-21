@@ -4,9 +4,11 @@ WORKDIR /app
 
 COPY . .
 
-COPY src/routes/+page.svelte.web src/routes/+page.svelte
-COPY src/routes/+page.ts.web     src/routes/+page.ts
-COPY src/routes/bestof/+page.ts.web src/routes/bestof/+page.ts
+COPY src/routes/+page.svelte.web        src/routes/+page.svelte
+COPY src/routes/+page.ts.web            src/routes/+page.ts
+COPY src/routes/+page.server.ts.web     src/routes/+page.server.ts
+COPY src/routes/bestof/+page.ts.web        src/routes/bestof/+page.ts
+COPY src/routes/bestof/+page.server.ts.web src/routes/bestof/+page.server.ts
 COPY src/routes/about/+page.ts.web      src/routes/about/+page.ts
 COPY src/routes/contact/+page.ts.web    src/routes/contact/+page.ts
 COPY src/routes/privacy/+page.ts.web    src/routes/privacy/+page.ts
@@ -14,8 +16,9 @@ COPY src/routes/terms/+page.ts.web      src/routes/terms/+page.ts
 COPY src/routes/licensing/+page.ts.web  src/routes/licensing/+page.ts
 COPY src/routes/download/+page.ts.web   src/routes/download/+page.ts
 # Docker COPY interprets `[uid]` as a glob character class and silently fails,
-# so we copy the photo/[uid] shadow via shell.
-RUN cp "src/routes/photo/[uid]/+page.ts.web" "src/routes/photo/[uid]/+page.ts"
+# so we copy the photo/[uid] shadows via shell.
+RUN cp "src/routes/photo/[uid]/+page.ts.web"        "src/routes/photo/[uid]/+page.ts" \
+ && cp "src/routes/photo/[uid]/+page.server.ts.web" "src/routes/photo/[uid]/+page.server.ts"
 
 # Install dependencies
 RUN bun install --frozen-lockfile
