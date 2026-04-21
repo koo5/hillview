@@ -80,7 +80,7 @@
 	>
 		<img
 			src={getPhotoUrl(photo)}
-			alt={photo.original_filename}
+			alt={photo.description || photo.original_filename || ''}
 			loading="lazy"
 			data-testid="photo-thumbnail"
 		/>

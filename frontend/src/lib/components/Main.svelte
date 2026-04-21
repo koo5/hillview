@@ -83,16 +83,11 @@
 		app.update(a => ({...a, activity: mode}));
 	}
 
+	// `bearing` is owned by bearingState, `lat`/`lon`/`zoom` by spatialState —
+	// only `photo` may be written here, or photoInFront re-derives will stomp
+	// the others when they haven't actually changed.
 	function flushPhotoToUrl(photo: any) {
-		if (!photo) return;
-		let mapState = get(spatialState);
-		updateUrlParams({
-			photo: photo.uid,
-			bearing: photo.bearing != null ? photo.bearing.toString() : null,
-			zoom: mapState.zoom.toString(),
-			lat: mapState.center.lat.toString(),
-			lon: mapState.center.lng.toString()
-		});
+		updateUrlParams({ photo: photo?.uid ?? null });
 	}
 
 	// When update_url becomes true, flush current photo state that may have
