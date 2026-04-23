@@ -51,3 +51,9 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - AWS_ENDPOINT_URL_S3=${AWS_ENDPOINT_URL_S3:-}
+      # OpenCV's EXR codec is disabled by default in opencv-python-headless
+      # (CVE-2022-34526 history). Set OPENCV_IO_ENABLE_OPENEXR=1 to allow
+      # cv2.imread to open .exr inputs. pyvips handles panorama EXRs on
+      # the happy path; this flag only matters for the cv2 fallback branch
+      # in read_image(). Default off.
+      - OPENCV_IO_ENABLE_OPENEXR=${OPENCV_IO_ENABLE_OPENEXR:-0}

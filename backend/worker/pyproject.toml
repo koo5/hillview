@@ -28,6 +28,10 @@ dependencies = [
     "numpy<2",
     "opencv-python-headless==4.8.1.78",
     "pyvips",
+    # Read hillview:encoding attribute on panorama EXRs; pyvips doesn't
+    # expose arbitrary EXR header attributes. Convention documented at
+    # scripts/pano/exr_meta.py.
+    "OpenEXR",
 
     # ML / anonymization (CPU-only) - uses pytorch-cpu index
     "torch",

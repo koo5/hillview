@@ -49,14 +49,74 @@ A conformant reader decides the transfer function as:
 
 (More commands — stats, check — likely added later for diagnosis.)
 
-=== Memory note ===
+=== Performance note ===
 
 OpenEXR stores the header before pixel data, so updating the header means
-rewriting the whole file. This implementation reads all channel data into
-memory, updates the header, and writes a new file + atomic rename. A 1
-gigapixel half-float RGB EXR needs roughly 6 GB of RAM during the rewrite.
-A streaming (scanline-chunked) implementation would cut that; not yet
-worth the added code until a file actually breaks.
+rewriting the whole file. Today's `set_encoding` reads all channel data
+into memory, updates the header, and writes a new file + atomic rename.
+For a 1 gigapixel half-float RGB EXR that needs ~6 GB of RAM and
+~1–2 minutes of wall time (PIZ decompression + recompression dominates).
+
+Two optimization tiers, composable with the current design. Pick the one
+whose tradeoff matches the pain:
+
+  Tier A  — streaming rewrite (low RAM, same speed).
+            Use OpenEXR's InputFile.channel(name, type, y1, y2) +
+            OutputFile.writePixels(data, numScanLines) to loop in
+            chunks of e.g. 128 scanlines. RAM drops to ~50 MB.
+            Wall time unchanged: PIZ decompress+recompress is the
+            bottleneck, not memory allocation. Worth the ~20 lines of
+            code the moment someone runs out of RAM.
+
+  Tier B  — byte-level header surgery (fast, low RAM).
+            Skip the OpenEXR library entirely. Parse the header bytes
+            directly, splice in the new attribute, shift the offset
+            table + pixel data forward by that many bytes, and rewrite
+            the offset table entries with `+shift`. Pixel data is
+            copied verbatim via os.sendfile so it's pure disk I/O —
+            expect 5–10 seconds on a 3 GB EXR (bound by sustained
+            write throughput). Code: ~60 lines. Risk: bugs corrupt
+            files until we add a `show` round-trip test. Write the
+            test first, then the surgery.
+
+            EXR header layout reference (for when the time comes):
+              - magic (4B) + version (4B)
+              - attributes: [name\0][type\0][size:u32_le][value:size]*
+              - header terminator: single null byte
+              - offset table: u64_le[chunk_count]  (scanline-based:
+                ceil(height / scanlines_per_chunk); tile-based differs)
+              - pixel data chunks (copy verbatim, no re-encoding)
+            Inserting a StringAttribute "hillview:encoding" = "srgb"
+            = len("hillview:encoding")+1 + len("string")+1 + 4 + 4
+            = 33 bytes to shift. Update every offset_table[i] += 33.
+
+=== What about pre-allocating padding in the header? ===
+
+Considered and rejected for the current shape of the problem. The idea:
+have enblend (or a post-enblend pass) reserve N bytes of header padding
+(e.g. a dummy "_reserved" string attribute) so later attribute writes
+can overwrite the padding in place, no shift.
+
+Why it doesn't pay off here:
+
+  - enblend has no flag for custom EXR attributes. Reserving padding
+    would require either patching enblend's source or adding a
+    post-enblend byte-level pass — and that post-enblend pass IS the
+    expensive operation we're trying to skip. The first rewrite is the
+    one that costs time; subsequent in-place overwrites are cheap.
+    We only call set_encoding once per stitch, so there are no
+    "subsequent" writes to amortize the first one over.
+
+  - Tier B (byte-level header surgery) is fast enough on its own
+    without any precondition on the file having padding. It pays one
+    shift of ~33 bytes per set, and pixel data is copied via sendfile
+    at raw disk throughput.
+
+When padding WOULD be worth it: if Hillview later adds more diagnostic
+attributes (pixel stats, provenance, ingest history) and each
+`exr_meta set`/`add` call should be sub-second. At that point: reserve
+a ~1 KB `hillview:_reserved` padding attribute on the first write (via
+Tier B), then grow new real attributes into the padding in place.
 
 Invocation:
     ./exr_meta.py show pano.exr

@@ -185,6 +185,7 @@ def serve_caddy_docker(tmpdir: Path, srv: Path, dzi: Path, files_dir: Path | Non
 
     cert_kind = "mkcert" if use_mkcert else "internal"
     print(f"serving via caddy (docker, {cert_kind} cert)")
+	print()
     print(f"OPEN: https://localhost:{port}/viewer.html")
     if not use_mkcert:
         print("(browser will warn; install mkcert + libnss3-tools for silent operation:")

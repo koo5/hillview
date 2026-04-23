@@ -53,11 +53,38 @@ def _icc_profile_has_linear_trc(profile_data):
 	return False
 
 
-def normalize_to_srgb(img):
+def _exr_encoding(path):
+	"""Return the hillview:encoding attribute value from an EXR, or None if
+	the attribute is absent. Raises if OpenEXR cannot parse the file —
+	never silently defaults, since silent defaults produced the bug this
+	function is here to fix.
+
+	Convention defined in scripts/pano/exr_meta.py:
+	  "srgb"    pixels are display-referred (sRGB OETF already applied)
+	  "linear"  pixels are scene-linear
+	Absence → caller should fall back to "srgb" as the Hillview default.
+	"""
+	import OpenEXR
+	exr = OpenEXR.InputFile(path)
+	try:
+		header = exr.header()
+		if 'hillview:encoding' not in header:
+			return None
+		raw = header['hillview:encoding']
+		return raw.decode() if isinstance(raw, bytes) else str(raw)
+	finally:
+		exr.close()
+
+
+def normalize_to_srgb(img, source_path=None):
 	"""Convert a pyvips image to sRGB 8-bit RGB (3 bands).
 
 	Handles:
 	- Alpha channel removal
+	- EXR files: reads hillview:encoding attribute (default 'srgb', i.e.
+	  display-referred) to decide whether to apply the sRGB OETF. Without
+	  this the worker double-applies gamma on panoramas stitched from
+	  sRGB-encoded TIFFs and exported as EXR.
 	- ICC profiles with linear TRC (gamma 1.0), common with panorama
 	  stitching software like Hugin
 	- ICC profile-based color space conversion (AdobeRGB, ProPhoto, etc.)
@@ -65,6 +92,22 @@ def normalize_to_srgb(img):
 	"""
 	if img.bands > 3:
 		img = img[:3]
+	if source_path and source_path.lower().endswith('.exr'):
+		encoding = _exr_encoding(source_path)
+		if encoding is None:
+			encoding = 'srgb'  # Hillview default when attribute absent
+			logging.info("EXR %s: no hillview:encoding attribute, defaulting to 'srgb'", source_path)
+		if encoding == 'srgb':
+			# pixels already carry sRGB OETF; prevent colourspace('srgb')
+			# below from re-applying the gamma curve
+			logging.info("EXR %s: hillview:encoding=srgb, marking interpretation=srgb", source_path)
+			img = img.copy(interpretation='srgb')
+		elif encoding == 'linear':
+			# pixels are scene-linear; colourspace('srgb') below will apply OETF
+			logging.info("EXR %s: hillview:encoding=linear, marking interpretation=scrgb", source_path)
+			img = img.copy(interpretation='scrgb')
+		else:
+			raise ValueError(f"unknown hillview:encoding in {source_path}: {encoding!r}")
 	if img.get_typeof('icc-profile-data') != 0 and img.format != 'uchar':
 		profile_data = img.get('icc-profile-data')
 		if _icc_profile_has_linear_trc(profile_data):
@@ -116,18 +159,24 @@ def read_image(source_path):
 	# causing images with non-sRGB profiles (e.g. linear gamma from stitching
 	# software) to appear dark.
 
+	# Narrow the try/except to the pyvips *load* only. Post-processing
+	# failures (bad ICC data, missing OpenEXR for tag lookup, vips->numpy
+	# conversion) are bugs — surface them instead of silently falling
+	# back to cv2 which likely also fails and produces a misleading
+	# "pyvips load failed" warning.
 	try:
 		img = pyvips.Image.new_from_file(source_path)
 		img = img.autorot()
-		img = normalize_to_srgb(img)
-		np_img = img.numpy()
-		image = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
-	except Exception as e:
+	except pyvips.Error as e:
 		logging.warning(f"pyvips load failed for {source_path}, falling back to cv2: {e}")
 		image = cv2.imread(source_path)
 		if image is None:
 			logging.warning(f"Could not read image: {source_path}")
 			raise ValueError("Invalid image file content")
+	else:
+		img = normalize_to_srgb(img, source_path=source_path)
+		np_img = img.numpy()
+		image = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
 
 	# Validate image dimensions to prevent memory exhaustion
 	height, width = image.shape[:2]
