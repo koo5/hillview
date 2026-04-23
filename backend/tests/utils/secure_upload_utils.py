@@ -264,7 +264,7 @@ class SecureUploadClient:
 
 		return await self._request_upload_authorization(auth_token, upload_request)
 
-	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 600_00.0, anonymization_override: str = None, quality: int = None, fast: bool = False):
+	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 600_00.0, anonymization_override: str = None, quality: int = None, fast: bool = False, metadata: str = None):
 		"""Phase 3: Upload file to worker with proper client signature.
 
 		Args:
@@ -272,6 +272,8 @@ class SecureUploadClient:
 			anonymization_override: JSON string - None=auto, "[]"=skip anonymization
 			quality: WebP quality (1-100). None=use worker default (97).
 			fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding.
+			metadata: JSON string (BrowserMetadata schema) — lat/lon/bearing/etc
+			          fallback for formats that can't carry EXIF (e.g. EXR).
 		"""
 		upload_jwt = auth_data["upload_jwt"]
 		worker_url = auth_data["worker_url"]
@@ -305,6 +307,8 @@ class SecureUploadClient:
 				data['quality'] = str(quality)
 			if fast:
 				data['fast'] = 'true'
+			if metadata is not None:
+				data['metadata'] = metadata
 			headers = {
 				'Authorization': f'Bearer {upload_jwt}',
 				'Expect': '100-continue'

@@ -7,6 +7,7 @@ import os
 import sys
 import json
 import traceback
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import requests
 from .api_client import api_client
@@ -20,6 +21,23 @@ def tprint(*args, **kwargs):
 	"""Print with timestamp prefix."""
 	ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
 	print(f"[{ts}]", *args, **kwargs)
+
+
+@contextmanager
+def backend_test_lock():
+	"""Serialize destructive operations against the shared dev backend.
+
+	Wraps the same file lock (`/tmp/hillview-test-backend.lock`) used by the
+	pytest session-scoped fixture in `tests/conftest.py`, so debug commands
+	and test runs won't step on each other. `acquire_lock()` blocks
+	indefinitely; interrupt with Ctrl-C to abort.
+	"""
+	import lock_util  # tests/ is on PYTHONPATH via debug.sh
+	lock_util.acquire_lock()
+	try:
+		yield
+	finally:
+		lock_util.release_lock()
 
 
 def debug_photos():
@@ -284,7 +302,7 @@ def base64_to_pem(base64_key: str):
 		return None, None
 
 
-async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None, anonymization_override=None, version=None, quality=None, fast=False):
+async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None, anonymization_override=None, version=None, quality=None, fast=False, metadata=None):
 	"""Core parallel upload logic.
 
 	Args:
@@ -301,6 +319,8 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 		version: Optional version number for authorize-upload request.
 		quality: WebP quality (1-100). None=use worker default (97).
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding.
+		metadata: JSON string (BrowserMetadata schema) — forwarded to the worker
+		          as a fallback for formats without EXIF (e.g. EXR).
 	"""
 	def get_token():
 		if isinstance(token_or_manager, str):
@@ -352,7 +372,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				if worker_url_override:
 					auth_data["worker_url"] = worker_url_override
 
-				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename, anonymization_override=anonymization_override, quality=quality, fast=fast)
+				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename, anonymization_override=anonymization_override, quality=quality, fast=fast, metadata=metadata)
 				photo_id = result.get('photo_id', auth_data.get('photo_id'))
 
 				photo_data = wait_for_photo_processing(photo_id, get_token(), timeout=timeout)
@@ -495,17 +515,32 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 		traceback.print_exc()
 
 
-def upload_files(files: list, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False):
-	"""Upload files from command line paths."""
+def upload_files(files: list, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None):
+	"""Upload files from command line paths.
+
+	metadata: JSON string matching the worker's BrowserMetadata schema
+	(latitude/longitude/bearing/altitude/captured_at/orientation_code/location_source).
+	Use for formats that can't carry EXIF, e.g. EXR — feed via
+	`url_to_exif.py --json <url>`.
+	"""
 	import asyncio
+	import json
 	import os
+
+	# Pre-parse once so we can seed authorize-upload's lat/lon from the
+	# metadata blob (the API stores these on the initial Photo row before
+	# the worker runs; without this they'd land as 0,0).
+	parsed_metadata = json.loads(metadata) if metadata else None
+	meta_lat = (parsed_metadata or {}).get('latitude', 0.0)
+	meta_lon = (parsed_metadata or {}).get('longitude', 0.0)
 
 	async def _upload():
 		anon_msg = " (anonymization skipped)" if skip_anonymization else ""
 		ver_msg = f" (version {version})" if version is not None else ""
 		qual_msg = f" (quality {quality})" if quality is not None else ""
 		fast_msg = " (fast mode)" if fast else ""
-		tprint(f"📸 Uploading {len(files)} files (parallelism: {parallel}){anon_msg}{ver_msg}{qual_msg}{fast_msg}...")
+		meta_msg = " (with metadata)" if metadata else ""
+		tprint(f"📸 Uploading {len(files)} files (parallelism: {parallel}){anon_msg}{ver_msg}{qual_msg}{fast_msg}{meta_msg}...")
 
 		token_manager = TokenManager(user, password)
 
@@ -513,7 +548,7 @@ def upload_files(files: list, parallel: int = 1, user: str = None, password: str
 
 		def read_file(filepath):
 			with open(filepath, 'rb') as f:
-				return f.read(), 0.0, 0.0
+				return f.read(), meta_lat, meta_lon
 
 		def format_success(i, total, filename, photo_data, extra):
 			lat = photo_data.get('latitude')
@@ -528,7 +563,7 @@ def upload_files(files: list, parallel: int = 1, user: str = None, password: str
 			return f"  [{i+1}/{total}] {filename} ✓{loc}"
 
 		anon_override = "[]" if skip_anonymization else None
-		await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, anonymization_override=anon_override, version=version, quality=quality, fast=fast)
+		await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, anonymization_override=anon_override, version=version, quality=quality, fast=fast, metadata=metadata)
 
 	try:
 		asyncio.run(_upload())
@@ -740,21 +775,25 @@ def main():
 	command = sys.argv[1]
 
 	if command == "recreate":
-		recreate_users()
+		with backend_test_lock():
+			recreate_users()
 	elif command == "set-password":
 		if len(sys.argv) < 4:
 			print("Usage: set-password <username> <password>")
 		else:
-			set_password(sys.argv[2], sys.argv[3])
+			with backend_test_lock():
+				set_password(sys.argv[2], sys.argv[3])
 	elif command == "photos":
 		debug_photos()
 	elif command == "photo" and len(sys.argv) > 2:
 		debug_photo_details(sys.argv[2])
 	elif command == "cleanup":
-		cleanup_photos()
+		with backend_test_lock():
+			cleanup_photos()
 	elif command == "populate-photos":
 		count = int(sys.argv[2]) if len(sys.argv) > 2 else 4
-		populate_photos(count)
+		with backend_test_lock():
+			populate_photos(count)
 	elif command == "upload-random-photos":
 		args = sys.argv[2:]
 		count, parallel, user, password, quality = 10, 1, None, None, None
@@ -781,7 +820,8 @@ def main():
 				i += 1
 		if positional:
 			count = int(positional[0])
-		upload_random_photos(count, parallel, user, password, quality=quality)
+		with backend_test_lock():
+			upload_random_photos(count, parallel, user, password, quality=quality)
 	elif command == "upload-files":
 		args = sys.argv[2:]
 		parallel, user, password = 1, None, None
@@ -790,6 +830,7 @@ def main():
 		version = None
 		description = None
 		quality = None
+		metadata = None
 		files = []
 		i = 0
 		while i < len(args):
@@ -817,6 +858,9 @@ def main():
 			elif args[i] == "--quality":
 				quality = int(args[i + 1])
 				i += 2
+			elif args[i] == "--metadata":
+				metadata = args[i + 1]
+				i += 2
 			elif args[i].startswith("--"):
 				print(f"Unknown option: {args[i]}")
 				return
@@ -824,13 +868,16 @@ def main():
 				files.append(args[i])
 				i += 1
 		if not files:
-			print("Usage: upload-files [--parallel N] [--user U --pass P] [--skip-anonymization] [--fast] [--version N] [--description TEXT] [--quality Q] file1.jpg ...")
+			print("Usage: upload-files [--parallel N] [--user U --pass P] [--skip-anonymization] [--fast] [--version N] [--description TEXT] [--quality Q] [--metadata JSON] file1.jpg ...")
 		else:
-			upload_files(files, parallel, user, password, skip_anonymization=skip_anonymization, version=version, description=description, quality=quality, fast=fast)
+			with backend_test_lock():
+				upload_files(files, parallel, user, password, skip_anonymization=skip_anonymization, version=version, description=description, quality=quality, fast=fast, metadata=metadata)
 	elif command == "mock-mapillary":
-		setup_mock_mapillary()
+		with backend_test_lock():
+			setup_mock_mapillary()
 	elif command == "clear-mapillary":
-		clear_mock_mapillary()
+		with backend_test_lock():
+			clear_mock_mapillary()
 	elif command == "verify-signature":
 		if len(sys.argv) < 5:
 			print("Usage: verify-signature <message_json> <signature_base64> <public_key_pem>")
@@ -850,7 +897,8 @@ def main():
 		if len(sys.argv) < 3:
 			print("Usage: set-analyses <distilled.json>")
 			return
-		set_analyses(sys.argv[2])
+		with backend_test_lock():
+			set_analyses(sys.argv[2])
 	elif command == "find-duplicate-md5s":
 		find_duplicate_md5s()
 	else:
