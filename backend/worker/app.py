@@ -188,7 +188,7 @@ logger.info(f"PARALLEL_PROCESSING_CONCURRENCY: {PARALLEL_PROCESSING_CONCURRENCY}
 processing_semaphore = asyncio.Semaphore(PARALLEL_PROCESSING_CONCURRENCY)
 
 
-def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: str = None, anonymization_override: str = None, metadata: Dict[str, Any] = None, quality: int = None, fast: bool = False):
+def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: str = None, anonymization_override: str = None, metadata: Dict[str, Any] = None, quality: int = None, fast: bool = False, files_to_clean: Optional[list] = None):
 	"""
 	Sync wrapper to run async photo processing in a dedicated event loop.
 	This runs in a thread pool to avoid blocking the main event loop.
@@ -197,6 +197,8 @@ def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, phot
 	anonymization_override: JSON string - null=auto, "[]"=none, "[{...}]"=specific rectangles
 	quality: WebP quality (1-100). None=use default (97).
 	fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
+	files_to_clean: mutable list the processor appends intermediate/derived file paths to
+	(e.g. the .tiff produced from a CR2); the caller cleans every entry in its finally.
 	"""
 	# Restore logging context in this thread
 	with task_context(photo_id=ctx_photo_id, task_id=ctx_task_id):
@@ -213,7 +215,8 @@ def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, phot
 					anonymization_override=anonymization_override,
 					metadata=metadata,
 					quality=quality,
-					fast=fast
+					fast=fast,
+					files_to_clean=files_to_clean,
 				)
 			)
 		finally:
@@ -451,8 +454,9 @@ async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id
 
 async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None, fast: bool = False):
 
+	files_to_clean: list = []
 	try:
-		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id, anonymization_override, metadata, quality, fast)
+		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename, files_to_clean = await process(file, client_signature, photo_id, user_id, anonymization_override, metadata, quality, fast)
 
 		# Handle deleted photos early - no need to notify API
 		if processing_status == "deleted":
@@ -559,8 +563,8 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 			raise HTTPException(status_code=500, detail="Failed to register result with API server")
 
 	finally:
-		if file_path:
-			cleanup_file_on_error(file_path)
+		for path in files_to_clean:
+			cleanup_file_on_error(Path(path))
 		if task_id is not None:
 			with pending_background_tasks_mutex:
 				pending_background_tasks.discard(task_id)
@@ -583,6 +587,10 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 	retry_after_minutes = None
 	processing_result = None
 	secure_filename = None
+	# Everything in this list gets cleaned up in _upload_inner's finally.
+	# The processor appends any intermediate files it creates (e.g. a .tiff
+	# derived from an uploaded .CR2) so the caller can clean them all.
+	files_to_clean: list = []
 
 	safe_filename = sanitize_filename(file.filename)
 
@@ -597,6 +605,7 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 			user_id=user_id,
 			upload_base_dir=str(UPLOAD_DIR)
 		)
+		files_to_clean.append(str(file_path))
 
 		# Save uploaded file
 		async with aiofiles.open(file_path, 'wb') as f:
@@ -637,7 +646,8 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 				anonymization_override,
 				parsed_metadata,
 				quality,
-				fast
+				fast,
+				files_to_clean,
 			)
 
 		if not processing_result:
@@ -682,4 +692,4 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 		error_message = f"Unexpected error: {unexpected_error}"
 		retry_after_minutes = 10  # Retry in 10 minutes
 
-	return file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename
+	return file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename, files_to_clean

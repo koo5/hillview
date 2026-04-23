@@ -308,7 +308,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 		return token_or_manager.get_token()
 
 	total = len(items)
-	results = {"created": 0, "duplicates": 0, "failed": 0}
+	results = {"created": 0, "duplicates": 0, "failed": 0, "skipped": 0}
 	semaphore = asyncio.Semaphore(parallel)
 
 	# Register client keys ONCE before starting parallel uploads
@@ -324,7 +324,12 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 		i, filename, description, extra_data = item
 		async with semaphore:
 			try:
-				image_data, lat, lon = get_image_data(extra_data)
+				try:
+					image_data, lat, lon = get_image_data(extra_data)
+				except FileNotFoundError:
+					results["skipped"] += 1
+					tprint(f"  [{i+1}/{total}] {filename} ⚠ file no longer exists, skipping")
+					return
 				token = get_token()
 
 				# For real files, omit captured_at - worker extracts from EXIF
@@ -366,7 +371,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 	await asyncio.gather(*[upload_one(item) for item in items])
 
 	tprint(f"\n✅ Uploaded {results['created']}/{total} "
-		   f"({results['duplicates']} duplicates, {results['failed']} failed)")
+		   f"({results['duplicates']} duplicates, {results['failed']} failed, {results['skipped']} skipped)")
 
 
 class TokenManager:

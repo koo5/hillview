@@ -35,7 +35,16 @@ LLM_VARIANT_SIZE = 640
 WEBP_QUALITY_SIZES = 97
 WEBP_QUALITY_DZI = 97
 NORMAL_WEBP_METHOD = 6
-FAST_WEBP_METHOD = 2  # fast encoding (0 can overflow on large images; 6 = slowest/best)
+# WebP method: 0 = fastest, 6 = slowest/best compression. For fast encoding we
+# pick per-variant based on output pixel count: 1 is noticeably quicker than
+# 2, but it's been seen to crash on very large images — fall back past ~100 MP.
+FAST_WEBP_METHOD_SMALL = 1
+FAST_WEBP_METHOD_LARGE = 2
+FAST_WEBP_LARGE_THRESHOLD_PIXELS = 10000 * 10000
+
+
+def _fast_webp_method_for(width: int, height: int) -> int:
+	return FAST_WEBP_METHOD_LARGE if width * height >= FAST_WEBP_LARGE_THRESHOLD_PIXELS else FAST_WEBP_METHOD_SMALL
 
 
 def create_center_crop(image, target_width: int, target_height: int):
@@ -426,7 +435,6 @@ class PhotoProcessor:
 		output_base = self.upload_dir
 		webp_quality_sizes = quality if quality is not None else WEBP_QUALITY_SIZES
 		webp_quality_dzi = quality if quality is not None else WEBP_QUALITY_DZI
-		webp_method = FAST_WEBP_METHOD if fast else NORMAL_WEBP_METHOD
 
 		logger.info(f"Starting anonymization for {unique_id} (quality: sizes={webp_quality_sizes}, dzi={webp_quality_dzi}, fast={fast})")
 
@@ -502,6 +510,7 @@ class PhotoProcessor:
 				logger.debug(f"Resized image to {new_width}x{new_height} for size {size}")
 				new_image_rgb = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB)
 				logger.debug(f"Converted image to RGB color space for size {size}")
+				webp_method = _fast_webp_method_for(new_width, new_height) if fast else NORMAL_WEBP_METHOD
 				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=webp_quality_sizes, method=webp_method)
 				if not fast:
 					copy_exif_data(source_path, output_file_path)
@@ -532,6 +541,7 @@ class PhotoProcessor:
 				os.makedirs(pathlib.Path(crop_file_path).parent, exist_ok=True)
 
 				cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+				webp_method = _fast_webp_method_for(crop_tw, crop_th) if fast else NORMAL_WEBP_METHOD
 				Image.fromarray(cropped_rgb).save(crop_file_path, format='WEBP', quality=webp_quality_sizes, method=webp_method)
 				if not fast:
 					copy_exif_data(source_path, crop_file_path)
@@ -572,6 +582,7 @@ class PhotoProcessor:
 			os.makedirs(pathlib.Path(llm_output_path).parent, exist_ok=True)
 
 			llm_rgb = cv2.cvtColor(llm_resized, cv2.COLOR_BGR2RGB)
+			webp_method = _fast_webp_method_for(llm_width, llm_height) if fast else NORMAL_WEBP_METHOD
 			Image.fromarray(llm_rgb).save(llm_output_path, format='WEBP', quality=webp_quality_sizes, method=webp_method)
 			copy_exif_data(source_path, llm_output_path)
 			logger.info(f"Created 640_llm variant for {unique_id}: {llm_width}x{llm_height} at {llm_output_path}")
@@ -807,7 +818,8 @@ class PhotoProcessor:
 		anonymization_override: Optional[str] = None,
 		metadata: Optional[Dict[str, Any]] = None,
 		quality: Optional[int] = None,
-		fast: bool = False
+		fast: bool = False,
+		files_to_clean: Optional[List[str]] = None,
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results.
 
@@ -827,6 +839,51 @@ class PhotoProcessor:
 		except SecurityValidationError as e:
 			logger.error(f"Filename sanitization failed for {filename}: {e}")
 			raise ValueError(f"Invalid filename: {e}")
+
+		# Canon RAW (CR2): convert to TIFF so downstream PIL/cv2/exiftool see
+		# a standard image. Output is 8-bit sRGB (dcraw -T), which is what
+		# we want heading into WebP — 16-bit would be quantized away anyway.
+		# `-w` uses the camera white balance; we do NOT pass -4 (linear) since
+		# viewers then render the pixels dark/flat (see scripts/raw/notes).
+		#
+		# We rename to a .tiff extension (rather than overwriting in place)
+		# because ImageMagick's identify picks the reader from the suffix —
+		# a TIFF-content file with a .CR2 suffix triggers the CR2/DNG coder
+		# and fails. The CR2 is left on disk for the caller to clean up;
+		# the TIFF is appended to files_to_clean so the caller cleans it too.
+		if os.path.splitext(file_path)[1].lower() == '.cr2':
+			tiff_path = os.path.splitext(file_path)[0] + '.tiff'
+			with open(tiff_path, 'wb') as out:
+				dcraw_result = subprocess.run(
+					['dcraw', '-w', '-T', '-c', file_path],
+					stdout=out, stderr=subprocess.PIPE, timeout=300,
+				)
+			if dcraw_result.returncode != 0 or os.path.getsize(tiff_path) == 0:
+				try:
+					os.unlink(tiff_path)
+				except OSError:
+					pass
+				err = dcraw_result.stderr.decode('utf-8', errors='replace').strip()[:500]
+				raise ValueError(f"dcraw CR2 conversion failed: {err or 'empty output'}")
+			if files_to_clean is not None:
+				files_to_clean.append(tiff_path)
+			# Carry EXIF/GPS/XMP/IPTC (incl. UserComment, DateTimeOriginal, Make,
+			# Model, LensModel, FocalLength, GPS*) from the CR2 onto the TIFF.
+			# Strip MakerNotes and embedded thumb/preview (they reference raw
+			# offsets that won't exist in the TIFF). Force Orientation=1 because
+			# dcraw has already physically rotated the pixels.
+			exif_result = subprocess.run([
+				'exiftool', '-overwrite_original',
+				'-TagsFromFile', file_path,
+				'-EXIF:all', '-GPS:all', '-XMP:all', '-IPTC:all',
+				'-MakerNotes=', '-ThumbnailImage=', '-PreviewImage=',
+				'-Orientation=1',
+				tiff_path,
+			], capture_output=True, text=True, timeout=60)
+			if exif_result.returncode != 0:
+				logger.warning(f"exiftool EXIF copy CR2->TIFF failed for {safe_filename}: {exif_result.stderr.strip()}")
+			file_path = tiff_path
+			logger.info(f"Converted CR2 to TIFF for {safe_filename} -> {tiff_path}")
 
 		# Verify file content matches image type
 		if not check_file_content(file_path, "image"):

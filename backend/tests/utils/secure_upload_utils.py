@@ -241,7 +241,7 @@ class SecureUploadClient:
 
 		upload_request = {
 			"filename": filename,
-			"content_type": "image/jpeg",
+			"content_type": get_content_type(filename),
 			"file_size": file_size,
 			"file_md5": file_md5,
 			"client_key_id": getattr(self, 'key_id', None),
@@ -391,8 +391,10 @@ def get_content_type(filename: str) -> str:
 		return 'image/bmp'
 	elif ext == '.webp':
 		return 'image/webp'
-	elif ext == '.tiff':
+	elif ext in ['.tiff', '.tif']:
 		return 'image/tiff'
+	elif ext == '.exr':
+		return 'image/x-exr'
 	elif ext == '.cr2':
 		return 'image/x-canon-cr2'
 	else:

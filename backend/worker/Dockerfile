@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y \
     jpegoptim \
     libimage-exiftool-perl \
     libvips-tools \
+    dcraw \
     procps \
     htop \
     mc \

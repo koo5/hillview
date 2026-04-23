@@ -18,8 +18,8 @@ from common.SecurityExceptions import SecurityValidationError
 logger = logging.getLogger(__name__)
 
 # Allowed file extensions for uploads
-ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.exr'}
-ALLOWED_MIME_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/tiff', 'image/x-exr'}
+ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.exr', '.cr2'}
+ALLOWED_MIME_TYPES = {'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/tiff', 'image/x-exr', 'image/x-canon-cr2'}
 
 
 # Image processing limits
@@ -190,6 +190,7 @@ def check_file_content(file_path: str, expected_type: str = "image") -> bool:
 				(b'BM', 'bmp'),  # BMP
 				(b'II*\x00', 'tiff'),  # TIFF (little-endian)
 				(b'MM\x00*', 'tiff'),  # TIFF (big-endian)
+				(b'\x76\x2f\x31\x01', 'exr'),  # OpenEXR (magic 0x01312f76 little-endian)
 			]
 
 			for signature, file_type in image_signatures:

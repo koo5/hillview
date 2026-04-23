@@ -32,7 +32,7 @@ from auth import (
 )
 from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration, get_client_ip, general_rate_limiter
 from common.config import is_rate_limiting_disabled
-from security_utils import validate_username, validate_email, validate_oauth_redirect_uri, validate_password
+from security_utils import validate_username, validate_email, validate_oauth_redirect_uri, validate_password, ALLOWED_MIME_TYPES
 from security_audit import security_audit
 
 log = logging.getLogger(__name__)
@@ -1315,10 +1315,10 @@ async def authorize_upload(
 				detail="File size must be positive"
 			)
 
-		if not auth_request.content_type.startswith('image/'):
+		if auth_request.content_type not in ALLOWED_MIME_TYPES:
 			raise HTTPException(
 				status_code=status.HTTP_400_BAD_REQUEST,
-				detail="Only image files are supported"
+				detail=f"Unsupported content type: {auth_request.content_type}"
 			)
 
 		if auth_request.license and auth_request.license not in ALLOWED_LICENSES:
