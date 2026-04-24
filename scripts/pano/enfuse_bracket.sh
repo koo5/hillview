@@ -25,11 +25,41 @@ fi
 
 OUT="$1"
 shift
+INPUTS=("$@")
 
 TMPDIR=$(mktemp -d -t enfuse_bracket.XXXXXX)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-align_image_stack -a "$TMPDIR/aligned_" "$@"
+align_image_stack -a "$TMPDIR/aligned_" "${INPUTS[@]}"
 enfuse --output="$OUT" "$TMPDIR"/aligned_*.tif
+
+# enfuse strips EXIF. Without Make/Model/FocalLength the output has no
+# focal-length metadata, so pto_gen can't derive HFOV ("No value for
+# field of view found"). Copy from the middle bracket — usually the best-
+# exposed representative — back onto the fused image.
+MIDDLE="${INPUTS[$((${#INPUTS[@]} / 2))]}"
+if command -v exiftool >/dev/null 2>&1; then
+    # Copy (almost) everything from the middle bracket. Explicitly skips
+    # dimensional / structural tags that change with each processing step
+    # (ImageWidth/Height, Orientation, etc). The FocalPlane* trio is what
+    # Hugin reads to derive sensor width -> HFOV; without them pto_gen errors
+    # with "No value for field of view found".
+    exiftool -overwrite_original \
+        -TagsFromFile "$MIDDLE" \
+        -Make -Model -LensModel -LensInfo \
+        -FocalLength -FocalLengthIn35mmFilm \
+        -FocalPlaneXResolution -FocalPlaneYResolution -FocalPlaneResolutionUnit \
+        -DateTimeOriginal -CreateDate -ModifyDate \
+        -ISO -ExposureTime -FNumber -ExposureCompensation -ExposureProgram \
+        -WhiteBalance -Flash \
+        -GPSLatitude -GPSLongitude -GPSAltitude \
+        -GPSLatitudeRef -GPSLongitudeRef -GPSAltitudeRef \
+        -GPSDateStamp -GPSTimeStamp \
+        -Artist -Copyright -UserComment -ImageDescription \
+        "$OUT" >/dev/null 2>&1 \
+        || echo "warning: exiftool EXIF copy failed on $OUT" >&2
+else
+    echo "warning: exiftool not on PATH; $OUT has no camera EXIF" >&2
+fi
 
 echo "wrote $OUT" >&2

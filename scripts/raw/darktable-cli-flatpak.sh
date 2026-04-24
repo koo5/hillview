@@ -41,9 +41,22 @@ flatpak run --command=darktable-cli org.darktable.Darktable "$@"
 rc=$?
 
 if [ "$rc" -eq 0 ] && [ -n "$input" ] && [ -f "$input" ] && [ -n "$output" ] && [ -f "$output" ]; then
+    # Copy (almost) everything from the raw. Dimensional / structural tags
+    # are intentionally skipped since darktable's output has its own. The
+    # FocalPlane* trio is what Hugin needs for HFOV; the rest is useful
+    # downstream (GPS, timestamps, lens info).
     exiftool -overwrite_original \
         -TagsFromFile "$input" \
-        -Make -Model -LensModel -FocalLength -FocalLengthIn35mmFilm -DateTimeOriginal \
+        -Make -Model -LensModel -LensInfo \
+        -FocalLength -FocalLengthIn35mmFilm \
+        -FocalPlaneXResolution -FocalPlaneYResolution -FocalPlaneResolutionUnit \
+        -DateTimeOriginal -CreateDate -ModifyDate \
+        -ISO -ExposureTime -FNumber -ExposureCompensation -ExposureProgram \
+        -WhiteBalance -Flash \
+        -GPSLatitude -GPSLongitude -GPSAltitude \
+        -GPSLatitudeRef -GPSLongitudeRef -GPSAltitudeRef \
+        -GPSDateStamp -GPSTimeStamp \
+        -Artist -Copyright -UserComment -ImageDescription \
         "$output" >/dev/null 2>&1
     # darktable physically applies orientation via its flip module, so force
     # Orientation=1 (normal) to stop viewers and Hugin from rotating pixels

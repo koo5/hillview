@@ -31,7 +31,9 @@ dependencies = [
     # Read hillview:encoding attribute on panorama EXRs; pyvips doesn't
     # expose arbitrary EXR header attributes. Convention documented at
     # scripts/pano/exr_meta.py.
-    "OpenEXR",
+    # Pinned to a minimum with recent CVE fixes — bump when auditing
+    # dependencies. Last verified working: 3.4.10.
+    "OpenEXR>=3.4",
 
     # ML / anonymization (CPU-only) - uses pytorch-cpu index
     "torch",

@@ -90,6 +90,66 @@ whose tradeoff matches the pain:
             = len("hillview:encoding")+1 + len("string")+1 + 4 + 4
             = 33 bytes to shift. Update every offset_table[i] += 33.
 
+=== Security-minded alternative: pure-Python header reader ===
+
+The worker calls `_exr_encoding` on every uploaded EXR, which means the
+`OpenEXR` Python binding's C++ parser runs on attacker-controlled bytes
+in addition to pyvips's already-existing EXR parse path. Two libopenexr
+instances in the ingest chain doubles the CVE surface.
+
+If that surface matters (it does for a public photo-upload service), a
+pure-Python attribute reader can replace `_exr_encoding` entirely for
+the attribute-read use case — the worker keeps `OpenEXR` only if it
+also needs to *write* (which it currently doesn't; only the stitch
+pipeline writes).
+
+Sketch (untested — roughly 30 lines when fleshed out):
+
+    import struct
+
+    _EXR_MAGIC = b'\\x76\\x2f\\x31\\x01'
+
+    def read_hillview_encoding(path, max_header_bytes=65536):
+        \"\"\"Return the hillview:encoding value from an EXR, or None if
+        the attribute is absent. Reads at most max_header_bytes to avoid
+        unbounded header walks on malformed input.\"\"\"
+        with open(path, 'rb') as f:
+            head = f.read(max_header_bytes)
+        if not head.startswith(_EXR_MAGIC):
+            raise ValueError(f"not an EXR file: {path}")
+        # Skip 4B magic + 4B version flags.
+        pos = 8
+        while pos < len(head):
+            # Attribute name: null-terminated string.
+            end = head.index(b'\\0', pos)
+            name = head[pos:end].decode('ascii', errors='replace')
+            pos = end + 1
+            if not name:
+                return None  # header terminator
+            # Attribute type: null-terminated string.
+            end = head.index(b'\\0', pos)
+            # (type = head[pos:end].decode('ascii'))
+            pos = end + 1
+            # Size: 4B little-endian uint32.
+            if pos + 4 > len(head):
+                raise ValueError(f"truncated header in {path}")
+            size = struct.unpack('<I', head[pos:pos+4])[0]
+            pos += 4
+            if pos + size > len(head):
+                raise ValueError(f"truncated header in {path}")
+            value = head[pos:pos+size]
+            pos += size
+            if name == 'hillview:encoding':
+                return value.decode('ascii', errors='replace')
+        raise ValueError(f"no header terminator within {max_header_bytes}B")
+
+Attack surface of the above: `struct.unpack`, `bytes.index`, and
+`.decode` — all stdlib. No image data is ever touched. No
+decompression. A malicious EXR's worst case is a ValueError at ingest.
+
+Keep `OpenEXR` as a dep for the stitch pipeline's `exr_meta.py set`
+path. Only the read side in the worker switches.
+
 === What about pre-allocating padding in the header? ===
 
 Considered and rejected for the current shape of the problem. The idea:

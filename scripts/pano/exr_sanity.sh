@@ -19,8 +19,8 @@ if [ $# -ne 1 ]; then
     exit 2
 fi
 
-MIN=$(vips min "$1")
-MAX=$(vips max "$1")
+MIN=$(LC_ALL=C vips min "$1")
+MAX=$(LC_ALL=C vips max "$1")
 
 printf 'file:   %s\n' "$1"
 printf 'range:  [%s, %s]\n' "$MIN" "$MAX"
