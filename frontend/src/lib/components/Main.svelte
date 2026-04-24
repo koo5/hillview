@@ -87,7 +87,8 @@
 	// only `photo` may be written here, or photoInFront re-derives will stomp
 	// the others when they haven't actually changed.
 	function flushPhotoToUrl(photo: any) {
-		updateUrlParams({ photo: photo?.uid ?? null });
+		if (!photo) return;
+		updateUrlParams({ photo: photo.uid });
 	}
 
 	// When update_url becomes true, flush current photo state that may have
