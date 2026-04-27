@@ -261,6 +261,7 @@ def process_photo(photo_path: Path, locations: list[LocationRecord],
 
 	# Build UserComment JSON with extra metadata
 	comment = get_existing_user_comment(photo_path) or {}
+	comment['ts_correction_s'] = round(time_correction_ms / 1000, 3)
 	if location:
 		comment['location_age_s'] = round((corrected_ts - location.timestamp) / 1000, 1)
 		if location.source:

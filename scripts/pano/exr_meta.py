@@ -52,21 +52,13 @@ A conformant reader decides the transfer function as:
 === Performance note ===
 
 OpenEXR stores the header before pixel data, so updating the header means
-rewriting the whole file. Today's `set_encoding` reads all channel data
-into memory, updates the header, and writes a new file + atomic rename.
-For a 1 gigapixel half-float RGB EXR that needs ~6 GB of RAM and
-~1–2 minutes of wall time (PIZ decompression + recompression dominates).
+rewriting the whole file. `set_encoding` streams scanline chunks of 128
+rows (Tier A below): ~50 MB RAM regardless of image size, and each
+per-channel writePixels buffer stays small enough to dodge the OpenEXR
+Python binding's 2 GB signed-int size check. Wall time is dominated by
+PIZ decompress+recompress (~1–2 min for a gigapixel half-float).
 
-Two optimization tiers, composable with the current design. Pick the one
-whose tradeoff matches the pain:
-
-	Tier A  — streaming rewrite (low RAM, same speed).
-						Use OpenEXR's InputFile.channel(name, type, y1, y2) +
-						OutputFile.writePixels(data, numScanLines) to loop in
-						chunks of e.g. 128 scanlines. RAM drops to ~50 MB.
-						Wall time unchanged: PIZ decompress+recompress is the
-						bottleneck, not memory allocation. Worth the ~20 lines of
-						code the moment someone runs out of RAM.
+If wall time becomes the pain point, Tier B remains an open option:
 
 	Tier B  — byte-level header surgery (fast, low RAM).
 						Skip the OpenEXR library entirely. Parse the header bytes
@@ -222,36 +214,48 @@ def read_encoding(path: str) -> str | None:
 				exr.close()
 
 
+SCANLINES_PER_CHUNK = 128
+
+
 def set_encoding(path: str, encoding: str) -> None:
 		"""Rewrite the EXR at `path` with hillview:encoding=<encoding>.
 
-		Reads all pixel data into memory, writes a temp file with the updated
-		header, then atomically renames over the original. Errors propagate —
-		no bare except, no silent failures. A partially-written temp file is
-		left in place for the user to inspect if the write raises mid-flight."""
+		Streams pixel data in scanline chunks (~50 MB RAM regardless of
+		image size) and keeps each writePixels call's per-channel buffer
+		well under the OpenEXR Python binding's signed-int size check —
+		that check fires once a single channel buffer hits 2 GB, which
+		happens around 500 Mpx at 32-bit float. Atomic via temp file +
+		rename. A partial temp file is left for inspection if the write
+		raises mid-flight."""
 		if encoding not in VALID_ENCODINGS:
 				raise ValueError(
 						f"encoding must be one of {VALID_ENCODINGS}; got {encoding!r}"
 				)
 
+		tmp_path = path + ".tmp"
 		exr = OpenEXR.InputFile(path)
 		try:
 				header = exr.header()
 				channels = header["channels"]
-				# Read every channel fully. Memory-heavy for large files; see docstring.
-				pixel_data = {
-						name: exr.channel(name, ch.type) for name, ch in channels.items()
-				}
+				dw = header["dataWindow"]
+				y_min = dw.min.y
+				y_max = dw.max.y
 				header[ENCODING_ATTR] = encoding
+
+				out = OpenEXR.OutputFile(tmp_path, header)
+				try:
+						for y in range(y_min, y_max + 1, SCANLINES_PER_CHUNK):
+								y_end = min(y + SCANLINES_PER_CHUNK - 1, y_max)
+								rows = y_end - y + 1
+								chunk = {
+										name: exr.channel(name, ch.type, y, y_end)
+										for name, ch in channels.items()
+								}
+								out.writePixels(chunk, rows)
+				finally:
+						out.close()
 		finally:
 				exr.close()
-
-		tmp_path = path + ".tmp"
-		out = OpenEXR.OutputFile(tmp_path, header)
-		try:
-				out.writePixels(pixel_data)
-		finally:
-				out.close()
 		os.replace(tmp_path, path)
 
 

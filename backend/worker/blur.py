@@ -1,7 +1,9 @@
 import colorsys
+import contextlib
 import logging
 import os
 import struct
+import threading
 import cv2
 import numpy as np
 import security_utils
@@ -12,6 +14,51 @@ from detections import TARGET_CLASSES
 
 # Predefined pretty hues (degrees): pink, coral, teal, lavender, mint, gold, sky blue, salmon
 PRETTY_HUES = [330, 15, 175, 270, 155, 45, 200, 5]
+
+
+# Per-thread slot for collecting _dev_only warnings during a single upload.
+# Each upload runs in its own threadpool thread (with its own nested asyncio
+# loop running in the same thread), so threading.local is the right scope —
+# no contextvar propagation gymnastics needed across the loop-in-thread boundary.
+_warnings_tls = threading.local()
+
+
+@contextlib.contextmanager
+def collect_warnings():
+	"""Capture _dev_only warnings emitted inside the with-block into a list.
+
+	Restores any prior collector on exit, so it composes with itself if ever
+	nested. Safe to call from any thread; each thread has its own TLS slot.
+	"""
+	warnings: list[str] = []
+	prior = getattr(_warnings_tls, 'warnings', None)
+	_warnings_tls.warnings = warnings
+	try:
+		yield warnings
+	finally:
+		_warnings_tls.warnings = prior
+
+
+def _dev_only(reason):
+	"""Refuse a speculative image-handling heuristic unless DEV_MODE=true.
+
+	These branches handle inputs whose color provenance we can't fully verify
+	(unusual ICC profiles, untagged 16-bit TIFFs, cv2 fallback after pyvips
+	load failure). Each can silently miscolor an upload, so in production we
+	refuse; in DEV_MODE we log loudly, append to the active collect_warnings()
+	list (if any), and proceed so test fixtures still work.
+	"""
+	if os.environ.get('DEV_MODE', 'false').lower() != 'true':
+		raise ValueError(
+			f"Refusing speculative image handling: {reason}. "
+			f"Convert to standard sRGB 8-bit (or tagged EXR with "
+			f"hillview:encoding) before upload, or set DEV_MODE=true to "
+			f"allow with a warning."
+		)
+	logging.warning(f"DEV_MODE: speculative image handling — {reason}")
+	warnings = getattr(_warnings_tls, 'warnings', None)
+	if warnings is not None:
+		warnings.append(reason)
 
 
 def _icc_profile_has_linear_trc(profile_data):
@@ -55,14 +102,12 @@ def _icc_profile_has_linear_trc(profile_data):
 
 def _exr_encoding(path):
 	"""Return the hillview:encoding attribute value from an EXR, or None if
-	the attribute is absent. Raises if OpenEXR cannot parse the file —
-	never silently defaults, since silent defaults produced the bug this
-	function is here to fix.
+	the attribute is absent.
 
 	Convention defined in scripts/pano/exr_meta.py:
 	  "srgb"    pixels are display-referred (sRGB OETF already applied)
 	  "linear"  pixels are scene-linear
-	Absence → caller should fall back to "srgb" as the Hillview default.
+	Absence → caller must reject; silent defaults silently miscolor uploads.
 	"""
 	import OpenEXR
 	exr = OpenEXR.InputFile(path)
@@ -79,24 +124,29 @@ def _exr_encoding(path):
 def normalize_to_srgb(img, source_path=None):
 	"""Convert a pyvips image to sRGB 8-bit RGB (3 bands).
 
-	Handles:
-	- Alpha channel removal
-	- EXR files: reads hillview:encoding attribute (default 'srgb', i.e.
-	  display-referred) to decide whether to apply the sRGB OETF. Without
-	  this the worker double-applies gamma on panoramas stitched from
-	  sRGB-encoded TIFFs and exported as EXR.
-	- ICC profiles with linear TRC (gamma 1.0), common with panorama
-	  stitching software like Hugin
-	- ICC profile-based color space conversion (AdobeRGB, ProPhoto, etc.)
-	- 16→8 bit scaling
+	Handles deterministically (always allowed):
+	- Alpha channel removal (4+ bands → 3)
+	- EXR files: reads hillview:encoding attribute ('srgb' or 'linear');
+	  untagged EXRs are rejected outright
+	- ICC profile → sRGB via pyvips icc_transform when it returns a clean result
+	- 16-bit ushort with interpretation='rgb16'/'srgb' (standard gamma-encoded)
+	- 8-bit sRGB pass-through
+
+	Gated behind DEV_MODE (warning + continue, otherwise refuse): everything
+	speculative — linear-TRC ICC profiles (Hugin), 16-bit ushort with
+	non-standard interpretation, icc_transform failures or unexpected returns.
+	See _dev_only() for the rationale.
 	"""
 	if img.bands > 3:
 		img = img[:3]
 	if source_path and source_path.lower().endswith('.exr'):
 		encoding = _exr_encoding(source_path)
 		if encoding is None:
-			encoding = 'srgb'  # Hillview default when attribute absent
-			logging.info("EXR %s: no hillview:encoding attribute, defaulting to 'srgb'", source_path)
+			raise ValueError(
+				f"EXR {source_path} has no hillview:encoding attribute. "
+				f"Tag the file before upload: "
+				f"scripts/pano/exr_meta.py set FILE --encoding {{linear,srgb}}"
+			)
 		if encoding == 'srgb':
 			# pixels already carry sRGB OETF; prevent colourspace('srgb')
 			# below from re-applying the gamma curve
@@ -114,7 +164,7 @@ def normalize_to_srgb(img, source_path=None):
 			# ICC profile has linear TRC (gamma 1.0). Common with panorama
 			# stitching software (Hugin) that uses sRGB primaries but linear encoding.
 			# Handle explicitly: normalize to float, mark as linear, let colourspace() apply gamma.
-			logging.info("ICC profile has linear TRC (gamma 1.0), converting from linear to sRGB")
+			_dev_only("ICC profile reports linear TRC (gamma 1.0) — interpreting as scene-linear sRGB primaries")
 			if img.format == 'ushort':
 				img = (img.cast('float') / 65535.0).copy(interpretation='scrgb')
 			elif img.format in ('float', 'double'):
@@ -126,14 +176,15 @@ def normalize_to_srgb(img, source_path=None):
 			transformed = img.icc_transform('srgb')
 			if transformed.format == 'uchar' or transformed.interpretation == 'srgb':
 				return transformed
-		except Exception:
-			pass
+			_dev_only(f"icc_transform returned format={transformed.format} interpretation={transformed.interpretation} — falling through to default handling")
+		except pyvips.Error as e:
+			_dev_only(f"icc_transform failed ({e}) — falling through to default handling")
 	# For 16-bit images without ICC profile, check interpretation.
 	# pyvips sets interpretation='rgb16' for gamma-encoded 16-bit sRGB,
 	# and interpretation='scrgb' for linear light data.
 	if img.format == 'ushort':
 		if img.interpretation not in ('rgb16', 'srgb'):
-			logging.info(f"16-bit image with interpretation={img.interpretation}, treating as linear light")
+			_dev_only(f"16-bit image with interpretation={img.interpretation} — guessing scene-linear sRGB primaries")
 			img = (img.cast('float') / 65535.0).copy(interpretation='scrgb')
 		else:
 			logging.info(f"16-bit image with interpretation={img.interpretation}, treating as gamma-encoded sRGB")
@@ -168,7 +219,7 @@ def read_image(source_path):
 		img = pyvips.Image.new_from_file(source_path)
 		img = img.autorot()
 	except pyvips.Error as e:
-		logging.warning(f"pyvips load failed for {source_path}, falling back to cv2: {e}")
+		_dev_only(f"pyvips load failed for {source_path} ({e}) — falling back to cv2 with no color management")
 		image = cv2.imread(source_path)
 		if image is None:
 			logging.warning(f"Could not read image: {source_path}")

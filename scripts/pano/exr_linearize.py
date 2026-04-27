@@ -21,8 +21,10 @@ Usage:
 	exr_linearize.py FILE.exr              # overwrite in place
 	exr_linearize.py FILE.exr -o OUT.exr   # write to a new file
 
-Memory: reads all channels to float32 numpy arrays in memory. For a
-gigapixel 4-channel pano that's ~9 GB of RAM during processing.
+Memory: streams scanline chunks (~60 MB working set regardless of image
+size) so it works on gigapixel panos without exhausting RAM, and so each
+writePixels call stays well under the OpenEXR Python binding's 2 GB
+signed-int size check.
 """
 
 import argparse
@@ -38,6 +40,8 @@ EXR_META = Path(__file__).resolve().parent / "exr_meta.py"
 
 PT_HALF = Imath.PixelType(Imath.PixelType.HALF)
 PT_FLOAT = Imath.PixelType(Imath.PixelType.FLOAT)
+
+SCANLINES_PER_CHUNK = 128
 
 
 def inv_srgb(v: np.ndarray) -> np.ndarray:
@@ -64,36 +68,39 @@ def linearize(in_path: Path, out_path: Path) -> None:
 				dw = header["dataWindow"]
 				width = dw.max.x - dw.min.x + 1
 				height = dw.max.y - dw.min.y + 1
+				y_min = dw.min.y
+				y_max = dw.max.y
 				channels = header["channels"]
 				print(f"  {width} x {height}, channels: {list(channels.keys())}",
 							file=sys.stderr)
 
-				out_bytes: dict[str, bytes] = {}
-				for name, ch_info in channels.items():
-						# Read as float32 regardless of stored type so the math has precision.
-						raw = exr_in.channel(name, PT_FLOAT)
-						arr = np.frombuffer(raw, dtype=np.float32).reshape((height, width))
+				out_f = OpenEXR.OutputFile(str(out_path), header)
+				try:
+						for y in range(y_min, y_max + 1, SCANLINES_PER_CHUNK):
+								y_end = min(y + SCANLINES_PER_CHUNK - 1, y_max)
+								rows = y_end - y + 1
+								chunk: dict[str, bytes] = {}
+								for name, ch_info in channels.items():
+										# Read as float32 regardless of stored type so the math has precision.
+										raw = exr_in.channel(name, PT_FLOAT, y, y_end)
+										arr = np.frombuffer(raw, dtype=np.float32).reshape((rows, width))
 
-						if name.upper() == "A":
-								# Alpha is a coverage mask, not light intensity — pass through.
-								processed = arr
-						else:
-								processed = inv_srgb(arr)
+										if name.upper() == "A":
+												# Alpha is a coverage mask, not light intensity — pass through.
+												processed = arr
+										else:
+												processed = inv_srgb(arr)
 
-						# Convert back to the channel's declared storage type.
-						if ch_info.type == PT_HALF:
-								out_bytes[name] = processed.astype(np.float16).tobytes()
-						else:
-								out_bytes[name] = processed.astype(np.float32).tobytes()
-						print(f"    {name} ({ch_info.type}): done", file=sys.stderr)
+										# Convert back to the channel's declared storage type.
+										if ch_info.type == PT_HALF:
+												chunk[name] = processed.astype(np.float16).tobytes()
+										else:
+												chunk[name] = processed.astype(np.float32).tobytes()
+								out_f.writePixels(chunk, rows)
+				finally:
+						out_f.close()
 		finally:
 				exr_in.close()
-
-		out_f = OpenEXR.OutputFile(str(out_path), header)
-		try:
-				out_f.writePixels(out_bytes)
-		finally:
-				out_f.close()
 
 
 def main() -> int:
