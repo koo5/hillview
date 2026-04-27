@@ -33,6 +33,13 @@ import hashlib
 
 # Load environment variables from .env file in same directory as script
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+
+# Starlette ≥0.45's MultiPartParser caps each part at 1 MiB by default, which
+# rejects normal photo uploads with `400 "There was an error parsing the body"`.
+# Raise it to MAX_FILE_SIZE (same env var the app's own validator uses).
+from starlette.formparsers import MultiPartParser
+MultiPartParser.__init__.__kwdefaults__['max_part_size'] = int(os.environ.get('MAX_FILE_SIZE', 150 * 1024 * 1024))
+
 import aiofiles
 import httpx
 import math
