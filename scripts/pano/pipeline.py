@@ -49,6 +49,7 @@ phase_NN_render/. The DZI pyramid lands in phase_NN_pyramid/.
 import argparse
 import math
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -82,6 +83,52 @@ def run(cmd: list) -> None:
 
 def reflink_cp(src: Path, dst: Path) -> None:
 		run(["cp", "--reflink=auto", src, dst])
+
+
+def _detect_brackets_per_stack(cr2s: list) -> int:
+		"""Return brackets-per-stack inferred from EXIF, or 1 if not bracketed.
+
+		Reads two Canon MakerNotes via exiftool:
+			- AEBShotCount     ("3 shots" string when AEB is engaged)
+			- ExposureTime     varies cyclically across an AEB triplet
+		Both must agree on the period N (and N must be in 2..9) for us to
+		return N. Disagreement, parse failure, or insufficient frames → 1.
+		Conservative on purpose: a wrong autodetect would group unrelated
+		frames into fused stacks downstream.
+		"""
+		if len(cr2s) < 6:
+				return 1
+		try:
+				out = subprocess.check_output(
+						["exiftool", "-T", "-AEBShotCount", "-ExposureTime",
+						 *map(str, cr2s)],
+						text=True, stderr=subprocess.DEVNULL,
+				)
+		except (subprocess.CalledProcessError, FileNotFoundError):
+				return 1
+
+		rows = [line.split('\t') for line in out.splitlines()]
+		if len(rows) != len(cr2s) or any(len(r) != 2 for r in rows):
+				return 1
+
+		# AEBShotCount looks like "3 shots" / "5 shots". Same for all frames
+		# of an AEB session, so the first value is enough.
+		m = re.match(r'(\d+)\s*shots?$', rows[0][0].strip())
+		if not m:
+				return 1
+		n = int(m.group(1))
+		if not 2 <= n <= 9:
+				return 1
+
+		# Verify the ExposureTime cycle has period n. AEB cycles -EV/0/+EV
+		# (or wider), so consecutive triplets differ but pair-wise stack
+		# positions match.
+		exposures = [r[1].strip() for r in rows]
+		if not all(exposures[i] == exposures[i + n]
+							 for i in range(len(exposures) - n)):
+				return 1
+
+		return n
 
 
 @dataclass
@@ -135,10 +182,11 @@ def main() -> int:
 		ap.add_argument("--raws-dir", type=Path, default=Path("."),
 										help="Directory containing the .CR2 (or .cr2) files. "
 												 "Defaults to the current directory.")
-		ap.add_argument("--brackets-per-stack", type=int, default=1,
-										help="1 (default, no fusing) or 3/5/7 for AEB. Files "
-												 "grouped in filename-sorted order.")
-		ap.add_argument("--overlap", type=float, required=True,
+		ap.add_argument("--brackets-per-stack", type=int, default=None,
+										help="N=1 forces no fusing; N=3/5/7 fuses N-frame stacks. "
+												 "Default: autodetect from Canon EXIF AEBShotCount + "
+												 "ExposureTime cycle, falling back to 1.")
+		ap.add_argument("--overlap", type=float, default=20,
 										help="Horizontal overlap percent between adjacent frames.")
 		ap.add_argument("--topmost-per-side", type=int, default=2,
 										help="Topmost filter: CPs per (image, L/R). Default 2.")
@@ -173,6 +221,21 @@ def main() -> int:
 		work_dir.mkdir(parents=True, exist_ok=True)
 		print(f"work dir: {work_dir}", file=sys.stderr)
 		print(f"output:   {derived_name}.exr", file=sys.stderr)
+
+		# Resolve --brackets-per-stack: explicit value wins; None triggers
+		# autodetect from EXIF (defaults to 1 / no fusing if unsure).
+		if args.brackets_per_stack is None:
+				detected = _detect_brackets_per_stack(cr2s)
+				args.brackets_per_stack = detected
+				if detected == 1:
+						print(f"brackets-per-stack: 1 (autodetect found no AEB pattern)",
+									file=sys.stderr)
+				else:
+						print(f"brackets-per-stack: {detected} (autodetected from EXIF)",
+									file=sys.stderr)
+		else:
+				print(f"brackets-per-stack: {args.brackets_per_stack} (explicit)",
+							file=sys.stderr)
 
 		def _tiff(staging: Path, prev: Optional[Path]) -> None:
 				run([RAW_DARKTABLE, raws_dir, "-o", staging, "-j", args.jobs])
