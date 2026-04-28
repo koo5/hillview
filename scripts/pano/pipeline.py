@@ -20,12 +20,14 @@ Phase short names:
 	baseline  pto_horizontal_baseline --overlap N
 	optimize  pto_optvars + autooptimiser (y -> y,p -> y,p,r)
 	stitch    pto_stitch_exr -> linearized EXR (hillview:encoding=linear)
-	render    darktable-cli applies an XMP -> display-referred EXR
-	          (hillview:encoding=srgb)
+	render    darktable-cli applies an XMP -> scene-linear EXR
+	          (hillview:encoding=linear; requires a linear matrix output
+	          profile in the XMP, e.g. linear Rec709 RGB)
 	pyramid   exr_to_webp_pyramid -> DZI tile pyramid
 
 Usage:
-	pipeline.py --raws-dir R --overlap PCT
+	pipeline.py --overlap PCT
+							[--raws-dir R]  (default: current directory)
 							[--work-dir W]  (default: <raws-dir>/<first>---<last>/)
 							[--brackets-per-stack N] [--topmost-per-side K]
 							[--celeste-threshold T] [--jobs N]
@@ -45,6 +47,8 @@ phase_NN_render/. The DZI pyramid lands in phase_NN_pyramid/.
 """
 
 import argparse
+import math
+import os
 import shlex
 import shutil
 import subprocess
@@ -128,8 +132,9 @@ def main() -> int:
 		ap.add_argument("--work-dir", type=Path, default=None,
 										help="Where phase_NN_* directories are created. "
 												 "Defaults to <raws-dir>/<first_stem>---<last_stem>/.")
-		ap.add_argument("--raws-dir", type=Path, required=True,
-										help="Directory containing the .CR2 (or .cr2) files.")
+		ap.add_argument("--raws-dir", type=Path, default=Path("."),
+										help="Directory containing the .CR2 (or .cr2) files. "
+												 "Defaults to the current directory.")
 		ap.add_argument("--brackets-per-stack", type=int, default=1,
 										help="1 (default, no fusing) or 3/5/7 for AEB. Files "
 												 "grouped in filename-sorted order.")
@@ -265,11 +270,30 @@ def main() -> int:
 				# files around. Warp layers stay as pano0000.tif etc. — they're
 				# internal and get rm'd later anyway.
 				(staging / "pano.exr").rename(staging / f"{derived_name}.exr")
+				stitched = staging / f"{derived_name}.exr"
+				# Pre-linearize sanity: enblend can overshoot above 1.0 from
+				# multi-band blending so we don't constrain the range, but
+				# inf/nan would blow up the inverse-sRGB pow() in linearize.
+				# Use --expect any so a future change to enblend / pto_stitch_exr
+				# fails here (loud) rather than producing garbage downstream.
+				run([EXR_SANITY, "--expect", "any", stitched])
 				# Apply inverse sRGB OETF so the EXR's pixel values are genuinely
 				# scene-linear, matching the industry EXR convention. Tools that
 				# assume EXR=linear (darktable, Nuke) then render correctly. Tag
 				# becomes hillview:encoding=linear.
-				run([LINEARIZE, staging / f"{derived_name}.exr"])
+				run([LINEARIZE, stitched])
+				# Post-linearize sanity: assert both that the data looks linear
+				# (range under the linear branch's max=50 threshold) AND that
+				# the tag was actually set to 'linear'. --check-tag catches a
+				# linearize that silently failed to retag, which the range
+				# check alone wouldn't.
+				run([EXR_SANITY, "--expect", "linear", "--check-tag", stitched])
+				# Populate the persistent render/ workspace immediately so the
+				# user can open it in darktable for manual XMP work without
+				# having to run the render phase first (e.g. with --stop-after
+				# stitch). _render also calls this defensively, so a deleted
+				# render/ on a cached-stitch run still recovers.
+				_ensure_render_workspace(stitched)
 
 		# Persistent darktable workspace: lives at <work_dir>/render/, outside
 		# any phase. Holds the editable XMP plus a reflink to the linearized
@@ -330,10 +354,24 @@ def main() -> int:
 						"--conf", "resourcelevel=large",
 						"--conf", "plugins/imageio/format/exr/bpp=16",
 				])
-				# darktable's gamma module applied the sRGB OETF on export, so
-				# the pixels are display-referred. Tag accordingly so the
-				# Hillview worker doesn't re-apply OETF on ingest.
-				run([EXR_META, "set", out_exr, "--encoding", "srgb"])
+				# Pre-tag sanity: catch broken darktable output (wrong output
+				# profile, NaN/inf from a numerically unstable module) before
+				# our tagger touches the file. If this fails, the bug is
+				# upstream in darktable / the XMP — not in us.
+				run([EXR_SANITY, "--expect", "linear", out_exr])
+				# darktable exports EXR best with a linear matrix output profile
+				# (e.g. linear Rec709 RGB / linear Rec2020 RGB) — see the
+				# "exporting with anything but linear matrix profiles might
+				# lead to wrong results" warning otherwise. With a linear
+				# profile, the pixel values are scene-linear, so tag accordingly;
+				# the pyramid step (and the worker) will apply the forward sRGB
+				# OETF themselves.
+				run([EXR_META, "set", out_exr, "--encoding", "linear"])
+				# Post-tag sanity: assert both that the data still looks linear
+				# AND that the tag was actually set to 'linear'. --check-tag
+				# catches an exr_meta.py that silently set the wrong value (or
+				# failed to write) — the data check alone wouldn't notice.
+				run([EXR_SANITY, "--expect", "linear", "--check-tag", out_exr])
 
 		def _pyramid(staging: Path, prev: Optional[Path]) -> None:
 				assert prev is not None
@@ -414,18 +452,26 @@ def main() -> int:
 		if last_short == "pyramid":
 				dzi_prefix = prev / derived_name
 				print(f"\ndone. pyramid: {dzi_prefix}.dzi", file=sys.stderr)
-				print(f"  view:  {SCRIPT_DIR / 'dz.py'} view {dzi_prefix}",
+				print(f"  VIEW:\n{SCRIPT_DIR / 'dz.py'} view {dzi_prefix}",
 							file=sys.stderr)
 		elif last_short == "render":
 				print(f"\ndone. rendered EXR: {render_exr}", file=sys.stderr)
 		else:
 				print(f"\ndone. final: {prev / f'{derived_name}.exr'}", file=sys.stderr)
 
+		# Run sanity checks inline so a misencoded EXR is impossible to miss
+		# (especially the SUSPICIOUS verdict from a tag/range mismatch).
+		# Both deliverables are tagged 'linear' by their respective phases,
+		# so assert that explicitly with --check-tag — catches cached phase
+		# outputs from before we added the convention, or any manual edits.
+		# run() already echoes the command with a `$` prefix.
 		print("\ndiagnostics:", file=sys.stderr)
 		if stitch_exr.exists():
-				print(f"  {EXR_SANITY} {stitch_exr}", file=sys.stderr)
+				print("stitched:", file=sys.stderr)
+				run([EXR_SANITY, "--expect", "linear", "--check-tag", stitch_exr])
 		if render_exr.exists():
-				print(f"  {EXR_SANITY} {render_exr}", file=sys.stderr)
+				print("rendered:", file=sys.stderr)
+				run([EXR_SANITY, "--expect", "linear", "--check-tag", render_exr])
 		return 0
 
 
