@@ -25,6 +25,7 @@ apt install hugin-tools enblend exiftool   # nona, enblend, celeste_standalone,
 | `exr_linearize.py` | Convert a display-referred EXR to scene-linear (inverse sRGB OETF) and retag |
 | `exr_sanity.sh` | Report an EXR's pixel range and classify display-referred vs scene-linear |
 | `exr_to_webp_pyramid.py` | Convert an EXR (linear or sRGB, reads the encoding tag) to a WebP Deep Zoom tile pyramid |
+| `exr_to_instagram_tiles.py` | Resize and center-crop an EXR into up to 10 4:5 JPEG tiles for an Instagram carousel |
 | `dz_view.sh` | Serve a DZI pyramid locally with OpenSeadragon for quick inspection |
 | `pipeline.py` | End-to-end orchestrator: runs the whole CR2→EXR workflow as resumable, numbered, idempotent phases |
 | `xmp_module.py` | Edit a named darktable module across all XMP sidecars (raw-stage utility) |
