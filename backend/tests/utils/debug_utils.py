@@ -302,7 +302,7 @@ def base64_to_pem(base64_key: str):
 		return None, None
 
 
-async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None, anonymization_override=None, version=None, quality=None, fast=False, metadata=None):
+async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None, anonymization_override=None, version=None, quality=None, fast=False, metadata=None, license=None):
 	"""Core parallel upload logic.
 
 	Args:
@@ -321,6 +321,8 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding.
 		metadata: JSON string (BrowserMetadata schema) — forwarded to the worker
 		          as a fallback for formats without EXIF (e.g. EXR).
+		license: License identifier sent to authorize-upload. None=use the
+		         SecureUploadClient default ('ccbysa4+osm').
 	"""
 	def get_token():
 		if isinstance(token_or_manager, str):
@@ -329,6 +331,8 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 
 	total = len(items)
 	results = {"created": 0, "duplicates": 0, "failed": 0, "skipped": 0}
+	failed_files = []
+	skipped_files = []
 	semaphore = asyncio.Semaphore(parallel)
 
 	# Register client keys ONCE before starting parallel uploads
@@ -348,6 +352,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 					image_data, lat, lon = get_image_data(extra_data)
 				except FileNotFoundError:
 					results["skipped"] += 1
+					skipped_files.append(filename)
 					tprint(f"  [{i+1}/{total}] {filename} ⚠ file no longer exists, skipping")
 					return
 				token = get_token()
@@ -356,10 +361,14 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				# For test images, caller provides get_captured_at callable
 				captured_at = get_captured_at() if get_captured_at else None
 
+				authorize_kwargs = {}
+				if license is not None:
+					authorize_kwargs["license"] = license
 				auth_data = await upload_client.authorize_upload_with_params(
 					token, filename, len(image_data), lat, lon,
 					description, is_public=True, file_data=image_data,
-					captured_at=captured_at, version=version
+					captured_at=captured_at, version=version,
+					**authorize_kwargs,
 				)
 
 				if auth_data.get("duplicate"):
@@ -382,12 +391,15 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 					tprint(format_success(i, total, filename, photo_data, extra_data))
 				else:
 					results["failed"] += 1
-					tprint(f"  [{i+1}/{total}] {filename} ✗ {photo_data.get('error', 'Unknown error')}")
+					err_text = photo_data.get('error', 'Unknown error')
+					failed_files.append((filename, err_text))
+					tprint(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
 				for w in worker_warnings:
 					tprint(f"      ⚠ {w}")
 			except Exception as e:
 				results["failed"] += 1
 				err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__
+				failed_files.append((filename, err_text))
 				tprint(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
 				traceback.print_exc()
 
@@ -395,6 +407,15 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 
 	tprint(f"\n✅ Uploaded {results['created']}/{total} "
 		   f"({results['duplicates']} duplicates, {results['failed']} failed, {results['skipped']} skipped)")
+
+	if failed_files:
+		tprint(f"\n❌ Failed ({len(failed_files)}):")
+		for fname, err in failed_files:
+			tprint(f"  {fname}: {err}")
+	if skipped_files:
+		tprint(f"\n⚠ Skipped ({len(skipped_files)}):")
+		for fname in skipped_files:
+			tprint(f"  {fname}")
 
 
 class TokenManager:
@@ -518,13 +539,17 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 		traceback.print_exc()
 
 
-def upload_files(files: list, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None):
+def upload_files(files: list, license: str, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None):
 	"""Upload files from command line paths.
 
 	metadata: JSON string matching the worker's BrowserMetadata schema
 	(latitude/longitude/bearing/altitude/captured_at/orientation_code/location_source).
 	Use for formats that can't carry EXIF, e.g. EXR — feed via
 	`url_to_exif.py --json <url>`.
+
+	license: License identifier sent to authorize-upload. Required — the CLI
+	rejects upload-files without --license, since the legal terms of an
+	upload are too important to default silently.
 	"""
 	import asyncio
 	import json
@@ -566,7 +591,7 @@ def upload_files(files: list, parallel: int = 1, user: str = None, password: str
 			return f"  [{i+1}/{total}] {filename} ✓{loc}"
 
 		anon_override = "[]" if skip_anonymization else None
-		await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, anonymization_override=anon_override, version=version, quality=quality, fast=fast, metadata=metadata)
+		await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, anonymization_override=anon_override, version=version, quality=quality, fast=fast, metadata=metadata, license=license)
 
 	try:
 		asyncio.run(_upload())
@@ -763,7 +788,7 @@ def main():
 		print("  python debug_utils.py populate-photos       # Create test photos (fixed locations)")
 		print("  python debug_utils.py populate-photos 6     # Create N test photos (max 6)")
 		print("  python debug_utils.py upload-random-photos [N] [--parallel P] [--user U --pass P] [--quality Q]")
-		print("  python debug_utils.py upload-files [--parallel P] [--user U --pass P] [--skip-anonymization] [--fast] [--version N] [--quality Q] file1.jpg ...")
+		print("  python debug_utils.py upload-files --license L [--parallel P] [--user U --pass P] [--skip-anonymization] [--fast] [--version N] [--quality Q] file1.jpg ...")
 		print("  python debug_utils.py mock-mapillary        # Set up mock Mapillary data")
 		print("  python debug_utils.py clear-mapillary       # Clear mock Mapillary data")
 		print("  python debug_utils.py verify-signature <message_json> <signature_base64> <public_key_pem>")
@@ -834,6 +859,7 @@ def main():
 		description = None
 		quality = None
 		metadata = None
+		license = None
 		files = []
 		i = 0
 		while i < len(args):
@@ -864,17 +890,24 @@ def main():
 			elif args[i] == "--metadata":
 				metadata = args[i + 1]
 				i += 2
+			elif args[i] == "--license":
+				license = args[i + 1]
+				i += 2
 			elif args[i].startswith("--"):
 				print(f"Unknown option: {args[i]}")
 				return
 			else:
 				files.append(args[i])
 				i += 1
-		if not files:
-			print("Usage: upload-files [--parallel N] [--user U --pass P] [--skip-anonymization] [--fast] [--version N] [--description TEXT] [--quality Q] [--metadata JSON] file1.jpg ...")
+		usage = "Usage: upload-files --license L [--parallel N] [--user U --pass P] [--skip-anonymization] [--fast] [--version N] [--description TEXT] [--quality Q] [--metadata JSON] file1.jpg ..."
+		if license is None:
+			print("Error: --license is required")
+			print(usage)
+		elif not files:
+			print(usage)
 		else:
 			with backend_test_lock():
-				upload_files(files, parallel, user, password, skip_anonymization=skip_anonymization, version=version, description=description, quality=quality, fast=fast, metadata=metadata)
+				upload_files(files, license, parallel, user, password, skip_anonymization=skip_anonymization, version=version, description=description, quality=quality, fast=fast, metadata=metadata)
 	elif command == "mock-mapillary":
 		with backend_test_lock():
 			setup_mock_mapillary()

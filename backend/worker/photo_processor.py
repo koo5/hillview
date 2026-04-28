@@ -37,14 +37,46 @@ WEBP_QUALITY_DZI = 97
 NORMAL_WEBP_METHOD = 6
 # WebP method: 0 = fastest, 6 = slowest/best compression. For fast encoding we
 # pick per-variant based on output pixel count: 1 is noticeably quicker than
-# 2, but it's been seen to crash on very large images — fall back past ~100 MP.
+# 2, but it overflows partition 0 (libwebp error 6) on large images because
+# fast methods don't bother optimizing partition layout. ~45 MP (8192×5462,
+# the 'full' variant of a 5DS shot) is enough to trip it; 25 MP threshold
+# leaves the smaller variants on the fast path.
 FAST_WEBP_METHOD_SMALL = 1
 FAST_WEBP_METHOD_LARGE = 2
-FAST_WEBP_LARGE_THRESHOLD_PIXELS = 10000 * 10000
+FAST_WEBP_LARGE_THRESHOLD_PIXELS = 5000 * 5000
 
 
 def _fast_webp_method_for(width: int, height: int) -> int:
 	return FAST_WEBP_METHOD_LARGE if width * height >= FAST_WEBP_LARGE_THRESHOLD_PIXELS else FAST_WEBP_METHOD_SMALL
+
+
+def _save_webp(rgb_array, output_path: str, quality: int, method: int) -> None:
+	"""Save an RGB numpy array as WebP, re-raising encoding errors with diagnostics.
+
+	libwebp returns opaque numeric errors (e.g. "encoder error 6") via PIL.
+	Error 6 (VP8_ENC_ERROR_PARTITION0_OVERFLOW) is the one we hit in --fast
+	mode: methods 1-2 don't optimize the frame header layout, and on large/
+	complex images partition 0 won't fit in libwebp's 512KB cap. The fix is
+	either bump the encoding method (raise FAST_WEBP_LARGE_THRESHOLD_PIXELS
+	threshold's ceiling, or drop --fast) or shrink the image.
+	"""
+	h, w = rgb_array.shape[:2]
+	try:
+		Image.fromarray(rgb_array).save(output_path, format='WEBP', quality=quality, method=method)
+	except OSError as e:
+		msg = str(e)
+		if 'encoder error 6' in msg:
+			raise OSError(
+				f"WebP partition 0 overflow saving {w}x{h} (~{w*h/1e6:.1f} MP) at "
+				f"method={method}, quality={quality}. Fast methods can't pack the "
+				f"frame header into 512KB on images this size. Lower "
+				f"FAST_WEBP_LARGE_THRESHOLD_PIXELS in photo_processor.py so this "
+				f"variant uses method>=2, or re-run without --fast. Path: {output_path}"
+			) from e
+		raise OSError(
+			f"WebP save failed for {w}x{h} at method={method}, quality={quality}: {msg}. "
+			f"Path: {output_path}"
+		) from e
 
 
 def create_center_crop(image, target_width: int, target_height: int):
@@ -511,7 +543,7 @@ class PhotoProcessor:
 				new_image_rgb = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB)
 				logger.debug(f"Converted image to RGB color space for size {size}")
 				webp_method = _fast_webp_method_for(new_width, new_height) if fast else NORMAL_WEBP_METHOD
-				Image.fromarray(new_image_rgb).save(output_file_path, format='WEBP', quality=webp_quality_sizes, method=webp_method)
+				_save_webp(new_image_rgb, output_file_path, webp_quality_sizes, webp_method)
 				if not fast:
 					copy_exif_data(source_path, output_file_path)
 				logger.info(f"Created size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
@@ -542,7 +574,7 @@ class PhotoProcessor:
 
 				cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
 				webp_method = _fast_webp_method_for(crop_tw, crop_th) if fast else NORMAL_WEBP_METHOD
-				Image.fromarray(cropped_rgb).save(crop_file_path, format='WEBP', quality=webp_quality_sizes, method=webp_method)
+				_save_webp(cropped_rgb, crop_file_path, webp_quality_sizes, webp_method)
 				if not fast:
 					copy_exif_data(source_path, crop_file_path)
 				logger.info(f"Created {crop_key} for {unique_id}: {crop_tw}x{crop_th} at {crop_file_path}")
@@ -583,7 +615,7 @@ class PhotoProcessor:
 
 			llm_rgb = cv2.cvtColor(llm_resized, cv2.COLOR_BGR2RGB)
 			webp_method = _fast_webp_method_for(llm_width, llm_height) if fast else NORMAL_WEBP_METHOD
-			Image.fromarray(llm_rgb).save(llm_output_path, format='WEBP', quality=webp_quality_sizes, method=webp_method)
+			_save_webp(llm_rgb, llm_output_path, webp_quality_sizes, webp_method)
 			copy_exif_data(source_path, llm_output_path)
 			logger.info(f"Created 640_llm variant for {unique_id}: {llm_width}x{llm_height} at {llm_output_path}")
 

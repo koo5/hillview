@@ -63,14 +63,16 @@ def copy_cr2_tags_to_tiffs(tiff_dir):
 
 def copy_cr2_tags_to_tiff(cr2, tiff_path):
 		log(f"Copying EXIF tags {cr2.name} -> {tiff_path.name}")
+		# Orientation is intentionally NOT in the copy list. RawTherapee (with
+		# our profile + cli flags) emits pixels rotated 180° from upright for
+		# every shot regardless of the CR2's Orientation tag, and tags its TIFF
+		# output Orientation=3 to compensate. Pulling Orientation from the CR2
+		# here would clobber that =3 with 1/6/8 and break display.
 		subprocess.run([
 				"exiftool", "-overwrite_original",
 				"-TagsFromFile", str(cr2),
 				"-Make", "-Model", "-LensModel", "-FocalLength", "-FocalLengthIn35mmFilm",
 				"-DateTimeOriginal",
-				# RawTherapee physically rotates pixels, so force Orientation=Normal
-				# to avoid viewers applying the rotation a second time
-				"-Orientation=1",
 				str(tiff_path),
 		], check=True)
 

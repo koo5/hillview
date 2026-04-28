@@ -30,7 +30,11 @@ INPUTS=("$@")
 TMPDIR=$(mktemp -d -t enfuse_bracket.XXXXXX)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-align_image_stack -a "$TMPDIR/aligned_" "${INPUTS[@]}"
+# -t 1: tighten CP reprojection error threshold from default 3px to 1px.
+# Moving objects (cars, pedestrians) within a bracket produce CPs that are
+# self-consistent across frames but disagree with the stationary majority;
+# the tighter threshold drops them before they pull the solve sideways.
+align_image_stack -t 1 -a "$TMPDIR/aligned_" "${INPUTS[@]}"
 enfuse --output="$OUT" "$TMPDIR"/aligned_*.tif
 
 # enfuse strips EXIF. Without Make/Model/FocalLength the output has no
