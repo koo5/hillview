@@ -1252,7 +1252,7 @@ async def register_client_public_key(
 		)
 
 # Upload authorization for secure uploads
-ALLOWED_LICENSES = {'ccbysa4+osm'}
+ALLOWED_LICENSES = {'ccbysa4+osm', 'full1'}
 
 class UploadAuthorizationRequest(BaseModel):
 	filename: str
