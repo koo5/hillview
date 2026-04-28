@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-End-to-end SDR panorama pipeline: CR2 -> pano.exr.
+End-to-end SDR panorama pipeline: CR2 -> rendered EXR + DZI pyramid.
 
 Runs each step as a numbered phase with its own output directory. Phases
 are resumable and idempotent:
@@ -19,21 +19,34 @@ Phase short names:
 	topmost   pto_cp_topmost --per-side K
 	baseline  pto_horizontal_baseline --overlap N
 	optimize  pto_optvars + autooptimiser (y -> y,p -> y,p,r)
-	stitch    pto_stitch_exr -> pano.exr
+	stitch    pto_stitch_exr -> linearized EXR (hillview:encoding=linear)
+	render    darktable-cli applies an XMP -> display-referred EXR
+	          (hillview:encoding=srgb)
+	pyramid   exr_to_webp_pyramid -> DZI tile pyramid
 
 Usage:
 	pipeline.py --raws-dir R --overlap PCT
 							[--work-dir W]  (default: <raws-dir>/<first>---<last>/)
 							[--brackets-per-stack N] [--topmost-per-side K]
-							[--celeste-threshold T] [--jobs N] [--stop-after SHORT_NAME]
+							[--celeste-threshold T] [--jobs N]
+							[--stop-after SHORT_NAME]
+							[--redo SHORT_NAME_OR_NUM]
 
-The final panorama is written as <first_stem>---<last_stem>.exr inside
-phase_NN_stitch/, so multiple panos in one parent directory don't
-overwrite each other.
+The render phase needs an XMP sidecar to drive darktable. On first run
+the pipeline copies scripts/pano/default_pano.xmp into <work-dir>/render/
+as <derived>.exr.xmp. To tweak it: open <work-dir>/render/<derived>.exr
+in the darktable GUI (the XMP next to it is auto-loaded), make changes,
+save, then `rm -rf <work-dir>/phase_08_render` and rerun. The XMP
+persists across phase rebuilds — including phase_07_stitch — so you can
+re-stitch without losing rendering tweaks.
+
+The final EXR is named <first_stem>---<last_stem>.exr inside
+phase_NN_render/. The DZI pyramid lands in phase_NN_pyramid/.
 """
 
 import argparse
 import shlex
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -48,6 +61,12 @@ TOPMOST = SCRIPT_DIR / "pto_cp_topmost.py"
 OPTVARS = SCRIPT_DIR / "pto_optvars.py"
 STITCH = SCRIPT_DIR / "pto_stitch_exr.py"
 LINEARIZE = SCRIPT_DIR / "exr_linearize.py"
+EXR_META = SCRIPT_DIR / "exr_meta.py"
+EXR_TO_PYRAMID = SCRIPT_DIR / "exr_to_webp_pyramid.py"
+EXR_SANITY = SCRIPT_DIR / "exr_sanity.sh"
+XMP_MODULE = SCRIPT_DIR / "xmp_module.py"
+DARKTABLE_CLI = SCRIPT_DIR.parent / "raw" / "darktable-cli-flatpak.sh"
+DEFAULT_XMP = SCRIPT_DIR / "default_pano.xmp"
 
 
 def run(cmd: list) -> None:
@@ -124,6 +143,12 @@ def main() -> int:
 										help="Parallel workers for raw_darktable.")
 		ap.add_argument("--stop-after", default=None,
 										help="Stop after this phase short name (e.g. baseline).")
+		ap.add_argument("--redo", default=None,
+										help="Discard committed and staging output of this phase "
+												 "and every later phase, then rerun from there. "
+												 "Accepts a phase short name (e.g. 'render') or "
+												 "1-based number ('8'). Equivalent to manual "
+												 "`rm -rf phase_NN_<short>{,.tmp}` for those phases.")
 		args = ap.parse_args()
 
 		raws_dir = args.raws_dir.resolve()
@@ -246,6 +271,81 @@ def main() -> int:
 				# becomes hillview:encoding=linear.
 				run([LINEARIZE, staging / f"{derived_name}.exr"])
 
+		# Persistent darktable workspace: lives at <work_dir>/render/, outside
+		# any phase. Holds the editable XMP plus a reflink to the linearized
+		# EXR. Survives `rm -rf phase_07_stitch` and `rm -rf phase_08_render`,
+		# so users can re-stitch and re-render without losing tweaks.
+		render_ws = work_dir / "render"
+		ws_exr = render_ws / f"{derived_name}.exr"
+		ws_xmp = render_ws / f"{derived_name}.exr.xmp"
+
+		def _ensure_render_workspace(source_exr: Path) -> None:
+				render_ws.mkdir(parents=True, exist_ok=True)
+				# Always refresh the EXR reflink — phase_07 may have been re-run
+				# with new pixels and the workspace handle would otherwise be
+				# stale. cp --reflink=auto overwrites; cheap on cow filesystems.
+				if ws_exr.exists():
+						ws_exr.unlink()
+				reflink_cp(source_exr, ws_exr)
+				# Never overwrite an existing XMP: that's the user's tweaked
+				# render recipe. First run gets the default; subsequent runs
+				# preserve whatever darktable last wrote.
+				if not ws_xmp.exists():
+						print(f"  no existing XMP — copying {DEFAULT_XMP.name}",
+									file=sys.stderr)
+						reflink_cp(DEFAULT_XMP, ws_xmp)
+				else:
+						print(f"  reusing existing XMP at {ws_xmp}",
+									file=sys.stderr)
+
+		def _render(staging: Path, prev: Optional[Path]) -> None:
+				assert prev is not None
+				_ensure_render_workspace(prev / f"{derived_name}.exr")
+				# Surface which modules are about to run. Helps catch
+				# known-problematic ones before burning CPU-minutes:
+				# bilat / shadhi crash on gigapixel inputs; denoiseprofile
+				# eats tens of GB of RAM. Doesn't gate the render — just
+				# prints, so the user can ctrl-C if something looks wrong.
+				print(f"\n[render] modules enabled in {ws_xmp.name}:",
+							file=sys.stderr)
+				out = subprocess.run(
+						[str(XMP_MODULE), "list", str(render_ws),
+						 "--pattern", ws_xmp.name],
+						capture_output=True, text=True, check=True,
+				).stdout
+				for line in out.splitlines():
+						if "enabled=1" in line:
+								print(f"  {line.strip()}", file=sys.stderr)
+				out_exr = staging / f"{derived_name}.exr"
+				# bpp=16: half-float is enough range for display-referred
+				# [0, 1] output and halves the file size vs 32-bit float.
+				# resourcelevel=large: lets darktable use a larger memory
+				# budget on the 24-core / 128 GB box. Note: certain darktable
+				# modules (bilat, shadhi) crash on gigapixel inputs regardless
+				# of resource level — disable them in the XMP, don't expect
+				# them to work here.
+				run([
+						DARKTABLE_CLI, ws_exr, ws_xmp, out_exr,
+						"--core",
+						"--conf", "resourcelevel=large",
+						"--conf", "plugins/imageio/format/exr/bpp=16",
+				])
+				# darktable's gamma module applied the sRGB OETF on export, so
+				# the pixels are display-referred. Tag accordingly so the
+				# Hillview worker doesn't re-apply OETF on ingest.
+				run([EXR_META, "set", out_exr, "--encoding", "srgb"])
+
+		def _pyramid(staging: Path, prev: Optional[Path]) -> None:
+				assert prev is not None
+				src_exr = prev / f"{derived_name}.exr"
+				# exr_to_webp_pyramid reads hillview:encoding off the input;
+				# it'll error if the tag is missing or unknown. Output:
+				# <prefix>.dzi + <prefix>_files/.
+				run([
+						EXR_TO_PYRAMID, src_exr,
+						staging / derived_name,
+				])
+
 		PHASES = [
 				Phase("tiff",     _tiff),
 				Phase("fused",    _fused),
@@ -254,6 +354,8 @@ def main() -> int:
 				Phase("baseline", _baseline),
 				Phase("optimize", _optimize),
 				Phase("stitch",   _stitch),
+				Phase("render",   _render),
+				Phase("pyramid",  _pyramid),
 		]
 
 		shorts = [p.short for p in PHASES]
@@ -262,19 +364,68 @@ def main() -> int:
 							file=sys.stderr)
 				return 2
 
+		# Resolve --redo to a phase index, then discard the committed and
+		# staging output of every phase from that index to the end. The
+		# main loop handles re-running them on its normal pass.
+		if args.redo is not None:
+				if args.redo.isdigit():
+						n = int(args.redo)
+						if not 1 <= n <= len(PHASES):
+								print(f"error: --redo {n} out of range [1, {len(PHASES)}]",
+											file=sys.stderr)
+								return 2
+						redo_idx = n - 1
+				elif args.redo in shorts:
+						redo_idx = shorts.index(args.redo)
+				else:
+						print(f"error: --redo '{args.redo}' not in {shorts} "
+									f"and not a 1-based number in [1, {len(PHASES)}]",
+									file=sys.stderr)
+						return 2
+				for i in range(redo_idx, len(PHASES)):
+						short = PHASES[i].short
+						for suffix in ("", ".tmp"):
+								target = work_dir / f"phase_{i + 1:02d}_{short}{suffix}"
+								if target.exists():
+										print(f"--redo: removing {target.name}/", file=sys.stderr)
+										shutil.rmtree(target)
+
 		prev: Optional[Path] = None
+		last_short: Optional[str] = None
 		for i, phase in enumerate(PHASES, start=1):
 				full_name = f"phase_{i:02d}_{phase.short}"
 				# Capture phase + prev in default args to avoid late-binding over the loop.
 				body_closure = lambda staging, p=phase, prev_path=prev: p.body(staging, prev_path)
 				committed = run_phase(full_name, work_dir, body_closure)
 				prev = committed
+				last_short = phase.short
 				if args.stop_after == phase.short:
 						print(f"\nstopping after '{phase.short}' as requested.",
 									file=sys.stderr)
 						return 0
 
-		print(f"\ndone. final: {prev / f'{derived_name}.exr'}", file=sys.stderr)
+		# Tail message picks the most useful artifact path for whatever the
+		# last completed phase was, plus copy-paste diagnostics for the
+		# EXRs that exist. exr_sanity.sh prints encoding tag + pixel range
+		# + a tag-vs-range consistency verdict.
+		stitch_exr = work_dir / "phase_07_stitch" / f"{derived_name}.exr"
+		render_exr = work_dir / "phase_08_render" / f"{derived_name}.exr"
+
+		if last_short == "pyramid":
+				dzi_prefix = prev / derived_name
+				print(f"\ndone. pyramid: {dzi_prefix}.dzi", file=sys.stderr)
+				print(f"  view:  {SCRIPT_DIR / 'dz.py'} view {dzi_prefix}",
+							file=sys.stderr)
+		elif last_short == "render":
+				print(f"\ndone. rendered EXR: {render_exr}", file=sys.stderr)
+		else:
+				print(f"\ndone. final: {prev / f'{derived_name}.exr'}", file=sys.stderr)
+
+		print("\ndiagnostics:", file=sys.stderr)
+		if stitch_exr.exists():
+				print(f"  {EXR_SANITY} {stitch_exr}", file=sys.stderr)
+		if render_exr.exists():
+				print(f"  {EXR_SANITY} {render_exr}", file=sys.stderr)
 		return 0
 
 

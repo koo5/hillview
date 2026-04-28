@@ -4,8 +4,16 @@
 # dependencies = ["OpenEXR", "numpy"]
 # ///
 """
-Convert a display-referred EXR (sRGB-encoded floats in [0, 1]) into a
-genuinely scene-linear EXR by applying the inverse sRGB transfer function.
+Produce the canonical archival linear EXR for the Hillview pano pipeline:
+apply inverse sRGB OETF to RGB so pixels represent linear light, drop
+the alpha channel, tag hillview:encoding=linear.
+
+Why these three things together: the pipeline's downstream consumers
+(darktable, the worker, exr_to_webp_pyramid) all need scene-linear RGB.
+Alpha from enblend is a coverage mask with edge overshoots (values
+outside [0, 1]) that has no consumer downstream and just skews stats
+on the linearized EXR. Pass `--keep-alpha` for the rare case (CG
+renders, deliberate compositing).
 
 After this runs the pixel values represent linear light intensity, which
 is what every EXR-reading tool (darktable, Nuke, OpenCV) assumes. The
@@ -18,13 +26,16 @@ Uses the OpenEXR Python library directly (not pyvips), because some
 libvips builds have openexrload without openexrsave.
 
 Usage:
-	exr_linearize.py FILE.exr              # overwrite in place
+	exr_linearize.py FILE.exr              # overwrite in place, drop alpha
 	exr_linearize.py FILE.exr -o OUT.exr   # write to a new file
+	exr_linearize.py FILE.exr --keep-alpha # preserve alpha (rare)
 
-Memory: streams scanline chunks (~60 MB working set regardless of image
-size) so it works on gigapixel panos without exhausting RAM, and so each
-writePixels call stays well under the OpenEXR Python binding's 2 GB
-signed-int size check.
+Memory: loads all channels into numpy arrays via OpenEXR.File
+(separate_channels=True). For a gigapixel 4-channel half-float pano
+that's ~4.5 GB; for float32 ~9 GB. Modern File API is required because
+the legacy InputFile/OutputFile path silently drops custom-named string
+attributes — exr_meta.py set's hillview:encoding=linear write would be
+a no-op there.
 """
 
 import argparse
@@ -34,14 +45,8 @@ from pathlib import Path
 
 import numpy as np
 import OpenEXR
-import Imath
 
 EXR_META = Path(__file__).resolve().parent / "exr_meta.py"
-
-PT_HALF = Imath.PixelType(Imath.PixelType.HALF)
-PT_FLOAT = Imath.PixelType(Imath.PixelType.FLOAT)
-
-SCANLINES_PER_CHUNK = 128
 
 
 def inv_srgb(v: np.ndarray) -> np.ndarray:
@@ -61,46 +66,37 @@ def inv_srgb(v: np.ndarray) -> np.ndarray:
 		).astype(np.float32)
 
 
-def linearize(in_path: Path, out_path: Path) -> None:
-		exr_in = OpenEXR.InputFile(str(in_path))
-		try:
-				header = exr_in.header()
-				dw = header["dataWindow"]
-				width = dw.max.x - dw.min.x + 1
-				height = dw.max.y - dw.min.y + 1
-				y_min = dw.min.y
-				y_max = dw.max.y
-				channels = header["channels"]
-				print(f"  {width} x {height}, channels: {list(channels.keys())}",
-							file=sys.stderr)
+def linearize(in_path: Path, out_path: Path, keep_alpha: bool = False) -> None:
+		f = OpenEXR.File(str(in_path), separate_channels=True)
+		src_channels = f.channels()
+		print(f"  channels in:  {list(src_channels.keys())}", file=sys.stderr)
 
-				out_f = OpenEXR.OutputFile(str(out_path), header)
-				try:
-						for y in range(y_min, y_max + 1, SCANLINES_PER_CHUNK):
-								y_end = min(y + SCANLINES_PER_CHUNK - 1, y_max)
-								rows = y_end - y + 1
-								chunk: dict[str, bytes] = {}
-								for name, ch_info in channels.items():
-										# Read as float32 regardless of stored type so the math has precision.
-										raw = exr_in.channel(name, PT_FLOAT, y, y_end)
-										arr = np.frombuffer(raw, dtype=np.float32).reshape((rows, width))
+		new_channels: dict[str, np.ndarray] = {}
+		for name, ch in src_channels.items():
+				if name.upper() == "A":
+						if not keep_alpha:
+								# Default: drop. Alpha is a coverage mask with no
+								# downstream consumer; enblend's edge overshoots in it
+								# also skew vips min/max on the result.
+								continue
+						# Alpha is light-coverage, not light intensity — pass through.
+						new_channels[name] = ch.pixels.copy()
+						continue
+				src_dtype = ch.pixels.dtype
+				# Compute in float32 for precision; cast back to the channel's
+				# native storage type so HALF stays HALF and FLOAT stays FLOAT.
+				new_channels[name] = inv_srgb(ch.pixels.astype(np.float32)).astype(src_dtype)
 
-										if name.upper() == "A":
-												# Alpha is a coverage mask, not light intensity — pass through.
-												processed = arr
-										else:
-												processed = inv_srgb(arr)
+		print(f"  channels out: {list(new_channels.keys())}", file=sys.stderr)
 
-										# Convert back to the channel's declared storage type.
-										if ch_info.type == PT_HALF:
-												chunk[name] = processed.astype(np.float16).tobytes()
-										else:
-												chunk[name] = processed.astype(np.float32).tobytes()
-								out_f.writePixels(chunk, rows)
-				finally:
-						out_f.close()
-		finally:
-				exr_in.close()
+		# Strip computed/derived header keys; OpenEXR.File regenerates them
+		# from the channels dict and the resulting array shapes. Leaving
+		# them in the dict produces a redundancy that the constructor may
+		# accept but isn't guaranteed to.
+		hdr = {k: v for k, v in f.header().items()
+					 if k not in ("channels", "dataWindow", "displayWindow")}
+
+		OpenEXR.File(hdr, new_channels).write(str(out_path))
 
 
 def main() -> int:
@@ -111,6 +107,9 @@ def main() -> int:
 		ap.add_argument("input")
 		ap.add_argument("-o", "--output", default=None,
 										help="Output path (default: overwrite input)")
+		ap.add_argument("--keep-alpha", action="store_true",
+										help="Preserve alpha channel (default: drop). "
+												 "Rare — useful only for deliberate compositing.")
 		args = ap.parse_args()
 
 		in_path = Path(args.input).resolve()
@@ -122,7 +121,7 @@ def main() -> int:
 
 		tmp = out_path.with_name(out_path.stem + ".linearize.exr")
 		print(f"linearizing {in_path.name} -> {tmp.name}", file=sys.stderr)
-		linearize(in_path, tmp)
+		linearize(in_path, tmp, keep_alpha=args.keep_alpha)
 		tmp.replace(out_path)
 		print(f"linearized: {out_path}", file=sys.stderr)
 

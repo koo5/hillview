@@ -15,14 +15,13 @@ Valid values:         "srgb"    pixels are display-referred; the sRGB
 																transfer function has been applied to each
 																channel before writing.
 											"linear"  pixels are scene-linear.
-Default when absent:  "srgb".
+When absent:          rejected by the Hillview worker.
 
-Why this default: the typical hobbyist panorama pipeline (RAW developer
-→ sRGB TIFF → Hugin/nona → enblend → EXR) produces display-referred
-content even though the EXR container's industry convention is linear.
-Hillview treats unmarked EXRs as display-referred so the common case
-"just works"; scene-linear producers (CG renders, truly HDR pipelines)
-must tag their files explicitly.
+Why no default: silent guesses silently miscolor uploads. A scene-linear
+gigapixel pano with max ≈ 0.9 (overcast scene) is byte-indistinguishable
+from a display-referred pano of the same content; only the producer
+knows which one it actually is. Tag at the source; the cost is one CLI
+invocation per export.
 
 Linearity is orthogonal to dynamic range. A scene-linear EXR bounded in
 [0, 1] is still scene-linear; a display-referred EXR can technically
@@ -31,8 +30,9 @@ contain values > 1.0 (unusual).
 === Worker contract ===
 
 A conformant reader decides the transfer function as:
-	encoding = exr.header().get("hillview:encoding", "srgb")
-
+	encoding = exr.header().get("hillview:encoding")
+	if encoding is None:
+			raise ValueError("EXR is missing required hillview:encoding")
 	if encoding == "srgb":
 			# pixels already carry the sRGB OETF — DO NOT re-apply on display
 			display = pixels
@@ -51,14 +51,22 @@ A conformant reader decides the transfer function as:
 
 === Performance note ===
 
-OpenEXR stores the header before pixel data, so updating the header means
-rewriting the whole file. `set_encoding` streams scanline chunks of 128
-rows (Tier A below): ~50 MB RAM regardless of image size, and each
-per-channel writePixels buffer stays small enough to dodge the OpenEXR
-Python binding's 2 GB signed-int size check. Wall time is dominated by
-PIZ decompress+recompress (~1–2 min for a gigapixel half-float).
+OpenEXR stores the header before pixel data, so updating the header
+means rewriting the whole file. `set_encoding` uses the modern
+OpenEXR.File API, which loads all channels into numpy arrays
+(separate_channels=True), mutates the header dict in place, and writes
+a new file. RAM = total uncompressed pixel data (e.g. ~9 GB for a
+gigapixel 4-channel float32; ~4.5 GB for half). Wall time is dominated
+by PIZ decompress+recompress (~1–2 min for a gigapixel half-float).
 
-If wall time becomes the pain point, Tier B remains an open option:
+Why the modern API: the legacy InputFile/OutputFile path silently drops
+custom-named string attributes — `header['hillview:encoding'] = 'linear'`
+on a legacy OutputFile produces a file that does NOT contain the
+attribute, with a printed `XXX - unknown attribute` warning on read.
+The File API correctly serializes the attribute as a standard EXR
+string-typed attribute that legacy and modern readers both parse.
+
+If wall time or RAM becomes the pain point, Tier B remains an open option:
 
 	Tier B  — byte-level header surgery (fast, low RAM).
 						Skip the OpenEXR library entirely. Parse the header bytes
@@ -203,59 +211,32 @@ def read_encoding(path: str) -> str | None:
 		"""Return the hillview:encoding value stored in the EXR, or None if the
 		attribute is not set. Callers that need a value should fall back to
 		DEFAULT_ENCODING themselves, so this function never hides absence."""
-		exr = OpenEXR.InputFile(path)
-		try:
-				header = exr.header()
-				if ENCODING_ATTR not in header:
-						return None
-				raw = header[ENCODING_ATTR]
-				return raw.decode() if isinstance(raw, bytes) else str(raw)
-		finally:
-				exr.close()
-
-
-SCANLINES_PER_CHUNK = 128
+		f = OpenEXR.File(path, header_only=True)
+		header = f.header()
+		if ENCODING_ATTR not in header:
+				return None
+		raw = header[ENCODING_ATTR]
+		return raw.decode() if isinstance(raw, bytes) else str(raw)
 
 
 def set_encoding(path: str, encoding: str) -> None:
 		"""Rewrite the EXR at `path` with hillview:encoding=<encoding>.
 
-		Streams pixel data in scanline chunks (~50 MB RAM regardless of
-		image size) and keeps each writePixels call's per-channel buffer
-		well under the OpenEXR Python binding's signed-int size check —
-		that check fires once a single channel buffer hits 2 GB, which
-		happens around 500 Mpx at 32-bit float. Atomic via temp file +
-		rename. A partial temp file is left for inspection if the write
-		raises mid-flight."""
+		Loads via OpenEXR.File (modern API, separate_channels=True), mutates
+		the header dict in place, and writes a new file via atomic temp +
+		rename. Pixel data round-trips bit-exact; channel storage types
+		(HALF/FLOAT) are preserved. A partial temp file is left for
+		inspection if the write raises mid-flight."""
 		if encoding not in VALID_ENCODINGS:
 				raise ValueError(
 						f"encoding must be one of {VALID_ENCODINGS}; got {encoding!r}"
 				)
 
-		tmp_path = path + ".tmp"
-		exr = OpenEXR.InputFile(path)
-		try:
-				header = exr.header()
-				channels = header["channels"]
-				dw = header["dataWindow"]
-				y_min = dw.min.y
-				y_max = dw.max.y
-				header[ENCODING_ATTR] = encoding
+		f = OpenEXR.File(path, separate_channels=True)
+		f.header()[ENCODING_ATTR] = encoding
 
-				out = OpenEXR.OutputFile(tmp_path, header)
-				try:
-						for y in range(y_min, y_max + 1, SCANLINES_PER_CHUNK):
-								y_end = min(y + SCANLINES_PER_CHUNK - 1, y_max)
-								rows = y_end - y + 1
-								chunk = {
-										name: exr.channel(name, ch.type, y, y_end)
-										for name, ch in channels.items()
-								}
-								out.writePixels(chunk, rows)
-				finally:
-						out.close()
-		finally:
-				exr.close()
+		tmp_path = path + ".tmp"
+		f.write(tmp_path)
 		os.replace(tmp_path, path)
 
 
@@ -266,20 +247,18 @@ def cmd_set(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-		exr = OpenEXR.InputFile(args.file)
-		try:
-				header = exr.header()
-				hillview_attrs = {
-						k: (v.decode() if isinstance(v, bytes) else str(v))
-						for k, v in header.items()
-						if k.startswith("hillview:")
-				}
-		finally:
-				exr.close()
+		f = OpenEXR.File(args.file, header_only=True)
+		header = f.header()
+		hillview_attrs = {
+				k: (v.decode() if isinstance(v, bytes) else str(v))
+				for k, v in header.items()
+				if k.startswith("hillview:")
+		}
 
 		if not hillview_attrs:
 				print(f"{args.file}: no hillview:* attributes")
-				print(f"  (a reader will default to {ENCODING_ATTR}={DEFAULT_ENCODING!r})")
+				print(f"  (the Hillview worker rejects EXRs missing {ENCODING_ATTR};")
+				print(f"   tag with: exr_meta.py set FILE --encoding {{srgb,linear}})")
 				return 0
 
 		for k, v in hillview_attrs.items():

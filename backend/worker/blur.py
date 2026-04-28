@@ -189,6 +189,13 @@ def normalize_to_srgb(img, source_path=None):
 		else:
 			logging.info(f"16-bit image with interpretation={img.interpretation}, treating as gamma-encoded sRGB")
 	img = img.colourspace('srgb')
+	# colourspace('srgb') is a no-op when source is already srgb-tagged
+	# float (typical of our hillview:encoding=srgb EXRs, where pixels are
+	# display-encoded floats in [0, 1] but stored as float32 in the EXR
+	# container). Downstream — cv2 resize, PIL WebP save — expect uint8;
+	# scale and cast explicitly so float never escapes this function.
+	if img.format != 'uchar':
+		img = (img * 255).cast('uchar')
 	return img
 
 

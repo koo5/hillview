@@ -374,6 +374,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 
 				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename, anonymization_override=anonymization_override, quality=quality, fast=fast, metadata=metadata)
 				photo_id = result.get('photo_id', auth_data.get('photo_id'))
+				worker_warnings = result.get('warnings') or []
 
 				photo_data = wait_for_photo_processing(photo_id, get_token(), timeout=timeout)
 				if photo_data['processing_status'] == 'completed':
@@ -382,6 +383,8 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				else:
 					results["failed"] += 1
 					tprint(f"  [{i+1}/{total}] {filename} ✗ {photo_data.get('error', 'Unknown error')}")
+				for w in worker_warnings:
+					tprint(f"      ⚠ {w}")
 			except Exception as e:
 				results["failed"] += 1
 				err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__

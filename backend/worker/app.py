@@ -209,25 +209,34 @@ def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, phot
 	"""
 	# Restore logging context in this thread
 	with task_context(photo_id=ctx_photo_id, task_id=ctx_task_id):
-		loop = asyncio.new_event_loop()
-		try:
-			from photo_processor import photo_processor
-			return loop.run_until_complete(
-				photo_processor.process_uploaded_photo(
-					file_path=file_path,
-					filename=filename,
-					user_id=user_id,
-					photo_id=photo_id,
-					client_signature=client_signature,
-					anonymization_override=anonymization_override,
-					metadata=metadata,
-					quality=quality,
-					fast=fast,
-					files_to_clean=files_to_clean,
+		from blur import collect_warnings
+		# Bracket the whole sync run with a TLS warning collector so
+		# _dev_only calls anywhere downstream (in this thread, including
+		# its nested event loop) accumulate into one list. Attached to the
+		# result dict for the calling /upload handler to surface.
+		with collect_warnings() as warnings:
+			loop = asyncio.new_event_loop()
+			try:
+				from photo_processor import photo_processor
+				result = loop.run_until_complete(
+					photo_processor.process_uploaded_photo(
+						file_path=file_path,
+						filename=filename,
+						user_id=user_id,
+						photo_id=photo_id,
+						client_signature=client_signature,
+						anonymization_override=anonymization_override,
+						metadata=metadata,
+						quality=quality,
+						fast=fast,
+						files_to_clean=files_to_clean,
+					)
 				)
-			)
-		finally:
-			loop.close()
+			finally:
+				loop.close()
+			if isinstance(result, dict) and warnings:
+				result['warnings'] = list(warnings)
+			return result
 
 
 @app.on_event("startup")
@@ -310,6 +319,7 @@ class ProcessPhotoResponse(BaseModel):
 	photo_id: Optional[str] = None
 	error: Optional[str] = None
 	retry_after_minutes: Optional[int] = None  # None = permanent failure, >0 = retry after N minutes
+	warnings: Optional[list[str]] = None  # DEV_MODE speculative-handling notes from blur._dev_only
 
 class ProcessedPhotoData(BaseModel):
 	photo_id: str
@@ -465,13 +475,18 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 	try:
 		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename, files_to_clean = await process(file, client_signature, photo_id, user_id, anonymization_override, metadata, quality, fast)
 
+		# DEV_MODE-only speculative-handling notes from blur._dev_only,
+		# stuffed into processing_result by run_photo_processing_sync.
+		warnings = (processing_result or {}).get("warnings") if isinstance(processing_result, dict) else None
+
 		# Handle deleted photos early - no need to notify API
 		if processing_status == "deleted":
 			logger.info(f"Photo {photo_id} was deleted during processing, returning success")
 			return ProcessPhotoResponse(
 				success=True,
 				photo_id=photo_id,
-				message="Photo was deleted during processing"
+				message="Photo was deleted during processing",
+				warnings=warnings,
 			)
 
 		# Always notify API server of result
@@ -540,7 +555,8 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 						return ProcessPhotoResponse(
 							success=True,
 							photo_id=photo_id,
-							message="Photo was deleted during processing"
+							message="Photo was deleted during processing",
+							warnings=warnings,
 						)
 
 					if response.status_code == 404 and os.environ.get('DEV_MODE', 'false').lower() == 'true':
@@ -548,7 +564,8 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 						return ProcessPhotoResponse(
 							success=True,
 							photo_id=photo_id,
-							message="Photo not found (DEV_MODE)"
+							message="Photo not found (DEV_MODE)",
+							warnings=warnings,
 						)
 
 					if response.status_code >= 500 and attempt < max_retries - 1:
@@ -583,7 +600,8 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 		message="Photo processed successfully" if processing_status == "completed" else "Photo processing failed",
 		photo_id=photo_id,
 		error=error_message if processing_status in ["failed", "error"] else None,
-		retry_after_minutes=retry_after_minutes
+		retry_after_minutes=retry_after_minutes,
+		warnings=warnings,
 	)
 
 

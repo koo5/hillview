@@ -1,18 +1,18 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["pyvips"]
+# dependencies = ["pyvips", "OpenEXR"]
 # ///
 """
 Convert an EXR panorama to a WebP deep-zoom tile pyramid.
 
 Reads the hillview:encoding attribute to decide the pipeline:
-	linear  (preferred): apply forward sRGB OETF, scale 0..1 -> 0..255, cast.
-	srgb    (legacy):    values already sRGB-encoded; just scale and cast.
+	linear: apply forward sRGB OETF, scale 0..1 -> 0..255, cast.
+	srgb:   values already sRGB-encoded; just scale and cast.
 
-If the tag is missing, defaults to 'srgb' per the Hillview convention
-documented in exr_meta.py (hobbyist panorama pipelines produce
-display-referred EXRs).
+Untagged EXRs are rejected — silent guesses silently miscolor outputs.
+Tag the source first (`exr_meta.py set FILE --encoding {linear,srgb}`)
+or pass `--encoding` to override per-invocation.
 
 Output is DZI (Deep Zoom): <prefix>.dzi + <prefix>_files/. Loads in
 OpenSeadragon, Leaflet with deep-zoom plugins, etc.
@@ -22,26 +22,11 @@ Usage:
 """
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 
-EXR_META = Path(__file__).resolve().parent / "exr_meta.py"
-
-
-def read_encoding(path: Path) -> str:
-		"""Return 'linear' / 'srgb', defaulting to 'srgb' when tag is absent."""
-		try:
-				out = subprocess.check_output([str(EXR_META), "show", str(path)],
-																			text=True, stderr=subprocess.STDOUT)
-		except (subprocess.CalledProcessError, FileNotFoundError):
-				return "srgb"
-		for line in out.splitlines():
-				if "hillview:encoding" in line and "=" in line:
-						value = line.split("=", 1)[1].strip().strip("'\"")
-						if value in ("linear", "srgb"):
-								return value
-		return "srgb"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import exr_meta
 
 
 def main() -> int:
@@ -56,7 +41,7 @@ def main() -> int:
 										help="WebP quality 0..100 (default 85)")
 		ap.add_argument("--encoding", choices=("linear", "srgb"), default=None,
 										help="Override the hillview:encoding attribute (otherwise "
-												 "read from the EXR, falling back to 'srgb')")
+												 "read from the EXR; missing tag is rejected)")
 		args = ap.parse_args()
 
 		in_path = Path(args.input).resolve()
@@ -64,7 +49,22 @@ def main() -> int:
 				print(f"error: not a file: {in_path}", file=sys.stderr)
 				return 2
 
-		encoding = args.encoding or read_encoding(in_path)
+		if args.encoding:
+				encoding = args.encoding
+		else:
+				encoding = exr_meta.read_encoding(str(in_path))
+				if encoding is None:
+						print(
+								f"error: {in_path.name} has no hillview:encoding attribute.\n"
+								f"  tag the file:    exr_meta.py set FILE --encoding {{linear,srgb}}\n"
+								f"  or override:     --encoding {{linear,srgb}}",
+								file=sys.stderr,
+						)
+						return 2
+				if encoding not in ("linear", "srgb"):
+						print(f"error: unknown hillview:encoding={encoding!r} in {in_path.name}",
+									file=sys.stderr)
+						return 2
 
 		import pyvips
 		img = pyvips.Image.new_from_file(str(in_path), access="sequential")
@@ -72,6 +72,13 @@ def main() -> int:
 		print(f"  size:   {img.width} x {img.height}, {img.bands} bands, "
 					f"{img.format}", file=sys.stderr)
 		print(f"  encoding: {encoding}", file=sys.stderr)
+
+		# Drop alpha if present. WebP supports it but for a panorama
+		# pyramid it just doubles the per-tile size for no visual gain
+		# (alpha is ~uniform after pano_modify --crop=AUTO trims to content).
+		if img.bands > 3:
+				print(f"  dropping alpha: {img.bands} -> 3 bands", file=sys.stderr)
+				img = img[:3]
 
 		if encoding == "linear":
 				# Forward sRGB OETF, piecewise:
