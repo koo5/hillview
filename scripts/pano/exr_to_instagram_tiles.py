@@ -19,14 +19,35 @@ width (capped at --max-tiles), then center-crops the strip to N*tile_w.
 Excess width on either side is discarded — no upscaling beyond the height
 fit, no squashing.
 
+To zoom into a horizontal band of the pano (e.g. drop empty sky/foreground
+so the remaining content scales up to fill the tile), pass
+`--top P --bottom P` as percentages of source height. The vertical crop is
+applied to the source before the height fit, so the band you keep is what
+each tile scales from.
+
+Tiles are rendered at `--oversample` times the logical Instagram dimensions
+(default 2× → 2160x2700). Instagram recompresses anyway; handing it 2×
+input gives its downscale-then-recompress pipeline more detail to work with.
+Upscaling is forbidden — if the source (after viewport crop) isn't tall
+enough to fill the oversampled tile height, the script bails.
+
+Default output is JPEG Q95 (visually lossless on photographic content).
+Pass `--format png` for annotated panos with text or sharp geometric
+overlays — JPEG rings on hard edges, and IG's own recompress doubles the
+artifact, while PNG into IG means just one round of lossy on top instead
+of two. PNG tiles are roughly 5–10× larger; still under IG's 30 MB cap.
+
 Output:
-	<prefix>_01.jpg .. <prefix>_NN.jpg
+	<prefix>_01.{jpg,png} .. <prefix>_NN.{jpg,png}
 
 Usage:
 	exr_to_instagram_tiles.py IN.exr OUT_PREFIX
 		[--tile-size WxH]      default 1080x1350 (Instagram 4:5 portrait)
 		[--max-tiles N]        default 10 (carousel limit)
-		[--quality Q]          default 90
+		[--top P --bottom P]   keep rows P%..P% of source height (default 0..100)
+		[--oversample F]       output size multiplier (default 2.0)
+		[--format jpg|png]     default jpg; png for annotated content
+		[--quality Q]          JPEG quality (default 95; ignored for png)
 		[--encoding linear|srgb]
 """
 
@@ -52,13 +73,23 @@ def main() -> int:
 		)
 		ap.add_argument("input")
 		ap.add_argument("output_prefix",
-										help="tiles named <prefix>_NN.jpg")
+										help="tiles named <prefix>_NN.<jpg|png>")
 		ap.add_argument("--tile-size", default="1080x1350",
 										help="per-tile WxH (default 1080x1350, Instagram 4:5)")
 		ap.add_argument("--max-tiles", type=int, default=10,
 										help="hard cap on tile count (default 10)")
-		ap.add_argument("--quality", "-Q", type=int, default=90,
-										help="JPEG quality 0..100 (default 90)")
+		ap.add_argument("--top", type=float, default=0.0,
+										help="crop source above this %% of height (default 0)")
+		ap.add_argument("--bottom", type=float, default=100.0,
+										help="crop source below this %% of height (default 100)")
+		ap.add_argument("--oversample", type=float, default=2.0,
+										help="output size multiplier vs --tile-size (default 2.0; "
+												 "uploading at 2x IG display size gives IG more detail "
+												 "to crush. Pass 1.0 for exact IG dimensions)")
+		ap.add_argument("--format", choices=("jpg", "png"), default="jpg",
+										help="output format (default jpg; pass png for annotated panos)")
+		ap.add_argument("--quality", "-Q", type=int, default=95,
+										help="JPEG quality 0..100 (default 95; ignored for png)")
 		ap.add_argument("--encoding", choices=("linear", "srgb"), default=None,
 										help="Override the hillview:encoding attribute (otherwise "
 												 "read from the EXR; missing tag is rejected)")
@@ -76,6 +107,20 @@ def main() -> int:
 		if args.max_tiles < 1:
 				print("error: --max-tiles must be >= 1", file=sys.stderr)
 				return 2
+		if not (0.0 <= args.top < args.bottom <= 100.0):
+				print(f"error: --top {args.top} --bottom {args.bottom} must satisfy "
+							"0 <= top < bottom <= 100", file=sys.stderr)
+				return 2
+		if args.oversample <= 0.0:
+				print(f"error: --oversample must be positive, got {args.oversample}",
+							file=sys.stderr)
+				return 2
+
+		# Bake oversample into the physical tile size. The aspect ratio is
+		# unchanged, so N selection downstream is identical whether oversample
+		# is 1 or 4.
+		tile_w = int(round(tile_w * args.oversample))
+		tile_h = int(round(tile_h * args.oversample))
 
 		in_path = Path(args.input).resolve()
 		if not in_path.is_file():
@@ -110,6 +155,14 @@ def main() -> int:
 				print(f"  dropping alpha: {img.bands} -> 3 bands", file=sys.stderr)
 				img = img[:3]
 
+		if args.top > 0.0 or args.bottom < 100.0:
+				crop_y = int(round(args.top / 100.0 * img.height))
+				crop_h = int(round(args.bottom / 100.0 * img.height)) - crop_y
+				print(f"  viewport: rows {crop_y}..{crop_y + crop_h} "
+							f"({args.top:.1f}%..{args.bottom:.1f}%, height {crop_h})",
+							file=sys.stderr)
+				img = img.crop(0, crop_y, img.width, crop_h)
+
 		if encoding == "linear":
 				# Forward sRGB OETF, piecewise:
 				#   V_srgb = 12.92 * V_lin                            if V_lin <= 0.0031308
@@ -141,8 +194,11 @@ def main() -> int:
 
 		scale = target_h / display.height
 		if scale > 1.0:
-				print(f"  warning: upscaling by {scale:.2f}x — source is below tile height",
+				print(f"error: source height {display.height}px is below tile height "
+							f"{target_h}px (oversample={args.oversample:g}); refusing to upscale. "
+							"Reduce --oversample, widen --top/--bottom, or use a taller pano.",
 							file=sys.stderr)
+				return 2
 		display = display.resize(scale)
 		# Pin to exact target dimensions, center-cropped. The resize may have
 		# rounded height by ±1px; the width is normally larger than target_w
@@ -156,10 +212,16 @@ def main() -> int:
 
 		out_prefix = Path(args.output_prefix)
 		pad = max(2, len(str(n)))
+		if args.format == "jpg":
+				suffix = "jpg"
+				write_kwargs = {"Q": args.quality, "strip": True}
+		else:
+				suffix = "png"
+				write_kwargs = {"strip": True}
 		for i in range(n):
 				tile = display.crop(i * tile_w, 0, tile_w, tile_h)
-				tile_path = f"{out_prefix}_{i+1:0{pad}d}.jpg"
-				tile.write_to_file(tile_path, Q=args.quality, strip=True)
+				tile_path = f"{out_prefix}_{i+1:0{pad}d}.{suffix}"
+				tile.write_to_file(tile_path, **write_kwargs)
 				print(f"  wrote {tile_path}", file=sys.stderr)
 
 		print("done", file=sys.stderr)

@@ -25,7 +25,7 @@ apt install hugin-tools enblend exiftool   # nona, enblend, celeste_standalone,
 | `exr_linearize.py` | Convert a display-referred EXR to scene-linear (inverse sRGB OETF) and retag |
 | `exr_sanity.sh` | Report an EXR's pixel range and classify display-referred vs scene-linear |
 | `exr_to_webp_pyramid.py` | Convert an EXR (linear or sRGB, reads the encoding tag) to a WebP Deep Zoom tile pyramid |
-| `exr_to_instagram_tiles.py` | Resize and center-crop an EXR into up to 10 4:5 JPEG tiles for an Instagram carousel |
+| `exr_to_instagram_tiles.py` | Resize and center-crop an EXR into up to 10 4:5 JPEG/PNG tiles for an Instagram carousel |
 | `dz_view.sh` | Serve a DZI pyramid locally with OpenSeadragon for quick inspection |
 | `pipeline.py` | End-to-end orchestrator: runs the whole CR2→EXR workflow as resumable, numbered, idempotent phases |
 | `xmp_module.py` | Edit a named darktable module across all XMP sidecars (raw-stage utility) |
@@ -180,6 +180,18 @@ scripts/pano/dz_view.sh pano_dz
   are preserved by design — re-blending is ~10 minutes, re-warping is 30+.
   Clean up manually when happy with the final EXR:
   `rm <prefix>[0-9]*.tif`.
+- **One frame of a bracket got shifted (you paused between shots, body
+  moved a hundred-plus pixels).** `align_image_stack` can't reliably link
+  the off frame to the others — cpfind finds few/no CPs across the gap,
+  the LM solver runs unconstrained and warps the offender by thousands
+  of pixels. Tightening `-t` and adding `-x -y -z` only makes it worse;
+  the model isn't the problem, the absent CPs are. Workaround: `cd` into
+  `phase_02_fused/`, identify the bad TIFF in `phase_01_tiff/`, and rerun
+  `enfuse_bracket.sh fused_NNNN.tif <good frames only>` to overwrite the
+  affected fused output. You lose one stop of dynamic range on that
+  position, the rest of the pano is unaffected. Don't delete the bad
+  TIFF from `phase_01_tiff/` and re-run the `fused` phase — that shifts
+  every subsequent stack's grouping by one and silently mis-pairs frames.
 
 ## HDR / scene-linear (future)
 

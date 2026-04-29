@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ensureHunterMode } from '../helpers/sourceHelpers';
+import { SCREENSHOT_FIXTURE_INFO_PATH } from '../helpers/globalSetupScreenshots';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,9 +25,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  */
 
 // The flagship annotated panorama (Vyhlídka Prosecké skály - východ).
-// This URL is the one we hand out to new visitors.
+// This URL is the one we hand out to new visitors. With MOCK_SCREENSHOTS_DATA=1,
+// the photo uid points at the fixture seeded by globalSetupScreenshots; otherwise
+// at the production photo on hillview.cz. Coords match the fixture's EXIF GPS.
+const HERO_PHOTO_UID = resolveHeroPhotoUid();
 const HERO_PANORAMA_URL =
-  '/?lat=50.11691142317276&lon=14.488375782966616&zoom=20&bearing=139.06&photo=hillview-333e8851-c59b-4133-bce5-2d1ddc2ce335';
+  `/?lat=50.11691142317276&lon=14.488375782966616&zoom=20&bearing=139.06&photo=${HERO_PHOTO_UID}`;
+
+function resolveHeroPhotoUid(): string {
+  if (process.env.MOCK_SCREENSHOTS_DATA === '1') {
+    const data = JSON.parse(fs.readFileSync(SCREENSHOT_FIXTURE_INFO_PATH, 'utf8'));
+    if (!data.photoId) {
+      throw new Error(`Missing photoId in ${SCREENSHOT_FIXTURE_INFO_PATH}`);
+    }
+    return `hillview-${data.photoId}`;
+  }
+  return 'hillview-333e8851-c59b-4133-bce5-2d1ddc2ce335';
+}
 
 const OUT_ROOT = process.env.SCREENSHOT_OUT_DIR
   ? path.resolve(process.env.SCREENSHOT_OUT_DIR)
