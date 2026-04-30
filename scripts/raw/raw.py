@@ -18,6 +18,10 @@ from pathlib import Path
 from datetime import datetime
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent))
+from lib.brackets import print_groups  # noqa: E402
+
+ENFUSE_BRACKET = (SCRIPT_DIR.parent / "pano" / "enfuse_bracket.sh").resolve()
 MAX_WORKERS = 10
 RAWTHERAPEE_PROFILES = [
 		"/usr/share/rawtherapee/profiles/Auto-Matched Curve - ISO Low.pp3",
@@ -105,6 +109,84 @@ def tiff_to_webp(tiff_path, webp_dir):
 def copy_exif():
 		subprocess.run([str(SCRIPT_DIR / "exif_tags_from_cr2_to_webp.sh")], check=True)
 
+
+def fuse_brackets(tiff_dir, webp_dir):
+		"""Detect AEB stacks among the CR2s and produce <middle>_fused.{tiff,webp}.
+
+		Per-frame TIFFs and webps are kept regardless — the user reviews after
+		processing and decides which to keep. Singletons are skipped (nothing
+		to fuse).
+
+		The middle frame's stem is used for the output name because:
+		  - It's the 0-EV reference enfuse_bracket.sh already pulls EXIF from.
+		  - It mirrors the naming a human would pick if asked "which file
+		    represents this stack?".
+		"""
+		cr2s = sorted(Path(".").glob("*.CR2"))
+		groups = print_groups(cr2s)
+		bracketed = [g for g in groups if len(g) >= 2]
+		if not bracketed:
+				log("No bracket stacks detected; skipping fuse phase")
+				return
+
+		with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+				for group in bracketed:
+						pool.submit(_fuse_one_group, group, tiff_dir, webp_dir)
+
+
+def _fuse_one_group(group, tiff_dir, webp_dir):
+		middle = group[len(group) // 2]
+		stem = middle.stem
+		fused_tiff = tiff_dir / f"{stem}_fused.tiff"
+		fused_webp = webp_dir / f"{stem}_fused.webp"
+
+		if not fused_tiff.exists():
+				try:
+						tiff_inputs = [str(find_tiff(tiff_dir, c.stem)) for c in group]
+				except FileNotFoundError as e:
+						log(f"skip fuse {stem}: {e}")
+						return
+				log(f"Fusing {len(group)} brackets -> {fused_tiff.name}")
+				subprocess.run(
+						[str(ENFUSE_BRACKET), str(fused_tiff), *tiff_inputs],
+						check=True,
+				)
+
+		if fused_webp.exists():
+				return
+
+		log(f"Converting {fused_tiff.name} -> WebP")
+		subprocess.run(
+				["cwebp", *CWEBP_ARGS, str(fused_tiff), "-o", str(fused_webp)],
+				check=True,
+		)
+		# Mirror exif_tags_from_cr2_to_webp.sh's behavior on a single file: copy
+		# CR2 tags from the middle bracket onto the fused webp. enfuse_bracket.sh
+		# already wrote camera EXIF onto the fused TIFF, but cwebp drops metadata
+		# (no -metadata all) so the webp comes out bare.
+		subprocess.run([
+				"exiftool", "-overwrite_original",
+				"-TagsFromFile", str(middle),
+				"-EXIF:all", "-GPS:all", "-XMP:all", "-IPTC:all",
+				"-MakerNotes=", "-ThumbnailImage=", "-PreviewImage=",
+				"-EXIF:PixelXDimension=", "-EXIF:PixelYDimension=",
+				"-GPS:GPSDateStamp=",
+				str(fused_webp),
+		], check=True)
+		# Orientation: copy from the middle frame's TIFF, not the fused TIFF.
+		# enfuse_bracket.sh strips Orientation deliberately (it's marked as a
+		# structural tag that "changes with each processing step"), but the
+		# fused pixels share orientation with their per-frame source TIFFs —
+		# align_image_stack only does sub-pixel jitter correction, not 90°
+		# rotations — so the middle's per-frame TIFF is the authoritative source.
+		middle_tiff = find_tiff(tiff_dir, middle.stem)
+		subprocess.run([
+				"exiftool", "-overwrite_original", "-n",
+				"-TagsFromFile", str(middle_tiff),
+				"-Orientation",
+				str(fused_webp),
+		], check=True)
+
 def geotag(webp_dir, geotag_args):
 		webp_files = sorted(webp_dir.glob("*.webp"))
 		if not webp_files:
@@ -142,4 +224,5 @@ if __name__ == "__main__":
 		copy_cr2_tags_to_tiffs(tiff_dir)
 		convert_all_tiff_to_webp(tiff_dir, webp_dir)
 		copy_exif()
+		fuse_brackets(tiff_dir, webp_dir)
 		geotag(webp_dir, geotag_args)

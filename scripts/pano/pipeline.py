@@ -59,6 +59,9 @@ from pathlib import Path
 from typing import Callable, Optional
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_DIR.parent))
+from lib.brackets import detect_uniform_bracket_count as _detect_brackets_per_stack  # noqa: E402
+
 RAW_DARKTABLE = SCRIPT_DIR.parent / "raw" / "raw_darktable.py"
 ENFUSE_BRACKET = SCRIPT_DIR / "enfuse_bracket.sh"
 BASELINE = SCRIPT_DIR / "pto_horizontal_baseline.py"
@@ -83,52 +86,6 @@ def run(cmd: list) -> None:
 
 def reflink_cp(src: Path, dst: Path) -> None:
 		run(["cp", "--reflink=auto", src, dst])
-
-
-def _detect_brackets_per_stack(cr2s: list) -> int:
-		"""Return brackets-per-stack inferred from EXIF, or 1 if not bracketed.
-
-		Reads two Canon MakerNotes via exiftool:
-			- AEBShotCount     ("3 shots" string when AEB is engaged)
-			- ExposureTime     varies cyclically across an AEB triplet
-		Both must agree on the period N (and N must be in 2..9) for us to
-		return N. Disagreement, parse failure, or insufficient frames → 1.
-		Conservative on purpose: a wrong autodetect would group unrelated
-		frames into fused stacks downstream.
-		"""
-		if len(cr2s) < 6:
-				return 1
-		try:
-				out = subprocess.check_output(
-						["exiftool", "-T", "-AEBShotCount", "-ExposureTime",
-						 *map(str, cr2s)],
-						text=True, stderr=subprocess.DEVNULL,
-				)
-		except (subprocess.CalledProcessError, FileNotFoundError):
-				return 1
-
-		rows = [line.split('\t') for line in out.splitlines()]
-		if len(rows) != len(cr2s) or any(len(r) != 2 for r in rows):
-				return 1
-
-		# AEBShotCount looks like "3 shots" / "5 shots". Same for all frames
-		# of an AEB session, so the first value is enough.
-		m = re.match(r'(\d+)\s*shots?$', rows[0][0].strip())
-		if not m:
-				return 1
-		n = int(m.group(1))
-		if not 2 <= n <= 9:
-				return 1
-
-		# Verify the ExposureTime cycle has period n. AEB cycles -EV/0/+EV
-		# (or wider), so consecutive triplets differ but pair-wise stack
-		# positions match.
-		exposures = [r[1].strip() for r in rows]
-		if not all(exposures[i] == exposures[i + n]
-							 for i in range(len(exposures) - n)):
-				return 1
-
-		return n
 
 
 @dataclass

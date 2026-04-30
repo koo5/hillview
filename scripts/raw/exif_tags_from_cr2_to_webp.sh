@@ -2,6 +2,13 @@
 
 for f in *.CR2
 	set final (string replace -r '\.CR2$' ".webp" "webp/$f")
+	set stem (string replace -r '\.CR2$' '' "$f")
+	# rawtherapee-cli emits .tif, but darktable-cli (and older runs) may emit
+	# .tiff — match raw.py's find_tiff() and prefer .tiff.
+	set tiff "tiff/$stem.tiff"
+	if not test -f "$tiff"
+		set tiff "tiff/$stem.tif"
+	end
 	begin
 		exiftool -overwrite_original -TagsFromFile "$f" \
 		  '-EXIF:all' \
@@ -15,21 +22,22 @@ for f in *.CR2
 		  '-EXIF:PixelYDimension=' \
 		  '-GPS:GPSDateStamp=' \
 		  "$final"
-		# RawTherapee (with our `Auto-Matched Curve - ISO Low.pp3` profile)
-		# emits TIFFs whose pixels are rotated 180° from upright, regardless
-		# of whether the source CR2 was landscape (Orient=1) or portrait
-		# (Orient=6/8). RT compensates by tagging its output Orientation=3
-		# ("Rotate 180"), and cwebp carries that through. The -EXIF:all step
-		# above then helpfully overwrites Orient=3 with the CR2's Orient=1/6/8,
-		# breaking the compensation — landscapes show upside-down, portraits
-		# display sideways or upside-down. Re-force =3 in a separate pass to
-		# undo that.
+		# Mirror Orientation from the upstream TIFF the webp was made from.
+		# RawTherapee outputs upside-down pixels with Orient=3; darktable
+		# physically rotates and tags =1. Reading from whichever TIFF actually
+		# exists self-corrects, so a dir that mixes both pipelines (e.g.
+		# pano-prep'd dirs that get re-run through raw.sh) gets the right tag
+		# per file. -EXIF:all above already clobbered the webp's Orient with
+		# the CR2's value, so this re-applies the correct one.
 		#
-		# -n (numeric) matters: on WebP containers exiftool will silently
-		# no-op a string-form "=3" while still reporting "1 image files
-		# updated". That mis-PrintConv is exactly how the previous attempt
-		# (`-Orientation=1` baked into the same call) hid for four weeks.
-		exiftool -overwrite_original -n -Orientation=3 "$final"
+		# -n (numeric): on WebP containers exiftool silently no-ops a
+		# string-form Orientation write while still reporting success — the
+		# bug that hid the previous "force =1" for four weeks.
+		if test -f "$tiff"
+			exiftool -overwrite_original -n -TagsFromFile "$tiff" -Orientation "$final"
+		else
+			echo "warning: $tiff missing; webp Orient inherits CR2's (likely wrong)" >&2
+		end
 	end &
 end
 time wait
