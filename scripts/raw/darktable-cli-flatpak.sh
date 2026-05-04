@@ -13,6 +13,12 @@
 # Parse args to locate input raw and output image, and detect whether the
 # caller already passed --apply-custom-presets. Everything else (flags,
 # --core options, a temp XMP path from Hugin) is forwarded as-is.
+#
+# darktable-cli supports two input shapes: a raw file (CR2/etc.) or an
+# already-developed image (TIFF/JPG/etc., e.g. when re-processing an enfuse
+# output through an XMP). For the image-format case the first image-format
+# arg is the input and the last is the output; for the raw case the raw is
+# the input and the lone image is the output. Track which we're in.
 input=""
 output=""
 has_acp=0
@@ -25,7 +31,11 @@ for a in "$@"; do
             [ -z "$input" ] && input="$a"
             ;;
         *.[Tt][Ii][Ff]|*.[Tt][Ii][Ff][Ff]|*.[Jj][Pp][Gg]|*.[Jj][Pp][Ee][Gg]|*.[Pp][Nn][Gg]|*.[Ee][Xx][Rr])
-            output="$a"
+            if [ -z "$input" ]; then
+                input="$a"
+            else
+                output="$a"
+            fi
             ;;
     esac
 done

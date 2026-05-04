@@ -21,7 +21,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent))
 from lib.brackets import print_groups  # noqa: E402
 
-ENFUSE_BRACKET = (SCRIPT_DIR.parent / "pano" / "enfuse_bracket.sh").resolve()
+DARKTABLE_WRAPPER = SCRIPT_DIR / "darktable-cli-flatpak.sh"
+DEFAULT_STACK_XMP = SCRIPT_DIR / "default_stack.xmp"
 MAX_WORKERS = 10
 RAWTHERAPEE_PROFILES = [
 		"/usr/share/rawtherapee/profiles/Auto-Matched Curve - ISO Low.pp3",
@@ -37,7 +38,11 @@ def log(msg):
 #set DIR (dirname (readlink -m (status --current-filename)))
 #mkdir tiff; mkdir webp; mkdir webp_noanon;
 def setup_dirs():
-		for d in ["tiff", "webp", "webp_noanon"]:
+		# aligned/ + enfused/ are the bracket-fusion intermediates kept on disk
+		# so each step is debuggable: aligned/<stem>_NNNN.tif from
+		# align_image_stack, enfused/<stem>.tif from enfuse, tiff/<stem>_fused.tiff
+		# from darktable applying default_stack.xmp.
+		for d in ["tiff", "webp", "webp_noanon", "aligned", "enfused"]:
 				Path(d).mkdir(exist_ok=True)
 
 def convert_all_cr2_to_tiff(tiff_dir):
@@ -51,11 +56,17 @@ def convert_all_cr2_to_tiff(tiff_dir):
 def cr2_to_tiff(f, tiff_dir):
 		log(f"Converting {f.name} -> TIFF")
 		profile_args = [arg for p in RAWTHERAPEE_PROFILES for arg in ("-p", p)]
+		# -b16: 16-bit per channel. Was -b8 historically (smaller files), but
+		# anything downstream that does HDR/focus fusion on a bracket stack
+		# starts with 8 bits of data per pixel and has zero highlight/shadow
+		# headroom — half the point of bracketing in the first place. cwebp
+		# at the end of the chain downsamples to 8-bit regardless, so the
+		# only cost here is on-disk TIFF size (~2× per file).
 		subprocess.run([
 				"rawtherapee-cli",
 				*profile_args,
 				"-o", str(tiff_dir / f"{f.stem}.tiff"),
-				"-tz", "-b8",
+				"-tz", "-b16",
 				"-c", str(f),
 		])
 def copy_cr2_tags_to_tiffs(tiff_dir):
@@ -110,17 +121,23 @@ def copy_exif():
 		subprocess.run([str(SCRIPT_DIR / "exif_tags_from_cr2_to_webp.sh")], check=True)
 
 
-def fuse_brackets(tiff_dir, webp_dir):
+def fuse_brackets(tiff_dir, webp_dir, aligned_dir, enfused_dir):
 		"""Detect AEB stacks among the CR2s and produce <middle>_fused.{tiff,webp}.
 
-		Per-frame TIFFs and webps are kept regardless — the user reviews after
-		processing and decides which to keep. Singletons are skipped (nothing
-		to fuse).
+		Three-stage fusion, each stage's output kept on disk for review:
+		  1. align_image_stack  -> aligned/<stem>_NNNN.tif
+		  2. enfuse             -> enfused/<stem>.tif         (focus-fusion
+		     flags: --hard-mask + contrast-only weighting)
+		  3. darktable applies  -> tiff/<stem>_fused.tiff      (per-stack
+		     enfused/<stem>.tif.xmp, copied from default_stack.xmp on first
+		     run so the user can tweak each stack individually in darktable
+		     and re-run)
 
-		The middle frame's stem is used for the output name because:
-		  - It's the 0-EV reference enfuse_bracket.sh already pulls EXIF from.
-		  - It mirrors the naming a human would pick if asked "which file
-		    represents this stack?".
+		Per-frame TIFFs and webps are kept regardless — the user reviews after
+		processing and decides which to keep. Singletons are skipped.
+
+		Hard-fails if scripts/raw/default_stack.xmp is missing — that file is
+		the seed for every per-stack XMP and there's no sensible fallback.
 		"""
 		cr2s = sorted(Path(".").glob("*.CR2"))
 		groups = print_groups(cr2s)
@@ -128,42 +145,140 @@ def fuse_brackets(tiff_dir, webp_dir):
 		if not bracketed:
 				log("No bracket stacks detected; skipping fuse phase")
 				return
+		if not DEFAULT_STACK_XMP.exists():
+				raise FileNotFoundError(
+						f"{DEFAULT_STACK_XMP} not found — required to seed per-stack "
+						f"XMPs for the darktable finalize step. Create the default XMP "
+						f"(e.g. by editing one CR2 in darktable, exporting its sidecar, "
+						f"and saving to that path) and re-run."
+				)
 
 		with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
 				for group in bracketed:
-						pool.submit(_fuse_one_group, group, tiff_dir, webp_dir)
+						pool.submit(_fuse_one_group, group, tiff_dir, webp_dir,
+						            aligned_dir, enfused_dir)
 
 
-def _fuse_one_group(group, tiff_dir, webp_dir):
+def _align_stack(group, tiff_dir, aligned_dir, stem):
+		"""align_image_stack on group's per-frame TIFFs -> aligned/<stem>_NNNN.tif.
+		Idempotent: skips if all expected outputs exist.
+		"""
+		expected = [aligned_dir / f"{stem}_{i:04d}.tif" for i in range(len(group))]
+		if all(p.exists() for p in expected):
+				return expected
+		try:
+				tiff_inputs = [str(find_tiff(tiff_dir, c.stem)) for c in group]
+		except FileNotFoundError as e:
+				log(f"skip align {stem}: {e}")
+				return None
+		log(f"Aligning {len(group)} frames -> aligned/{stem}_*")
+		# -t 1: tighter CP reprojection threshold (default 3px). Moving objects
+		# (cars, pedestrians) within a stack produce CPs that agree across frames
+		# but disagree with the stationary majority; the tighter threshold drops
+		# them before they pull the solve sideways. Same flag the pano pipeline
+		# uses in enfuse_bracket.sh.
+		subprocess.run([
+				"align_image_stack", "-t", "1",
+				"-a", str(aligned_dir / f"{stem}_"),
+				*tiff_inputs,
+		], check=True)
+		return sorted(aligned_dir.glob(f"{stem}_*.tif"))
+
+
+def _enfuse_stack(aligned_paths, enfused_dir, stem):
+		"""enfuse aligned frames -> enfused/<stem>.tif. Idempotent.
+
+		Focus-stacking flags: --hard-mask + contrast-only weighting, with
+		exposure/saturation/entropy disabled. The fusion picks the sharpest
+		pixel per location rather than blending exposures. (For exposure
+		fusion, drop --hard-mask and use exposure/saturation weights.)
+		"""
+		out = enfused_dir / f"{stem}.tif"
+		if out.exists():
+				return out
+		log(f"Enfusing -> {out.name}")
+		subprocess.run([
+				"enfuse", "-v",
+				"--hard-mask",
+				"--contrast-weight=1",
+				"--saturation-weight=0",
+				"--exposure-weight=0",
+				"--entropy-weight=0",
+				f"--output={out}",
+				*map(str, aligned_paths),
+		], check=True)
+		return out
+
+
+def _darktable_finalize(enfused_path, fused_tiff, middle_cr2):
+		"""Apply per-stack XMP via darktable: enfused -> fused_tiff. Idempotent.
+
+		Per-stack workflow:
+		  - On first run, copies DEFAULT_STACK_XMP to enfused/<stem>.tif.xmp.
+		  - Subsequent runs reuse whatever's at enfused/<stem>.tif.xmp, so the
+		    user can open enfused/<stem>.tif in the darktable GUI, tweak,
+		    save (which writes the XMP), then `rm tiff/<stem>_fused.tiff` and
+		    re-run raw.sh to apply the tweaks.
+		"""
+		if fused_tiff.exists():
+				return
+		# Camera EXIF needs to be on the enfused TIFF before darktable consumes
+		# it — darktable derives FocalLength/FocalPlane*/etc. from input EXIF,
+		# and enfuse strips everything. Pull from the middle bracket.
+		subprocess.run([
+				"exiftool", "-overwrite_original",
+				"-TagsFromFile", str(middle_cr2),
+				"-Make", "-Model", "-LensModel", "-LensInfo",
+				"-FocalLength", "-FocalLengthIn35mmFilm",
+				"-FocalPlaneXResolution", "-FocalPlaneYResolution", "-FocalPlaneResolutionUnit",
+				"-DateTimeOriginal", "-CreateDate", "-ModifyDate",
+				"-ISO", "-ExposureTime", "-FNumber",
+				"-WhiteBalance",
+				"-GPSLatitude", "-GPSLongitude", "-GPSAltitude",
+				"-GPSLatitudeRef", "-GPSLongitudeRef", "-GPSAltitudeRef",
+				"-GPSDateStamp", "-GPSTimeStamp",
+				str(enfused_path),
+		], check=True)
+
+		per_stack_xmp = enfused_path.parent / f"{enfused_path.name}.xmp"
+		if not per_stack_xmp.exists():
+				log(f"seeding {per_stack_xmp.name} from default_stack.xmp")
+				subprocess.run(
+						["cp", "--reflink=auto", str(DEFAULT_STACK_XMP), str(per_stack_xmp)],
+						check=True,
+				)
+
+		log(f"darktable {per_stack_xmp.name} -> {fused_tiff.name}")
+		subprocess.run([
+				str(DARKTABLE_WRAPPER),
+				str(enfused_path),
+				str(per_stack_xmp),
+				str(fused_tiff),
+				"--core", "--conf", "plugins/imageio/format/tiff/bpp=16",
+		], check=True)
+
+
+def _fuse_one_group(group, tiff_dir, webp_dir, aligned_dir, enfused_dir):
 		middle = group[len(group) // 2]
 		stem = middle.stem
 		fused_tiff = tiff_dir / f"{stem}_fused.tiff"
 		fused_webp = webp_dir / f"{stem}_fused.webp"
 
-		if not fused_tiff.exists():
-				try:
-						tiff_inputs = [str(find_tiff(tiff_dir, c.stem)) for c in group]
-				except FileNotFoundError as e:
-						log(f"skip fuse {stem}: {e}")
-						return
-				log(f"Fusing {len(group)} brackets -> {fused_tiff.name}")
-				subprocess.run(
-						[str(ENFUSE_BRACKET), str(fused_tiff), *tiff_inputs],
-						check=True,
-				)
+		aligned = _align_stack(group, tiff_dir, aligned_dir, stem)
+		if aligned is None:
+				return
+		enfused = _enfuse_stack(aligned, enfused_dir, stem)
+		_darktable_finalize(enfused, fused_tiff, middle)
 
 		if fused_webp.exists():
 				return
-
 		log(f"Converting {fused_tiff.name} -> WebP")
 		subprocess.run(
 				["cwebp", *CWEBP_ARGS, str(fused_tiff), "-o", str(fused_webp)],
 				check=True,
 		)
-		# Mirror exif_tags_from_cr2_to_webp.sh's behavior on a single file: copy
-		# CR2 tags from the middle bracket onto the fused webp. enfuse_bracket.sh
-		# already wrote camera EXIF onto the fused TIFF, but cwebp drops metadata
-		# (no -metadata all) so the webp comes out bare.
+		# Same EXIF-copy pattern as the per-frame webps (exif_tags_from_cr2_to_webp.sh):
+		# pull camera/GPS/etc. tags from the CR2 that represents this stack.
 		subprocess.run([
 				"exiftool", "-overwrite_original",
 				"-TagsFromFile", str(middle),
@@ -173,12 +288,11 @@ def _fuse_one_group(group, tiff_dir, webp_dir):
 				"-GPS:GPSDateStamp=",
 				str(fused_webp),
 		], check=True)
-		# Orientation: copy from the middle frame's TIFF, not the fused TIFF.
-		# enfuse_bracket.sh strips Orientation deliberately (it's marked as a
-		# structural tag that "changes with each processing step"), but the
-		# fused pixels share orientation with their per-frame source TIFFs —
-		# align_image_stack only does sub-pixel jitter correction, not 90°
-		# rotations — so the middle's per-frame TIFF is the authoritative source.
+		# Orientation: copy from the middle frame's per-frame TIFF (not _fused).
+		# align_image_stack only does sub-pixel jitter — not 90° rotations —
+		# so the fused pixels share orientation with their per-frame source.
+		# Reading from the per-frame TIFF picks up RT's =3 (or darktable's =1)
+		# regardless of which raw processor produced it.
 		middle_tiff = find_tiff(tiff_dir, middle.stem)
 		subprocess.run([
 				"exiftool", "-overwrite_original", "-n",
@@ -219,10 +333,12 @@ if __name__ == "__main__":
 
 		tiff_dir = Path("tiff")
 		webp_dir = Path("webp")
+		aligned_dir = Path("aligned")
+		enfused_dir = Path("enfused")
 		setup_dirs()
 		convert_all_cr2_to_tiff(tiff_dir)
 		copy_cr2_tags_to_tiffs(tiff_dir)
 		convert_all_tiff_to_webp(tiff_dir, webp_dir)
 		copy_exif()
-		fuse_brackets(tiff_dir, webp_dir)
+		fuse_brackets(tiff_dir, webp_dir, aligned_dir, enfused_dir)
 		geotag(webp_dir, geotag_args)
