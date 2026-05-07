@@ -7,7 +7,7 @@ cd $script_dir
 ./run_unit_tests.sh;
 and ./run_playwright_tests.sh
 and begin
-	if test "$ANDROID" != "0"; then
+	if test "$ANDROID" != "0"
 		./run_appium_tests.sh;
 	end
 end
