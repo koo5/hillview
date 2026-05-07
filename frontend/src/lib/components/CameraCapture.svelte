@@ -114,6 +114,7 @@
 	let showCameraSelector = false;
 	let photoCapturedCount = 0; // Track captures for auto-upload prompt
 	let switchingCamera = false; // Flag to prevent automatic startup during manual camera switching
+	let isStarting = false; // Reentrancy guard: prevents concurrent getUserMedia() from reactive triggers / retries / permission polling
 	let isBlinking = false; // Flag for camera blink effect
 	let absoluteOrientationSensor: AbsoluteOrientationSensor | null = null;
 	let showCalibrationHint: boolean = false;
@@ -279,6 +280,11 @@
 	}
 
 	async function startCamera() {
+		if (isStarting) {
+			console.log('🢄[CAMERA] startCamera() already in progress, skipping');
+			return;
+		}
+		isStarting = true;
 		console.log('🢄[CAMERA] Starting camera...');
 		try {
 			// Check for camera support
@@ -289,7 +295,7 @@
 			// Stop any existing stream
 			if (stream) {
 				console.log('🢄[CAMERA] Stopping existing stream');
-				stopStream();
+				await stopStream();
 			}
 
 			// Clear any previous errors
@@ -309,8 +315,7 @@
 			constraints = {
 				video: {
 					facingMode: {ideal: facing},
-					width: {ideal: targetWidth},
-					frameRate: 10
+					width: {ideal: targetWidth}
 				}
 			};
 			console.log('🢄[CAMERA] Probing with resolution width', targetWidth, 'for initial permission:', facing, 'constraints:', JSON.stringify(constraints));
@@ -331,9 +336,7 @@
 
 					// Retry with absolutely minimal constraints
 					const fallbackConstraints = {
-						video: {
-							frameRate: 10
-						}
+						video: true
 					};
 
 					console.log('🢄[CAMERA] Retrying with minimal constraints:', fallbackConstraints);
@@ -478,6 +481,8 @@
 				await permissionManager.releaseLock();
 				scheduleRetry();
 			}
+		} finally {
+			isStarting = false;
 		}
 	}
 
@@ -530,12 +535,22 @@
 		}
 	}
 
-	function stopStream() {
+	// Detach the video element from the stream BEFORE stopping tracks so the
+	// Android WebView's media pipeline cleanly releases the Camera2 device.
+	// Awaiting the small settle delay gives the camera HAL time to fully
+	// release before any subsequent getUserMedia() — without it, some Android
+	// chipsets wedge the camera service system-wide until reboot.
+	async function stopStream() {
+		if (video) {
+			try { video.pause(); } catch (e) { /* ignore */ }
+			video.srcObject = null;
+		}
 		if (stream) {
 			stream.getTracks().forEach(track => track.stop());
 			stream = null;
 		}
 		resetCameraCapabilities();
+		await new Promise(r => setTimeout(r, 100));
 	}
 
 	function detectCameraCapabilities() {
@@ -636,7 +651,7 @@
 		console.log('🢄[CAMERA] Switching to camera:', camera.label);
 
 		// Stop current stream if it exists
-		stopStream();
+		await stopStream();
 
 		cameraReady = false;
 		cameraError = null;
@@ -654,6 +669,11 @@
 	}
 
 	async function startCameraWithDevice(deviceId: string, resolution?: Resolution) {
+		if (isStarting) {
+			console.log('🢄[CAMERA] startCameraWithDevice() already in progress, skipping');
+			return;
+		}
+		isStarting = true;
 		console.log('🢄[CAMERA] Starting camera with specific device:', deviceId.slice(0, 8) + '...');
 
 		// Clear any previous errors
@@ -735,11 +755,14 @@
 				if (resolution) {
 					selectedResolution.set(null);
 				}
-				// Restart with basic constraints
+				// Release reentrancy guard before recursive fallback so startCamera() can run
+				isStarting = false;
 				await startCamera();
 			} else {
 				throw error;
 			}
+		} finally {
+			isStarting = false;
 		}
 	}
 
@@ -763,7 +786,7 @@
 		console.log('🢄[CAMERA] Switching to resolution:', resolution.label);
 
 		// Stop current stream if it exists
-		stopStream();
+		await stopStream();
 
 		cameraReady = false;
 		cameraError = null;
@@ -913,13 +936,13 @@
 	}
 
 
-	function handleVisibilityChange() {
+	async function handleVisibilityChange() {
 		if (document.hidden) {
 			// App is going to background
 			wasShowingBeforeHidden = show && !!stream;
 			if (stream) {
 				console.log('🢄App going to background, stopping camera');
-				stopStream();
+				await stopStream();
 				cameraReady = false;
 			}
 			// Clear any pending retries when going to background
