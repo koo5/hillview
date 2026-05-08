@@ -33,13 +33,10 @@ describe('App Resilience', () => {
     });
 
     it('should preserve state after backgrounding', async () => {
-        // Rotate bearing to create non-default state
-        const ccw = await byTestId(TESTID.rotateCcw);
-        await ccw.waitForDisplayed({ timeout: 10000 });
-        for (let i = 0; i < 3; i++) {
-            await ccw.click();
-            await browser.pause(300);
-        }
+        // Snapshot bearing before backgrounding (whatever its current value).
+        const bearingBefore = await byTestId(TESTID.bearingArrowHitarea);
+        await bearingBefore.waitForDisplayed({ timeout: 10000 });
+        const bearingValueBefore = await bearingBefore.getAttribute('aria-valuenow');
 
         // Verify authenticated before backgrounding
         const menuBtn = await byTestId(TESTID.hamburgerMenu);
@@ -68,6 +65,11 @@ describe('App Resilience', () => {
         expect(await logoutAfter.isDisplayed()).toBe(true);
         await (await byTestId(TESTID.hamburgerMenu)).click();
         await browser.pause(500);
+
+        // Bearing should survive the background/foreground cycle
+        const bearingAfter = await byTestId(TESTID.bearingArrowHitarea);
+        const bearingValueAfter = await bearingAfter.getAttribute('aria-valuenow');
+        expect(bearingValueAfter).toBe(bearingValueBefore);
 
         // Verify map controls still work
         const zoomIn = await byTestId(TESTID.zoomIn);

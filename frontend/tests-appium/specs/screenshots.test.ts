@@ -5,6 +5,8 @@ import {
     ensureWebViewContext,
     TESTID,
 } from '../helpers/selectors';
+import { recreateTestUsers } from '../helpers/backend';
+import { seedFixturePhoto } from '../helpers/seedFixturePhoto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -97,6 +99,14 @@ describe('Android Screenshots', () => {
         console.log(`\n📱 Device: ${deviceCategory} (${width}×${height})`);
         console.log(`📂 Output: ${outDir}\n`);
 
+        // Seed a fixture photo so /bestof, /activity, and the hero card have
+        // content. Mirrors Playwright's MOCK_SCREENSHOTS_DATA flow. Opt out
+        // with SCREENSHOT_SEED=0 when capturing against pre-existing data.
+        if (process.env.SCREENSHOT_SEED !== '0') {
+            const setup = await recreateTestUsers();
+            await seedFixturePhoto(setup.passwords.test);
+        }
+
         await browser.pause(5000);
         await acceptPermissionDialogIfPresent(3000);
     });
@@ -124,6 +134,9 @@ describe('Android Screenshots', () => {
     });
 
     it('navigation menu', async () => {
+        // Prior tests may leave the app on /bestof or another non-root route
+        // where hamburger-menu (Main.svelte only) is not rendered.
+        await navigateTo('/');
         const btn = await byTestId(TESTID.hamburgerMenu);
         await btn.waitForDisplayed({ timeout: 10_000 });
         await btn.click();

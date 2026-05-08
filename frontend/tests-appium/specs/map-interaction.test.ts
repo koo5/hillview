@@ -10,33 +10,6 @@ describe('Map Interaction', () => {
     });
 
     describe('Button Controls', () => {
-        it('should rotate view with CCW and CW buttons', async () => {
-            const ccw = await byTestId(TESTID.rotateCcw);
-            await ccw.waitForDisplayed({ timeout: 10000 });
-
-            for (let i = 0; i < 3; i++) {
-                await ccw.click();
-                await browser.pause(300);
-            }
-
-            const cw = await byTestId(TESTID.rotateCw);
-            for (let i = 0; i < 3; i++) {
-                await cw.click();
-                await browser.pause(300);
-            }
-        });
-
-        it('should move forward and backward', async () => {
-            const forward = await byTestId(TESTID.moveForward);
-            await forward.waitForDisplayed({ timeout: 5000 });
-            await forward.click();
-            await browser.pause(500);
-
-            const backward = await byTestId(TESTID.moveBackward);
-            await backward.click();
-            await browser.pause(500);
-        });
-
         it('should zoom in and out with buttons', async () => {
             const zoomIn = await byTestId(TESTID.zoomIn);
             await zoomIn.waitForDisplayed({ timeout: 5000 });

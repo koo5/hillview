@@ -123,14 +123,9 @@ export const TESTID = {
     nativeCameraBtn: 'native-camera-btn',
 
     // Map.svelte navigation
-    rotateCcw: 'rotate-ccw-btn',
-    rotateCw: 'rotate-cw-btn',
-    moveForward: 'move-forward-btn',
-    moveBackward: 'move-backward-btn',
     trackLocation: 'track-location-btn',
     zoomIn: 'zoom-in-btn',
     zoomOut: 'zoom-out-btn',
-    showAll: 'show-all-button',
     filters: 'filters-button',
 
     // CompassButton.svelte

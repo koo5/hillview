@@ -54,4 +54,7 @@ set -l tests_dir (dirname (status --current-filename))/../../tests-appium
 cd $tests_dir
 bun install --frozen-lockfile
 or exit 1
+# Chromium for the screenshot fixture seeder (drives the web /photos upload).
+node_modules/.bin/playwright install chromium
+or exit 1
 node_modules/.bin/tsx helpers/lockAndRun.ts node_modules/.bin/wdio run wdio.conf.ts $wdio_args

@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
+    "@playwright/test": "1.59.1",
     "@testing-library/webdriverio": "3.2.1",
     "@wdio/appium-service": "9.27.0",
     "@wdio/cli": "9.27.0",
