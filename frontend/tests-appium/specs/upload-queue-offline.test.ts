@@ -139,10 +139,9 @@ describe('Upload queue — offline resilience', () => {
         }
     });
 
-    it('queues a photo captured offline and uploads it on reconnect', async function () {
-        // The capture + wait-for-upload round trip can exceed the 60s default.
-        this.timeout(180000);
-
+    it('queues a photo captured offline and uploads it on reconnect', async () => {
+        // The capture + wait-for-upload round trip can exceed 60s. The
+        // global mochaOpts.timeout in wdio.conf.ts is set to 180s for this.
         const token = await getTestUserToken();
 
         // Sanity check: baseline is zero photos. If anything leaked through

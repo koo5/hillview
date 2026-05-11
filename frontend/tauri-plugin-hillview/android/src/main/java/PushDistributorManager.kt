@@ -72,8 +72,11 @@ class PushDistributorManager(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val clientCrypto = ClientCryptoManager(context)
     private val authManager = AuthenticationManager(context)
+    // One mutex covers every backend-registration code path. Internal
+    // helpers (`*Internal`) assume the caller already holds it so that
+    // nested flows like auto-register → select-distributor don't try to
+    // re-enter the (non-reentrant) coroutine Mutex.
     private val registrationMutex = Mutex()
-    private val registrationMutex2 = Mutex()
 
     /**
      * Registration status enum for UI display
@@ -261,14 +264,14 @@ class PushDistributorManager(private val context: Context) {
         // Has distributor but registration failed - retry with same distributor
         if (selectedDistributor != null && registrationStatus == RegistrationStatus.REGISTRATION_FAILED) {
             Log.d(TAG, "Retrying failed registration with existing distributor: $selectedDistributor")
-            selectDistributor(selectedDistributor)
+            selectDistributorInternal(selectedDistributor)
             return
         }
 
         // Distributor missing - clear selection and auto-select new one
         if (selectedDistributor != null && registrationStatus == RegistrationStatus.DISTRIBUTOR_MISSING) {
             Log.d(TAG, "Selected distributor '$selectedDistributor' no longer available, clearing selection")
-            unregister()
+            unregisterInternal()
             // Fall through to auto-select new distributor
         }
 
@@ -282,7 +285,7 @@ class PushDistributorManager(private val context: Context) {
 
             val firstDistributor = availableDistributors[0]
             Log.d(TAG, "Auto-registering with first available distributor: ${firstDistributor.packageName}")
-            selectDistributor(firstDistributor.packageName)
+            selectDistributorInternal(firstDistributor.packageName)
         }
     }
 
@@ -290,90 +293,93 @@ class PushDistributorManager(private val context: Context) {
      * Select a distributor and register with backend
      */
     suspend fun selectDistributor(packageName: String): Boolean {
-		Log.d(TAG, "registrationMutex2.withLock..");
-		val holder = registrationMutex2
-        return registrationMutex2.withLock {
-			Log.d(TAG, "registrationMutex2.withLock.");
-            Log.d(TAG, "Selecting distributor: $packageName")
+        return registrationMutex.withLock {
+            selectDistributorInternal(packageName)
+        }
+    }
 
-            // Check if this is direct FCM or UnifiedPush distributor
-            val isFcmDirect = packageName == "com.google.firebase.messaging.direct"
+    /**
+     * Select-distributor logic without acquiring the mutex. Caller must
+     * already hold `registrationMutex`.
+     */
+    private suspend fun selectDistributorInternal(packageName: String): Boolean {
+        Log.d(TAG, "Selecting distributor: $packageName")
 
-            if (!isFcmDirect && !isDistributorAvailable(packageName)) {
-                val error = "Selected distributor is not available"
-                Log.e(TAG, error)
-                setLastError(error)
-                setRegistrationStatus("failed")
-                return@withLock false
-            }
+        // Check if this is direct FCM or UnifiedPush distributor
+        val isFcmDirect = packageName == "com.google.firebase.messaging.direct"
 
-            if (isFcmDirect && !FcmDirectService.isAvailable(context)) {
-                val error = "Direct FCM is not available on this device"
-                Log.e(TAG, error)
-                setLastError(error)
-                setRegistrationStatus("failed")
-                return@withLock false
-            }
+        if (!isFcmDirect && !isDistributorAvailable(packageName)) {
+            val error = "Selected distributor is not available"
+            Log.e(TAG, error)
+            setLastError(error)
+            setRegistrationStatus("failed")
+            return false
+        }
 
-            try {
-                // Save selection immediately
-                prefs.edit()
-                    .putString(KEY_SELECTED_DISTRIBUTOR, packageName)
-                    .apply()
+        if (isFcmDirect && !FcmDirectService.isAvailable(context)) {
+            val error = "Direct FCM is not available on this device"
+            Log.e(TAG, error)
+            setLastError(error)
+            setRegistrationStatus("failed")
+            return false
+        }
 
-                if (isFcmDirect) {
-                    // Handle direct FCM registration
-                    Log.d(TAG, "Registering with direct FCM")
-                    val fcmToken = FcmDirectService.getRegistrationToken()
+        try {
+            // Save selection immediately
+            prefs.edit()
+                .putString(KEY_SELECTED_DISTRIBUTOR, packageName)
+                .apply()
 
-                    // For FCM, the "endpoint" is a special format that includes the token
-                    val fcmEndpoint = "fcm:$fcmToken"
-                    Log.d(TAG, "🔗 FCM endpoint generated: ${fcmEndpoint.take(50)}...")
+            if (isFcmDirect) {
+                // Handle direct FCM registration
+                Log.d(TAG, "Registering with direct FCM")
+                val fcmToken = FcmDirectService.getRegistrationToken()
 
-                    // Register endpoint directly (we already hold the mutex)
-                    registerEndpointDirectly(fcmEndpoint)
+                // For FCM, the "endpoint" is a special format that includes the token
+                val fcmEndpoint = "fcm:$fcmToken"
+                Log.d(TAG, "🔗 FCM endpoint generated: ${fcmEndpoint.take(50)}...")
 
-                    Log.d(TAG, "Direct FCM registration completed with token: ${fcmToken.take(20)}...")
-                } else {
-                    // Register with UnifiedPush distributor
-                    Log.d(TAG, "🔄 Registering UnifiedPush with distributor: $packageName")
+                // Register endpoint directly (we already hold the mutex)
+                registerEndpointDirectly(fcmEndpoint)
 
-                    try {
-                    	UnifiedPush.tryUseCurrentOrDefaultDistributor(context) { success ->
+                Log.d(TAG, "Direct FCM registration completed with token: ${fcmToken.take(20)}...")
+            } else {
+                // Register with UnifiedPush distributor
+                Log.d(TAG, "🔄 Registering UnifiedPush with distributor: $packageName")
 
-							if (!success) {
-								Log.w(TAG, "⚠️ Failed to select distributor automatically")
-							}
-
-							UnifiedPush.register(context, packageName, "hillview_notifications")
-							Log.d(TAG, "✅ UnifiedPush registration initiated")
-
-							// Schedule debug check 5 seconds after registration
-							CoroutineScope(Dispatchers.IO).launch {
-								delay(5000)
-								Log.d(TAG, "🕐 Post-registration status:")
-								Log.d(TAG, debugUnifiedPush())
-							}
-
+                try {
+                    UnifiedPush.tryUseCurrentOrDefaultDistributor(context) { success ->
+                        if (!success) {
+                            Log.w(TAG, "⚠️ Failed to select distributor automatically")
                         }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "❌ UnifiedPush.register() threw exception", e)
-                        throw e
-                    }
 
-                    // Note: The actual endpoint will be received via UnifiedPushService.onNewEndpoint
-                    Log.d(TAG, "⏳ Waiting for UnifiedPush distributor '$packageName' to call onNewEndpoint...")
+                        UnifiedPush.register(context, packageName, "hillview_notifications")
+                        Log.d(TAG, "✅ UnifiedPush registration initiated")
+
+                        // Schedule debug check 5 seconds after registration
+                        CoroutineScope(Dispatchers.IO).launch {
+                            delay(5000)
+                            Log.d(TAG, "🕐 Post-registration status:")
+                            Log.d(TAG, debugUnifiedPush())
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ UnifiedPush.register() threw exception", e)
+                    throw e
                 }
 
-                return@withLock true
-
-            } catch (e: Exception) {
-                val error = "Failed to register with distributor: ${e.message}"
-                Log.e(TAG, error, e)
-                setLastError(error)
-                setRegistrationStatus("failed")
-                return@withLock false
+                // Note: The actual endpoint will be received via UnifiedPushService.onNewEndpoint
+                Log.d(TAG, "⏳ Waiting for UnifiedPush distributor '$packageName' to call onNewEndpoint...")
             }
+
+            return true
+
+        } catch (e: Exception) {
+            val error = "Failed to register with distributor: ${e.message}"
+            Log.e(TAG, error, e)
+            setLastError(error)
+            setRegistrationStatus("failed")
+            return false
         }
     }
 
@@ -523,33 +529,41 @@ class PushDistributorManager(private val context: Context) {
      */
     suspend fun unregister(): Boolean {
         return registrationMutex.withLock {
-            Log.d(TAG, "Unregistering push notifications")
+            unregisterInternal()
+        }
+    }
 
-            try {
-                // Unregister from backend first
-                val endpoint = getPushEndpoint()
-                if (endpoint != null) {
-                    unregisterFromBackend()
-                }
+    /**
+     * Unregister logic without acquiring the mutex. Caller must already
+     * hold `registrationMutex`.
+     */
+    private suspend fun unregisterInternal(): Boolean {
+        Log.d(TAG, "Unregistering push notifications")
 
-                // Unregister from UnifiedPush
-                UnifiedPush.unregister(context)
-
-                // Clear all stored data
-                prefs.edit()
-                    .remove(KEY_SELECTED_DISTRIBUTOR)
-                    .remove(KEY_PUSH_ENDPOINT)
-                    .remove(KEY_REGISTRATION_STATUS)
-                    .remove(KEY_LAST_ERROR)
-                    .apply()
-
-                Log.d(TAG, "Push notifications unregistered successfully")
-                return@withLock true
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error during unregistration: ${e.message}", e)
-                return@withLock false
+        try {
+            // Unregister from backend first
+            val endpoint = getPushEndpoint()
+            if (endpoint != null) {
+                unregisterFromBackend()
             }
+
+            // Unregister from UnifiedPush
+            UnifiedPush.unregister(context)
+
+            // Clear all stored data
+            prefs.edit()
+                .remove(KEY_SELECTED_DISTRIBUTOR)
+                .remove(KEY_PUSH_ENDPOINT)
+                .remove(KEY_REGISTRATION_STATUS)
+                .remove(KEY_LAST_ERROR)
+                .apply()
+
+            Log.d(TAG, "Push notifications unregistered successfully")
+            return true
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during unregistration: ${e.message}", e)
+            return false
         }
     }
 

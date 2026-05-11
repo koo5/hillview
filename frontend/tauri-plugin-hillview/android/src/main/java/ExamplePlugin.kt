@@ -1986,7 +1986,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	fun getPushDistributors(invoke: Invoke) {
 		try {
 			Log.d(TAG, "📨 getPushDistributors called")
-			val manager = PushDistributorManager(activity)
+			val manager = PushDistributorManager.getInstance(activity)
 			val distributors = manager.getAvailableDistributors()
 
 			Log.d(TAG, "📨 Found ${distributors.size} distributors:")
@@ -2024,7 +2024,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	fun getPushRegistrationStatus(invoke: Invoke) {
 		try {
 			Log.d(TAG, "📨 getPushRegistrationStatus called")
-			val manager = PushDistributorManager(activity)
+			val manager = PushDistributorManager.getInstance(activity)
 			val status = manager.getRegistrationStatus()
 			val statusMessage = manager.getStatusMessage()
 			val selectedDistributor = manager.getSelectedDistributor()
@@ -2064,7 +2064,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				val args = invoke.parseArgs(SelectDistributorArgs::class.java)
 				val packageName = args.package_name ?: ""
 
-				val manager = PushDistributorManager(activity)
+				val manager = PushDistributorManager.getInstance(activity)
 				val success = if (packageName.isEmpty()) {
 					manager.unregister()
 				} else {
@@ -2384,7 +2384,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					// Trigger push registration
 					CoroutineScope(Dispatchers.IO).launch {
 						try {
-							val pushManager = PushDistributorManager(activity)
+							val pushManager = PushDistributorManager.getInstance(activity)
 							pushManager.autoRegisterIfNeeded()
 						} catch (e: Exception) {
 							Log.e(TAG, "📤 Error during push registration", e)

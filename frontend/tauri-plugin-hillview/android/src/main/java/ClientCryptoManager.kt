@@ -75,11 +75,18 @@ class ClientCryptoManager(private val context: Context) {
         private const val KEY_ID_PREF = "client_key_id"
         private const val KEY_CREATED_PREF = "client_key_created"
         private const val PUBLIC_KEY_PEM_PREF = "client_public_key_pem"
+
+        // Process-wide so any number of ClientCryptoManager instances still
+        // serialize against the single Keystore alias. Callers like
+        // AuthenticationManager and PhotoUploadLogic each instantiate their
+        // own ClientCryptoManager; if this mutex were per-instance, they
+        // could race on the same alias even after the PushDistributorManager
+        // singleton fix.
+        private val keyGenMutex = ReentrantLock()
     }
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-	private val keyGenMutex = ReentrantLock()
 
     /**
      * Get or generate client ECDSA key pair

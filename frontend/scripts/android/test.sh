@@ -47,6 +47,15 @@ if not string match -q -- '*platform-tools*' $PATH
     set -gx PATH $PATH $ANDROID_HOME/platform-tools
 end
 
+# `tauri android dev` normally sets up this reverse forward so the emulator
+# can reach the host's vite dev server (devUrl=http://localhost:8218 in
+# src-tauri/tauri.conf.json). Sleep/wake cycles or a stopped dev session
+# can leave it cleared; set it explicitly so test runs aren't dependent on
+# side state. A still-running dev session leaves an identical entry — adb
+# reverse is idempotent.
+adb reverse tcp:8218 tcp:8218
+or echo "warning: adb reverse failed; ensure an emulator is attached and the dev server is up on 8218"
+
 # Acquire shared test lock, then run wdio from tests-appium directory.
 # Lock is held before Appium starts, preventing port conflicts
 # and backend state races with Playwright/pytest.

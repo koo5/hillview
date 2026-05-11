@@ -156,7 +156,12 @@ export const config: WebdriverIO.Config = {
     // See the full list at http://mochajs.org/
     mochaOpts: {
         ui: 'bdd',
-        timeout: 60000
+        // 180s accommodates the longest legitimate tests (offline upload
+        // queue drain ≈ 90s + camera capture overhead). `this.timeout()`
+        // per-test isn't reliably picked up by @wdio/mocha-framework, so
+        // we set the ceiling globally. `bail: 1` still keeps the suite
+        // fail-fast at the spec level.
+        timeout: 180000
     },
 
     //
