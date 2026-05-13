@@ -16,8 +16,23 @@ enum class MessageType {
     PICKS_UPDATED,
     ABORT_PROCESS,
     ABORT_AREA,
-    CLEANUP
+    CLEANUP,
+    PANORAMAX_HIDDEN_INVALIDATE,
+    REMOVE_PHOTO,
+    REMOVE_USER_PHOTOS
 }
+
+@Serializable
+data class RemovePhotoData(
+    val photoId: String,
+    val source: String
+)
+
+@Serializable
+data class RemoveUserPhotosData(
+    val userId: String,
+    val source: String
+)
 
 @Serializable
 enum class ResponseType {

@@ -50,6 +50,7 @@ import { PhotoOperations } from '../lib/photoOperations';
 import { CullingGrid, type SourceId } from '../lib/CullingGrid';
 import {AngularRangeCuller, sortPhotosByBearing} from '../lib/AngularRangeCuller';
 import { TAURI } from '../lib/tauri';
+import { invalidatePanoramaxHidden } from '../lib/sources/PanoramaxSourceLoader';
 import { invoke } from '@tauri-apps/api/core';
 import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from '../lib/photoWorkerConstants';
 
@@ -474,6 +475,11 @@ async function loop(): Promise<void> {
 						console.log(`🢄NewWorker: [${message.frontendMessageId}] Processing picksUpdated with ${message.data.picks?.length || 0} picks`);
 					currentPicks = new Set(message.data.picks);
 					photoOperations.setPicks(currentPicks);
+					break;
+
+				case 'panoramaxHiddenInvalidate':
+					if (doLog) console.log(`🢄NewWorker: panoramaxHiddenInvalidate`);
+					invalidatePanoramaxHidden();
 					break;
 
 				case 'configUpdated':

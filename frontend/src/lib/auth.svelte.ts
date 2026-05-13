@@ -8,6 +8,7 @@ import { auth, type User, type AuthState } from './authStore';
 import { myGoto } from './navigation.svelte';
 import { clearAlerts } from './alertSystem.svelte';
 import { identify } from './analytics';
+import { simplePhotoWorker } from './simplePhotoWorker';
 
 const doLog = false;
 
@@ -236,6 +237,10 @@ export async function logout(reason?: string) {
             user: null
         };
     });
+
+    // Drop the worker's authenticated Panoramax hidden-content cache; next pan
+    // will fetch with no token (→ empty hide set) until the user logs in again.
+    simplePhotoWorker.invalidatePanoramaxHidden?.();
 
     if (doLog) console.log('🢄[AUTH] - Redirecting to login page from auth.svelte.ts');
     myGoto('/login');

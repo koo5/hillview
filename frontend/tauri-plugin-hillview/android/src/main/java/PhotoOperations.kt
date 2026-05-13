@@ -20,6 +20,16 @@ class PhotoOperations(private val context: Context) {
 
     private val deviceLoader = DevicePhotoLoader(context)
     private val streamLoader = StreamPhotoLoader()
+    private val panoramaxLoader = PanoramaxPhotoLoader()
+
+    private fun hillviewBackendUrl(): String? {
+        // The frontend pushes its backend URL via set_backend_url (ExamplePlugin),
+        // persisted to the shared "hillview_upload_prefs" prefs. Reused here so the
+        // Panoramax loader can call /api/hidden/{photos,users} against it.
+        return context
+            .getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+            .getString("server_url", null)
+    }
     private val sourceCache = mutableMapOf<String, SourceCache>()
     private var maxPhotosInArea: Int = MAX_PHOTOS_IN_AREA
     private var picks: Set<String> = emptySet()
@@ -39,6 +49,26 @@ class PhotoOperations(private val context: Context) {
 
     fun setQueryOptionsJson(json: String?) {
         queryOptionsJson = json
+    }
+
+    /** Drop a single photo from the per-source cache so subsequent area loads
+     *  don't resurrect it. Returns true if the photo existed. */
+    fun removePhotoFromCache(photoId: String, sourceId: String): Boolean {
+        val cache = sourceCache[sourceId] ?: return false
+        val filtered = cache.photos.filterNot { it.id == photoId }
+        if (filtered.size == cache.photos.size) return false
+        sourceCache[sourceId] = cache.copy(photos = filtered)
+        return true
+    }
+
+    /** Drop all photos by a given creator id from a source's cache. Returns the
+     *  number of photos removed. */
+    fun removeUserPhotosFromCache(userId: String, sourceId: String): Int {
+        val cache = sourceCache[sourceId] ?: return 0
+        val filtered = cache.photos.filterNot { it.creator?.id == userId }
+        val removed = cache.photos.size - filtered.size
+        if (removed > 0) sourceCache[sourceId] = cache.copy(photos = filtered)
+        return removed
     }
 
     /**
@@ -111,6 +141,10 @@ class PhotoOperations(private val context: Context) {
                     "stream" -> {
                         val authToken = authTokenProvider()
                         streamLoader.loadPhotos(source, null, maxPhotosInArea, authToken, shouldAbort, sourcePickIds, queryOptionsJson)
+                    }
+                    "panoramax" -> {
+                        val authToken = authTokenProvider()
+                        panoramaxLoader.loadPhotos(source, null, maxPhotosInArea, shouldAbort, hillviewBackendUrl(), authToken)
                     }
                     else -> {
                         Log.w(TAG, "PhotoOperations: Unknown source type: ${source.type}")
@@ -194,6 +228,10 @@ class PhotoOperations(private val context: Context) {
                         "stream" -> {
                             val authToken = authTokenProvider()
                             streamLoader.loadPhotos(source, bounds, maxPhotosInArea, authToken, shouldAbort, sourcePickIds, queryOptionsJson)
+                        }
+                        "panoramax" -> {
+                            val authToken = authTokenProvider()
+                            panoramaxLoader.loadPhotos(source, bounds, maxPhotosInArea, shouldAbort, hillviewBackendUrl(), authToken)
                         }
                         else -> {
                             Log.w(TAG, "PhotoOperations: Unknown source type: ${source.type}")

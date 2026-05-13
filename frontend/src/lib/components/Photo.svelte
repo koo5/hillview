@@ -573,7 +573,7 @@
 		bind:show={showHideUserDialog}
 		userId={getUserId(photo) || ''}
 		username={getUserName(photo)}
-		userSource={(getPhotoSource(photo) || 'hillview') as 'hillview' | 'mapillary'}
+		userSource={(getPhotoSource(photo) || 'hillview') as 'hillview' | 'mapillary' | 'panoramax'}
 	/>
 {/if}
 

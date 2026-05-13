@@ -242,6 +242,20 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                     currentPicks = picksData.picks.toSet()
                     if (doLog) Log.d(TAG, "PhotoWorkerService: Updated picks to ${currentPicks.size} items")
                 }
+                MessageType.PANORAMAX_HIDDEN_INVALIDATE -> {
+                    // Drop the worker-side Panoramax hidden-content cache so the next area load
+                    // refetches it from /api/hidden/{photos,users}?…=panoramax.
+                    PanoramaxPhotoLoader.invalidateHidden()
+                    if (doLog) Log.d(TAG, "PhotoWorkerService: Invalidated Panoramax hidden cache")
+                }
+                MessageType.REMOVE_PHOTO -> {
+                    val data = json.decodeFromString<RemovePhotoData>(message.data)
+                    serviceScope.launch { handleRemovePhoto(data.photoId, data.source) }
+                }
+                MessageType.REMOVE_USER_PHOTOS -> {
+                    val data = json.decodeFromString<RemoveUserPhotosData>(message.data)
+                    serviceScope.launch { handleRemoveUserPhotos(data.userId, data.source) }
+                }
                 MessageType.ABORT_PROCESS -> {
                     abortProcess(message.processId)
                 }
@@ -528,6 +542,53 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             Log.d(TAG, "PhotoWorkerService: Aborting same-type ${process.type} process ${process.processId}")
             abortProcess(process.processId)
         }
+    }
+
+    /** Filter a photo out of both the per-source culled state and the per-source
+     *  cache, then re-cull and push a fresh update to the frontend. Mirrors
+     *  removePhotoFromCache in new.worker.ts. */
+    private suspend fun handleRemovePhoto(photoId: String, sourceId: String) {
+        val current = sourcesPhotosInArea[sourceId] ?: return
+        val filtered = current.filterNot { it.id == photoId }
+        val cacheRemoved = photoOperations.removePhotoFromCache(photoId, sourceId)
+        if (filtered.size == current.size && !cacheRemoved) {
+            if (doLog) Log.d(TAG, "PhotoWorkerService: removePhoto $photoId@$sourceId — nothing to remove")
+            return
+        }
+        sourcesPhotosInArea[sourceId] = filtered
+        if (doLog) Log.d(TAG, "PhotoWorkerService: removed photo $photoId from $sourceId (${current.size - filtered.size} removed in view, cache hit=$cacheRemoved)")
+        emitPhotosUpdateAfterMutation()
+    }
+
+    /** Same as handleRemovePhoto but for every photo by a given creator id. */
+    private suspend fun handleRemoveUserPhotos(userId: String, sourceId: String) {
+        val current = sourcesPhotosInArea[sourceId] ?: return
+        val filtered = current.filterNot { it.creator?.id == userId }
+        val cacheRemoved = photoOperations.removeUserPhotosFromCache(userId, sourceId)
+        val removedFromView = current.size - filtered.size
+        if (removedFromView == 0 && cacheRemoved == 0) {
+            if (doLog) Log.d(TAG, "PhotoWorkerService: removeUserPhotos $userId@$sourceId — nothing to remove")
+            return
+        }
+        sourcesPhotosInArea[sourceId] = filtered
+        if (doLog) Log.d(TAG, "PhotoWorkerService: removed $removedFromView photos by $userId from $sourceId view, $cacheRemoved from cache")
+        emitPhotosUpdateAfterMutation()
+    }
+
+    /** Re-cull the current `sourcesPhotosInArea` snapshot against the
+     *  last-known area state and emit a `photosUpdate` event. Used by the
+     *  removePhoto / removeUserPhotos handlers, since the underlying state
+     *  changed but no new area load is being triggered. */
+    private suspend fun emitPhotosUpdateAfterMutation() {
+        val bounds = lastProcessedBounds
+        val snapshot = sourcesPhotosInArea.toMap()
+        val totalPhotos = snapshot.values.sumOf { it.size }
+        val finalPhotos = if (bounds != null && totalPhotos > currentMaxPhotosInArea) {
+            CullingGrid(bounds).cullPhotos(snapshot, currentMaxPhotosInArea, currentPicks)
+        } else {
+            snapshot.values.flatten()
+        }
+        sendPhotosUpdate(finalPhotos, snapshot, bounds, lastProcessedRange)
     }
 
     /**

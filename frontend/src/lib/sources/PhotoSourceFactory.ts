@@ -5,6 +5,7 @@
 import type { SourceConfig, PhotoId } from '../photoWorkerTypes';
 import type { PhotoSourceLoader, PhotoSourceCallbacks } from './PhotoSourceLoader';
 import { StreamSourceLoader } from './StreamSourceLoader';
+import { PanoramaxSourceLoader } from './PanoramaxSourceLoader';
 
 export interface PhotoSourceOptions {
     maxPhotos?: number;
@@ -27,6 +28,10 @@ export class PhotoSourceFactory {
             case 'stream':
                 if (doLog) console.log(`🢄PhotoSourceFactory: Creating StreamSourceLoader for ${source.id}`);
                 return new StreamSourceLoader(source, callbacks, options);
+
+            case 'panoramax':
+                if (doLog) console.log(`🢄PhotoSourceFactory: Creating PanoramaxSourceLoader for ${source.id}`);
+                return new PanoramaxSourceLoader(source, callbacks, options);
 
             default:
                 throw new Error(`Unsupported source type: ${source.type}`);

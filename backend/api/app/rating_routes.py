@@ -33,7 +33,7 @@ class RatingDeleteResponse(BaseModel):
     rating_counts: Dict[str, int]
 
 # Validate photo source
-VALID_SOURCES = {'hillview', 'mapillary'}
+VALID_SOURCES = {'hillview', 'mapillary', 'panoramax'}
 
 def validate_photo_source(source: str) -> str:
     """Validate and return photo source."""

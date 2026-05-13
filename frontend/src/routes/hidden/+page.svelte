@@ -5,16 +5,17 @@
     import StandardBody from '$lib/components/StandardBody.svelte';
     import { auth } from '$lib/auth.svelte';
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
+    import { simplePhotoWorker } from '$lib/simplePhotoWorker';
 
     interface HiddenPhoto {
-        photo_source: 'mapillary' | 'hillview';
+        photo_source: 'mapillary' | 'hillview' | 'panoramax';
         photo_id: string;
         hidden_at: string;
         reason?: string;
     }
 
     interface HiddenUser {
-        target_user_source: 'mapillary' | 'hillview';
+        target_user_source: 'mapillary' | 'hillview' | 'panoramax';
         target_user_id: string;
         target_username?: string;
         hidden_at: string;
@@ -88,6 +89,10 @@
             hiddenPhotos = hiddenPhotos.filter(p =>
                 !(p.photo_source === photo.photo_source && p.photo_id === photo.photo_id)
             );
+            if (photo.photo_source === 'panoramax') {
+                // Drop worker-side cache so the photo reappears on next Panoramax search.
+                simplePhotoWorker.invalidatePanoramaxHidden?.();
+            }
             successMessage = 'Photo unhidden successfully';
             setTimeout(() => successMessage = '', 3000);
         } catch (error) {
@@ -112,6 +117,9 @@
             hiddenUsers = hiddenUsers.filter(u =>
                 !(u.target_user_source === user.target_user_source && u.target_user_id === user.target_user_id)
             );
+            if (user.target_user_source === 'panoramax') {
+                simplePhotoWorker.invalidatePanoramaxHidden?.();
+            }
             successMessage = 'User unhidden successfully';
             setTimeout(() => successMessage = '', 3000);
         } catch (error) {
@@ -126,7 +134,9 @@
     }
 
     function getSourceDisplayName(source: string): string {
-        return source === 'mapillary' ? 'Mapillary' : 'Hillview';
+        if (source === 'mapillary') return 'Mapillary';
+        if (source === 'panoramax') return 'Panoramax';
+        return 'Hillview';
     }
 
     function getSourceIcon(source: string) {

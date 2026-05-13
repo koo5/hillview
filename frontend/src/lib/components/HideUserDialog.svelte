@@ -6,7 +6,7 @@
 	export let show = false;
 	export let userId: string;
 	export let username: string | null = null;
-	export let userSource: 'hillview' | 'mapillary' = 'hillview';
+	export let userSource: 'hillview' | 'mapillary' | 'panoramax' = 'hillview';
 
 	let hideUserReason = '';
 	let flagUserForReview = false;
@@ -45,6 +45,10 @@
 
 			// Clear web worker cache for this user's photos
 			simplePhotoWorker.removeUserPhotosFromCache?.(userId, userSource);
+			if (userSource === 'panoramax') {
+				// Refresh worker-side hidden-content cache so future Panoramax fetches filter this producer.
+				simplePhotoWorker.invalidatePanoramaxHidden?.();
+			}
 
 			show = false;
 			hideUserReason = '';

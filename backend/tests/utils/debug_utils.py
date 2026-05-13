@@ -333,6 +333,11 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 	results = {"created": 0, "duplicates": 0, "failed": 0, "skipped": 0}
 	failed_files = []
 	skipped_files = []
+	# Per-item record indexed by item.i so callers (notably upload_files →
+	# the upload-files CLI's --manifest) can pair each input path with its
+	# outcome. Filled in by upload_one before each return path; the bulk
+	# results dict above stays as the rolled-up summary for the log.
+	per_item: list[dict] = [{"status": "pending"} for _ in range(total)]
 	semaphore = asyncio.Semaphore(parallel)
 
 	# Register client keys ONCE before starting parallel uploads
@@ -353,6 +358,8 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				except FileNotFoundError:
 					results["skipped"] += 1
 					skipped_files.append(filename)
+					per_item[i] = {"filename": filename, "status": "skipped",
+								   "reason": "file no longer exists"}
 					tprint(f"  [{i+1}/{total}] {filename} ⚠ file no longer exists, skipping")
 					return
 				token = get_token()
@@ -374,6 +381,8 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				if auth_data.get("duplicate"):
 					tprint(f"  [{i+1}/{total}] {filename} ⏭ duplicate")
 					results["duplicates"] += 1
+					per_item[i] = {"filename": filename, "status": "duplicate",
+								   "photo_id": auth_data.get("photo_id")}
 					return
 
 				# Allow overriding the server-supplied worker URL via env var
@@ -388,11 +397,15 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				photo_data = wait_for_photo_processing(photo_id, get_token(), timeout=timeout)
 				if photo_data['processing_status'] == 'completed':
 					results["created"] += 1
+					per_item[i] = {"filename": filename, "status": "created",
+								   "photo_id": photo_id}
 					tprint(format_success(i, total, filename, photo_data, extra_data))
 				else:
 					results["failed"] += 1
 					err_text = photo_data.get('error', 'Unknown error')
 					failed_files.append((filename, err_text))
+					per_item[i] = {"filename": filename, "status": "failed",
+								   "error": err_text, "stage": "worker"}
 					tprint(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
 				for w in worker_warnings:
 					tprint(f"      ⚠ {w}")
@@ -400,6 +413,8 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				results["failed"] += 1
 				err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__
 				failed_files.append((filename, err_text))
+				per_item[i] = {"filename": filename, "status": "failed",
+							   "error": err_text, "stage": "exception"}
 				tprint(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
 				traceback.print_exc()
 
@@ -416,6 +431,12 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 		tprint(f"\n⚠ Skipped ({len(skipped_files)}):")
 		for fname in skipped_files:
 			tprint(f"  {fname}")
+
+	# Return per-item records so callers like upload_files can pair each
+	# input path with its outcome (used by the upload-files --manifest CLI
+	# flag and by Luigi's UploadWorkdir to drive the reflink-on-success +
+	# retry-on-failure logic). One entry per items[i], in the same order.
+	return per_item
 
 
 class TokenManager:
@@ -539,7 +560,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 		traceback.print_exc()
 
 
-def upload_files(files: list, license: str, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None):
+def upload_files(files: list, license: str, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None, manifest_path: str = None):
 	"""Upload files from command line paths.
 
 	metadata: JSON string matching the worker's BrowserMetadata schema
@@ -550,6 +571,14 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 	license: License identifier sent to authorize-upload. Required — the CLI
 	rejects upload-files without --license, since the legal terms of an
 	upload are too important to default silently.
+
+	manifest_path: when set, after the run write a JSON file listing one
+	entry per input path with ``{"path", "filename", "status", ...}``.
+	``status`` is one of ``created`` / ``duplicate`` / ``failed`` /
+	``skipped`` / ``pending`` (the last is impossible under normal flow
+	but reserved as a tell that something never reached upload_one).
+	Used by the pipeline's UploadWorkdir Luigi task to drive its
+	reflink-on-success and retry-on-failure behavior.
 	"""
 	import asyncio
 	import json
@@ -562,7 +591,10 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 	meta_lat = (parsed_metadata or {}).get('latitude', 0.0)
 	meta_lon = (parsed_metadata or {}).get('longitude', 0.0)
 
+	per_item: list = []
+
 	async def _upload():
+		nonlocal per_item
 		anon_msg = " (anonymization skipped)" if skip_anonymization else ""
 		ver_msg = f" (version {version})" if version is not None else ""
 		qual_msg = f" (quality {quality})" if quality is not None else ""
@@ -591,13 +623,29 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 			return f"  [{i+1}/{total}] {filename} ✓{loc}"
 
 		anon_override = "[]" if skip_anonymization else None
-		await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, anonymization_override=anon_override, version=version, quality=quality, fast=fast, metadata=metadata, license=license)
+		per_item = await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, anonymization_override=anon_override, version=version, quality=quality, fast=fast, metadata=metadata, license=license)
 
 	try:
 		asyncio.run(_upload())
 	except Exception as e:
 		print(f"❌ Error: {e}")
 		traceback.print_exc()
+	finally:
+		# Best-effort manifest write — runs even on uncaught exception so
+		# the caller (Luigi task) at least sees partial results and can
+		# act on them. ``pending`` entries indicate items that never
+		# reached upload_one (early crash); the caller should treat them
+		# as failed for retry purposes.
+		if manifest_path:
+			try:
+				records = []
+				for i, f in enumerate(files):
+					base = per_item[i] if i < len(per_item) else {"status": "pending"}
+					records.append({"path": os.path.abspath(f), **base})
+				with open(manifest_path, "w") as mf:
+					json.dump(records, mf, indent=2)
+			except Exception as mf_err:
+				print(f"⚠ failed to write upload manifest to {manifest_path}: {mf_err}")
 
 
 def populate_photos(count: int = 4):
@@ -860,6 +908,9 @@ def main():
 		quality = None
 		metadata = None
 		license = None
+		manifest_path = None
+		api_url_override = None
+		worker_url_override = None
 		files = []
 		i = 0
 		while i < len(args):
@@ -893,13 +944,35 @@ def main():
 			elif args[i] == "--license":
 				license = args[i + 1]
 				i += 2
+			elif args[i] == "--manifest":
+				manifest_path = args[i + 1]
+				i += 2
+			elif args[i] == "--api-url":
+				api_url_override = args[i + 1]
+				i += 2
+			elif args[i] == "--worker-url":
+				worker_url_override = args[i + 1]
+				i += 2
 			elif args[i].startswith("--"):
 				print(f"Unknown option: {args[i]}")
 				return
 			else:
 				files.append(args[i])
 				i += 1
-		usage = "Usage: upload-files --license L [--parallel N] [--user U --pass P] [--skip-anonymization] [--fast] [--version N] [--description TEXT] [--quality Q] [--metadata JSON] file1.jpg ..."
+		# Honor --api-url / --worker-url by setting the corresponding env
+		# vars before any module-level reads. test_utils.API_URL is computed
+		# at import via os.getenv("API_URL"), and the per-upload worker
+		# override is read from os.environ.get("WORKER_URL") inside
+		# upload_one. Doing this here keeps the change minimal — no need
+		# to thread URLs through every helper.
+		if api_url_override is not None:
+			os.environ["API_URL"] = api_url_override
+		if worker_url_override is not None:
+			os.environ["WORKER_URL"] = worker_url_override
+		usage = ("Usage: upload-files --license L [--parallel N] [--user U --pass P] "
+		         "[--skip-anonymization] [--fast] [--version N] [--description TEXT] "
+		         "[--quality Q] [--metadata JSON] [--manifest PATH] "
+		         "[--api-url URL] [--worker-url URL] file1.jpg ...")
 		if license is None:
 			print("Error: --license is required")
 			print(usage)
@@ -907,7 +980,7 @@ def main():
 			print(usage)
 		else:
 			with backend_test_lock():
-				upload_files(files, license, parallel, user, password, skip_anonymization=skip_anonymization, version=version, description=description, quality=quality, fast=fast, metadata=metadata)
+				upload_files(files, license, parallel, user, password, skip_anonymization=skip_anonymization, version=version, description=description, quality=quality, fast=fast, metadata=metadata, manifest_path=manifest_path)
 	elif command == "mock-mapillary":
 		with backend_test_lock():
 			setup_mock_mapillary()

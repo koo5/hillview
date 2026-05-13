@@ -190,7 +190,7 @@ class HiddenPhoto(Base):
 
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
 	user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"))
-	photo_source: Mapped[str] = mapped_column(String(20))  # 'mapillary' or 'hillview'
+	photo_source: Mapped[str] = mapped_column(String(20))  # 'mapillary', 'hillview', or 'panoramax'
 	photo_id: Mapped[str] = mapped_column(String(255))
 	hidden_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 	reason: Mapped[Optional[str]] = mapped_column(String(100))
@@ -211,7 +211,7 @@ class HiddenUser(Base):
 
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
 	hiding_user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"))
-	target_user_source: Mapped[str] = mapped_column(String(20))  # 'mapillary' or 'hillview'
+	target_user_source: Mapped[str] = mapped_column(String(20))  # 'mapillary', 'hillview', or 'panoramax'
 	target_user_id: Mapped[str] = mapped_column(String(255))  # User ID from the source platform
 	hidden_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 	reason: Mapped[Optional[str]] = mapped_column(String(100))
@@ -232,7 +232,7 @@ class PhotoRating(Base):
 
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
 	user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"))
-	photo_source: Mapped[str] = mapped_column(String(20))  # 'mapillary' or 'hillview'
+	photo_source: Mapped[str] = mapped_column(String(20))  # 'mapillary', 'hillview', or 'panoramax'
 	photo_id: Mapped[str] = mapped_column(String(255))
 	rating: Mapped[PhotoRatingType] = mapped_column(Enum(PhotoRatingType))
 	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -252,7 +252,7 @@ class FlaggedPhoto(Base):
 
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
 	flagging_user_id: Mapped[Optional[str]] = mapped_column(String)  # Keep user ID for audit, no FK constraint
-	photo_source: Mapped[str] = mapped_column(String(20))  # 'mapillary' or 'hillview'
+	photo_source: Mapped[str] = mapped_column(String(20))  # 'mapillary', 'hillview', or 'panoramax'
 	photo_id: Mapped[str] = mapped_column(String(255))
 	flagged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 	reason: Mapped[Optional[str]] = mapped_column(Text)  # Text field for longer reason descriptions

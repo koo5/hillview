@@ -70,6 +70,7 @@ class TestRatingValidation:
         """Test valid photo sources"""
         assert validate_photo_source("hillview") == "hillview"
         assert validate_photo_source("mapillary") == "mapillary"
+        assert validate_photo_source("panoramax") == "panoramax"
     
     def test_validate_photo_source_invalid(self):
         """Test invalid photo sources raise HTTPException"""

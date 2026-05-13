@@ -418,6 +418,14 @@ class SimplePhotoWorker {
             source: userSource
         });
     }
+
+    // Drop the worker's cached Panoramax hidden-photo/user list so the next
+    // area load refetches it. Call after hide/unhide actions and on logout.
+    invalidatePanoramaxHidden(): void {
+        if (!this.isInitialized || (!this.worker && !this.kotlinWorker)) return;
+        if (doLog) console.log(TAG+'Invalidating Panoramax hidden content cache');
+        this.sendMessage('panoramaxHiddenInvalidate', {});
+    }
 }
 
 // Global instance

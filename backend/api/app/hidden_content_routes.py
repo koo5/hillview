@@ -21,22 +21,22 @@ router = APIRouter(prefix="/api/hidden", tags=["hidden"])
 
 # Request models
 class HidePhotoRequest(BaseModel):
-	photo_source: str  # 'mapillary' or 'hillview'
+	photo_source: str  # 'mapillary', 'hillview', or 'panoramax'
 	photo_id: str
 	reason: Optional[str] = None
 
 class HideUserRequest(BaseModel):
-	target_user_source: str  # 'mapillary' or 'hillview'
+	target_user_source: str  # 'mapillary', 'hillview', or 'panoramax'
 	target_user_id: str
 	reason: Optional[str] = None
 	extra_data: Optional[Dict] = None
 
 class UnhidePhotoRequest(BaseModel):
-	photo_source: str  # 'mapillary' or 'hillview'
+	photo_source: str  # 'mapillary', 'hillview', or 'panoramax'
 	photo_id: str
 
 class UnhideUserRequest(BaseModel):
-	target_user_source: str  # 'mapillary' or 'hillview'
+	target_user_source: str  # 'mapillary', 'hillview', or 'panoramax'
 	target_user_id: str
 
 # Response models
@@ -56,10 +56,10 @@ async def hide_photo(
 	await rate_limit_photo_operations(request, current_user.id)
 	
 	# Validate photo_source
-	if hide_request.photo_source not in ['mapillary', 'hillview']:
+	if hide_request.photo_source not in ['mapillary', 'hillview', 'panoramax']:
 		raise HTTPException(
 			status_code=status.HTTP_400_BAD_REQUEST,
-			detail="photo_source must be 'mapillary' or 'hillview'"
+			detail="photo_source must be one of 'mapillary', 'hillview', 'panoramax'"
 		)
 	
 	try:
@@ -117,10 +117,10 @@ async def hide_user(
 	await rate_limit_photo_operations(request, current_user.id)
 	
 	# Validate target_user_source
-	if hide_request.target_user_source not in ['mapillary', 'hillview']:
+	if hide_request.target_user_source not in ['mapillary', 'hillview', 'panoramax']:
 		raise HTTPException(
 			status_code=status.HTTP_400_BAD_REQUEST,
-			detail="target_user_source must be 'mapillary' or 'hillview'"
+			detail="target_user_source must be one of 'mapillary', 'hillview', 'panoramax'"
 		)
 	
 	try:
@@ -179,10 +179,10 @@ async def unhide_photo(
 	await rate_limit_photo_operations(request, current_user.id)
 	
 	# Validate photo_source
-	if unhide_request.photo_source not in ['mapillary', 'hillview']:
+	if unhide_request.photo_source not in ['mapillary', 'hillview', 'panoramax']:
 		raise HTTPException(
 			status_code=status.HTTP_400_BAD_REQUEST,
-			detail="photo_source must be 'mapillary' or 'hillview'"
+			detail="photo_source must be one of 'mapillary', 'hillview', 'panoramax'"
 		)
 	
 	try:
@@ -233,10 +233,10 @@ async def unhide_user(
 	await rate_limit_photo_operations(request, current_user.id)
 	
 	# Validate target_user_source
-	if unhide_request.target_user_source not in ['mapillary', 'hillview']:
+	if unhide_request.target_user_source not in ['mapillary', 'hillview', 'panoramax']:
 		raise HTTPException(
 			status_code=status.HTTP_400_BAD_REQUEST,
-			detail="target_user_source must be 'mapillary' or 'hillview'"
+			detail="target_user_source must be one of 'mapillary', 'hillview', 'panoramax'"
 		)
 	
 	try:
@@ -290,10 +290,10 @@ async def list_hidden_photos(
 		query = select(HiddenPhoto).where(HiddenPhoto.user_id == current_user.id)
 		
 		if photo_source:
-			if photo_source not in ['mapillary', 'hillview']:
+			if photo_source not in ['mapillary', 'hillview', 'panoramax']:
 				raise HTTPException(
 					status_code=status.HTTP_400_BAD_REQUEST,
-					detail="photo_source must be 'mapillary' or 'hillview'"
+					detail="photo_source must be one of 'mapillary', 'hillview', 'panoramax'"
 				)
 			query = query.where(HiddenPhoto.photo_source == photo_source)
 		
@@ -337,10 +337,10 @@ async def list_hidden_users(
 		).where(HiddenUser.hiding_user_id == current_user.id)
 
 		if target_user_source:
-			if target_user_source not in ['mapillary', 'hillview']:
+			if target_user_source not in ['mapillary', 'hillview', 'panoramax']:
 				raise HTTPException(
 					status_code=status.HTTP_400_BAD_REQUEST,
-					detail="target_user_source must be 'mapillary' or 'hillview'"
+					detail="target_user_source must be one of 'mapillary', 'hillview', 'panoramax'"
 				)
 			query = query.where(HiddenUser.target_user_source == target_user_source)
 

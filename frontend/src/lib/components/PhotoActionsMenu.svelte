@@ -14,6 +14,7 @@
 		getCanonicalPhotoUrl,
 		getLicenseLabel,
 		getLicenseId,
+		getLicenseUrl,
 		getUserProfileUrl
 	} from '$lib/photoUtils';
 	import { openExternalUrl, HILLVIEW_BASE_URL } from '$lib/urlUtils';
@@ -235,6 +236,11 @@
 
 	async function openLicenseInfo() {
 		closeMenu();
+		const externalUrl = photo ? getLicenseUrl(photo) : null;
+		if (externalUrl) {
+			await openExternalUrl(externalUrl);
+			return;
+		}
 		if (TAURI) {
 			await openExternalUrl(`${HILLVIEW_BASE_URL}/licensing`);
 		} else {
@@ -306,12 +312,15 @@
 		const licenseLabel = getLicenseLabel(photo) ?? 'unknown';
 
 		const licenseId = getLicenseId(photo);
+		const externalLicenseUrl = getLicenseUrl(photo);
+		// CC variants come in both lowercase (Hillview ids) and uppercase (SPDX ids).
+		const isCC = !!licenseId && /^cc/i.test(licenseId);
 		items.push({
 			id: 'license',
 			label: licenseLabel,
-			icon: licenseId?.startsWith('cc') ? CreativeCommons : Copyright,
+			icon: isCC ? CreativeCommons : Copyright,
 			onclick: openLicenseInfo,
-			url: '/licensing',
+			url: externalLicenseUrl ?? '/licensing',
 			testId: 'menu-license'
 		});
 		items.push({ type: 'divider' });

@@ -16,7 +16,7 @@ import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from '.
 import type { WorkerConfigData } from './photoWorkerTypes';
 
 // Kotlin Photo Worker message types
-type MessageType = 'PROCESS_CONFIG' | 'PROCESS_AREA' | 'PICKS_UPDATED' | 'ABORT_PROCESS' | 'ABORT_AREA' | 'CLEANUP';
+type MessageType = 'PROCESS_CONFIG' | 'PROCESS_AREA' | 'PICKS_UPDATED' | 'ABORT_PROCESS' | 'ABORT_AREA' | 'CLEANUP' | 'PANORAMAX_HIDDEN_INVALIDATE' | 'REMOVE_PHOTO' | 'REMOVE_USER_PHOTOS';
 
 interface WorkerMessage {
     type: MessageType;
@@ -160,10 +160,43 @@ export class KotlinPhotoWorker {
                 break;
 
             case 'removePhoto':
+                messageType = 'REMOVE_PHOTO';
+                workerMessage = {
+                    type: messageType,
+                    messageId,
+                    processId,
+                    priority: 3,
+                    data: JSON.stringify({
+                        photoId: message.data?.photoId,
+                        source: message.data?.source
+                    })
+                };
+                break;
+
             case 'removeUserPhotos':
-                // These operations don't require Kotlin processing yet
-                console.log(`🢄KotlinPhotoWorker: ${message.type} not implemented in Kotlin service yet`);
-                return;
+                messageType = 'REMOVE_USER_PHOTOS';
+                workerMessage = {
+                    type: messageType,
+                    messageId,
+                    processId,
+                    priority: 3,
+                    data: JSON.stringify({
+                        userId: message.data?.userId,
+                        source: message.data?.source
+                    })
+                };
+                break;
+
+            case 'panoramaxHiddenInvalidate':
+                messageType = 'PANORAMAX_HIDDEN_INVALIDATE';
+                workerMessage = {
+                    type: messageType,
+                    messageId,
+                    processId,
+                    priority: 3,
+                    data: JSON.stringify({})
+                };
+                break;
 
             default:
                 console.warn('🢄KotlinPhotoWorker: Unknown message type:', message.type);

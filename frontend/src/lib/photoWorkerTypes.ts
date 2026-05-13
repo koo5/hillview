@@ -31,7 +31,7 @@ export interface Bounds {
 export interface SourceConfig {
     id: string;
     name: string;
-    type: 'stream' | 'device';
+    type: 'stream' | 'device' | 'panoramax';
     enabled: boolean;
     color?: string;
     url?: string;

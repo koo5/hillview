@@ -179,13 +179,29 @@ export function getCanonicalPhotoUrl(photo: PhotoData | null): string | null {
 	if (getPhotoSource(photo) === 'mapillary' && photo.id) {
 		return `https://www.mapillary.com/app/?pKey=${encodeURIComponent(photo.id)}&focus=photo`;
 	}
+	if (getPhotoSource(photo) === 'panoramax' && photo.id) {
+		return `https://api.panoramax.xyz/?focus=pic&pic=${encodeURIComponent(photo.id)}${panoramaxMapParam(photo, 18)}`;
+	}
 	return getPhotoDetailUrl(photo);
+}
+
+// Panoramax viewer map position param: "map={zoom}/{lat}/{lng}" (format observed
+// in @panoramax/web-viewer's currentMapString). Without it, the viewer can't
+// position the map when arriving from a deep link.
+function panoramaxMapParam(photo: PhotoData | null, zoom: number): string {
+	if (!photo) return '';
+	const coord = (photo as any).coord;
+	if (!coord || typeof coord.lat !== 'number' || typeof coord.lng !== 'number') return '';
+	return `&map=${zoom}/${coord.lat}/${coord.lng}`;
 }
 
 const LICENSE_LABELS: Record<string, string> = {
 	'arr': 'All rights reserved',
 	'ccbysa4+osm': 'CC BY-SA 4.0 + OSM mapping grant',
 	'ccbysa4-mapillary': 'CC BY-SA 4.0 (via Mapillary)',
+	'CC-BY-SA-4.0': 'CC BY-SA 4.0',
+	'CC-BY-4.0': 'CC BY 4.0',
+	'CC0-1.0': 'CC0 1.0 (public domain)',
 };
 
 export function getLicenseId(photo: PhotoData | null): string | null {
@@ -203,6 +219,24 @@ export function getLicenseLabel(photo: PhotoData | null): string | null {
 	return LICENSE_LABELS[id] ?? id;
 }
 
+// Canonical license-text URLs for licenses sourced from third parties. Hillview's
+// own license ids ('arr', 'ccbysa4+osm') return null so the menu falls back to
+// the internal /licensing page (which explains Hillview's specifics).
+const EXTERNAL_LICENSE_URLS: Record<string, string> = {
+	'ccbysa4-mapillary': 'https://creativecommons.org/licenses/by-sa/4.0/',
+	'CC-BY-SA-4.0': 'https://creativecommons.org/licenses/by-sa/4.0/',
+	'CC-BY-SA-3.0': 'https://creativecommons.org/licenses/by-sa/3.0/',
+	'CC-BY-4.0': 'https://creativecommons.org/licenses/by/4.0/',
+	'CC-BY-3.0': 'https://creativecommons.org/licenses/by/3.0/',
+	'CC0-1.0': 'https://creativecommons.org/publicdomain/zero/1.0/',
+};
+
+export function getLicenseUrl(photo: PhotoData | null): string | null {
+	const id = getLicenseId(photo);
+	if (!id) return null;
+	return EXTERNAL_LICENSE_URLS[id] ?? null;
+}
+
 /**
  * Returns a URL for the photo creator's profile, or undefined if unavailable.
  * Hillview → internal user profile URL. Mapillary → external mapillary.com profile.
@@ -216,6 +250,10 @@ export function getUserProfileUrl(photo: PhotoData | null): string | undefined {
 	const mapillaryUsername = (photo as any).creator?.username;
 	if (source === 'mapillary' && mapillaryUsername) {
 		return `https://www.mapillary.com/app/user/${mapillaryUsername}`;
+	}
+	if (source === 'panoramax' && userId) {
+		// Zoom 14 keeps a useful neighborhood-level view of the user's nearby photos.
+		return `https://api.panoramax.xyz/?focus=user&user=${encodeURIComponent(userId)}${panoramaxMapParam(photo, 14)}`;
 	}
 	return undefined;
 }

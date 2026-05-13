@@ -21,13 +21,13 @@ router = APIRouter(prefix="/api/flagged", tags=["flagged"])
 
 # Request models
 class FlagPhotoRequest(BaseModel):
-	photo_source: str  # 'mapillary' or 'hillview'
+	photo_source: str  # 'mapillary', 'hillview', or 'panoramax'
 	photo_id: str
 	reason: Optional[str] = None
 	extra_data: Optional[Dict] = None
 
 class UnflagPhotoRequest(BaseModel):
-	photo_source: str  # 'mapillary' or 'hillview'
+	photo_source: str  # 'mapillary', 'hillview', or 'panoramax'
 	photo_id: str
 
 class ResolveFlagRequest(BaseModel):
@@ -50,10 +50,10 @@ async def flag_photo(
 	await rate_limit_photo_operations(request, current_user.id)
 
 	# Validate photo_source
-	if flag_request.photo_source not in ['mapillary', 'hillview']:
+	if flag_request.photo_source not in ['mapillary', 'hillview', 'panoramax']:
 		raise HTTPException(
 			status_code=status.HTTP_400_BAD_REQUEST,
-			detail="photo_source must be 'mapillary' or 'hillview'"
+			detail="photo_source must be one of 'mapillary', 'hillview', 'panoramax'"
 		)
 
 	try:
@@ -112,10 +112,10 @@ async def unflag_photo(
 	await rate_limit_photo_operations(request, current_user.id)
 
 	# Validate photo_source
-	if unflag_request.photo_source not in ['mapillary', 'hillview']:
+	if unflag_request.photo_source not in ['mapillary', 'hillview', 'panoramax']:
 		raise HTTPException(
 			status_code=status.HTTP_400_BAD_REQUEST,
-			detail="photo_source must be 'mapillary' or 'hillview'"
+			detail="photo_source must be one of 'mapillary', 'hillview', 'panoramax'"
 		)
 
 	try:
@@ -169,10 +169,10 @@ async def list_flagged_photos(
 		query = select(FlaggedPhoto).where(FlaggedPhoto.flagging_user_id == current_user.id)
 
 		if photo_source:
-			if photo_source not in ['mapillary', 'hillview']:
+			if photo_source not in ['mapillary', 'hillview', 'panoramax']:
 				raise HTTPException(
 					status_code=status.HTTP_400_BAD_REQUEST,
-					detail="photo_source must be 'mapillary' or 'hillview'"
+					detail="photo_source must be one of 'mapillary', 'hillview', 'panoramax'"
 				)
 			query = query.where(FlaggedPhoto.photo_source == photo_source)
 
@@ -221,10 +221,10 @@ async def list_all_flagged_photos(
 		query = select(FlaggedPhoto)
 
 		if photo_source:
-			if photo_source not in ['mapillary', 'hillview']:
+			if photo_source not in ['mapillary', 'hillview', 'panoramax']:
 				raise HTTPException(
 					status_code=status.HTTP_400_BAD_REQUEST,
-					detail="photo_source must be 'mapillary' or 'hillview'"
+					detail="photo_source must be one of 'mapillary', 'hillview', 'panoramax'"
 				)
 			query = query.where(FlaggedPhoto.photo_source == photo_source)
 

@@ -53,6 +53,10 @@ export async function hidePhotoRequest(photo: PhotoData): Promise<PhotoActionRes
         if (photoSource) {
             simplePhotoWorker.removePhotoFromCache?.(photo.id, photoSource);
         }
+        if (photoSource === 'panoramax') {
+            // Refresh worker-side cache so the next Panoramax search filters out this photo.
+            simplePhotoWorker.invalidatePanoramaxHidden?.();
+        }
 
         return { success: true, message: 'Photo hidden successfully', error: false };
     } catch (err) {

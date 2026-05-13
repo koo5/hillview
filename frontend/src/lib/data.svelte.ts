@@ -41,7 +41,7 @@ export type subtype = 'hillview' | 'folder' | 'gallery';
 export interface Source {
 	id: string;
 	name: string;
-	type: 'stream' | 'device';
+	type: 'stream' | 'device' | 'panoramax';
 	enabled: boolean;
 	color: string;
 	url?: string;
@@ -69,6 +69,14 @@ const baseSources: Source[] = [
 		enabled: false/*!import.meta.env.VITE_PICS_OFF*/,
 		color: '#888',
 		url: `${backendUrl}/mapillary`
+	},
+	{
+		id: 'panoramax',
+		name: 'Panoramax',
+		type: 'panoramax',
+		enabled: false,
+		color: '#3a8',
+		url: 'https://api.panoramax.xyz'
 	}
 ];
 
@@ -302,7 +310,7 @@ sources.subscribe(async (s: Source[]) => {
 export function enableSourceForPhotoUid(photoUid: string): string | null {
 	const sourceType = parsePhotoUidParts(photoUid)?.source;
 
-	if (sourceType && (sourceType === 'hillview' || sourceType === 'mapillary')) {
+	if (sourceType && (sourceType === 'hillview' || sourceType === 'mapillary' || sourceType === 'panoramax')) {
 		console.log('🢄Attempting to enable source for photo:', sourceType);
 
 		let wasEnabled = false;
