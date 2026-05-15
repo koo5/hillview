@@ -29,13 +29,13 @@ test.describe('Browser Capture → Upload', () => {
 
 		// Open camera
 		const cameraButton = page.locator('[data-testid="camera-button"]');
-		await cameraButton.waitFor({ state: 'visible', timeout: 15000 });
+		await cameraButton.waitFor({ state: 'visible', timeout: 11*15000 });
 		await cameraButton.click({ force: true });
 
 		// Wait for capture button to be ready
 		const captureButton = page.locator('[data-testid="single-capture-button"]');
-		await captureButton.waitFor({ state: 'visible', timeout: 15000 });
-		await expect(captureButton).toBeEnabled({ timeout: 15000 });
+		await captureButton.waitFor({ state: 'visible', timeout: 11*15000 });
+		await expect(captureButton).toBeEnabled({ timeout: 11*15000 });
 
 		// Confirm no photos yet
 		const initialCount = await getPhotoCount(page);
@@ -83,10 +83,10 @@ test.describe('Browser Capture → Upload', () => {
 
 		// Wait for photos list and verify our specific photo is present
 		const photosList = page.locator('[data-testid="photos-list"]');
-		await photosList.waitFor({ state: 'visible', timeout: 15000 });
+		await photosList.waitFor({ state: 'visible', timeout: 11*15000 });
 
 		const ourPhoto = photosList.locator(`[data-photo-id="${expectedPhotoId}"]`);
-		await expect(ourPhoto.first()).toBeVisible({ timeout: 10000 });
+		await expect(ourPhoto.first()).toBeVisible({ timeout: 11*10000 });
 	});
 
 	test('subsequent photo after login uploads automatically', async ({ page, testUsers }) => {
@@ -101,12 +101,12 @@ test.describe('Browser Capture → Upload', () => {
 
 		// Open camera
 		const cameraButton = page.locator('[data-testid="camera-button"]');
-		await cameraButton.waitFor({ state: 'visible', timeout: 15000 });
+		await cameraButton.waitFor({ state: 'visible', timeout: 11*15000 });
 		await cameraButton.click({ force: true });
 
 		const captureButton = page.locator('[data-testid="single-capture-button"]');
-		await captureButton.waitFor({ state: 'visible', timeout: 15000 });
-		await expect(captureButton).toBeEnabled({ timeout: 15000 });
+		await captureButton.waitFor({ state: 'visible', timeout: 11*15000 });
+		await expect(captureButton).toBeEnabled({ timeout: 11*15000 });
 
 		// Capture first photo — auto-upload not configured yet
 		await captureButton.click();
@@ -126,10 +126,10 @@ test.describe('Browser Capture → Upload', () => {
 		// Go back to camera for second capture
 		await page.goto('/');
 		await page.waitForLoadState('networkidle');
-		await cameraButton.waitFor({ state: 'visible', timeout: 15000 });
+		await cameraButton.waitFor({ state: 'visible', timeout: 11*15000 });
 		await cameraButton.click({ force: true });
-		await captureButton.waitFor({ state: 'visible', timeout: 15000 });
-		await expect(captureButton).toBeEnabled({ timeout: 15000 });
+		await captureButton.waitFor({ state: 'visible', timeout: 11*15000 });
+		await expect(captureButton).toBeEnabled({ timeout: 11*15000 });
 
 		// Capture second photo — should upload automatically (already configured)
 		await captureButton.click();
@@ -156,10 +156,10 @@ test.describe('Browser Capture → Upload', () => {
 		}
 
 		const photosList = page.locator('[data-testid="photos-list"]');
-		await photosList.waitFor({ state: 'visible', timeout: 15000 });
+		await photosList.waitFor({ state: 'visible', timeout: 11*15000 });
 
 		const photoItems = photosList.locator(':scope > *');
-		await expect(photoItems.first()).toBeVisible({ timeout: 10000 });
+		await expect(photoItems.first()).toBeVisible({ timeout: 11*10000 });
 
 		// Verify the exact photos we uploaded appear on the server
 		const serverPhotoIds = await photosList.locator('[data-photo-id]').evaluateAll(

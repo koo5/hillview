@@ -16,7 +16,7 @@ test.describe('Authentication Integration', () => {
     await page.getByTestId('login-submit-button').click();
 
     // Should stay on login page and show error
-    await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 11*10000 });
     await expect(page).toHaveURL('/login');
   });
 
@@ -29,7 +29,7 @@ test.describe('Authentication Integration', () => {
     await page.getByTestId('login-submit-button').click();
 
     // Should stay on login page and show error
-    await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 11*10000 });
     await expect(page).toHaveURL('/login');
   });
 

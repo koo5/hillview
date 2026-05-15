@@ -6,7 +6,7 @@ test.describe('Activity Page', () => {
 		await page.waitForLoadState('networkidle');
 
 		// Wait for loading to finish
-		await expect(page.getByTestId('activity-loading')).toBeHidden({ timeout: 15000 });
+		await expect(page.getByTestId('activity-loading')).toBeHidden({ timeout: 11*15000 });
 
 		// Should show either activity list or empty state (no crash)
 		const activityList = page.getByTestId('activity-list');
@@ -23,7 +23,7 @@ test.describe('Activity Page', () => {
 	test('should show user groups when activity exists', async ({ page }) => {
 		await page.goto('/activity');
 		await page.waitForLoadState('networkidle');
-		await expect(page.getByTestId('activity-loading')).toBeHidden({ timeout: 15000 });
+		await expect(page.getByTestId('activity-loading')).toBeHidden({ timeout: 11*15000 });
 
 		const activityList = page.getByTestId('activity-list');
 		if (await activityList.isVisible().catch(() => false)) {

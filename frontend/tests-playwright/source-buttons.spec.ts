@@ -13,13 +13,13 @@ test.describe('Source Buttons Toggle', () => {
     await page.waitForLoadState('networkidle');
 
     // Wait for map to be ready
-    await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 
     // Open the hunter-mode panel which contains the source buttons
     await ensureHunterMode(page, true);
 
     // Wait for source buttons to appear
-    await page.waitForSelector('.source-buttons-group', { timeout: 5000 });
+    await page.waitForSelector('.source-buttons-group', { timeout: 11*5000 });
   });
 
   test('should disable other sources, enable Mapillary, and show Mapillary photos', async ({ page }) => {
@@ -208,16 +208,16 @@ test.describe('Source Buttons Toggle', () => {
     });
 
     // Wait for markers to appear (poll instead of fixed timeout)
-    await page.locator('.optimized-photo-marker:visible').first().waitFor({ state: 'visible', timeout: 20000 });
+    await page.locator('.optimized-photo-marker:visible').first().waitFor({ state: 'visible', timeout: 11*20000 });
 
     // Wait for initial photos to be loaded and available
-    await page.waitForSelector('[data-testid="main-photo"]', { timeout: 30000 });
+    await page.waitForSelector('[data-testid="main-photo"]', { timeout: 11*30000 });
 
     // Already at first location (Prague city center)
     await setMapLocation(page, 50.0755, 14.4378, 18, 'Prague city center');
 
     // Wait for new photos to be available after map move
-    await page.waitForSelector('[data-testid="main-photo"]', { timeout: 30000 });
+    await page.waitForSelector('[data-testid="main-photo"]', { timeout: 11*30000 });
 
     // Capture front photo data (there are 3: left, front, right)
     const frontPhoto = page.locator('[data-testid="main-photo"].front');

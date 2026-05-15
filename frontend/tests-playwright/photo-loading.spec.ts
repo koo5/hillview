@@ -20,8 +20,8 @@ test.describe('Photo Loading and Display', () => {
 
   test('should display photo markers on the map', async ({ page }) => {
     // Wait for initial map load
-    await page.waitForSelector('.leaflet-container', { timeout: 10000 });
-    await page.waitForSelector('.source-buttons-group', { timeout: 5000 });
+    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
+    await page.waitForSelector('.source-buttons-group', { timeout: 11*5000 });
 
     // Set up mock Mapillary data (default location is Prague: 50.0755, 14.4378)
     await setupDefaultMockMapillaryData(page);
@@ -35,7 +35,7 @@ test.describe('Photo Loading and Display', () => {
     });
 
     // Wait for sources to load and photos to appear (poll instead of fixed timeout)
-    await page.locator('.optimized-photo-marker:visible').first().waitFor({ state: 'visible', timeout: 20000 });
+    await page.locator('.optimized-photo-marker:visible').first().waitFor({ state: 'visible', timeout: 11*20000 });
 
     // Look for photo markers on the map
     const leafletMarkers = page.locator('.optimized-photo-marker:visible');

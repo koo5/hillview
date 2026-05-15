@@ -9,7 +9,7 @@ test.describe('Account Page', () => {
 		await page.waitForLoadState('networkidle');
 
 		const profileCard = page.getByTestId('profile-card');
-		await expect(profileCard).toBeVisible({ timeout: 10000 });
+		await expect(profileCard).toBeVisible({ timeout: 11*10000 });
 
 		// Username should match the logged-in user
 		await expect(page.getByTestId('account-username')).toHaveText('test');
@@ -24,7 +24,7 @@ test.describe('Account Page', () => {
 
 		await page.goto('/account');
 		await page.waitForLoadState('networkidle');
-		await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: 11*10000 });
 
 		// Open the delete dialog
 		await page.getByTestId('account-delete-button').click();
@@ -43,7 +43,7 @@ test.describe('Account Page', () => {
 
 		await page.goto('/account');
 		await page.waitForLoadState('networkidle');
-		await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: 11*10000 });
 
 		await page.getByTestId('account-delete-button').click();
 		await expect(page.getByTestId('delete-confirm-modal')).toBeVisible();

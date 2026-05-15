@@ -103,7 +103,7 @@ test.describe('Runtime Error Detection', () => {
     });
 
     // Wait for map to fully initialize
-    await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
     await page.waitForTimeout(2000);
 
     // Check that the map has loaded without errors

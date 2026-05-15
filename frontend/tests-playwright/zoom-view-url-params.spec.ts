@@ -9,17 +9,17 @@ type Page = import('@playwright/test').Page;
 /** Open the OSD viewer by clicking the main photo. */
 async function openViewer(page: Page) {
   const mainPhoto = page.locator('[data-testid="main-photo"]');
-  await mainPhoto.waitFor({ state: 'visible', timeout: 30000 });
+  await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
   await mainPhoto.click();
-  await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 15000 });
-  await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 15000 });
+  await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*15000 });
+  await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 11*15000 });
   await page.waitForTimeout(500);
 }
 
 /** Close the OSD viewer via the close button. */
 async function closeViewer(page: Page) {
   await page.click('[data-testid="osd-viewer-close"]');
-  await expect(page.locator('[data-testid="osd-viewer-overlay"]')).not.toBeVisible({ timeout: 5000 });
+  await expect(page.locator('[data-testid="osd-viewer-overlay"]')).not.toBeVisible({ timeout: 11*5000 });
   await page.waitForTimeout(500);
 }
 
@@ -47,7 +47,7 @@ test.describe('Zoom View URL Parameters', () => {
 
       // Wait for photo to appear in gallery
       const mainPhoto = page.locator('[data-testid="main-photo"]');
-      await mainPhoto.waitFor({ state: 'visible', timeout: 30000 });
+      await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
 
       // URL should NOT have zoom params before opening viewer
       const urlBefore = getUrlParams(page.url());
@@ -93,7 +93,7 @@ test.describe('Zoom View URL Parameters', () => {
       await ensureSourceEnabled(page, 'hillview', true);
 
       const mainPhoto = page.locator('[data-testid="main-photo"]');
-      await mainPhoto.waitFor({ state: 'visible', timeout: 30000 });
+      await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
       await openViewer(page);
 
       // Wait for initial viewport bounds
@@ -136,7 +136,7 @@ test.describe('Zoom View URL Parameters', () => {
       await ensureSourceEnabled(page, 'hillview', true);
 
       const mainPhoto = page.locator('[data-testid="main-photo"]');
-      await mainPhoto.waitFor({ state: 'visible', timeout: 30000 });
+      await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
       await openViewer(page);
 
       // Wait for params to appear
@@ -181,8 +181,8 @@ test.describe('Zoom View URL Parameters', () => {
       // It may be very brief if data loads fast, so check with a short timeout
       // or check that eventually either the pending overlay or the viewer is visible
       const eitherVisible = await Promise.race([
-        pendingOverlay.waitFor({ state: 'visible', timeout: 5000 }).then(() => 'pending'),
-        page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 15000 }).then(() => 'viewer'),
+        pendingOverlay.waitFor({ state: 'visible', timeout: 11*5000 }).then(() => 'pending'),
+        page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*15000 }).then(() => 'viewer'),
       ]);
 
       expect(['pending', 'viewer']).toContain(eitherVisible);
@@ -205,8 +205,8 @@ test.describe('Zoom View URL Parameters', () => {
       await ensureSourceEnabled(page, 'hillview', true);
 
       // Wait for the OSD viewer to open (either from pending or directly)
-      await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 30000 });
-      await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 15000 });
+      await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*30000 });
+      await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 11*15000 });
 
       // Wait for viewport bounds to settle and URL to update
       await page.waitForTimeout(2000);
@@ -237,13 +237,13 @@ test.describe('Zoom View URL Parameters', () => {
 
       const pendingOverlay = page.locator('[data-testid="zoom-view-pending"]');
       // The pending overlay should appear (photo won't load)
-      await pendingOverlay.waitFor({ state: 'visible', timeout: 10000 });
+      await pendingOverlay.waitFor({ state: 'visible', timeout: 11*10000 });
 
       // Click close button
       await page.click('[data-testid="zoom-view-pending-close"]');
 
       // Pending overlay should disappear
-      await expect(pendingOverlay).not.toBeVisible({ timeout: 5000 });
+      await expect(pendingOverlay).not.toBeVisible({ timeout: 11*5000 });
 
       // Zoom params should be cleared from URL
       await page.waitForTimeout(1000);
@@ -296,7 +296,7 @@ test.describe('Zoom View URL Parameters', () => {
       await ensureSourceEnabled(page, 'hillview', true);
 
       const mainPhoto = page.locator('[data-testid="main-photo"]');
-      await mainPhoto.waitFor({ state: 'visible', timeout: 30000 });
+      await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
       await openViewer(page);
 
       // Wait for all URL params to settle

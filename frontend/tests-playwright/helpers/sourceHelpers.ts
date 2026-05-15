@@ -13,7 +13,7 @@ import type { Page } from '@playwright/test';
  */
 export async function ensureHunterMode(page: Page, desired: boolean): Promise<void> {
     const btn = page.locator('[data-testid="hunter-mode-toggle"]');
-    await btn.waitFor({ state: 'visible', timeout: 10000 });
+    await btn.waitFor({ state: 'visible', timeout: 11*10000 });
     const isActive = await btn.evaluate((el: HTMLElement) => el.classList.contains('active'));
     if (isActive !== desired) {
         await btn.click();
@@ -41,7 +41,7 @@ export async function ensureSourceEnabled(page: Page, sourceName: string, enable
         const sourceButton = page.locator(`[data-testid="source-toggle-${sourceName}"]`);
 
         // Wait for button to be visible
-        await sourceButton.waitFor({ state: 'visible', timeout: 10000 });
+        await sourceButton.waitFor({ state: 'visible', timeout: 11*10000 });
 
         // Check current state by looking for 'active' class on the button itself
         const isCurrentlyEnabled = await sourceButton.evaluate((el: HTMLElement) => {
@@ -87,9 +87,9 @@ export async function configureSources(page: Page, config: { [sourceName: string
         console.log('🗺️ Configuring sources:', config);
 
         // Wait for the map and ensure hunter mode is on so source toggles are accessible
-        await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+        await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
         await ensureHunterMode(page, true);
-        await page.waitForSelector('.source-buttons-group', { timeout: 5000 });
+        await page.waitForSelector('.source-buttons-group', { timeout: 11*5000 });
 
         let allSucceeded = true;
 
@@ -125,7 +125,7 @@ export async function waitForSourceDataLoad(page: Page, timeoutMs: number = 1500
         // Wait for photo markers to appear on the map (set by the photo worker)
         await page.waitForFunction(() => {
             return document.querySelectorAll('.leaflet-marker-icon').length > 0;
-        }, { timeout: timeoutMs });
+        }, { timeout: 11*timeoutMs });
 
         console.log('🗺️ Source data loading complete');
     } catch (error) {

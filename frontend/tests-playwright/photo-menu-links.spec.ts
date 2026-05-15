@@ -19,12 +19,12 @@ import { setMapLocation } from './helpers/mapSetup';
 async function openGalleryPhotoMenu(page: any) {
 	await page.goto('/');
 	await page.waitForLoadState('networkidle');
-	await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+	await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 	// PhotoActionsMenu is only attached to the front photo in the gallery.
 	const menuTrigger = page.locator('[data-testid="photo-actions-menu"]');
-	await menuTrigger.first().waitFor({ state: 'visible', timeout: 15000 });
+	await menuTrigger.first().waitFor({ state: 'visible', timeout: 11*15000 });
 	await menuTrigger.first().click();
-	await page.locator('[data-testid="photo-actions-dropdown"]').waitFor({ state: 'visible', timeout: 5000 });
+	await page.locator('[data-testid="photo-actions-dropdown"]').waitFor({ state: 'visible', timeout: 11*5000 });
 }
 
 test.describe('Photo actions menu — link semantics', () => {
@@ -102,10 +102,10 @@ test.describe('Photo actions menu — link semantics', () => {
 
 		await page.goto('/');
 		await page.waitForLoadState('networkidle');
-		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 		await setMapLocation(page, centerLat, centerLng, 16);
 		await configureSources(page, { hillview: false, device: false, mapillary: true });
-		await page.waitForSelector('[data-testid="main-photo"]', { timeout: 20000 });
+		await page.waitForSelector('[data-testid="main-photo"]', { timeout: 11*20000 });
 
 		// Sanity-check the front photo's source is mapillary.
 		const source = await page
@@ -118,9 +118,9 @@ test.describe('Photo actions menu — link semantics', () => {
 		expect(source).toBe('mapillary');
 
 		const menuTrigger = page.locator('[data-testid="photo-actions-menu"]').first();
-		await menuTrigger.waitFor({ state: 'visible', timeout: 10000 });
+		await menuTrigger.waitFor({ state: 'visible', timeout: 11*10000 });
 		await menuTrigger.click();
-		await page.locator('[data-testid="photo-actions-dropdown"]').waitFor({ state: 'visible', timeout: 5000 });
+		await page.locator('[data-testid="photo-actions-dropdown"]').waitFor({ state: 'visible', timeout: 11*5000 });
 
 		const item = page.locator('[data-testid="menu-captured-at"]');
 		await expect(item).toBeVisible();

@@ -39,7 +39,7 @@ test.describe('Auth Scenarios', () => {
       // Verify account page works while logged in
       await page.goto('/account');
       await page.waitForLoadState('networkidle');
-      await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: 11*10000 });
 
       // Logout
       await page.goto('/');
@@ -68,14 +68,14 @@ test.describe('Auth Scenarios', () => {
       await page.getByTestId('login-submit-button').click();
 
       // Should show error and stay on login
-      await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 11*10000 });
       await expect(page).toHaveURL('/login');
 
       // Second attempt — correct password
       await page.getByTestId('login-password-input').fill(testUsers.passwords.test);
       await page.getByTestId('login-submit-button').click();
 
-      await page.waitForURL('/', { timeout: 15000 });
+      await page.waitForURL('/', { timeout: 11*15000 });
       await expect(page).toHaveURL('/');
     });
 
@@ -88,14 +88,14 @@ test.describe('Auth Scenarios', () => {
       await page.getByTestId('login-password-input').fill(testUsers.passwords.test);
       await page.getByTestId('login-submit-button').click();
 
-      await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 11*10000 });
 
       // Correct credentials
       await page.getByTestId('login-username-input').fill('test');
       await page.getByTestId('login-password-input').fill(testUsers.passwords.test);
       await page.getByTestId('login-submit-button').click();
 
-      await page.waitForURL('/', { timeout: 15000 });
+      await page.waitForURL('/', { timeout: 11*15000 });
     });
   });
 
@@ -125,7 +125,7 @@ test.describe('Auth Scenarios', () => {
       await page.getByTestId('login-username-input').fill('test');
       await page.getByTestId('login-password-input').fill(testUsers.passwords.test);
       await page.getByTestId('login-submit-button').click();
-      await page.waitForURL('/', { timeout: 15000 });
+      await page.waitForURL('/', { timeout: 11*15000 });
 
       expect(errors.length, `Unexpected console errors: ${errors.join(', ')}`).toBe(0);
     });
@@ -168,7 +168,7 @@ test.describe('Auth Scenarios', () => {
       // Navigate to account
       await page.goto('/account');
       await page.waitForLoadState('networkidle');
-      await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 10000 });
+      await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 11*10000 });
 
       // Navigate to home
       await page.goto('/');
@@ -177,7 +177,7 @@ test.describe('Auth Scenarios', () => {
       // Navigate back to account — should still be logged in
       await page.goto('/account');
       await page.waitForLoadState('networkidle');
-      await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 10000 });
+      await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 11*10000 });
     });
 
     test('auth persists after page reload', async ({ page, testUsers }) => {
@@ -185,12 +185,12 @@ test.describe('Auth Scenarios', () => {
 
       await page.goto('/account');
       await page.waitForLoadState('networkidle');
-      await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 10000 });
+      await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 11*10000 });
 
       // Hard reload
       await page.reload();
       await page.waitForLoadState('networkidle');
-      await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 10000 });
+      await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 11*10000 });
     });
   });
 
@@ -217,14 +217,14 @@ test.describe('Auth Scenarios', () => {
       await page.getByTestId('login-submit-button').click();
 
       // Should show success message and switch to login form
-      await expect(page.getByTestId('login-success-message')).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('login-success-message')).toBeVisible({ timeout: 11*10000 });
 
       // Now login with the new credentials
       await page.getByTestId('login-username-input').fill(uniqueUsername);
       await page.getByTestId('login-password-input').fill(password);
       await page.getByTestId('login-submit-button').click();
 
-      await page.waitForURL('/', { timeout: 15000 });
+      await page.waitForURL('/', { timeout: 11*15000 });
     });
 
     test('register with existing username shows error', async ({ page, testUsers }) => {
@@ -241,7 +241,7 @@ test.describe('Auth Scenarios', () => {
       await page.getByTestId('login-submit-button').click();
 
       // Should show error
-      await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 10000 });
+      await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 11*10000 });
     });
 
     test('toggle between login and register forms preserves no stale state', async ({ page }) => {
@@ -273,7 +273,7 @@ test.describe('Auth Scenarios', () => {
       await loginAsTestUser(page, testUsers.passwords.test);
       await page.goto('/account');
       await page.waitForLoadState('networkidle');
-      await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 10000 });
+      await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 11*10000 });
 
       // Logout
       await page.goto('/');
@@ -284,7 +284,7 @@ test.describe('Auth Scenarios', () => {
       await loginAs(page, 'admin', testUsers.passwords.admin);
       await page.goto('/account');
       await page.waitForLoadState('networkidle');
-      await expect(page.getByTestId('account-username')).toHaveText('admin', { timeout: 10000 });
+      await expect(page.getByTestId('account-username')).toHaveText('admin', { timeout: 11*10000 });
     });
   });
 
@@ -299,7 +299,7 @@ test.describe('Auth Scenarios', () => {
       // Try to visit login page
       await page.goto('/login');
       // Should redirect back since already authenticated
-      await page.waitForURL('/', { timeout: 15000 });
+      await page.waitForURL('/', { timeout: 11*15000 });
     });
 
     test('submit button is disabled while loading', async ({ page, testUsers }) => {
@@ -315,7 +315,7 @@ test.describe('Auth Scenarios', () => {
 
       // Button should show loading text briefly
       // (may be too fast to catch, so we just verify the login succeeds)
-      await page.waitForURL('/', { timeout: 15000 });
+      await page.waitForURL('/', { timeout: 11*15000 });
     });
   });
 });

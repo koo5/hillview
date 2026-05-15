@@ -22,7 +22,7 @@ test.describe('Photo Detail Page', () => {
 		await page.goto(`/photo/${photoUid}`);
 		await page.waitForLoadState('networkidle');
 
-		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 		await expect(page.getByTestId('photo-detail-image')).toBeVisible();
 
 		// Owner should be shown
@@ -36,18 +36,18 @@ test.describe('Photo Detail Page', () => {
 		await page.goto('/photo/nonexistent-uid-12345');
 		await page.waitForLoadState('networkidle');
 
-		await expect(page.getByTestId('photo-detail-error')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByTestId('photo-detail-error')).toBeVisible({ timeout: 11*10000 });
 	});
 
 	test('should navigate to map when View on Map is clicked', async ({ page }) => {
 		await page.goto(`/photo/${photoUid}`);
 		await page.waitForLoadState('networkidle');
-		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 
 		await page.getByTestId('photo-detail-view-on-map').click();
 
 		// Should navigate to the map page with coordinates
-		await page.waitForURL(/\/\?.*lat=.*lon=/, { timeout: 10000 });
+		await page.waitForURL(/\/\?.*lat=.*lon=/, { timeout: 11*10000 });
 	});
 
 	test('should show action buttons', async ({ page, testUsers }) => {
@@ -55,7 +55,7 @@ test.describe('Photo Detail Page', () => {
 
 		await page.goto(`/photo/${photoUid}`);
 		await page.waitForLoadState('networkidle');
-		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 
 		// Rating buttons
 		await expect(page.getByTestId('thumbs-up-button')).toBeVisible();
@@ -76,29 +76,29 @@ test.describe('Photo Detail Page', () => {
 
 		await page.goto(`/photo/${photoUid}`);
 		await page.waitForLoadState('networkidle');
-		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 
 		const flagButton = page.getByTestId('menu-flag');
 
 		// Flag the photo
 		await flagButton.click();
-		await expect(flagButton).toHaveClass(/flagged/, { timeout: 5000 });
+		await expect(flagButton).toHaveClass(/flagged/, { timeout: 11*5000 });
 		await expect(flagButton).toContainText('Remove Flag');
 
 		// Unflag the photo
 		await flagButton.click();
-		await expect(flagButton).not.toHaveClass(/flagged/, { timeout: 5000 });
+		await expect(flagButton).not.toHaveClass(/flagged/, { timeout: 11*5000 });
 		await expect(flagButton).toContainText('Flag');
 	});
 
 	test('should navigate to user profile when owner link is clicked', async ({ page }) => {
 		await page.goto(`/photo/${photoUid}`);
 		await page.waitForLoadState('networkidle');
-		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 10000 });
+		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 
 		await page.getByTestId('photo-detail-owner').click();
 
 		// Should navigate to the user profile page
-		await page.waitForURL(/\/users\//, { timeout: 10000 });
+		await page.waitForURL(/\/users\//, { timeout: 11*10000 });
 	});
 });

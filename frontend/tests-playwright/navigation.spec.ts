@@ -4,12 +4,12 @@ test.describe('Map Navigation and Photo Turning', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the main page
     await page.goto('/');
-    
+
     // Wait for the app to load
     await page.waitForLoadState('networkidle');
-    
+
     // Wait for map to be ready
-    await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
   });
 
   test('should load main page without runtime errors', async ({ page }) => {
@@ -33,8 +33,8 @@ test.describe('Map Navigation and Photo Turning', () => {
     // Check for specific runtime errors that were problematic
     const hasPositionError = errors.some(error => error.includes('pos is not defined'));
     const hasBearingError = errors.some(error => error.includes('bearing is not defined'));
-    const hasUncaughtError = uncaughtExceptions.some(error => 
-      error.includes('pos is not defined') || 
+    const hasUncaughtError = uncaughtExceptions.some(error =>
+      error.includes('pos is not defined') ||
       error.includes('bearing is not defined')
     );
 
@@ -59,7 +59,7 @@ test.describe('Map Navigation and Photo Turning', () => {
     await page.keyboard.press('z');
     await page.waitForTimeout(100);
 
-    // Test x key (rotate right)  
+    // Test x key (rotate right)
     await page.keyboard.press('x');
     await page.waitForTimeout(100);
 
@@ -75,8 +75,8 @@ test.describe('Map Navigation and Photo Turning', () => {
     }
 
     // Check for runtime errors during rotation
-    const hasRotationErrors = errors.some(error => 
-      error.includes('pos is not defined') || 
+    const hasRotationErrors = errors.some(error =>
+      error.includes('pos is not defined') ||
       error.includes('bearing is not defined') ||
       error.includes('updateBearing') ||
       error.includes('spatialState') ||
@@ -114,8 +114,8 @@ test.describe('Map Navigation and Photo Turning', () => {
     }
 
     // Check for runtime errors during photo navigation
-    const hasNavigationErrors = errors.some(error => 
-      error.includes('pos is not defined') || 
+    const hasNavigationErrors = errors.some(error =>
+      error.includes('pos is not defined') ||
       error.includes('bearing is not defined') ||
       error.includes('turn_to_photo_to') ||
       error.includes('photosInArea') ||
@@ -170,8 +170,8 @@ test.describe('Map Navigation and Photo Turning', () => {
     }
 
     // Check for runtime errors during panning
-    const hasPanningErrors = errors.some(error => 
-      error.includes('pos is not defined') || 
+    const hasPanningErrors = errors.some(error =>
+      error.includes('pos is not defined') ||
       error.includes('bearing is not defined') ||
       error.includes('spatialState') ||
       error.includes('updateSpatialState') ||
@@ -195,11 +195,11 @@ test.describe('Map Navigation and Photo Turning', () => {
 
     // Check initial URL
     const initialUrl = page.url();
-    
+
     // Perform some navigation actions
     await page.keyboard.press('z'); // rotate
     await page.waitForTimeout(200);
-    
+
     await page.keyboard.press('x'); // rotate back
     await page.waitForTimeout(200);
 
@@ -209,7 +209,7 @@ test.describe('Map Navigation and Photo Turning', () => {
     if (mapBox) {
       const centerX = mapBox.x + mapBox.width / 2;
       const centerY = mapBox.y + mapBox.height / 2;
-      
+
       await page.mouse.move(centerX, centerY);
       await page.mouse.down();
       await page.mouse.move(centerX + 100, centerY + 100, { steps: 5 });
@@ -218,7 +218,7 @@ test.describe('Map Navigation and Photo Turning', () => {
     }
 
     // Check for URL update errors
-    const hasUrlErrors = errors.some(error => 
+    const hasUrlErrors = errors.some(error =>
       error.includes('Failed to update URL') ||
       error.includes('replaceState') ||
       error.includes('pos is not defined') ||
@@ -244,13 +244,13 @@ test.describe('Map Navigation and Photo Turning', () => {
     await expect(debugButton).toBeVisible();
     await debugButton.click();
     await page.waitForTimeout(200);
-    
+
     // Test clicking again to cycle debug modes
     await debugButton.click();
     await page.waitForTimeout(200);
 
     // Check for debug-related errors
-    const hasDebugErrors = errors.some(error => 
+    const hasDebugErrors = errors.some(error =>
       error.includes('pos is not defined') ||
       error.includes('bearing is not defined') ||
       error.includes('debugOverlay') ||

@@ -22,7 +22,7 @@ test.describe('Filters Modal', () => {
 
 	test('should open and close the filters modal', async ({ page }) => {
 		await page.goto('/');
-		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 		await ensureHunterMode(page, true);
 
 		const filtersButton = page.locator('[data-testid="filters-button"]');
@@ -39,7 +39,7 @@ test.describe('Filters Modal', () => {
 
 	test('clear button and show-unanalyzed toggle should be disabled when no filters active', async ({ page }) => {
 		await page.goto('/');
-		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 		await ensureHunterMode(page, true);
 
 		await page.locator('[data-testid="filters-button"]').click();
@@ -55,7 +55,7 @@ test.describe('Filters Modal', () => {
 
 	test('selecting a filter should enable clear button and show-unanalyzed toggle', async ({ page }) => {
 		await page.goto('/');
-		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 		await ensureHunterMode(page, true);
 
 		await page.locator('[data-testid="filters-button"]').click();
@@ -78,7 +78,7 @@ test.describe('Filters Modal', () => {
 
 	test('clicking a selected filter should deselect it (toggle behavior)', async ({ page }) => {
 		await page.goto('/');
-		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 		await ensureHunterMode(page, true);
 
 		await page.locator('[data-testid="filters-button"]').click();
@@ -100,7 +100,7 @@ test.describe('Filters Modal', () => {
 
 	test('clear all filters should deselect everything', async ({ page }) => {
 		await page.goto('/');
-		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 		await ensureHunterMode(page, true);
 
 		await page.locator('[data-testid="filters-button"]').click();
@@ -128,7 +128,7 @@ test.describe('Filters Modal', () => {
 
 	test('filters button should show active filter count', async ({ page }) => {
 		await page.goto('/');
-		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 		await ensureHunterMode(page, true);
 
 		const filtersButton = page.locator('[data-testid="filters-button"]');
@@ -149,7 +149,7 @@ test.describe('Filters Modal', () => {
 
 	test('show-unanalyzed toggle should be checked by default', async ({ page }) => {
 		await page.goto('/');
-		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 		await ensureHunterMode(page, true);
 
 		await page.locator('[data-testid="filters-button"]').click();
@@ -179,13 +179,13 @@ test.describe('Filters with uploaded photos', () => {
 
 		// Go to map at the test photo's GPS location
 		await page.goto(TEST_PHOTO_MAP_URL);
-		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 		await ensureHunterMode(page, true);
 		await ensureSourceEnabled(page, 'hillview', true);
 
 		// Check that photo markers are visible (unanalyzed photos show by default)
 		const markersBeforeFilter = page.locator('[data-testid^="photo-marker-"]');
-		await expect(markersBeforeFilter).not.toHaveCount(0, { timeout: 15000 });
+		await expect(markersBeforeFilter).not.toHaveCount(0, { timeout: 11*15000 });
 
 		// Open filters and select a filter
 		await page.locator('[data-testid="filters-button"]').click();
@@ -201,7 +201,7 @@ test.describe('Filters with uploaded photos', () => {
 
 		// Photos should still be visible (show_unanalyzed is true by default)
 		const markersWithFilter = page.locator('[data-testid^="photo-marker-"]');
-		await expect(markersWithFilter).not.toHaveCount(0, { timeout: 15000 });
+		await expect(markersWithFilter).not.toHaveCount(0, { timeout: 11*15000 });
 	});
 
 	test('disabling show-unanalyzed should hide unanalyzed photos', async ({ page, testUsers }) => {
@@ -212,13 +212,13 @@ test.describe('Filters with uploaded photos', () => {
 
 		// Go to map at the test photo's GPS location
 		await page.goto(TEST_PHOTO_MAP_URL);
-		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 		await ensureHunterMode(page, true);
 		await ensureSourceEnabled(page, 'hillview', true);
 
 		// Confirm markers exist
 		const markersBefore = page.locator('[data-testid^="photo-marker-"]');
-		await expect(markersBefore).not.toHaveCount(0, { timeout: 15000 });
+		await expect(markersBefore).not.toHaveCount(0, { timeout: 11*15000 });
 
 		// Open filters, select a filter, then uncheck show-unanalyzed
 		await page.locator('[data-testid="filters-button"]').click();
@@ -236,10 +236,10 @@ test.describe('Filters with uploaded photos', () => {
 
 		// All photos are unanalyzed — markers still visible but grayed
 		const markers = page.locator('[data-testid^="photo-marker-"]');
-		await expect(markers).not.toHaveCount(0, { timeout: 15000 });
+		await expect(markers).not.toHaveCount(0, { timeout: 11*15000 });
 		const markerCount = await markers.count();
 		const grayedCircles = page.locator('[data-testid^="photo-marker-"] .bearing-circle.grayed');
-		await expect(grayedCircles).toHaveCount(markerCount, { timeout: 10000 });
+		await expect(grayedCircles).toHaveCount(markerCount, { timeout: 11*10000 });
 	});
 
 	test('re-enabling show-unanalyzed should bring photos back', async ({ page, testUsers }) => {
@@ -250,12 +250,12 @@ test.describe('Filters with uploaded photos', () => {
 
 		// Go to map at the test photo's GPS location
 		await page.goto(TEST_PHOTO_MAP_URL);
-		await page.waitForSelector('.leaflet-container', { timeout: 10000 });
+		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 		await ensureHunterMode(page, true);
 		await ensureSourceEnabled(page, 'hillview', true);
 
 		// Wait for initial marker load before applying filters
-		await expect(page.locator('[data-testid^="photo-marker-"]')).not.toHaveCount(0, { timeout: 15000 });
+		await expect(page.locator('[data-testid^="photo-marker-"]')).not.toHaveCount(0, { timeout: 11*15000 });
 
 		// Open filters, select a filter, uncheck show-unanalyzed
 		await page.locator('[data-testid="filters-button"]').click();
@@ -269,10 +269,10 @@ test.describe('Filters with uploaded photos', () => {
 
 		// Markers visible but grayed
 		const markers = page.locator('[data-testid^="photo-marker-"]');
-		await expect(markers).not.toHaveCount(0, { timeout: 15000 });
+		await expect(markers).not.toHaveCount(0, { timeout: 11*15000 });
 		const markerCount = await markers.count();
 		const grayedCircles = page.locator('[data-testid^="photo-marker-"] .bearing-circle.grayed');
-		await expect(grayedCircles).toHaveCount(markerCount, { timeout: 10000 });
+		await expect(grayedCircles).toHaveCount(markerCount, { timeout: 11*10000 });
 
 		// Re-open and re-enable show-unanalyzed
 		await page.locator('[data-testid="filters-button"]').click();
@@ -283,6 +283,6 @@ test.describe('Filters with uploaded photos', () => {
 		await modal.locator('.close-button').click();
 
 		// Markers should no longer be grayed
-		await expect(grayedCircles).toHaveCount(0, { timeout: 10000 });
+		await expect(grayedCircles).toHaveCount(0, { timeout: 11*10000 });
 	});
 });

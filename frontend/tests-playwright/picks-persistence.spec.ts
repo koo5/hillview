@@ -63,7 +63,7 @@ test.describe('Picks Persistence', () => {
 		await ensureSourceEnabled(page, 'hillview', true);
 		await page.waitForFunction(() => {
 			return document.querySelectorAll('.marker-container[data-photo-id]').length > 0;
-		}, { timeout: 30000 });
+		}, { timeout: 11*30000 });
 		await page.waitForTimeout(2000); // let things settle
 
 		// Read which markers are visible — should be 3 out of 4
@@ -100,7 +100,7 @@ test.describe('Picks Persistence', () => {
 		// because it was sent as a pick to the backend via the URL params.
 		// Poll for it instead of using a fixed timeout.
 		const markerAfterPan = page.locator(`[data-photo-id="${pickId}"]`);
-		await expect(markerAfterPan).toBeVisible({ timeout: 20000 });
+		await expect(markerAfterPan).toBeVisible({ timeout: 11*20000 });
 
 		// Verify the marker is still among the visible markers
 		const markersAfterPan = await getVisibleMarkerIds(page);

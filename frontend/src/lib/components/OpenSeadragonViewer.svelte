@@ -649,7 +649,7 @@
 			userSelectAction: UserSelectAction.SELECT,
 			style: {
 				fill: '#00ff00',
-				fillOpacity: 0.06,
+				fillOpacity: 0.04,
 				stroke: '#00ff00',
 				strokeWidth: 1.5,
 				strokeOpacity: 0.6,

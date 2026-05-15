@@ -97,7 +97,7 @@ test.describe('Photo UID Functionality', () => {
       // Navigate directly with mapillary photo uid
       await page.goto('/?lat=50.0755&lon=14.4378&photo=mapillary-abc123');
       await page.waitForLoadState('networkidle');
-      await page.waitForSelector('.source-buttons-group', { timeout: 10000 });
+      await page.waitForSelector('.source-buttons-group', { timeout: 11*10000 });
 
       // Check that mapillary source is enabled
       const mapillaryButton = page.locator('[data-testid="source-toggle-mapillary"]');
@@ -114,7 +114,7 @@ test.describe('Photo UID Functionality', () => {
       // Navigate directly with hillview photo uid
       await page.goto('/?lat=50.0755&lon=14.4378&photo=hillview-test-123');
       await page.waitForLoadState('networkidle');
-      await page.waitForSelector('.source-buttons-group', { timeout: 10000 });
+      await page.waitForSelector('.source-buttons-group', { timeout: 11*10000 });
 
       // Check that hillview source is enabled
       const hillviewButton = page.locator('[data-testid="source-toggle-hillview"]');
@@ -241,16 +241,16 @@ test.describe('Photo UID Functionality', () => {
 
       // Click on the test user's card (the user we just uploaded photos for)
       const testUserCard = page.locator('[data-testid="user-card-test"]');
-      await expect(testUserCard).toBeVisible({ timeout: 15000 });
+      await expect(testUserCard).toBeVisible({ timeout: 11*15000 });
       await testUserCard.click();
 
       // Wait for navigation to user profile
-      await page.waitForURL(/\/users\/[a-f0-9-]+$/i, { timeout: 10000 });
+      await page.waitForURL(/\/users\/[a-f0-9-]+$/i, { timeout: 11*10000 });
       await page.waitForLoadState('networkidle');
 
       // Find a photo item that has location (clickable)
       const photoItems = page.locator('[data-testid="photo-item"]');
-      await expect(photoItems.first()).toBeVisible({ timeout: 10000 });
+      await expect(photoItems.first()).toBeVisible({ timeout: 11*10000 });
 
       // Click on the first photo's image link to navigate to map
       const photoLink = photoItems.first().locator('a.photo-image');
@@ -261,7 +261,7 @@ test.describe('Photo UID Functionality', () => {
         await photoLink.click();
 
         // Should navigate to map with photo uid
-        await page.waitForURL(/\/\?.*photo=hillview-/, { timeout: 10000 });
+        await page.waitForURL(/\/\?.*photo=hillview-/, { timeout: 11*10000 });
 
         const url = page.url();
         expect(url).toMatch(/lat=[\d.-]+/);

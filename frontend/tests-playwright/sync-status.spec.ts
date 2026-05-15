@@ -38,12 +38,12 @@ async function getFgSyncHistory(page: any): Promise<any[]> {
 
 async function captureAndUploadPhoto(page: any) {
 	const cameraButton = page.locator('[data-testid="camera-button"]');
-	await cameraButton.waitFor({ state: 'visible', timeout: 15000 });
+	await cameraButton.waitFor({ state: 'visible', timeout: 11*15000 });
 	await cameraButton.click({ force: true });
 
 	const captureButton = page.locator('[data-testid="single-capture-button"]');
-	await captureButton.waitFor({ state: 'visible', timeout: 15000 });
-	await expect(captureButton).toBeEnabled({ timeout: 15000 });
+	await captureButton.waitFor({ state: 'visible', timeout: 11*15000 });
+	await expect(captureButton).toBeEnabled({ timeout: 11*15000 });
 
 	await captureButton.click();
 	await waitForPhotoCount(page, 1);

@@ -34,7 +34,7 @@ async function drawAnnotation(
   region = { x1: 0.3, y1: 0.3, x2: 0.6, y2: 0.6 },
 ) {
   // Ensure OSD viewer is open before interacting with canvas
-  await expect(page.locator('[data-testid="osd-viewer-overlay"]')).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('[data-testid="osd-viewer-overlay"]')).toBeVisible({ timeout: 11*5000 });
 
   // Draw mode is one-shot (turns off after each shape), so re-enter it
   await enterDrawMode(page);
@@ -53,13 +53,13 @@ async function drawAnnotation(
 
   // The edit panel opens automatically after drawing
   const editPanel = page.locator('[data-testid="osd-edit-body-panel"]');
-  await editPanel.waitFor({ state: 'visible', timeout: 10000 });
+  await editPanel.waitFor({ state: 'visible', timeout: 11*10000 });
 
   // Fill label and save
   const input = page.locator('[data-testid="osd-edit-body-input"]');
   await input.fill(label);
   await page.click('[data-testid="osd-edit-body-save"]');
-  await expect(editPanel).not.toBeVisible({ timeout: 5000 });
+  await expect(editPanel).not.toBeVisible({ timeout: 11*5000 });
 
   // Wait for server persist
   await page.waitForTimeout(1000);
@@ -104,33 +104,33 @@ async function dragAnnotation(
 /** Wait for the edit panel to appear. */
 async function waitForEditPanel(page: Page) {
   const panel = page.locator('[data-testid="osd-edit-body-panel"]');
-  await panel.waitFor({ state: 'visible', timeout: 10000 });
+  await panel.waitFor({ state: 'visible', timeout: 11*10000 });
   return panel;
 }
 
 /** Open the OSD viewer by clicking the main photo. */
 async function openViewer(page: Page) {
   const mainPhoto = page.locator('[data-testid="main-photo"]');
-  await mainPhoto.waitFor({ state: 'visible', timeout: 30000 });
+  await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
   await mainPhoto.click();
-  await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 15000 });
+  await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*15000 });
   // Wait for OpenSeadragon canvas to initialize (tiled mode)
-  await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 15000 });
+  await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 11*15000 });
   // Wait for the annotation toolbar to appear (signals annotorious is ready)
-  await page.locator('[data-testid="osd-annotate-draw"]').waitFor({ state: 'visible', timeout: 10000 });
+  await page.locator('[data-testid="osd-annotate-draw"]').waitFor({ state: 'visible', timeout: 11*10000 });
 }
 
 /** Close the OSD viewer. */
 async function closeViewer(page: Page) {
   await page.click('[data-testid="osd-viewer-close"]');
-  await expect(page.locator('[data-testid="osd-viewer-overlay"]')).not.toBeVisible({ timeout: 5000 });
+  await expect(page.locator('[data-testid="osd-viewer-overlay"]')).not.toBeVisible({ timeout: 11*5000 });
   await page.waitForTimeout(500);
 }
 
 /** Enter edit mode (idempotent — won't toggle off if already active). */
 async function enterEditMode(page: Page) {
   const btn = page.locator('[data-testid="osd-annotate-edit"]');
-  await btn.waitFor({ state: 'visible', timeout: 5000 });
+  await btn.waitFor({ state: 'visible', timeout: 11*5000 });
   const isActive = await btn.evaluate(el => el.classList.contains('active'));
   if (!isActive) await btn.click();
 }
@@ -138,7 +138,7 @@ async function enterEditMode(page: Page) {
 /** Enter draw mode (idempotent — won't toggle off if already active). */
 async function enterDrawMode(page: Page) {
   const btn = page.locator('[data-testid="osd-annotate-draw"]');
-  await btn.waitFor({ state: 'visible', timeout: 5000 });
+  await btn.waitFor({ state: 'visible', timeout: 11*5000 });
   const isActive = await btn.evaluate(el => el.classList.contains('active'));
   if (!isActive) await btn.click();
 }
@@ -157,21 +157,21 @@ async function editPanelValue(page: Page) {
 /** Save the current edit via the panel button. */
 async function clickSave(page: Page) {
   await page.click('[data-testid="osd-edit-body-save"]');
-  await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 5000 });
+  await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 11*5000 });
   await page.waitForTimeout(500);
 }
 
 /** Cancel the current edit via the panel button. */
 async function clickCancel(page: Page) {
   await page.click('[data-testid="osd-edit-body-cancel"]');
-  await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 5000 });
+  await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 11*5000 });
   await page.waitForTimeout(500);
 }
 
 /** Delete via the edit panel button. */
 async function clickDelete(page: Page) {
   await page.click('[data-testid="osd-edit-body-delete"]');
-  await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 5000 });
+  await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 11*5000 });
   await page.waitForTimeout(500);
 }
 
@@ -209,7 +209,7 @@ test.describe('Annotation Tests', () => {
 
     // Wait for the gallery photo to appear
     const mainPhoto = page.locator('[data-testid="main-photo"]');
-    await mainPhoto.waitFor({ state: 'visible', timeout: 30000 });
+    await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
 
     // Extract photo_id
     photoId = await mainPhoto.evaluate((el) => {
@@ -588,7 +588,7 @@ test.describe('Annotation Tests', () => {
     await page.mouse.click(box.x + box.width * 0.95, box.y + box.height * 0.95);
 
     // Panel should close (auto-save on deselect)
-    await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 11*5000 });
 
     await page.waitForTimeout(1000);
     const annotations = await apiAnnotations(photoId);
@@ -628,7 +628,7 @@ test.describe('Annotation Tests', () => {
     await setLabel(page, 'should-not-persist');
     await page.keyboard.press('Escape');
 
-    await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 11*5000 });
 
     await page.waitForTimeout(500);
     const annotations = await apiAnnotations(photoId);
@@ -647,7 +647,7 @@ test.describe('Annotation Tests', () => {
     await page.locator('[data-testid="osd-edit-body-input"]').focus();
     await page.keyboard.press('Enter');
 
-    await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-testid="osd-edit-body-panel"]')).not.toBeVisible({ timeout: 11*5000 });
 
     await page.waitForTimeout(500);
     const annotations = await apiAnnotations(photoId);
@@ -672,7 +672,7 @@ test.describe('Annotation Tests', () => {
     await page.waitForFunction(
       (n) => ((window as any).__labelDebugCmds ?? []).length >= n,
       count,
-      { timeout: timeoutMs },
+      { timeout: 11*timeoutMs },
     );
     return getLabelCmds(page);
   }

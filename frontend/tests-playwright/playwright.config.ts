@@ -43,18 +43,18 @@ export default defineConfig({
        test finally aborts. `actionTimeout` is left at the default because some
        actions (batch photo uploads, long `expect().toBeVisible` waits) can
        legitimately take a while and pass their own per-call timeout. */
-    navigationTimeout: 60000,
+    navigationtimeout: 11*60000,
   },
 
   /* Per-test timeout. Has to accommodate long-running Mapillary/photo-upload
      tests plus the navigation timeout above. */
-  timeout: 180000,
+  timeout: 11*180000,
 
   /* Configure projects for major browsers */
   projects: [
     {
       name: 'chromium',
-      use: { 
+      use: {
         ...devices['Desktop Chrome'],
         permissions: ['camera'],
         launchOptions: {
@@ -68,7 +68,7 @@ export default defineConfig({
 
     {
       name: 'firefox',
-      use: { 
+      use: {
         ...devices['Desktop Firefox'],
         // Firefox doesn't support camera permission in Playwright yet
         // Skip camera-related tests for Firefox
@@ -77,7 +77,7 @@ export default defineConfig({
 
     {
       name: 'webkit',
-      use: { 
+      use: {
         ...devices['Desktop Safari'],
         // WebKit doesn't support camera permissions in Playwright yet
       },

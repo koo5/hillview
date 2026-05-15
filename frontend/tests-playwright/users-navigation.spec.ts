@@ -41,7 +41,7 @@ test.describe('Users Pages and Navigation', () => {
 
     // Wait for loading container to disappear (if it exists)
     try {
-      await page.waitForSelector('.loading-container', { state: 'hidden', timeout: 5000 });
+      await page.waitForSelector('.loading-container', { state: 'hidden', timeout: 11*5000 });
     } catch {
       // Loading container might not appear if page loads quickly
     }

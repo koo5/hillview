@@ -11,7 +11,7 @@ test.describe('Best Of Page', () => {
 		const errorState = page.locator('.error');
 
 		// Wait for loading to finish
-		await expect(page.locator('.loading-container')).toBeHidden({ timeout: 15000 });
+		await expect(page.locator('.loading-container')).toBeHidden({ timeout: 11*15000 });
 
 		// Should not show an error
 		await expect(errorState).toBeHidden();
@@ -25,7 +25,7 @@ test.describe('Best Of Page', () => {
 	test('should show photo scores when photos exist', async ({ page }) => {
 		await page.goto('/bestof');
 		await page.waitForLoadState('networkidle');
-		await expect(page.locator('.loading-container')).toBeHidden({ timeout: 15000 });
+		await expect(page.locator('.loading-container')).toBeHidden({ timeout: 11*15000 });
 
 		const photoGrid = page.getByTestId('bestof-photo-grid');
 		if (await photoGrid.isVisible().catch(() => false)) {

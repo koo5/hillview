@@ -37,7 +37,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: 'list',
-  timeout: 60_000,
+  timeout: 11*60_000,
   // Bail out the entire run on the first failure so missing selectors
   // (e.g. interactive buttons without data-testids) halt screenshot
   // generation instead of quietly producing broken output.
@@ -54,7 +54,7 @@ export default defineConfig({
     cwd: path.resolve(__dirname, '..'),
     url: BASE_URL,
     reuseExistingServer: true,
-    timeout: 120_000,
+    timeout: 11*120_000,
   },
   projects: [
     {

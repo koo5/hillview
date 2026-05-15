@@ -34,11 +34,25 @@ import hashlib
 # Load environment variables from .env file in same directory as script
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
-# Starlette ≥0.45's MultiPartParser caps each part at 1 MiB by default, which
-# rejects normal photo uploads with `400 "There was an error parsing the body"`.
-# Raise it to MAX_FILE_SIZE (same env var the app's own validator uses).
+# Starlette ≥0.45's MultiPartParser caps each part at 1 MiB by default,
+# which rejects normal photo uploads with
+# `400 "There was an error parsing the body"`. Raise it to MAX_FILE_SIZE
+# (same env var the app's own validator uses).
+#
+# Important: the cap is bound in *three* places — patching just one is a
+# no-op on Starlette ≥0.49 because each layer binds its own default and
+# passes it explicitly down the chain. FastAPI calls ``request.form()``
+# with no args (``fastapi/routing.py``), Starlette's ``Request.form``
+# has its own default, and ``Request._get_form`` likewise — only the
+# innermost ``MultiPartParser.__init__`` default would be hit if all
+# three callers stopped passing the value explicitly, which they
+# don't. So patch the upstream defaults too.
+_MAX_PART_SIZE = int(os.environ.get('MAX_FILE_SIZE', 150 * 1024 * 1024))
 from starlette.formparsers import MultiPartParser
-MultiPartParser.__init__.__kwdefaults__['max_part_size'] = int(os.environ.get('MAX_FILE_SIZE', 150 * 1024 * 1024))
+from starlette.requests import Request
+MultiPartParser.__init__.__kwdefaults__['max_part_size'] = _MAX_PART_SIZE
+Request.form.__kwdefaults__['max_part_size'] = _MAX_PART_SIZE
+Request._get_form.__kwdefaults__['max_part_size'] = _MAX_PART_SIZE
 
 import aiofiles
 import httpx

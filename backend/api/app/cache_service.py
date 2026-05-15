@@ -545,13 +545,22 @@ class MapillaryCacheService:
 			stmt = insert(MapillaryPhotoCache).values(photos_to_insert)
 			stmt = stmt.on_conflict_do_nothing(index_elements=['mapillary_id'])
 
-			await self.db.execute(stmt)
+			try:
+				await self.db.execute(stmt)
 
-			# Update region stats
-			region.photo_count += cached_count
-			region.last_updated = utcnow()
+				# Update region stats
+				region.photo_count += cached_count
+				region.last_updated = utcnow()
 
-			await self.db.commit()
+				await self.db.commit()
+			except BaseException:
+				# Catch BaseException so asyncio.CancelledError also triggers
+				# rollback — otherwise a cancelled background cache-population
+				# coroutine leaves the connection "idle in transaction"
+				# holding row locks on cached_regions, which then wedges every
+				# subsequent DELETE FROM cached_regions (e.g. clear-database).
+				await self.db.rollback()
+				raise
 
 		end_time = datetime.datetime.now()
 		duration = (end_time - start_time).total_seconds()
@@ -560,10 +569,14 @@ class MapillaryCacheService:
 
 	async def mark_region_complete(self, region: CachedRegion):
 		"""Mark a region as completely cached"""
-		region.is_complete = True
-		region.has_more = False
-		region.last_updated = utcnow()
-		await self.db.commit()
+		try:
+			region.is_complete = True
+			region.has_more = False
+			region.last_updated = utcnow()
+			await self.db.commit()
+		except BaseException:
+			await self.db.rollback()
+			raise
 
 	async def get_cache_stats(self) -> Dict[str, Any]:
 		"""Get cache statistics"""
