@@ -138,6 +138,37 @@ test.describe('Sign-In Modal', () => {
       await expectModalVisible(page);
       await dismissModal(page);
     });
+
+  });
+
+  test.describe('Zoom view from URL params - unauthenticated', () => {
+    test.beforeEach(async () => {
+      await recreateTestUsers();
+    });
+
+    test('Draw button shows modal above viewer', async ({ page, testUsers }) => {
+      await loginAsTestUser(page, testUsers.passwords.test);
+      const photoId = await uploadPhoto(page, testPhotos[0]);
+      await logoutUser(page);
+
+      await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=0.1&y1=0.1&x2=0.9&y2=0.9`);
+      await page.waitForLoadState('networkidle');
+      await ensureSourceEnabled(page, 'hillview', true);
+
+      await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*30000 });
+      await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 11*15000 });
+
+      await page.locator('[data-testid="osd-annotate-draw"]').click();
+      await expectModalVisible(page);
+
+      const [modalZ, viewerZ] = await Promise.all([
+        page.locator('[data-testid="sign-in-modal"]').evaluate(el => getComputedStyle(el).zIndex),
+        page.locator('[data-testid="osd-viewer-overlay"]').evaluate(el => getComputedStyle(el).zIndex),
+      ]);
+
+      expect(Number(modalZ)).toBeGreaterThan(Number(viewerZ));
+      await dismissModal(page);
+    });
   });
 
   // ── Zoom view — authenticated ──
