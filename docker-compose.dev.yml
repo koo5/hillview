@@ -43,6 +43,9 @@ services:
       - UPLOAD_DIR=/app/uploads
       - PICS_URL=${PICS_URL:-}
       - MAX_FILE_SIZE=${MAX_FILE_SIZE:-157286400}
+      - MAX_IMAGE_WIDTH=${MAX_IMAGE_WIDTH:-32192}
+      - MAX_IMAGE_HEIGHT=${MAX_IMAGE_HEIGHT:-32192}
+      - MAX_IMAGE_PIXELS=${MAX_IMAGE_PIXELS:-167108864}
       - WORKER_PORT=${WORKER_PORT:-8056}
       - WORKER_HOST=0.0.0.0 # not used
       - API_URL=${API_URL:-http://localhost:8055/api}
