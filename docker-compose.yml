@@ -59,6 +59,7 @@ services:
       - DEV_MODE=${DEV_MODE:-}
       - NO_LIMITS=${NO_LIMITS:-}
       - WORKER_URL=${WORKER_URL:-http://localhost:8056}
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-157286400}
       - PICS_URL=${PICS_URL:-}
       - BUCKET_NAME=${BUCKET_NAME:-}
       - CDN_BASE_URL=${CDN_BASE_URL:-}

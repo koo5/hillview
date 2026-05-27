@@ -17,4 +17,5 @@ backend/uploads/
 **/*.pyc
 
 **/*.kate-swp
-.claude
+.claude.dev_intention
+.dev_intention
