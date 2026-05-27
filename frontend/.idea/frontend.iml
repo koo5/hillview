@@ -20,6 +20,8 @@
       <excludeFolder url="file://$MODULE_DIR$/.husky" />
       <excludeFolder url="file://$MODULE_DIR$/.playwright-mcp" />
       <excludeFolder url="file://$MODULE_DIR$/build" />
+      <excludeFolder url="file://$MODULE_DIR$/tests-playwright/playwright-report" />
+      <excludeFolder url="file://$MODULE_DIR$/tests-playwright/test-results" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

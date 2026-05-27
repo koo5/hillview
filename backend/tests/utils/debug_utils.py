@@ -453,34 +453,49 @@ class TokenManager:
 		self._login()
 
 	def _login(self):
-		import requests
-		from datetime import datetime
-		if self.user and self.password:
-			response = requests.post(
-				f"{self.api_url}/auth/token",
-				data={"username": self.user, "password": self.password},
-				headers={"Content-Type": "application/x-www-form-urlencoded"}
-			)
-			if response.status_code != 200:
-				raise Exception(f"Login failed: {response.status_code} - {response.text}")
-			data = response.json()
-			self.access_token = data["access_token"]
-			self.refresh_token = data.get("refresh_token")
-			expires_str = data.get("expires_at")
-			if expires_str:
-				self.expires_at = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
-		else:
-			self.access_token = auth_helper.get_test_user_token("test")
-			self.refresh_token = None
-			self.expires_at = None
+		# Always do a real password login so we capture the refresh token +
+		# expiry, even on the credential-less path (which defaults to the
+		# shared `test` user). Long upload batches outlive a single access
+		# token (ACCESS_TOKEN_EXPIRE_MINUTES, default 100); the old test-user
+		# path kept only the access_token, so get_token() could never renew
+		# and a >100min batch 401'd partway through. Going through /auth/token
+		# (instead of auth_helper.get_test_user_token, which caches only the
+		# access_token) lets the existing _refresh() flow keep it alive.
+		user, password = self.user, self.password
+		if not (user and password):
+			from .auth_utils import TEST_CREDENTIALS
+			user = "test"
+			password = TEST_CREDENTIALS[user]
+		response = requests.post(
+			f"{self.api_url}/auth/token",
+			data={"username": user, "password": password},
+			headers={"Content-Type": "application/x-www-form-urlencoded"}
+		)
+		if response.status_code != 200:
+			raise Exception(f"Login failed: {response.status_code} - {response.text}")
+		data = response.json()
+		self.access_token = data["access_token"]
+		self.refresh_token = data.get("refresh_token")
+		expires_str = data.get("expires_at")
+		self.expires_at = (
+			datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
+			if expires_str else None
+		)
 
 	def get_token(self) -> str:
 		"""Get current token, refreshing if needed."""
-		# Refresh if expiring in less than 5 minutes
-		if self.expires_at and self.refresh_token:
+		# Refresh if expiring in less than 5 minutes. Both the credentialed
+		# and the default test-user path now carry a refresh token + expiry,
+		# so this renews mid-batch instead of letting the token lapse. The
+		# 5-min margin also covers the up-to-60s wait_for_photo_processing
+		# poll that runs after get_token() with the returned token.
+		if self.expires_at:
 			now = datetime.now(timezone.utc)
 			if (self.expires_at - now).total_seconds() < 300:
-				self._refresh()
+				if self.refresh_token:
+					self._refresh()
+				else:
+					self._login()
 		return self.access_token
 
 	def _refresh(self):
@@ -836,7 +851,7 @@ def main():
 		print("  python debug_utils.py populate-photos       # Create test photos (fixed locations)")
 		print("  python debug_utils.py populate-photos 6     # Create N test photos (max 6)")
 		print("  python debug_utils.py upload-random-photos [N] [--parallel P] [--user U --pass P] [--quality Q]")
-		print("  python debug_utils.py upload-files --license L [--parallel P] [--user U --pass P] [--skip-anonymization] [--fast] [--version N] [--quality Q] file1.jpg ...")
+		print("  python debug_utils.py upload-files --license L [...] file1.jpg ...  (run 'upload-files --help' for all flags)")
 		print("  python debug_utils.py mock-mapillary        # Set up mock Mapillary data")
 		print("  python debug_utils.py clear-mapillary       # Clear mock Mapillary data")
 		print("  python debug_utils.py verify-signature <message_json> <signature_base64> <public_key_pem>")
@@ -899,88 +914,64 @@ def main():
 		with backend_test_lock():
 			upload_random_photos(count, parallel, user, password, quality=quality)
 	elif command == "upload-files":
-		args = sys.argv[2:]
-		parallel, user, password = 1, None, None
-		skip_anonymization = False
-		fast = False
-		version = None
-		description = None
-		quality = None
-		metadata = None
-		license = None
-		manifest_path = None
-		api_url_override = None
-		worker_url_override = None
-		files = []
-		i = 0
-		while i < len(args):
-			if args[i] == "--parallel":
-				parallel = int(args[i + 1])
-				i += 2
-			elif args[i] == "--user":
-				user = args[i + 1]
-				i += 2
-			elif args[i] == "--pass":
-				password = args[i + 1]
-				i += 2
-			elif args[i] == "--skip-anonymization":
-				skip_anonymization = True
-				i += 1
-			elif args[i] == "--fast":
-				fast = True
-				i += 1
-			elif args[i] == "--version":
-				version = int(args[i + 1])
-				i += 2
-			elif args[i] == "--description":
-				description = args[i + 1]
-				i += 2
-			elif args[i] == "--quality":
-				quality = int(args[i + 1])
-				i += 2
-			elif args[i] == "--metadata":
-				metadata = args[i + 1]
-				i += 2
-			elif args[i] == "--license":
-				license = args[i + 1]
-				i += 2
-			elif args[i] == "--manifest":
-				manifest_path = args[i + 1]
-				i += 2
-			elif args[i] == "--api-url":
-				api_url_override = args[i + 1]
-				i += 2
-			elif args[i] == "--worker-url":
-				worker_url_override = args[i + 1]
-				i += 2
-			elif args[i].startswith("--"):
-				print(f"Unknown option: {args[i]}")
-				return
-			else:
-				files.append(args[i])
-				i += 1
-		# Honor --api-url / --worker-url by setting the corresponding env
-		# vars before any module-level reads. test_utils.API_URL is computed
-		# at import via os.getenv("API_URL"), and the per-upload worker
-		# override is read from os.environ.get("WORKER_URL") inside
-		# upload_one. Doing this here keeps the change minimal — no need
-		# to thread URLs through every helper.
-		if api_url_override is not None:
-			os.environ["API_URL"] = api_url_override
-		if worker_url_override is not None:
-			os.environ["WORKER_URL"] = worker_url_override
-		usage = ("Usage: upload-files --license L [--parallel N] [--user U --pass P] "
-		         "[--skip-anonymization] [--fast] [--version N] [--description TEXT] "
-		         "[--quality Q] [--metadata JSON] [--manifest PATH] "
-		         "[--api-url URL] [--worker-url URL] file1.jpg ...")
-		if license is None:
-			print("Error: --license is required")
-			print(usage)
-		elif not files:
-			print(usage)
-		else:
-			with backend_test_lock():
-				upload_files(files, license, parallel, user, password, skip_anonymization=skip_anonymization, version=version, description=description, quality=quality, fast=fast, metadata=metadata, manifest_path=manifest_path)
+		import argparse
+		# allow_abbrev=False keeps the old exact-flag behavior (no --ver→--version
+		# prefix matching). argparse gives `upload-files --help` and required/type
+		# checks for free, replacing the hand-rolled loop this used to be.
+		parser = argparse.ArgumentParser(
+			prog="debug.sh upload-files",
+			description="Upload image files through the secure three-phase workflow.",
+			allow_abbrev=False,
+		)
+		parser.add_argument("files", nargs="+", help="image file paths to upload")
+		parser.add_argument("--license", required=True,
+			help="license identifier sent to authorize-upload (required — the legal "
+			     "terms of an upload are too important to default silently)")
+		parser.add_argument("--parallel", type=int, default=1,
+			help="number of concurrent uploads (default: 1)")
+		parser.add_argument("--user", help="login username (default: the shared 'test' user)")
+		parser.add_argument("--pass", dest="password", help="login password (use with --user)")
+		parser.add_argument("--skip-anonymization", action="store_true",
+			help="skip face/plate anonymization (for noanon tagdirs)")
+		parser.add_argument("--fast", action="store_true",
+			help="skip pyramid / 640_llm / EXIF copy; fast WebP encode")
+		parser.add_argument("--version", type=int,
+			help="authorize-upload version; >1 allows re-uploading completed photos")
+		parser.add_argument("--description", help="photo description")
+		parser.add_argument("--quality", type=int,
+			help="WebP quality 1-100 (default: worker's 97)")
+		parser.add_argument("--metadata",
+			help="JSON (BrowserMetadata schema) for formats without EXIF, e.g. EXR")
+		parser.add_argument("--manifest",
+			help="write a per-file JSON outcome manifest to this path")
+		parser.add_argument("--api-url", help="override the API base URL")
+		parser.add_argument("--worker-url",
+			help="override the worker URL returned by authorize-upload")
+		opts = parser.parse_args(sys.argv[2:])
+
+		# --api-url / --worker-url overrides.
+		#
+		# WORKER_URL is read lazily from os.environ inside upload_one, so
+		# setting the env var is enough to redirect it. API_URL is NOT lazy:
+		# test_utils.API_URL (and the copy imported into this module) is bound
+		# from os.getenv("API_URL") at import time — which already happened
+		# before main() runs — so setting os.environ here is too late. Rebind
+		# those module globals directly; tokens, client-key registration,
+		# photo polling and the upload client all resolve the API base
+		# through them.
+		if opts.api_url is not None:
+			os.environ["API_URL"] = opts.api_url
+			from . import test_utils as _test_utils
+			_test_utils.API_URL = opts.api_url
+			globals()["API_URL"] = opts.api_url
+		if opts.worker_url is not None:
+			os.environ["WORKER_URL"] = opts.worker_url
+
+		with backend_test_lock():
+			upload_files(opts.files, opts.license, opts.parallel, opts.user, opts.password,
+				skip_anonymization=opts.skip_anonymization, version=opts.version,
+				description=opts.description, quality=opts.quality, fast=opts.fast,
+				metadata=opts.metadata, manifest_path=opts.manifest)
 	elif command == "mock-mapillary":
 		with backend_test_lock():
 			setup_mock_mapillary()
