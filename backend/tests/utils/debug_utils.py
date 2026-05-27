@@ -13,7 +13,7 @@ import requests
 from .api_client import api_client
 from .auth_utils import auth_helper
 import asyncio
-from .secure_upload_utils import SecureUploadClient
+from .secure_upload_utils import SecureUploadClient, WorkerUnavailableError
 from .test_utils import wait_for_photo_processing, API_URL
 
 
@@ -409,6 +409,15 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 					tprint(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
 				for w in worker_warnings:
 					tprint(f"      ⚠ {w}")
+			except WorkerUnavailableError as e:
+				# Expected, self-explanatory failure: the message already names the
+				# worker URL and cause, so print it plainly without a traceback.
+				results["failed"] += 1
+				err_text = str(e)
+				failed_files.append((filename, err_text))
+				per_item[i] = {"filename": filename, "status": "failed",
+							   "error": err_text, "stage": "worker_unavailable"}
+				tprint(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
 			except Exception as e:
 				results["failed"] += 1
 				err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__

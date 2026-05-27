@@ -30,6 +30,16 @@ from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, ser
 from .test_utils import recreate_test_users
 
 
+class WorkerUnavailableError(Exception):
+	"""Raised when the worker server can't be reached at its advertised URL.
+
+	This is an expected, self-explanatory failure (the message already names the
+	worker URL and underlying cause), so callers should print it plainly instead
+	of dumping a full traceback.
+	"""
+	pass
+
+
 def generate_test_captured_at(minutes_ago: int = 10) -> str:
 	"""Generate a fake captured_at timestamp for test images.
 
@@ -375,11 +385,11 @@ class SecureUploadClient:
 			async with httpx.AsyncClient() as client:
 				response = await client.get(f"{worker_url}/health", timeout=100.0)
 				if response.status_code == 200:
-					print("✅ Worker server is healthy")
+					print(f"✅ Worker server is healthy ({worker_url})")
 				else:
-					print(f"⚠️ Worker server returned {response.status_code}")
-		except httpx.ConnectError:
-			raise Exception("Worker server not available")
+					print(f"⚠️ Worker server at {worker_url} returned {response.status_code}")
+		except httpx.ConnectError as e:
+			raise WorkerUnavailableError(f"Worker server not available at {worker_url} (from upload authorization): {e}") from None
 
 
 def get_content_type(filename: str) -> str:
