@@ -153,9 +153,10 @@ services:
 volumes:
   postgres_data:
   uploads:
-  pics:
-    external: true
-    name: pics
+  # NB: the `pics` volume is intentionally NOT defined here. The api service
+  # mounts it, so base alone is an invalid project ("undefined volume pics").
+  # An environment overlay (docker-compose.dev.yml / .prod.yml) must define it,
+  # which forces every launch to select an environment.
 
 
 secrets:

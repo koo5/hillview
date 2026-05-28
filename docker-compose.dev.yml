@@ -66,6 +66,11 @@ services:
       - OPENCV_IO_ENABLE_OPENEXR=${OPENCV_IO_ENABLE_OPENEXR:-0}
 
 volumes:
+  # Defined per-environment (not in base) so base alone is unrunnable — see note
+  # in docker-compose.yml. Dev reuses the existing external `pics` volume.
+  pics:
+    external: true
+    name: pics
   pics2:
     external: true
     name: pics2
