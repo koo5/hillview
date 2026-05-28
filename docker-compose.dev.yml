@@ -10,6 +10,9 @@ services:
     volumes:
       - ./backend/api/app:/app/app
       - ./backend/common:/app/common
+      # Second storage pool for local dev (matches the "pics2" files pool in FILE_POOLS).
+      # Prod mounts its real second disk at the pool's path instead.
+      - pics2:/app/pics2
 
   umami:
     network_mode: host
@@ -61,3 +64,8 @@ services:
       # the happy path; this flag only matters for the cv2 fallback branch
       # in read_image(). Default off.
       - OPENCV_IO_ENABLE_OPENEXR=${OPENCV_IO_ENABLE_OPENEXR:-0}
+
+volumes:
+  pics2:
+    external: true
+    name: pics2

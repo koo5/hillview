@@ -167,6 +167,22 @@ Optional configuration:
 - `ENABLE_MAPILLARY_CACHE` - Set to "true", "1", or "yes" to enable caching (disabled by default)
 - `GEOIP_DB_PATH` - Path to MaxMind GeoLite2-City.mmdb (default `/app/data/GeoLite2-City.mmdb`). Used by the `/api/featured/nearest` endpoint to geolocate first-visit clients.
 
+### Storage Pools (`FILE_POOLS`)
+
+Processed photos live in storage **pools**, defined by `FILE_POOLS` — a JSON array read by the API (`common/config.py`). Each entry is a pool keyed by its public base URL:
+
+- **files pool**: `{"type":"files","url":"https://pics.hillview.cz/","path":"/app/pics"}`
+- **cdn pool**: `{"type":"cdn","url":"https://cdn/","bucket":"b","endpoint":"https://s3","secrets_file":"/run/secrets/cdn","addressing_style":"virtual"}`
+
+How it's used:
+
+- **Writes**: when the worker is built with CDN off, it streams files to the API's `/photos/upload-file`, which writes them to the **first `files`-type pool** and returns the public URL (the worker no longer assumes a single `PICS_URL`). When the worker is built with CDN on, it uploads to its env-configured CDN directly.
+- **Deletes**: each photo size's pool is resolved independently from its stored URL (longest base-URL prefix wins), so a photo's variants may span pools. DZI pyramids are deleted too — the `.dzi` descriptor and the `_files/` tile tree (`shutil.rmtree` for files pools, an S3 prefix sweep for cdn pools).
+- **Adding a disk**: serve it (e.g. Caddy at `pics2.hillview.cz`) and **prepend** it as a files pool — new uploads go there, old photos stay deletable on the previous pool.
+- **Fallback**: when `FILE_POOLS` is unset, the registry is synthesised from `PICS_URL`/`PICS_DIR` plus the CDN env (`CDN_BASE_URL`/`BUCKET_NAME`/`AWS_ENDPOINT_URL_S3`) if configured — so existing deployments need no new config.
+
+**cdn credentials**: supplied via the pool's `secrets_file`, a JSON file (mount as a docker secret) containing `{"access_key_id":"...","secret_access_key":"..."}`. Use `"addressing_style":"path"` for self-hosted S3 servers (MinIO/Garage/SeaweedFS); the default `"virtual"` suits hosted providers like Tigris. Multiple cdn pools are supported (e.g. a legacy CDN kept for deletes alongside a new write CDN).
+
 ### Featured Photo GeoLite2 Database Setup
 
 The `/api/featured/nearest` endpoint geolocates the client's IP on first visit and returns the nearest well-annotated photo so new visitors immediately land on an interesting view. IP → location lookup uses MaxMind's free **GeoLite2-City** database (not bundled — operator-provided).

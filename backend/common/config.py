@@ -9,9 +9,10 @@ typed configuration objects for different parts of the application.
 from . import env_init  # noqa: F401 - side effect import
 
 import os
+import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,67 @@ def get_pics_dir() -> Path:
 def get_pics_url() -> str:
 	"""Get the pics URL prefix from environment."""
 	return os.getenv("PICS_URL", "")
+
+
+# Storage pool registry
+# ---------------------
+# FILE_POOLS is a JSON array describing every storage location photos may live in.
+# Each entry is a pool keyed by its public base URL:
+#   files pool: {"type":"files","url":"https://pics.hillview.cz/","path":"/app/pics"}
+#   cdn pool:   {"type":"cdn","url":"https://cdn/","bucket":"b","endpoint":"https://s3",
+#                "secrets_file":"/run/secrets/cdn","addressing_style":"virtual"}
+# New local uploads are written to the first files-type pool; the remaining entries
+# exist so existing photos stay resolvable (for deletion) by matching their URL.
+# When FILE_POOLS is unset we synthesise the registry from the legacy single-pool
+# env (PICS_URL/PICS_DIR) plus the CDN env (CDN_BASE_URL/BUCKET_NAME) when configured,
+# so existing deployments need no new configuration.
+
+_file_pools_cache: Optional[List[Dict[str, Any]]] = None
+
+def get_file_pools() -> List[Dict[str, Any]]:
+	"""Return the ordered list of storage pools (parsed once)."""
+	global _file_pools_cache
+	if _file_pools_cache is not None:
+		return _file_pools_cache
+
+	raw = os.getenv("FILE_POOLS")
+	if raw:
+		pools = json.loads(raw)
+		for pool in pools:
+			pool.setdefault("type", "files")
+	else:
+		pools = [{"type": "files", "url": get_pics_url(), "path": str(get_pics_dir())}]
+		cdn_base_url = os.getenv("CDN_BASE_URL")
+		bucket_name = os.getenv("BUCKET_NAME")
+		if cdn_base_url and bucket_name:
+			pools.append({
+				"type": "cdn",
+				"url": cdn_base_url,
+				"bucket": bucket_name,
+				"endpoint": os.getenv("AWS_ENDPOINT_URL_S3"),
+			})
+
+	logger.info(f"Storage pools: {[(p.get('type'), p.get('url')) for p in pools]}")
+	_file_pools_cache = pools
+	return pools
+
+def get_write_pool() -> Dict[str, Any]:
+	"""Return the pool new local uploads are written to (first files-type pool)."""
+	for pool in get_file_pools():
+		if pool.get("type", "files") == "files":
+			return pool
+	raise RuntimeError("No files-type pool configured in FILE_POOLS")
+
+def resolve_pool_for_url(url: str) -> Optional[Dict[str, Any]]:
+	"""Find the pool a stored URL belongs to (longest matching base URL wins)."""
+	if not url:
+		return None
+	best = None
+	for pool in get_file_pools():
+		base = pool.get("url") or ""
+		if base and url.startswith(base) and (best is None or len(base) > len(best.get("url") or "")):
+			best = pool
+	return best
 
 @dataclass
 class RateLimitConfig:

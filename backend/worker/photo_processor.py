@@ -142,7 +142,7 @@ class AnonymizationOverride(BaseModel):
 
 # Canonical definition lives in exceptions.py (lightweight module) so that
 # app.py can catch this without importing photo_processor at startup.
-from exceptions import PhotoDeletedException
+from exceptions import PhotoDeletedException, PoolMigrationError
 
 
 def safe_parse_float(value, field_name: str = "value") -> Optional[float]:
@@ -688,6 +688,15 @@ class PhotoProcessor:
 			dzi_relative = os.path.relpath(dzi_file, output_base)
 			dzi_url = await self._get_size_url(dzi_file, dzi_relative, photo_id, client_signature)
 
+			# The .dzi URL determines which pool this pyramid lives on. The tile
+			# base URL is derived from it by string surgery, so every tile must
+			# land on the same pool — i.e. each tile's URL must be pool_base +
+			# its relative path. If the API switched its write pool mid-upload
+			# this breaks; we fail hard (PoolMigrationError) and the client retries.
+			if not dzi_url.endswith(dzi_relative):
+				raise PoolMigrationError(f"Unexpected .dzi URL shape for {unique_id}: {dzi_url} does not end with {dzi_relative}")
+			pool_base = dzi_url[:len(dzi_url) - len(dzi_relative)]
+
 			# Derive the tiles base URL from the dzi URL
 			# OpenSeadragon uses {tiles_url}/{level}/{col}_{row}.{format}
 			tiles_url_base = dzi_url.removesuffix('.dzi') + '_files'
@@ -704,7 +713,9 @@ class PhotoProcessor:
 						if not os.path.isfile(tile_path):
 							continue
 						tile_relative = os.path.relpath(tile_path, output_base)
-						await self._get_size_url(tile_path, tile_relative, photo_id, client_signature)
+						tile_url = await self._get_size_url(tile_path, tile_relative, photo_id, client_signature)
+						if tile_url != pool_base + tile_relative:
+							raise PoolMigrationError(f"DZI tile for {unique_id} landed on a different pool than its .dzi: {tile_url} (expected base {pool_base})")
 						tile_count += 1
 				logger.info(f"Uploaded {tile_count} DZI tiles for {unique_id}")
 
@@ -720,8 +731,11 @@ class PhotoProcessor:
 			}
 
 		except Exception as e:
-			logger.warning(f"DZI pyramid generation failed for {unique_id}: {e}", exc_info=True)
-			return None
+			# DZI is required (when the image is large enough to have one): a
+			# failure here fails the whole photo so the client retries, rather
+			# than silently producing a photo without deep zoom.
+			logger.error(f"DZI pyramid generation failed for {unique_id}: {e}", exc_info=True)
+			raise
 
 	async def _upload_file_to_api(self, file_path: str, relative_path: str, photo_id: str, client_signature: str) -> str:
 		"""Upload file to API server storage as a raw stream.
@@ -779,10 +793,16 @@ class PhotoProcessor:
 
 				logger.info(f"Successfully uploaded {relative_path} ({file_size} bytes) to API server")
 
+				# The API decides which storage pool the file lands on and returns
+				# its public URL. Fall back to PICS_URL for older API servers that
+				# don't return one yet, so the worker and API need not be upgraded
+				# in lockstep during a rolling deploy.
+				url = response.json().get("url")
+				if url:
+					return url
 				if PICS_URL:
 					return PICS_URL + relative_path
-				else:
-					raise RuntimeError("PICS_URL not configured for file access")
+				raise RuntimeError(f"API returned no url for {relative_path} and PICS_URL is not configured")
 
 		except PhotoDeletedException:
 			raise

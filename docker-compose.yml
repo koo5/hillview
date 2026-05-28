@@ -61,6 +61,8 @@ services:
       - WORKER_URL=${WORKER_URL:-http://localhost:8056}
       - MAX_FILE_SIZE=${MAX_FILE_SIZE:-157286400}
       - PICS_URL=${PICS_URL:-}
+      # Storage pool registry (JSON). Unset => single-pool fallback from PICS_URL/PICS_DIR (+ CDN env). See backend/CLAUDE.md.
+      - FILE_POOLS=${FILE_POOLS:-}
       - BUCKET_NAME=${BUCKET_NAME:-}
       - CDN_BASE_URL=${CDN_BASE_URL:-}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}

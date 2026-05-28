@@ -1,11 +1,11 @@
 """Photo file management utilities."""
 import os
+import shutil
 import logging
 from pathlib import Path
 from typing import List, Dict, Any
-from enum import Enum
 
-from common.config import get_pics_dir, get_pics_url
+from common.config import resolve_pool_for_url
 
 logger = logging.getLogger(__name__)
 
@@ -13,42 +13,78 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads"))
 
 
-class StorageType(Enum):
-	"""Photo storage type enumeration."""
-	CDN = "cdn"
-	LOCAL = "local"
-	UNKNOWN = "unknown"
+def _local_path_for_url(url: str, pool: Dict[str, Any]) -> str:
+	"""Map a stored URL to its on-disk path within a files-type pool."""
+	suffix = url[len(pool["url"]):].lstrip('/')
+	return os.path.join(pool["path"], suffix)
 
 
-def determine_storage_type(size_data: Dict[str, Any]) -> StorageType:
-	"""
-	Determine storage type based on size data.
+def _delete_local_file(url: str) -> bool:
+	"""Delete one local file, resolving its pool from the URL."""
+	pool = resolve_pool_for_url(url)
+	if pool is None or pool.get('type') != 'files':
+		logger.warning(f"No local pool resolves URL, cannot delete: {url}")
+		return False
 
-	Args:
-		size_data: First size variant data from photo.sizes
-
-	Returns:
-		StorageType enum indicating where the photo is stored
-	"""
-	if not size_data or 'url' not in size_data:
-		logger.warning(f"Size data is missing or lacks 'url' key: {size_data}")
-		return StorageType.UNKNOWN
-
-	cdn_base_url = os.getenv("CDN_BASE_URL")
-	pics_url = get_pics_url()
-
-	if cdn_base_url and size_data['url'].startswith(cdn_base_url):
-		return StorageType.CDN
-	elif pics_url and size_data['url'].startswith(pics_url):
-		return StorageType.LOCAL
+	path = _local_path_for_url(url, pool)
+	if os.path.exists(path):
+		os.remove(path)
+		logger.info(f"Deleted photo file: {path}")
 	else:
-		logger.warning(f"Cannot determine storage type from URL: {size_data['url']}, CDN_BASE_URL: {cdn_base_url}, PICS_URL: {pics_url}")
-		return StorageType.UNKNOWN
+		logger.warning(f"File not found for deletion: {path}")
+	return True
+
+
+def _delete_local_tiles(tiles_url: str) -> bool:
+	"""Delete a local DZI tiles directory tree, resolving its pool from the URL."""
+	pool = resolve_pool_for_url(tiles_url)
+	if pool is None or pool.get('type') != 'files':
+		logger.warning(f"No local pool resolves DZI tiles URL, cannot delete: {tiles_url}")
+		return False
+
+	path = _local_path_for_url(tiles_url, pool)
+	if os.path.isdir(path):
+		shutil.rmtree(path, ignore_errors=True)
+		logger.info(f"Deleted DZI tiles directory: {path}")
+	return True
+
+
+def _delete_size(size_info: Dict[str, Any]) -> bool:
+	"""Delete one size variant (and its DZI pyramid, if present), resolving the
+	pool of each file independently so sizes may span pools."""
+	url = size_info.get('url')
+	if not url:
+		return True
+
+	success = True
+	pool = resolve_pool_for_url(url)
+	if pool is None:
+		logger.warning(f"No pool resolves URL, cannot delete: {url}")
+		return False
+
+	if pool.get('type') == 'cdn':
+		from common.cdn_uploader import CDNUploader
+		success = CDNUploader.from_pool(pool).delete_size(size_info)
+	else:
+		success = _delete_local_file(url)
+		# DZI pyramid: a .dzi descriptor plus a directory of tiles, each resolved
+		# to its own pool (the descriptor is a regular file, the tiles a tree).
+		pyramid = size_info.get('pyramid')
+		if pyramid:
+			if not _delete_local_file(pyramid['dzi_url']):
+				success = False
+			if not _delete_local_tiles(pyramid['tiles_url']):
+				success = False
+
+	return success
 
 
 async def delete_photo_files(photo) -> bool:
 	"""
-	Delete physical files for a photo from CDN or local storage.
+	Delete physical files for a photo from its storage pool(s).
+
+	Each size variant's pool is resolved independently from its stored URL via
+	the FILE_POOLS registry, so a photo's sizes may live on different pools.
 
 	Args:
 		photo: Photo model instance with sizes data
@@ -61,41 +97,11 @@ async def delete_photo_files(photo) -> bool:
 			logger.debug(f"Photo {str(photo.id)} has no sizes to delete")
 			return True
 
-		# Check first size variant to determine storage type
-		first_size_data = next(iter(photo.sizes.values()), None)
-		storage_type = determine_storage_type(first_size_data)
-
-		if storage_type == StorageType.CDN:
-			# Photo is stored on CDN, use CDN deletion
-			from common.cdn_uploader import cdn_uploader
-			success = cdn_uploader.delete_photo_sizes(photo.sizes, photo.id)
-			if not success:
-				logger.warning(f"Some CDN files failed to delete for photo {str(photo.id)}")
-			return success
-
-		elif storage_type == StorageType.LOCAL:
-			# Photo is stored locally, use filesystem deletion
-			pics_url = get_pics_url()
-			logger.debug(f"Deleting local files for photo {str(photo.id)}, PICS_URL: {pics_url}")
-
-			for size_info in photo.sizes.values():
-				if 'url' in size_info:
-					logger.debug(f"Processing URL: {size_info['url']}")
-					# Cut off PICS_URL prefix to get local path suffix
-					local_path_suffix = size_info['url'][len(pics_url):].lstrip('/')
-					full_path = os.path.join(str(get_pics_dir()), local_path_suffix)
-					logger.debug(f"Attempting to delete: {full_path}")
-
-					if os.path.exists(full_path):
-						os.remove(full_path)
-						logger.info(f"Deleted photo file: {full_path}")
-					else:
-						logger.warning(f"File not found for deletion: {full_path}")
-			return True
-
-		else:
-			logger.warning(f"Cannot determine photo storage type for photo {str(photo.id)}")
-			return False
+		success = True
+		for size_info in photo.sizes.values():
+			if not _delete_size(size_info):
+				success = False
+		return success
 
 	except Exception as e:
 		logger.warning(f"Error deleting files for photo {str(photo.id)}: {str(e)}")

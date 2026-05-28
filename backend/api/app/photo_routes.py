@@ -55,7 +55,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from push_notifications import send_activity_broadcast_notification
 from common.database import get_db
 from common.models import Photo, User, PhotoRating, UserPublicKey
-from common.config import get_pics_dir
+from common.config import get_write_pool
 from common.utc import format_utc
 from auth import get_current_active_user, get_current_user_optional_with_query
 from hidden_content_filters import apply_hidden_content_filters
@@ -406,9 +406,10 @@ async def upload_processed_file(
 				detail="Invalid relative path"
 			)
 
-		# Construct full file path within PICS_DIR
+		# Construct full file path within the write pool's directory
 
-		pics_dir = get_pics_dir()
+		write_pool = get_write_pool()
+		pics_dir = Path(write_pool["path"])
 		pics_dir.mkdir(parents=True, exist_ok=True)
 
 		file_path = pics_dir / relative_path
@@ -437,7 +438,8 @@ async def upload_processed_file(
 			"photo_id": photo_id,
 			"relative_path": relative_path,
 			"file_path": str(file_path),
-			"file_size": file_size
+			"file_size": file_size,
+			"url": write_pool["url"] + relative_path
 		}
 
 		logger.info(f"Processed file uploaded for photo {photo_id} to {file_path} ({file_size} bytes)")
