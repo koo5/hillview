@@ -326,6 +326,7 @@ class BrowserMetadata(BaseModel):
 	location_source: Optional[str] = None  # 'gps' or 'map'
 	bearing_source: Optional[str] = None
 	accuracy: Optional[float] = None
+	encoding: Optional[str] = None  # EXR pixel encoding: 'srgb' or 'linear' (sourced from .exr.encoding sidecar at upload). Worker falls back to the embedded header tag when absent.
 
 class ProcessPhotoResponse(BaseModel):
 	success: bool

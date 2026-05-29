@@ -121,13 +121,14 @@ def _exr_encoding(path):
 		exr.close()
 
 
-def normalize_to_srgb(img, source_path=None):
+def normalize_to_srgb(img, source_path=None, encoding=None):
 	"""Convert a pyvips image to sRGB 8-bit RGB (3 bands).
 
 	Handles deterministically (always allowed):
 	- Alpha channel removal (4+ bands → 3)
-	- EXR files: reads hillview:encoding attribute ('srgb' or 'linear');
-	  untagged EXRs are rejected outright
+	- EXR files: uses the caller-supplied `encoding` ('srgb' or 'linear') when
+	  given, else reads the hillview:encoding header attribute; untagged EXRs
+	  with no supplied encoding are rejected outright
 	- ICC profile → sRGB via pyvips icc_transform when it returns a clean result
 	- 16-bit ushort with interpretation='rgb16'/'srgb' (standard gamma-encoded)
 	- 8-bit sRGB pass-through
@@ -140,7 +141,11 @@ def normalize_to_srgb(img, source_path=None):
 	if img.bands > 3:
 		img = img[:3]
 	if source_path and source_path.lower().endswith('.exr'):
-		encoding = _exr_encoding(source_path)
+		# Prefer the caller-supplied encoding (from upload metadata / the
+		# .exr.encoding sidecar); fall back to the embedded header tag for
+		# old/in-flight/non-pano uploads that don't carry it out of band.
+		if encoding is None:
+			encoding = _exr_encoding(source_path)
 		if encoding is None:
 			raise ValueError(
 				f"EXR {source_path} has no hillview:encoding attribute. "
@@ -199,7 +204,7 @@ def normalize_to_srgb(img, source_path=None):
 	return img
 
 
-def read_image(source_path):
+def read_image(source_path, encoding=None):
 	# Validate file size before processing to prevent memory exhaustion
 	try:
 		file_size = os.path.getsize(source_path)
@@ -232,7 +237,7 @@ def read_image(source_path):
 			logging.warning(f"Could not read image: {source_path}")
 			raise ValueError("Invalid image file content")
 	else:
-		img = normalize_to_srgb(img, source_path=source_path)
+		img = normalize_to_srgb(img, source_path=source_path, encoding=encoding)
 		np_img = img.numpy()
 		image = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
 

@@ -454,13 +454,15 @@ class PhotoProcessor:
 		return dimensions[0], dimensions[1]
 
 
-	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None, quality: Optional[int] = None, fast: bool = False
+	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None, quality: Optional[int] = None, fast: bool = False, encoding: Optional[str] = None
 
 
 									 ) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
 		"""Create optimized versions with anonymization and unique IDs.
 
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
+		encoding: EXR pixel encoding ('srgb'/'linear') sourced from upload metadata;
+			passed to read_image so it need not read the embedded header tag.
 		"""
 
 		sizes_info = {}
@@ -483,11 +485,11 @@ class PhotoProcessor:
 			else:
 				if anonymization_override.skip_anonymization:
 					logger.info(f"Skipping anonymization for {unique_id} due to override")
-					image = read_image(source_path)
+					image = read_image(source_path, encoding=encoding)
 					detections = {"objects": [], "manual": True}
 				else:
 					logger.info(f"Applying manual anonymization for {unique_id} with rectangles: {anonymization_override.rectangles}")
-					image = read_image(source_path)
+					image = read_image(source_path, encoding=encoding)
 					detections = {"objects": [], "manual": True}
 					for rect in anonymization_override.rectangles:
 						x = rect.get('x')
@@ -591,7 +593,7 @@ class PhotoProcessor:
 		if not fast:
 			# Create 640_llm variant (black fill over detections, no colors/stick figures, for LLM analysis)
 			# Use original size if image is smaller than LLM_VARIANT_SIZE
-			llm_image = read_image(source_path)
+			llm_image = read_image(source_path, encoding=encoding)
 			apply_blackout(llm_image, detections.get("objects", []))
 			llm_h, llm_w = llm_image.shape[:2]
 
@@ -1019,7 +1021,11 @@ class PhotoProcessor:
 
 		# Parse anonymization override from JSON string to Pydantic model
 		override = AnonymizationOverride.from_json_string(anonymization_override)
-		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast)
+		# EXR encoding carried out of band in the upload metadata (the
+		# .exr.encoding sidecar value); read_image falls back to the embedded
+		# header tag when this is absent.
+		encoding = metadata.get('encoding') if metadata else None
+		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding)
 
 		# Extract captured_at from EXIF DateTimeOriginal (with corruption fix)
 		raw_data = exif_data.get('data', {})

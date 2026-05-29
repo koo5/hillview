@@ -2,6 +2,7 @@
 """
 Unit tests for blur.py pure functions:
   - apply_blackout
+  - normalize_to_srgb EXR encoding precedence (supplied > header tag > reject)
 """
 
 import sys
@@ -27,7 +28,8 @@ sys.modules['detections'] = detections_stub
 # so that the real blur.py module is imported here.
 sys.modules.pop('blur', None)
 
-from blur import apply_blackout  # noqa: E402
+import blur  # noqa: E402
+from blur import apply_blackout, normalize_to_srgb  # noqa: E402
 
 
 def _make_image(h=100, w=100, fill=255):
@@ -104,3 +106,81 @@ class TestApplyBlackout:
         apply_blackout(image, [_det(10, 10, 50, 50)])
         assert id(image) == original_id
         assert np.all(image[10:50, 10:50] == 0)
+
+
+class _FakeVips:
+    """Minimal stand-in for a pyvips image exercising only the methods
+    normalize_to_srgb touches on a clean float EXR (no ICC, no ushort path).
+
+    Records every interpretation passed to .copy() so tests can assert which
+    EXR-encoding branch ran: 'linear' → scrgb, 'srgb' → srgb.
+    """
+
+    def __init__(self, fmt='float', bands=3):
+        self.format = fmt
+        self.bands = bands
+        self.interpretation = 'scrgb'
+        self.copied_interpretations = []
+
+    def __getitem__(self, _sl):
+        return self
+
+    def copy(self, interpretation=None):
+        if interpretation is not None:
+            self.interpretation = interpretation
+            self.copied_interpretations.append(interpretation)
+        return self
+
+    def get_typeof(self, _name):
+        return 0  # no icc-profile-data
+
+    def colourspace(self, space):
+        self.interpretation = space
+        return self
+
+    def __mul__(self, _other):
+        return self
+
+    def cast(self, fmt):
+        self.format = fmt
+        return self
+
+
+class TestNormalizeToSrgbEncoding:
+    """EXR encoding source precedence: supplied encoding > header tag > reject."""
+
+    def test_supplied_encoding_preferred_over_header(self, monkeypatch):
+        """A caller-supplied encoding wins and the header is never read."""
+        def _boom(_path):
+            raise AssertionError("_exr_encoding must not be called when encoding is supplied")
+        monkeypatch.setattr(blur, '_exr_encoding', _boom)
+
+        img = _FakeVips()
+        normalize_to_srgb(img, source_path='/tmp/pano.exr', encoding='srgb')
+        assert img.copied_interpretations == ['srgb']
+
+    def test_supplied_linear_marks_scrgb(self, monkeypatch):
+        monkeypatch.setattr(blur, '_exr_encoding', lambda _p: (_ for _ in ()).throw(AssertionError("header read")))
+        img = _FakeVips()
+        normalize_to_srgb(img, source_path='/tmp/pano.exr', encoding='linear')
+        assert img.copied_interpretations == ['scrgb']
+
+    def test_falls_back_to_header_tag(self, monkeypatch):
+        """With no supplied encoding, the embedded header tag is honored."""
+        monkeypatch.setattr(blur, '_exr_encoding', lambda _p: 'linear')
+        img = _FakeVips()
+        normalize_to_srgb(img, source_path='/tmp/pano.exr', encoding=None)
+        assert img.copied_interpretations == ['scrgb']
+
+    def test_rejects_when_neither_supplied_nor_tagged(self, monkeypatch):
+        """Untagged EXR with no supplied encoding is still rejected outright."""
+        monkeypatch.setattr(blur, '_exr_encoding', lambda _p: None)
+        img = _FakeVips()
+        with pytest.raises(ValueError, match='hillview:encoding'):
+            normalize_to_srgb(img, source_path='/tmp/pano.exr', encoding=None)
+
+    def test_rejects_unknown_supplied_encoding(self, monkeypatch):
+        monkeypatch.setattr(blur, '_exr_encoding', lambda _p: None)
+        img = _FakeVips()
+        with pytest.raises(ValueError, match='unknown hillview:encoding'):
+            normalize_to_srgb(img, source_path='/tmp/pano.exr', encoding='bogus')
