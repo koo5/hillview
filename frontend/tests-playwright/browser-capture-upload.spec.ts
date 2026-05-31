@@ -25,7 +25,9 @@ test.describe('Browser Capture → Upload', () => {
 		test.setTimeout(180_000);
 		// Navigate to main page (not logged in)
 		await page.goto('/');
-		await page.waitForLoadState('networkidle');
+		// No networkidle wait here: the unauthenticated '/' view fires a batch of
+		// zoom-20 map-tile requests that can hang indefinitely, so networkidle never
+		// settles. The camera-button waitFor below is the real readiness gate.
 
 		// Open camera
 		const cameraButton = page.locator('[data-testid="camera-button"]');
