@@ -10,6 +10,19 @@ export const lastKnownGpsLocation = writable<{ lat: number; lng: number } | null
 // Store for whether location tracking is active
 export const locationTracking = writable<boolean>(false);
 
+// Background location tracking: entered when the user manually pans the map while
+// ACTIVE tracking is on. GPS stays subscribed and pulsing, but the map no longer
+// follows it (locationTracking is false, so the GPS handler early-returns). GPS
+// rows keep flowing to the locations table tagged "background", and a captured
+// photo's live GPS fix is recorded into its EXIF UserComment as an alternative
+// location. Mutually exclusive with locationTracking: OFF = both false,
+// ACTIVE = locationTracking true, BACKGROUND = backgroundLocationTracking true.
+export const backgroundLocationTracking = writable<boolean>(false);
+
+export function setBackgroundLocationTracking(on: boolean) {
+    backgroundLocationTracking.set(on);
+}
+
 // Store for location error messages
 export const locationError = writable<string | null>(null);
 

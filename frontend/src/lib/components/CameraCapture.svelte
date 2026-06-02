@@ -16,6 +16,7 @@
 	import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
 	import {generatePhotoId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
 	import {bearingMode, bearingState, spatialState} from '$lib/mapState';
+	import {gpsLocation, backgroundLocationTracking} from '$lib/location.svelte';
 	import {needsCalibration, shouldShowSwitchToCarModeHint, shouldShowBearingTrackingHint, shouldShowLocationTrackingHint, hideBearingTrackingHint, hideLocationTrackingHint} from '$lib/hints.svelte';
 	import {showCalibrationView} from '$lib/data.svelte.js';
 	import {createPermissionManager} from '$lib/permissionManager';
@@ -895,11 +896,24 @@
 			const getDataEndTime = performance.now();
 			console.log(`TIMING 📊 GET IMAGE DATA: ${(getDataEndTime - getDataStartTime).toFixed(1)}ms, size: ${imageData.data.length} bytes`);
 
+			// When in background tracking, snapshot the live GPS fix as an
+			// alternative location. The primary location stays the manual pan
+			// (validLocation); this only rides along in the EXIF UserComment so a
+			// reviewer can later promote it server-side. null for normal captures.
+			const bgGps = get(backgroundLocationTracking) ? get(gpsLocation) : null;
+			const altLocation = bgGps ? {
+				lat: bgGps.coords.latitude,
+				lng: bgGps.coords.longitude,
+				ts: bgGps.timestamp,
+				accuracy: bgGps.coords.accuracy ?? null,
+				source: 'gps-background',
+			} : null;
+
 			// Add to capture queue with ImageData
 			await captureQueue.add({
 				id: sharedId, // Use sharedId for the entire pipeline
 				image_data: imageData,
-				location: validLocation,
+				location: {...validLocation, alt_location: altLocation},
 				captured_at: timestamp,
 				mode,
 				placeholder_id: sharedId, // Use sharedId as placeholder ID too

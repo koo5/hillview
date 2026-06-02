@@ -354,6 +354,22 @@ function calculateAbsBearingDiff(bearing1: number, bearing2: number): number {
 }
 
 
+// Tracks the in-flight transition that tells Kotlin whether GPS rows are logged
+// as foreground ("gps") or background ("gps-background"). On the ACTIVE→BACKGROUND
+// pan we must guarantee Kotlin has stopped writing foreground GPS rows BEFORE the
+// manual 'map' location is written — otherwise a late foreground GPS row could beat
+// the manual location in the external-photo "latest non-bg entry wins" pairing.
+// Every 'map' table write below awaits this, so it holds even across rapid pans.
+let pendingLoggingSwitch: Promise<void> = Promise.resolve();
+
+export function setLocationLoggingMode(mode: 'active' | 'background'): Promise<void> {
+	if (!TAURI) return pendingLoggingSwitch;
+	pendingLoggingSwitch = invoke('plugin:hillview|cmd', {command: 'set_location_logging_mode', params: {mode}})
+		.then(() => {})
+		.catch(e => { console.error('Error invoking set_location_logging_mode in Tauri:', e); });
+	return pendingLoggingSwitch;
+}
+
 // Update functions with selective reactivity
 export async function updateSpatialState(updates: Partial<SpatialState>, source: 'gps' | 'map' = 'map', setTimestamp: boolean = true) {
 	if (doLog) console.log(`Spatial: updateSpatialState called with updates ${JSON.stringify(updates)} from source ${source}, setTimestamp=${setTimestamp}`);
@@ -372,6 +388,10 @@ export async function updateSpatialState(updates: Partial<SpatialState>, source:
 		const state = get(spatialState);
 		try
 		{
+			// Ordering guarantee: if an ACTIVE→BACKGROUND logging switch is in
+			// flight, let it land first so this manual location is the latest
+			// non-background row. Resolved (no-op) outside that transition.
+			await pendingLoggingSwitch;
 			await invoke('plugin:hillview|cmd', {command: 'update_location', params: {
 				timestamp: Date.now(),
 				latitude: state.center.lat,

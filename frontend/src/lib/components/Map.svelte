@@ -16,7 +16,6 @@
 	import LocationButtonInner from './LocationButtonInner.svelte';
 	import { getCurrentPosition, type GeolocationPosition } from '$lib/preciseLocation';
 	import {
-		disableLocationTracking,
 		enableLocationTracking,
 		locationManager,
 		locationTrackingLoading,
@@ -47,6 +46,7 @@
 
 		mapReady,
 		setUrlRequestedPhoto,
+		setLocationLoggingMode,
 	} from "$lib/mapState";
 	import { overrideFilters } from '$lib/components/filters-modal/filtersStore';
 	import {featuredPhotoData, maybeFetchFeaturedPhoto} from "$lib/featuredPhoto";
@@ -56,7 +56,7 @@
 	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
 	import { turn_to_photo_to, app, sourceLoadingStatus } from "$lib/data.svelte.js";
-	import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking, lastKnownGpsLocation } from "$lib/location.svelte.js";
+	import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking, lastKnownGpsLocation, backgroundLocationTracking, setBackgroundLocationTracking } from "$lib/location.svelte.js";
 	import { isOnMapRoute, compassEnabled, disableCompass } from "$lib/compass.svelte.js";
 	import { optimizedMarkerSystem, setupMarkerClickDelegation } from '$lib/optimizedMarkers';
 	import '$lib/styles/optimizedMarkers.css';
@@ -495,10 +495,15 @@
 			if (p.center.lat != _center.lat || p.center.lng != _center.lng) {
 				//console.log('🢄p.center:', JSON.stringify(p.center), '_center:', JSON.stringify(_center));
 
-				// Only disable location tracking if this wasn't caused by zoom buttons
+				// Only react to genuine user pans, not programmatic zoom-button moves.
 				if (!isZoomButtonEvent) {
-					//console.log('🢄disableLocationTracking');
-					disableLocationTracking();
+					// ACTIVE → BACKGROUND: a manual pan no longer turns tracking off.
+					// Keep GPS running (pulses continue, fixes keep logging as
+					// background) but stop the map following. From OFF/BACKGROUND a
+					// manual pan changes nothing about the tracking state.
+					if (get(locationTracking)) {
+						enterBackgroundTracking();
+					}
 				} else {
 					//console.log('🢄Zoom button event detected - not disabling location tracking');
 				}
@@ -806,18 +811,42 @@
 
 	function toggleLocationTracking() {
 		if (get(locationTracking)) {
+			// ACTIVE → OFF
 			stopLocationTracking();
 			setLocationTracking(false);
+		} else if (get(backgroundLocationTracking)) {
+			// BACKGROUND → OFF: turn off completely. GPS is still subscribed (we
+			// kept the 'user' consumer when entering background), so release it.
+			setBackgroundLocationTracking(false);
+			stopLocationTracking();
+			setLocationLoggingMode('active'); // next session logs GPS as foreground again
 		} else {
+			// OFF → ACTIVE
+			setLocationLoggingMode('active');
 			startLocationTracking();
 			setLocationTracking(true);
 		}
 	}
 
+	// ACTIVE → BACKGROUND, triggered by a manual map pan. Deliberately does NOT
+	// call stopLocationTracking(): the GPS subscription stays up so pulses
+	// continue and fixes keep logging (now tagged background). The map stops
+	// following because locationTracking is false → handleGpsLocationUpdate
+	// early-returns. setLocationLoggingMode('background') is awaited by the
+	// subsequent manual 'map' location write in updateSpatialState, so the
+	// manual location wins the external-photo pairing's latest-non-bg lookup.
+	function enterBackgroundTracking() {
+		setLocationTracking(false);
+		setBackgroundLocationTracking(true);
+		setLocationLoggingMode('background');
+	}
+
 
 	// Handle GPS location updates only (position/coordinates)
 	async function handleGpsLocationUpdate(position: GeolocationPosition) {
-		if (!get(locationTracking)) return;
+		// Run in both ACTIVE and BACKGROUND so the marker keeps moving and the
+		// button keeps flashing (pulses continue) — only OFF skips entirely.
+		if (!get(locationTracking) && !get(backgroundLocationTracking)) return;
 
 		const { latitude, longitude, accuracy } = position.coords;
 
@@ -834,7 +863,10 @@
 			locationApiEventFlash = false;
 		}, 100);
 
-		if (map) {
+		// Only ACTIVE tracking moves the map to follow GPS. In BACKGROUND the map
+		// stays parked at the user's manual pan; the fix is still recorded (table +
+		// alt_location) but must not yank the view.
+		if (map && get(locationTracking)) {
 			const latLng = new L.LatLng(latitude, longitude);
 
 			updateSpatialState({
@@ -1155,7 +1187,8 @@
 
 		const unsubLastKnown = lastKnownGpsLocation.subscribe((loc) => {
 			if (!map) return;
-			if (!get(locationTracking)) return;
+			// Keep the pulsing GPS marker alive in BACKGROUND too, not just ACTIVE.
+			if (!get(locationTracking) && !get(backgroundLocationTracking)) return;
 			if (loc) {
 				const latLng = new L.LatLng(loc.lat, loc.lng);
 				if (userLocationMarker) {
@@ -1588,7 +1621,7 @@
 					moveend: mapStateUserEvent,
 					zoomend: mapStateUserEvent,
 					dragend: mapStateUserEvent,
-					dragstart: (e) => {disableLocationTracking()},
+					dragstart: (e) => { if (get(locationTracking)) enterBackgroundTracking(); },
 				}
 				}
 			options={{
@@ -1820,6 +1853,7 @@
 		title="Track my location"
 		data-testid="track-location-btn"
 		class:flash={locationApiEventFlash}
+		class:background={$backgroundLocationTracking}
 	>
 		<LocationButtonInner />
 	</button>
@@ -2057,6 +2091,14 @@
 
 	.location-button-container button.active {
 		background-color: #4285F4;
+		color: white;
+		border-color: #3367d6;
+	}
+
+	/* Background tracking: GPS still on (and still flashing on each fix) but the
+	   map no longer follows — shown as a "half-blue" fill. */
+	.location-button-container button.background {
+		background-color: rgba(66, 133, 244, 0.5);
 		color: white;
 		border-color: #3367d6;
 	}

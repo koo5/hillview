@@ -1,4 +1,4 @@
-use crate::types::PhotoMetadata;
+use crate::types::{AltLocation, PhotoMetadata};
 use chrono;
 #[cfg(debug_assertions)]
 use img_parts::{jpeg::Jpeg, ImageEXIF};
@@ -65,6 +65,10 @@ struct ExifBuilder {
 struct ProvenanceData {
 	location_source: String,
 	bearing_source: String,
+	// Present only for background-tracking captures; carries the live GPS fix
+	// so it can be promoted to the primary location later. Omitted otherwise.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	alt_location: Option<AltLocation>,
 }
 
 #[cfg(target_os = "android")]
@@ -186,10 +190,11 @@ impl ExifBuilder {
 		});
 	}
 
-	fn add_provenance(&mut self, location_source: &str, bearing_source: &str) {
+	fn add_provenance(&mut self, location_source: &str, bearing_source: &str, alt_location: Option<AltLocation>) {
 		let provenance = ProvenanceData {
 			location_source: location_source.to_string(),
 			bearing_source: bearing_source.to_string(),
+			alt_location,
 		};
 
 		if let Ok(provenance_json) = serde_json::to_string(&provenance) {
@@ -509,7 +514,7 @@ pub fn create_exif_segment_structured(metadata: &PhotoMetadata) -> Vec<u8> {
 	}
 
 	// Add provenance data
-	builder.add_provenance(&metadata.location_source, &metadata.bearing_source);
+	builder.add_provenance(&metadata.location_source, &metadata.bearing_source, metadata.alt_location.clone());
 
 	builder.build()
 }
@@ -661,6 +666,7 @@ fn create_exif_segment_simple(metadata: &PhotoMetadata) -> Vec<u8> {
 	let provenance = ProvenanceData {
 		location_source: metadata.location_source.clone(),
 		bearing_source: metadata.bearing_source.clone(),
+		alt_location: metadata.alt_location.clone(),
 	};
 	let provenance_json = serde_json::to_string(&provenance)
 		.map_err(|e| format!("Failed to serialize provenance data: {}", e))
@@ -1037,6 +1043,7 @@ pub async fn read_photo_exif(path: String) -> Result<PhotoMetadata, String> {
 		location_source: "unknown".to_string(),
 		bearing_source: "unknown".to_string(),
 		orientation_code: None,
+		alt_location: None,
 	};
 
 	// Read orientation

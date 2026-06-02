@@ -39,6 +39,18 @@ class GeoTrackingManager(private val context: Context) {
 	private var lastOrientationStorageTime: Long = 0
 	private var lastLocationStorageTime: Long = 0
 
+	// When true, incoming GPS fixes are logged with a "-background" source suffix.
+	// Set by the frontend (set_location_logging_mode command) when the user pans
+	// the map away while location tracking is on: GPS keeps recording, but these
+	// rows must NOT win the location lookup that pairs locations with photos.
+	@Volatile
+	private var backgroundLogging: Boolean = false
+
+	fun setBackgroundLogging(on: Boolean) {
+		backgroundLogging = on
+		Log.d(TAG, "backgroundLogging = $on")
+	}
+
 	// GPS-derived heading estimator (car mode). Kept here so the filter state
 	// survives across GPS ticks independently of the frontend.
 	// NOTE: temporary source tag `gps-kalman-raw` — step 3 composes it with
@@ -218,7 +230,9 @@ class GeoTrackingManager(private val context: Context) {
 	fun storeLocationPreciseLocationData(data: PreciseLocationData) {
 		CoroutineScope(Dispatchers.IO).launch {
 			try {
-				val source = data.provider ?: "precise"
+				val baseSource = data.provider ?: "precise"
+				// Read the flag once per fix so a mid-stream pan relabels promptly.
+				val source = if (backgroundLogging) "$baseSource-background" else baseSource
 				val sourceId = getOrCreateSourceId(source)
 				storeLocationEntity(
 					LocationEntity(

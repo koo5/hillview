@@ -2227,6 +2227,17 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					}
 				}
 
+				"set_location_logging_mode" -> {
+					// "background" tags subsequent GPS rows so they don't win the
+					// photo-location pairing. Resolve explicitly: the frontend awaits
+					// this before writing the manual pan location, so the manual row
+					// is guaranteed to be the latest non-background entry.
+					val mode = params.getString("mode", "active") ?: "active"
+					geoTrackingManager.setBackgroundLogging(mode == "background")
+					invoke.resolve(JSObject())
+					return
+				}
+
 				"geo_tracking_export" -> {
 					geoTrackingManager.dumpAndClear(forceDump = true)
 					Log.i(TAG, "🔧 Manual geo tracking export triggered")

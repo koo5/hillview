@@ -21,6 +21,18 @@ export interface CaptureLocation {
 	bearing?: number | null;  // Compass bearing from bearingState
 	location_source: 'gps' | 'map';
 	bearing_source: string;
+	// Background-tracking alternative location: the live GPS fix at capture time
+	// when the primary location was a manual map pan. Written only into EXIF
+	// UserComment (provenance), never into the primary GPS tags. null otherwise.
+	alt_location?: AltLocation | null;
+}
+
+export interface AltLocation {
+	lat: number;
+	lng: number;
+	ts: number;
+	accuracy: number | null;
+	source: string; // e.g. 'gps-background'
 }
 
 export interface CaptureQueueItem {
@@ -281,7 +293,8 @@ class CaptureQueueManager {
 							accuracy: item.location.accuracy,
 							location_source: item.location.location_source,
 							bearing_source: item.location.bearing_source,
-							orientation_code: item.orientation_code
+							orientation_code: item.orientation_code,
+							alt_location: item.location.alt_location ?? null
 						};
 
 						// Generate filename
