@@ -315,6 +315,18 @@ def start_background_loop():
 
 
 # Request/Response models
+class AltLocation(BaseModel):
+	"""Background-tracking alternative location: the live GPS fix when a photo's
+	primary location was a manual map pan. Android embeds this in the JPEG's EXIF
+	UserComment (Rust writer); browser uploads carry it here and the worker
+	synthesizes the same UserComment, so both converge in exif_data."""
+	lat: float
+	lng: float
+	ts: Optional[int] = None
+	accuracy: Optional[float] = None
+	source: Optional[str] = None  # e.g. 'gps-background'
+
+
 class BrowserMetadata(BaseModel):
 	"""Metadata provided when EXIF can't be written (e.g., browser capture)"""
 	latitude: Optional[float] = None
@@ -325,8 +337,10 @@ class BrowserMetadata(BaseModel):
 	orientation_code: Optional[int] = None  # EXIF orientation (1, 3, 6, 8)
 	location_source: Optional[str] = None  # 'gps' or 'map'
 	bearing_source: Optional[str] = None
+	alt_location: Optional[AltLocation] = None  # background-tracking GPS alternative; worker folds it into UserComment
 	accuracy: Optional[float] = None
 	encoding: Optional[str] = None  # EXR pixel encoding: 'srgb' or 'linear' (sourced from .exr.encoding sidecar at upload). Worker falls back to the embedded header tag when absent.
+
 
 class ProcessPhotoResponse(BaseModel):
 	success: bool

@@ -202,12 +202,15 @@ def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2):
 
 
 
-def anonymize_image(source_path):
+def anonymize_image(source_path, encoding=None):
 	"""
 	Anonymize image by blurring detected objects and return detection results.
+
+	encoding: EXR pixel encoding ('srgb'/'linear') from the upload metadata;
+	passed to read_image so untagged EXRs need not carry the embedded header tag.
 	"""
 
-	image = read_image(source_path)
+	image = read_image(source_path, encoding=encoding)
 
 	logging.info(f"Image read, detecting target objects in image: {source_path}")
 	boxes = detect_targets(image)

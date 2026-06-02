@@ -481,7 +481,7 @@ class PhotoProcessor:
 		async with throttle.rate_limit(PARALLEL_PROCESSING_START_DELAY, 1500):
 
 			if not anonymization_override:
-				image, detections = await self._anonymize_image(source_path)
+				image, detections = await self._anonymize_image(source_path, encoding=encoding)
 			else:
 				if anonymization_override.skip_anonymization:
 					logger.info(f"Skipping anonymization for {unique_id} due to override")
@@ -848,14 +848,17 @@ class PhotoProcessor:
 			raise RuntimeError("No upload method configured: either set KEEP_PICS_IN_WORKER=true, USE_CDN=true (with BUCKET_NAME), or provide photo_id and client_signature for API upload")
 
 
-	async def _anonymize_image(self, source_path: str) -> tuple[Optional[str], dict]:
+	async def _anonymize_image(self, source_path: str, encoding: Optional[str] = None) -> tuple[Optional[str], dict]:
 		"""Anonymize image by blurring people and vehicles.
+
+		encoding: EXR pixel encoding ('srgb'/'linear') from the upload metadata,
+		threaded down to read_image (the auto-anonymization path reads the source).
 
 		Returns:
 			tuple: (anonymized_path: Optional[str], detections: dict)
 		"""
 		from anonymize import anonymize_image
-		anonymized_path, detections = anonymize_image(source_path)
+		anonymized_path, detections = anonymize_image(source_path, encoding=encoding)
 		logger.info(f"Anonymization completed for {source_path}, detections: {detections}")
 		return anonymized_path, detections
 
@@ -979,6 +982,20 @@ class PhotoProcessor:
 			# Use capture time from metadata if not in EXIF
 			if metadata.get('captured_at') and not exif_data.get('data', {}).get('DateTimeOriginal'):
 				exif_data['data']['DateTimeOriginal'] = metadata['captured_at']
+
+			# Browser uploads carry no embedded EXIF, so synthesize the same
+			# UserComment provenance JSON that the Android (Rust) EXIF writer
+			# produces — landing location_source / bearing_source / alt_location in
+			# exif_data['data']['UserComment'] uniformly across both upload paths.
+			# Guarded so a real embedded UserComment (Android) is never clobbered.
+			if not exif_data.setdefault('data', {}).get('UserComment'):
+				provenance = {
+					k: metadata[k]
+					for k in ('location_source', 'bearing_source', 'alt_location')
+					if metadata.get(k) is not None
+				}
+				if provenance:
+					exif_data['data']['UserComment'] = json.dumps(provenance)
 
 		orientation = exif_data['data'].get('Orientation')
 
