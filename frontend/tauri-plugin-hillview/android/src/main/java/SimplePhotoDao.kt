@@ -90,6 +90,13 @@ interface SimplePhotoDao {
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'failed' AND deleted = 0")
     fun getFailedUploadCount(): Int
 
+    // Snapshot denominator for the upload progress notification: the dominant
+    // set of photos the drain loop will attempt this run. Backoff/validation
+    // skips and stale uploading/processing are intentionally not counted, so
+    // it's a "good enough" N, not an exact one.
+    @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus IN ('pending', 'failed') AND deleted = 0")
+    fun getUploadableCount(): Int
+
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'completed' AND deleted = 0")
     fun getCompletedUploadCount(): Int
 

@@ -92,7 +92,7 @@ class PhotoUploadLogic(private val context: Context) {
 	)
 
 
-	suspend fun doWorkInternal(triggerSource: String, photoId: String?): androidx.work.ListenableWorker.Result {
+	suspend fun doWorkInternal(triggerSource: String, photoId: String?, onProgress: ((String) -> Unit)? = null): androidx.work.ListenableWorker.Result {
 		workerMutex.withLock {
 
 			try {
@@ -117,6 +117,9 @@ class PhotoUploadLogic(private val context: Context) {
 				// Process photos one at a time with validation on each iteration
 
 				val seen = mutableSetOf<String>()
+				var uploadedCount = 0
+				// Snapshot total for the progress notification (good-enough N).
+				val total = photoDao.getUploadableCount()
 
 				while (true) {
 					// Check auto-upload setting on each iteration
@@ -199,11 +202,13 @@ class PhotoUploadLogic(private val context: Context) {
 							"Attempting $action for ${photo.filename} with hash: ${photo.fileHash}"
 						)
 
+						onProgress?.invoke("Uploading photo ${uploadedCount + 1} of ${maxOf(total, uploadedCount + 1)}...")
 						photoDao.updateUploadStatus(photo.id, "uploading", System.currentTimeMillis())
 
 						val serverPhotoId = secureUploadPhoto(photo)
 
 						if (serverPhotoId != null) {
+							uploadedCount++
 							Log.d(
 								TAG,
 								"✅ Successfully ${action}ed ${photo.filename}, server ID: $serverPhotoId"

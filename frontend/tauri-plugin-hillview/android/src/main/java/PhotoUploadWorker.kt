@@ -6,6 +6,9 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -35,34 +38,50 @@ class PhotoUploadWorker(
 
     private val notificationHelper by lazy { NotificationHelper(applicationContext) }
 
+    // Set once this run actually promotes to a foreground service. Progress
+    // updates via notify() only show (and only make sense) when that FGS
+    // notification exists — i.e. when the app was backgrounded.
+    @Volatile private var promoted = false
+
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         workerMutex.withLock {
             val triggerSource = inputData.getString("trigger_source") ?: "unknown"
             Log.d(TAG, "Starting upload work with trigger: $triggerSource")
 
-            // Promote to foreground so the user sees the "Uploading Photos"
-            // notification while the queue drains. The earlier Android-12
-            // branch here relied on "expedited work provides foreground
-            // automatically", but that's only true when the WorkRequest is
-            // built with .setExpedited() — and it wasn't. PhotoUploadManager
-            // now sets expedited explicitly; we still call setForeground()
-            // unconditionally so pre-12 devices get the same treatment.
+            // Promote to a foreground service ONLY when the app is in the
+            // BACKGROUND. The promotion runs SystemForegroundService.onStartCommand
+            // on the MAIN thread, so doing it during active (foreground) capture
+            // is what churned the main thread, flashed the notification on every
+            // shot, and previously crashed via ForegroundServiceDidNotStartInTime.
+            // A foreground app is already high-priority and doesn't need the FGS;
+            // a backgrounded drain does — both for survival and to surface progress.
             //
-            // Long term PhotoUploadForegroundService (currently dormant) is
-            // the better fit for long / continuous uploads: no quota cap,
-            // survives more memory pressure. The WorkManager path here is
-            // bounded by the expedited quota — over-quota runs fall back to
-            // RUN_AS_NON_EXPEDITED_WORK_REQUEST and lose the notification
-            // for that invocation.
-            try {
-                setForeground(getForegroundInfo())
+            // Decided here at run time (not by the enqueuer) because the deferred
+            // batch fires ~15s later and the app may have been left by then.
+            // Residual: if the app is foreground at start and backgrounded
+            // mid-drain, this run has no FGS protection — the batch/periodic
+            // backstops cover that. (Long term PhotoUploadForegroundService,
+            // currently dormant, is the better fit for long continuous uploads.)
+            val backgrounded = try {
+                !ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             } catch (e: Exception) {
-                Log.w(TAG, "Could not set foreground: ${e.message}")
-                // Continue anyway - work can still run without foreground
+                true // ProcessLifecycleOwner not initialized → assume background & promote
+            }
+            Log.d(TAG, "promote decision: backgrounded=$backgrounded (trigger=$triggerSource)")
+            if (backgrounded) {
+                try {
+                    setForeground(getForegroundInfo())
+                    promoted = true
+                    Log.d(TAG, "promoted to foreground (notif $NOTIFICATION_ID)")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not set foreground: ${e.message}")
+                    // Continue anyway - work can still run without foreground
+                }
             }
 
-            // Delegate to upload logic
-            PhotoUploadLogic(applicationContext).doWorkInternal(triggerSource, null)
+            // Delegate to upload logic, surfacing per-photo progress on the
+            // foreground notification when we have one.
+            PhotoUploadLogic(applicationContext).doWorkInternal(triggerSource, null, ::updateUploadNotification)
         }
     }
 
@@ -71,6 +90,18 @@ class PhotoUploadWorker(
     }
 
     private fun createForegroundInfo(message: String): ForegroundInfo {
+        // Android 14+ also needs FOREGROUND_SERVICE_DATA_SYNC in the
+        // manifest — WorkManager 2.8.1 doesn't bundle it, 2.9+ does. Add
+        // the permission (or bump WorkManager) before this path is usable
+        // on physical devices.
+        return ForegroundInfo(
+            NOTIFICATION_ID,
+            buildNotification(message),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        )
+    }
+
+    private fun buildNotification(message: String): Notification {
         createNotificationChannel()
 
         val intent = applicationContext.packageManager.getLaunchIntentForPackage(applicationContext.packageName)
@@ -81,7 +112,7 @@ class PhotoUploadWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+        return NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setContentTitle("Uploading Photos")
             .setContentText(message)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
@@ -90,16 +121,21 @@ class PhotoUploadWorker(
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .build()
+    }
 
-        // Android 14+ also needs FOREGROUND_SERVICE_DATA_SYNC in the
-        // manifest — WorkManager 2.8.1 doesn't bundle it, 2.9+ does. Add
-        // the permission (or bump WorkManager) before this path is usable
-        // on physical devices.
-        return ForegroundInfo(
-            NOTIFICATION_ID,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-        )
+    /**
+     * Refresh the ongoing upload notification's text. No-op unless this run
+     * promoted to a foreground service (a foreground run has no notification to
+     * update). Updating via notify() with the same id/channel is cheap and
+     * off the main thread — no setForeground re-promotion, no FGS churn.
+     */
+    private fun updateUploadNotification(message: String) {
+        if (!promoted) return
+        try {
+            NotificationManagerCompat.from(applicationContext).notify(NOTIFICATION_ID, buildNotification(message))
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not update upload notification: ${e.message}")
+        }
     }
 
     private fun createNotificationChannel() {
