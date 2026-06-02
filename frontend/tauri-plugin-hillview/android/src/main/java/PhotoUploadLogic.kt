@@ -118,8 +118,15 @@ class PhotoUploadLogic(private val context: Context) {
 
 				val seen = mutableSetOf<String>()
 				var uploadedCount = 0
-				// Snapshot total for the progress notification (good-enough N).
-				val total = photoDao.getUploadableCount()
+				// Snapshot denominator for the progress notification: the same
+				// candidate predicate the loop uses — status/staleness in SQL
+				// (getUploadableCandidates) + backoff via isEligibleNow.
+				// Validation drops are loop-only, so N can be a touch high, never low.
+				val nowSnap = System.currentTimeMillis()
+				val total = photoDao.getUploadableCandidates(
+					nowSnap - 1000 * 60 * 10,
+					nowSnap - 1000 * 60 * 60
+				).count { isEligibleNow(it, triggerSource, nowSnap) }
 
 				while (true) {
 					// Check auto-upload setting on each iteration
@@ -164,20 +171,15 @@ class PhotoUploadLogic(private val context: Context) {
 						"Next photo to process: ${photo.filename} (status: ${photo.uploadStatus})"
 					)
 
-					val timeSinceLastAttempt = System.currentTimeMillis() - photo.lastUploadAttempt
-
-					// For failed uploads, check if enough time has elapsed for retry
-					// Skip backoff check for manual retry button presses
-					if (photo.uploadStatus == "failed" && triggerSource != "retry_button") {
-						val requiredWaitTime = calculateBackoffTime(photo.retryCount)
-
-						if (timeSinceLastAttempt < requiredWaitTime) {
-							Log.d(
-								TAG,
-								"Skipping retry for ${photo.filename} - not enough time elapsed"
-							)
-							continue
-						}
+					// For failed uploads, skip until the backoff has elapsed
+					// (manual retry bypasses). Same predicate the snapshot count
+					// uses — see isEligibleNow.
+					if (!isEligibleNow(photo, triggerSource, System.currentTimeMillis())) {
+						Log.d(
+							TAG,
+							"Skipping retry for ${photo.filename} - not enough time elapsed"
+						)
+						continue
 					}
 
 					// Validate auth token on each iteration
@@ -722,6 +724,19 @@ class PhotoUploadLogic(private val context: Context) {
             return false
         }
 
+        return true
+    }
+
+    /**
+     * Whether a candidate photo may be uploaded right now. The single source
+     * for the backoff rule, shared by the drain loop's skip and the progress
+     * count's denominator so they can't drift. Pure — no DB writes / file I/O
+     * (unlike validatePhotoForUpload).
+     */
+    private fun isEligibleNow(photo: PhotoEntity, triggerSource: String, now: Long): Boolean {
+        if (photo.uploadStatus == "failed" && triggerSource != "retry_button") {
+            if (now - photo.lastUploadAttempt < calculateBackoffTime(photo.retryCount)) return false
+        }
         return true
     }
 

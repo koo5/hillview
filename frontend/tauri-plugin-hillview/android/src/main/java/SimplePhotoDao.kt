@@ -90,12 +90,21 @@ interface SimplePhotoDao {
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'failed' AND deleted = 0")
     fun getFailedUploadCount(): Int
 
-    // Snapshot denominator for the upload progress notification: the dominant
-    // set of photos the drain loop will attempt this run. Backoff/validation
-    // skips and stale uploading/processing are intentionally not counted, so
-    // it's a "good enough" N, not an exact one.
-    @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus IN ('pending', 'failed') AND deleted = 0")
-    fun getUploadableCount(): Int
+    // Candidates the drain loop will consider this run — the SQL half of
+    // getNextPhotoForUpload's predicate (minus the per-iteration seen/order/
+    // limit). The caller applies the shared Kotlin backoff predicate
+    // (isEligibleNow) so the progress denominator matches what the loop
+    // actually attempts; validation drops (missing file / bad hash) are
+    // loop-only and just shrink the numerator slightly.
+    @Query("""
+        SELECT * FROM photos
+        WHERE deleted = 0 AND (
+            uploadStatus IN ('pending', 'failed') OR
+            (uploadStatus = 'uploading' AND lastUploadAttempt < :uploadingStaleThreshold) OR
+            (uploadStatus = 'processing' AND lastUploadAttempt < :processingStaleThreshold)
+        )
+    """)
+    fun getUploadableCandidates(uploadingStaleThreshold: Long, processingStaleThreshold: Long): List<PhotoEntity>
 
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'completed' AND deleted = 0")
     fun getCompletedUploadCount(): Int

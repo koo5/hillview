@@ -249,7 +249,12 @@ export async function uploadToWorker(
 					orientation_code: browserMetadata.orientation_code,
 					location_source: browserMetadata.location_source,
 					bearing_source: browserMetadata.bearing_source,
-					accuracy: browserMetadata.accuracy
+					accuracy: browserMetadata.accuracy,
+					// Background-tracking alternative location. Android embeds this in
+					// the JPEG's EXIF UserComment; the browser has no local-EXIF step,
+					// so it rides the upload metadata instead. Null for normal captures
+					// (stripped below). Backend "promote to primary" reads it from here.
+					alt_location: browserMetadata.alt_location
 				};
 
 				// Remove undefined values

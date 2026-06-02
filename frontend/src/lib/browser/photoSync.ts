@@ -35,7 +35,8 @@ async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
         orientation_code: photo.metadata.orientation_code,
         captured_at: photo.metadata.captured_at,
         location_source: photo.metadata.location.location_source,
-        bearing_source: photo.metadata.location.bearing_source
+        bearing_source: photo.metadata.location.bearing_source,
+        alt_location: photo.metadata.location.alt_location
     };
 
     const license = get(autoUploadLicense);
