@@ -46,6 +46,7 @@
 	import { requireAuth } from './signInModal.svelte';
 	import {
 		showDropdownMenu,
+		showDropdownMenuAt,
 		closeDropdownMenu,
 		type DropdownMenuItem,
 	} from '$lib/components/dropdown-menu/dropdownMenu.svelte';
@@ -237,6 +238,21 @@
 		const target = e.currentTarget as HTMLElement;
 		showDropdownMenu(items, target, {
 			placement: 'below-left',
+			testId: 'annotation-context-menu',
+		});
+	}
+
+	/** Handle label click detected via OSD canvas-click hit-testing.
+	 *  Used instead of button onclick since labels have pointer-events: none
+	 *  to let touch events pass through to OSD for pinch-zoom. */
+	function handleCanvasLabelClick(cmd: LabelDrawCmd) {
+		if (!cmd.id) return;
+		const ann = annotations.find(a => a.id === cmd.id);
+		if (!ann) return;
+		const items = buildAnnotationMenuItems(ann);
+		const containerRect = container.getBoundingClientRect();
+		showDropdownMenuAt(items, containerRect.left + cmd.tx, containerRect.top + cmd.ty + cmd.pillH, {
+			anchor: 'top-left',
 			testId: 'annotation-context-menu',
 		});
 	}
@@ -863,17 +879,54 @@
 		// quick=false when the pointer moved significantly before release.
 		viewer.addHandler('canvas-click', (event: any) => {
 			if (!event.quick || annotationMode !== 'view') return;
+			const pt = event.position; // viewer-element coordinates
+
+			// Check if click hits an annotation label pill.
+			// Labels use pointer-events: none so touch events pass through to
+			// OSD for pinch-zoom; we handle label taps here via hit-testing.
+			for (const cmd of labelDrawCmds) {
+				if (pt.x >= cmd.tx && pt.x <= cmd.tx + cmd.pillW &&
+					pt.y >= cmd.ty && pt.y <= cmd.ty + cmd.pillH) {
+					event.preventDefaultAction = true;
+					handleCanvasLabelClick(cmd);
+					return;
+				}
+			}
+
 			const itemCount = viewer.world.getItemCount();
 			const item = itemCount > 0 ? viewer.world.getItemAt(itemCount - 1) : null;
 			if (!item) { onClose(); return; }
 			const imgBounds = item.getBounds(); // viewport coordinates
 			const scrBounds = viewer.viewport.viewportToViewerElementRectangle(imgBounds);
-			const pt = event.position; // viewer-element coordinates
+
+			// Expand the interaction zone around the image to at least 50% of
+			// the container in each dimension.  Taps inside this zone do NOT
+			// close the viewer — this makes thin panoramas much easier to
+			// pinch-zoom without accidentally dismissing the viewer.
+			const cw = container.offsetWidth;
+			const ch = container.offsetHeight;
+			const minW = cw * 0.5;
+			const minH = ch * 0.5;
+			let zx = scrBounds.x;
+			let zy = scrBounds.y;
+			let zw = scrBounds.width;
+			let zh = scrBounds.height;
+			if (zw < minW) {
+				const cx = zx + zw / 2;
+				zx = cx - minW / 2;
+				zw = minW;
+			}
+			if (zh < minH) {
+				const cy = zy + zh / 2;
+				zy = cy - minH / 2;
+				zh = minH;
+			}
+
 			if (
-				pt.x < scrBounds.x ||
-				pt.x > scrBounds.x + scrBounds.width ||
-				pt.y < scrBounds.y ||
-				pt.y > scrBounds.y + scrBounds.height
+				pt.x < zx ||
+				pt.x > zx + zw ||
+				pt.y < zy ||
+				pt.y > zy + zh
 			) {
 				event.preventDefaultAction = true;
 				event.originalEvent?.stopPropagation?.();
@@ -1572,13 +1625,12 @@
 		z-index: 3; /* above the label canvas (z-index: 2) */
 		background: transparent;
 		border: none;
-		cursor: pointer;
 		padding: 0;
 		border-radius: 4px;
-	}
-
-	.label-click-target:hover {
-		background: rgba(255, 255, 255, 0.15);
+		/* pointer-events: none so all touch events pass through to OSD
+		   for pinch-zoom.  Label clicks are handled via OSD's canvas-click
+		   hit-testing instead.  Keyboard focus still works for a11y. */
+		pointer-events: none;
 	}
 
 	.filename-bar {
