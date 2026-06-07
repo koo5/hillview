@@ -1,12 +1,13 @@
 <script lang="ts">
 	import Modal from './Modal.svelte';
 	import { signInModalState, closeSignInModal, signInAndNavigate } from './signInModal.svelte';
+	import { autofocus } from '$lib/actions/autofocus';
 </script>
 
 <Modal open={$signInModalState.visible} onclose={closeSignInModal} title="Sign in required" testId="sign-in-modal">
 	<p class="sign-in-message">{$signInModalState.message}</p>
 	<div class="sign-in-actions">
-		<button class="sign-in-btn" onclick={signInAndNavigate} data-testid="sign-in-modal-login">Sign In</button>
+		<button class="sign-in-btn" use:autofocus onclick={signInAndNavigate} data-testid="sign-in-modal-login">Sign In</button>
 		<button class="sign-in-cancel-btn" onclick={closeSignInModal} data-testid="sign-in-modal-cancel">Cancel</button>
 	</div>
 </Modal>
@@ -37,6 +38,11 @@
 
 	.sign-in-btn:hover {
 		background: #1d4ed8;
+	}
+
+	.sign-in-btn:focus-visible {
+		outline: 2px solid #1d4ed8;
+		outline-offset: 2px;
 	}
 
 	.sign-in-cancel-btn {
