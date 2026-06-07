@@ -22,20 +22,21 @@ test.describe('Best Of Page', () => {
 		expect(hasPhotos || isEmpty).toBeTruthy();
 	});
 
-	test('should show photo scores when photos exist', async ({ page }) => {
+	test('should show photo stats when photos exist', async ({ page }) => {
 		await page.goto('/bestof');
 		await page.waitForLoadState('networkidle');
 		await expect(page.locator('.loading-container')).toBeHidden({ timeout: 11*15000 });
 
 		const photoGrid = page.getByTestId('bestof-photo-grid');
 		if (await photoGrid.isVisible().catch(() => false)) {
-			// Each card should have a score
+			// Each card should have stats
 			const cards = page.getByTestId('bestof-photo-card');
 			const cardCount = await cards.count();
 			expect(cardCount).toBeGreaterThan(0);
 
-			// First card should have a score label
-			await expect(cards.first().getByTestId('bestof-photo-score')).toBeVisible();
+			// First card should have an annotation-count label
+			await expect(cards.first().getByTestId('bestof-photo-stats')).toBeVisible();
+			await expect(cards.first().getByTestId('bestof-photo-stats')).toContainText('annotation');
 		}
 	});
 });

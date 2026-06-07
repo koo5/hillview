@@ -8,6 +8,7 @@
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
 	import PhotoHead from '$lib/components/PhotoHead.svelte';
 	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
+	import { app } from '$lib/data.svelte';
 
 	interface BestOfPhoto {
 		id: string;
@@ -24,6 +25,7 @@
 		owner_username: string;
 		owner_id: string;
 		score: number;
+		annotation_count: number;
 	}
 
 	export let data: { photos?: BestOfPhoto[]; has_more?: boolean; next_cursor?: string | null } | undefined = undefined;
@@ -125,8 +127,9 @@
 						variant="thumbnail"
 						preferDescription={true}
 					/>
-					<div class="photo-score" data-testid="bestof-photo-score">
-						Score: {photo.score}
+					<div class="photo-score" data-testid="bestof-photo-stats">
+						{photo.annotation_count} annotation{photo.annotation_count === 1 ? '' : 's'}{#if $app.debug_enabled}
+							· Score: {photo.score}{/if}
 					</div>
 				</div>
 			{/each}

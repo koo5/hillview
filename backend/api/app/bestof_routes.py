@@ -61,6 +61,8 @@ async def get_best_photos(
 			func.greatest(0, func.coalesce(Photo.width, 0) - 10000) / 10000
 		)
 
+		annotation_count_expr = func.coalesce(annotation_sub.c.annotation_count, 0).label('annotation_count')
+
 		# Total score
 		score_expr = (
 			func.coalesce(thumbs_up_sub.c.thumbs_up_count, 0)
@@ -74,7 +76,8 @@ async def get_best_photos(
 				User.username,
 				ST_Y(Photo.geometry).label('latitude'),
 				ST_X(Photo.geometry).label('longitude'),
-				score_expr
+				score_expr,
+				annotation_count_expr
 			)
 			.join(User, Photo.owner_id == User.id)
 			.outerjoin(thumbs_up_sub, Photo.id == thumbs_up_sub.c.photo_id)
@@ -121,7 +124,7 @@ async def get_best_photos(
 		photos_data = []
 		next_cursor = None
 
-		for photo, username, latitude, longitude, score in photo_results:
+		for photo, username, latitude, longitude, score, annotation_count in photo_results:
 			score_int = int(score) if score else 0
 			photos_data.append({
 				"id": photo.id,
@@ -139,6 +142,7 @@ async def get_best_photos(
 				"owner_username": username,
 				"owner_id": photo.owner_id,
 				"score": score_int,
+				"annotation_count": int(annotation_count) if annotation_count else 0,
 				"license": legal_rights_to_license(photo.legal_rights)
 			})
 			next_cursor = f"{score_int}:{photo.id}"
