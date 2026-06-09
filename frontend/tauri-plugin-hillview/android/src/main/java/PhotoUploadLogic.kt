@@ -92,7 +92,7 @@ class PhotoUploadLogic(private val context: Context) {
 	)
 
 
-	suspend fun doWorkInternal(triggerSource: String, photoId: String?, onProgress: ((String) -> Unit)? = null): androidx.work.ListenableWorker.Result {
+	suspend fun doWorkInternal(triggerSource: String, photoId: String?, onProgress: ((String) -> Unit)? = null, onBeforePhoto: (suspend () -> Unit)? = null): androidx.work.ListenableWorker.Result {
 		workerMutex.withLock {
 
 			try {
@@ -143,6 +143,10 @@ class PhotoUploadLogic(private val context: Context) {
 
 					// sleep a bit
 					Thread.sleep(100L)
+
+					// Re-check app background state each iteration so a drain the
+					// user backgrounds mid-way promotes to a foreground service.
+					onBeforePhoto?.invoke()
 
 					// Get next photo to upload (pending priority over failed)
 					val photo: PhotoEntity?

@@ -56,32 +56,51 @@ class PhotoUploadWorker(
             // A foreground app is already high-priority and doesn't need the FGS;
             // a backgrounded drain does — both for survival and to surface progress.
             //
-            // Decided here at run time (not by the enqueuer) because the deferred
-            // batch fires ~15s later and the app may have been left by then.
-            // Residual: if the app is foreground at start and backgrounded
-            // mid-drain, this run has no FGS protection — the batch/periodic
-            // backstops cover that. (Long term PhotoUploadForegroundService,
-            // currently dormant, is the better fit for long continuous uploads.)
-            val backgrounded = try {
-                !ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
-            } catch (e: Exception) {
-                true // ProcessLifecycleOwner not initialized → assume background & promote
-            }
-            Log.d(TAG, "promote decision: backgrounded=$backgrounded (trigger=$triggerSource)")
-            if (backgrounded) {
-                try {
-                    setForeground(getForegroundInfo())
-                    promoted = true
-                    Log.d(TAG, "promoted to foreground (notif $NOTIFICATION_ID)")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Could not set foreground: ${e.message}")
-                    // Continue anyway - work can still run without foreground
-                }
-            }
+            // Decided at run time (not by the enqueuer), and re-checked before
+            // every photo (onBeforePhoto below): promote if the app is already
+            // backgrounded at start, OR the moment it goes to the background
+            // while the drain is still running — so a run that outlives the user
+            // leaving the app gains FGS protection mid-drain. Foreground runs
+            // never promote (no flash, no main-thread churn). (Long term
+            // PhotoUploadForegroundService, currently dormant, is the better fit
+            // for long continuous uploads.)
+            Log.d(TAG, "promote decision: backgrounded=${isAppBackgrounded()} (trigger=$triggerSource)")
+            maybePromoteForBackground()
 
-            // Delegate to upload logic, surfacing per-photo progress on the
-            // foreground notification when we have one.
-            PhotoUploadLogic(applicationContext).doWorkInternal(triggerSource, null, ::updateUploadNotification)
+            // Delegate to upload logic. onProgress refreshes the notification;
+            // onBeforePhoto re-checks background state each iteration so a drain
+            // the user backgrounds mid-way promotes (survival + progress).
+            PhotoUploadLogic(applicationContext).doWorkInternal(
+                triggerSource,
+                null,
+                ::updateUploadNotification,
+                ::maybePromoteForBackground,
+            )
+        }
+    }
+
+    private fun isAppBackgrounded(): Boolean = try {
+        !ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+    } catch (e: Exception) {
+        true // ProcessLifecycleOwner not initialized → assume background & promote
+    }
+
+    /**
+     * Promote to a foreground service if the app is backgrounded and we haven't
+     * already this run. Idempotent and cheap once promoted (just a flag check),
+     * so it's safe to call at start and again before every photo — that's how a
+     * drain which outlives the user leaving the app gets its FGS (survival +
+     * progress notification) without ever promoting while the app is foreground.
+     */
+    private suspend fun maybePromoteForBackground() {
+        if (promoted || !isAppBackgrounded()) return
+        try {
+            setForeground(getForegroundInfo())
+            promoted = true
+            Log.d(TAG, "promoted to foreground (notif $NOTIFICATION_ID)")
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not set foreground: ${e.message}")
+            // Continue anyway - work can still run without foreground
         }
     }
 
