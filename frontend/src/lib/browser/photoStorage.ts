@@ -326,6 +326,26 @@ class BrowserPhotoStorage {
         return true;
     }
 
+    /**
+     * Put a claimed ('uploading') photo back to 'pending' without touching
+     * retry_count/last_attempt — for aborted passes (e.g. worker queue full)
+     * where the photo itself didn't fail.
+     */
+    async releasePhotoClaim(photoId: string): Promise<void> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
+        const store = transaction.objectStore(PHOTO_STORE);
+
+        const photo = await this.promisifyRequest(store.get(photoId));
+        if (photo && photo.status === 'uploading') {
+            photo.status = 'pending';
+            await this.promisifyRequest(store.put(photo));
+        }
+
+        await this.updateQueueStatus();
+    }
+
     async markPhotoAsUploaded(photoId: string, serverPhotoId: string): Promise<void> {
         if (!this.db) await this.init();
 

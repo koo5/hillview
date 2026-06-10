@@ -46,6 +46,7 @@ import {
 	uploadToWorker,
 	NonRetryableUploadError,
 	RetryableUploadError,
+	WorkerBusyError,
 	type AuthFetch,
 	type UploadAuthorizationRequest
 } from '$lib/uploadProtocol';
@@ -255,9 +256,9 @@ describe('uploadProtocol', () => {
 		const uploadJwt = 'mock-upload-jwt';
 		const signature = 'mock-signature';
 
-		it('should perform health check before upload', async () => {
+		it('should perform readiness check before upload', async () => {
 			mockFetch
-				.mockResolvedValueOnce(okResponse({ status: 'ok' })) // health check
+				.mockResolvedValueOnce(okResponse({ status: 'ready' })) // ready check
 				.mockResolvedValueOnce(
 					okResponse({ success: true, message: 'Uploaded', photo_id: 'p-1' })
 				); // upload
@@ -265,9 +266,23 @@ describe('uploadProtocol', () => {
 			await uploadToWorker(file, uploadJwt, signature, workerUrl);
 
 			expect(mockFetch).toHaveBeenCalledTimes(2);
-			// First call = health check
-			expect(mockFetch.mock.calls[0][0]).toBe('http://worker:8056/health');
+			// First call = readiness check
+			expect(mockFetch.mock.calls[0][0]).toBe('http://worker:8056/ready');
 			expect(mockFetch.mock.calls[0][1]).toMatchObject({ method: 'GET' });
+		});
+
+		it('should fall back to /health when /ready is 404 (older worker)', async () => {
+			mockFetch
+				.mockResolvedValueOnce(errorResponse(404)) // no /ready endpoint
+				.mockResolvedValueOnce(okResponse({ status: 'healthy' })) // health fallback
+				.mockResolvedValueOnce(
+					okResponse({ success: true, message: 'Uploaded', photo_id: 'p-1' })
+				); // upload
+
+			const result = await uploadToWorker(file, uploadJwt, signature, workerUrl);
+			expect(result.success).toBe(true);
+			expect(mockFetch.mock.calls[0][0]).toBe('http://worker:8056/ready');
+			expect(mockFetch.mock.calls[1][0]).toBe('http://worker:8056/health');
 		});
 
 		it('should send JWT in Authorization header, not in FormData', async () => {
@@ -356,16 +371,16 @@ describe('uploadProtocol', () => {
 			);
 		});
 
-		it('should retry on health check failure', async () => {
+		it('should retry on readiness check failure', async () => {
 			vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn: any) => {
 				fn();
 				return 0 as any;
 			});
 
 			mockFetch
-				.mockResolvedValueOnce(errorResponse(503, 'Unavailable')) // health fail
+				.mockResolvedValueOnce(errorResponse(500, 'Unavailable')) // ready fail
 				// retry
-				.mockResolvedValueOnce(okResponse({ status: 'ok' })) // health OK
+				.mockResolvedValueOnce(okResponse({ status: 'ready' })) // ready OK
 				.mockResolvedValueOnce(
 					okResponse({ success: true, message: 'Uploaded', photo_id: 'p-1' })
 				);
@@ -375,6 +390,27 @@ describe('uploadProtocol', () => {
 			expect(mockFetch).toHaveBeenCalledTimes(3);
 
 			vi.mocked(globalThis.setTimeout).mockRestore();
+		});
+
+		it('should throw WorkerBusyError on 503 readiness check without retrying', async () => {
+			mockFetch.mockResolvedValueOnce(errorResponse(503, 'busy')); // ready busy
+
+			await expect(uploadToWorker(file, uploadJwt, signature, workerUrl)).rejects.toThrow(
+				WorkerBusyError
+			);
+			// No in-call retry, no upload attempt — only the single readiness check
+			expect(mockFetch).toHaveBeenCalledTimes(1);
+		});
+
+		it('should throw WorkerBusyError on 503 upload response without retrying', async () => {
+			mockFetch
+				.mockResolvedValueOnce(okResponse({ status: 'ready' })) // ready OK
+				.mockResolvedValueOnce(errorResponse(503, 'worker_queue_full')); // upload rejected
+
+			await expect(uploadToWorker(file, uploadJwt, signature, workerUrl)).rejects.toThrow(
+				WorkerBusyError
+			);
+			expect(mockFetch).toHaveBeenCalledTimes(2);
 		});
 	});
 });

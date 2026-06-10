@@ -15,6 +15,7 @@ export interface UploadResult {
     success: boolean;
     photo_id?: string;
     error?: string;
+    busy?: boolean; // worker upload queue full — abort the drain pass
 }
 
 /** Function that uploads a single photo and returns a result */
@@ -151,6 +152,14 @@ export async function uploadPendingPhotos(
                     emit('uploading', true, photo.id);
 
                     console.log(`${LOG_PREFIX} Successfully uploaded ${photo.id}`);
+                } else if (result.busy) {
+                    // Worker queue is full — release the claim (no retry_count
+                    // burn) and abort the whole pass instead of pushing the
+                    // remaining queue at a worker that will reject it.
+                    console.warn(`${LOG_PREFIX} Worker busy, aborting upload pass`);
+                    await browserPhotoStorage.releasePhotoClaim(photo.id);
+                    emit('uploading', true, photo.id, 'Worker busy, will retry later');
+                    break;
                 } else {
                     throw new Error(result.error || 'Upload failed');
                 }

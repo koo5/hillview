@@ -47,4 +47,4 @@ RUN mkdir -p /app/uploads /app/pics && chown -R api:api /app/uploads /app/pics
 USER api
 
 # Default command (can be overridden by docker-compose)
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8055"]
+CMD ["uvicorn", "api:app", "--host", "::", "--port", "8055"]

@@ -39,6 +39,15 @@ import cz.hillview.plugin.PhotoEntity
 class DuplicateFileException(message: String) : Exception(message)
 
 /**
+ * Worker reported its upload queue is full (503). The drain loop aborts the
+ * whole pass instead of pushing the remaining queue at a worker that will
+ * reject it; WorkManager's retry/backoff reschedules the drain.
+ * Deliberately not an IOException so the generic network catches don't
+ * swallow it into a per-photo failure.
+ */
+class WorkerBusyException(message: String) : Exception(message)
+
+/**
  * Secure Upload Manager for Android Background Uploads
  *
  * Implements the three-phase secure upload process for PhotoEntity records:
@@ -128,6 +137,7 @@ class PhotoUploadLogic(private val context: Context) {
 					nowSnap - 1000 * 60 * 60
 				).count { isEligibleNow(it, triggerSource, nowSnap) }
 
+				var workerBusy = false
 				while (true) {
 					// Check auto-upload setting on each iteration
 					val prefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)

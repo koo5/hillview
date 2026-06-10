@@ -21,6 +21,7 @@ IMPORTANT — Startup time & lazy loading:
 """
 import os
 import asyncio
+import json
 import threading
 import logging
 import sys
@@ -64,7 +65,7 @@ from uuid import UUID
 from pathlib import Path
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -208,6 +209,14 @@ PARALLEL_PROCESSING_CONCURRENCY = int(os.getenv("PARALLEL_PROCESSING_CONCURRENCY
 logger.info(f"PARALLEL_PROCESSING_CONCURRENCY: {PARALLEL_PROCESSING_CONCURRENCY}")
 processing_semaphore = asyncio.Semaphore(PARALLEL_PROCESSING_CONCURRENCY)
 
+# Backpressure: reject new uploads once this many background tasks are queued.
+# Each queued task holds two full-size copies on disk (Starlette's multipart
+# spool + our UPLOAD_DIR copy) until it gets a semaphore slot, so the cap
+# bounds peak disk usage at roughly 2 * MAX_PENDING_TASKS * file size.
+MAX_PENDING_TASKS = int(os.getenv("MAX_PENDING_TASKS", "100"))
+QUEUE_FULL_RETRY_AFTER_SECONDS = int(os.getenv("QUEUE_FULL_RETRY_AFTER_SECONDS", "500"))
+logger.info(f"MAX_PENDING_TASKS: {MAX_PENDING_TASKS}")
+
 
 def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: str = None, anonymization_override: str = None, metadata: Dict[str, Any] = None, quality: int = None, fast: bool = False, files_to_clean: Optional[list] = None):
 	"""
@@ -262,6 +271,64 @@ async def startup_event():
 pending_background_tasks_mutex = threading.Lock()
 pending_background_tasks = set()
 task_id_counter = 1
+
+
+def pending_tasks_count() -> int:
+	with pending_background_tasks_mutex:
+		return len(pending_background_tasks)
+
+
+def queue_is_full() -> bool:
+	return pending_tasks_count() >= MAX_PENDING_TASKS
+
+
+class UploadBackpressureMiddleware:
+	"""Pure ASGI middleware: reject /upload* with 503 while the background
+	task queue is at capacity, *before* FastAPI parses the multipart body.
+
+	This must run at the ASGI layer — FastAPI calls ``request.form()``
+	(draining the entire upload off the socket into the spool file) before
+	solving any endpoint dependencies, so an in-endpoint check would only
+	fire after the full body was already received and spooled to disk.
+
+	The response is sent without reading the request body. Clients that are
+	mid-upload may see a connection reset instead of the 503; all our
+	clients treat that as a retryable failure, so either outcome backs
+	them off.
+	"""
+
+	def __init__(self, app):
+		self.app = app
+
+	async def __call__(self, scope, receive, send):
+		if (
+			scope["type"] == "http"
+			and scope["method"] == "POST"
+			and scope["path"].startswith("/upload")
+			and queue_is_full()
+		):
+			pending = pending_tasks_count()
+			logger.warning(f"Rejecting upload: {pending} pending tasks >= MAX_PENDING_TASKS ({MAX_PENDING_TASKS})")
+			body = json.dumps({
+				"detail": "worker_queue_full",
+				"pending_tasks": pending,
+				"retry_after_seconds": QUEUE_FULL_RETRY_AFTER_SECONDS,
+			}).encode()
+			await send({
+				"type": "http.response.start",
+				"status": 503,
+				"headers": [
+					(b"content-type", b"application/json"),
+					(b"content-length", str(len(body)).encode()),
+					(b"retry-after", str(QUEUE_FULL_RETRY_AFTER_SECONDS).encode()),
+				],
+			})
+			await send({"type": "http.response.body", "body": body})
+			return
+		await self.app(scope, receive, send)
+
+
+app.add_middleware(UploadBackpressureMiddleware)
 
 
 def background_loop():
@@ -395,6 +462,24 @@ async def root():
 async def health_check():
 	"""Health check endpoint."""
 	return {"status": "healthy", "service": "photo-processor"}
+
+@app.get("/ready")
+async def readiness_check():
+	"""Readiness endpoint: 503 while the upload queue is at capacity.
+
+	Lets clients check before transmitting a photo body (the JS client
+	preflights this before every upload attempt). Kept separate from
+	/health so infra liveness checks don't recycle a machine that is
+	merely busy.
+	"""
+	pending = pending_tasks_count()
+	if pending >= MAX_PENDING_TASKS:
+		return JSONResponse(
+			status_code=503,
+			content={"status": "busy", "pending_tasks": pending},
+			headers={"Retry-After": str(QUEUE_FULL_RETRY_AFTER_SECONDS)},
+		)
+	return {"status": "ready", "pending_tasks": pending}
 
 @app.post("/await")
 async def await_handler(task_id: str, request: Request):

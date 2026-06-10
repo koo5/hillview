@@ -56,7 +56,8 @@ async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
     return {
         success: result.success,
         photo_id: result.photo_id,
-        error: result.error
+        error: result.error,
+        busy: result.busy
     };
 }
 

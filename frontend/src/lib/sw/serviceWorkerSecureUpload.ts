@@ -9,6 +9,7 @@ import {
 	generateClientSignature,
 	requestUploadAuthorization,
 	uploadToWorker,
+	WorkerBusyError,
 	type AuthFetch,
 	type UploadAuthorizationRequest
 } from '$lib/uploadProtocol';
@@ -33,7 +34,7 @@ export const swAuthFetch: AuthFetch = async (url: string, init: RequestInit): Pr
 };
 
 export class ServiceWorkerSecureUploader {
-	async uploadPhoto(photo: StoredPhoto): Promise<{ success: boolean; photoId?: string; error?: string }> {
+	async uploadPhoto(photo: StoredPhoto): Promise<{ success: boolean; photoId?: string; error?: string; busy?: boolean }> {
 		console.log(`${LOG_PREFIX} Starting secure upload for photo ${photo.id}`);
 
 		try {
@@ -103,7 +104,11 @@ export class ServiceWorkerSecureUploader {
 			}
 		} catch (error) {
 			console.error(`${LOG_PREFIX} Upload error:`, error);
-			return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+			return {
+				success: false,
+				error: error instanceof Error ? error.message : 'Unknown error',
+				busy: error instanceof WorkerBusyError
+			};
 		}
 	}
 }

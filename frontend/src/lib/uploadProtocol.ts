@@ -50,6 +50,7 @@ export interface SecureUploadResult {
 	message?: string;
 	photo_id?: string;
 	error?: string;
+	busy?: boolean; // worker upload queue full — abort the drain pass, don't burn a retry
 }
 
 // ── Errors ──
@@ -74,6 +75,16 @@ export class RetryableUploadError extends UploadError {
 	constructor(message: string) {
 		super(message);
 		this.name = 'RetryableUploadError';
+	}
+}
+
+// Worker reported its upload queue is full (503 / worker_queue_full).
+// Callers should abort the whole drain pass — retrying photo-by-photo
+// just transmits more bodies at a queue that will reject them.
+export class WorkerBusyError extends RetryableUploadError {
+	constructor(message: string) {
+		super(message);
+		this.name = 'WorkerBusyError';
 	}
 }
 
@@ -221,13 +232,25 @@ export async function uploadToWorker(
 
 	for (let attempt = 0; attempt <= maxRetries; attempt++) {
 		try {
-			// Pre-flight health check - wait for worker to be ready before uploading
-			const healthCheck = await fetch(`${workerBase}/health`, {
+			// Pre-flight readiness check - wait for worker to be ready before uploading.
+			// /ready returns 503 while the worker's upload queue is full, letting us
+			// back off without transmitting the body. 404 = older worker without
+			// /ready, fall back to the plain liveness check.
+			let preflight = await fetch(`${workerBase}/ready`, {
 				method: 'GET',
 				signal: AbortSignal.timeout(10000)
 			});
-			if (!healthCheck.ok) {
-				throw new RetryableUploadError(`Worker not ready: ${healthCheck.status}`);
+			if (preflight.status === 404) {
+				preflight = await fetch(`${workerBase}/health`, {
+					method: 'GET',
+					signal: AbortSignal.timeout(10000)
+				});
+			}
+			if (preflight.status === 503) {
+				throw new WorkerBusyError('Worker upload queue is full');
+			}
+			if (!preflight.ok) {
+				throw new RetryableUploadError(`Worker not ready: ${preflight.status}`);
 			}
 
 			const formData = new FormData();
@@ -285,6 +308,10 @@ export async function uploadToWorker(
 			const error = await response.json().catch(() => ({ detail: 'Worker upload failed' }));
 			const errorMessage = error.detail || `Worker upload failed: ${response.status}`;
 
+			if (response.status === 503) {
+				throw new WorkerBusyError(errorMessage);
+			}
+
 			if (response.status >= 500) {
 				throw new RetryableUploadError(errorMessage);
 			} else {
@@ -293,6 +320,12 @@ export async function uploadToWorker(
 		} catch (error) {
 			// Let TokenExpiredError pass through unchanged
 			if (error instanceof Error && error.name === 'TokenExpiredError') {
+				throw error;
+			}
+
+			// Worker-busy propagates immediately — in-call retries would just
+			// re-send the body at a full queue; the caller aborts the pass.
+			if (error instanceof WorkerBusyError) {
 				throw error;
 			}
 

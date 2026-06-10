@@ -12,6 +12,7 @@ import {
 	generateClientSignature,
 	requestUploadAuthorization,
 	uploadToWorker,
+	WorkerBusyError,
 	type AuthFetch,
 	type UploadAuthorizationRequest,
 	type SecureUploadResult
@@ -19,7 +20,7 @@ import {
 
 // Re-export types and errors for consumers that import from secureUpload
 export type { UploadAuthorizationRequest, UploadAuthorizationResponse, SecureUploadResult } from './uploadProtocol';
-export { UploadError, NonRetryableUploadError, RetryableUploadError } from './uploadProtocol';
+export { UploadError, NonRetryableUploadError, RetryableUploadError, WorkerBusyError } from './uploadProtocol';
 
 /**
  * Main-thread authFetch: delegates to http.post which auto-attaches auth via interceptor.
@@ -178,7 +179,8 @@ export async function secureUploadFile(
 		return {
 			success: false,
 			message: 'Upload failed',
-			error: error instanceof Error ? error.message : String(error)
+			error: error instanceof Error ? error.message : String(error),
+			busy: error instanceof WorkerBusyError
 		};
 	}
 }
