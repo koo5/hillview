@@ -352,7 +352,8 @@ test.describe('Zoom View URL Parameters', () => {
       // Wait for viewport bounds to settle (debounced at 500ms)
       await page.waitForTimeout(1500);
 
-      // Click Share button
+      // Open the display/actions menu, then click Share
+      await page.click('[data-testid="osd-display-menu-toggle"]');
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
 
@@ -393,6 +394,7 @@ test.describe('Zoom View URL Parameters', () => {
       await page.waitForTimeout(1500);
 
       // Share at default zoom
+      await page.click('[data-testid="osd-display-menu-toggle"]');
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
       const defaultClip = await getLastClipboardText(page);
@@ -410,6 +412,7 @@ test.describe('Zoom View URL Parameters', () => {
       await page.waitForTimeout(1500);
 
       // Share at zoomed-in state
+      await page.click('[data-testid="osd-display-menu-toggle"]');
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
       const zoomedClip = await getLastClipboardText(page);

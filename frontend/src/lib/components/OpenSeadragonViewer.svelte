@@ -27,7 +27,7 @@
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { photoInFront } from '$lib/mapState';
 	import { track } from '$lib/analytics';
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, type Snippet } from 'svelte';
 	import OpenSeadragon from 'openseadragon';
 	import { createOSDAnnotator } from '@annotorious/openseadragon';
 	import {
@@ -39,7 +39,7 @@
 		targetToNormalized,
 		type AnnotationData,
 	} from '$lib/annotationApi';
-	import { Origin, UserSelectAction } from '@annotorious/core';
+	import { Origin, UserSelectAction, type DrawingStyle } from '@annotorious/core';
 	import type { ZoomViewData } from '$lib/zoomView.svelte';
 	import { zoomViewportBounds, type ZoomViewInitialBounds } from '$lib/zoomView.svelte';
 	import { parseAnnotationBody, type BodyItem } from '$lib/utils/annotationBody';
@@ -48,8 +48,11 @@
 		showDropdownMenu,
 		showDropdownMenuAt,
 		closeDropdownMenu,
+		toggleDropdownMenu,
+		dropdownMenuState,
 		type DropdownMenuItem,
 	} from '$lib/components/dropdown-menu/dropdownMenu.svelte';
+	import { MoreVertical, Share } from 'lucide-svelte';
 	import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 	import { myGoto } from '$lib/navigation.svelte';
 
@@ -501,7 +504,9 @@
 	const BASE_ANNOTATION_STROKE_WIDTH = 1.5;
 	let annotationScale = 1;
 	let lastAppliedAnnotationScale = annotationScale;
-	let scaleMenuOpen = false;
+	const DISPLAY_MENU_TEST_ID = 'osd-display-menu';
+	let displayMenuBtnEl: HTMLButtonElement | null = null;
+	$: displayMenuOpen = $dropdownMenuState.visible && $dropdownMenuState.testId === DISPLAY_MENU_TEST_ID;
 
 	const scaled = () => {
 		const scale = annotationScale;
@@ -520,7 +525,7 @@
 		};
 	};
 
-	function getAnnotatorStyle() {
+	function getAnnotatorStyle(): DrawingStyle {
 		return {
 			fill: '#00ff00',
 			fillOpacity: 0.04,
@@ -544,6 +549,35 @@
 	$: if (annotationScale !== lastAppliedAnnotationScale) {
 		lastAppliedAnnotationScale = annotationScale;
 		onAnnotationScaleChanged();
+	}
+
+	/** Build the display/actions menu (share + annotation scale).
+	 *  The scale slider snippet is declared in markup, so it's passed in from
+	 *  the click handler where it's in lexical scope. */
+	function buildDisplayMenuItems(scaleSnippet: Snippet): DropdownMenuItem[] {
+		const items: DropdownMenuItem[] = [];
+		if ($photoInFront) {
+			items.push({
+				id: 'share',
+				label: 'Share photo',
+				icon: Share,
+				testId: 'osd-share',
+				onclick: handleShare,
+			});
+			items.push({ type: 'divider' });
+		}
+		items.push({ type: 'custom', id: 'annotation-scale', render: scaleSnippet });
+		return items;
+	}
+
+	/** Toggle the display/actions menu from the toolbar menu button. */
+	function toggleDisplayMenu(scaleSnippet: Snippet) {
+		track('displayMenu');
+		if (!displayMenuBtnEl) return;
+		toggleDropdownMenu(buildDisplayMenuItems(scaleSnippet), displayMenuBtnEl, {
+			placement: 'below-left',
+			testId: DISPLAY_MENU_TEST_ID,
+		});
 	}
 
 	let labelDrawCmds: LabelDrawCmd[] = [];
@@ -1256,8 +1290,8 @@
 			return;
 		}
 		if (e.key === 'Escape') {
-			if (scaleMenuOpen) {
-				scaleMenuOpen = false;
+			if (displayMenuOpen) {
+				closeDropdownMenu();
 			} else if (textModalContent) {
 				textModalContent = null;
 			} else if (editingAnnotation) {
@@ -1290,14 +1324,16 @@
 	<div class="annotation-toolbar">
 		<button
 			class="toolbar-btn toolbar-btn-menu"
-			class:active={scaleMenuOpen}
-			onclick={() => { scaleMenuOpen = !scaleMenuOpen; }}
-			title="Display controls"
-			aria-label="Display controls menu"
+			class:active={displayMenuOpen}
+			bind:this={displayMenuBtnEl}
+			onclick={() => toggleDisplayMenu(scaleControl)}
+			title="Menu"
+			aria-label="Display and actions menu"
 			data-testid="osd-display-menu-toggle"
-			aria-expanded={scaleMenuOpen}
+			aria-haspopup="menu"
+			aria-expanded={displayMenuOpen}
 		>
-			Display
+			<MoreVertical size={18} aria-hidden="true" />
 		</button>
 		<button
 			class="toolbar-btn toolbar-btn-draw"
@@ -1317,28 +1353,19 @@
 		>
 			🔧 Edit
 		</button>
-		{#if $photoInFront}
-			<button
-				class="toolbar-btn toolbar-btn-share"
-				onclick={handleShare}
-				title="Share photo"
-				data-testid="osd-share"
-			>
-				🔗 Share
-			</button>
-		{/if}
 	</div>
-	{#if scaleMenuOpen}
-		<div class="scale-menu" data-testid="osd-display-menu">
-			<div class="scale-menu-header">
-				<label id="osd-annotation-scale-label" class="scale-menu-label" for="osd-annotation-scale">Annotation scale</label>
-				<span class="scale-menu-value" aria-live="polite">{annotationScale.toFixed(1)}×</span>
+
+	{#snippet scaleControl()}
+		<div class="display-menu-scale" data-testid="osd-display-menu-scale">
+			<div class="display-menu-scale-header">
+				<label id="osd-annotation-scale-label" class="display-menu-scale-label" for="osd-annotation-scale">Annotation scale</label>
+				<span class="display-menu-scale-value" aria-live="polite">{annotationScale.toFixed(1)}×</span>
 			</div>
 			<input
 				id="osd-annotation-scale"
-				class="scale-menu-slider"
+				class="display-menu-scale-slider"
 				type="range"
-				min="0.5"
+				min="1"
 				max="3"
 				step="0.1"
 				bind:value={annotationScale}
@@ -1346,7 +1373,7 @@
 				data-testid="osd-annotation-scale-slider"
 			/>
 		</div>
-	{/if}
+	{/snippet}
 
 	<!-- Share status message -->
 	{#if shareMessage}
@@ -1484,18 +1511,26 @@
 		left: calc(12px + var(--safe-area-inset-left, 0px));
 		z-index: 10;
 		display: flex;
-		gap: 8px;
+		gap: 6px;
 	}
 
 	.toolbar-btn {
 		background: rgba(255,255,255,0.85);
 		border: 2px solid transparent;
 		border-radius: 8px;
-		padding: 8px 12px;
+		padding: 6px 10px;
 		cursor: pointer;
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 500;
 		color: #222;
+	}
+
+	.toolbar-btn-menu {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 6px;
+		color: #444;
 	}
 
 	.toolbar-btn:hover {
@@ -1528,42 +1563,36 @@
 		color: #fff;
 	}
 
-	.scale-menu {
-		position: absolute;
-		top: calc(56px + var(--safe-area-inset-top, 0px));
-		left: calc(12px + var(--safe-area-inset-left, 0px));
-		z-index: 10;
-		background: rgba(20,20,20,0.95);
-		border: 1px solid rgba(255,255,255,0.2);
-		border-radius: 8px;
-		padding: 10px 12px;
+	.display-menu-scale {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
-		min-width: 220px;
+		gap: 6px;
+		padding: 8px 14px;
+		min-width: 200px;
 	}
 
-	.scale-menu-label {
-		font-size: 12px;
-		font-weight: 500;
-		color: rgba(255,255,255,0.9);
-	}
-
-	.scale-menu-header {
+	.display-menu-scale-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		gap: 8px;
 	}
 
-	.scale-menu-value {
-		font-size: 12px;
-		font-weight: 600;
-		color: #fff;
+	.display-menu-scale-label {
+		font-size: 13px;
+		font-weight: 500;
+		color: #1f2937;
 	}
 
-	.scale-menu-slider {
+	.display-menu-scale-value {
+		font-size: 13px;
+		font-weight: 600;
+		color: #1f2937;
+	}
+
+	.display-menu-scale-slider {
 		width: 100%;
+		margin: 0;
 	}
 
 	.share-message {
