@@ -538,7 +538,8 @@
 		applyAnnotatorScaleStyle();
 	}
 
-	function onAnnotationScaleChanged(_scale: number) {
+	function onAnnotationScaleChanged(scale: number) {
+		void scale;
 		lastDrawFingerprint = '';
 		scheduleDrawLabels();
 	}
