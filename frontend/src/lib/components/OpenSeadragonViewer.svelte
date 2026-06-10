@@ -534,19 +534,13 @@
 		annotator.setStyle(getAnnotatorStyle());
 	}
 
-	$: if (annotator) {
-		applyAnnotatorScaleStyle();
-	}
-
 	function onAnnotationScaleChanged() {
+		applyAnnotatorScaleStyle();
 		lastDrawFingerprint = '';
 		scheduleDrawLabels();
 	}
 
-	$: {
-		annotationScale;
-		onAnnotationScaleChanged();
-	}
+	$: annotationScale, onAnnotationScaleChanged();
 
 	let labelDrawCmds: LabelDrawCmd[] = [];
 
@@ -1299,7 +1293,7 @@
 			data-testid="osd-display-menu-toggle"
 			aria-expanded={scaleMenuOpen}
 		>
-			⚙️ Menu
+			Menu
 		</button>
 		<button
 			class="toolbar-btn toolbar-btn-draw"
