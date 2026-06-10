@@ -107,6 +107,15 @@ describe('buildLabelCommands', () => {
 		expect(cmds[0].pillW).toBe(50);
 		expect(cmds[0].pillH).toBe(LABEL_PILL_H);
 	});
+
+	it('supports custom pill height', () => {
+		const inputs: LabelInput[] = [
+			{ label: 'Hello', cx: 400, cy: 595, pillW: 50 },
+		];
+		const { cmds } = buildLabelCommands(inputs, W, H, MARGIN, { pillH: 32 });
+		expect(cmds[0].pillH).toBe(32);
+		expect(cmds[0].ty).toBe(H - MARGIN - 32);
+	});
 });
 
 describe('resolveOverlaps', () => {
@@ -141,6 +150,16 @@ describe('resolveOverlaps', () => {
 		resolveOverlaps(cmds, W, H);
 		const gap = cmds[1].ty - (cmds[0].ty + cmds[0].pillH);
 		expect(gap).toBeGreaterThanOrEqual(LABEL_GAP);
+	});
+
+	it('uses custom overlap gap when provided', () => {
+		const cmds = [
+			makeCmd({ ty: 100, ly: 100 }),
+			makeCmd({ ty: 105, ly: 105 }),
+		];
+		resolveOverlaps(cmds, W, H, { gap: 9 });
+		const gap = cmds[1].ty - (cmds[0].ty + cmds[0].pillH);
+		expect(gap).toBeGreaterThanOrEqual(9);
 	});
 
 	it('pushes second pill right when two overlap on top edge', () => {

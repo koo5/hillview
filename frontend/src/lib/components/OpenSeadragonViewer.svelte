@@ -481,9 +481,66 @@
 	// Fingerprint of last drawn state — skip redraw if nothing changed
 	let lastDrawFingerprint = '';
 
-	import { buildLabelCommands, resolveOverlaps, LABEL_PAD, type LabelInput, type LabelDrawCmd } from '$lib/utils/labelLayout';
+	import {
+		buildLabelCommands,
+		resolveOverlaps,
+		LABEL_PAD,
+		LABEL_PILL_H,
+		LABEL_GAP,
+		type LabelInput,
+		type LabelDrawCmd
+	} from '$lib/utils/labelLayout';
 
-	const LABEL_FONT = 'bold 12px system-ui,sans-serif';
+	const BASE_LABEL_FONT_SIZE = 12;
+	const LABEL_FONT_FAMILY = 'system-ui,sans-serif';
+	const BASE_LABEL_MARGIN = 14;
+	const BASE_LEADER_WIDTH = 1.5;
+	const BASE_LEADER_DASH = 15;
+	const BASE_PILL_RADIUS = 4;
+	const BASE_TEXT_BASELINE_OFFSET = 5;
+	const BASE_ANNOTATION_STROKE_WIDTH = 1.5;
+	let annotationScale = 1;
+	let scaleMenuOpen = false;
+
+	const scaled = () => {
+		const scale = annotationScale;
+		return {
+			scale,
+			labelFont: `bold ${BASE_LABEL_FONT_SIZE * scale}px ${LABEL_FONT_FAMILY}`,
+			labelPad: LABEL_PAD * scale,
+			labelPillH: LABEL_PILL_H * scale,
+			labelGap: LABEL_GAP * scale,
+			labelMargin: BASE_LABEL_MARGIN * scale,
+			leaderWidth: BASE_LEADER_WIDTH * scale,
+			leaderDash: BASE_LEADER_DASH * scale,
+			pillRadius: BASE_PILL_RADIUS * scale,
+			textBaselineOffset: BASE_TEXT_BASELINE_OFFSET * scale,
+			strokeWidth: BASE_ANNOTATION_STROKE_WIDTH * scale,
+		};
+	};
+
+	function applyAnnotatorScaleStyle() {
+		if (!annotator) return;
+		const { strokeWidth } = scaled();
+		annotator.setStyle({
+			fill: '#00ff00',
+			fillOpacity: 0.04,
+			stroke: '#00ff00',
+			strokeWidth,
+			strokeOpacity: 0.6,
+		});
+	}
+
+	$: if (annotator) {
+		applyAnnotatorScaleStyle();
+	}
+
+	$: {
+		annotationScale;
+		lastDrawFingerprint = '';
+		scheduleDrawLabels();
+	}
+
 	let labelDrawCmds: LabelDrawCmd[] = [];
 
 	function drawLabelsNow() {
@@ -493,7 +550,18 @@
 
 		const ctx = labelCanvas.getContext('2d');
 		if (!ctx) return;
-		ctx.font = LABEL_FONT;
+		const {
+			labelFont,
+			labelPad,
+			labelPillH,
+			labelGap,
+			labelMargin,
+			leaderWidth,
+			leaderDash,
+			pillRadius,
+			textBaselineOffset
+		} = scaled();
+		ctx.font = labelFont;
 
 		// Convert image-space annotations to screen-space inputs
 		const item = getMainTiledImage();
@@ -505,15 +573,15 @@
 			const cx = Math.round(scPt.x);
 			const cy = Math.round(scPt.y);
 			const tw = ctx.measureText(label).width;
-			const pillW = tw + LABEL_PAD * 2;
+			const pillW = tw + labelPad * 2;
 			inputs.push({ label, cx, cy, pillW, id: dbId });
 		}
 
-		const { cmds, fingerprint: fp } = buildLabelCommands(inputs, W, H, 14);
+		const { cmds, fingerprint: fp } = buildLabelCommands(inputs, W, H, labelMargin, { pillH: labelPillH });
 		if (fp === lastDrawFingerprint) return;
 		lastDrawFingerprint = fp;
 
-		resolveOverlaps(cmds, W, H);
+		resolveOverlaps(cmds, W, H, { gap: labelGap });
 
 		// Expose resolved label state for Playwright tests and render clickable overlays
 		if (typeof window !== 'undefined') {
@@ -533,31 +601,31 @@
 			const toX = edge === 'left' || edge === 'right' ? tx + (edge === 'left' ? 0 : pillW) : pillCx;
 			const toY = edge === 'top' || edge === 'bottom' ? ty + (edge === 'top' ? 0 : pillH) : pillCy;
 			ctx.strokeStyle = 'rgba(255,255,55,1)';
-			ctx.lineWidth = 1.5;
+			ctx.lineWidth = leaderWidth;
 			ctx.lineTo(toX, toY);
 			ctx.stroke();
 
 			ctx.beginPath();
 			ctx.moveTo(cx, cy);
-			ctx.setLineDash([15, 15])
+			ctx.setLineDash([leaderDash, leaderDash])
 			ctx.lineTo(toX, toY);
 			ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-			ctx.lineWidth = 1.5;
+			ctx.lineWidth = leaderWidth;
 			ctx.stroke();
 
 			ctx.setLineDash([])
 			// Label pill
-			ctx.font = LABEL_FONT;
+			ctx.font = labelFont;
 			ctx.fillStyle = 'rgba(0,0,0,0.75)';
 			ctx.beginPath();
 			if (typeof (ctx as any).roundRect === 'function') {
-				(ctx as any).roundRect(tx, ty, pillW, pillH, 4);
+				(ctx as any).roundRect(tx, ty, pillW, pillH, pillRadius);
 			} else {
 				ctx.rect(tx, ty, pillW, pillH);
 			}
 			ctx.fill();
 			ctx.fillStyle = '#fff';
-			ctx.fillText(label, tx + LABEL_PAD, ty + pillH - 5);
+			ctx.fillText(label, tx + labelPad, ty + pillH - textBaselineOffset);
 		}
 	}
 
@@ -667,7 +735,7 @@
 				fill: '#00ff00',
 				fillOpacity: 0.04,
 				stroke: '#00ff00',
-				strokeWidth: 1.5,
+				strokeWidth: scaled().strokeWidth,
 				strokeOpacity: 0.6,
 			},drawingMode: 'drag'
 		});
@@ -1188,7 +1256,9 @@
 			return;
 		}
 		if (e.key === 'Escape') {
-			if (textModalContent) {
+			if (scaleMenuOpen) {
+				scaleMenuOpen = false;
+			} else if (textModalContent) {
 				textModalContent = null;
 			} else if (editingAnnotation) {
 				cancelEditBody();
@@ -1219,6 +1289,16 @@
 	<!-- Toolbar -->
 	<div class="annotation-toolbar">
 		<button
+			class="toolbar-btn toolbar-btn-menu"
+			class:active={scaleMenuOpen}
+			onclick={() => { scaleMenuOpen = !scaleMenuOpen; }}
+			title="Display controls"
+			data-testid="osd-display-menu-toggle"
+			aria-expanded={scaleMenuOpen}
+		>
+			⚙️ Menu
+		</button>
+		<button
 			class="toolbar-btn toolbar-btn-draw"
 			class:active={annotationMode === 'draw'}
 			onclick={() => { if (requireAuth()) setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw'); }}
@@ -1247,6 +1327,21 @@
 			</button>
 		{/if}
 	</div>
+	{#if scaleMenuOpen}
+		<div class="scale-menu" data-testid="osd-display-menu">
+			<label class="scale-menu-label" for="osd-annotation-scale">Annotations scale {annotationScale.toFixed(1)}×</label>
+			<input
+				id="osd-annotation-scale"
+				class="scale-menu-slider"
+				type="range"
+				min="0.5"
+				max="3"
+				step="0.1"
+				bind:value={annotationScale}
+				data-testid="osd-annotation-scale-slider"
+			/>
+		</div>
+	{/if}
 
 	<!-- Share status message -->
 	{#if shareMessage}
@@ -1420,6 +1515,37 @@
 
 	.toolbar-btn-edit.active:hover {
 		background: rgba(74,144,226,0.9);
+	}
+
+	.toolbar-btn-menu.active {
+		border-color: #6c757d;
+		background: rgba(108,117,125,0.8);
+		color: #fff;
+	}
+
+	.scale-menu {
+		position: absolute;
+		top: calc(56px + var(--safe-area-inset-top, 0px));
+		left: calc(12px + var(--safe-area-inset-left, 0px));
+		z-index: 10;
+		background: rgba(20,20,20,0.95);
+		border: 1px solid rgba(255,255,255,0.2);
+		border-radius: 8px;
+		padding: 10px 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		min-width: 220px;
+	}
+
+	.scale-menu-label {
+		font-size: 12px;
+		font-weight: 500;
+		color: rgba(255,255,255,0.9);
+	}
+
+	.scale-menu-slider {
+		width: 100%;
 	}
 
 	.share-message {
