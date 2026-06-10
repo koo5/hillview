@@ -538,13 +538,15 @@
 		applyAnnotatorScaleStyle();
 	}
 
-	function onAnnotationScaleChanged(scale: number) {
-		void scale;
+	function onAnnotationScaleChanged() {
 		lastDrawFingerprint = '';
 		scheduleDrawLabels();
 	}
 
-	$: onAnnotationScaleChanged(annotationScale);
+	$: {
+		annotationScale;
+		onAnnotationScaleChanged();
+	}
 
 	let labelDrawCmds: LabelDrawCmd[] = [];
 
@@ -1330,7 +1332,10 @@
 	</div>
 	{#if scaleMenuOpen}
 		<div class="scale-menu" data-testid="osd-display-menu">
-			<label id="osd-annotation-scale-label" class="scale-menu-label" for="osd-annotation-scale">Annotation scale {annotationScale.toFixed(1)}×</label>
+			<div class="scale-menu-header">
+				<label id="osd-annotation-scale-label" class="scale-menu-label" for="osd-annotation-scale">Annotation scale</label>
+				<span class="scale-menu-value" aria-live="polite">{annotationScale.toFixed(1)}×</span>
+			</div>
 			<input
 				id="osd-annotation-scale"
 				class="scale-menu-slider"
@@ -1544,6 +1549,19 @@
 		font-size: 12px;
 		font-weight: 500;
 		color: rgba(255,255,255,0.9);
+	}
+
+	.scale-menu-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.scale-menu-value {
+		font-size: 12px;
+		font-weight: 600;
+		color: #fff;
 	}
 
 	.scale-menu-slider {
