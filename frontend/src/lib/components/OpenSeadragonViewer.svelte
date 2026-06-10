@@ -500,6 +500,7 @@
 	const BASE_TEXT_BASELINE_OFFSET = 5;
 	const BASE_ANNOTATION_STROKE_WIDTH = 1.5;
 	let annotationScale = 1;
+	let lastAppliedAnnotationScale = annotationScale;
 	let scaleMenuOpen = false;
 
 	const scaled = () => {
@@ -540,7 +541,10 @@
 		scheduleDrawLabels();
 	}
 
-	$: annotationScale, onAnnotationScaleChanged();
+	$: if (annotationScale !== lastAppliedAnnotationScale) {
+		lastAppliedAnnotationScale = annotationScale;
+		onAnnotationScaleChanged();
+	}
 
 	let labelDrawCmds: LabelDrawCmd[] = [];
 
@@ -608,13 +612,13 @@
 
 			ctx.beginPath();
 			ctx.moveTo(cx, cy);
-			ctx.setLineDash([leaderDash, leaderDash])
+			ctx.setLineDash([leaderDash, leaderDash]);
 			ctx.lineTo(toX, toY);
 			ctx.strokeStyle = 'rgba(0,0,0,0.85)';
 			ctx.lineWidth = leaderWidth;
 			ctx.stroke();
 
-			ctx.setLineDash([])
+			ctx.setLineDash([]);
 			// Label pill
 			ctx.font = labelFont;
 			ctx.fillStyle = 'rgba(0,0,0,0.75)';
