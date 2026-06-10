@@ -1293,7 +1293,7 @@
 			data-testid="osd-display-menu-toggle"
 			aria-expanded={scaleMenuOpen}
 		>
-			Menu
+			Display
 		</button>
 		<button
 			class="toolbar-btn toolbar-btn-draw"
