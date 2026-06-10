@@ -5,12 +5,9 @@ set -euo pipefail
 
 cd "$(dirname "$(readlink -f -- "$0")")/../.."
 
-docker compose \
-    --env-file .env.dev \
-    --env-file .env \
-    -f docker-compose.yml \
-    -f docker-compose.dev.yml \
-    up --build --remove-orphans -d
+# Delegate to the canonical wrapper so env-file order / compose files stay in
+# one place (see compose.sh).
+./compose.sh up --build --remove-orphans -d
 
 for _ in $(seq 1 60); do
     if curl -fsS http://localhost:8055/api/debug >/dev/null 2>&1; then

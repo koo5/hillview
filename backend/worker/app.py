@@ -217,6 +217,13 @@ MAX_PENDING_TASKS = int(os.getenv("MAX_PENDING_TASKS", "100"))
 QUEUE_FULL_RETRY_AFTER_SECONDS = int(os.getenv("QUEUE_FULL_RETRY_AFTER_SECONDS", "500"))
 logger.info(f"MAX_PENDING_TASKS: {MAX_PENDING_TASKS}")
 
+# Bound on how long a queued task may wait for a processing slot / free RAM.
+# Without it a wedged slot (stuck C code) or RAM starvation would hold the
+# queue at "full" forever, permanently rejecting uploads. On timeout the task
+# errors out through the existing TimeoutError path: the API is notified with
+# retry_after_minutes, the client retries later, and the queue drains.
+QUEUE_WAIT_TIMEOUT_SECONDS = int(os.getenv("QUEUE_WAIT_TIMEOUT_SECONDS", "3600"))
+
 
 def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: str = None, anonymization_override: str = None, metadata: Dict[str, Any] = None, quality: int = None, fast: bool = False, files_to_clean: Optional[list] = None):
 	"""
@@ -760,8 +767,14 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 		# Process the photo with concurrency limit
 		user_uuid = UUID(user_id)
 
-		async with processing_semaphore:
-			await throttle.wait_for_free_ram(500)
+		# Bounded waits for a slot and for RAM — on timeout the task aborts
+		# through the TimeoutError handler below instead of wedging the queue.
+		try:
+			await asyncio.wait_for(processing_semaphore.acquire(), timeout=QUEUE_WAIT_TIMEOUT_SECONDS)
+		except asyncio.TimeoutError:
+			raise TimeoutError(f"No processing slot free after {QUEUE_WAIT_TIMEOUT_SECONDS}s")
+		try:
+			await throttle.wait_for_free_ram(500, timeout=QUEUE_WAIT_TIMEOUT_SECONDS)
 
 			# Run processing in thread to avoid blocking the event loop
 			# Capture current context to pass to the thread
@@ -788,6 +801,8 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 				fast,
 				files_to_clean,
 			)
+		finally:
+			processing_semaphore.release()
 
 		if not processing_result:
 			raise ValueError("Processing returned no result")
@@ -796,7 +811,7 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 		processing_status = "completed"
 
 	except TimeoutError as te:
-		logger.error(f"TimeoutError (wait_for_free_ram?) for photo {photo_id}: {te}")
+		logger.error(f"TimeoutError (processing slot / free RAM wait) for photo {photo_id}: {te}")
 		processing_status = "error"
 		error_message = "Insufficient resources to process photo, please retry later"
 		retry_after_minutes = 15

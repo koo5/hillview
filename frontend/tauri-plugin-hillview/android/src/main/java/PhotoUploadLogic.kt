@@ -253,6 +253,15 @@ class PhotoUploadLogic(private val context: Context) {
 						// Duplicate already handled - database already updated to "completed"
 						Log.i(TAG, "✅ Duplicate file handled for ${photo.filename}")
 						// Continue to next photo
+					} catch (e: WorkerBusyException) {
+						// Worker upload queue is full — restore the photo's prior
+						// status (no retryCount burn, original uploadedAt) and abort
+						// the whole pass instead of draining the rest of the queue
+						// at a worker that will reject every body.
+						Log.w(TAG, "⏳ Worker busy, aborting upload pass: ${e.message}")
+						photoDao.updateUploadStatus(photo.id, photo.uploadStatus, photo.uploadedAt)
+						workerBusy = true
+						break
 					} catch (e: Exception) {
 						Log.e(
 							TAG,
@@ -272,6 +281,11 @@ class PhotoUploadLogic(private val context: Context) {
 
 				// Sync status for photos that are in "processing" state
 				syncProcessingPhotosStatus()
+
+				if (workerBusy) {
+					Log.d(TAG, "Worker busy — letting WorkManager reschedule the drain")
+					return ListenableWorker.Result.retry()
+				}
 
 				Log.d(TAG, "Photo upload worker completed successfully")
 				return ListenableWorker.Result.success()
@@ -459,6 +473,9 @@ class PhotoUploadLogic(private val context: Context) {
 			// Let this propagate - it's already handled in requestUploadAuthorization
 			// and the database is already updated to "completed"
 			throw e
+		} catch (e: WorkerBusyException) {
+			// Let this propagate - the drain loop aborts the whole pass on it
+			throw e
 		} catch (e: java.net.ConnectException) {
 			Log.w(TAG, "🌐 Connection failed for ${photo.filename}: Server unreachable (${e.message})")
 			return@withContext null
@@ -609,6 +626,24 @@ class PhotoUploadLogic(private val context: Context) {
 		photoId: String,
 		anonymizationOverride: String? = null
 	): Boolean {
+		// Pre-flight readiness check — /ready returns 503 while the worker's
+		// upload queue is full, letting us back off before transmitting the
+		// body. 404 = older worker without /ready; other failures fall through
+		// to the upload attempt itself (which also wakes a sleeping machine).
+		try {
+			val readyRequest = Request.Builder()
+				.url("$workerUrl/ready")
+				.get()
+				.build()
+			client.newCall(readyRequest).execute().use { readyResponse ->
+				if (readyResponse.code == 503) {
+					throw WorkerBusyException("Worker upload queue is full (readiness check)")
+				}
+			}
+		} catch (e: IOException) {
+			Log.w(TAG, "Readiness check failed for $workerUrl, proceeding with upload: ${e.message}")
+		}
+
 		val mediaType = PhotoUtils.getContentType(filename).toMediaType()
 
 		val multipartBuilder = MultipartBody.Builder()
@@ -652,6 +687,12 @@ class PhotoUploadLogic(private val context: Context) {
 
 		try {
 			client.newCall(request).execute().use { response ->
+				if (response.code == 503) {
+					val error = response.body?.string() ?: "Unknown error"
+					Log.w(TAG, "Worker rejected upload as busy: $error")
+					throw WorkerBusyException("Worker upload queue is full")
+				}
+
 				if (!response.isSuccessful) {
 					val error = response.body?.string() ?: "Unknown error"
 					Log.e(TAG, "Worker upload failed: ${response.code} - $error")
