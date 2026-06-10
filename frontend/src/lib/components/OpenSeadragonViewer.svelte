@@ -519,27 +519,31 @@
 		};
 	};
 
-	function applyAnnotatorScaleStyle() {
-		if (!annotator) return;
-		const { strokeWidth } = scaled();
-		annotator.setStyle({
+	function getAnnotatorStyle() {
+		return {
 			fill: '#00ff00',
 			fillOpacity: 0.04,
 			stroke: '#00ff00',
-			strokeWidth,
+			strokeWidth: scaled().strokeWidth,
 			strokeOpacity: 0.6,
-		});
+		};
+	}
+
+	function applyAnnotatorScaleStyle() {
+		if (!annotator) return;
+		annotator.setStyle(getAnnotatorStyle());
 	}
 
 	$: if (annotator) {
 		applyAnnotatorScaleStyle();
 	}
 
-	$: {
-		annotationScale;
+	function onAnnotationScaleChanged(_scale: number) {
 		lastDrawFingerprint = '';
 		scheduleDrawLabels();
 	}
+
+	$: onAnnotationScaleChanged(annotationScale);
 
 	let labelDrawCmds: LabelDrawCmd[] = [];
 
@@ -731,13 +735,8 @@
 		annotator = createOSDAnnotator(viewer, {
 			drawingEnabled: false,
 			userSelectAction: UserSelectAction.SELECT,
-			style: {
-				fill: '#00ff00',
-				fillOpacity: 0.04,
-				stroke: '#00ff00',
-				strokeWidth: scaled().strokeWidth,
-				strokeOpacity: 0.6,
-			},drawingMode: 'drag'
+			style: getAnnotatorStyle(),
+			drawingMode: 'drag'
 		});
 
 		// Direct store observer: catches geometry changes during drag (the
@@ -1293,6 +1292,7 @@
 			class:active={scaleMenuOpen}
 			onclick={() => { scaleMenuOpen = !scaleMenuOpen; }}
 			title="Display controls"
+			aria-label="Display controls menu"
 			data-testid="osd-display-menu-toggle"
 			aria-expanded={scaleMenuOpen}
 		>
@@ -1329,7 +1329,7 @@
 	</div>
 	{#if scaleMenuOpen}
 		<div class="scale-menu" data-testid="osd-display-menu">
-			<label class="scale-menu-label" for="osd-annotation-scale">Annotations scale {annotationScale.toFixed(1)}×</label>
+			<label id="osd-annotation-scale-label" class="scale-menu-label" for="osd-annotation-scale">Annotation scale {annotationScale.toFixed(1)}×</label>
 			<input
 				id="osd-annotation-scale"
 				class="scale-menu-slider"
@@ -1338,6 +1338,7 @@
 				max="3"
 				step="0.1"
 				bind:value={annotationScale}
+				aria-labelledby="osd-annotation-scale-label"
 				data-testid="osd-annotation-scale-slider"
 			/>
 		</div>
