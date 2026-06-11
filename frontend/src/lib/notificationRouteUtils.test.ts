@@ -10,6 +10,15 @@ describe('shouldRefreshActivityFromNotification', () => {
 		expect(shouldRefreshActivityFromNotification('/activity', '/activity?from=notification')).toBe(true);
 	});
 
+	test('returns true with trailing slashes on current path and route', () => {
+		expect(shouldRefreshActivityFromNotification('/activity/', '/activity//')).toBe(true);
+	});
+
+	test('returns false for empty or non-activity paths', () => {
+		expect(shouldRefreshActivityFromNotification('', '/activity')).toBe(false);
+		expect(shouldRefreshActivityFromNotification('/activity', '')).toBe(false);
+	});
+
 	test('returns false when current page is not /activity', () => {
 		expect(shouldRefreshActivityFromNotification('/settings', '/activity')).toBe(false);
 	});
