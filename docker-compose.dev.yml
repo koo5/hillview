@@ -53,6 +53,10 @@ services:
       - WORKER_HOST=0.0.0.0 # not used
       - API_URL=${API_URL:-http://localhost:8055/api}
       - DEV_MODE=${DEV_MODE:-}
+      # Opt-in retention of uploaded originals + intermediates after
+      # processing (debugging aid). Default: clean. Deliberately decoupled
+      # from DEV_MODE — see cleanup_file_on_error in common/file_utils.py.
+      - KEEP_UPLOADED_FILES=${KEEP_UPLOADED_FILES:-}
       - BUCKET_NAME=${BUCKET_NAME:-}
       - CDN_BASE_URL=${CDN_BASE_URL:-}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}

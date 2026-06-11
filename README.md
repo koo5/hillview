@@ -38,10 +38,6 @@ The **Best of** page shows top-rated photos, including annotated panoramas — a
 
 ![Best of page](https://hillview.cz/docs/screenshots/desktop/07-best-of.png)
 
-The **Activity** page shows recently uploaded photos from all users.
-
-![Activity feed](https://hillview.cz/docs/screenshots/desktop/06-activity-feed.png)
-
 ### Rating photos
 
 Use the **thumbs up / thumbs down** buttons to rate photos. Ratings feed into the Best of rankings.

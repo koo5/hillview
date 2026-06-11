@@ -71,14 +71,19 @@ def cleanup_file_on_error(file_path: Path):
 	"""
 	Clean up a file if processing fails.
 	Safe to call even if file doesn't exist.
+
+	Retention is opt-in via KEEP_UPLOADED_FILES=true (for debugging a
+	specific upload). Deliberately NOT tied to DEV_MODE: it used to be,
+	and dev workers silently retained every uploaded original +
+	intermediate until the uploads volume filled the disk.
 	"""
 	try:
 		if file_path.exists():
-			if os.environ.get('DEV_MODE', 'false').lower() != 'true':
+			if os.environ.get('KEEP_UPLOADED_FILES', 'false').lower() != 'true':
 				file_path.unlink()
 				logger.info(f"Cleaned up file: {file_path}")
 			else:
-				logger.info(f"DEV_MODE is on, skipping file cleanup: {file_path}")
+				logger.info(f"KEEP_UPLOADED_FILES is on, skipping file cleanup: {file_path}")
 	except Exception as e:
 		logger.warning(f"Failed to cleanup file {file_path}: {str(e)}")
 
