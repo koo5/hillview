@@ -32,6 +32,10 @@ export interface StoredPhoto {
     server_photo_id?: string;
     added_at: number;
     last_attempt?: number;
+    /** Re-upload version, bumped when settings change (mirrors PhotoEntity.version on Android). Absent = 1. */
+    version?: number;
+    /** Anonymization override as JSON string: null/absent = auto-detect, "[]" = none, "[{...}]" = custom rectangles. */
+    anonymization_override?: string | null;
 }
 
 // Store for tracking storage usage
@@ -474,6 +478,43 @@ class BrowserPhotoStorage {
         }
 
         await this.updateQueueStatus();
+    }
+
+    async getPhoto(photoId: string): Promise<StoredPhoto | null> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readonly');
+        const store = transaction.objectStore(PHOTO_STORE);
+        return (await this.promisifyRequest(store.get(photoId))) ?? null;
+    }
+
+    async getPhotoByServerPhotoId(serverPhotoId: string): Promise<StoredPhoto | null> {
+        const photos = await this.getAllPhotos();
+        return photos.find(p => p.server_photo_id === serverPhotoId && !p.deleted) ?? null;
+    }
+
+    /**
+     * Set the anonymization override for a photo and queue it for re-upload.
+     * Mirrors Kotlin SimplePhotoDao.updateAnonymizationOverride: bumps version
+     * and resets status to 'pending' so the upload loop re-sends the file.
+     * @returns true if the photo existed and was updated
+     */
+    async setAnonymizationOverride(photoId: string, override: string | null): Promise<boolean> {
+        if (!this.db) await this.init();
+
+        const transaction = this.db!.transaction([PHOTO_STORE], 'readwrite');
+        const store = transaction.objectStore(PHOTO_STORE);
+
+        const photo = await this.promisifyRequest(store.get(photoId));
+        if (!photo) return false;
+
+        photo.anonymization_override = override;
+        photo.version = (photo.version ?? 1) + 1;
+        photo.status = 'pending';
+        await this.promisifyRequest(store.put(photo));
+
+        await this.updateQueueStatus();
+        return true;
     }
 
     async getAllPhotos(): Promise<StoredPhoto[]> {

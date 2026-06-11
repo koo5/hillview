@@ -110,7 +110,8 @@ describe('secureUpload', () => {
 				'mock-jwt',
 				'mock-signature',
 				'http://worker:8056',
-				undefined // no browserMetadata
+				undefined, // no browserMetadata
+				undefined // no anonymization_override
 			);
 		});
 

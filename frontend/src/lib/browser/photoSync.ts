@@ -50,7 +50,11 @@ async function foregroundUploader(photo: StoredPhoto): Promise<UploadResult> {
         undefined,  // description
         true,       // isPublic
         metadata,   // browserMetadata
-        license
+        license,
+        {           // re-upload support (anonymization edits bump version)
+            version: photo.version,
+            anonymization_override: photo.anonymization_override
+        }
     );
 
     return {

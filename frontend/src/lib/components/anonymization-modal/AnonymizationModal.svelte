@@ -2,6 +2,8 @@
 	import Modal from '../Modal.svelte';
 	import { Glasses, Smile, AlertCircle, Loader2, Check } from 'lucide-svelte';
 	import { createAnonymizationEdit, getDevicePhotoIdByServerPhotoId, checkPhotoFileExists, getPhotoAnonymizationState, triggerUploadLoop, type AnonymizationState } from '$lib/photoAnonymizationMenu';
+	import { lookupBrowserPhoto, setBrowserAnonymizationOverride } from '$lib/browser/photoEdits';
+	import { triggerPhotoSync } from '$lib/browser/photoSync';
 	import { addAlert } from '$lib/alertSystem.svelte';
 	import { anonymizationModalState, closeAnonymizationModal } from './anonymizationModal.svelte.js';
 	import { BROWSER } from '$lib/tauri';
@@ -9,9 +11,8 @@
 	type ModalState =
 		| { status: 'loading' }
 		| { status: 'not-found-locally' }
-		| { status: 'file-missing'; path: string }
-		| { status: 'browser-not-supported' }
-		| { status: 'ready'; devicePhotoId: string; currentState: AnonymizationState }
+		| { status: 'file-missing'; path?: string }
+		| { status: 'ready'; platform: 'native' | 'browser'; devicePhotoId: string; currentState: AnonymizationState }
 		| { status: 'processing'; currentState: AnonymizationState };
 
 	let modalState: ModalState = $state({ status: 'loading' });
@@ -32,9 +33,22 @@
 
 		modalState = { status: 'loading' };
 
-		// In browser mode, we can't access local device photos
+		// In browser mode, look the photo up in IndexedDB instead of the device database
 		if (BROWSER) {
-			modalState = { status: 'browser-not-supported' };
+			try {
+				const lookup = await lookupBrowserPhoto(photoId, isServerPhoto);
+				if (lookup.status === 'not-found') {
+					modalState = { status: 'not-found-locally' };
+				} else if (lookup.status === 'file-missing') {
+					// Blob was evicted from browser storage after upload to save space
+					modalState = { status: 'file-missing' };
+				} else {
+					modalState = { status: 'ready', platform: 'browser', devicePhotoId: lookup.photo.id, currentState: lookup.state };
+				}
+			} catch (err) {
+				console.error('Error checking browser photo availability:', err);
+				modalState = { status: 'file-missing' };
+			}
 			return;
 		}
 
@@ -69,7 +83,7 @@
 			const currentState: AnonymizationState = stateResult.success && stateResult.state ? stateResult.state : 'auto';
 
 			// All good - show options
-			modalState = { status: 'ready', devicePhotoId, currentState };
+			modalState = { status: 'ready', platform: 'native', devicePhotoId, currentState };
 
 		} catch (err) {
 			console.error('Error checking photo availability:', err);
@@ -80,7 +94,7 @@
 	async function handleOption(value: null | any[], label: string, newState: AnonymizationState) {
 		if (modalState.status !== 'ready') return;
 
-		const { devicePhotoId, currentState } = modalState;
+		const { devicePhotoId, currentState, platform } = modalState;
 
 		// Don't do anything if selecting the same option
 		if (newState === currentState) {
@@ -91,6 +105,24 @@
 		modalState = { status: 'processing', currentState };
 
 		try {
+			if (platform === 'browser') {
+				const updated = await setBrowserAnonymizationOverride(devicePhotoId, value);
+				if (updated) {
+					addAlert(`${label} - queued for re-upload`, 'success', {
+						duration: 3000,
+						source: 'anonymization-edit'
+					});
+					// Trigger upload sync to re-upload the photo
+					triggerPhotoSync();
+				} else {
+					addAlert('Failed: photo no longer available', 'error', {
+						duration: 5000,
+						source: 'anonymization-edit'
+					});
+				}
+				return;
+			}
+
 			const result = await createAnonymizationEdit(devicePhotoId, value);
 			if (result.success && result.edit_id) {
 				addAlert(`${label} - queued for re-upload`, 'success', {
@@ -125,18 +157,6 @@
 			<p>Checking photo availability...</p>
 		</div>
 
-	{:else if modalState.status === 'browser-not-supported'}
-		<div class="state-message">
-			<div class="state-icon warning">
-				<AlertCircle size={32} />
-			</div>
-			<h4>Not available in browser yet</h4>
-			<p>
-				Changing anonymization settings is only available in the mobile app.
-				Please use the Hillview app on your device to modify these settings.
-			</p>
-		</div>
-
 	{:else if modalState.status === 'not-found-locally'}
 		<div class="state-message">
 			<div class="state-icon warning">
@@ -159,9 +179,11 @@
 				The original photo file is no longer available on this device.
 				It may have been deleted or moved.
 			</p>
-			<p class="file-path">
-				Expected location: {modalState.path}
-			</p>
+			{#if modalState.path}
+				<p class="file-path">
+					Expected location: {modalState.path}
+				</p>
+			{/if}
 		</div>
 
 	{:else if modalState.status === 'ready' || modalState.status === 'processing'}
