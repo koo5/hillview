@@ -35,6 +35,9 @@ export interface UploadAuthorizationRequest {
 	altitude?: number;
 	bearing?: number;
 	captured_at?: string;
+	// Re-upload support: bump above the server's stored version to replace a
+	// completed photo (e.g. changed anonymization settings). Backend default is 1.
+	version?: number;
 }
 
 export interface UploadAuthorizationResponse {
@@ -221,7 +224,8 @@ export async function uploadToWorker(
 	uploadJwt: string,
 	signature: string,
 	workerUrl: string,
-	browserMetadata?: any // Additional metadata that can't be in EXIF
+	browserMetadata?: any, // Additional metadata that can't be in EXIF
+	anonymizationOverride?: string | null // JSON: null/absent=auto, "[]"=none, "[{...}]"=specific
 ): Promise<SecureUploadResult> {
 	const maxRetries = 3;
 	const baseDelay = 2000; // Longer delay for file uploads
@@ -256,6 +260,12 @@ export async function uploadToWorker(
 			const formData = new FormData();
 			formData.append('file', file);
 			formData.append('client_signature', signature);
+
+			// Only sent when an override is set — absent means auto-detect,
+			// matching the Kotlin client (PhotoUploadLogic.uploadToWorker)
+			if (anonymizationOverride != null) {
+				formData.append('anonymization_override', anonymizationOverride);
+			}
 
 			// If browser metadata is provided, add it as a JSON object
 			// since browser can't write EXIF tags

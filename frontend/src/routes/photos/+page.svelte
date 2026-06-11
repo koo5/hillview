@@ -542,7 +542,7 @@
 									<Trash2 size={16}/>
 									Delete
 								</button>
-								{#if TAURI}
+								{#if TAURI || BROWSER}
 									<button
 										class="action-button menu-button"
 										on:click={(e) => showPhotoMenu(e, photo)}

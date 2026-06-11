@@ -109,7 +109,11 @@ export async function secureUploadFile(
 	description?: string,
 	isPublic: boolean = true,
 	browserMetadata?: any,  // Metadata from browser capture that can't be written as EXIF
-	license?: string        // License identifier (e.g. 'ccbysa4')
+	license?: string,       // License identifier (e.g. 'ccbysa4')
+	reupload?: {            // Re-upload support (changed anonymization settings)
+		version?: number;   // Bump above server's stored version to replace a completed photo
+		anonymization_override?: string | null;  // JSON: null=auto, "[]"=none, "[{...}]"=specific
+	}
 ): Promise<SecureUploadResult> {
 	try {
 		console.log(`🢄🔐 Starting secure upload for: ${file.name}`);
@@ -142,6 +146,7 @@ export async function secureUploadFile(
 			description,
 			is_public: isPublic,
 			license,
+			version: reupload?.version,
 			...geolocation
 		};
 
@@ -162,7 +167,8 @@ export async function secureUploadFile(
 			authResponse.upload_jwt,
 			signatureData.signature,
 			authResponse.worker_url,
-			browserMetadata  // Pass metadata for form parameters
+			browserMetadata,  // Pass metadata for form parameters
+			reupload?.anonymization_override
 		);
 
 		console.log(`🢄🔐 Secure upload completed: ${file.name}`);

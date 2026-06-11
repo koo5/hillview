@@ -19,7 +19,7 @@
 	import { constructPhotoMapUrl, constructUserProfileUrl, parsePhotoUidParts } from '$lib/urlUtils';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { myGoto } from '$lib/navigation.svelte';
-	import { TAURI } from '$lib/tauri';
+	import { TAURI, BROWSER } from '$lib/tauri';
 	import type { PhotoData } from '$lib/sources';
 	import {
 		getDisplayImageUrl,
@@ -458,7 +458,7 @@
 						<Trash2 size={16} />
 						Delete
 					</button>
-					{#if TAURI}
+					{#if TAURI || BROWSER}
 						<button
 							class="action-button"
 							on:click={showAnonymizationMenu}

@@ -62,7 +62,8 @@ export class ServiceWorkerSecureUploader {
 				longitude: photo.metadata.location.longitude,
 				altitude: photo.metadata.location.altitude ?? undefined,
 				bearing: photo.metadata.location.bearing ?? undefined,
-				captured_at: new Date(photo.metadata.captured_at).toISOString()
+				captured_at: new Date(photo.metadata.captured_at).toISOString(),
+				version: photo.version
 			};
 
 			const authResponse = await requestUploadAuthorization(swAuthFetch, authRequest);
@@ -93,7 +94,8 @@ export class ServiceWorkerSecureUploader {
 				authResponse.upload_jwt,
 				signatureData.signature,
 				authResponse.worker_url,
-				metadata
+				metadata,
+				photo.anonymization_override
 			);
 
 			if (result.success) {
