@@ -488,6 +488,23 @@ async def readiness_check():
 		)
 	return {"status": "ready", "pending_tasks": pending}
 
+@app.post("/debug/max_pending_tasks")
+async def debug_set_max_pending_tasks(value: int):
+	"""DEV_MODE-only runtime knob (mirrors the API's debug-endpoint pattern,
+	gated on the worker's existing test-mode flag — 404 when off, so it's
+	inert in production).
+
+	Integration tests use value=0 to exercise queue-full behavior without
+	actually filling the queue with MAX_PENDING_TASKS concurrent uploads.
+	"""
+	global MAX_PENDING_TASKS
+	if os.environ.get('DEV_MODE', 'false').lower() != 'true':
+		raise HTTPException(status_code=404, detail="Not found")
+	old = MAX_PENDING_TASKS
+	MAX_PENDING_TASKS = value
+	logger.warning(f"DEV_MODE: MAX_PENDING_TASKS overridden {old} -> {value}")
+	return {"old": old, "new": value}
+
 @app.post("/await")
 async def await_handler(task_id: str, request: Request):
 	"""Wait for a background task to complete, sending periodic heartbeats to keep connection alive.
