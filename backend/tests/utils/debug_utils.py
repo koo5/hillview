@@ -614,6 +614,11 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 	parsed_metadata = json.loads(metadata) if metadata else None
 	meta_lat = (parsed_metadata or {}).get('latitude', 0.0)
 	meta_lon = (parsed_metadata or {}).get('longitude', 0.0)
+	# Seed description from the metadata blob too — the pipeline ships pano
+	# descriptions inside --metadata (BrowserMetadata has no description field,
+	# so the worker can't apply it). Explicit --description still wins.
+	if description is None and parsed_metadata:
+		description = parsed_metadata.get('description') or None
 
 	per_item: list = []
 

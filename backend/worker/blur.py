@@ -40,25 +40,25 @@ def collect_warnings():
 
 
 def _dev_only(reason):
-	"""Refuse a speculative image-handling heuristic unless DEV_MODE=true.
+	"""Refuse a speculative image-handling heuristic — in dev and prod alike.
 
 	These branches handle inputs whose color provenance we can't fully verify
 	(unusual ICC profiles, untagged 16-bit TIFFs, cv2 fallback after pyvips
-	load failure). Each can silently miscolor an upload, so in production we
-	refuse; in DEV_MODE we log loudly, append to the active collect_warnings()
-	list (if any), and proceed so test fixtures still work.
+	load failure). Each can silently miscolor an upload, so we refuse.
+	(Historically DEV_MODE warned-and-continued here — hence the name — which
+	let miscolored handling ship silently from dev workers. The warning is
+	still logged and collected before raising so the reason survives in logs
+	and any active collect_warnings() scope.)
 	"""
-	if os.environ.get('DEV_MODE', 'false').lower() != 'true':
-		raise ValueError(
-			f"Refusing speculative image handling: {reason}. "
-			f"Convert to standard sRGB 8-bit (or tagged EXR with "
-			f"hillview:encoding) before upload, or set DEV_MODE=true to "
-			f"allow with a warning."
-		)
-	logging.warning(f"DEV_MODE: speculative image handling — {reason}")
+	logging.warning(f"speculative image handling refused — {reason}")
 	warnings = getattr(_warnings_tls, 'warnings', None)
 	if warnings is not None:
 		warnings.append(reason)
+	raise ValueError(
+		f"Refusing speculative image handling: {reason}. "
+		f"Convert to standard sRGB 8-bit (or tagged EXR with "
+		f"hillview:encoding) before upload."
+	)
 
 
 def _icc_profile_has_linear_trc(profile_data):
@@ -133,9 +133,9 @@ def normalize_to_srgb(img, source_path=None, encoding=None):
 	- 16-bit ushort with interpretation='rgb16'/'srgb' (standard gamma-encoded)
 	- 8-bit sRGB pass-through
 
-	Gated behind DEV_MODE (warning + continue, otherwise refuse): everything
-	speculative — linear-TRC ICC profiles (Hugin), 16-bit ushort with
-	non-standard interpretation, icc_transform failures or unexpected returns.
+	Refused outright (dev and prod alike): everything speculative —
+	linear-TRC ICC profiles (Hugin), 16-bit ushort with non-standard
+	interpretation, icc_transform failures or unexpected returns.
 	See _dev_only() for the rationale.
 	"""
 	if img.bands > 3:
@@ -163,7 +163,11 @@ def normalize_to_srgb(img, source_path=None, encoding=None):
 			img = img.copy(interpretation='scrgb')
 		else:
 			raise ValueError(f"unknown hillview:encoding in {source_path}: {encoding!r}")
-	if img.get_typeof('icc-profile-data') != 0 and img.format != 'uchar':
+	# Any embedded ICC profile is honored, 8-bit included — an 8-bit Display
+	# P3 / AdobeRGB input (phone JPEGs, cameras set to Adobe RGB) would
+	# otherwise fall through and be silently misread as sRGB. For the common
+	# sRGB-profiled 8-bit upload the transform is effectively identity.
+	if img.get_typeof('icc-profile-data') != 0:
 		profile_data = img.get('icc-profile-data')
 		if _icc_profile_has_linear_trc(profile_data):
 			# ICC profile has linear TRC (gamma 1.0). Common with panorama
@@ -178,7 +182,12 @@ def normalize_to_srgb(img, source_path=None, encoding=None):
 				img = (img.cast('float') / 255.0).copy(interpretation='scrgb')
 			return img.colourspace('srgb')
 		try:
-			transformed = img.icc_transform('srgb')
+			# depth=8: icc_transform preserves input depth by default, so a
+			# 16-bit input yields ushort/rgb16 — a CORRECT transform that the
+			# clean-result guard below would reject, discarding the profile
+			# conversion and refusing the upload (or, before the refusal was
+			# unconditional, silently treating non-sRGB pixels as sRGB).
+			transformed = img.icc_transform('srgb', depth=8)
 			if transformed.format == 'uchar' or transformed.interpretation == 'srgb':
 				return transformed
 			_dev_only(f"icc_transform returned format={transformed.format} interpretation={transformed.interpretation} — falling through to default handling")

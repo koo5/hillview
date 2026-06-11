@@ -454,9 +454,8 @@ class PhotoProcessor:
 		return dimensions[0], dimensions[1]
 
 
-	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None, quality: Optional[int] = None, fast: bool = False, encoding: Optional[str] = None
-
-
+	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None, quality: Optional[int] = None, fast: bool = False, encoding: Optional[str] = None,
+									 files_to_clean: Optional[List[str]] = None,
 									 ) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
 		"""Create optimized versions with anonymization and unique IDs.
 
@@ -553,7 +552,7 @@ class PhotoProcessor:
 				size_info.update({
 					'width': new_width,
 					'height': new_height,
-					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
+					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature, files_to_clean)
 				})
 				sizes_info[size] = size_info
 
@@ -585,7 +584,7 @@ class PhotoProcessor:
 					'path': crop_relative_path,
 					'width': crop_tw,
 					'height': crop_th,
-					'url': await self._get_size_url(crop_file_path, crop_relative_path, photo_id, client_signature)
+					'url': await self._get_size_url(crop_file_path, crop_relative_path, photo_id, client_signature, files_to_clean)
 				}
 
 		logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
@@ -621,7 +620,7 @@ class PhotoProcessor:
 			copy_exif_data(source_path, llm_output_path)
 			logger.info(f"Created 640_llm variant for {unique_id}: {llm_width}x{llm_height} at {llm_output_path}")
 
-			llm_url = await self._get_size_url(llm_output_path, llm_relative_path, photo_id, client_signature)
+			llm_url = await self._get_size_url(llm_output_path, llm_relative_path, photo_id, client_signature, files_to_clean)
 			sizes_info['640_llm'] = {
 				'path': llm_relative_path,
 				'width': llm_width,
@@ -634,7 +633,7 @@ class PhotoProcessor:
 			# Store metadata inline in sizes['full']['pyramid'] so the client can
 			# initialise OpenSeadragon without an extra round-trip for the .dzi file.
 			if 'full' in sizes_info:
-				pyramid = await self.generate_dzi_pyramid(image, unique_id, photo_id, client_signature, quality=quality)
+				pyramid = await self.generate_dzi_pyramid(image, unique_id, photo_id, client_signature, quality=quality, files_to_clean=files_to_clean)
 				if pyramid:
 					sizes_info['full']['pyramid'] = pyramid
 
@@ -645,7 +644,7 @@ class PhotoProcessor:
 	# Skip DZI pyramid generation for images where both dimensions are below this threshold
 	DZI_MIN_DIMENSION = 2048
 
-	async def generate_dzi_pyramid(self, image: np.ndarray, unique_id: str, photo_id: str = None, client_signature: str = None, quality: Optional[int] = None) -> Optional[Dict[str, Any]]:
+	async def generate_dzi_pyramid(self, image: np.ndarray, unique_id: str, photo_id: str = None, client_signature: str = None, quality: Optional[int] = None, files_to_clean: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
 		"""Generate a DZI (Deep Zoom Image) pyramid from an anonymized image.
 
 		Args:
@@ -688,7 +687,7 @@ class PhotoProcessor:
 
 			# Upload the .dzi XML descriptor
 			dzi_relative = os.path.relpath(dzi_file, output_base)
-			dzi_url = await self._get_size_url(dzi_file, dzi_relative, photo_id, client_signature)
+			dzi_url = await self._get_size_url(dzi_file, dzi_relative, photo_id, client_signature, files_to_clean)
 
 			# The .dzi URL determines which pool this pyramid lives on. The tile
 			# base URL is derived from it by string surgery, so every tile must
@@ -715,7 +714,7 @@ class PhotoProcessor:
 						if not os.path.isfile(tile_path):
 							continue
 						tile_relative = os.path.relpath(tile_path, output_base)
-						tile_url = await self._get_size_url(tile_path, tile_relative, photo_id, client_signature)
+						tile_url = await self._get_size_url(tile_path, tile_relative, photo_id, client_signature, files_to_clean)
 						if tile_url != pool_base + tile_relative:
 							raise PoolMigrationError(f"DZI tile for {unique_id} landed on a different pool than its .dzi: {tile_url} (expected base {pool_base})")
 						tile_count += 1
@@ -817,8 +816,16 @@ class PhotoProcessor:
 			logger.error(f"Failed to upload {relative_path} to API server: {error_string}")
 			raise RuntimeError(f"Failed to upload {relative_path} to API server: {error_string}")
 
-	async def _get_size_url(self, file_path: str, relative_path: str, photo_id: str = None, client_signature: str = None) -> str:
-		"""Get URL for a size variant - CDN upload, API server upload, or local only."""
+	async def _get_size_url(self, file_path: str, relative_path: str, photo_id: str = None, client_signature: str = None, files_to_clean: Optional[List[str]] = None) -> str:
+		"""Get URL for a size variant - CDN upload, API server upload, or local only.
+
+		In the CDN/API modes the shipped copy is the product and the local
+		file under opt/ is an intermediate: it gets appended to
+		``files_to_clean`` (when given) so the caller's finally removes it.
+		Without this, every processed photo permanently duplicated its full
+		variant set in the worker's uploads volume. KEEP_PICS_IN_WORKER mode
+		is the exception — there the local file IS the served copy.
+		"""
 		keep_pics_in_worker = os.getenv("KEEP_PICS_IN_WORKER", "false").lower() in ("true", "1", "yes")
 		use_cdn = os.getenv("USE_CDN", "false").lower() in ("true", "1", "yes")
 
@@ -835,9 +842,14 @@ class PhotoProcessor:
 			cdn_url = cdn_uploader._upload_file(file_path, relative_path)
 			if not cdn_url:
 				raise RuntimeError(f"Failed to upload {relative_path} to CDN")
+			if files_to_clean is not None:
+				files_to_clean.append(file_path)
 			return cdn_url
 		elif photo_id and client_signature:
-			return await self._upload_file_to_api(file_path, relative_path, photo_id, client_signature)
+			url = await self._upload_file_to_api(file_path, relative_path, photo_id, client_signature)
+			if files_to_clean is not None:
+				files_to_clean.append(file_path)
+			return url
 		elif not photo_id:
 			logger.error(f"Cannot upload {relative_path}: photo_id is None")
 			raise RuntimeError(f"photo_id is required for API upload of {relative_path}")
@@ -1047,7 +1059,7 @@ class PhotoProcessor:
 		# .exr.encoding sidecar value); read_image falls back to the embedded
 		# header tag when this is absent.
 		encoding = metadata.get('encoding') if metadata else None
-		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding)
+		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, files_to_clean=files_to_clean)
 
 		# Extract captured_at from EXIF DateTimeOriginal (with corruption fix)
 		raw_data = exif_data.get('data', {})
