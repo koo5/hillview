@@ -222,7 +222,7 @@ logger.info(f"MAX_PENDING_TASKS: {MAX_PENDING_TASKS}")
 # queue at "full" forever, permanently rejecting uploads. On timeout the task
 # errors out through the existing TimeoutError path: the API is notified with
 # retry_after_minutes, the client retries later, and the queue drains.
-QUEUE_WAIT_TIMEOUT_SECONDS = int(os.getenv("QUEUE_WAIT_TIMEOUT_SECONDS", "3600"))
+QUEUE_WAIT_TIMEOUT_SECONDS = int(os.getenv("QUEUE_WAIT_TIMEOUT_SECONDS", "7600"))
 
 
 def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: str = None, anonymization_override: str = None, metadata: Dict[str, Any] = None, quality: int = None, fast: bool = False, files_to_clean: Optional[list] = None):
