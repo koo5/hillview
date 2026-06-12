@@ -1,7 +1,7 @@
 <script lang="ts">
     import {onMount} from 'svelte';
     import {photoInFront, photosInRange, photoToLeft, photoToRight, spatialState, bearingState, visiblePhotos} from '$lib/mapState';
-    import {app, mapillary_cache_status, sources, sourceLoadingStatus, toggleDebug, closeDebug} from '$lib/data.svelte.js';
+    import {app, mapillary_cache_status, sources, sourceLoadingStatus, toggleDebug, closeDebug, showDetections} from '$lib/data.svelte.js';
     import {MAX_DEBUG_MODES} from '$lib/config';
     import {captureQueue, type QueueStats} from '$lib/captureQueue';
 	import {
@@ -315,6 +315,14 @@
                 </div>
             {/if}
 
+            <div class="debug-section">
+                <label class="detections-toggle">
+                    <input type="checkbox" bind:checked={$showDetections} data-testid="show-detections-toggle" />
+                    <strong>Show Detections</strong>
+                    <span class="detections-toggle-hint">(anonymization boxes in zoom view)</span>
+                </label>
+            </div>
+
             <div class="debug-note">
                 Press 'd' to cycle debug (State {$app.debug}/{MAX_DEBUG_MODES})<br/>
                 Press Ctrl+Shift+L to move {debugPosition === 'left' ? 'right' : 'left'}
@@ -394,6 +402,19 @@
 
     .debug-content strong {
         color: #0f0;
+    }
+
+    .detections-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        font-size: 10px;
+    }
+
+    .detections-toggle-hint {
+        font-size: 9px;
+        opacity: 0.7;
     }
 
     .debug-note {

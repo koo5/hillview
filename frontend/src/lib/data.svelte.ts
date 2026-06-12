@@ -387,6 +387,9 @@ export function closeDebug() {
 export let mockCamera = localStorageSharedStore('mockCamera', false);
 export let fakeCamera = localStorageSharedStore('fakeCamera', false);
 
+// Debug: render anonymization object detections (bounding boxes) in the zoom view
+export let showDetections = localStorageSharedStore('showDetections', false);
+
 export let maxPhotosInArea = localStorageReadOnceSharedStore('maxPhotosInArea', 100);
 
 export let frontendBusy = writable(0);

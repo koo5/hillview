@@ -6,7 +6,7 @@ import logging
 import cv2
 import torch
 from ultralytics import YOLO
-from detections import TARGET_CLASSES
+from detections import TARGET_CLASSES, MIN_CONFIDENCE
 from blur import apply_blur, read_image
 
 logging.basicConfig(
@@ -64,7 +64,9 @@ def deduplicate_boxes(boxes, tolerance=1, subsumption_threshold=1):
 	This produces a minimally-redundant set suitable for manual editing.
 
 	Args:
-		boxes: list of (cls_id, (x1, y1, x2, y2)).
+		boxes: list of (cls_id, (x1, y1, x2, y2), ...) — coordinates must be the
+			second element; any trailing elements (confidence, scale, ...) are
+			carried through untouched.
 		tolerance: pixel tolerance for near-duplicate coordinate comparison.
 		subsumption_threshold: fraction of a box's area that must be covered by
 			a larger box to discard it (0.8 = 80%).
@@ -83,10 +85,12 @@ def deduplicate_boxes(boxes, tolerance=1, subsumption_threshold=1):
 	sorted_boxes = sorted(boxes, key=lambda b: _area(b[1]), reverse=True)
 
 	kept = []
-	for cls_id, (x1, y1, x2, y2) in sorted_boxes:
+	for box in sorted_boxes:
+		x1, y1, x2, y2 = box[1]
 		curr_area = _area((x1, y1, x2, y2))
 		redundant = False
-		for _, (kx1, ky1, kx2, ky2) in kept:
+		for kept_box in kept:
+			kx1, ky1, kx2, ky2 = kept_box[1]
 			# near-duplicate: all coordinates within tolerance
 			if (abs(x1 - kx1) <= tolerance and abs(y1 - ky1) <= tolerance and
 					abs(x2 - kx2) <= tolerance and abs(y2 - ky2) <= tolerance):
@@ -101,11 +105,11 @@ def deduplicate_boxes(boxes, tolerance=1, subsumption_threshold=1):
 					redundant = True
 					break
 		if not redundant:
-			kept.append((cls_id, (x1, y1, x2, y2)))
+			kept.append(box)
 	return kept
 
 
-def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_size=4096, overlap=0.2):
+def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_size=4096, overlap=0.2, conf=MIN_CONFIDENCE):
 	"""Run YOLO inference over a multi-scale pyramid with tiling.
 
 	Starts at full resolution and halves the scale each iteration until the
@@ -126,9 +130,12 @@ def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_siz
 			falls to or below this value (prevents runaway tiling on very wide
 			or very tall images where one dimension is already tiny).
 		overlap: fractional overlap between adjacent tiles (0.2 = 20%).
+		conf: minimum detection confidence passed to the model's predict().
 
 	Returns:
-		List of (cls_id, (x1, y1, x2, y2)) in original image coordinates.
+		List of (cls_id, (x1, y1, x2, y2), confidence, scale) in original image
+		coordinates. `scale` is the pyramid scale the detection came from
+		(1.0 = full resolution).
 	"""
 	h, w = image.shape[:2]
 	all_boxes = []
@@ -145,7 +152,7 @@ def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_siz
 		for ty in _tile_starts(sh, max_tile_size, step):
 			for tx in _tile_starts(sw, max_tile_size, step):
 				tile = scaled[ty:min(ty + max_tile_size, sh), tx:min(tx + max_tile_size, sw)]
-				results = model_instance(tile)[0]
+				results = model_instance(tile, conf=conf)[0]
 				for box in results.boxes:
 					cls_id = int(box.cls)
 					if cls_id in TARGET_CLASSES:
@@ -155,7 +162,7 @@ def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_siz
 							int((ty + ty1) * inv_scale),
 							int((tx + tx2) * inv_scale),
 							int((ty + ty2) * inv_scale),
-						)))
+						), float(box.conf), scale))
 
 		# stop once the whole image fits in a single tile (we've done a full pass)
 		if sw <= max_tile_size and sh <= max_tile_size:
@@ -169,7 +176,7 @@ def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_siz
 	return deduplicate_boxes(all_boxes)
 
 
-def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2):
+def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2, conf=MIN_CONFIDENCE):
 	"""Detect target objects in the image using YOLO with multi-scale tiling."""
 	global model
 
@@ -198,7 +205,7 @@ def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2):
 			# Restore original torch.load
 			torch.load = original_load
 
-	return run_yolo_multiscale(image, model, max_tile_size=max_tile_size, min_scale_size=min_scale_size, overlap=overlap)
+	return run_yolo_multiscale(image, model, max_tile_size=max_tile_size, min_scale_size=min_scale_size, overlap=overlap, conf=conf)
 
 
 
@@ -223,12 +230,14 @@ def anonymize_image(source_path, encoding=None):
 		"model_name": model_name
 	}
 
-	for cls_id, (x1, y1, x2, y2) in boxes:
+	for cls_id, (x1, y1, x2, y2), confidence, scale in boxes:
 		label = TARGET_CLASSES[cls_id]
 		detections["objects"].append({
 			"class_id": cls_id,
 			"class_name": label,
 			'blur': max(abs(x2 - x1), abs(y2 - y1)),
+			"confidence": round(confidence, 4),
+			"scale": scale,
 			"bbox": {
 				"x1": x1,
 				"y1": y1,

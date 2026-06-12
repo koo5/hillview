@@ -53,6 +53,7 @@ _make_stub_modules()
 # detections stub — must be present before importing anonymize
 detections_stub = types.ModuleType('detections')
 detections_stub.TARGET_CLASSES = {0: 'person', 2: 'car'}
+detections_stub.MIN_CONFIDENCE = 0.4
 sys.modules.setdefault('detections', detections_stub)
 
 # blur stub — anonymize imports apply_blur / read_image from blur
@@ -180,11 +181,12 @@ class TestDeduplicateBoxes:
 
 class _FakeBox:
     """Mimics one ultralytics detection box."""
-    def __init__(self, cls_id, x1, y1, x2, y2):
+    def __init__(self, cls_id, x1, y1, x2, y2, conf=0.9):
         # Ultralytics returns a 0-d tensor for cls; use a 0-d numpy array here.
         self.cls = np.array(cls_id, dtype=np.float32)
         # xyxy must support box.xyxy[0] and map(int, ...)
         self.xyxy = [np.array([x1, y1, x2, y2], dtype=np.float32)]
+        self.conf = np.array(conf, dtype=np.float32)
 
 
 class _FakeResults:
@@ -197,8 +199,10 @@ class _MockYOLO:
     def __init__(self, detections=None):
         # detections: list of (cls_id, x1, y1, x2, y2) in tile-local coords
         self._detections = detections or []
+        self.conf_calls = []  # conf threshold received on each call
 
-    def __call__(self, tile):
+    def __call__(self, tile, conf=None):
+        self.conf_calls.append(conf)
         boxes = [_FakeBox(*d) for d in self._detections]
         return [_FakeResults(boxes)]
 
@@ -219,9 +223,11 @@ class TestRunYoloMultiscale:
         image = self._make_image(500, 500)
         result = run_yolo_multiscale(image, model, max_tile_size=1280, min_scale_size=256)
         assert len(result) == 1
-        cls_id, (x1, y1, x2, y2) = result[0]
+        cls_id, (x1, y1, x2, y2), conf, scale = result[0]
         assert cls_id == 0
         assert x1 == 10 and y1 == 10 and x2 == 60 and y2 == 60
+        assert conf == pytest.approx(0.9, abs=1e-4)
+        assert scale == 1.0
 
     def test_unknown_class_filtered_out(self):
         """Class IDs not in TARGET_CLASSES must be dropped."""
@@ -235,7 +241,7 @@ class TestRunYoloMultiscale:
         call_count = {'n': 0}
 
         class _CountingYOLO:
-            def __call__(self, tile):
+            def __call__(self, tile, conf=None):
                 call_count['n'] += 1
                 return [_FakeResults([])]
 
@@ -249,7 +255,7 @@ class TestRunYoloMultiscale:
         scale_calls = []
 
         class _TrackingYOLO:
-            def __call__(self, tile):
+            def __call__(self, tile, conf=None):
                 scale_calls.append(tile.shape[:2])
                 return [_FakeResults([])]
 
@@ -271,11 +277,21 @@ class TestRunYoloMultiscale:
         image = self._make_image(3000, 3000)
         result = run_yolo_multiscale(image, model, max_tile_size=1280, min_scale_size=256, overlap=0.0)
         # All returned coords must be within the original image bounds
-        for _, (x1, y1, x2, y2) in result:
+        for _, (x1, y1, x2, y2), _conf, _scale in result:
             assert 0 <= x1 < 3000
             assert 0 <= y1 < 3000
             assert x2 <= 3000
             assert y2 <= 3000
+
+    def test_conf_threshold_passed_to_model(self):
+        """The confidence threshold must reach the model's predict() call."""
+        model = _MockYOLO(detections=[])
+        image = self._make_image(500, 500)
+        run_yolo_multiscale(image, model, max_tile_size=1280, min_scale_size=256)
+        assert model.conf_calls == [0.4]  # MIN_CONFIDENCE from the detections stub
+        model.conf_calls.clear()
+        run_yolo_multiscale(image, model, max_tile_size=1280, min_scale_size=256, conf=0.7)
+        assert model.conf_calls == [0.7]
 
     def test_deduplication_applied(self):
         """Duplicate detections from overlapping tiles/scales are deduplicated."""

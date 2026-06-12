@@ -19,3 +19,4 @@ backend/uploads/
 **/*.kate-swp
 .claude.dev_intention
 .dev_intention
+oneoff
