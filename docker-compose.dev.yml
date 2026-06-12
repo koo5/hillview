@@ -3,8 +3,25 @@
 
 services:
 
+  # One-shot root container fixing volume ownership before api/worker start.
+  # Named volumes are created root-owned (and uids baked into rebuilt images
+  # can drift), while api and worker both run as non-root uid 1001 — first
+  # write then fails with "Permission denied" (photo uploads break with
+  # processing_status=error). find+chown only touches wrong-owner files, so
+  # repeated `up`s are cheap once ownership is correct.
+  volume-permissions:
+    image: busybox
+    volumes:
+      - uploads:/vols/uploads
+      - pics:/vols/pics
+      - pics2:/vols/pics2
+    command: sh -c 'find /vols ! -user 1001 -exec chown 1001:1001 {} +'
+
   api:
     network_mode: host
+    depends_on:
+      volume-permissions:
+        condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_HOST_PORT:-25432}/${POSTGRES_DB}
     volumes:
@@ -37,6 +54,9 @@ services:
         MAGICK_AREA_LIMIT: ${MAGICK_AREA_LIMIT:-1GP}
     container_name: hillview_worker
     network_mode: host
+    depends_on:
+      volume-permissions:
+        condition: service_completed_successfully
     volumes:
       - ./backend/worker:/app/worker
       - ./backend/common:/app/common
