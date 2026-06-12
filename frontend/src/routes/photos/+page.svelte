@@ -31,7 +31,6 @@
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
 	import { showDropdownMenu, type DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 	import { getPhotoMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
-	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
 	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
 
 	let photos: UserPhoto[] = [];
@@ -568,7 +567,6 @@
 	</div>
 </StandardBody>
 
-<DropdownMenu />
 <AnonymizationModal />
 
 <style>
