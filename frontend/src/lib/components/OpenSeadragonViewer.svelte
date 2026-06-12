@@ -74,6 +74,10 @@
 	const isDetectionId = (id: unknown) => typeof id === 'string' && id.startsWith(DETECTION_ID_PREFIX);
 	let detectionObjects: DetectedObject[] = [];
 	let detectionsFetched = false;
+	// Dimensions of the image the detector ran on (original full resolution).
+	// The displayed image space (getImageDims) can be smaller — the 'full' web
+	// variant is capped (8192px wide) — so detection coords must be rescaled.
+	let detectionDims: { w: number; h: number } | null = null;
 	type AnnotationMode = 'view' | 'draw' | 'edit';
 	let annotationMode: AnnotationMode = 'view';
 	let selectedAnnotation: AnnotationData | null = null;
@@ -306,9 +310,17 @@
 		return `${name}${conf}${scale}`;
 	}
 
-	/** Detection bboxes are pixel coords on the full-res image — same space
-	 *  Annotorious works in, so no normalized→pixel conversion is needed. */
-	function detectionToW3c(obj: DetectedObject, i: number) {
+	/** Scale factors from detection space (original full-res pixels) into the
+	 *  annotator's working space (the displayed image, via getImageDims).
+	 *  These differ when the photo is shown without a DZI pyramid: the 'full'
+	 *  web variant is width-capped, while detections are at original res. */
+	function detectionScaleFactors(): { fx: number; fy: number } {
+		const dims = getImageDims();
+		if (!detectionDims?.w || !detectionDims?.h || dims.w <= 1) return { fx: 1, fy: 1 };
+		return { fx: dims.w / detectionDims.w, fy: dims.h / detectionDims.h };
+	}
+
+	function detectionToW3c(obj: DetectedObject, i: number, fx: number, fy: number) {
 		const { x1, y1, x2, y2 } = obj.bbox;
 		return {
 			'@context': 'http://www.w3.org/ns/anno.jsonld',
@@ -319,7 +331,7 @@
 				selector: {
 					type: 'FragmentSelector',
 					conformsTo: 'http://www.w3.org/TR/media-frags/',
-					value: `xywh=pixel:${x1},${y1},${x2 - x1},${y2 - y1}`,
+					value: `xywh=pixel:${x1 * fx},${y1 * fy},${(x2 - x1) * fx},${(y2 - y1) * fy}`,
 				},
 			},
 		};
@@ -331,7 +343,8 @@
 		try {
 			const res = await fetchDetections(data.photo_id);
 			detectionObjects = res.detected_objects?.objects ?? [];
-			console.log('[OSD] Loaded detections:', detectionObjects.length);
+			detectionDims = res.width && res.height ? { w: res.width, h: res.height } : null;
+			console.log('[OSD] Loaded detections:', detectionObjects.length, 'detection space:', detectionDims);
 		} catch (e) {
 			console.warn('[OSD] Failed to load detections:', e);
 			detectionObjects = [];
@@ -347,8 +360,9 @@
 				if (isDetectionId(a.id)) annotator.removeAnnotation(a.id);
 			}
 			if ($showDetections) {
+				const { fx, fy } = detectionScaleFactors();
 				detectionObjects.forEach((obj, i) => {
-					annotator.addAnnotation(detectionToW3c(obj, i));
+					annotator.addAnnotation(detectionToW3c(obj, i, fx, fy));
 				});
 			}
 		} catch (e) {
@@ -487,15 +501,17 @@
 			}
 			parsedAnnotations.push({ dbId: ann.id, label, imgCx: sx + sw / 2, imgCy: sy + sh / 2 });
 		}
-		// Detection bboxes are already in pixel space — no dims multiplication
+		// Detection bboxes are pixel coords in detection space — rescale into
+		// the displayed image space (same conversion as the rectangles)
 		if ($showDetections) {
+			const { fx, fy } = detectionScaleFactors();
 			for (let i = 0; i < detectionObjects.length; i++) {
 				const b = detectionObjects[i].bbox;
 				parsedAnnotations.push({
 					dbId: DETECTION_ID_PREFIX + i,
 					label: detectionLabel(detectionObjects[i]),
-					imgCx: (b.x1 + b.x2) / 2,
-					imgCy: (b.y1 + b.y2) / 2,
+					imgCx: ((b.x1 + b.x2) / 2) * fx,
+					imgCy: ((b.y1 + b.y2) / 2) * fy,
 				});
 			}
 		}
