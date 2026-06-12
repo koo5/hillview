@@ -21,6 +21,7 @@
 	import {navigateWithHistory} from "$lib/navigation.svelte";
 	import {kotlinMessageQueue} from '$lib/KotlinMessageQueue';
 	import {app, onAppActivityChange} from "$lib/data.svelte";
+	import { ACTIVITY_NOTIFICATION_REFRESH_EVENT, shouldRefreshActivityFromNotification } from '$lib/notificationRouteUtils';
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
 	import SignInModal from "$lib/components/SignInModal.svelte";
 	import NavigationMenu from '$lib/components/NavigationMenu.svelte';
@@ -194,8 +195,13 @@
 	async function handleNotificationClickRoute(route: string)
 	{
 		app.update(a => ({...a, activity: 'view'}));
+		const currentPath = get(page).url.pathname;
+		const shouldRefreshActivity = shouldRefreshActivityFromNotification(currentPath, route);
 		try {
 			await navigateWithHistory(route);
+			if (shouldRefreshActivity) {
+				window.dispatchEvent(new CustomEvent(ACTIVITY_NOTIFICATION_REFRESH_EVENT));
+			}
 		} catch (error) {
 			console.error('Error navigating to route from notification click:', error);
 		}
@@ -218,4 +224,3 @@
 <ZoomView/>
 <InsetGradients />
 <SignInModal/>
-

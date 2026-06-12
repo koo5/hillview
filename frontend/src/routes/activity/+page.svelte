@@ -4,6 +4,7 @@
 	import { auth } from '$lib/auth.svelte';
 	import { http, handleApiError } from '$lib/http';
 	import { myGoto } from '$lib/navigation.svelte';
+	import { ACTIVITY_NOTIFICATION_REFRESH_EVENT } from '$lib/notificationRouteUtils';
 	import { constructPhotoMapUrl, constructUserProfileUrl } from '$lib/urlUtils';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
@@ -41,8 +42,16 @@
 	let hasMorePhotos = false;
 	let nextCursor: string | null = null;
 
-	onMount(async () => {
-		await loadActivityData();
+	onMount(() => {
+		const refreshActivity = () => {
+			void loadActivityData();
+		};
+		window.addEventListener(ACTIVITY_NOTIFICATION_REFRESH_EVENT, refreshActivity);
+		void loadActivityData();
+
+		return () => {
+			window.removeEventListener(ACTIVITY_NOTIFICATION_REFRESH_EVENT, refreshActivity);
+		};
 	});
 
 	async function loadActivityData(cursor?: string) {
