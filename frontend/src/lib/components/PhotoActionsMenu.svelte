@@ -339,6 +339,15 @@
 		}
 
 		items.push({
+			id: 'thumbs-down',
+			label: `Dislike (${ratingCounts.thumbs_down})`,
+			icon: ThumbsDown,
+			selected: userRating === 'thumbs_down',
+			disabled: isRating,
+			onclick: () => handleRatingClick('thumbs_down'),
+			testId: 'menu-thumbs-down'
+		});
+		items.push({
 			id: 'share',
 			label: 'Share Photo',
 			icon: Share,
@@ -418,17 +427,6 @@
 		>
 			<ThumbsUp size={16} />
 			<span class="rating-count">{ratingCounts.thumbs_up}</span>
-		</button>
-
-		<button
-			class="action-button rating-button down {userRating === 'thumbs_down' ? 'active' : ''}"
-			on:click={() => handleRatingClick('thumbs_down')}
-			disabled={isRating}
-			title="Thumbs down"
-			data-testid="thumbs-down-button"
-		>
-			<ThumbsDown size={16} />
-			<span class="rating-count">{ratingCounts.thumbs_down}</span>
 		</button>
 
 		<!-- Menu trigger button -->

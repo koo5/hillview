@@ -238,7 +238,8 @@ test.describe('Sign-In Modal', () => {
     });
 
     test('Thumbs down shows sign-in modal', async ({ page }) => {
-      await page.locator('[data-testid="thumbs-down-button"]').click();
+      await page.locator('[data-testid="photo-actions-menu"]').click();
+      await page.locator('[data-testid="menu-thumbs-down"]').click();
       await expectModalVisible(page);
     });
   });
