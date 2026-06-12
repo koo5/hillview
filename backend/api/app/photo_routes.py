@@ -762,6 +762,47 @@ async def get_photo(
 		)
 
 
+@router.get("/{photo_id}/detections")
+async def get_photo_detections(
+	photo_id: str,
+	current_user: Optional[User] = Depends(get_current_user_optional_with_query),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Return the anonymization detections (detected_objects) for a photo.
+
+	Accessible for public photos and for the owner's own photos. Used by the
+	frontend debug overlay to visualize what the object detector found.
+	"""
+	result = await db.execute(
+		select(Photo.detected_objects, Photo.is_public, Photo.owner_id, Photo.width, Photo.height).where(
+			Photo.id == photo_id,
+			Photo.deleted == False
+		)
+	)
+	row = result.first()
+
+	if not row:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail="Photo not found"
+		)
+
+	detected_objects, is_public, owner_id, width, height = row
+	is_owner = current_user is not None and owner_id == str(current_user.id)
+	if not is_public and not is_owner:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail="Photo not found"
+		)
+
+	return {
+		"photo_id": photo_id,
+		"detected_objects": detected_objects,
+		"width": width,
+		"height": height
+	}
+
+
 @router.delete("/{photo_id}")
 async def delete_photo(
 	request: Request,

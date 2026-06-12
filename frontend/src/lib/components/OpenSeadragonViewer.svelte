@@ -40,6 +40,8 @@
 		type AnnotationData,
 	} from '$lib/annotationApi';
 	import { Origin, UserSelectAction, type DrawingStyle } from '@annotorious/core';
+	import { fetchDetections, type DetectedObject } from '$lib/detectionApi';
+	import { showDetections } from '$lib/data.svelte.js';
 	import type { ZoomViewData } from '$lib/zoomView.svelte';
 	import { zoomViewportBounds, type ZoomViewInitialBounds } from '$lib/zoomView.svelte';
 	import { parseAnnotationBody, type BodyItem } from '$lib/utils/annotationBody';
@@ -64,6 +66,14 @@
 	let viewer: any = null;
 	let annotator: any = null;
 	let annotations: AnnotationData[] = [];
+
+	// Anonymization detections (debug overlay toggle) — rendered as read-only
+	// Annotorious annotations with ids prefixed so they never collide with
+	// (or get persisted as) user annotations.
+	const DETECTION_ID_PREFIX = 'hv-detection:';
+	const isDetectionId = (id: unknown) => typeof id === 'string' && id.startsWith(DETECTION_ID_PREFIX);
+	let detectionObjects: DetectedObject[] = [];
+	let detectionsFetched = false;
 	type AnnotationMode = 'view' | 'draw' | 'edit';
 	let annotationMode: AnnotationMode = 'view';
 	let selectedAnnotation: AnnotationData | null = null;
@@ -288,6 +298,75 @@
 		}
 	}
 
+	/** Human-readable label for a detection, e.g. "person 83% s1" or "manual". */
+	function detectionLabel(obj: DetectedObject): string {
+		const name = obj.class_name ?? 'manual';
+		const conf = typeof obj.confidence === 'number' ? ` ${(obj.confidence * 100).toFixed(0)}%` : '';
+		const scale = typeof obj.scale === 'number' ? ` s${obj.scale}` : '';
+		return `${name}${conf}${scale}`;
+	}
+
+	/** Detection bboxes are pixel coords on the full-res image — same space
+	 *  Annotorious works in, so no normalized→pixel conversion is needed. */
+	function detectionToW3c(obj: DetectedObject, i: number) {
+		const { x1, y1, x2, y2 } = obj.bbox;
+		return {
+			'@context': 'http://www.w3.org/ns/anno.jsonld',
+			id: `${DETECTION_ID_PREFIX}${i}`,
+			type: 'Annotation',
+			body: [{ type: 'TextualBody', value: detectionLabel(obj), purpose: 'commenting' }],
+			target: {
+				selector: {
+					type: 'FragmentSelector',
+					conformsTo: 'http://www.w3.org/TR/media-frags/',
+					value: `xywh=pixel:${x1},${y1},${x2 - x1},${y2 - y1}`,
+				},
+			},
+		};
+	}
+
+	async function loadDetections() {
+		if (!data.photo_id || detectionsFetched) return;
+		detectionsFetched = true;
+		try {
+			const res = await fetchDetections(data.photo_id);
+			detectionObjects = res.detected_objects?.objects ?? [];
+			console.log('[OSD] Loaded detections:', detectionObjects.length);
+		} catch (e) {
+			console.warn('[OSD] Failed to load detections:', e);
+			detectionObjects = [];
+		}
+		syncDetectionsToViewer();
+	}
+
+	/** Add/remove detection annotations in the annotator to match the toggle. */
+	function syncDetectionsToViewer() {
+		if (!annotator) return;
+		try {
+			for (const a of annotator.getAnnotations()) {
+				if (isDetectionId(a.id)) annotator.removeAnnotation(a.id);
+			}
+			if ($showDetections) {
+				detectionObjects.forEach((obj, i) => {
+					annotator.addAnnotation(detectionToW3c(obj, i));
+				});
+			}
+		} catch (e) {
+			console.warn('[OSD] Could not sync detections to viewer:', e);
+		}
+		rebuildParsedAnnotations();
+		scheduleDrawLabels();
+	}
+
+	// React to the debug-overlay toggle (and to the annotator becoming ready)
+	$: if (annotator) {
+		if ($showDetections && !detectionsFetched) {
+			loadDetections();
+		} else {
+			syncDetectionsToViewer();
+		}
+	}
+
 	function syncAnnotationsToViewer() {
 		if (!annotator) {
 			console.warn('[OSD] syncAnnotationsToViewer: annotator not ready');
@@ -319,8 +398,9 @@
 			uiToDb.set(a.id, a.id);
 			dbToUi.set(a.id, a.id);
 		}
-		rebuildParsedAnnotations();
-		scheduleDrawLabels();
+		// setAnnotations() above wiped any detection overlays — re-add them.
+		// syncDetectionsToViewer also rebuilds parsed annotations + labels.
+		syncDetectionsToViewer();
 	}
 
 	/**
@@ -406,6 +486,18 @@
 				continue;
 			}
 			parsedAnnotations.push({ dbId: ann.id, label, imgCx: sx + sw / 2, imgCy: sy + sh / 2 });
+		}
+		// Detection bboxes are already in pixel space — no dims multiplication
+		if ($showDetections) {
+			for (let i = 0; i < detectionObjects.length; i++) {
+				const b = detectionObjects[i].bbox;
+				parsedAnnotations.push({
+					dbId: DETECTION_ID_PREFIX + i,
+					label: detectionLabel(detectionObjects[i]),
+					imgCx: (b.x1 + b.x2) / 2,
+					imgCy: (b.y1 + b.y2) / 2,
+				});
+			}
 		}
 		lastDrawFingerprint = '';
 		console.log('[OSD] rebuildParsedAnnotations:', parsedAnnotations.length, 'labels');
@@ -525,14 +617,24 @@
 		};
 	};
 
-	function getAnnotatorStyle(): DrawingStyle {
-		return {
-			fill: '#00ff00',
-			fillOpacity: 0.04,
-			stroke: '#00ff00',
-			strokeWidth: scaled().strokeWidth,
-			strokeOpacity: 0.6,
-		};
+	function getAnnotatorStyle(): (annotation: any) => DrawingStyle {
+		const strokeWidth = scaled().strokeWidth;
+		return (annotation: any) =>
+			isDetectionId(annotation?.id)
+				? {
+					fill: '#ff3333',
+					fillOpacity: 0.08,
+					stroke: '#ff3333',
+					strokeWidth,
+					strokeOpacity: 0.9,
+				}
+				: {
+					fill: '#00ff00',
+					fillOpacity: 0.04,
+					stroke: '#00ff00',
+					strokeWidth,
+					strokeOpacity: 0.6,
+				};
 	}
 
 	function applyAnnotatorScaleStyle() {
@@ -769,7 +871,8 @@
 		// Drawing starts disabled; the toolbar toggle enables it for authenticated users.
 		annotator = createOSDAnnotator(viewer, {
 			drawingEnabled: false,
-			userSelectAction: UserSelectAction.SELECT,
+			// Detections are read-only overlays — never selectable
+			userSelectAction: (a: any) => isDetectionId(a?.id) ? UserSelectAction.NONE : UserSelectAction.SELECT,
 			style: getAnnotatorStyle(),
 			drawingMode: 'drag'
 		});
@@ -1081,7 +1184,8 @@
 		const selectAction = mode === 'edit' ? UserSelectAction.EDIT
 			: mode === 'view' ? UserSelectAction.SELECT
 			: UserSelectAction.NONE;
-		annotator.setUserSelectAction(selectAction);
+		// Detections are read-only overlays — never selectable/editable
+		annotator.setUserSelectAction((a: any) => isDetectionId(a?.id) ? UserSelectAction.NONE : selectAction);
 		if (mode !== 'edit') {
 			annotator.setSelected();
 			cancelEditBody();
