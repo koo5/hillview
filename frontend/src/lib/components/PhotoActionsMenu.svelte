@@ -18,6 +18,7 @@
 		getUserProfileUrl
 	} from '$lib/photoUtils';
 	import { openExternalUrl, HILLVIEW_BASE_URL } from '$lib/urlUtils';
+	import { PHOTO_DETAIL_FETCH_DEBOUNCE_MS } from '$lib/config';
 	import { TAURI } from '$lib/tauri';
 	import { navigateWithHistory } from '$lib/navigation.svelte';
 	import {
@@ -40,10 +41,6 @@
 	} from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 
 	export let photo: PhotoData | null = null;
-
-	// Debounce window for per-photo detail fetches (ratings, flag status).
-	// Suppresses bursts of requests when the user rapidly swipes through the gallery.
-	const PHOTO_DETAIL_FETCH_DEBOUNCE_MS = 250;
 
 	// Track pending timeouts for cleanup
 	const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
@@ -342,6 +339,15 @@
 		}
 
 		items.push({
+			id: 'thumbs-down',
+			label: `Dislike (${ratingCounts.thumbs_down})`,
+			icon: ThumbsDown,
+			selected: userRating === 'thumbs_down',
+			disabled: isRating,
+			onclick: () => handleRatingClick('thumbs_down'),
+			testId: 'menu-thumbs-down'
+		});
+		items.push({
 			id: 'share',
 			label: 'Share Photo',
 			icon: Share,
@@ -421,17 +427,6 @@
 		>
 			<ThumbsUp size={16} />
 			<span class="rating-count">{ratingCounts.thumbs_up}</span>
-		</button>
-
-		<button
-			class="action-button rating-button down {userRating === 'thumbs_down' ? 'active' : ''}"
-			on:click={() => handleRatingClick('thumbs_down')}
-			disabled={isRating}
-			title="Thumbs down"
-			data-testid="thumbs-down-button"
-		>
-			<ThumbsDown size={16} />
-			<span class="rating-count">{ratingCounts.thumbs_down}</span>
 		</button>
 
 		<!-- Menu trigger button -->

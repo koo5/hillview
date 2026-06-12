@@ -1,104 +1,155 @@
-"""Backend integration-test lock.
+"""Backend integration lock — per-API-server, shared/exclusive.
 
-Shared between pytest (via conftest.py) and shell scripts that need to
-serialize destructive operations against the shared dev backend.
+Serializes work against a dev backend between pytest (conftest.py), the
+Playwright/Appium helpers (frontend/tests-*/helpers/testLock.ts) and
+debug.sh commands. Built on flock(2):
+
+- The lock file is per API server: /tmp/hillview-test-backend.<host>_<port>.lock,
+  derived from the effective API URL (lock_path()). Work against different
+  servers never contends. Note the derivation is literal — "localhost" and
+  "127.0.0.1" are different lock files.
+- Holders pick a mode. SHARED holders (additive operations: uploads) overlap
+  freely with each other. An EXCLUSIVE holder (test runs, destructive
+  commands like recreate/cleanup) excludes everyone. flock grants new shared
+  locks even while an exclusive acquirer waits — intentionally: a test run
+  must wait for the whole in-flight upload stream to drain, however long
+  that takes.
+- The kernel drops a flock when the holding process dies (any signal, OOM,
+  crash) — there are no stale locks and no PID-liveness machinery. Holder
+  PIDs shown while waiting are read live from /proc/locks, purely
+  informational.
+- The lock file is never unlinked: removing it while others hold/await the
+  inode would split the lock (a new opener locks a fresh inode). Empty lock
+  files accumulating in /tmp are the intended steady state.
+
+Shell scripts can take the same lock via flock(1):
+
+    flock --shared "$(python tests/lock_util.py path)" -c '...'
 """
 import argparse
+import fcntl
 import os
 import time
+from urllib.parse import urlparse
 
-LOCK_FILE = '/tmp/hillview-test-backend.lock'
+DEFAULT_API_URL = "http://localhost:8055/api"
 POLL_S = 1
 
 
-def _is_process_alive(pid: int) -> bool:
+def lock_path(api_url: str | None = None) -> str:
+    """Lock file path for `api_url` (default: $API_URL, else DEFAULT_API_URL)."""
+    url = api_url or os.environ.get("API_URL") or DEFAULT_API_URL
+    if "://" not in url:
+        url = "http://" + url
+    u = urlparse(url)
+    # ':' in bare IPv6 hosts is awkward in filenames; '_' keeps it readable.
+    host = (u.hostname or "localhost").lower().replace(":", "_")
+    port = u.port or (443 if u.scheme == "https" else 80)
+    return f"/tmp/hillview-test-backend.{host}_{port}.lock"
+
+
+def holders(path: str) -> list[str]:
+    """Best-effort live holder list ("<pid> (shared|exclusive)") from /proc/locks."""
     try:
-        os.kill(pid, 0)
-        return True
-    except (OSError, ProcessLookupError):
-        return False
-
-
-def _try_claim_stale_lock(stale_pid: int) -> bool:
-    """Atomically claim a stale lock by renaming it first.
-
-    Prevents the race where two processes both see a stale lock,
-    both unlink it, and both create a new one.
-    """
-    temp_path = f"{LOCK_FILE}.claiming.{os.getpid()}"
-    try:
-        os.rename(LOCK_FILE, temp_path)
+        st = os.stat(path)
     except OSError:
-        return False
+        return []
+    want = f"{os.major(st.st_dev):02x}:{os.minor(st.st_dev):02x}:{st.st_ino}"
+    out = []
     try:
-        with open(temp_path) as f:
-            pid = int(f.read().strip())
-        if pid != stale_pid:
-            try:
-                os.rename(temp_path, LOCK_FILE)
-            except OSError:
-                pass
-            return False
-    except (FileNotFoundError, ValueError):
-        return False
-    try:
-        os.unlink(temp_path)
-    except FileNotFoundError:
-        pass
-    print(f"\nRemoved stale lock (dead PID {stale_pid})")
-    return True
+        with open("/proc/locks") as f:
+            for line in f:
+                # e.g.: "42: FLOCK  ADVISORY  WRITE 12345 fd:01:9184716 0 EOF"
+                parts = line.split()
+                if "FLOCK" in parts:
+                    i = parts.index("FLOCK")
+                    if parts[i + 4] == want:
+                        mode = "exclusive" if parts[i + 2] == "WRITE" else "shared"
+                        out.append(f"{parts[i + 3]} ({mode})")
+    except OSError:
+        return []
+    return out
 
 
-def acquire_lock(owner_pid: int | None = None) -> None:
-    """Acquire the backend test lock, writing `owner_pid` (default: os.getpid()) into the file.
+class BackendLock:
+    """One shared or exclusive slot on the per-server backend lock.
 
-    Waits indefinitely; the holder's test run may legitimately take longer than
-    any fixed timeout. If you need to abort, interrupt the process.
+    Context manager; may also be acquire()d / release()d explicitly. Each
+    instance owns its own fd, so independent locks within one process don't
+    interfere. Waits indefinitely (a holder's run may legitimately outlast
+    any fixed timeout); interrupt the process to abort.
     """
-    pid_to_write = owner_pid if owner_pid is not None else os.getpid()
-    while True:
-        try:
-            fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, str(pid_to_write).encode())
-            os.close(fd)
-            print(f"\nTest lock acquired (PID {pid_to_write})")
-            return
-        except FileExistsError:
+
+    def __init__(self, shared: bool = False, api_url: str | None = None):
+        self.shared = shared
+        self.path = lock_path(api_url)
+        self._fd: int | None = None
+
+    @property
+    def _mode(self) -> str:
+        return "shared" if self.shared else "exclusive"
+
+    def acquire(self) -> None:
+        assert self._fd is None, "lock already held by this BackendLock"
+        fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o666)
+        op = fcntl.LOCK_SH if self.shared else fcntl.LOCK_EX
+        while True:
             try:
-                with open(LOCK_FILE) as f:
-                    pid = int(f.read().strip())
-                if not _is_process_alive(pid):
-                    _try_claim_stale_lock(pid)
-                    continue
-                print(f"\nWaiting for test lock {LOCK_FILE} (held by PID {pid})...")
-            except FileNotFoundError:
-                continue
-        time.sleep(POLL_S)
+                fcntl.flock(fd, op | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                held = holders(self.path)
+                by = f" (held by {', '.join(held)})" if held else ""
+                print(f"\nWaiting for {self._mode} lock {self.path}{by}...")
+                time.sleep(POLL_S)
+        self._fd = fd
+        print(f"\nAcquired {self._mode} lock {self.path} (PID {os.getpid()})")
+
+    def release(self) -> None:
+        if self._fd is not None:
+            os.close(self._fd)  # closing the fd drops the flock
+            self._fd = None
+            print(f"\nReleased {self._mode} lock {self.path} (PID {os.getpid()})")
+
+    def __enter__(self) -> "BackendLock":
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.release()
 
 
-def release_lock(owner_pid: int | None = None) -> None:
-    """Release the backend test lock iff held by `owner_pid` (default: os.getpid())."""
-    expected_pid = owner_pid if owner_pid is not None else os.getpid()
-    try:
-        with open(LOCK_FILE) as f:
-            pid = int(f.read().strip())
-        if pid == expected_pid:
-            os.unlink(LOCK_FILE)
-            print(f"\nTest lock released (PID {expected_pid})")
-    except (FileNotFoundError, ValueError):
-        pass
+# Module-level convenience pair for the common one-lock-per-process case
+# (pytest's session fixture in conftest.py).
+_process_lock: BackendLock | None = None
+
+
+def acquire_lock(shared: bool = False, api_url: str | None = None) -> None:
+    global _process_lock
+    assert _process_lock is None, "process lock already held"
+    _process_lock = BackendLock(shared=shared, api_url=api_url)
+    _process_lock.acquire()
+
+
+def release_lock() -> None:
+    global _process_lock
+    if _process_lock is not None:
+        _process_lock.release()
+        _process_lock = None
 
 
 def _main() -> None:
-    parser = argparse.ArgumentParser(description='Acquire/release the backend integration test lock.')
-    parser.add_argument('action', choices=['acquire', 'release'])
-    parser.add_argument('--pid', type=int, default=None,
-                        help='PID to write to the lock file (default: own PID)')
+    parser = argparse.ArgumentParser(
+        description="Backend test lock utilities. A lock can only be HELD by "
+                    "a live process (flock dies with its holder), so there is "
+                    "no acquire/release CLI — use flock(1) with `path`.")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("path", help="print the lock file path for an API server")
+    p.add_argument("--api-url", default=None,
+                   help="API base URL (default: $API_URL, else %s)" % DEFAULT_API_URL)
     args = parser.parse_args()
-    if args.action == 'acquire':
-        acquire_lock(args.pid)
-    else:
-        release_lock(args.pid)
+    if args.cmd == "path":
+        print(lock_path(args.api_url))
 
 
 if __name__ == '__main__':

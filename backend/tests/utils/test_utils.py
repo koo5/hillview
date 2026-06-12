@@ -12,7 +12,8 @@ import io
 import pytest
 
 # Test configuration
-API_URL = os.getenv("API_URL", "http://localhost:8055/api")
+from lock_util import DEFAULT_API_URL  # tests/ is on sys.path (conftest / debug.sh)
+API_URL = os.getenv("API_URL", DEFAULT_API_URL)
 
 def clear_test_database():
 	"""Clear the database before running tests. Fails test on error."""

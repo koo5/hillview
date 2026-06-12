@@ -24,20 +24,25 @@ def tprint(*args, **kwargs):
 
 
 @contextmanager
-def backend_test_lock():
-	"""Serialize destructive operations against the shared dev backend.
+def backend_test_lock(shared: bool = False):
+	"""Take the per-API-server backend lock (see `tests/lock_util.py`).
 
-	Wraps the same file lock (`/tmp/hillview-test-backend.lock`) used by the
-	pytest session-scoped fixture in `tests/conftest.py`, so debug commands
-	and test runs won't step on each other. `acquire_lock()` blocks
-	indefinitely; interrupt with Ctrl-C to abort.
+	Same lock the pytest session fixture in `tests/conftest.py` holds, so
+	debug commands and test runs won't step on each other. Scoped to the
+	effective API server: the lock file derives from $API_URL at acquire
+	time, so an `--api-url` override (which sets the env var before this
+	runs) locks that server, not the default one.
+
+	`shared=True` is for additive operations (uploads): shared holders
+	overlap each other freely but still exclude — and are excluded by —
+	exclusive holders (test runs, destructive commands). An exclusive
+	acquirer waits for the whole in-flight shared stream to drain.
+
+	Blocks indefinitely; interrupt with Ctrl-C to abort.
 	"""
 	import lock_util  # tests/ is on PYTHONPATH via debug.sh
-	lock_util.acquire_lock()
-	try:
+	with lock_util.BackendLock(shared=shared):
 		yield
-	finally:
-		lock_util.release_lock()
 
 
 def debug_photos():
@@ -925,7 +930,8 @@ def main():
 				i += 1
 		if positional:
 			count = int(positional[0])
-		with backend_test_lock():
+		# shared: uploads are additive — overlap freely, exclude test runs.
+		with backend_test_lock(shared=True):
 			upload_random_photos(count, parallel, user, password, quality=quality)
 	elif command == "upload-files":
 		import argparse
@@ -981,7 +987,8 @@ def main():
 		if opts.worker_url is not None:
 			os.environ["WORKER_URL"] = opts.worker_url
 
-		with backend_test_lock():
+		# shared: uploads are additive — overlap freely, exclude test runs.
+		with backend_test_lock(shared=True):
 			upload_files(opts.files, opts.license, opts.parallel, opts.user, opts.password,
 				skip_anonymization=opts.skip_anonymization, version=opts.version,
 				description=opts.description, quality=opts.quality, fast=opts.fast,
