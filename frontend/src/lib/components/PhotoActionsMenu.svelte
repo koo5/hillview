@@ -18,6 +18,7 @@
 		getUserProfileUrl
 	} from '$lib/photoUtils';
 	import { openExternalUrl, HILLVIEW_BASE_URL } from '$lib/urlUtils';
+	import { PHOTO_DETAIL_FETCH_DEBOUNCE_MS } from '$lib/config';
 	import { TAURI } from '$lib/tauri';
 	import { navigateWithHistory } from '$lib/navigation.svelte';
 	import {
@@ -40,10 +41,6 @@
 	} from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 
 	export let photo: PhotoData | null = null;
-
-	// Debounce window for per-photo detail fetches (ratings, flag status).
-	// Suppresses bursts of requests when the user rapidly swipes through the gallery.
-	const PHOTO_DETAIL_FETCH_DEBOUNCE_MS = 250;
 
 	// Track pending timeouts for cleanup
 	const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
