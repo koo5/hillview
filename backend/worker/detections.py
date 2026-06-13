@@ -9,12 +9,30 @@ TARGET_CLASSES = {
 	7: "truck"
 }
 
-# Minimum YOLO confidence for a detection to be kept (passed to predict()).
-# Ultralytics' default is 0.25, which lets through tile-edge partials and
-# zoomed-in false positives (spot-checked 2026-06-12: junk at 0.25-0.38,
-# real hits at 0.70+). Detections' confidences are stored in the DB, so this
-# can be re-tuned against real data.
-MIN_CONFIDENCE = 0.4
+# Two decoupled thresholds (spot-checked 2026-06-12: tile-edge partials and
+# zoomed-in false positives sit at 0.25-0.38, real hits at 0.70+):
+#
+#   DETECT_CONFIDENCE — floor passed to the model's predict(). Every detection
+#     at or above this is RECORDED in detected_objects, so the debug overlay
+#     can show near-misses and the blur threshold can be re-tuned downward from
+#     stored data without reprocessing. Matches ultralytics' own default.
+#   BLUR_CONFIDENCE — detections at or above this are actually blurred (and
+#     blacked out in the LLM variant). Below it, they're recorded but left
+#     visible — distinguishable in the overlay because blurred pixels are, well,
+#     blurred.
+DETECT_CONFIDENCE = 0.25
+BLUR_CONFIDENCE = 0.4
+
+
+def should_blur(obj) -> bool:
+	"""Whether a recorded detection should actually be blurred/blacked out.
+
+	Manual override rectangles carry no confidence and are always blurred;
+	model detections are blurred at or above BLUR_CONFIDENCE.
+	"""
+	conf = obj.get("confidence")
+	return conf is None or conf >= BLUR_CONFIDENCE
+
 
 BLUR_SIZES = {
 	"person": 151,

@@ -19,9 +19,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 cv2_stub = types.ModuleType('cv2')
 sys.modules['cv2'] = cv2_stub
 
-# detections stub
+# detections stub — installed via direct assignment, so it must be complete:
+# it overwrites any stub from earlier-collected modules and persists for the
+# rest of the session (e.g. when test_photo_processor imports photo_processor,
+# which does `from detections import should_blur`).
 detections_stub = types.ModuleType('detections')
 detections_stub.TARGET_CLASSES = {0: 'person', 2: 'car'}
+detections_stub.DETECT_CONFIDENCE = 0.25
+detections_stub.BLUR_CONFIDENCE = 0.4
+detections_stub.should_blur = lambda o: o.get('confidence') is None or o['confidence'] >= 0.4
 sys.modules['detections'] = detections_stub
 
 # Remove any previously cached blur stub (e.g. installed by test_anonymize.py)
