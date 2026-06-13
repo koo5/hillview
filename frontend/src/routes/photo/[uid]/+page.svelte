@@ -47,7 +47,6 @@
 	import { requireAuth } from '$lib/components/signInModal.svelte';
 	import HideUserDialog from '$lib/components/HideUserDialog.svelte';
 	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
-	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
 	import { showDropdownMenu } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 	import { getPhotoMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
 
@@ -483,7 +482,6 @@
 	{/if}
 </StandardBody>
 
-<DropdownMenu />
 <AnonymizationModal />
 
 <style>

@@ -320,7 +320,6 @@
 			url: externalLicenseUrl ?? '/licensing',
 			testId: 'menu-license'
 		});
-		items.push({ type: 'divider' });
 
 
 		//if (capturedAt)
@@ -335,7 +334,6 @@
 				url: detailUrl ?? undefined,
 				testId: 'menu-captured-at'
 			});
-			items.push({ type: 'divider' });
 		}
 
 		items.push({
@@ -345,6 +343,7 @@
 			onclick: sharePhoto,
 			testId: 'menu-share'
 		});
+		items.push({ type: 'divider' });
 		items.push({
 			id: 'flag',
 			label: isFlagged ? 'Remove Flag' : 'Flag for Review',
@@ -353,7 +352,14 @@
 			onclick: toggleFlag,
 			testId: 'menu-flag'
 		});
-		items.push({ type: 'divider' });
+		items.push({
+			id: 'hide-user',
+			label: 'Hide User',
+			icon: UserX,
+			disabled: isHiding || !getUserId(photo),
+			onclick: showUserHideDialogAction,
+			testId: 'menu-hide-user'
+		});
 		items.push({
 			id: 'hide-photo',
 			label: 'Hide Photo',
@@ -363,12 +369,13 @@
 			testId: 'menu-hide-photo'
 		});
 		items.push({
-			id: 'hide-user',
-			label: 'Hide User',
-			icon: UserX,
-			disabled: isHiding || !getUserId(photo),
-			onclick: showUserHideDialogAction,
-			testId: 'menu-hide-user'
+			id: 'thumbs-down',
+			label: `Dislike (${ratingCounts.thumbs_down})`,
+			icon: ThumbsDown,
+			selected: userRating === 'thumbs_down',
+			disabled: isRating,
+			onclick: () => handleRatingClick('thumbs_down'),
+			testId: 'menu-thumbs-down'
 		});
 
 		return items;
@@ -418,17 +425,6 @@
 		>
 			<ThumbsUp size={16} />
 			<span class="rating-count">{ratingCounts.thumbs_up}</span>
-		</button>
-
-		<button
-			class="action-button rating-button down {userRating === 'thumbs_down' ? 'active' : ''}"
-			on:click={() => handleRatingClick('thumbs_down')}
-			disabled={isRating}
-			title="Thumbs down"
-			data-testid="thumbs-down-button"
-		>
-			<ThumbsDown size={16} />
-			<span class="rating-count">{ratingCounts.thumbs_down}</span>
 		</button>
 
 		<!-- Menu trigger button -->

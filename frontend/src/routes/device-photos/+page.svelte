@@ -11,7 +11,6 @@
 	import {fetchPhotoStats, getPlatformName} from "$lib/photoStatsAdapter";
 	import { showDropdownMenu, type DropdownMenuItem } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 	import { getPhotoMenuItems } from '$lib/photoAnonymizationMenu';
-	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
 	import { BROWSER, TAURI } from '$lib/tauri';
 	import { browserPhotoStorage, type StoredPhoto } from '$lib/browser/photoStorage';
 	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
@@ -437,7 +436,6 @@
 	</div>
 </StandardBody>
 
-<DropdownMenu />
 <AnonymizationModal />
 
 <style>

@@ -62,10 +62,9 @@ test.describe('Anonymization re-upload (web)', () => {
 		// Only one photo on the server (users recreated per spec file),
 		// so there is exactly one menu button
 		const menuButton = page.locator('[data-testid="photo-menu-button"]');
-		// .last(): the dropdown renders twice (DropdownMenu is mounted in both
-		// +layout.svelte and the page, sharing one global store); only the
-		// topmost (last-portaled) copy is clickable
-		const anonymizationMenuItem = page.locator('[data-testid="menu-anonymization-options"]').last();
+		// Strict locator: also guards against the dropdown rendering twice
+		// (DropdownMenu must only be mounted once, in +layout.svelte)
+		const anonymizationMenuItem = page.locator('[data-testid="menu-anonymization-options"]');
 		await menuButton.click();
 		await anonymizationMenuItem.click();
 
