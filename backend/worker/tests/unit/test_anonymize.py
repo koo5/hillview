@@ -53,7 +53,9 @@ _make_stub_modules()
 # detections stub — must be present before importing anonymize
 detections_stub = types.ModuleType('detections')
 detections_stub.TARGET_CLASSES = {0: 'person', 2: 'car'}
-detections_stub.MIN_CONFIDENCE = 0.4
+detections_stub.DETECT_CONFIDENCE = 0.25
+detections_stub.BLUR_CONFIDENCE = 0.4
+detections_stub.should_blur = lambda o: o.get('confidence') is None or o['confidence'] >= 0.4
 sys.modules.setdefault('detections', detections_stub)
 
 # blur stub — anonymize imports apply_blur / read_image from blur
@@ -63,6 +65,43 @@ blur_stub.read_image = lambda p: np.zeros((100, 100, 3), dtype=np.uint8)
 sys.modules.setdefault('blur', blur_stub)
 
 from anonymize import _tile_starts, deduplicate_boxes, run_yolo_multiscale  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# should_blur (real detections module — pure data, no heavy deps)
+# ---------------------------------------------------------------------------
+
+class TestShouldBlur:
+    def setup_method(self):
+        # Import the real module, bypassing the stub installed above.
+        sys.modules.pop('detections', None)
+        import importlib
+        import detections as _d
+        importlib.reload(_d)
+        self.should_blur = _d.should_blur
+        self.blur_conf = _d.BLUR_CONFIDENCE
+        self.detect_conf = _d.DETECT_CONFIDENCE
+
+    def teardown_method(self):
+        # Restore the stub so the rest of the suite keeps using it.
+        sys.modules['detections'] = detections_stub
+
+    def test_detect_floor_below_blur_threshold(self):
+        """The storage floor must be below the blur threshold, else decoupling is a no-op."""
+        assert self.detect_conf < self.blur_conf
+
+    def test_above_blur_threshold_blurred(self):
+        assert self.should_blur({'confidence': 0.9}) is True
+
+    def test_at_blur_threshold_blurred(self):
+        assert self.should_blur({'confidence': self.blur_conf}) is True
+
+    def test_below_blur_threshold_not_blurred(self):
+        assert self.should_blur({'confidence': 0.3}) is False
+
+    def test_manual_rectangle_always_blurred(self):
+        """Manual override rects carry no confidence and must always blur."""
+        assert self.should_blur({'class_id': None, 'bbox': {}}) is True
 
 
 # ---------------------------------------------------------------------------
@@ -284,11 +323,11 @@ class TestRunYoloMultiscale:
             assert y2 <= 3000
 
     def test_conf_threshold_passed_to_model(self):
-        """The confidence threshold must reach the model's predict() call."""
+        """The detection floor must reach the model's predict() call."""
         model = _MockYOLO(detections=[])
         image = self._make_image(500, 500)
         run_yolo_multiscale(image, model, max_tile_size=1280, min_scale_size=256)
-        assert model.conf_calls == [0.4]  # MIN_CONFIDENCE from the detections stub
+        assert model.conf_calls == [0.25]  # DETECT_CONFIDENCE from the detections stub
         model.conf_calls.clear()
         run_yolo_multiscale(image, model, max_tile_size=1280, min_scale_size=256, conf=0.7)
         assert model.conf_calls == [0.7]

@@ -6,7 +6,7 @@ import logging
 import cv2
 import torch
 from ultralytics import YOLO
-from detections import TARGET_CLASSES, MIN_CONFIDENCE
+from detections import TARGET_CLASSES, DETECT_CONFIDENCE, should_blur
 from blur import apply_blur, read_image
 
 logging.basicConfig(
@@ -109,7 +109,7 @@ def deduplicate_boxes(boxes, tolerance=1, subsumption_threshold=1):
 	return kept
 
 
-def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_size=4096, overlap=0.2, conf=MIN_CONFIDENCE):
+def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_size=4096, overlap=0.2, conf=DETECT_CONFIDENCE):
 	"""Run YOLO inference over a multi-scale pyramid with tiling.
 
 	Starts at full resolution and halves the scale each iteration until the
@@ -176,7 +176,7 @@ def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_siz
 	return deduplicate_boxes(all_boxes)
 
 
-def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2, conf=MIN_CONFIDENCE):
+def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2, conf=DETECT_CONFIDENCE):
 	"""Detect target objects in the image using YOLO with multi-scale tiling."""
 	global model
 
@@ -246,8 +246,12 @@ def anonymize_image(source_path, encoding=None):
 			}
 		})
 
-	logging.info(f"Applying blur to detected objects in image: {source_path}")
-	apply_blur(source_path, image, detections["objects"])
+	# Record every detection (down to DETECT_CONFIDENCE) but only blur those at
+	# or above BLUR_CONFIDENCE. Sub-threshold boxes stay in detected_objects for
+	# the debug overlay / threshold tuning, but the image keeps them visible.
+	to_blur = [o for o in detections["objects"] if should_blur(o)]
+	logging.info(f"Applying blur to {len(to_blur)}/{len(detections['objects'])} detected objects in image: {source_path}")
+	apply_blur(source_path, image, to_blur)
 	return image, detections
 
 

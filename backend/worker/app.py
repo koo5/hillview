@@ -26,6 +26,7 @@ import threading
 import logging
 import sys
 import time
+from contextlib import asynccontextmanager
 
 import requests
 from dotenv import load_dotenv
@@ -147,11 +148,23 @@ def validate_json_payload(obj: Any, path: str = "") -> None:
 	raise ValueError(f"Non-JSON-serializable type {type(obj).__name__} at {path or 'root'}")
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+	"""Start the background task ping loop on startup.
+
+	start_background_loop is defined later in this module; it's only called
+	here at startup time, by which point the module is fully imported.
+	"""
+	start_background_loop()
+	yield
+
+
 # FastAPI app
 app = FastAPI(
 	title="Hillview Photo Processing Worker",
 	description="Photo processing service with JWT authentication",
-	version="1.0.1"
+	version="1.0.1",
+	lifespan=lifespan,
 )
 
 
@@ -267,12 +280,6 @@ def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, phot
 			if isinstance(result, dict) and warnings:
 				result['warnings'] = list(warnings)
 			return result
-
-
-@app.on_event("startup")
-async def startup_event():
-	"""Start background task ping loop on app startup."""
-	start_background_loop()
 
 
 pending_background_tasks_mutex = threading.Lock()

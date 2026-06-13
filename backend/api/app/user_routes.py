@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import or_, func, desc
 from geoalchemy2.functions import ST_X, ST_Y, ST_Point
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 # Add common module path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
@@ -1255,6 +1255,10 @@ async def register_client_public_key(
 ALLOWED_LICENSES = {'ccbysa4+osm', 'full1'}
 
 class UploadAuthorizationRequest(BaseModel):
+	# Tolerate unknown fields but log them (see authorize_upload) — catches
+	# client/server field-name mismatches like 'bearing' vs 'compass_angle'
+	model_config = ConfigDict(extra='allow')
+
 	filename: str
 	file_size: int
 	content_type: str
@@ -1300,7 +1304,10 @@ async def authorize_upload(
 
 		request_start_time = datetime.datetime.now()
 
-		log.info(f"Creating upload authorization for user {current_user.id}: {auth_request.filename}, {auth_request.file_size} bytes, MD5: {auth_request.file_md5}, lat/lon: {auth_request.latitude}/{auth_request.longitude}, bearing: {auth_request.compass_angle}, captured_at: {auth_request.captured_at}, key_id: {auth_request.client_key_id}")
+		log.info(f"Creating upload authorization for user {current_user.id}: {auth_request.filename}, {auth_request.file_size} bytes, MD5: {auth_request.file_md5}, lat/lon: {auth_request.latitude}/{auth_request.longitude}, bearing: {auth_request.compass_angle}, captured_at: {auth_request.captured_at}, version: {auth_request.version}, license: {auth_request.license}, key_id: {auth_request.client_key_id}")
+
+		if auth_request.model_extra:
+			log.warning(f"authorize-upload request from user {current_user.id} contains unknown fields (ignored): {auth_request.model_extra}")
 
 		# Basic validation of request parameters
 		if not auth_request.filename.strip():
@@ -1368,7 +1375,7 @@ async def authorize_upload(
 					photo_id = existing_photo.id
 					await db.delete(existing_photo)
 				else:
-					log.info(f"Duplicate file detected for user {current_user.id}: MD5={auth_request.file_md5}, row id={str(existing_photo.id)}, status={existing_photo.processing_status}")
+					log.info(f"Duplicate file detected for user {current_user.id}: MD5={auth_request.file_md5}, row id={str(existing_photo.id)}, status={existing_photo.processing_status}, client version={auth_request.version} <= stored version={existing_photo.version} (re-upload requires a higher version)")
 					return {
 						"duplicate": True,
 						# completed: client just marks its local item as completed
