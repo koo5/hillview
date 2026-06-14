@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image
 import httpx
 from blur import read_image, apply_blackout, normalize_to_srgb
+from detections import should_blur
 from throttle import Throttle
 from pydantic import BaseModel
 from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id
@@ -593,7 +594,9 @@ class PhotoProcessor:
 			# Create 640_llm variant (black fill over detections, no colors/stick figures, for LLM analysis)
 			# Use original size if image is smaller than LLM_VARIANT_SIZE
 			llm_image = read_image(source_path, encoding=encoding)
-			apply_blackout(llm_image, detections.get("objects", []))
+			# Black out only the objects that were actually blurred — sub-threshold
+			# detections are recorded but stay visible (same policy as apply_blur).
+			apply_blackout(llm_image, [o for o in detections.get("objects", []) if should_blur(o)])
 			llm_h, llm_w = llm_image.shape[:2]
 
 			if llm_w <= LLM_VARIANT_SIZE:
