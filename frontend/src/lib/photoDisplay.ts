@@ -15,6 +15,7 @@ export interface PublicPhoto {
 	title?: string | null;
 	description: string | null;
 	keywords?: string[] | null;
+	place_name?: string | null;
 	license?: string | null;
 	is_public?: boolean;
 	latitude: number | null;
@@ -142,6 +143,19 @@ export function buildPhotoImageJsonLd(
 	const isArr = license === 'arr';
 	const licensePage = `${HILLVIEW_BASE_URL}/licensing`;
 	const contactPage = `${HILLVIEW_BASE_URL}/contact`;
+	const hasGeo = photo.latitude != null && photo.longitude != null;
+	// schema.org Place: the reverse-geocoded place name plus the coordinates of
+	// where the photo was taken. Either part may be absent.
+	const place =
+		photo.place_name || hasGeo
+			? {
+					'@type': 'Place',
+					name: photo.place_name || undefined,
+					geo: hasGeo
+						? { '@type': 'GeoCoordinates', latitude: photo.latitude, longitude: photo.longitude }
+						: undefined
+				}
+			: undefined;
 	return {
 		'@context': 'https://schema.org',
 		'@type': 'ImageObject',
@@ -166,17 +180,7 @@ export function buildPhotoImageJsonLd(
 		creditText: photo.owner_username || undefined,
 		license: license ? licensePage : undefined,
 		acquireLicensePage: license ? (isArr ? contactPage : licensePage) : undefined,
-		contentLocation:
-			photo.latitude != null && photo.longitude != null
-				? {
-						'@type': 'Place',
-						geo: {
-							'@type': 'GeoCoordinates',
-							latitude: photo.latitude,
-							longitude: photo.longitude
-						}
-					}
-				: undefined
+		contentLocation: place
 	};
 }
 

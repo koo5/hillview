@@ -89,6 +89,22 @@ describe('buildPhotoImageJsonLd', () => {
 		expect(ld.contentLocation).toBeUndefined();
 	});
 
+	it('puts the reverse-geocoded place name into contentLocation', () => {
+		const ld = buildPhotoImageJsonLd({ ...REAL_PHOTO, place_name: 'Prosek, Praha' })!;
+		expect(ld.contentLocation).toEqual({
+			'@type': 'Place',
+			name: 'Prosek, Praha',
+			geo: { '@type': 'GeoCoordinates', latitude: 50.05299, longitude: 14.542728 }
+		});
+	});
+
+	it('emits a name-only Place when geocoded but coordinates are missing', () => {
+		const ld = buildPhotoImageJsonLd({
+			...REAL_PHOTO, latitude: null, longitude: null, place_name: 'Prosek, Praha'
+		})!;
+		expect(ld.contentLocation).toEqual({ '@type': 'Place', name: 'Prosek, Praha' });
+	});
+
 	it('surfaces a description when present', () => {
 		const ld = buildPhotoImageJsonLd({ ...REAL_PHOTO, description: 'Panorama Prahy z Grebovky' })!;
 		// name still falls back to filename (no title); description is its own field

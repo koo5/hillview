@@ -65,9 +65,22 @@ def derive_place(address: dict):
 
     name = pick if (not city or city == pick) else f"{pick}, {city}"
     if city and city != pick:
-        tail = [city, cc]            # within-country: city; cross-country: cc
+        # Sub-city place (e.g. a Prague suburb): the city disambiguates within
+        # the country; the country code guards against same-named places abroad.
+        tail = [city, cc]
     else:
-        tail = [iso2 or cc]          # standalone town: region code (implies country)
+        # Standalone town/village: disambiguate at okres (district) level, since
+        # village names repeat across districts. Prefer the readable okres name
+        # ("okres Mělník" -> "melnik"); fall back to the ISO lvl5 okres code when
+        # the town shares its okres's name (avoids "melnik-melnik"), then region.
+        lvl5 = (address.get('ISO3166-2-lvl5') or '').lower()  # e.g. "cz-206"
+        district = re.sub(r'^(okres|obvod)\s+', '', address.get('district') or '', flags=re.I)
+        if district and slugify(district) != slugify(pick):
+            tail = [district, cc]
+        elif lvl5:
+            tail = [lvl5]            # okres code already embeds the country
+        else:
+            tail = [iso2 or cc]      # region code / country fallback
     slug = slugify(' '.join([pick] + [t for t in tail if t]))
     return name, (slug or None)
 

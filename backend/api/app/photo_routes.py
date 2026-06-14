@@ -1117,6 +1117,7 @@ async def get_public_photo(
 			"title": photo.title,
 			"description": photo.description,
 			"keywords": photo.keywords,
+			"place_name": photo.place_name,
 			"license": legal_rights_to_license(photo.legal_rights),
 			"is_public": photo.is_public,
 			"latitude": latitude,
