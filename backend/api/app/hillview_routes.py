@@ -197,8 +197,14 @@ def convert_photo_to_response(photo, username: str, longitude: float, latitude: 
 	if photo.featured:
 		photo_data['featured'] = True
 
+	if photo.title:
+		photo_data['title'] = photo.title
+
 	if photo.description:
 		photo_data['description'] = photo.description
+
+	if photo.keywords:
+		photo_data['keywords'] = photo.keywords
 
 	photo_data['license'] = legal_rights_to_license(photo.legal_rights)
 

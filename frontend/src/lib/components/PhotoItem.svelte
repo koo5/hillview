@@ -3,6 +3,7 @@
 	import { app } from '$lib/data.svelte';
 	import { clearFilters } from '$lib/components/filters-modal/filtersStore';
 	import type { PhotoItemData } from '$lib/types/photoItemTypes';
+	import { displayTitle } from '$lib/photoDisplay';
 	import { ChevronDown } from 'lucide-svelte';
 
 	// Props
@@ -10,7 +11,9 @@
 	export let variant: 'card' | 'thumbnail' = 'card';
 	export let showDates = true;
 	export let showDescription = true;
-	export let preferDescription = false;
+	// Use the human title (title → description → filename) as the headline,
+	// rather than the raw filename. For showcase views (e.g. best-of).
+	export let preferTitle = false;
 
 	// State
 	let detailsExpanded = false;
@@ -62,8 +65,12 @@
 	}
 
 	$: mapUrl = getMapUrl(photo);
+	// Detail/permalink page (the SEO-rich /photo/<uid>). PhotoItem is only fed
+	// hillview photos, so fall back to a hillview uid when none is present.
+	$: detailUrl = `/photo/${encodeURIComponent((photo as any).uid ?? `hillview-${photo.id}`)}`;
 	$: imageHeight = variant === 'card' ? '200px' : '150px';
-	$: hasDetails = (showDates && photo.uploaded_at) || (photo.latitude && photo.longitude) || $$slots.details || $app.debug_enabled;
+	// detailUrl is always present, so the details toggle is always available.
+	$: hasDetails = (showDates && photo.uploaded_at) || (photo.latitude && photo.longitude) || $$slots.details || $app.debug_enabled || !!detailUrl;
 </script>
 
 <div
@@ -80,7 +87,7 @@
 	>
 		<img
 			src={getPhotoUrl(photo)}
-			alt={photo.description || photo.original_filename || ''}
+			alt={displayTitle(photo)}
 			loading="lazy"
 			data-testid="photo-thumbnail"
 		/>
@@ -92,9 +99,9 @@
 	</a>
 
 	<div class="photo-info">
-		<h3 class="filename">{preferDescription && photo.description ? photo.description : photo.original_filename}</h3>
+		<h3 class="filename">{preferTitle ? displayTitle(photo) : photo.original_filename}</h3>
 
-		{#if showDescription && photo.description && !preferDescription}
+		{#if showDescription && photo.description}
 			<p class="description">{photo.description}</p>
 		{/if}
 
@@ -121,6 +128,10 @@
 
 		{#if detailsExpanded && hasDetails}
 			<div class="details-content" data-testid="photo-item-details">
+				<a class="detail-row detail-link" href={detailUrl} data-testid="photo-item-detail-link">
+					Open photo page →
+				</a>
+
 				{#if showDates && photo.uploaded_at}
 					<p class="detail-row">Uploaded: {formatDateTime(photo.uploaded_at)}</p>
 				{/if}
@@ -308,6 +319,17 @@
 		display: flex;
 		align-items: center;
 		gap: 2px;
+	}
+
+	.detail-link {
+		display: inline-block;
+		color: #3b82f6;
+		text-decoration: none;
+		font-weight: 500;
+	}
+
+	.detail-link:hover {
+		text-decoration: underline;
 	}
 
 	.location-icon {

@@ -129,6 +129,7 @@ async def get_best_photos(
 			photos_data.append({
 				"id": photo.id,
 				"original_filename": photo.original_filename,
+				"title": photo.title,
 				"description": photo.description,
 				"uploaded_at": format_utc(photo.uploaded_at),
 				"captured_at": format_utc(photo.captured_at),

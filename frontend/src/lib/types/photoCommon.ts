@@ -59,7 +59,9 @@ export interface BasePhotoData {
     captured_at?: number;
     accuracy?: number;
 
+    title?: string;
     description?: string;
+    keywords?: string[];
     featured?: boolean;
     filtered?: boolean;
 

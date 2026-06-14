@@ -461,6 +461,7 @@
 			fallback_url: fallbackUrl,
 			url: fullPhotoInfo.url,
 			filename: photo.filename,
+			title: photo.title,
 			description: photo.description,
 			width: fullPhotoInfo.width,
 			height: fullPhotoInfo.height,

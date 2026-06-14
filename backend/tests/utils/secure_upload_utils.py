@@ -229,7 +229,8 @@ class SecureUploadClient:
 										   latitude: float, longitude: float, description: str,
 										   is_public: bool = True, file_data: bytes = None,
 										   captured_at: str = None, version: int = None,
-										   license: str = 'ccbysa4+osm'):
+										   license: str = 'ccbysa4+osm',
+										   title: str = None, keywords: list = None):
 		"""Request upload authorization with custom parameters.
 
 		Args:
@@ -261,6 +262,12 @@ class SecureUploadClient:
 			"is_public": is_public,
 			"license": license,
 		}
+
+		# Only include title/keywords when set, so non-pipeline callers are unchanged.
+		if title is not None:
+			upload_request["title"] = title
+		if keywords is not None:
+			upload_request["keywords"] = keywords
 
 		# Only include captured_at if explicitly provided
 		if captured_at is not None:

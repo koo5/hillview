@@ -48,8 +48,16 @@ export function convertStreamPhoto(photo: any, source: any): PhotoData {
         } : undefined)
     };
 
+    if (photo.title) {
+        convertedPhoto.title = photo.title;
+    }
+
     if (photo.description) {
         convertedPhoto.description = photo.description;
+    }
+
+    if (photo.keywords) {
+        convertedPhoto.keywords = photo.keywords;
     }
 
     if (photo.featured) {

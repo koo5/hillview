@@ -1264,7 +1264,9 @@ class UploadAuthorizationRequest(BaseModel):
 	content_type: str
 	file_md5: str  # MD5 hash for duplicate detection
 	client_key_id: str  # Key ID that will be used for signing
+	title: Optional[str] = None
 	description: Optional[str] = None
+	keywords: Optional[list[str]] = None
 	is_public: bool = True
 	license: Optional[str] = None  # e.g. 'ccbysa4'
 	# Geolocation data from client (EXIF or device GPS)
@@ -1429,7 +1431,9 @@ async def authorize_upload(
 			filename=None,  # Will be set by worker after file processing
 			original_filename=auth_request.filename,
 			file_md5=auth_request.file_md5,
+			title=auth_request.title,
 			description=auth_request.description,
+			keywords=auth_request.keywords,
 			is_public=auth_request.is_public,
 			owner_id=current_user.id,
 			processing_status="authorized",

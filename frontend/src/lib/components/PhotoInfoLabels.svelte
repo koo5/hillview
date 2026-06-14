@@ -7,11 +7,11 @@
 	export let annotations: AnnotationData[] = [];
 </script>
 
-{#if photo?.description}
+{#if photo?.title || photo?.description}
 	<div class="photo-description" data-testid="photo-description"
 		role="presentation"
 		on:mousedown|stopPropagation on:touchstart|stopPropagation>
-		{photo.description}
+		{photo.title || photo.description}
 	</div>
 {/if}
 {#if $app.debug_enabled && photo?.filename}

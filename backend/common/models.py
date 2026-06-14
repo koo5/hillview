@@ -4,7 +4,7 @@ from typing import Optional, List, Any
 import uuid
 import enum
 
-from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text, JSON, Enum, ForeignKey, CheckConstraint
+from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text, JSON, Enum, ForeignKey, CheckConstraint, ARRAY
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -74,7 +74,13 @@ class Photo(Base):
 	captured_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))  # UTC timestamps without timezone
 	uploaded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
 	record_created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-	description: Mapped[Optional[str]] = mapped_column(Text)
+	title: Mapped[Optional[str]] = mapped_column(Text)  # concise headline (og:title, <title>, schema.org name)
+	description: Mapped[Optional[str]] = mapped_column(Text)  # longer body text
+	keywords: Mapped[Optional[list[str]]] = mapped_column(ARRAY(Text))  # alt names / search synonyms (schema.org keywords)
+	# Reverse-geocoded place (backfilled out-of-band; see scripts/backfill_places.py)
+	geocode: Mapped[Optional[dict]] = mapped_column(JSONB)  # raw {address, display_name} — re-derive without re-geocoding
+	place_name: Mapped[Optional[str]] = mapped_column(Text)  # display label e.g. "Prosek, Praha"
+	place_slug: Mapped[Optional[str]] = mapped_column(Text, index=True)  # grouping key for place pages
 	is_public: Mapped[bool] = mapped_column(Boolean, default=True)
 
 	# Processing status and data

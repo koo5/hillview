@@ -13,6 +13,7 @@
 	interface BestOfPhoto {
 		id: string;
 		original_filename: string;
+		title?: string;
 		uploaded_at: string;
 		captured_at?: string;
 		processing_status: string;
@@ -125,7 +126,7 @@
 					<PhotoItem
 						{photo}
 						variant="thumbnail"
-						preferDescription={true}
+						preferTitle={true}
 					/>
 					<div class="photo-score" data-testid="bestof-photo-stats">
 						{photo.annotation_count} annotation{photo.annotation_count === 1 ? '' : 's'}{#if $app.debug_enabled}

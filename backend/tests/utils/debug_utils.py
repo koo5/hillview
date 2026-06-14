@@ -7,6 +7,7 @@ import os
 import sys
 import json
 import traceback
+from dataclasses import dataclass
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import requests
@@ -307,7 +308,23 @@ def base64_to_pem(base64_key: str):
 		return None, None
 
 
-async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None, anonymization_override=None, version=None, quality=None, fast=False, metadata=None, license=None):
+@dataclass
+class UploadParams:
+	"""Per-batch settings threaded through _parallel_upload to authorize-upload
+	and the worker. Bundled into one object so callers — and the call graph —
+	don't pass a dozen loose kwargs. Per-photo ``description`` stays in the items
+	tuple instead, since upload_random_photos varies it per image."""
+	license: str = None              # authorize-upload; None = client default
+	version: int = None              # authorize-upload; bump to re-upload
+	title: str = None                # authorize-upload (concise headline)
+	keywords: list = None            # authorize-upload (search synonyms)
+	anonymization_override: str = None  # worker; None=auto, "[]"=skip
+	quality: int = None              # worker WebP quality (1-100)
+	fast: bool = False               # worker fast path
+	metadata: str = None             # worker BrowserMetadata JSON (EXR geo etc.)
+
+
+async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None, params=None):
 	"""Core parallel upload logic.
 
 	Args:
@@ -317,18 +334,13 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 		token_or_manager: Auth token string or TokenManager instance
 		format_success: Callable(index, total, filename, photo_data, extra_data) -> str
 		timeout: Processing timeout per photo
+		params: UploadParams bundle of per-batch authorize/worker settings.
 		get_captured_at: Optional callable() -> str. If None, captured_at is omitted
 		                 and the worker extracts it from EXIF. For test images,
 		                 use generate_test_captured_at from secure_upload_utils.
-		anonymization_override: JSON string passed to worker. None=auto, "[]"=skip.
-		version: Optional version number for authorize-upload request.
-		quality: WebP quality (1-100). None=use worker default (97).
-		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding.
-		metadata: JSON string (BrowserMetadata schema) — forwarded to the worker
-		          as a fallback for formats without EXIF (e.g. EXR).
-		license: License identifier sent to authorize-upload. None=use the
-		         SecureUploadClient default ('ccbysa4+osm').
 	"""
+	params = params or UploadParams()
+
 	def get_token():
 		if isinstance(token_or_manager, str):
 			return token_or_manager
@@ -374,12 +386,13 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				captured_at = get_captured_at() if get_captured_at else None
 
 				authorize_kwargs = {}
-				if license is not None:
-					authorize_kwargs["license"] = license
+				if params.license is not None:
+					authorize_kwargs["license"] = params.license
 				auth_data = await upload_client.authorize_upload_with_params(
 					token, filename, len(image_data), lat, lon,
 					description, is_public=True, file_data=image_data,
-					captured_at=captured_at, version=version,
+					captured_at=captured_at, version=params.version,
+					title=params.title, keywords=params.keywords,
 					**authorize_kwargs,
 				)
 
@@ -395,7 +408,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				if worker_url_override:
 					auth_data["worker_url"] = worker_url_override
 
-				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename, anonymization_override=anonymization_override, quality=quality, fast=fast, metadata=metadata)
+				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename, anonymization_override=params.anonymization_override, quality=params.quality, fast=params.fast, metadata=params.metadata)
 				photo_id = result.get('photo_id', auth_data.get('photo_id'))
 				worker_warnings = result.get('warnings') or []
 
@@ -580,7 +593,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 
 		# Test images need fake captured_at since they don't have real EXIF
 		await _parallel_upload(items, parallel, gen_image, token_manager, format_success, timeout=30,
-							   get_captured_at=generate_test_captured_at, quality=quality)
+							   get_captured_at=generate_test_captured_at, params=UploadParams(quality=quality))
 
 	try:
 		asyncio.run(_upload())
@@ -589,7 +602,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 		traceback.print_exc()
 
 
-def upload_files(files: list, license: str, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None, manifest_path: str = None):
+def upload_files(files: list, license: str, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None, manifest_path: str = None, title: str = None, keywords: list = None):
 	"""Upload files from command line paths.
 
 	metadata: JSON string matching the worker's BrowserMetadata schema
@@ -619,11 +632,16 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 	parsed_metadata = json.loads(metadata) if metadata else None
 	meta_lat = (parsed_metadata or {}).get('latitude', 0.0)
 	meta_lon = (parsed_metadata or {}).get('longitude', 0.0)
-	# Seed description from the metadata blob too — the pipeline ships pano
-	# descriptions inside --metadata (BrowserMetadata has no description field,
-	# so the worker can't apply it). Explicit --description still wins.
+	# Seed title/description/keywords from the metadata blob too — the pipeline
+	# ships these inside --metadata (the worker's BrowserMetadata schema has no
+	# such fields, so they reach the Photo row only via authorize-upload).
+	# Explicit CLI flags still win.
 	if description is None and parsed_metadata:
 		description = parsed_metadata.get('description') or None
+	if title is None and parsed_metadata:
+		title = parsed_metadata.get('title') or None
+	if keywords is None and parsed_metadata:
+		keywords = parsed_metadata.get('keywords') or None
 
 	per_item: list = []
 
@@ -657,7 +675,11 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 			return f"  [{i+1}/{total}] {filename} ✓{loc}"
 
 		anon_override = "[]" if skip_anonymization else None
-		per_item = await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, anonymization_override=anon_override, version=version, quality=quality, fast=fast, metadata=metadata, license=license)
+		params = UploadParams(
+			license=license, version=version, title=title, keywords=keywords,
+			anonymization_override=anon_override, quality=quality, fast=fast, metadata=metadata,
+		)
+		per_item = await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, params=params)
 
 	try:
 		asyncio.run(_upload())
@@ -957,7 +979,10 @@ def main():
 			help="skip pyramid / 640_llm / EXIF copy; fast WebP encode")
 		parser.add_argument("--version", type=int,
 			help="authorize-upload version; >1 allows re-uploading completed photos")
-		parser.add_argument("--description", help="photo description")
+		parser.add_argument("--title", help="concise photo title (headline)")
+		parser.add_argument("--description", help="photo description (longer body)")
+		parser.add_argument("--keyword", action="append", dest="keywords",
+			help="search keyword / alternate name (repeatable)")
 		parser.add_argument("--quality", type=int,
 			help="WebP quality 1-100 (default: worker's 97)")
 		parser.add_argument("--metadata",
@@ -992,7 +1017,8 @@ def main():
 			upload_files(opts.files, opts.license, opts.parallel, opts.user, opts.password,
 				skip_anonymization=opts.skip_anonymization, version=opts.version,
 				description=opts.description, quality=opts.quality, fast=opts.fast,
-				metadata=opts.metadata, manifest_path=opts.manifest)
+				metadata=opts.metadata, manifest_path=opts.manifest,
+				title=opts.title, keywords=opts.keywords)
 	elif command == "mock-mapillary":
 		with backend_test_lock():
 			setup_mock_mapillary()

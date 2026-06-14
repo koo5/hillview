@@ -24,15 +24,16 @@
 	import {
 		getDisplayImageUrl,
 		formatDateTime,
-		pickSize,
+		pickOgImage,
+		buildPhotoImageJsonLd,
 		displayTitle,
 		parseAnnotationBody,
-		OG_SIZE_KEYS,
 		type PublicPhoto,
 		type PhotoAnnotation
 	} from '$lib/photoDisplay';
 	import PhotoAnnotations from '$lib/components/PhotoAnnotations.svelte';
 	import PhotoHead from '$lib/components/PhotoHead.svelte';
+	import JsonLd from '$lib/components/JsonLd.svelte';
 	import {
 		hidePhotoRequest,
 		togglePhotoRating,
@@ -274,7 +275,7 @@
 	}
 
 	$: headTitle = photo ? `${displayTitle(photo)} - Hillview` : '';
-	$: headOgImage = photo ? pickSize(photo, OG_SIZE_KEYS) : null;
+	$: headOgImage = photo ? pickOgImage(photo) : null;
 	$: headDescription = (() => {
 		if (!photo) return '';
 		const parts: string[] = [];
@@ -286,6 +287,10 @@
 		}
 		return parts.join(' — ') || 'Photo on Hillview';
 	})();
+	// schema.org ImageObject for the photo (precise structured data, unlike the
+	// coord/annotation-stuffed headDescription). Built in photoDisplay so it's
+	// unit-testable against real payloads.
+	$: headJsonLd = buildPhotoImageJsonLd(photo);
 </script>
 
 {#if photo}
@@ -298,10 +303,11 @@
 		longitude={photo.longitude}
 		canonicalUrl={`${HILLVIEW_BASE_URL}/photo/${encodeURIComponent(photo.uid)}`}
 	/>
+	<JsonLd data={headJsonLd} />
 {/if}
 
 <StandardHeaderWithAlert
-	title={photo?.description || photo?.original_filename || 'Photo'}
+	title={photo ? displayTitle(photo) : 'Photo'}
 	showMenuButton={true}
 	fallbackHref="/"
 />
@@ -331,7 +337,7 @@
 			<div class="photo-container">
 				<img
 					src={getDisplayImageUrl(photo)}
-					alt={photo.original_filename || 'Photo'}
+					alt={displayTitle(photo)}
 					data-testid="photo-detail-image"
 				/>
 			</div>

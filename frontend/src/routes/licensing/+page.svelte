@@ -105,6 +105,11 @@
 				all rights reserved. You may view these photos on Hillview, but they are not licensed
 				for copying, redistribution, or reuse without explicit permission.
 			</p>
+			<p>
+				These photos are still available for licensing by arrangement. If you'd like to use
+				one — at a specific resolution, or for commercial use — please reach out via the
+				<a href="/contact" class="legal-link">contact form</a> to discuss terms.
+			</p>
 		</section>
 
 		<section class="document-section">

@@ -11,6 +11,7 @@ export interface PhotoItemData {
 	width?: number;
 	height?: number;
 	sizes?: Record<string, { path?: string; url: string; width: number; height: number }>;
+	title?: string;
 	description?: string;
 	// Activity-specific fields
 	owner_username?: string;

@@ -54,11 +54,12 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
 from push_notifications import send_activity_broadcast_notification
 from common.database import get_db
-from common.models import Photo, User, PhotoRating, UserPublicKey
+from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation
 from common.config import get_write_pool
 from common.utc import format_utc
 from auth import get_current_active_user, get_current_user_optional_with_query
 from hidden_content_filters import apply_hidden_content_filters
+from hillview_routes import legal_rights_to_license
 from common.file_utils import (
 	get_file_size_from_upload
 )
@@ -81,7 +82,7 @@ router = APIRouter(prefix="/api/photos", tags=["photos"])
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads"))
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, or_
 
 async def get_ratings_for_photos(db: AsyncSession, photo_ids: list, user_id: str) -> dict:
 	"""Get ratings data for a list of photo IDs.
@@ -557,6 +558,7 @@ async def list_photos(
 				"id": photo.id,
 				"filename": photo.filename,
 				"original_filename": photo.original_filename,
+				"title": photo.title,
 				"description": photo.description,
 				"is_public": photo.is_public,
 				"latitude": latitude,
@@ -687,6 +689,59 @@ async def get_photos_status(
 			detail="Failed to get photo statuses"
 		)
 
+@router.get("/sitemap-ids")
+async def get_sitemap_photo_ids(
+	offset: int = 0,
+	limit: int = 50000,
+	db: AsyncSession = Depends(get_db),
+):
+	"""Public, completed photo identifiers for the XML sitemap (no auth — SEO).
+
+	Returns ``{"total", "photos": [{uid, lastmod}, ...]}`` for public,
+	non-deleted, completed hillview photos, newest first. Paginated so the
+	frontend sitemap can be a sitemap-index of fixed-size child pages and never
+	hit the 50k-URLs-per-file limit. ``limit=0`` yields just the total (cheap
+	count) for the index to compute its page count.
+
+	CURATED: only photos with something worth indexing are listed — featured,
+	or carrying a title/description/keywords, or with at least one annotation.
+	Bulk title-less uploads are left out so they don't dilute crawl budget /
+	site quality; they join automatically once they gain any such signal. They
+	stay indexable if found by other means (no noindex).
+
+	NOTE: declared before ``/{photo_id}`` so FastAPI doesn't route this literal
+	path into the photo-detail handler.
+	"""
+	interesting = or_(
+		Photo.featured == True,
+		and_(Photo.title.isnot(None), Photo.title != ""),
+		and_(Photo.description.isnot(None), Photo.description != ""),
+		func.array_length(Photo.keywords, 1) > 0,
+		select(PhotoAnnotation.id).where(PhotoAnnotation.photo_id == Photo.id).exists(),
+	)
+	conds = [
+		Photo.is_public == True,
+		Photo.deleted == False,
+		Photo.processing_status == "completed",
+		interesting,
+	]
+	total = await db.scalar(select(func.count()).select_from(Photo).where(*conds))
+	rows = (await db.execute(
+		select(Photo.id, Photo.uploaded_at)
+		.where(*conds)
+		.order_by(Photo.uploaded_at.desc())
+		.offset(offset)
+		.limit(limit)
+	)).all()
+	return {
+		"total": total or 0,
+		"photos": [
+			{"uid": f"hillview-{pid}", "lastmod": format_utc(ts) if ts else None}
+			for pid, ts in rows
+		],
+	}
+
+
 @router.get("/{photo_id}")
 async def get_photo(
 	request: Request,
@@ -731,6 +786,7 @@ async def get_photo(
 			"id": photo.id,
 			"filename": photo.filename,
 			"original_filename": photo.original_filename,
+			"title": photo.title,
 			"description": photo.description,
 			"is_public": photo.is_public,
 			"latitude": latitude,
@@ -856,6 +912,34 @@ async def delete_photo(
 		)
 
 
+def _pick_og_image(sizes: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+	"""Pick the og:image variant for share/SEO cards.
+
+	Prefers the 1.91:1 social-card crop the worker makes for wide-enough images;
+	otherwise the largest real (non-crop, non-llm) variant up to 1280px wide —
+	the og:image sweet spot without serving a multi-MB original.
+
+	Data-driven rather than a fixed key list: the worker's size set drifts across
+	versions (the table still holds legacy 1024/640/1600/50 keys), so a hardcoded
+	preference list silently rots. Mirrors the frontend pickOgImage.
+	"""
+	if not sizes:
+		return None
+	crop = sizes.get('1200_crop')
+	if isinstance(crop, dict) and crop.get('url'):
+		return crop
+	raw = [
+		v for k, v in sizes.items()
+		if isinstance(v, dict) and isinstance(v.get('width'), int)
+		and 'crop' not in k and 'llm' not in k
+	]
+	if not raw:
+		return None
+	capped = [v for v in raw if v['width'] <= 1280]
+	pool = capped if capped else raw
+	return max(pool, key=lambda v: v['width'])
+
+
 @router.get("/share/{photo_uid}")
 async def get_photo_share_metadata(
 	request: Request,
@@ -882,6 +966,7 @@ async def get_photo_share_metadata(
 					Photo.original_filename,
 					Photo.captured_at,
 					Photo.sizes,
+					Photo.title,
 					Photo.description,
 					ST_X(Photo.geometry).label('longitude'),
 					ST_Y(Photo.geometry).label('latitude')
@@ -902,15 +987,11 @@ async def get_photo_share_metadata(
 			height = None
 
 			if photo_data.sizes:
-				# Prefer crop variants for OG (proper 1.91:1 aspect) before raw sizes,
-				# which can be extreme ratios for panoramas.
-				for size_key in ['1200_crop', '320_crop', '1200', '1024', '640', '320', 'full']:
-					if size_key in photo_data.sizes:
-						size_data = photo_data.sizes[size_key]
-						photo_url = size_data.get('url')
-						width = size_data.get('width')
-						height = size_data.get('height')
-						break
+				og = _pick_og_image(photo_data.sizes)
+				if og:
+					photo_url = og.get('url')
+					width = og.get('width')
+					height = og.get('height')
 
 				# Try to find thumbnail (prefer smaller sizes)
 				for size_key in ['400', '320', '640']:
@@ -921,6 +1002,7 @@ async def get_photo_share_metadata(
 			return {
 				"id": photo_data.id,
 				"source": "hillview",
+				"title": photo_data.title,
 				"description": photo_data.description, #f"Photo taken at {photo_data.latitude:.6f}, {photo_data.longitude:.6f}",
 				"image_url": photo_url,
 				"thumbnail_url": thumbnail_url,
@@ -1032,7 +1114,10 @@ async def get_public_photo(
 			"source": "hillview",
 			"filename": photo.filename,
 			"original_filename": photo.original_filename,
+			"title": photo.title,
 			"description": photo.description,
+			"keywords": photo.keywords,
+			"license": legal_rights_to_license(photo.legal_rights),
 			"is_public": photo.is_public,
 			"latitude": latitude,
 			"longitude": longitude,
