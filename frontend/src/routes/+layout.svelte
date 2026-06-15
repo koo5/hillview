@@ -60,13 +60,6 @@
 		}
 	});
 
-	// Handle body scroll prevention for zoom view
-	/*$: {
-		if (browser && document?.body) {
-			document.body.style.overflow = $zoomViewData ? 'hidden' : '';
-		}
-	}*/
-
 	onMount(async () => {
 
 		/*try{
