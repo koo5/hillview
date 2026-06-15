@@ -99,7 +99,11 @@
 	</a>
 
 	<div class="photo-info">
-		<h3 class="filename">{preferTitle ? displayTitle(photo) : photo.original_filename}</h3>
+		<h3 class="filename">
+			<a class="title-link" href={detailUrl} data-testid="photo-item-title-link">
+				{preferTitle ? displayTitle(photo) : photo.original_filename}
+			</a>
+		</h3>
 
 		{#if showDescription && photo.description}
 			<p class="description">{photo.description}</p>
@@ -128,10 +132,6 @@
 
 		{#if detailsExpanded && hasDetails}
 			<div class="details-content" data-testid="photo-item-details">
-				<a class="detail-row detail-link" href={detailUrl} data-testid="photo-item-detail-link">
-					Open photo page →
-				</a>
-
 				{#if showDates && photo.uploaded_at}
 					<p class="detail-row">Uploaded: {formatDateTime(photo.uploaded_at)}</p>
 				{/if}
@@ -321,14 +321,14 @@
 		gap: 2px;
 	}
 
-	.detail-link {
-		display: inline-block;
-		color: #3b82f6;
+	/* Headline permalink to the /photo/<uid> page. Styled to read as the
+	   heading it lives in (inherits .filename color), underline on hover. */
+	.title-link {
+		color: inherit;
 		text-decoration: none;
-		font-weight: 500;
 	}
 
-	.detail-link:hover {
+	.title-link:hover {
 		text-decoration: underline;
 	}
 

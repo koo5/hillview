@@ -39,4 +39,20 @@ test.describe('Best Of Page', () => {
 			await expect(cards.first().getByTestId('bestof-photo-stats')).toContainText('annotation');
 		}
 	});
+
+	test('each photo links to its crawlable /photo/<uid> permalink', async ({ page }) => {
+		// SEO: photo pages must not be orphaned — the best-of grid is their
+		// internal-link path for crawlers, so every card's headline is a real
+		// <a href="/photo/..."> (rendered server-side in the web build).
+		await page.goto('/bestof');
+		await page.waitForLoadState('networkidle');
+		await expect(page.locator('.loading-container')).toBeHidden({ timeout: 11*15000 });
+
+		const photoGrid = page.getByTestId('bestof-photo-grid');
+		if (await photoGrid.isVisible().catch(() => false)) {
+			const titleLinks = page.getByTestId('photo-item-title-link');
+			await expect(titleLinks.first()).toBeVisible();
+			expect(await titleLinks.first().getAttribute('href')).toMatch(/^\/photo\/.+/);
+		}
+	});
 });

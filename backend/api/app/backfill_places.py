@@ -21,6 +21,7 @@ import sys
 import time
 import json
 import re
+import math
 import unicodedata
 import asyncio
 import argparse
@@ -85,7 +86,14 @@ def derive_place(address: dict):
     return name, (slug or None)
 
 
-def reverse_geocode(base_url: str, lat: float, lon: float, zoom: int):
+def km_between(lat1, lon1, lat2, lon2):
+    dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2)
+    return 6371.0 * 2 * math.asin(math.sqrt(a))
+
+
+def reverse_geocode(base_url: str, lat: float, lon: float, zoom: int, max_km: float):
     q = urllib.parse.urlencode({
         'lat': lat, 'lon': lon, 'format': 'json', 'zoom': zoom, 'addressdetails': 1,
     })
@@ -98,6 +106,15 @@ def reverse_geocode(base_url: str, lat: float, lon: float, zoom: int):
     addr = data.get('address')
     if not addr:
         return None
+    # Reject far matches: a coverage-limited instance (e.g. Czech-only) reverse-
+    # geocoding a point outside its data snaps to the nearest object it has —
+    # possibly hundreds of km away — which would mislabel the photo. Real matches
+    # sit within a few km. Treated as "no coverage" (place left NULL, retriable).
+    try:
+        if km_between(lat, lon, float(data['lat']), float(data['lon'])) > max_km:
+            return None
+    except (KeyError, TypeError, ValueError):
+        pass
     return {'address': addr, 'display_name': data.get('display_name')}
 
 
@@ -145,7 +162,10 @@ async def main(opts):
                 Photo.deleted == False,
                 Photo.processing_status == "completed",
                 Photo.geometry.isnot(None),
-                Photo.geocode.is_(None),
+                # Default: only never-attempted rows. --retry-no-place also re-tries
+                # rows attempted before but left placeless (e.g. out-of-coverage on
+                # a Czech-only run) — point --geocoder-url at a global instance.
+                Photo.place_slug.is_(None) if opts.retry_no_place else Photo.geocode.is_(None),
             ]
             if opts.filter == 'curated':
                 conds.append(_interesting())
@@ -157,7 +177,7 @@ async def main(opts):
                 break
             for pid, lat, lon in rows:
                 try:
-                    geo = reverse_geocode(opts.geocoder_url, lat, lon, opts.zoom)
+                    geo = reverse_geocode(opts.geocoder_url, lat, lon, opts.zoom, opts.max_km)
                 except Exception as e:
                     print(f"  {pid} geocode error: {e}", flush=True)
                     geo = None
@@ -191,6 +211,12 @@ if __name__ == '__main__':
     p.add_argument('--limit', type=int, default=None, help='max photos this run')
     p.add_argument('--delay', type=float, default=1.1, help='seconds between requests')
     p.add_argument('--zoom', type=int, default=16, help='Nominatim zoom (granularity)')
+    p.add_argument('--max-km', type=float, default=5.0,
+                   help='reject matches farther than this from the photo (guards '
+                        'coverage-limited instances snapping to a far place)')
+    p.add_argument('--retry-no-place', action='store_true',
+                   help='also re-attempt rows geocoded before but left placeless '
+                        '(e.g. out-of-coverage); pair with a global --geocoder-url')
     p.add_argument('--dry-run', action='store_true', help='print, do not write')
     p.add_argument('--rederive', action='store_true',
                    help='recompute place_name/place_slug from stored geocode (no network)')
