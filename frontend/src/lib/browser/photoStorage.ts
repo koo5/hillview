@@ -97,8 +97,14 @@ class BrowserPhotoStorage {
             await this.updateQueueStatus();
             console.log(`${this.LOG_PREFIX} Database initialized`);
 
-            // Request persistent storage to prevent browser from deleting our data
-            await this.requestPersistentStorage();
+            // Request persistent storage to prevent browser from deleting our
+            // data. Best-effort only — must NOT be awaited: on Firefox/WebKit
+            // navigator.storage.persist() blocks on a permission prompt that may
+            // never resolve, which would otherwise wedge init() and every DB
+            // operation (e.g. the upload pipeline) behind it.
+            this.requestPersistentStorage().catch((error) => {
+                console.error(`${this.LOG_PREFIX} Persistent storage request failed:`, error);
+            });
         } catch (error) {
             console.error(`${this.LOG_PREFIX} Failed to initialize database:`, error);
             throw error;

@@ -23,7 +23,13 @@ const CAR_JPEG_BASE64 = fs
 test.describe('Anonymization re-upload (web)', () => {
 	test.describe.configure({ mode: 'serial' });
 
-	test('changing anonymization to none re-uploads the photo with a bumped version', async ({ page, testUsers }) => {
+	test('changing anonymization to none re-uploads the photo with a bumped version', async ({ page, testUsers, browserName }) => {
+		// Playwright's WebKit (WebKitGTK) cannot persist a Blob to IndexedDB —
+		// every Blob put fails with "Error preparing Blob/File data to be stored
+		// in object store" (verified across Blob/ArrayBuffer/fetched-Blob; raw
+		// Uint8Array works). The whole browser-capture pipeline stores photos as
+		// Blobs, so it is untestable on this engine. Real Safari is unaffected.
+		test.skip(browserName === 'webkit', 'Playwright WebKit cannot store Blobs in IndexedDB');
 		test.setTimeout(180_000);
 
 		// Seed a photo into browser storage as if captured with the camera
