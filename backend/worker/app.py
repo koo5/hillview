@@ -29,6 +29,7 @@ import time
 from contextlib import asynccontextmanager
 
 import requests
+import psutil
 from dotenv import load_dotenv
 import socket
 import hashlib
@@ -477,6 +478,58 @@ async def health_check():
 	"""Health check endpoint."""
 	return {"status": "healthy", "service": "photo-processor"}
 
+def worker_status() -> dict:
+	"""Live load snapshot, split across the worker's two independent gates.
+
+	A photo passes through, in order:
+	  1. accepted upload  → added to ``pending_background_tasks`` (counts in
+	     ``pending_tasks``)
+	  2. ``processing_semaphore.acquire()`` (concurrency cap) → ``slots_in_use``
+	  3. ``wait_for_free_ram(500)`` then, in the threadpool, the photo_processor
+	     start-stagger gate (``rate_limit(PARALLEL_PROCESSING_START_DELAY)``)
+	  4. actually encoding → ``processing`` (the stagger throttle's
+	     ``_running_tasks``)
+
+	So ``slots_in_use`` is "holds a concurrency slot" while ``processing`` is
+	"past the stagger, actually working". A large ``slots_in_use`` with a small
+	``processing`` (i.e. ``stalled_in_gate`` high) means the start-stagger /
+	RAM gate — NOT the semaphore — is the real concurrency limiter; lower
+	``start_stagger_s`` (PARALLEL_PROCESSING_START_DELAY) and/or check
+	``available_ram_mb``.
+
+	Reads are lock-free on purpose: the stagger holds photo_processor's
+	throttle ``_lock`` for up to START_DELAY, so acquiring it here would stall
+	/ready. ``_running_tasks`` / ``_value`` are plain ints (atomic to read).
+	photo_processor is imported lazily on first upload, so before any upload
+	its module isn't loaded — we read it via sys.modules and report 0 rather
+	than forcing the (heavy) import on a preflight.
+	"""
+	pending = pending_tasks_count()
+	slots_free = getattr(processing_semaphore, "_value", None)
+	slots_in_use = (PARALLEL_PROCESSING_CONCURRENCY - slots_free
+					if slots_free is not None else None)
+	pp = sys.modules.get("photo_processor")
+	processing = getattr(pp.throttle, "_running_tasks", None) if pp is not None else 0
+	start_stagger_s = getattr(pp, "PARALLEL_PROCESSING_START_DELAY", None) if pp is not None else None
+	try:
+		avail_mb = round(psutil.virtual_memory().available / (1024 * 1024))
+	except Exception:
+		avail_mb = None
+	return {
+		"pending_tasks": pending,                       # accepted, not finished (queued + holding a slot)
+		"max_pending_tasks": MAX_PENDING_TASKS,
+		"concurrency": PARALLEL_PROCESSING_CONCURRENCY,  # max processing slots (semaphore size)
+		"slots_in_use": slots_in_use,                   # tasks holding a concurrency slot
+		"slots_free": slots_free,
+		"queued_for_slot": (max(0, pending - slots_in_use)
+							if slots_in_use is not None else None),  # accepted, no slot yet
+		"processing": processing,                       # past the start-stagger, actively encoding
+		"stalled_in_gate": (max(0, slots_in_use - processing)
+							if (slots_in_use is not None and processing is not None) else None),  # have a slot, stuck in stagger / RAM wait
+		"start_stagger_s": start_stagger_s,             # PARALLEL_PROCESSING_START_DELAY (admit interval)
+		"available_ram_mb": avail_mb,
+	}
+
 @app.get("/ready")
 async def readiness_check():
 	"""Readiness endpoint: 503 while the upload queue is at capacity.
@@ -484,16 +537,17 @@ async def readiness_check():
 	Lets clients check before transmitting a photo body (the JS client
 	preflights this before every upload attempt). Kept separate from
 	/health so infra liveness checks don't recycle a machine that is
-	merely busy.
+	merely busy. The body carries a live load snapshot (see worker_status)
+	so clients/operators can see running-vs-queued, not just total pending.
 	"""
-	pending = pending_tasks_count()
-	if pending >= MAX_PENDING_TASKS:
+	st = worker_status()
+	if st["pending_tasks"] >= MAX_PENDING_TASKS:
 		return JSONResponse(
 			status_code=503,
-			content={"status": "busy", "pending_tasks": pending},
+			content={"status": "busy", **st},
 			headers={"Retry-After": str(QUEUE_FULL_RETRY_AFTER_SECONDS)},
 		)
-	return {"status": "ready", "pending_tasks": pending}
+	return {"status": "ready", **st}
 
 @app.post("/debug/max_pending_tasks")
 async def debug_set_max_pending_tasks(value: int):

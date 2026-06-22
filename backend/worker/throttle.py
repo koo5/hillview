@@ -8,7 +8,6 @@ import psutil
 import asyncio
 from contextlib import asynccontextmanager
 import threading
-from starlette.concurrency import run_in_threadpool
 
 
 class Throttle:
@@ -18,47 +17,55 @@ class Throttle:
 		s._lock = threading.Lock()
 		s._last_request_time = 0
 		s._running_tasks = 0
+		# Token-bucket pacer: monotonic time of the next allowed start. Each
+		# admission reserves max(now, _next_start) and pushes _next_start out
+		# by interval_seconds, so starts are spaced without holding the lock
+		# across the wait. Shared across the per-task event loops via _lock.
+		s._next_start = 0.0
 
 	@asynccontextmanager
 	async def rate_limit(s, interval_seconds: float = 10.0, ram_mb: int = None):
-		"""
-		Async context manager to enforce a rate limit between operation starts.
-		- If no task running: starts immediately
-		- If task(s) running: waits for interval since last start
-		- Allows unlimited concurrent operations
-		Thread-safe: works across threads without blocking the event loop.
-		"""
-		await run_in_threadpool(s._lock.acquire)
-		try:
-			delay_start = time.time()
-			while True:
-				if s._running_tasks == 0:
-					break
-				current_time = time.time()
+		"""Pace operation *starts* without capping or serializing concurrency.
 
-				if current_time - delay_start < interval_seconds:
-					logger.debug(f"[THROTTLE] {s.tag} Rate limit: waiting up to {interval_seconds:.2f} seconds")
-					await asyncio.sleep(0.5)
-				else:
-					logger.debug(f"[THROTTLE] {s.tag} Rate limit: proceeding after wait of {current_time - delay_start:.2f} seconds")
-					break
+		Successive starts are spaced at least ``interval_seconds`` apart
+		(anti-thundering-herd: let one start allocate its working set before
+		the next RAM check), but tasks wait CONCURRENTLY for their own reserved
+		start time. The lock is held only to reserve a slot — a few arithmetic
+		ops with no ``await`` inside — so a backlog no longer serializes behind
+		one holder (nor blocks every other task's loop in ``_lock.acquire``) the
+		way holding the lock across the sleep did. This matters now that
+		``PARALLEL_PROCESSING_START_DELAY`` may be small and concurrency high.
 
-			if ram_mb is not None:
-				await s.wait_for_free_ram(ram_mb)
-			logger.debug(f"[THROTTLE] {s.tag} Rate limit: proceeding with request")
+		Concurrency is bounded elsewhere (the caller's ``processing_semaphore``
+		+ ``wait_for_free_ram``); this only paces starts. ``_running_tasks``
+		(tasks in-flight inside the context) is kept for the ``/ready`` snapshot.
+
+		Called once per task, each from its own event loop in a threadpool
+		thread, so ``_lock`` is a cross-thread ``threading.Lock`` and the brief,
+		await-free critical sections don't meaningfully block any one loop.
+		"""
+		# Reserve this task's start slot under a short, await-free lock.
+		with s._lock:
+			now = time.monotonic()
+			start_at = max(now, s._next_start)
+			s._next_start = start_at + interval_seconds
+		# Wait for the reserved slot WITHOUT holding the lock — other tasks
+		# reserve and wait concurrently rather than queueing behind us.
+		delay = start_at - time.monotonic()
+		if delay > 0:
+			logger.debug(f"[THROTTLE] {s.tag} start-stagger: waiting {delay:.2f}s for reserved slot")
+			await asyncio.sleep(delay)
+		if ram_mb is not None:
+			await s.wait_for_free_ram(ram_mb)
+		logger.debug(f"[THROTTLE] {s.tag} Rate limit: proceeding with request")
+		with s._lock:
 			s._last_request_time = time.time()
 			s._running_tasks += 1
-		finally:
-			s._lock.release()
-
 		try:
 			yield
 		finally:
-			await run_in_threadpool(s._lock.acquire)
-			try:
+			with s._lock:
 				s._running_tasks -= 1
-			finally:
-				s._lock.release()
 
 	async def wait_for_free_ram(s, required_mb: int, check_interval: float = 1.0, timeout: float = 600_000_000.0):
 		"""
