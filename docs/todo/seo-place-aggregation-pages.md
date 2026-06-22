@@ -31,23 +31,43 @@ grid of its photos linking to the curated `/photo/<uid>` detail pages, the best
 pano surfaced, and a short place blurb. One strong `/place/prosek` beats 500
 thin "Prosek" frames.
 
-## Foundation (do this first — useful regardless)
+## Foundation — DONE (the place data exists)
 
-Reverse-geocode and **store** a structured place on every photo. This is a
-**DB backfill, not a pipeline step** — most photos never go through the pipeline.
+Reverse-geocoded and **stored** on every photo via `scripts/backfill_places.py`
+(a DB backfill, NOT a pipeline step — most photos never go through the pipeline).
+Done for the Czech corpus against a self-hosted Nominatim; the ~766 non-CZ
+(Spain/Austria) are left placeless until a global geocoder pass.
 
-- **Geocoder:** OSM-based (self-hosted Nominatim/Photon, or an offline Czech
-  OSM extract — small, no rate limits/cost; ~27k lookups). On-brand with the
-  OSM-aligned licensing. Czech names for free (`name:cs`).
-- **Granularity is everything:** resolve to the *named feature / park /
-  neighborhood / suburb / district*, NOT a street address. Prefer OSM
-  `leisure=park`, `place=suburb|neighbourhood`, named viewpoints. A raw
-  "Na Hřebenech II 1718, Praha 4" is worse than "Prosek".
-- **Store:** a place slug + display name (+ maybe district/city) on the photo,
-  or a `places` table with a photo→place association. Reused by: place pages,
-  in-app area filtering, and JSON-LD enrichment.
-- Backfill the existing 27k; geocode new photos on ingest (DB-side, e.g. on the
-  authorize-upload / processed path — wherever geo is finalized).
+Columns on `photos` (migrations 019 + 020), all re-derivable from a stored raw
+`geocode` JSONB with `--rederive` (no re-geocoding):
+
+- `geocode` JSONB — raw `{address, display_name}` kept so the derived fields below
+  can be recomputed cheaply when the rules change.
+- **Leaf** — `place_name` ("Prosek, Praha") + `place_slug` ("prosek-praha-cz").
+  Neighborhood/locality granularity, NOT a street address. Slug carries a coarse
+  admin tail (city+country, or okres for standalone towns) so it's globally
+  unique AND stable across all photos at the same place.
+- **Hub (parent)** — `place_parent_name` ("Praha") + `place_parent_slug`
+  ("praha-cz"). The city/area a leaf rolls up to.
+
+**Two-level hierarchy** — the key model. A single flat place per photo is wrong:
+Prosek and Kobylisy are both *in* Praha, so a flat scheme makes three sibling
+buckets and no `/place/praha` hub. As built on the real data:
+
+- **57 hubs**, e.g. `praha-cz` (17,108 photos / 92 neighborhoods),
+  `ricany-cz` (1,880 / 20), `jilove-u-prahy-cz` (1,303), `sazava-cz` (1,204).
+- **312 leaves**, e.g. `prosek-praha-cz` (1,175), `kobylisy-praha-cz` (937).
+- Prosek and Kobylisy both `place_parent_slug = praha-cz`, so the Praha hub
+  aggregates them; bare-`Praha` photos (no neighborhood resolved) have no leaf
+  page but still appear on the hub. Hub page = `WHERE place_parent_slug = X`;
+  leaf page = `WHERE place_slug = Y`.
+- Admin labels are stripped (`_clean_admin`: "SO POÚ Říčany" → "Říčany",
+  "SO Praha 6" → "Praha 6"), so names are clean for both levels.
+
+Remaining foundation work: geocode **new photos on ingest** (DB-side, e.g. the
+authorize-upload / processed path); a `--retry-no-place` pass with a **global**
+geocoder for the 766 non-CZ; apply to **prod** (migrations 019+020 + run the
+script against prod).
 
 ## The page
 
@@ -79,13 +99,21 @@ place name (today `contentLocation` is just `geo` coordinates). schema.org
 ```
 
 Strengthens Google's place understanding of the (panorama) pages we do index,
-without putting the place name in the title. Cheap once the place data is stored
-— wire it into `buildPhotoImageJsonLd` (frontend) from a new `place`/
-`place_name` field on the public photo serializer.
+without putting the place name in the title. **Already wired** (`place_name` on
+the public serializer → `contentLocation.name` in `buildPhotoImageJsonLd`); live
+once those rows have a place and the frontend is rebuilt.
 
-## Decisions still open
+## Decisions — resolved / still open
 
-- Place taxonomy / slug scheme (and collision handling across cities).
-- Threshold for which areas earn a page.
-- Whether place lives as columns on `photos` or a `places` table + join.
+Resolved during the foundation backfill:
+- **Storage:** columns on `photos` (leaf + parent), not a `places` table — the
+  hubs/leaves are just `GROUP BY` / `WHERE` on indexed slug columns.
+- **Slug scheme & collisions:** leaf = place + city/okres + country; hub =
+  city + country. Globally unique, stable per place. Admin labels stripped.
+
+Still open (page-build time):
+- **Threshold for which areas earn a page** — e.g. ≥N photos, or ≥1 curated
+  photo. With 57 hubs / 312 leaves, most leaves are small; likely build hub
+  pages for all and leaf pages only above a threshold.
 - Czech vs bilingual place names (project currently mono-cs for SEO).
+- The 766 non-CZ photos (global-geocoder pass) before their place pages exist.

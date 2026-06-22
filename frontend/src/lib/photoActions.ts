@@ -115,6 +115,27 @@ export async function togglePhotoRating(
     };
 }
 
+/**
+ * Translate a keydown into a rating shortcut: '+' (or '=', so no Shift is
+ * required) likes, '-' dislikes. Returns null when the event isn't a rating
+ * shortcut or should be ignored — a modifier key is held, or the user is
+ * typing in a text field. Shared by the gallery menu and the photo detail page.
+ */
+export function ratingShortcutFor(e: KeyboardEvent): Rating | null {
+    if (e.ctrlKey || e.altKey || e.metaKey) return null;
+
+    const el = typeof document !== 'undefined'
+        ? (document.activeElement as HTMLElement | null)
+        : null;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) {
+        return null;
+    }
+
+    if (e.key === '+' || e.key === '=') return 'thumbs_up';
+    if (e.key === '-') return 'thumbs_down';
+    return null;
+}
+
 /** Fetch the current rating state for a photo. */
 export async function fetchPhotoRating(photo: PhotoData): Promise<RatingState> {
     try {

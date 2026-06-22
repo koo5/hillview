@@ -30,9 +30,11 @@
 		fetchIsFlagged,
 		viewPhotoUserProfile,
 		openPhotoDetailPage,
+		ratingShortcutFor,
 		type Rating,
 		type RatingState
 	} from '$lib/photoActions';
+	import { zoomViewData } from '$lib/zoomView.svelte';
 	import {
 		showDropdownMenu,
 		closeDropdownMenu,
@@ -89,6 +91,10 @@
 	let userRating: 'thumbs_up' | 'thumbs_down' | null = null;
 	let ratingCounts = { thumbs_up: 0, thumbs_down: 0 };
 	let isRating = false;
+	// Transient toast for dislike changes — the dislike control lives in the
+	// (closed) menu, so a keyboard '-' would otherwise give no visible signal.
+	let ratingMessage = '';
+	let ratingMessageTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	$: is_authenticated = $auth.is_authenticated;
 
@@ -148,6 +154,15 @@
 		}
 	}
 
+	function showRatingFeedback(message: string) {
+		cancelTimeout(ratingMessageTimeout);
+		ratingMessage = message;
+		ratingMessageTimeout = scheduleTimeout(() => {
+			ratingMessageTimeout = null;
+			ratingMessage = '';
+		}, 2000);
+	}
+
 	// Rating click wrapper
 	async function handleRatingClick(rating: Rating) {
 		if (!photo || isRating) return;
@@ -158,6 +173,13 @@
 			const state = await togglePhotoRating(photo, rating, userRating);
 			userRating = state.userRating;
 			ratingCounts = state.ratingCounts;
+			// The front thumbs-up button shows its own state; the dislike sits in
+			// the closed menu, so confirm dislike set/unset with a toast.
+			if (rating === 'thumbs_down') {
+				showRatingFeedback(
+					state.userRating === 'thumbs_down' ? 'Disliked' : 'Dislike removed'
+				);
+			}
 		} catch (err) {
 			console.error('🢄Error updating rating:', err);
 			hideMessage = 'Rating error';
@@ -170,6 +192,16 @@
 			isRating = false;
 			closeMenu();
 		}
+	}
+
+	// Keyboard shortcuts: '+'/'=' to like, '-' to dislike the front photo.
+	// Skipped while the deep-zoom viewer is open so it keeps those keys.
+	function handleRatingKeydown(e: KeyboardEvent) {
+		if (!photo || $zoomViewData) return;
+		const rating = ratingShortcutFor(e);
+		if (!rating) return;
+		e.preventDefault();
+		handleRatingClick(rating);
 	}
 
 	async function flagPhoto() {
@@ -413,6 +445,8 @@
 
 </script>
 
+<svelte:window on:keydown={handleRatingKeydown} />
+
 {#if photo}
 	<div class="photo-actions-menu">
 		<!-- Rating buttons -->
@@ -439,9 +473,14 @@
 		</button>
 
 		<!-- Status messages -->
-		{#if flagMessage || hideMessage}
-			<div class="status-message" class:error={flagError || hideError}>
-				{flagMessage || hideMessage}
+		{#if flagMessage || hideMessage || ratingMessage}
+			<div
+				class="status-message"
+				class:error={flagError || hideError}
+				class:rating-toast={!!ratingMessage && !flagMessage && !hideMessage}
+				data-testid="rating-toast"
+			>
+				{flagMessage || hideMessage || ratingMessage}
 			</div>
 		{/if}
 	</div>
@@ -555,6 +594,11 @@
 
 	.status-message.error {
 		background: rgba(220, 53, 69, 0.9);
+	}
+
+	/* Dislike confirmation — neutral, so it doesn't read as the "like" green. */
+	.status-message.rating-toast {
+		background: rgba(33, 37, 41, 0.92);
 	}
 
 	@keyframes fadeIn {

@@ -4,7 +4,7 @@ from typing import Optional, List, Any
 import uuid
 import enum
 
-from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text, JSON, Enum, ForeignKey, CheckConstraint, ARRAY
+from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text, JSON, Enum, ForeignKey, CheckConstraint, ARRAY, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -56,6 +56,14 @@ class User(Base):
 class Photo(Base):
 	__tablename__ = "photos"
 
+	# Composite index for the capture-time "timeline walk" feature
+	# (GET /api/hillview/timeline): keyset range ordered by (captured_at, id)
+	# within one or more owners. Declared here too (not just in the migration)
+	# so --autogenerate doesn't try to drop it.
+	__table_args__ = (
+		Index('ix_photos_owner_captured_id', 'owner_id', 'captured_at', 'id'),
+	)
+
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
 	filename: Mapped[Optional[str]] = mapped_column(String)  # Secure filename for storage
 	original_filename: Mapped[Optional[str]] = mapped_column(String)  # Original filename for display
@@ -81,6 +89,8 @@ class Photo(Base):
 	geocode: Mapped[Optional[dict]] = mapped_column(JSONB)  # raw {address, display_name} — re-derive without re-geocoding
 	place_name: Mapped[Optional[str]] = mapped_column(Text)  # display label e.g. "Prosek, Praha"
 	place_slug: Mapped[Optional[str]] = mapped_column(Text, index=True)  # grouping key for place pages
+	place_parent_name: Mapped[Optional[str]] = mapped_column(Text)  # hub display e.g. "Praha"
+	place_parent_slug: Mapped[Optional[str]] = mapped_column(Text, index=True)  # hub grouping key e.g. "praha-cz"
 	is_public: Mapped[bool] = mapped_column(Boolean, default=True)
 
 	# Processing status and data

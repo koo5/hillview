@@ -9,6 +9,7 @@ Allow: /licensing
 Allow: /download
 Allow: /contact
 Allow: /bestof
+Allow: /activity
 Allow: /photo/
 Disallow: /api/
 Disallow: /auth/
@@ -17,7 +18,6 @@ Disallow: /login
 Disallow: /photos
 Disallow: /account
 Disallow: /account-deletion
-Disallow: /activity
 Disallow: /device-photos
 Disallow: /hidden
 Disallow: /settings/

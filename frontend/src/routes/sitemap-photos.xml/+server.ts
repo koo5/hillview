@@ -9,7 +9,7 @@ import { SITEMAP_PAGE_SIZE } from '$lib/sitemapConfig';
 // empty list when the API is unreachable during the Docker build).
 export const prerender = false;
 
-const STATIC_PATHS = ['/about', '/contact', '/privacy', '/terms', '/licensing', '/download', '/bestof'];
+const STATIC_PATHS = ['/about', '/contact', '/privacy', '/terms', '/licensing', '/download', '/bestof', '/activity'];
 
 function escapeXml(s: string): string {
 	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');

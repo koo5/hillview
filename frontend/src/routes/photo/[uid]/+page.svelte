@@ -40,6 +40,7 @@
 		flagPhotoRequest,
 		unflagPhotoRequest,
 		fetchIsFlagged,
+		ratingShortcutFor,
 		type Rating
 	} from '$lib/photoActions';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
@@ -159,6 +160,15 @@
 		} finally {
 			isRating = false;
 		}
+	}
+
+	// Keyboard shortcuts: '+'/'=' to like, '-' to dislike this photo.
+	function handleRatingKeydown(e: KeyboardEvent) {
+		if (!photo) return;
+		const rating = ratingShortcutFor(e);
+		if (!rating) return;
+		e.preventDefault();
+		handleRatingClick(rating);
 	}
 
 	async function sharePhoto() {
@@ -292,6 +302,8 @@
 	// unit-testable against real payloads.
 	$: headJsonLd = buildPhotoImageJsonLd(photo);
 </script>
+
+<svelte:window on:keydown={handleRatingKeydown} />
 
 {#if photo}
 	<PhotoHead

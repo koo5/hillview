@@ -26,6 +26,9 @@ log.setLevel(logging.DEBUG)
 # Server-side caps
 MAX_PHOTOS_PER_REQUEST = int(os.getenv("MAX_HILLVIEW_PHOTOS", "1000"))
 MAX_PICKS_PER_REQUEST = int(os.getenv("MAX_HILLVIEW_PICKS", "200"))
+# Timeline (walk-by-capture-time) caps
+MAX_TIMELINE_WINDOW = int(os.getenv("MAX_HILLVIEW_TIMELINE_WINDOW", "250"))
+MAX_TIMELINE_USERS = int(os.getenv("MAX_HILLVIEW_TIMELINE_USERS", "20"))
 
 from sqlalchemy import or_, and_
 
@@ -325,6 +328,138 @@ async def query_picked_photos(
 		photos.append(convert_photo_to_response(photo, username, longitude, latitude))
 
 	return photos
+
+
+def _timeline_base_query(owner_ids: List[str], current_user_id: Optional[str]):
+	"""Visible, completed, geolocated, time-stamped photos for the given owners.
+
+	Same visibility rules as the map: public photos for everyone, plus the
+	caller's own private photos when authenticated, minus hidden content.
+	Photos without a capture time or location are excluded — they have no place
+	on a timeline / map.
+	"""
+	visibility = Photo.is_public == True
+	if current_user_id:
+		visibility = or_(Photo.is_public == True, Photo.owner_id == current_user_id)
+
+	query = select(
+		Photo,
+		User.username,
+		ST_X(Photo.geometry).label('longitude'),
+		ST_Y(Photo.geometry).label('latitude')
+	).join(User, Photo.owner_id == User.id).where(
+		Photo.owner_id.in_(owner_ids),
+		Photo.geometry.isnot(None),
+		Photo.captured_at.isnot(None),
+		Photo.processing_status == 'completed',
+		Photo.deleted == False,
+		visibility
+	)
+
+	return apply_hidden_content_filters(query, current_user_id, 'hillview')
+
+
+@router.get("/timeline")
+async def get_photo_timeline(
+	request: Request,
+	user_ids: str = Query(..., description="Comma-separated owner user IDs to walk"),
+	anchor_id: str = Query(..., description="Photo ID to center the timeline on"),
+	before: int = Query(100, ge=0, description="How many older photos to return"),
+	after: int = Query(100, ge=0, description="How many newer photos to return"),
+	db: AsyncSession = Depends(get_db),
+	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
+):
+	"""Walk a user's (or users') photos in capture-time order around an anchor.
+
+	Returns up to `before` older photos + the anchor + up to `after` newer
+	photos, ascending by (captured_at, id). The serialized photos match the
+	bounds-query shape so the client treats them identically to spatially-loaded
+	ones. `user_ids` accepts a list so a future merged multi-user timeline is an
+	additive change; v1 callers send a single owner.
+	"""
+	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
+
+	current_user_id = current_user.id if current_user else None
+
+	owner_ids = [u.strip() for u in user_ids.split(',') if u.strip()][:MAX_TIMELINE_USERS]
+	if not owner_ids:
+		raise HTTPException(status_code=400, detail="user_ids is required")
+
+	before = min(before, MAX_TIMELINE_WINDOW)
+	after = min(after, MAX_TIMELINE_WINDOW)
+
+	# Resolve the anchor's time position. Reading just (captured_at, id) leaks
+	# nothing; the surrounding window still applies full visibility filters.
+	anchor_row = (await db.execute(
+		select(Photo.captured_at, Photo.id).where(
+			Photo.id == anchor_id,
+			Photo.deleted == False
+		)
+	)).first()
+	if not anchor_row or anchor_row.captured_at is None:
+		raise HTTPException(
+			status_code=404,
+			detail="Anchor photo not found or has no capture time"
+		)
+	anchor_ts = anchor_row.captured_at
+	anchor_pk = anchor_row.id
+
+	# Keyset bounds with (captured_at, id) tiebreaker so equal timestamps
+	# (burst shots) are neither skipped nor duplicated across the boundary.
+	older_cond = or_(
+		Photo.captured_at < anchor_ts,
+		and_(Photo.captured_at == anchor_ts, Photo.id < anchor_pk)
+	)
+	newer_cond = or_(
+		Photo.captured_at > anchor_ts,
+		and_(Photo.captured_at == anchor_ts, Photo.id > anchor_pk)
+	)
+
+	# Older: walk back from the anchor, then flip to ascending for the response.
+	before_result = await db.execute(
+		_timeline_base_query(owner_ids, current_user_id)
+		.where(older_cond)
+		.order_by(Photo.captured_at.desc(), Photo.id.desc())
+		.limit(before + 1)
+	)
+	before_rows = before_result.all()
+	has_more_before = len(before_rows) > before
+	before_rows = list(reversed(before_rows[:before]))
+
+	# Newer.
+	after_result = await db.execute(
+		_timeline_base_query(owner_ids, current_user_id)
+		.where(newer_cond)
+		.order_by(Photo.captured_at.asc(), Photo.id.asc())
+		.limit(after + 1)
+	)
+	after_rows = after_result.all()
+	has_more_after = len(after_rows) > after
+	after_rows = after_rows[:after]
+
+	# The anchor itself, only if it passes the same visibility filters and is in
+	# the requested owner set (it usually is — it's the photo you started on).
+	anchor_match = (await db.execute(
+		_timeline_base_query(owner_ids, current_user_id).where(Photo.id == anchor_pk)
+	)).first()
+
+	ordered_rows = list(before_rows)
+	anchor_index = len(before_rows)
+	if anchor_match is not None:
+		ordered_rows.append(anchor_match)
+	ordered_rows.extend(after_rows)
+
+	photos = [
+		convert_photo_to_response(photo, username, longitude, latitude)
+		for photo, username, longitude, latitude in ordered_rows
+	]
+
+	return {
+		"photos": photos,
+		"anchor_index": anchor_index,
+		"has_more_before": has_more_before,
+		"has_more_after": has_more_after
+	}
 
 
 @router.get("")

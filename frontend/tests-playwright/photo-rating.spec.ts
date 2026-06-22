@@ -85,4 +85,46 @@ test.describe('Photo Rating', () => {
 		await expect(thumbsUp).not.toHaveClass(/active/);
 		await expect(thumbsUp.locator('.rating-count')).toHaveText('0');
 	});
+
+	test('should rate with + / = / - keyboard shortcuts', async ({ page, testUsers }) => {
+		await loginAsTestUser(page, testUsers.passwords.test);
+
+		await page.goto(`/photo/${photoUid}`);
+		await page.waitForLoadState('networkidle');
+		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
+
+		const thumbsUp = page.getByTestId('thumbs-up-button');
+		const thumbsDown = page.getByTestId('thumbs-down-button');
+
+		// Start from a clean slate regardless of state left by earlier tests.
+		for (const btn of [thumbsUp, thumbsDown]) {
+			if (/active/.test((await btn.getAttribute('class')) ?? '')) {
+				await btn.click();
+				await expect(btn).not.toHaveClass(/active/, { timeout: 11*5000 });
+			}
+		}
+
+		// '=' likes (no Shift required).
+		await page.keyboard.press('=');
+		await expect(thumbsUp).toHaveClass(/active/, { timeout: 11*5000 });
+		await expect(thumbsUp.locator('.rating-count')).toHaveText('1');
+
+		// '-' switches to dislike.
+		await page.keyboard.press('-');
+		await expect(thumbsDown).toHaveClass(/active/, { timeout: 11*5000 });
+		await expect(thumbsDown.locator('.rating-count')).toHaveText('1');
+		await expect(thumbsUp).not.toHaveClass(/active/);
+		await expect(thumbsUp.locator('.rating-count')).toHaveText('0');
+
+		// '+' (Shift+Equal) switches back to like.
+		await page.keyboard.press('Shift+Equal');
+		await expect(thumbsUp).toHaveClass(/active/, { timeout: 11*5000 });
+		await expect(thumbsDown).not.toHaveClass(/active/);
+
+		// Pressing the same like key again toggles the rating off.
+		// (Playwright reads a bare '+' as a modifier separator, so use Shift+Equal.)
+		await page.keyboard.press('Shift+Equal');
+		await expect(thumbsUp).not.toHaveClass(/active/, { timeout: 11*5000 });
+		await expect(thumbsUp.locator('.rating-count')).toHaveText('0');
+	});
 });

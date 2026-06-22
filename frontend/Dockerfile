@@ -9,6 +9,8 @@ COPY src/routes/+page.ts.web            src/routes/+page.ts
 COPY src/routes/+page.server.ts.web     src/routes/+page.server.ts
 COPY src/routes/bestof/+page.ts.web        src/routes/bestof/+page.ts
 COPY src/routes/bestof/+page.server.ts.web src/routes/bestof/+page.server.ts
+COPY src/routes/activity/+page.ts.web        src/routes/activity/+page.ts
+COPY src/routes/activity/+page.server.ts.web src/routes/activity/+page.server.ts
 COPY src/routes/about/+page.ts.web      src/routes/about/+page.ts
 COPY src/routes/contact/+page.ts.web    src/routes/contact/+page.ts
 COPY src/routes/privacy/+page.ts.web    src/routes/privacy/+page.ts

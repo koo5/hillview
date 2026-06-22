@@ -34,19 +34,66 @@
 		userGroups: { [username: string]: ActivityPhoto[] };
 	}
 
-	let loading = true;
+	// SSR (web build) provides an initial batch via the page load; the Tauri/
+	// default build leaves it undefined and we fetch in onMount as before.
+	export let data: {
+		photos?: ActivityPhoto[];
+		has_more?: boolean;
+		next_cursor?: string | null;
+	} | undefined = undefined;
+
+	// Group a flat photo list by date → user. When appending (load-more),
+	// seed from the existing groups so new photos merge into the same days.
+	function groupPhotos(photos: ActivityPhoto[], existing: ActivityGroup[] = []): ActivityGroup[] {
+		const grouped: { [date: string]: ActivityGroup } = {};
+
+		existing.forEach(group => {
+			grouped[group.date] = { ...group };
+		});
+
+		photos.forEach((photo: ActivityPhoto) => {
+			const date = new Date(photo.uploaded_at).toISOString().split('T')[0];
+
+			if (!grouped[date]) {
+				grouped[date] = {
+					date,
+					photos: [],
+					userGroups: {}
+				};
+			}
+
+			grouped[date].photos.push(photo);
+
+			if (!grouped[date].userGroups[photo.owner_username]) {
+				grouped[date].userGroups[photo.owner_username] = [];
+			}
+			grouped[date].userGroups[photo.owner_username].push(photo);
+		});
+
+		return Object.values(grouped).sort((a, b) =>
+			new Date(b.date).getTime() - new Date(a.date).getTime()
+		);
+	}
+
+	let loading = !data?.photos;
 	let loadingMore = false;
 	let error = '';
-	let activityData: ActivityGroup[] = [];
-	let totalPhotoCount = 0;
-	let hasMorePhotos = false;
-	let nextCursor: string | null = null;
+	let activityData: ActivityGroup[] = data?.photos ? groupPhotos(data.photos) : [];
+	let totalPhotoCount = data?.photos?.length ?? 0;
+	let hasMorePhotos = data?.has_more ?? false;
+	let nextCursor: string | null = data?.next_cursor ?? null;
 
 	onMount(() => {
 		const refreshActivity = () => {
 			void loadActivityData();
 		};
 		window.addEventListener(ACTIVITY_NOTIFICATION_REFRESH_EVENT, refreshActivity);
+		// The SSR batch is crawler-only: it ships the photo links in the initial
+		// HTML, but SSR fetches anonymously (auth tokens live in IndexedDB, which
+		// the server can't read). In a real browser, discard it and load the
+		// user's own hidden-content-filtered view. loadActivityData() flips the
+		// spinner on, so the stale anonymous list never becomes interactive or
+		// scrollable — no scroll jump, no Load-More race.
 		void loadActivityData();
 
 		return () => {
@@ -78,39 +125,7 @@
 			hasMorePhotos = data.has_more || false;
 			nextCursor = data.next_cursor || null;
 
-			// Group photos by date and then by user
-			const grouped: { [date: string]: ActivityGroup } = {};
-
-			// If loading more, start with existing data
-			if (cursor && activityData.length > 0) {
-				activityData.forEach(group => {
-					grouped[group.date] = { ...group };
-				});
-			}
-
-			photos.forEach((photo: ActivityPhoto) => {
-				const date = new Date(photo.uploaded_at).toISOString().split('T')[0];
-
-				if (!grouped[date]) {
-					grouped[date] = {
-						date,
-						photos: [],
-						userGroups: {}
-					};
-				}
-
-				grouped[date].photos.push(photo);
-
-				if (!grouped[date].userGroups[photo.owner_username]) {
-					grouped[date].userGroups[photo.owner_username] = [];
-				}
-				grouped[date].userGroups[photo.owner_username].push(photo);
-			});
-
-			// Convert to array and sort by date (newest first)
-			activityData = Object.values(grouped).sort((a, b) =>
-				new Date(b.date).getTime() - new Date(a.date).getTime()
-			);
+			activityData = groupPhotos(photos, cursor ? activityData : []);
 
 			// Update total count
 			if (!cursor) {

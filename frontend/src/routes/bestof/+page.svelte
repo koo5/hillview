@@ -39,7 +39,12 @@
 	let nextCursor: string | null = data?.next_cursor ?? null;
 
 	onMount(async () => {
-		if (!data?.photos) await loadPhotos();
+		// The SSR batch is crawler-only: it ships the photo links in the initial
+		// HTML, but SSR fetches anonymously (auth tokens live in IndexedDB, which
+		// the server can't read). In a real browser, discard it and load the
+		// user's own hidden-content-filtered view. loadPhotos() flips the spinner
+		// on, so the stale anonymous list never becomes interactive.
+		await loadPhotos();
 	});
 
 	async function loadPhotos(cursor?: string) {

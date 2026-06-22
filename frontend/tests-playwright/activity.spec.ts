@@ -36,4 +36,20 @@ test.describe('Activity Page', () => {
 			expect(await usernameLinks.count()).toBeGreaterThan(0);
 		}
 	});
+
+	test('each photo links to its crawlable /photo/<uid> permalink', async ({ page }) => {
+		// SEO: /activity is server-rendered (web build) and an internal-link
+		// path to fresh photo pages — every card's headline is a real
+		// <a href="/photo/...">.
+		await page.goto('/activity');
+		await page.waitForLoadState('networkidle');
+		await expect(page.getByTestId('activity-loading')).toBeHidden({ timeout: 11*15000 });
+
+		const activityList = page.getByTestId('activity-list');
+		if (await activityList.isVisible().catch(() => false)) {
+			const titleLinks = page.getByTestId('photo-item-title-link');
+			await expect(titleLinks.first()).toBeVisible();
+			expect(await titleLinks.first().getAttribute('href')).toMatch(/^\/photo\/.+/);
+		}
+	});
 });
