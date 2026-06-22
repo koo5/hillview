@@ -25,6 +25,8 @@
 	 */
 	import { openExternalUrl } from '$lib/urlUtils';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
+	import { togglePhotoRating, fetchPhotoRating, ratingShortcutFor, type Rating } from '$lib/photoActions';
+	import type { PhotoData } from '$lib/sources';
 	import { photoInFront } from '$lib/mapState';
 	import { track } from '$lib/analytics';
 	import { onMount, onDestroy, type Snippet } from 'svelte';
@@ -91,6 +93,17 @@
 	let shareMessageError = false;
 	let shareMessageTimeout: ReturnType<typeof setTimeout> | null = null;
 
+	// Rating state for the zoomed photo. There are no on-screen like/dislike
+	// buttons here, so '*' (like) / '&' (dislike) are confirmed with a toast.
+	let userRating: Rating | null = null;
+	let ratingPhotoId: string | null = null;
+	let isRating = false;
+	let ratingMessage = '';
+	let ratingMessageTimeout: ReturnType<typeof setTimeout> | null = null;
+	// Bumped on every photo change and rating action so a slow rating fetch
+	// knows it has been superseded and won't clobber a fresher value.
+	let ratingGen = 0;
+
 	async function handleShare() {
 		track('share');
 		const photo = $photoInFront;
@@ -106,6 +119,49 @@
 				shareMessage = '';
 				shareMessageError = false;
 			}, result.error ? 3000 : 4000);
+		}
+	}
+
+	function showRatingFeedback(message: string) {
+		ratingMessage = message;
+		if (ratingMessageTimeout) clearTimeout(ratingMessageTimeout);
+		ratingMessageTimeout = setTimeout(() => { ratingMessage = ''; }, 2000);
+	}
+
+	// Keep the user's current rating in sync with the photo on display so the
+	// first '*'/'&' toggles correctly instead of re-setting an existing rating.
+	function syncRating(photo: PhotoData | null) {
+		if (!photo) { userRating = null; ratingPhotoId = null; return; }
+		if (photo.id === ratingPhotoId) return;
+		ratingPhotoId = photo.id;
+		userRating = null;
+		const gen = ++ratingGen;
+		fetchPhotoRating(photo).then((state) => {
+			if (gen === ratingGen) userRating = state.userRating;
+		});
+	}
+	$: syncRating($photoInFront);
+
+	async function handleRatingKey(rating: Rating) {
+		const photo = $photoInFront;
+		if (!photo || isRating) return;
+		if (!requireAuth()) return;
+		isRating = true;
+		const gen = ++ratingGen; // supersede any in-flight rating fetch
+		try {
+			const state = await togglePhotoRating(photo, rating, userRating);
+			if (gen === ratingGen) userRating = state.userRating;
+			showRatingFeedback(
+				state.userRating === 'thumbs_up' ? 'Liked'
+				: state.userRating === 'thumbs_down' ? 'Disliked'
+				: rating === 'thumbs_up' ? 'Like removed'
+				: 'Dislike removed'
+			);
+		} catch (err) {
+			console.error('🢄 Error updating rating:', err);
+			showRatingFeedback('Rating error');
+		} finally {
+			isRating = false;
 		}
 	}
 
@@ -748,15 +804,17 @@
 
 		ctx.clearRect(0, 0, W, H);
 
-		for (const { label, cx, cy, edge, tx, ty, pillW, pillH } of cmds) {
-			// Leader line from centroid to pill center (after overlap resolution)
+		// Pass 1: leader lines for every label, drawn first so that all label
+		// pills (pass 2) sit on top of them — otherwise a later annotation's
+		// yellow-black line would draw over an earlier annotation's pill.
+		for (const { cx, cy, edge, tx, ty, pillW, pillH } of cmds) {
 			const pillCx = tx + pillW / 2;
 			const pillCy = ty + pillH / 2;
+			const toX = edge === 'left' || edge === 'right' ? tx + (edge === 'left' ? 0 : pillW) : pillCx;
+			const toY = edge === 'top' || edge === 'bottom' ? ty + (edge === 'top' ? 0 : pillH) : pillCy;
 
 			ctx.beginPath();
 			ctx.moveTo(cx, cy);
-			const toX = edge === 'left' || edge === 'right' ? tx + (edge === 'left' ? 0 : pillW) : pillCx;
-			const toY = edge === 'top' || edge === 'bottom' ? ty + (edge === 'top' ? 0 : pillH) : pillCy;
 			ctx.strokeStyle = 'rgba(255,255,55,1)';
 			ctx.lineWidth = leaderWidth;
 			ctx.lineTo(toX, toY);
@@ -769,10 +827,12 @@
 			ctx.strokeStyle = 'rgba(0,0,0,0.85)';
 			ctx.lineWidth = leaderWidth;
 			ctx.stroke();
-
 			ctx.setLineDash([]);
-			// Label pill
-			ctx.font = labelFont;
+		}
+
+		// Pass 2: label pills, drawn on top of all leader lines.
+		ctx.font = labelFont;
+		for (const { label, tx, ty, pillW, pillH } of cmds) {
 			ctx.fillStyle = 'rgba(0,0,0,0.75)';
 			ctx.beginPath();
 			if (typeof (ctx as any).roundRect === 'function') {
@@ -1186,6 +1246,7 @@
 		viewer?.removeHandler('viewport-change', emitViewportBounds);
 		viewer?.removeHandler('update-viewport',  emitViewportBounds);
 		if (viewportBoundsTimeout) { clearTimeout(viewportBoundsTimeout); viewportBoundsTimeout = null; }
+		if (ratingMessageTimeout) { clearTimeout(ratingMessageTimeout); ratingMessageTimeout = null; }
 		zoomViewportBounds.set(null);
 		if (drawLabelsRaf) { cancelAnimationFrame(drawLabelsRaf); drawLabelsRaf = 0; }
 		annotator?.destroy?.();
@@ -1426,6 +1487,12 @@
 			if (requireAuth()) setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw');
 		} else if (e.key === 'e') {
 			if (requireAuth()) setAnnotationMode(annotationMode === 'edit' ? 'view' : 'edit');
+		} else {
+			const rating = ratingShortcutFor(e);
+			if (rating) {
+				e.preventDefault();
+				handleRatingKey(rating);
+			}
 		}
 	}
 </script>
@@ -1498,6 +1565,11 @@
 	<!-- Share status message -->
 	{#if shareMessage}
 		<div class="share-message" class:error={shareMessageError}>{shareMessage}</div>
+	{/if}
+
+	<!-- Rating status message (no like/dislike buttons in this view) -->
+	{#if ratingMessage}
+		<div class="rating-message" data-testid="osd-rating-toast">{ratingMessage}</div>
 	{/if}
 
 	<!-- Loading indicator -->
@@ -1731,6 +1803,22 @@
 
 	.share-message.error {
 		background: rgba(220, 53, 69, 0.9);
+	}
+
+	.rating-message {
+		position: absolute;
+		top: calc(56px + var(--safe-area-inset-top, 0px));
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 10;
+		background: rgba(33, 37, 41, 0.92);
+		color: white;
+		padding: 8px 14px;
+		border-radius: 4px;
+		font-size: 14px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+		animation: fadeIn 0.3s ease;
+		pointer-events: none;
 	}
 
 	.loading-overlay {

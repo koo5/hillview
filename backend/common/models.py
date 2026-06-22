@@ -57,11 +57,12 @@ class Photo(Base):
 	__tablename__ = "photos"
 
 	# Composite index for the capture-time "timeline walk" feature
-	# (GET /api/hillview/timeline): keyset range ordered by (captured_at, id)
-	# within one or more owners. Declared here too (not just in the migration)
-	# so --autogenerate doesn't try to drop it.
+	# (GET /api/hillview/timeline): keyset range ordered by (effective_at, id)
+	# within one or more owners. effective_at = captured_at, else upload time —
+	# kept current by a DB trigger (migration 022). Declared here too (not just in
+	# the migration) so --autogenerate doesn't try to drop it.
 	__table_args__ = (
-		Index('ix_photos_owner_captured_id', 'owner_id', 'captured_at', 'id'),
+		Index('ix_photos_owner_effective_at_id', 'owner_id', 'effective_at', 'id'),
 	)
 
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
@@ -81,6 +82,9 @@ class Photo(Base):
 	# Metadata
 	captured_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))  # UTC timestamps without timezone
 	uploaded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+	# Capture time if known, else upload time (naive UTC). Maintained by a DB
+	# trigger (migration 022); indexed for the capture-time timeline walk.
+	effective_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
 	record_created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 	title: Mapped[Optional[str]] = mapped_column(Text)  # concise headline (og:title, <title>, schema.org name)
 	description: Mapped[Optional[str]] = mapped_column(Text)  # longer body text

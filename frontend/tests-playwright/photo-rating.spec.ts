@@ -86,7 +86,7 @@ test.describe('Photo Rating', () => {
 		await expect(thumbsUp.locator('.rating-count')).toHaveText('0');
 	});
 
-	test('should rate with + / = / - keyboard shortcuts', async ({ page, testUsers }) => {
+	test('should rate with * / & keyboard shortcuts', async ({ page, testUsers }) => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto(`/photo/${photoUid}`);
@@ -104,26 +104,25 @@ test.describe('Photo Rating', () => {
 			}
 		}
 
-		// '=' likes (no Shift required).
-		await page.keyboard.press('=');
+		// '*' likes.
+		await page.keyboard.press('*');
 		await expect(thumbsUp).toHaveClass(/active/, { timeout: 11*5000 });
 		await expect(thumbsUp.locator('.rating-count')).toHaveText('1');
 
-		// '-' switches to dislike.
-		await page.keyboard.press('-');
+		// '&' switches to dislike.
+		await page.keyboard.press('&');
 		await expect(thumbsDown).toHaveClass(/active/, { timeout: 11*5000 });
 		await expect(thumbsDown.locator('.rating-count')).toHaveText('1');
 		await expect(thumbsUp).not.toHaveClass(/active/);
 		await expect(thumbsUp.locator('.rating-count')).toHaveText('0');
 
-		// '+' (Shift+Equal) switches back to like.
-		await page.keyboard.press('Shift+Equal');
+		// '*' switches back to like.
+		await page.keyboard.press('*');
 		await expect(thumbsUp).toHaveClass(/active/, { timeout: 11*5000 });
 		await expect(thumbsDown).not.toHaveClass(/active/);
 
 		// Pressing the same like key again toggles the rating off.
-		// (Playwright reads a bare '+' as a modifier separator, so use Shift+Equal.)
-		await page.keyboard.press('Shift+Equal');
+		await page.keyboard.press('*');
 		await expect(thumbsUp).not.toHaveClass(/active/, { timeout: 11*5000 });
 		await expect(thumbsUp.locator('.rating-count')).toHaveText('0');
 	});

@@ -68,33 +68,46 @@ Params:
 
 Query:
 
-- Resolve anchor `(captured_at, id)` from `anchor_id` (must be visible to the
-  requester; else 404 / empty result).
-- Before: `owner_id IN (user_ids) AND (captured_at, id) < (anchor) AND <filters>
-  ORDER BY captured_at DESC, id DESC LIMIT before+1`, then reverse to ascending.
-- After: `... AND (captured_at, id) > (anchor) ... ORDER BY captured_at ASC,
-  id ASC LIMIT after+1`.
-- Filters on every query: `geometry IS NOT NULL`, `captured_at IS NOT NULL`,
-  `deleted = false`, `processing_status = 'completed'`,
-  `(is_public = true OR owner_id = current_user_id)`, plus
-  `apply_hidden_content_filters()`.
-- Row-value keyset via `tuple_(captured_at, id)` (Postgres supports it) → stable
-  ordering with no skips/dupes when timestamps tie (bursts).
+- Order/anchor by `eff = effective_at` — a **stored column** (capture time, else
+  upload time as naive UTC) kept current by a DB trigger (migration 022). A real
+  column, so the keyset stays index-backed.
+- Resolve anchor `(eff, id)` from `anchor_id` (must be visible; else 404).
+- Before: `owner_id IN (user_ids) AND (eff, id) < (anchor) AND <filters>
+  ORDER BY eff DESC, id DESC LIMIT before+1`, then reverse to ascending.
+- After: `... AND (eff, id) > (anchor) ... ORDER BY eff ASC, id ASC LIMIT after+1`.
+- Filters on every query: `geometry IS NOT NULL`, `deleted = false`,
+  `processing_status = 'completed'`, `(is_public = true OR owner_id =
+  current_user_id)`, plus `apply_hidden_content_filters()`. (No `captured_at IS
+  NOT NULL` — un-timed photos fall back to upload time; only missing *location*
+  excludes a photo.)
+- `(eff, id)` keyset tiebreaker → stable ordering, no skips/dupes when timestamps
+  tie (bursts).
 
 Response:
 
-- `{ photos: [...ascending by (captured_at, id)], anchor_index,
+- `{ photos: [...ascending by effective time], anchor_index,
   has_more_before, has_more_after }`.
-- Each photo uses the **same serializer as the bounds query** so the client can
-  treat timeline photos identically to spatially-loaded ones.
+- Each entry is a lightweight **navigation index** — `{id, lat, lng, bearing,
+  captured_at, uploaded_at, thumb_url, owner_id, owner_username}` — not a full
+  photo feed. `captured_at` may be null; the client displays/sorts by
+  `captured_at ?? uploaded_at` and marks upload-time entries. The gallery still
+  renders the worker-loaded copy of the selected photo (heavy fields omitted).
 
 Index + migration:
 
-- `CREATE INDEX idx_photos_owner_captured_id ON photos (owner_id, captured_at,
-  id);` via the next Alembic revision after `020_add_place_parent`.
-- Non-partial: it must also serve own-private rows (`is_public = false`), so a
-  partial index on `is_public` would miss them. Serves the single-owner keyset
-  directly; the multi-owner IN-list merges per-owner runs.
+- `effective_at` — a stored column = `captured_at`, else upload time (naive UTC)
+  — kept current by a DB trigger (`photos_effective_at_trg`, BEFORE INSERT OR
+  UPDATE). A trigger, **not** a `GENERATED` column, because the tz cast isn't
+  `IMMUTABLE` (which generated columns require). BEFORE INSERT sees the
+  `server_default`-applied `uploaded_at`, so new uploads are covered.
+- Migration **022** adds the column + trigger, backfills existing rows, creates
+  `(owner_id, effective_at, id)`, and drops the `(owner_id, captured_at, id)`
+  index that revision 021 had added (now superseded).
+- Indexing a real column (not a `COALESCE(...)` expression) keeps the keyset walk
+  index-backed: `owner_id = X ORDER BY effective_at, id` is an index scan; the
+  multi-owner IN-list merges per-owner runs.
+- Non-partial: must also serve own-private rows (`is_public = false`), so a
+  partial index on `is_public` would miss them.
 
 Latency: an indexed keyset of ~200 rows is sub-100ms; the panel still shows a
 loading state for honesty on slow links.
@@ -105,14 +118,19 @@ New `lib/timeline.ts`:
 
 - Stores: `timelineActive`, `timelinePhotos: PhotoData[]`, `timelineCursor`,
   `timelineUserIds`, `timelineLoading`, `timelineHasMoreBefore/After`.
-- `startTimeline(anchorPhoto)` — guard (hillview source, non-null
-  `captured_at`); set `userIds = [owner]`; fetch; map rows → `PhotoData`
-  (shared mapper with `StreamSourceLoader`); set list + `cursor = anchor_index`;
+- `startTimeline(anchorPhoto)` — guard (Hillview source + known owner); set
+  `userIds = [owner]`; fetch; map index rows → minimal `PhotoData`; set list +
+  `cursor = anchor_index`;
   activate; then select the neighbor in the pressed direction.
 - `stepTimeline(dir)` — move cursor ±1; at a loaded end with `hasMore`,
   `extendTimeline`; else clamp; then `selectPhoto(target)` + pin.
 - `extendTimeline(end)` — fetch more using the first/last loaded photo as the
-  new anchor; prepend/append; keep the cursor pointing at the same photo.
+  new anchor; prepend/append (dedup the repeated anchor by uid); keep the cursor
+  pointing at the same photo.
+- Prefetch: `jumpToIndex` fires `extendTimeline` (non-blocking) once the cursor is
+  within `TIMELINE_PREFETCH_MARGIN` (20) of a loaded end, so the next chunk is
+  usually present before you reach the edge; the blocking extend in `stepTimeline`
+  is the fallback for jumping straight to an end.
 - `stopTimeline()` — clear, `active = false`, remove polyline, close panel.
 
 `selectPhoto` refactor:
@@ -164,7 +182,9 @@ Route polyline (in `Map.svelte`):
 ## Edge cases / decisions
 
 - Anchor is not a hillview photo → can't build a timeline; toast + no-op.
-- Front photo has null `captured_at` → can't center; toast.
+- Photos with no `captured_at` fall back to `uploaded_at` for ordering and
+  display (marked as upload-time in the panel); only photos with no *location*
+  are excluded.
 - A fetch is in flight → ignore further steps until it resolves (or coalesce).
 - End of the loaded window → extend if `hasMore`, else clamp (no wrap-around).
 - Switching anchor user (walk after selecting a different user's photo) →
@@ -176,8 +196,8 @@ Route polyline (in `Map.svelte`):
 
 - Backend pytest: ordering + keyset around the anchor; before/after counts and
   `has_more`; visibility (public / own-private / blocked-user / hidden-photo);
-  null `captured_at` and null geometry excluded; multi-owner IN-list; anchor
-  missing or invisible.
+  null geometry excluded (null `captured_at` falls back to upload time);
+  multi-owner IN-list; anchor missing or invisible.
 - Frontend Playwright: `,`/`.` walks; off-screen target pans, in-range target
   does not; panel shows the ordered list, highlights and auto-scrolls to
   current; row click jumps; polyline appears on activate and clears on stop. Use

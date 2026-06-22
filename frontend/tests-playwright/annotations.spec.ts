@@ -759,6 +759,28 @@ test.describe('Annotation Tests', () => {
     expect(cmds[0].edge).toBe('right');
   });
 
+  // ── Rating shortcuts ──
+
+  // The zoom view has no on-screen like/dislike buttons, so '*'/'&' are the
+  // only way to rate here and a toast is the only feedback. Pressing the same
+  // key twice must toggle off, which only works if the rating state tracks the
+  // server response.
+  test('should like/dislike with * and & keyboard shortcuts and toast', async ({ page }) => {
+    const toast = page.locator('[data-testid="osd-rating-toast"]');
+
+    // '*' likes; '*' again removes the like.
+    await page.keyboard.press('*');
+    await expect(toast).toHaveText('Liked', { timeout: 11*5000 });
+    await page.keyboard.press('*');
+    await expect(toast).toHaveText('Like removed', { timeout: 11*5000 });
+
+    // '&' dislikes; '&' again removes the dislike.
+    await page.keyboard.press('&');
+    await expect(toast).toHaveText('Disliked', { timeout: 11*5000 });
+    await page.keyboard.press('&');
+    await expect(toast).toHaveText('Dislike removed', { timeout: 11*5000 });
+  });
+
   // ── Cleanup ──
 
   // No afterEach needed — beforeEach calls recreateTestUsers() which

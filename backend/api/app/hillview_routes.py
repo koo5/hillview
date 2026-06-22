@@ -330,13 +330,48 @@ async def query_picked_photos(
 	return photos
 
 
+def _pick_thumb_url(sizes: Optional[dict]) -> Optional[str]:
+	"""Smallest real (non-crop) image variant URL, for the timeline list thumbnail."""
+	if not sizes:
+		return None
+	candidates = [
+		v for k, v in sizes.items()
+		if isinstance(v, dict) and v.get('url') and isinstance(v.get('width'), int)
+		and 'crop' not in k and 'llm' not in k
+	]
+	if not candidates:
+		return None
+	return min(candidates, key=lambda v: v['width']).get('url')
+
+
+def _timeline_photo_index(photo, username: str, longitude: float, latitude: float) -> Dict[str, Any]:
+	"""Lightweight walk-index entry — NOT a full photo feed.
+
+	The timeline only needs to navigate (id/coords/bearing), order & label
+	(captured_at), draw a list row (thumb) and group by owner. The gallery still
+	renders the worker-loaded copy of the selected photo, so the heavy fields
+	(full sizes pyramid, title, description, license, …) are intentionally omitted.
+	"""
+	return {
+		'id': photo.id,
+		'lat': latitude,
+		'lng': longitude,
+		'bearing': photo.compass_angle or 0,
+		'captured_at': format_utc(photo.captured_at),   # real capture time (may be null)
+		'uploaded_at': format_utc(photo.uploaded_at),   # fallback for ordering/display
+		'thumb_url': _pick_thumb_url(photo.sizes),
+		'owner_id': photo.owner_id,
+		'owner_username': username,
+	}
+
+
 def _timeline_base_query(owner_ids: List[str], current_user_id: Optional[str]):
 	"""Visible, completed, geolocated, time-stamped photos for the given owners.
 
 	Same visibility rules as the map: public photos for everyone, plus the
 	caller's own private photos when authenticated, minus hidden content.
-	Photos without a capture time or location are excluded — they have no place
-	on a timeline / map.
+	Photos without a location are excluded (can't place on the map). Capture
+	time may be absent; the endpoint falls back to upload time for ordering.
 	"""
 	visibility = Photo.is_public == True
 	if current_user_id:
@@ -350,7 +385,6 @@ def _timeline_base_query(owner_ids: List[str], current_user_id: Optional[str]):
 	).join(User, Photo.owner_id == User.id).where(
 		Photo.owner_id.in_(owner_ids),
 		Photo.geometry.isnot(None),
-		Photo.captured_at.isnot(None),
 		Photo.processing_status == 'completed',
 		Photo.deleted == False,
 		visibility
@@ -372,9 +406,10 @@ async def get_photo_timeline(
 	"""Walk a user's (or users') photos in capture-time order around an anchor.
 
 	Returns up to `before` older photos + the anchor + up to `after` newer
-	photos, ascending by (captured_at, id). The serialized photos match the
-	bounds-query shape so the client treats them identically to spatially-loaded
-	ones. `user_ids` accepts a list so a future merged multi-user timeline is an
+	photos, ascending by (captured_at, id). Each entry is a lightweight navigation
+	index (id, coords, bearing, captured_at, thumb, owner) — not a full photo
+	feed; the client renders the selected photo via the normal spatial pipeline.
+	`user_ids` accepts a list so a future merged multi-user timeline is an
 	additive change; v1 callers send a single owner.
 	"""
 	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
@@ -388,38 +423,40 @@ async def get_photo_timeline(
 	before = min(before, MAX_TIMELINE_WINDOW)
 	after = min(after, MAX_TIMELINE_WINDOW)
 
-	# Resolve the anchor's time position. Reading just (captured_at, id) leaks
-	# nothing; the surrounding window still applies full visibility filters.
+	# Order/anchor by effective_at = capture time, or upload time when a photo has
+	# no EXIF capture timestamp (a stored, indexed column kept current by a DB
+	# trigger — see migration 022). Using the column keeps the keyset index-backed.
+	effective_ts = Photo.effective_at
+
+	# Resolve the anchor's time position. Reading just the effective time + id
+	# leaks nothing; the surrounding window still applies full visibility filters.
 	anchor_row = (await db.execute(
-		select(Photo.captured_at, Photo.id).where(
+		select(effective_ts.label('eff'), Photo.id).where(
 			Photo.id == anchor_id,
 			Photo.deleted == False
 		)
 	)).first()
-	if not anchor_row or anchor_row.captured_at is None:
-		raise HTTPException(
-			status_code=404,
-			detail="Anchor photo not found or has no capture time"
-		)
-	anchor_ts = anchor_row.captured_at
+	if not anchor_row or anchor_row.eff is None:
+		raise HTTPException(status_code=404, detail="Anchor photo not found")
+	anchor_ts = anchor_row.eff
 	anchor_pk = anchor_row.id
 
-	# Keyset bounds with (captured_at, id) tiebreaker so equal timestamps
+	# Keyset bounds with (effective time, id) tiebreaker so equal timestamps
 	# (burst shots) are neither skipped nor duplicated across the boundary.
 	older_cond = or_(
-		Photo.captured_at < anchor_ts,
-		and_(Photo.captured_at == anchor_ts, Photo.id < anchor_pk)
+		effective_ts < anchor_ts,
+		and_(effective_ts == anchor_ts, Photo.id < anchor_pk)
 	)
 	newer_cond = or_(
-		Photo.captured_at > anchor_ts,
-		and_(Photo.captured_at == anchor_ts, Photo.id > anchor_pk)
+		effective_ts > anchor_ts,
+		and_(effective_ts == anchor_ts, Photo.id > anchor_pk)
 	)
 
 	# Older: walk back from the anchor, then flip to ascending for the response.
 	before_result = await db.execute(
 		_timeline_base_query(owner_ids, current_user_id)
 		.where(older_cond)
-		.order_by(Photo.captured_at.desc(), Photo.id.desc())
+		.order_by(effective_ts.desc(), Photo.id.desc())
 		.limit(before + 1)
 	)
 	before_rows = before_result.all()
@@ -430,7 +467,7 @@ async def get_photo_timeline(
 	after_result = await db.execute(
 		_timeline_base_query(owner_ids, current_user_id)
 		.where(newer_cond)
-		.order_by(Photo.captured_at.asc(), Photo.id.asc())
+		.order_by(effective_ts.asc(), Photo.id.asc())
 		.limit(after + 1)
 	)
 	after_rows = after_result.all()
@@ -450,7 +487,7 @@ async def get_photo_timeline(
 	ordered_rows.extend(after_rows)
 
 	photos = [
-		convert_photo_to_response(photo, username, longitude, latitude)
+		_timeline_photo_index(photo, username, longitude, latitude)
 		for photo, username, longitude, latitude in ordered_rows
 	]
 

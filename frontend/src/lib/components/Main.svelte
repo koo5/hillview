@@ -36,6 +36,7 @@
 	import DebugOverlay from './DebugOverlay.svelte';
 	import CompassCalibration from './CompassCalibration.svelte';
 	import Lines from './Lines.svelte';
+import TimelinePanel from './TimelinePanel.svelte';
 	import {
 		deviceOrientationExif, getCssRotationFromOrientation,
 		getRotationFromOrientation, getWebviewOrientation, relativeOrientationExif,
@@ -45,6 +46,7 @@
 	import { navigationMenuOpen, toggleNavigationMenu } from '$lib/navigationMenuStore';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {enableBearingTracking, disableBearingTracking} from '$lib/bearingTracking';
+	import {walkTimeline, toggleTimeline, stopTimeline, timelineActive} from '$lib/timeline';
 	import {networkWorkerManager} from "$lib/networkWorkerManager";
 	import {enableLocationTracking} from "$lib/locationManager";
 	import {toggleCamera} from '$lib/appActions';
@@ -379,6 +381,22 @@
 			e.preventDefault();
 			toggleSource('mapillary');
 		}
+		// Timeline walk by capture time: ',' = older, '.' = newer, Esc closes.
+		else if (e.key === ',') {
+			e.preventDefault();
+			walkTimeline('older');
+		} else if (e.key === '.') {
+			e.preventDefault();
+			walkTimeline('newer');
+		} else if (e.key === 't') {
+			e.preventDefault();
+			toggleTimeline();
+		} else if (e.key === 'Escape') {
+			if (get(timelineActive)) {
+				e.preventDefault();
+				stopTimeline();
+			}
+		}
 	}
 
 
@@ -593,6 +611,8 @@
 {/if}
 
 <DebugOverlay/>
+
+<TimelinePanel/>
 
 
 <style>

@@ -179,7 +179,7 @@ def wait_for_photo_processing(photo_id: str, token: str, timeout: int = 30) -> d
 	raise Exception(f"Timeout waiting for photo {photo_id} processing after {timeout}s")
 
 
-async def upload_test_image(filename: str, image_data: bytes, description: str, token: str, is_public: bool = True, timeout: float = 60.0, upload_client=None, client_keys=None) -> str:
+async def upload_test_image(filename: str, image_data: bytes, description: str, token: str, is_public: bool = True, timeout: float = 60.0, upload_client=None, client_keys=None, captured_at: str = None) -> str:
 	"""Upload a test image using secure upload workflow and return the photo ID.
 
 	Args:
@@ -191,6 +191,9 @@ async def upload_test_image(filename: str, image_data: bytes, description: str, 
 		timeout: Upload timeout in seconds
 		upload_client: Optional pre-configured SecureUploadClient (for parallel uploads)
 		client_keys: Optional pre-registered client keys (for parallel uploads)
+		captured_at: Optional ISO timestamp for the photo. Defaults to a generated
+			test timestamp. Pass explicit, distinct values to control capture-time
+			ordering (e.g. for timeline tests).
 
 	For parallel uploads, pass upload_client and client_keys to avoid registering
 	a new key for each upload, which overloads the API.
@@ -218,7 +221,7 @@ async def upload_test_image(filename: str, image_data: bytes, description: str, 
 			description,
 			is_public,
 			file_data=image_data,  # Pass the actual file data for MD5 calculation
-			captured_at=generate_test_captured_at()
+			captured_at=captured_at if captured_at is not None else generate_test_captured_at()
 		)
 
 		# Upload to worker

@@ -162,7 +162,7 @@
 		}
 	}
 
-	// Keyboard shortcuts: '+'/'=' to like, '-' to dislike this photo.
+	// Keyboard shortcuts: '*' to like, '&' to dislike this photo.
 	function handleRatingKeydown(e: KeyboardEvent) {
 		if (!photo) return;
 		const rating = ratingShortcutFor(e);

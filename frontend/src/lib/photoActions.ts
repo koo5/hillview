@@ -116,10 +116,11 @@ export async function togglePhotoRating(
 }
 
 /**
- * Translate a keydown into a rating shortcut: '+' (or '=', so no Shift is
- * required) likes, '-' dislikes. Returns null when the event isn't a rating
- * shortcut or should be ignored — a modifier key is held, or the user is
- * typing in a text field. Shared by the gallery menu and the photo detail page.
+ * Translate a keydown into a rating shortcut: '*' likes, '&' dislikes.
+ * Returns null when the event isn't a rating shortcut or should be ignored —
+ * a modifier key is held, or the user is typing in a text field. Shift is
+ * allowed since '*' and '&' are shifted keys. Shared by the gallery menu and
+ * the photo detail page.
  */
 export function ratingShortcutFor(e: KeyboardEvent): Rating | null {
     if (e.ctrlKey || e.altKey || e.metaKey) return null;
@@ -131,8 +132,8 @@ export function ratingShortcutFor(e: KeyboardEvent): Rating | null {
         return null;
     }
 
-    if (e.key === '+' || e.key === '=') return 'thumbs_up';
-    if (e.key === '-') return 'thumbs_down';
+    if (e.key === '*') return 'thumbs_up';
+    if (e.key === '&') return 'thumbs_down';
     return null;
 }
 

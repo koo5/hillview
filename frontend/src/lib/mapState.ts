@@ -68,6 +68,11 @@ export const bearingMode = localStorageSharedStore<BearingMode>('bearingMode', '
 
 export const picks: Writable<Set<PhotoId>> = writable(new Set());
 
+// Photos the timeline walk wants kept loaded — pinned into `picks` so the server
+// doesn't cull them after we fly to them. Unioned with the current front photo.
+// Empty unless a timeline walk is active, so normal behaviour is unchanged.
+export const timelinePinned: Writable<Set<PhotoId>> = writable(new Set());
+
 // Gate: true after afterInit() has established real spatial state from map + URL params.
 // Prevents premature worker requests and rendering with stale localStorage values.
 export const mapReady = writable<boolean>(false);
@@ -249,10 +254,17 @@ newPhotoInFront.subscribe(photo => {
 		const photoUid = photo?.uid;
 		if (photoUid)
 		{
-			picks.set(new Set([photoUid]));
+			picks.set(new Set([photoUid, ...get(timelinePinned)]));
 			//console.log(`🢄picks: set to photoInFront uid ${photoUid}`);
 		}
 	}
+});
+
+// When the timeline's pinned set changes (e.g. stepping the walk), re-apply
+// picks even if the front photo itself didn't change.
+timelinePinned.subscribe(pins => {
+	const frontUid = get(photoInFront)?.uid;
+	picks.set(new Set([...(frontUid ? [frontUid] : []), ...pins]));
 });
 
 export const photoToLeft = derived(

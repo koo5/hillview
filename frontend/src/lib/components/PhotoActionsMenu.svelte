@@ -194,7 +194,7 @@
 		}
 	}
 
-	// Keyboard shortcuts: '+'/'=' to like, '-' to dislike the front photo.
+	// Keyboard shortcuts: '*' to like, '&' to dislike the front photo.
 	// Skipped while the deep-zoom viewer is open so it keeps those keys.
 	function handleRatingKeydown(e: KeyboardEvent) {
 		if (!photo || $zoomViewData) return;
@@ -541,10 +541,10 @@
 		color: white;
 	}
 
-	.rating-button.active.down {
+/*	.rating-button.active.down {
 		background: rgb(176, 10, 49);
 		color: white;
-	}
+	}*/
 
 
 	.rating-button.active:hover:not(:disabled) {

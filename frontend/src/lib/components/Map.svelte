@@ -2,11 +2,12 @@
 	import {onMount, onDestroy, tick} from 'svelte';
 	import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
 	import {LatLng} from 'leaflet';
-	import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Filter} from 'lucide-svelte';
+	import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Filter, Clock} from 'lucide-svelte';
 	import FiltersModal from './filters-modal/FiltersModal.svelte';
 	import { activeFilterCount, openFiltersModal, clearFilters } from './filters-modal/filtersStore';
 	import { longPress } from '$lib/actions/longPress';
 	import L from 'leaflet';
+import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from '$lib/timeline';
 	import 'leaflet/dist/leaflet.css';
 	import 'leaflet-textpath';
 	import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
@@ -88,6 +89,10 @@
 	// and apply the difference to the map bearing (not absolute positioning)
 	let lastGpsHeading: number | null = null;
 	let map: any;
+	let timelineRoute: any = null; // Leaflet polyline of the active timeline route
+	let unsubTimelineCurrent: (() => void) | null = null;
+	let unsubTimelinePhotos: (() => void) | null = null;
+	let unsubTimelineActive: (() => void) | null = null;
 	let elMap: any;
 	const fov_circle_radius_px = 70;
 
@@ -809,6 +814,23 @@
 		}
 	}
 
+	// Draw the loaded timeline photos as a route polyline (whole-trip context).
+	// Fed straight from timeline data, decoupled from the spatial/picks pipeline.
+	function redrawTimelineRoute() {
+		if (!map) return;
+		if (timelineRoute) {
+			map.removeLayer(timelineRoute);
+			timelineRoute = null;
+		}
+		if (!get(timelineActive)) return;
+		const latlngs = get(timelinePhotos)
+			.filter((p) => p.coord)
+			.map((p) => [p.coord.lat, p.coord.lng]) as [number, number][];
+		if (latlngs.length < 2) return;
+		timelineRoute = L.polyline(latlngs, { color: '#ff6d3a', weight: 3, opacity: 0.85, interactive: false });
+		timelineRoute.addTo(map);
+	}
+
 	function toggleLocationTracking() {
 		if (get(locationTracking)) {
 			// ACTIVE → OFF
@@ -1112,6 +1134,14 @@
 		// Set up marker click handler
 		optimizedMarkerSystem.setOnMarkerClick(handleMarkerClick);
 
+		// Timeline walk: route the cursor photo through the same select/fly path as a
+		// marker click, and keep the route polyline in sync with the loaded window.
+		unsubTimelineCurrent = timelineCurrent.subscribe((target) => {
+			if (target && get(timelineActive)) handleMarkerClick(target);
+		});
+		unsubTimelinePhotos = timelinePhotos.subscribe(() => redrawTimelineRoute());
+		unsubTimelineActive = timelineActive.subscribe(() => redrawTimelineRoute());
+
 		// Signal that we're now on map route
 		isOnMapRoute.set(true);
 
@@ -1220,6 +1250,15 @@
 		spatialState.update(s => ({...s, bounds: null}));
 		// Signal that we're no longer on map route
 		isOnMapRoute.set(false);
+		// Tear down timeline route + subscriptions
+		unsubTimelineCurrent?.();
+		unsubTimelinePhotos?.();
+		unsubTimelineActive?.();
+		unsubTimelineCurrent = unsubTimelinePhotos = unsubTimelineActive = null;
+		if (timelineRoute && map) {
+			map.removeLayer(timelineRoute);
+			timelineRoute = null;
+		}
 		// Clean up location tracking if active
 		try {
 			await locationManager.releaseLocation('user');
@@ -1779,6 +1818,18 @@
 		</button>
 		<div class="hunter-panel-separator"></div>
 		<TileProviderSelector />
+		<div class="hunter-panel-separator"></div>
+		<button
+			class="filters-button"
+			class:active={$timelineActive}
+			on:click={toggleTimeline}
+			title="Timeline — walk photos by capture time ('t')"
+			aria-label="Toggle timeline"
+			data-testid="timeline-toggle"
+		>
+			<span class="filters-button-icon"><Clock size={18} /></span>
+			<span class="filters-button-text">Timeline</span>
+		</button>
 	</div>
 	<button
 		class="hunter-mode-toggle"
