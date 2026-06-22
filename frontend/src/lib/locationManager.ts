@@ -1,5 +1,6 @@
 import { startPreciseLocationUpdates, stopPreciseLocationUpdates } from './preciseLocation';
-import {locationTracking, setLocationError, setLocationTracking, updateGpsLocation} from "$lib/location.svelte";
+import {locationTracking, backgroundLocationTracking, setBackgroundLocationTracking, setLocationError, setLocationTracking, updateGpsLocation} from "$lib/location.svelte";
+import { setLocationLoggingMode } from "$lib/mapState";
 import { writable } from 'svelte/store';
 import { get } from 'svelte/store';
 
@@ -221,6 +222,17 @@ export    async function stopLocationTracking() {
 
     // Export location tracking functions for use by parent
     export function enableLocationTracking() {
+        // Re-arming ACTIVE (foreground) tracking must clear any leftover BACKGROUND
+        // state, otherwise both flags stay set and the OFF/ACTIVE/BACKGROUND invariant
+        // breaks. This happens e.g. when the user pans the map (ACTIVE→BACKGROUND) and
+        // then enters capture mode: the capture reactive calls enableLocationTracking(),
+        // but without this reset the button stays half-blue, GPS keeps logging as
+        // "-background", and captured photos record the live fix only as alt_location
+        // instead of as the primary location.
+        if (get(backgroundLocationTracking)) {
+            setBackgroundLocationTracking(false);
+            setLocationLoggingMode('active');
+        }
         if (!get(locationTracking)) {
             setLocationTracking(true);
             startLocationTracking();
