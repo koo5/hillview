@@ -28,6 +28,11 @@ const TIMELINE_AFTER = 100;
 // Start fetching the next chunk once the cursor gets within this many photos of a
 // loaded end, so new items are usually already there before you reach the edge.
 const TIMELINE_PREFETCH_MARGIN = 20;
+// Keep this many photos to each side of the cursor pinned into `picks`, so the
+// photo you step *to* is already loaded (picks are fetched regardless of bounds).
+// Matches the server pick cap (MAX_HILLVIEW_PICKS, default 200 ≈ ±100), so the
+// whole loaded window is effectively pinned.
+const TIMELINE_PIN_MARGIN = 100;
 
 // The timeline endpoint returns a lightweight navigation index, not a full photo
 // feed. We build the minimal PhotoData the walk needs: uid `hillview-<id>` (to
@@ -91,9 +96,24 @@ function isHillview(photo: PhotoData): boolean {
 	return typeof photo.uid === 'string' && photo.uid.startsWith('hillview-');
 }
 
-/** Pin the current target so the server doesn't cull it after we fly there. */
-function pinCurrent(photo: PhotoData | null) {
-	timelinePinned.set(new Set(photo ? [photo.uid] : []));
+/**
+ * Pin a window of loaded photos around `cursor` so the server keeps them loaded
+ * (picks are returned regardless of bounds, and the range culler keeps a pinned
+ * photo once you fly near it). Pinning only the current photo meant the photo you
+ * step *to* wasn't loaded yet, so the gallery briefly showed a bearing-closest
+ * neighbour until the next area query returned the real target.
+ */
+function pinWindow(cursor: number) {
+	const photos = get(timelinePhotos);
+	if (photos.length === 0) {
+		timelinePinned.set(new Set());
+		return;
+	}
+	const lo = Math.max(0, cursor - TIMELINE_PIN_MARGIN);
+	const hi = Math.min(photos.length - 1, cursor + TIMELINE_PIN_MARGIN);
+	const uids = new Set<string>();
+	for (let i = lo; i <= hi; i++) uids.add(photos[i].uid);
+	timelinePinned.set(uids);
 }
 
 // Shared open-or-warn used by both the walk keys and the toggle key.
@@ -173,7 +193,7 @@ export async function startTimeline(anchor: PhotoData, dir?: WalkDirection) {
 		timelineCursor.set(cursor);
 		timelineHasMore.set({ before: !!data.has_more_before, after: !!data.has_more_after });
 		timelinePhotos.set(photos);
-		pinCurrent(photos[cursor] ?? null);
+		pinWindow(cursor);
 
 		// The first key press also steps once in the pressed direction.
 		if (dir) stepTimeline(dir);
@@ -263,7 +283,7 @@ export function jumpToIndex(i: number) {
 	const photos = get(timelinePhotos);
 	if (i < 0 || i >= photos.length) return;
 	timelineCursor.set(i);
-	pinCurrent(photos[i]);
+	pinWindow(i);
 	maybePrefetch();
 }
 

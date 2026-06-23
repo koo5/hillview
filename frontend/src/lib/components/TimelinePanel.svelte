@@ -49,7 +49,7 @@
 		class="timeline-panel"
 		class:narrow={!$timelineWide}
 		data-testid="timeline-panel"
-		transition:fly={{ x: 320, duration: 150 }}
+		transition:fly={{ x: 320, duration: 100 }}
 	>
 		<header class="tl-header">
 			<span class="tl-title">Timeline</span>

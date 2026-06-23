@@ -790,12 +790,25 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 			// Photo is not in range, move map to photo location first
 			console.log('🢄Photo not in range, moving map to photo location');
 
+			// If a programmatic move is already in flight (e.g. fast timeline
+			// stepping), jump instantly instead of animating — otherwise Leaflet
+			// queues a backlog of fly animations and the map lags behind the cursor.
+			const moveInProgress = programmaticMove;
+
 			// Set flag to prevent position sync conflicts
 			programmaticMove = true;
 
 			// Move map to photo location
 			const newCenter = new LatLng(photo.coord.lat, photo.coord.lng);
-			map.flyTo(newCenter, map.getZoom());
+			if (moveInProgress) {
+				map.setView(newCenter, map.getZoom(), { animate: false });
+			} else {
+				// Snappy fly that scales with on-screen distance, capped at 250ms.
+				// (flyTo's `duration` option is in seconds.)
+				const px = map.latLngToContainerPoint(map.getCenter())
+					.distanceTo(map.latLngToContainerPoint(newCenter));
+				map.flyTo(newCenter, map.getZoom(), { duration: Math.min(250, px) / 1000 });
+			}
 
 			// Update spatial state
 			updateSpatialState({
