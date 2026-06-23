@@ -1,40 +1,59 @@
 import type { RequestHandler } from './$types';
 import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 import { backendInternalUrl } from '$lib/config.server';
-import { SITEMAP_PAGE_SIZE } from '$lib/sitemapConfig';
 
-// Sitemap INDEX. robots.txt points crawlers here; it lists fixed-size child
-// pages (/sitemap-photos.xml?page=N) so the photo set auto-paginates and never
-// hits the 50k-URLs-per-file limit. Dynamic (queries a live count), so it must
-// not be prerendered at build — see /sitemap-photos.xml for the per-page rule.
+// Single flat sitemap. robots.txt points crawlers here. Lists the static pages
+// plus every curated, public photo as <url> entries directly — no sitemap-index
+// / child-page indirection (Google was unhappy with the two-tier setup, and the
+// curated photo set is far below the protocol's 50,000-URL / 50MB per-file cap).
+// Dynamic (queries a live list), so it must not be prerendered at build (the root
+// +layout.ts sets prerender = true, which would snapshot an empty list when the
+// API is unreachable during the Docker build).
 export const prerender = false;
+
+// Protocol cap of URLs per sitemap file. If the curated set ever approaches this,
+// reintroduce a sitemap index of fixed-size child pages.
+const MAX_URLS = 50000;
+
+const STATIC_PATHS = ['/about', '/contact', '/privacy', '/terms', '/licensing', '/download', '/bestof', '/activity'];
 
 function escapeXml(s: string): string {
 	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
 
+function urlTag(path: string, lastmod?: string | null): string {
+	const loc = escapeXml(`${HILLVIEW_BASE_URL}${path}`);
+	return lastmod
+		? `  <url><loc>${loc}</loc><lastmod>${escapeXml(lastmod)}</lastmod></url>`
+		: `  <url><loc>${loc}</loc></url>`;
+}
+
 export const GET: RequestHandler = async ({ fetch }) => {
-	let pages = 1; // always advertise page 0 (it carries the static paths)
+	const entries: string[] = STATIC_PATHS.map((p) => urlTag(p));
+
 	try {
-		const res = await fetch(`${backendInternalUrl}/photos/sitemap-ids?limit=0`);
+		const res = await fetch(`${backendInternalUrl}/photos/sitemap-ids?limit=${MAX_URLS}`);
 		if (res.ok) {
-			const { total } = await res.json();
-			pages = Math.max(1, Math.ceil((total || 0) / SITEMAP_PAGE_SIZE));
+			const { total, photos } = await res.json();
+			for (const p of photos as Array<{ uid: string; lastmod: string | null }>) {
+				entries.push(urlTag(`/photo/${p.uid}`, p.lastmod));
+			}
+			if ((total ?? 0) > photos.length) {
+				console.error(
+					`sitemap: ${total} curated photos exceed the ${MAX_URLS}-URL cap; ${total - photos.length} omitted — reintroduce a sitemap index`
+				);
+			}
 		} else {
-			console.error('sitemap index: /photos/sitemap-ids HTTP', res.status);
+			console.error('sitemap: /photos/sitemap-ids HTTP', res.status);
 		}
 	} catch (e) {
-		console.error('sitemap index: failed to fetch total', e);
+		console.error('sitemap: failed to fetch photo ids', e);
 	}
 
-	const children = Array.from({ length: pages }, (_, i) =>
-		`  <sitemap><loc>${escapeXml(`${HILLVIEW_BASE_URL}/sitemap-photos.xml?page=${i}`)}</loc></sitemap>`
-	);
-
 	const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${children.join('\n')}
-</sitemapindex>`;
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${entries.join('\n')}
+</urlset>`;
 
 	return new Response(xml, {
 		headers: {

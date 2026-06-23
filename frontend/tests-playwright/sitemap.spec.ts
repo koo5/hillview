@@ -18,27 +18,16 @@ test.describe('Sitemap', () => {
 		expect(parseError, `Sitemap is not well-formed XML:\n${parseError}`).toBeNull();
 	});
 
-	test('sitemap.xml is a sitemap index pointing at child pages', async ({ page }) => {
+	test('sitemap.xml is a single flat urlset listing the static pages', async ({ page }) => {
 		const response = await page.request.get('/sitemap.xml');
 		const body = await response.text();
 
-		// Must have XML declaration and sitemapindex root
-		expect(body).toContain('<?xml version="1.0"');
-		expect(body).toContain('<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"');
-
-		// Must reference at least the first child page (which carries the static paths)
-		expect(body).toContain('/sitemap-photos.xml?page=0');
-	});
-
-	test('sitemap-photos.xml page 0 contains expected structure', async ({ page }) => {
-		const response = await page.request.get('/sitemap-photos.xml?page=0');
-		const body = await response.text();
-
-		// Must have XML declaration and urlset root
+		// Must have XML declaration and urlset root (no sitemap-index indirection)
 		expect(body).toContain('<?xml version="1.0"');
 		expect(body).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"');
+		expect(body).not.toContain('<sitemapindex');
 
-		// Must contain at least the static paths (page 0 carries them)
+		// Must contain the static paths directly
 		expect(body).toContain('/about');
 		expect(body).toContain('/contact');
 
