@@ -365,13 +365,17 @@ def _timeline_photo_index(photo, username: str, longitude: float, latitude: floa
 	}
 
 
-def _timeline_base_query(owner_ids: List[str], current_user_id: Optional[str]):
+def _timeline_base_query(owner_ids: List[str], current_user_id: Optional[str],
+                         analysis_filters: Optional[AnalysisFilters] = None):
 	"""Visible, completed, geolocated, time-stamped photos for the given owners.
 
 	Same visibility rules as the map: public photos for everyone, plus the
 	caller's own private photos when authenticated, minus hidden content.
 	Photos without a location are excluded (can't place on the map). Capture
 	time may be absent; the endpoint falls back to upload time for ordering.
+
+	Unlike the map (which soft-flags non-matching photos), the walk hard-excludes
+	them: content filters narrow the set of photos you step through.
 	"""
 	visibility = Photo.is_public == True
 	if current_user_id:
@@ -390,6 +394,9 @@ def _timeline_base_query(owner_ids: List[str], current_user_id: Optional[str]):
 		visibility
 	)
 
+	if analysis_filters:
+		query = apply_analysis_filters(query, analysis_filters)
+
 	return apply_hidden_content_filters(query, current_user_id, 'hillview')
 
 
@@ -400,6 +407,7 @@ async def get_photo_timeline(
 	anchor_id: str = Query(..., description="Photo ID to center the timeline on"),
 	before: int = Query(100, ge=0, description="How many older photos to return"),
 	after: int = Query(100, ge=0, description="How many newer photos to return"),
+	analysis_filters: Optional[AnalysisFilters] = Depends(parse_analysis_filters),
 	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
@@ -454,7 +462,7 @@ async def get_photo_timeline(
 
 	# Older: walk back from the anchor, then flip to ascending for the response.
 	before_result = await db.execute(
-		_timeline_base_query(owner_ids, current_user_id)
+		_timeline_base_query(owner_ids, current_user_id, analysis_filters)
 		.where(older_cond)
 		.order_by(effective_ts.desc(), Photo.id.desc())
 		.limit(before + 1)
@@ -465,7 +473,7 @@ async def get_photo_timeline(
 
 	# Newer.
 	after_result = await db.execute(
-		_timeline_base_query(owner_ids, current_user_id)
+		_timeline_base_query(owner_ids, current_user_id, analysis_filters)
 		.where(newer_cond)
 		.order_by(effective_ts.asc(), Photo.id.asc())
 		.limit(after + 1)
@@ -477,7 +485,7 @@ async def get_photo_timeline(
 	# The anchor itself, only if it passes the same visibility filters and is in
 	# the requested owner set (it usually is — it's the photo you started on).
 	anchor_match = (await db.execute(
-		_timeline_base_query(owner_ids, current_user_id).where(Photo.id == anchor_pk)
+		_timeline_base_query(owner_ids, current_user_id, analysis_filters).where(Photo.id == anchor_pk)
 	)).first()
 
 	ordered_rows = list(before_rows)

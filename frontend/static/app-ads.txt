@@ -1,0 +1,4 @@
+# Hillview declares no authorized ad sellers — the app shows no ads.
+# Served (empty of records) only so ad-tech crawlers that probe this path,
+# having found hillview.cz on the Android app listing, get a 200 instead of
+# a 404. An empty app-ads.txt is semantically identical to having none.

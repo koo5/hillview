@@ -10,6 +10,7 @@ returns them keyset-ordered by (captured_at, id) around an anchor.
 
 import pytest
 import requests
+import json
 import sys
 import os
 
@@ -77,6 +78,13 @@ class TestPhotoTimeline(BaseUserManagementTest):
 		assert photo_data["processing_status"] == "completed", \
 			f"photo {photo_id} did not process: {photo_data.get('error')}"
 		return photo_id
+
+	def _set_analysis(self, photo_id: str, analysis: dict):
+		"""Tag a photo with analysis data via the internal (loopback-only) endpoint,
+		so analysis-filter behaviour can be exercised without the real analysis worker."""
+		r = requests.post(f"{API_URL}/hillview/internal/set-analysis",
+			json={"photo_id": photo_id, "analysis": analysis})
+		assert r.status_code == 200, f"set-analysis failed: {r.status_code} - {r.text}"
 
 	@pytest.mark.asyncio
 	async def test_timeline_orders_by_capture_time(self):
@@ -220,6 +228,60 @@ class TestPhotoTimeline(BaseUserManagementTest):
 		entry = next(p for p in data["photos"] if p["id"] == nocap)
 		assert entry["captured_at"] is None
 		assert entry["uploaded_at"] is not None
+
+	@pytest.mark.asyncio
+	async def test_timeline_excludes_photos_failing_analysis_filter(self):
+		"""An analysis filter narrows the walk: photos that don't match are excluded
+		entirely (a hard exclude, unlike the map which only soft-flags them)."""
+		test_id = self._user_id(self.test_headers)
+		scenic = await self._upload(self.test_token, 0, 40)  # oldest
+		plain = await self._upload(self.test_token, 1, 30)
+		self._set_analysis(scenic, {"scenic_score": 5})
+		self._set_analysis(plain, {"scenic_score": 1})
+
+		base = {"user_ids": test_id, "anchor_id": scenic, "before": 10, "after": 10}
+
+		# Without a filter, both photos are in the walk.
+		r = requests.get(f"{API_URL}/hillview/timeline", params=base, headers=self.test_headers)
+		assert r.status_code == 200, f"{r.status_code} - {r.text}"
+		ids = [p["id"] for p in r.json()["photos"]]
+		assert scenic in ids and plain in ids, f"baseline should include both, got {ids}"
+
+		# With a scenic-score floor, the low-scoring photo drops out of the walk.
+		flt = json.dumps({"min_scenic_score": 3, "show_unanalyzed": False})
+		r = requests.get(f"{API_URL}/hillview/timeline",
+			params={**base, "analysis_filters": flt}, headers=self.test_headers)
+		assert r.status_code == 200, f"{r.status_code} - {r.text}"
+		ids = [p["id"] for p in r.json()["photos"]]
+		assert scenic in ids, "high-scenic photo should pass the filter"
+		assert plain not in ids, "low-scenic photo should be excluded from the walk"
+
+	@pytest.mark.asyncio
+	async def test_timeline_show_unanalyzed_toggle(self):
+		"""Unanalyzed photos ride along only when show_unanalyzed is set."""
+		test_id = self._user_id(self.test_headers)
+		scenic = await self._upload(self.test_token, 0, 40)
+		nocap = await self._upload(self.test_token, 1, 30)  # left unanalyzed
+		self._set_analysis(scenic, {"scenic_score": 5})
+
+		base = {"user_ids": test_id, "anchor_id": scenic, "before": 10, "after": 10}
+
+		# show_unanalyzed=True: the untagged photo is kept.
+		incl = json.dumps({"min_scenic_score": 3, "show_unanalyzed": True})
+		r = requests.get(f"{API_URL}/hillview/timeline",
+			params={**base, "analysis_filters": incl}, headers=self.test_headers)
+		assert r.status_code == 200, f"{r.status_code} - {r.text}"
+		ids = [p["id"] for p in r.json()["photos"]]
+		assert scenic in ids and nocap in ids, f"show_unanalyzed should keep the untagged photo, got {ids}"
+
+		# show_unanalyzed=False: it drops out, the tagged matching photo stays.
+		excl = json.dumps({"min_scenic_score": 3, "show_unanalyzed": False})
+		r = requests.get(f"{API_URL}/hillview/timeline",
+			params={**base, "analysis_filters": excl}, headers=self.test_headers)
+		assert r.status_code == 200, f"{r.status_code} - {r.text}"
+		ids = [p["id"] for p in r.json()["photos"]]
+		assert scenic in ids, "tagged matching photo stays"
+		assert nocap not in ids, "unanalyzed photo excluded when show_unanalyzed is false"
 
 
 if __name__ == "__main__":

@@ -772,11 +772,16 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		const isInRange = inRange.some(p => p.uid === photo.uid);
 
 		// Clicking a featured photo returns to tourist mode;
-		// clicking a non-featured photo enables hunter mode so it stays navigable
-		if (photo.featured) {
-			if (get(hunterMode)) setHunterMode(false);
-		} else {
-			if (!get(hunterMode)) setHunterMode(true);
+		// clicking a non-featured photo enables hunter mode so it stays navigable.
+		// During a timeline walk the timeline owns hunter mode (it forces it on at
+		// open) — don't flip it per-photo, or stepping onto a featured photo would
+		// drop us back to tourist mode and break the next non-featured step.
+		if (!get(timelineActive)) {
+			if (photo.featured) {
+				if (get(hunterMode)) setHunterMode(false);
+			} else {
+				if (!get(hunterMode)) setHunterMode(true);
+			}
 		}
 		if (photo.filtered && !get(overrideFilters)) {
 			overrideFilters.set(true);

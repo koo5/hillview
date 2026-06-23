@@ -6,13 +6,16 @@
 		timelineLoading,
 		timelinePhotos,
 		timelineCursor,
-		timelineUserIds,
+		timelineUsers,
 		timelineHasMore,
 		timelineWide,
 		jumpToIndex,
 		stopTimeline,
 		toggleTimelineWide,
+		addTimelineUser,
+		removeTimelineUser,
 	} from '$lib/timeline';
+	import { http } from '$lib/http';
 
 	$: photos = $timelinePhotos;
 	$: cursor = $timelineCursor;
@@ -36,11 +39,46 @@
 		return p?.url || null;
 	}
 
-	function usernameFor(id: string): string {
-		for (const p of photos) {
-			if ((p as any).creator?.id === id) return (p as any).creator.username || id;
+	// Add-user picker state.
+	let showPicker = false;
+	let pickerQuery = '';
+	let pickerLoading = false;
+	let allUsers: { id: string; username: string; photo_count: number }[] = [];
+
+	$: trackedIds = new Set($timelineUsers.map((u) => u.id));
+	$: candidates = allUsers
+		.filter(
+			(u) =>
+				u.username &&
+				!trackedIds.has(u.id) &&
+				u.username.toLowerCase().includes(pickerQuery.trim().toLowerCase()),
+		)
+		.slice(0, 20);
+
+	async function openPicker() {
+		timelineWide.set(true); // the search UI needs room
+		showPicker = true;
+		if (allUsers.length === 0) {
+			pickerLoading = true;
+			try {
+				const res = await http.get('/users/');
+				if (res.ok) allUsers = await res.json();
+			} catch (e) {
+				console.error('Timeline: failed to load users', e);
+			} finally {
+				pickerLoading = false;
+			}
 		}
-		return id;
+	}
+
+	function closePicker() {
+		showPicker = false;
+		pickerQuery = '';
+	}
+
+	async function pick(u: { id: string; username: string }) {
+		closePicker();
+		await addTimelineUser({ id: u.id, username: u.username });
 	}
 </script>
 
@@ -69,10 +107,60 @@
 
 		<section class="tl-users" data-testid="timeline-users">
 			<div class="tl-section-title">Users</div>
-			{#each $timelineUserIds as uid (uid)}
-				<div class="tl-user" data-testid="timeline-user">{usernameFor(uid)}</div>
+			{#each $timelineUsers as u (u.id)}
+				<div class="tl-user" data-testid="timeline-user">
+					<span class="tl-user-name">{u.username}</span>
+					{#if $timelineUsers.length > 1}
+						<button
+							class="tl-user-remove"
+							on:click={() => removeTimelineUser(u.id)}
+							data-testid="timeline-user-remove"
+							aria-label={`Remove ${u.username}`}
+							title="Remove from timeline"
+						>×</button>
+					{/if}
+				</div>
 			{/each}
-			<button class="tl-add-user" disabled title="Coming soon" data-testid="timeline-add-user">{$timelineWide ? '+ add user' : '+'}</button>
+
+			<button
+				class="tl-add-user"
+				on:click={() => (showPicker ? closePicker() : openPicker())}
+				data-testid="timeline-add-user"
+				title="Add a user to the timeline"
+			>{$timelineWide ? '+ add user' : '+'}</button>
+
+			{#if showPicker}
+				<div class="tl-picker" data-testid="timeline-user-picker">
+					<!-- svelte-ignore a11y-autofocus -->
+					<input
+						class="tl-picker-input"
+						type="text"
+						placeholder="Search users…"
+						autocomplete="off"
+						bind:value={pickerQuery}
+						data-testid="timeline-user-search"
+						autofocus
+					/>
+					<div class="tl-picker-list">
+						{#if pickerLoading}
+							<div class="tl-picker-empty">Loading…</div>
+						{:else if candidates.length === 0}
+							<div class="tl-picker-empty">No matching users</div>
+						{:else}
+							{#each candidates as u (u.id)}
+								<button
+									class="tl-picker-option"
+									on:click={() => pick(u)}
+									data-testid="timeline-user-option"
+								>
+									<span class="tl-picker-name">{u.username}</span>
+									<span class="tl-picker-count">{u.photo_count}</span>
+								</button>
+							{/each}
+						{/if}
+					</div>
+				</div>
+			{/if}
 		</section>
 
 		<div class="tl-status" data-testid="timeline-status">
@@ -119,7 +207,9 @@
 		right: calc(0px + var(--safe-area-inset-right, 0px));
 		width: 300px;
 		max-width: 85vw;
-		height: calc(100vh - (60px + var(--safe-area-inset-top, 0px)));
+		/* Stop above the hunter bottom bar (Filters / Tile / Timeline) so those stay
+		   clickable while walking; overlapping the source buttons above it is fine. */
+		bottom: calc(56px + var(--safe-area-inset-bottom, 0px));
 		background: white;
 		z-index: 130100;
 		box-shadow: -2px 0 10px rgba(0, 0, 0, 0.2);
@@ -173,20 +263,102 @@
 	}
 
 	.tl-user {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 6px;
 		font-size: 0.9rem;
 		color: #374151;
 		padding: 2px 0;
 	}
 
+	.tl-user-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.tl-user-remove {
+		flex-shrink: 0;
+		border: none;
+		background: none;
+		color: #9ca3af;
+		cursor: pointer;
+		font-size: 1rem;
+		line-height: 1;
+		padding: 0 4px;
+	}
+
+	.tl-user-remove:hover {
+		color: #dc2626;
+	}
+
 	.tl-add-user {
 		margin-top: 6px;
 		font-size: 0.8rem;
-		color: #9ca3af;
+		color: #6b7280;
 		background: none;
 		border: 1px dashed #d1d5db;
 		border-radius: 6px;
 		padding: 4px 8px;
-		cursor: not-allowed;
+		cursor: pointer;
+	}
+
+	.tl-add-user:hover {
+		background: #f3f4f6;
+	}
+
+	.tl-picker {
+		margin-top: 6px;
+		border: 1px solid #e5e7eb;
+		border-radius: 6px;
+		overflow: hidden;
+	}
+
+	.tl-picker-input {
+		width: 100%;
+		box-sizing: border-box;
+		border: none;
+		border-bottom: 1px solid #e5e7eb;
+		padding: 6px 8px;
+		font-size: 0.85rem;
+		outline: none;
+	}
+
+	.tl-picker-list {
+		max-height: 200px;
+		overflow-y: auto;
+	}
+
+	.tl-picker-empty {
+		padding: 8px;
+		font-size: 0.8rem;
+		color: #9ca3af;
+	}
+
+	.tl-picker-option {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		width: 100%;
+		border: none;
+		background: none;
+		text-align: left;
+		padding: 6px 8px;
+		cursor: pointer;
+		font-size: 0.85rem;
+		color: #374151;
+	}
+
+	.tl-picker-option:hover {
+		background: #f3f4f6;
+	}
+
+	.tl-picker-count {
+		flex-shrink: 0;
+		color: #9ca3af;
+		font-size: 0.75rem;
 	}
 
 	.tl-status {
@@ -256,7 +428,6 @@
 
 	/* Ellipsize text so it degrades gracefully when the panel is narrow. */
 	.tl-title,
-	.tl-user,
 	.tl-status {
 		overflow: hidden;
 		text-overflow: ellipsis;

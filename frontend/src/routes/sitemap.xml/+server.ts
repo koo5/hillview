@@ -29,7 +29,25 @@ function urlTag(path: string, lastmod?: string | null): string {
 }
 
 export const GET: RequestHandler = async ({ fetch }) => {
-	const entries: string[] = STATIC_PATHS.map((p) => urlTag(p));
+	// Newest public upload time → <lastmod> on /activity, so crawlers recrawl the
+	// "new stuff appears here" feed promptly. Mirrors what the feed shows, incl. the
+	// non-curated uploads the per-photo entries below deliberately omit.
+	let activityLastmod: string | null = null;
+	try {
+		const res = await fetch(`${backendInternalUrl}/activity/recent?limit=1`);
+		if (res.ok) {
+			const { photos } = await res.json();
+			activityLastmod = photos?.[0]?.uploaded_at ?? null;
+		} else {
+			console.error('sitemap: /activity/recent HTTP', res.status);
+		}
+	} catch (e) {
+		console.error('sitemap: failed to fetch activity lastmod', e);
+	}
+
+	const entries: string[] = STATIC_PATHS.map((p) =>
+		p === '/activity' ? urlTag(p, activityLastmod) : urlTag(p)
+	);
 
 	try {
 		const res = await fetch(`${backendInternalUrl}/photos/sitemap-ids?limit=${MAX_URLS}`);

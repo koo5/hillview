@@ -23,13 +23,12 @@ In scope (v1):
   "pan-or-just-select" behavior.
 - Pinning the current photo so dense-area server culling can't drop it.
 - Slide-in timeline panel showing the actual ordered list (also our debug
-  surface) plus a stubbed "add user" control.
+  surface) plus tracked-users management (add/remove → merged timeline).
 - A polyline connecting the loaded timeline photos in time order — the cheap
   "see the route".
 
 Not in scope (v1), noted for later:
 
-- Multi-user merge UI ("add user" is a visible stub).
 - Variable window size (constants are fixed).
 - Walking Mapillary / Panoramax sequences (only our DB photos carry
   `owner_id` / `captured_at`).
@@ -117,7 +116,7 @@ loading state for honesty on slow links.
 New `lib/timeline.ts`:
 
 - Stores: `timelineActive`, `timelinePhotos: PhotoData[]`, `timelineCursor`,
-  `timelineUserIds`, `timelineLoading`, `timelineHasMoreBefore/After`.
+  `timelineUsers` ({id, username}), `timelineLoading`, `timelineHasMoreBefore/After`.
 - `startTimeline(anchorPhoto)` — guard (Hillview source + known owner); set
   `userIds = [owner]`; fetch; map index rows → minimal `PhotoData`; set list +
   `cursor = anchor_index`;
@@ -160,8 +159,12 @@ Picks pinning:
 Panel `lib/components/TimelinePanel.svelte` (NavigationMenu-style drawer):
 
 - Header + close.
-- Tracked users: list (v1: the single anchor owner's username) + disabled
-  "add user" stub.
+- Tracked users: `{id, username}` list (anchor owner + any added), each with a
+  remove ✕; "+ add user" opens a picker (searches `GET /users/`, filters, excludes
+  already-tracked) → adds to the merged timeline (re-fetch around the cursor).
+  Usernames render directly from the store — no scanning loaded photos (which
+  failed for users with no photo in the window, and even showed the raw UID in the
+  single-user case because the each-block wasn't re-run when photos arrived).
 - Ordered list: a row per photo (thumb + formatted `captured_at`), current
   cursor highlighted and auto-scrolled into view; click a row → jump
   (`selectPhoto` + set cursor). Doubles as the debug view.
@@ -205,8 +208,6 @@ Route polyline (in `Map.svelte`):
 
 ## Future
 
-- Multi-user merge: wire the "add user" stub to append owner ids to `user_ids`;
-  the backend already accepts the list.
 - Mapillary / Panoramax timelines (separate per-source ordering).
 - Route direction styling (gradient / arrows), timeline persistence across
   reloads, variable window size.

@@ -43,7 +43,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, status, Request, Depends
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -106,6 +106,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 		response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 		response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 		response.headers["Permissions-Policy"] = "geolocation=(self), camera=(self), microphone=()"
+		# The API has its own host (api.hillview.cz); the main site's robots.txt does
+		# not apply here. Keep API responses out of search indices — except /docs (the
+		# Swagger UI), which we do want discoverable.
+		if not request.url.path.startswith("/docs"):
+			response.headers["X-Robots-Tag"] = "noindex, nofollow"
 
 		# Remove server header
 		if "Server" in response.headers:
@@ -403,6 +408,22 @@ app.include_router(internal_debug_routes.router)
 # Self-hosted Swagger UI (assets bundled in swagger-ui-py package, served same-origin under /docs).
 # Must be registered after all routers so app.openapi() reflects the full schema.
 api_doc(app, config=app.openapi(), url_prefix='/docs', title='Hillview API')
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+	# Bare API host (api.hillview.cz/) — real endpoints live under /api/*. A small
+	# pointer instead of a naked 404; doubles as a liveness ping.
+	return {"name": "Hillview API", "docs": "/docs", "status": "ok"}
+
+
+@app.get("/robots.txt", include_in_schema=False)
+async def robots_txt():
+	# The API has its own host; the main site's robots.txt does not cover it. Keep
+	# the API surface out of search, but allow the Swagger UI at /docs (so it can be
+	# discovered). The matching X-Robots-Tag header (see SecurityHeadersMiddleware)
+	# skips /docs for the same reason.
+	return PlainTextResponse("User-agent: *\nAllow: /docs\nDisallow: /\n")
 
 
 # Database migration function
