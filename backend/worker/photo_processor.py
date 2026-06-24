@@ -500,7 +500,8 @@ class PhotoProcessor:
 							detections['objects'].append({
 								'class_id': None,
 								'bbox': {'x1': x, 'y1': y, 'x2': x+w, 'y2': y+h},
-								'blur': 500
+								'blur': 500,
+								'blurred': True,  # manual override rects are always blurred
 							})
 					from blur import apply_blur
 					apply_blur(source_path, image, detections['objects'])
@@ -596,7 +597,10 @@ class PhotoProcessor:
 			llm_image = read_image(source_path, encoding=encoding)
 			# Black out only the objects that were actually blurred — sub-threshold
 			# detections are recorded but stay visible (same policy as apply_blur).
-			apply_blackout(llm_image, [o for o in detections.get("objects", []) if should_blur(o)])
+			# Prefer the persisted "blurred" flag; fall back to should_blur for legacy
+			# format-#1 records that predate it (see detections.py).
+			apply_blackout(llm_image, [o for o in detections.get("objects", [])
+			                           if o.get("blurred", should_blur(o))])
 			llm_h, llm_w = llm_image.shape[:2]
 
 			if llm_w <= LLM_VARIANT_SIZE:

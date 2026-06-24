@@ -232,7 +232,7 @@ def anonymize_image(source_path, encoding=None):
 
 	for cls_id, (x1, y1, x2, y2), confidence, scale in boxes:
 		label = TARGET_CLASSES[cls_id]
-		detections["objects"].append({
+		obj = {
 			"class_id": cls_id,
 			"class_name": label,
 			'blur': max(abs(x2 - x1), abs(y2 - y1)),
@@ -244,12 +244,17 @@ def anonymize_image(source_path, encoding=None):
 				"x2": x2,
 				"y2": y2
 			}
-		})
+		}
+		# Persist the blur decision explicitly so downstream consumers (debug
+		# overlay, reconstruction masking, threshold tuning) don't have to
+		# re-derive should_blur / hard-code BLUR_CONFIDENCE.
+		obj["blurred"] = should_blur(obj)
+		detections["objects"].append(obj)
 
 	# Record every detection (down to DETECT_CONFIDENCE) but only blur those at
 	# or above BLUR_CONFIDENCE. Sub-threshold boxes stay in detected_objects for
 	# the debug overlay / threshold tuning, but the image keeps them visible.
-	to_blur = [o for o in detections["objects"] if should_blur(o)]
+	to_blur = [o for o in detections["objects"] if o["blurred"]]
 	logging.info(f"Applying blur to {len(to_blur)}/{len(detections['objects'])} detected objects in image: {source_path}")
 	apply_blur(source_path, image, to_blur)
 	return image, detections

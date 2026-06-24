@@ -24,11 +24,28 @@ DETECT_CONFIDENCE = 0.25
 BLUR_CONFIDENCE = 0.4
 
 
+# detected_objects schema — FOUR variants coexist in the DB, in order of recency:
+#   1.  Oldest model detections: {class_id, class_name, blur, bbox} — NO confidence,
+#       scale, or blurred flag. should_blur() sees no confidence and treats them as
+#       always-blurred, matching how they were processed at the time.
+#   1b. Model detections WITH "confidence" + "scale" but still NO "blurred" flag (the
+#       intermediate format). should_blur() correctly re-derives the decision from the
+#       stored confidence (>= BLUR_CONFIDENCE). - the threshold may have moved a fer
+#       times before settling on 0.4.
+#   2.  Current model detections (anonymize.py): 1b + an explicit "blurred" bool
+#       (= should_blur at write time), so consumers needn't re-derive anything.
+#   3.  Manual overrides (photo_processor.py, container also carries "manual": True):
+#       rects with class_id=None, no confidence, blur=500, "blurred": True — always
+#       blurred.
+# Consumer convention: `obj.get("blurred", should_blur(obj))` — uses the persisted flag
+# for #2/#3 and falls back to should_blur() for #1 (always-blur) and #1b (from conf).
 def should_blur(obj) -> bool:
 	"""Whether a recorded detection should actually be blurred/blacked out.
 
 	Manual override rectangles carry no confidence and are always blurred;
-	model detections are blurred at or above BLUR_CONFIDENCE.
+	model detections are blurred at or above BLUR_CONFIDENCE. Prefer the persisted
+	`blurred` flag where present (formats #2/#3 above); this re-derives it for the
+	legacy format #1 that predates the flag.
 	"""
 	conf = obj.get("confidence")
 	return conf is None or conf >= BLUR_CONFIDENCE
