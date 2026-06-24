@@ -87,7 +87,8 @@ export const timelineUsers = writable<TimelineUser[]>([]);
 export const timelineHasMore = writable<{ before: boolean; after: boolean }>({ before: false, after: false });
 
 // Panel width preference (persisted): true = wide (thumbs + text), false = narrow (thumbs only).
-export const timelineWide = localStorageSharedStore<boolean>('timelineWide', true);
+// Defaults to narrow; users who toggle keep their stored choice.
+export const timelineWide = localStorageSharedStore<boolean>('timelineWide', false);
 export function toggleTimelineWide() {
 	timelineWide.update(v => !v);
 }
@@ -384,4 +385,16 @@ export function stopTimeline() {
 // immediate fire on subscribe is a no-op — no walk is active at module load.
 filters.subscribe(() => {
 	if (get(timelineActive)) reloadAroundCursor();
+});
+
+// Hunter mode is an invariant of an open walk (its mostly-non-featured photos
+// aren't navigable in tourist mode). So leaving hunter mode while the walk is open
+// closes it — and honours the choice: clear the saved mode so stopTimeline doesn't
+// turn hunter back on. (setHunterMode(true) at open fires on=true → no-op here; the
+// restore on a normal close runs after timelineActive is already false → no-op.)
+hunterMode.subscribe(on => {
+	if (!on && get(timelineActive)) {
+		hunterModeBeforeTimeline = null;
+		stopTimeline();
+	}
 });

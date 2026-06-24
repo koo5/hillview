@@ -68,13 +68,15 @@ test.describe('Timeline walk', () => {
 		// The anchor's owner (the test user) is listed in the tracked users.
 		await expect(page.getByTestId('timeline-user').first()).toBeVisible();
 
-		// Width toggle → narrow (thumbnails-only; add-user collapses to "+").
-		await page.getByTestId('timeline-width-toggle').click();
+		// Opens narrow by default (thumbnails-only; add-user collapses to "+").
 		await expect(panel).toHaveClass(/narrow/);
 		await expect(page.getByTestId('timeline-add-user')).toHaveText('+');
-		// Toggle back → wide.
+		// Width toggle → wide.
 		await page.getByTestId('timeline-width-toggle').click();
 		await expect(panel).not.toHaveClass(/narrow/);
+		// Toggle back → narrow.
+		await page.getByTestId('timeline-width-toggle').click();
+		await expect(panel).toHaveClass(/narrow/);
 
 		// 't' again toggles it closed.
 		await page.keyboard.press('t');
@@ -177,5 +179,22 @@ test.describe('Timeline walk', () => {
 
 		await expect(rows.first()).toBeVisible({ timeout: 11 * 15000 });
 		expect(await rows.count()).toBeGreaterThanOrEqual(2);
+	});
+
+	test('leaving hunter mode closes the walk and stays in tourist', async ({ page, testUsers }) => {
+		test.setTimeout(120_000);
+		await openMapWithFrontPhoto(page, testUsers.passwords.test);
+		const hunterToggle = page.getByTestId('hunter-mode-toggle');
+
+		await page.keyboard.press('t');
+		const panel = page.getByTestId('timeline-panel');
+		await expect(panel).toBeVisible({ timeout: 11 * 15000 });
+		await expect(hunterToggle).toHaveClass(/active/);  // opening forced hunter on
+
+		// Hunter mode is an invariant of an open walk — turning it off exits the walk
+		// and honours the choice (we don't bounce back into hunter on close).
+		await hunterToggle.click();
+		await expect(panel).toBeHidden({ timeout: 11 * 10000 });
+		await expect(hunterToggle).not.toHaveClass(/active/);
 	});
 });
