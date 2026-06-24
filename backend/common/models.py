@@ -4,7 +4,7 @@ from typing import Optional, List, Any
 import uuid
 import enum
 
-from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text, JSON, Enum, ForeignKey, CheckConstraint, ARRAY, Index
+from sqlalchemy import String, Float, Integer, Boolean, DateTime, Text, JSON, Enum, ForeignKey, CheckConstraint, ARRAY, Index, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -57,12 +57,16 @@ class Photo(Base):
 	__tablename__ = "photos"
 
 	# Composite index for the capture-time "timeline walk" feature
-	# (GET /api/hillview/timeline): keyset range ordered by (effective_at, id)
-	# within one or more owners. effective_at = captured_at, else upload time —
-	# kept current by a DB trigger (migration 022). Declared here too (not just in
-	# the migration) so --autogenerate doesn't try to drop it.
+	# (GET /api/hillview/timeline): keyset range ordered by
+	# (effective_at, coalesce(original_filename, ''), id) within one or more
+	# owners. effective_at = captured_at, else upload time — kept current by a DB
+	# trigger (migration 022). The original_filename tiebreak (migration 023)
+	# orders burst shots that share a 1-second captured_at; COALESCE keeps null
+	# filenames in the keyset walk. Declared here too (not just in the migration)
+	# so --autogenerate doesn't try to drop it.
 	__table_args__ = (
-		Index('ix_photos_owner_effective_at_id', 'owner_id', 'effective_at', 'id'),
+		Index('ix_photos_owner_effective_at_filename_id', 'owner_id', 'effective_at',
+			func.coalesce(text('original_filename'), ''), 'id'),
 	)
 
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)

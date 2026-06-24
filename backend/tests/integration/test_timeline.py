@@ -54,6 +54,28 @@ class TestPhotoTimeline(BaseUserManagementTest):
 			f"photo {photo_id} did not process: {photo_data.get('error')}"
 		return photo_id
 
+	async def _upload_at(self, token: str, i: int, captured_at: str, filename: str,
+						 is_public: bool = True) -> str:
+		"""Upload a processed photo with an explicit captured_at + original filename,
+		so the equal-timestamp tie-break (sort by filename) can be exercised. Pass
+		the SAME captured_at string to several calls to make them genuinely tie. `i`
+		varies content so each upload has a distinct MD5 (avoids dedup)."""
+		image_data = create_test_image_full_gps(
+			width=200, height=150,
+			color=(40 + (i % 7) * 30, 90, 150),
+			lat=50.0755, lon=14.4378 + i * 0.001,
+			bearing=(20 + i * 15) % 360
+		)
+		photo_id = await upload_test_image(
+			filename, image_data, f"timeline tie {i}", token,
+			is_public=is_public,
+			captured_at=captured_at
+		)
+		photo_data = wait_for_photo_processing(photo_id, token, timeout=30)
+		assert photo_data["processing_status"] == "completed", \
+			f"photo {photo_id} did not process: {photo_data.get('error')}"
+		return photo_id
+
 	async def _upload_no_capture_time(self, token: str, i: int) -> str:
 		"""Upload a processed photo with NO capture time: omit captured_at at
 		authorize; the generated image carries no EXIF datetime, so it stays null
@@ -113,6 +135,34 @@ class TestPhotoTimeline(BaseUserManagementTest):
 		assert "lat" in p and "lng" in p
 		assert "bearing" in p and "captured_at" in p
 		assert "uploaded_at" in p and "owner_id" in p
+
+	@pytest.mark.asyncio
+	async def test_timeline_breaks_capture_time_ties_by_filename(self):
+		"""Photos sharing one captured_at (EXIF is 1-second precise, so burst shots
+		tie) are ordered by original filename, not by random uuid/insert order."""
+		test_id = self._user_id(self.test_headers)
+		# One shared capture instant → all three tie on effective_at.
+		tie_ts = generate_test_captured_at(minutes_ago=30)
+		# Insert order (b, c, a) deliberately differs from filename order (a < b < c),
+		# so a fall-through to id/insert order would mis-sort the group.
+		pid_b = await self._upload_at(self.test_token, 10, tie_ts, "burst_b.jpg")
+		pid_c = await self._upload_at(self.test_token, 11, tie_ts, "burst_c.jpg")
+		pid_a = await self._upload_at(self.test_token, 12, tie_ts, "burst_a.jpg")
+		# Distinct older/newer photos bracket the tie group in the window.
+		older = await self._upload(self.test_token, 0, 40)
+		newer = await self._upload(self.test_token, 1, 20)
+
+		r = requests.get(f"{API_URL}/hillview/timeline", params={
+			"user_ids": test_id, "anchor_id": pid_a, "before": 10, "after": 10
+		}, headers=self.test_headers)
+		assert r.status_code == 200, f"{r.status_code} - {r.text}"
+		data = r.json()
+
+		ids = [p["id"] for p in data["photos"]]
+		assert ids == [older, pid_a, pid_b, pid_c, newer], \
+			f"tie group should be filename-ordered (a,b,c), got {ids}"
+		# Anchor is the first of the tie group; the others ride along as "newer".
+		assert data["photos"][data["anchor_index"]]["id"] == pid_a
 
 	@pytest.mark.asyncio
 	async def test_timeline_before_after_window_and_has_more(self):

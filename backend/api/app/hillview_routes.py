@@ -30,7 +30,7 @@ MAX_PICKS_PER_REQUEST = int(os.getenv("MAX_HILLVIEW_PICKS", "200"))
 MAX_TIMELINE_WINDOW = int(os.getenv("MAX_HILLVIEW_TIMELINE_WINDOW", "250"))
 MAX_TIMELINE_USERS = int(os.getenv("MAX_HILLVIEW_TIMELINE_USERS", "20"))
 
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func
 
 LEGAL_RIGHTS_TO_LICENSE = {
 	'full1': 'arr',
@@ -414,7 +414,8 @@ async def get_photo_timeline(
 	"""Walk a user's (or users') photos in capture-time order around an anchor.
 
 	Returns up to `before` older photos + the anchor + up to `after` newer
-	photos, ascending by (captured_at, id). Each entry is a lightweight navigation
+	photos, ascending by (effective time, original filename, id). Each entry is a
+	lightweight navigation
 	index (id, coords, bearing, captured_at, thumb, owner) — not a full photo
 	feed; the client renders the selected photo via the normal spatial pipeline.
 	`user_ids` accepts a list so a future merged multi-user timeline is an
@@ -435,11 +436,18 @@ async def get_photo_timeline(
 	# no EXIF capture timestamp (a stored, indexed column kept current by a DB
 	# trigger — see migration 022). Using the column keeps the keyset index-backed.
 	effective_ts = Photo.effective_at
+	# Secondary sort key: break effective-time ties (burst shots share a
+	# captured_at — EXIF is 1-second precision) by original filename, which on
+	# most cameras/phones increments with capture order. COALESCE to '' so a null
+	# filename sorts deterministically (first) and never drops out of the keyset
+	# walk. Backed by the (owner_id, effective_at, coalesce(...), id) index.
+	name_key = func.coalesce(Photo.original_filename, '')
 
-	# Resolve the anchor's time position. Reading just the effective time + id
-	# leaks nothing; the surrounding window still applies full visibility filters.
+	# Resolve the anchor's sort position. Reading just the effective time + name
+	# key + id leaks nothing; the surrounding window still applies full visibility
+	# filters.
 	anchor_row = (await db.execute(
-		select(effective_ts.label('eff'), Photo.id).where(
+		select(effective_ts.label('eff'), name_key.label('fn'), Photo.id).where(
 			Photo.id == anchor_id,
 			Photo.deleted == False
 		)
@@ -447,24 +455,28 @@ async def get_photo_timeline(
 	if not anchor_row or anchor_row.eff is None:
 		raise HTTPException(status_code=404, detail="Anchor photo not found")
 	anchor_ts = anchor_row.eff
+	anchor_fn = anchor_row.fn
 	anchor_pk = anchor_row.id
 
-	# Keyset bounds with (effective time, id) tiebreaker so equal timestamps
-	# (burst shots) are neither skipped nor duplicated across the boundary.
+	# Keyset bounds over (effective time, name key, id) so the filename tiebreak —
+	# and the id final tiebreak — keep equal timestamps neither skipped nor
+	# duplicated across the window boundary.
 	older_cond = or_(
 		effective_ts < anchor_ts,
-		and_(effective_ts == anchor_ts, Photo.id < anchor_pk)
+		and_(effective_ts == anchor_ts, name_key < anchor_fn),
+		and_(effective_ts == anchor_ts, name_key == anchor_fn, Photo.id < anchor_pk)
 	)
 	newer_cond = or_(
 		effective_ts > anchor_ts,
-		and_(effective_ts == anchor_ts, Photo.id > anchor_pk)
+		and_(effective_ts == anchor_ts, name_key > anchor_fn),
+		and_(effective_ts == anchor_ts, name_key == anchor_fn, Photo.id > anchor_pk)
 	)
 
 	# Older: walk back from the anchor, then flip to ascending for the response.
 	before_result = await db.execute(
 		_timeline_base_query(owner_ids, current_user_id, analysis_filters)
 		.where(older_cond)
-		.order_by(effective_ts.desc(), Photo.id.desc())
+		.order_by(effective_ts.desc(), name_key.desc(), Photo.id.desc())
 		.limit(before + 1)
 	)
 	before_rows = before_result.all()
@@ -475,7 +487,7 @@ async def get_photo_timeline(
 	after_result = await db.execute(
 		_timeline_base_query(owner_ids, current_user_id, analysis_filters)
 		.where(newer_cond)
-		.order_by(effective_ts.asc(), Photo.id.asc())
+		.order_by(effective_ts.asc(), name_key.asc(), Photo.id.asc())
 		.limit(after + 1)
 	)
 	after_rows = after_result.all()
