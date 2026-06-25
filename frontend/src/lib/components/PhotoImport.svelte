@@ -3,6 +3,8 @@
 	import { FolderOpen } from 'lucide-svelte';
 	import Spinner from './Spinner.svelte';
 	import type {User} from '$lib/auth.svelte';
+	import { auth } from '$lib/auth.svelte';
+	import ProfileGate from '$lib/components/ProfileGate.svelte';
 
 	export let user: User | null = null;
 	export let onImportComplete: (importedCount: number) => void = () => {};
@@ -90,7 +92,8 @@
 </script>
 
 <div class="photo-import-device">
-	{#if !user}
+	<ProfileGate>
+	{#if !$auth.is_authenticated}
 		<div class="login-notice">
 			<p>Please
 				<button type="button" class="login-link" on:click={goToLogin}>log in</button>
@@ -123,6 +126,7 @@
 			<span>Opening file picker...</span>
 		</div>
 	{/if}
+	</ProfileGate>
 </div>
 
 <style>

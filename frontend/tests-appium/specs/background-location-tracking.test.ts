@@ -10,7 +10,7 @@
  *     photo-location pairing (LocationDao.getLocationNearTimestamp excludes them).
  *   - clicking again turns it fully off; the next click re-arms ACTIVE.
  *
- * Three angles:
+ * Four angles:
  *   1. The `set_location_logging_mode` command round-trips through Kotlin.
  *   2. The button state machine OFF → ACTIVE → BACKGROUND → OFF, where the
  *      ACTIVE→BACKGROUND edge is driven by a real swipe/pan of the map.
@@ -18,6 +18,8 @@
  *      locations CSV with a `-background` source, while a foreground fix does not
  *      — proving the Kotlin label flips end-to-end (emu geo fix → FusedLocation →
  *      PreciseLocationService → storeLocationPreciseLocationData → CSV).
+ *   4. Regression: entering capture mode while BACKGROUND re-arms clean foreground
+ *      ACTIVE, rather than leaving the app stuck in the half-blue background state.
  */
 
 import { browser } from '@wdio/globals';
@@ -80,6 +82,22 @@ async function clickTrackBtn(): Promise<void> {
     await btn.waitForDisplayed({ timeout: 5000 });
     await btn.click();
     await browser.pause(600);
+}
+
+/**
+ * Toggle the camera button (view ↔ capture). The map panel stays mounted in a
+ * split layout, so the track-location button remains queryable afterwards. Any
+ * camera permission dialog is accepted best-effort — the activity flips (and the
+ * capture-mode reactive runs) on the click regardless of the camera itself.
+ */
+async function clickCameraBtn(): Promise<void> {
+    const btn = await byTestId(TESTID.cameraButton);
+    await btn.waitForDisplayed({ timeout: 5000 });
+    await btn.click();
+    await browser.pause(600);
+    await acceptPermissionDialogIfPresent(2000);
+    await ensureWebViewContext();
+    await browser.pause(400);
 }
 
 /** A single click collapses ACTIVE or BACKGROUND back to OFF; OFF stays OFF. */
@@ -205,6 +223,42 @@ describe('Background location tracking', () => {
 
         // cleanup → OFF
         await clickTrackBtn();
+    });
+
+    // Regression: entering capture mode must re-arm a clean foreground ACTIVE
+    // state. The capture reactive (Main.svelte) calls enableLocationTracking(),
+    // which previously only flipped locationTracking on and left
+    // backgroundLocationTracking set — leaving the button stuck half-blue, GPS
+    // still logging "-background", and captures recording the live fix only as
+    // alt_location. enableLocationTracking() now clears the background state, so
+    // BACKGROUND → enter-capture → ACTIVE.
+    it('entering capture mode from BACKGROUND restores foreground ACTIVE (not stuck half-blue)', async function () {
+        this.timeout(120000);
+        await ensureWebViewContext();
+        await normalizeOff();
+
+        // OFF → ACTIVE
+        await clickTrackBtn();
+        await acceptPermissionDialogIfPresent();
+        await ensureWebViewContext();
+        await browser.pause(400);
+        expect((await trackBtnClass()).includes('active')).toBe(true);
+
+        // ACTIVE → BACKGROUND, via a manual map pan.
+        await panMap();
+        const bg = await trackBtnClass();
+        expect(bg.includes('background')).toBe(true);
+        expect(bg.includes('active')).toBe(false);
+
+        // BACKGROUND → enter capture mode: must reset to clean foreground ACTIVE.
+        await clickCameraBtn();
+        const inCapture = await trackBtnClass();
+        expect(inCapture.includes('active')).toBe(true);
+        expect(inCapture.includes('background')).toBe(false);
+
+        // cleanup: leave capture mode (→ view) and turn tracking off.
+        await clickCameraBtn();
+        await normalizeOff();
     });
 
     it('a background-mode GPS fix is logged with a -background source in the CSV', async function () {

@@ -24,8 +24,13 @@ PRIVATE_KEY, PUBLIC_KEY = load_or_generate_keys("API server")
 # Import refresh token expiration configuration (in minutes)
 REFRESH_TOKEN_EXPIRE_MINUTES = int(os.getenv("REFRESH_TOKEN_EXPIRE_MINUTES", str(7 * 24 * 60)))  # Default 7 days
 
-def create_access_token(data: dict, expires_delta: Optional[int] = None) -> Tuple[str, datetime]:
-	"""Create an access token for user authentication."""
+def create_access_token(data: dict, expires_delta: Optional[float] = None) -> Tuple[str, datetime]:
+	"""Create an access token for user authentication.
+
+	expires_delta is the lifetime in minutes and may be fractional — the debug
+	per-user access-TTL override (set-access-ttl) passes sub-minute values to make
+	the client cross its proactive-refresh window quickly.
+	"""
 	expires_minutes = expires_delta or 30  # Default 30 minutes
 
 	to_encode = {

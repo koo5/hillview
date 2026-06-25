@@ -50,7 +50,7 @@ def load_public_key_from_pem(pem_data: str):
 def create_jwt_token(
 	payload: Dict[str, Any],
 	private_key,
-	expires_minutes: int = 30
+	expires_minutes: float = 30
 ) -> Tuple[str, datetime]:
 	"""
 	Create a JWT token with the given payload and private key.
@@ -58,7 +58,7 @@ def create_jwt_token(
 	Args:
 		payload: Data to include in the JWT
 		private_key: ECDSA private key for signing
-		expires_minutes: Token expiration time in minutes
+		expires_minutes: Token expiration time in minutes (may be fractional)
 
 	Returns:
 		Tuple of (JWT token string, expiration datetime)

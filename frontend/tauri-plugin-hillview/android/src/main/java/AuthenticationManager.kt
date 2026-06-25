@@ -37,6 +37,14 @@ class AuthenticationManager(
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val refreshMutex = Mutex()
 
+    /**
+     * Invoked when the server rejects the refresh token (401) and the native session
+     * is cleared, so the WebView/JS layer can log out in lockstep instead of diverging
+     * (JS still showing "authenticated" while native has no tokens). The plugin wires
+     * this to emit an "auth-expired" event to JS.
+     */
+    var onSessionExpired: (() -> Unit)? = null
+
     companion object {
         private const val TAG = "🢄AuthenticationManager"
         private const val PREFS_NAME = "hillview_auth"
@@ -431,6 +439,20 @@ class AuthenticationManager(
 
                         // Show push notification to user about auth expiry
                         notificationHelper.showAuthExpiredNotification()
+
+                        // Tell the WebView/JS layer so its auth store logs out in lockstep
+                        // (otherwise JS keeps showing "authenticated" while native has no tokens).
+                        if (onSessionExpired != null) {
+                            Log.w(TAG, "🔐➡️ Native session cleared (401); invoking onSessionExpired to notify JS")
+                            try {
+                                onSessionExpired?.invoke()
+                                Log.d(TAG, "🔐➡️ onSessionExpired invoked")
+                            } catch (e: Exception) {
+                                Log.e(TAG, "🔐➡️ onSessionExpired callback threw", e)
+                            }
+                        } else {
+                            Log.w(TAG, "🔐➡️ Native session cleared (401) but onSessionExpired is null — JS will NOT be notified")
+                        }
                     }
                 }
             }

@@ -159,7 +159,7 @@ class SimplePhotoWorker {
                 break;
 
             case 'getAuthToken':
-                this.handleAuthTokenRequest(message.forceRefresh);
+                this.handleAuthTokenRequest(message.forceRefresh, message.requestId);
                 break;
 
             default:
@@ -167,7 +167,7 @@ class SimplePhotoWorker {
         }
     }
 
-    private async handleAuthTokenRequest(forceRefresh: boolean = false): Promise<void> {
+    private async handleAuthTokenRequest(forceRefresh: boolean = false, requestId?: number): Promise<void> {
         try {
             // Use the token manager to get a token with optional force refresh
             const tokenManager = createTokenManager();
@@ -176,13 +176,15 @@ class SimplePhotoWorker {
 
             this.worker?.postMessage({
                 type: 'authToken',
-                token: currentToken
+                token: currentToken,
+                requestId
             });
         } catch (error) {
             console.error(TAG+'Error getting auth token for worker:', error);
             this.worker?.postMessage({
                 type: 'authToken',
-                token: null
+                token: null,
+                requestId
             });
         }
     }

@@ -16,11 +16,22 @@ export interface QueuedMessage {
 }
 
 export interface MessageHandler {
-    (message: QueuedMessage): void;
+    // May be async — handleMessage attaches a .catch so rejections are logged, not
+    // surfaced as unhandled rejections (the 'auth-expired' handler is async).
+    (message: QueuedMessage): void | Promise<void>;
 }
 
 export class KotlinMessageQueue {
     private handlers = new Map<string, MessageHandler[]>();
+    /**
+     * Message types that must never be silently dropped (e.g. native session expiry,
+     * which must reach AndroidTokenManager to keep JS auth in lockstep). If one is
+     * polled before its handler is registered, it is buffered in pendingCritical and
+     * re-delivered when the handler appears — instead of being warned-and-dropped like
+     * ordinary messages.
+     */
+    private static readonly CRITICAL_TYPES = new Set<string>(['auth-expired']);
+    private pendingCritical = new Map<string, QueuedMessage[]>();
     private pollingInterval: ReturnType<typeof setInterval> | null = null;
     private isPolling = false;
 
@@ -66,6 +77,16 @@ export class KotlinMessageQueue {
         }
         this.handlers.get(messageType)!.push(handler);
         //console.log(`🔔 KotlinMessageQueue: Registered handler for ${messageType}`);
+
+        // Deliver any critical messages that arrived before this handler existed.
+        const pending = this.pendingCritical.get(messageType);
+        if (pending && pending.length > 0) {
+            console.warn(`🔔 KotlinMessageQueue: Re-delivering ${pending.length} buffered '${messageType}' message(s) to newly-registered handler`);
+            this.pendingCritical.delete(messageType);
+            for (const message of pending) {
+                this.handleMessage(message);
+            }
+        }
     }
 
     /**
@@ -118,11 +139,27 @@ export class KotlinMessageQueue {
 
             for (const handler of handlers) {
                 try {
-                    handler(message);
+                    // Sync handlers run synchronously here; an async handler returns a
+                    // promise whose rejection the synchronous try/catch can't see, so
+                    // attach a .catch to log it rather than leak an unhandled rejection.
+                    const result = handler(message);
+                    if (result instanceof Promise) {
+                        result.catch((error) => {
+                            console.error(`🔔 KotlinMessageQueue: Error in async handler for ${message.type}:`, error);
+                        });
+                    }
                 } catch (error) {
                     console.error(`🔔 KotlinMessageQueue: Error in handler for ${message.type}:`, error);
                 }
             }
+        } else if (KotlinMessageQueue.CRITICAL_TYPES.has(message.type)) {
+            // Must not be lost: buffer and re-deliver when a handler registers.
+            // Loud (error) because reaching here means a handler-registration ordering bug.
+            console.error(`🔔 KotlinMessageQueue: No handler for CRITICAL message '${message.type}' — buffering for redelivery (its handler must register before polling)`);
+            if (!this.pendingCritical.has(message.type)) {
+                this.pendingCritical.set(message.type, []);
+            }
+            this.pendingCritical.get(message.type)!.push(message);
         } else {
             console.warn(`🔔 KotlinMessageQueue: No handlers for message type: ${message.type}`);
         }

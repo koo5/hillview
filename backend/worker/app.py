@@ -345,6 +345,10 @@ class UploadBackpressureMiddleware:
 
 app.add_middleware(UploadBackpressureMiddleware)
 
+# Debug-only HTTP fault injection, shared with the API; inert unless armed.
+from common import debug_faults
+debug_faults.install(app)
+
 
 def background_loop():
 	consecutive_failures = 0
@@ -565,6 +569,16 @@ async def debug_set_max_pending_tasks(value: int):
 	MAX_PENDING_TASKS = value
 	logger.warning(f"DEV_MODE: MAX_PENDING_TASKS overridden {old} -> {value}")
 	return {"old": old, "new": value}
+
+# Chaos-monkey HTTP fault injection. Same typed GET/POST/DELETE shape as the API
+# (common.debug_faults.add_fault_routes), but gated DEV_MODE-only — exactly like
+# /debug/max_pending_tasks above — so it's inert in production (this is a real fly.io
+# prod service with no IP guard) and can't be opened by a stray DEBUG_ENDPOINTS.
+debug_faults.add_fault_routes(
+	app,
+	prefix="/debug/faults",
+	gate=lambda: os.environ.get('DEV_MODE', 'false').lower() == 'true',
+)
 
 @app.post("/await")
 async def await_handler(task_id: str, request: Request):

@@ -1,11 +1,13 @@
+import { get } from 'svelte/store';
 import type { TokenManager, TokenData } from './tokenManager';
 import { TokenExpiredError, TokenRefreshError } from './tokenManager';
 import { backendUrl } from './config';
 import { auth } from './authStore';
-import { logout, fetchUserData } from './auth.svelte';
+import { logout, fetchUserData, getAuthGeneration, bumpAuthGeneration } from './auth.svelte';
 import { clientCrypto } from './clientCrypto';
 import { http } from '$lib/http';
 import { authStorage, type IndexedDbTokenData } from './browser/authStorage';
+import { onReconnect } from './connectivity';
 
 const doLog = false;
 
@@ -37,12 +39,53 @@ export class WebTokenManager implements TokenManager {
                 // If we just gained tokens (login in another tab), fetch user data
                 if (!hadTokens) {
                     console.log(`${this.LOG_PREFIX} Detected new login, fetching user data`);
+                    // A login synced from another tab establishes a new session here
+                    // too — bump the generation so a stale in-flight request in this
+                    // tab can't log out the freshly-synced session (mirrors
+                    // completeAuthentication).
+                    bumpAuthGeneration();
 					fetchUserData();
                 }
             } else {
-                auth.update(state => ({ ...state, is_authenticated: false, user: null }));
+                auth.update(state => ({ ...state, is_authenticated: false, user: null, userStatus: 'idle' }));
             }
         });
+
+        this.setupConnectivityRecovery();
+    }
+
+    /**
+     * When connectivity returns (network back online) or the tab becomes visible
+     * again, proactively refresh an expired token so a stale tab heals itself
+     * instead of waiting for the next user action. Guarded so it only touches the
+     * network when there is a session and the token actually needs refreshing.
+     */
+    private setupConnectivityRecovery(): void {
+        onReconnect(() => void this.recoverSessionIfNeeded('reconnect'));
+    }
+
+    private async recoverSessionIfNeeded(trigger: string): Promise<void> {
+        // A refresh is already running, or there's nothing to recover.
+        if (this.refreshPromise) return;
+        if (!this.cacheInitialized || !this.cachedTokenData) return;
+
+        // Only act when the token is actually expired or the refresh token is due
+        // for proactive renewal — don't hit the network on every tab focus.
+        const needsRefresh = (await this.isTokenExpired()) || (await this.shouldRenewRefreshToken());
+        if (!needsRefresh || this.refreshPromise) return;
+
+        console.log(`${this.LOG_PREFIX} Connectivity recovery (${trigger}): token needs refresh, attempting`);
+        try {
+            const token = await this.getValidToken();
+            // Healed, but the user record is missing (e.g. the session was half torn
+            // down earlier) — refetch so gated views (e.g. /photos) recover too.
+            if (token && !get(auth).user) {
+                fetchUserData();
+            }
+        } catch {
+            // Terminal failure already logged out via getValidToken; a transient one
+            // returns null and keeps the session for the next reconnect event.
+        }
     }
 
     // Initialize cache from IndexedDB (call once on app startup)
@@ -63,6 +106,10 @@ export class WebTokenManager implements TokenManager {
     }
 
     async getValidToken(force: boolean = false): Promise<string | null> {
+        // Snapshot the auth generation at the start of this token request so a
+        // logout triggered by a refresh failure here is ignored if a newer login
+        // has replaced the session in the meantime (see logout()).
+        const requestAuthGeneration = getAuthGeneration();
         try {
             await this.ensureCacheInitialized();
 
@@ -104,8 +151,21 @@ export class WebTokenManager implements TokenManager {
                     return newToken.access_token;
                 } catch (error) {
                     this.refreshPromise = null;
+
+                    // Transient failure (timeout / network / 5xx): the refresh token is
+                    // still valid and the tokens are kept. Don't tear down the session
+                    // over a connectivity blip — return null so the caller surfaces a
+                    // connection error and a later attempt / reconnect can succeed.
+                    // AuthStatusWatcher already shows a "check your connection / retry"
+                    // prompt via refresh_status: 'failed'.
+                    if (error instanceof TokenRefreshError && error.transient) {
+                        console.warn(`${this.LOG_PREFIX} Refresh failed transiently; keeping session:`, error);
+                        return null;
+                    }
+
+                    // Terminal failure (refresh token rejected / expired): log out.
                     console.warn(`${this.LOG_PREFIX} Refresh failed:`, error);
-                    logout('Token refresh failed');
+                    logout('Token refresh failed', { generation: requestAuthGeneration });
                     throw new TokenExpiredError('Token expired and refresh failed');
                 }
             }
@@ -270,7 +330,12 @@ export class WebTokenManager implements TokenManager {
                 refresh_attempt: attempt
             }));
 
-            throw new TokenRefreshError(`Refresh failed after ${attempt} attempts: ${errorMessage}`);
+            // Reaching here means the retryable conditions held (timeout / network /
+            // 5xx) or attempts were exhausted — a recoverable connectivity failure,
+            // not a rejected/expired refresh token. Mark it transient so callers keep
+            // the session instead of logging out.
+            const transient = isTimeout || isNetworkError || errorMessage.includes('HTTP 5');
+            throw new TokenRefreshError(`Refresh failed after ${attempt} attempts: ${errorMessage}`, { transient });
         }
     }
 

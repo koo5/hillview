@@ -6,6 +6,7 @@
     import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
     import { http } from '$lib/http';
     import { auth } from '$lib/auth.svelte';
+    import ProfileGate from '$lib/components/ProfileGate.svelte';
 
     let contact = '';
     let message = '';
@@ -151,6 +152,7 @@
                         </button>
                     </div>
 
+                    <ProfileGate>
                     {#if $auth.user}
                         <div class="user-info">
                             <small>
@@ -165,6 +167,7 @@
                             </small>
                         </div>
                     {/if}
+                    </ProfileGate>
                 </form>
 
                 <div class="contact-info">

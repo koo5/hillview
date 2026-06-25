@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import { auth, logout } from './auth.svelte';
+import { auth, logout, getAuthGeneration } from './auth.svelte';
 import {backendUrl} from "$lib/config";
 import { showNetworkError } from './alertSystem.svelte';
 import { createTokenManager } from './tokenManagerFactory';
@@ -39,6 +39,11 @@ export class HttpClient {
   private async makeRequest(url: string, options: RequestInit = {}): Promise<Response> {
     const fullUrl = url.startsWith('http') ? url : `${this.baseURL}${url}`;
 
+    // Snapshot the auth generation at request start. If a newer login replaces the
+    // session before this request errors, the logout() calls below are ignored as
+    // stale so they can't tear down the fresh session.
+    const requestAuthGeneration = getAuthGeneration();
+
     try {
       // Get valid token (will auto-refresh if needed)
       const token = await this.getTokenManager().getValidToken();
@@ -63,28 +68,27 @@ export class HttpClient {
         if (token) {
           console.warn('🢄[HTTP] Received 401 Unauthorized response, attempting token refresh');
 
-          try {
-            // Get fresh token with force refresh (backend rejected the previous token)
-            const newToken = await this.getTokenManager().getValidToken(true);
-            if (newToken && newToken !== token) {
-              const retryHeaders = {
-                ...headers,
-                'Authorization': `Bearer ${newToken}`
-              };
+          // Force refresh (backend rejected the previous token). A terminal failure
+          // logs out and throws (handled in the catch below); a transient failure
+          // returns null with the session intact.
+          const newToken = await this.getTokenManager().getValidToken(true);
+          if (newToken && newToken !== token) {
+            const retryHeaders = {
+              ...headers,
+              'Authorization': `Bearer ${newToken}`
+            };
 
-              return await fetch(fullUrl, {
-                ...options,
-                headers: retryHeaders,
-              });
-            }
-          } catch (refreshError) {
-            console.warn('🢄[HTTP] Token refresh failed:', refreshError);
+            return await fetch(fullUrl, {
+              ...options,
+              headers: retryHeaders,
+            });
           }
 
-        // If refresh failed, logout
-        console.warn('🢄[HTTP] Token refresh failed, logging out');
-        logout('Session expired');
-        throw new TokenExpiredError();
+          // No fresh token and nothing was thrown → transient refresh failure
+          // (couldn't reach the server to refresh). Surface it as a connectivity
+          // problem, not the original 401, and keep the session intact.
+          console.warn('🢄[HTTP] Could not refresh token (transient); surfacing connection error, keeping session');
+          throw new Error('Could not reach the server to refresh the session');
         } else {
           // No token was sent, so this is just an unauthenticated request to a protected endpoint
           // Don't attempt refresh or logout, just return the 401 response
@@ -97,7 +101,7 @@ export class HttpClient {
       // Handle TokenManager errors
       if (error instanceof TokenManagerExpiredError || error instanceof TokenRefreshError) {
         console.warn('🢄[HTTP] TokenManager error:', error.message);
-        logout('Session expired');
+        logout('Session expired', { generation: requestAuthGeneration });
         throw new TokenExpiredError();
       }
 

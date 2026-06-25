@@ -436,6 +436,24 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		}*/
 
 		super.load(webView)
+
+		// Bridge native session expiry → JS: when the server rejects the refresh token
+		// and native clears the session, enqueue a DURABLE message (polled by JS via
+		// pollMessages) rather than a fire-and-forget Tauri event. This survives the
+		// case where the 401 happens while the app is backgrounded with no WebView in
+		// existence — the message waits in the queue and is delivered when the WebView
+		// next polls. The JS auth store then logs out in lockstep with native.
+		Log.i(TAG, "🔐➡️ Wiring authManager.onSessionExpired → queueMessage(\"auth-expired\")")
+		authManager.onSessionExpired = {
+			Log.w(TAG, "🔐➡️ onSessionExpired fired; queueing 'auth-expired' message for JS")
+			try {
+				queueMessage("auth-expired", JSObject())
+				Log.i(TAG, "🔐➡️ 'auth-expired' message queued (durable; survives no-WebView)")
+			} catch (e: Exception) {
+				Log.e(TAG, "🔐➡️ Failed to queue 'auth-expired' message", e)
+			}
+		}
+
 		setupWebViewCameraPermissions(webView)
 	}
 

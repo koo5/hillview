@@ -24,105 +24,13 @@
  */
 
 import { browser } from '@wdio/globals';
-import {
-    acceptPermissionDialogIfPresent,
-    byTestId,
-    ensureWebViewContext,
-    openMenu,
-    TESTID,
-} from '../helpers/selectors';
-import { recreateTestUsers, loginAsTestUser } from '../helpers/backend';
+import { byTestId, ensureWebViewContext, TESTID } from '../helpers/selectors';
+import { recreateTestUsers, loginAsTestUser, forceLogoutUser } from '../helpers/backend';
+import { captureOnePhoto, enableAutoUpload } from '../helpers/uploadFlow';
+import { invokePlugin } from '../helpers/bridge';
 
 const APP_PACKAGE = 'cz.hillviedev';
-const BACKEND_URL = 'http://localhost:8055';
 const NOTIFICATION_TITLE = 'Login Required';
-
-// -------------------- backend helpers --------------------
-
-async function forceLogoutUser(username: string, clear = false): Promise<void> {
-    const res = await fetch(`${BACKEND_URL}/api/internal/debug/force-logout-user`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, clear }),
-    });
-    if (!res.ok) {
-        const body = await res.text();
-        throw new Error(`force-logout-user failed (${res.status}): ${body}`);
-    }
-}
-
-// -------------------- plugin invoke helpers --------------------
-
-async function invokeTryUploads(): Promise<void> {
-    await ensureWebViewContext();
-    await browser.executeAsync(`
-        const done = arguments[arguments.length - 1];
-        const invoke = window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke;
-        if (!invoke) { done({ __err: 'no invoke' }); return; }
-        invoke('plugin:hillview|tryUploads').then(r => done(r), e => done({ __err: String(e) }));
-    `);
-}
-
-// -------------------- UI helpers --------------------
-
-async function openSettings(): Promise<void> {
-    await openMenu();
-    await browser.pause(800);
-    const link = await byTestId(TESTID.settingsMenuLink);
-    await link.waitForDisplayed({ timeout: 5000 });
-    await link.click();
-    await browser.pause(2000);
-    await ensureWebViewContext();
-}
-
-async function enableAutoUpload(): Promise<void> {
-    await openSettings();
-    const license = await byTestId(TESTID.licenseCheckbox);
-    await license.waitForDisplayed({ timeout: 10000 });
-    if (!(await license.isSelected())) {
-        await license.click();
-        await browser.pause(500);
-    }
-    const radio = await byTestId(TESTID.autoUploadEnabled);
-    await radio.waitForDisplayed({ timeout: 5000 });
-    await radio.click();
-    await browser.pause(800);
-    const wifi = await byTestId(TESTID.wifiOnlyCheckbox);
-    await wifi.waitForDisplayed({ timeout: 5000 });
-    if (await wifi.isSelected()) {
-        await wifi.click();
-        await browser.pause(500);
-    }
-    await browser.back();
-    await browser.pause(1500);
-}
-
-async function captureOnePhoto(permissionsGranted: boolean): Promise<void> {
-    const cameraBtn = await byTestId(TESTID.cameraButton);
-    await cameraBtn.waitForDisplayed({ timeout: 10000 });
-    await cameraBtn.click();
-    await browser.pause(1000);
-
-    if (!permissionsGranted) {
-        await acceptPermissionDialogIfPresent();
-        await browser.pause(1000);
-        const allow = await byTestId(TESTID.allowCameraBtn);
-        await allow.waitForExist({ timeout: 10000 });
-        await allow.click();
-        await browser.pause(1000);
-        await acceptPermissionDialogIfPresent();
-        await browser.pause(2000);
-    } else {
-        await browser.pause(2000);
-    }
-
-    const capture = await byTestId('single-capture-button');
-    await capture.waitForExist({ timeout: 10000 });
-    await capture.click();
-    await browser.pause(3000);
-    await cameraBtn.click();
-    await browser.pause(2000);
-}
 
 // -------------------- dumpsys helpers --------------------
 
@@ -233,7 +141,7 @@ describe('Re-login required system notification', function () {
         // POST /api/photos/authorize-upload → 401 → forceRefreshToken →
         // /api/auth/refresh → 401 → showAuthExpiredNotification().
         await enableAutoUpload();
-        await invokeTryUploads();
+        await invokePlugin('plugin:hillview|tryUploads');
 
         const dump = await waitForNotification(NOTIFICATION_TITLE, 30000);
         expect(dump).toContain(NOTIFICATION_TITLE);

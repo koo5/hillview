@@ -201,9 +201,14 @@ async def login_for_access_token(
 		auth_method="password"
 	)
 
+	# Debug: a per-user access-TTL override (set via /api/internal/debug/set-access-ttl)
+	# lets tests mint a short-lived access token so the client crosses its proactive
+	# refresh window quickly; otherwise the normal lifetime applies.
+	from auth import get_user_access_ttl
+	_access_ttl_seconds = get_user_access_ttl(user.id)
 	access_token, expires = create_access_token(
 		data={"sub": user.id, "username": user.username},
-		expires_delta=ACCESS_TOKEN_EXPIRE_MINUTES
+		expires_delta=(_access_ttl_seconds / 60.0) if _access_ttl_seconds else ACCESS_TOKEN_EXPIRE_MINUTES
 	)
 
 	refresh_token, refresh_expires = create_refresh_token(
@@ -256,6 +261,13 @@ async def refresh_access_token(
 					detail="Too many refresh requests. Try again later.",
 					headers={"Retry-After": "300"}
 				)
+
+		# Debug: artificial latency on the refresh hot-path so tests can drive the
+		# client's refresh-timeout handling (a slow refresh → client AbortController
+		# fires → transient failure → keep the session) on demand. Set via
+		# POST /api/internal/debug/delays {name:"auth_refresh",seconds:<n>}.
+		import debug_delays
+		await debug_delays.sleep_for("auth_refresh")
 
 		# Verify refresh token using proper JWT validation service
 		from jwt_service import validate_token

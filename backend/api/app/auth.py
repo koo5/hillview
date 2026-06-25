@@ -236,6 +236,27 @@ def clear_user_force_logout(user_id: str) -> None:
 def is_user_force_logged_out(user_id: str) -> bool:
 	return str(user_id) in _force_logout_user_ids
 
+
+# Debug: short access-token TTL override. Internal-only, in-memory, per-process.
+# Set via POST /api/internal/debug/set-access-ttl; read by the password-login
+# endpoint so a test user receives a short-lived access token and crosses the
+# client's proactive-refresh window on demand — used (with the `auth_refresh`
+# debug delay) to exercise refresh-timeout / transient-failure handling without
+# waiting out the ~100-minute access-token lifetime.
+_access_ttl_override_seconds: dict[str, float] = {}
+
+
+def set_user_access_ttl(user_id: str, seconds: float) -> None:
+	_access_ttl_override_seconds[str(user_id)] = seconds
+
+
+def clear_user_access_ttl(user_id: str) -> None:
+	_access_ttl_override_seconds.pop(str(user_id), None)
+
+
+def get_user_access_ttl(user_id: str) -> Optional[float]:
+	return _access_ttl_override_seconds.get(str(user_id))
+
 async def blacklist_token(token: str, user_id: str, reason: str, db: AsyncSession) -> None:
 	"""Add a token to the blacklist."""
 	try:

@@ -2,7 +2,6 @@
 	import {onMount} from 'svelte';
 	import {TAURI, BROWSER} from "$lib/tauri.js";
 	import {auth} from '$lib/auth.svelte';
-	import type {User} from '$lib/auth.svelte';
 	import {navigateWithHistory} from '$lib/navigation.svelte';
 	import {settings, updateSettings} from '$lib/settings';
 	import LicenseSelector from './LicenseSelector.svelte';
@@ -15,7 +14,7 @@
 	let autoUploadEnabled = false;
 	let autoUploadPromptEnabled = true;
 	let wifiOnly = false;
-	let user: User | null = null;
+	let isAuthenticated = false;
 	let alert: { type: string, message: string } | null = null;
 
 	// Computed property for radio button state
@@ -25,7 +24,7 @@
 	onMount(() => {
 		// Subscribe to auth state changes
 		const unsubscribe1 = auth.subscribe(authState => {
-			user = authState.is_authenticated ? authState.user : null;
+			isAuthenticated = authState.is_authenticated;
 		});
 
 		const unsubscribe2 = settings.subscribe(state => {
@@ -143,7 +142,7 @@
 			</div>
 		{/if}
 
-		{#if !user && autoUploadEnabled}
+		{#if !isAuthenticated && autoUploadEnabled}
 			<div class="urgent-login-notice">
 				<p>Please
 					<button type="button" class="login-link" on:click={goToLogin}>log in</button>

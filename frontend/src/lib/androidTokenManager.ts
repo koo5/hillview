@@ -2,6 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import type { TokenManager, TokenData } from './tokenManager';
 import { TokenRefreshError } from './tokenManager';
 import { auth } from './authStore';
+import { logout, getAuthGeneration } from './auth.svelte';
+import { kotlinMessageQueue } from './KotlinMessageQueue';
 
 /**
  * Android Token Manager
@@ -11,6 +13,51 @@ import { auth } from './authStore';
  */
 export class AndroidTokenManager implements TokenManager {
     private readonly LOG_PREFIX = '🢄🔐[ANDROID_TOKEN_MGR]';
+
+    constructor() {
+        this.setupSessionExpiryHandler();
+    }
+
+    /**
+     * Native clears the session when the server rejects the refresh token (401) and
+     * enqueues an "auth-expired" message via the durable Kotlin→JS message queue
+     * (polled), NOT a fire-and-forget Tauri event. The queue survives the case where
+     * the 401 happens while the app is backgrounded with no WebView — the message
+     * waits and is delivered when the WebView next polls. We then log out in lockstep
+     * so the JS auth store and native token state don't diverge (otherwise the UI stays
+     * "authenticated" while native has no tokens). Re-checks current tokens first so a
+     * re-login that already replaced the session isn't torn down by a stale message
+     * from the previous one.
+     */
+    private setupSessionExpiryHandler(): void {
+        if (!kotlinMessageQueue) {
+            console.warn(`${this.LOG_PREFIX} 🔐➡️ kotlinMessageQueue unavailable; cannot register 'auth-expired' handler`);
+            return;
+        }
+        console.log(`${this.LOG_PREFIX} 🔐➡️ Registering 'auth-expired' message-queue handler`);
+        kotlinMessageQueue.on('auth-expired', async () => {
+            // Snapshot at receipt, BEFORE any await: if a re-login bumps the auth
+            // generation while we re-check the token, the stale-tagged logout below is
+            // suppressed by logout()'s guard — the same deterministic protection the web
+            // path uses, closing the TOCTOU the getValidToken() re-check alone can't.
+            const generation = getAuthGeneration();
+            console.warn(`${this.LOG_PREFIX} 🔐➡️ Received 'auth-expired' from native message queue (gen ${generation})`);
+            try {
+                // Re-check: if a re-login already replaced the session, native now has a
+                // valid token — don't tear it down over the old 401.
+                const token = await this.getValidToken();
+                if (token) {
+                    console.log(`${this.LOG_PREFIX} 🔐➡️ Native has a valid token again (re-login?); ignoring stale auth-expired`);
+                    return;
+                }
+                console.warn(`${this.LOG_PREFIX} 🔐➡️ No valid token; logging out JS in lockstep with native`);
+                logout('Session expired (native)', { generation });
+            } catch (error) {
+                console.error(`${this.LOG_PREFIX} 🔐➡️ Error handling 'auth-expired':`, error);
+            }
+        });
+        console.log(`${this.LOG_PREFIX} 🔐➡️ 'auth-expired' message-queue handler registered`);
+    }
 
     async getValidToken(force: boolean = false): Promise<string | null> {
         // console.log(`${this.LOG_PREFIX} Getting valid token from Android (force: ${force})`);

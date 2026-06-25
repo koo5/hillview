@@ -7,6 +7,7 @@
     import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
     import StandardBody from '$lib/components/StandardBody.svelte';
     import { auth } from '$lib/auth.svelte';
+    import ProfileGate from '$lib/components/ProfileGate.svelte';
 </script>
 
 <StandardHeaderWithAlert
@@ -28,6 +29,7 @@
         </header>
 
         <div class="instructions-container">
+            <ProfileGate>
             {#if $auth.user}
                 <!-- User is logged in - show account deletion instructions -->
                 <div class="instruction-card logged-in">
@@ -104,6 +106,7 @@
                     </div>
                 </div>
             {/if}
+            </ProfileGate>
 
             <!-- Additional information section -->
             <div class="additional-info">

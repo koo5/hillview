@@ -56,7 +56,10 @@ const mockPostMessage = vi.fn().mockImplementation(function(this: any, message: 
   logFromWorker(message);
   if (message?.type === 'getAuthToken') {
     queueMicrotask(() => {
-      const reply = { type: 'authToken', token: 'test-auth-token-12345' };
+      // Echo back the request id, mirroring the real main thread
+      // (SimplePhotoWorker.handleAuthTokenRequest) so the worker can correlate
+      // the response to its pending request.
+      const reply = { type: 'authToken', token: 'test-auth-token-12345', requestId: message.requestId };
       logToWorker(reply);
       handleMessage(reply);
     });

@@ -184,3 +184,94 @@ export async function getUserPhotos(token: string): Promise<{ count: number; ids
         ids: photos.map((p: any) => p.id || p.photo_id),
     };
 }
+
+// -------------------- internal debug hooks (localhost-only) --------------------
+
+async function postDebug(path: string, body: unknown): Promise<void> {
+    const res = await fetch(`${BACKEND_URL}/api/internal/debug/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+        throw new Error(`debug/${path} failed (${res.status}): ${await res.text()}`);
+    }
+}
+
+/** Mark a user force-logged-out (access + refresh now 401), or clear the flag. */
+export async function forceLogoutUser(username: string, clear = false): Promise<void> {
+    await postDebug('force-logout-user', { username, clear });
+}
+
+/** Override a user's access-token TTL (applied at next login), or clear it. */
+export async function setAccessTtl(username: string, seconds: number, clear = false): Promise<void> {
+    await postDebug('set-access-ttl', { username, seconds, clear });
+}
+
+/** Inject artificial latency into a named backend hot-path (0 to clear). */
+export async function setDebugDelay(name: string, seconds: number): Promise<void> {
+    await postDebug('delays', { name, seconds });
+}
+
+/**
+ * Arm a chaos-monkey HTTP fault on the api: requests whose path matches `path`
+ * (a glob, e.g. '/api/auth/me' or '/api/auth/*') fail with `status`, for `count`
+ * requests (or until cleared), optionally after `delaySeconds`.
+ */
+export async function armFault(
+    path: string,
+    opts: { status?: number; count?: number; delaySeconds?: number; methods?: string[]; detail?: string } = {},
+): Promise<void> {
+    await postDebug('faults', {
+        path,
+        status: opts.status,
+        count: opts.count,
+        delay_seconds: opts.delaySeconds,
+        methods: opts.methods,
+        detail: opts.detail,
+    });
+}
+
+/** Clear all armed HTTP faults on the api. */
+export async function clearFaults(): Promise<void> {
+    const res = await fetch(`${BACKEND_URL}/api/internal/debug/faults`, { method: 'DELETE' });
+    if (!res.ok) {
+        throw new Error(`clear faults failed (${res.status}): ${await res.text()}`);
+    }
+}
+
+// Worker service URL as seen from the test runner (WORKER_URL default in compose).
+const WORKER_URL = 'http://localhost:8056';
+
+async function postWorkerFaults(body: unknown): Promise<void> {
+    const res = await fetch(`${WORKER_URL}/debug/faults`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+        throw new Error(`worker /debug/faults failed (${res.status}): ${await res.text()}`);
+    }
+}
+
+/** Arm a chaos-monkey fault on the WORKER (e.g. the photo-upload endpoint). */
+export async function armWorkerFault(
+    path: string,
+    opts: { status?: number; count?: number; delaySeconds?: number; methods?: string[] } = {},
+): Promise<void> {
+    await postWorkerFaults({
+        path,
+        status: opts.status,
+        count: opts.count,
+        delay_seconds: opts.delaySeconds,
+        methods: opts.methods,
+    });
+}
+
+/** Clear all armed faults on the worker. */
+export async function clearWorkerFaults(): Promise<void> {
+    const res = await fetch(`${WORKER_URL}/debug/faults`, { method: 'DELETE' });
+    if (!res.ok) {
+        throw new Error(`clear worker faults failed (${res.status}): ${await res.text()}`);
+    }
+}

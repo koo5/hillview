@@ -9,6 +9,7 @@ import { myGoto } from './navigation.svelte';
 import { clearAlerts } from './alertSystem.svelte';
 import { identify } from './analytics';
 import { simplePhotoWorker } from './simplePhotoWorker';
+import { onReconnect } from './connectivity';
 
 const doLog = false;
 
@@ -73,7 +74,11 @@ export async function completeAuthentication(tokenData: {
             }
         }
 
-        // NOW set authenticated — key is registered, safe to trigger photo sync
+        // NOW set authenticated — key is registered, safe to trigger photo sync.
+        // Bump the auth generation first so any logout() requested by a stale /
+        // in-flight request from the previous session is ignored and cannot clear
+        // this freshly established session.
+        bumpAuthGeneration();
         auth.update(a => ({
             ...a,
             is_authenticated: true
@@ -95,6 +100,21 @@ export async function completeAuthentication(tokenData: {
         return true;
 }
 
+// Auth session generation. Incremented on every successful (re)authentication.
+// Lets logout() ignore calls triggered by requests that began in an earlier
+// session, so a late / in-flight 401 from before a re-login can't tear down the
+// fresh session (see completeAuthentication and logout below).
+let authGeneration = 0;
+export function getAuthGeneration(): number {
+    return authGeneration;
+}
+// Bump when a new session is established (login here, or a login synced from
+// another tab). Stale requests captured an older generation and are then ignored
+// by logout().
+export function bumpAuthGeneration(): number {
+    return ++authGeneration;
+}
+
 // Token manager lazy initialization - will initialize on first use
 let authInitialized = false;
 
@@ -105,7 +125,16 @@ async function ensureAuthInitialized() {
     authInitialized = true;
 
     const tokenManager = createTokenManager();
-    const token = await tokenManager.getValidToken();
+    // A terminal failure throws here (getValidToken has already logged out); a
+    // transient failure returns null with the session intact. Either way there's
+    // no token to use right now, and we must not let a terminal throw escape as an
+    // uncaught error during startup.
+    let token: string | null = null;
+    try {
+        token = await tokenManager.getValidToken();
+    } catch (error) {
+        if (doLog) console.log('🢄[AUTH] Token check failed during initialization (already handled):', error);
+    }
 
     if (token) {
         if (doLog) console.log('🢄[AUTH] Valid token found during initialization');
@@ -215,7 +244,15 @@ export async function oauthLogin(provider: string, code: string, redirectUri?: s
         return await completeAuthentication(data, 'oauth');
 }
 
-export async function logout(reason?: string) {
+export async function logout(reason?: string, opts?: { generation?: number }) {
+    // Ignore a logout requested by a stale caller: if it was triggered by a request
+    // that started in an earlier auth generation than the current one, a newer login
+    // has since replaced the session and must not be torn down by the late failure.
+    if (opts?.generation !== undefined && opts.generation !== authGeneration) {
+        console.log(`🢄[AUTH] Ignoring stale logout (request gen ${opts.generation}, current gen ${authGeneration})${reason ? ` — reason was: ${reason}` : ''}`);
+        return;
+    }
+
     console.log('🢄[AUTH] === LOGGING OUT ===');
     if (reason) {
         console.log('🢄[AUTH] - Reason:', reason);
@@ -234,7 +271,8 @@ export async function logout(reason?: string) {
             ...a,
             is_authenticated: false,
             checked: true,
-            user: null
+            user: null,
+            userStatus: 'idle'
         };
     });
 
@@ -292,19 +330,40 @@ export async function authenticatedFetch(url: string, options: RequestInit = {})
     }
 }
 
-export async function fetchUserData() {
+// The user profile comes from a separate /auth/me request, so it's just data with
+// its own load lifecycle — independent of is_authenticated. fetchUserData is the one
+// place that fetches it; it dedupes concurrent calls and maintains auth.userStatus so
+// views can show a spinner / retry instead of mistaking a missing profile for logout.
+let userFetchPromise: Promise<User | null> | null = null;
+
+export function fetchUserData(): Promise<User | null> {
+    if (userFetchPromise) {
+        if (doLog) console.log('🢄[AUTH] fetchUserData already in flight; reusing');
+        return userFetchPromise;
+    }
+    const p = performUserFetch();
+    userFetchPromise = p;
+    void p.finally(() => {
+        if (userFetchPromise === p) userFetchPromise = null;
+    });
+    return p;
+}
+
+async function performUserFetch(): Promise<User | null> {
     const a = get(auth);
 
     if (doLog) console.log('🢄[AUTH] fetchUserData start - Current auth state: is_authenticated:', a.is_authenticated, 'Has user:', !!a.user);
 
-    try {
-        //console.log('🢄[AUTH] Making API request to /api/auth/me');
-        const response = await http.get('/auth/me');
+    // Only flip to 'loading' (which makes views show a spinner) when there's no
+    // profile yet; a background refresh of an already-loaded profile keeps 'loaded'.
+    auth.update(s => ({ ...s, userStatus: s.user ? s.userStatus : 'loading' }));
 
-        //console.log('🢄[AUTH] - API response status:', response.status);
+    try {
+        const response = await http.get('/auth/me');
 
         if (!response.ok) {
             console.error('🢄[AUTH] API request failed:', response.status, response.statusText);
+            auth.update(s => ({ ...s, checked: true, userStatus: s.user ? s.userStatus : 'error' }));
             return null;
         }
 
@@ -317,7 +376,8 @@ export async function fetchUserData() {
                 ...a,
                 is_authenticated: true,
                 checked: true,
-                user: userData
+                user: userData,
+                userStatus: 'loaded'
             };
         });
         identify(userData.id, {name: userData.username});
@@ -325,14 +385,54 @@ export async function fetchUserData() {
         return userData;
     } catch (error) {
         if (error instanceof Error && error.name === 'TokenExpiredError') {
-            // Already handled by HTTP client (tokens cleared, logged out)
+            // Terminal: the HTTP client already cleared tokens and logged out, which
+            // resets userStatus to 'idle' — don't override that here.
             console.warn('🢄[AUTH] Session expired during user data fetch');
+            auth.update(a => ({ ...a, checked: true }));
         } else {
+            // Transient/other failure: keep the session, mark the profile load failed
+            // (unless we still have a previously-loaded profile to show).
             console.error('🢄[AUTH] Error fetching user data:', error);
+            auth.update(s => ({ ...s, checked: true, userStatus: s.user ? s.userStatus : 'error' }));
         }
-        auth.update(a => ({ ...a, checked: true }));
         return null;
     }
+}
+
+/**
+ * Fetch the profile if we're authenticated but don't have it yet — but NOT after a
+ * failed load ('error'), to avoid a tight retry loop. This is the auto-loader wired to
+ * auth-state changes; recovery from 'error' goes through retryUserData (reconnect /
+ * manual retry button).
+ */
+export function ensureUserLoaded(): void {
+    const a = get(auth);
+    if (a.is_authenticated && !a.user && a.userStatus !== 'loading' && a.userStatus !== 'error') {
+        fetchUserData();
+    }
+}
+
+/**
+ * Force a profile refetch when authenticated but missing it — including from the
+ * 'error' state. For reconnect handlers and a manual "retry" affordance.
+ */
+export function retryUserData(): void {
+    const a = get(auth);
+    if (a.is_authenticated && !a.user) {
+        if (doLog) console.log('🢄[AUTH] Retrying user data fetch');
+        fetchUserData();
+    }
+}
+
+// Wire the triggers once, in the browser only.
+if (browser) {
+    // Auto-load: whenever auth state changes to "authenticated but profile missing"
+    // (e.g. after login, a token refresh, or a cross-tab login), pull the profile.
+    auth.subscribe(() => ensureUserLoaded());
+
+    // Recovery: a transient /auth/me failure leaves userStatus 'error'; retry it when
+    // connectivity returns or the tab is refocused, so the UI heals without a reload.
+    onReconnect(retryUserData);
 }
 
 // Check token validity on app start
@@ -341,27 +441,31 @@ export async function checkAuth() {
 
     if (doLog) console.log('🢄[AUTH] - is_authenticated:', a.is_authenticated, 'a.user:', JSON.stringify(a.user));
 
-    // Check token validity through TokenManager
-    const validToken = await getCurrentToken();
-    //console.log('🢄[AUTH] - Has valid token:', !!validToken);
-    if (validToken) {
-        if (doLog) console.log('🢄[AUTH]3 - Token preview:', validToken.substring(0, 10) + '...');
+    // Check token validity through TokenManager.
+    // A thrown error means a terminal failure — getValidToken has already logged
+    // out, so there's nothing more to do. A null return means no usable token,
+    // which (since a terminal failure would have thrown) is either "not logged in"
+    // or a transient connectivity failure — in neither case do we log out and
+    // discard the session over a blip.
+    let validToken: string | null = null;
+    try {
+        validToken = await getCurrentToken();
+    } catch (error) {
+        if (doLog) console.log('🢄[AUTH] checkAuth: token check failed terminally (already logged out):', error);
+        return;
     }
 
-    // If we have a valid token, fetch user data
     if (validToken) {
+        if (doLog) console.log('🢄[AUTH]3 - Token preview:', validToken.substring(0, 10) + '...');
         if (doLog) console.log('🢄[AUTH] checkAuth: Valid token found, fetching user data');
         fetchUserData();
-    } else if (a.user) {
-        // We have user data but no valid token - inconsistent state
-        console.warn('🢄[AUTH] INCONSISTENT STATE: User data exists but no valid token');
-        console.warn('🢄[AUTH] Logging out due to invalid token');
-        logout('Invalid token');
-    } else if (a.is_authenticated && !a.user) {
-        // We think we're authenticated but have no user data - fetch it
-        console.warn('🢄[AUTH] INCONSISTENT STATE: Authenticated but no user data');
-        console.warn('🢄[AUTH] Attempting to fetch user data');
-        fetchUserData();
+    } else if (a.is_authenticated || a.user) {
+        // No usable token but we still consider ourselves logged in. A terminal
+        // failure would have thrown above and logged out, so this is a transient
+        // connectivity failure — keep the session and let a later request/reconnect
+        // refresh it. Do NOT log out and bounce to /login over a blip.
+        console.warn('🢄[AUTH] checkAuth: no usable token (transient); keeping session, will retry');
+        if (!a.user) fetchUserData();
     } else {
         // Not authenticated
         if (doLog) console.log('🢄[AUTH] Not authenticated');

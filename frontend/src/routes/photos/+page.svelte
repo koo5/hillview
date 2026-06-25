@@ -13,8 +13,8 @@
 	import Spinner from '$lib/components/Spinner.svelte';
 	import PhotoImport from '$lib/components/PhotoImport.svelte';
 	import PhotoUpload from '$lib/components/PhotoUpload.svelte';
-	import {auth} from '$lib/auth.svelte';
-	import {userId} from '$lib/authStore';
+	import {auth, retryUserData} from '$lib/auth.svelte';
+	import {userId, profileLoading, profileError} from '$lib/authStore';
 	import type {UserPhoto} from '$lib/stores';
 	import type {User} from '$lib/auth.svelte';
 	import type {ActivityLogEntry} from '$lib/types/activityLog';
@@ -489,23 +489,24 @@
 			<h2>My Photos ({totalCount})</h2>
 		{/if}
 
-		{#if isLoading}
+		{#if isLoading || $profileLoading}
 			<div class="loading-container" data-testid="loading-container">
 				<Spinner/>
 				<p>Loading your photos...</p>
 			</div>
 		{:else if photos.length === 0}
 			<p class="no-photos" data-testid="no-photos-message">
-				{#if user}
-					{#if !error}
-						You haven't uploaded any photos yet.
-					{:else}
-						There was an error loading photos.
-					{/if}
-				{:else}
+				{#if !$auth.is_authenticated}
 					Please
 					<button type="button" class="login-link" on:click={goToLogin}>log in</button>
 					to view your photos.
+				{:else if $profileError}
+					Couldn't load your profile.
+					<button type="button" class="login-link" on:click={retryUserData}>Retry</button>
+				{:else if error}
+					There was an error loading photos.
+				{:else}
+					You haven't uploaded any photos yet.
 				{/if}
 			</p>
 		{:else}

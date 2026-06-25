@@ -283,6 +283,9 @@ class ReverseProxyMiddleware(BaseHTTPMiddleware):
 
 
 # Add middlewares (order matters - later added = executed first)
+# Debug-only HTTP fault injection, shared with the worker; inert unless armed.
+from common import debug_faults
+debug_faults.install(app)
 app.add_middleware(CORSLoggingMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(GlobalRateLimitMiddleware)

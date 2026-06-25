@@ -361,10 +361,11 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
 function handleMessage(message: any): void {
 
 	if (message.type === 'authToken') {
-		if (authTokenPromiseResolve) {
-			authTokenPromiseResolve(message.token);
-			authTokenPromiseResolve = undefined;
-			authTokenPromise = undefined; // Clear promise for next request
+		const pending = pendingTokenRequests.get(message.requestId);
+		if (pending) {
+			clearTimeout(pending.timer);
+			pendingTokenRequests.delete(message.requestId);
+			pending.resolve(message.token);
 		}
 		return; // Don't process further
 	}
@@ -399,7 +400,7 @@ function handleMessage(message: any): void {
 }
 
 // Export handleMessage for testing
-export { handleMessage };
+export { handleMessage, getValidToken };
 
 
 
@@ -740,8 +741,11 @@ export function reset(deps: { postMessage: (msg: any) => void }) {
 	lastProcessedSourcesPhotosInAreaVersion = -1;
 	current_range = DEFAULT_RANGE_METERS;
 	currentPicks = new Set();
-	authTokenPromise = undefined;
-	authTokenPromiseResolve = undefined;
+	for (const { timer, resolve } of pendingTokenRequests.values()) {
+		clearTimeout(timer);
+		resolve(null);
+	}
+	pendingTokenRequests.clear();
 	messageQueue = new MessageQueue();
 	photoOperations = new PhotoOperations();
 	photoOperations.setMaxPhotosInArea(MAX_PHOTOS_IN_AREA);
@@ -826,56 +830,64 @@ function removeUserPhotosFromCache(userId: string, source: SourceId): void {
 }
 
 
-let authTokenPromise: Promise<string | null> | undefined;
-let authTokenPromiseResolve: ((value: string | null) => void) | undefined;
+// Pending main-thread token requests, keyed by request id so concurrent or
+// retried requests can't cross or drop each other's responses. The previous
+// single shared promise/resolver did exactly that — a forced refresh racing a
+// normal request would resolve the wrong promise and drop the other response,
+// stranding the worker on a stale (often null) token after logout → re-login.
+interface PendingTokenRequest {
+	resolve: (value: string | null) => void;
+	timer: ReturnType<typeof setTimeout>;
+}
+const pendingTokenRequests = new Map<number, PendingTokenRequest>();
+let nextTokenRequestId = 1;
+const TOKEN_REQUEST_TIMEOUT_MS = 20000;
 
 async function getValidToken(forceRefresh: boolean = false): Promise<string | null>
 {
-	if (authTokenPromise && !forceRefresh) {
-		return authTokenPromise;
+	if (TAURI) {
+		try {
+			const result = await invoke('plugin:hillview|get_auth_token', { force: forceRefresh }) as {
+				token: string | null;
+				expires_at: string | null;
+				success: boolean;
+				error?: string;
+			};
+
+			if (!result.success) {
+				console.log(`🢄Android reports no valid token: ${result.error}`);
+				return null;
+			}
+
+			if (result.token) {
+				console.log(`🢄Valid token received from Android${forceRefresh ? ' (refreshed)' : ''}`);
+				return result.token;
+			}
+
+			console.log(`🢄No token available`);
+			return null;
+		} catch (error) {
+			console.error('🢄Error getting token from Android:', error);
+			return null;
+		}
 	}
 
-	// Clear existing promise on force refresh
-	if (forceRefresh) {
-		authTokenPromise = undefined;
-		authTokenPromiseResolve = undefined;
-	}
-
-	authTokenPromise = new Promise<string | null>(async (resolve) => {
-		if (TAURI)
-		{
-			try {
-				const result = await invoke('plugin:hillview|get_auth_token', { force: forceRefresh }) as {
-					token: string | null;
-					expires_at: string | null;
-					success: boolean;
-					error?: string;
-				};
-
-				if (!result.success) {
-					console.log(`🢄Android reports no valid token: ${result.error}`);
-					resolve(null);
-				}
-
-				if (result.token) {
-					console.log(`🢄Valid token received from Android${forceRefresh ? ' (refreshed)' : ''}`);
-					resolve(result.token);
-				} else {
-					console.log(`🢄No token available`);
-					resolve(null);
-				}
-			} catch (error) {
-				console.error('🢄Error getting token from Android:', error);
+	// Web: ask the main thread and correlate its response by request id.
+	const requestId = nextTokenRequestId++;
+	return new Promise<string | null>((resolve) => {
+		const timer = setTimeout(() => {
+			if (pendingTokenRequests.delete(requestId)) {
+				console.warn(`🢄Token request ${requestId} timed out waiting for main thread`);
 				resolve(null);
 			}
-		} else {
-			authTokenPromiseResolve = resolve;
-			_post({
-        		type: 'getAuthToken',
-				forceRefresh
-			});
-		}
-	});
+		}, TOKEN_REQUEST_TIMEOUT_MS);
 
-	return authTokenPromise;
+		pendingTokenRequests.set(requestId, { resolve, timer });
+
+		_post({
+			type: 'getAuthToken',
+			forceRefresh,
+			requestId
+		});
+	});
 }

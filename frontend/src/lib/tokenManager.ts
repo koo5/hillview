@@ -59,8 +59,16 @@ export class TokenExpiredError extends Error {
 }
 
 export class TokenRefreshError extends Error {
-    constructor(message: string = 'Failed to refresh token') {
+    /**
+     * True when the refresh failed for a recoverable connectivity reason
+     * (timeout / network error / 5xx) rather than the refresh token being
+     * rejected or expired. Transient failures must NOT clear the session.
+     */
+    readonly transient: boolean;
+
+    constructor(message: string = 'Failed to refresh token', options?: { transient?: boolean }) {
         super(message);
         this.name = 'TokenRefreshError';
+        this.transient = options?.transient ?? false;
     }
 }

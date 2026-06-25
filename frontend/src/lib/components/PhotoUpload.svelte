@@ -4,6 +4,8 @@
 	import {handleApiError, TokenExpiredError} from '$lib/http';
 	import {showNetworkError, removeAlertsBySource} from '$lib/alertSystem.svelte';
 	import type {User} from '$lib/auth.svelte';
+	import { auth } from '$lib/auth.svelte';
+	import ProfileGate from '$lib/components/ProfileGate.svelte';
 	import type { LogEntryCallback } from '$lib/types/activityLog';
 	import { TAURI_MOBILE } from '$lib/tauri';
 	import { invoke } from '@tauri-apps/api/core';
@@ -162,7 +164,8 @@
 </script>
 
 <div class="upload-section" data-testid="upload-section">
-	{#if !user}
+	<ProfileGate>
+	{#if !$auth.is_authenticated}
 		<div class="login-notice">
 			<p>Please
 				<button type="button" class="login-link" on:click={goToLogin}>log in</button>
@@ -274,6 +277,7 @@
 			<p class="upload-progress">{uploadProgress}% uploaded</p>
 		{/if}
 	</form>
+	</ProfileGate>
 </div>
 
 <style>
