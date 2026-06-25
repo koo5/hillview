@@ -374,6 +374,8 @@ class PushRegistration(Base):
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
 	client_key_id: Mapped[str] = mapped_column(String, unique=True, index=True)  # From ClientCryptoManager
 	push_endpoint: Mapped[str] = mapped_column(Text)  # URL for sending push messages
+	webpush_auth: Mapped[Optional[str]] = mapped_column(String)  # WebPush auth secret
+	webpush_p256dh: Mapped[Optional[str]] = mapped_column(String)  # WebPush p256dh public key
 	distributor_package: Mapped[Optional[str]] = mapped_column(String)  # Package name of distributor app
 	created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
 	updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now())
