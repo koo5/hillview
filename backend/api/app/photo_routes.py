@@ -560,7 +560,6 @@ async def list_photos(
 				"original_filename": photo.original_filename,
 				"title": photo.title,
 				"description": photo.description,
-				"notes": photo.notes,
 				"is_public": photo.is_public,
 				"latitude": latitude,
 				"longitude": longitude,
@@ -577,6 +576,8 @@ async def list_photos(
 				"user_rating": photo_rating['user_rating'],
 				"rating_counts": photo_rating['rating_counts']
 			})
+			if photo.notes:
+				photos_data[-1]["notes"] = photo.notes
 
 		return {
 			"photos": photos_data,
@@ -784,13 +785,12 @@ async def get_photo(
 			'rating_counts': {'thumbs_up': 0, 'thumbs_down': 0}
 		})
 
-		return {
+		photo_data = {
 			"id": photo.id,
 			"filename": photo.filename,
 			"original_filename": photo.original_filename,
 			"title": photo.title,
 			"description": photo.description,
-			"notes": photo.notes,
 			"is_public": photo.is_public,
 			"latitude": latitude,
 			"longitude": longitude,
@@ -810,6 +810,9 @@ async def get_photo(
 			"user_rating": photo_rating['user_rating'],
 			"rating_counts": photo_rating['rating_counts']
 		}
+		if photo.notes:
+			photo_data["notes"] = photo.notes
+		return photo_data
 
 	except HTTPException:
 		raise
@@ -1003,12 +1006,11 @@ async def get_photo_share_metadata(
 						thumbnail_url = photo_data.sizes[size_key].get('url')
 						break
 
-			return {
+			response = {
 				"id": photo_data.id,
 				"source": "hillview",
 				"title": photo_data.title,
 				"description": photo_data.description, #f"Photo taken at {photo_data.latitude:.6f}, {photo_data.longitude:.6f}",
-				"notes": photo_data.notes,
 				"image_url": photo_url,
 				"thumbnail_url": thumbnail_url,
 				"width": width,
@@ -1017,6 +1019,9 @@ async def get_photo_share_metadata(
 				"latitude": photo_data.latitude,
 				"longitude": photo_data.longitude
 			}
+			if photo_data.notes:
+				response["notes"] = photo_data.notes
+			return response
 
 		elif source == "mapillary":
 			# For Mapillary photos, we'd need to implement lookup from cached data
@@ -1113,7 +1118,7 @@ async def get_public_photo(
 
 		is_own_photo = bool(current_user and str(current_user.id) == str(photo.owner_id))
 
-		return {
+		response = {
 			"id": photo.id,
 			"uid": f"hillview-{photo.id}",
 			"source": "hillview",
@@ -1121,7 +1126,6 @@ async def get_public_photo(
 			"original_filename": photo.original_filename,
 			"title": photo.title,
 			"description": photo.description,
-			"notes": photo.notes,
 			"keywords": photo.keywords,
 			"place_name": photo.place_name,
 			"license": legal_rights_to_license(photo.legal_rights),
@@ -1142,6 +1146,9 @@ async def get_public_photo(
 			"rating_counts": photo_rating['rating_counts'],
 			"is_own_photo": is_own_photo
 		}
+		if photo.notes:
+			response["notes"] = photo.notes
+		return response
 
 	except HTTPException:
 		raise

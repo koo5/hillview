@@ -1722,9 +1722,10 @@ async def get_user_photos(
                 "width": photo.width,
                 "height": photo.height,
                 "sizes": photo.sizes,
-                "description": photo.description,
-                "notes": photo.notes
+                "description": photo.description
             }
+            if photo.notes:
+                photo_data["notes"] = photo.notes
             photo_list.append(photo_data)
 
         # Get total count for this user

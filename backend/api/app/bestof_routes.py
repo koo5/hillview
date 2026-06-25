@@ -131,7 +131,6 @@ async def get_best_photos(
 				"original_filename": photo.original_filename,
 				"title": photo.title,
 				"description": photo.description,
-				"notes": photo.notes,
 				"uploaded_at": format_utc(photo.uploaded_at),
 				"captured_at": format_utc(photo.captured_at),
 				"processing_status": photo.processing_status,
@@ -147,6 +146,8 @@ async def get_best_photos(
 				"annotation_count": int(annotation_count) if annotation_count else 0,
 				"license": legal_rights_to_license(photo.legal_rights)
 			})
+			if photo.notes:
+				photos_data[-1]["notes"] = photo.notes
 			next_cursor = f"{score_int}:{photo.id}"
 
 		return {

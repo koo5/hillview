@@ -117,14 +117,16 @@ async def _query_global_best(db: AsyncSession, annotation_sub) -> Optional[dict]
     row = result.first()
     if not row:
         return None
-    return {
+    response = {
         "id": row.id,
         "latitude": row.latitude,
         "longitude": row.longitude,
         "bearing": row.compass_angle,
         "description": row.description,
-        "notes": row.notes,
     }
+    if row.notes:
+        response["notes"] = row.notes
+    return response
 
 
 async def _query_nearest(
@@ -165,14 +167,16 @@ async def _query_nearest(
     row = result.first()
     if not row:
         return None
-    return {
+    response = {
         "id": row.id,
         "latitude": row.latitude,
         "longitude": row.longitude,
         "bearing": row.compass_angle,
         "description": row.description,
-        "notes": row.notes,
     }
+    if row.notes:
+        response["notes"] = row.notes
+    return response
 
 
 @router.get("/nearest")
