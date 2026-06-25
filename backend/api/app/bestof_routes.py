@@ -131,6 +131,7 @@ async def get_best_photos(
 				"original_filename": photo.original_filename,
 				"title": photo.title,
 				"description": photo.description,
+				"notes": photo.notes,
 				"uploaded_at": format_utc(photo.uploaded_at),
 				"captured_at": format_utc(photo.captured_at),
 				"processing_status": photo.processing_status,

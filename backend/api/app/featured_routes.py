@@ -94,6 +94,7 @@ async def _query_global_best(db: AsyncSession, annotation_sub) -> Optional[dict]
         select(
             Photo.id,
             Photo.description,
+            Photo.notes,
             Photo.compass_angle,
             ST_Y(Photo.geometry).label('latitude'),
             ST_X(Photo.geometry).label('longitude'),
@@ -122,6 +123,7 @@ async def _query_global_best(db: AsyncSession, annotation_sub) -> Optional[dict]
         "longitude": row.longitude,
         "bearing": row.compass_angle,
         "description": row.description,
+        "notes": row.notes,
     }
 
 
@@ -140,6 +142,7 @@ async def _query_nearest(
         select(
             Photo.id,
             Photo.description,
+            Photo.notes,
             Photo.compass_angle,
             ST_Y(Photo.geometry).label('latitude'),
             ST_X(Photo.geometry).label('longitude'),
@@ -168,6 +171,7 @@ async def _query_nearest(
         "longitude": row.longitude,
         "bearing": row.compass_angle,
         "description": row.description,
+        "notes": row.notes,
     }
 
 

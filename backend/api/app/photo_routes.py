@@ -560,6 +560,7 @@ async def list_photos(
 				"original_filename": photo.original_filename,
 				"title": photo.title,
 				"description": photo.description,
+				"notes": photo.notes,
 				"is_public": photo.is_public,
 				"latitude": latitude,
 				"longitude": longitude,
@@ -704,7 +705,7 @@ async def get_sitemap_photo_ids(
 	count) for the index to compute its page count.
 
 	CURATED: only photos with something worth indexing are listed — featured,
-	or carrying a title/description/keywords, or with at least one annotation.
+	or carrying a title/description/notes/keywords, or with at least one annotation.
 	Bulk title-less uploads are left out so they don't dilute crawl budget /
 	site quality; they join automatically once they gain any such signal. They
 	stay indexable if found by other means (no noindex).
@@ -716,6 +717,7 @@ async def get_sitemap_photo_ids(
 		Photo.featured == True,
 		and_(Photo.title.isnot(None), Photo.title != ""),
 		and_(Photo.description.isnot(None), Photo.description != ""),
+		and_(Photo.notes.isnot(None), Photo.notes != ""),
 		func.array_length(Photo.keywords, 1) > 0,
 		select(PhotoAnnotation.id).where(PhotoAnnotation.photo_id == Photo.id).exists(),
 	)
@@ -788,6 +790,7 @@ async def get_photo(
 			"original_filename": photo.original_filename,
 			"title": photo.title,
 			"description": photo.description,
+			"notes": photo.notes,
 			"is_public": photo.is_public,
 			"latitude": latitude,
 			"longitude": longitude,
@@ -968,6 +971,7 @@ async def get_photo_share_metadata(
 					Photo.sizes,
 					Photo.title,
 					Photo.description,
+					Photo.notes,
 					ST_X(Photo.geometry).label('longitude'),
 					ST_Y(Photo.geometry).label('latitude')
 				).where(Photo.id == photo_id, Photo.deleted == False)
@@ -1004,6 +1008,7 @@ async def get_photo_share_metadata(
 				"source": "hillview",
 				"title": photo_data.title,
 				"description": photo_data.description, #f"Photo taken at {photo_data.latitude:.6f}, {photo_data.longitude:.6f}",
+				"notes": photo_data.notes,
 				"image_url": photo_url,
 				"thumbnail_url": thumbnail_url,
 				"width": width,
@@ -1116,6 +1121,7 @@ async def get_public_photo(
 			"original_filename": photo.original_filename,
 			"title": photo.title,
 			"description": photo.description,
+			"notes": photo.notes,
 			"keywords": photo.keywords,
 			"place_name": photo.place_name,
 			"license": legal_rights_to_license(photo.legal_rights),
