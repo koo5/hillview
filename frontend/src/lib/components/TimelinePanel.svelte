@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fly } from 'svelte/transition';
-	import { Maximize2, Minimize2 } from 'lucide-svelte';
+	import { Maximize2, Minimize2, ChevronUp, ChevronDown } from 'lucide-svelte';
 	import {
 		timelineActive,
 		timelineLoading,
@@ -10,6 +10,7 @@
 		timelineHasMore,
 		timelineWide,
 		jumpToIndex,
+		stepTimeline,
 		stopTimeline,
 		toggleTimelineWide,
 		addTimelineUser,
@@ -19,6 +20,11 @@
 
 	$: photos = $timelinePhotos;
 	$: cursor = $timelineCursor;
+
+	// Back/forward enablement: a step is possible if there's a loaded neighbour or
+	// the server said there's an unloaded chunk in that direction (stepTimeline pulls it).
+	$: canOlder = photos.length > 0 && (cursor > 0 || $timelineHasMore.before);
+	$: canNewer = photos.length > 0 && (cursor < photos.length - 1 || $timelineHasMore.after);
 
 	let listEl: HTMLDivElement | undefined;
 
@@ -163,14 +169,36 @@
 			{/if}
 		</section>
 
-		<div class="tl-status" data-testid="timeline-status">
-			{#if $timelineLoading}
-				Loading…
-			{:else if photos.length}
-				{cursor + 1} / {photos.length}
-			{:else}
-				No photos
-			{/if}
+		<div class="tl-nav" data-testid="timeline-nav">
+			<button
+				class="tl-icon-btn tl-nav-btn"
+				on:click={() => stepTimeline('older')}
+				disabled={!canOlder}
+				data-testid="timeline-prev"
+				aria-label="Back to older photo"
+				title="Older (,)"
+			>
+				<ChevronUp size={18} />
+			</button>
+			<div class="tl-status" data-testid="timeline-status">
+				{#if $timelineLoading}
+					Loading…
+				{:else if photos.length}
+					{cursor + 1} / {photos.length}
+				{:else}
+					No photos
+				{/if}
+			</div>
+			<button
+				class="tl-icon-btn tl-nav-btn"
+				on:click={() => stepTimeline('newer')}
+				disabled={!canNewer}
+				data-testid="timeline-next"
+				aria-label="Forward to newer photo"
+				title="Newer (.)"
+			>
+				<ChevronDown size={18} />
+			</button>
 		</div>
 
 		<div class="tl-list" bind:this={listEl} data-testid="timeline-list">
@@ -361,11 +389,27 @@
 		font-size: 0.75rem;
 	}
 
+	.tl-nav {
+		display: flex;
+		align-items: center;
+		border-bottom: 1px solid #f3f4f6;
+	}
+
+	.tl-nav-btn {
+		flex-shrink: 0;
+	}
+
+	.tl-nav-btn:disabled {
+		color: #d1d5db;
+		cursor: default;
+	}
+
 	.tl-status {
+		flex: 1;
+		text-align: center;
 		padding: 8px 16px;
 		font-size: 0.8rem;
 		color: #6b7280;
-		border-bottom: 1px solid #f3f4f6;
 	}
 
 	.tl-list {
@@ -445,13 +489,18 @@
 		display: none;
 	}
 
+	/* Compact mode is thumbnail-only navigation: the user/add-user section needs
+	   room to be useful, so hide it here (the add-user picker forces wide anyway). */
 	.timeline-panel.narrow .tl-users {
-		padding: 8px 6px;
+		display: none;
 	}
 
 	.timeline-panel.narrow .tl-status {
-		padding: 6px 8px;
-		text-align: center;
+		padding: 6px 4px;
+	}
+
+	.timeline-panel.narrow .tl-nav-btn {
+		padding: 4px 2px;
 	}
 
 	.timeline-panel.narrow .tl-row {
@@ -463,10 +512,5 @@
 	.timeline-panel.narrow .tl-thumb {
 		width: 72px;
 		height: 54px;
-	}
-
-	.timeline-panel.narrow .tl-add-user {
-		width: 100%;
-		text-align: center;
 	}
 </style>
