@@ -4,6 +4,7 @@ import { zoomViewData, pendingZoomView, type ZoomViewInitialBounds } from '$lib/
 import '@annotorious/openseadragon/annotorious-openseadragon.css';
 
 let OpenSeadragonViewer: any = null;
+let Pannellum360Viewer: any = null;
 let initialBounds: ZoomViewInitialBounds | null = null;
 
 // Capture initial bounds from pending state when it first appears
@@ -12,8 +13,12 @@ $: if ($pendingZoomView && !initialBounds) {
 }
 
 onMount(async () => {
-	const module = await import('./OpenSeadragonViewer.svelte');
-	OpenSeadragonViewer = module.default;
+	const [osdModule, panoModule] = await Promise.all([
+		import('./OpenSeadragonViewer.svelte'),
+		import('./Pannellum360Viewer.svelte'),
+	]);
+	OpenSeadragonViewer = osdModule.default;
+	Pannellum360Viewer = panoModule.default;
 });
 
 function closeZoomView() {
@@ -46,7 +51,9 @@ function handlePendingKeydown(e: KeyboardEvent) {
 	</div>
 {/if}
 
-{#if $zoomViewData && OpenSeadragonViewer}
+{#if $zoomViewData && $zoomViewData.equirectangular && Pannellum360Viewer}
+	<svelte:component this={Pannellum360Viewer} data={$zoomViewData} onClose={closeZoomView} />
+{:else if $zoomViewData && OpenSeadragonViewer}
 	<svelte:component this={OpenSeadragonViewer} data={$zoomViewData} onClose={closeZoomView} {initialBounds} />
 {/if}
 

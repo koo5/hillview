@@ -71,4 +71,7 @@ export interface BasePhotoData {
     range_distance?: number | null;
     angular_distance_abs?: number;
     file_hash?: string;
+
+    // Projection type: 'equirectangular' marks a 360° panorama
+    projection?: string;
 }

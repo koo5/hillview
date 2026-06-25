@@ -100,6 +100,27 @@ describe('convertPanoramaxItem', () => {
 		expect(convertPanoramaxItem({ id: 'x', geometry: { coordinates: [] } }, source)).toBeNull();
 	});
 
+	it('sets projection from pers:type property', () => {
+		const item = {
+			...baseItem,
+			properties: { ...baseItem.properties, 'pers:type': 'equirectangular' }
+		};
+		expect((convertPanoramaxItem(item, source) as any)?.projection).toBe('equirectangular');
+	});
+
+	it('does not set projection when pers:type is absent', () => {
+		const result = convertPanoramaxItem(baseItem, source);
+		expect((result as any)?.projection).toBeUndefined();
+	});
+
+	it('preserves other pers:type values like perspective', () => {
+		const item = {
+			...baseItem,
+			properties: { ...baseItem.properties, 'pers:type': 'perspective' }
+		};
+		expect((convertPanoramaxItem(item, source) as any)?.projection).toBe('perspective');
+	});
+
 	it('falls back to thumb url when hd asset missing', () => {
 		const item = {
 			...baseItem,
