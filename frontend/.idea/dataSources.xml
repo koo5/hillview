@@ -22,5 +22,12 @@
       <jdbc-url>jdbc:sqlite:$USER_HOME$/.cache/Google/AndroidStudio2025.1.3/device-explorer/Medium Phone/_/data/data/cz.hillviedev/databases/hillview_photos_database</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
+    <data-source source="LOCAL" name="hillview@ktiff (45432)" uuid="d79ae708-4f23-4336-bdc9-852d920416c0">
+      <driver-ref>postgresql</driver-ref>
+      <synchronize>true</synchronize>
+      <jdbc-driver>org.postgresql.Driver</jdbc-driver>
+      <jdbc-url>jdbc:postgresql://localhost:45432/hillview</jdbc-url>
+      <working-dir>$ProjectFileDir$</working-dir>
+    </data-source>
   </component>
 </project>

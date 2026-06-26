@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fly } from 'svelte/transition';
-	import { Maximize2, Minimize2 } from 'lucide-svelte';
+	import { Maximize2, Minimize2, RefreshCw } from 'lucide-svelte';
 	import {
 		timelineActive,
 		timelineLoading,
@@ -9,9 +9,11 @@
 		timelineUsers,
 		timelineHasMore,
 		timelineWide,
+		timelineStale,
 		jumpToIndex,
 		stopTimeline,
 		toggleTimelineWide,
+		refreshTimelineToFront,
 		addTimelineUser,
 		removeTimelineUser,
 	} from '$lib/timeline';
@@ -104,6 +106,18 @@
 				<button class="tl-icon-btn" on:click={stopTimeline} data-testid="timeline-close" aria-label="Close timeline">✕</button>
 			</div>
 		</header>
+
+		{#if $timelineStale}
+			<button
+				class="tl-refresh"
+				on:click={refreshTimelineToFront}
+				data-testid="timeline-refresh"
+				title="Rebuild the timeline around the selected photo"
+			>
+				<RefreshCw size={14} />
+				{#if $timelineWide}<span>Refresh to selected photo</span>{/if}
+			</button>
+		{/if}
 
 		<section class="tl-users" data-testid="timeline-users">
 			<div class="tl-section-title">Users</div>
@@ -247,6 +261,30 @@
 		color: #6b7280;
 		padding: 4px 8px;
 		line-height: 1;
+	}
+
+	.tl-refresh {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		width: 100%;
+		border: none;
+		border-bottom: 1px solid #e5e7eb;
+		background: #fff1ea;
+		color: #ff6d3a;
+		font-size: 0.8rem;
+		font-weight: 600;
+		padding: 8px 16px;
+		cursor: pointer;
+	}
+
+	.tl-refresh:hover {
+		background: #ffe4d6;
+	}
+
+	.timeline-panel.narrow .tl-refresh {
+		padding: 8px 6px;
 	}
 
 	.tl-users {

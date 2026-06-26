@@ -99,6 +99,17 @@ export const timelineCurrent = derived(
 	([active, photos, cursor]) => (active && cursor >= 0 && cursor < photos.length) ? photos[cursor] : null
 );
 
+// True when the front photo isn't in the loaded timeline window: the user selected a
+// photo (e.g. clicked another marker) that the open walk doesn't cover. Drives the
+// panel's "refresh" button, which re-anchors the walk on that photo. Stepping the walk
+// only ever lands on loaded photos, so this stays false while walking; `loading`
+// suppresses the transient mismatch during a (re)load.
+export const timelineStale = derived(
+	[timelineActive, timelineLoading, timelinePhotos, photoInFront],
+	([active, loading, photos, front]) =>
+		active && !loading && !!front && isHillview(front) && !photos.some(p => p.uid === front.uid)
+);
+
 function ownerIdOf(photo: PhotoData): string | undefined {
 	return (photo as any).creator?.id;
 }
@@ -161,6 +172,26 @@ export function toggleTimeline() {
 		return;
 	}
 	openForCurrent();
+}
+
+/**
+ * Re-anchor the open walk on the current front photo (drives the panel's refresh
+ * button). When the photo belongs to a user already tracked, keep the merge and just
+ * re-anchor the window on it — navigating within the group preserves the group. When it
+ * belongs to a new user, drop the merge and start that user's timeline fresh: the window
+ * spans the tracked users by capture time and the backend only includes the anchor when
+ * its owner is tracked, so re-anchoring onto an untracked user without resetting would
+ * land the cursor on a neighbour and omit the photo you picked.
+ */
+export async function refreshTimelineToFront() {
+	const front = get(photoInFront);
+	if (!front || !isHillview(front)) return;
+	const ownerId = ownerIdOf(front);
+	if (ownerId && get(timelineUsers).some(u => u.id === ownerId)) {
+		await loadWindow(front.id);
+	} else {
+		await startTimeline(front);
+	}
 }
 
 function toPhotos(data: any): PhotoData[] {
@@ -397,4 +428,16 @@ hunterMode.subscribe(on => {
 		hunterModeBeforeTimeline = null;
 		stopTimeline();
 	}
+});
+
+// When the user selects a photo that's already in the loaded window — e.g. clicking its
+// marker on the map — move the cursor (the highlighted row) to it, so the panel follows
+// the map selection and stepping continues from there. Photos *outside* the window are
+// left to the refresh button instead (see timelineStale). Stepping the walk sets
+// photoInFront to the cursor photo, so the index already matches and this is a no-op:
+// no feedback loop.
+photoInFront.subscribe(front => {
+	if (!get(timelineActive) || !front) return;
+	const idx = get(timelinePhotos).findIndex(p => p.uid === front.uid);
+	if (idx >= 0 && idx !== get(timelineCursor)) jumpToIndex(idx);
 });

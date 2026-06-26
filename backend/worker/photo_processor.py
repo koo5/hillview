@@ -6,11 +6,12 @@ import os
 import pathlib
 import json
 import logging
+import re
 import subprocess
 import shlex
 from typing import Optional, Dict, Any, List, Tuple
 from uuid import UUID
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import cv2
 import numpy as np
 from PIL import Image
@@ -170,14 +171,34 @@ def safe_parse_float(value, field_name: str = "value") -> Optional[float]:
 	return None
 
 
-def parse_exif_datetime(value) -> Optional[datetime]:
+def _parse_exif_offset(offset_value) -> Optional[timedelta]:
+	"""Parse an EXIF OffsetTime tag ('+01:00', '-05:00', 'Z') to a timedelta.
+
+	Returns None if absent/unparseable so the caller can fall back to assuming UTC.
+	"""
+	if offset_value is None:
+		return None
+	s = str(offset_value).strip()
+	if s in ('Z', 'z'):
+		return timedelta(0)
+	m = re.match(r"([+-])(\d{2}):?(\d{2})$", s)
+	if not m:
+		return None
+	sign = 1 if m.group(1) == '+' else -1
+	return timedelta(minutes=sign * (int(m.group(2)) * 60 + int(m.group(3))))
+
+
+def parse_exif_datetime(value, offset_value=None) -> Optional[datetime]:
 	"""Parse EXIF datetime value and fix corrupted timestamps.
 
 	Handles the bug where milliseconds were written as seconds, causing
 	dates like "+58074:03:14 04:05:17". Detects years > 2100 and fixes
 	by dividing the timestamp by 1000.
 
-	Returns UTC datetime (EXIF times are assumed to be UTC for consistency).
+	Returns a UTC datetime. EXIF DateTimeOriginal is a naive local wall-clock; if
+	offset_value (OffsetTimeOriginal, e.g. '+01:00') is given, the wall-clock is
+	converted to UTC. Without an offset we assume the value is already UTC (true for
+	the unix-ms path; best-effort otherwise).
 	"""
 	if value is None:
 		return None
@@ -220,7 +241,11 @@ def parse_exif_datetime(value) -> Optional[datetime]:
 				corrected_dt = datetime.fromtimestamp(corrected_ts, tz=timezone.utc)
 				logger.info(f"Fixed corrupted DateTimeOriginal: {value} -> {corrected_dt.isoformat()}")
 				return corrected_dt
-			# Add UTC timezone to the parsed datetime
+			# DateTimeOriginal is local wall-clock; convert to UTC using the EXIF
+			# offset when known, else assume it is already UTC.
+			offset = _parse_exif_offset(offset_value)
+			if offset is not None:
+				return (dt - offset).replace(tzinfo=timezone.utc)
 			return dt.replace(tzinfo=timezone.utc)
 		except ValueError:
 			continue
@@ -1071,7 +1096,8 @@ class PhotoProcessor:
 		# Extract captured_at from EXIF DateTimeOriginal (with corruption fix)
 		raw_data = exif_data.get('data', {})
 		captured_at_raw = raw_data.get('DateTimeOriginal') or raw_data.get('CreateDate')
-		captured_at_dt = parse_exif_datetime(captured_at_raw)
+		offset_raw = raw_data.get('OffsetTimeOriginal') or raw_data.get('OffsetTimeDigitized') or raw_data.get('OffsetTime')
+		captured_at_dt = parse_exif_datetime(captured_at_raw, offset_raw)
 		captured_at = captured_at_dt.isoformat() if captured_at_dt else None
 
 		# Return processing results for database creation

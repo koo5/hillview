@@ -17,20 +17,37 @@ Environment:
 """
 
 import json
+import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 
-def parse_exif_datetime(value) -> Optional[datetime]:
+def _parse_exif_offset(offset_value) -> Optional[timedelta]:
+    """Parse an EXIF OffsetTime tag ('+01:00', '-05:00', 'Z') to a timedelta."""
+    if offset_value is None:
+        return None
+    s = str(offset_value).strip()
+    if s in ('Z', 'z'):
+        return timedelta(0)
+    m = re.match(r"([+-])(\d{2}):?(\d{2})$", s)
+    if not m:
+        return None
+    sign = 1 if m.group(1) == '+' else -1
+    return timedelta(minutes=sign * (int(m.group(2)) * 60 + int(m.group(3))))
+
+
+def parse_exif_datetime(value, offset_value=None) -> Optional[datetime]:
     """Parse EXIF datetime value and fix corrupted timestamps.
 
     Handles the bug where milliseconds were written as seconds, causing
     dates like "+58074:03:14 04:05:17". Detects years > 2100 and fixes
     by dividing the timestamp by 1000.
 
-    Returns UTC datetime.
+    Returns a UTC datetime. DateTimeOriginal is a naive local wall-clock; when
+    offset_value (OffsetTimeOriginal) is given it is converted to UTC, else the
+    value is assumed to already be UTC.
     """
     if value is None:
         return None
@@ -67,6 +84,11 @@ def parse_exif_datetime(value) -> Optional[datetime]:
                 ts = dt.timestamp()
                 corrected_ts = ts / 1000
                 return datetime.fromtimestamp(corrected_ts, tz=timezone.utc)
+            # DateTimeOriginal is local wall-clock; convert to UTC via the EXIF
+            # offset when known, else assume it is already UTC.
+            offset = _parse_exif_offset(offset_value)
+            if offset is not None:
+                return (dt - offset).replace(tzinfo=timezone.utc)
             return dt.replace(tzinfo=timezone.utc)
         except ValueError:
             continue
@@ -139,7 +161,8 @@ def main():
             skipped_no_datetime += 1
             continue
 
-        parsed_dt = parse_exif_datetime(datetime_original)
+        offset_original = raw_data.get('OffsetTimeOriginal') or raw_data.get('OffsetTimeDigitized') or raw_data.get('OffsetTime')
+        parsed_dt = parse_exif_datetime(datetime_original, offset_original)
 
         if not parsed_dt:
             print(f"-- WARNING: Could not parse DateTimeOriginal for {photo_id}: {datetime_original}")
