@@ -230,7 +230,7 @@ class SecureUploadClient:
 										   is_public: bool = True, file_data: bytes = None,
 										   captured_at: str = None, version: int = None,
 										   license: str = 'ccbysa4+osm',
-										   title: str = None, keywords: list = None):
+										   title: str = None, notes: str = None, keywords: list = None):
 		"""Request upload authorization with custom parameters.
 
 		Args:
@@ -266,6 +266,8 @@ class SecureUploadClient:
 		# Only include title/keywords when set, so non-pipeline callers are unchanged.
 		if title is not None:
 			upload_request["title"] = title
+		if notes is not None:
+			upload_request["notes"] = notes
 		if keywords is not None:
 			upload_request["keywords"] = keywords
 

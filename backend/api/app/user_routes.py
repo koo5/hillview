@@ -1266,6 +1266,7 @@ class UploadAuthorizationRequest(BaseModel):
 	client_key_id: str  # Key ID that will be used for signing
 	title: Optional[str] = None
 	description: Optional[str] = None
+	notes: Optional[str] = None
 	keywords: Optional[list[str]] = None
 	is_public: bool = True
 	license: Optional[str] = None  # e.g. 'ccbysa4'
@@ -1433,6 +1434,7 @@ async def authorize_upload(
 			file_md5=auth_request.file_md5,
 			title=auth_request.title,
 			description=auth_request.description,
+			notes=auth_request.notes,
 			keywords=auth_request.keywords,
 			is_public=auth_request.is_public,
 			owner_id=current_user.id,
@@ -1722,6 +1724,8 @@ async def get_user_photos(
                 "sizes": photo.sizes,
                 "description": photo.description
             }
+            if photo.notes:
+                photo_data["notes"] = photo.notes
             photo_list.append(photo_data)
 
         # Get total count for this user
