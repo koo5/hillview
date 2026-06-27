@@ -208,8 +208,28 @@ test.describe('Zoom View URL Parameters', () => {
       await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*30000 });
       await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 11*15000 });
 
-      // Wait for viewport bounds to settle and URL to update
-      await page.waitForTimeout(2000);
+      // The OSD viewer fitBounds-animates to the requested region and writes the
+      // settled viewport back to the URL as it goes, which can take longer than a
+      // fixed wait. Poll the URL until it reflects the zoomed-in region instead of
+      // racing a single read 2s in (the previous fixed sleep was the flake source).
+      await expect.poll(() => {
+        const p = getUrlParams(page.url());
+        const x1 = parseFloat(p.get('x1') ?? 'NaN');
+        const y1 = parseFloat(p.get('y1') ?? 'NaN');
+        const x2 = parseFloat(p.get('x2') ?? 'NaN');
+        const y2 = parseFloat(p.get('y2') ?? 'NaN');
+        if ([x1, y1, x2, y2].some(Number.isNaN)) return false;
+        // Viewport contains the requested region (fitBounds may pad it) and is
+        // not the full image.
+        return x1 <= targetX1 + 0.05
+          && y1 <= targetY1 + 0.05
+          && x2 >= targetX2 - 0.05
+          && y2 >= targetY2 - 0.05
+          && (x2 - x1) < 1.0;
+      }, {
+        timeout: 11*5000,
+        message: 'URL x1/y1/x2/y2 should settle to contain the requested zoomed-in region',
+      }).toBe(true);
 
       // The URL should now reflect the viewport (should be close to what we requested)
       const params = getUrlParams(page.url());

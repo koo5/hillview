@@ -58,38 +58,26 @@ test.describe('Photo Loading and Display', () => {
   });
 
   test('should show photos in the gallery', async ({ page }) => {
-    // Wait for photos to load
-    await page.waitForTimeout(5000);
+    // Load deterministic mock photos before asserting anything. Without setup the
+    // page has no photos at the default view, and the previous selector matched
+    // `img[src*="png"]` — which also matches leaflet map tiles — so `.first()`
+    // could resolve to a hidden tile and flake. Mirror the marker test's setup so
+    // there is a real photo to display.
+    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
+    await page.waitForSelector('.source-buttons-group', { timeout: 11*5000 });
 
-    // Look for photo elements in the gallery
-    const photoElements = page.locator('.photo-item, .gallery-photo, [data-testid*="photo"], img[src*="jpg"], img[src*="jpeg"], img[src*="png"]');
+    await setupDefaultMockMapillaryData(page);
+    await setMapLocation(page, 50.0755, 14.4378, 16);
+    await configureSources(page, { 'mapillary': true });
 
-    const photoCount = await photoElements.count();
-    console.log(`🖼️ Found ${photoCount} photos in gallery`);
+    // Photos render on the map as markers; assert at least one is actually visible
+    // (scoped to the photo-marker class, never map tiles).
+    const photoMarkers = page.locator('.optimized-photo-marker:visible');
+    await photoMarkers.first().waitFor({ state: 'visible', timeout: 11*20000 });
 
-    if (photoCount > 0) {
-      expect(photoCount, 'Expected photos to be displayed in gallery').toBeGreaterThan(0);
-
-      // Check if first photo is visible
-      const firstPhoto = photoElements.first();
-      await expect(firstPhoto).toBeVisible();
-    } else {
-      // If no photos found, log what elements we do have
-      const allImages = page.locator('img');
-      const imageCount = await allImages.count();
-      console.log(`📷 Found ${imageCount} total images on page`);
-
-      if (imageCount > 0) {
-        for (let i = 0; i < Math.min(5, imageCount); i++) {
-          const img = allImages.nth(i);
-          const src = await img.getAttribute('src');
-          const alt = await img.getAttribute('alt');
-          console.log(`🢄  Image ${i}: src="${src}", alt="${alt}"`);
-        }
-      }
-
-      // This test should fail if no photos are found
-      expect(photoCount, 'No photos found in gallery - this indicates a photo loading issue').toBeGreaterThan(0);
-    }
+    const markerCount = await photoMarkers.count();
+    console.log(`🖼️ Found ${markerCount} photos shown on the map`);
+    expect(markerCount, 'Expected photos to be displayed').toBeGreaterThan(0);
+    await expect(photoMarkers.first()).toBeVisible();
   });
 });
