@@ -62,6 +62,13 @@ const CUSTOM_PROVIDERS: Record<string, TileProviderConfig> = {
 		attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
 		maxZoom: 23,
 		maxNativeZoom: 20,
+	},
+	// DEV-only: internal Ortofoto ČR (ČÚZK) WMTS proxy. Open data under CC BY 4.0.
+	'oi.jj.internal': {
+		url: 'http://oi.jj.internal:8080/wmts/oi/webmercator/{z}/{x}/{y}.png',
+		attribution: 'Ortofoto ČR &copy; <a href="https://www.cuzk.cz">ČÚZK</a>, <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>',
+		maxZoom: 23,
+		maxNativeZoom: 20,
 	}
 };
 
@@ -81,9 +88,15 @@ export const AVAILABLE_PROVIDERS = {
     'TracesTrack.Topo': 'TracesTrack Topographic',
     /*'TracesTrack.TopoContrast': 'TracesTrack Topo (High Contrast)',*/
 
+    // DEV-only providers (hidden from the picker unless VITE_DEV_MODE === 'true')
+    'oi.jj.internal': 'Ortofoto ČR (DEV)',
+
 } as const;
 
 export type ProviderName = keyof typeof AVAILABLE_PROVIDERS;
+
+// Providers only offered in the picker when running in dev mode
+const DEV_ONLY_PROVIDERS: ReadonlySet<ProviderName> = new Set(['oi.jj.internal']);
 
 // Default tile provider
 export const DEFAULT_TILE_PROVIDER: ProviderName = 'tiles4.ueueeu.eu';
@@ -232,9 +245,12 @@ export function getProviderDisplayName(provider: ProviderName): string {
  * Get all available providers as array
  */
 export function getAvailableProviders(): Array<{key: ProviderName, name: string}> {
-    return Object.entries(AVAILABLE_PROVIDERS).map(([key, name]) => ({
-        key: key as ProviderName,
-        name
-    }));
+    const isDev = import.meta.env.VITE_DEV_MODE === 'true';
+    return Object.entries(AVAILABLE_PROVIDERS)
+        .filter(([key]) => isDev || !DEV_ONLY_PROVIDERS.has(key as ProviderName))
+        .map(([key, name]) => ({
+            key: key as ProviderName,
+            name
+        }));
 }
 
