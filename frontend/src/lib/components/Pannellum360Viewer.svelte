@@ -46,7 +46,11 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="overlay" role="dialog" aria-modal="true" aria-label="360 degree panorama viewer" data-testid="pannellum-360-viewer">
-	<button class="close-btn" on:click={onClose} aria-label="Close 360° viewer">&times;</button>
+	<button class="close-btn" on:click={onClose} aria-label="Close 360° viewer" data-testid="pannellum-360-close">
+		<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+			<path d="M18 6L6 18M6 6L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+		</svg>
+	</button>
 	<div bind:this={container} class="pano-container"></div>
 </div>
 
@@ -54,7 +58,10 @@
 	.overlay {
 		position: fixed;
 		inset: 0;
-		z-index: 40000;
+		/* Match OpenSeadragonViewer's overlay so the viewer sits above the app
+		   chrome (hamburger menu, per-photo gallery buttons) like the flat
+		   zoom view does. A lower value lets those controls bleed through. */
+		z-index: 999999;
 		background: #000;
 	}
 
@@ -63,26 +70,26 @@
 		height: 100%;
 	}
 
+	/* Matches OpenSeadragonViewer's close button: a near-opaque white circle with
+	   a dark glyph, which stays legible against any sky. */
 	.close-btn {
 		position: absolute;
-		top: calc(16px + var(--safe-area-inset-top, 0px));
-		right: calc(16px + var(--safe-area-inset-right, 0px));
-		z-index: 40001;
-		background: rgba(255, 255, 255, 0.15);
+		top: calc(12px + var(--safe-area-inset-top, 0px));
+		right: calc(12px + var(--safe-area-inset-right, 0px));
+		/* Local to the .overlay stacking context — just needs to clear Pannellum's
+		   own controls (z-index ~1-4). */
+		z-index: 10;
+		background: rgba(255, 255, 255, 0.85);
 		border: none;
-		color: white;
-		font-size: 28px;
-		width: 40px;
-		height: 40px;
 		border-radius: 50%;
-		cursor: pointer;
+		width: 44px;
+		height: 44px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		line-height: 1;
+		cursor: pointer;
+		color: #333;
 	}
 
-	.close-btn:hover {
-		background: rgba(255, 255, 255, 0.3);
-	}
+	.close-btn:hover { background: rgba(255, 255, 255, 1); }
 </style>

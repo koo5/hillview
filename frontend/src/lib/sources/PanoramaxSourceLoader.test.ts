@@ -100,25 +100,42 @@ describe('convertPanoramaxItem', () => {
 		expect(convertPanoramaxItem({ id: 'x', geometry: { coordinates: [] } }, source)).toBeNull();
 	});
 
-	it('sets projection from pers:type property', () => {
+	it('sets projection to equirectangular from GPano XMP projection type', () => {
 		const item = {
 			...baseItem,
-			properties: { ...baseItem.properties, 'pers:type': 'equirectangular' }
+			properties: {
+				...baseItem.properties,
+				exif: { 'Xmp.GPano.ProjectionType': 'equirectangular' }
+			}
 		};
 		expect((convertPanoramaxItem(item, source) as any)?.projection).toBe('equirectangular');
 	});
 
-	it('does not set projection when pers:type is absent', () => {
-		const result = convertPanoramaxItem(baseItem, source);
-		expect((result as any)?.projection).toBeUndefined();
-	});
-
-	it('preserves other pers:type values like perspective', () => {
+	it('sets projection to equirectangular from 360° field-of-view', () => {
 		const item = {
 			...baseItem,
-			properties: { ...baseItem.properties, 'pers:type': 'perspective' }
+			properties: {
+				...baseItem.properties,
+				'pers:interior_orientation': { field_of_view: 360 }
+			}
 		};
-		expect((convertPanoramaxItem(item, source) as any)?.projection).toBe('perspective');
+		expect((convertPanoramaxItem(item, source) as any)?.projection).toBe('equirectangular');
+	});
+
+	it('does not set projection for flat photos', () => {
+		const item = {
+			...baseItem,
+			properties: {
+				...baseItem.properties,
+				'pers:interior_orientation': { field_of_view: 72 }
+			}
+		};
+		expect((convertPanoramaxItem(item, source) as any)?.projection).toBeUndefined();
+	});
+
+	it('does not set projection when no 360° signal is present', () => {
+		const result = convertPanoramaxItem(baseItem, source);
+		expect((result as any)?.projection).toBeUndefined();
 	});
 
 	it('falls back to thumb url when hd asset missing', () => {

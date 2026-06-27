@@ -9,6 +9,7 @@
         "@lucide/svelte": "^0.577.0",
         "leaflet-textpath": "^1.3.0",
         "openseadragon": "^6.0.1",
+        "pannellum": "^2.5.7",
         "qrcode": "^1.5.4",
       },
       "devDependencies": {
@@ -777,6 +778,8 @@
     "p-locate": ["p-locate@4.1.0", "", { "dependencies": { "p-limit": "^2.2.0" } }, "sha512-R79ZZ/0wAxKGu3oYMlz8jy/kbhsNrS7SKZ7PxEHBgJ5+F2mtFW2fK2cOtBh1cHYkQsbzFV7I+EoRKe6Yt0oK7A=="],
 
     "p-try": ["p-try@2.2.0", "", {}, "sha512-R4nPAVTAU0B9D35/Gk3uJf/7XYbQcyohSKdvAxIRSNghFl4e71hVoGnBNQz9cWaXxO2I10KTC+3jMdvvoKw6dQ=="],
+
+    "pannellum": ["pannellum@2.5.7", "", {}, "sha512-AHMRYdLPxetwhBg4lO5EgoZ55C/e+wrJF2WaFQIQA18HSVcvLvsdXEjDL7WpD8MPIFwNnH9qoUDsUqP8cF4pgA=="],
 
     "path-exists": ["path-exists@4.0.0", "", {}, ""],
 

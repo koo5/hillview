@@ -123,7 +123,12 @@ export function convertPanoramaxItem(item: any, source: any): PhotoData | null {
 
 	const filename: string = props['original_file:name'] || `${item.id}.jpg`;
 
-	const persType: string | undefined = props['pers:type'];
+	// Panoramax flags 360° panoramas via the GPano XMP projection type in EXIF
+	// and/or a 360° field-of-view in the computed perspective orientation. (The
+	// `pers:type` STAC field assumed previously does not exist in the API.)
+	const gpanoProjection: string | undefined = props.exif?.['Xmp.GPano.ProjectionType'];
+	const fieldOfView = (props['pers:interior_orientation'] || {})['field_of_view'];
+	const isEquirectangular = gpanoProjection === 'equirectangular' || fieldOfView === 360;
 
 	const photo: any = {
 		id: item.id,
@@ -137,7 +142,7 @@ export function convertPanoramaxItem(item: any, source: any): PhotoData | null {
 		altitude: 0,
 		captured_at: Number.isFinite(captured_at) ? captured_at : undefined,
 		sizes: Object.keys(sizes).length > 0 ? sizes : undefined,
-		...(persType ? { projection: persType } : {})
+		...(isEquirectangular ? { projection: 'equirectangular' } : {})
 	};
 
 	// Producer ID lives in providers[]; the geovisio:producer property is just the

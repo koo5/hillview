@@ -764,7 +764,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 	 * Handle marker click - navigate to clicked photo
 	 * If photo is not in range, move the map to the photo's location first
 	 */
-	function handleMarkerClick(photo: PhotoData) {
+	function handleMarkerClick(photo: PhotoData, source: string = 'marker_click') {
 		console.log('🢄Marker clicked:', photo.uid, 'at', photo.coord);
 
 		// Check if photo is already in photosInRange
@@ -790,7 +790,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		if (isInRange) {
 			// Photo is in range, just update bearing to select it
 			console.log('🢄Photo in range, selecting directly');
-			updateBearingWithPhoto(photo, 'marker_click');
+			updateBearingWithPhoto(photo, source);
 		} else {
 			// Photo is not in range, move map to photo location first
 			console.log('🢄Photo not in range, moving map to photo location');
@@ -823,7 +823,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 			});
 
 			// Update bearing to the photo (this stores photoUid so it will be selected once in range)
-			updateBearingWithPhoto(photo, 'marker_click');
+			updateBearingWithPhoto(photo, source);
 
 			// Reset flag after animation
 			setTimeout(() => {
@@ -1155,7 +1155,9 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		// Timeline walk: route the cursor photo through the same select/fly path as a
 		// marker click, and keep the route polyline in sync with the loaded window.
 		unsubTimelineCurrent = timelineCurrent.subscribe((target) => {
-			if (target && get(timelineActive)) handleMarkerClick(target);
+			// Tag the walk's own selection so the timeline's cursor-follow can ignore it
+			// (and the in-range transients the map surfaces while flying to the target).
+			if (target && get(timelineActive)) handleMarkerClick(target, 'timeline_step');
 		});
 		unsubTimelinePhotos = timelinePhotos.subscribe(() => redrawTimelineRoute());
 		unsubTimelineActive = timelineActive.subscribe(() => redrawTimelineRoute());

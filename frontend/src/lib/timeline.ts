@@ -14,7 +14,7 @@
  */
 import { writable, derived, get } from 'svelte/store';
 import type { PhotoData } from './types/photoTypes';
-import { photoInFront, timelinePinned, hunterMode, setHunterMode } from './mapState';
+import { photoInFront, bearingState, timelinePinned, hunterMode, setHunterMode } from './mapState';
 import { http } from './http';
 import { addAlert } from './alertSystem.svelte';
 import { localStorageSharedStore } from './svelte-shared-store';
@@ -430,14 +430,19 @@ hunterMode.subscribe(on => {
 	}
 });
 
-// When the user selects a photo that's already in the loaded window — e.g. clicking its
-// marker on the map — move the cursor (the highlighted row) to it, so the panel follows
-// the map selection and stepping continues from there. Photos *outside* the window are
-// left to the refresh button instead (see timelineStale). Stepping the walk sets
-// photoInFront to the cursor photo, so the index already matches and this is a no-op:
-// no feedback loop.
-photoInFront.subscribe(front => {
-	if (!get(timelineActive) || !front) return;
-	const idx = get(timelinePhotos).findIndex(p => p.uid === front.uid);
+// Follow the user's map selection: when the front photo is set by a user action — a marker
+// click OR swipe / arrow navigation, which both select a specific photo via
+// `updateBearingWithPhoto` (→ bearingState.photoUid) — move the cursor onto it, when it's
+// in the loaded window. The walk's own steps select with source 'timeline_step' and are
+// skipped here, so this can't fight stepping or loop.
+//
+// Subscribing to bearingState.photoUid reads the *target* of the selection — not the
+// in-range neighbours the map surfaces as photoInFront while it flies to an off-screen
+// target — so there's no transient race and no 'target never loaded' edge case. Photos
+// outside the window are left to the refresh button (see timelineStale).
+bearingState.subscribe(bs => {
+	if (!get(timelineActive) || !bs.photoUid || bs.source === 'timeline_step') return;
+	const photos = get(timelinePhotos);
+	const idx = photos.findIndex(p => p.uid === bs.photoUid);
 	if (idx >= 0 && idx !== get(timelineCursor)) jumpToIndex(idx);
 });
