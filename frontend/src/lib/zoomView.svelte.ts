@@ -16,6 +16,7 @@ export interface ZoomViewData {
 	height?: number;
 	photo_id?: string;     // For fetching annotations
 	pyramid?: PyramidMetadata;  // DZI pyramid metadata (when available)
+	equirectangular?: boolean;  // True for 360° panoramas
 }
 
 function createZoomViewStore() {

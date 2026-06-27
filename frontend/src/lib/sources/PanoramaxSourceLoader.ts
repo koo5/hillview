@@ -123,6 +123,8 @@ export function convertPanoramaxItem(item: any, source: any): PhotoData | null {
 
 	const filename: string = props['original_file:name'] || `${item.id}.jpg`;
 
+	const persType: string | undefined = props['pers:type'];
+
 	const photo: any = {
 		id: item.id,
 		uid: `${source.id}-${item.id}`,
@@ -134,7 +136,8 @@ export function convertPanoramaxItem(item: any, source: any): PhotoData | null {
 		source,
 		altitude: 0,
 		captured_at: Number.isFinite(captured_at) ? captured_at : undefined,
-		sizes: Object.keys(sizes).length > 0 ? sizes : undefined
+		sizes: Object.keys(sizes).length > 0 ? sizes : undefined,
+		...(persType ? { projection: persType } : {})
 	};
 
 	// Producer ID lives in providers[]; the geovisio:producer property is just the
