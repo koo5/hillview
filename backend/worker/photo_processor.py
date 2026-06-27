@@ -1031,11 +1031,15 @@ class PhotoProcessor:
 			# UserComment provenance JSON that the Android (Rust) EXIF writer
 			# produces — landing location_source / bearing_source / alt_location in
 			# exif_data['data']['UserComment'] uniformly across both upload paths.
-			# Guarded so a real embedded UserComment (Android) is never clobbered.
+			# ``v`` is the pipeline's metadata-semantics version (v2 == the
+			# clock-drift-corrected UTC DateTimeOriginal); panoramas carry no
+			# embedded UserComment, so the --metadata blob is their only channel
+			# for it. Guarded so a real embedded UserComment (Android, or a webp's
+			# geo.xmp-stamped one) is never clobbered.
 			if not exif_data.setdefault('data', {}).get('UserComment'):
 				provenance = {
 					k: metadata[k]
-					for k in ('location_source', 'bearing_source', 'alt_location')
+					for k in ('location_source', 'bearing_source', 'alt_location', 'v')
 					if metadata.get(k) is not None
 				}
 				if provenance:
