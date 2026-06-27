@@ -213,6 +213,10 @@ export class WebTokenManager implements TokenManager {
 
         const refreshToken = this.cachedTokenData.refresh_token;
         const refreshExpires = this.cachedTokenData.refresh_token_expires;
+        // The access token we're refreshing away from. Used in the 401 branch below
+        // to tell a genuinely terminal rejection (cache unchanged) from another tab
+        // having refreshed in the meantime (cache now holds a different, valid token).
+        const priorAccessToken = this.cachedTokenData.access_token;
 
         if (!refreshExpires) {
             throw new TokenRefreshError('No refresh token expiry stored');
@@ -267,9 +271,16 @@ export class WebTokenManager implements TokenManager {
                 console.warn(`${this.LOG_PREFIX} Refresh failed: ${response.status} ${errorDetail}`);
 
                 if (response.status === 401 || response.status === 403) {
-                    // Optimistic recovery: check if another context refreshed
+                    // Optimistic recovery: another tab may have refreshed while we were
+                    // in flight. Only accept that if the cache now holds a *different*,
+                    // still-valid access token than the one we just failed to refresh.
+                    // A force-logout / wiped session leaves our token time-valid but
+                    // server-rejected; without the token-changed check, expires_at>now
+                    // would mask a genuinely terminal 401 and we'd never log out.
                     await this.refreshCache();
-                    if (this.cachedTokenData && this.cachedTokenData.expires_at > Date.now()) {
+                    if (this.cachedTokenData
+                            && this.cachedTokenData.access_token !== priorAccessToken
+                            && this.cachedTokenData.expires_at > Date.now()) {
                         console.log(`${this.LOG_PREFIX} Token was refreshed by another context`);
                         return {
                             access_token: this.cachedTokenData.access_token,
@@ -304,7 +315,10 @@ export class WebTokenManager implements TokenManager {
             const refreshDuration = Date.now() - refreshStartTime;
 
             if (error instanceof TokenRefreshError) {
-                console.error(`${this.LOG_PREFIX} Token refresh failed permanently after ${refreshDuration}ms`);
+                // Terminal: the refresh token was rejected/expired. This is an expected
+                // end-of-session outcome (the caller logs out gracefully), not a bug —
+                // warn, don't error, so resilience tests' "no error spam" guard holds.
+                console.warn(`${this.LOG_PREFIX} Token refresh failed permanently after ${refreshDuration}ms`);
                 throw error;
             }
 
@@ -322,7 +336,10 @@ export class WebTokenManager implements TokenManager {
                 return this.performRefresh(attempt + 1, maxAttempts);
             }
 
-            console.error(`${this.LOG_PREFIX} Token refresh failed after ${attempt} attempts`);
+            // Transient exhaustion (timeout / network / 5xx, retries spent). The session
+            // is kept and a later attempt / reconnect can recover, so this is a warning,
+            // not an error — keeps the resilience "no error spam" guard meaningful.
+            console.warn(`${this.LOG_PREFIX} Token refresh failed after ${attempt} attempts`);
 
             auth.update(state => ({
                 ...state,

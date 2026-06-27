@@ -90,6 +90,26 @@ describe('WebTokenManager refresh: transient vs terminal', () => {
         await expect(mgr.getValidToken()).rejects.toBeInstanceOf(TokenExpiredError);
         expect(logoutMock).toHaveBeenCalledTimes(1);
     });
+
+    it('logs out on a force-refresh when the token is time-valid but server-rejected', async () => {
+        // The access token has not expired by the clock, but the server rejects it
+        // (force-logout / wiped session). A force refresh must treat the 401 as
+        // terminal: the stale-but-time-valid cache must NOT be mistaken for another
+        // tab having refreshed (regression — expires_at>now used to mask this 401,
+        // so the session was never torn down and the app never reached /login).
+        authStorageMock.getTokenData.mockResolvedValue(validTokenData());
+        (global.fetch as unknown) = vi.fn().mockResolvedValue({
+            ok: false,
+            status: 401,
+            text: async () => 'token revoked',
+        });
+
+        const mgr = new WebTokenManager();
+        await mgr.init();
+
+        await expect(mgr.getValidToken(true)).rejects.toBeInstanceOf(TokenExpiredError);
+        expect(logoutMock).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe('WebTokenManager cross-tab auth sync', () => {

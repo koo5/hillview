@@ -362,7 +362,10 @@ async function performUserFetch(): Promise<User | null> {
         const response = await http.get('/auth/me');
 
         if (!response.ok) {
-            console.error('🢄[AUTH] API request failed:', response.status, response.statusText);
+            // A non-OK /auth/me is handled (userStatus → error, view shows a retry);
+            // it's an expected degraded state under server trouble, not a bug — warn,
+            // don't error, so the resilience "no error spam" guard stays meaningful.
+            console.warn('🢄[AUTH] API request failed:', response.status, response.statusText);
             auth.update(s => ({ ...s, checked: true, userStatus: s.user ? s.userStatus : 'error' }));
             return null;
         }

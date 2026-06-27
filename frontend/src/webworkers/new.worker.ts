@@ -498,8 +498,11 @@ async function loop(): Promise<void> {
 					break;
 
 				case 'loadError':
-					// Handle loading errors from PhotoLoadingProcess
-					console.error('🢄NewWorker: Load error from process:', JSON.stringify(message));
+					// Handle loading errors from PhotoLoadingProcess. The failure is handled
+					// (the process is cleaned up and the worker keeps running), so this is a
+					// degraded-data warning — e.g. a backend endpoint being down — not an
+					// app bug. Warn rather than error so it doesn't read as a crash.
+					console.warn('🢄NewWorker: Load error from process:', JSON.stringify(message));
 					// Mark the process as failed but continue processing
 					if (message.processId) {
 						cleanupProcess(message.processId);

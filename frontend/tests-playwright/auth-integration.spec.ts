@@ -40,6 +40,13 @@ test.describe('Authentication Integration', () => {
     const usernameInput = page.getByTestId('login-username-input');
     const passwordInput = page.getByTestId('login-password-input');
 
+    // In dev mode (VITE_DEV_MODE=true, which the dev server used by these tests
+    // runs with) the login form auto-fills test credentials. Clear them so we
+    // actually exercise the empty-field required-attribute validation below
+    // instead of submitting valid credentials and getting logged in.
+    await usernameInput.fill('');
+    await passwordInput.fill('');
+
     // Verify inputs have required attributes
     await expect(usernameInput).toHaveAttribute('required', '');
     await expect(passwordInput).toHaveAttribute('required', '');
