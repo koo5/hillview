@@ -1,5 +1,6 @@
 /**
- * Shared seeding helpers for the timeline specs.
+ * Shared seeding helpers for the timeline specs. See
+ * ../../docs/playwright-map-tests.md for the recipe and the gotchas these encode.
  *
  * Photos are seeded by *capturing* through the fake camera (chromium-only): the fixture
  * stamps unique pixels into every frame so server MD5 de-dup never fires, and a canvas

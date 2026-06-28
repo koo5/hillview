@@ -64,6 +64,12 @@ export function convertStreamPhoto(photo: any, source: any): PhotoData {
         convertedPhoto.featured = true;
     }
 
+    // Mapillary flags 360° panoramas with is_pano; surface it via the shared
+    // `projection` field that the zoom viewer routes on (same as Panoramax).
+    if (photo.is_pano) {
+        convertedPhoto.projection = 'equirectangular';
+    }
+
     if (photo.filtered) {
         convertedPhoto.filtered = true;
     }

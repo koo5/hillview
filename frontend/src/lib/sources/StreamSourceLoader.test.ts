@@ -35,6 +35,16 @@ describe('convertStreamPhoto', () => {
         expect((result as any).creator).toEqual({ id: 'user-1', username: 'alice' });
     });
 
+    it('maps is_pano to equirectangular projection (Mapillary 360°)', () => {
+        const photo = { ...basePhoto, is_pano: true };
+        expect((convertStreamPhoto(photo, sampleSource) as any).projection).toBe('equirectangular');
+    });
+
+    it('does not set projection for flat photos', () => {
+        const photo = { ...basePhoto, is_pano: false };
+        expect((convertStreamPhoto(photo, sampleSource) as any).projection).toBeUndefined();
+    });
+
     it('builds uid from source.id + photo.id', () => {
         const result = convertStreamPhoto(basePhoto, sampleSource);
         expect(result.uid).toBe('hillview-photo-123');

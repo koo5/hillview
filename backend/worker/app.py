@@ -580,6 +580,21 @@ debug_faults.add_fault_routes(
 	gate=lambda: os.environ.get('DEV_MODE', 'false').lower() == 'true',
 )
 
+# Keep the DEV_MODE-only /debug/* routes (faults, max_pending_tasks) out of the
+# public OpenAPI schema in prod. They're inert there, but there's no reason to
+# advertise them on a no-IP-guard fly.io service. Mirrors the API's openapi
+# filter; gated DEV_MODE-only to match the fault/knob gate above.
+if os.environ.get('DEV_MODE', 'false').lower() != 'true':
+	_full_openapi = app.openapi
+
+	def _openapi_without_debug():
+		schema = _full_openapi()
+		for path in [p for p in schema.get("paths", {}) if "/debug" in p]:
+			del schema["paths"][path]
+		return schema
+
+	app.openapi = _openapi_without_debug
+
 @app.post("/await")
 async def await_handler(task_id: str, request: Request):
 	"""Wait for a background task to complete, sending periodic heartbeats to keep connection alive.
