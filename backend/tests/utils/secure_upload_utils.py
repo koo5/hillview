@@ -21,6 +21,8 @@ from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, ser
 import sys
 import pytest
 import hashlib
+import asyncio
+import random
 
 # Add backend directory to path for imports
 backend_dir = os.path.join(os.path.dirname(__file__), '..', '..')
@@ -38,6 +40,45 @@ class WorkerUnavailableError(Exception):
 	of dumping a full traceback.
 	"""
 	pass
+
+
+# --- Upload backpressure handling -----------------------------------------
+# The worker accepts only MAX_PENDING_TASKS concurrent uploads and rejects the
+# rest with 503 (a client mid-upload may instead see a transport reset). For a
+# bulk uploader (the luigi upload fan-out) these are transient "server busy"
+# signals, not failures — the queue drains in seconds as in-flight uploads
+# finish — so upload_to_worker retries them with bounded, jittered exponential
+# backoff instead of surfacing queue-full as a hard upload failure. We
+# deliberately do NOT follow the server's Retry-After verbatim: it's a static
+# policy value (QUEUE_FULL_RETRY_AFTER_SECONDS, ~500s) meant for mobile clients
+# that should back off for minutes, whereas a colocated bulk uploader wants to
+# re-probe within seconds and a 503 is cheap (sent before the body is read).
+# Bounded by a total wait budget so a genuinely wedged worker still surfaces
+# instead of hanging forever; set HILLVIEW_UPLOAD_RETRY_BUDGET_S=0 to disable
+# (fail fast on the first 503).
+# Default ~8h: a long bulk run can sit behind sustained backpressure, and
+# waiting is almost always better than failing a task — this budget is only the
+# backstop for a genuinely wedged worker, not the expected wait.
+_DEFAULT_UPLOAD_RETRY_BUDGET_S = 8 * 60 * 60
+
+
+def _upload_retry_budget_s() -> float:
+	try:
+		return max(0.0, float(os.getenv(
+			"HILLVIEW_UPLOAD_RETRY_BUDGET_S", str(_DEFAULT_UPLOAD_RETRY_BUDGET_S))))
+	except (TypeError, ValueError):
+		return float(_DEFAULT_UPLOAD_RETRY_BUDGET_S)
+
+
+def _backpressure_delay(attempt: int, base: float = 0.5, cap: float = 20.0) -> float:
+	"""Full-jittered exponential backoff (seconds) before upload retry ``attempt``.
+
+	Full jitter (uniform in [0, ceiling]) decorrelates the many concurrent
+	uploaders — separate luigi processes — so they don't retry in lockstep and
+	re-saturate the worker the instant a slot frees.
+	"""
+	ceiling = min(base * (2 ** max(0, attempt - 1)), cap)
+	return random.uniform(0.0, ceiling) if ceiling > 0 else 0.0
 
 
 def generate_test_captured_at(minutes_ago: int = 10) -> str:
@@ -333,19 +374,51 @@ class SecureUploadClient:
 
 			await self.test_worker_server_connectivity(worker_url)
 
-			response = await client.post(
-				f"{worker_url}/upload",
-				files=files,
-				data=data,
-				headers=headers,
-				timeout=timeout
-			)
+			# Backpressure-aware retry: a 503 (queue full) or a transport reset is
+			# the worker telling us it's busy, not that the upload failed. Retry
+			# with bounded jittered backoff so a bulk uploader can saturate the
+			# worker; any other non-200 (bad license/auth/payload) is permanent
+			# and re-raised at once. See the notes above _backpressure_delay.
+			budget_s = _upload_retry_budget_s()
+			waited_s = 0.0
+			attempt = 0
+			while True:
+				attempt += 1
+				try:
+					response = await client.post(
+						f"{worker_url}/upload",
+						files=files,
+						data=data,
+						headers=headers,
+						timeout=timeout
+					)
+				except httpx.TransportError as e:
+					delay = _backpressure_delay(attempt)
+					if waited_s + delay > budget_s:
+						raise WorkerUnavailableError(
+							f"Worker upload to {worker_url} kept hitting transport "
+							f"errors after {waited_s:.1f}s / {attempt} attempt(s): {e}"
+						) from e
+					await asyncio.sleep(delay)
+					waited_s += delay
+					continue
 
-			if response.status_code == 200:
-				result = response.json()
-				#print(f"✅ Phase 3: Worker processed upload successfully")
-				return result
-			else:
+				if response.status_code == 200:
+					return response.json()
+
+				if response.status_code == 503:
+					delay = _backpressure_delay(attempt)
+					if waited_s + delay > budget_s:
+						# Budget exhausted: surface the queue-full rather than lose
+						# it silently (fail fast at the boundary).
+						raise Exception(
+							f"Worker upload failed: 503 - still backpressured after "
+							f"{waited_s:.1f}s / {attempt} attempt(s): {response.text}"
+						)
+					await asyncio.sleep(delay)
+					waited_s += delay
+					continue
+
 				raise Exception(f"Worker upload failed: {response.status_code} - {response.text}")
 
 

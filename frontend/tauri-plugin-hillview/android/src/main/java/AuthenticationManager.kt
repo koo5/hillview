@@ -54,6 +54,12 @@ class AuthenticationManager(
         private const val KEY_REFRESH_EXPIRES_AT = "refresh_expires_at"
     }
 
+    // expiresAt / refreshExpiresAt must be Z-terminated ISO-8601 instants (e.g.
+    // "2026-06-28T12:19:34.495568Z"). They're read back via Instant.from(ISO_INSTANT.parse(...)),
+    // which requires the trailing 'Z' and rejects a "+00:00" offset — a non-conforming string
+    // throws there and the token is treated as expired/invalid. The backend's Pydantic Token
+    // model emits this exact form; fractional/short TTLs are already absolute instants here, so
+    // there is no minute math or precision to lose.
     suspend fun storeAuthToken(token: String, expiresAt: String, refreshToken: String? = null, refreshExpiresAt: String? = null): Result {
         Log.d(TAG, "Storing auth token, expires at: $expiresAt, has refresh token: ${refreshToken != null}, refresh expires at: $refreshExpiresAt")
         return try {

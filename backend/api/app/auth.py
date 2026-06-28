@@ -66,6 +66,11 @@ class Token(BaseModel):
 	access_token: str
 	refresh_token: Optional[str] = None
 	token_type: str
+	# Pydantic serializes these as Z-terminated ISO-8601 instants (e.g.
+	# "2026-06-28T12:19:34.495568Z"). The Android native token store parses them with
+	# Java's DateTimeFormatter.ISO_INSTANT, which requires the trailing 'Z' and rejects a
+	# "+00:00" offset. So always hand token expiries to clients through this model — not a
+	# hand-rolled dict using datetime.isoformat(), which would emit "+00:00".
 	expires_at: datetime
 	refresh_token_expires_at: Optional[datetime] = None
 

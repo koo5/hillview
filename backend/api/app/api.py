@@ -399,17 +399,48 @@ import featured_routes
 
 app.include_router(featured_routes.router)
 
-import debug_routes
+# Debug + internal-debug routers are pure debug tooling. Outside debug mode we
+# don't even register them: their routes then 404 at the routing layer (not just
+# via @debug_only / require_debug_enabled) and never enter /openapi.json or /docs.
+# Reuses the canonical DEBUG_ENDPOINTS-or-DEV_MODE gate.
+from common import debug_faults
 
-app.include_router(debug_routes.router)
+if debug_faults.is_enabled():
+	import debug_routes
+	app.include_router(debug_routes.router)
 
-import internal_debug_routes
+	import internal_debug_routes
+	app.include_router(internal_debug_routes.router)
+else:
+	# Keep the lightweight liveness ping that used to live in debug_routes --
+	# documented in the schema (it's a public health check, not debug tooling).
+	@app.get("/api/debug")
+	async def debug_health():
+		return {"status": "ok", "message": "API is working properly"}
 
-app.include_router(internal_debug_routes.router)
 
+# Internal/ops routes that must stay mounted in prod (loopback callers, e.g.
+# notification cleanup, set-analysis) are kept out of the public schema by one
+# filter here, rather than include_in_schema= on each decorator -- same
+# /internal/ + /debug rule the secprobe checks for. Future internal routes are
+# covered automatically.
+if not debug_faults.is_enabled():
+	_full_openapi = app.openapi
+	# /api/debug is a public health check, not debug tooling -- keep it listed.
+	keep_in_schema = {"/api/debug"}
+
+	def _openapi_without_internal():
+		schema = _full_openapi()
+		hidden = [p for p in schema.get("paths", {})
+			if p not in keep_in_schema and ("/internal/" in p or "/debug" in p)]
+		for path in hidden:
+			del schema["paths"][path]
+		return schema
+
+	app.openapi = _openapi_without_internal
 
 # Self-hosted Swagger UI (assets bundled in swagger-ui-py package, served same-origin under /docs).
-# Must be registered after all routers so app.openapi() reflects the full schema.
+# Must be registered after all routers so app.openapi() reflects the final schema.
 api_doc(app, config=app.openapi(), url_prefix='/docs', title='Hillview API')
 
 

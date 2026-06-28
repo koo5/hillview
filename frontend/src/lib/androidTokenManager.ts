@@ -132,6 +132,10 @@ export class AndroidTokenManager implements TokenManager {
             const result = await invoke('plugin:hillview|store_auth_token', {
                 token: tokenData.access_token,
                 refresh_token: tokenData.refresh_token,
+                // Forwarded to native as-is: it must stay a Z-terminated ISO-8601 instant.
+                // The Kotlin side parses it with Java ISO_INSTANT, which rejects a "+00:00"
+                // offset. Backend token responses (response_model=Token) already emit the
+                // Z form — don't reformat it here.
                 expires_at: tokenData.expires_at,
                 refresh_expiry: tokenData.refresh_token_expires_at
             }) as { success: boolean; error?: string };
