@@ -189,7 +189,12 @@ class SecureUploadClient:
 			response = await client.get(
 				f"{self.api_url}/auth/me/",
 				headers={"Authorization": f"Bearer {auth_token}"},
-				follow_redirects=True
+				follow_redirects=True,
+				# Match the sibling register-client-key POST below: without an
+				# explicit timeout httpx defaults to 5s, which a backend under a
+				# thundering herd of concurrent uploaders can't always answer in
+				# time — that 5s ReadTimeout was the spurious upload failure.
+				timeout=600_00.0,
 			)
 			if response.status_code != 200:
 				print(f"❌ Phase 1a failed: {response.status_code} - {response.text}")
