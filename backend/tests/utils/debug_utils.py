@@ -24,6 +24,30 @@ def tprint(*args, **kwargs):
 	print(f"[{ts}]", *args, **kwargs)
 
 
+def _describe_exc(e: BaseException) -> str:
+	"""One-line, never-empty description of an exception.
+
+	httpx timeout/transport errors (ReadTimeout, ConnectError, ...) stringify
+	to '' — the cause rides on the class name, not the message — so a bare
+	``str(e)`` yields a useless empty string (the "❌ Error:" with nothing
+	after it). Always keep the type name; append the message when there is one.
+	"""
+	msg = (getattr(e, "message", None) or str(e) or "").strip()
+	return f"{type(e).__name__}: {msg}" if msg else type(e).__name__
+
+
+def _maybe_traceback() -> None:
+	"""Print the full traceback only when HILLVIEW_UPLOAD_DEBUG is set.
+
+	Upload failures are overwhelmingly transport-level (timeouts, 503s, resets)
+	where the 60-line httpx/httpcore stack is pure noise and never names the
+	real cause — ``_describe_exc`` already does. Set HILLVIEW_UPLOAD_DEBUG=1
+	to restore the full stack for genuine debugging.
+	"""
+	if os.environ.get("HILLVIEW_UPLOAD_DEBUG"):
+		traceback.print_exc()
+
+
 @contextmanager
 def backend_test_lock(shared: bool = False):
 	"""Take the per-API-server backend lock (see `tests/lock_util.py`).
@@ -363,7 +387,25 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 	client_keys = upload_client.generate_client_keys()
 	token = get_token()
 	tprint("  Registering client key...")
-	await upload_client.register_client_key(token, client_keys)
+	try:
+		await upload_client.register_client_key(token, client_keys)
+	except Exception as e:
+		# One-time gate before any per-file upload. If the backend can't be
+		# reached / doesn't answer within the HTTP timeout (classically: a
+		# thundering herd of concurrent uploaders saturating a single backend,
+		# e.g. when the startup stagger is dialed down), no file in this batch
+		# can be sent. Record the real cause against every item so the caller's
+		# manifest reads "failed — <cause>" instead of a bare "pending — ", and
+		# return cleanly rather than letting an empty-str() httpx timeout bubble
+		# up to the catch-all as "❌ Error:" + a 60-line transport traceback.
+		msg = (f"client key registration failed: {_describe_exc(e)} "
+			   f"(talking to {upload_client.api_url})")
+		tprint(f"  ✗ {msg} — failing all {total} file(s) in this batch")
+		_maybe_traceback()
+		for i, filename, _description, _extra in items:
+			per_item[i] = {"filename": filename, "status": "failed",
+						   "error": msg, "stage": "register_client_key"}
+		return per_item
 	tprint(f"  Starting {total} uploads with {parallel} parallel workers...")
 
 	async def upload_one(item):
@@ -438,12 +480,12 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				tprint(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
 			except Exception as e:
 				results["failed"] += 1
-				err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__
+				err_text = _describe_exc(e)
 				failed_files.append((filename, err_text))
 				per_item[i] = {"filename": filename, "status": "failed",
 							   "error": err_text, "stage": "exception"}
 				tprint(f"  [{i+1}/{total}] {filename} ✗ {err_text}")
-				traceback.print_exc()
+				_maybe_traceback()
 
 	await asyncio.gather(*[upload_one(item) for item in items])
 
@@ -598,8 +640,8 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 	try:
 		asyncio.run(_upload())
 	except Exception as e:
-		print(f"❌ Error: {e}")
-		traceback.print_exc()
+		print(f"❌ Error: {_describe_exc(e)}")
+		_maybe_traceback()
 
 
 def upload_files(files: list, license: str, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None, manifest_path: str = None, title: str = None, keywords: list = None):
@@ -684,8 +726,8 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 	try:
 		asyncio.run(_upload())
 	except Exception as e:
-		print(f"❌ Error: {e}")
-		traceback.print_exc()
+		print(f"❌ Error: {_describe_exc(e)}")
+		_maybe_traceback()
 	finally:
 		# Best-effort manifest write — runs even on uncaught exception so
 		# the caller (Luigi task) at least sees partial results and can
