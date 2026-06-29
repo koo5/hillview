@@ -2,13 +2,11 @@ import logging
 import re
 from common.SecurityExceptions import SecurityValidationError
 
-from password_strength import PasswordPolicy
-
 try:
+	from password_strength import PasswordPolicy
 	_PASSWORD_STRENGTH_AVAILABLE = True
 except ImportError:
 	_PASSWORD_STRENGTH_AVAILABLE = False
-_PASSWORD_STRENGTH_AVAILABLE = False
 
 
 logger = logging.getLogger(__name__)
