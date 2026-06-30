@@ -65,15 +65,15 @@ test.describe('Timeline walk', () => {
 		await expect(rows.first()).toBeVisible({ timeout: 11 * 15000 });
 		expect(await rows.count()).toBeGreaterThanOrEqual(2);
 
-		// The anchor's owner (the test user) is listed in the tracked users.
-		await expect(page.getByTestId('timeline-user').first()).toBeVisible();
-
 		// Opens narrow by default (thumbnails-only; add-user collapses to "+").
 		await expect(panel).toHaveClass(/narrow/);
 		await expect(page.getByTestId('timeline-add-user')).toHaveText('+');
 		// Width toggle → wide.
 		await page.getByTestId('timeline-width-toggle').click();
 		await expect(panel).not.toHaveClass(/narrow/);
+		// The anchor's owner (the test user) is listed in the tracked users.
+		// (The users section is only shown in wide mode.)
+		await expect(page.getByTestId('timeline-user').first()).toBeVisible();
 		// Toggle back → narrow.
 		await page.getByTestId('timeline-width-toggle').click();
 		await expect(panel).toHaveClass(/narrow/);

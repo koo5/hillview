@@ -1154,7 +1154,15 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 
 		// Timeline walk: route the cursor photo through the same select/fly path as a
 		// marker click, and keep the route polyline in sync with the loaded window.
+		// On (re)mount the cursor is unchanged but the store still fires synchronously.
+		// If the user arrived by navigating to a specific photo (?photo=...) — e.g.
+		// clicking a photo on /activity — that photo must win, so skip this first
+		// re-assertion and let the URL selection stand (the timeline then cursor-follows
+		// it if in-window, or goes stale → refresh button if not). Genuine cursor moves
+		// after mount still drive selection.
+		let timelineFollowReady = !new URLSearchParams(window.location.search).get('photo');
 		unsubTimelineCurrent = timelineCurrent.subscribe((target) => {
+			if (!timelineFollowReady) { timelineFollowReady = true; return; }
 			// Tag the walk's own selection so the timeline's cursor-follow can ignore it
 			// (and the in-range transients the map surfaces while flying to the target).
 			if (target && get(timelineActive)) handleMarkerClick(target, 'timeline_step');
