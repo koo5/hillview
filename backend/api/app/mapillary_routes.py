@@ -267,7 +267,7 @@ async def fetch_mapillary_data(
 	params = {
 		"limit": limit,
 		"bbox": ",".join(map(str, [round(top_left_lon, 7), round(bottom_right_lat,7), round(bottom_right_lon,7), round(top_left_lat,7)])),
-		"fields": "id,geometry,compass_angle,thumb_1024_url,computed_rotation,computed_compass_angle,computed_altitude,captured_at,is_pano,creator",
+		"fields": "id,geometry,compass_angle,thumb_1024_url,thumb_original_url,computed_rotation,computed_compass_angle,computed_altitude,captured_at,is_pano,creator",
 		"access_token": get_mapillary_token(),
 	}
 

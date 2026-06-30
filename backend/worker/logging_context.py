@@ -72,31 +72,39 @@ def task_context(photo_id: str = None, task_id: str = None):
                 current_task_id.set(None)
 
 
+_TASK_LOGGING_INSTALLED = "_hillview_task_logging_installed"
+
 def setup_task_logging():
     """
     Configure the root logger to include task context in all log messages.
 
-    Call this once at application startup.
+    Safe to call multiple times (idempotent per handler). Call again after
+    uvicorn has replaced the root logger's handlers (e.g. from the lifespan)
+    so the new handlers pick up the filter and formatter.
     """
-    # Create and add the filter to the root logger
     task_filter = TaskContextFilter()
 
-    # Get the root logger
-    root_logger = logging.getLogger()
-
-    # Add filter to all handlers
-    for handler in root_logger.handlers:
-        handler.addFilter(task_filter)
-
-    # Also add to root logger itself (catches loggers without handlers)
-    root_logger.addFilter(task_filter)
-
-    # Update format to include task context
+    # Thread ID makes concurrent work obvious: different threads = parallel tasks.
     formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(task_context)s%(message)s'
+        '%(asctime)s - %(name)s - %(levelname)s - [t%(thread)d] - %(task_context)s%(message)s'
     )
 
+    root_logger = logging.getLogger()
+
+    # Add filter to root logger itself (catches all propagated records).
+    # Only add once — the filter object reference is re-created each call but
+    # the sentinel on the logger prevents duplicate installs.
+    if not getattr(root_logger, _TASK_LOGGING_INSTALLED, False):
+        root_logger.addFilter(task_filter)
+        setattr(root_logger, _TASK_LOGGING_INSTALLED, True)
+
+    # Apply formatter + filter to every handler currently on the root logger.
+    # Handlers added after this call (e.g. by uvicorn) need another call —
+    # that's why the lifespan calls this again after uvicorn has started.
     for handler in root_logger.handlers:
-        handler.setFormatter(formatter)
+        if not getattr(handler, _TASK_LOGGING_INSTALLED, False):
+            handler.addFilter(task_filter)
+            handler.setFormatter(formatter)
+            setattr(handler, _TASK_LOGGING_INSTALLED, True)
 
     return task_filter

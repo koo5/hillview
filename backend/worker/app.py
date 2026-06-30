@@ -107,6 +107,7 @@ logger = logging.getLogger(__name__)
 
 # Import and setup task context logging
 from logging_context import setup_task_logging, task_context, current_photo_id, current_task_id
+import processing_state
 setup_task_logging()
 
 
@@ -156,6 +157,11 @@ async def lifespan(app: FastAPI):
 	start_background_loop is defined later in this module; it's only called
 	here at startup time, by which point the module is fully imported.
 	"""
+	# uvicorn replaces the root logger's handlers during startup, so the
+	# setup_task_logging() call at module load time only reaches the old
+	# basicConfig handler. Re-applying here installs the filter + formatter
+	# on uvicorn's handlers so [task=X photo=Y] actually appears in output.
+	setup_task_logging()
 	start_background_loop()
 	yield
 
@@ -236,7 +242,7 @@ logger.info(f"MAX_PENDING_TASKS: {MAX_PENDING_TASKS}")
 # queue at "full" forever, permanently rejecting uploads. On timeout the task
 # errors out through the existing TimeoutError path: the API is notified with
 # retry_after_minutes, the client retries later, and the queue drains.
-QUEUE_WAIT_TIMEOUT_SECONDS = int(os.getenv("QUEUE_WAIT_TIMEOUT_SECONDS", "7600"))
+QUEUE_WAIT_TIMEOUT_SECONDS = int(os.getenv("QUEUE_WAIT_TIMEOUT_SECONDS", "76000"))
 
 
 def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: str = None, anonymization_override: str = None, metadata: Dict[str, Any] = None, quality: int = None, fast: bool = False, files_to_clean: Optional[list] = None):
@@ -350,17 +356,30 @@ from common import debug_faults
 debug_faults.install(app)
 
 
+def _log_worker_status():
+	st = worker_status()
+	logger.info(
+		f"Worker status: pending={st['pending_tasks']} "
+		f"queued_for_slot={st['queued_for_slot']} "
+		f"slots_in_use={st['slots_in_use']}/{st['concurrency']} "
+		f"processing={st['processing']} "
+		f"stalled_in_gate={st['stalled_in_gate']} "
+		f"ram_mb={st['available_ram_mb']}"
+	)
+	active = processing_state.format_active()
+	if active:
+		logger.info(f"Active phases: [{active}]")
+
+
 def background_loop():
 	consecutive_failures = 0
 	while True:
-		l = None
-		task0 = None
 		with pending_background_tasks_mutex:
 			l = len(pending_background_tasks)
-			if l > 0:
-				task0 = list(pending_background_tasks)[0]
+			task0 = list(pending_background_tasks)[0] if l > 0 else None
+
 		if l > 0:
-			logger.info(f"Pending background tasks: {l}")
+			_log_worker_status()
 			try:
 				resp = requests.post(
 					f"{API_URL}/worker_pending_background_tasks_ping",
@@ -389,6 +408,11 @@ def background_loop():
 				logger.warning(f"Failed to ping API with pending tasks: {e}, backing off {delay}s")
 				time.sleep(delay)
 		else:
+			# No async-path tasks, but sync /upload requests don't register in
+			# pending_background_tasks — log via processing_state so their
+			# progress is still visible.
+			if processing_state.format_active():
+				_log_worker_status()
 			consecutive_failures = 0
 			time.sleep(10)
 
@@ -533,6 +557,41 @@ def worker_status() -> dict:
 		"start_stagger_s": start_stagger_s,             # PARALLEL_PROCESSING_START_DELAY (admit interval)
 		"available_ram_mb": avail_mb,
 	}
+
+_PHASE_DOCS = [
+	{"phase": "queued",              "where": "app.py",            "meaning": "Accepted, waiting for a semaphore slot (PARALLEL_PROCESSING_CONCURRENCY cap)"},
+	{"phase": "wait_ram",            "where": "app.py / throttle", "meaning": "Slot acquired, waiting for 500 MB free RAM before entering the threadpool"},
+	{"phase": "wait_stagger_Ns",     "where": "throttle.rate_limit","meaning": "Inside the start-stagger gate; N = reserved delay in seconds (PARALLEL_PROCESSING_START_DELAY)"},
+	{"phase": "wait_ram_1500mb",     "where": "throttle.rate_limit","meaning": "Post-stagger RAM gate; waiting for 1500 MB free before starting YOLO + encoding"},
+	{"phase": "read_exif",           "where": "photo_processor",   "meaning": "Running exiftool to extract EXIF / GPS metadata"},
+	{"phase": "anonymizing",         "where": "photo_processor",   "meaning": "About to enter the throttle gate before YOLO detection"},
+	{"phase": "yolo_scale_1.00",     "where": "anonymize.py",      "meaning": "YOLO inference at full resolution (multi-tile pass)"},
+	{"phase": "yolo_scale_0.50",     "where": "anonymize.py",      "meaning": "YOLO inference at 0.5× resolution (and so on for lower scales)"},
+	{"phase": "blur",                "where": "anonymize.py",      "meaning": "Applying Gaussian blur over detected faces / licence plates"},
+	{"phase": "encode_sizes",        "where": "photo_processor",   "meaning": "Resizing + WebP encoding all size variants (full, 320, 640, 1200, 2048, 3072, 4096)"},
+	{"phase": "dzi_pyramid",         "where": "photo_processor",   "meaning": "Building the DeepZoom tile pyramid for the zoomable viewer"},
+	{"phase": "notifying_api",       "where": "app.py",            "meaning": "POSTing the processing result (EXIF, sizes, detections) back to the API server"},
+]
+
+@app.get("/status")
+async def status():
+	"""Extended status: worker identity, concurrency config, live queue snapshot, per-photo phases. See /status_help for phase definitions."""
+	st = worker_status()
+	return {
+		"worker_identity": WORKER_IDENTITY,
+		"fly_machine_id": FLY_MACHINE_ID,
+		**st,
+		"max_pending_tasks": MAX_PENDING_TASKS,
+		"queue_wait_timeout_s": QUEUE_WAIT_TIMEOUT_SECONDS,
+		"active_phases": processing_state.get_active_list(),
+	}
+
+
+@app.get("/status_help")
+async def status_help():
+	"""Describes every phase that can appear in /status active_phases."""
+	return {"phases": _PHASE_DOCS}
+
 
 @app.get("/ready")
 async def readiness_check():
@@ -756,6 +815,7 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 				logger.error(f"Problematic payload: {payload}")
 				raise
 
+			processing_state.set_phase("notifying_api")
 			logger.info(f"Sending processing result to API server for photo {photo_id}")
 			logger.info(f"Payload: {payload}")
 
@@ -815,6 +875,7 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 			raise HTTPException(status_code=500, detail="Failed to register result with API server")
 
 	finally:
+		processing_state.clear_phase()
 		for path in files_to_clean:
 			cleanup_file_on_error(Path(path))
 		if task_id is not None:
@@ -876,10 +937,14 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 
 		# Bounded waits for a slot and for RAM — on timeout the task aborts
 		# through the TimeoutError handler below instead of wedging the queue.
+		processing_state.set_phase("queued")
+		logger.info(f"Queued for processing slot (pending={pending_tasks_count()})")
 		try:
 			await asyncio.wait_for(processing_semaphore.acquire(), timeout=QUEUE_WAIT_TIMEOUT_SECONDS)
 		except asyncio.TimeoutError:
 			raise TimeoutError(f"No processing slot free after {QUEUE_WAIT_TIMEOUT_SECONDS}s")
+		processing_state.set_phase("wait_ram")
+		logger.info(f"Processing slot acquired")
 		try:
 			await throttle.wait_for_free_ram(500, timeout=QUEUE_WAIT_TIMEOUT_SECONDS)
 

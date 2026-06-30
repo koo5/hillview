@@ -8,6 +8,7 @@ import psutil
 import asyncio
 from contextlib import asynccontextmanager
 import threading
+import processing_state
 
 
 class Throttle:
@@ -53,6 +54,7 @@ class Throttle:
 		# reserve and wait concurrently rather than queueing behind us.
 		delay = start_at - time.monotonic()
 		if delay > 0:
+			processing_state.set_phase(f"wait_stagger_{delay:.0f}s")
 			logger.debug(f"[THROTTLE] {s.tag} start-stagger: waiting {delay:.2f}s for reserved slot")
 			await asyncio.sleep(delay)
 		if ram_mb is not None:
@@ -77,15 +79,19 @@ class Throttle:
 		required_bytes = required_mb * 1024 * 1024
 
 		start_time = time.time()
+		phase_set = False
 		while True:
 			mem = psutil.virtual_memory()
-			logger.debug(
-				f"[THROTTLE] {s.tag} Available RAM: {mem.available / (1024 * 1024):.2f} MB, Required: {required_mb} MB")
+			avail_mb = mem.available / (1024 * 1024)
+			logger.debug(f"[THROTTLE] {s.tag} Available RAM: {avail_mb:.2f} MB, Required: {required_mb} MB")
 			if mem.available >= required_bytes:
 				return
+			if not phase_set:
+				processing_state.set_phase(f"wait_ram_{required_mb}mb")
+				phase_set = True
 			if time.time() - start_time > timeout:
 				logger.error(f"wait_for_free_ram timeout for {s.tag}")
 				raise TimeoutError(f"{s.tag} Timeout waiting for {required_bytes} bytes of free RAM")
-			logger.debug(f"[THROTTLE] {s.tag} Waiting for free RAM...")
+			logger.debug(f"[THROTTLE] {s.tag} Waiting for free RAM ({avail_mb:.0f}/{required_mb} MB)...")
 			await asyncio.sleep(check_interval)
 

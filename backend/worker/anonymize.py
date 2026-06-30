@@ -3,18 +3,15 @@
 import hashlib
 import os
 import logging
+import time
 import cv2
 import torch
 from ultralytics import YOLO
 from detections import TARGET_CLASSES, DETECT_CONFIDENCE, should_blur
 from blur import apply_blur, read_image
+import processing_state
 
-logging.basicConfig(
-	level=logging.INFO,
-	format='%(levelname)s - %(message)s'
-)
-console = logging.StreamHandler()
-console.setLevel(logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 
@@ -141,16 +138,25 @@ def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_siz
 	all_boxes = []
 	step = max(1, int(max_tile_size * (1.0 - overlap)))
 
+	logger.info(f"YOLO multiscale detection: {w}x{h} image, tile={max_tile_size}, overlap={overlap}, conf={conf}")
+
 	scale = 1.0
 	while True:
 		sw = max(1, int(w * scale))
 		sh = max(1, int(h * scale))
 		inv_scale = 1.0 / scale
 
+		xs = _tile_starts(sw, max_tile_size, step)
+		ys = _tile_starts(sh, max_tile_size, step)
+		n_tiles = len(xs) * len(ys)
+		t_scale = time.monotonic()
+		processing_state.set_phase(f"yolo_scale_{scale:.2f}")
+		logger.info(f"YOLO scale {scale:.3f}: {sw}x{sh} image, {n_tiles} tile(s)")
+
 		scaled = cv2.resize(image, (sw, sh), interpolation=cv2.INTER_AREA) if scale < 1.0 else image
 
-		for ty in _tile_starts(sh, max_tile_size, step):
-			for tx in _tile_starts(sw, max_tile_size, step):
+		for ty in ys:
+			for tx in xs:
 				tile = scaled[ty:min(ty + max_tile_size, sh), tx:min(tx + max_tile_size, sw)]
 				results = model_instance(tile, conf=conf)[0]
 				for box in results.boxes:
@@ -164,6 +170,8 @@ def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_siz
 							int((ty + ty2) * inv_scale),
 						), float(box.conf), scale))
 
+		logger.info(f"YOLO scale {scale:.3f}: done in {time.monotonic() - t_scale:.1f}s, {len(all_boxes)} raw boxes so far")
+
 		# stop once the whole image fits in a single tile (we've done a full pass)
 		if sw <= max_tile_size and sh <= max_tile_size:
 			break
@@ -173,7 +181,9 @@ def run_yolo_multiscale(image, model_instance, max_tile_size=1280, min_scale_siz
 
 		scale *= 0.5
 
-	return deduplicate_boxes(all_boxes)
+	deduped = deduplicate_boxes(all_boxes)
+	logger.info(f"YOLO multiscale complete: {len(all_boxes)} raw → {len(deduped)} after dedup")
+	return deduped
 
 
 def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2, conf=DETECT_CONFIDENCE):
@@ -192,7 +202,7 @@ def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2, 
 		if expected_hash is None:
 			raise RuntimeError(f"No sha256 allowlist entry for YOLO weights '{model_name}'")
 		_verify_model_hash(model_path, expected_hash)
-		logging.info(f"YOLO weights sha256 verified: {model_name}")
+		logger.info(f"YOLO weights sha256 verified: {model_name}")
 
 		# Temporarily patch torch.load to use weights_only=False for YOLO model loading
 		original_load = torch.load
@@ -200,7 +210,7 @@ def detect_targets(image, max_tile_size=1280, min_scale_size=4096, overlap=0.2, 
 
 		try:
 			model = YOLO(model_path)
-			logging.info(f"Successfully loaded YOLO model from {model_path}")
+			logger.info(f"Successfully loaded YOLO model from {model_path}")
 		finally:
 			# Restore original torch.load
 			torch.load = original_load
@@ -217,12 +227,13 @@ def anonymize_image(source_path, encoding=None):
 	passed to read_image so untagged EXRs need not carry the embedded header tag.
 	"""
 
+	t0 = time.monotonic()
 	image = read_image(source_path, encoding=encoding)
+	logger.info(f"Image read ({time.monotonic() - t0:.1f}s), starting YOLO detection: {source_path}")
 
-	logging.info(f"Image read, detecting target objects in image: {source_path}")
+	t_detect = time.monotonic()
 	boxes = detect_targets(image)
-
-	logging.info(f"{source_path}: {len(boxes)} target objects detected.")
+	logger.info(f"Detection complete in {time.monotonic() - t_detect:.1f}s: {len(boxes)} boxes — {source_path}")
 
 	# Create detections data structure
 	detections = {
@@ -255,8 +266,11 @@ def anonymize_image(source_path, encoding=None):
 	# or above BLUR_CONFIDENCE. Sub-threshold boxes stay in detected_objects for
 	# the debug overlay / threshold tuning, but the image keeps them visible.
 	to_blur = [o for o in detections["objects"] if o["blurred"]]
-	logging.info(f"Applying blur to {len(to_blur)}/{len(detections['objects'])} detected objects in image: {source_path}")
+	t_blur = time.monotonic()
+	processing_state.set_phase("blur")
+	logger.info(f"Blurring {len(to_blur)}/{len(detections['objects'])} objects: {source_path}")
 	apply_blur(source_path, image, to_blur)
+	logger.info(f"Blur done in {time.monotonic() - t_blur:.1f}s, anonymization total {time.monotonic() - t0:.1f}s")
 	return image, detections
 
 

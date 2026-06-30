@@ -21,6 +21,7 @@ from detections import should_blur
 from throttle import Throttle
 from pydantic import BaseModel
 from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id
+import processing_state
 from common.cdn_uploader import cdn_uploader
 from common.config import get_pics_url
 
@@ -503,6 +504,7 @@ class PhotoProcessor:
 			from anonymize import anonymize_image as _  # noqa: F401
 			logger.info(f"Successfully imported anonymization module")
 
+		processing_state.set_phase("anonymizing")
 		async with throttle.rate_limit(PARALLEL_PROCESSING_START_DELAY, 1500):
 
 			if not anonymization_override:
@@ -541,6 +543,7 @@ class PhotoProcessor:
 			else:
 				size_variants = ['full', 320, 640, 1200, 2048, 3072, 4096]
 
+			processing_state.set_phase("encode_sizes")
 			for size in size_variants:
 
 				# skip if size is larger than original width
@@ -661,6 +664,7 @@ class PhotoProcessor:
 			}
 
 		if not fast:
+			processing_state.set_phase("dzi_pyramid")
 			# Generate DZI pyramid from the anonymized image (not the original source)
 			# Store metadata inline in sizes['full']['pyramid'] so the client can
 			# initialise OpenSeadragon without an extra round-trip for the .dzi file.
@@ -992,6 +996,7 @@ class PhotoProcessor:
 			raise ValueError("Invalid image file content")
 
 		# Extract EXIF data
+		processing_state.set_phase("read_exif")
 		exif_data = self.extract_exif_data(file_path)
 		gps_data = exif_data.get('gps', {})
 		debug_info = exif_data.get('debug', {})

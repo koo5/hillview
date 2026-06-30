@@ -115,7 +115,9 @@ class MapillaryCacheService:
 			query = text(f"""
 				SELECT p.mapillary_id, ST_X(p.geometry) as lon, ST_Y(p.geometry) as lat,
 					   p.compass_angle, p.computed_compass_angle, p.computed_rotation, p.computed_altitude,
-					   p.captured_at, p.is_pano, p.thumb_1024_url, p.creator_username, p.creator_id,
+					   p.captured_at, p.is_pano, p.thumb_1024_url,
+					   p.raw_data->>'thumb_original_url' as thumb_original_url,
+					   p.creator_username, p.creator_id,
 					   0 as grid_x, 0 as grid_y
 				FROM mapillary_photo_cache p
 				WHERE ST_Within(p.geometry, ST_GeomFromText(:bbox_wkt, 4326))
@@ -139,7 +141,9 @@ class MapillaryCacheService:
 				)
 				SELECT mapillary_id, ST_X(geometry) as lon, ST_Y(geometry) as lat,
 					   compass_angle, computed_compass_angle, computed_rotation, computed_altitude,
-					   captured_at, is_pano, thumb_1024_url, creator_username, creator_id, grid_x, grid_y
+					   captured_at, is_pano, thumb_1024_url,
+					   raw_data->>'thumb_original_url' as thumb_original_url,
+					   creator_username, creator_id, grid_x, grid_y
 				FROM cell_photos
 				ORDER BY grid_x, grid_y, captured_at DESC
 				LIMIT :max_photos
@@ -184,6 +188,7 @@ class MapillaryCacheService:
 				"captured_at": format_utc(row.captured_at),
 				"is_pano": row.is_pano,
 				"thumb_1024_url": row.thumb_1024_url,
+				"thumb_original_url": row.thumb_original_url,
 				"creator": {
 					"username": row.creator_username,
 					"id": row.creator_id

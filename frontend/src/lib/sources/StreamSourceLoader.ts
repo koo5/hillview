@@ -25,6 +25,18 @@ export function convertStreamPhoto(photo: any, source: any): PhotoData {
         bearing = 0
     }
 
+    // Map Mapillary thumbnail sizes to the viewer's `sizes`. thumb_original_url
+    // (full resolution) becomes `full`, which the zoom viewers prefer — OpenSeadragon
+    // for flat photos and Pannellum for 360° panoramas (otherwise they fall back to
+    // the 1024px thumb).
+    const mapillarySizes: Record<string, { url: string; width: number; height: number }> = {};
+    if (photo.thumb_1024_url) {
+        mapillarySizes['1024'] = { url: photo.thumb_1024_url, width: 1024, height: 768 };
+    }
+    if (photo.thumb_original_url) {
+        mapillarySizes.full = { url: photo.thumb_original_url, width: 0, height: 0 };
+    }
+
     const convertedPhoto: any = {
         id: photo.id,
         uid: `${source.id}-${photo.id}`,
@@ -39,13 +51,7 @@ export function convertStreamPhoto(photo: any, source: any): PhotoData {
         altitude: photo.computed_altitude || photo.altitude || 0,
         captured_at: photo.captured_at,
         is_pano: photo.is_pano,
-        sizes: photo.sizes || (photo.thumb_1024_url ? {
-            1024: {
-                url: photo.thumb_1024_url,
-                width: 1024,
-                height: 768
-            }
-        } : undefined)
+        sizes: photo.sizes || (Object.keys(mapillarySizes).length > 0 ? mapillarySizes : undefined)
     };
 
     if (photo.title) {

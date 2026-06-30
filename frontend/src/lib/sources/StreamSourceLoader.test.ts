@@ -45,6 +45,19 @@ describe('convertStreamPhoto', () => {
         expect((convertStreamPhoto(photo, sampleSource) as any).projection).toBeUndefined();
     });
 
+    it('exposes thumb_original_url as sizes.full (Mapillary full-res)', () => {
+        const photo = { ...basePhoto, thumb_original_url: 'https://example.com/original.jpg' };
+        const result = convertStreamPhoto(photo, sampleSource) as any;
+        expect(result.sizes?.full?.url).toBe('https://example.com/original.jpg');
+        expect(result.sizes?.['1024']?.url).toBe('https://example.com/thumb.jpg');
+    });
+
+    it('omits sizes.full when no original url is present', () => {
+        const result = convertStreamPhoto(basePhoto, sampleSource) as any;
+        expect(result.sizes?.full).toBeUndefined();
+        expect(result.sizes?.['1024']?.url).toBe('https://example.com/thumb.jpg');
+    });
+
     it('builds uid from source.id + photo.id', () => {
         const result = convertStreamPhoto(basePhoto, sampleSource);
         expect(result.uid).toBe('hillview-photo-123');
