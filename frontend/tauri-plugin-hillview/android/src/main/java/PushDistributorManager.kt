@@ -387,7 +387,7 @@ class PushDistributorManager(private val context: Context) {
      * Register push endpoint with backend server
      * Called from UnifiedPushService when endpoint is received
      */
-    suspend fun registerWithBackend(endpoint: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun registerWithBackend(endpoint: String, pubkey: String? = null, auth: String? = null): Boolean = withContext(Dispatchers.IO) {
         Log.d(TAG, "🔑 Starting backend registration for endpoint: ${endpoint.take(50)}...")
         // Note: Caller should hold registrationMutex to avoid race conditions
         try {
@@ -445,6 +445,12 @@ class PushDistributorManager(private val context: Context) {
                 put("client_signature", signatureData.signature)
                 put("public_key_pem", keyInfo.publicKeyPem)
                 put("key_created_at", keyInfo.createdAt)
+                if (pubkey != null) {
+                    put("webpush_p256dh", pubkey)
+                }
+                if (auth != null) {
+                    put("webpush_auth", auth)
+                }
             }
 
             // Make HTTP request with timeout configuration
@@ -703,7 +709,7 @@ class PushDistributorManager(private val context: Context) {
     /**
      * Register endpoint directly (assumes caller already holds registrationMutex)
      */
-    private suspend fun registerEndpointDirectly(endpoint: String) {
+    private suspend fun registerEndpointDirectly(endpoint: String, pubkey: String? = null, auth: String? = null) {
         Log.d(TAG, "💾 Storing endpoint directly: ${endpoint.take(50)}...")
         // Store the endpoint
         prefs.edit()
@@ -713,7 +719,7 @@ class PushDistributorManager(private val context: Context) {
         try {
             // Register endpoint with backend using existing method
             Log.d(TAG, "🔑 Calling registerWithBackend...")
-            val success = registerWithBackend(endpoint)
+            val success = registerWithBackend(endpoint, pubkey, auth)
             Log.d(TAG, "🔙 Returned from registerWithBackend with success: $success")
 
             if (success) {
@@ -731,13 +737,13 @@ class PushDistributorManager(private val context: Context) {
     /**
      * Handle new endpoint received from UnifiedPush or FCM
      */
-    suspend fun onNewEndpoint(endpoint: String) {
+    suspend fun onNewEndpoint(endpoint: String, pubkey: String? = null, auth: String? = null) {
         Log.d(TAG, "🔗 Received new push endpoint: ${endpoint.take(50)}...")
 
         Log.d(TAG, "🔒 Attempting to acquire mutex for endpoint registration...")
         registrationMutex.withLock {
             Log.d(TAG, "🔓 Mutex acquired for onNewEndpoint")
-            registerEndpointDirectly(endpoint)
+            registerEndpointDirectly(endpoint, pubkey, auth)
         }
     }
 
