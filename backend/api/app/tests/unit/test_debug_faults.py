@@ -12,8 +12,10 @@ from common import debug_faults
 
 @pytest.fixture(autouse=True)
 def enabled_and_clean(monkeypatch):
-    # Active only under DEBUG_ENDPOINTS / DEV_MODE; enable for the matcher tests.
-    monkeypatch.setenv("DEBUG_ENDPOINTS", "true")
+    # Fault injection is DEV_MODE-only (faults_enabled) — enable it for the matcher
+    # tests. DEBUG_ENDPOINTS deliberately does NOT enable it (see the test below).
+    monkeypatch.setenv("DEV_MODE", "true")
+    monkeypatch.delenv("DEBUG_ENDPOINTS", raising=False)
     debug_faults.clear()
     yield
     debug_faults.clear()
@@ -83,3 +85,15 @@ def test_enabled_via_dev_mode(monkeypatch):
     monkeypatch.setenv("DEV_MODE", "1")
     debug_faults.arm("/x")
     assert debug_faults.match("GET", "/x") is not None
+
+
+def test_debug_endpoints_alone_does_NOT_enable_faults(monkeypatch):
+    # Fault injection is intentionally stricter than the read-only debug endpoints:
+    # DEBUG_ENDPOINTS may be on in a staging-ish env, but must never let a fault break
+    # a live request. Only DEV_MODE does. (faults_enabled vs is_enabled.)
+    monkeypatch.setenv("DEBUG_ENDPOINTS", "true")
+    monkeypatch.delenv("DEV_MODE", raising=False)
+    assert debug_faults.is_enabled() is True       # broad debug gate is on
+    assert debug_faults.faults_enabled() is False  # but fault injection is not
+    debug_faults.arm("/x")
+    assert debug_faults.match("GET", "/x") is None

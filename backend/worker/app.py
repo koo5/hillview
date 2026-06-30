@@ -630,14 +630,10 @@ async def debug_set_max_pending_tasks(value: int):
 	return {"old": old, "new": value}
 
 # Chaos-monkey HTTP fault injection. Same typed GET/POST/DELETE shape as the API
-# (common.debug_faults.add_fault_routes), but gated DEV_MODE-only — exactly like
+# (common.debug_faults.add_fault_routes), gated DEV_MODE-only (faults_enabled) — like
 # /debug/max_pending_tasks above — so it's inert in production (this is a real fly.io
 # prod service with no IP guard) and can't be opened by a stray DEBUG_ENDPOINTS.
-debug_faults.add_fault_routes(
-	app,
-	prefix="/debug/faults",
-	gate=lambda: os.environ.get('DEV_MODE', 'false').lower() == 'true',
-)
+debug_faults.add_fault_routes(app, prefix="/debug/faults")
 
 # Keep the DEV_MODE-only /debug/* routes (faults, max_pending_tasks) out of the
 # public OpenAPI schema in prod. They're inert there, but there's no reason to
