@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import sys
 import os
 import secrets
+import uuid
 import logging
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
@@ -10,13 +11,16 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 from pydantic import BaseModel
 
-from common.utc import utcnow, utc_plus_timedelta
+from common.utc import utcnow, utc_plus_timedelta, utc_from_timestamp
 from common.database import get_db
 from common.models import User, TokenBlacklist
-from jwt_service import validate_token, create_access_token, create_refresh_token  # noqa: F401 - re-exported
+from jwt_service import (  # noqa: F401 - re-exported
+	validate_token, create_access_token, create_refresh_token, REFRESH_TOKEN_EXPIRE_MINUTES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +38,24 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "100"
 
 # Test users configuration
 TEST_USERS = os.getenv("TEST_USERS", "false").lower() in ("true", "1", "yes")
+
+
+def is_strict_refresh_rotation_enabled() -> bool:
+	"""Whether to enforce single-use refresh-token rotation with reuse detection.
+
+	Gated for gradual rollout. Old app versions refresh from several contexts
+	(WebView plugin, upload worker, push manager) without a shared refresh lock,
+	so two of them can present the same refresh token at once. Strict mode treats
+	that as token theft and revokes the whole session — which would spuriously log
+	those old clients out. Set STRICT_REFRESH_ROTATION=false while old clients are
+	still in the wild; flip to true (the default) once they've aged out.
+
+	Read per-call (not cached at import) so it can be toggled by tests / a restart
+	without code changes. Only the reuse *enforcement* is gated — logout family
+	revocation and the session-revoked checks stay on regardless, since they don't
+	depend on client concurrency behaviour and never fire for a well-behaved old app.
+	"""
+	return os.getenv("STRICT_REFRESH_ROTATION", "true").strip().lower() in ("true", "1", "yes")
 
 # OAuth2 configuration
 OAUTH_PROVIDERS = {
@@ -181,6 +203,13 @@ async def get_current_user(
 		logger.warning(f"Blacklisted token used by user: {user_id}")
 		raise credentials_exception
 
+	# Session-family revocation: logout (and refresh-token reuse detection) revokes
+	# the whole session by its sid, so *every* access token minted for that session
+	# is rejected — not just the one token that happened to be blacklisted on logout.
+	if await is_session_revoked(token_data_dict.get("sid"), db):
+		logger.warning(f"Revoked session token used by user: {user_id}")
+		raise credentials_exception
+
 	# Debug force-logout flag (in-memory, set via /api/internal/debug/force-logout-user).
 	# Mirrors blacklist semantics without needing the token itself.
 	if is_user_force_logged_out(user_id):
@@ -215,6 +244,95 @@ async def is_token_blacklisted(token: str, db: AsyncSession) -> bool:
 		)
 	)
 	return result.scalars().first() is not None
+
+
+# ------------------------------------------------------------
+# Session-family revocation and refresh-token single-use.
+#
+# Access and refresh tokens minted together share a session id ("sid"); refresh
+# tokens additionally carry a unique per-token id ("jti"). We reuse the existing
+# token_blacklist table (no migration) by storing synthetic keys:
+#   - "sid:<sid>" — a revoked session family (logout / reuse detection)
+#   - "jti:<jti>" — a refresh token that has already been rotated away (spent)
+# Both rows carry the natural expiry so they age out on their own.
+# ------------------------------------------------------------
+def new_session_id() -> str:
+	"""Generate a session-family id shared by an access/refresh token pair."""
+	return str(uuid.uuid4())
+
+
+def new_refresh_jti() -> str:
+	"""Generate a unique id for a single refresh token."""
+	return str(uuid.uuid4())
+
+
+def _session_key(sid: str) -> str:
+	return f"sid:{sid}"
+
+
+def _refresh_jti_key(jti: str) -> str:
+	return f"jti:{jti}"
+
+
+async def is_session_revoked(sid: Optional[str], db: AsyncSession) -> bool:
+	"""True if the given session family has been revoked (logout / reuse)."""
+	if not sid:
+		return False
+	result = await db.execute(
+		select(TokenBlacklist).where(
+			TokenBlacklist.token == _session_key(sid),
+			TokenBlacklist.expires_at > utcnow()
+		)
+	)
+	return result.scalars().first() is not None
+
+
+async def is_refresh_token_spent(jti: Optional[str], db: AsyncSession) -> bool:
+	"""True if this refresh token has already been rotated away (single-use)."""
+	if not jti:
+		return False
+	result = await db.execute(
+		select(TokenBlacklist).where(
+			TokenBlacklist.token == _refresh_jti_key(jti),
+			TokenBlacklist.expires_at > utcnow()
+		)
+	)
+	return result.scalars().first() is not None
+
+
+async def _record_blacklist_key(key: str, user_id: str, expires_at: datetime, reason: str, db: AsyncSession) -> None:
+	"""Insert a synthetic blacklist row, tolerating a concurrent duplicate insert.
+
+	The token column is unique, so a benign race (e.g. two tabs rotating the same
+	refresh token at once) that tries to write the same key twice must not blow up
+	— the row already existing is exactly the outcome we wanted.
+	"""
+	db.add(TokenBlacklist(token=key, user_id=user_id, expires_at=expires_at, reason=reason))
+	try:
+		await db.commit()
+	except IntegrityError:
+		await db.rollback()
+		logger.debug(f"Blacklist key already present (concurrent write): {key}")
+
+
+async def spend_refresh_token(jti: str, user_id: str, expires_at: datetime, db: AsyncSession) -> None:
+	"""Mark a refresh token as used so it cannot be replayed after rotation."""
+	if not jti:
+		return
+	await _record_blacklist_key(_refresh_jti_key(jti), user_id, expires_at, "refresh_rotated", db)
+
+
+async def revoke_session(sid: Optional[str], user_id: str, db: AsyncSession, reason: str = "logout") -> None:
+	"""Revoke a whole session family (all its access + refresh tokens).
+
+	Expiry is set to the maximum refresh-token lifetime so the revocation
+	outlives any refresh token in the family (logout only has the short-lived
+	access token to hand, so we can't read the refresh expiry here).
+	"""
+	if not sid:
+		return
+	expires_at = utc_plus_timedelta(timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES))
+	await _record_blacklist_key(_session_key(sid), user_id, expires_at, reason, db)
 
 
 # ------------------------------------------------------------
@@ -270,7 +388,11 @@ async def blacklist_token(token: str, user_id: str, reason: str, db: AsyncSessio
 		if payload:
 			exp_timestamp = payload.get("exp")
 			if exp_timestamp:
-				expires_at = datetime.fromtimestamp(exp_timestamp)
+				# Must be tz-aware UTC: is_token_blacklisted compares against utcnow().
+				# datetime.fromtimestamp() (no tz) returns naive *local* time, which on a
+				# non-UTC host lands the expiry in the wrong instant and can drop the token
+				# off the blacklist before it truly expires.
+				expires_at = utc_from_timestamp(exp_timestamp)
 			else:
 				# Default to 30 days if no expiration
 				expires_at = utc_plus_timedelta(timedelta(days=30))

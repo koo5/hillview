@@ -143,7 +143,7 @@ export class WebTokenManager implements TokenManager {
                     console.log(`${this.LOG_PREFIX} Refresh token expiring soon, proactive renewal`);
                 }
 
-                this.refreshPromise = this.performRefresh();
+                this.refreshPromise = this.performRefresh(force);
 
                 try {
                     const newToken = await this.refreshPromise;
@@ -204,7 +204,59 @@ export class WebTokenManager implements TokenManager {
         }
     }
 
-    private async performRefresh(attempt: number = 1, maxAttempts: number = 3): Promise<TokenData> {
+    /** Build the API-shaped TokenData from the current numeric cache. */
+    private cachedToTokenData(): TokenData {
+        const c = this.cachedTokenData!;
+        return {
+            access_token: c.access_token,
+            token_type: 'bearer',
+            expires_at: new Date(c.expires_at).toISOString(),
+            refresh_token: c.refresh_token,
+            refresh_token_expires_at: c.refresh_token_expires
+                ? new Date(c.refresh_token_expires).toISOString()
+                : undefined
+        };
+    }
+
+    /**
+     * Run the refresh under a cross-tab exclusive lock (Web Locks API) so only one
+     * tab/worker refreshes at a time. This is what keeps the server's single-use
+     * refresh-token rotation safe: without it, two tabs whose access token expired
+     * would POST /auth/refresh with the SAME refresh token, the server would spend
+     * it once and treat the second as a stolen-token replay — revoking the whole
+     * session and logging the user out everywhere. Serialized + re-reading the
+     * cache first, the loser picks up the winner's freshly-rotated token instead of
+     * replaying the spent one. Degrades to a plain call where locks are unavailable.
+     */
+    private withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+        const locks = typeof navigator !== 'undefined'
+            ? (navigator as Navigator & { locks?: LockManager }).locks
+            : undefined;
+        if (locks?.request) {
+            return locks.request('hillview-auth-refresh', fn) as Promise<T>;
+        }
+        return fn();
+    }
+
+    private async performRefresh(force: boolean = false): Promise<TokenData> {
+        return this.withRefreshLock(async () => {
+            // Re-read the store now that we hold the lock: another tab may have
+            // rotated the tokens while we waited. If so, use theirs and skip the
+            // network entirely — a non-force refresh only needs a currently-valid
+            // access token and a refresh token that isn't due for renewal.
+            await this.refreshCache();
+            if (!force
+                    && this.cachedTokenData
+                    && !(await this.isTokenExpired())
+                    && !(await this.shouldRenewRefreshToken())) {
+                console.log(`${this.LOG_PREFIX} Another context already refreshed; using stored token`);
+                return this.cachedToTokenData();
+            }
+            return this.performRefreshAttempts(1, 3);
+        });
+    }
+
+    private async performRefreshAttempts(attempt: number = 1, maxAttempts: number = 3): Promise<TokenData> {
         await this.ensureCacheInitialized();
 
         if (!this.cachedTokenData?.refresh_token) {
@@ -333,7 +385,7 @@ export class WebTokenManager implements TokenManager {
                 const delayMs = Math.pow(2, attempt - 1) * 1000;
                 console.log(`${this.LOG_PREFIX} Retrying in ${delayMs}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delayMs));
-                return this.performRefresh(attempt + 1, maxAttempts);
+                return this.performRefreshAttempts(attempt + 1, maxAttempts);
             }
 
             // Transient exhaustion (timeout / network / 5xx, retries spent). The session

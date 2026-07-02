@@ -35,7 +35,6 @@ class AuthenticationManager(
     private val clientCrypto: ClientCryptoManager = ClientCryptoManager(context),
 ) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val refreshMutex = Mutex()
 
     /**
      * Invoked when the server rejects the refresh token (401) and the native session
@@ -52,6 +51,17 @@ class AuthenticationManager(
         private const val KEY_REFRESH_TOKEN = "refresh_token"
         private const val KEY_EXPIRES_AT = "expires_at"
         private const val KEY_REFRESH_EXPIRES_AT = "refresh_expires_at"
+
+        // Process-wide refresh lock. MUST be static, not per-instance: several
+        // AuthenticationManager instances exist in the process (WebView plugin,
+        // upload worker, push manager, notifications) and they all share the same
+        // SharedPreferences token store. A per-instance mutex would let two of them
+        // present the same refresh token to /auth/refresh at once, which the
+        // server's strict single-use rotation treats as token theft and answers by
+        // revoking the whole session. One shared mutex serializes every refresh in
+        // the process so that can't happen. Only the refresh path takes this lock;
+        // ordinary authed requests read a valid token lock-free.
+        private val refreshMutex = Mutex()
     }
 
     // expiresAt / refreshExpiresAt must be Z-terminated ISO-8601 instants (e.g.
@@ -127,8 +137,10 @@ class AuthenticationManager(
                 return@withLock tokenAfterLock
             }
 
-            // Try to refresh the token
-            if (refreshTokenIfNeeded()) {
+            // Try to refresh the token. We already hold refreshMutex here, so call
+            // the non-locking core directly — re-entering the mutex would deadlock
+            // (kotlinx Mutex is not reentrant).
+            if (refreshLocked()) {
                 // Return the new token after successful refresh
                 return@withLock getCurrentTokenIfValid()
             }
@@ -239,17 +251,45 @@ class AuthenticationManager(
      * change, force-logout, etc.).
      */
     suspend fun forceRefreshToken(): Boolean {
-        val refreshToken = getRefreshToken() ?: run {
-            Log.w(TAG, "forceRefreshToken: no refresh token available")
-            if (prefs.getString(KEY_AUTH_TOKEN, null) != null) {
-                notificationHelper.showAuthExpiredNotification()
+        // Capture the access token we're moving away from BEFORE we queue for the
+        // lock, so we can tell "another context refreshed while I waited" from "I'm
+        // the one who has to refresh".
+        val priorToken = prefs.getString(KEY_AUTH_TOKEN, null)
+        return refreshMutex.withLock {
+            // If the stored access token changed to a fresh, valid one while we
+            // waited for the lock, another context already refreshed — use its token
+            // rather than presenting our now-spent refresh token again (strict
+            // rotation would treat that replay as theft and revoke the session).
+            val current = prefs.getString(KEY_AUTH_TOKEN, null)
+            if (current != null && current != priorToken && getCurrentTokenIfValid() != null) {
+                Log.d(TAG, "forceRefreshToken: another context already refreshed; using its token")
+                return@withLock true
             }
-            return false
+            val refreshToken = getRefreshToken() ?: run {
+                Log.w(TAG, "forceRefreshToken: no refresh token available")
+                if (prefs.getString(KEY_AUTH_TOKEN, null) != null) {
+                    notificationHelper.showAuthExpiredNotification()
+                }
+                return@withLock false
+            }
+            performTokenRefresh(refreshToken)
         }
-        return performTokenRefresh(refreshToken)
     }
 
-    suspend fun refreshTokenIfNeeded(): Boolean {
+    /**
+     * Public entry: refresh if the access token is expired or the refresh token is
+     * due for proactive renewal. Serialized process-wide via refreshMutex (see the
+     * companion) so no two contexts present the same refresh token at once.
+     */
+    suspend fun refreshTokenIfNeeded(): Boolean = refreshMutex.withLock { refreshLocked() }
+
+    /**
+     * Refresh core. MUST be called while already holding refreshMutex. Re-checks the
+     * need under the lock so concurrent callers that all observed an expired token
+     * collapse into a single network refresh — the losers see the freshly-stored
+     * token here and return without hitting the server again.
+     */
+    private suspend fun refreshLocked(): Boolean {
         val tokenExpired = isTokenExpired()
         val needsRefreshRenewal = shouldRenewRefreshToken()
 
