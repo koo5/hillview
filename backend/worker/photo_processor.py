@@ -20,7 +20,7 @@ from blur import read_image, apply_blackout, normalize_to_srgb
 from detections import should_blur
 from throttle import Throttle
 from pydantic import BaseModel
-from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id
+from common.security_utils import sanitize_filename, validate_file_path, check_file_content, validate_image_dimensions, SecurityValidationError, validate_user_id, IMAGE_TOOL_TIMEOUT
 import processing_state
 from common.cdn_uploader import cdn_uploader
 from common.config import get_pics_url
@@ -473,7 +473,7 @@ class PhotoProcessor:
 			return 0, 0
 
 		cmd = ['identify', '-format', '%w %h', validated_filepath]
-		output = subprocess.check_output(cmd, timeout=300).decode('utf-8')
+		output = subprocess.check_output(cmd, timeout=IMAGE_TOOL_TIMEOUT).decode('utf-8')
 		dimensions = [int(x) for x in output.split()]
 		if orientation in [5, 6, 7, 8]:
 			dimensions = [dimensions[1], dimensions[0]]
@@ -961,7 +961,7 @@ class PhotoProcessor:
 			with open(tiff_path, 'wb') as out:
 				dcraw_result = subprocess.run(
 					['dcraw', '-w', '-T', '-c', file_path],
-					stdout=out, stderr=subprocess.PIPE, timeout=300,
+					stdout=out, stderr=subprocess.PIPE, timeout=IMAGE_TOOL_TIMEOUT,
 				)
 			if dcraw_result.returncode != 0 or os.path.getsize(tiff_path) == 0:
 				try:

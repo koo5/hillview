@@ -32,6 +32,13 @@ MAX_IMAGE_DIMENSIONS = (int(os.environ.get('MAX_IMAGE_WIDTH', 32192)), int(os.en
 #MAX_IMAGE_PIXELS = 167108864
 MAX_IMAGE_PIXELS = int(os.environ.get('MAX_IMAGE_PIXELS', 167108864))
 
+# Timeout (seconds) for external tools that decode a full image file
+# (identify, dcraw). Scales with MAX_FILE_SIZE at 2s per MiB, so the default
+# 150 MiB maps to the long-standing 300s, while e.g. an aux worker with
+# MAX_FILE_SIZE=10000000000 gets ~5.3h to chew through huge panos, possibly
+# several concurrently.
+IMAGE_TOOL_TIMEOUT = int(os.environ.get('IMAGE_TOOL_TIMEOUT', max(300, 2 * MAX_FILE_SIZE // (1024 * 1024))))
+
 
 # Regex patterns for validation
 SAFE_FILENAME_PATTERN = re.compile(r'^[a-zA-Z0-9_\-\.]+$')
