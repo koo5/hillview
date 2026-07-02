@@ -178,6 +178,24 @@ export class AuthStorage {
     }
 
     /**
+     * Run a refresh under the same cross-tab exclusive lock the main-thread token
+     * manager uses ('hillview-auth-refresh'), so the service worker and open tabs
+     * never refresh concurrently. The server enforces single-use refresh-token
+     * rotation and treats a replayed (already-rotated) token as theft — revoking
+     * the whole session — so two contexts must not present the same refresh token
+     * at once. Degrades to a direct call where the Web Locks API is unavailable.
+     */
+    private withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+        const locks = typeof navigator !== 'undefined'
+            ? (navigator as Navigator & { locks?: LockManager }).locks
+            : undefined;
+        if (locks?.request) {
+            return locks.request('hillview-auth-refresh', fn) as Promise<T>;
+        }
+        return fn();
+    }
+
+    /**
      * Refresh the access token using the refresh token.
      * Uses optimistic approach - if refresh fails with 401/403, checks if another context refreshed.
      */
@@ -187,11 +205,22 @@ export class AuthStorage {
             return false;
         }
 
+        return this.withRefreshLock(async () => {
+        // Now that we hold the lock, re-read the store: another tab/worker may have
+        // rotated the tokens while we waited. If the access token is fresh again,
+        // use it instead of replaying our (possibly now-spent) refresh token.
+        const latest = await this.getTokenData();
+        if (latest && latest.expires_at - 30_000 > Date.now()) {
+            console.log('[AuthStorage] Token already refreshed by another context; skipping');
+            return true;
+        }
+        const tokenToUse = latest?.refresh_token || refreshToken;
+
         try {
             const response = await fetch(`${backendUrl}/auth/refresh`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refresh_token: refreshToken })
+                body: JSON.stringify({ refresh_token: tokenToUse })
             });
 
             if (!response.ok) {
@@ -227,6 +256,7 @@ export class AuthStorage {
             console.error('[AuthStorage] Refresh error:', error);
             return false;
         }
+        });
     }
 
 }

@@ -21,14 +21,16 @@ from pydantic import BaseModel, ConfigDict
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import User, UserPublicKey, Photo
-from common.utc import utcnow, format_utc
+from common.utc import utcnow, format_utc, utc_from_timestamp, utc_plus_timedelta
 from photos import delete_all_user_photo_files
-from jwt_service import create_upload_authorization_token
+from jwt_service import create_upload_authorization_token, REFRESH_TOKEN_EXPIRE_MINUTES
 from auth import (
 	authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
 	get_password_hash, Token, UserCreate, UserOut, UserOAuth, RefreshTokenRequest,
 	OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES, public_base_url,
-	blacklist_token, get_current_user, get_current_user_optional_with_query
+	blacklist_token, get_current_user, get_current_user_optional_with_query,
+	new_session_id, new_refresh_jti, revoke_session, spend_refresh_token,
+	is_session_revoked, is_refresh_token_spent, is_strict_refresh_rotation_enabled,
 )
 from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration, get_client_ip, general_rate_limiter
 from common.config import is_rate_limiting_disabled
@@ -206,13 +208,16 @@ async def login_for_access_token(
 	# refresh window quickly; otherwise the normal lifetime applies.
 	from auth import get_user_access_ttl
 	_access_ttl_seconds = get_user_access_ttl(user.id)
+	# One session family (sid) shared by this access/refresh pair; the refresh
+	# token also gets a unique jti so rotation can make it single-use.
+	sid = new_session_id()
 	access_token, expires = create_access_token(
-		data={"sub": user.id, "username": user.username},
+		data={"sub": user.id, "username": user.username, "sid": sid},
 		expires_delta=(_access_ttl_seconds / 60.0) if _access_ttl_seconds else ACCESS_TOKEN_EXPIRE_MINUTES
 	)
 
 	refresh_token, refresh_expires = create_refresh_token(
-		data={"sub": user.username, "user_id": user.id}
+		data={"sub": user.username, "user_id": user.id, "sid": sid, "jti": new_refresh_jti()}
 	)
 
 	return {
@@ -236,6 +241,14 @@ async def logout(
 		if auth_header and auth_header.startswith("Bearer "):
 			token = auth_header[7:]  # Remove "Bearer " prefix
 			await blacklist_token(token, current_user.id, "logout", db)
+			# Revoke the whole session family so the paired refresh token (and any
+			# other still-valid access token from this login) is dead too — otherwise
+			# logout only kills the one access token that happened to be presented,
+			# and the 7-day refresh token keeps minting new access tokens.
+			from jwt_service import validate_token
+			claims = validate_token(token, verify_exp=False)
+			if claims:
+				await revoke_session(claims.get("sid"), current_user.id, db, reason="logout")
 		return {"message": "Successfully logged out"}
 	except Exception as e:
 		log.error(f"Error during logout: {str(e)}")
@@ -311,15 +324,67 @@ async def refresh_access_token(
 				detail="Invalid refresh token"
 			)
 
+		sid = payload.get("sid")
+		jti = payload.get("jti")
+
+		# The session family was revoked (by logout, or by an earlier reuse
+		# detection). Refuse — the whole login is dead. Always enforced: this only
+		# ever fires for a session that was intentionally logged out (or already
+		# flagged for reuse), so it can't spuriously log out a well-behaved old client.
+		if await is_session_revoked(sid, db):
+			raise HTTPException(
+				status_code=status.HTTP_401_UNAUTHORIZED,
+				detail="Invalid refresh token"
+			)
+
+		# Strict single-use rotation + reuse detection. Gated for gradual rollout:
+		# old app versions refresh from several contexts without a shared lock and
+		# can legitimately present the same refresh token twice, which this would
+		# treat as theft. Keep off until those clients age out (see
+		# is_strict_refresh_rotation_enabled). When off, the old token stays valid
+		# after rotation, exactly like the pre-rotation behaviour.
+		if is_strict_refresh_rotation_enabled():
+			# A refresh token that was already rotated away must never work again.
+			# Its reappearance is a theft signal (the legitimate client moved on to
+			# the rotated token), so revoke the entire family — RFC 9700 rotation.
+			if await is_refresh_token_spent(jti, db):
+				log.warning(f"Refresh token reuse detected for user {user.id} (sid={sid}); revoking session family")
+				await revoke_session(sid, user.id, db, reason="refresh_reuse")
+				await security_audit.log_event(
+					db=db,
+					event_type="refresh_token_reuse_detected",
+					user_identifier=user.username,
+					ip_address=get_client_ip(request),
+					user_agent=request.headers.get("user-agent"),
+					event_details={"user_id": user.id, "sid": sid},
+					severity="warning",
+					user_id=user.id
+				)
+				raise HTTPException(
+					status_code=status.HTTP_401_UNAUTHORIZED,
+					detail="Invalid refresh token"
+				)
+
+			# Spend the presented refresh token (mark it rotated) up to its own expiry.
+			refresh_exp_ts = payload.get("exp")
+			spent_expires_at = (
+				utc_from_timestamp(refresh_exp_ts) if refresh_exp_ts
+				else utc_plus_timedelta(datetime.timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES))
+			)
+			await spend_refresh_token(jti, user.id, spent_expires_at, db)
+
+		# Mint a new pair carrying the SAME session family and a fresh jti.
+		session_family = sid or new_session_id()
+
 		# Create new access token
 		access_token, expires = create_access_token(
-			data={"sub": user.id, "username": user.username},
+			data={"sub": user.id, "username": user.username, "sid": session_family},
 			expires_delta=ACCESS_TOKEN_EXPIRE_MINUTES
 		)
 
-		# Optionally create new refresh token (rotate refresh tokens for better security)
+		# Rotate the refresh token (new jti, same family) for reuse detection
 		new_refresh_token, new_refresh_expires = create_refresh_token(
-			data={"sub": user.username, "user_id": user.id}
+			data={"sub": user.username, "user_id": user.id, "sid": session_family, "jti": new_refresh_jti()}
 		)
 
 		# Log successful refresh
@@ -1115,13 +1180,14 @@ async def oauth_login_internal(
 		await db.commit()
 
 	# Create access token and refresh token (just like login endpoint)
+	sid = new_session_id()
 	access_token, expires = create_access_token(
-		data={"sub": user.id, "username": user.username},
+		data={"sub": user.id, "username": user.username, "sid": sid},
 		expires_delta=ACCESS_TOKEN_EXPIRE_MINUTES
 	)
 
 	refresh_token, refresh_expires = create_refresh_token(
-		data={"sub": user.username, "user_id": user.id}
+		data={"sub": user.username, "user_id": user.id, "sid": sid, "jti": new_refresh_jti()}
 	)
 
 	return {
