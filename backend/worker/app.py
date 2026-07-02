@@ -184,6 +184,22 @@ app.add_middleware(
 	allow_headers=["Content-Type", "Authorization", "Accept"],
 )
 
+
+# Security headers. The worker is mostly a machine/JSON API, but it serves /docs
+# (HTML) and receives browser uploads over HTTPS, so nosniff + HSTS are worth it;
+# X-Frame-Options / frame-ancestors are cheap and keep every surface consistent
+# (Hillview is never embedded).
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+	response = await call_next(request)
+	response.headers["X-Content-Type-Options"] = "nosniff"
+	response.headers["X-Frame-Options"] = "DENY"
+	response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+	response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+	response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+	return response
+
+
 # HTTP Bearer security scheme
 security = HTTPBearer()
 

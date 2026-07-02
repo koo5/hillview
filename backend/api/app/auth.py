@@ -55,6 +55,25 @@ OAUTH_PROVIDERS = {
 	}
 }
 
+# Canonical public base URL of this API server, e.g. "https://api.hillview.cz/".
+# When set, OAuth callback URIs are built from it rather than from the request's
+# Host header, so a client-controlled Host can never leak into the redirect_uri
+# sent to OAuth providers. Leave unset in dev, where the host legitimately varies
+# (localhost vs 10.0.2.2 from the Android emulator). Not to be confused with
+# API_URL (worker-internal, includes the /api path).
+API_BASE_URL = os.getenv("API_BASE_URL", "")
+if API_BASE_URL and not API_BASE_URL.endswith("/"):
+	API_BASE_URL += "/"
+
+
+def public_base_url(request: Request) -> str:
+	"""Base URL for building absolute callback URLs, always ending with '/'.
+
+	Prefers the configured canonical API_BASE_URL; falls back to the
+	Host-header-derived request.base_url when unset (dev).
+	"""
+	return API_BASE_URL or str(request.base_url)
+
 # Import password hashing utilities from common
 from common.auth_utils import verify_password, get_password_hash
 

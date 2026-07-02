@@ -4,7 +4,7 @@ Version: 1.0.0
 Summary: Hillview shared utilities
 Requires-Python: >=3.12
 Requires-Dist: python-dotenv
-Requires-Dist: python-jose[cryptography]>=3.4.0
+Requires-Dist: pyjwt[crypto]>=2.8.0
 Requires-Dist: cryptography
 Provides-Extra: db
 Requires-Dist: sqlalchemy[asyncio]==2.0.36; extra == "db"

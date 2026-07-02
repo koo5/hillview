@@ -7,7 +7,7 @@ import os
 from datetime import datetime, timedelta
 from .utc import utc_plus_timedelta
 from typing import Optional, Dict, Any, Tuple
-from jose import JWTError, jwt
+import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 import logging
@@ -93,7 +93,7 @@ def validate_jwt_token(
 		payload = jwt.decode(token, public_key, algorithms=[ALGORITHM], options=options)
 		logger.debug('JWT validation successful, payload: %s', payload)
 		return payload
-	except JWTError as e:
+	except jwt.InvalidTokenError as e:
 		logger.info(f"JWT validation failed: {e}")
 		return None
 

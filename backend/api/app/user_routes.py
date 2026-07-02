@@ -27,7 +27,7 @@ from jwt_service import create_upload_authorization_token
 from auth import (
 	authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
 	get_password_hash, Token, UserCreate, UserOut, UserOAuth, RefreshTokenRequest,
-	OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES,
+	OAUTH_PROVIDERS, ACCESS_TOKEN_EXPIRE_MINUTES, public_base_url,
 	blacklist_token, get_current_user, get_current_user_optional_with_query
 )
 from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration, get_client_ip, general_rate_limiter
@@ -467,12 +467,12 @@ async def oauth_redirect(
 	# Build OAuth URL with appropriate redirect URI
 	if session_id:
 		# Polling flow: always use API server callback regardless of redirect_uri format
-		server_callback_uri = f"{request.base_url}api/auth/oauth-callback"
+		server_callback_uri = f"{public_base_url(request)}api/auth/oauth-callback"
 		log.info(f"Polling flow detected - Server callback URI: {server_callback_uri}")
 	elif (validated_redirect_uri.startswith("cz.hillview://") or
 		validated_redirect_uri.startswith("cz.hillviedev://")):
 		# Legacy mobile flow: OAuth provider should redirect to API server callback
-		server_callback_uri = f"{request.base_url}api/auth/oauth-callback"
+		server_callback_uri = f"{public_base_url(request)}api/auth/oauth-callback"
 		log.info(f"Legacy mobile flow detected - Server callback URI: {server_callback_uri}")
 	else:
 		# Web flow: OAuth provider should redirect to frontend callback
@@ -584,12 +584,12 @@ async def oauth_callback(
 	# Use the same redirect URI logic as the redirect endpoint
 	if polling_session_id:
 		# Polling flow: always use the server callback URI (same as used in OAuth redirect)
-		server_callback_uri = f"{request.base_url}api/auth/oauth-callback"
+		server_callback_uri = f"{public_base_url(request)}api/auth/oauth-callback"
 	elif (final_redirect_uri and
 		(final_redirect_uri.startswith("cz.hillview://") or
 		 final_redirect_uri.startswith("cz.hillviedev://"))):
 		# Mobile flow: used API server callback
-		server_callback_uri = f"{request.base_url}api/auth/oauth-callback"
+		server_callback_uri = f"{public_base_url(request)}api/auth/oauth-callback"
 	else:
 		# Web flow: used frontend callback
 		from urllib.parse import urlparse
