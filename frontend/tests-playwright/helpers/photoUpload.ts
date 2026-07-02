@@ -113,7 +113,6 @@ export async function uploadPhoto(page: Page, photoFilename: string): Promise<st
 
   // Go to photos page
   await page.goto('/photos');
-  await page.waitForLoadState('networkidle');
 
   // Check the license checkbox first (file input is disabled until license is set)
   const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');

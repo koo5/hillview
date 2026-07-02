@@ -125,9 +125,10 @@ export async function setupMockMapillaryData(page: any, mockData: MockMapillaryD
   // Set mock data (generates mock images in PICS_DIR/mapillary-mock/)
   await setMockMapillaryData(page, mockData);
 
-  // Reload page so frontend fetches the new mocked data
+  // Reload page so frontend fetches the new mocked data. reload() already awaits
+  // the 'load' event; callers then wait for concrete markers/elements, so no
+  // networkidle wait is needed here (and it stalls under the dev server).
   await page.reload();
-  await page.waitForLoadState('networkidle');
 }
 
 /**

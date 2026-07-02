@@ -123,6 +123,12 @@ test.describe('Timeline walk', () => {
 		const panel = page.getByTestId('timeline-panel');
 		await expect(panel).toBeVisible({ timeout: 11 * 15000 });
 
+		// The tracked-users section (names, add-user, remove) is hidden in narrow mode,
+		// which is now the default — widen the panel before managing users.
+		await expect(panel).toHaveClass(/narrow/);
+		await page.getByTestId('timeline-width-toggle').click();
+		await expect(panel).not.toHaveClass(/narrow/);
+
 		// Starts with exactly one tracked user (the anchor's owner), shown by name.
 		await expect(page.getByTestId('timeline-user')).toHaveCount(1, { timeout: 11 * 15000 });
 

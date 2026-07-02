@@ -118,6 +118,46 @@ test.describe('Timeline refresh + cursor-follow', () => {
 		await expect(page.getByTestId('timeline-status')).toHaveText('1 / 1', { timeout: 11 * 15000 });
 	});
 
+	test('navigating to a photo from /activity wins over an open walk (not clobbered)', async ({ page, testUsers }) => {
+		test.setTimeout(180_000);
+		await loginAs(page, 'test', testUsers.passwords.test);
+		await openMap(page, CENTER, [idA1, idA2, idB1]);
+
+		// Open the walk anchored on test's A1 → cursor on the oldest of test's two photos.
+		await openTimelineAnchoredOn(page, idA1);
+		const status = page.getByTestId('timeline-status');
+		await expect(status).toHaveText('1 / 2', { timeout: 11 * 15000 });
+
+		// Leave the map for /activity via the in-app menu. This must be a client-side
+		// navigation (a full reload would drop the in-memory walk) so the walk stays open.
+		await page.getByTestId('hamburger-menu').click();
+		await page.getByTestId('nav-activity-link').click();
+		await expect(page).toHaveURL(/\/activity/, { timeout: 11 * 15000 });
+
+		// Click testuser's photo (B1) in the feed → client-side nav back to the map at
+		// ?photo=B1. B1 belongs to a user the walk doesn't track, so it's outside the
+		// loaded window — the regression made the walk re-assert its own cursor (A1) on
+		// remount and swallow this navigation.
+		const photoLink = page.locator(`a[href*="photo=hillview-${idB1}"]`).first();
+		await photoLink.waitFor({ state: 'visible', timeout: 11 * 15000 });
+		await photoLink.click();
+		await expect(page).toHaveURL(new RegExp(`photo=hillview-${idB1}`), { timeout: 11 * 15000 });
+
+		// The navigated-to photo must win: B1 becomes the selected/front photo, and
+		// because it's out of the walk's window the walk goes stale (refresh button) —
+		// it must NOT snap the map back to its own cursor photo (A1).
+		await page.waitForFunction(
+			(pid: string) => !!document.querySelector(`.marker-container[data-photo-id="${pid}"] .bearing-circle.selected`),
+			idB1,
+			{ timeout: 11 * 15000 },
+		);
+		await expect(page.getByTestId('timeline-refresh')).toBeVisible({ timeout: 11 * 15000 });
+		await expect(page.locator(`.marker-container[data-photo-id="${idA1}"] .bearing-circle.selected`)).toHaveCount(0);
+		// The walk stays open and unmoved (cursor never left A1).
+		await expect(page.getByTestId('timeline-panel')).toBeVisible();
+		await expect(status).toHaveText('1 / 2');
+	});
+
 	test('stepping advances through out-of-range photos without cycling or looping', async ({ page, testUsers }) => {
 		test.setTimeout(180_000);
 		await loginAs(page, 'admin', testUsers.passwords.admin);

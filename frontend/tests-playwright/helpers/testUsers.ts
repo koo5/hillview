@@ -76,12 +76,11 @@ export async function setupCleanTestEnvironment(): Promise<void> {
  */
 export async function loginAs(page: any, username: string, password: string) {
   await page.goto('/login');
-  await page.waitForLoadState('networkidle');
 
-  // WebKit can resolve networkidle before the page DOM is fully rendered.
-  // Explicitly wait for the login form to appear with a reasonable timeout
-  // so failures produce an actionable error instead of hitting the global
-  // test timeout.
+  // Wait for the login form to appear (with a reasonable timeout so failures
+  // produce an actionable error instead of hitting the global test timeout).
+  // This is a deterministic ready-signal — better than waitForLoadState('networkidle'),
+  // which both resolves before the DOM is ready and can hang indefinitely.
   await page.getByTestId('login-username-input').waitFor({ state: 'visible', timeout: 11*15000 });
 
   await page.getByTestId('login-username-input').fill(username);
@@ -106,5 +105,4 @@ export async function logoutUser(page: any) {
   await page.getByLabel('Toggle menu').click();
   await page.locator('button:has-text("Logout")').click();
   await page.waitForURL('/login', { timeout: 11*15000 });
-  await page.waitForLoadState('networkidle');
 }
