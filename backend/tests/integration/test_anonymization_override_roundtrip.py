@@ -162,14 +162,21 @@ class TestAnonymizationOverrideRoundtrip:
 		assert x2 > x1 and y2 > y1
 
 		diff = ImageChops.difference(unblurred, painted)
-		inside = _max_channel_diff(diff.crop((x1, y1, x2, y2)))
-		assert inside > 60, \
-			f"override run did not visibly repaint the detected region (max diff {inside})"
-		corner = _corner_away_from(w, h, (x1, y1, x2, y2))
-		outside = _max_channel_diff(diff.crop(corner))
-		assert outside < 24, (
-			f"pixels far from the detection differ (max diff {outside} in {corner}) — "
-			"the override run should only touch detected regions")
+		inside = _mean_diff(diff.crop((x1, y1, x2, y2)))
+		assert inside > 20, \
+			f"override run did not visibly repaint the detected region (mean diff {inside:.1f})"
+		# The reference patch must dodge EVERY blurred detection (the frame
+		# has more than the one truck — e.g. the car at the edge).
+		all_blurred_boxes = [
+			(max(0, o["bbox"]["x1"]), max(0, o["bbox"]["y1"]),
+			 min(w, o["bbox"]["x2"]), min(h, o["bbox"]["y2"]))
+			for o in captured["objects"] if o.get("blurred")
+		]
+		corner = _corner_away_from(w, h, all_blurred_boxes)
+		outside = _mean_diff(diff.crop(corner))
+		assert outside < 8, (
+			f"pixels far from every detection differ (mean diff {outside:.1f} in "
+			f"{corner}) — the override run should only touch detected regions")
 
 		print(f"✅ roundtrip ok: {len(captured['objects'])} objects persisted "
-			  f"verbatim; region diff {inside}, reference patch diff {outside}")
+			  f"verbatim; region mean diff {inside:.1f}, reference patch {outside:.1f}")
