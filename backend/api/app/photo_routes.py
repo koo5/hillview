@@ -470,10 +470,18 @@ async def list_photos(
 	cursor: Optional[str] = None,
 	limit: int = 20,
 	only_processed: bool = False,
+	include_detections: bool = False,
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""List user's photos with cursor-based pagination."""
+	"""List user's photos with cursor-based pagination.
+
+	include_detections: also return each photo's ``detected_objects``
+	(anonymization detections). Opt-in — the blobs can be KBs per photo and
+	the normal gallery listing doesn't need them. Used by
+	``debug_utils.py dump-photos`` to export detections for reuse on another
+	server (the pics pipeline's dev-check → prod flow).
+	"""
 	# Apply photo operations rate limiting
 	await rate_limit_photo_operations(request, current_user.id)
 
@@ -574,7 +582,8 @@ async def list_photos(
 				"owner_id": photo.owner_id,
 				"owner_username": current_user.username,
 				"user_rating": photo_rating['user_rating'],
-				"rating_counts": photo_rating['rating_counts']
+				"rating_counts": photo_rating['rating_counts'],
+				**({"detected_objects": photo.detected_objects} if include_detections else {})
 			})
 
 		return {

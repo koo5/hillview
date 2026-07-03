@@ -602,6 +602,47 @@ def _get_token(user: str = None, password: str = None) -> str:
 		return auth_helper.get_test_user_token("test")
 
 
+def dump_photos(user: str = None, password: str = None):
+	"""Print the user's complete photo list as one JSON array on stdout.
+
+	Machine-readable export: paginates ``GET /photos`` with
+	``include_detections=true`` and emits the per-photo dicts verbatim
+	(``original_filename``, ``user_rating`` / ``rating_counts``,
+	``detected_objects``, ...). Progress goes to stderr so stdout stays pure
+	JSON. Consumed by the pics pipeline's ``apply_dev_ratings.py`` between a
+	checked dev upload and the prod upload — it applies the frontend ratings
+	and copies the dev-computed anonymization detections for reuse.
+
+	Deliberately un-wrapped (no ``❌``-style catch): a failure must exit
+	non-zero with a traceback so the consuming script's ``check_output``
+	fails loudly instead of parsing garbage.
+	"""
+	from .test_utils import API_URL
+	token = _get_token(user, password)
+	photos: list = []
+	cursor = None
+	while True:
+		params = {"limit": 100, "include_detections": "true"}
+		if cursor:
+			params["cursor"] = cursor
+		response = requests.get(
+			f"{API_URL}/photos",
+			headers={"Authorization": f"Bearer {token}"},
+			params=params,
+			timeout=30,
+		)
+		response.raise_for_status()
+		data = response.json()
+		photos.extend(data.get("photos", []))
+		pagination = data.get("pagination", {})
+		if not pagination.get("has_more"):
+			break
+		cursor = pagination["next_cursor"]
+		print(f"… fetched {len(photos)} photos", file=sys.stderr)
+	json.dump(photos, sys.stdout)
+	print()
+
+
 def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, password: str = None, quality: int = None):
 	"""Upload photos with randomized locations and bearings."""
 	import asyncio
@@ -644,13 +685,18 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 		_maybe_traceback()
 
 
-def upload_files(files: list, license: str, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None, manifest_path: str = None, title: str = None, keywords: list = None):
+def upload_files(files: list, license: str, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None, manifest_path: str = None, title: str = None, keywords: list = None, anonymization_override: str = None):
 	"""Upload files from command line paths.
 
 	metadata: JSON string matching the worker's BrowserMetadata schema
 	(latitude/longitude/bearing/altitude/captured_at/orientation_code/location_source).
 	Use for formats that can't carry EXIF, e.g. EXR — feed via
 	`url_to_exif.py --json <url>`.
+
+	anonymization_override: JSON string forwarded to the worker's
+	anonymization_override form field — a detected_objects dict ({"objects":
+	[...], ...}) applies those precomputed detections verbatim instead of
+	running the detector. skip_anonymization wins over this when both are set.
 
 	license: License identifier sent to authorize-upload. Required — the CLI
 	rejects upload-files without --license, since the legal terms of an
@@ -716,7 +762,7 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 				loc = ""
 			return f"  [{i+1}/{total}] {filename} ✓{loc}"
 
-		anon_override = "[]" if skip_anonymization else None
+		anon_override = "[]" if skip_anonymization else anonymization_override
 		params = UploadParams(
 			license=license, version=version, title=title, keywords=keywords,
 			anonymization_override=anon_override, quality=quality, fast=fast, metadata=metadata,
@@ -935,6 +981,7 @@ def main():
 		print("  python debug_utils.py populate-photos 6     # Create N test photos (max 6)")
 		print("  python debug_utils.py upload-random-photos [N] [--parallel P] [--user U --pass P] [--quality Q]")
 		print("  python debug_utils.py upload-files --license L [...] file1.jpg ...  (run 'upload-files --help' for all flags)")
+		print("  python debug_utils.py dump-photos [--user U --pass P]  # full photo list (ratings + detections) as JSON on stdout")
 		print("  python debug_utils.py mock-mapillary        # Set up mock Mapillary data")
 		print("  python debug_utils.py clear-mapillary       # Clear mock Mapillary data")
 		print("  python debug_utils.py verify-signature <message_json> <signature_base64> <public_key_pem>")
@@ -1017,6 +1064,14 @@ def main():
 		parser.add_argument("--pass", dest="password", help="login password (use with --user)")
 		parser.add_argument("--skip-anonymization", action="store_true",
 			help="skip face/plate anonymization (for noanon tagdirs)")
+		parser.add_argument("--anonymization-override",
+			help="JSON for the worker's anonymization_override field: a "
+			     "detected_objects dict (an 'objects' key) reuses precomputed "
+			     "detections verbatim instead of re-running the detector — the "
+			     "pics pipeline ships dev-computed detections to prod this way. "
+			     "--skip-anonymization wins if both are given. REQUIRES a worker "
+			     "that understands the 'objects' key; an older worker container "
+			     "would read it as an empty rectangle list and SKIP anonymization")
 		parser.add_argument("--fast", action="store_true",
 			help="skip pyramid / 640_llm / EXIF copy; fast WebP encode")
 		parser.add_argument("--version", type=int,
@@ -1060,7 +1115,28 @@ def main():
 				skip_anonymization=opts.skip_anonymization, version=opts.version,
 				description=opts.description, quality=opts.quality, fast=opts.fast,
 				metadata=opts.metadata, manifest_path=opts.manifest,
-				title=opts.title, keywords=opts.keywords)
+				title=opts.title, keywords=opts.keywords,
+				anonymization_override=opts.anonymization_override)
+	elif command == "dump-photos":
+		import argparse
+		parser = argparse.ArgumentParser(
+			prog="debug.sh dump-photos",
+			description="Print the user's full photo list (ratings + anonymization "
+			            "detections) as one JSON array on stdout.",
+			allow_abbrev=False,
+		)
+		parser.add_argument("--user", help="login username (default: the shared 'test' user)")
+		parser.add_argument("--pass", dest="password", help="login password (use with --user)")
+		parser.add_argument("--api-url", help="override the API base URL")
+		opts = parser.parse_args(sys.argv[2:])
+		if opts.api_url is not None:
+			# Same rebinding dance as upload-files: API_URL is bound at import.
+			os.environ["API_URL"] = opts.api_url
+			from . import test_utils as _test_utils
+			_test_utils.API_URL = opts.api_url
+			globals()["API_URL"] = opts.api_url
+		# No lock: read-only, like the `photos` command.
+		dump_photos(opts.user, opts.password)
 	elif command == "mock-mapillary":
 		with backend_test_lock():
 			setup_mock_mapillary()

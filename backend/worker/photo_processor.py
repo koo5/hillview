@@ -116,8 +116,18 @@ class AnonymizationOverride(BaseModel):
 	- None (not provided): auto-detect faces/plates and blur them
 	- Empty list []: skip anonymization entirely
 	- List of rectangles: blur specific areas (future feature)
+	- Dict with an "objects" key: PRECOMPUTED detections — the
+	  detected_objects value from a previous processing of the same image
+	  bytes (e.g. copied from a dev server by the pics pipeline's
+	  apply_dev_ratings.py). The objects whose ``blurred`` flag (or the
+	  ``should_blur`` fallback for legacy entries) says so are blurred with
+	  their real class_ids (stick figures preserved), and the dict is
+	  persisted to ``detected_objects`` VERBATIM — class names, confidences,
+	  model_name and sub-threshold near-misses all survive for future
+	  re-anonymization / threshold tuning.
 	"""
 	rectangles: List[Dict[str, int]] = []  # Each dict: {x, y, width, height}
+	detections: Optional[Dict[str, Any]] = None  # verbatim detected_objects dict
 
 	@classmethod
 	def from_json_string(cls, json_str: Optional[str]) -> Optional["AnonymizationOverride"]:
@@ -129,6 +139,8 @@ class AnonymizationOverride(BaseModel):
 			if isinstance(data, list):
 				return cls(rectangles=data)
 			elif isinstance(data, dict):
+				if "objects" in data:
+					return cls(detections=data)
 				return cls(**data)
 			else:
 				logger.warning(f"Invalid anonymization_override type: {type(data)}")
@@ -139,8 +151,9 @@ class AnonymizationOverride(BaseModel):
 
 	@property
 	def skip_anonymization(self) -> bool:
-		"""Returns True if anonymization should be skipped (empty rectangles list)."""
-		return len(self.rectangles) == 0
+		"""Returns True if anonymization should be skipped (empty rectangles
+		list and no precomputed detections)."""
+		return self.detections is None and len(self.rectangles) == 0
 
 
 # Canonical definition lives in exceptions.py (lightweight module) so that
@@ -510,7 +523,22 @@ class PhotoProcessor:
 			if not anonymization_override:
 				image, detections = await self._anonymize_image(source_path, encoding=encoding)
 			else:
-				if anonymization_override.skip_anonymization:
+				if anonymization_override.detections is not None:
+					# Precomputed detections: reuse another run's rects on the
+					# same bytes instead of re-running the detector, and
+					# persist the dict verbatim (provenance survives — see
+					# AnonymizationOverride). Blur decision per object follows
+					# the shared consumer convention (detections.py).
+					detections = anonymization_override.detections
+					objects = detections.get("objects") or []
+					to_blur = [o for o in objects if o.get("blurred", should_blur(o))]
+					logger.info(f"Applying precomputed detections for {unique_id}: "
+								f"blurring {len(to_blur)}/{len(objects)} objects")
+					image = read_image(source_path, encoding=encoding)
+					if to_blur:
+						from blur import apply_blur
+						apply_blur(source_path, image, to_blur)
+				elif anonymization_override.skip_anonymization:
 					logger.info(f"Skipping anonymization for {unique_id} due to override")
 					image = read_image(source_path, encoding=encoding)
 					detections = {"objects": [], "manual": True}
@@ -932,6 +960,9 @@ class PhotoProcessor:
 			- None or "null": auto-detect faces/plates and blur them (default)
 			- "[]": skip anonymization entirely
 			- "[{...}]": use specific rectangles (future feature)
+			- '{"objects": [...], ...}': precomputed detected_objects — blur
+			  per the stored blurred flags and persist verbatim (see
+			  AnonymizationOverride)
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
 		"""
 
