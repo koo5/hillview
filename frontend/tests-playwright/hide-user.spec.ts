@@ -39,14 +39,12 @@ async function apiHideUser(
 /** Navigate to another user's profile page. Returns the userId from the URL. */
 async function goToOtherUserProfile(page: any): Promise<string> {
 	await page.goto('/users');
-	await page.waitForLoadState('networkidle');
 
 	// Find a user card that isn't the logged-in user ('test')
 	const otherCard = page.locator('[data-testid^="user-card-"]:not([data-testid="user-card-test"])');
 	await expect(otherCard.first()).toBeVisible({ timeout: 11*10000 });
 	await otherCard.first().click();
 	await page.waitForURL(/\/users\/[^/]+$/);
-	await page.waitForLoadState('networkidle');
 
 	const url = page.url();
 	const userId = url.split('/users/')[1];
@@ -71,13 +69,12 @@ test.describe('Hide User', () => {
 
 		// Navigate to own profile via users list
 		await page.goto('/users');
-		await page.waitForLoadState('networkidle');
+		await expect(page.locator('.users-grid')).toBeVisible({ timeout: 11*10000 });
 
 		const ownCard = page.locator('[data-testid="user-card-test"]');
 		if (await ownCard.count() > 0) {
 			await ownCard.click();
 			await page.waitForURL(/\/users\/[^/]+$/);
-			await page.waitForLoadState('networkidle');
 
 			await expect(page.locator('[data-testid="user-page-hide-user"]')).not.toBeVisible();
 		}
@@ -85,13 +82,12 @@ test.describe('Hide User', () => {
 
 	test('user profile page hides button when not authenticated', async ({ page }) => {
 		await page.goto('/users');
-		await page.waitForLoadState('networkidle');
+		await expect(page.locator('.users-grid')).toBeVisible({ timeout: 11*10000 });
 
 		const userCards = page.locator('[data-testid^="user-card-"]');
 		if (await userCards.count() > 0) {
 			await userCards.first().click();
 			await page.waitForURL(/\/users\/[^/]+$/);
-			await page.waitForLoadState('networkidle');
 
 			await expect(page.locator('[data-testid="user-page-hide-user"]')).not.toBeVisible();
 		}
@@ -150,7 +146,6 @@ test.describe('Hide User', () => {
 
 		// Navigate to /hidden and switch to users tab
 		await page.goto('/hidden');
-		await page.waitForLoadState('networkidle');
 		await page.locator('[data-testid="users-tab"]').click();
 
 		// Verify the hidden user entry is listed
@@ -166,7 +161,6 @@ test.describe('Hide User', () => {
 
 		// Get another user's ID
 		await page.goto('/users');
-		await page.waitForLoadState('networkidle');
 		const otherCard = page.locator('[data-testid^="user-card-"]:not([data-testid="user-card-test"])');
 		await expect(otherCard.first()).toBeVisible({ timeout: 11*10000 });
 		await otherCard.first().click();
@@ -178,7 +172,6 @@ test.describe('Hide User', () => {
 
 		// Go to /hidden page
 		await page.goto('/hidden');
-		await page.waitForLoadState('networkidle');
 		await page.locator('[data-testid="users-tab"]').click();
 
 		// Verify the hidden user is listed
@@ -206,7 +199,6 @@ const MAP_URL = '/?lat=50.1153&lon=14.4938&zoom=18';
 /** Navigate to the map at the test photo GPS coords and enable Hillview source. */
 async function navigateToMap(page: Page) {
 	await page.goto(MAP_URL);
-	await page.waitForLoadState('networkidle');
 	await ensureSourceEnabled(page, 'hillview', true);
 }
 
@@ -319,7 +311,6 @@ const hideVariants: HideVariant[] = [
 		name: 'via user page',
 		hideAction: async (page: Page, uploaderUserId: HillviewUserId) => {
 			await page.goto(`/users/${uploaderUserId}`);
-			await page.waitForLoadState('networkidle');
 			await page.locator('[data-testid="user-page-hide-user"]').click();
 			await expect(page.locator('[data-testid="hide-user-dialog"]')).toBeVisible();
 			await page.locator('[data-testid="hide-user-reason"]').fill('hiding via user page');
@@ -353,7 +344,6 @@ test.describe('Hide User - Full Flow', () => {
 
 			// Step 4: Get target user ID from /users page
 			await page.goto('/users');
-			await page.waitForLoadState('networkidle');
 			await page.locator('[data-testid="user-card-test"]').click();
 			await page.waitForURL(/\/users\/[^/]+$/);
 			const targetOwnerIdFromUrl = page.url().split('/users/')[1];
@@ -374,7 +364,6 @@ test.describe('Hide User - Full Flow', () => {
 
 			// Step 8: Reload and verify the hide persists
 			await page.reload();
-			await page.waitForLoadState('networkidle');
 			await ensureSourceEnabled(page, 'hillview', true);
 			await assertPhotoVisibleButNotFromUser(page, targetOwnerId);
 		});

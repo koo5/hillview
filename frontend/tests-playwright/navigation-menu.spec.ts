@@ -11,7 +11,6 @@ async function openMenu(page: import('@playwright/test').Page) {
 test.describe('Navigation Menu', () => {
 	test('should open menu and show core links', async ({ page }) => {
 		await page.goto('/bestof');
-		await page.waitForLoadState('networkidle');
 
 		// Menu should not be visible initially
 		await expect(page.getByTestId('nav-menu')).toBeHidden();
@@ -28,7 +27,6 @@ test.describe('Navigation Menu', () => {
 
 	test('should show login link when unauthenticated', async ({ page }) => {
 		await page.goto('/bestof');
-		await page.waitForLoadState('networkidle');
 
 		await openMenu(page);
 
@@ -40,7 +38,6 @@ test.describe('Navigation Menu', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto('/bestof');
-		await page.waitForLoadState('networkidle');
 
 		await openMenu(page);
 
@@ -50,7 +47,6 @@ test.describe('Navigation Menu', () => {
 
 	test('should navigate to activity page', async ({ page }) => {
 		await page.goto('/bestof');
-		await page.waitForLoadState('networkidle');
 
 		await openMenu(page);
 		await page.getByTestId('nav-activity-link').click();
@@ -60,7 +56,6 @@ test.describe('Navigation Menu', () => {
 
 	test('should navigate to bestof page from settings', async ({ page }) => {
 		await page.goto('/settings');
-		await page.waitForLoadState('networkidle');
 
 		await openMenu(page);
 		await page.getByTestId('bestof-menu-link').click();
@@ -72,7 +67,6 @@ test.describe('Navigation Menu', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto('/bestof');
-		await page.waitForLoadState('networkidle');
 
 		await openMenu(page);
 		await page.getByTestId('nav-logout-button').click();

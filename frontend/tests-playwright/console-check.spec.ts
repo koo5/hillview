@@ -27,9 +27,6 @@ test.describe('Console Error Check', () => {
     console.log('🢄🔍 Navigating to main page...');
     await page.goto('/');
     
-    console.log('🢄🔍 Waiting for network idle...');
-    await page.waitForLoadState('networkidle');
-    
     console.log('🢄🔍 Waiting 3 seconds for app initialization...');
     await page.waitForTimeout(3000);
 

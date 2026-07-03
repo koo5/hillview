@@ -38,19 +38,15 @@ test.describe('Auth Scenarios', () => {
 
       // Verify account page works while logged in
       await page.goto('/account');
-      await page.waitForLoadState('networkidle');
       await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: 11*10000 });
 
       // Logout
       await page.goto('/');
-      await page.waitForLoadState('networkidle');
       await logoutUser(page);
 
       // Account page should no longer show profile
       await page.goto('/account');
-      await page.waitForLoadState('networkidle');
-      const hasUsername = await page.getByTestId('account-username').isVisible().catch(() => false);
-      expect(hasUsername).toBe(false);
+      await expect(page.getByTestId('account-username')).toBeHidden({ timeout: 11*10000 });
     });
   });
 
@@ -60,7 +56,6 @@ test.describe('Auth Scenarios', () => {
 
     test('wrong password then correct password succeeds', async ({ page, testUsers }) => {
       await page.goto('/login');
-      await page.waitForLoadState('networkidle');
 
       // First attempt — wrong password
       await page.getByTestId('login-username-input').fill('test');
@@ -81,7 +76,6 @@ test.describe('Auth Scenarios', () => {
 
     test('wrong username then correct credentials succeeds', async ({ page, testUsers }) => {
       await page.goto('/login');
-      await page.waitForLoadState('networkidle');
 
       // Wrong username
       await page.getByTestId('login-username-input').fill('nonexistent_user_xyz');
@@ -118,7 +112,6 @@ test.describe('Auth Scenarios', () => {
       // attempt → 401 → logout → redirect) means we need to wait for it all to
       // finish rather than racing the URL check.
       await page.reload();
-      await page.waitForLoadState('networkidle');
       await page.waitForURL('/login');
 
       // Re-login with fresh credentials succeeds
@@ -167,16 +160,13 @@ test.describe('Auth Scenarios', () => {
 
       // Navigate to account
       await page.goto('/account');
-      await page.waitForLoadState('networkidle');
       await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 11*10000 });
 
       // Navigate to home
       await page.goto('/');
-      await page.waitForLoadState('networkidle');
 
       // Navigate back to account — should still be logged in
       await page.goto('/account');
-      await page.waitForLoadState('networkidle');
       await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 11*10000 });
     });
 
@@ -184,12 +174,10 @@ test.describe('Auth Scenarios', () => {
       await loginAsTestUser(page, testUsers.passwords.test);
 
       await page.goto('/account');
-      await page.waitForLoadState('networkidle');
       await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 11*10000 });
 
       // Hard reload
       await page.reload();
-      await page.waitForLoadState('networkidle');
       await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 11*10000 });
     });
   });
@@ -204,7 +192,6 @@ test.describe('Auth Scenarios', () => {
       const password = 'StrongTestPassword123!';
 
       await page.goto('/login');
-      await page.waitForLoadState('networkidle');
 
       // Switch to register form
       await page.getByTestId('login-toggle-form-button').click();
@@ -229,7 +216,6 @@ test.describe('Auth Scenarios', () => {
 
     test('register with existing username shows error', async ({ page, testUsers }) => {
       await page.goto('/login');
-      await page.waitForLoadState('networkidle');
 
       // Switch to register form
       await page.getByTestId('login-toggle-form-button').click();
@@ -246,7 +232,6 @@ test.describe('Auth Scenarios', () => {
 
     test('toggle between login and register forms preserves no stale state', async ({ page }) => {
       await page.goto('/login');
-      await page.waitForLoadState('networkidle');
 
       // Should start in login mode
       await expect(page.getByTestId('login-submit-button')).toHaveText('Login');
@@ -272,18 +257,15 @@ test.describe('Auth Scenarios', () => {
       // Login as 'test'
       await loginAsTestUser(page, testUsers.passwords.test);
       await page.goto('/account');
-      await page.waitForLoadState('networkidle');
       await expect(page.getByTestId('account-username')).toHaveText('test', { timeout: 11*10000 });
 
       // Logout
       await page.goto('/');
-      await page.waitForLoadState('networkidle');
       await logoutUser(page);
 
       // Login as 'admin'
       await loginAs(page, 'admin', testUsers.passwords.admin);
       await page.goto('/account');
-      await page.waitForLoadState('networkidle');
       await expect(page.getByTestId('account-username')).toHaveText('admin', { timeout: 11*10000 });
     });
   });
@@ -304,7 +286,6 @@ test.describe('Auth Scenarios', () => {
 
     test('submit button is disabled while loading', async ({ page, testUsers }) => {
       await page.goto('/login');
-      await page.waitForLoadState('networkidle');
 
       await page.getByTestId('login-username-input').fill('test');
       await page.getByTestId('login-password-input').fill(testUsers.passwords.test);

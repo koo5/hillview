@@ -27,7 +27,6 @@ test.describe('Photo Upload Tests', () => {
 
   test('should handle upload validation correctly', async ({ page }) => {
     await page.goto('/photos');
-    await page.waitForLoadState('networkidle');
 
     const uploadButton = page.locator('[data-testid="upload-submit-button"]');
     const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
@@ -57,7 +56,6 @@ test.describe('Photo Upload Tests', () => {
 
     // Go to photos page
     await page.goto('/photos');
-    await page.waitForLoadState('networkidle');
 
     console.log('🢄Current URL:', await page.url());
 
@@ -129,7 +127,6 @@ test.describe('Photo Upload Tests', () => {
   test('multi-file upload should work correctly', async ({ page }) => {
     // Navigate to photos page
     await page.goto('/photos');
-    await page.waitForLoadState('networkidle');
 
     // Check the license checkbox first (file input is disabled until license is set)
     const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
@@ -193,7 +190,6 @@ test.describe('Photo Upload Tests', () => {
   test('should upload photos and verify exact filenames in My Photos page', async ({ page }) => {
     // Navigate to My Photos page
     await page.goto('/photos');
-    await page.waitForLoadState('networkidle');
 
     // Verify we're on the photos page
     await expect(page.locator('h1')).toContainText('My Photos');
@@ -252,7 +248,6 @@ test.describe('Photo Upload Tests', () => {
 
     // Verify all photos are uploaded and visible in the My Photos page
     await page.reload();
-    await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
 
     // Check that we have more photos than initially
@@ -291,7 +286,7 @@ test.describe('Photo Upload Tests', () => {
   test('should delete uploaded photos by exact filename', async ({ page }) => {
     // First, ensure we have some photos to delete
     await page.goto('/photos');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('h1')).toContainText('My Photos', { timeout: 11*10000 });
 
     // Get current photo cards
     const photoCards = page.locator('[data-testid="photo-item"]');
@@ -310,7 +305,7 @@ test.describe('Photo Upload Tests', () => {
       await page.locator('[data-testid="upload-submit-button"]').click();
       await page.waitForTimeout(3000);
       await page.reload();
-      await page.waitForLoadState('networkidle');
+      await expect(page.locator('[data-testid="photo-item"]').first()).toBeVisible({ timeout: 11*10000 });
     }
 
 

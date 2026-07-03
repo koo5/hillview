@@ -5,9 +5,6 @@ test.describe('Map Navigation and Photo Turning', () => {
     // Navigate to the main page
     await page.goto('/');
 
-    // Wait for the app to load
-    await page.waitForLoadState('networkidle');
-
     // Wait for map to be ready
     await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
   });

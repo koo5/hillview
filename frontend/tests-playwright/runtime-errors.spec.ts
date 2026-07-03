@@ -4,9 +4,6 @@ test.describe('Runtime Error Detection', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the main page
     await page.goto('/');
-
-    // Wait for the app to load
-    await page.waitForLoadState('networkidle');
   });
 
   test('should not have "pos is not defined" errors', async ({ page }) => {

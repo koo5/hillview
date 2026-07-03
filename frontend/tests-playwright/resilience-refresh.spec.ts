@@ -26,7 +26,8 @@ test.describe('Resilience: refresh failures', () => {
         await armFault('/api/auth/refresh', { status: 503 });
 
         await page.goto('/');
-        await page.waitForLoadState('networkidle').catch(() => {});
+        // Staying on the map (not bounced to /login) means the map renders.
+        await page.locator('.leaflet-container').waitFor({ state: 'visible', timeout: 11*10000 }).catch(() => {});
 
         expect(page.url()).not.toContain('/login');
 

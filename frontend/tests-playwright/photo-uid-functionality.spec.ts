@@ -18,7 +18,6 @@ test.describe('Photo UID Functionality', () => {
 
       // Navigate with photo uid in URL
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18&bearing=45&photo=hillview-test-photo-123');
-      await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
 
       // Check that photo parameter is parsed
@@ -75,7 +74,6 @@ test.describe('Photo UID Functionality', () => {
       for (const invalidUid of invalidCases) {
         await test.step(`Testing invalid photo uid: ${invalidUid}`, async () => {
           await page.goto(`/?lat=50.0755&lon=14.4378&photo=${encodeURIComponent(invalidUid)}`);
-          await page.waitForLoadState('networkidle');
           await page.waitForTimeout(500);
 
           // Should not crash on invalid uid
@@ -96,7 +94,6 @@ test.describe('Photo UID Functionality', () => {
 
       // Navigate directly with mapillary photo uid
       await page.goto('/?lat=50.0755&lon=14.4378&photo=mapillary-abc123');
-      await page.waitForLoadState('networkidle');
       await page.waitForSelector('.source-buttons-group', { timeout: 11*10000 });
 
       // Check that mapillary source is enabled
@@ -113,7 +110,6 @@ test.describe('Photo UID Functionality', () => {
 
       // Navigate directly with hillview photo uid
       await page.goto('/?lat=50.0755&lon=14.4378&photo=hillview-test-123');
-      await page.waitForLoadState('networkidle');
       await page.waitForSelector('.source-buttons-group', { timeout: 11*10000 });
 
       // Check that hillview source is enabled
@@ -140,7 +136,6 @@ test.describe('Photo UID Functionality', () => {
 
       // Navigate to photos page
       await page.goto('/photos');
-      await page.waitForLoadState('networkidle');
       await page.waitForTimeout(2000);
 
       // Look for a photo with share functionality
@@ -165,13 +160,13 @@ test.describe('Photo UID Functionality', () => {
     test('should construct valid share URLs with photo coordinates and uid', async ({ page }) => {
       // Test the URL construction utility directly by navigating to users page
       await page.goto('/users');
-      await page.waitForLoadState('networkidle');
+      await expect(page.locator('.users-grid')).toBeVisible({ timeout: 11*10000 });
 
       const userCards = page.locator('[data-testid^="user-card-"]');
       if (await userCards.count() > 0) {
         await userCards.first().click();
         await page.waitForURL(/\/users\/[^\/]+$/);
-        await page.waitForLoadState('networkidle');
+        await page.locator('.photos-section, .empty-state').first().waitFor({ state: 'visible', timeout: 11*10000 });
 
         // Look for clickable photos with location data
         const clickablePhotos = page.locator('.photo-item.clickable');
@@ -200,7 +195,6 @@ test.describe('Photo UID Functionality', () => {
       const { errors } = collectErrors(page);
 
       await page.goto('/activity?lat=50.0755&lon=14.4378&photo=hillview-activity-test');
-      await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
 
       // Check URL parsing works on activity page
@@ -216,7 +210,6 @@ test.describe('Photo UID Functionality', () => {
       const { errors } = collectErrors(page);
 
       await page.goto('/photos?lat=50.0755&lon=14.4378&photo=hillview-photos-test');
-      await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
 
       // Check URL parsing works on photos page
@@ -237,7 +230,6 @@ test.describe('Photo UID Functionality', () => {
 
       // Navigate to users list
       await page.goto('/users');
-      await page.waitForLoadState('networkidle');
 
       // Click on the test user's card (the user we just uploaded photos for)
       const testUserCard = page.locator('[data-testid="user-card-test"]');
@@ -246,7 +238,6 @@ test.describe('Photo UID Functionality', () => {
 
       // Wait for navigation to user profile
       await page.waitForURL(/\/users\/[a-f0-9-]+$/i, { timeout: 11*10000 });
-      await page.waitForLoadState('networkidle');
 
       // Find a photo item that has location (clickable)
       const photoItems = page.locator('[data-testid="photo-item"]');
@@ -280,18 +271,15 @@ test.describe('Photo UID Functionality', () => {
 
       // Start at main page with photo uid
       await page.goto(`/?${baseParams}`);
-      await page.waitForLoadState('networkidle');
-      expect(page.url()).toContain(photoUid);
+      await expect(page).toHaveURL(new RegExp(photoUid));
 
       // Verify direct navigation to routes with photo uid works
       await page.goto(`/activity?${baseParams}`);
-      await page.waitForLoadState('networkidle');
-      expect(page.url()).toContain(photoUid);
+      await expect(page).toHaveURL(new RegExp(photoUid));
 
       // Navigate to photos page with photo uid
       await page.goto(`/photos?${baseParams}`);
-      await page.waitForLoadState('networkidle');
-      expect(page.url()).toContain(photoUid);
+      await expect(page).toHaveURL(new RegExp(photoUid));
     });
   });
 
@@ -300,7 +288,6 @@ test.describe('Photo UID Functionality', () => {
       const { errors } = collectErrors(page);
 
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18');
-      await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1000);
 
       // Should work normally without photo parameter
@@ -321,7 +308,6 @@ test.describe('Photo UID Functionality', () => {
       for (const malformedUid of malformedCases) {
         await test.step(`Testing malformed photo uid: ${malformedUid}`, async () => {
           await page.goto(`/?lat=50.0755&lon=14.4378&photo=${malformedUid}`);
-          await page.waitForLoadState('networkidle');
           await page.waitForTimeout(500);
 
           // Should handle gracefully without crashing (app may display error page)

@@ -12,7 +12,6 @@ test.describe('Camera Capture', () => {
 		await addCameraInitScript(page);
 
 		await loginAsTestUser(page, testUsers.passwords.test);
-		await page.waitForLoadState('networkidle');
 	});
 
 	test('should capture two photos, save to IndexedDB, and show auto-upload prompt', async ({ page }) => {

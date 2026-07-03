@@ -12,7 +12,8 @@ test.describe('Contact Form', () => {
 
     // Navigate to contact page
     await page.goto('/contact');
-    await page.waitForLoadState('networkidle');
+    // Wait for the logged-in UI (user-info panel) to render before asserting.
+    await expect(page.locator('.user-info')).toBeVisible({ timeout: 11*10000 });
 
     // Verify user is properly logged in - this should NOT be a guest
     const isLoggedIn = await page.locator('.user-info').isVisible();
@@ -74,7 +75,6 @@ test.describe('Contact Form', () => {
   test('should submit contact form as guest user', async ({ page, testUsers }) => {
     // Don't login - test as guest
     await page.goto('/contact');
-    await page.waitForLoadState('networkidle');
 
     // Verify user is NOT logged in (should show guest message)
     await expect(page.locator('text=You\'re sending this message as a guest')).toBeVisible();
@@ -123,7 +123,6 @@ test.describe('Contact Form', () => {
 
   test('should validate form fields', async ({ page }) => {
     await page.goto('/contact');
-    await page.waitForLoadState('networkidle');
 
     const submitButton = page.locator('button[type="submit"]');
 

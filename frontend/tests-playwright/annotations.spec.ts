@@ -202,7 +202,6 @@ test.describe('Annotation Tests', () => {
 
     // Navigate to the map centred on the test photo's GPS coords
     await page.goto('/?lat=50.1153&lon=14.4938&zoom=18');
-    await page.waitForLoadState('networkidle');
 
     // Enable Hillview source
     await ensureSourceEnabled(page, 'hillview', true);

@@ -11,9 +11,6 @@ test.describe('Photo Loading and Display', () => {
     // Navigate to the main page
     await page.goto('/');
 
-    // Wait for the app to load
-    await page.waitForLoadState('networkidle');
-
     // Wait for initial setup
     await page.waitForTimeout(3000);
   });

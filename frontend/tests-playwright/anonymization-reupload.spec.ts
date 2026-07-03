@@ -42,7 +42,6 @@ test.describe('Anonymization re-upload (web)', () => {
 
 		// Login triggers photo sync (auth subscription in captureQueue.ts)
 		await loginAsTestUser(page, testUsers.passwords.test);
-		await page.waitForLoadState('networkidle');
 
 		// Initial upload completes at implicit version 1
 		await waitForUploadedCount(page, 1);
@@ -53,7 +52,6 @@ test.describe('Anonymization re-upload (web)', () => {
 
 		// Open My Photos and find our photo's menu
 		await page.goto('/photos');
-		await page.waitForLoadState('networkidle');
 
 		const refreshButton = page.locator('[data-testid="refresh-photos-button"]');
 		if (await refreshButton.isVisible()) {

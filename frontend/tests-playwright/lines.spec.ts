@@ -3,7 +3,6 @@ import { test, expect } from './fixtures';
 test.describe('Lines Component', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
     await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
   });
 

@@ -12,7 +12,6 @@ const TEST_PHOTO_LNG = 14.4938;
 async function openMapWithFrontPhoto(page: any, password: string) {
 	await loginAsTestUser(page, password);
 	await page.goto(`/?lat=${TEST_PHOTO_LAT}&lon=${TEST_PHOTO_LNG}&zoom=18`);
-	await page.waitForLoadState('networkidle');
 	await ensureSourceEnabled(page, 'hillview', true);
 	await page.waitForFunction(
 		() => document.querySelectorAll('.marker-container[data-photo-id]').length > 0,
