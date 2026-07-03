@@ -93,6 +93,15 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 	let unsubTimelineCurrent: (() => void) | null = null;
 	let unsubTimelinePhotos: (() => void) | null = null;
 	let unsubTimelineActive: (() => void) | null = null;
+	// Throttle for timeline stepping: rapid prev/next (key autorepeat, mashing the
+	// panel buttons) would select — and start loading — every intermediate photo,
+	// and the resulting storm of interrupted fly animations can leave Leaflet's
+	// panes offset against the tiles. Instead, a lone step selects instantly, and a
+	// burst selects the latest cursor photo at most once per interval, with a
+	// trailing fire so the photo the cursor rests on is always selected.
+	const TIMELINE_STEP_THROTTLE_MS = 100;
+	let timelineStepTimer: ReturnType<typeof setTimeout> | null = null;
+	let timelineStepFiredAt = 0;
 	let elMap: any;
 	const fov_circle_radius_px = 70;
 
@@ -1163,9 +1172,22 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		let timelineFollowReady = !new URLSearchParams(window.location.search).get('photo');
 		unsubTimelineCurrent = timelineCurrent.subscribe((target) => {
 			if (!timelineFollowReady) { timelineFollowReady = true; return; }
+			if (timelineStepTimer) clearTimeout(timelineStepTimer);
+			timelineStepTimer = null;
+			if (!target || !get(timelineActive)) return;
 			// Tag the walk's own selection so the timeline's cursor-follow can ignore it
 			// (and the in-range transients the map surfaces while flying to the target).
-			if (target && get(timelineActive)) handleMarkerClick(target, 'timeline_step');
+			const elapsed = Date.now() - timelineStepFiredAt;
+			if (elapsed >= TIMELINE_STEP_THROTTLE_MS) {
+				timelineStepFiredAt = Date.now();
+				handleMarkerClick(target, 'timeline_step');
+			} else {
+				timelineStepTimer = setTimeout(() => {
+					timelineStepTimer = null;
+					timelineStepFiredAt = Date.now();
+					if (get(timelineActive)) handleMarkerClick(target, 'timeline_step');
+				}, TIMELINE_STEP_THROTTLE_MS - elapsed);
+			}
 		});
 		unsubTimelinePhotos = timelinePhotos.subscribe(() => redrawTimelineRoute());
 		unsubTimelineActive = timelineActive.subscribe(() => redrawTimelineRoute());
@@ -1283,6 +1305,10 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		unsubTimelinePhotos?.();
 		unsubTimelineActive?.();
 		unsubTimelineCurrent = unsubTimelinePhotos = unsubTimelineActive = null;
+		if (timelineStepTimer) {
+			clearTimeout(timelineStepTimer);
+			timelineStepTimer = null;
+		}
 		if (timelineRoute && map) {
 			map.removeLayer(timelineRoute);
 			timelineRoute = null;

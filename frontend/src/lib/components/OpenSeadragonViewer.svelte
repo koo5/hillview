@@ -863,6 +863,7 @@
 			: buildTileSource();
 
 		const options = {
+			zoomPerScroll: 2.5,
 			element: container,
 			drawer: 'canvas' as const,
 			tileSources: initialSource,

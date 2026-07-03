@@ -20,3 +20,4 @@ backend/uploads/
 .claude.dev_intention
 .dev_intention
 oneoff
+**/.thumbnails/
