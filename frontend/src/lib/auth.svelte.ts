@@ -218,15 +218,18 @@ export async function register(email: string, username: string, password: string
         return true;
 }
 
-export async function oauthLogin(provider: string, code: string, redirectUri?: string) {
+export async function oauthLogin(code: string, state: string | null, redirectUri?: string) {
+        // `state` is the opaque, one-time nonce the backend issued at oauth-redirect.
+        // We forward it (not the provider); the backend validates + consumes it and
+        // resolves the provider/redirect from it, so a forged state is rejected (CSRF).
         const response = await fetch(backendUrl+'/auth/oauth', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                provider,
                 code,
+                state,
                 redirect_uri: redirectUri
             })
         });

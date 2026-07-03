@@ -50,10 +50,10 @@ class TestOAuthRedirect:
         assert "response_type" in query_params
         assert "state" in query_params
 
-        # Verify the state contains our redirect URI
+        # State is now an opaque, server-issued one-time nonce (CSRF protection);
+        # the provider/redirect are bound to it server-side, not embedded in it.
         state = query_params["state"][0]
-        assert redirect_uri in state
-        assert provider in state
+        assert state, "OAuth redirect must include a state parameter"
 
         # Verify scope for Google
         assert "scope" in query_params
@@ -260,9 +260,8 @@ class TestOAuthIntegration:
         query_params = parse_qs(parsed_url.query)
         state = query_params["state"][0]
 
-        # 3. Verify state contains provider and redirect URI
-        assert provider in state
-        assert redirect_uri in state
+        # 3. State is an opaque server-issued nonce (provider/redirect bound server-side).
+        assert state, "OAuth redirect must include a state parameter"
 
         # Note: Full flow would require mocking external OAuth provider
         # which is beyond scope of unit tests
