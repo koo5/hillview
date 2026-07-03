@@ -77,10 +77,15 @@ export async function setupCleanTestEnvironment(): Promise<void> {
 export async function loginAs(page: any, username: string, password: string) {
   await page.goto('/login');
 
-  // Wait for the login form to appear (with a reasonable timeout so failures
-  // produce an actionable error instead of hitting the global test timeout).
-  // This is a deterministic ready-signal — better than waitForLoadState('networkidle'),
-  // which both resolves before the DOM is ready and can hang indefinitely.
+  // Wait for the app's JS bundle to finish loading before interacting. On WebKit
+  // (prod build, code-split chunks) the submit handler may not be wired until the
+  // bundle settles, so clicking too early silently no-ops and login never
+  // navigates. networkidle is reliable here — the login page is simple (no map,
+  // no SSE stream), so it settles quickly and doesn't hang like the map pages do.
+  await page.waitForLoadState('networkidle');
+
+  // networkidle can resolve before the DOM is painted on WebKit, so also wait for
+  // the form itself with an actionable timeout.
   await page.getByTestId('login-username-input').waitFor({ state: 'visible', timeout: 11*15000 });
 
   await page.getByTestId('login-username-input').fill(username);

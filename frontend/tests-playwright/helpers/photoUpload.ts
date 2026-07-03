@@ -113,6 +113,10 @@ export async function uploadPhoto(page: Page, photoFilename: string): Promise<st
 
   // Go to photos page
   await page.goto('/photos');
+  // Let the app's JS bundle settle before interacting (WebKit prod-build chunk
+  // loading — see loginAs). The /photos page has no map/SSE, so networkidle is
+  // reliable here and doesn't hang like the map pages.
+  await page.waitForLoadState('networkidle');
 
   // Check the license checkbox first (file input is disabled until license is set)
   const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');

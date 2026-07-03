@@ -9,7 +9,6 @@ test.describe('Authentication Integration', () => {
 
   test('should show error for invalid username', async ({ page }) => {
     await page.goto('/login');
-    await page.waitForLoadState('networkidle');
 
     await page.getByTestId('login-username-input').fill('invaliduser');
     await page.getByTestId('login-password-input').fill('anypassword');
@@ -22,7 +21,6 @@ test.describe('Authentication Integration', () => {
 
   test('should show error for invalid password', async ({ page }) => {
     await page.goto('/login');
-    await page.waitForLoadState('networkidle');
 
     await page.getByTestId('login-username-input').fill('test');
     await page.getByTestId('login-password-input').fill('wrongpassword');
@@ -35,7 +33,6 @@ test.describe('Authentication Integration', () => {
 
   test('should show validation popup for empty credentials', async ({ page }) => {
     await page.goto('/login');
-    await page.waitForLoadState('networkidle');
 
     const usernameInput = page.getByTestId('login-username-input');
     const passwordInput = page.getByTestId('login-password-input');

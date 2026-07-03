@@ -50,7 +50,6 @@ test.describe('Mapillary Marker Consistency', () => {
 
     // Navigate to the app
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
     await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
     await page.waitForSelector('.source-buttons-group', { timeout: 11*5000 });
   });

@@ -18,11 +18,13 @@ import { setMapLocation } from './helpers/mapSetup';
 
 async function openGalleryPhotoMenu(page: any) {
 	await page.goto('/');
-	await page.waitForLoadState('networkidle');
 	await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 	// PhotoActionsMenu is only attached to the front photo in the gallery.
 	const menuTrigger = page.locator('[data-testid="photo-actions-menu"]');
 	await menuTrigger.first().waitFor({ state: 'visible', timeout: 11*15000 });
+	// The map writes the selected front photo into the URL (debounced). Wait for
+	// that so callers reading page.url() get the settled URL, not the pre-write '/'.
+	await page.waitForFunction(() => location.search.includes('photo='), { timeout: 11*10000 });
 	await menuTrigger.first().click();
 	await page.locator('[data-testid="photo-actions-dropdown"]').waitFor({ state: 'visible', timeout: 11*5000 });
 }
@@ -101,7 +103,6 @@ test.describe('Photo actions menu — link semantics', () => {
 		await setupMockMapillaryData(page, mockData);
 
 		await page.goto('/');
-		await page.waitForLoadState('networkidle');
 		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
 		await setMapLocation(page, centerLat, centerLng, 16);
 		await configureSources(page, { hillview: false, device: false, mapillary: true });

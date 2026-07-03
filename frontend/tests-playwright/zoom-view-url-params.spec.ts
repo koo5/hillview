@@ -42,7 +42,6 @@ test.describe('Zoom View URL Parameters', () => {
       await uploadPhoto(page, testPhotos[0]);
 
       await page.goto('/?lat=50.1153&lon=14.4938&zoom=18');
-      await page.waitForLoadState('networkidle');
       await ensureSourceEnabled(page, 'hillview', true);
 
       // Wait for photo to appear in gallery
@@ -89,7 +88,6 @@ test.describe('Zoom View URL Parameters', () => {
       await uploadPhoto(page, testPhotos[0]);
 
       await page.goto('/?lat=50.1153&lon=14.4938&zoom=18');
-      await page.waitForLoadState('networkidle');
       await ensureSourceEnabled(page, 'hillview', true);
 
       const mainPhoto = page.locator('[data-testid="main-photo"]');
@@ -132,7 +130,6 @@ test.describe('Zoom View URL Parameters', () => {
       await uploadPhoto(page, testPhotos[0]);
 
       await page.goto('/?lat=50.1153&lon=14.4938&zoom=18');
-      await page.waitForLoadState('networkidle');
       await ensureSourceEnabled(page, 'hillview', true);
 
       const mainPhoto = page.locator('[data-testid="main-photo"]');
@@ -199,8 +196,6 @@ test.describe('Zoom View URL Parameters', () => {
       const targetY2 = 0.6;
 
       await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=${targetX1}&y1=${targetY1}&x2=${targetX2}&y2=${targetY2}`);
-      await page.waitForLoadState('networkidle');
-
       // Enable hillview source and wait for viewer to open
       await ensureSourceEnabled(page, 'hillview', true);
 
@@ -253,8 +248,6 @@ test.describe('Zoom View URL Parameters', () => {
     test('should close pending overlay when close button is clicked', async ({ page, testUsers }) => {
       // Navigate with zoom params for a non-existent photo so pending stays visible
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18&photo=hillview-nonexistent-999&x1=0.1&y1=0.1&x2=0.9&y2=0.9');
-      await page.waitForLoadState('networkidle');
-
       const pendingOverlay = page.locator('[data-testid="zoom-view-pending"]');
       // The pending overlay should appear (photo won't load)
       await pendingOverlay.waitFor({ state: 'visible', timeout: 11*10000 });
@@ -279,7 +272,6 @@ test.describe('Zoom View URL Parameters', () => {
 
     test('should not add zoom params when page loads without them', async ({ page }) => {
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18');
-      await page.waitForLoadState('networkidle');
       await page.waitForTimeout(2000);
 
       const params = getUrlParams(page.url());
@@ -296,7 +288,6 @@ test.describe('Zoom View URL Parameters', () => {
     test('should not set pending zoom when zoom params present without photo param', async ({ page }) => {
       // x1/y1/x2/y2 without photo= should NOT activate pending zoom
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18&x1=0.1&y1=0.1&x2=0.9&y2=0.9');
-      await page.waitForLoadState('networkidle');
       await page.waitForTimeout(2000);
 
       // Neither pending overlay nor OSD viewer should appear
@@ -312,7 +303,6 @@ test.describe('Zoom View URL Parameters', () => {
       await uploadPhoto(page, testPhotos[0]);
 
       await page.goto('/?lat=50.1153&lon=14.4938&zoom=18');
-      await page.waitForLoadState('networkidle');
       await ensureSourceEnabled(page, 'hillview', true);
 
       const mainPhoto = page.locator('[data-testid="main-photo"]');
@@ -364,7 +354,6 @@ test.describe('Zoom View URL Parameters', () => {
       await uploadPhoto(page, testPhotos[0]);
 
       await page.goto('/?lat=50.1153&lon=14.4938&zoom=18');
-      await page.waitForLoadState('networkidle');
       await ensureSourceEnabled(page, 'hillview', true);
 
       await openViewer(page);
@@ -406,7 +395,6 @@ test.describe('Zoom View URL Parameters', () => {
       await uploadPhoto(page, testPhotos[0]);
 
       await page.goto('/?lat=50.1153&lon=14.4938&zoom=18');
-      await page.waitForLoadState('networkidle');
       await ensureSourceEnabled(page, 'hillview', true);
 
       await openViewer(page);
@@ -451,7 +439,6 @@ test.describe('Zoom View URL Parameters', () => {
 
       // Navigate with invalid (non-numeric) zoom params
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18&photo=hillview-123&x1=abc&y1=def&x2=ghi&y2=jkl');
-      await page.waitForLoadState('networkidle');
       await page.waitForTimeout(2000);
 
       // App should not crash
@@ -465,7 +452,6 @@ test.describe('Zoom View URL Parameters', () => {
 
       // Only 2 of 4 params — should not activate zoom view
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18&photo=hillview-123&x1=0.1&y1=0.1');
-      await page.waitForLoadState('networkidle');
       await page.waitForTimeout(2000);
 
       // Neither pending nor OSD should appear (incomplete params)

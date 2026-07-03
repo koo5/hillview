@@ -3,7 +3,6 @@ import { test, expect } from './fixtures';
 test.describe('Settings Pages', () => {
 	test('should load settings page without errors', async ({ page }) => {
 		await page.goto('/settings');
-		await page.waitForLoadState('networkidle');
 
 		// Advanced settings link should be visible
 		await expect(page.getByTestId('advanced-menu-link')).toBeVisible({ timeout: 11*10000 });
@@ -14,7 +13,6 @@ test.describe('Settings Pages', () => {
 
 	test('should navigate to advanced settings', async ({ page }) => {
 		await page.goto('/settings');
-		await page.waitForLoadState('networkidle');
 
 		await page.getByTestId('advanced-menu-link').click();
 		await page.waitForURL('/settings/advanced', { timeout: 11*10000 });
@@ -25,7 +23,6 @@ test.describe('Settings Pages', () => {
 
 	test('should navigate to sources settings', async ({ page }) => {
 		await page.goto('/settings/sources');
-		await page.waitForLoadState('networkidle');
 
 		// Built-in source toggles should be visible
 		await expect(page.getByTestId('source-toggle-hillview')).toBeVisible({ timeout: 11*10000 });
@@ -34,7 +31,6 @@ test.describe('Settings Pages', () => {
 
 	test('should toggle source checkboxes', async ({ page }) => {
 		await page.goto('/settings/sources');
-		await page.waitForLoadState('networkidle');
 
 		// The checkbox input is visually hidden; click the visible label/toggle instead
 		const hillviewToggle = page.getByTestId('source-toggle-hillview');

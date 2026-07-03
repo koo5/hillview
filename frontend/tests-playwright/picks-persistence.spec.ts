@@ -57,7 +57,6 @@ test.describe('Picks Persistence', () => {
 
 		// Navigate to the test photo GPS coords
 		await page.goto(`/?lat=${TEST_PHOTO_LAT}&lon=${TEST_PHOTO_LNG}&zoom=18`);
-		await page.waitForLoadState('networkidle');
 
 		// Enable hillview source and wait for markers
 		await ensureSourceEnabled(page, 'hillview', true);

@@ -12,7 +12,6 @@ const MAP_URL = '/?lat=50.1153&lon=14.4938&zoom=18';
 /** Navigate to the map with a photo visible (no login required). */
 async function navigateToMap(page: Page) {
   await page.goto(MAP_URL);
-  await page.waitForLoadState('networkidle');
   await ensureSourceEnabled(page, 'hillview', true);
   await page.locator('[data-testid="main-photo"]').waitFor({ state: 'visible', timeout: 11*30000 });
 }
@@ -152,7 +151,6 @@ test.describe('Sign-In Modal', () => {
       await logoutUser(page);
 
       await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=0.1&y1=0.1&x2=0.9&y2=0.9`);
-      await page.waitForLoadState('networkidle');
       await ensureSourceEnabled(page, 'hillview', true);
 
       await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*30000 });

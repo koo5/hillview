@@ -6,7 +6,6 @@ test.describe('Account Page', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto('/account');
-		await page.waitForLoadState('networkidle');
 
 		const profileCard = page.getByTestId('profile-card');
 		await expect(profileCard).toBeVisible({ timeout: 11*10000 });
@@ -23,7 +22,6 @@ test.describe('Account Page', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto('/account');
-		await page.waitForLoadState('networkidle');
 		await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: 11*10000 });
 
 		// Open the delete dialog
@@ -42,7 +40,6 @@ test.describe('Account Page', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto('/account');
-		await page.waitForLoadState('networkidle');
 		await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: 11*10000 });
 
 		await page.getByTestId('account-delete-button').click();
@@ -59,16 +56,16 @@ test.describe('Account Page', () => {
 
 	test('should redirect unauthenticated user away from account page', async ({ page }) => {
 		await page.goto('/account');
-		await page.waitForLoadState('networkidle');
 
-		// Should show an error or redirect — profile card should not show user info
-		const profileCard = page.getByTestId('profile-card');
+		// Unauthenticated: the profile load fails, so the page shows an error and/or
+		// omits the username. Poll for that outcome to settle rather than a blanket
+		// networkidle wait (which can hang on the dev server).
 		const errorMessage = page.locator('.error-message');
-
-		// Either we see an error, or the profile card doesn't have a username
-		const hasError = await errorMessage.isVisible().catch(() => false);
-		const hasUsername = await page.getByTestId('account-username').isVisible().catch(() => false);
-
-		expect(hasError || !hasUsername).toBeTruthy();
+		await expect
+			.poll(async () =>
+				(await errorMessage.isVisible().catch(() => false)) ||
+				!(await page.getByTestId('account-username').isVisible().catch(() => false)),
+			{ timeout: 11*10000 })
+			.toBeTruthy();
 	});
 });

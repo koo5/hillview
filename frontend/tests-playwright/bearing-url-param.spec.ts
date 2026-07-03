@@ -36,7 +36,6 @@ test.describe('Bearing URL param ownership', () => {
     await uploadPhoto(page, testPhotos[0]);
 
     await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&bearing=${INITIAL_BEARING}`);
-    await page.waitForLoadState('networkidle');
     await ensureSourceEnabled(page, 'hillview', true);
 
     // Wait for photoInFront to become populated (main-photo visible) and for
@@ -59,7 +58,6 @@ test.describe('Bearing URL param ownership', () => {
     await uploadPhoto(page, testPhotos[2]); // different GPS + bearing
 
     await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&bearing=${INITIAL_BEARING}`);
-    await page.waitForLoadState('networkidle');
     await ensureSourceEnabled(page, 'hillview', true);
 
     // With multiple photos in range the gallery renders left/front/right

@@ -61,7 +61,6 @@ test.describe('Browser Capture → Upload', () => {
 
 		// Login — this triggers triggerPhotoSync() via auth subscription in captureQueue.ts
 		await loginAsTestUser(page, testUsers.passwords.test);
-		await page.waitForLoadState('networkidle');
 
 		// Wait for auto-upload to complete (IndexedDB status changes to 'processing' or 'completed')
 		await waitForUploadedCount(page, 1);
@@ -75,7 +74,6 @@ test.describe('Browser Capture → Upload', () => {
 
 		// Navigate to My Photos and verify photo appears on server
 		await page.goto('/photos');
-		await page.waitForLoadState('networkidle');
 
 		// Click refresh if photos aren't loaded yet
 		const refreshButton = page.locator('[data-testid="refresh-photos-button"]');
@@ -99,7 +97,6 @@ test.describe('Browser Capture → Upload', () => {
 		// Login first
 		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.goto('/');
-		await page.waitForLoadState('networkidle');
 
 		// Open camera
 		const cameraButton = page.locator('[data-testid="camera-button"]');
@@ -127,7 +124,6 @@ test.describe('Browser Capture → Upload', () => {
 
 		// Go back to camera for second capture
 		await page.goto('/');
-		await page.waitForLoadState('networkidle');
 		await cameraButton.waitFor({ state: 'visible', timeout: 11*15000 });
 		await cameraButton.click({ force: true });
 		await captureButton.waitFor({ state: 'visible', timeout: 11*15000 });
@@ -150,7 +146,6 @@ test.describe('Browser Capture → Upload', () => {
 		// Close camera and verify photos on server
 		await cameraButton.click({ force: true });
 		await page.goto('/photos');
-		await page.waitForLoadState('networkidle');
 
 		const refreshButton = page.locator('[data-testid="refresh-photos-button"]');
 		if (await refreshButton.isVisible()) {

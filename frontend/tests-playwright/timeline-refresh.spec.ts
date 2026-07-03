@@ -48,28 +48,33 @@ test.describe('Timeline refresh + cursor-follow', () => {
 		// flight (frontendBusy), and the next capture's page reload would interrupt that
 		// upload — so let each one settle before capturing the next.
 
+		// Distinct capture bearings per photo. photoInFront picks the bearing-closest
+		// in-range photo (uid tiebreak), so if every photo shares one bearing the front
+		// photo is decided by a diff-0 tie and flips under marker churn. Giving each a
+		// unique bearing — and steering the compass to it on selection — makes which
+		// photo is "in front" deterministic.
 		// User A (`test`): two photos → the walk anchor + an in-window sibling.
 		await loginAs(page, 'test', testUsers.passwords.test);
 		await ensureAutoUpload(page);
-		await captureAt(page, A1.lat, A1.lng);
+		await captureAt(page, A1.lat, A1.lng, 30);
 		idA1 = await waitUploadedAtCoord(page, A1);
-		await captureAt(page, A2.lat, A2.lng);
+		await captureAt(page, A2.lat, A2.lng, 80);
 		idA2 = await waitUploadedAtCoord(page, A2);
 
 		// User B (`testuser`): one photo at a separate spot → an out-of-window pick.
 		await logoutUser(page);
 		await loginAs(page, 'testuser', testUsers.passwords.testuser);
 		await ensureAutoUpload(page);
-		await captureAt(page, B1.lat, B1.lng);
+		await captureAt(page, B1.lat, B1.lng, 200);
 		idB1 = await waitUploadedAtCoord(page, B1);
 
 		// User C (`admin`): two photos ~2km apart for the stepping regression.
 		await logoutUser(page);
 		await loginAs(page, 'admin', testUsers.passwords.admin);
 		await ensureAutoUpload(page);
-		await captureAt(page, S1.lat, S1.lng);
+		await captureAt(page, S1.lat, S1.lng, 120);
 		idS1 = await waitUploadedAtCoord(page, S1);
-		await captureAt(page, S2.lat, S2.lng);
+		await captureAt(page, S2.lat, S2.lng, 300);
 		idS2 = await waitUploadedAtCoord(page, S2);
 
 		expect(new Set([idA1, idA2, idB1, idS1, idS2]).size).toBe(5);

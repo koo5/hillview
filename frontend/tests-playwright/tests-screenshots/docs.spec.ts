@@ -63,7 +63,6 @@ async function shot(page: Page, project: string, name: string, fullPage = false)
 
 /** Wait for the map + photo split view to be visually settled. */
 async function waitForMapView(page: Page) {
-  await page.waitForLoadState('networkidle').catch(() => { /* best effort */ });
   await page.waitForSelector('.leaflet-container', { timeout: 11*15_000 });
   // Let tiles, photo, and any annotorious overlays render.
   await page.waitForTimeout(2500);
@@ -71,7 +70,6 @@ async function waitForMapView(page: Page) {
 
 /** Wait for a plain content page (no map). */
 async function waitForContent(page: Page) {
-  await page.waitForLoadState('networkidle').catch(() => { /* best effort */ });
   await page.waitForTimeout(800);
 }
 

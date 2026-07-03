@@ -20,7 +20,6 @@ test.describe('Photo Detail Page', () => {
 
 	test('should load and display photo details', async ({ page }) => {
 		await page.goto(`/photo/${photoUid}`);
-		await page.waitForLoadState('networkidle');
 
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 		await expect(page.getByTestId('photo-detail-image')).toBeVisible();
@@ -34,14 +33,12 @@ test.describe('Photo Detail Page', () => {
 
 	test('should show 404 for invalid uid', async ({ page }) => {
 		await page.goto('/photo/nonexistent-uid-12345');
-		await page.waitForLoadState('networkidle');
 
 		await expect(page.getByTestId('photo-detail-error')).toBeVisible({ timeout: 11*10000 });
 	});
 
 	test('should navigate to map when View on Map is clicked', async ({ page }) => {
 		await page.goto(`/photo/${photoUid}`);
-		await page.waitForLoadState('networkidle');
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 
 		await page.getByTestId('photo-detail-view-on-map').click();
@@ -54,7 +51,6 @@ test.describe('Photo Detail Page', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto(`/photo/${photoUid}`);
-		await page.waitForLoadState('networkidle');
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 
 		// Rating buttons
@@ -75,7 +71,6 @@ test.describe('Photo Detail Page', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto(`/photo/${photoUid}`);
-		await page.waitForLoadState('networkidle');
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 
 		const flagButton = page.getByTestId('menu-flag');
@@ -93,7 +88,6 @@ test.describe('Photo Detail Page', () => {
 
 	test('should navigate to user profile when owner link is clicked', async ({ page }) => {
 		await page.goto(`/photo/${photoUid}`);
-		await page.waitForLoadState('networkidle');
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 
 		await page.getByTestId('photo-detail-owner').click();

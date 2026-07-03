@@ -41,7 +41,6 @@ test.describe('Auto-upload on login (web, no camera)', () => {
 
 		// Login triggers triggerPhotoSync() via the auth subscription in captureQueue.ts
 		await loginAsTestUser(page, testUsers.passwords.test);
-		await page.waitForLoadState('networkidle');
 
 		// The auto-upload loop must run to completion — this is what the persist()
 		// hang used to block. Photo transitions pending → processing/completed.
@@ -58,7 +57,6 @@ test.describe('Auto-upload on login (web, no camera)', () => {
 
 		// Verify it actually landed on the server: it shows up in My Photos
 		await page.goto('/photos');
-		await page.waitForLoadState('networkidle');
 
 		const refreshButton = page.locator('[data-testid="refresh-photos-button"]');
 		if (await refreshButton.isVisible()) {

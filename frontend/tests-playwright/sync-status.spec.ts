@@ -64,11 +64,17 @@ test.describe('Sync Status Reporting', () => {
 		// Login and enable auto-upload so triggerPhotoSync doesn't skip
 		await loginAsTestUser(page, testUsers.passwords.test);
 		await page.goto('/settings/upload');
-		await page.waitForLoadState('networkidle');
 		await enableAutoUpload(page);
 
 		await page.goto('/');
-		await page.waitForLoadState('networkidle');
+		// Wait for the sync stores to be populated AND settled (nothing uploading)
+		// before tests read the "initial" state. This is what the removed networkidle
+		// used to guarantee: network-idle ⇒ no upload in flight. Waiting only for the
+		// store to exist let a transient init-upload leak into the first assertion.
+		await page.waitForFunction(() => {
+			const s = (window as any).__stores?.combinedSyncStatus;
+			return s != null && !s.isUploading;
+		}, { timeout: 11*15000 });
 	});
 
 	test('fgSyncStatus reports correct phases and counts after upload', async ({ page }) => {

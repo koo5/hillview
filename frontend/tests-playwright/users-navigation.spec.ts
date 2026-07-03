@@ -7,7 +7,6 @@ test.describe('Users Pages and Navigation', () => {
 
   test('should load users list page and display user cards', async ({ page }) => {
     await page.goto('/users');
-    await page.waitForLoadState('networkidle');
 
     // Check for users grid
     await expect(page.locator('.users-grid')).toBeVisible();
@@ -25,7 +24,6 @@ test.describe('Users Pages and Navigation', () => {
 
   test('should navigate from users list to individual user page', async ({ page }) => {
     await page.goto('/users');
-    await page.waitForLoadState('networkidle');
 
     const userCards = page.locator('[data-testid^="user-card-"]');
     await expect(userCards.first()).toBeVisible();
@@ -36,8 +34,8 @@ test.describe('Users Pages and Navigation', () => {
     // Should navigate to user page
     await page.waitForURL(/\/users\/[^\/]+$/);
 
-    // Wait for the loading to complete and content to be rendered
-    await page.waitForLoadState('networkidle');
+    // Wait for the user page to render either its photos or its empty state.
+    await page.locator('.photos-section, .empty-state').first().waitFor({ state: 'visible', timeout: 11*10000 });
 
     // Wait for loading container to disappear (if it exists)
     try {
@@ -63,7 +61,7 @@ test.describe('Users Pages and Navigation', () => {
 
     // Navigate to activity page
     await page.goto('/activity');
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByTestId('activity-loading')).toBeHidden({ timeout: 11*15000 });
 
     // Look for username links in activity
     const usernameLinks = page.locator('.username-link');
@@ -83,7 +81,7 @@ test.describe('Users Pages and Navigation', () => {
 
     // Go to users page and click on test user
     await page.goto('/users');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.users-grid')).toBeVisible({ timeout: 11*10000 });
 
     const testUserCard = page.locator('[data-testid="user-card-test"]');
     if (await testUserCard.count() > 0) {
@@ -103,7 +101,7 @@ test.describe('Users Pages and Navigation', () => {
 
   test('should handle user page pagination', async ({ page }) => {
     await page.goto('/users');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.users-grid')).toBeVisible({ timeout: 11*10000 });
 
     const userCards = page.locator('[data-testid^="user-card-"]');
     if (await userCards.count() > 0) {
@@ -123,7 +121,7 @@ test.describe('Users Pages and Navigation', () => {
 
   test('should display user statistics correctly', async ({ page }) => {
     await page.goto('/users');
-    await page.waitForLoadState('networkidle');
+    await expect(page.locator('.users-grid')).toBeVisible({ timeout: 11*10000 });
 
     // Check header shows user count
     const header = page.locator('.users-grid h2');
@@ -143,7 +141,6 @@ test.describe('Users Pages and Navigation', () => {
     const { errors } = collectErrors(page);
 
     await page.goto('/users');
-    await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
 
     expect(errors.length, `Found errors: ${errors.join(', ')}`).toBe(0);

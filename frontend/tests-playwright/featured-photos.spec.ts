@@ -19,7 +19,6 @@ async function setFeatured(photoId: string, featured: boolean): Promise<void> {
 /** Navigate to map at the test photo GPS coords with Hillview source enabled and wait for markers. */
 async function goToMapWithMarkers(page: any): Promise<void> {
 	await page.goto(TEST_PHOTO_MAP_URL);
-	await page.waitForLoadState('networkidle');
 	await ensureSourceEnabled(page, 'hillview', true);
 	await page.waitForTimeout(3000); // wait for photos to load on map
 }
@@ -124,7 +123,6 @@ test.describe('Featured Photos', () => {
 		// Navigate via URL sharing a featured photo
 		const photoUrl = `/?lat=50.1153&lon=14.4938&zoom=18&bearing=0&photo=hillview-${photoId1}`;
 		await page.goto(photoUrl);
-		await page.waitForLoadState('networkidle');
 
 		// Hunter mode should be off because the URL photo is featured
 		const hunterToggle = page.locator('[data-testid="hunter-mode-toggle"]');
@@ -137,7 +135,6 @@ test.describe('Featured Photos', () => {
 		// Navigate via URL sharing a non-featured photo (photoId2 was never featured)
 		const photoUrl = `/?lat=50.1153&lon=14.4938&zoom=18&bearing=0&photo=hillview-${photoId2}`;
 		await page.goto(photoUrl);
-		await page.waitForLoadState('networkidle');
 
 		// Hunter mode should be on because the URL photo is not featured
 		const hunterToggle = page.locator('[data-testid="hunter-mode-toggle"]');

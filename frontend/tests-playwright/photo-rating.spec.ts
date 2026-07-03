@@ -22,7 +22,6 @@ test.describe('Photo Rating', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto(`/photo/${photoUid}`);
-		await page.waitForLoadState('networkidle');
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 
 		const thumbsUp = page.getByTestId('thumbs-up-button');
@@ -44,7 +43,6 @@ test.describe('Photo Rating', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto(`/photo/${photoUid}`);
-		await page.waitForLoadState('networkidle');
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 
 		const thumbsUp = page.getByTestId('thumbs-up-button');
@@ -65,7 +63,6 @@ test.describe('Photo Rating', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto(`/photo/${photoUid}`);
-		await page.waitForLoadState('networkidle');
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 
 		const thumbsUp = page.getByTestId('thumbs-up-button');
@@ -90,7 +87,6 @@ test.describe('Photo Rating', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto(`/photo/${photoUid}`);
-		await page.waitForLoadState('networkidle');
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: 11*10000 });
 
 		const thumbsUp = page.getByTestId('thumbs-up-button');

@@ -33,14 +33,14 @@ test.describe('Resilience: no uncaught errors under endpoint chaos', () => {
         await armFault('/api/hillview*', { status: 500 });
 
         await page.goto('/');
-        await page.waitForLoadState('networkidle').catch(() => {});
         await page.goto('/account-deletion').catch(() => {});
         await page.waitForTimeout(2000);
 
         // Heal and return to the map — the app should be fully functional again.
         await clearFaults();
         await page.goto('/');
-        await page.waitForLoadState('networkidle').catch(() => {});
+        // App should recover once faults are cleared: the map re-renders.
+        await page.locator('.leaflet-container').waitFor({ state: 'visible', timeout: 11*15000 }).catch(() => {});
 
         expect(uncaught, `uncaught exceptions: ${uncaught.join(' | ')}`).toHaveLength(0);
         expect(consoleErrors, `unexpected console errors: ${consoleErrors.join(' | ')}`).toHaveLength(0);
