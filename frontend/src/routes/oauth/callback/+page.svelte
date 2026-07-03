@@ -62,13 +62,12 @@
                 }
             }
 
-            // Parse provider from state (format: "provider:redirect_uri")
-            const provider = state.includes(':') ? state.split(':')[0] : state;
-
-            // Exchange code for token
+            // Exchange the code for tokens. `state` is the opaque nonce the backend
+            // issued; forward it so the backend can validate + consume it and resolve
+            // the provider server-side (CSRF protection) rather than trusting the client.
             const success = await oauthLogin(
-                provider,
                 code,
+                state,
                 `${window.location.origin}/oauth/callback`
             );
 

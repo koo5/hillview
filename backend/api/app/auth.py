@@ -57,6 +57,22 @@ def is_strict_refresh_rotation_enabled() -> bool:
 	"""
 	return os.getenv("STRICT_REFRESH_ROTATION", "true").strip().lower() in ("true", "1", "yes")
 
+
+def is_oauth_strict_state_enabled() -> bool:
+	"""Whether the OAuth `state` must be a server-issued, one-time nonce (CSRF).
+
+	When on (default), /auth/oauth-redirect hands out an opaque nonce, and the
+	callbacks validate + consume it — rejecting any state the server didn't issue and
+	any replay. When off, the legacy stateless `provider:redirect_uri[:session_id]`
+	format is used with no validation (exact pre-change behaviour).
+
+	Transparent to old mobile clients either way: they never parse `state` (they use
+	the polling session_id / deep-link tokens), so the nonce rides through server-side.
+	Gated only as a clean rollback switch, mirroring STRICT_REFRESH_ROTATION. Set
+	OAUTH_STRICT_STATE=false to fall back to legacy behaviour.
+	"""
+	return os.getenv("OAUTH_STRICT_STATE", "true").strip().lower() in ("true", "1", "yes")
+
 # OAuth2 configuration
 OAUTH_PROVIDERS = {
 	"google": {
@@ -132,9 +148,15 @@ class UserLogin(BaseModel):
 	password: str
 
 class UserOAuth(BaseModel):
-	provider: str
+	# provider is optional: when a server-issued state nonce is present, the provider
+	# (and redirect_uri) are resolved authoritatively from the nonce, not from the
+	# client, so an API caller supplying it directly is the only case that needs it.
+	provider: Optional[str] = None
 	code: str
 	redirect_uri: Optional[str] = None
+	# One-time CSRF nonce issued by /auth/oauth-redirect. The web frontend forwards it
+	# to POST /auth/oauth; the backend validates + consumes it.
+	state: Optional[str] = None
 
 class UserOut(BaseModel):
 	id: str

@@ -31,6 +31,7 @@ from auth import (
 	blacklist_token, get_current_user, get_current_user_optional_with_query,
 	new_session_id, new_refresh_jti, revoke_session, spend_refresh_token,
 	is_session_revoked, is_refresh_token_spent, is_strict_refresh_rotation_enabled,
+	is_oauth_strict_state_enabled,
 )
 from rate_limiter import auth_rate_limiter, check_auth_rate_limit, rate_limit_user_profile, rate_limit_user_registration, get_client_ip, general_rate_limiter
 from common.config import is_rate_limiting_disabled
@@ -44,6 +45,36 @@ router = APIRouter(prefix="/api", tags=["users"])
 # OAuth session storage (in-memory, for production use Redis/database)
 oauth_sessions: Dict[str, Dict[str, Any]] = {}
 
+# OAuth CSRF state storage: opaque one-time nonce -> flow context. Same in-memory
+# limitation as oauth_sessions (assumes single worker / sticky routing; move to Redis
+# for multi-worker prod). Gated by auth.is_oauth_strict_state_enabled().
+oauth_states: Dict[str, Dict[str, Any]] = {}
+
+
+def create_oauth_state(provider: str, redirect_uri: Optional[str], session_id: Optional[str] = None, ttl_minutes: int = 10) -> str:
+	"""Issue a one-time CSRF nonce binding this OAuth flow's provider/destination."""
+	import secrets
+	nonce = secrets.token_urlsafe(32)
+	oauth_states[nonce] = {
+		'provider': provider,
+		'redirect_uri': redirect_uri,
+		'session_id': session_id,
+		'expires_at': utcnow() + datetime.timedelta(minutes=ttl_minutes),
+	}
+	return nonce
+
+
+def consume_oauth_state(nonce: Optional[str]) -> Optional[Dict[str, Any]]:
+	"""Atomically fetch-and-remove a state nonce (one-time). None if unknown/expired."""
+	if not nonce:
+		return None
+	entry = oauth_states.pop(nonce, None)  # pop => single use
+	if not entry:
+		return None
+	if utcnow() > entry['expires_at']:
+		return None
+	return entry
+
 async def cleanup_expired_sessions():
     """Clean up expired OAuth sessions"""
     current_time = utcnow()
@@ -54,6 +85,11 @@ async def cleanup_expired_sessions():
     for session_id in expired_sessions:
         del oauth_sessions[session_id]
         log.info(f"Cleaned up expired OAuth session: {session_id}")
+
+    # Purge expired CSRF state nonces too (unconsumed flows the user abandoned).
+    expired_states = [nonce for nonce, entry in oauth_states.items() if current_time > entry['expires_at']]
+    for nonce in expired_states:
+        del oauth_states[nonce]
 
     # Also log session count for monitoring
     if len(oauth_sessions) > 0:
@@ -548,8 +584,16 @@ async def oauth_redirect(
 		server_callback_uri = f"{frontend_origin}/oauth/callback"
 		log.info(f"Web flow detected - Frontend origin: {frontend_origin}, Server callback URI: {server_callback_uri}")
 
-	# Encode provider, redirect URI, and optional session_id in state
-	if session_id:
+	# Build the OAuth `state`. Strict (default): an opaque one-time nonce that binds
+	# this flow's provider/destination server-side, so the callback can reject any
+	# forged or replayed state (CSRF). Legacy: the stateless provider:redirect_uri
+	# [:session_id] form. Old mobile clients never read state, so the format is
+	# transparent to them either way.
+	if is_oauth_strict_state_enabled():
+		state_data = create_oauth_state(provider, validated_redirect_uri, session_id)
+		if session_id:
+			log.info(f"Using polling session: {session_id}")
+	elif session_id:
 		state_data = f"{provider}:{validated_redirect_uri}:{session_id}"
 		log.info(f"Using polling session: {session_id}")
 	else:
@@ -610,10 +654,28 @@ async def oauth_callback(
 
 	log.info(f"OAuth callback received with code and state: {state}")
 
-	# Extract provider, final destination, and optional session_id from state
+	# Resolve provider, final destination, and optional session_id from state.
 	polling_session_id = None
-	if state and ":" in state:
-		# Split on first colon to get provider
+	if is_oauth_strict_state_enabled():
+		# Strict: state must be a nonce this server issued and hasn't seen used.
+		# Reject forged / expired / replayed states before touching the code.
+		state_entry = consume_oauth_state(state)
+		if not state_entry:
+			log.warning("OAuth callback rejected: invalid or replayed state")
+			await security_audit.log_event(
+				db=db,
+				event_type="oauth_callback_invalid_state",
+				ip_address=get_client_ip(request),
+				user_agent=request.headers.get("user-agent"),
+				event_details={"code_prefix": code[:10] if code else None},
+				severity="warning"
+			)
+			raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
+		provider = state_entry["provider"]
+		final_redirect_uri = state_entry["redirect_uri"]
+		polling_session_id = state_entry.get("session_id")
+	elif state and ":" in state:
+		# Legacy stateless format: provider:redirect_uri[:session_id]
 		provider, remainder = state.split(":", 1)
 
 		# Check if remainder has session ID (format: url:session_id)
@@ -1021,8 +1083,21 @@ async def oauth_login_internal(
 	db: AsyncSession,
 	request: Optional[Request] = None
 ) -> dict:
-	# Validate provider
+	# Resolve provider / redirect. In strict mode, when the caller forwards a state
+	# nonce (the web frontend does), it's authoritative — validate + consume it and
+	# take provider/redirect from it, never from the (spoofable) client body. The
+	# backend oauth-callback path already consumed the nonce, so it passes no state
+	# here and falls through to the body-provided provider.
 	provider = oauth_data.provider
+	redirect_from_state: Optional[str] = None
+	if is_oauth_strict_state_enabled() and oauth_data.state:
+		state_entry = consume_oauth_state(oauth_data.state)
+		if not state_entry:
+			log.warning("POST /auth/oauth rejected: invalid or replayed state")
+			raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
+		provider = state_entry["provider"]
+		redirect_from_state = state_entry["redirect_uri"]
+
 	log.info(f"oauth_login_internal - Provider: {provider}")
 
 	if provider not in OAUTH_PROVIDERS:
@@ -1035,8 +1110,10 @@ async def oauth_login_internal(
 	provider_config = OAUTH_PROVIDERS[provider]
 	log.info(f"Provider config loaded - Client ID: {provider_config['client_id'][:10]}..., Has client_secret: {bool(provider_config['client_secret'])}")
 
-	# Validate redirect URI to prevent open redirect attacks
-	redirect_uri = oauth_data.redirect_uri or provider_config["redirect_uri"]
+	# Validate redirect URI to prevent open redirect attacks. A nonce-supplied
+	# redirect wins over the client-supplied one so the code exchange uses exactly
+	# what we sent the provider at redirect time.
+	redirect_uri = redirect_from_state or oauth_data.redirect_uri or provider_config["redirect_uri"]
 	log.info(f"Redirect URI resolution - oauth_data.redirect_uri: {oauth_data.redirect_uri}, provider_config redirect_uri: {provider_config['redirect_uri']}, final: {redirect_uri}")
 
 	if redirect_uri:
