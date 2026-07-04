@@ -15,7 +15,6 @@
             const urlParams = new URLSearchParams(window.location.search);
             const token = urlParams.get('token');
             const expires_at = urlParams.get('expires_at');
-            const refresh_token = urlParams.get('refresh_token');
 
             if (!token || !expires_at) {
                 throw new Error('Missing authentication parameters');
@@ -24,13 +23,14 @@
             console.log('🢄🔐 Processing fallback authentication with token');
             status = 'Processing authentication...';
 
-            // Handle auth callback
-
-            // Construct the deep link URL and process it
-            let deepLinkUrl = `cz.hillview://auth?token=${token}&expires_at=${expires_at}`;
-            if (refresh_token) {
-                deepLinkUrl += `&refresh_token=${refresh_token}`;
-            }
+            // Rebuild the deep-link URL by forwarding ALL current query params
+            // verbatim (token, refresh_token, expires_at, refresh_token_expires_at).
+            // Previously this hand-built the URL and dropped refresh_token_expires_at,
+            // which made handleAuthCallback reject the login; the hardcoded
+            // cz.hillview:// scheme also failed to match in dev. Use the dev-aware
+            // scheme and the full query string.
+            const deepLinkScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'cz.hillviedev://auth' : 'cz.hillview://auth';
+            const deepLinkUrl = `${deepLinkScheme}${window.location.search}`;
 
             const success = await handleAuthCallback(deepLinkUrl);
 

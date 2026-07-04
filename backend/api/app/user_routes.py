@@ -1154,7 +1154,9 @@ async def oauth_login_internal(
 	log.info(f"Request headers: {headers}")
 
 	token_response = requests.post(provider_config["token_url"], data=token_data, headers=headers, timeout=30)
-	log.info(f"Token exchange response: Status {token_response.status_code}, Headers: {dict(token_response.headers)}")
+	# Log status only — don't dump the provider's response headers (may carry
+	# set-cookie / rate-limit context) and never the body (contains the provider token).
+	log.info(f"Token exchange response: Status {token_response.status_code}")
 
 	if token_response.status_code != 200:
 		log.error(f"Token exchange failed: {token_response.status_code} - {token_response.text}")

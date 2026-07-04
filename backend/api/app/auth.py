@@ -203,9 +203,9 @@ async def authenticate_user(db: AsyncSession, username: str, password: str):
 		logger.warning(f"Authentication failed: User is disabled: {username}")
 		return False
 
+	# Never log the plaintext password or stored hash material, even at debug —
+	# debug logs get enabled in prod incident triage and end up in aggregators.
 	logger.debug(f"Verifying password for user {username}")
-	logger.debug(f"Stored hash: {user.hashed_password[:50]}...")
-	logger.debug(f"Password to verify: {password}")
 	password_valid = verify_password(password, user.hashed_password)
 	logger.debug(f"Password verification result: {password_valid}")
 	if not password_valid:

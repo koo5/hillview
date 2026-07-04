@@ -32,8 +32,14 @@
                 console.log('🢄🔐 Handling intercepted deep link token in browser');
                 status = 'Processing authentication...';
 
-                // Handle auth callback
-                const deepLinkUrl = `cz.hillview://auth?token=${token}&expires_at=${expires_at}`;
+                // Rebuild the deep-link URL for handleAuthCallback by forwarding ALL
+                // current query params (token, refresh_token, expires_at,
+                // refresh_token_expires_at) verbatim — not a hand-picked subset.
+                // Dropping refresh_token_expires_at used to make handleAuthCallback
+                // reject the login. Use the dev-aware scheme so it matches the
+                // expectedScheme check (hardcoding cz.hillview:// failed in dev).
+                const deepLinkScheme = import.meta.env.VITE_DEV_MODE === 'true' ? 'cz.hillviedev://auth' : 'cz.hillview://auth';
+                const deepLinkUrl = `${deepLinkScheme}${window.location.search}`;
 
                 const success = await handleAuthCallback(deepLinkUrl);
                 if (success) {
