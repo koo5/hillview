@@ -258,13 +258,12 @@ test.describe('Zoom View URL Parameters', () => {
       // Pending overlay should disappear
       await expect(pendingOverlay).not.toBeVisible({ timeout: 11*5000 });
 
-      // Zoom params should be cleared from URL
-      await page.waitForTimeout(1000);
-      const params = getUrlParams(page.url());
-      expect(params.get('x1')).toBeNull();
-      expect(params.get('y1')).toBeNull();
-      expect(params.get('x2')).toBeNull();
-      expect(params.get('y2')).toBeNull();
+      // Zoom params should be cleared from the URL. The write is debounced, so poll
+      // for it rather than a fixed sleep (which races the update and flakes).
+      await expect.poll(() => {
+        const p = getUrlParams(page.url());
+        return p.get('x1') ?? p.get('y1') ?? p.get('x2') ?? p.get('y2');
+      }, { timeout: 11*10000 }).toBeNull();
     });
   });
 
