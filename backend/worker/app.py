@@ -82,6 +82,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from jwt_service import validate_upload_authorization_token, sign_processing_result
 from exceptions import PhotoDeletedException
+import worker_processing
 
 from common.file_utils import (
 	validate_and_prepare_photo_file,
@@ -163,7 +164,11 @@ async def lifespan(app: FastAPI):
 	# on uvicorn's handlers so [task=X photo=Y] actually appears in output.
 	setup_task_logging()
 	start_background_loop()
+	worker_processing.start(PARALLEL_PROCESSING_CONCURRENCY, asyncio.get_event_loop())
+	global _lag_task
+	_lag_task = asyncio.create_task(_event_loop_lag_monitor())
 	yield
+	worker_processing.shutdown()
 
 
 # FastAPI app
@@ -240,6 +245,42 @@ def get_worker_identity() -> str:
 WORKER_IDENTITY = get_worker_identity()
 logger.info(f"Worker identity: {WORKER_IDENTITY}, PID: {os.getpid()}, DEV_MODE: {os.getenv('DEV_MODE')}, FLY_MACHINE_ID: {FLY_MACHINE_ID}")
 
+# ---------------------------------------------------------------------------
+# Prometheus metrics. Exposed at /metrics and scraped by Fly's managed
+# Prometheus over the *private* 6PN network (see fly.toml [metrics]) — that path
+# bypasses the public edge, so metrics keep flowing even when edge routing to
+# this machine (fly-force-instance-id) is failing, which is exactly when we most
+# need to know whether the process is alive. /metrics is also reachable via the
+# public edge, but it only exposes the same operational gauges as /status.
+# ---------------------------------------------------------------------------
+_inflight_requests = 0    # HTTP requests currently being served
+_event_loop_lag_s = 0.0   # measured asyncio scheduling lag (see monitor below)
+_lag_task = None          # keeps the monitor task alive / from being GC'd
+
+
+@app.middleware("http")
+async def _count_inflight(request: Request, call_next):
+	global _inflight_requests
+	_inflight_requests += 1
+	try:
+		return await call_next(request)
+	finally:
+		_inflight_requests -= 1
+
+
+async def _event_loop_lag_monitor(interval: float = 1.0):
+	"""Record how much longer than ``interval`` an ``asyncio.sleep(interval)``
+	actually takes. A responsive loop measures ~0; a loop blocked by a
+	synchronous call measures the block duration — the signal that separates
+	'worker event loop is wedged' from 'edge can't route to this machine'."""
+	global _event_loop_lag_s
+	loop = asyncio.get_event_loop()
+	while True:
+		t0 = loop.time()
+		await asyncio.sleep(interval)
+		_event_loop_lag_s = max(0.0, (loop.time() - t0) - interval)
+
+
 # Semaphore to limit concurrent photo processing
 PARALLEL_PROCESSING_CONCURRENCY = int(os.getenv("PARALLEL_PROCESSING_CONCURRENCY", "3"))
 logger.info(f"PARALLEL_PROCESSING_CONCURRENCY: {PARALLEL_PROCESSING_CONCURRENCY}")
@@ -260,49 +301,21 @@ logger.info(f"MAX_PENDING_TASKS: {MAX_PENDING_TASKS}")
 # retry_after_minutes, the client retries later, and the queue drains.
 QUEUE_WAIT_TIMEOUT_SECONDS = int(os.getenv("QUEUE_WAIT_TIMEOUT_SECONDS", "76000"))
 
+# Start-stagger interval, reported in /status & /metrics. The stagger itself
+# runs inside the worker subprocess (photo_processor's throttle); this is the
+# configured value, for display / stall interpretation.
+PARALLEL_PROCESSING_START_DELAY = float(os.environ.get("PARALLEL_PROCESSING_START_DELAY", 5))
 
-def run_photo_processing_sync(file_path: str, filename: str, user_id: UUID, photo_id: str, client_signature: str, ctx_photo_id: str = None, ctx_task_id: str = None, anonymization_override: str = None, metadata: Dict[str, Any] = None, quality: int = None, fast: bool = False, files_to_clean: Optional[list] = None):
-	"""
-	Sync wrapper to run async photo processing in a dedicated event loop.
-	This runs in a thread pool to avoid blocking the main event loop.
+# Per-photo processing timeout. A photo still running after this is abandoned —
+# its slot is freed and the stuck worker is terminated + respawned — so one hung
+# photo can't hold a slot forever. Generous vs typical phone-photo processing.
+PROCESSING_TIMEOUT_SECONDS = int(os.getenv("PROCESSING_TIMEOUT_SECONDS", "600"))
 
-	ctx_photo_id and ctx_task_id are used to restore logging context in the new thread.
-	anonymization_override: JSON string - null=auto, "[]"=none, "[{...}]"=specific rectangles
-	quality: WebP quality (1-100). None=use default (97).
-	fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
-	files_to_clean: mutable list the processor appends intermediate/derived file paths to
-	(e.g. the .tiff produced from a CR2); the caller cleans every entry in its finally.
-	"""
-	# Restore logging context in this thread
-	with task_context(photo_id=ctx_photo_id, task_id=ctx_task_id):
-		from blur import collect_warnings
-		# Bracket the whole sync run with a TLS warning collector so
-		# _dev_only calls anywhere downstream (in this thread, including
-		# its nested event loop) accumulate into one list. Attached to the
-		# result dict for the calling /upload handler to surface.
-		with collect_warnings() as warnings:
-			loop = asyncio.new_event_loop()
-			try:
-				from photo_processor import photo_processor
-				result = loop.run_until_complete(
-					photo_processor.process_uploaded_photo(
-						file_path=file_path,
-						filename=filename,
-						user_id=user_id,
-						photo_id=photo_id,
-						client_signature=client_signature,
-						anonymization_override=anonymization_override,
-						metadata=metadata,
-						quality=quality,
-						fast=fast,
-						files_to_clean=files_to_clean,
-					)
-				)
-			finally:
-				loop.close()
-			if isinstance(result, dict) and warnings:
-				result['warnings'] = list(warnings)
-			return result
+
+# Photo processing has moved out-of-process — see worker_processing.py
+# (_run_photo_processing / the persistent worker pool). It ran here in the
+# asyncio threadpool before; now it runs in worker subprocesses for OOM/crash
+# isolation.
 
 
 pending_background_tasks_mutex = threading.Lock()
@@ -544,18 +557,19 @@ def worker_status() -> dict:
 	Reads are lock-free on purpose: the stagger holds photo_processor's
 	throttle ``_lock`` for up to START_DELAY, so acquiring it here would stall
 	/ready. ``_running_tasks`` / ``_value`` are plain ints (atomic to read).
-	photo_processor is imported lazily on first upload, so before any upload
-	its module isn't loaded — we read it via sys.modules and report 0 rather
-	than forcing the (heavy) import on a preflight.
+	``processing`` is derived from the live phase list (photos past the
+	queued / wait_ram / wait_stagger gates). Photo processing now runs in worker
+	subprocesses (see worker_processing), so the parent no longer holds
+	photo_processor / its throttle; the phase drainer feeds these phases back.
 	"""
 	pending = pending_tasks_count()
 	slots_free = getattr(processing_semaphore, "_value", None)
 	slots_in_use = (PARALLEL_PROCESSING_CONCURRENCY - slots_free
 					if slots_free is not None else None)
-	pp = sys.modules.get("photo_processor")
-	pp_throttle = getattr(pp, "throttle", None) if pp is not None else None
-	processing = getattr(pp_throttle, "_running_tasks", None) if pp_throttle is not None else 0
-	start_stagger_s = getattr(pp, "PARALLEL_PROCESSING_START_DELAY", None) if pp is not None else None
+	active = processing_state.get_active_list()
+	processing = sum(1 for a in active
+					 if not str(a.get("phase", "")).startswith(("queued", "wait_ram", "wait_stagger")))
+	start_stagger_s = PARALLEL_PROCESSING_START_DELAY
 	try:
 		avail_mb = round(psutil.virtual_memory().available / (1024 * 1024))
 	except Exception:
@@ -703,6 +717,49 @@ async def appcheck():
 async def servicecheck():
 	"""Health check endpoint."""
 	return {"status": "healthy", "service": "photo-processor"}
+
+
+@app.get("/metrics")
+async def metrics():
+	"""Prometheus exposition of live worker load. Scraped by Fly over the
+	private network (fly.toml [metrics]); see the note by the metrics globals."""
+	st = worker_status()
+	out = []
+
+	def g(name, value, help_text, typ="gauge"):
+		if value is None:
+			return
+		out.append(f"# HELP {name} {help_text}")
+		out.append(f"# TYPE {name} {typ}")
+		out.append(f"{name} {value}")
+
+	g("worker_up", 1, "1 while the worker process is serving requests.")
+	g("worker_pending_tasks", st["pending_tasks"], "Accepted tasks not yet finished (queued + holding a slot).")
+	g("worker_max_pending_tasks", st["max_pending_tasks"], "Backpressure cap: uploads are rejected at/above this.")
+	g("worker_concurrency", st["concurrency"], "Max concurrent processing slots (semaphore size).")
+	g("worker_slots_in_use", st["slots_in_use"], "Tasks currently holding a concurrency slot.")
+	g("worker_queued_for_slot", st["queued_for_slot"], "Accepted tasks with no slot yet.")
+	g("worker_processing", st["processing"], "Tasks past the start-stagger, actively processing.")
+	g("worker_stalled_in_gate", st["stalled_in_gate"], "Hold a slot but stuck in the stagger / RAM gate.")
+	g("worker_start_stagger_seconds", st["start_stagger_s"], "PARALLEL_PROCESSING_START_DELAY (admit interval).")
+	g("worker_available_ram_mb", st["available_ram_mb"], "Available system RAM in MB (worker's view).")
+	g("worker_inflight_http_requests", _inflight_requests, "HTTP requests currently being served.")
+	g("worker_event_loop_lag_seconds", round(_event_loop_lag_s, 4), "asyncio scheduling lag; high = blocked event loop.")
+
+	phases = {}
+	for p in processing_state.get_active_list():
+		name = p.get("phase", "unknown")
+		if name.startswith("wait_stagger"):
+			name = "wait_stagger"
+		phases[name] = phases.get(name, 0) + 1
+	if phases:
+		out.append("# HELP worker_phase_active Photos currently in each processing phase.")
+		out.append("# TYPE worker_phase_active gauge")
+		for name, n in sorted(phases.items()):
+			label = name.replace("\\", "\\\\").replace('"', '\\"')
+			out.append(f'worker_phase_active{{phase="{label}"}} {n}')
+
+	return Response("\n".join(out) + "\n", media_type="text/plain; version=0.0.4")
 
 
 def validate_upload_parameters(upload_auth: dict, file) -> (str, str):
@@ -975,21 +1032,29 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 			if metadata:
 				parsed_metadata = BrowserMetadata.model_validate_json(metadata).model_dump(exclude_none=True)
 
-			processing_result = await run_in_threadpool(
-				run_photo_processing_sync,
-				str(file_path),
-				safe_filename,
-				user_uuid,
-				photo_id,
-				client_signature,
-				ctx_photo_id,
-				ctx_task_id,
-				anonymization_override,
-				parsed_metadata,
-				quality,
-				fast,
-				files_to_clean,
+			# Run in a persistent worker subprocess (see worker_processing): a
+			# photo that OOMs/segfaults kills only its worker, not this process
+			# and its in-memory backlog. files_to_clean is returned because the
+			# child's appends can't propagate back across the process boundary.
+			processing_result, files_from_child = await worker_processing.submit(
+				{
+					"file_path": str(file_path),
+					"filename": safe_filename,
+					"user_id": user_uuid,
+					"photo_id": photo_id,
+					"client_signature": client_signature,
+					"ctx_photo_id": ctx_photo_id,
+					"ctx_task_id": ctx_task_id,
+					"anonymization_override": anonymization_override,
+					"metadata": parsed_metadata,
+					"quality": quality,
+					"fast": fast,
+					"files_to_clean": files_to_clean,
+				},
+				timeout=PROCESSING_TIMEOUT_SECONDS,
 			)
+			if files_from_child:
+				files_to_clean[:] = files_from_child
 		finally:
 			processing_semaphore.release()
 
