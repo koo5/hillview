@@ -23,6 +23,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/activity", tags=["activity"])
 
+
+def include_authorized_activity_photos() -> bool:
+	"""Return True when ACTIVITY_SHOW_AUTHORIZED_PHOTOS is true/1/yes, else False."""
+	return os.getenv("ACTIVITY_SHOW_AUTHORIZED_PHOTOS", "false").lower() in ("true", "1", "yes")
+
+
+def get_visible_activity_statuses() -> tuple[str, ...]:
+	"""Return public activity statuses: completed by default, plus authorized when enabled."""
+	if include_authorized_activity_photos():
+		return ("completed", "authorized")
+	return ("completed",)
+
 @router.get("/recent")
 async def get_recent_activity(
 	request: Request,
@@ -44,7 +56,10 @@ async def get_recent_activity(
 			ST_X(Photo.geometry).label('longitude')
 		).join(
 			User, Photo.owner_id == User.id
-		).where(Photo.deleted == False).order_by(Photo.uploaded_at.desc())
+		).where(
+			Photo.deleted.is_(False),
+			Photo.processing_status.in_(get_visible_activity_statuses())
+		).order_by(Photo.uploaded_at.desc())
 
 		# Apply cursor-based pagination if cursor is provided
 		if cursor:
