@@ -26,7 +26,7 @@
 import { browser } from '@wdio/globals';
 import { byTestId, ensureWebViewContext, TESTID } from '../helpers/selectors';
 import { recreateTestUsers, loginAsTestUser, forceLogoutUser } from '../helpers/backend';
-import { captureOnePhoto, enableAutoUpload } from '../helpers/uploadFlow';
+import { captureOnePhoto } from '../helpers/uploadFlow';
 import { invokePlugin } from '../helpers/bridge';
 
 const APP_PACKAGE = 'cz.hillviedev';
@@ -140,7 +140,18 @@ describe('Re-login required system notification', function () {
         // photo in the queue and auto-upload on, the worker hits
         // POST /api/photos/authorize-upload → 401 → forceRefreshToken →
         // /api/auth/refresh → 401 → showAuthExpiredNotification().
-        await enableAutoUpload();
+        // Enable via the native set_settings command, NOT the settings UI:
+        // after force-logout the WebView's own 401→forced-refresh path logs
+        // the app out to /login within seconds, yanking the settings page out
+        // from under a UI-driven toggle.
+        await invokePlugin('plugin:hillview|cmd', {
+            command: 'set_settings',
+            params: {
+                auto_upload_enabled: true,
+                wifi_only: false,
+                auto_upload_license: 'ccbysa4+osm',
+            },
+        });
         await invokePlugin('plugin:hillview|tryUploads');
 
         const dump = await waitForNotification(NOTIFICATION_TITLE, 30000);

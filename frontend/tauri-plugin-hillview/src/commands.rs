@@ -113,10 +113,14 @@ pub(crate) async fn store_auth_token<R: Runtime>(
 #[command(rename_all = "snake_case")]
 pub(crate) async fn get_auth_token<R: Runtime>(
     _app: AppHandle<R>,
+    force: Option<bool>,
 ) -> Result<AuthTokenResponse> {
+    // `force` must reach Kotlin: the JS http layer passes {force: true} after the
+    // server rejects a token that still looks valid locally. Dropping it here made
+    // Kotlin's force path dead code and left the app stuck with an orphaned session.
     #[cfg(mobile)]
     {
-        return _app.hillview().get_auth_token();
+        return _app.hillview().get_auth_token(force.unwrap_or(false));
     }
 
     #[cfg(desktop)]

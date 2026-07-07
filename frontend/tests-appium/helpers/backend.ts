@@ -44,6 +44,31 @@ export async function recreateTestUsers(): Promise<TestUserSetupResult> {
 }
 
 /**
+ * Completely wipe the backend: deletes ALL users and their photos (plus
+ * orphaned photos and their files) via /api/debug/clear-database.
+ *
+ * recreateTestUsers() only removes the three test users, so on a backend
+ * loaded with other data (e.g. a local production clone) those other users'
+ * photos still render on the map. A spec that ASSERTS on map photo state must
+ * not inherit that ambient data: call clearDatabase() first, then
+ * recreateTestUsers() (a wiped DB has no test users to log in as) and seed
+ * exactly the photos it needs. Specs that don't touch map content don't need
+ * this — the per-file recreateTestUsers() reset (wdio.conf.ts beforeSuite) is
+ * enough.
+ */
+export async function clearDatabase(): Promise<void> {
+    const res = await fetch(`${BACKEND_URL}/api/debug/clear-database`, { method: 'POST' });
+    if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`clear-database failed (${res.status}): ${body}`);
+    }
+    // Every user is gone now, test users included, so the cached setup from any
+    // prior recreateTestUsers() is stale — null it so loginAsTestUser() fails
+    // loudly until the caller recreates rather than using dead credentials.
+    _lastSetup = null;
+}
+
+/**
  * Login as test user via the WebView login form.
  * Requires recreateTestUsers() to have been called first.
  */
@@ -166,9 +191,15 @@ export async function setBackendDelay(name: string, seconds: number): Promise<vo
 /**
  * Query the backend API for user photos.
  * Returns the count and list of photo IDs.
+ *
+ * onlyProcessed: count only fully-processed (completed) photos. Without it the
+ * listing also includes "authorized" placeholder rows that authorize-upload
+ * creates BEFORE any bytes reach the worker — so a plain count is not "uploaded
+ * photos" and asserts on it can pass/fail spuriously.
  */
-export async function getUserPhotos(token: string): Promise<{ count: number; ids: string[] }> {
-    const res = await fetch(`${BACKEND_URL}/api/photos/`, {
+export async function getUserPhotos(token: string, onlyProcessed = false): Promise<{ count: number; ids: string[] }> {
+    const url = `${BACKEND_URL}/api/photos/${onlyProcessed ? '?only_processed=true' : ''}`;
+    const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
     });
 

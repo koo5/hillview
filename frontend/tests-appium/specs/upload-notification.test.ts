@@ -147,7 +147,12 @@ async function closeNotificationShade(): Promise<void> {
 describe('Upload foreground notification', function () {
     // Override the default 60s mocha timeout for the whole suite — captures
     // plus throttled uploads plus notification polling easily exceed it.
-    this.timeout(300000);
+    // The rapid-capture test fires 50 sequential wdio clicks, each blocking
+    // until the capture button re-enables (frontendBusy → 0); at ~4s/click of
+    // round-trip that burst alone runs ~230s and has brushed the old 300s cap
+    // (passing at 229s one run, timing out at 300s another). 420s gives it
+    // headroom so a slow-but-working run doesn't flip red on emulator load.
+    this.timeout(420000);
 
     before(async () => {
         await recreateTestUsers();
@@ -224,6 +229,13 @@ describe('Upload foreground notification', function () {
             // companion.
             await navigateToDevicePhotos();
 
+            // Since the FGS-churn rework (dbfc4058, see also
+            // upload-coalescing.test.ts) the worker promotes to a foreground
+            // service — and thus posts "Uploading Photos" — ONLY while the app
+            // is backgrounded; a foreground drain stays silent by design. So
+            // background the app for the polling window.
+            await (driver as any).execute('mobile: backgroundApp', { seconds: -1 });
+
             let found = false;
             let lastDump = '';
             const deadline = Date.now() + 90000;
@@ -257,6 +269,9 @@ describe('Upload foreground notification', function () {
 
             expect(found).toBe(true);
         } finally {
+            // Return to the foreground for whatever runs next (the poll leaves
+            // the app backgrounded).
+            await driver.activateApp(APP_PACKAGE).catch(() => {});
             await setBackendDelay('authorize_upload', 0);
         }
     });

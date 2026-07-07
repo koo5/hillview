@@ -1704,7 +1704,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 
 
 <!-- The map container -->
-<div bind:clientHeight={height} bind:clientWidth={width} class="map">
+<div bind:clientHeight={height} bind:clientWidth={width} class="map" data-testid="map-container">
 	<LeafletMap
 			bind:this={elMap}
 			events={

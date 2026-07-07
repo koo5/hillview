@@ -36,14 +36,6 @@ class AuthenticationManager(
 ) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    /**
-     * Invoked when the server rejects the refresh token (401) and the native session
-     * is cleared, so the WebView/JS layer can log out in lockstep instead of diverging
-     * (JS still showing "authenticated" while native has no tokens). The plugin wires
-     * this to emit an "auth-expired" event to JS.
-     */
-    var onSessionExpired: (() -> Unit)? = null
-
     companion object {
         private const val TAG = "🢄AuthenticationManager"
         private const val PREFS_NAME = "hillview_auth"
@@ -51,6 +43,22 @@ class AuthenticationManager(
         private const val KEY_REFRESH_TOKEN = "refresh_token"
         private const val KEY_EXPIRES_AT = "expires_at"
         private const val KEY_REFRESH_EXPIRES_AT = "refresh_expires_at"
+
+        /**
+         * Invoked when the server rejects the refresh token (401) and the native session
+         * is cleared, so the WebView/JS layer can log out in lockstep instead of diverging
+         * (JS still showing "authenticated" while native has no tokens). The plugin wires
+         * this to enqueue an "auth-expired" message for JS.
+         *
+         * MUST be static, like refreshMutex below and for the same reason: the session
+         * lives in SharedPreferences shared by every AuthenticationManager instance in
+         * the process (WebView plugin, upload worker, push manager, notifications), so
+         * whichever instance hits the 401 must fire the one wired callback. As a
+         * per-instance var, only the plugin's own instance notified JS — a 401 during
+         * an upload-worker refresh cleared the session silently and the WebView stayed
+         * "logged in".
+         */
+        @Volatile var onSessionExpired: (() -> Unit)? = null
 
         // Process-wide refresh lock. MUST be static, not per-instance: several
         // AuthenticationManager instances exist in the process (WebView plugin,

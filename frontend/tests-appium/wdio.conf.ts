@@ -1,3 +1,8 @@
+// Tracks the spec FILE that last triggered a backend reset so beforeSuite
+// recreates test users once per file (not once per nested describe) — the
+// Appium analog of the Playwright `testUsers` auto-fixture.
+let lastBackendResetFile = '';
+
 export const config: WebdriverIO.Config = {
     //
     // ====================
@@ -66,7 +71,10 @@ export const config: WebdriverIO.Config = {
         'appium:appActivity': '.MainActivity',
         'appium:noReset': false, // Reset app state between tests
         'appium:fullReset': false, // Don't reinstall, but clear app data
-        'appium:chromedriverAutodownload': true,
+        // chromedriver is pinned (checked-in, gitignored binary); an explicit
+        // executable overrides autodownload, so we don't set chromedriverAutodownload.
+        // The onPrepare hook fails fast if this binary's major version drifts from
+        // the emulator's System WebView.
         'appium:chromedriverExecutable': './chromedriver',
         'appium:ensureWebviewsHavePages': true,
         'appium:nativeWebScreenshot': true,
@@ -177,9 +185,50 @@ export const config: WebdriverIO.Config = {
      * @param {object} config wdio configuration object
      * @param {Array.<Object>} capabilities list of capabilities details
      */
-    // Lock is acquired by lockAndRun.ts wrapper before wdio starts
-    // onPrepare: async function (config, capabilities) {
-    // },
+    // Lock is acquired by lockAndRun.ts wrapper before wdio starts.
+    onPrepare: async function () {
+        // Fail-fast preflight: a WebView session can't attach when the pinned
+        // chromedriver's MAJOR version doesn't match the emulator's active System
+        // WebView. Unchecked, that surfaces as a cryptic "session not created …
+        // only supports Chrome version N" deep in the first spec's before-all,
+        // after Appium has already spun up — wasting a run. chromedriver is
+        // gitignored and pinned via chromedriverExecutable, so a WebView
+        // auto-update silently drifts it out of range. Catch it here, once,
+        // before any worker or Appium session starts.
+        const { execSync } = await import('node:child_process');
+        const majorOf = (s: string): string | null => s.match(/(\d+)\.\d+\.\d+/)?.[1] ?? null;
+
+        let cdMajor: string | null = null;
+        let wvMajor: string | null = null;
+        try {
+            cdMajor = majorOf(execSync('./chromedriver --version', { encoding: 'utf8' }));
+            // "  Current WebView package (name, version): (com.google.android.webview, 149.0.7827.159)"
+            const wv = execSync('adb shell dumpsys webviewupdate', { encoding: 'utf8' });
+            wvMajor = majorOf(wv.split('\n').find((l) => l.includes('Current WebView package')) ?? '');
+        } catch (err) {
+            // Don't let the check itself become a flaky gate (adb missing, no
+            // device attached, dumpsys shape change): warn and let the run proceed
+            // so a real mismatch still surfaces the usual way rather than this
+            // preflight blocking an otherwise-fine environment.
+            console.warn(`⚠️  chromedriver/WebView preflight skipped: ${err instanceof Error ? err.message : String(err)}`);
+            return;
+        }
+
+        if (cdMajor && wvMajor && cdMajor !== wvMajor) {
+            throw new Error(
+                `chromedriver/WebView major-version mismatch: chromedriver ${cdMajor} vs Android System ` +
+                `WebView ${wvMajor}. The WebView session cannot attach. Replace tests-appium/chromedriver ` +
+                `with major ${wvMajor} (linux64) from ` +
+                `https://googlechromelabs.github.io/chrome-for-testing/, or roll the emulator's System ` +
+                `WebView back to major ${cdMajor}.`,
+            );
+        }
+        console.log(
+            cdMajor && wvMajor
+                ? `✅ chromedriver ${cdMajor} matches Android System WebView ${wvMajor}`
+                : `⚠️  chromedriver/WebView preflight: versions indeterminate (chromedriver=${cdMajor}, webview=${wvMajor}); skipped`,
+        );
+    },
     /**
      * Gets executed before a worker process is spawned and can be used to initialize specific service
      * for that worker as well as modify runtime environments in an async fashion.
@@ -227,11 +276,40 @@ export const config: WebdriverIO.Config = {
     // beforeCommand: function (commandName, args) {
     // },
     /**
-     * Hook that gets executed before the suite starts
-     * @param {object} suite suite details
+     * Hook that gets executed before the suite starts.
+     *
+     * PARTIAL backend reset once per spec FILE, mirroring the Playwright
+     * `testUsers` auto-fixture (tests-playwright/fixtures.ts). Appium's
+     * noReset:false already clears APP state (login, prefs, DB) between spec
+     * files, but the backend API server is shared and persists across files —
+     * so a spec that never calls recreateTestUsers() inherits the previous
+     * file's test-user photos/annotations (e.g. the "authorized" photo
+     * placeholders authorize-upload leaves behind). recreateTestUsers()
+     * cascade-deletes them, giving every spec a clean *test-user* slate.
+     *
+     * This deliberately does NOT wipe the whole DB: a local backend is often
+     * loaded with a production clone owned by OTHER users, kept for manual dev
+     * — those photos survive (and still render on the map during tests, which
+     * is expected, not a leak). A spec that ASSERTS on map photo state must
+     * clear completely and seed its own fixtures via clearDatabase() (see
+     * helpers/backend.ts); the partial reset here is only enough for specs
+     * that don't depend on ambient map content.
+     *
+     * Specs that call recreateTestUsers() themselves still do (they need the
+     * returned passwords, and some re-clean mid-file); this just closes the
+     * gap for the ones that don't and removes the cross-file ordering
+     * dependency. Keyed on suite.file so nested describe() blocks within one
+     * file (e.g. map-interaction's Button Controls / Touch Gestures) don't
+     * wipe state mid-run.
      */
-    // beforeSuite: function (suite) {
-    // },
+    beforeSuite: async function (suite) {
+        if (suite.file && suite.file !== lastBackendResetFile) {
+            lastBackendResetFile = suite.file;
+            const { recreateTestUsers } = await import('./helpers/backend');
+            console.log(`♻️  Recreating test users for spec file (partial reset; other users' photos persist): ${suite.file}`);
+            await recreateTestUsers();
+        }
+    },
     /**
      * Function to be executed before a test (in Mocha/Jasmine) starts.
      * Ensures app starts fresh for each test

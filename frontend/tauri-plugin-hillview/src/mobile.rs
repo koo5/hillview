@@ -69,10 +69,15 @@ impl<R: Runtime> Hillview<R> {
       .map_err(Into::into)
   }
 
-  pub fn get_auth_token(&self) -> crate::Result<AuthTokenResponse> {
+  pub fn get_auth_token(&self, force: bool) -> crate::Result<AuthTokenResponse> {
+    #[derive(serde::Serialize)]
+    struct Args {
+      force: bool,
+    }
+
     self
       .0
-      .run_mobile_plugin("getAuthToken", ())
+      .run_mobile_plugin("getAuthToken", Args { force })
       .map_err(Into::into)
   }
 

@@ -443,8 +443,11 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 		// case where the 401 happens while the app is backgrounded with no WebView in
 		// existence — the message waits in the queue and is delivered when the WebView
 		// next polls. The JS auth store then logs out in lockstep with native.
-		Log.i(TAG, "🔐➡️ Wiring authManager.onSessionExpired → queueMessage(\"auth-expired\")")
-		authManager.onSessionExpired = {
+		Log.i(TAG, "🔐➡️ Wiring AuthenticationManager.onSessionExpired → queueMessage(\"auth-expired\")")
+		// Static on the class (not this plugin's instance): whichever
+		// AuthenticationManager instance in the process hits the 401 must fire it —
+		// notably the upload worker's own instance.
+		AuthenticationManager.onSessionExpired = {
 			Log.w(TAG, "🔐➡️ onSessionExpired fired; queueing 'auth-expired' message for JS")
 			try {
 				queueMessage("auth-expired", JSObject())
@@ -1013,8 +1016,13 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				try {
 					val validToken = if (force) {
 						Log.d(TAG, "🔐 Force refresh requested, performing explicit refresh first")
-						// Force refresh: explicitly refresh first, then get token
-						authManager.refreshTokenIfNeeded()
+						// Force refresh: the caller (JS http layer) saw the server REJECT
+						// the current token, which may still look valid locally (e.g. the
+						// session was invalidated server-side). refreshTokenIfNeeded()
+						// no-ops on a locally-valid token, so it must be
+						// forceRefreshToken() — refresh unconditionally; a 401 clears the
+						// session and fires onSessionExpired so JS logs out in lockstep.
+						authManager.forceRefreshToken()
 						authManager.getValidToken()
 					} else {
 						if (doLog) Log.d(TAG, "🔐 Normal token request with refresh capability")

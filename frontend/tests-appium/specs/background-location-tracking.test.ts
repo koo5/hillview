@@ -111,21 +111,38 @@ async function normalizeOff(): Promise<void> {
     expect(after.includes('background')).toBe(false);
 }
 
-/** Drag across the map center (native gesture) to simulate a manual pan. */
+/** Drag the map (native gesture) to simulate a manual pan. */
 async function panMap(): Promise<void> {
-    const { width, height } = await browser.getWindowSize();
-    const cx = Math.floor(width / 2);
-    const cy = Math.floor(height / 2);
+    // Start the drag at the exact center of the MAP COMPONENT (not the screen):
+    // when photos are in range the photo viewer owns the top half of the screen,
+    // and the map's own buttons/attribution hug its edges. The bearing arrow is
+    // parked at the map center (tracking just recentered onto the GPS fix), but
+    // it only reacts around its head, so its base — the exact center — is safe
+    // to grab. The rect is measured in WebView CSS px and scaled to the device
+    // px that performActions expects (the WebView is edge-to-edge, so
+    // device = css × (deviceWidth / innerWidth)).
+    await ensureWebViewContext();
+    const m = (await browser.execute(() => {
+        const el = document.querySelector('[data-testid="map-container"]');
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2, iw: window.innerWidth };
+    })) as { x: number; y: number; iw: number } | null;
+    if (!m) throw new Error('panMap: [data-testid="map-container"] not found');
     await driver.switchContext('NATIVE_APP');
+    const { width } = await browser.getWindowSize();
+    const scale = width / m.iw;
+    const cx = Math.floor(m.x * scale);
+    const cy = Math.floor(m.y * scale);
     await browser.performActions([
         {
             type: 'pointer',
             id: 'finger1',
             parameters: { pointerType: 'touch' },
             actions: [
-                { type: 'pointerMove', duration: 0, x: cx + 120, y: cy },
+                { type: 'pointerMove', duration: 0, x: cx, y: cy },
                 { type: 'pointerDown', button: 0 },
-                { type: 'pointerMove', duration: 400, x: cx - 120, y: cy },
+                { type: 'pointerMove', duration: 400, x: cx - 240, y: cy },
                 { type: 'pointerUp', button: 0 },
             ],
         },

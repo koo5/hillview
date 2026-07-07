@@ -18,7 +18,7 @@
 import { browser } from '@wdio/globals';
 import { byTestId, ensureWebViewContext, TESTID } from '../helpers/selectors';
 import { recreateTestUsers, loginAsTestUser, forceLogoutUser } from '../helpers/backend';
-import { captureOnePhoto, enableAutoUpload } from '../helpers/uploadFlow';
+import { captureOnePhoto } from '../helpers/uploadFlow';
 import { invokePlugin } from '../helpers/bridge';
 import { waitForLoggedOutUI } from '../helpers/authUi';
 
@@ -63,7 +63,18 @@ describe('Native session expiry logs the WebView out in lockstep', function () {
 
         // 3. Run the upload worker → authorize-upload 401 → forceRefreshToken →
         //    /auth/refresh 401 → native clearAuthToken + queueMessage('auth-expired').
-        await enableAutoUpload();
+        //    Enable auto-upload via the native set_settings command, NOT the
+        //    settings UI: after force-logout the WebView's own 401→forced-refresh
+        //    path logs the app out to /login within seconds, yanking the settings
+        //    page out from under a UI-driven toggle.
+        await invokePlugin('plugin:hillview|cmd', {
+            command: 'set_settings',
+            params: {
+                auto_upload_enabled: true,
+                wifi_only: false,
+                auto_upload_license: 'ccbysa4+osm',
+            },
+        });
         await invokePlugin('plugin:hillview|tryUploads');
 
         // 4. The WebView polls the queue, AndroidTokenManager logs out, and the app

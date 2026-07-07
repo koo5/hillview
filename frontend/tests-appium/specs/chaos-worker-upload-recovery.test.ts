@@ -24,7 +24,10 @@ import { invokePlugin } from '../helpers/bridge';
 
 async function uploadedPhotoCount(): Promise<number> {
     const token = await getTestUserToken();
-    return (await getUserPhotos(token)).count;
+    // only_processed: authorize-upload already created an "authorized" placeholder
+    // row for the faulted photo; "uploaded" here means the bytes made it through
+    // the worker (status completed).
+    return (await getUserPhotos(token, true)).count;
 }
 
 /** Poll (re-triggering the upload worker) until the server reports `target` photos. */
