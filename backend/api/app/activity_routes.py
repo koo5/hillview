@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/activity", tags=["activity"])
 
 
 def include_authorized_activity_photos() -> bool:
-	"""Check ACTIVITY_SHOW_AUTHORIZED_PHOTOS for activity-feed visibility."""
+	"""Return True when ACTIVITY_SHOW_AUTHORIZED_PHOTOS is true/1/yes, else False."""
 	return os.getenv("ACTIVITY_SHOW_AUTHORIZED_PHOTOS", "false").lower() in ("true", "1", "yes")
 
 
