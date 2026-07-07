@@ -32,6 +32,43 @@ contributor would otherwise re-discover by grepping.
 | Kill the app (simulate swipe-from-recents) | `driver.execute('mobile: shell', { command: 'am', args: ['kill', pkg] })`. Different from `driver.terminateApp(pkg)` — the latter uses `am force-stop`, which puts the package in the force-stopped state and makes Android refuse all future broadcasts (including FCM) until the user re-launches. |
 | Check active/recent notifications | `driver.execute('mobile: shell', { command: 'dumpsys', args: ['notification', '--noredact'] })`. Parse `NotificationRecord(…)` stanzas for `when=`, and the shorter `StatusBarNotification(…)` entries in `mArchive` for recent history. |
 
+## WebDriver quirks that produce misleading failures
+
+### An `error` key in an executeAsync result becomes a fake protocol error
+
+wdio's W3C response parser treats ANY `execute/async` result whose top-level
+value has an `error` property as a WebDriver protocol error: the call throws
+`WebDriverError: <error text>` and wdio silently retries it 3× — re-firing
+whatever the script did each time. Plugin payloads like
+`{success: false, error: "Token refresh failed"}` are perfectly normal results
+and trip this. `helpers/bridge.ts#invokePlugin` therefore wraps the command
+result under `__ok` before handing it to `done()` and unwraps it on the runner
+side. If you write a custom executeAsync that returns app data, never let a
+raw object with an `error` key be the script's top-level result.
+
+### getWindowSize CSS pixels vs performActions device pixels
+
+`browser.getWindowSize()` in the WebView context reports CSS pixels of the
+web viewport; `performActions` touch coordinates are physical device pixels.
+Mixing them aims gestures at the wrong screen region (on the current emulator
+that's roughly a 2.5× offset). Switch to `NATIVE_APP` first, then measure,
+then gesture — see `panMap()` in `specs/background-location-tracking.test.ts`.
+
+### Screen-center gestures may hit the photo viewer, not the map
+
+When photos are in range, the top half of the main screen is the swipeable
+photo viewer (panZoom/Gallery); only the lower part is the Leaflet map. A
+"map pan" at screen center silently becomes a photo swipe (watch for
+`panZoom.touchstart` / `Gallery: Detected swipe` in logcat instead of
+Leaflet drag events). Whether the viewer is present depends on what earlier
+specs left in the DB, so this bites order-dependently. Don't aim by screen
+fractions: measure `[data-testid="map-container"]`'s rect in the WebView,
+scale CSS→device px (the WebView is edge-to-edge, so the factor is
+deviceWidth / innerWidth), and start the drag at the map component's exact
+center — the map's buttons and attribution hug its edges, and the bearing
+arrow parked there only reacts around its head, not its base. See `panMap()`
+in `specs/background-location-tracking.test.ts`.
+
 ## Backend test hooks
 
 Both tests and prod ops can hit these; they're localhost-only
@@ -52,6 +89,33 @@ Both tests and prod ops can hit these; they're localhost-only
 - `POST /api/internal/debug/clear-notifications` — truncate the
   `notifications` table so activity-broadcast's 12-hour dedup filter
   doesn't skip the test user.
+
+## Backend reset: two levels
+
+App state (login, prefs, the on-device photo DB) is reset by Appium per spec
+FILE via `noReset: false`. The **backend** DB is shared across specs and is
+NOT wiped between them — so there are two distinct reset levels, and picking
+the wrong one causes confusion (a map that stays "full of old data") or
+flakiness (a test that asserts on ambient photos).
+
+- **Partial (default)** — `recreateTestUsers()` (`/api/debug/recreate-test-users`).
+  Deletes only the three test users (`test`/`admin`/`testuser`) and their
+  photos. `wdio.conf.ts`'s `beforeSuite` calls it once per spec file (the
+  analog of Playwright's `testUsers` auto-fixture), so every spec starts on a
+  clean *test-user* slate without each spec having to remember. It does NOT
+  touch other users' data: a local backend loaded with a production clone
+  keeps those photos, and they still render on the map during tests — expected,
+  not a leak.
+- **Complete (opt-in)** — `clearDatabase()` (`/api/debug/clear-database`).
+  Deletes ALL users and photos (plus orphaned photo files). A spec that
+  ASSERTS on map photo content must not inherit ambient clone data: call
+  `clearDatabase()` first, then `recreateTestUsers()` (the wipe removes the
+  test users too, so you must recreate before logging in) and seed exactly the
+  photos it needs (see `seedFixturePhoto` in `specs/screenshots.test.ts`).
+
+Rule of thumb: if the test reads the map, clear completely and seed; otherwise
+the partial per-file reset is enough. Today no appium spec asserts on arbitrary
+map photos, so the partial default is sufficient across the suite.
 
 ## Test hygiene — current weaknesses
 
