@@ -57,7 +57,7 @@ async def get_recent_activity(
 		).join(
 			User, Photo.owner_id == User.id
 		).where(
-			Photo.deleted == False,
+			Photo.deleted.is_(False),
 			Photo.processing_status.in_(get_visible_activity_statuses())
 		).order_by(Photo.uploaded_at.desc())
 
