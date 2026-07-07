@@ -25,12 +25,12 @@ router = APIRouter(prefix="/api/activity", tags=["activity"])
 
 
 def include_authorized_activity_photos() -> bool:
-	"""Allow the activity feed to include authorized-but-not-yet-processed photos."""
+	"""Check ACTIVITY_SHOW_AUTHORIZED_PHOTOS for activity-feed visibility."""
 	return os.getenv("ACTIVITY_SHOW_AUTHORIZED_PHOTOS", "false").lower() in ("true", "1", "yes")
 
 
 def get_visible_activity_statuses() -> tuple[str, ...]:
-	"""Statuses that should appear in the public activity feed."""
+	"""Return public activity statuses: completed by default, plus authorized when enabled."""
 	if include_authorized_activity_photos():
 		return ("completed", "authorized")
 	return ("completed",)
