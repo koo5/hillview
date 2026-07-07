@@ -66,7 +66,7 @@ from typing import Optional, Any
 from uuid import UUID
 from pathlib import Path
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -734,8 +734,10 @@ async def upload_sync(
 	metadata: Optional[str] = Form(None),  # JSON: metadata when EXIF can't be written (e.g., browser capture)
 	quality: Optional[int] = Form(None),  # WebP quality (1-100). None=use default (97).
 	fast: Optional[bool] = Form(None),  # Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding
-	upload_auth: dict = Depends(get_upload_authorization)
+	upload_auth: dict = Depends(get_upload_authorization),
+	response: Response = None
 ):
+	response.headers["Connection"] = "close"
 	photo_id, user_id = validate_upload_parameters(upload_auth, file)
 	return await upload(file, client_signature, photo_id, user_id, anonymization_override=anonymization_override, metadata=metadata, quality=quality, fast=bool(fast))
 
@@ -749,9 +751,11 @@ async def upload_async(
 	quality: Optional[int] = Form(None),  # WebP quality (1-100). None=use default (97).
 	fast: Optional[bool] = Form(None),  # Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding
 	upload_auth: dict = Depends(get_upload_authorization),
-	background_tasks: BackgroundTasks = None
+	background_tasks: BackgroundTasks = None,
+	response: Response = None
 ):
 	global task_id_counter
+	response.headers["Connection"] = "close"
 	photo_id, user_id = validate_upload_parameters(upload_auth, file)
 	with pending_background_tasks_mutex:
 		task_id = f"{task_id_counter}_{time.time()}"
