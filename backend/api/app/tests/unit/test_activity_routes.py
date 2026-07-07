@@ -1,8 +1,5 @@
 """Unit tests for activity feed visibility helpers."""
-import os
-import sys
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+import pytest
 
 from activity_routes import (
 	get_visible_activity_statuses,
@@ -16,8 +13,9 @@ def test_include_authorized_activity_photos_disabled_by_default(monkeypatch):
 	assert get_visible_activity_statuses() == ("completed",)
 
 
-def test_include_authorized_activity_photos_accepts_truthy_values(monkeypatch):
-	monkeypatch.setenv("ACTIVITY_SHOW_AUTHORIZED_PHOTOS", "yes")
+@pytest.mark.parametrize("truthy_value", ["true", "1", "yes"])
+def test_include_authorized_activity_photos_accepts_truthy_values(monkeypatch, truthy_value):
+	monkeypatch.setenv("ACTIVITY_SHOW_AUTHORIZED_PHOTOS", truthy_value)
 	assert include_authorized_activity_photos() is True
 	assert get_visible_activity_statuses() == ("completed", "authorized")
 
