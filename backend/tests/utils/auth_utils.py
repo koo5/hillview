@@ -37,14 +37,15 @@ class AuthTestHelper:
             "password": TEST_CREDENTIALS[username]
         }
         
+        token_url = f"{self.api_url}/auth/token"
         response = requests.post(
-            f"{self.api_url}/auth/token",
+            token_url,
             data=login_data,
             headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
-        
+
         if response.status_code != 200:
-            raise Exception(f"Failed to get token for {username}: {response.status_code} - {response.text}")
+            raise Exception(f"Failed to get token for {username} from {token_url}: {response.status_code} - {response.text}")
         
         token = response.json()["access_token"]
         self._tokens_cache[username] = token

@@ -553,7 +553,8 @@ def worker_status() -> dict:
 	slots_in_use = (PARALLEL_PROCESSING_CONCURRENCY - slots_free
 					if slots_free is not None else None)
 	pp = sys.modules.get("photo_processor")
-	processing = getattr(pp.throttle, "_running_tasks", None) if pp is not None else 0
+	pp_throttle = getattr(pp, "throttle", None) if pp is not None else None
+	processing = getattr(pp_throttle, "_running_tasks", None) if pp_throttle is not None else 0
 	start_stagger_s = getattr(pp, "PARALLEL_PROCESSING_START_DELAY", None) if pp is not None else None
 	try:
 		avail_mb = round(psutil.virtual_memory().available / (1024 * 1024))

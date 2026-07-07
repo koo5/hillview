@@ -535,13 +535,14 @@ class TokenManager:
 			from .auth_utils import TEST_CREDENTIALS
 			user = "test"
 			password = TEST_CREDENTIALS[user]
+		token_url = f"{self.api_url}/auth/token"
 		response = requests.post(
-			f"{self.api_url}/auth/token",
+			token_url,
 			data={"username": user, "password": password},
 			headers={"Content-Type": "application/x-www-form-urlencoded"}
 		)
 		if response.status_code != 200:
-			raise Exception(f"Login failed: {response.status_code} - {response.text}")
+			raise Exception(f"Login failed at {token_url}: {response.status_code} - {response.text}")
 		data = response.json()
 		self.access_token = data["access_token"]
 		self.refresh_token = data.get("refresh_token")
@@ -590,13 +591,14 @@ def _get_token(user: str = None, password: str = None) -> str:
 	if user and password:
 		import requests
 		from .test_utils import API_URL
+		token_url = f"{API_URL}/auth/token"
 		response = requests.post(
-			f"{API_URL}/auth/token",
+			token_url,
 			data={"username": user, "password": password},
 			headers={"Content-Type": "application/x-www-form-urlencoded"}
 		)
 		if response.status_code != 200:
-			raise Exception(f"Login failed: {response.status_code} - {response.text}")
+			raise Exception(f"Login failed at {token_url}: {response.status_code} - {response.text}")
 		return response.json()["access_token"]
 	else:
 		return auth_helper.get_test_user_token("test")
@@ -613,11 +615,13 @@ def dump_photos(user: str = None, password: str = None):
 	checked dev upload and the prod upload — it applies the frontend ratings
 	and copies the dev-computed anonymization detections for reuse.
 
-	Deliberately un-wrapped (no ``❌``-style catch): a failure must exit
-	non-zero with a traceback so the consuming script's ``check_output``
-	fails loudly instead of parsing garbage.
+	Failures exit non-zero with a one-line message naming the server (the
+	dispatch wraps this call) so the consuming script's ``check_output``
+	fails loudly and actionably instead of parsing garbage.
 	"""
 	from .test_utils import API_URL
+	who = repr(user) if user else "the shared 'test' user"
+	print(f"… dumping photos from {API_URL} (as {who})", file=sys.stderr)
 	token = _get_token(user, password)
 	photos: list = []
 	cursor = None
@@ -1135,8 +1139,16 @@ def main():
 			from . import test_utils as _test_utils
 			_test_utils.API_URL = opts.api_url
 			globals()["API_URL"] = opts.api_url
-		# No lock: read-only, like the `photos` command.
-		dump_photos(opts.user, opts.password)
+		# No lock: read-only, like the `photos` command. One-line failure
+		# (server named by the messages above), non-zero exit — the consumer
+		# (pics apply_dev_ratings.py) needs loud-but-actionable, not a
+		# 20-frame traceback. DEBUG=1 restores the traceback.
+		try:
+			dump_photos(opts.user, opts.password)
+		except Exception as e:
+			print(f"❌ dump-photos: {_describe_exc(e)}", file=sys.stderr)
+			_maybe_traceback()
+			sys.exit(1)
 	elif command == "mock-mapillary":
 		with backend_test_lock():
 			setup_mock_mapillary()
