@@ -63,7 +63,8 @@ import math
 np = None  # lazy-loaded in validate_json_payload (see module docstring)
 
 from typing import Optional, Any
-from uuid import UUID
+import shutil
+from uuid import UUID, uuid4
 from pathlib import Path
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks, Request, Response
@@ -211,6 +212,11 @@ security = HTTPBearer()
 # Configuration
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/app/uploads/"))
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+# Dev-only: when set, the worker serves processed files straight from its own
+# volume (the local opt/ file IS the served copy), so per-job work dirs and
+# cleanup are disabled — see process(). Prod ships to the pool and cleans up.
+KEEP_PICS_IN_WORKER = os.getenv("KEEP_PICS_IN_WORKER", "false").lower() in ("true", "1", "yes")
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 FLY_MACHINE_ID = os.environ.get("FLY_MACHINE_ID", None)
 
@@ -978,7 +984,15 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 	# Everything in this list gets cleaned up in _upload_inner's finally.
 	# The processor appends any intermediate files it creates (e.g. a .tiff
 	# derived from an uploaded .CR2) so the caller can clean them all.
-	files_to_clean: list = []
+	files_to_clean: list = []  # vestigial; kept for the return tuple
+
+	# Per-job work dir: everything this job writes (the uploaded original + all
+	# size variants + the DZI tile tree) lands under it, so cleanup is a single
+	# rmtree in the finally, whatever the outcome. The random suffix isolates two
+	# concurrent jobs for the same photo_id (they'd otherwise collide on the same
+	# opt/.../{photo_id} paths). In KEEP_PICS_IN_WORKER (dev) the local files ARE
+	# the served copies, so we don't nest under a work dir and we don't delete.
+	work_dir = UPLOAD_DIR if KEEP_PICS_IN_WORKER else (UPLOAD_DIR / "work" / f"{photo_id}-{uuid4().hex[:12]}")
 
 	safe_filename = sanitize_filename(file.filename)
 
@@ -986,14 +1000,14 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 
 		# Get file size and validate file
 		file_size = get_file_size_from_upload(file.file)
+		work_dir.mkdir(parents=True, exist_ok=True)
 		safe_filename, secure_filename, file_path = validate_and_prepare_photo_file(
 			filename=file.filename,
 			file_size=file_size,
 			content_type=file.content_type,
 			user_id=user_id,
-			upload_base_dir=str(UPLOAD_DIR)
+			upload_base_dir=str(work_dir)
 		)
-		files_to_clean.append(str(file_path))
 
 		# Save uploaded file
 		async with aiofiles.open(file_path, 'wb') as f:
@@ -1034,9 +1048,9 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 
 			# Run in a persistent worker subprocess (see worker_processing): a
 			# photo that OOMs/segfaults kills only its worker, not this process
-			# and its in-memory backlog. files_to_clean is returned because the
-			# child's appends can't propagate back across the process boundary.
-			processing_result, files_from_child = await worker_processing.submit(
+			# and its in-memory backlog. All of this job's output lands under
+			# work_dir (output_base), reclaimed by the rmtree in the finally.
+			processing_result = await worker_processing.submit(
 				{
 					"file_path": str(file_path),
 					"filename": safe_filename,
@@ -1049,12 +1063,10 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 					"metadata": parsed_metadata,
 					"quality": quality,
 					"fast": fast,
-					"files_to_clean": files_to_clean,
+					"output_base": str(work_dir),
 				},
 				timeout=PROCESSING_TIMEOUT_SECONDS,
 			)
-			if files_from_child:
-				files_to_clean[:] = files_from_child
 		finally:
 			processing_semaphore.release()
 
@@ -1099,5 +1111,13 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 		processing_status = "error"
 		error_message = f"Unexpected error: {unexpected_error}"
 		retry_after_minutes = 10  # Retry in 10 minutes
+
+	finally:
+		# One-shot cleanup: this job's whole output tree (original + variants +
+		# DZI tiles) lives under work_dir, so this reclaims it on every outcome —
+		# success, error, WorkerDied, or timeout. KEEP_PICS_IN_WORKER (dev) keeps
+		# everything: work_dir IS UPLOAD_DIR and those files are the served copies.
+		if not KEEP_PICS_IN_WORKER:
+			shutil.rmtree(work_dir, ignore_errors=True)
 
 	return file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename, files_to_clean

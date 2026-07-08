@@ -119,8 +119,8 @@ def _worker_main(worker_idx, job_queue, result_queue, phase_queue):
 		# Announce pickup so the parent can attribute a death to this job.
 		result_queue.put((job_id, "picked", worker_idx))
 		try:
-			result, files = _run_photo_processing(**job["args"])
-			result_queue.put((job_id, "ok", (result, files)))
+			result = _run_photo_processing(**job["args"])
+			result_queue.put((job_id, "ok", result))
 		except Exception as e:  # noqa: BLE001 — ship type+msg back for routing
 			result_queue.put((job_id, "error", {
 				"type": type(e).__name__,
@@ -132,17 +132,15 @@ def _worker_main(worker_idx, job_queue, result_queue, phase_queue):
 
 def _run_photo_processing(file_path, filename, user_id, photo_id, client_signature,
                           ctx_photo_id=None, ctx_task_id=None, anonymization_override=None,
-                          metadata=None, quality=None, fast=False, files_to_clean=None):
+                          metadata=None, quality=None, fast=False, output_base=None):
 	"""Run async photo processing to completion in a dedicated event loop.
 
-	Returns ``(result, files_to_clean)``: the processor appends intermediate
-	files to ``files_to_clean``, but that list can't be mutated back across the
-	process boundary, so we return it for the parent to clean.
-
-	Heavy imports (blur, photo_processor) happen here, lazily.
+	``output_base`` is this job's work dir: we repoint the processor's output
+	root at it so every size variant + DZI tile lands under it, and the parent
+	reclaims the whole job with a single rmtree (no per-file cleanup list).
+	Safe to set on the shared singleton because each worker processes one job at
+	a time. Heavy imports (blur, photo_processor) happen here, lazily.
 	"""
-	if files_to_clean is None:
-		files_to_clean = []
 	from logging_context import task_context
 	try:
 		with task_context(photo_id=ctx_photo_id, task_id=ctx_task_id):
@@ -154,6 +152,8 @@ def _run_photo_processing(file_path, filename, user_id, photo_id, client_signatu
 				loop = asyncio.new_event_loop()
 				try:
 					from photo_processor import photo_processor
+					if output_base:
+						photo_processor.upload_dir = output_base
 					result = loop.run_until_complete(
 						photo_processor.process_uploaded_photo(
 							file_path=file_path,
@@ -165,14 +165,13 @@ def _run_photo_processing(file_path, filename, user_id, photo_id, client_signatu
 							metadata=metadata,
 							quality=quality,
 							fast=fast,
-							files_to_clean=files_to_clean,
 						)
 					)
 				finally:
 					loop.close()
 				if isinstance(result, dict) and warnings:
 					result['warnings'] = list(warnings)
-				return result, files_to_clean
+				return result
 	finally:
 		# Final clear (FIFO after this photo's set messages) so a late phase
 		# update can't leave a stale entry in the parent's _active.
@@ -227,7 +226,7 @@ def _next_job_id():
 
 
 async def submit(args, timeout=None):
-	"""Queue a photo for processing and await ``(result, files_to_clean)``.
+	"""Queue a photo for processing and await the result dict.
 
 	Raises the reconstructed processing exception (so process() routes it), or
 	``TimeoutError`` if the worker died / the job exceeded ``timeout`` (both
