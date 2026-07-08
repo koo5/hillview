@@ -19,6 +19,8 @@ export interface UserPhoto {
     user_rating?: 'thumbs_up' | 'thumbs_down' | null;  // User's current rating
     rating_counts?: { thumbs_up: number; thumbs_down: number };  // Aggregate counts
     processing_status: string;  // Photo processing status (always provided by backend)
+    error?: string | null;  // Processing error message (present when processing_status === 'error')
+    retry_after_minutes?: number | null;  // Retry hint for a failed processing: null = permanent (don't retry), >0 = retry after N minutes
 }
 
 // Store for photo capture settings

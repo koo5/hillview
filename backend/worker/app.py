@@ -164,6 +164,7 @@ async def lifespan(app: FastAPI):
 	# basicConfig handler. Re-applying here installs the filter + formatter
 	# on uvicorn's handlers so [task=X photo=Y] actually appears in output.
 	setup_task_logging()
+	_sweep_stale_work_dirs()
 	start_background_loop()
 	worker_processing.start(PARALLEL_PROCESSING_CONCURRENCY, asyncio.get_event_loop())
 	global _lag_task
@@ -217,6 +218,35 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 # volume (the local opt/ file IS the served copy), so per-job work dirs and
 # cleanup are disabled — see process(). Prod ships to the pool and cleans up.
 KEEP_PICS_IN_WORKER = os.getenv("KEEP_PICS_IN_WORKER", "false").lower() in ("true", "1", "yes")
+
+# Development deployment gate (dev/aux), matching the backend's canonical DEV_MODE
+# convention (see common.debug_faults). In DEV_MODE, resource-wait / worker-died
+# upload errors carry a live server snapshot (free RAM, slot occupancy, queue
+# depth) so a stuck upload is diagnosable without shelling into the worker; prod
+# returns the terse message.
+DEV_MODE = os.getenv("DEV_MODE", "false").lower() in ("true", "1", "yes")
+
+
+def _sweep_stale_work_dirs():
+	"""Remove leftover per-job work dirs from a previous run that crashed (or was
+	suspended/redeployed by Fly) before ``process()``'s finally could rmtree
+	them. Safe at startup: no job is in flight yet, so every ``{UPLOAD_DIR}/work``
+	entry is an orphan. This is the parent-crash counterpart to the per-job
+	rmtree (which only covers a subprocess death, not a whole-worker death)."""
+	if KEEP_PICS_IN_WORKER:
+		return
+	work_root = UPLOAD_DIR / "work"
+	if not work_root.is_dir():
+		return
+	removed = 0
+	for entry in work_root.iterdir():
+		try:
+			shutil.rmtree(entry, ignore_errors=True) if entry.is_dir() else entry.unlink(missing_ok=True)
+			removed += 1
+		except Exception as e:
+			logger.warning(f"failed to sweep stale work dir {entry}: {e}")
+	if removed:
+		logger.info(f"swept {removed} stale work dir(s) from {work_root}")
 API_URL = os.getenv("API_URL", "http://localhost:8055/api")
 FLY_MACHINE_ID = os.environ.get("FLY_MACHINE_ID", None)
 
@@ -315,7 +345,12 @@ PARALLEL_PROCESSING_START_DELAY = float(os.environ.get("PARALLEL_PROCESSING_STAR
 # Per-photo processing timeout. A photo still running after this is abandoned —
 # its slot is freed and the stuck worker is terminated + respawned — so one hung
 # photo can't hold a slot forever. Generous vs typical phone-photo processing.
-PROCESSING_TIMEOUT_SECONDS = int(os.getenv("PROCESSING_TIMEOUT_SECONDS", "600"))
+# Wall-clock budget for processing ONE photo before its worker is killed and the
+# job fails. Default 5h so the aux deployment's gigapixel panos (which legitimately
+# take hours) run to completion; prod sets PROCESSING_TIMEOUT_SECONDS=900 since a
+# phone photo that isn't done in 15min is stuck, not slow. Not the queue wait —
+# that's QUEUE_WAIT_TIMEOUT_SECONDS.
+PROCESSING_TIMEOUT_SECONDS = int(os.getenv("PROCESSING_TIMEOUT_SECONDS", str(5 * 3600)))
 
 
 # Photo processing has moved out-of-process — see worker_processing.py
@@ -508,6 +543,7 @@ class ProcessedPhotoData(BaseModel):
 	sizes: Optional[dict] = None
 	detected_objects: Optional[dict] = None
 	error: Optional[str] = None
+	retry_after_minutes: Optional[int] = None  # Retry hint for a failed processing: None = permanent, >0 = retry after N minutes
 	client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
 	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
 	filename: Optional[str] = None  # Secure filename after processing
@@ -594,6 +630,21 @@ def worker_status() -> dict:
 		"start_stagger_s": start_stagger_s,             # PARALLEL_PROCESSING_START_DELAY (admit interval)
 		"available_ram_mb": avail_mb,
 	}
+
+
+def _upload_error_detail() -> str:
+	"""One-line live capacity snapshot appended to DEV_MODE upload errors — the
+	`why` behind a resource-wait / worker-died failure (free RAM vs the queue's
+	demand). Best-effort: never raises into the error path it's decorating."""
+	try:
+		st = worker_status()
+		return (f"available_ram={st.get('available_ram_mb')}MB, "
+				f"slots={st.get('slots_in_use')}/{st.get('concurrency')} busy, "
+				f"pending={st.get('pending_tasks')}, "
+				f"queued_for_slot={st.get('queued_for_slot')}")
+	except Exception as e:  # a diagnostic string must not mask the real error
+		return f"(capacity snapshot unavailable: {e})"
+
 
 _PHASE_DOCS = [
 	{"phase": "queued",              "where": "app.py",            "meaning": "Accepted, waiting for a semaphore slot (PARALLEL_PROCESSING_CONCURRENCY cap)"},
@@ -838,9 +889,8 @@ async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id
 
 async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None, fast: bool = False):
 
-	files_to_clean: list = []
 	try:
-		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename, files_to_clean = await process(file, client_signature, photo_id, user_id, anonymization_override, metadata, quality, fast)
+		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id, anonymization_override, metadata, quality, fast)
 
 		# DEV_MODE-only speculative-handling notes from blur._dev_only,
 		# stuffed into processing_result by run_photo_processing_sync.
@@ -863,7 +913,8 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 				processing_status=processing_status,
 				client_signature=client_signature,
 				processed_by_worker=WORKER_IDENTITY,
-				error=error_message
+				error=error_message,
+				retry_after_minutes=retry_after_minutes,  # forward the retry hint to async clients too
 			)
 
 			# Add success data if processing succeeded
@@ -956,8 +1007,6 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 
 	finally:
 		processing_state.clear_phase()
-		for path in files_to_clean:
-			cleanup_file_on_error(Path(path))
 		if task_id is not None:
 			with pending_background_tasks_mutex:
 				pending_background_tasks.discard(task_id)
@@ -981,10 +1030,6 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 	retry_after_minutes = None
 	processing_result = None
 	secure_filename = None
-	# Everything in this list gets cleaned up in _upload_inner's finally.
-	# The processor appends any intermediate files it creates (e.g. a .tiff
-	# derived from an uploaded .CR2) so the caller can clean them all.
-	files_to_clean: list = []  # vestigial; kept for the return tuple
 
 	# Per-job work dir: everything this job writes (the uploaded original + all
 	# size variants + the DZI tile tree) lands under it, so cleanup is a single
@@ -1030,7 +1075,10 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 		try:
 			await asyncio.wait_for(processing_semaphore.acquire(), timeout=QUEUE_WAIT_TIMEOUT_SECONDS)
 		except asyncio.TimeoutError:
-			raise TimeoutError(f"No processing slot free after {QUEUE_WAIT_TIMEOUT_SECONDS}s")
+			raise TimeoutError(
+				f"no free processing slot after {QUEUE_WAIT_TIMEOUT_SECONDS}s "
+				f"({PARALLEL_PROCESSING_CONCURRENCY} slots all busy, "
+				f"{pending_tasks_count()} tasks pending)")
 		processing_state.set_phase("wait_ram")
 		logger.info(f"Processing slot acquired")
 		try:
@@ -1076,11 +1124,37 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 		logger.info(f"Photo processing completed for {safe_filename}")
 		processing_status = "completed"
 
-	except TimeoutError as te:
-		logger.error(f"TimeoutError (processing slot / free RAM wait) for photo {photo_id}: {te}")
+	except worker_processing.ProcessingTimeout as pe:
+		# The job itself blew past PROCESSING_TIMEOUT_SECONDS (5h on aux, ~15min on
+		# prod). This is NOT the transient "we're busy" of the admission waits
+		# below — the photo is too large/complex to finish within the budget, so
+		# re-uploading the same file just times out again. Permanent (no retry).
+		logger.error(f"Processing timed out for photo {photo_id}: {pe}")
 		processing_status = "error"
-		error_message = "Insufficient resources to process photo, please retry later"
+		error_message = f"Processing timed out: {pe}"
+		retry_after_minutes = None
+
+	except TimeoutError as te:
+		# Admission waits only (ProcessingTimeout, a TimeoutError subclass, is
+		# caught above): no free processing slot, or <500 MB free RAM, within
+		# QUEUE_WAIT_TIMEOUT_SECONDS. Genuinely transient — clears as the queue
+		# drains — so a retry is worthwhile. ``te`` already says which of the two.
+		logger.error(f"Resource-wait timeout for photo {photo_id}: {te}")
+		processing_status = "error"
+		error_message = f"Insufficient resources to process photo, please retry later: {te}"
+		if DEV_MODE:
+			error_message += f" [{_upload_error_detail()}]"
 		retry_after_minutes = 15
+
+	except worker_processing.WorkerDied as wd:
+		# The processing subprocess died mid-job (typically OOM-killed). Retriable:
+		# a respawned worker, or less concurrent memory pressure, may succeed.
+		logger.error(f"Worker died processing photo {photo_id}: {wd}")
+		processing_status = "error"
+		error_message = f"Processing worker died (likely out of memory): {wd}"
+		if DEV_MODE:
+			error_message += f" [{_upload_error_detail()}]"
+		retry_after_minutes = 10
 
 	except ValueError as processing_error:
 		# Processing errors (EXIF missing, corrupted data, etc.) - permanent failures
@@ -1120,4 +1194,4 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 		if not KEEP_PICS_IN_WORKER:
 			shutil.rmtree(work_dir, ignore_errors=True)
 
-	return file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename, files_to_clean
+	return file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename

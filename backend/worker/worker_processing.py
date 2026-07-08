@@ -49,6 +49,16 @@ class WorkerDied(RuntimeError):
 	in Python 3.11+ asyncio.TimeoutError *is* the builtin TimeoutError. Retriable;
 	process()'s catch-all maps it to a retry."""
 
+
+class ProcessingTimeout(TimeoutError):
+	"""The processing job itself exceeded PROCESSING_TIMEOUT_SECONDS of wall-clock
+	work (and its worker was killed). A *subclass* of TimeoutError so any handler
+	that treats a bare TimeoutError as a retriable resource wait still catches it —
+	but a distinct type so process() can tell it apart from the queue/RAM admission
+	waits: those are transient ("we're momentarily busy"), whereas a job that blew
+	past a multi-hour budget is too large/complex to ever finish within the limit,
+	so retrying the *same* photo just times out again. Not a resource shortage."""
+
 # Parent-side state (guarded by _lock).
 _lock = threading.Lock()
 _started = False
@@ -228,10 +238,10 @@ def _next_job_id():
 async def submit(args, timeout=None):
 	"""Queue a photo for processing and await the result dict.
 
-	Raises the reconstructed processing exception (so process() routes it), or
-	``TimeoutError`` if the worker died / the job exceeded ``timeout`` (both
-	retriable). On timeout the stuck worker is terminated and respawned so a
-	single hung photo can't permanently shrink the pool."""
+	Raises the reconstructed processing exception (so process() routes it),
+	``ProcessingTimeout`` if the job exceeded ``timeout``, or ``WorkerDied`` if
+	its worker died (e.g. OOM). On timeout the stuck worker is terminated and
+	respawned so a single hung photo can't permanently shrink the pool."""
 	if not _started:
 		raise RuntimeError("worker pool not started")
 	job_id = _next_job_id()
@@ -241,11 +251,20 @@ async def submit(args, timeout=None):
 	_job_queue.put({"job_id": job_id, "args": args})
 	try:
 		if timeout is not None:
-			return await asyncio.wait_for(fut, timeout=timeout)
+			try:
+				# shield so wait_for's timeout cancels only the wait, not the
+				# underlying job future — we still want to read its real outcome.
+				await asyncio.wait_for(asyncio.shield(fut), timeout=timeout)
+			except asyncio.TimeoutError:
+				# Only a genuine budget overrun (job still running) is a
+				# ProcessingTimeout. If fut IS done, the job finished right at the
+				# deadline — possibly with its own reconstructed TimeoutError — so
+				# fall through and surface its real outcome instead of mislabelling.
+				if not fut.done():
+					_kill_job_worker(job_id)
+					raise ProcessingTimeout(f"photo processing exceeded {timeout}s")
+			return fut.result()
 		return await fut
-	except asyncio.TimeoutError:
-		_kill_job_worker(job_id)
-		raise TimeoutError(f"photo processing exceeded {timeout}s; retry later")
 	finally:
 		with _lock:
 			_pending.pop(job_id, None)

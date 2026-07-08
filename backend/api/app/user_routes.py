@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict
 # Add common module path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import User, UserPublicKey, Photo
+from common.models import User, UserPublicKey, Photo, UserRole
 from common.utc import utcnow, format_utc, utc_from_timestamp, utc_plus_timedelta
 from photos import delete_all_user_photo_files
 from jwt_service import create_upload_authorization_token, REFRESH_TOKEN_EXPIRE_MINUTES
@@ -1425,6 +1425,7 @@ class UploadAuthorizationRequest(BaseModel):
 	description: Optional[str] = None
 	keywords: Optional[list[str]] = None
 	is_public: bool = True
+	featured: bool = False  # admin-only; a non-admin sending true is rejected (see authorize_upload)
 	license: Optional[str] = None  # e.g. 'ccbysa4'
 	# Geolocation data from client (EXIF or device GPS)
 	latitude: Optional[float] = None
@@ -1463,7 +1464,7 @@ async def authorize_upload(
 
 		request_start_time = datetime.datetime.now()
 
-		log.info(f"Creating upload authorization for user {current_user.id}: {auth_request.filename}, {auth_request.file_size} bytes, MD5: {auth_request.file_md5}, lat/lon: {auth_request.latitude}/{auth_request.longitude}, bearing: {auth_request.compass_angle}, captured_at: {auth_request.captured_at}, version: {auth_request.version}, license: {auth_request.license}, key_id: {auth_request.client_key_id}")
+		log.info(f"Creating upload authorization for user {current_user.id}: {auth_request.filename}, {auth_request.file_size} bytes, MD5: {auth_request.file_md5}, lat/lon: {auth_request.latitude}/{auth_request.longitude}, bearing: {auth_request.compass_angle}, captured_at: {auth_request.captured_at}, version: {auth_request.version}, license: {auth_request.license}, featured: {auth_request.featured}, key_id: {auth_request.client_key_id}")
 
 		if auth_request.model_extra:
 			log.warning(f"authorize-upload request from user {current_user.id} contains unknown fields (ignored): {auth_request.model_extra}")
@@ -1491,6 +1492,19 @@ async def authorize_upload(
 			raise HTTPException(
 				status_code=status.HTTP_400_BAD_REQUEST,
 				detail=f"Unknown license identifier: {auth_request.license}"
+			)
+
+		# `featured` is admin-only: it promotes a photo into the map's featured
+		# set, so a non-admin must not be able to self-promote. current_user is
+		# the only real user identity in the whole upload flow (the worker's
+		# upload JWT carries no role), so this is the correct — and only — place
+		# to enforce it. Reject rather than silently drop: a `featured=true` is an
+		# explicit, deliberate request, and a silent no-op would be an invisible
+		# authz failure (see photo pipeline's fail-fast convention).
+		if auth_request.featured and current_user.role != UserRole.ADMIN:
+			raise HTTPException(
+				status_code=status.HTTP_403_FORBIDDEN,
+				detail="Featuring a photo requires an admin account"
 			)
 
 		# Validate MD5 hash format (32 hex characters)
@@ -1592,6 +1606,7 @@ async def authorize_upload(
 			description=auth_request.description,
 			keywords=auth_request.keywords,
 			is_public=auth_request.is_public,
+			featured=auth_request.featured,  # admin-gated above
 			owner_id=current_user.id,
 			processing_status="authorized",
 			client_public_key_id=user_public_key.key_id,

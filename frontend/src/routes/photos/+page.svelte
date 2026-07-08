@@ -159,7 +159,7 @@
 				const statuses = newPhotos.map((p: UserPhoto) => ({
 					id: p.id,
 					processing_status: p.processing_status,
-					error: null  // UserPhoto doesn't have error field
+					error: p.error ?? null
 				}));
 				updateKotlinPhotoStatuses(statuses).catch(err =>
 					console.error('Failed to sync photo statuses to Kotlin:', err)
@@ -554,6 +554,20 @@
 								{/if}
 							</div>
 							<RetryUploadsButton {photo} {addLogEntry} onSync={() => fetchPhotos()} />
+							{#if $app.debug_enabled}
+								<div class="debug-photo-info" data-testid="photo-debug-info" data-photo-id={photo.id}>
+									<div><span class="k">status</span> {photo.processing_status}</div>
+									{#if photo.processing_status === 'error'}
+										{#if photo.error}<div><span class="k">error</span> {photo.error}</div>{/if}
+										<div>
+											<span class="k">retry</span>
+											{photo.retry_after_minutes == null
+												? 'permanent — do not retry'
+												: `retriable after ${photo.retry_after_minutes} min`}
+										</div>
+									{/if}
+								</div>
+							{/if}
 						</svelte:fragment>
 					</PhotoItem>
 				{/each}
@@ -773,6 +787,25 @@
 		display: flex;
 		gap: 4px;
 		margin-top: 12px;
+	}
+
+	/* Debug-only per-photo processing detail (gated on $app.debug_enabled). */
+	.debug-photo-info {
+		margin-top: 8px;
+		padding: 6px 8px;
+		border-radius: 4px;
+		background: rgba(127, 127, 127, 0.12);
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 11px;
+		line-height: 1.5;
+		word-break: break-word;
+	}
+
+	.debug-photo-info .k {
+		display: inline-block;
+		min-width: 48px;
+		font-weight: 600;
+		opacity: 0.7;
 	}
 
 	.menu-button {

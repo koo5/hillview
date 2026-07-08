@@ -106,6 +106,7 @@ class Photo(Base):
 	processing_status: Mapped[Optional[str]] = mapped_column(String)
 
 	error: Mapped[Optional[str]] = mapped_column(Text)  # Detailed error message if any operation fails
+	retry_after_minutes: Mapped[Optional[int]] = mapped_column(Integer)  # Retry hint for a failed processing: None = permanent (don't retry), >0 = retry after N minutes
 	exif_data: Mapped[Optional[dict]] = mapped_column(JSON)
 	detected_objects: Mapped[Optional[dict]] = mapped_column(JSON)
 	sizes: Mapped[Optional[dict]] = mapped_column(JSON)

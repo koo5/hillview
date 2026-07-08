@@ -342,6 +342,7 @@ class UploadParams:
 	version: int = None              # authorize-upload; bump to re-upload
 	title: str = None                # authorize-upload (concise headline)
 	keywords: list = None            # authorize-upload (search synonyms)
+	featured: bool = False           # authorize-upload; admin-only server-side
 	anonymization_override: str = None  # worker; None=auto, "[]"=skip
 	quality: int = None              # worker WebP quality (1-100)
 	fast: bool = False               # worker fast path
@@ -435,6 +436,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 					description, is_public=True, file_data=image_data,
 					captured_at=captured_at, version=params.version,
 					title=params.title, keywords=params.keywords,
+					featured=params.featured,
 					**authorize_kwargs,
 				)
 
@@ -689,7 +691,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 		_maybe_traceback()
 
 
-def upload_files(files: list, license: str, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None, manifest_path: str = None, title: str = None, keywords: list = None, anonymization_override: str = None):
+def upload_files(files: list, license: str, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None, manifest_path: str = None, title: str = None, keywords: list = None, anonymization_override: str = None, featured: bool = False):
 	"""Upload files from command line paths.
 
 	metadata: JSON string matching the worker's BrowserMetadata schema
@@ -734,6 +736,12 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 		title = parsed_metadata.get('title') or None
 	if keywords is None and parsed_metadata:
 		keywords = parsed_metadata.get('keywords') or None
+	# featured rides in the same --metadata blob (BrowserMetadata has no such
+	# field, so it too reaches the Photo row only via authorize-upload). It's
+	# admin-only server-side: a truthy value from a non-admin upload is rejected
+	# with 403. The explicit --featured flag OR-combines with the blob's value.
+	if not featured and parsed_metadata:
+		featured = bool(parsed_metadata.get('featured'))
 
 	per_item: list = []
 
@@ -769,6 +777,7 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 		anon_override = "[]" if skip_anonymization else anonymization_override
 		params = UploadParams(
 			license=license, version=version, title=title, keywords=keywords,
+			featured=featured,
 			anonymization_override=anon_override, quality=quality, fast=fast, metadata=metadata,
 		)
 		per_item = await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, params=params)
@@ -1084,6 +1093,10 @@ def main():
 		parser.add_argument("--description", help="photo description (longer body)")
 		parser.add_argument("--keyword", action="append", dest="keywords",
 			help="search keyword / alternate name (repeatable)")
+		parser.add_argument("--featured", action="store_true",
+			help="request the server mark the photo as featured (admin-only; a "
+			     "non-admin upload is rejected with 403). Also honored via a "
+			     "'featured' key in --metadata.")
 		parser.add_argument("--quality", type=int,
 			help="WebP quality 1-100 (default: worker's 97)")
 		parser.add_argument("--metadata",
@@ -1120,7 +1133,8 @@ def main():
 				description=opts.description, quality=opts.quality, fast=opts.fast,
 				metadata=opts.metadata, manifest_path=opts.manifest,
 				title=opts.title, keywords=opts.keywords,
-				anonymization_override=opts.anonymization_override)
+				anonymization_override=opts.anonymization_override,
+				featured=opts.featured)
 	elif command == "dump-photos":
 		import argparse
 		parser = argparse.ArgumentParser(

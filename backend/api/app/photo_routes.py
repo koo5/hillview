@@ -139,6 +139,7 @@ class ProcessedPhotoData(BaseModel):
 	sizes: Optional[Dict[str, Any]] = None
 	detected_objects: Optional[Dict[str, Any]] = None
 	error: Optional[str] = None
+	retry_after_minutes: Optional[int] = None  # Retry hint for a failed processing: None = permanent, >0 = retry after N minutes
 	client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
 	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
 	filename: Optional[str] = None  # Secure filename after processing
@@ -273,6 +274,7 @@ async def save_processed_photo(
 	photo.sizes = processed_data.sizes
 	photo.detected_objects = processed_data.detected_objects
 	photo.error = processed_data.error
+	photo.retry_after_minutes = processed_data.retry_after_minutes  # async clients read this from the status/list/get endpoints
 	photo.client_signature = processed_data.client_signature  # Store signature for audit trail
 	photo.processed_by_worker = processed_data.processed_by_worker  # Track which worker processed this
 	photo.processed_at = datetime.now(timezone.utc)  # When processing was completed
@@ -577,6 +579,7 @@ async def list_photos(
 				"captured_at": format_utc(photo.captured_at),
 				"processing_status": photo.processing_status,
 				"error": photo.error,
+				"retry_after_minutes": photo.retry_after_minutes,
 				"sizes": photo.sizes,
 				"owner_id": photo.owner_id,
 				"owner_username": current_user.username,
@@ -670,7 +673,7 @@ async def get_photos_status(
 			return {"photos": []}
 
 		result = await db.execute(
-			select(Photo.id, Photo.processing_status, Photo.error, Photo.deleted)
+			select(Photo.id, Photo.processing_status, Photo.error, Photo.retry_after_minutes, Photo.deleted)
 			.where(
 				Photo.owner_id == str(current_user.id),
 				Photo.id.in_(status_request.photo_ids)
@@ -684,6 +687,7 @@ async def get_photos_status(
 					"id": photo.id,
 					"processing_status": photo.processing_status,
 					"error": photo.error,
+					"retry_after_minutes": photo.retry_after_minutes,
 					"deleted": photo.deleted
 				}
 				for photo in photos
@@ -807,6 +811,7 @@ async def get_photo(
 			"uploaded_at": format_utc(photo.uploaded_at),
 			"processing_status": photo.processing_status,
 			"error": photo.error,
+			"retry_after_minutes": photo.retry_after_minutes,
 			"exif_data": photo.exif_data,
 			"detected_objects": photo.detected_objects,
 			"sizes": photo.sizes,

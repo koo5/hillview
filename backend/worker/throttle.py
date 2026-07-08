@@ -91,7 +91,9 @@ class Throttle:
 				phase_set = True
 			if time.time() - start_time > timeout:
 				logger.error(f"wait_for_free_ram timeout for {s.tag}")
-				raise TimeoutError(f"{s.tag} Timeout waiting for {required_bytes} bytes of free RAM")
+				raise TimeoutError(
+					f"{s.tag} no free RAM after {int(time.time() - start_time)}s: "
+					f"needed {required_mb} MB, only {avail_mb:.0f} MB available")
 			logger.debug(f"[THROTTLE] {s.tag} Waiting for free RAM ({avail_mb:.0f}/{required_mb} MB)...")
 			await asyncio.sleep(check_interval)
 
