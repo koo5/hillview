@@ -13,7 +13,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from common.utc import utcnow, utc_plus_timedelta, utc_from_timestamp
 from common.database import get_db
@@ -166,8 +166,7 @@ class UserOut(BaseModel):
 	is_test: bool
 	created_at: datetime
 
-	class Config:
-		from_attributes = True
+	model_config = ConfigDict(from_attributes=True)
 
 # Password hashing functions are now imported from common.auth_utils
 
