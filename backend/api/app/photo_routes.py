@@ -959,7 +959,17 @@ async def get_photo_share_metadata(
 	photo_uid: str,
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Get photo metadata for social sharing (no authentication required for SEO/social sharing)."""
+	"""Get photo metadata for social sharing (no authentication required for SEO/social sharing).
+
+	DEPRECATED: superseded by GET /photos/public/{photo_uid}, which returns a
+	richer superset (title, keywords, sizes, owner, ratings) filtered the same way
+	(deleted == False; hidden-content filtering is a no-op for anonymous callers).
+	The frontend's OpenGraph paths — both the /photo/[uid] detail route and the map
+	homepage's ?photo= share cards — now consume /public via the shared
+	photoDisplay helpers, so nothing in the app calls this endpoint anymore; only
+	tests/integration/test_photo_sharing.py still exercises it. Retire this
+	endpoint (and its test) once no external consumer depends on it.
+	"""
 	try:
 		# Parse photo UID format: {source}-{id}
 		parts = photo_uid.split('-', 1)

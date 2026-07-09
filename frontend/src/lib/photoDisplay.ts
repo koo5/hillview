@@ -203,6 +203,53 @@ export function parseAnnotationBody(body: string | null | undefined): Annotation
 		);
 }
 
+/**
+ * First meaningful text segment across a photo's annotations, or '' if none.
+ * Skips link segments and placeholder bodies ('?', 'oops'). Used to enrich the
+ * social/meta description with a human-written caption when one exists.
+ */
+export function firstAnnotationText(annotations: PhotoAnnotation[]): string {
+	for (const a of annotations) {
+		if (!a.body) continue;
+		for (const seg of parseAnnotationBody(a.body)) {
+			if (seg.kind !== 'text') continue;
+			const trimmed = seg.value.trim();
+			// Skip placeholder captions that carry no real information.
+			const placeholder = trimmed.toLowerCase();
+			if (!trimmed || placeholder === '?' || placeholder === 'oops') continue;
+			return trimmed;
+		}
+	}
+	return '';
+}
+
+/** `<title>` / og:title for a photo: its display title suffixed with the site name. */
+export function buildHeadTitle(photo: PublicPhoto): string {
+	return `${displayTitle(photo)} - Hillview`;
+}
+
+/**
+ * og:description / <meta name="description"> for a photo: its description, the
+ * first annotation caption, and coordinates joined together, with a generic
+ * fallback. Deliberately loose human text — precise structured metadata lives in
+ * the schema.org ImageObject (buildPhotoImageJsonLd) instead. Shared by the
+ * /photo/[uid] detail route and the map homepage's ?photo= share cards so both
+ * emit identical head tags.
+ */
+export function buildHeadDescription(
+	photo: PublicPhoto,
+	annotations: PhotoAnnotation[] = []
+): string {
+	const parts: string[] = [];
+	if (photo.description) parts.push(photo.description);
+	const ann = firstAnnotationText(annotations);
+	if (ann) parts.push(ann);
+	if (photo.latitude != null && photo.longitude != null) {
+		parts.push(`${photo.latitude.toFixed(4)}, ${photo.longitude.toFixed(4)}`);
+	}
+	return parts.join(' — ') || 'Photo on Hillview';
+}
+
 export function formatDate(value: string | null | undefined): string {
 	if (!value) return '';
 	try {

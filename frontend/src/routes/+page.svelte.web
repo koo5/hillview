@@ -1,5 +1,21 @@
 <script lang="ts">
-	export let data;
+	import { browser } from '$app/environment';
+	import { page } from '$app/stores';
+	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
+	import PhotoHead from '$lib/components/PhotoHead.svelte';
+	import JsonLd from '$lib/components/JsonLd.svelte';
+	import {
+		buildHeadTitle,
+		buildHeadDescription,
+		buildPhotoImageJsonLd,
+		pickOgImage,
+		type PublicPhoto,
+		type PhotoAnnotation
+	} from '$lib/photoDisplay';
+
+	export let data:
+		| { photo?: PublicPhoto | null; annotations?: PhotoAnnotation[] }
+		| undefined = undefined;
 
 	let Main: any;
 	if (browser && typeof window !== 'undefined') {
@@ -11,35 +27,26 @@
 		loadMain();
 	}
 
-	import {browser} from '$app/environment';
-	import {page} from '$app/stores';
-	import {HILLVIEW_BASE_URL} from '$lib/urlUtilsServer';
-	import PhotoHead from '$lib/components/PhotoHead.svelte';
-
-	$: meta = data?.photoMeta;
-	$: photoTitle = meta
-		? meta.description
-			? `${meta.description} - Hillview`
-			: 'Photo on Hillview'
-		: null;
+	// When a ?photo= share card was resolved server-side, render the same
+	// OpenGraph + JSON-LD head tags as the /photo/[uid] detail route (shared
+	// helpers, same PublicPhoto shape). Otherwise fall back to the site card.
+	$: photo = data?.photo ?? null;
+	$: annotations = data?.annotations ?? [];
+	$: ogImage = photo ? pickOgImage(photo) : null;
 </script>
 
-
-{#if meta && photoTitle}
+{#if photo}
 	<PhotoHead
-		title={photoTitle}
-		description={meta.description ?? ''}
+		title={buildHeadTitle(photo)}
+		description={buildHeadDescription(photo, annotations)}
 		ogType="article"
 		ogUrl={$page.url.href}
-		ogImage={meta.imageUrl
-			? { url: meta.imageUrl, width: meta.width, height: meta.height }
-			: null}
-		latitude={meta.latitude ?? null}
-		longitude={meta.longitude ?? null}
-		canonicalUrl={meta.photoUid
-			? `${HILLVIEW_BASE_URL}/photo/${encodeURIComponent(meta.photoUid)}`
-			: null}
+		ogImage={ogImage ? { url: ogImage.url, width: ogImage.width, height: ogImage.height } : null}
+		latitude={photo.latitude}
+		longitude={photo.longitude}
+		canonicalUrl={`${HILLVIEW_BASE_URL}/photo/${encodeURIComponent(photo.uid)}`}
 	/>
+	<JsonLd data={buildPhotoImageJsonLd(photo)} />
 {:else}
 	<PhotoHead
 		title="Hillview - annotated panoramas"
@@ -51,5 +58,5 @@
 {/if}
 
 {#if browser && Main}
-	<svelte:component this={Main}/>
+	<svelte:component this={Main} />
 {/if}

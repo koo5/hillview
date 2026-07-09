@@ -26,8 +26,9 @@
 		formatDateTime,
 		pickOgImage,
 		buildPhotoImageJsonLd,
+		buildHeadTitle,
+		buildHeadDescription,
 		displayTitle,
-		parseAnnotationBody,
 		type PublicPhoto,
 		type PhotoAnnotation
 	} from '$lib/photoDisplay';
@@ -271,32 +272,9 @@
 		myGoto(constructPhotoMapUrl(photo));
 	}
 
-	function firstAnnotationText(anns: PhotoAnnotation[]): string {
-		for (const a of anns) {
-			if (!a.body) continue;
-			for (const seg of parseAnnotationBody(a.body)) {
-				if (seg.kind !== 'text') continue;
-				const trimmed = seg.value.trim();
-				if (!trimmed || trimmed === '?') continue;
-				return trimmed;
-			}
-		}
-		return '';
-	}
-
-	$: headTitle = photo ? `${displayTitle(photo)} - Hillview` : '';
+	$: headTitle = photo ? buildHeadTitle(photo) : '';
 	$: headOgImage = photo ? pickOgImage(photo) : null;
-	$: headDescription = (() => {
-		if (!photo) return '';
-		const parts: string[] = [];
-		if (photo.description) parts.push(photo.description);
-		const ann = firstAnnotationText(annotations);
-		if (ann) parts.push(ann);
-		if (photo.latitude != null && photo.longitude != null) {
-			parts.push(`${photo.latitude.toFixed(4)}, ${photo.longitude.toFixed(4)}`);
-		}
-		return parts.join(' — ') || 'Photo on Hillview';
-	})();
+	$: headDescription = photo ? buildHeadDescription(photo, annotations) : '';
 	// schema.org ImageObject for the photo (precise structured data, unlike the
 	// coord/annotation-stuffed headDescription). Built in photoDisplay so it's
 	// unit-testable against real payloads.
