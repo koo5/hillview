@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 
 test.describe('Map Turning and Rotation Operations', () => {
@@ -5,7 +6,7 @@ test.describe('Map Turning and Rotation Operations', () => {
     await page.goto('/');
 
     // Wait for the map to be loaded and visible
-    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
+    await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
     await page.waitForTimeout(2000); // Allow map to fully initialize
 
     // Ensure we're in the correct view mode
@@ -415,7 +416,7 @@ test.describe('Map Turning and Rotation Operations', () => {
       await expect(mapContainer).toBeVisible();
       const mapTiles = page.locator('.leaflet-tile');
       if (await mapTiles.count() > 0) {
-        await expect(mapTiles.first()).toBeVisible({ timeout: 11*5000 });
+        await expect(mapTiles.first()).toBeVisible({ timeout: T(5000) });
       }
     }
   });

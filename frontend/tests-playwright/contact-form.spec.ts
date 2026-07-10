@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
 import { callAdminAPI } from './helpers/adminAuth';
@@ -13,7 +14,7 @@ test.describe('Contact Form', () => {
     // Navigate to contact page
     await page.goto('/contact');
     // Wait for the logged-in UI (user-info panel) to render before asserting.
-    await expect(page.locator('.user-info')).toBeVisible({ timeout: 11*10000 });
+    await expect(page.locator('.user-info')).toBeVisible({ timeout: T(10000) });
 
     // Verify user is properly logged in - this should NOT be a guest
     const isLoggedIn = await page.locator('.user-info').isVisible();
@@ -40,7 +41,7 @@ test.describe('Contact Form', () => {
     await page.click('button[type="submit"]');
 
     // Wait for success message
-    await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: 11*10000 });
+    await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: T(10000) });
     await expect(page.locator('text=Thank you for contacting us')).toBeVisible();
 
     // Now verify the message was stored correctly via admin endpoint
@@ -91,7 +92,7 @@ test.describe('Contact Form', () => {
     await page.click('button[type="submit"]');
 
     // Wait for success message
-    await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: 11*10000 });
+    await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: T(10000) });
     await expect(page.locator('text=Thank you for contacting us')).toBeVisible();
 
     // Verify message via admin API
@@ -144,6 +145,6 @@ test.describe('Contact Form', () => {
     await submitButton.click();
 
     // Should succeed now
-    await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: 11*10000 });
+    await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: T(10000) });
   });
 });

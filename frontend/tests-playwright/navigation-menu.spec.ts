@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
 
@@ -51,7 +52,7 @@ test.describe('Navigation Menu', () => {
 		await openMenu(page);
 		await page.getByTestId('nav-activity-link').click();
 
-		await page.waitForURL('/activity', { timeout: 11*10000 });
+		await page.waitForURL('/activity', { timeout: T(10000) });
 	});
 
 	test('should navigate to bestof page from settings', async ({ page }) => {
@@ -60,7 +61,7 @@ test.describe('Navigation Menu', () => {
 		await openMenu(page);
 		await page.getByTestId('bestof-menu-link').click();
 
-		await page.waitForURL('/bestof', { timeout: 11*10000 });
+		await page.waitForURL('/bestof', { timeout: T(10000) });
 	});
 
 	test('should logout and redirect to login', async ({ page, testUsers }) => {
@@ -71,6 +72,6 @@ test.describe('Navigation Menu', () => {
 		await openMenu(page);
 		await page.getByTestId('nav-logout-button').click();
 
-		await page.waitForURL('/login', { timeout: 11*15000 });
+		await page.waitForURL('/login', { timeout: T(15000) });
 	});
 });

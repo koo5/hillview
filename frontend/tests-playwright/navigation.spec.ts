@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 
 test.describe('Map Navigation and Photo Turning', () => {
@@ -6,7 +7,7 @@ test.describe('Map Navigation and Photo Turning', () => {
     await page.goto('/');
 
     // Wait for map to be ready
-    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
+    await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
   });
 
   test('should load main page without runtime errors', async ({ page }) => {

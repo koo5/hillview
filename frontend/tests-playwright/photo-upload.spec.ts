@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -42,7 +43,7 @@ test.describe('Photo Upload Tests', () => {
     await page.waitForFunction(() => {
       const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
       return input && !input.disabled;
-    }, { timeout: 11*10000 });
+    }, { timeout: T(10000) });
 
     // Select a valid file - button should now be enabled (license + file)
     const photoPath = path.join(testAssetsDir, testPhotos[0]);
@@ -100,7 +101,7 @@ test.describe('Photo Upload Tests', () => {
     console.log('🢄Upload button disabled after file select:', await uploadButton.isDisabled());
 
     // Wait for upload button to be enabled after file selection and license check
-    await expect(uploadButton).toBeEnabled({ timeout: 11*10000 });
+    await expect(uploadButton).toBeEnabled({ timeout: T(10000) });
 
     // Click upload
     console.log('🢄Clicking upload button...');
@@ -159,11 +160,11 @@ test.describe('Photo Upload Tests', () => {
     await page.waitForFunction(() => {
       const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
       return input && input.value === '';
-    }, { timeout: 11*15000 });
+    }, { timeout: T(15000) });
 
     // Check activity log for batch upload messages (wait for it to appear)
     const activityLog = page.locator('.activity-log');
-    await expect(activityLog).toBeVisible({ timeout: 11*10000 });
+    await expect(activityLog).toBeVisible({ timeout: T(10000) });
 
     const logText = await activityLog.textContent();
 
@@ -174,7 +175,7 @@ test.describe('Photo Upload Tests', () => {
 
     const uploadCount = await uploadEntries.count();
     expect(uploadCount).toBeGreaterThanOrEqual(2);
-    await expect(batchCompleteEntries).toHaveCount(1, { timeout: 11*5000 });
+    await expect(batchCompleteEntries).toHaveCount(1, { timeout: T(5000) });
 
     console.log('🢄✓ Batch upload completed successfully');
 
@@ -220,7 +221,7 @@ test.describe('Photo Upload Tests', () => {
       await page.waitForFunction(() => {
         const uploadButton = document.querySelector('[data-testid="upload-submit-button"]') as HTMLButtonElement;
         return uploadButton && !uploadButton.disabled;
-      }, { timeout: 11*5000 });
+      }, { timeout: T(5000) });
 
       // Click upload button
       await page.locator('[data-testid="upload-submit-button"]').click();
@@ -230,20 +231,20 @@ test.describe('Photo Upload Tests', () => {
         const uploadSuccessEntry = document.querySelector('[data-testid="log-entry"][data-operation="upload"][data-outcome="success"]');
         const batchCompleteEntry = document.querySelector('[data-testid="log-entry"][data-operation="batch_complete"]');
         return uploadSuccessEntry || batchCompleteEntry;
-      }, { timeout: 11*30000 });
+      }, { timeout: T(30000) });
 
       // Wait for file input to be cleared (indicating upload completed)
       await page.waitForFunction(() => {
         const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
         return input && input.value === '';
-      }, { timeout: 11*5000 });
+      }, { timeout: T(5000) });
 
       // Wait for photo count to increase (new photo added to list)
       const expectedPhotoCount = initialCount + i + 1;
       await page.waitForFunction((expectedCount) => {
         const photoCards = document.querySelectorAll('[data-testid="photo-item"]');
         return photoCards.length >= expectedCount;
-      }, expectedPhotoCount, { timeout: 11*10000 });
+      }, expectedPhotoCount, { timeout: T(10000) });
     }
 
     // Verify all photos are uploaded and visible in the My Photos page
@@ -264,7 +265,7 @@ test.describe('Photo Upload Tests', () => {
     // for (const photoName of testPhotos) {
     //   console.log(`Checking for photo: ${photoName}`);
     //   const photoCard = page.locator(`[data-testid="photo-item"][data-filename="${photoName}"]`);
-    //   await expect(photoCard).toBeVisible({ timeout: 11*5000 });
+    //   await expect(photoCard).toBeVisible({ timeout: T(5000) });
     //   await expect(photoCard).toContainText(photoName);
     //   const thumbnail = photoCard.locator('[data-testid="photo-thumbnail"]');
     //   await expect(thumbnail).toBeVisible();
@@ -286,7 +287,7 @@ test.describe('Photo Upload Tests', () => {
   test('should delete uploaded photos by exact filename', async ({ page }) => {
     // First, ensure we have some photos to delete
     await page.goto('/photos');
-    await expect(page.locator('h1')).toContainText('My Photos', { timeout: 11*10000 });
+    await expect(page.locator('h1')).toContainText('My Photos', { timeout: T(10000) });
 
     // Get current photo cards
     const photoCards = page.locator('[data-testid="photo-item"]');
@@ -305,7 +306,7 @@ test.describe('Photo Upload Tests', () => {
       await page.locator('[data-testid="upload-submit-button"]').click();
       await page.waitForTimeout(3000);
       await page.reload();
-      await expect(page.locator('[data-testid="photo-item"]').first()).toBeVisible({ timeout: 11*10000 });
+      await expect(page.locator('[data-testid="photo-item"]').first()).toBeVisible({ timeout: T(10000) });
     }
 
 
@@ -341,7 +342,7 @@ test.describe('Photo Upload Tests', () => {
         await page.waitForTimeout(2000);
 
         // Verify photo is no longer visible
-        await expect(photoCard).not.toBeVisible({ timeout: 11*5000 });
+        await expect(photoCard).not.toBeVisible({ timeout: T(5000) });
 
         console.log(`✓ Deleted photo`);
       }

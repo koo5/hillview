@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { configureSources } from './helpers/sourceHelpers';
 import { setupDefaultMockMapillaryData, clearMockMapillaryData } from './helpers/mapillaryMocks';
@@ -17,8 +18,8 @@ test.describe('Photo Loading and Display', () => {
 
   test('should display photo markers on the map', async ({ page }) => {
     // Wait for initial map load
-    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
-    await page.waitForSelector('.source-buttons-group', { timeout: 11*5000 });
+    await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
+    await page.waitForSelector('.source-buttons-group', { timeout: T(5000) });
 
     // Set up mock Mapillary data (default location is Prague: 50.0755, 14.4378)
     await setupDefaultMockMapillaryData(page);
@@ -32,7 +33,7 @@ test.describe('Photo Loading and Display', () => {
     });
 
     // Wait for sources to load and photos to appear (poll instead of fixed timeout)
-    await page.locator('.optimized-photo-marker:visible').first().waitFor({ state: 'visible', timeout: 11*20000 });
+    await page.locator('.optimized-photo-marker:visible').first().waitFor({ state: 'visible', timeout: T(20000) });
 
     // Look for photo markers on the map
     const leafletMarkers = page.locator('.optimized-photo-marker:visible');
@@ -60,8 +61,8 @@ test.describe('Photo Loading and Display', () => {
     // `img[src*="png"]` — which also matches leaflet map tiles — so `.first()`
     // could resolve to a hidden tile and flake. Mirror the marker test's setup so
     // there is a real photo to display.
-    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
-    await page.waitForSelector('.source-buttons-group', { timeout: 11*5000 });
+    await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
+    await page.waitForSelector('.source-buttons-group', { timeout: T(5000) });
 
     await setupDefaultMockMapillaryData(page);
     await setMapLocation(page, 50.0755, 14.4378, 16);
@@ -70,7 +71,7 @@ test.describe('Photo Loading and Display', () => {
     // Photos render on the map as markers; assert at least one is actually visible
     // (scoped to the photo-marker class, never map tiles).
     const photoMarkers = page.locator('.optimized-photo-marker:visible');
-    await photoMarkers.first().waitFor({ state: 'visible', timeout: 11*20000 });
+    await photoMarkers.first().waitFor({ state: 'visible', timeout: T(20000) });
 
     const markerCount = await photoMarkers.count();
     console.log(`🖼️ Found ${markerCount} photos shown on the map`);

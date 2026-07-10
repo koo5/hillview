@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
@@ -18,15 +19,15 @@ import { setMapLocation } from './helpers/mapSetup';
 
 async function openGalleryPhotoMenu(page: any) {
 	await page.goto('/');
-	await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
+	await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
 	// PhotoActionsMenu is only attached to the front photo in the gallery.
 	const menuTrigger = page.locator('[data-testid="photo-actions-menu"]');
-	await menuTrigger.first().waitFor({ state: 'visible', timeout: 11*15000 });
+	await menuTrigger.first().waitFor({ state: 'visible', timeout: T(15000) });
 	// The map writes the selected front photo into the URL (debounced). Wait for
 	// that so callers reading page.url() get the settled URL, not the pre-write '/'.
-	await page.waitForFunction(() => location.search.includes('photo='), { timeout: 11*10000 });
+	await page.waitForFunction(() => location.search.includes('photo='), { timeout: T(10000) });
 	await menuTrigger.first().click();
-	await page.locator('[data-testid="photo-actions-dropdown"]').waitFor({ state: 'visible', timeout: 11*5000 });
+	await page.locator('[data-testid="photo-actions-dropdown"]').waitFor({ state: 'visible', timeout: T(5000) });
 }
 
 test.describe('Photo actions menu — link semantics', () => {
@@ -103,10 +104,10 @@ test.describe('Photo actions menu — link semantics', () => {
 		await setupMockMapillaryData(page, mockData);
 
 		await page.goto('/');
-		await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
+		await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
 		await setMapLocation(page, centerLat, centerLng, 16);
 		await configureSources(page, { hillview: false, device: false, mapillary: true });
-		await page.waitForSelector('[data-testid="main-photo"]', { timeout: 11*20000 });
+		await page.waitForSelector('[data-testid="main-photo"]', { timeout: T(20000) });
 
 		// Sanity-check the front photo's source is mapillary.
 		const source = await page
@@ -119,9 +120,9 @@ test.describe('Photo actions menu — link semantics', () => {
 		expect(source).toBe('mapillary');
 
 		const menuTrigger = page.locator('[data-testid="photo-actions-menu"]').first();
-		await menuTrigger.waitFor({ state: 'visible', timeout: 11*10000 });
+		await menuTrigger.waitFor({ state: 'visible', timeout: T(10000) });
 		await menuTrigger.click();
-		await page.locator('[data-testid="photo-actions-dropdown"]').waitFor({ state: 'visible', timeout: 11*5000 });
+		await page.locator('[data-testid="photo-actions-dropdown"]').waitFor({ state: 'visible', timeout: T(5000) });
 
 		const item = page.locator('[data-testid="menu-captured-at"]');
 		await expect(item).toBeVisible();

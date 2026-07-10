@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,8 +65,8 @@ test.describe('Auto-upload on login (web, no camera)', () => {
 		}
 
 		const photosList = page.locator('[data-testid="photos-list"]');
-		await photosList.waitFor({ state: 'visible', timeout: 11 * 15000 });
+		await photosList.waitFor({ state: 'visible', timeout: T(15000) });
 		await expect(photosList.locator(`[data-photo-id="${serverPhotoId}"]`).first())
-			.toBeVisible({ timeout: 11 * 10000 });
+			.toBeVisible({ timeout: T(10000) });
 	});
 });

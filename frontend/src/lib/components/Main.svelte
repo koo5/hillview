@@ -97,6 +97,14 @@ import TimelinePanel from './TimelinePanel.svelte';
 	// been missed (photoInFront can fire before update_url is enabled).
 	$: if (update_url) {
 		flushPhotoToUrl(get(photoInFront));
+		// Reconcile zoom params too: the pending overlay can be dismissed (or its
+		// photo can fail to load) during the ~100ms window before update_url flips
+		// true, in which case the pendingZoomView subscription's clear is dropped
+		// and never retried, leaving stale x1..y2 in the URL. If no zoom view is
+		// pending or active now, clear them.
+		if (!get(pendingZoomView) && !get(zoomViewData)) {
+			updateUrlParams({ x1: null, y1: null, x2: null, y2: null });
+		}
 	}
 
 

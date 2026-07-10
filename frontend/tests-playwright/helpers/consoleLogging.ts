@@ -19,8 +19,9 @@ export function isUnexpectedError(text: string): boolean {
         'Image load error',
         'Failed to load resource',
         'net::ERR_',
-        'access control checks',   // WebKit blocks ES module loading in workers from Vite dev server
+        'access control checks',   // WebKit reports aborted/blocked ES-module-in-worker loads this way (dev server AND container)
         'Worker error',            // consequence of the above in SimplePhotoWorker
+        'Importing a module script failed',  // WebKit: module-worker script load aborted by navigation surfaces as an unhandled rejection (chromium routes it only through worker.onerror)
         'establish a connection to the server',  // Firefox native EventSource connection error
         'getPosition',             // Leaflet invalidateSize during page navigation (Firefox)
         'invalidateSize',          // Leaflet resize race during page transition (Firefox)

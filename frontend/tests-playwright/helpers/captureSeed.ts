@@ -8,6 +8,7 @@
  * per capture are authoritative. Each photo lands at spatialState.center with bearingState
  * .bearing, both pointed via localStorage before the capture page loads.
  */
+import { T } from './timeouts';
 import { expect } from '../fixtures';
 import { ensureSourceEnabled } from './sourceHelpers';
 import { getPhotoCount, waitForPhotoCount } from './indexedDbPhotos';
@@ -57,12 +58,12 @@ export function dumpPhotos(page: any): Promise<Array<{ server: string | null; st
 export async function ensureAutoUpload(page: any) {
 	await page.goto('/settings/upload');
 	const license = page.locator('[data-testid="license-checkbox"]');
-	await license.waitFor({ state: 'visible', timeout: 11 * 10000 });
+	await license.waitFor({ state: 'visible', timeout: T(10000) });
 	if (!(await license.isChecked())) await license.check();
 	const enabled = page.locator('[data-testid="auto-upload-enabled"]');
 	if (!(await enabled.isChecked())) {
 		await enabled.check();
-		await page.locator('[data-testid="alert-message"]').waitFor({ state: 'visible', timeout: 11 * 5000 });
+		await page.locator('[data-testid="alert-message"]').waitFor({ state: 'visible', timeout: T(5000) });
 	}
 }
 
@@ -76,12 +77,12 @@ export async function captureAt(page: any, lat: number, lon: number, bearing = 1
 	await page.goto('/');
 
 	const cameraButton = page.locator('[data-testid="camera-button"]');
-	await cameraButton.waitFor({ state: 'visible', timeout: 11 * 15000 });
+	await cameraButton.waitFor({ state: 'visible', timeout: T(15000) });
 	await cameraButton.click({ force: true });
 
 	const captureButton = page.locator('[data-testid="single-capture-button"]');
-	await captureButton.waitFor({ state: 'visible', timeout: 11 * 15000 });
-	await expect(captureButton).toBeEnabled({ timeout: 11 * 15000 });
+	await captureButton.waitFor({ state: 'visible', timeout: T(15000) });
+	await expect(captureButton).toBeEnabled({ timeout: T(15000) });
 
 	const before = await getPhotoCount(page);
 	await captureButton.click();
@@ -157,13 +158,13 @@ export async function openMap(page: any, center: { lat: number; lng: number }, r
  */
 export async function clickMarker(page: any, id: string) {
 	const marker = page.locator(`.marker-container[data-photo-id="${id}"]`);
-	await marker.waitFor({ state: 'attached', timeout: 11 * 15000 });
+	await marker.waitFor({ state: 'attached', timeout: T(15000) });
 	await marker.dispatchEvent('click');
 	// Confirm the photo became the selected/front one before continuing.
 	await page.waitForFunction(
 		(pid: string) => !!document.querySelector(`.marker-container[data-photo-id="${pid}"] .bearing-circle.selected`),
 		id,
-		{ timeout: 11 * 10000 },
+		{ timeout: T(10000) },
 	);
 }
 
@@ -174,5 +175,5 @@ export async function clickMarker(page: any, id: string) {
 export async function openTimelineAnchoredOn(page: any, id: string) {
 	await clickMarker(page, id);
 	await page.keyboard.press('t');
-	await page.getByTestId('timeline-panel').waitFor({ state: 'visible', timeout: 11 * 15000 });
+	await page.getByTestId('timeline-panel').waitFor({ state: 'visible', timeout: T(15000) });
 }

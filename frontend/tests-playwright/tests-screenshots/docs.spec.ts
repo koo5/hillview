@@ -1,3 +1,4 @@
+import { T } from '../helpers/timeouts';
 import { test, type Page } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -63,7 +64,7 @@ async function shot(page: Page, project: string, name: string, fullPage = false)
 
 /** Wait for the map + photo split view to be visually settled. */
 async function waitForMapView(page: Page) {
-  await page.waitForSelector('.leaflet-container', { timeout: 11*15_000 });
+  await page.waitForSelector('.leaflet-container', { timeout: T(15_000) });
   // Let tiles, photo, and any annotorious overlays render.
   await page.waitForTimeout(2500);
 }
@@ -91,7 +92,7 @@ test.describe('hero', () => {
     await waitForMapView(page);
     // Tap the photo to open the OSD zoom view.
     await page.locator('[data-testid="main-photo"].front').click();
-    await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*10_000 });
+    await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(10_000) });
     // Let OSD fully render tiles + annotations.
     await page.waitForTimeout(2000);
     // Zoom in a bit via scroll wheel in the centre of the viewer.
@@ -168,7 +169,7 @@ test.describe('capture', () => {
   test('qr timestamp page', async ({ page }, testInfo) => {
     const project = testInfo.project.name;
     await page.goto('/settings/advanced/qr-timestamp');
-    await page.locator('[data-testid="qr-timestamp-page"]').waitFor({ state: 'visible', timeout: 11*10_000 });
+    await page.locator('[data-testid="qr-timestamp-page"]').waitFor({ state: 'visible', timeout: T(10_000) });
     await page.waitForTimeout(1000);
     await shot(page, project, '11-qr-timestamp');
   });
@@ -212,7 +213,7 @@ test.describe('hunting', () => {
     await page.waitForTimeout(3000);
     // Open lines panel.
     await page.locator('[data-testid="lines-button"]').click();
-    await page.locator('[data-testid="lines-view"]').waitFor({ state: 'visible', timeout: 11*5_000 });
+    await page.locator('[data-testid="lines-view"]').waitFor({ state: 'visible', timeout: T(5_000) });
     await page.waitForTimeout(500);
     await shot(page, project, '12-bearing-lines');
   });

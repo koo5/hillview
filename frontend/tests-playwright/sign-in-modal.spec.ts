@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { recreateTestUsers, loginAsTestUser, logoutUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
@@ -13,27 +14,27 @@ const MAP_URL = '/?lat=50.1153&lon=14.4938&zoom=18';
 async function navigateToMap(page: Page) {
   await page.goto(MAP_URL);
   await ensureSourceEnabled(page, 'hillview', true);
-  await page.locator('[data-testid="main-photo"]').waitFor({ state: 'visible', timeout: 11*30000 });
+  await page.locator('[data-testid="main-photo"]').waitFor({ state: 'visible', timeout: T(30000) });
 }
 
 /** Open the OSD viewer by clicking the main photo. */
 async function openViewer(page: Page) {
   const mainPhoto = page.locator('[data-testid="main-photo"]');
-  await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
+  await mainPhoto.waitFor({ state: 'visible', timeout: T(30000) });
   await mainPhoto.click();
-  await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*15000 });
-  await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 11*15000 });
+  await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(15000) });
+  await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: T(15000) });
   await page.waitForTimeout(500);
 }
 
 /** Assert the sign-in modal is visible. */
 async function expectModalVisible(page: Page) {
-  await expect(page.locator('[data-testid="sign-in-modal"]')).toBeVisible({ timeout: 11*5000 });
+  await expect(page.locator('[data-testid="sign-in-modal"]')).toBeVisible({ timeout: T(5000) });
 }
 
 /** Assert the sign-in modal is not visible. */
 async function expectModalHidden(page: Page) {
-  await expect(page.locator('[data-testid="sign-in-modal"]')).not.toBeVisible({ timeout: 11*5000 });
+  await expect(page.locator('[data-testid="sign-in-modal"]')).not.toBeVisible({ timeout: T(5000) });
 }
 
 /** Click the Cancel button on the sign-in modal. */
@@ -98,7 +99,7 @@ test.describe('Sign-In Modal', () => {
       await expectModalVisible(page);
 
       await page.click('[data-testid="sign-in-modal-login"]');
-      await page.waitForURL('/login', { timeout: 11*15000 });
+      await page.waitForURL('/login', { timeout: T(15000) });
     });
 
     test('Cancel button closes the modal', async ({ page }) => {
@@ -153,8 +154,8 @@ test.describe('Sign-In Modal', () => {
       await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=0.1&y1=0.1&x2=0.9&y2=0.9`);
       await ensureSourceEnabled(page, 'hillview', true);
 
-      await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*30000 });
-      await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 11*15000 });
+      await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(30000) });
+      await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: T(15000) });
 
       await page.locator('[data-testid="osd-annotate-draw"]').click();
       await expectModalVisible(page);
@@ -262,13 +263,13 @@ test.describe('Sign-In Modal', () => {
 
       // Click Sign In — navigates to /login
       await page.click('[data-testid="sign-in-modal-login"]');
-      await page.waitForURL('/login', { timeout: 11*15000 });
+      await page.waitForURL('/login', { timeout: T(15000) });
 
       // Log in
       await page.getByTestId('login-username-input').fill('test');
       await page.getByTestId('login-password-input').fill(testUsers.passwords.test);
       await page.getByTestId('login-submit-button').click();
-      await page.waitForURL('/', { timeout: 11*15000 });
+      await page.waitForURL('/', { timeout: T(15000) });
 
       // Navigate back to map, open viewer
       await navigateToMap(page);

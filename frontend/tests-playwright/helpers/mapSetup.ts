@@ -1,3 +1,4 @@
+import { T } from './timeouts';
 /**
  * Shared utilities for Leaflet map interaction in Playwright tests
  */
@@ -8,7 +9,7 @@
 export async function setMapLocation(page: any, lat: number, lng: number, zoom: number = 18, locationName?: string) {
   // Ensure map container is visible
   const mapContainer = page.locator('.leaflet-container').first();
-  await mapContainer.waitFor({ state: 'visible', timeout: 11*10000 });
+  await mapContainer.waitFor({ state: 'visible', timeout: T(10000) });
 
   const mapFound = await page.evaluate(([lat, lng, zoom, locationName]: [number, number, number, string]) => {
     // Try multiple ways to access the Leaflet map

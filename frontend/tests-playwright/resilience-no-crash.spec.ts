@@ -6,6 +6,7 @@
  * an uncaught exception or white-screening the app. Asserts zero uncaught
  * exceptions and zero unexpected console errors while endpoints are down.
  */
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
 import { armFault, clearFaults } from './helpers/debugFaults';
@@ -19,7 +20,12 @@ test.describe('Resilience: no uncaught errors under endpoint chaos', () => {
     test('faulting auth/profile/photo/stream endpoints does not crash the app', async ({ page, testUsers }) => {
         const uncaught: string[] = [];
         const consoleErrors: string[] = [];
-        page.on('pageerror', (e) => uncaught.push(String(e)));
+        // Filter pageerrors through the same benign-error allowlist as console
+        // errors. WebKit surfaces a navigation-aborted module-worker load as an
+        // uncaught "Importing a module script failed" rejection (chromium routes
+        // it only through worker.onerror); that's benign transient noise, not the
+        // crash class this test guards against.
+        page.on('pageerror', (e) => { if (isUnexpectedError(String(e))) uncaught.push(String(e)); });
         page.on('console', (msg) => {
             if (msg.type() === 'error' && isUnexpectedError(msg.text())) consoleErrors.push(msg.text());
         });
@@ -40,7 +46,7 @@ test.describe('Resilience: no uncaught errors under endpoint chaos', () => {
         await clearFaults();
         await page.goto('/');
         // App should recover once faults are cleared: the map re-renders.
-        await page.locator('.leaflet-container').waitFor({ state: 'visible', timeout: 11*15000 }).catch(() => {});
+        await page.locator('.leaflet-container').waitFor({ state: 'visible', timeout: T(15000) }).catch(() => {});
 
         expect(uncaught, `uncaught exceptions: ${uncaught.join(' | ')}`).toHaveLength(0);
         expect(consoleErrors, `unexpected console errors: ${consoleErrors.join(' | ')}`).toHaveLength(0);

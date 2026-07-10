@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { setupDefaultMockMapillaryData } from './helpers/mapillaryMocks';
 import { loginAsTestUser } from './helpers/testUsers';
@@ -13,7 +14,7 @@ test.describe('Photo Creator Name Links', () => {
 
     // Go to main map view where Photo.svelte is used
     await page.goto('/');
-    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
+    await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
 
     // Look for creator info in front photo (Photo.svelte component)
     const creatorInfo = page.locator('.creator-info');
@@ -45,7 +46,7 @@ test.describe('Photo Creator Name Links', () => {
 
     // Navigate to map view
     await page.goto('/');
-    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
+    await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
 
     // Wait for photos to load from mock data
     await page.waitForTimeout(3000);
@@ -76,7 +77,7 @@ test.describe('Photo Creator Name Links', () => {
 
     // Navigate to map view
     await page.goto('/');
-    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
+    await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
 
     // Wait for photos to load from mock data
     await page.waitForTimeout(3000);

@@ -2,6 +2,7 @@
  * Photo upload utilities for Playwright tests
  */
 
+import { T } from './timeouts';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -120,7 +121,7 @@ export async function uploadPhoto(page: Page, photoFilename: string): Promise<st
 
   // Check the license checkbox first (file input is disabled until license is set)
   const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
-  await licenseCheckbox.waitFor({ state: 'visible', timeout: 11*10000 });
+  await licenseCheckbox.waitFor({ state: 'visible', timeout: T(10000) });
   const isChecked = await licenseCheckbox.isChecked();
   if (!isChecked) {
     await licenseCheckbox.check();
@@ -131,7 +132,7 @@ export async function uploadPhoto(page: Page, photoFilename: string): Promise<st
   await page.waitForFunction(() => {
     const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
     return input && !input.disabled;
-  }, { timeout: 11*10000 });
+  }, { timeout: T(10000) });
 
   // Select file (uses ASCII temp copy if filename has non-ASCII chars)
   await safeSetInputFiles(fileInput, photoPath);
@@ -141,7 +142,7 @@ export async function uploadPhoto(page: Page, photoFilename: string): Promise<st
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-testid="upload-submit-button"]') as HTMLButtonElement;
     return button && !button.disabled;
-  }, { timeout: 11*5000 });
+  }, { timeout: T(5000) });
 
   // Click upload
   await uploadButton.click();
@@ -151,7 +152,7 @@ export async function uploadPhoto(page: Page, photoFilename: string): Promise<st
     const uploadSuccessEntry = document.querySelector('[data-testid="log-entry"][data-operation="upload"][data-outcome="success"]');
     const batchCompleteEntry = document.querySelector('[data-testid="log-entry"][data-operation="batch_complete"]');
     return uploadSuccessEntry || batchCompleteEntry;
-  }, { timeout: 11*30000 });
+  }, { timeout: T(30000) });
 
   // Extract photo ID from the success log entry
   const photoId = await page.evaluate(() => {
@@ -163,7 +164,7 @@ export async function uploadPhoto(page: Page, photoFilename: string): Promise<st
   await page.waitForFunction(() => {
     const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
     return input && input.value === '';
-  }, { timeout: 11*5000 });
+  }, { timeout: T(5000) });
 
   // Wait for async worker processing to complete (EXIF extraction, GPS indexing)
   if (photoId) {

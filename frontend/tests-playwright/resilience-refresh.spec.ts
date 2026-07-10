@@ -7,6 +7,7 @@
  * Both are triggered the same way: a 401 on the next authed call (or a force-logout)
  * makes the client force-refresh; the fault on /api/auth/refresh decides the flavor.
  */
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
 import { armFault, clearFaults, forceLogoutUser } from './helpers/debugFaults';
@@ -27,7 +28,7 @@ test.describe('Resilience: refresh failures', () => {
 
         await page.goto('/');
         // Staying on the map (not bounced to /login) means the map renders.
-        await page.locator('.leaflet-container').waitFor({ state: 'visible', timeout: 11*10000 }).catch(() => {});
+        await page.locator('.leaflet-container').waitFor({ state: 'visible', timeout: T(10000) }).catch(() => {});
 
         expect(page.url()).not.toContain('/login');
 

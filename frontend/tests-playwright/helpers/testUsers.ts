@@ -2,6 +2,7 @@
  * Shared utilities for managing test users across Playwright tests
  */
 
+import { T } from './timeouts';
 import { BACKEND_URL } from './adminAuth';
 
 export interface TestUserCredentials {
@@ -86,14 +87,14 @@ export async function loginAs(page: any, username: string, password: string) {
 
   // networkidle can resolve before the DOM is painted on WebKit, so also wait for
   // the form itself with an actionable timeout.
-  await page.getByTestId('login-username-input').waitFor({ state: 'visible', timeout: 11*15000 });
+  await page.getByTestId('login-username-input').waitFor({ state: 'visible', timeout: T(15000) });
 
   await page.getByTestId('login-username-input').fill(username);
   await page.getByTestId('login-password-input').fill(password);
   await page.getByTestId('login-submit-button').click();
 
   // Wait for successful login redirect
-  await page.waitForURL('/', { timeout: 11*15000 });
+  await page.waitForURL('/', { timeout: T(15000) });
 }
 
 /**
@@ -109,5 +110,5 @@ export async function loginAsTestUser(page: any, password: string) {
 export async function logoutUser(page: any) {
   await page.getByLabel('Toggle menu').click();
   await page.locator('button:has-text("Logout")').click();
-  await page.waitForURL('/login', { timeout: 11*15000 });
+  await page.waitForURL('/login', { timeout: T(15000) });
 }

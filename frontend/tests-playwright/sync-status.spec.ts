@@ -10,6 +10,7 @@
  * subscriptions in src/lib/syncStatus.ts.
  */
 
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { enableAutoUpload } from './helpers/autoUpload';
@@ -38,12 +39,12 @@ async function getFgSyncHistory(page: any): Promise<any[]> {
 
 async function captureAndUploadPhoto(page: any) {
 	const cameraButton = page.locator('[data-testid="camera-button"]');
-	await cameraButton.waitFor({ state: 'visible', timeout: 11*15000 });
+	await cameraButton.waitFor({ state: 'visible', timeout: T(15000) });
 	await cameraButton.click({ force: true });
 
 	const captureButton = page.locator('[data-testid="single-capture-button"]');
-	await captureButton.waitFor({ state: 'visible', timeout: 11*15000 });
-	await expect(captureButton).toBeEnabled({ timeout: 11*15000 });
+	await captureButton.waitFor({ state: 'visible', timeout: T(15000) });
+	await expect(captureButton).toBeEnabled({ timeout: T(15000) });
 
 	await captureButton.click();
 	await waitForPhotoCount(page, 1);
@@ -74,7 +75,7 @@ test.describe('Sync Status Reporting', () => {
 		await page.waitForFunction(() => {
 			const s = (window as any).__stores?.combinedSyncStatus;
 			return s != null && !s.isUploading;
-		}, { timeout: 11*15000 });
+		}, { timeout: T(15000) });
 	});
 
 	test('fgSyncStatus reports correct phases and counts after upload', async ({ page }) => {

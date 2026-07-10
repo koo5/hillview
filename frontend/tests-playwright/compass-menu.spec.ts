@@ -1,8 +1,9 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 
 async function waitForMap(page: import('@playwright/test').Page) {
 	await page.goto('/');
-	await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
+	await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
 	await page.waitForTimeout(2000);
 	await expect(page.locator('.leaflet-container')).toBeVisible();
 }

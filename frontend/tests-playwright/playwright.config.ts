@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { defineConfig, devices } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -37,18 +38,29 @@ export default defineConfig({
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
 
-    /* Cap navigations (`goto`, `waitForLoadState`, `waitForURL`) at 60s. The
-       default (0) means they wait up to the test timeout, which turns a stuck
-       `waitForLoadState('networkidle')` into a multi-minute wait before the
-       test finally aborts. `actionTimeout` is left at the default because some
-       actions (batch photo uploads, long `expect().toBeVisible` waits) can
-       legitimately take a while and pass their own per-call timeout. */
-    navigationtimeout: 11*60000,
+    /* Cap navigations (`goto`, `waitForLoadState`, `waitForURL`) at T(30000)
+       — 90s at the default 3x multiplier, and it scales with PW_TIMEOUT_MULT
+       like every other timeout (see helpers/timeouts.ts). The Playwright default
+       (0) lets a navigation wait up to the whole per-test timeout, turning a
+       stuck navigation — or a WebKit "internal error" on goto — into a
+       multi-minute hang. This cap fails such hangs fast while staying far above
+       any healthy navigation.
+
+       IMPORTANT: this key MUST be camelCase `navigationTimeout`. It was
+       previously misspelled `navigationtimeout` (lowercase t), which Playwright
+       silently ignores — so navigations were effectively UNCAPPED and rode the
+       full per-test timeout. Fixing the casing is what actually activates the
+       cap. Keep it camelCase.
+
+       `actionTimeout` is left at the default because some actions (batch photo
+       uploads, long `expect().toBeVisible` waits) can legitimately take a while
+       and pass their own per-call timeout. */
+    navigationTimeout: T(30000),
   },
 
   /* Per-test timeout. Has to accommodate long-running Mapillary/photo-upload
      tests plus the navigation timeout above. */
-  timeout: 11*180000,
+  timeout: T(180000),
 
   /* Configure projects for major browsers */
   projects: [
@@ -81,6 +93,13 @@ export default defineConfig({
         ...devices['Desktop Safari'],
         // WebKit doesn't support camera permissions in Playwright yet
       },
+      // NOTE: deliberately NOT giving WebKit extra retries. Its residual failures
+      // are timeout-bound HANGS ("WebKit encountered an internal error" on goto),
+      // not fast assertion failures. They're now bounded by navigationTimeout
+      // (90s) and the per-test timeout (T(180000) = 9min at the default 3x), so a
+      // hang no longer costs ~33min — but a retry still re-runs the whole test,
+      // so extra WebKit retries would add real wall-clock. Global retries:2
+      // already applies; revisit only if the flake rate warrants it.
       // KNOWN-FLAKY: WebKit against the built frontend *container* (prod build,
       // served over HTTP/1.1) intermittently fails to load a code-split JS chunk —
       // surfacing as "Importing a module script failed", a login that never

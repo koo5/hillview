@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAs } from './helpers/testUsers';
 import { addCaptureInit, ensureAutoUpload, captureAt, waitNewUpload, openMap, openTimelineAnchoredOn } from './helpers/captureSeed';
@@ -50,12 +51,12 @@ test.describe('Timeline cursor follows swipe / arrow navigation', () => {
 		// Anchor the walk on W1 (the bearing-80 photo).
 		await openTimelineAnchoredOn(page, idW1);
 		const status = page.getByTestId('timeline-status');
-		await expect(status).toHaveText('1 / 2', { timeout: 11 * 15000 });
+		await expect(status).toHaveText('1 / 2', { timeout: T(15000) });
 
 		// Navigate right to the neighbour — the same handleSwipe path a swipe gesture uses
 		// → 'photo_navigation' selection → the cursor follows onto W2.
 		await page.getByTestId('gallery-nav-right').click();
-		await expect(status).toHaveText('2 / 2', { timeout: 11 * 15000 });
+		await expect(status).toHaveText('2 / 2', { timeout: T(15000) });
 		await expect(page.getByTestId('timeline-refresh')).toHaveCount(0);
 	});
 });
