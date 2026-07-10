@@ -118,6 +118,34 @@ export function pickSmallestImage(
 }
 
 /**
+ * Human-readable copyright notice for the ImageObject's `copyrightNotice` — the
+ * field Google's Image Metadata report flags when absent. Names the owner and,
+ * when a date is known, the year (taken date, falling back to upload date).
+ *
+ * Every Hillview photo stays under its owner's copyright: 'arr' reserves all
+ * rights, and CC BY-SA *licenses* the photo without waiving copyright — so a '©'
+ * notice is correct for both. Only 'arr' gets the "All rights reserved." tail;
+ * appending it to a CC photo would contradict the licence it grants.
+ *
+ * Returns undefined for an ownerless photo (owner_username null) so
+ * JSON.stringify drops the field rather than emitting a holder-less '©'.
+ */
+export function buildCopyrightNotice(photo: {
+	owner_username: string | null;
+	license?: string | null;
+	captured_at?: string | null;
+	uploaded_at?: string | null;
+}): string | undefined {
+	if (!photo.owner_username) return undefined;
+	const stamp = photo.captured_at || photo.uploaded_at;
+	const year = stamp ? new Date(stamp).getUTCFullYear() : NaN;
+	const holder = Number.isNaN(year)
+		? `© ${photo.owner_username}`
+		: `© ${year} ${photo.owner_username}`;
+	return photo.license === 'arr' ? `${holder}. All rights reserved.` : holder;
+}
+
+/**
  * Builds a schema.org ImageObject for a public photo, suitable for a JSON-LD
  * <script>. Returns null when there's no photo. Fields we can't vouch for are
  * left undefined so JSON.stringify drops them.
@@ -178,6 +206,7 @@ export function buildPhotoImageJsonLd(
 				}
 			: undefined,
 		creditText: photo.owner_username || undefined,
+		copyrightNotice: buildCopyrightNotice(photo),
 		license: license ? licensePage : undefined,
 		acquireLicensePage: license ? (isArr ? contactPage : licensePage) : undefined,
 		contentLocation: place

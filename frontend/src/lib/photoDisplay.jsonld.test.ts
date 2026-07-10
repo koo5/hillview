@@ -121,6 +121,36 @@ describe('buildPhotoImageJsonLd', () => {
 		expect(ld.description).toBe('Panorama Prahy z Grébovky');
 	});
 
+	it('emits a copyright notice: taken-year + owner, "All rights reserved." for arr', () => {
+		// REAL_PHOTO is arr, captured 2026, owned by 'test'
+		expect(buildPhotoImageJsonLd(REAL_PHOTO)!.copyrightNotice).toBe(
+			'© 2026 test. All rights reserved.'
+		);
+	});
+
+	it('omits "All rights reserved." for a CC-licensed photo (copyright is not waived)', () => {
+		const ld = buildPhotoImageJsonLd({ ...REAL_PHOTO, license: 'ccbysa4+osm' })!;
+		expect(ld.copyrightNotice).toBe('© 2026 test');
+	});
+
+	it('falls back to the upload year when there is no taken date', () => {
+		const ld = buildPhotoImageJsonLd({ ...REAL_PHOTO, captured_at: null })!;
+		// uploaded_at is 2026-06-12
+		expect(ld.copyrightNotice).toBe('© 2026 test. All rights reserved.');
+	});
+
+	it('drops the year when neither date is known, keeping the holder', () => {
+		const ld = buildPhotoImageJsonLd({
+			...REAL_PHOTO, license: 'ccbysa4+osm', captured_at: null, uploaded_at: null
+		})!;
+		expect(ld.copyrightNotice).toBe('© test');
+	});
+
+	it('omits copyrightNotice entirely for an ownerless photo', () => {
+		const ld = buildPhotoImageJsonLd({ ...REAL_PHOTO, owner_username: null })!;
+		expect(ld.copyrightNotice).toBeUndefined();
+	});
+
 	it('emits keywords when present, omits them when empty', () => {
 		const withKw = buildPhotoImageJsonLd({
 			...REAL_PHOTO,
