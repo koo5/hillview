@@ -585,6 +585,8 @@ async def list_photos(
 				"rating_counts": photo_rating['rating_counts'],
 				**({"detected_objects": photo.detected_objects} if include_detections else {})
 			})
+			if photo.notes:
+				photos_data[-1]["notes"] = photo.notes
 
 		return {
 			"photos": photos_data,
@@ -713,7 +715,7 @@ async def get_sitemap_photo_ids(
 	count) for the index to compute its page count.
 
 	CURATED: only photos with something worth indexing are listed — featured,
-	or carrying a title/description/keywords, or with at least one annotation.
+	or carrying a title/description/notes/keywords, or with at least one annotation.
 	Bulk title-less uploads are left out so they don't dilute crawl budget /
 	site quality; they join automatically once they gain any such signal. They
 	stay indexable if found by other means (no noindex).
@@ -725,6 +727,7 @@ async def get_sitemap_photo_ids(
 		Photo.featured == True,
 		and_(Photo.title.isnot(None), Photo.title != ""),
 		and_(Photo.description.isnot(None), Photo.description != ""),
+		and_(Photo.notes.isnot(None), Photo.notes != ""),
 		func.array_length(Photo.keywords, 1) > 0,
 		select(PhotoAnnotation.id).where(PhotoAnnotation.photo_id == Photo.id).exists(),
 	)
@@ -791,7 +794,7 @@ async def get_photo(
 			'rating_counts': {'thumbs_up': 0, 'thumbs_down': 0}
 		})
 
-		return {
+		photo_data = {
 			"id": photo.id,
 			"filename": photo.filename,
 			"original_filename": photo.original_filename,
@@ -816,6 +819,9 @@ async def get_photo(
 			"user_rating": photo_rating['user_rating'],
 			"rating_counts": photo_rating['rating_counts']
 		}
+		if photo.notes:
+			photo_data["notes"] = photo.notes
+		return photo_data
 
 	except HTTPException:
 		raise
@@ -977,6 +983,7 @@ async def get_photo_share_metadata(
 					Photo.sizes,
 					Photo.title,
 					Photo.description,
+					Photo.notes,
 					ST_X(Photo.geometry).label('longitude'),
 					ST_Y(Photo.geometry).label('latitude')
 				).where(Photo.id == photo_id, Photo.deleted == False)
@@ -1008,7 +1015,7 @@ async def get_photo_share_metadata(
 						thumbnail_url = photo_data.sizes[size_key].get('url')
 						break
 
-			return {
+			response = {
 				"id": photo_data.id,
 				"source": "hillview",
 				"title": photo_data.title,
@@ -1021,6 +1028,9 @@ async def get_photo_share_metadata(
 				"latitude": photo_data.latitude,
 				"longitude": photo_data.longitude
 			}
+			if photo_data.notes:
+				response["notes"] = photo_data.notes
+			return response
 
 		elif source == "mapillary":
 			# For Mapillary photos, we'd need to implement lookup from cached data
@@ -1117,7 +1127,7 @@ async def get_public_photo(
 
 		is_own_photo = bool(current_user and str(current_user.id) == str(photo.owner_id))
 
-		return {
+		response = {
 			"id": photo.id,
 			"uid": f"hillview-{photo.id}",
 			"source": "hillview",
@@ -1145,6 +1155,9 @@ async def get_public_photo(
 			"rating_counts": photo_rating['rating_counts'],
 			"is_own_photo": is_own_photo
 		}
+		if photo.notes:
+			response["notes"] = photo.notes
+		return response
 
 	except HTTPException:
 		raise

@@ -146,6 +146,7 @@ def _interesting():
         Photo.featured == True,
         and_(Photo.title.isnot(None), Photo.title != ""),
         and_(Photo.description.isnot(None), Photo.description != ""),
+        and_(Photo.notes.isnot(None), Photo.notes != ""),
         func.array_length(Photo.keywords, 1) > 0,
         select(PhotoAnnotation.id).where(PhotoAnnotation.photo_id == Photo.id).exists(),
     )

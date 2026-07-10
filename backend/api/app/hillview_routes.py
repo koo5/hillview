@@ -206,6 +206,9 @@ def convert_photo_to_response(photo, username: str, longitude: float, latitude: 
 	if photo.description:
 		photo_data['description'] = photo.description
 
+	if photo.notes:
+		photo_data['notes'] = photo.notes
+
 	if photo.keywords:
 		photo_data['keywords'] = photo.keywords
 

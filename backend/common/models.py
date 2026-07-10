@@ -92,6 +92,7 @@ class Photo(Base):
 	record_created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 	title: Mapped[Optional[str]] = mapped_column(Text)  # concise headline (og:title, <title>, schema.org name)
 	description: Mapped[Optional[str]] = mapped_column(Text)  # longer body text
+	notes: Mapped[Optional[str]] = mapped_column(Text)  # place-specific notes / local context
 	keywords: Mapped[Optional[list[str]]] = mapped_column(ARRAY(Text))  # alt names / search synonyms (schema.org keywords)
 	# Reverse-geocoded place (backfilled out-of-band; see scripts/backfill_places.py)
 	geocode: Mapped[Optional[dict]] = mapped_column(JSONB)  # raw {address, display_name} — re-derive without re-geocoding
