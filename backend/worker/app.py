@@ -740,8 +740,21 @@ if os.environ.get('DEV_MODE', 'false').lower() != 'true':
 
 @app.post("/await")
 async def await_handler(task_id: str, request: Request):
-	"""Wait for a background task to complete, sending periodic heartbeats to keep connection alive.
-	Closes after 15s with {"status": "timeout"} to force fresh TCP connections from the caller."""
+	"""Keepalive callback endpoint for the API server — not a client-facing poll.
+
+	While this worker has pending background tasks, background_loop pings the API
+	(/worker_pending_background_tasks_ping) with our fly_machine_id and task0_id;
+	the API's pingback threads (worker_routes._worker_pingback_thread) then call
+	this endpoint in a loop with fly-force-instance-id, generating inbound HTTP
+	traffic pinned to this machine so Fly.io's autostop doesn't shut it down
+	mid-processing. Upload clients never call this; they poll the API photo
+	status endpoints instead.
+
+	Streams heartbeats while the task is pending, closes after 15s with
+	{"status": "timeout"} to force the caller onto fresh TCP connections (fresh
+	requests are what Fly's proxy counts as activity), and returns
+	{"status": "completed"} once the task leaves the pending set — which ends
+	the API's pingback loop."""
 
 	async def heartbeat_generator():
 		deadline = time.time() + 15
