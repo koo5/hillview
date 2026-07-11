@@ -100,11 +100,19 @@ class NotificationHelper(private val context: Context) {
         try {
             Log.d(TAG, "Showing auth expired notification")
 
-            // Create intent to open the app (main activity)
-            val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            // Open the app ON THE LOGIN PAGE: click_action rides the launch
+            // intent and the frontend routes it (same mechanism as the FCM and
+            // activity notifications — intent-incoming.test.ts covers the warm
+            // onNewIntent and cold-start paths). Landing on /login lets the
+            // notification itself heal a WebView that missed the auth-expired
+            // message.
+            val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("click_action", "/login")
+            }
             val pendingIntent = PendingIntent.getActivity(
                 context,
-                0,
+                NOTIFICATION_ID_AUTH_EXPIRED,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )

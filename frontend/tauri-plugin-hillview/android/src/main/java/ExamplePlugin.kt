@@ -1063,6 +1063,11 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	fun clearAuthToken(invoke: Invoke) {
 		try {
 			Log.d(TAG, "🔐 Clearing auth token")
+			// Deliberately does NOT clear the session-expired flag: the JS
+			// lockstep-logout path funnels through here, and clearing would erase
+			// the persisted evidence before the reconciler surfaces it (e.g. when
+			// the process dies right after). The flag is consumed by the
+			// reconciler once surfaced, or superseded by the next login.
 			val success = authManager.clearAuthToken()
 
 			val result = JSObject()
@@ -1080,6 +1085,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(error)
 		}
 	}
+
 
 	@Command
 	fun refreshAuthToken(invoke: Invoke) {
@@ -2283,6 +2289,36 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					val enabled = prefs.getBoolean("auto_export", false)
 					val result = JSObject()
 					result.put("enabled", enabled)
+					invoke.resolve(result)
+					return
+				}
+
+				// Level-triggered session snapshot for the JS reconciler
+				// (AndroidTokenManager.reconcileSessionState): the WebView's auth
+				// store is a display cache of THIS state and must never outlive it.
+				// `expired: true` reports an involuntary session death persisted by
+				// AuthenticationManager.sessionExpired() — durable across process
+				// death, unlike the queued "auth-expired" message. Pass
+				// consume_expired=true to acknowledge the flag once the UI has
+				// surfaced it (so it isn't re-surfaced on every later reconcile).
+				"get_session_state" -> {
+					val consume = params.getBoolean("consume_expired", false)
+					val (token, expiresAt) = authManager.getTokenInfo()
+					val expiredInfo = authManager.getSessionExpiredInfo()
+
+					val result = JSObject()
+					result.put("has_access_token", token != null)
+					result.put("has_valid_access_token", authManager.hasValidToken())
+					result.put("has_refresh_token", authManager.getRefreshToken() != null)
+					result.put("expires_at", expiresAt)
+					result.put("expired", expiredInfo != null)
+					if (expiredInfo != null) {
+						result.put("expired_at", expiredInfo.first)
+						result.put("expired_reason", expiredInfo.second)
+						if (consume) {
+							authManager.clearSessionExpiredFlag()
+						}
+					}
 					invoke.resolve(result)
 					return
 				}

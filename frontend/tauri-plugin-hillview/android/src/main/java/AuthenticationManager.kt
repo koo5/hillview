@@ -43,6 +43,18 @@ class AuthenticationManager(
         private const val KEY_REFRESH_TOKEN = "refresh_token"
         private const val KEY_EXPIRES_AT = "expires_at"
         private const val KEY_REFRESH_EXPIRES_AT = "refresh_expires_at"
+        // Involuntary session death, persisted NEXT TO the tokens so it survives
+        // process death. The queued "auth-expired" message is only a latency
+        // optimization — it lives in plugin-instance memory and is lost if the
+        // process dies before the WebView polls it. This flag is what the JS
+        // reconciler (AndroidTokenManager.reconcileSessionState) reads at startup/
+        // resume, so the UI ends up on /login even when the event was lost.
+        // Set ONLY by sessionExpired(); cleared by storeAuthToken (re-login) or
+        // consumed by the JS reconciler once it has surfaced the expiry. NOT
+        // cleared by clearAuthToken — the lockstep logout funnels through it and
+        // must not erase the evidence before it's surfaced.
+        private const val KEY_SESSION_EXPIRED_AT = "session_expired_at"
+        private const val KEY_SESSION_EXPIRED_REASON = "session_expired_reason"
 
         /**
          * Invoked when the server rejects the refresh token (401) and the native session
@@ -96,8 +108,10 @@ class AuthenticationManager(
             editor.apply()
             Log.d(TAG, "Tokens stored successfully in SharedPreferences")
 
-            // Clear any auth expired notifications since user is now authenticated
+            // Clear any auth expired notifications since user is now authenticated,
+            // and the persisted session-expired flag — this login supersedes the death.
             notificationHelper.clearAuthExpiredNotification()
+            clearSessionExpiredFlag()
 
             // Register client public key after storing tokens (synchronous - must complete before uploads can start)
             try {
@@ -275,8 +289,12 @@ class AuthenticationManager(
             }
             val refreshToken = getRefreshToken() ?: run {
                 Log.w(TAG, "forceRefreshToken: no refresh token available")
+                // Callers force-refresh because the server just REJECTED the
+                // access token; with no refresh token to fall back on the session
+                // is dead. (No stored access token at all = never logged in /
+                // already logged out — nothing to declare dead.)
                 if (prefs.getString(KEY_AUTH_TOKEN, null) != null) {
-                    notificationHelper.showAuthExpiredNotification()
+                    sessionExpired("access token rejected, no refresh token")
                 }
                 return@withLock false
             }
@@ -315,10 +333,16 @@ class AuthenticationManager(
         val refreshToken = getRefreshToken() ?: run {
             Log.w(TAG, "No refresh token available - user needs to re-authenticate")
 
-            // Show notification if we have an access token but no refresh token
-            // (This means user is logged in but can't refresh - auth will fail soon)
             if (prefs.getString(KEY_AUTH_TOKEN, null) != null) {
-                notificationHelper.showAuthExpiredNotification()
+                if (tokenExpired) {
+                    // Access token expired and nothing to refresh with — dead.
+                    sessionExpired("access token expired, no refresh token")
+                } else {
+                    // Proactive-renewal path: the access token still works, so the
+                    // session isn't dead YET — some login flows legitimately store
+                    // only an access token. Warn the user but don't tear down.
+                    notificationHelper.showAuthExpiredNotification()
+                }
             }
 
             return false
@@ -486,27 +510,10 @@ class AuthenticationManager(
                 } else {
                     Log.e(TAG, "Token refresh failed with status: ${response.code}")
 
-                    // If refresh token is expired/invalid, clear all auth data
+                    // Only a 401 is terminal (server rejected the refresh token);
+                    // 5xx/timeouts are transient and must keep the session.
                     if (response.code == 401) {
-                        Log.w(TAG, "Refresh token expired/invalid - clearing all auth data and notifying user")
-                        clearAuthToken()
-
-                        // Show push notification to user about auth expiry
-                        notificationHelper.showAuthExpiredNotification()
-
-                        // Tell the WebView/JS layer so its auth store logs out in lockstep
-                        // (otherwise JS keeps showing "authenticated" while native has no tokens).
-                        if (onSessionExpired != null) {
-                            Log.w(TAG, "🔐➡️ Native session cleared (401); invoking onSessionExpired to notify JS")
-                            try {
-                                onSessionExpired?.invoke()
-                                Log.d(TAG, "🔐➡️ onSessionExpired invoked")
-                            } catch (e: Exception) {
-                                Log.e(TAG, "🔐➡️ onSessionExpired callback threw", e)
-                            }
-                        } else {
-                            Log.w(TAG, "🔐➡️ Native session cleared (401) but onSessionExpired is null — JS will NOT be notified")
-                        }
+                        sessionExpired("refresh token rejected (401)")
                     }
                 }
             }
@@ -521,6 +528,10 @@ class AuthenticationManager(
     fun clearAuthToken(): Boolean {
         Log.d(TAG, "Clearing auth token")
         return try {
+            // Deliberately leaves KEY_SESSION_EXPIRED_* alone: sessionExpired()
+            // calls this first and then sets the flag, and the JS lockstep logout
+            // also funnels through here — clearing would erase the evidence before
+            // the reconciler surfaces it. See the KEY_SESSION_EXPIRED_* comment.
             prefs.edit()
                 .remove(KEY_AUTH_TOKEN)
                 .remove(KEY_REFRESH_TOKEN)
@@ -532,6 +543,60 @@ class AuthenticationManager(
             Log.e(TAG, "Error clearing auth token: ${e.message}")
             false
         }
+    }
+
+    /**
+     * SINGLE choke point for involuntary session death. Every code path that
+     * concludes "this session cannot continue" (refresh rejected with 401,
+     * access token rejected with no refresh token to fall back on, …) MUST go
+     * through here, so the four effects can never diverge again:
+     *
+     *  - tokens cleared (native side logged out)
+     *  - session-expired flag persisted (survives process death; the JS
+     *    reconciler reads it at startup/resume so the WebView logs out even if
+     *    the queued message below is lost)
+     *  - "Login Required" system notification shown
+     *  - onSessionExpired fired → plugin queues "auth-expired" for the WebView
+     *    (fast path: polled within ~100ms while the WebView is alive)
+     *
+     * Historical bug this structure prevents: two of the three death sites
+     * showed the notification but never notified JS, so the UI kept showing
+     * "authenticated" against a dead session.
+     */
+    fun sessionExpired(reason: String) {
+        Log.w(TAG, "🔐➡️ Session expired ($reason) — clearing tokens, persisting flag, notifying user + JS")
+        clearAuthToken()
+        prefs.edit()
+            .putLong(KEY_SESSION_EXPIRED_AT, System.currentTimeMillis())
+            .putString(KEY_SESSION_EXPIRED_REASON, reason)
+            .apply()
+        notificationHelper.showAuthExpiredNotification()
+        if (onSessionExpired != null) {
+            Log.w(TAG, "🔐➡️ Invoking onSessionExpired to notify JS")
+            try {
+                onSessionExpired?.invoke()
+                Log.d(TAG, "🔐➡️ onSessionExpired invoked")
+            } catch (e: Exception) {
+                Log.e(TAG, "🔐➡️ onSessionExpired callback threw", e)
+            }
+        } else {
+            Log.w(TAG, "🔐➡️ onSessionExpired is null — JS will reconcile from the persisted flag")
+        }
+    }
+
+    /** Persisted involuntary-death marker, or null. Read by getSessionState. */
+    fun getSessionExpiredInfo(): Pair<Long, String>? {
+        val at = prefs.getLong(KEY_SESSION_EXPIRED_AT, 0L)
+        if (at == 0L) return null
+        return Pair(at, prefs.getString(KEY_SESSION_EXPIRED_REASON, null) ?: "unknown")
+    }
+
+    /** Cleared on re-login (storeAuthToken) or consumed by the JS reconciler. */
+    fun clearSessionExpiredFlag() {
+        prefs.edit()
+            .remove(KEY_SESSION_EXPIRED_AT)
+            .remove(KEY_SESSION_EXPIRED_REASON)
+            .apply()
     }
 
     /**

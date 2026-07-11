@@ -97,12 +97,12 @@
 
             <li><a href="/activity" on:click={closeMenu} data-testid="nav-activity-link">
                 <Activity size={18}/>
-                Activity
+                Activity <span class="menu-desc">— latest photos</span>
             </a></li>
 
             <li><a href="/bestof" on:click={closeMenu} data-testid="bestof-menu-link">
                 <Award size={18}/>
-                Best of
+                Best of <span class="menu-desc">— annotated panoramas</span>
             </a></li>
 
             <li><a href="/users" on:click={closeMenu} data-testid="nav-users-link">
@@ -187,12 +187,16 @@
 			<hr/>
 			<li>
 					<div class="build-info">
-						<div class="app-version">
-							Hillview version {APP_VERSION}
-						</div>
-						<div class="build-commit">
-							{BUILD_GIT_COMMIT}
-						</div>
+						{#if APP_VERSION !== 'unknown'}
+							<div class="app-version">
+								Hillview version {APP_VERSION}
+							</div>
+						{/if}
+						{#if BUILD_GIT_COMMIT !== 'unknown'}
+							<div class="build-commit">
+								{BUILD_GIT_COMMIT}
+							</div>
+						{/if}
 						<div class="build-version">
 							Build timestamp: {formatUtcDate(new Date(BUILD_TIME))}
 						</div>
@@ -303,6 +307,12 @@
         line-height: 1.4;
         user-select: text;
         -webkit-user-select: text;
+    }
+
+    .menu-desc {
+        font-size: 0.7rem;
+        color: #9ca3af;
+        font-weight: normal;
     }
 
     .build-timestamp {
