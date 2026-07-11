@@ -709,11 +709,13 @@ async def get_sitemap_photo_ids(
 ):
 	"""Public, completed photo identifiers for the XML sitemap (no auth — SEO).
 
-	Returns ``{"total", "photos": [{uid, lastmod}, ...]}`` for public,
-	non-deleted, completed hillview photos, newest first. Paginated so the
-	frontend sitemap can be a sitemap-index of fixed-size child pages and never
-	hit the 50k-URLs-per-file limit. ``limit=0`` yields just the total (cheap
-	count) for the index to compute its page count.
+	Returns ``{"total", "photos": [{uid, lastmod, img}, ...]}`` for public,
+	non-deleted, completed hillview photos, newest first. ``img`` is the
+	preferred rendition URL for the sitemap's ``<image:image>`` entry (may be
+	null). Paginated so the frontend sitemap can be a sitemap-index of
+	fixed-size child pages and never hit the 50k-URLs-per-file limit.
+	``limit=0`` yields just the total (cheap count) for the index to compute
+	its page count.
 
 	CURATED: only photos with something worth indexing are listed — featured,
 	or carrying a title/description/keywords, or with at least one annotation.
@@ -739,17 +741,31 @@ async def get_sitemap_photo_ids(
 	]
 	total = await db.scalar(select(func.count()).select_from(Photo).where(*conds))
 	rows = (await db.execute(
-		select(Photo.id, Photo.uploaded_at)
+		select(Photo.id, Photo.uploaded_at, Photo.sizes)
 		.where(*conds)
 		.order_by(Photo.uploaded_at.desc())
 		.offset(offset)
 		.limit(limit)
 	)).all()
+
+	# Rendition preference for <image:image> entries: the big image-search crop
+	# when the worker produced one (wide sources), else the largest flat size.
+	img_pref = ('3840_crop', 'full', '4096', '3072', '2048', '1200_crop')
+
+	def sitemap_img(sizes) -> Optional[str]:
+		if not isinstance(sizes, dict):
+			return None
+		for key in img_pref:
+			url = (sizes.get(key) or {}).get('url')
+			if url:
+				return url
+		return None
+
 	return {
 		"total": total or 0,
 		"photos": [
-			{"uid": f"hillview-{pid}", "lastmod": format_utc(ts) if ts else None}
-			for pid, ts in rows
+			{"uid": f"hillview-{pid}", "lastmod": format_utc(ts) if ts else None, "img": sitemap_img(sizes)}
+			for pid, ts, sizes in rows
 		],
 	}
 

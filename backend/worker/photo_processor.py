@@ -617,8 +617,11 @@ class PhotoProcessor:
 		crop_variants = [
 			('320_crop', 320, 240),
 			('1200_crop', 1200, 630),
+			('3840_crop', 3840, 2016),  # large representative crop for image search (sitemap <image:loc>)
 		]  # (key, width, height)
 		for crop_key, crop_tw, crop_th in crop_variants:
+			if crop_th > height:
+				continue  # source too short — create_center_crop would upscale
 			if height > 0 and width / height > crop_tw / crop_th:
 				cropped = create_center_crop(image, crop_tw, crop_th)
 
