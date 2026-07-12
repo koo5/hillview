@@ -36,6 +36,10 @@ services:
       - "127.0.0.1:8055:8055"
     volumes:
       - pics:/app/pics
+      # GeoIP database dir for /api/featured/nearest — drop GeoLite2-City.mmdb here
+      # (see backend/CLAUDE.md "Featured Photo GeoLite2 Database Setup"). Optional;
+      # the endpoint falls back to the global best-annotated photo without it.
+      - ./backend/data:/app/data
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@${postgres:-postgres}:5432/${POSTGRES_DB:?POSTGRES_DB is required}
       #- REDIS_URL=redis://redis:6379/0

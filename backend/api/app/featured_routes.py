@@ -19,14 +19,15 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, PhotoAnnotation
+from annotation_routes import PLACEHOLDER_BODIES
 from rate_limiter import general_rate_limiter, get_client_ip
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/featured", tags=["featured"])
 
-# Minimum annotation count (non-'?') for a photo to be considered well-annotated
-MIN_ANNOTATION_COUNT = 20
+# Minimum annotation count (non-placeholder) for a photo to be considered well-annotated
+MIN_ANNOTATION_COUNT = 10
 
 # GeoIP reader (opened once, shared across requests). None if DB unavailable.
 _geoip_reader = None
@@ -47,7 +48,7 @@ except Exception as e:
 
 
 def _annotated_count_subquery():
-    """Count of current, non-deleted, non-'?' annotations per photo."""
+    """Count of current, non-deleted, non-placeholder annotations per photo."""
     return (
         select(
             PhotoAnnotation.photo_id,
@@ -57,7 +58,7 @@ def _annotated_count_subquery():
             and_(
                 PhotoAnnotation.is_current == True,
                 PhotoAnnotation.event_type != 'deleted',
-                PhotoAnnotation.body != '?',
+                func.lower(func.trim(func.coalesce(PhotoAnnotation.body, ''))).notin_(PLACEHOLDER_BODIES),
             )
         )
         .group_by(PhotoAnnotation.photo_id)
@@ -68,28 +69,37 @@ def _annotated_count_subquery():
 def _geolocate_ip(ip: str) -> Optional[tuple[float, float]]:
     """Return (lat, lon) for an IP, or None if unknown/private/lookup-failed."""
     if not _geoip_reader:
+        logger.info(f"Featured: no GeoIP database loaded, cannot geolocate {ip}")
         return None
     try:
         addr = ipaddress.ip_address(ip)
         if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast:
+            logger.info(f"Featured: client IP {ip} is private/local, skipping GeoIP lookup")
             return None
     except ValueError:
+        logger.info(f"Featured: client IP {ip!r} is not a valid IP address")
         return None
     try:
         import geoip2.errors
         response = _geoip_reader.city(ip)
         if response.location.latitude is None or response.location.longitude is None:
+            logger.info(f"Featured: GeoIP entry for {ip} has no coordinates")
             return None
+        logger.info(
+            f"Featured: geolocated {ip} to ({response.location.latitude}, {response.location.longitude})"
+            f" ({response.city.name or '?'}, {response.country.iso_code or '?'})"
+        )
         return (response.location.latitude, response.location.longitude)
     except geoip2.errors.AddressNotFoundError:
+        logger.info(f"Featured: IP {ip} not found in GeoIP database")
         return None
     except Exception as e:
-        logger.debug(f"Featured: GeoIP lookup failed for {ip}: {e}")
+        logger.warning(f"Featured: GeoIP lookup failed for {ip}: {e}")
         return None
 
 
 async def _query_global_best(db: AsyncSession, annotation_sub) -> Optional[dict]:
-    """Return the single photo with the most non-'?' annotations (global fallback)."""
+    """Return the single photo with the most non-placeholder annotations (global fallback)."""
     query = (
         select(
             Photo.id,
@@ -115,7 +125,9 @@ async def _query_global_best(db: AsyncSession, annotation_sub) -> Optional[dict]
     result = await db.execute(query)
     row = result.first()
     if not row:
+        logger.info(f"Featured: no photo with >= {MIN_ANNOTATION_COUNT} annotations exists (global best)")
         return None
+    logger.info(f"Featured: global best is photo {row.id} ({row.annotation_count} annotations)")
     return {
         "id": row.id,
         "latitude": row.latitude,
@@ -144,6 +156,7 @@ async def _query_nearest(
             ST_Y(Photo.geometry).label('latitude'),
             ST_X(Photo.geometry).label('longitude'),
             annotation_sub.c.annotation_count,
+            distance.label('distance_m'),
         )
         .join(annotation_sub, Photo.id == annotation_sub.c.photo_id)
         .where(
@@ -161,7 +174,12 @@ async def _query_nearest(
     result = await db.execute(query)
     row = result.first()
     if not row:
+        logger.info(f"Featured: no photo with >= {MIN_ANNOTATION_COUNT} annotations exists (nearest)")
         return None
+    logger.info(
+        f"Featured: nearest photo to ({lat}, {lon}) is {row.id}"
+        f" at {row.distance_m / 1000:.1f} km ({row.annotation_count} annotations)"
+    )
     return {
         "id": row.id,
         "latitude": row.latitude,
@@ -191,6 +209,7 @@ async def get_nearest_featured_photo(
     try:
         coords: Optional[tuple[float, float]] = None
         if lat is not None and lon is not None:
+            logger.info(f"Featured: using explicit coordinates ({lat}, {lon})")
             coords = (lat, lon)
         else:
             client_ip = get_client_ip(request)
@@ -200,6 +219,7 @@ async def get_nearest_featured_photo(
         if coords is not None:
             photo = await _query_nearest(db, annotation_sub, coords[0], coords[1])
         if photo is None:
+            logger.info("Featured: falling back to global best-annotated photo")
             photo = await _query_global_best(db, annotation_sub)
 
         return {"photo": photo}

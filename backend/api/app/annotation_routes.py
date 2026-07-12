@@ -20,8 +20,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/annotations", tags=["annotations"])
 
 
+# Bodies that carry no real information: '?' is the default for a freshly drawn
+# annotation, 'oops' marks accidental ones. Kept in sync with frontend
+# firstAnnotationText() in photoDisplay.ts.
+PLACEHOLDER_BODIES = ('', '?', 'oops')
+
+
 def effective_annotation_count_subquery():
-    """Return a subquery giving the count of effective (current, non-deleted) annotations per photo.
+    """Return a subquery giving the count of effective annotations per photo.
+
+    Effective = current, non-deleted, and carrying real text (NULL, empty and
+    placeholder bodies are excluded).
 
     Columns: photo_id, annotation_count.
     """
@@ -34,6 +43,7 @@ def effective_annotation_count_subquery():
             and_(
                 PhotoAnnotation.is_current == True,
                 PhotoAnnotation.event_type != 'deleted',
+                func.lower(func.trim(func.coalesce(PhotoAnnotation.body, ''))).notin_(PLACEHOLDER_BODIES),
             )
         )
         .group_by(PhotoAnnotation.photo_id)
