@@ -42,6 +42,9 @@ class AuthenticationManagerTest {
         `when`(mockSharedPreferences.edit()).thenReturn(mockEditor)
         `when`(mockEditor.putString(anyString(), anyString())).thenReturn(mockEditor)
         `when`(mockEditor.remove(anyString())).thenReturn(mockEditor)
+        // sessionExpired() persists the session-expired flag (putLong + putString);
+        // an unstubbed chained call returns null and NPEs mid-chain.
+        `when`(mockEditor.putLong(anyString(), anyLong())).thenReturn(mockEditor)
 
         authManager = AuthenticationManager(mockContext, mockNotificationHelper, mockClientCrypto)
     }
@@ -114,6 +117,28 @@ class AuthenticationManagerTest {
 
         // Assert
         assertNull(result)
+    }
+
+    @Test
+    fun testExpiredTokenWithoutRefreshToken_declaresSessionDeath() {
+        // Expired access token + no refresh token = unrecoverable → the
+        // sessionExpired() choke point must fire ALL its effects: tokens
+        // cleared, session-expired flag persisted, user notified. (The
+        // proactive-renewal variant with a still-valid token must NOT — see
+        // refreshLocked.)
+        val pastTime = Instant.now().minusSeconds(3600)
+        val expiresAt = DateTimeFormatter.ISO_INSTANT.format(pastTime)
+
+        `when`(mockSharedPreferences.getString("auth_token", null)).thenReturn("expired_jwt_token")
+        `when`(mockSharedPreferences.getString("expires_at", null)).thenReturn(expiresAt)
+        `when`(mockSharedPreferences.getString("refresh_token", null)).thenReturn(null)
+
+        runBlocking { authManager.getValidToken() }
+
+        verify(mockEditor).remove("auth_token")
+        verify(mockEditor).putLong(eq("session_expired_at"), anyLong())
+        verify(mockEditor).putString(eq("session_expired_reason"), anyString())
+        verify(mockNotificationHelper).showAuthExpiredNotification()
     }
 
     @Test
