@@ -153,9 +153,34 @@ services:
         condition: service_completed_successfully
 
 
+  analyzer:
+    # LLM photo analyzer (production component; previously a manually-run script).
+    # Opt-in via profile: docker compose --profile analyzer up -d --build analyzer
+    build:
+      context: .
+      dockerfile: scripts/analyzer/Dockerfile
+    container_name: hillview_analyzer
+    profiles: ["analyzer"]
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - OPENROUTER_API_KEY_FILE=/run/secrets/openrouter_api_key
+      - ANALYZER_DATA_DIR=/data
+      - ANALYZER_FETCH_IMAGES=${ANALYZER_FETCH_IMAGES:-false}
+    command: ["python", "analyzer.py", "--verbose", "--model", "${ANALYZER_MODEL:-nvidia/nemotron-nano-12b-v2-vl:free}"]
+    volumes:
+      - analyzer_data:/data
+    secrets:
+      - openrouter_api_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
 volumes:
   postgres_data:
   uploads:
+  analyzer_data:
   # NB: the `pics` volume is intentionally NOT defined here. The api service
   # mounts it, so base alone is an invalid project ("undefined volume pics").
   # An environment overlay (docker-compose.dev.yml / .prod.yml) must define it,
@@ -169,6 +194,8 @@ secrets:
       file: ./secrets/FIREBASE_CONFIG.json
   firebase_credentials:
       file: ./secrets/firebase_credentials
+  openrouter_api_key:
+      file: ./scripts/analyzer/secrets/OPENROUTER_API_KEY
 
 
 networks:

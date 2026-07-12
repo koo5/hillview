@@ -22,6 +22,8 @@ export function isUnexpectedError(text: string): boolean {
         'access control checks',   // WebKit reports aborted/blocked ES-module-in-worker loads this way (dev server AND container)
         'Worker error',            // consequence of the above in SimplePhotoWorker
         'Importing a module script failed',  // WebKit: module-worker script load aborted by navigation surfaces as an unhandled rejection (chromium routes it only through worker.onerror)
+        'Unable to preload',       // Vite __vitePreload: a lazy JS/CSS chunk fetch aborted by fast navigation (same benign transient-asset class as the module-worker abort above; Firefox surfaces it)
+        'error loading dynamically imported module',  // Firefox wording for the same navigation-aborted lazy import (rapid goto→goto tears down in-flight dynamic import())
         'establish a connection to the server',  // Firefox native EventSource connection error
         'getPosition',             // Leaflet invalidateSize during page navigation (Firefox)
         'invalidateSize',          // Leaflet resize race during page transition (Firefox)

@@ -292,6 +292,8 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	private val photoUploadLogic: PhotoUploadLogic = PhotoUploadLogic(activity)
 	private val geoTrackingManager: GeoTrackingManager = GeoTrackingManager(activity)
 
+	private val clockVideoWriter: ClockVideoWriter = ClockVideoWriter(activity)
+
 	private val myDeviceOrientationSensor: MyDeviceOrientationSensor =
 		MyDeviceOrientationSensor(activity, ::triggerOrientationEvent)
 
@@ -2273,6 +2275,49 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 				"geo_tracking_export" -> {
 					geoTrackingManager.dumpAndClear(forceDump = true)
 					Log.i(TAG, "🔧 Manual geo tracking export triggered")
+				}
+
+				"clock_video_begin" -> {
+					try {
+						val ext = params.getString("ext", "webm") ?: "webm"
+						val path = clockVideoWriter.begin(ext)
+						val result = JSObject()
+						result.put("path", path)
+						invoke.resolve(result)
+					} catch (e: Exception) {
+						resolveWithError(invoke, "🎬 Failed to begin clock video: ${e.message}", e)
+					}
+					return
+				}
+
+				"clock_video_chunk" -> {
+					try {
+						val data = params.getString("data")
+						if (data.isNullOrEmpty()) {
+							resolveWithError(invoke, "🎬 clock_video_chunk: missing data")
+							return
+						}
+						val written = clockVideoWriter.appendChunk(data)
+						val result = JSObject()
+						result.put("bytes_written", written)
+						invoke.resolve(result)
+					} catch (e: Exception) {
+						resolveWithError(invoke, "🎬 Failed to write clock video chunk: ${e.message}", e)
+					}
+					return
+				}
+
+				"clock_video_end" -> {
+					try {
+						val sidecar = params.getString("sidecar")
+						val path = clockVideoWriter.end(sidecar)
+						val result = JSObject()
+						result.put("path", path)
+						invoke.resolve(result)
+					} catch (e: Exception) {
+						resolveWithError(invoke, "🎬 Failed to finalize clock video: ${e.message}", e)
+					}
+					return
 				}
 
 				"geo_tracking_set_auto_export" -> {

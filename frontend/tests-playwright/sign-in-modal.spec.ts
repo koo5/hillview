@@ -151,8 +151,13 @@ test.describe('Sign-In Modal', () => {
       const photoId = await uploadPhoto(page, testPhotos[0]);
       await logoutUser(page);
 
-      await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=0.1&y1=0.1&x2=0.9&y2=0.9`);
+      // Enable the source BEFORE navigating with zoom params — that URL opens the
+      // fullscreen pending/OSD overlay over the hunter-mode toggle, and clicking
+      // through it races the overlay mount (Firefox loses; see zoom-view spec).
+      await page.goto('/');
       await ensureSourceEnabled(page, 'hillview', true);
+
+      await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=0.1&y1=0.1&x2=0.9&y2=0.9`);
 
       await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(30000) });
       await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: T(15000) });

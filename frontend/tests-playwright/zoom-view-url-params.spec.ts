@@ -196,9 +196,16 @@ test.describe('Zoom View URL Parameters', () => {
       const targetX2 = 0.6;
       const targetY2 = 0.6;
 
-      await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=${targetX1}&y1=${targetY1}&x2=${targetX2}&y2=${targetY2}`);
-      // Enable hillview source and wait for viewer to open
+      // Enable the hillview source on a plain map page BEFORE navigating with
+      // zoom params: that URL opens the fullscreen pending/OSD overlay, which
+      // covers the hunter-mode toggle — clicking it after that navigation races
+      // the overlay mount. Chromium tends to win that race; Firefox loses it and
+      // the click retries against the overlay until the test times out. Source
+      // state persists across navigations, so enabling first is equivalent.
+      await page.goto('/');
       await ensureSourceEnabled(page, 'hillview', true);
+
+      await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=${targetX1}&y1=${targetY1}&x2=${targetX2}&y2=${targetY2}`);
 
       // Wait for the OSD viewer to open (either from pending or directly)
       await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(30000) });
