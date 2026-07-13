@@ -585,6 +585,7 @@ class BrowserMetadata(BaseModel):
 	alt_location: Optional[AltLocation] = None  # background-tracking GPS alternative; worker folds it into UserComment
 	accuracy: Optional[float] = None
 	encoding: Optional[str] = None  # EXR pixel encoding: 'srgb' or 'linear' (sourced from .exr.encoding sidecar at upload). Worker falls back to the embedded header tag when absent.
+	exif: Optional[dict] = None  # Structured multi-frame source EXIF from the pipeline. A whole nested object: EXR panos send a representative identity header (Make/Model/LensModel/…) + 'pano_frames' (array-of-arrays, one entry per pano position, each a stack of frames); fused-stack singles send just 'stack_frames' (flat list of the bracket's members). Merged into exif_data['data'] (the same place a single's embedded tags land, so camera fields read at exif_data.data.* uniformly); NOT split into typed columns. See pics/src/lib/stamp.derive_pano_exif / derive_stack_exif.
 
 
 class ProcessPhotoResponse(BaseModel):

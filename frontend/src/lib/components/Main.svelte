@@ -19,6 +19,8 @@
 		turn_to_photo_to,
 		splitPercent,
 		showCalibrationView,
+		showPhotoInfoWindow,
+		togglePhotoInfoWindow,
 		onAppActivityChange
 	} from "$lib/data.svelte.js";
 	import {resizableSplit} from '$lib/actions/resizableSplit';
@@ -37,6 +39,7 @@
 	import CompassCalibration from './CompassCalibration.svelte';
 	import Lines from './Lines.svelte';
 import TimelinePanel from './TimelinePanel.svelte';
+	import PhotoInfoWindow from './PhotoInfoWindow.svelte';
 	import {
 		deviceOrientationExif, getCssRotationFromOrientation,
 		getRotationFromOrientation, getWebviewOrientation, relativeOrientationExif,
@@ -389,6 +392,11 @@ import TimelinePanel from './TimelinePanel.svelte';
 			e.preventDefault();
 			toggleSource('mapillary');
 		}
+		// Toggle the metadata / EXIF info window (map pane + zoom view corner)
+		else if (e.key === 'i') {
+			e.preventDefault();
+			togglePhotoInfoWindow();
+		}
 		// Timeline walk by capture time: ',' = older, '.' = newer, Esc closes.
 		else if (e.key === ',') {
 			e.preventDefault();
@@ -614,6 +622,9 @@ import TimelinePanel from './TimelinePanel.svelte';
 		{isPortrait ? `bottom: 0; left: 0; height: ${100 - $splitPercent}%; width: 100%;` : `right: 0; top: 0; width: ${100 - $splitPercent}%; height: 100%;`}
 	">
 		<Map bind:this={mapComponent} bind:update_url={update_url}/>
+		{#if $showPhotoInfoWindow}
+			<PhotoInfoWindow photo={$photoInFront} variant="map"/>
+		{/if}
 	</div>
 </div>
 {/if}

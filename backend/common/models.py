@@ -293,6 +293,39 @@ class FlaggedPhoto(Base):
 	)
 
 
+class PhotoModerationAudit(Base):
+	"""Audit trail of moderation actions taken by admins/moderators on photos
+	they do not own (currently: deletions).
+
+	Deliberately denormalized and free of FK cascade deletes: the actor's and
+	the owner's usernames/ids are snapshotted so the record survives later
+	deletion of either account, and ``extra_data`` snapshots a little about the
+	photo (filename, title) since the photo row itself may later be hard-deleted.
+	"""
+	__tablename__ = "photo_moderation_audit"
+
+	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+	action: Mapped[str] = mapped_column(String(32), index=True)  # 'delete'
+
+	# Actor: the admin/moderator who performed the action.
+	actor_user_id: Mapped[str] = mapped_column(String, index=True)  # no FK — keep audit if actor is deleted
+	actor_username: Mapped[Optional[str]] = mapped_column(String)  # denormalized snapshot
+	actor_role: Mapped[Optional[str]] = mapped_column(String)  # role value at time of action
+
+	# Target photo and its owner at the time of the action.
+	photo_source: Mapped[str] = mapped_column(String(20), default='hillview')
+	photo_id: Mapped[str] = mapped_column(String(255), index=True)
+	photo_owner_id: Mapped[Optional[str]] = mapped_column(String, index=True)  # no FK — keep audit if owner is deleted
+	photo_owner_username: Mapped[Optional[str]] = mapped_column(String)  # denormalized snapshot
+
+	reason: Mapped[Optional[str]] = mapped_column(Text)
+	ip_address: Mapped[Optional[str]] = mapped_column(String)
+	user_agent: Mapped[Optional[str]] = mapped_column(String)
+	extra_data: Mapped[Optional[dict]] = mapped_column(JSON)  # photo snapshot (filename, title, etc.)
+
+	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class UserPublicKey(Base):
 	__tablename__ = "user_public_keys"
 

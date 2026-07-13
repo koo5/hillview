@@ -70,6 +70,42 @@ export async function hidePhotoRequest(photo: PhotoData): Promise<PhotoActionRes
 }
 
 /**
+ * Delete a Hillview photo. Owners may delete their own photos; admins and
+ * moderators may delete anyone's (the backend writes a moderation-audit entry
+ * for deletions of photos they don't own). Only meaningful for hillview photos
+ * — callers should guard on source and on the current user's role.
+ */
+export async function deletePhotoRequest(
+    photo: PhotoData,
+    reason?: string
+): Promise<PhotoActionResult> {
+    const photoSource = getPhotoSource(photo);
+    if (photoSource !== 'hillview') {
+        return { success: false, message: 'Only Hillview photos can be deleted', error: true };
+    }
+    try {
+        const query = reason ? `?reason=${encodeURIComponent(reason)}` : '';
+        const response = await http.delete(`/photos/${photo.id}${query}`);
+
+        if (!response.ok) {
+            throw new Error(`Failed to delete photo: ${response.status}`);
+        }
+
+        // Drop it from the worker cache so it disappears from the map/gallery.
+        simplePhotoWorker.removePhotoFromCache?.(photo.id, photoSource);
+
+        return { success: true, message: 'Photo deleted', error: false };
+    } catch (err) {
+        console.error('🢄Error deleting photo:', err);
+        return {
+            success: false,
+            message: `Error: ${handleApiError(err)}`,
+            error: true
+        };
+    }
+}
+
+/**
  * Toggle a rating on a photo. If the user already has the same rating it is
  * removed, otherwise it is set. Returns the new RatingState.
  */

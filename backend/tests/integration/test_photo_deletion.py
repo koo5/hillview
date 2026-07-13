@@ -50,6 +50,16 @@ class TestPhotoDeletion(BasePhotoTest):
         self.uploaded_photo_ids.append(photo_id)
         return photo_id
 
+    def _audit_entries_for(self, photo_id: str, token: str) -> list:
+        """Return moderation-audit entries for a photo id (via the admin/moderator read API)."""
+        response = requests.get(
+            f"{API_URL}/photos/moderation-audit",
+            params={"limit": 200},
+            headers=self.get_auth_headers(token),
+        )
+        self.assert_success(response, "Should be able to read moderation audit")
+        return [e for e in response.json()["entries"] if e["photo_id"] == photo_id]
+
     @pytest.mark.asyncio
     async def test_delete_photo_success(self):
         """Test successful photo deletion by owner."""
@@ -136,24 +146,112 @@ class TestPhotoDeletion(BasePhotoTest):
 
     @pytest.mark.asyncio
     async def test_delete_photo_wrong_owner(self):
-        """Test photo deletion by non-owner."""
-        print("\n=== Testing photo deletion by wrong owner ===")
+        """A regular (non-admin) user cannot delete another user's photo."""
+        print("\n=== Testing photo deletion by wrong owner (regular user) ===")
 
         # Upload photo as test user
         photo_id = await self._create_test_photo("test_delete_wrong_owner.jpg", "Test photo owned by test user")
         print(f"✓ Uploaded test photo as test user: {photo_id}")
 
-        # Try to delete as admin user (different owner)
-        admin_token = self.get_admin_token()
-        admin_headers = {"Authorization": f"Bearer {admin_token}"}
-        delete_response = requests.delete(f"{API_URL}/photos/{photo_id}", headers=admin_headers)
-        assert delete_response.status_code == 404, "Should return 404 when trying to delete another user's photo (API design choice)"
-        print("✓ Properly rejected deletion by non-owner (returns 404 - photo not found for this user)")
+        # Try to delete as a different *regular* user (no admin/moderator rights)
+        other_token = self.get_test_token("testuser")
+        other_headers = self.get_auth_headers(other_token)
+        delete_response = requests.delete(f"{API_URL}/photos/{photo_id}", headers=other_headers)
+        assert delete_response.status_code == 404, "Non-owner regular user should get 404 (existence hidden)"
+        print("✓ Properly rejected deletion by non-owner regular user (404)")
 
         # Verify photo still exists
         get_response = requests.get(f"{API_URL}/photos/{photo_id}", headers=self.test_headers)
         self.assert_success(get_response)
         print("✓ Photo still exists after failed unauthorized deletion")
+
+        # And the denied attempt must NOT leave an audit entry
+        entries = self._audit_entries_for(photo_id, self.get_admin_token())
+        assert entries == [], "A denied deletion must not create a moderation-audit entry"
+        print("✓ No moderation-audit entry created by the denied deletion")
+
+    @pytest.mark.asyncio
+    async def test_admin_can_delete_others_photo_with_audit(self):
+        """An admin can delete another user's photo, and it is recorded in the moderation audit."""
+        print("\n=== Testing admin deletion of another user's photo (with audit) ===")
+
+        photo_id = await self._create_test_photo("test_admin_delete.jpg", "Test photo owned by test user")
+        wait_for_photo_processing(photo_id, self.test_token, timeout=30)
+        print(f"✓ Uploaded test photo as test user: {photo_id}")
+
+        admin_token = self.get_admin_token()
+        admin_headers = self.get_auth_headers(admin_token)
+
+        reason = "integration test: inappropriate content"
+        delete_response = requests.delete(
+            f"{API_URL}/photos/{photo_id}",
+            params={"reason": reason},
+            headers=admin_headers,
+        )
+        self.assert_success(delete_response, "Admin should be able to delete another user's photo")
+        print("✓ Admin deletion succeeded (200)")
+
+        # Owner can no longer access the photo
+        get_after = requests.get(f"{API_URL}/photos/{photo_id}", headers=self.test_headers)
+        assert get_after.status_code == 404, "Photo should be gone after admin deletion"
+        print("✓ Photo no longer visible to its owner")
+
+        # Exactly one audit entry, describing the moderation action
+        entries = self._audit_entries_for(photo_id, admin_token)
+        assert len(entries) == 1, f"Expected exactly one audit entry, got {len(entries)}"
+        entry = entries[0]
+        assert entry["action"] == "delete", entry
+        assert entry["actor_username"] == "admin", entry
+        assert entry["actor_role"] == "admin", entry
+        assert entry["photo_owner_username"] == "test", entry
+        assert entry["reason"] == reason, entry
+        print("✓ Moderation-audit entry recorded with actor, owner and reason")
+
+        # Already deleted — drop from teardown tracking
+        if photo_id in self.uploaded_photo_ids:
+            self.uploaded_photo_ids.remove(photo_id)
+
+    @pytest.mark.asyncio
+    async def test_owner_delete_creates_no_audit(self):
+        """An owner deleting their own photo must NOT create a moderation-audit entry."""
+        print("\n=== Testing owner self-deletion creates no audit ===")
+
+        photo_id = await self._create_test_photo("test_owner_delete_noaudit.jpg", "Owner-deleted photo")
+        wait_for_photo_processing(photo_id, self.test_token, timeout=30)
+
+        delete_response = requests.delete(f"{API_URL}/photos/{photo_id}", headers=self.test_headers)
+        self.assert_success(delete_response)
+        print("✓ Owner deleted their own photo (200)")
+
+        entries = self._audit_entries_for(photo_id, self.get_admin_token())
+        assert entries == [], "Owner self-deletion must not be recorded in the moderation audit"
+        print("✓ No moderation-audit entry for owner self-deletion")
+
+        if photo_id in self.uploaded_photo_ids:
+            self.uploaded_photo_ids.remove(photo_id)
+
+    def test_moderation_audit_requires_privilege(self):
+        """The moderation-audit listing is restricted to admins/moderators."""
+        print("\n=== Testing moderation-audit access control ===")
+
+        # Regular user is forbidden
+        resp = requests.get(f"{API_URL}/photos/moderation-audit", headers=self.test_headers)
+        assert resp.status_code == 403, f"Regular user should be forbidden, got {resp.status_code}"
+        print("✓ Regular user forbidden (403)")
+
+        # Unauthenticated is rejected
+        resp = requests.get(f"{API_URL}/photos/moderation-audit")
+        assert resp.status_code == 401, f"Unauthenticated should be 401, got {resp.status_code}"
+        print("✓ Unauthenticated rejected (401)")
+
+        # Admin can read
+        resp = requests.get(
+            f"{API_URL}/photos/moderation-audit",
+            headers=self.get_auth_headers(self.get_admin_token()),
+        )
+        self.assert_success(resp)
+        assert "entries" in resp.json()
+        print("✓ Admin can read the moderation audit")
 
     def test_delete_nonexistent_photo(self):
         """Test deletion of non-existent photo."""

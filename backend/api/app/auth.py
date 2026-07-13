@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict
 
 from common.utc import utcnow, utc_plus_timedelta, utc_from_timestamp
 from common.database import get_db
-from common.models import User, TokenBlacklist
+from common.models import User, TokenBlacklist, UserRole
 from jwt_service import (  # noqa: F401 - re-exported
 	validate_token, create_access_token, create_refresh_token, REFRESH_TOKEN_EXPIRE_MINUTES,
 )
@@ -164,9 +164,10 @@ class UserOut(BaseModel):
 	username: str
 	is_active: bool
 	is_test: bool
+	role: UserRole = UserRole.USER  # serialized to its value ('user' / 'admin' / 'moderator')
 	created_at: datetime
 
-	model_config = ConfigDict(from_attributes=True)
+	model_config = ConfigDict(from_attributes=True, use_enum_values=True)
 
 # Password hashing functions are now imported from common.auth_utils
 

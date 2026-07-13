@@ -10,7 +10,8 @@ from .test_utils import recreate_test_users, API_URL
 # Standard test credentials
 TEST_CREDENTIALS = {
     "test": "StrongTestPassword123!",
-    "admin": "StrongAdminPassword123!"
+    "admin": "StrongAdminPassword123!",
+    "testuser": "StrongTestUserPassword123!"  # a second regular (non-admin) user
 }
 
 class AuthTestHelper:

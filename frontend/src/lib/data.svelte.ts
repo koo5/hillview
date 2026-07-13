@@ -390,6 +390,15 @@ export let fakeCamera = localStorageSharedStore('fakeCamera', false);
 // Debug: render anonymization object detections (bounding boxes) in the zoom view
 export let showDetections = localStorageSharedStore('showDetections', false);
 
+// Metadata / EXIF info window, toggled with the 'i' key. A single flag drives two
+// overlays at once: one over the map pane and one in the corner of the zoom view.
+// Either window's 'x' button closes both. Persisted so the choice survives reloads.
+export let showPhotoInfoWindow = localStorageSharedStore('showPhotoInfoWindow', false);
+
+export function togglePhotoInfoWindow() {
+	showPhotoInfoWindow.update(v => !v);
+}
+
 export let maxPhotosInArea = localStorageReadOnceSharedStore('maxPhotosInArea', 100);
 
 export let frontendBusy = writable(0);

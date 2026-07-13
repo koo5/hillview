@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical, Clock, Copyright, CreativeCommons } from 'lucide-svelte';
+	import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical, Clock, Copyright, CreativeCommons, Trash2 } from 'lucide-svelte';
 	import { auth } from '$lib/auth.svelte.js';
+	import DeletePhotoDialog from './DeletePhotoDialog.svelte';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { track } from '$lib/analytics';
 	import { requireAuth } from './signInModal.svelte';
@@ -72,6 +73,14 @@
 	// Expose show/hide dialog state to parent
 	export let showHideUserDialog = false;
 
+	// Admin/moderator photo deletion. The dialog is self-contained (rendered
+	// below) so this works in every place the menu is mounted.
+	let showDeletePhotoDialog = false;
+	// role is exposed on the user profile via /auth/me (UserOut.role).
+	$: isModerator = ['admin', 'moderator'].includes(($auth.user?.role as string) ?? '');
+	// Deletion only applies to our own backend's photos.
+	$: canDeletePhoto = isModerator && !!photo && getPhotoSource(photo) === 'hillview';
+
 	// Menu state
 	let menuTriggerButton: HTMLButtonElement;
 	const MENU_TEST_ID = 'photo-actions-dropdown';
@@ -112,6 +121,15 @@
 		if (!requireAuthOrCloseMenu()) return;
 
 		showHideUserDialog = true;
+		closeMenu();
+	}
+
+	// Open the admin/moderator delete-photo confirmation dialog.
+	function showDeletePhotoDialogAction() {
+		if (!photo || !canDeletePhoto) return;
+		if (!requireAuthOrCloseMenu()) return;
+
+		showDeletePhotoDialog = true;
 		closeMenu();
 	}
 
@@ -410,6 +428,18 @@
 			testId: 'menu-thumbs-down'
 		});
 
+		// Admin/moderator-only: delete this photo from the backend.
+		if (canDeletePhoto) {
+			items.push({ type: 'divider' });
+			items.push({
+				id: 'delete-photo',
+				label: 'Delete photo',
+				icon: Trash2,
+				onclick: showDeletePhotoDialogAction,
+				testId: 'menu-delete-photo'
+			});
+		}
+
 		return items;
 	}
 
@@ -486,6 +516,18 @@
 	</div>
 
 {/if}
+
+<DeletePhotoDialog
+	bind:show={showDeletePhotoDialog}
+	{photo}
+	onDeleted={() => {
+		hideMessage = 'Photo deleted';
+		hideError = false;
+		scheduleTimeout(() => {
+			hideMessage = '';
+		}, 2500);
+	}}
+/>
 
 <style>
 	.photo-actions-menu {

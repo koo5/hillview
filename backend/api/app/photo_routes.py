@@ -54,7 +54,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
 from push_notifications import send_activity_broadcast_notification
 from common.database import get_db
-from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation
+from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation, PhotoModerationAudit, UserRole
 from common.config import get_write_pool
 from common.utc import format_utc
 from auth import get_current_active_user, get_current_user_optional_with_query
@@ -64,7 +64,7 @@ from common.file_utils import (
 	get_file_size_from_upload
 )
 from common.security_utils import verify_ecdsa_signature
-from rate_limiter import rate_limit_photo_operations
+from rate_limiter import rate_limit_photo_operations, get_client_ip
 from photos import delete_photo_files
 
 logger = logging.getLogger()
@@ -770,6 +770,63 @@ async def get_sitemap_photo_ids(
 	}
 
 
+@router.get("/moderation-audit")
+async def list_moderation_audit(
+	request: Request,
+	limit: int = 50,
+	offset: int = 0,
+	current_user: User = Depends(get_current_active_user),
+	db: AsyncSession = Depends(get_db)
+):
+	"""List moderation-audit entries (admin/moderator only), newest first.
+
+	Records the moderation actions taken by admins/moderators on photos they did
+	not own (currently: deletions). See ``PhotoModerationAudit`` and the DELETE
+	handler below.
+
+	NOTE: declared before ``/{photo_id}`` so FastAPI doesn't route this literal
+	path into the photo-detail handler.
+	"""
+	if current_user.role not in (UserRole.ADMIN, UserRole.MODERATOR):
+		raise HTTPException(
+			status_code=status.HTTP_403_FORBIDDEN,
+			detail="Admin or moderator access required"
+		)
+
+	await rate_limit_photo_operations(request, current_user.id)
+
+	limit = max(1, min(limit, 200))
+	offset = max(0, offset)
+
+	result = await db.execute(
+		select(PhotoModerationAudit)
+		.order_by(PhotoModerationAudit.created_at.desc())
+		.limit(limit)
+		.offset(offset)
+	)
+	rows = result.scalars().all()
+
+	return {
+		"entries": [
+			{
+				"id": r.id,
+				"action": r.action,
+				"actor_user_id": r.actor_user_id,
+				"actor_username": r.actor_username,
+				"actor_role": r.actor_role,
+				"photo_source": r.photo_source,
+				"photo_id": r.photo_id,
+				"photo_owner_id": r.photo_owner_id,
+				"photo_owner_username": r.photo_owner_username,
+				"reason": r.reason,
+				"extra_data": r.extra_data,
+				"created_at": format_utc(r.created_at),
+			}
+			for r in rows
+		]
+	}
+
+
 @router.get("/{photo_id}")
 async def get_photo(
 	request: Request,
@@ -892,24 +949,42 @@ async def get_photo_detections(
 async def delete_photo(
 	request: Request,
 	photo_id: str,
+	reason: Optional[str] = None,
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Delete a photo's files and mark it as deleted."""
+	"""Delete a photo's files and mark it as deleted.
+
+	Owners may delete their own photos. Admins and moderators may delete any
+	photo; when they delete a photo they do not own, a moderation-audit record is
+	written (see ``PhotoModerationAudit``). The optional ``reason`` query param is
+	recorded on that audit entry.
+	"""
 	# Apply photo operations rate limiting
 	await rate_limit_photo_operations(request, current_user.id)
 
 	try:
+		# Look up by id only — ownership is enforced below so admins/moderators
+		# can act on photos they don't own.
 		result = await db.execute(
 			select(Photo).where(
 				Photo.id == photo_id,
-				Photo.owner_id == str(current_user.id),
 				Photo.deleted == False
 			)
 		)
 		photo = result.scalars().first()
 
 		if not photo:
+			raise HTTPException(
+				status_code=status.HTTP_404_NOT_FOUND,
+				detail="Photo not found"
+			)
+
+		is_owner = photo.owner_id == str(current_user.id)
+		is_moderator = current_user.role in (UserRole.ADMIN, UserRole.MODERATOR)
+
+		if not is_owner and not is_moderator:
+			# Don't reveal the existence of photos the caller can't act on.
 			raise HTTPException(
 				status_code=status.HTTP_404_NOT_FOUND,
 				detail="Photo not found"
@@ -925,6 +1000,37 @@ async def delete_photo(
 
 		# Soft delete - mark as deleted, keep the row
 		photo.deleted = True
+
+		# When an admin/moderator deletes a photo they don't own, record a
+		# moderation-audit entry. Added to the session so it commits atomically
+		# with the soft delete below.
+		if not is_owner:
+			owner_username = await db.scalar(
+				select(User.username).where(User.id == photo.owner_id)
+			)
+			db.add(PhotoModerationAudit(
+				action="delete",
+				actor_user_id=str(current_user.id),
+				actor_username=current_user.username,
+				actor_role=current_user.role.value if current_user.role else None,
+				photo_source="hillview",
+				photo_id=photo.id,
+				photo_owner_id=photo.owner_id,
+				photo_owner_username=owner_username,
+				reason=reason,
+				ip_address=get_client_ip(request),
+				user_agent=request.headers.get("user-agent"),
+				extra_data={
+					"original_filename": photo.original_filename,
+					"title": photo.title,
+				},
+			))
+			logger.warning(
+				f"Moderation: {current_user.role.value} {current_user.username} "
+				f"({current_user.id}) deleted photo {photo.id} owned by "
+				f"{photo.owner_id} ({owner_username})"
+			)
+
 		await db.commit()
 
 		logger.info(f"Photo {photo_id} deleted by user {current_user.id}")
@@ -1075,6 +1181,52 @@ async def get_photo_share_metadata(
 		)
 
 
+def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
+	"""Extract a small, display-friendly subset of camera/lens EXIF from the raw
+	exiftool dump stored in ``Photo.exif_data`` (worker writes the full tag set
+	under ``exif_data['data']`` via ``exiftool -json -n``).
+
+	Only camera settings are exposed (focal length, aperture, ISO, shutter,
+	exposure compensation, camera make/model, lens). Positional data
+	(GPS/altitude/bearing) is deliberately omitted here — it is already served
+	via the response's top-level latitude/longitude/bearing/altitude, and the raw
+	dump can carry more precise/sensitive location than we want to publish.
+
+	Returns ``None`` when there is no usable camera EXIF.
+	"""
+	if not isinstance(exif_data, dict):
+		return None
+	data = exif_data.get('data')
+	if not isinstance(data, dict):
+		return None
+
+	def num(key):
+		v = data.get(key)
+		return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+	def text(key):
+		v = data.get(key)
+		if v is None:
+			return None
+		s = str(v).strip()
+		return s or None
+
+	curated = {
+		'focal_length': num('FocalLength'),
+		'focal_length_35mm': num('FocalLengthIn35mmFormat'),
+		'f_number': num('FNumber'),
+		'iso': num('ISO'),
+		'exposure_time': num('ExposureTime'),
+		'exposure_compensation': num('ExposureCompensation'),
+		'make': text('Make'),
+		'model': text('Model'),
+		'lens': text('LensModel') or text('LensID') or text('LensInfo'),
+	}
+	# Drop absent tags; collapse to None when nothing useful survived.
+	curated = {k: v for k, v in curated.items() if v is not None}
+	return curated or None
+
+
 @router.get("/public/{photo_uid}")
 async def get_public_photo(
 	request: Request,
@@ -1165,6 +1317,7 @@ async def get_public_photo(
 			"altitude": photo.altitude,
 			"width": photo.width,
 			"height": photo.height,
+			"exif": _curate_exif(photo.exif_data),
 			"captured_at": format_utc(photo.captured_at),
 			"uploaded_at": format_utc(photo.uploaded_at),
 			"processing_status": photo.processing_status,

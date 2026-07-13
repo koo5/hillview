@@ -1084,6 +1084,24 @@ class PhotoProcessor:
 				if provenance:
 					exif_data['data']['UserComment'] = json.dumps(provenance)
 
+			# Structured multi-frame source provenance from the pipeline. The
+			# --metadata blob carries the source frames' camera metadata as a whole
+			# nested object; its keys depend on the deliverable:
+			#   - EXR panos: a representative identity header (Make/Model/LensModel/…),
+			#     since the EXR embeds no EXIF, plus 'pano_frames' (array-of-arrays,
+			#     one entry per pano position, each the stack of that position's
+			#     frames);
+			#   - fused-stack singles: just 'stack_frames' (flat list of the bracket's
+			#     members) — the flattened TIFF already embeds the anchor frame's
+			#     identity, so only the per-frame detail is added.
+			# Merge into exif_data['data'] — the SAME place a single's embedded tags
+			# land — so a consumer reads camera fields at exif_data.data.* uniformly;
+			# pano_frames/stack_frames ride along in that dict for the per-frame
+			# detail. Metadata wins over any embedded tag, matching the
+			# geo/orientation convention above.
+			if metadata.get('exif'):
+				exif_data.setdefault('data', {}).update(metadata['exif'])
+
 		orientation = exif_data['data'].get('Orientation')
 
 		# Log detailed EXIF extraction results

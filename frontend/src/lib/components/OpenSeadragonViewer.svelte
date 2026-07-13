@@ -43,7 +43,8 @@
 	} from '$lib/annotationApi';
 	import { Origin, UserSelectAction, type DrawingStyle } from '@annotorious/core';
 	import { fetchDetections, type DetectedObject } from '$lib/detectionApi';
-	import { showDetections } from '$lib/data.svelte.js';
+	import { showDetections, showPhotoInfoWindow } from '$lib/data.svelte.js';
+	import PhotoInfoWindow from './PhotoInfoWindow.svelte';
 	import type { ZoomViewData } from '$lib/zoomView.svelte';
 	import { zoomViewportBounds, type ZoomViewInitialBounds } from '$lib/zoomView.svelte';
 	import { parseAnnotationBody, type BodyItem } from '$lib/utils/annotationBody';
@@ -1501,6 +1502,10 @@
 <svelte:window on:keydown={handleKeydown} />
 
 <div class="osd-overlay" data-testid="osd-viewer-overlay">
+	{#if $showPhotoInfoWindow}
+		<PhotoInfoWindow photo={$photoInFront} variant="zoom"/>
+	{/if}
+
 	<!-- Close button -->
 	<button class="close-btn" onclick={onClose} aria-label="Close zoom view" data-testid="osd-viewer-close">
 		<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
