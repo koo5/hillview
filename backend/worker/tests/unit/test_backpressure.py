@@ -51,6 +51,17 @@ class TestReadyEndpoint:
 		# busy asks the Fly edge to re-run the preflight on a sibling machine
 		assert response.headers["fly-replay"] == "elsewhere=true"
 
+	def test_busy_replay_kill_switch(self, client, full_queue, monkeypatch):
+		"""READY_FLY_REPLAY=false suppresses the steering header — the escape
+		hatch for running a single-machine fleet, where `elsewhere=true` has
+		nowhere to go and the proxy strands the request ~35 s (measured live
+		2026-07-13) before returning a bare empty-body 503."""
+		monkeypatch.setattr(worker_app, "READY_FLY_REPLAY", False)
+		response = client.get("/ready")
+		assert response.status_code == 503
+		assert "fly-replay" not in response.headers
+		assert response.json()["status"] == "busy"
+
 	def test_busy_replayed_request_not_replayed_again(self, client, full_queue):
 		"""A request already carrying fly-replay-src was replayed once — answer
 		plainly so a fully-busy fleet can't loop replays."""

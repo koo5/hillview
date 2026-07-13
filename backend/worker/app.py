@@ -745,6 +745,18 @@ async def status_help():
 	return {"phases": _PHASE_DOCS}
 
 
+# Kill-switch for the busy-503 fly-replay steering (see readiness_check).
+# OPERATIONAL INVARIANT while this is on: keep the app scaled to >1 machine.
+# With a single machine, `elsewhere=true` has nowhere to go — the Fly proxy
+# strands the preflight for ~35 s ([PR03] no good candidate, measured live
+# 2026-07-13) and hands the client a bare empty-body 503 (our JSON and
+# Retry-After never arrive). We deliberately do NOT sniff the topology here
+# (DNS only sees *started* machines, and the whole point of replay is that it
+# may route to capacity that isn't running yet) — scale is the operator's
+# promise, this env var is the escape hatch if that promise can't hold.
+READY_FLY_REPLAY = os.getenv("READY_FLY_REPLAY", "true").lower() in ("true", "1", "yes")
+
+
 @app.get("/ready")
 async def readiness_check(request: Request, debug_simulate_busy: Optional[str] = None):
 	"""Readiness endpoint: 503 while the upload queue is at capacity.
@@ -778,7 +790,11 @@ async def readiness_check(request: Request, debug_simulate_busy: Optional[str] =
 	simulated = debug_simulate_busy is not None and debug_simulate_busy in (FLY_MACHINE_ID, "any")
 	if simulated or st["pending_tasks"] >= MAX_PENDING_TASKS:
 		headers = {"Retry-After": str(QUEUE_FULL_RETRY_AFTER_SECONDS)}
-		if "fly-replay-src" not in request.headers:
+		replay_src = request.headers.get("fly-replay-src")
+		if replay_src is not None:
+			logger.info(f"[ready] busy, already replayed once (fly-replay-src: {replay_src}) — answering plainly")
+		elif READY_FLY_REPLAY:
+			logger.info("[ready] busy — emitting fly-replay: elsewhere=true")
 			headers["fly-replay"] = "elsewhere=true"
 		content = {"status": "busy", "fly_machine_id": FLY_MACHINE_ID, **st}
 		if simulated:
