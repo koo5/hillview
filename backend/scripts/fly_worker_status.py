@@ -135,8 +135,16 @@ PROM_METRIC_MAP = {
 }
 
 
-def fly_auth_token():
-	"""A Fly API token from the env or `fly auth token`."""
+def fly_auth_token(token_file=None):
+	"""A Fly API token from --token-file, the env, or `fly auth token`.
+
+	Note: Fly's Prometheus endpoint rejects app-scoped `fly auth token` macaroons
+	(401 "something went wrong resolving organization"); it wants an org token
+	from `fly tokens create readonly -o <org>`, whose output already includes the
+	"FlyV1 " prefix — auth_header() picks the right Authorization form."""
+	if token_file:
+		with open(token_file) as f:
+			return f.read().strip()
 	tok = os.environ.get("FLY_API_TOKEN") or os.environ.get("FLY_ACCESS_TOKEN")
 	if tok:
 		return tok.strip()
@@ -146,7 +154,13 @@ def fly_auth_token():
 			return proc.stdout.strip()
 	except (FileNotFoundError, subprocess.TimeoutExpired):
 		pass
-	raise RuntimeError("no Fly token: set FLY_API_TOKEN or run `fly auth token`")
+	raise RuntimeError("no Fly token: pass --token-file, set FLY_API_TOKEN, or run `fly auth token`")
+
+
+def auth_header(token):
+	"""`fly tokens create` output is used verbatim (it starts with "FlyV1 ");
+	anything else is assumed to be an OAuth-style token and sent as Bearer."""
+	return token if token.startswith("FlyV1") else f"Bearer {token}"
 
 
 def resolve_org(status, override):
@@ -165,7 +179,7 @@ def fetch_prometheus(prom_url, org, token, app, timeout):
 	consume it unchanged. Reads scraped data — never touches the machines."""
 	query = '{__name__=~"worker_.*",app="%s"}' % app
 	url = f"{prom_url.rstrip('/')}/prometheus/{org}/api/v1/query?query=" + urllib.parse.quote(query)
-	req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "accept": "application/json"})
+	req = urllib.request.Request(url, headers={"Authorization": auth_header(token), "accept": "application/json"})
 	with urllib.request.urlopen(req, timeout=timeout) as resp:
 		payload = json.loads(resp.read().decode())
 	if payload.get("status") != "success":
@@ -202,6 +216,37 @@ def match_metrics(by_inst, machine):
 def norm_phase(phase):
 	"""Collapse the numeric variants of wait_stagger so they aggregate."""
 	return re.sub(r"(wait_stagger)_\d+s", r"\1", phase or "")
+
+
+def timeline_lines(machines, results):
+	"""One compact greppable line per polled machine — the append-only history
+	that the live screen redraw destroys. Written to --timeline for post-mortems
+	(e.g. correlating a death with the ram/stall trend that preceded it)."""
+	ts = time.strftime("%Y-%m-%dT%H:%M:%S")
+	lines = []
+	for m in machines:
+		mid = m.get("id", "?")
+		if m.get("state") != "started":
+			continue
+		data, err = results.get(mid, (None, "n/a"))
+		if err:
+			lines.append(f"{ts} {mid} ERR {err}")
+			continue
+		phases = {}
+		for p in data.get("active_phases") or []:
+			name = norm_phase(p.get("phase"))
+			phases[name] = phases.get(name, 0) + 1
+		phase_str = " ".join(f"{k}={v}" for k, v in sorted(phases.items())) or "-"
+		lag = data.get("event_loop_lag_s")
+		lines.append(
+			f"{ts} {mid} ram={data.get('available_ram_mb', '?')} "
+			f"pend={data.get('pending_tasks', '?')}/{data.get('max_pending_tasks', '?')} "
+			f"slots={data.get('slots_in_use', '?')}/{data.get('concurrency', '?')} "
+			f"proc={data.get('processing', '?')} stall={data.get('stalled_in_gate', '?')} "
+			f"lag={'?' if lag is None else f'{lag:.2f}'} "
+			f"inflight={data.get('inflight_requests', '?')} | {phase_str}"
+		)
+	return lines
 
 
 def phase_summary(active_phases, width):
@@ -355,6 +400,12 @@ def main():
 						 "prometheus = read worker_* metrics from Fly's Prometheus (non-perturbing)")
 	ap.add_argument("--org", default=None, help="Fly org slug for Prometheus (default: from fly status)")
 	ap.add_argument("--prom-url", default="https://api.fly.io", help="Fly Prometheus base URL")
+	ap.add_argument("--token-file", default=None,
+					help="file holding a Fly org token for Prometheus (from `fly tokens create readonly -o <org>`)")
+	ap.add_argument("--timeline", default=None, metavar="FILE",
+					help="append one compact snapshot line per machine per poll to FILE (history the "
+						 "live redraw doesn't keep); use with --quiet for a headless recorder")
+	ap.add_argument("--quiet", action="store_true", help="no screen output (for --timeline recorders)")
 	args = ap.parse_args()
 
 	if args.no_color:
@@ -363,7 +414,7 @@ def main():
 	prom_token = None
 	if args.source == "prometheus":
 		try:
-			prom_token = fly_auth_token()
+			prom_token = fly_auth_token(args.token_file)
 		except RuntimeError as e:
 			print(red(str(e)), file=sys.stderr)
 			return 1
@@ -421,14 +472,22 @@ def main():
 						except Exception as e:  # noqa: BLE001 - surface any straggler as a row error
 							results[mid] = (None, type(e).__name__)
 
+			if args.timeline:
+				with open(args.timeline, "a") as f:
+					for ln in timeline_lines(machines, results):
+						f.write(ln + "\n")
+
 			src_label = base_url if args.source == "edge" else f"prometheus:{org}"
-			frame = render(args.app, src_label, machines, results, time.monotonic() - list_fetched_at)
-			if args.once:
-				print(frame)
+			if not args.quiet:
+				frame = render(args.app, src_label, machines, results, time.monotonic() - list_fetched_at)
+				if args.once:
+					print(frame)
+					return 0
+				# Home cursor + clear to end of screen (smoother than full wipe).
+				sys.stdout.write("\x1b[H\x1b[J" + frame + "\n")
+				sys.stdout.flush()
+			elif args.once:
 				return 0
-			# Home cursor + clear to end of screen (smoother than full wipe).
-			sys.stdout.write("\x1b[H\x1b[J" + frame + "\n")
-			sys.stdout.flush()
 			time.sleep(args.interval)
 	except KeyboardInterrupt:
 		print()

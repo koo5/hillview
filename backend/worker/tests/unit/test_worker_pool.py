@@ -93,12 +93,21 @@ def _job(photo_id, filename):
 
 @pytest.mark.asyncio
 async def test_worker_pool_end_to_end():
-	worker_processing.start(2, asyncio.get_running_loop())
+	# Production shape: ONE worker process, concurrency via threads inside it.
+	worker_processing.start(1, asyncio.get_running_loop(), threads=2)
 	try:
-		await asyncio.sleep(0.8)  # let the workers spawn
+		await asyncio.sleep(0.8)  # let the worker spawn
 
 		# success round-trip
 		assert await worker_processing.submit(_job("p1", "ok.jpg"), timeout=20) == {"ok": True, "photo_id": "p1"}
+
+		# the child's puller threads give real intra-process concurrency:
+		# two jobs complete together, through one process
+		r = await asyncio.gather(
+			worker_processing.submit(_job("p1a", "ok.jpg"), timeout=20),
+			worker_processing.submit(_job("p1b", "ok.jpg"), timeout=20),
+		)
+		assert [x["photo_id"] for x in r] == ["p1a", "p1b"]
 
 		# a ValueError raised in the child comes back as a ValueError (not a
 		# generic RuntimeError), so process() can route it as a permanent failure
@@ -121,12 +130,24 @@ async def test_worker_pool_end_to_end():
 		with pytest.raises(worker_processing.ProcessingTimeout):
 			await hang
 
+		# a deliberate timeout kill (SIGTERM) must NOT trigger post-OOM serial mode
+		await asyncio.sleep(2.0)  # let the supervisor observe the death
+		assert not worker_processing.serial_mode()
+
 		# a worker dying mid-job is attributed by the supervisor and fails fast
+		worker_processing.OOM_SERIAL_RECOVERY_JOBS = 2  # shrink recovery for the test
 		with pytest.raises(worker_processing.WorkerDied):
 			await worker_processing.submit(_job("p5", "DIELATE"), timeout=20)
 
-		# the pool self-heals: a respawned worker serves the next job
+		# ...an UNPLANNED death (exitcode 9, not our SIGTERM) enters serial mode
+		assert worker_processing.serial_mode()
+
+		# the pool self-heals: a respawned worker serves the next job; each
+		# success counts serial mode down until parallelism resumes
 		await asyncio.sleep(2.0)
 		assert await worker_processing.submit(_job("p6", "ok.jpg"), timeout=20) == {"ok": True, "photo_id": "p6"}
+		assert worker_processing.serial_mode()  # 1 of 2 recovery jobs done
+		assert await worker_processing.submit(_job("p7", "ok.jpg"), timeout=20) == {"ok": True, "photo_id": "p7"}
+		assert not worker_processing.serial_mode()  # recovered
 	finally:
 		worker_processing.shutdown()

@@ -2,6 +2,7 @@
 photo processing service
 """
 import asyncio
+import contextlib
 import os
 import pathlib
 import json
@@ -517,7 +518,14 @@ class PhotoProcessor:
 			logger.info(f"Successfully imported anonymization module")
 
 		processing_state.set_phase("anonymizing")
-		async with throttle.rate_limit(PARALLEL_PROCESSING_START_DELAY, 1500):
+		# Admission gating (start stagger + RAM) moved to the parent process —
+		# app.wait_admission(), one global instance. This in-child rate_limit
+		# became per-process after the worker-pool split (3 independent stagger
+		# buckets), and its 1500 MB RAM wait livelocked: every slot waiting for
+		# RAM that only a running job could free (observed live 2026-07-13).
+		# The parent gate admits a job whenever nothing is running, so it can't
+		# deadlock. nullcontext keeps the block shape for a minimal diff.
+		async with contextlib.nullcontext():
 
 			if not anonymization_override:
 				image, detections = await self._anonymize_image(source_path, encoding=encoding)

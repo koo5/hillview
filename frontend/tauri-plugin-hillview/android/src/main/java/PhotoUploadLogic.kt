@@ -70,6 +70,15 @@ class PhotoUploadLogic(private val context: Context) {
 		private const val PREFS_NAME = "hillview_upload_prefs"
 		private const val PREF_SERVER_URL = "server_url"
 
+		// Close the pooled connection to the Fly edge after this many successful
+		// uploads. Fly routes per connection; a sequential upload drain rides one
+		// keep-alive connection and stays pinned to one worker machine until its
+		// 30-photo queue fills and 503s the whole pass. A fresh connection gets a
+		// fresh machine choice (busy machines sit at their connection soft_limit
+		// thanks to the API's standing /await pingbacks), so the drain migrates to
+		// a new/woken machine instead of stalling on a full one.
+		private const val RECONNECT_EVERY_N_UPLOADS = 5
+
 		// Foreground service constants
 		private const val NOTIFICATION_ID = 2001
 		private const val CHANNEL_ID = "photo_upload_foreground"
@@ -235,6 +244,12 @@ class PhotoUploadLogic(private val context: Context) {
 								serverPhotoId,
 								System.currentTimeMillis()
 							)
+							if (uploadedCount % RECONNECT_EVERY_N_UPLOADS == 0) {
+								// Drop the pooled edge connection so the next upload
+								// re-load-balances — see RECONNECT_EVERY_N_UPLOADS.
+								Log.d(TAG, "🔌 Cycling worker connection after $uploadedCount uploads")
+								client.connectionPool.evictAll()
+							}
 						} else {
 							Log.w(
 								TAG,

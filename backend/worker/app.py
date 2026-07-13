@@ -73,7 +73,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Dict
-from starlette.concurrency import run_in_threadpool
 from throttle import Throttle
 
 throttle = Throttle('app')
@@ -166,7 +165,11 @@ async def lifespan(app: FastAPI):
 	setup_task_logging()
 	_sweep_stale_work_dirs()
 	start_background_loop()
-	worker_processing.start(PARALLEL_PROCESSING_CONCURRENCY, asyncio.get_event_loop())
+	# 1 process × N threads: one copy of torch/cv2 (3 processes tripled the RSS
+	# and starved the RAM gate — the 2026-07-13 livelock).
+	worker_processing.start(int(os.getenv("WORKER_POOL_PROCESSES", "1")),
+							asyncio.get_event_loop(),
+							threads=PARALLEL_PROCESSING_CONCURRENCY)
 	global _lag_task
 	_lag_task = asyncio.create_task(_event_loop_lag_monitor())
 	yield
@@ -351,6 +354,65 @@ PARALLEL_PROCESSING_START_DELAY = float(os.environ.get("PARALLEL_PROCESSING_STAR
 # phone photo that isn't done in 15min is stuck, not slow. Not the queue wait —
 # that's QUEUE_WAIT_TIMEOUT_SECONDS.
 PROCESSING_TIMEOUT_SECONDS = int(os.getenv("PROCESSING_TIMEOUT_SECONDS", str(5 * 3600)))
+
+# RAM required before admitting a job into the worker pool — see wait_admission.
+RAM_GATE_MB = int(os.getenv("RAM_GATE_MB", "1200"))
+
+# Strict mode disables the force-progress rule: never admit below RAM_GATE_MB,
+# even with nothing running. For the aux deployment's gigapixel panos, which
+# genuinely need the headroom — force-admitting one there means OOMing a job
+# that runs for hours. Waiters bounce via the QUEUE_WAIT deadline (retriable)
+# instead. Prod keeps this off: livelock-proof beats strict for phone photos.
+RAM_GATE_STRICT = os.getenv("RAM_GATE_STRICT", "false").lower() in ("true", "1", "yes")
+
+
+async def wait_admission():
+	"""Global admission gate — the only gate between a concurrency slot and the
+	worker pool. Both rules live parent-side, where the machine-global view is
+	(in-child gating was removed: after the pool split it ran per-process — 3
+	independent stagger buckets — and its RAM wait livelocked, all slots waiting
+	for RAM that only a *running* job could free; observed live 2026-07-13):
+
+	  stagger — job starts are paced PARALLEL_PROCESSING_START_DELAY apart via
+	  the single app-wide token bucket (throttle.rate_limit).
+
+	  RAM — require RAM_GATE_MB available before starting, UNLESS nothing is
+	  running, in which case admit anyway. Under memory pressure the pool
+	  degrades to serial processing instead of deadlocking: the one running
+	  job's completion is what frees RAM. RAM_GATE_STRICT (aux) disables the
+	  force-admit: gigapixel jobs need the headroom more than progress.
+
+	The force-progress rule admits exactly one waiter per nothing-running
+	window without any lock: from this loop's break until submit() registers
+	the job in _pending there is no await, so no other waiter can interleave —
+	the next waiter's 1 s recheck already sees pending_count() > 0. (Fragile
+	invariant: don't add awaits between wait_admission() and submit().)
+	"""
+	async with throttle.rate_limit(PARALLEL_PROCESSING_START_DELAY):
+		pass  # pacing only; the RAM rule below is deadlock-proof, rate_limit's isn't
+	deadline = time.monotonic() + QUEUE_WAIT_TIMEOUT_SECONDS
+	last_phase = None
+	while True:
+		if worker_processing.serial_mode() and worker_processing.pending_count() >= 1:
+			# Recovering from an unplanned worker death (OOM): one job at a
+			# time until OOM_SERIAL_RECOVERY_JOBS successes rebuild confidence.
+			wait_reason = "wait_serial"
+		else:
+			try:
+				avail_mb = psutil.virtual_memory().available // (1024 * 1024)
+			except Exception:
+				return  # broken sensor must not gate admissions
+			if avail_mb >= RAM_GATE_MB:
+				return
+			if not RAM_GATE_STRICT and worker_processing.pending_count() == 0:
+				return
+			wait_reason = f"wait_ram_{RAM_GATE_MB}mb"
+		if wait_reason != last_phase:
+			processing_state.set_phase(wait_reason)
+			last_phase = wait_reason
+		if time.monotonic() > deadline:
+			raise TimeoutError(f"admission gate not passed in {QUEUE_WAIT_TIMEOUT_SECONDS}s (last: {wait_reason})")
+		await asyncio.sleep(1.0)
 
 
 # Photo processing has moved out-of-process — see worker_processing.py
@@ -584,10 +646,8 @@ def worker_status() -> dict:
 	  1. accepted upload  → added to ``pending_background_tasks`` (counts in
 	     ``pending_tasks``)
 	  2. ``processing_semaphore.acquire()`` (concurrency cap) → ``slots_in_use``
-	  3. ``wait_for_free_ram(500)`` then, in the threadpool, the photo_processor
-	     start-stagger gate (``rate_limit(PARALLEL_PROCESSING_START_DELAY)``)
-	  4. actually encoding → ``processing`` (the stagger throttle's
-	     ``_running_tasks``)
+	  3. ``wait_admission()`` — the global stagger + livelock-proof RAM gate
+	  4. submitted to the worker pool, actually encoding → ``processing``
 
 	So ``slots_in_use`` is "holds a concurrency slot" while ``processing`` is
 	"past the stagger, actually working". A large ``slots_in_use`` with a small
@@ -629,6 +689,7 @@ def worker_status() -> dict:
 							if (slots_in_use is not None and processing is not None) else None),  # have a slot, stuck in stagger / RAM wait
 		"start_stagger_s": start_stagger_s,             # PARALLEL_PROCESSING_START_DELAY (admit interval)
 		"available_ram_mb": avail_mb,
+		"serial_mode": worker_processing.serial_mode(),  # post-OOM one-at-a-time recovery active
 	}
 
 
@@ -648,9 +709,9 @@ def _upload_error_detail() -> str:
 
 _PHASE_DOCS = [
 	{"phase": "queued",              "where": "app.py",            "meaning": "Accepted, waiting for a semaphore slot (PARALLEL_PROCESSING_CONCURRENCY cap)"},
-	{"phase": "wait_ram",            "where": "app.py / throttle", "meaning": "Slot acquired, waiting for 500 MB free RAM before entering the threadpool"},
-	{"phase": "wait_stagger_Ns",     "where": "throttle.rate_limit","meaning": "Inside the start-stagger gate; N = reserved delay in seconds (PARALLEL_PROCESSING_START_DELAY)"},
-	{"phase": "wait_ram_1500mb",     "where": "throttle.rate_limit","meaning": "Post-stagger RAM gate; waiting for 1500 MB free before starting YOLO + encoding"},
+	{"phase": "wait_stagger_Ns",     "where": "app.wait_admission","meaning": "Inside the global start-stagger gate; N = reserved delay in seconds (PARALLEL_PROCESSING_START_DELAY)"},
+	{"phase": "wait_ram_Xmb",        "where": "app.wait_admission","meaning": "Global RAM gate; waiting for RAM_GATE_MB free — admits anyway if nothing is running (unless RAM_GATE_STRICT)"},
+	{"phase": "wait_serial",         "where": "app.wait_admission","meaning": "Post-OOM serial mode: one job at a time until OOM_SERIAL_RECOVERY_JOBS successes"},
 	{"phase": "read_exif",           "where": "photo_processor",   "meaning": "Running exiftool to extract EXIF / GPS metadata"},
 	{"phase": "anonymizing",         "where": "photo_processor",   "meaning": "About to enter the throttle gate before YOLO detection"},
 	{"phase": "yolo_scale_1.00",     "where": "anonymize.py",      "meaning": "YOLO inference at full resolution (multi-tile pass)"},
@@ -813,6 +874,7 @@ async def metrics():
 	g("worker_stalled_in_gate", st["stalled_in_gate"], "Hold a slot but stuck in the stagger / RAM gate.")
 	g("worker_start_stagger_seconds", st["start_stagger_s"], "PARALLEL_PROCESSING_START_DELAY (admit interval).")
 	g("worker_available_ram_mb", st["available_ram_mb"], "Available system RAM in MB (worker's view).")
+	g("worker_serial_mode", 1 if st.get("serial_mode") else 0, "1 while in post-OOM serial (one-job-at-a-time) recovery.")
 	g("worker_inflight_http_requests", _inflight_requests, "HTTP requests currently being served.")
 	g("worker_event_loop_lag_seconds", round(_event_loop_lag_s, 4), "asyncio scheduling lag; high = blocked event loop.")
 
@@ -1092,10 +1154,9 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 				f"no free processing slot after {QUEUE_WAIT_TIMEOUT_SECONDS}s "
 				f"({PARALLEL_PROCESSING_CONCURRENCY} slots all busy, "
 				f"{pending_tasks_count()} tasks pending)")
-		processing_state.set_phase("wait_ram")
 		logger.info(f"Processing slot acquired")
 		try:
-			await throttle.wait_for_free_ram(500, timeout=QUEUE_WAIT_TIMEOUT_SECONDS)
+			await wait_admission()  # global stagger + livelock-proof RAM gate
 
 			# Run processing in thread to avoid blocking the event loop
 			# Capture current context to pass to the thread
@@ -1138,14 +1199,15 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 		processing_status = "completed"
 
 	except worker_processing.ProcessingTimeout as pe:
-		# The job itself blew past PROCESSING_TIMEOUT_SECONDS (5h on aux, ~15min on
-		# prod). This is NOT the transient "we're busy" of the admission waits
-		# below — the photo is too large/complex to finish within the budget, so
-		# re-uploading the same file just times out again. Permanent (no retry).
+		# The job blew past PROCESSING_TIMEOUT_SECONDS. Observed live (2026-07-13):
+		# a perfectly normal photo can hit this via the RAM-gate livelock — all
+		# slots waiting for free RAM that only *finishing* jobs would release — so
+		# this is NOT reliable evidence the photo itself is too large. Retriable
+		# with a long delay: by then the machine is on fresh workers / less load.
 		logger.error(f"Processing timed out for photo {photo_id}: {pe}")
 		processing_status = "error"
 		error_message = f"Processing timed out: {pe}"
-		retry_after_minutes = None
+		retry_after_minutes = 30
 
 	except TimeoutError as te:
 		# Admission waits only (ProcessingTimeout, a TimeoutError subclass, is

@@ -218,6 +218,13 @@ export async function requestUploadAuthorization(
 /**
  * Upload file to worker with JWT in Authorization header and client_signature in FormData.
  * Includes health check + retry logic (3 attempts).
+ *
+ * Note: the Kotlin client cycles its pooled connection to the Fly edge every
+ * few uploads (PhotoUploadLogic.RECONNECT_EVERY_N_UPLOADS) so a long drain
+ * re-load-balances onto a fresh worker machine instead of pinning one until
+ * its queue 503s. Browsers offer no equivalent — fetch() can't close pooled
+ * connections and `Connection` is a forbidden header — so the web path relies
+ * on the /ready preflight + WorkerBusyError abort alone.
  */
 export async function uploadToWorker(
 	file: File,
