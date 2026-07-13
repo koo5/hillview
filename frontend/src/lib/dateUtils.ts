@@ -30,15 +30,33 @@ export function parsePythonDateTime(dateTimeString: string): Date | null {
     try {
         const normalized = normalizePythonDateTime(dateTimeString);
         const date = new Date(normalized);
-        
+
         // Check if the date is valid
         if (isNaN(date.getTime())) {
             return null;
         }
-        
+
         return date;
     } catch (error) {
         console.error('Error parsing Python datetime:', error);
         return null;
     }
+}
+
+/**
+ * Format a datetime as fixed European day-month-year with 24-hour UTC time:
+ * "13-07-2026 17:16:08 UTC". Deliberately locale- and timezone-independent so
+ * admin logs read the same for every operator regardless of browser settings.
+ *
+ * @param dateTimeString - Python/ISO datetime string
+ * @returns Formatted string, or '' for empty input (or the raw input if unparseable)
+ */
+export function formatUtcDateTime(dateTimeString: string | null | undefined): string {
+    if (!dateTimeString) return '';
+    const d = parsePythonDateTime(dateTimeString);
+    if (!d) return dateTimeString;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const date = `${pad(d.getUTCDate())}-${pad(d.getUTCMonth() + 1)}-${d.getUTCFullYear()}`;
+    const time = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+    return `${date} ${time} UTC`;
 }

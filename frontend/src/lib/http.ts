@@ -161,6 +161,24 @@ export class HttpClient {
     return this.makeRequest(url, requestOptions);
   }
 
+  async patch(url: string, data?: any, options: RequestInit = {}): Promise<Response> {
+    const requestOptions: RequestInit = { ...options, method: 'PATCH' };
+
+    if (data) {
+      if (data instanceof FormData) {
+        requestOptions.body = data;
+      } else {
+        requestOptions.headers = {
+          'Content-Type': 'application/json',
+          ...requestOptions.headers,
+        };
+        requestOptions.body = JSON.stringify(data);
+      }
+    }
+
+    return this.makeRequest(url, requestOptions);
+  }
+
   async delete(url: string, data?: any, options: RequestInit = {}): Promise<Response> {
     const requestOptions: RequestInit = { ...options, method: 'DELETE' };
 

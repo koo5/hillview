@@ -46,6 +46,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 		screenOrientationAngle
 	} from "$lib/deviceOrientationExif";
 	import AlertArea from './AlertArea.svelte';
+	import AdminBadge from '$lib/components/AdminBadge.svelte';
 	import { navigationMenuOpen, toggleNavigationMenu } from '$lib/navigationMenuStore';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {enableBearingTracking, disableBearingTracking} from '$lib/bearingTracking';
@@ -507,6 +508,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 	aria-expanded={$navigationMenuOpen}
 >
 	<Menu size={24}/>
+	<AdminBadge variant="corner" />
 </button>
 
 <button

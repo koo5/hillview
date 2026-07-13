@@ -4,6 +4,7 @@
     import { goto } from '$app/navigation';
     import AlertArea from './AlertArea.svelte';
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
+	import AdminBadge from '$lib/components/AdminBadge.svelte';
 
     export let title: string;
     export let showBackButton: boolean = true;
@@ -41,6 +42,7 @@
                 data-testid="header-menu-button"
             >
                 <Menu size={24} />
+                <AdminBadge variant="corner" />
             </button>
         {/if}
 
@@ -115,6 +117,10 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    .menu-button {
+        position: relative;
     }
 
     .header-button {

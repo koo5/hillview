@@ -9,6 +9,7 @@ export interface TestUserCredentials {
   test: string;
   admin: string;
   testuser: string;
+  moderator: string;
 }
 
 // Removed global cache - each test should be independent

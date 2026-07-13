@@ -24,6 +24,20 @@ test.describe('Navigation Menu', () => {
 		await expect(page.getByTestId('nav-activity-link')).toBeVisible();
 		await expect(page.getByTestId('nav-users-link')).toBeVisible();
 		await expect(page.getByTestId('settings-menu-link')).toBeVisible();
+
+		// The Admin link is admin-only; an anonymous visitor must not see it.
+		await expect(page.getByTestId('nav-admin-link')).toHaveCount(0);
+	});
+
+	test('should not show Admin link for a regular user', async ({ page, testUsers }) => {
+		await loginAsTestUser(page, testUsers.passwords.test);
+
+		await page.goto('/bestof');
+
+		await openMenu(page);
+
+		await expect(page.getByTestId('nav-logout-button')).toBeVisible();
+		await expect(page.getByTestId('nav-admin-link')).toHaveCount(0);
 	});
 
 	test('should show login link when unauthenticated', async ({ page }) => {

@@ -1,6 +1,6 @@
 import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
-import { loginAsTestUser } from './helpers/testUsers';
+import { loginAs, loginAsTestUser } from './helpers/testUsers';
 import { callAdminAPI } from './helpers/adminAuth';
 
 test.describe('Contact Form', () => {
@@ -146,5 +146,30 @@ test.describe('Contact Form', () => {
 
     // Should succeed now
     await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: T(10000) });
+  });
+
+  test('a new contact message increments the admin dashboard count and badge', async ({ page, testUsers }) => {
+    // Baseline the admin's current "new" contact count.
+    const before = await (await callAdminAPI('/api/admin/notifications', testUsers.passwords.admin)).json();
+
+    // Submit a fresh message as a guest through the UI.
+    await page.goto('/contact');
+    await page.fill('input[id="contact"]', 'contact-to-dashboard@example.com');
+    await page.fill('textarea[id="message"]', 'Contact-to-dashboard e2e message — should bump the admin count.');
+    await page.click('button[type="submit"]');
+    await expect(page.locator('text=Message Sent!')).toBeVisible({ timeout: T(10000) });
+
+    // The backend count reflects exactly one more unhandled message.
+    const after = await (await callAdminAPI('/api/admin/notifications', testUsers.passwords.admin)).json();
+    expect(after.contact_new).toBe(before.contact_new + 1);
+
+    // The admin dashboard renders that same count, and the header hamburger shows a badge.
+    await loginAs(page, 'admin', testUsers.passwords.admin);
+    await page.goto('/admin');
+    await expect(page.getByTestId('admin-dashboard')).toBeVisible();
+    await expect(page.getByTestId('admin-count-contact')).toHaveText(String(after.contact_new), { timeout: T(15000) });
+    await expect(
+      page.locator('[data-testid="header-menu-button"] [data-testid="admin-notification-badge"]')
+    ).toBeVisible({ timeout: T(15000) });
   });
 });

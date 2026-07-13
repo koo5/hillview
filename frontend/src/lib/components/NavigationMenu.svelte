@@ -1,8 +1,12 @@
 <script lang="ts">
     import {
-        Map, Images, Activity, Award, Database, Info, Download, User, EyeOff, LogOut, Users, Settings, Maximize2, Minimize2
+        Map, Images, Activity, Award, Database, Info, Download, User, EyeOff, LogOut, Users, Settings, Maximize2, Minimize2, Shield
     } from 'lucide-svelte';
     import { auth, logout } from '$lib/auth.svelte.js';
+    import { Bell, ShieldCheck } from 'lucide-svelte';
+    import { isAdmin, isModerator } from '$lib/adminNotifications';
+    import { unreadCount } from '$lib/notifications';
+    import AdminBadge from '$lib/components/AdminBadge.svelte';
     import { isFullscreen, toggleFullscreen } from '$lib/fullscreen.svelte';
     import { FEATURE_USER_ACCOUNTS } from '$lib/config';
     import { BUILD_TIME, BUILD_VERSION, BUILD_GIT_COMMIT, APP_VERSION, formatBuildTime } from '$lib/buildInfo';
@@ -110,6 +114,21 @@
                 Users
             </a></li>
 
+            {#if $isAdmin}
+                <hr/>
+                <li><a href="/admin" on:click={closeMenu} data-testid="nav-admin-link" class="admin-link">
+                    <Shield size={18}/>
+                    Admin
+                    <AdminBadge variant="inline" />
+                </a></li>
+            {:else if $isModerator}
+                <hr/>
+                <li><a href="/moderate" on:click={closeMenu} data-testid="nav-moderate-link">
+                    <ShieldCheck size={18}/>
+                    Moderate
+                </a></li>
+            {/if}
+
             {#if FEATURE_USER_ACCOUNTS}
 
 				<hr/>
@@ -132,6 +151,15 @@
                     </button>
                 </li>
                 {#if is_authenticated}
+                    <li>
+                        <a href="/notifications" on:click={closeMenu} data-testid="nav-notifications-link" class="notifications-link">
+                            <Bell size={18}/>
+                            Notifications
+                            {#if $unreadCount > 0}
+                                <span class="unread-badge" data-testid="nav-notifications-badge">{$unreadCount > 99 ? '99+' : $unreadCount}</span>
+                            {/if}
+                        </a>
+                    </li>
                     <li>
                         <a href="/hidden" on:click={closeMenu}>
                             <EyeOff size={18}/>
@@ -313,6 +341,23 @@
         font-size: 0.7rem;
         color: #9ca3af;
         font-weight: normal;
+    }
+
+    .unread-badge {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        box-sizing: border-box;
+        border-radius: 9px;
+        background: #2563eb;
+        color: #fff;
+        font-size: 0.7rem;
+        font-weight: 700;
+        line-height: 1;
     }
 
     .build-timestamp {

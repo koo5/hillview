@@ -19,6 +19,7 @@ TEST_USER_ACCOUNTS = [
 	("test", "StrongTestPassword123!", UserRole.USER),
 	("admin", "StrongAdminPassword123!", UserRole.ADMIN),
 	("testuser", "StrongTestUserPassword123!", UserRole.USER),
+	("moderator", "StrongModeratorPassword123!", UserRole.MODERATOR),
 ]
 
 # username -> password, for consumers that only need to authenticate.

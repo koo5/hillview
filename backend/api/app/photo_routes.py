@@ -52,7 +52,7 @@ from geoalchemy2.functions import ST_Point, ST_X, ST_Y
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
-from push_notifications import send_activity_broadcast_notification
+from push_notifications import send_activity_broadcast_notification, create_notification_for_user
 from common.database import get_db
 from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation, PhotoModerationAudit, UserRole
 from common.config import get_write_pool
@@ -1003,7 +1003,9 @@ async def delete_photo(
 
 		# When an admin/moderator deletes a photo they don't own, record a
 		# moderation-audit entry. Added to the session so it commits atomically
-		# with the soft delete below.
+		# with the soft delete below. The owner is notified (with the reason)
+		# after commit.
+		notify_owner_id = photo.owner_id if not is_owner else None
 		if not is_owner:
 			owner_username = await db.scalar(
 				select(User.username).where(User.id == photo.owner_id)
@@ -1032,6 +1034,21 @@ async def delete_photo(
 			)
 
 		await db.commit()
+
+		# Explain the removal to the owner when a moderator deleted their photo
+		# (best-effort; the delete is already durable). The photo is gone, so no
+		# deep link — this is purely informational, carrying the reason if given.
+		if notify_owner_id:
+			body = reason.strip() if reason and reason.strip() else "A moderator removed one of your photos."
+			try:
+				await create_notification_for_user(db, notify_owner_id, {
+					'type': 'photo_removed',
+					'title': 'Your photo was removed by a moderator',
+					'body': body,
+					'route': None,
+				})
+			except Exception as e:
+				logger.warning(f"photo-removal notify failed for {notify_owner_id}: {e}")
 
 		logger.info(f"Photo {photo_id} deleted by user {current_user.id}")
 

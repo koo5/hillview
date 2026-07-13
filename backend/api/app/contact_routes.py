@@ -5,14 +5,12 @@ from pydantic import BaseModel, field_validator
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
-from sqlalchemy import desc
 
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import ContactMessage, User, UserRole
+from common.models import ContactMessage, User
 from auth import get_current_user_optional
 from rate_limiter import general_rate_limiter, get_client_ip
 
@@ -99,45 +97,5 @@ async def submit_contact_message(
             detail="Failed to submit message. Please try again later."
         )
 
-# Admin endpoint to view contact messages (for future use)
-@router.get("/admin/contact/messages")
-async def get_contact_messages(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user_optional),
-    limit: int = 50,
-    offset: int = 0,
-    status_filter: Optional[str] = None
-):
-    """Get contact messages (admin only)."""
-    # For now, just return empty - this would be implemented when admin interface is needed
-    if not current_user or current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
-
-    query = select(ContactMessage).order_by(desc(ContactMessage.created_at))
-
-    if status_filter:
-        query = query.where(ContactMessage.status == status_filter)
-
-    query = query.offset(offset).limit(limit)
-
-    result = await db.execute(query)
-    messages = result.scalars().all()
-
-    return {
-        "messages": [
-            {
-                "id": msg.id,
-                "contact_info": msg.contact_info,
-                "message": msg.message[:200] + "..." if len(msg.message) > 200 else msg.message,
-                "user_id": msg.user_id,
-                "created_at": msg.created_at,
-                "status": msg.status,
-                "ip_address": msg.ip_address
-            }
-            for msg in messages
-        ],
-        "total": len(messages)
-    }
+# Admin listing/management of contact messages lives in admin_routes.py
+# (GET/PATCH /api/admin/contact/messages), gated by the shared require_admin dep.

@@ -202,12 +202,14 @@ async def list_flagged_photos(
 async def list_all_flagged_photos(
 	request: Request,
 	photo_source: Optional[str] = None,
+	resolved: Optional[bool] = None,
 	limit: int = 50,
 	offset: int = 0,
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""List all flagged photos (admin/moderator only)."""
+	"""List all flagged photos (admin/moderator only). Optionally filter by
+	source and by resolved state (resolved=false → the open queue)."""
 	# Check if user has admin/moderator permissions
 	if current_user.role not in (UserRole.ADMIN, UserRole.MODERATOR):
 		raise HTTPException(
@@ -227,6 +229,9 @@ async def list_all_flagged_photos(
 					detail="photo_source must be one of 'mapillary', 'hillview', 'panoramax'"
 				)
 			query = query.where(FlaggedPhoto.photo_source == photo_source)
+
+		if resolved is not None:
+			query = query.where(FlaggedPhoto.resolved.is_(resolved))
 
 		query = query.order_by(FlaggedPhoto.flagged_at.desc()).limit(limit).offset(offset)
 		result = await db.execute(query)

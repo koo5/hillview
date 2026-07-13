@@ -326,6 +326,39 @@ class PhotoModerationAudit(Base):
 	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class AnnotationModeration(Base):
+	"""Record of a reactive moderation action (undo/revert) on an annotation chain.
+
+	Mirrors ``PhotoModerationAudit``: denormalized snapshots and no FK cascades, so
+	the record survives later removal of the moderator, the subject author, the
+	annotation rows, or the photo. ``reason`` (optional) is what gets surfaced to
+	the affected author via a ``Notification`` (linked by ``notification_id``).
+	"""
+	__tablename__ = "annotation_moderation"
+
+	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+	action: Mapped[str] = mapped_column(String(32), index=True)  # 'undo_create' | 'undo_update' | 'undo_delete'
+
+	# The annotation event that was undone, and the new event the undo produced.
+	target_event_id: Mapped[str] = mapped_column(String, index=True)  # no FK — keep record if the row is gone
+	result_event_id: Mapped[Optional[str]] = mapped_column(String)
+	photo_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+
+	# Moderator who performed the undo (denormalized snapshot).
+	moderator_user_id: Mapped[str] = mapped_column(String, index=True)
+	moderator_username: Mapped[Optional[str]] = mapped_column(String)
+	moderator_role: Mapped[Optional[str]] = mapped_column(String)
+
+	# Subject: the author whose work was reverted (denormalized snapshot).
+	subject_user_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+	subject_username: Mapped[Optional[str]] = mapped_column(String)
+
+	reason: Mapped[Optional[str]] = mapped_column(Text)
+	notification_id: Mapped[Optional[int]] = mapped_column(Integer)  # the Notification row sent to the subject
+
+	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class UserPublicKey(Base):
 	__tablename__ = "user_public_keys"
 
