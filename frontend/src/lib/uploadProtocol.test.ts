@@ -44,6 +44,7 @@ import {
 	generateClientSignature,
 	requestUploadAuthorization,
 	uploadToWorker,
+	_resetWorkerPin,
 	NonRetryableUploadError,
 	RetryableUploadError,
 	WorkerBusyError,
@@ -89,6 +90,7 @@ const sampleRequest: UploadAuthorizationRequest = {
 describe('uploadProtocol', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		_resetWorkerPin();
 	});
 
 	// ── calculateFileHash ──
@@ -269,6 +271,63 @@ describe('uploadProtocol', () => {
 			// First call = readiness check
 			expect(mockFetch.mock.calls[0][0]).toBe('http://worker:8056/ready');
 			expect(mockFetch.mock.calls[0][1]).toMatchObject({ method: 'GET' });
+		});
+
+		// ── machine pinning (fly-force-instance-id) ──
+
+		it('should pin the upload to the machine that answered ready', async () => {
+			mockFetch
+				.mockResolvedValueOnce(okResponse({ status: 'ready', fly_machine_id: 'aaaa11112222' }))
+				.mockResolvedValueOnce(
+					okResponse({ success: true, message: 'Uploaded', photo_id: 'p-1' })
+				);
+
+			await uploadToWorker(file, uploadJwt, signature, workerUrl);
+
+			const uploadHeaders = (mockFetch.mock.calls[1][1] as RequestInit)
+				.headers as Record<string, string>;
+			expect(uploadHeaders['fly-force-instance-id']).toBe('aaaa11112222');
+		});
+
+		it('should carry the pin into the next preflight and re-pin from its answer', async () => {
+			mockFetch
+				.mockResolvedValueOnce(okResponse({ status: 'ready', fly_machine_id: 'aaaa11112222' }))
+				.mockResolvedValueOnce(okResponse({ success: true, photo_id: 'p-1' }))
+				// second photo: the edge replayed our pinned preflight to a sibling
+				.mockResolvedValueOnce(okResponse({ status: 'ready', fly_machine_id: 'bbbb33334444' }))
+				.mockResolvedValueOnce(okResponse({ success: true, photo_id: 'p-2' }));
+
+			await uploadToWorker(file, uploadJwt, signature, workerUrl);
+			await uploadToWorker(file, uploadJwt, signature, workerUrl);
+
+			const secondPreflightHeaders = (mockFetch.mock.calls[2][1] as RequestInit)
+				.headers as Record<string, string>;
+			expect(secondPreflightHeaders['fly-force-instance-id']).toBe('aaaa11112222');
+			const secondUploadHeaders = (mockFetch.mock.calls[3][1] as RequestInit)
+				.headers as Record<string, string>;
+			expect(secondUploadHeaders['fly-force-instance-id']).toBe('bbbb33334444');
+		});
+
+		it('should drop the pin after a busy 503 and re-discover unpinned', async () => {
+			mockFetch
+				.mockResolvedValueOnce(okResponse({ status: 'ready', fly_machine_id: 'aaaa11112222' }))
+				.mockResolvedValueOnce(okResponse({ success: true, photo_id: 'p-1' }))
+				// next preflight: 503 that reached us despite replay = fleet saturated
+				.mockResolvedValueOnce(errorResponse(503, 'worker_queue_full'));
+
+			await uploadToWorker(file, uploadJwt, signature, workerUrl);
+			await expect(uploadToWorker(file, uploadJwt, signature, workerUrl)).rejects.toThrow(
+				WorkerBusyError
+			);
+
+			// third photo: preflight goes out unpinned (re-discovery)
+			mockFetch
+				.mockResolvedValueOnce(okResponse({ status: 'ready', fly_machine_id: 'cccc55556666' }))
+				.mockResolvedValueOnce(okResponse({ success: true, photo_id: 'p-3' }));
+			await uploadToWorker(file, uploadJwt, signature, workerUrl);
+			const rediscoverHeaders = ((mockFetch.mock.calls[3][1] as RequestInit).headers ??
+				{}) as Record<string, string>;
+			expect(rediscoverHeaders['fly-force-instance-id']).toBeUndefined();
 		});
 
 		it('should fall back to /health when /ready is 404 (older worker)', async () => {

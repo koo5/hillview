@@ -94,6 +94,16 @@ class PhotoUploadLogic(private val context: Context) {
 		.readTimeout(300, TimeUnit.SECONDS)
 		.build()
 
+	// Worker machine pinning (mirrors uploadProtocol.ts): /ready returns the
+	// answering machine's fly_machine_id; a busy machine's 503 carries
+	// fly-replay, so the Fly edge transparently re-runs the preflight on a
+	// sibling (waking a stopped one if needed — validated live 2026-07-13) and
+	// we receive the sibling's ready + id instead. Pin uploads to that machine
+	// via fly-force-instance-id; clear on busy/IO failure so the next preflight
+	// re-discovers. Never persisted — machine ids churn on every deploy.
+	@Volatile
+	private var pinnedWorkerMachine: String? = null
+
 	private val prefs: SharedPreferences by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 	private val authManager by lazy { AuthenticationManager(context) }
 	private val clientCrypto by lazy { ClientCryptoManager(context) }
@@ -641,21 +651,41 @@ class PhotoUploadLogic(private val context: Context) {
 		photoId: String,
 		anonymizationOverride: String? = null
 	): Boolean {
-		// Pre-flight readiness check — /ready returns 503 while the worker's
-		// upload queue is full, letting us back off before transmitting the
-		// body. 404 = older worker without /ready; other failures fall through
-		// to the upload attempt itself (which also wakes a sleeping machine).
+		// Pre-flight readiness check — /ready returns 503 only when the WHOLE
+		// fleet is saturated (a single busy machine's 503 carries fly-replay and
+		// the edge re-runs the preflight on a sibling before we ever see it).
+		// The 200 body carries the answering machine's id — pin the upload to it
+		// (see pinnedWorkerMachine). 404 = older worker without /ready; other
+		// failures fall through to the upload attempt itself.
 		try {
-			val readyRequest = Request.Builder()
+			val readyBuilder = Request.Builder()
 				.url("$workerUrl/ready")
 				.get()
-				.build()
-			client.newCall(readyRequest).execute().use { readyResponse ->
+			pinnedWorkerMachine?.let { readyBuilder.addHeader("fly-force-instance-id", it) }
+			client.newCall(readyBuilder.build()).execute().use { readyResponse ->
 				if (readyResponse.code == 503) {
+					pinnedWorkerMachine = null
 					throw WorkerBusyException("Worker upload queue is full (readiness check)")
+				}
+				if (readyResponse.code == 200) {
+					try {
+						val machineId = JSONObject(readyResponse.body?.string() ?: "")
+							.optString("fly_machine_id")
+						if (machineId.isNotEmpty()) {
+							if (machineId != pinnedWorkerMachine) {
+								Log.d(TAG, "🔌 Pinning uploads to worker machine $machineId")
+							}
+							pinnedWorkerMachine = machineId
+						}
+					} catch (e: Exception) {
+						Log.w(TAG, "Could not parse /ready body for machine id: ${e.message}")
+					}
 				}
 			}
 		} catch (e: IOException) {
+			// The pinned machine may be stopped/gone (force-pinned requests fail
+			// outright) — drop the pin so the next attempt re-discovers.
+			pinnedWorkerMachine = null
 			Log.w(TAG, "Readiness check failed for $workerUrl, proceeding with upload: ${e.message}")
 		}
 
@@ -678,11 +708,12 @@ class PhotoUploadLogic(private val context: Context) {
 
 		val requestBody = multipartBuilder.build()
 
-		val request = Request.Builder()
+		val requestBuilder = Request.Builder()
 			.url("$workerUrl/upload_async")
 			.addHeader("Authorization", "Bearer $uploadJwt")
 			.post(requestBody)
-			.build()
+		pinnedWorkerMachine?.let { requestBuilder.addHeader("fly-force-instance-id", it) }
+		val request = requestBuilder.build()
 
 		Log.d(TAG, "Uploading $filename to worker $workerUrl")
 
@@ -703,6 +734,7 @@ class PhotoUploadLogic(private val context: Context) {
 		try {
 			client.newCall(request).execute().use { response ->
 				if (response.code == 503) {
+					pinnedWorkerMachine = null
 					val error = response.body?.string() ?: "Unknown error"
 					Log.w(TAG, "Worker rejected upload as busy: $error")
 					throw WorkerBusyException("Worker upload queue is full")

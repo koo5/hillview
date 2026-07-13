@@ -215,16 +215,36 @@ export async function requestUploadAuthorization(
 
 // ── Worker upload ──
 
+// ── Worker machine pinning ──
+//
+// /ready returns the answering machine's fly_machine_id, and when a machine is
+// busy its 503 carries `fly-replay: elsewhere=true` — the Fly edge then
+// transparently re-runs the preflight on a sibling machine, WAKING A STOPPED
+// ONE if none is running (validated live 2026-07-13: warm sibling ~0.1 s, cold
+// boot ~6 s; replay overrides an existing pin, so a pinned preflight
+// self-heals). So the protocol is simply: preflight → remember the machine
+// that said ready → pin the upload to it via `fly-force-instance-id`. A 503
+// that reaches us despite replay means the ENTIRE fleet is saturated — only
+// then does WorkerBusyError abort the drain pass.
+//
+// The pin is per-JS-context (main thread / service worker each keep their
+// own) and is cleared on any busy/network failure so the next preflight
+// re-discovers. Never persisted: machine ids churn on every deploy.
+
+let pinnedWorkerMachineId: string | null = null;
+
+/** Test hook: reset the module-level worker pin. */
+export function _resetWorkerPin(): void {
+	pinnedWorkerMachineId = null;
+}
+
+function pinHeaders(): Record<string, string> {
+	return pinnedWorkerMachineId ? { 'fly-force-instance-id': pinnedWorkerMachineId } : {};
+}
+
 /**
  * Upload file to worker with JWT in Authorization header and client_signature in FormData.
- * Includes health check + retry logic (3 attempts).
- *
- * Note: the Kotlin client cycles its pooled connection to the Fly edge every
- * few uploads (PhotoUploadLogic.RECONNECT_EVERY_N_UPLOADS) so a long drain
- * re-load-balances onto a fresh worker machine instead of pinning one until
- * its queue 503s. Browsers offer no equivalent — fetch() can't close pooled
- * connections and `Connection` is a forbidden header — so the web path relies
- * on the /ready preflight + WorkerBusyError abort alone.
+ * Includes health check + retry logic (3 attempts) and machine pinning (above).
  */
 export async function uploadToWorker(
 	file: File,
@@ -249,7 +269,8 @@ export async function uploadToWorker(
 			// /ready, fall back to the plain liveness check.
 			let preflight = await fetch(`${workerBase}/ready`, {
 				method: 'GET',
-				signal: AbortSignal.timeout(10000)
+				headers: pinHeaders(),
+				signal: AbortSignal.timeout(15000) // covers a ~6s cold-boot replay
 			});
 			if (preflight.status === 404) {
 				preflight = await fetch(`${workerBase}/health`, {
@@ -258,10 +279,26 @@ export async function uploadToWorker(
 				});
 			}
 			if (preflight.status === 503) {
+				// Replay already tried the whole fleet — genuinely saturated.
+				pinnedWorkerMachineId = null;
 				throw new WorkerBusyError('Worker upload queue is full');
 			}
 			if (!preflight.ok) {
+				pinnedWorkerMachineId = null;
 				throw new RetryableUploadError(`Worker not ready: ${preflight.status}`);
+			}
+			// Pin the upload to whichever machine said ready (possibly a sibling
+			// the edge replayed us to — its id is in the body either way).
+			try {
+				const readyBody = await preflight.json();
+				if (readyBody.fly_machine_id) {
+					if (readyBody.fly_machine_id !== pinnedWorkerMachineId) {
+						console.log(`🔐 Pinning uploads to worker machine ${readyBody.fly_machine_id}`);
+					}
+					pinnedWorkerMachineId = readyBody.fly_machine_id;
+				}
+			} catch {
+				// non-JSON (old worker /health fallback) — keep whatever pin we had
 			}
 
 			const formData = new FormData();
@@ -312,7 +349,8 @@ export async function uploadToWorker(
 			const response = await fetch(workerEndpoint, {
 				method: 'POST',
 				headers: {
-					Authorization: `Bearer ${uploadJwt}`
+					Authorization: `Bearer ${uploadJwt}`,
+					...pinHeaders()
 				},
 				body: formData
 			});
@@ -326,6 +364,7 @@ export async function uploadToWorker(
 			const errorMessage = error.detail || `Worker upload failed: ${response.status}`;
 
 			if (response.status === 503) {
+				pinnedWorkerMachineId = null;
 				throw new WorkerBusyError(errorMessage);
 			}
 
@@ -358,7 +397,10 @@ export async function uploadToWorker(
 					: new RetryableUploadError(error instanceof Error ? error.message : 'Network error');
 			}
 
-			// Retry logic
+			// Retry logic. Drop the pin first: a force-pinned request to a
+			// stopped/gone machine fails outright, so re-discover via an
+			// unpinned preflight on the next attempt.
+			pinnedWorkerMachineId = null;
 			const delay = baseDelay * Math.pow(2, attempt);
 			console.log(
 				`🔐 Worker upload failed, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries + 1})`
