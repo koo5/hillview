@@ -4,7 +4,8 @@ import { loginAs, logoutUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { getUserToken, BACKEND_URL } from './helpers/adminAuth';
 
-const TARGET = { selector: { type: 'FragmentSelector', value: 'xywh=pixel:0,0,10,10' } };
+// Matches what the app writes: Annotorious v3 RECTANGLE with pixel bounds.
+const TARGET = { selector: { type: 'RECTANGLE', geometry: { bounds: { minX: 100, minY: 50, maxX: 300, maxY: 250 } } } };
 
 async function annCreate(token: string, photoId: string, body: string): Promise<string> {
 	const res = await fetch(`${BACKEND_URL}/api/annotations/photos/${photoId}`, {
@@ -67,6 +68,23 @@ test.describe('Admin annotation activity log', () => {
 		await expect(rows.nth(2).getByTestId('admin-annotation-user')).toContainText('test');
 		await expect(rows.nth(2)).toHaveAttribute('data-actor-role', 'user');
 		await expect(rows.nth(2).getByTestId('admin-annotation-user')).toHaveClass(/ordinary/);
+
+		// Every event links to its photo's detail page.
+		await expect(rows.nth(2).getByTestId('admin-annotation-photo-link')).toHaveAttribute('href', `/photo/hillview-${photoId}`);
+
+		// The current tip (deleted) is undoable and not marked superseded; the
+		// older create/update events are marked superseded and offer no undo.
+		await expect(rows.nth(0).getByTestId('admin-annotation-undo')).toBeVisible();
+		await expect(rows.nth(0).getByTestId('admin-annotation-superseded')).toHaveCount(0);
+		await expect(rows.nth(2).getByTestId('admin-annotation-superseded')).toBeVisible();
+		await expect(rows.nth(2).getByTestId('admin-annotation-undo')).toHaveCount(0);
+
+		// create/update carry a target → a zoomview deep-link; the deleted tombstone
+		// has no target, so no zoom link.
+		const zoom = rows.nth(2).getByTestId('admin-annotation-zoom-link');
+		await expect(zoom).toBeVisible();
+		await expect(zoom).toHaveAttribute('href', new RegExp(`photo=hillview-${photoId}.*x1=`));
+		await expect(rows.nth(0).getByTestId('admin-annotation-zoom-link')).toHaveCount(0);
 
 		// Filter to just deletions.
 		await page.getByTestId('admin-annotations-filter-deleted').click();

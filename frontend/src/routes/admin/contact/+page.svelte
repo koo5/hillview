@@ -12,6 +12,7 @@
 		contact_info: string;
 		message: string;
 		user_id: string | null;
+		username: string | null;
 		created_at: string;
 		status: string;
 		admin_notes: string | null;
@@ -126,7 +127,12 @@
 									<span>{formatUtcDateTime(msg.created_at)}</span>
 									<span class="dot">·</span>
 									{#if msg.user_id}
-										<span class="user"><UserIcon size={12} /> registered user</span>
+										<a
+											class="user user-link"
+											href={`/users/${msg.user_id}`}
+											data-testid="admin-contact-user-link"
+											title="Open this user's profile"
+										><UserIcon size={12} /> {msg.username ?? 'registered user'}</a>
 									{:else}
 										<span class="user guest">guest</span>
 									{/if}
@@ -300,6 +306,16 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 3px;
+	}
+
+	.meta .user-link {
+		color: #4f46e5;
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.meta .user-link:hover {
+		text-decoration: underline;
 	}
 
 	.meta .guest {

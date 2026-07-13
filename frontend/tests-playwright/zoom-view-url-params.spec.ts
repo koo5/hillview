@@ -253,6 +253,35 @@ test.describe('Zoom View URL Parameters', () => {
       expect(viewportWidth).toBeLessThan(1.0);
     });
 
+    test('should close the zoom view on client-side navigation to another route', async ({ page, testUsers }) => {
+      await loginAsTestUser(page, testUsers.passwords.test);
+      const photoId = await uploadPhoto(page, testPhotos[0]);
+
+      // Open the zoom view from URL params (source enabled first — see test above).
+      await page.goto('/');
+      await ensureSourceEnabled(page, 'hillview', true);
+      await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=0.2&y1=0.2&x2=0.6&y2=0.6`);
+      await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(30000) });
+
+      // Trigger a SvelteKit *client-side* navigation (a full page.goto would reload
+      // and drop the overlay regardless — the bug was that a client-side nav, e.g.
+      // hitting Back, left the global overlay stuck open). Inject a top-most link so
+      // the click lands above the fullscreen overlay.
+      await page.evaluate(() => {
+        const a = document.createElement('a');
+        a.href = '/about';
+        a.setAttribute('data-testid', 'zoomnav-link');
+        a.style.cssText = 'position:fixed;top:0;left:0;z-index:2147483647;padding:24px;background:#fff;';
+        document.body.appendChild(a);
+      });
+      await page.getByTestId('zoomnav-link').click();
+      await page.waitForURL('**/about', { timeout: T(10000) });
+
+      // The global overlay must not persist across the route change.
+      await expect(page.locator('[data-testid="osd-viewer-overlay"]')).not.toBeVisible({ timeout: T(10000) });
+      await expect(page.locator('[data-testid="zoom-view-pending"]')).not.toBeVisible();
+    });
+
     test('should close pending overlay when close button is clicked', async ({ page, testUsers }) => {
       // Navigate with zoom params for a non-existent photo so pending stays visible
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18&photo=hillview-nonexistent-999&x1=0.1&y1=0.1&x2=0.9&y2=0.9');

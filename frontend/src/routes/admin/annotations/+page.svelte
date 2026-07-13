@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { MessageSquare, Lock, User as UserIcon, RotateCcw } from 'lucide-svelte';
+	import { MessageSquare, Lock, User as UserIcon, RotateCcw, Crosshair } from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import ProfileGate from '$lib/components/ProfileGate.svelte';
@@ -15,15 +15,69 @@
 		actor_role: string | null;
 		event_type: 'created' | 'updated' | 'deleted' | string;
 		body: string | null;
+		target: unknown;
 		is_current: boolean;
 		superseded_by: string | null;
 		created_at: string;
+		photo_lat: number | null;
+		photo_lon: number | null;
+		photo_bearing: number | null;
+		photo_width: number | null;
 	}
 
 	// Events by ordinary users (anyone who isn't an admin or moderator) are the
 	// ones worth an admin's attention, so their username is highlighted.
 	function isOrdinary(ev: AnnotationEvent): boolean {
 		return !['admin', 'moderator'].includes((ev.actor_role ?? '').toLowerCase());
+	}
+
+	// Annotations live on hillview photos, so the detail page is /photo/hillview-{id}.
+	function photoUrl(ev: AnnotationEvent): string {
+		return `/photo/hillview-${ev.photo_id}`;
+	}
+
+	// Pixel-space bbox of the annotation target. Handles both the Annotorious v3
+	// RECTANGLE selector (geometry.bounds in image pixels — what the app writes)
+	// and the older FragmentSelector `xywh=pixel:` form.
+	function targetXywh(ev: AnnotationEvent): { x: number; y: number; w: number; h: number } | null {
+		const sel = (ev.target as any)?.selector ?? ev.target;
+		if (!sel) return null;
+
+		const b = sel.geometry?.bounds;
+		if (b && [b.minX, b.minY, b.maxX, b.maxY].every((n: unknown) => typeof n === 'number')) {
+			return { x: b.minX, y: b.minY, w: b.maxX - b.minX, h: b.maxY - b.minY };
+		}
+
+		const value = typeof sel === 'string' ? sel : sel?.value;
+		if (typeof value === 'string') {
+			const m = value.match(/xywh=pixel:([\d.]+),([\d.]+),([\d.]+),([\d.]+)/);
+			if (m) {
+				const [, x, y, w, h] = m.map(Number);
+				return { x, y, w, h };
+			}
+		}
+		return null;
+	}
+
+	// A zoomview "share link": the map URL opens the photo zoomed to the annotation.
+	// OSD viewport bounds normalize BOTH axes by the image width, so px/width.
+	function zoomLink(ev: AnnotationEvent): string | null {
+		const xy = targetXywh(ev);
+		if (!xy || !ev.photo_width || ev.photo_lat == null || ev.photo_lon == null) return null;
+		const W = ev.photo_width;
+		const b = { x1: xy.x / W, y1: xy.y / W, x2: (xy.x + xy.w) / W, y2: (xy.y + xy.h) / W };
+		const p = new URLSearchParams({
+			lat: String(ev.photo_lat),
+			lon: String(ev.photo_lon),
+			zoom: '20',
+			photo: `hillview-${ev.photo_id}`,
+			x1: b.x1.toFixed(6),
+			y1: b.y1.toFixed(6),
+			x2: b.x2.toFixed(6),
+			y2: b.y2.toFixed(6),
+		});
+		if (ev.photo_bearing != null) p.set('bearing', String(ev.photo_bearing));
+		return `/?${p.toString()}`;
 	}
 
 	const FILTERS = ['all', 'created', 'updated', 'deleted'] as const;
@@ -174,7 +228,10 @@
 										<span class="dot">·</span>
 										<span>{formatUtcDateTime(ev.created_at)}</span>
 										<span class="dot">·</span>
-										<span class="photo" title={`photo ${ev.photo_id}`}>photo {ev.photo_id.slice(0, 8)}…</span>
+										<a class="photo" href={photoUrl(ev)} data-testid="admin-annotation-photo-link" title={`Open photo ${ev.photo_id}`}>photo {ev.photo_id.slice(0, 8)}…</a>
+										{#if zoomLink(ev)}
+											<a class="zoom-link" href={zoomLink(ev)} data-testid="admin-annotation-zoom-link" title="Open the photo zoomed to this annotation"><Crosshair size={12} /> zoom</a>
+										{/if}
 									</div>
 									<div class="event-body">{bodyPreview(ev)}</div>
 								</div>
@@ -185,6 +242,8 @@
 										title={undoLabel(ev)}
 										on:click={() => openUndo(ev)}
 									><RotateCcw size={14} /> Undo</button>
+								{:else}
+									<span class="superseded-tag" data-testid="admin-annotation-superseded" title="A later event replaced this one; only the current version of a chain can be undone">superseded</span>
 								{/if}
 							</li>
 						{/each}
@@ -373,6 +432,38 @@
 
 	.photo {
 		font-family: monospace;
+		color: #4f46e5;
+		text-decoration: none;
+	}
+
+	.photo:hover {
+		text-decoration: underline;
+	}
+
+	.zoom-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		color: #4f46e5;
+		text-decoration: none;
+		font-weight: 600;
+	}
+
+	.zoom-link:hover {
+		text-decoration: underline;
+	}
+
+	.superseded-tag {
+		flex: 0 0 auto;
+		align-self: center;
+		font-size: 0.68rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: #9ca3af;
+		background: #f3f4f6;
+		padding: 3px 8px;
+		border-radius: 999px;
 	}
 
 	.event-body {

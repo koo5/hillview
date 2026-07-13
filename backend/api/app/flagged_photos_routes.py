@@ -11,13 +11,29 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import FlaggedPhoto, User, UserRole
+from common.models import FlaggedPhoto, Photo, User, UserRole
 from auth import get_current_active_user
 from rate_limiter import rate_limit_photo_operations
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/flagged", tags=["flagged"])
+
+
+def _flag_thumb_url(photo: Optional[Photo]) -> Optional[str]:
+	"""A small thumbnail URL for a joined hillview photo, mirroring the size
+	preference used by the /photos grid (PhotoItem.svelte). None for external
+	sources (no local row) or unprocessed photos."""
+	if photo is None or not isinstance(photo.sizes, dict):
+		return None
+	for key in ('320_crop', '320', '1200_crop', 'full'):
+		url = (photo.sizes.get(key) or {}).get('url')
+		if url:
+			return url
+	for v in photo.sizes.values():
+		if isinstance(v, dict) and v.get('url'):
+			return v['url']
+	return None
 
 # Request models
 class FlagPhotoRequest(BaseModel):
@@ -220,7 +236,17 @@ async def list_all_flagged_photos(
 	await rate_limit_photo_operations(request, current_user.id)
 
 	try:
-		query = select(FlaggedPhoto)
+		# Outer-join the local photo for hillview flags so the admin UI can show a
+		# thumbnail, the title, and whether it's already been deleted. External
+		# sources (mapillary/panoramax) have no local row → these stay null.
+		query = (
+			select(FlaggedPhoto, Photo)
+			.join(
+				Photo,
+				and_(FlaggedPhoto.photo_id == Photo.id, FlaggedPhoto.photo_source == 'hillview'),
+				isouter=True,
+			)
+		)
 
 		if photo_source:
 			if photo_source not in ['mapillary', 'hillview', 'panoramax']:
@@ -235,20 +261,24 @@ async def list_all_flagged_photos(
 
 		query = query.order_by(FlaggedPhoto.flagged_at.desc()).limit(limit).offset(offset)
 		result = await db.execute(query)
-		flagged_photos = result.scalars().all()
+		rows = result.all()
 
 		return [{
-			"id": photo.id,
-			"flagging_user_id": photo.flagging_user_id,
-			"photo_source": photo.photo_source,
-			"photo_id": photo.photo_id,
-			"flagged_at": photo.flagged_at,
-			"reason": photo.reason,
-			"extra_data": photo.extra_data,
-			"resolved": photo.resolved,
-			"resolved_at": photo.resolved_at,
-			"resolved_by": photo.resolved_by
-		} for photo in flagged_photos]
+			"id": flag.id,
+			"flagging_user_id": flag.flagging_user_id,
+			"photo_source": flag.photo_source,
+			"photo_id": flag.photo_id,
+			"flagged_at": flag.flagged_at,
+			"reason": flag.reason,
+			"extra_data": flag.extra_data,
+			"resolved": flag.resolved,
+			"resolved_at": flag.resolved_at,
+			"resolved_by": flag.resolved_by,
+			# Joined local-photo context (hillview only).
+			"thumb_url": _flag_thumb_url(photo),
+			"photo_title": (photo.title if photo else None),
+			"photo_deleted": (bool(photo.deleted) if photo else None),
+		} for flag, photo in rows]
 
 	except HTTPException:
 		raise

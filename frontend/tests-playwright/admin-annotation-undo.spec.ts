@@ -4,7 +4,8 @@ import { loginAs, logoutUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { getUserToken, BACKEND_URL } from './helpers/adminAuth';
 
-const TARGET = { selector: { type: 'FragmentSelector', value: 'xywh=pixel:0,0,10,10' } };
+// Matches what the app writes: Annotorious v3 RECTANGLE with pixel bounds.
+const TARGET = { selector: { type: 'RECTANGLE', geometry: { bounds: { minX: 100, minY: 50, maxX: 300, maxY: 250 } } } };
 
 async function annCreate(token: string, photoId: string, body: string): Promise<string> {
 	const res = await fetch(`${BACKEND_URL}/api/annotations/photos/${photoId}`, {

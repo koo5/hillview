@@ -1,7 +1,7 @@
 import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAs } from './helpers/testUsers';
-import { callAdminAPI, BACKEND_URL } from './helpers/adminAuth';
+import { callAdminAPI, getUserToken, BACKEND_URL } from './helpers/adminAuth';
 
 /** Submit a contact message via the public API; returns its id. */
 async function seedContact(contactInfo: string): Promise<number> {
@@ -56,5 +56,31 @@ test.describe('Admin contact management', () => {
 		await page.goto('/admin/contact');
 		await expect(page.getByTestId('admin-forbidden')).toBeVisible({ timeout: T(15000) });
 		await expect(page.getByTestId('admin-contact-message')).toHaveCount(0);
+	});
+
+	test('a registered sender shows their username as a link to their profile', async ({ page, testUsers }) => {
+		// Submit as 'test' (authenticated) so the message carries a real account.
+		const testToken = await getUserToken('test', testUsers.passwords.test);
+		const marker = `reg-sender-${Date.now()}`;
+		const res = await fetch(`${BACKEND_URL}/api/contact`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${testToken}` },
+			body: JSON.stringify({ contact: `${marker}@example.com`, message: `Registered sender message ${marker}.` }),
+		});
+		expect(res.ok).toBeTruthy();
+
+		await loginAs(page, 'admin', testUsers.passwords.admin);
+		await page.goto('/admin/contact');
+
+		const row = page.locator('[data-testid="admin-contact-message"]', { hasText: marker });
+		await expect(row).toBeVisible({ timeout: T(15000) });
+
+		// The real account username shows, as a link to the user's profile.
+		const link = row.getByTestId('admin-contact-user-link');
+		await expect(link).toHaveText('test');
+		await expect(link).toHaveAttribute('href', /^\/users\//);
+
+		await link.click();
+		await page.waitForURL(/\/users\//, { timeout: T(10000) });
 	});
 });

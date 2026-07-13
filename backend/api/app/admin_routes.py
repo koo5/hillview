@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from geoalchemy2.functions import ST_X, ST_Y
 
 import sys
 import os
@@ -41,12 +42,15 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 CONTACT_STATUSES = ('new', 'read', 'replied', 'archived')
 
 
-def _serialize_contact_message(msg: ContactMessage) -> dict:
+def _serialize_contact_message(msg: ContactMessage, username: Optional[str] = None) -> dict:
 	return {
 		"id": msg.id,
 		"contact_info": msg.contact_info,
 		"message": msg.message,
 		"user_id": msg.user_id,
+		# The sender's account username (for registered senders), so the admin sees
+		# who it really is, not just the contact string they typed.
+		"username": username,
 		"created_at": msg.created_at,
 		"status": msg.status,
 		"admin_notes": msg.admin_notes,
@@ -92,16 +96,22 @@ async def list_contact_messages(
 	db: AsyncSession = Depends(get_db),
 ):
 	"""List contact messages, newest first. Optionally filter by status."""
-	query = select(ContactMessage).order_by(desc(ContactMessage.created_at))
+	# Outer-join the sender's account (guests have no user_id) to surface the real
+	# username alongside the typed contact string.
+	query = (
+		select(ContactMessage, User.username)
+		.join(User, ContactMessage.user_id == User.id, isouter=True)
+		.order_by(desc(ContactMessage.created_at))
+	)
 	if status_filter:
 		query = query.where(ContactMessage.status == status_filter)
 	query = query.offset(max(0, offset)).limit(max(1, min(limit, 200)))
 
 	result = await db.execute(query)
-	messages = result.scalars().all()
+	rows = result.all()
 	return {
-		"messages": [_serialize_contact_message(m) for m in messages],
-		"total": len(messages),
+		"messages": [_serialize_contact_message(m, username) for m, username in rows],
+		"total": len(rows),
 	}
 
 
@@ -169,9 +179,19 @@ async def list_annotation_events(
 			detail=f"Invalid event_type. Allowed: {', '.join(ANNOTATION_EVENT_TYPES)}",
 		)
 
+	# Join the photo too so the UI can deep-link: the photo detail page, and a
+	# zoomview "share link" to the annotation's region (needs the photo's coords +
+	# width to convert the target's pixel xywh into OSD viewport bounds).
 	query = (
-		select(PhotoAnnotation, User.username, User.role)
+		select(
+			PhotoAnnotation, User.username, User.role,
+			ST_Y(Photo.geometry).label('lat'),
+			ST_X(Photo.geometry).label('lon'),
+			Photo.compass_angle.label('bearing'),
+			Photo.width.label('width'),
+		)
 		.join(User, PhotoAnnotation.user_id == User.id)
+		.join(Photo, PhotoAnnotation.photo_id == Photo.id, isouter=True)
 		.order_by(desc(PhotoAnnotation.created_at))
 	)
 	if photo_id:
@@ -196,11 +216,17 @@ async def list_annotation_events(
 				"actor_role": str(getattr(role, 'value', role)).lower() if role is not None else None,
 				"event_type": ann.event_type,
 				"body": ann.body,
+				"target": ann.target,
 				"is_current": ann.is_current,
 				"superseded_by": ann.superseded_by,
 				"created_at": ann.created_at,
+				# Photo context for deep-linking (null if the photo row is gone).
+				"photo_lat": lat,
+				"photo_lon": lon,
+				"photo_bearing": bearing,
+				"photo_width": width,
 			}
-			for ann, username, role in rows
+			for ann, username, role, lat, lon, bearing, width in rows
 		],
 	}
 
