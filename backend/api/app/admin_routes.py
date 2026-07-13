@@ -10,7 +10,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 from geoalchemy2.functions import ST_X, ST_Y
 
@@ -179,9 +180,15 @@ async def list_annotation_events(
 			detail=f"Invalid event_type. Allowed: {', '.join(ANNOTATION_EVENT_TYPES)}",
 		)
 
-	# Join the photo too so the UI can deep-link: the photo detail page, and a
-	# zoomview "share link" to the annotation's region (needs the photo's coords +
-	# width to convert the target's pixel xywh into OSD viewport bounds).
+	# Joins for context:
+	#  - Photo: deep-link + zoomview bounds (coords/width).
+	#  - Pred (predecessor): the row THIS event superseded → its body is the "old
+	#    text" replaced/removed by this event.
+	#  - Succ (successor) + SuccUser: the row that superseded THIS event → what
+	#    version replaced it, and by whom.
+	Pred = aliased(PhotoAnnotation)
+	Succ = aliased(PhotoAnnotation)
+	SuccUser = aliased(User)
 	query = (
 		select(
 			PhotoAnnotation, User.username, User.role,
@@ -189,9 +196,16 @@ async def list_annotation_events(
 			ST_X(Photo.geometry).label('lon'),
 			Photo.compass_angle.label('bearing'),
 			Photo.width.label('width'),
+			Pred.body.label('prev_body'),
+			Succ.id.label('succ_id'),
+			Succ.event_type.label('succ_type'),
+			SuccUser.username.label('succ_username'),
 		)
 		.join(User, PhotoAnnotation.user_id == User.id)
 		.join(Photo, PhotoAnnotation.photo_id == Photo.id, isouter=True)
+		.join(Pred, Pred.superseded_by == PhotoAnnotation.id, isouter=True)
+		.join(Succ, PhotoAnnotation.superseded_by == Succ.id, isouter=True)
+		.join(SuccUser, Succ.user_id == SuccUser.id, isouter=True)
 		.order_by(desc(PhotoAnnotation.created_at))
 	)
 	if photo_id:
@@ -204,6 +218,33 @@ async def list_annotation_events(
 
 	result = await db.execute(query)
 	rows = result.all()
+
+	# Moderation reasons for the visible events, from the annotation_moderation
+	# sidecar: an event may BE a moderator undo (result_event_id) or the target
+	# that was reverted (target_event_id).
+	event_ids = [r[0].id for r in rows]
+	by_result: dict = {}
+	by_target: dict = {}
+	if event_ids:
+		mod_rows = (await db.execute(
+			select(AnnotationModeration).where(
+				or_(
+					AnnotationModeration.result_event_id.in_(event_ids),
+					AnnotationModeration.target_event_id.in_(event_ids),
+				)
+			)
+		)).scalars().all()
+		for m in mod_rows:
+			if m.result_event_id:
+				by_result[m.result_event_id] = m
+			if m.target_event_id:
+				by_target[m.target_event_id] = m
+
+	def _mod(m) -> Optional[dict]:
+		if m is None:
+			return None
+		return {"action": m.action, "reason": m.reason, "moderator_username": m.moderator_username}
+
 	return {
 		"events": [
 			{
@@ -225,8 +266,17 @@ async def list_annotation_events(
 				"photo_lon": lon,
 				"photo_bearing": bearing,
 				"photo_width": width,
+				# Chain context.
+				"prev_body": prev_body,  # the text this event replaced/removed
+				"superseded_by_event": (
+					{"id": succ_id, "event_type": succ_type, "username": succ_username}
+					if succ_id else None
+				),
+				# Moderation context (from the sidecar).
+				"moderation": _mod(by_result.get(ann.id)),  # this event IS a moderator undo
+				"reverted": _mod(by_target.get(ann.id)),    # this event was reverted by a moderator
 			}
-			for ann, username, role, lat, lon, bearing, width in rows
+			for ann, username, role, lat, lon, bearing, width, prev_body, succ_id, succ_type, succ_username in rows
 		],
 	}
 

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { MessageSquare, Lock, User as UserIcon, RotateCcw, Crosshair } from 'lucide-svelte';
+	import { tick } from 'svelte';
+	import { MessageSquare, Lock, User as UserIcon, RotateCcw, Crosshair, ShieldAlert } from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import ProfileGate from '$lib/components/ProfileGate.svelte';
@@ -23,6 +24,45 @@
 		photo_lon: number | null;
 		photo_bearing: number | null;
 		photo_width: number | null;
+		prev_body: string | null;
+		superseded_by_event: { id: string; event_type: string; username: string | null } | null;
+		moderation: ModInfo | null;
+		reverted: ModInfo | null;
+	}
+
+	interface ModInfo {
+		action: string;
+		reason: string | null;
+		moderator_username: string | null;
+	}
+
+	// The prior text this event replaced/removed (label depends on the event kind).
+	function prevLabel(ev: AnnotationEvent): string {
+		return ev.event_type === 'deleted' ? 'removed' : 'was';
+	}
+
+	// "undo_create" → "undo create", for display.
+	function modAction(m: ModInfo): string {
+		return m.action.replace(/_/g, ' ');
+	}
+
+	// Scroll to (and briefly highlight) another event in the log — e.g. the version
+	// that superseded this one. If it's filtered out of the current view, drop to
+	// the full list first so the jump target exists.
+	async function jumpToEvent(id: string) {
+		if (filter !== 'all' && !events.some((e) => e.id === id)) {
+			filter = 'all';
+			await loadEvents();
+			await tick();
+		}
+		const el = document.querySelector(
+			`[data-testid="admin-annotation-event"][data-event-id="${id}"]`
+		);
+		if (el instanceof HTMLElement) {
+			el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			el.classList.add('flash');
+			setTimeout(() => el.classList.remove('flash'), 1600);
+		}
 	}
 
 	// Events by ordinary users (anyone who isn't an admin or moderator) are the
@@ -234,6 +274,14 @@
 										{/if}
 									</div>
 									<div class="event-body">{bodyPreview(ev)}</div>
+									{#if ev.prev_body != null && ev.prev_body !== ''}
+										<div class="prev-body" data-testid="admin-annotation-prev-body">{prevLabel(ev)}: <span class="prev-text">{ev.prev_body}</span></div>
+									{/if}
+									{#if ev.moderation}
+										<div class="mod-note" data-testid="admin-annotation-moderation" title="Moderator action">
+											<ShieldAlert size={12} /> moderator {modAction(ev.moderation)}{ev.moderation.reason ? ` — "${ev.moderation.reason}"` : ' (no reason given)'}
+										</div>
+									{/if}
 								</div>
 								{#if ev.is_current}
 									<button
@@ -242,8 +290,28 @@
 										title={undoLabel(ev)}
 										on:click={() => openUndo(ev)}
 									><RotateCcw size={14} /> Undo</button>
+								{:else if ev.reverted}
+									<button
+										class="superseded-tag reverted"
+										class:jump={!!ev.superseded_by_event}
+										data-testid="admin-annotation-superseded"
+										title={ev.reverted.reason ? `Reason: ${ev.reverted.reason}${ev.superseded_by_event ? ' — click to jump to the action' : ''}` : 'Reverted by a moderator'}
+										disabled={!ev.superseded_by_event}
+										on:click={() => ev.superseded_by_event && jumpToEvent(ev.superseded_by_event.id)}
+									>reverted{ev.reverted.moderator_username ? ` by ${ev.reverted.moderator_username}` : ''}{ev.superseded_by_event ? ' ↑' : ''}</button>
+								{:else if ev.superseded_by_event}
+									<button
+										class="superseded-tag jump"
+										data-testid="admin-annotation-superseded"
+										title={`Jump to the ${ev.superseded_by_event.event_type} event that replaced this`}
+										on:click={() => ev.superseded_by_event && jumpToEvent(ev.superseded_by_event.id)}
+									>superseded by {ev.superseded_by_event.event_type} ↑</button>
 								{:else}
-									<span class="superseded-tag" data-testid="admin-annotation-superseded" title="A later event replaced this one; only the current version of a chain can be undone">superseded</span>
+									<span
+										class="superseded-tag"
+										data-testid="admin-annotation-superseded"
+										title="A later event replaced this one; only the current version of a chain can be undone"
+									>superseded</span>
 								{/if}
 							</li>
 						{/each}
@@ -464,6 +532,65 @@
 		background: #f3f4f6;
 		padding: 3px 8px;
 		border-radius: 999px;
+		white-space: nowrap;
+	}
+
+	.superseded-tag.reverted {
+		color: #b45309;
+		background: #fef3c7;
+	}
+
+	/* Clickable jump-to-superseding-event variants (rendered as <button>). */
+	button.superseded-tag {
+		border: none;
+		font-family: inherit;
+		cursor: default;
+	}
+
+	button.superseded-tag.jump {
+		cursor: pointer;
+	}
+
+	button.superseded-tag.jump:hover {
+		filter: brightness(0.94);
+	}
+
+	.event.flash {
+		animation: flash-highlight 1.6s ease-out;
+	}
+
+	@keyframes flash-highlight {
+		0% {
+			background: #dbeafe;
+			box-shadow: 0 0 0 2px #93c5fd;
+		}
+		100% {
+			background: rgba(255, 255, 255, 0.9);
+			box-shadow: none;
+		}
+	}
+
+	.prev-body {
+		margin-top: 4px;
+		font-size: 0.8rem;
+		color: #9ca3af;
+	}
+
+	.prev-body .prev-text {
+		color: #6b7280;
+		text-decoration: line-through;
+	}
+
+	.mod-note {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		margin-top: 6px;
+		font-size: 0.8rem;
+		color: #b45309;
+		background: #fef3c7;
+		padding: 3px 10px;
+		border-radius: 8px;
 	}
 
 	.event-body {

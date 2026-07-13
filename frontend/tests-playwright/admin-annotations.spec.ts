@@ -86,6 +86,17 @@ test.describe('Admin annotation activity log', () => {
 		await expect(zoom).toHaveAttribute('href', new RegExp(`photo=hillview-${photoId}.*x1=`));
 		await expect(rows.nth(0).getByTestId('admin-annotation-zoom-link')).toHaveCount(0);
 
+		// Chain context: the edit shows the prior text and what superseded it; the
+		// tombstone shows the removed text.
+		await expect(rows.nth(1).getByTestId('admin-annotation-prev-body')).toContainText('first annotation');
+		await expect(rows.nth(1).getByTestId('admin-annotation-superseded')).toContainText('superseded by deleted');
+		await expect(rows.nth(0).getByTestId('admin-annotation-prev-body')).toContainText('edited annotation');
+
+		// Clicking "superseded by …" jumps to and briefly highlights the superseding
+		// event (here, the deleted tombstone at nth(0)).
+		await rows.nth(1).getByTestId('admin-annotation-superseded').click();
+		await expect(rows.nth(0)).toHaveClass(/flash/, { timeout: T(3000) });
+
 		// Filter to just deletions.
 		await page.getByTestId('admin-annotations-filter-deleted').click();
 		await expect(page.getByTestId('admin-annotation-event')).toHaveCount(1);

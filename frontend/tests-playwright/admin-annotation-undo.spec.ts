@@ -66,6 +66,11 @@ test.describe('Admin annotation undo + explainability', () => {
 		// The annotation is gone from the public read path.
 		expect(await currentBodies(photoId)).not.toContain('annotation to be removed');
 
+		// The reason is surfaced admin-side too: the undo action carries it, and the
+		// reverted event is labelled with the moderator.
+		await expect(page.getByTestId('admin-annotation-moderation').first()).toContainText(reason);
+		await expect(row.getByTestId('admin-annotation-superseded')).toContainText('reverted by admin');
+
 		// The author sees an explanatory notification with the reason, and a badge.
 		await logoutUser(page);
 		await loginAs(page, 'test', testUsers.passwords.test);
