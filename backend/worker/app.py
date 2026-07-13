@@ -191,7 +191,10 @@ app.add_middleware(
 	allow_origins=get_cors_origins(),
 	allow_credentials=True,
 	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-	allow_headers=["Content-Type", "Authorization", "Accept"],
+	# fly-force-instance-id: browsers must be allowed to send it so the JS
+	# client can pin uploads to the machine /ready discovered (the Fly edge
+	# consumes the header for routing; see readiness_check's fly-replay).
+	allow_headers=["Content-Type", "Authorization", "Accept", "fly-force-instance-id"],
 )
 
 
@@ -743,7 +746,7 @@ async def status_help():
 
 
 @app.get("/ready")
-async def readiness_check():
+async def readiness_check(request: Request, debug_simulate_busy: Optional[str] = None):
 	"""Readiness endpoint: 503 while the upload queue is at capacity.
 
 	Lets clients check before transmitting a photo body (the JS client
@@ -751,15 +754,37 @@ async def readiness_check():
 	/health so infra liveness checks don't recycle a machine that is
 	merely busy. The body carries a live load snapshot (see worker_status)
 	so clients/operators can see running-vs-queued, not just total pending.
+
+	Machine steering: the body always carries ``fly_machine_id`` so a client
+	can pin its subsequent uploads to the machine that answered ready
+	(``fly-force-instance-id`` request header — allowed in CORS above). The
+	busy 503 carries ``fly-replay: elsewhere=true``, telling the Fly edge to
+	transparently re-run this preflight on a DIFFERENT machine — the caller
+	then receives a sibling's answer (ideally ``ready`` + its id) instead of
+	our busy, and its upload drain migrates instead of aborting. Replay is
+	fine here (GET, no body; uploads themselves exceed the ~1MB replay cap and
+	must never carry fly-replay). ``fly-replay-src`` marks an already-replayed
+	request — answer it plainly so a fully-busy fleet can't replay-loop.
+
+	``debug_simulate_busy`` fakes the busy path for THIS REQUEST ONLY — no
+	state is touched, so it's safe ungated in prod (a caller can only make
+	their own preflight bounce). ``=any`` matches every machine (exercises the
+	replay + loop-guard chain end to end); ``=<machine_id>`` fakes busy only
+	there (exercises the happy-path migration to a ready sibling). The
+	simulated 503 sets ``"simulated_busy": true`` so it can't be mistaken for
+	real backpressure when observing.
 	"""
 	st = worker_status()
-	if st["pending_tasks"] >= MAX_PENDING_TASKS:
-		return JSONResponse(
-			status_code=503,
-			content={"status": "busy", **st},
-			headers={"Retry-After": str(QUEUE_FULL_RETRY_AFTER_SECONDS)},
-		)
-	return {"status": "ready", **st}
+	simulated = debug_simulate_busy is not None and debug_simulate_busy in (FLY_MACHINE_ID, "any")
+	if simulated or st["pending_tasks"] >= MAX_PENDING_TASKS:
+		headers = {"Retry-After": str(QUEUE_FULL_RETRY_AFTER_SECONDS)}
+		if "fly-replay-src" not in request.headers:
+			headers["fly-replay"] = "elsewhere=true"
+		content = {"status": "busy", "fly_machine_id": FLY_MACHINE_ID, **st}
+		if simulated:
+			content["simulated_busy"] = True
+		return JSONResponse(status_code=503, content=content, headers=headers)
+	return {"status": "ready", "fly_machine_id": FLY_MACHINE_ID, **st}
 
 @app.post("/debug/max_pending_tasks")
 async def debug_set_max_pending_tasks(value: int):

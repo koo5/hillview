@@ -36,6 +36,9 @@ class TestReadyEndpoint:
 		body = response.json()
 		assert body["status"] == "ready"
 		assert body["pending_tasks"] == 0
+		# machine id is always in the body so clients can pin uploads to the
+		# machine that answered ready (fly-force-instance-id request header)
+		assert "fly_machine_id" in body
 
 	def test_busy_when_queue_full(self, client, full_queue):
 		response = client.get("/ready")
@@ -43,7 +46,39 @@ class TestReadyEndpoint:
 		body = response.json()
 		assert body["status"] == "busy"
 		assert body["pending_tasks"] == 2
+		assert "fly_machine_id" in body
 		assert response.headers["retry-after"] == str(worker_app.QUEUE_FULL_RETRY_AFTER_SECONDS)
+		# busy asks the Fly edge to re-run the preflight on a sibling machine
+		assert response.headers["fly-replay"] == "elsewhere=true"
+
+	def test_busy_replayed_request_not_replayed_again(self, client, full_queue):
+		"""A request already carrying fly-replay-src was replayed once — answer
+		plainly so a fully-busy fleet can't loop replays."""
+		response = client.get(
+			"/ready",
+			headers={"fly-replay-src": "instance=d8de7d0b903e68;region=fra;t=1752400000000000"},
+		)
+		assert response.status_code == 503
+		assert "fly-replay" not in response.headers
+		assert response.json()["status"] == "busy"
+
+	def test_simulated_busy_any(self, client):
+		"""debug_simulate_busy=any fakes the busy path with no state touched."""
+		response = client.get("/ready?debug_simulate_busy=any")
+		assert response.status_code == 503
+		body = response.json()
+		assert body["simulated_busy"] is True
+		assert body["pending_tasks"] == 0  # real state untouched
+		assert response.headers["fly-replay"] == "elsewhere=true"
+		# and a plain request is still ready
+		assert client.get("/ready").status_code == 200
+
+	def test_simulated_busy_other_machine_ignored(self, client, monkeypatch):
+		"""Simulation targeting a different machine id leaves this one ready."""
+		monkeypatch.setattr(worker_app, "FLY_MACHINE_ID", "aaaa11112222")
+		response = client.get("/ready?debug_simulate_busy=bbbb33334444")
+		assert response.status_code == 200
+		assert response.json()["fly_machine_id"] == "aaaa11112222"
 
 
 class TestUploadBackpressure:
