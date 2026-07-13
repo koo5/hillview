@@ -19,7 +19,7 @@ Two data sources:
 Usage:
     ./fly_worker_status.py                      # edge poll, live loop
     ./fly_worker_status.py --once               # single snapshot, then exit
-    ./fly_worker_status.py --source prometheus  # non-perturbing, from metrics
+    ./fly_worker_status.py --source prometheus --token-file ~/secrets/fly_ro
     ./fly_worker_status.py --app other-app
 
 Only `started` machines are polled in edge mode -- suspended/stopped machines
@@ -177,11 +177,25 @@ def fetch_prometheus(prom_url, org, token, app, timeout):
 	"""Query Fly's managed Prometheus for the worker_* gauges. Returns
 	{instance_label -> data dict} shaped like a /status response so render() can
 	consume it unchanged. Reads scraped data — never touches the machines."""
-	query = '{__name__=~"worker_.*",app="%s"}' % app
+	# last_over_time[2m]: a bare instant query drops a series after even one
+	# missed scrape (VictoriaMetrics' staleness is much tighter than 5m), which
+	# blinked healthy machines to "ERR no metric". The 2m rollup rides out
+	# scrape hiccups; a machine with NO sample for 2m is genuinely dark/new —
+	# exactly what "no metric" should mean. VM preserves __name__ through
+	# last_over_time (verified live 2026-07-13); plain Prometheus would strip it.
+	query = 'last_over_time({__name__=~"worker_.*",app="%s"}[2m])' % app
 	url = f"{prom_url.rstrip('/')}/prometheus/{org}/api/v1/query?query=" + urllib.parse.quote(query)
 	req = urllib.request.Request(url, headers={"Authorization": auth_header(token), "accept": "application/json"})
-	with urllib.request.urlopen(req, timeout=timeout) as resp:
-		payload = json.loads(resp.read().decode())
+	try:
+		with urllib.request.urlopen(req, timeout=timeout) as resp:
+			payload = json.loads(resp.read().decode())
+	except urllib.error.HTTPError as e:
+		if e.code == 401:
+			raise RuntimeError(
+				"prometheus auth rejected (401): Fly's Prometheus does not accept "
+				"`fly auth token` tokens — pass --token-file with an org token from "
+				"`fly tokens create readonly -o <org>` (or set FLY_API_TOKEN to one)")
+		raise
 	if payload.get("status") != "success":
 		raise RuntimeError(f"prometheus query error: {payload.get('error') or payload.get('status')}")
 	out = {}
@@ -218,6 +232,20 @@ def norm_phase(phase):
 	return re.sub(r"(wait_stagger)_\d+s", r"\1", phase or "")
 
 
+# Pipeline order for displaying phases: queued, then the admission gates, then
+# the actual work stages in processing order. Unknown phases sort last.
+PHASE_ORDER = ["queued", "wait_serial", "wait_stagger", "wait_ram",
+			   "read_exif", "anonymizing", "yolo", "blur",
+			   "encode_sizes", "dzi_pyramid", "notifying_api"]
+
+
+def phase_sort_key(name):
+	for i, prefix in enumerate(PHASE_ORDER):
+		if name.startswith(prefix):
+			return (i, name)
+	return (len(PHASE_ORDER), name)
+
+
 def timeline_lines(machines, results):
 	"""One compact greppable line per polled machine — the append-only history
 	that the live screen redraw destroys. Written to --timeline for post-mortems
@@ -236,7 +264,7 @@ def timeline_lines(machines, results):
 		for p in data.get("active_phases") or []:
 			name = norm_phase(p.get("phase"))
 			phases[name] = phases.get(name, 0) + 1
-		phase_str = " ".join(f"{k}={v}" for k, v in sorted(phases.items())) or "-"
+		phase_str = " ".join(f"{k}={v}" for k, v in sorted(phases.items(), key=lambda kv: phase_sort_key(kv[0]))) or "-"
 		lag = data.get("event_loop_lag_s")
 		lines.append(
 			f"{ts} {mid} ram={data.get('available_ram_mb', '?')} "
@@ -257,7 +285,7 @@ def phase_summary(active_phases, width):
 		counts[name] = counts.get(name, 0) + 1
 	if not counts:
 		return dim("-")
-	parts = [f"{name}×{n}" for name, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+	parts = [f"{name}×{n}" for name, n in sorted(counts.items(), key=lambda kv: phase_sort_key(kv[0]))]
 	s = " ".join(parts)
 	if len(s) > width:
 		s = s[: width - 1] + "…"
@@ -271,7 +299,7 @@ HEADER = (
 )
 
 
-def render(app, base_url, machines, results, list_age):
+def render(app, base_url, machines, results, list_age, error_note=None):
 	term_w = os.get_terminal_size().columns if sys.stdout.isatty() else 120
 	lines = []
 	now = time.strftime("%H:%M:%S")
@@ -373,11 +401,16 @@ def render(app, base_url, machines, results, list_age):
 	)
 	if fleet_phases:
 		hist = "  ".join(
-			f"{name}×{n}" for name, n in sorted(fleet_phases.items(), key=lambda kv: -kv[1])
+			f"{name}×{n}" for name, n in sorted(fleet_phases.items(), key=lambda kv: phase_sort_key(kv[0]))
 		)
 		if len(hist) > term_w:
 			hist = hist[: term_w - 1] + "…"
 		lines.append(dim("phases: ") + hist)
+
+	# Persistent error line INSIDE the frame — stderr prints are wiped by the
+	# screen redraw, which turned auth failures into cryptic "ERR n/a" rows.
+	if error_note:
+		lines.append(red(f"error: {error_note}"))
 
 	return "\n".join(lines)
 
@@ -448,6 +481,7 @@ def main():
 
 			started = [m for m in machines if m.get("state") == "started"]
 			results = {}
+			error_note = None
 			if args.source == "prometheus":
 				if not org:
 					print(red("could not determine Fly org for Prometheus; pass --org"), file=sys.stderr)
@@ -458,7 +492,9 @@ def main():
 						data = match_metrics(by_inst, m)
 						results[m["id"]] = (data, None) if data else (None, "no metric")
 				except Exception as e:  # noqa: BLE001 - keep looping on transient query errors
-					print(red(f"prometheus query failed: {e}"), file=sys.stderr)
+					error_note = str(e)
+					for m in started:
+						results[m["id"]] = (None, "query failed")
 			elif started:
 				with ThreadPoolExecutor(max_workers=min(16, len(started))) as ex:
 					futs = {
@@ -479,7 +515,7 @@ def main():
 
 			src_label = base_url if args.source == "edge" else f"prometheus:{org}"
 			if not args.quiet:
-				frame = render(args.app, src_label, machines, results, time.monotonic() - list_fetched_at)
+				frame = render(args.app, src_label, machines, results, time.monotonic() - list_fetched_at, error_note)
 				if args.once:
 					print(frame)
 					return 0
