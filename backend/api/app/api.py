@@ -387,6 +387,10 @@ import contact_routes
 
 app.include_router(contact_routes.router)
 
+import admin_routes
+
+app.include_router(admin_routes.router)
+
 import worker_routes
 
 app.include_router(worker_routes.router)

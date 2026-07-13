@@ -11,7 +11,7 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import FlaggedPhoto, User
+from common.models import FlaggedPhoto, User, UserRole
 from auth import get_current_active_user
 from rate_limiter import rate_limit_photo_operations
 
@@ -209,7 +209,7 @@ async def list_all_flagged_photos(
 ):
 	"""List all flagged photos (admin/moderator only)."""
 	# Check if user has admin/moderator permissions
-	if current_user.role not in ['ADMIN', 'MODERATOR']:
+	if current_user.role not in (UserRole.ADMIN, UserRole.MODERATOR):
 		raise HTTPException(
 			status_code=status.HTTP_403_FORBIDDEN,
 			detail="Insufficient permissions. Admin or moderator access required."
@@ -263,7 +263,7 @@ async def resolve_flag(
 ):
 	"""Mark a flagged photo as resolved (admin/moderator only)."""
 	# Check if user has admin/moderator permissions
-	if current_user.role not in ['ADMIN', 'MODERATOR']:
+	if current_user.role not in (UserRole.ADMIN, UserRole.MODERATOR):
 		raise HTTPException(
 			status_code=status.HTTP_403_FORBIDDEN,
 			detail="Insufficient permissions. Admin or moderator access required."
