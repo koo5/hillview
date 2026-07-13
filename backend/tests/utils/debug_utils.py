@@ -534,9 +534,12 @@ class TokenManager:
 		# access_token) lets the existing _refresh() flow keep it alive.
 		user, password = self.user, self.password
 		if not (user and password):
-			from .auth_utils import TEST_CREDENTIALS
+			# Non-destructive default: log in as the shared 'test' user without
+			# recreating (which would wipe the data this tool inspects/uploads).
+			# Sourced from the canonical list, not the test-mutable credentials dict.
+			from common.test_users import TEST_USER_PASSWORDS
 			user = "test"
-			password = TEST_CREDENTIALS[user]
+			password = TEST_USER_PASSWORDS[user]
 		token_url = f"{self.api_url}/auth/token"
 		response = requests.post(
 			token_url,

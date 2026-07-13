@@ -6,13 +6,26 @@ Consolidates common authentication patterns to reduce duplication.
 import requests
 from typing import Dict, Tuple
 from .test_utils import recreate_test_users, API_URL
+from common.test_users import TEST_USER_PASSWORDS
 
-# Standard test credentials
-TEST_CREDENTIALS = {
-    "test": "StrongTestPassword123!",
-    "admin": "StrongAdminPassword123!",
-    "testuser": "StrongTestUserPassword123!"  # a second regular (non-admin) user
-}
+# Live test credentials (username -> password). Seeded from the canonical shared
+# list, then overridden at runtime by whatever the server's recreate-test-users
+# actually returned (see update_test_credentials) — so the suite also works
+# against a server whose test-user passwords differ from these defaults.
+TEST_CREDENTIALS = dict(TEST_USER_PASSWORDS)
+
+
+def update_test_credentials(passwords: Dict[str, str]) -> None:
+    """Merge server-reported test-user passwords into TEST_CREDENTIALS in place.
+
+    Called after a successful recreate-test-users so tests authenticate with the
+    passwords the running server actually set. Clears cached tokens since a
+    password may have changed.
+    """
+    if not passwords:
+        return
+    TEST_CREDENTIALS.update(passwords)
+    auth_helper.clear_token_cache()
 
 class AuthTestHelper:
     """Helper class for authentication operations in tests."""

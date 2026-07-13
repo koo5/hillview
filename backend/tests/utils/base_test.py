@@ -6,7 +6,7 @@ Reduces duplication and provides consistent test setup/teardown.
 import asyncio
 from typing import Dict, List
 from .test_utils import recreate_test_users, API_URL
-from .auth_utils import AuthTestHelper, TEST_CREDENTIALS
+from .auth_utils import AuthTestHelper
 
 class BaseIntegrationTest:
     """Base class for integration tests with common setup and utilities."""
@@ -16,7 +16,6 @@ class BaseIntegrationTest:
         """Class-level setup run once before all tests in the class."""
         cls.api_url = API_URL
         cls.auth_helper = AuthTestHelper(cls.api_url)
-        cls.test_credentials = TEST_CREDENTIALS.copy()
     
     def setUp(self):
         """Setup run before each test method."""

@@ -792,14 +792,8 @@ async def recreate_test_users() -> dict:
 
 	async with SessionLocal() as db:
 
-		from common.models import UserRole
-
-		# Hardcoded test users with roles
-		test_user_data = [
-			("test", "StrongTestPassword123!", UserRole.USER),
-			("admin", "StrongAdminPassword123!", UserRole.ADMIN),
-			("testuser", "StrongTestUserPassword123!", UserRole.USER),
-		]
+		# Canonical test-user list, shared with the test suite (single source of truth).
+		from common.test_users import TEST_USER_ACCOUNTS as test_user_data
 
 		summary = {
 			"photos_deleted": 0,
