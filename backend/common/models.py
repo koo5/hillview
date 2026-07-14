@@ -359,6 +359,34 @@ class AnnotationModeration(Base):
 	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class UserModeration(Base):
+	"""Audit trail of admin user-management actions (role changes, suspensions,
+	deletions), mirroring the other moderation-audit tables: denormalized and
+	FK-cascade-free so the record survives deletion of the actor or the target.
+	"""
+	__tablename__ = "user_moderation"
+
+	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+	action: Mapped[str] = mapped_column(String(32), index=True)  # 'role_change' | 'suspend' | 'reactivate' | 'delete'
+
+	# Actor (the admin performing the action) — denormalized snapshot.
+	actor_user_id: Mapped[str] = mapped_column(String, index=True)
+	actor_username: Mapped[Optional[str]] = mapped_column(String)
+	actor_role: Mapped[Optional[str]] = mapped_column(String)
+
+	# Subject (the user acted upon) — denormalized snapshot.
+	target_user_id: Mapped[str] = mapped_column(String, index=True)
+	target_username: Mapped[Optional[str]] = mapped_column(String)
+
+	old_role: Mapped[Optional[str]] = mapped_column(String)
+	new_role: Mapped[Optional[str]] = mapped_column(String)
+	old_active: Mapped[Optional[bool]] = mapped_column(Boolean)
+	new_active: Mapped[Optional[bool]] = mapped_column(Boolean)
+	reason: Mapped[Optional[str]] = mapped_column(Text)
+
+	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class UserPublicKey(Base):
 	__tablename__ = "user_public_keys"
 

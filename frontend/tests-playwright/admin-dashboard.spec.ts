@@ -91,11 +91,28 @@ test.describe('Admin dashboard', () => {
 			if (!r.ok) throw new Error(`seed flag failed: ${r.status}`);
 		}
 
+		// A user-management action should also surface in the feed.
+		const adminToken = await getUserToken('admin', testUsers.passwords.admin);
+		const tuId = await (await fetch(`${BACKEND_URL}/api/admin/users?search=testuser`, {
+			headers: { Authorization: `Bearer ${adminToken}` },
+		})).json().then((d: any) => d.users[0].id);
+		await fetch(`${BACKEND_URL}/api/admin/users/${tuId}`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+			body: JSON.stringify({ role: 'moderator' }),
+		});
+
 		await loginAs(page, 'admin', testUsers.passwords.admin);
 		await page.goto('/admin');
 
 		await expect(page.getByTestId('admin-activity')).toBeVisible();
 		await expect(page.getByTestId('admin-activity-item').first()).toBeVisible({ timeout: T(15000) });
+
+		// The user-management action shows as a 'user' row linking to user management.
+		const userItem = page.locator('[data-testid="admin-activity-item"][data-kind="user"]').first();
+		await expect(userItem).toBeVisible();
+		await expect(userItem).toContainText('role');
+		await expect(userItem).toHaveAttribute('href', '/admin/users');
 
 		// The 3-flag burst is squashed into one row, and 'test' (an ordinary user)
 		// is highlighted.

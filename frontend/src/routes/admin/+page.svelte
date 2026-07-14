@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Shield, Mail, Flag, ScrollText, MessageSquare, Image, Lock } from 'lucide-svelte';
+	import { Shield, Mail, Flag, ScrollText, MessageSquare, Image, Users, Lock } from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import ProfileGate from '$lib/components/ProfileGate.svelte';
@@ -27,6 +27,7 @@
 		annotation: MessageSquare,
 		moderation: ScrollText,
 		upload: Image,
+		user: Users,
 	};
 
 	// Highlight actors who aren't staff (admin/moderator) so community activity
@@ -122,6 +123,14 @@
 							<span class="card-title">Moderation audit</span>
 						</div>
 						<div class="card-sub">admin/moderator deletions</div>
+					</a>
+
+					<a class="admin-card link" href="/admin/users" data-testid="admin-card-users">
+						<div class="card-top">
+							<Users size={20} />
+							<span class="card-title">User management</span>
+						</div>
+						<div class="card-sub">roles, suspend, delete</div>
 					</a>
 				</section>
 
@@ -344,6 +353,9 @@
 	}
 	.kind-upload {
 		background: #059669;
+	}
+	.kind-user {
+		background: #7c3aed;
 	}
 
 	.activity-text {

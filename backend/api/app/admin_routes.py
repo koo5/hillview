@@ -20,7 +20,8 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import (
-	AnnotationModeration, ContactMessage, FlaggedPhoto, Photo, PhotoAnnotation, PhotoModerationAudit, User,
+	AnnotationModeration, ContactMessage, FlaggedPhoto, Photo, PhotoAnnotation, PhotoModerationAudit,
+	User, UserModeration, UserRole,
 )
 from auth import require_admin, require_moderator
 from push_notifications import create_notification_for_user
@@ -155,6 +156,172 @@ async def update_contact_message(
 	await db.commit()
 	await db.refresh(msg)
 	return _serialize_contact_message(msg)
+
+
+# --- User management (admin-only) -------------------------------------------
+
+def _serialize_user(u: User, photo_count: Optional[int] = None) -> dict:
+	return {
+		"id": u.id,
+		"username": u.username,
+		"email": u.email,
+		"role": _role_str(u.role),
+		"is_active": u.is_active,
+		"is_verified": u.is_verified,
+		"oauth_provider": u.oauth_provider,
+		"created_at": u.created_at,
+		"photo_count": photo_count,
+	}
+
+
+async def _is_last_active_admin(db: AsyncSession, target: User) -> bool:
+	"""True if `target` is the only remaining active admin — removing their admin
+	access (demote/suspend/delete) would leave the instance with no admin."""
+	if target.role != UserRole.ADMIN or not target.is_active:
+		return False
+	n = await db.scalar(
+		select(func.count()).select_from(User).where(User.role == UserRole.ADMIN, User.is_active.is_(True))
+	)
+	return (n or 0) <= 1
+
+
+class UserUpdateRequest(BaseModel):
+	role: Optional[str] = None
+	is_active: Optional[bool] = None
+	reason: Optional[str] = None
+
+
+@router.get("/users")
+async def list_users(
+	limit: int = 50,
+	offset: int = 0,
+	search: Optional[str] = None,
+	current_user: User = Depends(require_admin()),
+	db: AsyncSession = Depends(get_db),
+):
+	"""List user accounts (admin-only), newest first, with a live photo count.
+	Optional case-insensitive search over username/email."""
+	photo_counts = (
+		select(Photo.owner_id.label('owner_id'), func.count(Photo.id).label('cnt'))
+		.where(Photo.deleted.is_(False))
+		.group_by(Photo.owner_id)
+		.subquery()
+	)
+	query = (
+		select(User, photo_counts.c.cnt)
+		.join(photo_counts, User.id == photo_counts.c.owner_id, isouter=True)
+		.order_by(desc(User.created_at))
+	)
+	if search:
+		like = f"%{search}%"
+		query = query.where(or_(User.username.ilike(like), User.email.ilike(like)))
+	query = query.offset(max(0, offset)).limit(max(1, min(limit, 200)))
+
+	rows = (await db.execute(query)).all()
+	return {"users": [_serialize_user(u, cnt) for u, cnt in rows]}
+
+
+@router.patch("/users/{user_id}")
+async def update_user(
+	user_id: str,
+	payload: UserUpdateRequest,
+	current_user: User = Depends(require_admin()),
+	db: AsyncSession = Depends(get_db),
+):
+	"""Change a user's role and/or active (suspended) status. You cannot modify
+	your own account here, and the last active admin cannot be removed."""
+	if user_id == current_user.id:
+		raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot change your own role or status here.")
+
+	target = await db.get(User, user_id)
+	if target is None:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+	old_role = _role_str(target.role)
+	old_active = target.is_active
+
+	new_role_enum = target.role
+	if payload.role is not None:
+		try:
+			new_role_enum = UserRole(payload.role)
+		except ValueError:
+			raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role. Allowed: user, moderator, admin")
+	new_active = target.is_active if payload.is_active is None else payload.is_active
+
+	# Guard: never strip the last active admin's access.
+	remains_active_admin = (new_role_enum == UserRole.ADMIN) and new_active
+	if not remains_active_admin and await _is_last_active_admin(db, target):
+		raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot remove the last active admin.")
+
+	changed = False
+	if payload.role is not None and new_role_enum != target.role:
+		target.role = new_role_enum
+		changed = True
+	if payload.is_active is not None and payload.is_active != target.is_active:
+		target.is_active = payload.is_active
+		changed = True
+
+	if not changed:
+		return _serialize_user(target)
+
+	new_role = _role_str(target.role)
+	action = 'role_change' if new_role != old_role else ('reactivate' if target.is_active else 'suspend')
+	db.add(UserModeration(
+		action=action,
+		actor_user_id=current_user.id,
+		actor_username=current_user.username,
+		actor_role=_role_str(current_user.role),
+		target_user_id=target.id,
+		target_username=target.username,
+		old_role=old_role, new_role=new_role,
+		old_active=old_active, new_active=target.is_active,
+		reason=(payload.reason.strip() if payload.reason and payload.reason.strip() else None),
+	))
+	await db.commit()
+	await db.refresh(target)
+	return _serialize_user(target)
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(
+	user_id: str,
+	reason: Optional[str] = None,
+	current_user: User = Depends(require_admin()),
+	db: AsyncSession = Depends(get_db),
+):
+	"""Hard-delete a user and cascade their content. You cannot delete yourself,
+	nor the last active admin. Photo files are removed first, then the row is
+	deleted (DB cascade handles the rest), mirroring self-service account deletion."""
+	if user_id == current_user.id:
+		raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot delete your own account here.")
+
+	target = await db.get(User, user_id)
+	if target is None:
+		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+	if await _is_last_active_admin(db, target):
+		raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot delete the last active admin.")
+
+	# Remove photo files before the DB cascade drops the rows.
+	photos = (await db.execute(select(Photo).where(Photo.owner_id == target.id))).scalars().all()
+	if photos:
+		from photos import delete_all_user_photo_files
+		await delete_all_user_photo_files(photos)
+
+	# Denormalized audit row (no FK to users) survives the cascade.
+	db.add(UserModeration(
+		action='delete',
+		actor_user_id=current_user.id,
+		actor_username=current_user.username,
+		actor_role=_role_str(current_user.role),
+		target_user_id=target.id,
+		target_username=target.username,
+		old_role=_role_str(target.role), new_role=None,
+		old_active=target.is_active, new_active=None,
+		reason=(reason.strip() if reason and reason.strip() else None),
+	))
+	await db.delete(target)
+	await db.commit()
+	return {"message": "User deleted"}
 
 
 @router.get("/annotation-events")
@@ -423,6 +590,17 @@ def _activity_summary(kind: str, event_type: str, count: int, ctx: dict) -> str:
 	if kind == 'upload':
 		label = ctx.get('label') or 'a photo'
 		return f'uploaded {label}' if count == 1 else f'uploaded {count} photos'
+	if kind == 'user':
+		target = ctx.get('target') or 'a user'
+		if event_type == 'role_change':
+			return f"changed {target}'s role to {ctx.get('new_role')}" if count == 1 else f"changed {count} users' roles"
+		if event_type == 'suspend':
+			return f'suspended {target}' if count == 1 else f'suspended {count} users'
+		if event_type == 'reactivate':
+			return f'reactivated {target}' if count == 1 else f'reactivated {count} users'
+		if event_type == 'delete':
+			return f'deleted user {target}' if count == 1 else f'deleted {count} users'
+		return f'updated {target}'
 	return ''
 
 
@@ -438,6 +616,8 @@ def _activity_link(kind: str, count: int, ctx: dict) -> Optional[str]:
 	if kind == 'upload':
 		# A single upload deep-links to the photo; a collapsed burst goes to the feed.
 		return f"/photo/{ctx['uid']}" if count == 1 and ctx.get('uid') else '/activity'
+	if kind == 'user':
+		return '/admin/users'
 	return None
 
 
@@ -510,6 +690,17 @@ async def admin_activity(
 		raw.append({'kind': 'upload', 'id': p.id, 'at': p.uploaded_at,
 			'actor': username or 'someone', 'actor_role': _role_str(role),
 			'event_type': 'created', 'ctx': {'label': p.title or p.original_filename, 'uid': f'hillview-{p.id}'}})
+
+	# User-management actions (role changes, suspensions, deletions) — denormalized
+	# snapshots on the audit row, so no joins.
+	rows = (await db.execute(
+		select(UserModeration).order_by(desc(UserModeration.created_at)).limit(n)
+	)).scalars().all()
+	for u in rows:
+		raw.append({'kind': 'user', 'id': u.id, 'at': u.created_at,
+			'actor': u.actor_username or u.actor_user_id, 'actor_role': _role_str(u.actor_role),
+			'event_type': u.action,
+			'ctx': {'target': u.target_username or 'a user', 'new_role': u.new_role, 'old_role': u.old_role}})
 
 	# Newest first (guard against a stray NULL timestamp).
 	raw.sort(key=lambda e: e['at'].timestamp() if e['at'] else 0.0, reverse=True)
