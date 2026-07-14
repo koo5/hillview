@@ -20,10 +20,12 @@ retries it); the other workers and the whole queued backlog keep going.
 
 ``spawn`` (not ``fork``) is mandatory: the parent is multithreaded (uvicorn, the
 ping loop, these drainer threads) and forking a multithreaded process risks
-deadlock. Heavy imports (cv2, torch, ultralytics via ``photo_processor``) happen
-lazily inside the child entrypoint, so importing this module — in the parent or
-a freshly spawned worker — stays cheap; each worker pays the ~10 s import once,
-on its first photo.
+deadlock. Heavy imports (cv2, torch, ultralytics via ``photo_processor``) never
+run in the parent; the worker child warms them at spawn, BEFORE pulling its
+first job — so the RSS they cost (~700 MB) is already on the books when the
+parent's admission RAM gate measures the machine, instead of landing mid-photo
+right after the first admission. (The YOLO weights themselves still load
+lazily on first detection.)
 
 Per-photo phase updates (``read_exif``, ``yolo_scale_*`` …) normally land in
 ``processing_state._active`` in-process. Since processing now runs in a child,
@@ -148,6 +150,20 @@ def _worker_main(worker_idx, job_queue, result_queue, phase_queue, threads=1):
 	threads-in-one-child over one-child-per-slot."""
 	_install_phase_pipe(phase_queue)
 	logger.info(f"[worker {worker_idx}] started (pid={multiprocessing.current_process().pid}, threads={threads})")
+
+	# Warm the heavy imports BEFORE any job is pulled: this pre-pays the
+	# ~700 MB / ~10 s of cv2+torch+ultralytics at spawn, so the parent's RAM
+	# gate always measures the settled post-import baseline (otherwise the
+	# first admission's RAM check runs before the growth it triggers). Failures
+	# are non-fatal — the per-job import would surface the same error as a
+	# normal, retriable job failure.
+	t0 = time.monotonic()
+	for mod in ("photo_processor", "anonymize"):
+		try:
+			__import__(mod)
+		except Exception as e:  # noqa: BLE001
+			logger.error(f"[worker {worker_idx}] warm-up import of {mod} failed: {e}")
+	logger.info(f"[worker {worker_idx}] warm-up imports done in {time.monotonic() - t0:.1f}s")
 
 	def _pull_loop():
 		while True:

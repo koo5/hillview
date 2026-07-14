@@ -20,6 +20,7 @@ IMPORTANT — Startup time & lazy loading:
   photo_processor, cv2, pyvips, or PIL at module load time.
 """
 import os
+import signal
 import asyncio
 import json
 import threading
@@ -170,8 +171,11 @@ async def lifespan(app: FastAPI):
 	worker_processing.start(int(os.getenv("WORKER_POOL_PROCESSES", "1")),
 							asyncio.get_event_loop(),
 							threads=PARALLEL_PROCESSING_CONCURRENCY)
-	global _lag_task
+	global _lag_task, _bored_task
 	_lag_task = asyncio.create_task(_event_loop_lag_monitor())
+	# Always runs (60 s log heartbeat = freeze forensics); the bored-shutdown
+	# part inside is gated on BORED_SHUTDOWN_SECONDS > 0.
+	_bored_task = asyncio.create_task(_bored_shutdown_loop())
 	yield
 	worker_processing.shutdown()
 
@@ -299,10 +303,71 @@ _inflight_requests = 0    # HTTP requests currently being served
 _event_loop_lag_s = 0.0   # measured asyncio scheduling lag (see monitor below)
 _lag_task = None          # keeps the monitor task alive / from being GC'd
 
+# ---------------------------------------------------------------------------
+# Bored shutdown: when this machine has had no pending work and no meaningful
+# traffic for BORED_SHUTDOWN_SECONDS, exit cleanly — Fly stops the VM and the
+# proxy autostarts one on the next request (~6 s cold, measured). Much faster
+# than waiting out the proxy's own excess-capacity logic, and needs no Fly
+# token. 0 (default) disables; set e.g. 180 in fly.toml [env] to enable.
+# Requires min_machines_running=0 (a higher minimum would make the proxy
+# restart what we just stopped). Platform noise (health checks every 30 s,
+# metrics scrapes every 15 s, status pollers) does NOT count as activity, or
+# nothing would ever be bored. SIGTERM-to-self so uvicorn shuts down
+# gracefully (lifespan teardown incl. the worker pool) and exits 0 — under the
+# on-failure restart policy that means "stay stopped", not "restart".
+BORED_SHUTDOWN_SECONDS = int(os.getenv("BORED_SHUTDOWN_SECONDS", "0"))
+
+_NOISE_PATHS = {"/servicecheck", "/health", "/appcheck", "/metrics", "/status", "/status_help"}
+_last_activity = time.monotonic()  # boot counts as activity (grace for the waking request)
+_bored_task = None
+
+
+def _bored_for():
+	"""Seconds of boredom if this machine is shutdown-eligible, else None.
+
+	Not bored while: work is pending or in the pool, any HTTP request is in
+	flight (don't exit mid-upload; a metrics scrape just defers to the next
+	tick), or a non-noise request arrived within BORED_SHUTDOWN_SECONDS."""
+	if pending_tasks_count() > 0 or worker_processing.pending_count() > 0:
+		return None
+	if _inflight_requests > 0:
+		return None
+	idle = time.monotonic() - _last_activity
+	return idle if idle >= BORED_SHUTDOWN_SECONDS else None
+
+
+async def _bored_shutdown_loop():
+	"""15 s tick: log a liveness heartbeat every 4th tick (60 s), and — when
+	BORED_SHUTDOWN_SECONDS is enabled — exit once bored.
+
+	The heartbeat doubles as freeze forensics: the 2026-07-13/14 incidents were
+	VMs going silent mid-air, and a fixed log cadence turns 'silence' into a
+	measurable onset time (last heartbeat + ≤60 s) even on an idle machine."""
+	started = time.monotonic()
+	tick = 0
+	while True:
+		await asyncio.sleep(5)
+		tick += 1
+		if True:#tick % 12 == 0:
+			idle = time.monotonic() - _last_activity
+			logger.info(
+				f"[heartbeat] up={time.monotonic() - started:.0f}s pending={pending_tasks_count()} pool={worker_processing.pending_count()} inflight={_inflight_requests} lag={_event_loop_lag_s:.3f}s idle={idle:.0f}s" + (f" (bored-shutdown at {BORED_SHUTDOWN_SECONDS}s)" if BORED_SHUTDOWN_SECONDS > 0 else ""))
+		if BORED_SHUTDOWN_SECONDS > 0:
+			idle = _bored_for()
+			if idle is not None:
+				logger.warning(
+					f"[bored] no pending work and no client traffic for {idle:.0f}s "
+					f"(>= BORED_SHUTDOWN_SECONDS={BORED_SHUTDOWN_SECONDS}) — exiting cleanly; "
+					f"Fly stops this machine and autostarts on next request")
+				os.kill(os.getpid(), signal.SIGTERM)
+				return
+
 
 @app.middleware("http")
 async def _count_inflight(request: Request, call_next):
-	global _inflight_requests
+	global _inflight_requests, _last_activity
+	if request.url.path not in _NOISE_PATHS:
+		_last_activity = time.monotonic()
 	_inflight_requests += 1
 	try:
 		return await call_next(request)

@@ -11,6 +11,14 @@ os.environ.setdefault("UPLOAD_DIR", tempfile.mkdtemp(prefix="hillview-test-uploa
 import app as worker_app
 
 
+@pytest.fixture(autouse=True)
+def _no_worker_pool(monkeypatch):
+	"""Don't spawn the real worker child: its spawn-time warm-up imports
+	cv2/torch (tens of seconds), and these tests exercise HTTP surfaces only."""
+	monkeypatch.setattr(worker_app.worker_processing, "start", lambda *a, **k: None)
+	monkeypatch.setattr(worker_app.worker_processing, "shutdown", lambda: None)
+
+
 @pytest.fixture
 def client():
 	with TestClient(worker_app.app) as c:
@@ -90,6 +98,43 @@ class TestReadyEndpoint:
 		response = client.get("/ready?debug_simulate_busy=bbbb33334444")
 		assert response.status_code == 200
 		assert response.json()["fly_machine_id"] == "aaaa11112222"
+
+
+class TestBoredShutdown:
+	"""The _bored_for predicate + which requests count as activity."""
+
+	def test_bored_when_idle_past_threshold(self, monkeypatch):
+		monkeypatch.setattr(worker_app, "BORED_SHUTDOWN_SECONDS", 100)
+		monkeypatch.setattr(worker_app, "_last_activity", worker_app.time.monotonic() - 200)
+		idle = worker_app._bored_for()
+		assert idle is not None and idle >= 200
+
+	def test_not_bored_with_recent_activity(self, monkeypatch):
+		monkeypatch.setattr(worker_app, "BORED_SHUTDOWN_SECONDS", 100)
+		monkeypatch.setattr(worker_app, "_last_activity", worker_app.time.monotonic())
+		assert worker_app._bored_for() is None
+
+	def test_not_bored_with_pending_work(self, monkeypatch, full_queue):
+		monkeypatch.setattr(worker_app, "BORED_SHUTDOWN_SECONDS", 100)
+		monkeypatch.setattr(worker_app, "_last_activity", worker_app.time.monotonic() - 200)
+		assert worker_app._bored_for() is None  # full_queue puts 2 fake pending tasks
+
+	def test_not_bored_with_request_in_flight(self, monkeypatch):
+		monkeypatch.setattr(worker_app, "BORED_SHUTDOWN_SECONDS", 100)
+		monkeypatch.setattr(worker_app, "_last_activity", worker_app.time.monotonic() - 200)
+		monkeypatch.setattr(worker_app, "_inflight_requests", 1)
+		assert worker_app._bored_for() is None
+
+	def test_noise_paths_do_not_reset_idleness(self, client, monkeypatch):
+		"""Health checks / metrics scrapes must not count as activity, or an
+		idle machine would never become bored."""
+		old = worker_app.time.monotonic() - 500
+		monkeypatch.setattr(worker_app, "_last_activity", old)
+		client.get("/metrics")
+		client.get("/servicecheck")
+		assert worker_app._last_activity == old
+		client.get("/ready")  # a real client preflight IS activity
+		assert worker_app._last_activity > old
 
 
 class TestUploadBackpressure:

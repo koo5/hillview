@@ -51,6 +51,10 @@ def _stub_heavy_modules():
 				"@contextmanager\n"
 				"def collect_warnings():\n"
 				"    yield []\n")
+	# stub anonymize too: the child's spawn-time warm-up imports it, and the
+	# real one pulls torch (~10 s per spawned child — 4x's the suite runtime)
+	with open(os.path.join(d, "anonymize.py"), "w") as f:
+		f.write("def anonymize_image(*a, **k):\n    raise NotImplementedError\n")
 	with open(os.path.join(d, "photo_processor.py"), "w") as f:
 		f.write(textwrap.dedent('''
 			import os, asyncio, processing_state
