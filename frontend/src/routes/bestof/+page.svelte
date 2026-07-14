@@ -94,7 +94,7 @@
 
 <PhotoHead
 	title="Best of - Hillview"
-	description="Annotated panoramas from places where cars can't go — the best photos on Hillview."
+	description="The best annotated panoramas on Hillview — hilltop views and vistas from places where cars can't go, labeled to help you name what you're looking at."
 	ogType="website"
 	ogImage={{ url: `${HILLVIEW_BASE_URL}/og-card.png`, width: 1200, height: 630 }}
 	canonicalUrl={`${HILLVIEW_BASE_URL}/bestof`}

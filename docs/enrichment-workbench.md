@@ -100,8 +100,21 @@ Implemented & verified in `enrich/`:
   annotation list | Leaflet map (tiles4.ueueeu.eu; blue photo dot + bearing ray, candidates
   colored by status) + candidate table with ✓/✗/↺.
 
+- **M2b ✅ (calibration bench)** — `app/calibrate.py` (Theil-Sen, anchor auto-pick:
+  approved > wikipedia > best in-view nominatim by cached importance) + `routers/calibrate.py`
+  (`GET /api/panos`, `GET /api/panos/{id}/calibration`, `POST /api/calibrate/accept` —
+  server-side refit is authoritative, run-tracked, emits `hv:calibratedBearing`/
+  `hv:calibratedFov`/`hv:calibrationRms` facts about the pano). UI `/calibration`:
+  pano list → live SVG scatter (Δazimuth vs rect-x, fit line + residual whiskers, click-to-
+  exclude) + anchor table sorted by |residual| + **auto-kick >10°** button; fit recomputes
+  client-side per toggle (`lib/theilsen.ts` mirrors the server), accept persists.
+  **Ground-truth checks:** `333e8851` FOV **81.2°** (old pipeline: 80°); `f4b4d58c` raw
+  136.6° (old label-fit: 138°; `.pto` truth 122° — the gap is outlier contamination, the
+  point of the kick/curation workflow). Anchors improve as geocode curation proceeds —
+  approved candidates always win the auto-pick.
+
 Full detail + next steps: plan file `~/.claude/plans/imperative-crafting-wombat.md`.
-Next: M3 (matching/view-pie bench + Remoulade), or calibration bench, or graduation adapter.
+Next: M3 (matching/view-pie bench + Remoulade), or the push-back/graduation adapter.
 
 ## Why (the reframe)
 

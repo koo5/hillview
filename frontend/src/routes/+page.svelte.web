@@ -33,6 +33,32 @@
 	$: photo = data?.photo ?? null;
 	$: annotations = data?.annotations ?? [];
 	$: ogImage = photo ? pickOgImage(photo) : null;
+
+	// Site-level identity for search engines: Organization (brand + logo, linked
+	// to the Play listing via sameAs) and WebSite. Emitted on the homepage — the
+	// canonical site root — alongside any per-photo ImageObject share card.
+	const siteJsonLd = {
+		'@context': 'https://schema.org',
+		'@graph': [
+			{
+				'@type': 'Organization',
+				'@id': `${HILLVIEW_BASE_URL}/#organization`,
+				name: 'Hillview',
+				url: `${HILLVIEW_BASE_URL}/`,
+				logo: `${HILLVIEW_BASE_URL}/icons/128x128@2x.png`,
+				sameAs: ['https://play.google.com/store/apps/details?id=cz.hillview']
+			},
+			{
+				'@type': 'WebSite',
+				'@id': `${HILLVIEW_BASE_URL}/#website`,
+				name: 'Hillview',
+				url: `${HILLVIEW_BASE_URL}/`,
+				description:
+					"An open photo map of annotated panoramas and hilltop viewpoints — photos from places where cars can't go.",
+				publisher: { '@id': `${HILLVIEW_BASE_URL}/#organization` }
+			}
+		]
+	};
 </script>
 
 {#if photo}
@@ -50,22 +76,29 @@
 {:else}
 	<PhotoHead
 		title="Hillview - annotated panoramas"
-		description="Photos from places where cars can't go"
+		description="An open map of annotated panoramas and hilltop viewpoints — geotagged photos from places where cars can't go, labeled to help you make sense of the view."
 		ogType="website"
 		ogImage={{ url: `${HILLVIEW_BASE_URL}/og-card.png`, width: 1200, height: 630 }}
 		canonicalUrl={`${HILLVIEW_BASE_URL}/`}
 	/>
 {/if}
 
+<JsonLd data={siteJsonLd} />
+
 {#if browser && Main}
 	<svelte:component this={Main} />
 {:else}
-	<!-- SSR / pre-hydration placeholder: gives crawlers an h1 + topical sentence
-	     and users a branded loading state instead of a blank viewport. Replaced
-	     by the app as soon as Main's dynamic import resolves. -->
+	<!-- SSR / pre-hydration placeholder: gives crawlers an h1, a topical sentence
+	     and internal links, and users a branded loading state instead of a blank
+	     viewport. Replaced by the app as soon as Main's dynamic import resolves. -->
 	<div class="loading-hero">
-		<h1>Hillview</h1>
-		<p>Annotated panoramas — <a href="/bestof">browse the best views</a></p>
+		<h1>Hillview — annotated panoramas</h1>
+		<p>An open photo map of hilltop views and panoramas from places where cars can't go, labeled to help you make sense of the view.</p>
+		<p class="loading-links">
+			<a href="/bestof">Browse the best views</a> ·
+			<a href="/about">About Hillview</a> ·
+			<a href="/download">Get the Android app</a>
+		</p>
 		<p class="loading-note">Loading map…</p>
 	</div>
 {/if}

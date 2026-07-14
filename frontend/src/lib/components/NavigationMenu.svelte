@@ -212,6 +212,10 @@
 			{/if}
 
 
+			{#if browser}
+			<!-- Build/support diagnostics (version, commit, API host). Rendered
+			     browser-only so it stays out of the server-rendered HTML that
+			     search crawlers scrape into their result snippets. -->
 			<hr/>
 			<li>
 					<div class="build-info">
@@ -234,6 +238,7 @@
 					</div>
 
 			</li>
+			{/if}
 
 
         </ul>

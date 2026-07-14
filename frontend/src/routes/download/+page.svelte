@@ -9,7 +9,7 @@
 
 <PhotoHead
     title="Download - Hillview"
-    description="Download the Hillview Android app — photo mapping on your phone."
+    description="Get Hillview for Android — explore the photo map of annotated panoramas and capture geotagged photos on the go. Free on Google Play."
     ogType="website"
     ogImage={{ url: `${HILLVIEW_BASE_URL}/og-card.png`, width: 1200, height: 630 }}
     canonicalUrl={`${HILLVIEW_BASE_URL}/download`}
