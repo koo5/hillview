@@ -114,8 +114,14 @@ surfaces follow if/when they earn their place.
 
 - [ ] License-selector copy revised to surface 1-2 sentences on what each
       choice enables.
-- [ ] A "Why this works" / "How it fits together" page exists and is linked
-      from About / menu.
+- [x] The "how it fits together" narrative lives on **/about** (section
+      `id="how-it-works"`, replacing the old marketing-voice About blurb) —
+      decided against a dedicated page to avoid duplicating /about and
+      splitting SEO signals across two near-identical texts. Deep-link
+      target for future license-selector / first-upload links:
+      `/about#how-it-works`. License mechanics (CC vs full1) deliberately
+      absent until the license model ships; Panoramax gets one sentence in
+      "Part of the commons" once federation is live.
 - [ ] After-first-upload acknowledgement implemented (low priority).
 - [ ] Czech translation of the surfaces above.
 

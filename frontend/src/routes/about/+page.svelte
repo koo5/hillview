@@ -36,6 +36,13 @@
 
     onDestroy(() => unsubscribeTileProvider());
 
+    // appActions pulls in the app/map store modules; lazy-load it on click to
+    // keep this page SSR-safe for crawlers (same reason as tileProviders above).
+    async function takePhoto() {
+        const { openCamera } = await import('$lib/appActions');
+        openCamera();
+    }
+
     const techCategories = [
         {
             title: 'Infrastructure & Platform',
@@ -139,17 +146,40 @@
         <p class="tagline">Identify what you're looking at from any hilltop</p>
     </header>
 
-    <section class="about-section">
-        <h2>About Hillview</h2>
+    <section class="about-section" id="how-it-works">
+        <h2>How Hillview fits together</h2>
         <p>
-            Ever stood on a hilltop wondering "What am I looking at?" Hillview solves this age-old problem by using
-            geotagged photos with directional data to help you identify distant landmarks, mountain peaks, and other
-            features from any viewpoint. By combining GPS coordinates with compass bearing information, Hillview creates
-            a directional photo database that turns your device into a smart viewfinder for the landscape around you.
+            <strong>Photos that know where they look.</strong>
+            Every Hillview photo records not just where it was taken, but which direction the camera faced.
+            That one extra number — the bearing — turns a photo into a measurement: <em>from this point,
+            looking this way, these things are visible.</em> Most photo platforms discard it. Hillview is
+            built on it.
         </p>
         <p>
-            Whether you're hiking, exploring new cities, or just curious about your surroundings, Hillview helps you
-            understand what you're seeing by showing you photos taken from other positions pointing in the same direction.
+            <strong>From views to knowledge.</strong>
+            A panorama from a viewpoint shows hundreds of distant features — peaks, towers, buildings,
+            ridges. Annotations pin names to them, turning a nice view into an answer to the question
+            everyone asks up there: <em>"what am I looking at?"</em> Some annotations are still just
+            a <code>?</code> — a feature nobody has identified yet. Knowing what something is, and writing
+            it down, is the most valuable thing anyone can contribute here.
+        </p>
+        <p>
+            <strong>Finding the unanswered.</strong>
+            The same bearings work in reverse. If something on the horizon puzzles you, photos from other
+            places looking at the same spot can reveal it — two bearings crossing on the map pinpoint
+            what you're seeing. That's the Lines tool.
+        </p>
+        <p>
+            <strong>Part of the commons.</strong>
+            Most Hillview photos are contributed under CC BY-SA, and all with an explicit grant for
+            OpenStreetMap use. That means they can help OSM mappers verify the world — and the work
+            contributors put in stays useful beyond this site, whatever happens to it.
+        </p>
+        <p>
+            <strong>Where to start.</strong>
+            Browse the <a href="/bestof">best views</a>. Rate what you like. And when you're somewhere
+            with a view — or just walking down a random street — <a href="/" class="take-photo-link" data-testid="about-take-photo-link" on:click|preventDefault={takePhoto}><Camera size={16} />take a photo</a>.
+            It's one tap on the camera icon on the main page, and it's already a contribution.
         </p>
     </section>
 
@@ -212,7 +242,11 @@
                 <Camera size={16} />
                 Mapillary
             </a>
-        </div>
+            <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" data-external-link="true">
+                <MapPin size={16} />
+                DB-IP
+            </a>
+		</div>
 
     </section>
 
@@ -266,6 +300,12 @@
 </StandardBody>
 
 <style>
+    .take-photo-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+
     .about-header {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         line-height: 1.6;
