@@ -72,7 +72,7 @@ WORKDIR /app/worker
 # Copy application code
 COPY common /app/common
 COPY worker/models /app/worker/models
-COPY worker/start*.sh worker/entrypoint-root.sh /app/worker/
+COPY worker/start*.sh /app/worker/
 COPY worker/*.py /app/worker/
 COPY worker/.env /app/worker/
 
@@ -104,12 +104,14 @@ RUN chmod a=rwx,o+t /tmp
 # `fly ssh console` is the manual escape hatch for a sick-but-sshable machine.
 RUN apt-get update && apt-get install -y busybox && rm -rf /var/lib/apt/lists/*
 
-RUN chmod +x /app/worker/start*.sh /app/worker/entrypoint-root.sh
+RUN chmod +x /app/worker/start*.sh
 
-# Starts as root: entrypoint-root.sh sets guest-kernel panic sysctls (turning
-# an eternal freeze into a 10s self-reboot) then drops to the unprivileged
-# 'worker' user via setpriv before exec'ing start.sh. The app itself never
-# runs as root.
-CMD ["/app/worker/entrypoint-root.sh"]
+# Starts as root: boot.py binds the listen socket within ~50ms (health checks
+# and proxy wakes queue instead of getting connection-refused), sets the
+# guest-kernel panic sysctls (turning an eternal freeze into a 10s
+# self-reboot), then drops to the unprivileged 'worker' user before exec'ing
+# start.sh. The app itself never runs as root. Invoked via python3 so no
+# executable bit is needed (dev bind-mounts shadow image chmods).
+CMD ["python3", "/app/worker/boot.py"]
 
 #CMD ["/usr/bin/bash"]
