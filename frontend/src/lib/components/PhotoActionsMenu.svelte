@@ -3,6 +3,7 @@
 	import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical, Clock, Copyright, CreativeCommons, Trash2 } from 'lucide-svelte';
 	import { auth } from '$lib/auth.svelte.js';
 	import DeletePhotoDialog from './DeletePhotoDialog.svelte';
+	import FlagReasonDialog from './FlagReasonDialog.svelte';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { track } from '$lib/analytics';
 	import { requireAuth } from './signInModal.svelte';
@@ -26,7 +27,6 @@
 		hidePhotoRequest,
 		togglePhotoRating,
 		fetchPhotoRating,
-		flagPhotoRequest,
 		unflagPhotoRequest,
 		fetchIsFlagged,
 		viewPhotoUserProfile,
@@ -76,15 +76,8 @@
 	// Admin/moderator photo deletion. The dialog is self-contained (rendered
 	// below) so this works in every place the menu is mounted.
 	let showDeletePhotoDialog = false;
-
-	// Flag reasons offered directly as menu items (no dialog) — the plain "Flag for
-	// Review" default plus a few common categories. Each flags in one click.
-	const DEFAULT_FLAG_REASON = 'Flagged for moderation';
-	const FLAG_REASONS: { label: string; reason: string; testId: string }[] = [
-		{ label: 'Flag: wrong location', reason: 'Wrong geolocation', testId: 'menu-flag-geolocation' },
-		{ label: 'Flag: privacy', reason: 'Privacy', testId: 'menu-flag-privacy' },
-		{ label: 'Flag: abuse / spam', reason: 'Abuse / spam', testId: 'menu-flag-abuse' },
-	];
+	// Flag-with-reason dialog (shared component, rendered below).
+	let showFlagDialog = false;
 	// role is exposed on the user profile via /auth/me (UserOut.role).
 	$: isModerator = ['admin', 'moderator'].includes(($auth.user?.role as string) ?? '');
 	// Deletion only applies to our own backend's photos.
@@ -231,26 +224,13 @@
 		handleRatingClick(rating);
 	}
 
-	// Flag in one click with the given reason (no dialog).
-	async function doFlag(reason: string) {
+	// Flagging opens the reason dialog (shared component); it performs the request
+	// and flips isFlagged via onFlagged.
+	function openFlagDialog() {
 		if (!photo || isFlagging) return;
 		if (!requireAuthOrCloseMenu()) return;
-
-		isFlagging = true;
-		flagMessage = '';
-		try {
-			const result = await flagPhotoRequest(photo, reason);
-			flagMessage = result.message;
-			flagError = result.error;
-			if (result.success) isFlagged = true;
-			scheduleTimeout(() => {
-				flagMessage = '';
-				flagError = false;
-			}, result.error ? 5000 : 2000);
-		} finally {
-			isFlagging = false;
-			closeMenu();
-		}
+		showFlagDialog = true;
+		closeMenu();
 	}
 
 	async function unflagPhoto() {
@@ -405,22 +385,9 @@
 			label: isFlagged ? 'Remove Flag' : 'Flag for Review',
 			icon: Flag,
 			disabled: isFlagging,
-			onclick: isFlagged ? unflagPhoto : () => doFlag(DEFAULT_FLAG_REASON),
+			onclick: isFlagged ? unflagPhoto : openFlagDialog,
 			testId: 'menu-flag'
 		});
-		// When not flagged, offer a few common reasons as one-click items too.
-		if (!isFlagged) {
-			for (const r of FLAG_REASONS) {
-				items.push({
-					id: r.testId,
-					label: r.label,
-					icon: Flag,
-					disabled: isFlagging,
-					onclick: () => doFlag(r.reason),
-					testId: r.testId
-				});
-			}
-		}
 		items.push({
 			id: 'hide-user',
 			label: 'Hide User',
@@ -544,6 +511,19 @@
 		hideError = false;
 		scheduleTimeout(() => {
 			hideMessage = '';
+		}, 2500);
+	}}
+/>
+
+<FlagReasonDialog
+	bind:show={showFlagDialog}
+	{photo}
+	onFlagged={(message) => {
+		isFlagged = true;
+		flagMessage = message;
+		flagError = false;
+		scheduleTimeout(() => {
+			flagMessage = '';
 		}, 2500);
 	}}
 />

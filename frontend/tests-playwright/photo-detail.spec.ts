@@ -76,12 +76,15 @@ test.describe('Photo Detail Page', () => {
 
 		const flagButton = page.getByTestId('menu-flag');
 
-		// Flag the photo (the default "Flag for Review" flags in one click).
+		// Flag the photo — "Flag for Review" opens the reason dialog; accept the default.
 		await flagButton.click();
+		await expect(page.getByTestId('flag-reason-dialog')).toBeVisible();
+		await page.getByTestId('flag-reason-confirm').click();
+		await expect(page.getByTestId('flag-reason-dialog')).not.toBeVisible({ timeout: T(10000) });
 		await expect(flagButton).toHaveClass(/flagged/, { timeout: T(5000) });
 		await expect(flagButton).toContainText('Remove Flag');
 
-		// Unflag the photo
+		// Unflag the photo (immediate, no dialog).
 		await flagButton.click();
 		await expect(flagButton).not.toHaveClass(/flagged/, { timeout: T(5000) });
 		await expect(flagButton).toContainText('Flag');

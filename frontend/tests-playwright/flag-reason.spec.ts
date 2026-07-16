@@ -17,8 +17,8 @@ async function getFrontPhotoId(page: Page): Promise<string> {
 	return data.id as string;
 }
 
-test.describe('Flag reasons', () => {
-	test('the actions menu offers reason choices that flag in one click', async ({ page, testUsers }) => {
+test.describe('Flag reason dialog', () => {
+	test('flagging opens a reason dialog with a default, presets and other-text', async ({ page, testUsers }) => {
 		test.setTimeout(180_000);
 
 		await loginAs(page, 'test', testUsers.passwords.test);
@@ -27,23 +27,29 @@ test.describe('Flag reasons', () => {
 		await ensureSourceEnabled(page, 'hillview', true);
 		const photoId = await getFrontPhotoId(page);
 
-		// The menu offers a default flag plus reason categories (no dialog).
+		// One "Flag for Review" item opens the dialog (no reason submenu).
 		await page.locator('[data-testid="photo-actions-menu"]').click();
-		await expect(page.getByTestId('menu-flag')).toBeVisible();
-		await expect(page.getByTestId('menu-flag-geolocation')).toBeVisible();
-		await expect(page.getByTestId('menu-flag-privacy')).toBeVisible();
-		await expect(page.getByTestId('menu-flag-abuse')).toBeVisible();
+		await page.locator('[data-testid="menu-flag"]').click();
+		await expect(page.getByTestId('flag-reason-dialog')).toBeVisible();
 
-		// Clicking a reason flags in one click — no separate step.
-		await page.getByTestId('menu-flag-privacy').click();
+		// Presets are offered and one is preselected by default.
+		await expect(page.getByTestId('flag-reason-wrong-geolocation')).toBeChecked();
+		await expect(page.getByTestId('flag-reason-privacy')).toBeVisible();
+		await expect(page.getByTestId('flag-reason-abuse-spam')).toBeVisible();
 
-		// The flag is recorded with that reason.
+		// "Other" reveals a text field; the entered text becomes the reason.
+		await page.getByTestId('flag-reason-other').check();
+		await page.getByTestId('flag-reason-other-text').fill('Duplicate upload');
+		await page.getByTestId('flag-reason-confirm').click();
+		await expect(page.getByTestId('flag-reason-dialog')).not.toBeVisible({ timeout: T(10000) });
+
+		// The flag is recorded with the chosen reason.
 		const adminToken = await getUserToken('admin', testUsers.passwords.admin);
 		const flags = await (await fetch(`${BACKEND_URL}/api/flagged/photos/all?photo_source=hillview&limit=200`, {
 			headers: { Authorization: `Bearer ${adminToken}` },
 		})).json();
 		const flag = flags.find((f: any) => f.photo_id === photoId);
 		expect(flag).toBeTruthy();
-		expect(flag.reason).toBe('Privacy');
+		expect(flag.reason).toBe('Duplicate upload');
 	});
 });

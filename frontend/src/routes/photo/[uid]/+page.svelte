@@ -38,7 +38,6 @@
 	import {
 		hidePhotoRequest,
 		togglePhotoRating,
-		flagPhotoRequest,
 		unflagPhotoRequest,
 		fetchIsFlagged,
 		ratingShortcutFor,
@@ -49,6 +48,7 @@
 	import Spinner from '$lib/components/Spinner.svelte';
 	import { requireAuth } from '$lib/components/signInModal.svelte';
 	import HideUserDialog from '$lib/components/HideUserDialog.svelte';
+	import FlagReasonDialog from '$lib/components/FlagReasonDialog.svelte';
 	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
 	import { showDropdownMenu } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 	import { getPhotoMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
@@ -65,6 +65,7 @@
 	let isHiding = false;
 	let isFlagging = false;
 	let isFlagged = false;
+	let showFlagDialog = false;
 	let statusMessage = '';
 	let statusError = false;
 	let showHideUserDialog = false;
@@ -193,18 +194,11 @@
 		}
 	}
 
-	async function flagPhoto() {
+	// Flagging opens the shared reason dialog (rendered below).
+	function flagPhoto() {
 		if (!photo || isFlagging) return;
 		if (!requireAuth()) return;
-
-		isFlagging = true;
-		try {
-			const result = await flagPhotoRequest(photo as unknown as PhotoData);
-			if (result.success) isFlagged = true;
-			setStatus(result.message, result.error, result.error ? 5000 : 3000);
-		} finally {
-			isFlagging = false;
-		}
+		showFlagDialog = true;
 	}
 
 	async function unflagPhoto() {
@@ -308,6 +302,15 @@
 		userId={photo.owner_id}
 		username={photo.owner_username}
 		userSource="hillview"
+	/>
+
+	<FlagReasonDialog
+		bind:show={showFlagDialog}
+		photo={photo as unknown as PhotoData}
+		onFlagged={(message) => {
+			isFlagged = true;
+			setStatus(message, false, 3000);
+		}}
 	/>
 {/if}
 
