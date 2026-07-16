@@ -4,7 +4,8 @@ from typing import Optional, Dict
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, or_
+from geoalchemy2.functions import ST_X, ST_Y
 from pydantic import BaseModel
 
 import sys
@@ -236,16 +237,22 @@ async def list_all_flagged_photos(
 	await rate_limit_photo_operations(request, current_user.id)
 
 	try:
-		# Outer-join the local photo for hillview flags so the admin UI can show a
-		# thumbnail, the title, and whether it's already been deleted. External
-		# sources (mapillary/panoramax) have no local row → these stay null.
+		# Outer-join the local photo (hillview only) for a thumbnail/title/coords
+		# and whether it's been deleted or gone; and the flagging user for their
+		# name. External sources (mapillary/panoramax) carry their coords/thumbnail
+		# in extra_data captured at flag time (no local row, no cache lookup).
 		query = (
-			select(FlaggedPhoto, Photo)
+			select(
+				FlaggedPhoto, Photo, User.username.label('flagger'),
+				ST_Y(Photo.geometry).label('h_lat'),
+				ST_X(Photo.geometry).label('h_lon'),
+			)
 			.join(
 				Photo,
 				and_(FlaggedPhoto.photo_id == Photo.id, FlaggedPhoto.photo_source == 'hillview'),
 				isouter=True,
 			)
+			.join(User, FlaggedPhoto.flagging_user_id == User.id, isouter=True)
 		)
 
 		if photo_source:
@@ -258,27 +265,61 @@ async def list_all_flagged_photos(
 
 		if resolved is not None:
 			query = query.where(FlaggedPhoto.resolved.is_(resolved))
+			if resolved is False:
+				# The open (actionable) queue hides hillview flags whose photo is
+				# already gone (soft-deleted or the row no longer exists) — there's
+				# nothing to act on. They remain visible under "All".
+				query = query.where(
+					~and_(
+						FlaggedPhoto.photo_source == 'hillview',
+						or_(Photo.deleted.is_(True), Photo.id.is_(None)),
+					)
+				)
 
 		query = query.order_by(FlaggedPhoto.flagged_at.desc()).limit(limit).offset(offset)
 		result = await db.execute(query)
 		rows = result.all()
 
-		return [{
-			"id": flag.id,
-			"flagging_user_id": flag.flagging_user_id,
-			"photo_source": flag.photo_source,
-			"photo_id": flag.photo_id,
-			"flagged_at": flag.flagged_at,
-			"reason": flag.reason,
-			"extra_data": flag.extra_data,
-			"resolved": flag.resolved,
-			"resolved_at": flag.resolved_at,
-			"resolved_by": flag.resolved_by,
-			# Joined local-photo context (hillview only).
-			"thumb_url": _flag_thumb_url(photo),
-			"photo_title": (photo.title if photo else None),
-			"photo_deleted": (bool(photo.deleted) if photo else None),
-		} for flag, photo in rows]
+		out = []
+		for flag, photo, flagger, h_lat, h_lon in rows:
+			if flag.photo_source == 'hillview':
+				thumb = _flag_thumb_url(photo)
+				title = photo.title if photo else None
+				deleted = bool(photo.deleted) if photo else False
+				missing = photo is None
+				lat, lon = h_lat, h_lon
+				bearing = photo.compass_angle if photo else None
+			else:
+				ed = flag.extra_data if isinstance(flag.extra_data, dict) else {}
+				thumb = ed.get('thumb_url')
+				title = None
+				deleted = False
+				missing = False
+				lat, lon = ed.get('lat'), ed.get('lon')
+				bearing = ed.get('bearing')
+
+			out.append({
+				"id": flag.id,
+				"flagging_user_id": flag.flagging_user_id,
+				"flagging_username": flagger,
+				"photo_source": flag.photo_source,
+				"photo_id": flag.photo_id,
+				"flagged_at": flag.flagged_at,
+				"reason": flag.reason,
+				"extra_data": flag.extra_data,
+				"resolved": flag.resolved,
+				"resolved_at": flag.resolved_at,
+				"resolved_by": flag.resolved_by,
+				# Photo context for the UI thumbnail + links.
+				"thumb_url": thumb,
+				"photo_title": title,
+				"photo_deleted": deleted,
+				"photo_missing": missing,
+				"photo_lat": lat,
+				"photo_lon": lon,
+				"photo_bearing": bearing,
+			})
+		return out
 
 	except HTTPException:
 		raise

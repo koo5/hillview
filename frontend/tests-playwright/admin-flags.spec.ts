@@ -37,11 +37,14 @@ test.describe('Admin flagged photos', () => {
 		await expect(row).toBeVisible({ timeout: T(15000) });
 		await expect(row.getByTestId('admin-flag-status')).toHaveText('open');
 
-		// An external (mapillary) flag links to the photo but offers no delete
-		// button and no thumbnail (no local row).
-		await expect(row.getByTestId('admin-flag-photo-link')).toHaveAttribute('href', `/photo/mapillary-${photoId}`);
+		// An external (mapillary) flag has no local row: both links go to the MAP
+		// (no working detail page), with no thumbnail and no delete button. It also
+		// shows who flagged it.
+		await expect(row.getByTestId('admin-flag-photo-link')).toHaveAttribute('href', new RegExp(`photo=mapillary-${photoId}`));
+		await expect(row.getByTestId('admin-flag-thumb-link')).toHaveAttribute('href', new RegExp(`photo=mapillary-${photoId}`));
 		await expect(row.getByTestId('admin-flag-delete')).toHaveCount(0);
 		await expect(row.getByTestId('admin-flag-thumb')).toHaveCount(0);
+		await expect(row).toContainText('flagged by test');
 
 		// Resolve → it leaves the "Open" list.
 		await row.getByTestId('admin-flag-resolve').click();
@@ -73,8 +76,9 @@ test.describe('Admin flagged photos', () => {
 		const row = page.locator(`[data-testid="admin-flag"][data-photo-id="${photoId}"]`);
 		await expect(row).toBeVisible({ timeout: T(15000) });
 
-		// Thumbnail rendered, photo link points at the detail page.
+		// Thumbnail rendered (links to the map); the id/title links to the detail page.
 		await expect(row.getByTestId('admin-flag-thumb')).toHaveAttribute('src', /.+/);
+		await expect(row.getByTestId('admin-flag-thumb-link')).toHaveAttribute('href', new RegExp(`photo=hillview-${photoId}`));
 		await expect(row.getByTestId('admin-flag-photo-link')).toHaveAttribute('href', `/photo/hillview-${photoId}`);
 
 		// Delete outright, with a reason.

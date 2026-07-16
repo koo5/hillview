@@ -10,6 +10,7 @@
 	interface Flag {
 		id: string;
 		flagging_user_id: string | null;
+		flagging_username: string | null;
 		photo_source: string;
 		photo_id: string;
 		flagged_at: string;
@@ -20,11 +21,38 @@
 		thumb_url: string | null;
 		photo_title: string | null;
 		photo_deleted: boolean | null;
+		photo_missing: boolean | null;
+		photo_lat: number | null;
+		photo_lon: number | null;
+		photo_bearing: number | null;
 	}
 
-	// The photo detail page is keyed by uid = `${source}-${id}`.
-	function detailUrl(flag: Flag): string {
-		return `/photo/${flag.photo_source}-${flag.photo_id}`;
+	// Only hillview photos have a working detail page, and only while they exist.
+	function detailUrl(flag: Flag): string | null {
+		if (flag.photo_source !== 'hillview' || flag.photo_deleted || flag.photo_missing) return null;
+		return `/photo/hillview-${flag.photo_id}`;
+	}
+
+	// A best-effort map link for every flag: with coords → center on the photo;
+	// without → zoom right out and let the photo param locate it.
+	function mapUrl(flag: Flag): string {
+		const uid = `${flag.photo_source}-${flag.photo_id}`;
+		if (flag.photo_lat != null && flag.photo_lon != null) {
+			const p = new URLSearchParams({
+				lat: String(flag.photo_lat),
+				lon: String(flag.photo_lon),
+				zoom: '18',
+				photo: uid,
+			});
+			if (flag.photo_bearing != null) p.set('bearing', String(flag.photo_bearing));
+			return `/?${p.toString()}`;
+		}
+		return `/?zoom=2&photo=${encodeURIComponent(uid)}`;
+	}
+
+	// The thumbnail always opens the map; the id/title prefers the detail page.
+	function textUrl(flag: Flag): string {
+		return detailUrl(flag) ?? mapUrl(flag);
 	}
 
 	let flags: Flag[] = [];
@@ -171,26 +199,28 @@
 								data-photo-id={flag.photo_id}
 								data-source={flag.photo_source}
 							>
-								<a class="flag-thumb" href={detailUrl(flag)} data-testid="admin-flag-photo-link" title="Open photo">
+								<a class="flag-thumb" href={mapUrl(flag)} data-testid="admin-flag-thumb-link" title="Open on the map">
 									{#if flag.thumb_url}
 										<img src={flag.thumb_url} alt="flagged" loading="lazy" data-testid="admin-flag-thumb" />
 									{:else}
-										<span class="thumb-placeholder"><FlagIcon size={20} /></span>
+										<span class="thumb-placeholder"><FlagIcon size={26} /></span>
 									{/if}
 								</a>
 								<div class="flag-main">
 									<div class="flag-head">
 										<span class="source source-{flag.photo_source}">{flag.photo_source}</span>
-										<a class="photo" href={detailUrl(flag)}>{flag.photo_title || `${flag.photo_id.slice(0, 12)}…`}</a>
+										<a class="photo" href={textUrl(flag)} data-testid="admin-flag-photo-link">{flag.photo_title || `${flag.photo_id.slice(0, 12)}…`}</a>
 										{#if flag.photo_deleted}
 											<span class="deleted-tag">photo deleted</span>
+										{:else if flag.photo_missing}
+											<span class="deleted-tag">photo not found</span>
 										{/if}
 										<span
 											class="status status-{flag.resolved ? 'resolved' : 'open'}"
 											data-testid="admin-flag-status"
 										>{flag.resolved ? 'resolved' : 'open'}</span>
 									</div>
-									<div class="meta">flagged {formatUtcDateTime(flag.flagged_at)}</div>
+									<div class="meta">flagged by {flag.flagging_username ?? 'someone'} · {formatUtcDateTime(flag.flagged_at)}</div>
 									<p class="reason">{flag.reason ?? '(no reason given)'}</p>
 									<div class="actions">
 										{#if !flag.resolved}
@@ -201,7 +231,7 @@
 												on:click={() => resolve(flag)}
 											><Check size={14} /> Resolve</button>
 										{/if}
-										{#if flag.photo_source === 'hillview' && !flag.photo_deleted}
+										{#if flag.photo_source === 'hillview' && !flag.photo_deleted && !flag.photo_missing}
 											<button
 												class="action danger"
 												data-testid="admin-flag-delete"
@@ -329,8 +359,8 @@
 
 	.flag-thumb {
 		flex: 0 0 auto;
-		width: 72px;
-		height: 72px;
+		width: 120px;
+		height: 120px;
 		border-radius: 10px;
 		overflow: hidden;
 		background: #f3f4f6;

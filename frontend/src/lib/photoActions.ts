@@ -191,13 +191,33 @@ export async function fetchPhotoRating(photo: PhotoData): Promise<RatingState> {
 }
 
 /** Flag a photo for moderation. */
-export async function flagPhotoRequest(photo: PhotoData): Promise<PhotoActionResult> {
+/** Best-effort location + thumbnail captured at flag time, so the moderation UI
+ *  can link a flagged photo to the map and show a preview later — especially for
+ *  external (mapillary/panoramax) photos we don't store locally. */
+function flagExtraData(photo: any): Record<string, unknown> | undefined {
+    const c = photo?.coord ?? null;
+    const lat = c?.lat ?? photo?.latitude ?? photo?.lat;
+    const lon = c?.lng ?? photo?.longitude ?? photo?.lon;
+    const bearing = photo?.bearing ?? photo?.compass_angle;
+    const thumb = photo?.sizes?.full?.url ?? photo?.url ?? photo?.thumb_1024_url;
+    const ed: Record<string, unknown> = {};
+    if (typeof lat === 'number' && typeof lon === 'number') {
+        ed.lat = lat;
+        ed.lon = lon;
+        if (typeof bearing === 'number') ed.bearing = bearing;
+    }
+    if (typeof thumb === 'string' && thumb) ed.thumb_url = thumb;
+    return Object.keys(ed).length ? ed : undefined;
+}
+
+export async function flagPhotoRequest(photo: PhotoData, reason?: string): Promise<PhotoActionResult> {
     try {
         const photoSource = getPhotoSource(photo);
         const response = await http.post('/flagged/photos', {
             photo_source: photoSource,
             photo_id: photo.id,
-            reason: 'Flagged for moderation'
+            reason: reason?.trim() || 'Flagged for moderation',
+            extra_data: flagExtraData(photo)
         });
 
         if (!response.ok) {

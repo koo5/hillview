@@ -76,7 +76,7 @@ test.describe('Photo Detail Page', () => {
 
 		const flagButton = page.getByTestId('menu-flag');
 
-		// Flag the photo
+		// Flag the photo (the default "Flag for Review" flags in one click).
 		await flagButton.click();
 		await expect(flagButton).toHaveClass(/flagged/, { timeout: T(5000) });
 		await expect(flagButton).toContainText('Remove Flag');

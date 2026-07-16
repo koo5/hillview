@@ -76,6 +76,15 @@
 	// Admin/moderator photo deletion. The dialog is self-contained (rendered
 	// below) so this works in every place the menu is mounted.
 	let showDeletePhotoDialog = false;
+
+	// Flag reasons offered directly as menu items (no dialog) — the plain "Flag for
+	// Review" default plus a few common categories. Each flags in one click.
+	const DEFAULT_FLAG_REASON = 'Flagged for moderation';
+	const FLAG_REASONS: { label: string; reason: string; testId: string }[] = [
+		{ label: 'Flag: wrong location', reason: 'Wrong geolocation', testId: 'menu-flag-geolocation' },
+		{ label: 'Flag: privacy', reason: 'Privacy', testId: 'menu-flag-privacy' },
+		{ label: 'Flag: abuse / spam', reason: 'Abuse / spam', testId: 'menu-flag-abuse' },
+	];
 	// role is exposed on the user profile via /auth/me (UserOut.role).
 	$: isModerator = ['admin', 'moderator'].includes(($auth.user?.role as string) ?? '');
 	// Deletion only applies to our own backend's photos.
@@ -222,14 +231,15 @@
 		handleRatingClick(rating);
 	}
 
-	async function flagPhoto() {
+	// Flag in one click with the given reason (no dialog).
+	async function doFlag(reason: string) {
 		if (!photo || isFlagging) return;
 		if (!requireAuthOrCloseMenu()) return;
 
 		isFlagging = true;
 		flagMessage = '';
 		try {
-			const result = await flagPhotoRequest(photo);
+			const result = await flagPhotoRequest(photo, reason);
 			flagMessage = result.message;
 			flagError = result.error;
 			if (result.success) isFlagged = true;
@@ -264,10 +274,6 @@
 		}
 	}
 
-	function toggleFlag() {
-		if (isFlagged) unflagPhoto();
-		else flagPhoto();
-	}
 
 	async function viewUserProfile() {
 		if (!photo) return;
@@ -399,9 +405,22 @@
 			label: isFlagged ? 'Remove Flag' : 'Flag for Review',
 			icon: Flag,
 			disabled: isFlagging,
-			onclick: toggleFlag,
+			onclick: isFlagged ? unflagPhoto : () => doFlag(DEFAULT_FLAG_REASON),
 			testId: 'menu-flag'
 		});
+		// When not flagged, offer a few common reasons as one-click items too.
+		if (!isFlagged) {
+			for (const r of FLAG_REASONS) {
+				items.push({
+					id: r.testId,
+					label: r.label,
+					icon: Flag,
+					disabled: isFlagging,
+					onclick: () => doFlag(r.reason),
+					testId: r.testId
+				});
+			}
+		}
 		items.push({
 			id: 'hide-user',
 			label: 'Hide User',
