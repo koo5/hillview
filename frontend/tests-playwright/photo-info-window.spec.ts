@@ -18,6 +18,14 @@ const MAP_INFO_WINDOW = `.map-panel ${INFO_WINDOW}`;
 // Test-asset location (testPhotos[0] sits near here — see bearing-url-param.spec).
 const AT_PHOTO = '/?lat=50.1153&lon=14.4938&zoom=18';
 
+// The EXIF test stubs the public-photo response with page.route(). On WebKit,
+// interception stops working the moment the service worker takes control of the
+// page (Playwright only intercepts service-worker traffic in Chromium), so the
+// stub silently fell through to the real backend — which returns exif: null for
+// the test assets, rendering "No camera EXIF". Blocking the SW keeps routing
+// alive; nothing here depends on it (it only proxies map tiles).
+test.use({ serviceWorkers: 'block' });
+
 test.describe('Photo info window (i key)', () => {
   test('i toggles the window over the map; both i and the x button close it', async ({ page }) => {
     await page.goto(AT_PHOTO);

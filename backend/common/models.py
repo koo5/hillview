@@ -99,6 +99,11 @@ class Photo(Base):
 	place_slug: Mapped[Optional[str]] = mapped_column(Text, index=True)  # grouping key for place pages
 	place_parent_name: Mapped[Optional[str]] = mapped_column(Text)  # hub display e.g. "Praha"
 	place_parent_slug: Mapped[Optional[str]] = mapped_column(Text, index=True)  # hub grouping key e.g. "praha-cz"
+	# Not a privacy control, despite the name — is_listed would be honest: it only
+	# filters DB queries (e.g. the visibility clause in hillview_routes.py). Every
+	# derivative is written to the same unauthenticated pics pool regardless, so an
+	# is_public=False photo's bytes stay fetchable by anyone with the URL — making
+	# it real needs signed URLs or an auth check at the file layer.
 	is_public: Mapped[bool] = mapped_column(Boolean, default=True)
 
 	# Processing status and data

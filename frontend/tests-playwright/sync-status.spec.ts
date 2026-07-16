@@ -72,10 +72,28 @@ test.describe('Sync Status Reporting', () => {
 		// before tests read the "initial" state. This is what the removed networkidle
 		// used to guarantee: network-idle ⇒ no upload in flight. Waiting only for the
 		// store to exist let a transient init-upload leak into the first assertion.
+		//
+		// Landing on '/' logged-in with auto-upload on fires init syncs (CaptureQueue
+		// triggers one for the auth change and one for auto-upload). Each runs a
+		// zero-photo pass that still reports starting(active) → finished(idle), so the
+		// "initial" state must not be read until those have drained. Checking
+		// `!isUploading` at a single instant is not enough: the store is seeded
+		// {sw: null, fg: null, isUploading: false}, so the gate passes in the window
+		// between a trigger firing and its first report — which is exactly how this
+		// leaked before (gate cleared ~5ms before fg went active). Require instead
+		// that the fg reporter has actually run and then stayed idle for a beat; the
+		// two triggers land up to ~600ms apart, so the window has to clear that.
 		await page.waitForFunction(() => {
-			const s = (window as any).__stores?.combinedSyncStatus;
-			return s != null && !s.isUploading;
-		}, { timeout: T(15000) });
+			const w = window as any;
+			const s = w.__stores?.combinedSyncStatus;
+			const fg = w.__stores?.fgSyncStatus;
+			if (!s || !fg || s.isUploading || fg.active) {
+				w.__syncIdleSince = 0;
+				return false;
+			}
+			w.__syncIdleSince = w.__syncIdleSince || Date.now();
+			return Date.now() - w.__syncIdleSince >= 1000;
+		}, { timeout: T(15000), polling: 100 });
 	});
 
 	test('fgSyncStatus reports correct phases and counts after upload', async ({ page }) => {
