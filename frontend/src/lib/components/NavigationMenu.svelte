@@ -3,7 +3,7 @@
         Map, Images, Activity, Award, Database, Info, Download, User, EyeOff, LogOut, Users, Settings, Maximize2, Minimize2, Shield
     } from 'lucide-svelte';
     import { auth, logout } from '$lib/auth.svelte.js';
-    import { Bell, ShieldCheck } from 'lucide-svelte';
+    import { Bell, ShieldCheck, Sparkles } from 'lucide-svelte';
     import { isAdmin, isModerator } from '$lib/adminNotifications';
     import { unreadCount } from '$lib/notifications';
     import AdminBadge from '$lib/components/AdminBadge.svelte';
@@ -96,6 +96,13 @@
                 <Images size={18}/>
                 My Photos
             </a></li>
+
+            {#if is_authenticated}
+                <li><a href="/contributions" on:click={closeMenu} data-testid="nav-contributions-link">
+                    <Sparkles size={18}/>
+                    Contributions <span class="menu-desc">— your annotations</span>
+                </a></li>
+            {/if}
 
 			<hr/>
 
