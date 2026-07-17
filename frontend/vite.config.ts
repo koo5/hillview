@@ -8,6 +8,10 @@ export default defineConfig({
 	server: {
 		allowedHosts: ["dev.hillview.cz","jj.hillview.cz"],
 		host: true,
+		// $zoomview resolves outside the project root; allow ONLY ../shared —
+		// never '..' (the repo root holds secrets/, and this dev server binds
+		// publicly). Listing any allow replaces the default, so '.' stays too.
+		fs: { allow: ['.', '../shared'] },
 		port: parseInt(process.env.VITE_DEV_PORT || '8212'),
 		hmr: {
 			protocol: 'ws',

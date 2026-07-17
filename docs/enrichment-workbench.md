@@ -113,8 +113,368 @@ Implemented & verified in `enrich/`:
   point of the kick/curation workflow). Anchors improve as geocode curation proceeds —
   approved candidates always win the auto-pick.
 
+- **M3 ✅ (matching bench + queue)** — `app/matching.py` (view-pie gate: pie = position +
+  bearing±half + radius = LLM farthest×slack; same-side constraint; ALL knobs are request
+  params). `routers/matching.py`: `GET /api/annotations/{id}/view_candidates` (target = the
+  annotation's picked anchor, same rule as calibration), `POST /api/matching/verdict`
+  (**`hv:depictedIn` facts + curation status = the growing gold set**), `POST
+  /api/matching/enqueue` → **Remoulade over RabbitMQ** (`enrich_rabbitmq`, loopback :5672),
+  `POST /api/matching/result` (worker callback, token auth, overlay JPEG → artifacts volume),
+  results in the `match_results` table (evidence = SQL; verdicts = facts). **Matcher worker**
+  (`enrich/matcher/worker.py`): runs HOST-side on `scripts/enrich/.venv` (torch + MASt3R repo +
+  checkpoint), consumes the `matching` queue, POSTs back — the untrusted-worker topology
+  (broker + HTTP callback only, no DB creds; cf. accounts-assessor), same shape for a future
+  GPU box. Start: `cd enrich/matcher && ../../scripts/enrich/.venv/bin/python -m remoulade
+  worker --threads 1`. Gotcha: PyPI remoulade needs `remoulade[rabbitmq,limits]` — broker.py
+  imports "optional" extras unconditionally (the user's vendored fork in accounts-assessor
+  exists for reasons). UI `/matching`: annotation picker | knob row | map (amber target ring,
+  candidates colored by verdict) | candidate table (thumbnails, dist/Δ°, match button →
+  inliers/raw = ratio% + overlay link, ✓/✗/↺ verdicts). Poll-refresh while jobs queued.
+- **Ops (2026-07-16):** VM caddy (`~/caddy`, host-network docker) now serves the whole
+  workbench on **:8765** — the port the host's caddy forwards the Yggdrasil address to
+  (`http://[200:27c9:…:2906]` → VM:8765) → phone-reachable. Same-origin `/api` → :8070,
+  rest → :8071; web `config.ts` defaults to relative `/api` + vite dev proxy;
+  `allowedHosts: true`. Old viz_app inspector moved to **:8766** (local only).
+  **Dump format 2** (2026-07): photos gained `place_parent_name/slug`, `effective_at`,
+  `retry_after_minutes`; `seed_dev_from_dump.sh` is now header-driven (loads any format).
+
+- **M3 verification (gold pairs, 2026-07-16):** the June ground truth reproduces through the
+  whole new stack — `67c6c4b9 × 4b8cac8a` (true): **324/547 = 59.2%** (June: 63%);
+  `× d0955198` (Doppelganger): **90/205 = 43.9%** (June: 38%). The inlier-ratio discriminator
+  holds; both verdicts recorded as the first `hv:depictedIn` gold facts.
+- **OOM protection (2026-07-16):** risky work is double-guarded (pattern:
+  `backend/worker/throttle.py` → pics `src/lib/throttle.py`). *Belt:* `ram_gate()` in the
+  matcher worker waits for `MATCHER_REQUIRED_GB` (6 GiB) free before the heavy phase and
+  **fails the job visibly** after a timeout (queue jobs must not block forever). *Braces:*
+  `enrich/matcher/run_worker.sh` runs the worker as a systemd transient service with
+  `MemoryHigh=8G` / `MemoryMax=10G` / `MemorySwapMax=0` + `Restart=on-failure` — a runaway
+  kills only the unit, RabbitMQ redelivers, `max_retries=1` caps poison loops. All enrich
+  containers carry `mem_limit`s (db/oxigraph 2g, api 1.5g, rabbitmq 768m). Observed: MASt3R
+  pair peaks ~5.4 GiB.
+
+- **M2c ✅ (reverse POI placement / proto-annotations, 2026-07-17)** — the calibration
+  model run backwards: `POST /api/panos/{id}/place_poi` {wikipedia_url, save, assumed_fov?}
+  → wiki coords (`wikipedia_coords`, now with a REST-summary fallback for pages whose
+  infobox never registers with GeoData, e.g. cs: Žižkovská televizní věž) → azimuth/km →
+  invert the pano's accepted calibration (approved-first, else newest accept run):
+  `x = 0.5 + ang_norm(az − centre_bearing)/fov ± rms/fov`. Out-of-frame is a first-class
+  answer (`off_frame_deg`). Save mints a **proto-annotation**: pure facts under
+  `/id/proto-annotation/{sha256(photo_id|wiki_url)[:16]}` (idempotent; verified: re-save
+  → same IRI) — `rdf:type hv:ProtoAnnotation`, `hv:onPhoto/labelText/wikipediaPage`,
+  `hv:assumedX(+Error)`, plus the wiki-page `hv:coords` triple which content-addresses to
+  the SAME fact graph the geocode bench mints (cross-workflow corroboration for free).
+  `GET /api/panos/{id}/protos` → FactChip-shaped rows; curation via the ordinary
+  `/api/facts/curate` (verified round-trip). URL parsing is urlsplit-based, NOT parser
+  `WIKI_RE` (its charset excludes `)` → truncates `Bezděz_(hrad)`), and normalizes mobile
+  hosts (`cs.m.wikipedia.org` — phone pastes). UI: "Place a POI" card on `/calibration` —
+  preview/save, markers + error band over the pano strip, proto table with curation chips;
+  uncalibrated panos get an assumed-FOV input (compass-only estimate, flagged). Approved
+  protos are future calibration anchors (bootstrapping loop); graduation to real Hillview
+  annotations is the M5 push-back's job (`Title | wiki-url` round-trips through the parser).
+
+- **Photo record page ✅ (2026-07-17)** — `/photos/{id}` + `GET /api/photos/{id}`: the
+  subject-oriented counterpart to the task-oriented benches (photo IRIs finally have a page,
+  like annotation IRIs got in M1). Header (pano/calibrated/missing badges, hillview.cz +
+  calibration-bench links), **strip with annotation rects drawn** (first time rects render
+  in the workbench; click → annotation detail) + proto markers + POI preview band, photo
+  facts w/ curation chips, the **Place-a-POI card moved here** (its natural home —
+  `/calibration` is a pure bench again, linking here), proto table, annotations table
+  (superseded/missing toggle), match evidence both directions (as-pano / as-candidate w/
+  gold verdict), position mini-map. `/calibration` selection now lives in the URL
+  (`?pano=…` — shareable/reloadable, important for phone use); annotation detail links its
+  photo. Benches do batch work with knobs; the photo page is where you look at one thing
+  and curate — don't duplicate fitting UI there. Plus a **/photos index** in the top nav
+  (`GET /api/photos`: search title/place/id-prefix, pano/annotated/calibrated filters,
+  most-annotated first, paged) and inbound links wherever a photo shows: annotations-list
+  thumbnails, matching bench (selected pano + candidate thumbs/ids), annotation detail.
+
+- **Parser v2 (2026-07-17):** TYPE_KEYWORDS now match on word boundaries — v1
+  substring-matched "hrad" inside "Zahradní" → castle, "vrch" in "Vrchlického", etc.
+  (PARSER_VERSION "2", tests extended to 12). Full re-parse ran; 14 stale v1 typeGuess
+  facts (none curated) were dropped from the graph — stale = a typeGuess fact the new
+  run didn't re-emit, i.e. lacking the latest run's provenance, which is the clean
+  criterion the content-addressing gives for free. Annotation detail now groups facts
+  (parsed-from-body / anchor candidates with nested candidate metadata / other), the
+  API exposes each fact's subject, and a "?" explainer covers where facts come from.
+
+- **Refine-anchor flow ✅ (2026-07-17)** — the seed of the future user-facing entry UX
+  (suggest-as-you-type + map pinpoint), prototyped on the annotation detail page:
+  - `GET /api/annotations/{id}/suggest?q=` — **viewpoint-aware ranking** of Nominatim hits
+    (q defaults to the label): score = importance + 1·in_view (view pie: distance ceiling
+    by type + |Δbearing| ≤ TOL) + 0.5·type_match (typeGuess's first real consumer,
+    TYPE_MATCH map) + up to 1·rect-x consistency on calibrated panos (inverted calibration
+    predicts each candidate's x; compare with the drawn rect). Components returned so the
+    UI shows WHY. Verified on "Zahradní město": Louny/Trutnov homonyms sink out of view.
+  - `POST /api/annotations/{id}/anchor` — {point:{lat,lon}} or {candidate: nominatim-dict}
+    → mints the anchorCandidate fact + approves it in one act (kind=anchor_pin run).
+    Points become **`geo:` URIs** (RFC 5870), canonical 5-decimal form; coords live in the
+    identifier, no metadata facts. Round-trip is IDEMPOTENT by design: pin → geo: fact →
+    (future push-back) body "Label | 50.06030N, 14.49300E" → re-parse → same fact IRI.
+  - **embeddedCoords are now anchor candidates**: the geocode run mints geo: candidates
+    from body-embedded coords (previously parsed but ranked nowhere — author coords are
+    the strongest signal). pick_anchor tier is now approved > **pinned (geo:)** >
+    wikipedia > nominatim-in-view.
+  - UI: Anchor section on annotation detail — suggest input + ranked table (score/km/Δ°/Δx,
+    ⚓ set), CandidateMap grew `onmapclick` (+ bubblingMouseEvents:false on markers) →
+    click map → 📍 pin → "⚓ pin anchor here". Body serialization concern resolved: the
+    body is the portable projection ("Label | coords"), the fact store keeps full fidelity.
+
+- **ZoomView extraction, bite 1+2 ✅ (2026-07-17)** — incremental refactor of the
+  frontend's OpenSeadragonViewer monolith (2k lines, solid but test-poor → go slow,
+  small reviewable bites, each extraction ADDS the missing tests):
+  - Bite 1 (frontend, behavior-identical): `computeMinLevel` + `buildTileSource` moved
+    verbatim to **`frontend/src/lib/zoomview/tileSource.ts`** (dependency-free, structural
+    `DziPyramid` type — photoCommon untouched) + 7 behavior-pinning unit tests. Full
+    frontend suite 406/406, svelte-check clean.
+  - Bite 2 (workbench-only): enrich/web consumes it via **`$zoomview` alias**
+    (vite resolve.alias + fs.allow; tsconfig `paths` must re-declare the generated
+    `$lib` entries — "paths" replaces wholesale). New `OsdViewer.svelte` (thin OSD embed:
+    DZI pyramid from mirrored `sizes.full.pyramid`, tiles straight off pics.hillview.cz,
+    rect overlays in viewport coords, zoom-to-rect/fit buttons, navigator strip) on the
+    **annotation detail page** — auto-zooms to the annotation's rect. openseadragon@6
+    ships no types → `declare module` shim. Docker: web build context widened to repo
+    root (compose `context: ..` — compose-file-relative!) + allowlist
+    `Dockerfile.dockerignore` (analyzer pattern, 146 kB context).
+  - Bite 3 ✅ (edge labels): `labelLayout.ts` (+tests) was ALREADY pure — git-mv'd
+    utils/ → zoomview/ (history preserved). The canvas painting passes moved verbatim to
+    **`zoomview/labelPaint.ts`** (`paintLabels(ctx, W, H, cmds, style)`) + 6 pinning
+    tests using a recording-ctx mock (op order: clear → all leaders → all pills; dash
+    toggling; roundRect fallback). Frontend 412/412. Workbench OsdViewer now draws edge
+    labels (canvas overlay, viewport-change + ResizeObserver → rAF → layout → paint,
+    fingerprint skip) — same pills/leader lines as the main app.
+  - Bite 4 ✅ (annotorious glue): `targetToPixels`/`targetToNormalized` moved verbatim
+    annotationApi.ts → **`zoomview/annotationTargets.ts`** (annotationApi re-exports, so
+    importers untouched) + `toW3cAnnotation` (the W3C shape from syncAnnotationsToViewer)
+    + 7 pinning tests (round-trip, non-mutation, xywh fragments, array selectors, W3C
+    shape). Frontend 419/419. Workbench OsdViewer swapped its hand-rolled overlay divs
+    for a **read-only annotorious mount** (dynamic import, per-kind DrawingStyle,
+    clickAnnotation → onrectclick) fed through the same shared glue as production.
+  - Bite 5 ✅ (viewer-init unification, completes the planned list): **`zoomview/
+    viewerInit.ts`** — `OSD_VIEWER_DEFAULTS` (the main app's exact options),
+    `initialSourceFor` (fallback-thumb vs main source), `swapInMainSource` (the
+    addTiledImage + fully-loaded-change dance, verbatim incl. the throw-on-error) +
+    7 pinning tests w/ mock viewer/world/TiledImage (immediate vs deferred fallback
+    removal, partial events, single-item guard, error surface). Frontend 426/426.
+    OsdViewer adopted defaults+swap and gained `fallbackUrl` — the workbench now has
+    the production progressive-load path (cached 640px thumb instantly → DZI over it →
+    thumb removed); annotorious rects re-sync on world add-item to stay anchored to
+    full-image pixel space. `zoomview/` now = tileSource, labelLayout, labelPaint,
+    annotationTargets, viewerInit — every module unit-tested.
+  - Bite 6 ✅ (photo page adopts OsdViewer): the static strip + hand-rolled overlays
+    replaced by the deep-zoom viewer — all annotation rects via annotorious (click →
+    annotation detail, edge labels), protos + POI preview as canvas-drawn **vertical
+    marks** (new `marks` prop: full-height line + label tag + translucent error band;
+    projected xs folded into the repaint fingerprint so pure pans repaint; colors are
+    literal hexes — canvas can't resolve CSS vars). Props are live: an `$effect` on
+    rects/marks re-syncs annotorious + repaints (protos load async, POI previews appear
+    on demand). Progressive load: 1024px strip (cached) → DZI. Out-of-frame protos sit
+    past the image edges, visible when zoomed out.
+  - Bite 7 ✅ (matching bench adopts OsdViewer — adoption arc complete): **side-by-side
+    compare panel** between map and candidate table: left = the annotation region
+    (pano deep-zoomed to the rect; annotation detail fetched on select for the target),
+    right = the ⊙-picked candidate photo (per-row ⊙ button — deliberately NOT the
+    hover-highlight `selCand`, which would churn OSD instances on every mouse move).
+    `view_candidates` now returns candidate `width`/`height`. Eyeball → ✓/✗ verdict in
+    one screen. All three surfaces (annotation detail, photo page, matching bench) now
+    run the shared-glue OsdViewer.
+  - Bite 8 ✅ (relocation to **repo-root `shared/zoomview/`**): git-mv'd out of the
+    frontend; frontend consumes via `kit.alias` `$zoomview` (auto-generates tsconfig
+    paths), vitest gained the shared include + `server.fs.allow` (vite's fs sandbox
+    blocks out-of-root test files — 5 files silently failed until allowed). SECURITY:
+    fs.allow is scoped to `['.', '../shared']`, NEVER `'..'` — the repo root holds
+    secrets/ and the frontend dev server binds publicly (verified: shared module 200,
+    secrets 403). Frontend docker context widened to repo root (compose `context: .`,
+    COPY paths prefixed `frontend/`, shared dir → `/shared/zoomview`, allowlist
+    `Dockerfile.dockerignore` mirroring frontend/.dockerignore — 2.9 MB context);
+    workbench build updated the same way. Both containers rebuilt/redeployed; 426/426.
+  - **Invisible-rects bug, real root cause**: annotorious's internal format REQUIRES
+    pixel-space **`geometry.bounds`** — its spatial index reads
+    `target.selector.geometry.bounds` directly, so a synthetic target without it
+    renders nothing, silently. Production never hits this because DB targets carry
+    bounds (annotorious wrote them at creation; verified in the mirror: bounds are
+    pixel-space while x/y/w/h are normalized). OsdViewer now computes bounds when
+    building targets from rects. (The 3.7.22 version pin made along the way was NOT
+    the cause but stays — both apps should upgrade annotorious in lockstep.)
+  - Annotation detail gained a **zoomview ↗ link**: hillview.cz map URL with
+    `photo=hillview-{id}` + `x1..y2` viewport bounds computed from the annotation rect
+    (OSD coords: x normalized to width, y scaled by aspect) — opens the production
+    viewer pre-zoomed to the rect.
+
+- **Ray-mode matching + pie visualization ✅ (2026-07-17)** — the discovery flow the
+  bench was missing: a bare `?` rect has no anchor, so `view_candidates` gained modes
+  (auto|target|ray). **Ray mode**: the pano's calibration turns rect-x into an azimuth
+  (`centre_bearing + (x−0.5)·fov`; compass+assumed_fov fallback) — the unknown lies on
+  that ray. Wedge = azimuth ± ray_half (default from rect width + rms) over
+  [near_m, far_m]. `overlap=true` = viewpie×viewpie via **ray sampling** (points every
+  ~step along the ray tested with the existing `in_pie` — candidates report
+  `hit_range` = which ray segment they see); `overlap=false` = plain position-in-wedge.
+  **Ranking by `ray_dist_m`** (min distance to the ray = proximity to the unknown) —
+  dist-to-pano is meaningless in ray mode (top hits were the pano's neighbors before).
+  CandidateMap draws the amber **wedge sector** + the hovered candidate's own **pie
+  sector** (dest-point sector polygons). `/matching?annotation=` is URL state
+  (deep-linkable; annotation fetched directly, needn't be in the picker). Bench knobs
+  adapt per mode (near/far/pie∩ray vs same-side). Annotation detail: **Matching
+  summary** (match_results table + bench deep link) and `hv:depictedIn` verdict facts
+  regrouped into their own "matching verdicts (gold set)" section (were mislabeled
+  under parsed-from-body). Verified: Zahradní město ray az 109.87° (calibrated pano),
+  top candidates 17 m off the ray = photos standing at the unknown. The map also draws
+  the **origin pano's own view pie** (dashed blue sector; calibrated centre/FOV when
+  available, else compass ± assumed_fov/2; radius = its LLM far distance × slack —
+  `pano.pie` in the response), and the hovered candidate's pie is colored by its
+  verdict status. Plus **`annotation_pie`** (violet): the single annotation's EXACT
+  rect slice — left..right edge through the calibration, no padding — the measurement,
+  nested inside the amber padded search wedge, nested inside the pano's full pie.
+  Sight-line rects (w ≈ 0, e.g. a bare `?` stroke) collapse that sector to an invisible
+  hairline (half clamps at 0.3°), so CandidateMap also draws the pie's **solid center
+  ray** — the assumed direction stays visible at any rect width, and the ray's near
+  point is folded into fitBounds. The annotation detail page's **anchor map** gets the
+  same treatment: `/annotations/{id}/candidates` now returns `photo.pie` +
+  `annotation_pie`, so the pano view pie and the annotation's sight ray render right
+  where anchors are pinned (pin along the ray). Batch automatching: **▶ match all N**
+  button enqueues a MASt3R job for every shown candidate without one (best-ranked
+  first; serial worker ≈ 30–60 s/pair warm, ~6 min cold model load); limit knob goes
+  to 1000 so a whole ray-gate result set can be covered; the results poll backs off
+  to 30 s when >10 jobs are queued (view_candidates is a ~3–4 s query). Bench layout:
+  the annotation picker is a ☰ pop-up (default closed; auto-opens when no ?annotation
+  in the URL); the left column is the candidate list in its own scroll container
+  (sticky column headers), with the map + pairwise preview fixed alongside it.
+
+- **Curated rename ✅ (2026-07-17)** — `POST /annotations/{id}/label` mints an
+  hv:labelText fact and approves it in one act (kind=label_edit run), demoting any
+  previously-approved label to rejected ("superseded by…"). The mirrored body is
+  untouched — one-way sync holds; serializing the name back into the Hillview
+  annotation is graduation's job. Downstream follows automatically: geocode iterates
+  non-rejected labelText facts, so a rename redirects future geocoding; UI label
+  helpers prefer approved > parser > raw body. UX: ✎ label button on the annotation
+  detail header (prompt pre-filled with the current resolution). Photo-page
+  annotation rows gained a `match ↗` deep link to the bench. Three one-click label
+  sources all route through this verb: header ✎ (free text), 📖 wiki-attach's
+  "adopt as name" (page title), and a per-row ✎ in the Nominatim suggest table
+  (the hit's leading display_name component) — the same text already shown as the
+  hit name; independent of ⚓ set (adopting the anchor), since name/anchor/wiki are
+  separate curations.
+
+### Graduation (M5) — design sketch (2026-07-17 discussion)
+
+Transport = **file drop, kept deliberately**: the workbench (and any AI operating
+it) never holds Hillview write credentials; a package file + human accept inside
+Hillview's own admin is the trust boundary. Simplifications over the first sketch:
+- **No second review bench.** Curation IS the review. The package builder exports
+  approved-but-not-yet-landed facts; the workbench "review page" is just a read-only
+  preview of that derived diff before dumping.
+- **Hillview never parses RDF.** Package = JSON ops manifest (per-annotation:
+  before/after body, precondition = expected current body/updated_at, human-readable
+  summary) + the TriG fact dump riding along as provenance appendix. The Hillview
+  admin page renders the JSON and applies ops mechanically under a dedicated
+  **enrichment bot account** (not the personal admin — attribution + revocability).
+- **No acknowledgment protocol.** The mirror sync closes the loop: after Hillview
+  applies, the next sync shows the suggested body as the mirrored body and the
+  ledger marks the package "landed" by observation. Conflicts = precondition
+  mismatch → op skipped and listed, never clobbered.
+- The op generator is the already-specified idempotent body serialization
+  ("Label | geo:…") — body stays the portable projection of approved facts.
+
+Decisions (2026-07-17): personal admin account for now (bot account later);
+**double review stays** — the workbench preview teaches the operator what they're
+proposing, and the Hillview-side preview verifies both systems interpret the same
+package identically (two independent implementations agreeing = the check);
+**RDF enters Hillview via the API server**, not the frontend — the applier is the
+authoritative interpreter, and previews must render ITS interpretation (a JSON
+projection endpoint), or the frontend/backend could drift apart, defeating the
+cross-check. Long game: the pipeline prototypes "user draws a rect → what is
+this? → jobs → suggestions" as a native Hillview flow.
+
+- **Graduation preview page ✅ (2026-07-17)** — `/graduation` + GET
+  `/api/graduation/suggestions`: for every annotation with an APPROVED labelText /
+  anchorCandidate fact, serialize the facts into the body format (in-place segment
+  edits: name ← approved label, coords ← anchor at 5 dp, wiki appended; unmodeled
+  segments — context, non-wiki URLs — preserved verbatim; parse_body round-trip +
+  idempotency pinned by app/tests/test_graduation.py, suite 20 passing). Response
+  splits `suggestions` (changes non-empty) from `landed` (facts already reflected —
+  how mirror-sync loop-closure will mark packages as landed). Anchor coords resolve
+  from geo: URIs directly or the candidate's hv:coords fact (OSM/wikipedia).
+  Verified live: 6 pending (e.g. `?` → `Plynárna Michle - komín 1 | 50.05422N,
+  14.46877E`), 2 already-reflected. Nothing writes from this page; export (.trig +
+  ops manifest) is next.
+
+- **Wikipedia attach ✅ (2026-07-17)** — `POST /annotations/{id}/wikipedia` {url}:
+  mints + approves an hv:wikipediaPage fact (kind=wiki_attach run) — the "I found
+  the POI's wiki page" gesture on the annotation detail (📖 attach input in the
+  Anchor section). URL parsing via shared `geocode.parse_wikipedia_url` (extracted
+  from proto's place_poi: urlsplit-based, keeps `)` titles, normalizes `xx.m.`
+  mobile hosts). If the page has coordinates (GeoData → REST fallback, cached), an
+  anchorCandidate + coords fact is minted as PROPOSED alongside — adoptable as the
+  anchor with one ⚓ click, but an existing pin stays authoritative. The page
+  TITLE is also minted as a PROPOSED labelText (feeds geocode; ✎ adopt-as-name
+  button runs it through the label verb to approve — deliberately NOT
+  auto-approved: verified live that a `?` chimney with the user's precise
+  "Plynárna Michle - komín 1" label keeps it over the generic wiki title
+  "Plynárna Michle"; auto-approve would have clobbered the better name).
+  Graduation serializes approved wikipediaPage facts into the body's wiki segment
+  (approved page fact wins over a wiki-URL anchor; appended only when the body
+  has no wiki segment); the proposed wiki label stays out of graduation until
+  adopted. Suite 21 passing. Cleanup caution learned: content-addressed facts
+  dedupe ACROSS features (e.g. wiki-coords shared by geocode + protos), so
+  run-provenance-based cleanup must GROUP BY fact and check COUNT(DISTINCT ?run)
+  = 1 before DROP GRAPH.
+
+- **Package export ✅ (2026-07-17)** — `POST /api/graduation/export`
+  {annotation_ids?, note?} (empty = all pending; the /graduation review IS the
+  selection) → the graduation package: `{package, format_version:1, source,
+  created_at, run_id, counts, ops[], provenance_trig}`. Each op =
+  `{op:"set_annotation_body", annotation_id, photo_id, precondition:{body:<mirrored
+  body>}, body:<suggested>, summary, facts:[fact IRIs]}` — the ops manifest is
+  AUTHORITATIVE for the apply; the body precondition means a concurrent Hillview
+  edit → skip, never clobber. `provenance_trig` = fully-expanded TriG (no prefixes,
+  robust for any parser) of the cited fact graphs + their meta (about/wasGeneratedBy)
+  + curation (status/curator/decidedAt) subsets, incl. non-geo anchors' coords
+  metadata graphs → self-contained enough for Hillview to re-derive & cross-check.
+  Read-only w.r.t. facts (landing observed via mirror sync, nothing marked); logs a
+  kind=export run. `_compute_suggestions()` refactored out of the GET handler so both
+  share one code path (internal `fact_iris` stripped from the GET view via `_public`).
+  Serializer validated by round-tripping the TriG back through Oxigraph: quad count
+  unchanged (53449→53449) = parses AND matches existing data faithfully. Frontend:
+  ⬇ export-package button on /graduation streams the JSON as a browser download
+  (`hillview-enrichment-<ts>.json`). Verified: 11 ops / 28 facts across geo:/OSM/wiki
+  anchors. NEXT: Hillview-side admin page (pyoxigraph parse the appendix, render the
+  applier's own interpretation as the cross-check, apply ops under admin).
+
+- **Hillview-side applier ✅ (2026-07-17)** — the package's destination: the
+  production Hillview app (backend + frontend), NOT the workbench. **RDF enters
+  Hillview here** (first `pyoxigraph` use). Backend `backend/api/app/graduation.py`
+  + `graduation_routes.py` (admin router `/api/admin/graduation`, `require_admin()`):
+  `GET /packages` lists files in the incoming drop-dir; `GET /packages/{f}` previews
+  each op with THREE bodies — precondition (what the workbench saw), current (live
+  Hillview, resolved by following the supersede chain to the head), suggested — plus
+  status (clean|conflict|already_applied|missing|deleted), the annotation's photo
+  (sizes/pyramid) + target for OSD, and provenance parsed from the TriG appendix
+  (pyoxigraph, best-effort: fact→predicate/object + curation status/curator/decidedAt);
+  `POST /packages/{f}/apply` {annotation_ids} supersedes the current head (new row,
+  body=suggested, target=head's — body-only op, admin-authored, event_type='updated'),
+  then archives the file to applied/ once every op is reflected. **Per the user's
+  change: conflicts are NOT skipped** — the UI warns + shows all three versions and
+  applies over the current head anyway. Frontend `/admin/graduation` (Svelte, admin-
+  gated like other admin pages): package list → op list (status badge + checkbox,
+  applicable = clean|conflict) → focused-op detail with a single mounted OSD viewer
+  (photo + the annotation rect, zoomed) because "annotations can't be recognized from
+  uids or `?` labels", three bodies (conflict-highlighted), provenance facts, bulk
+  Apply. Copied the workbench's tested `OsdViewer.svelte` into frontend/src/lib/
+  components (deps openseadragon/@annotorious already present; $zoomview alias too).
+  Drop-dir = `/app/data/graduation/{incoming,applied}` (host backend/data/…, bind-
+  mounted; must be writable by the api container uid 1001 — chmod 777 in dev).
+  pyoxigraph added to api pyproject; dev-installed into the running container
+  (`pip install --user` + container restart to clear the boot-time path cache).
+  Verified live end-to-end on throwaway annotations: clean apply (supersede),
+  conflict apply (all 3 versions, was_conflict flag, applies anyway), already_applied
+  idempotency, archive-on-complete; provenance shows approved labelText/anchorCandidate
+  with curator+timestamp. Frontend rebuilt (measured host build 2.94 GB peak < 4G
+  before the docker build; image built then container recreated, 2 s downtime).
+
 Full detail + next steps: plan file `~/.claude/plans/imperative-crafting-wombat.md`.
-Next: M3 (matching/view-pie bench + Remoulade), or the push-back/graduation adapter.
+Next: RDF cross-check (Hillview independently RE-DERIVES the body from the TriG facts
+and diffs vs the manifest — the two-interpreters agreement; needs the parser +
+suggest_body ported to Hillview); enrichment bot account for apply attribution;
+pano source-frame work; GPU-box matcher.
 
 ## Why (the reframe)
 

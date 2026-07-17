@@ -1,0 +1,80 @@
+@prefix hv:   <https://rdf.hillview.cz/ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix geo:  <http://www.opengis.net/ont/geosparql#> .
+
+# Hillview enrichment vocabulary — M1 (annotations bench) subset.
+#
+# Conventions (docs/enrichment-workbench.md):
+#  - Identifiers live under rdf.hillview.cz — deliberately distinct from the
+#    web app's hillview.cz, so URIs read as identifiers, not web addresses
+#    (the rdf subdomain can later serve a dereferencing RDF viewer). Web pages
+#    are referenced EXPLICITLY via dedicated predicates (hv:webPage,
+#    hv:wikipediaPage) whose objects are the web addresses.
+#  - NO RDF-star, NO reification, NO blank nodes. Plain SPARQL 1.1 quads;
+#    every graph name is a minted URI.
+#  - Each fact triple lives alone in a content-addressed named graph
+#      https://rdf.hillview.cz/id/fact/{sha256(canonical-ntriples)[:16]}
+#    so the same fact re-emitted by any run lands on the SAME graph URI.
+#  - Provenance (meta graph https://rdf.hillview.cz/id/graph/meta):
+#      fact:X prov:wasGeneratedBy run:R ;  hv:about annotation:A .
+#      run:R a hv:ParseRun ; prov:startedAtTime "…" ; hv:parserVersion "1" ;
+#            hv:hashScheme "1" .
+#  - Curation (curation graph https://rdf.hillview.cz/id/graph/curation):
+#      fact:X hv:status hv:approved|hv:rejected ; hv:curator user:U ;
+#             hv:decidedAt "…" ; hv:note "…" .
+#    Absence of hv:status = proposed.
+
+hv:ParseRun  a rdfs:Class ; rdfs:comment "One execution of the annotation-body parser." .
+
+# fact predicates (subject = annotation IRI)
+hv:onPhoto        rdfs:comment "Annotation belongs to this photo." .
+hv:labelText      rdfs:comment "Cleaned label text (first |-segment, ? markers stripped)." .
+hv:context        rdfs:comment "Free-text context segment (2nd |-segment when not URL/coords)." .
+hv:wikipediaPage  rdfs:comment "Wikipedia page URL embedded in the body." .
+hv:embeddedCoords rdfs:comment "Coordinates embedded in the body." ; rdfs:range geo:wktLiteral .
+hv:uncertain      rdfs:comment "Author marked the label uncertain (trailing ? / (?))." .
+hv:oopsMarker     rdfs:comment "Body marks a stitching error, not a real target." .
+hv:unnamed        rdfs:comment "Body carries no usable name (bare ? or empty)." .
+hv:typeGuess      rdfs:comment "Cheap keyword type heuristic (tower/church/peak/…)." .
+hv:webPage        rdfs:comment "Human-facing web page for this resource (explicit external reference, e.g. https://hillview.cz/photo/{id})." .
+
+# geocoding (M2) — candidates are external identifiers (OSM object URIs, Wikipedia
+# page URLs); metadata about a candidate are ordinary facts about that URI, so they
+# dedupe across annotations/runs by content-addressing.
+hv:anchorCandidate rdfs:comment "Candidate real-world anchor for this annotation (object: OSM object URI or Wikipedia page URL). THE curatable geocode fact — approving one = the anchor." .
+hv:coords          rdfs:comment "Coordinates of a resource." ; rdfs:range geo:wktLiteral .
+hv:displayName     rdfs:comment "Human-readable name (e.g. Nominatim display_name)." .
+hv:osmType         rdfs:comment "OSM category/type string (e.g. man_made/tower)." .
+
+# matching (M3)
+hv:depictedIn rdfs:comment "The annotation's feature is visible in this photo. Created by a human verdict in the matching bench (approved = true pair, rejected = false pair) — the gold set." .
+
+# calibration (subject = pano photo; derived from anchor fits, curatable like any fact)
+hv:calibratedBearing rdfs:comment "Fitted bearing of the pano centre (deg; Theil-Sen over anchor azimuths vs rect-x)." .
+hv:calibratedFov     rdfs:comment "Fitted horizontal field of view (deg across full width)." .
+hv:calibrationRms    rdfs:comment "RMS residual of the calibration fit (deg)." .
+
+# proto-annotations (reverse workflow: known POI placed onto a pano by inverting the
+# calibration fit — no human-drawn rect yet). Subject IRIs are minted under
+# /id/proto-annotation/{sha256(photo_id|wiki_url)[:16]} so re-placing the same POI on
+# the same pano is idempotent. Reuses hv:onPhoto / hv:labelText / hv:wikipediaPage /
+# hv:coords; each approved one is a future calibration anchor, and graduation to a
+# real Hillview annotation is the push-back adapter's job (M5).
+hv:ProtoAnnotation a rdfs:Class ; rdfs:comment "Workbench-born annotation candidate: a POI with known coordinates placed onto a pano at a predicted x." .
+hv:assumedX        rdfs:comment "Predicted normalized x (0..1 across the pano width) where the POI should appear, from the pano's calibration. May fall outside [0,1] — the POI is then out of frame (useful signal, still recorded)." .
+hv:assumedXError   rdfs:comment "Uncertainty of assumedX (calibration RMS / FOV), in the same normalized units." .
+
+# provenance / curation predicates
+hv:about         rdfs:comment "Fact-graph is about this subject (annotation)." .
+hv:parserVersion rdfs:comment "Version of the parser that produced the run." .
+hv:hashScheme    rdfs:comment "Version of the fact-graph content-hash scheme." .
+hv:paramsJson    rdfs:comment "Run parameters as a JSON literal." .
+hv:status        rdfs:comment "Curation status of a fact-graph." .
+hv:approved      a hv:Status .
+hv:rejected      a hv:Status .
+hv:curator       rdfs:comment "Who decided." .
+hv:decidedAt     rdfs:comment "When decided." .
+hv:note          rdfs:comment "Curator note." .
+hv:source        rdfs:comment "Data source marker (e.g. hv:legacyCsv)." .
+hv:legacyCsv     rdfs:comment "Imported from the pre-workbench CSV artifacts." .

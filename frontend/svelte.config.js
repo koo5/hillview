@@ -22,6 +22,14 @@ const config = {
 		// See https://svelte.dev/docs/kit/adapters for more information about adapters.
 		adapter,
 
+		// Cross-app shared zoomview modules (tile source, label layout/paint,
+		// annotation targets, viewer init) — consumed by the enrichment workbench
+		// too (enrich/web). The docker build COPYies this dir to /shared/zoomview
+		// (see Dockerfile; build context is the repo root for that reason).
+		alias: {
+			$zoomview: '../shared/zoomview'
+		},
+
 		/*experimental: {
 			tracing: {
 				server: true

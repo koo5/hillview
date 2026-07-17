@@ -1,0 +1,116 @@
+name: hillview-enrich
+
+# Enrichment Workbench stack — independent of the main hillview compose project.
+# The api service additionally joins the main stack's external network
+# (hillview_network) to mirror-sync from the hillview Postgres at postgres:5432.
+# See README.md for the port map and smoke tests. Design: docs/enrichment-workbench.md.
+
+services:
+  workbench-db:
+    # deliberately NOT named "postgres" — the api container also sits on
+    # hillview_network where that name already resolves to hillview_postgres
+    image: postgis/postgis:15-3.5
+    container_name: enrich_workbench_db
+    restart: unless-stopped
+    mem_limit: 2g
+    environment:
+      POSTGRES_DB: ${WB_POSTGRES_DB:-enrich}
+      POSTGRES_USER: ${WB_POSTGRES_USER:-enrich}
+      POSTGRES_PASSWORD: ${WB_POSTGRES_PASSWORD:-enrich}
+    ports:
+      - "127.0.0.1:${WB_POSTGRES_HOST_PORT:-15432}:5432"
+    volumes:
+      - workbench_db_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WB_POSTGRES_USER:-enrich} -d ${WB_POSTGRES_DB:-enrich}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  oxigraph:
+    image: ghcr.io/oxigraph/oxigraph:0.5.0
+    container_name: enrich_oxigraph
+    restart: unless-stopped
+    mem_limit: 2g
+    command: serve --location /data --bind 0.0.0.0:7878
+    ports:
+      - "127.0.0.1:${OXIGRAPH_HOST_PORT:-7878}:7878"
+    volumes:
+      - oxigraph_data:/data
+
+  rabbitmq:
+    image: rabbitmq:3.13-alpine
+    container_name: enrich_rabbitmq
+    restart: unless-stopped
+    mem_limit: 768m
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-enrich}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-enrich}
+    ports:
+      # loopback-published so HOST-side matcher workers (scripts/enrich venv,
+      # torch+MASt3R) can connect — the untrusted-worker topology: workers talk
+      # only to the broker + HTTP callback, never the DBs.
+      - "127.0.0.1:${RABBITMQ_HOST_PORT:-5672}:5672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  api:
+    build:
+      context: ./api
+    container_name: enrich_api
+    restart: unless-stopped
+    mem_limit: 1500m
+    environment:
+      - WB_DB_URL=postgresql+asyncpg://${WB_POSTGRES_USER:-enrich}:${WB_POSTGRES_PASSWORD:-enrich}@workbench-db:5432/${WB_POSTGRES_DB:-enrich}
+      - HILLVIEW_DB_URL=${HILLVIEW_DB_URL:-postgresql+asyncpg://hillview:hillview@postgres:5432/hillview}
+      - OXIGRAPH_URL=http://oxigraph:7878
+      - ARTIFACTS_DIR=/artifacts
+      - ENRICH_ALLOW_RAW_UPDATE=${ENRICH_ALLOW_RAW_UPDATE:-0}
+      - SCHEMA_DIR=/app/schema
+      - NOMINATIM_URL=${NOMINATIM_URL:-https://nominatim.ueueeu.eu}
+      - GEOCODE_DELAY=${GEOCODE_DELAY:-0.7}
+      - RABBITMQ_URL=${RABBITMQ_USER:-enrich}:${RABBITMQ_PASS:-enrich}@rabbitmq:5672
+      - ENRICH_WORKER_TOKEN=${ENRICH_WORKER_TOKEN:-dev-worker-token}
+    ports:
+      - "127.0.0.1:${ENRICH_API_HOST_PORT:-8070}:8070"
+    volumes:
+      - enrich_artifacts:/artifacts
+      - ./db/init:/app/schema:ro
+      # live-reload dev loop: code mounted over the image copy
+      - ./api/app:/app/app
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8070", "--reload"]
+    networks:
+      default: {}
+      hillview:
+        aliases: [enrich-api]
+    depends_on:
+      workbench-db:
+        condition: service_healthy
+      oxigraph:
+        condition: service_started
+
+  web:
+    build:
+      # repo root: the UI imports shared zoomview modules from
+      # frontend/src/lib/zoomview (see web/Dockerfile + its .dockerignore)
+      context: ..
+      dockerfile: enrich/web/Dockerfile
+    container_name: enrich_web
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      - PORT=8071
+    ports:
+      - "127.0.0.1:${ENRICH_WEB_HOST_PORT:-8071}:8071"
+
+networks:
+  hillview:
+    external: true
+    name: hillview_network
+
+volumes:
+  workbench_db_data: {}
+  oxigraph_data: {}
+  enrich_artifacts: {}
+  rabbitmq_data: {}
