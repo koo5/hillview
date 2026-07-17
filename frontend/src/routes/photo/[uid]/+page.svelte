@@ -52,6 +52,7 @@
 	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
 	import { showDropdownMenu } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
 	import { getPhotoMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
+	import { isModerator } from '$lib/adminNotifications';
 
 	export let data: { photo?: PublicPhoto; annotations?: PhotoAnnotation[] } | undefined = undefined;
 
@@ -472,6 +473,17 @@
 
 			<PhotoAnnotations {annotations} />
 
+			<!-- Moderators/admins can inspect the full edit history of this photo's annotations. -->
+			{#if $isModerator && photoUid && parsePhotoUidParts(photoUid)?.source === 'hillview'}
+				<a
+					class="annotation-history-link"
+					href={`/photo/${photoUid}/annotations`}
+					data-testid="photo-annotation-history-link"
+				>
+					<Clock size={14} /> Annotation history
+				</a>
+			{/if}
+
 			{#if statusMessage}
 				<div class="status-message" class:error={statusError} data-testid="photo-detail-status">
 					{statusMessage}
@@ -507,6 +519,21 @@
 		border-radius: 8px;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 		padding: 24px;
+	}
+
+	.annotation-history-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		margin-top: 12px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #4f46e5;
+		text-decoration: none;
+	}
+
+	.annotation-history-link:hover {
+		text-decoration: underline;
 	}
 
 	.photo-container {

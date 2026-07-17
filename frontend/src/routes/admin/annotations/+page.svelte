@@ -7,44 +7,15 @@
 	import { http } from '$lib/http';
 	import { formatUtcDateTime } from '$lib/dateUtils';
 	import { isAdmin, isModerator } from '$lib/adminNotifications';
-
-	interface AnnotationEvent {
-		id: string;
-		photo_id: string;
-		user_id: string;
-		username: string | null;
-		actor_role: string | null;
-		event_type: 'created' | 'updated' | 'deleted' | string;
-		body: string | null;
-		target: unknown;
-		is_current: boolean;
-		superseded_by: string | null;
-		created_at: string;
-		photo_lat: number | null;
-		photo_lon: number | null;
-		photo_bearing: number | null;
-		photo_width: number | null;
-		prev_body: string | null;
-		superseded_by_event: { id: string; event_type: string; username: string | null } | null;
-		moderation: ModInfo | null;
-		reverted: ModInfo | null;
-	}
-
-	interface ModInfo {
-		action: string;
-		reason: string | null;
-		moderator_username: string | null;
-	}
-
-	// The prior text this event replaced/removed (label depends on the event kind).
-	function prevLabel(ev: AnnotationEvent): string {
-		return ev.event_type === 'deleted' ? 'removed' : 'was';
-	}
-
-	// "undo_create" → "undo create", for display.
-	function modAction(m: ModInfo): string {
-		return m.action.replace(/_/g, ' ');
-	}
+	import {
+		type AnnotationEvent,
+		prevLabel,
+		modAction,
+		isOrdinary,
+		bodyPreview,
+		undoLabel,
+		zoomLink,
+	} from '$lib/annotationEvents';
 
 	// Scroll to (and briefly highlight) another event in the log — e.g. the version
 	// that superseded this one. If it's filtered out of the current view, drop to
@@ -65,59 +36,9 @@
 		}
 	}
 
-	// Events by ordinary users (anyone who isn't an admin or moderator) are the
-	// ones worth an admin's attention, so their username is highlighted.
-	function isOrdinary(ev: AnnotationEvent): boolean {
-		return !['admin', 'moderator'].includes((ev.actor_role ?? '').toLowerCase());
-	}
-
 	// Annotations live on hillview photos, so the detail page is /photo/hillview-{id}.
 	function photoUrl(ev: AnnotationEvent): string {
 		return `/photo/hillview-${ev.photo_id}`;
-	}
-
-	// Pixel-space bbox of the annotation target. Handles both the Annotorious v3
-	// RECTANGLE selector (geometry.bounds in image pixels — what the app writes)
-	// and the older FragmentSelector `xywh=pixel:` form.
-	function targetXywh(ev: AnnotationEvent): { x: number; y: number; w: number; h: number } | null {
-		const sel = (ev.target as any)?.selector ?? ev.target;
-		if (!sel) return null;
-
-		const b = sel.geometry?.bounds;
-		if (b && [b.minX, b.minY, b.maxX, b.maxY].every((n: unknown) => typeof n === 'number')) {
-			return { x: b.minX, y: b.minY, w: b.maxX - b.minX, h: b.maxY - b.minY };
-		}
-
-		const value = typeof sel === 'string' ? sel : sel?.value;
-		if (typeof value === 'string') {
-			const m = value.match(/xywh=pixel:([\d.]+),([\d.]+),([\d.]+),([\d.]+)/);
-			if (m) {
-				const [, x, y, w, h] = m.map(Number);
-				return { x, y, w, h };
-			}
-		}
-		return null;
-	}
-
-	// A zoomview "share link": the map URL opens the photo zoomed to the annotation.
-	// OSD viewport bounds normalize BOTH axes by the image width, so px/width.
-	function zoomLink(ev: AnnotationEvent): string | null {
-		const xy = targetXywh(ev);
-		if (!xy || !ev.photo_width || ev.photo_lat == null || ev.photo_lon == null) return null;
-		const W = ev.photo_width;
-		const b = { x1: xy.x / W, y1: xy.y / W, x2: (xy.x + xy.w) / W, y2: (xy.y + xy.h) / W };
-		const p = new URLSearchParams({
-			lat: String(ev.photo_lat),
-			lon: String(ev.photo_lon),
-			zoom: '20',
-			photo: `hillview-${ev.photo_id}`,
-			x1: b.x1.toFixed(6),
-			y1: b.y1.toFixed(6),
-			x2: b.x2.toFixed(6),
-			y2: b.y2.toFixed(6),
-		});
-		if (ev.photo_bearing != null) p.set('bearing', String(ev.photo_bearing));
-		return `/?${p.toString()}`;
 	}
 
 	const FILTERS = ['all', 'created', 'updated', 'deleted'] as const;
@@ -161,13 +82,6 @@
 		loadEvents();
 	}
 
-	// A tombstone (deleted) carries no body; created/updated show a short preview.
-	function bodyPreview(ev: AnnotationEvent): string {
-		if (ev.event_type === 'deleted') return '(annotation removed)';
-		const b = (ev.body ?? '').trim();
-		return b === '' ? '(empty)' : b;
-	}
-
 	// Undo — only the current tip of a chain can be reverted (backend enforces it too).
 	let undoTarget: AnnotationEvent | null = null;
 	let undoReason = '';
@@ -202,13 +116,6 @@
 		} finally {
 			undoBusy = false;
 		}
-	}
-
-	// What the undo of this event will do, for the button/dialog wording.
-	function undoLabel(ev: AnnotationEvent): string {
-		if (ev.event_type === 'created') return 'Remove this annotation';
-		if (ev.event_type === 'deleted') return 'Restore this annotation';
-		return 'Revert this edit';
 	}
 </script>
 
