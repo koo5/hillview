@@ -6,11 +6,18 @@ import { sharedDefines } from './config/shared';
 export default defineConfig({
   plugins: [sveltekit()],
   define: sharedDefines,
+  // shared/zoomview sits outside the project root — allow vitest's vite server
+  // to serve it (scoped to ../shared, matching vite.config.ts)
+  server: { fs: { allow: ['.', '../shared'] } },
   test: {
     globals: true,
     environment: 'happy-dom',
     setupFiles: ['./src/tests/setup.ts'],
-    include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
+    include: [
+      'src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',
+      // shared zoomview modules live outside src/ but their tests run here
+      '../shared/zoomview/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
@@ -28,6 +35,7 @@ export default defineConfig({
   resolve: {
     alias: {
       $lib: path.resolve('./src/lib'),
+      $zoomview: path.resolve('../shared/zoomview'),
       $app: path.resolve('./.svelte-kit/runtime/app'),
       'tauri-plugin-hillview-api': path.resolve('./src/tests/mocks/tauri-plugin-hillview-api.ts'),
     },

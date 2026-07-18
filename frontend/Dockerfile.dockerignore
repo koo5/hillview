@@ -1,0 +1,26 @@
+# allowlist: this Dockerfile builds from the REPO ROOT (the $zoomview alias
+# imports shared/zoomview, which lives outside frontend/) — see the frontend
+# service in docker-compose.yml. Exclusions mirror frontend/.dockerignore.
+*
+!frontend
+!shared/zoomview
+frontend/**/.github
+frontend/**/.claude
+frontend/**/.idea
+frontend/**/node_modules
+frontend/**/playwright-report
+frontend/**/test
+frontend/**/tests
+frontend/**/test-assets
+frontend/**/test-results
+frontend/**/tests-*
+frontend/scripts
+frontend/**/logs
+frontend/**/docs
+frontend/.svelte-kit
+frontend/build
+frontend/**/.playwright-mcp
+frontend/src-tauri/**
+!frontend/src-tauri/icons
+frontend/tauri-plugin-hillview/android/
+frontend/tauri-plugin-hillview/target/

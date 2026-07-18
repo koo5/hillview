@@ -6,6 +6,7 @@ services:
     init: true
     image: postgis/postgis:15-3.5
     container_name: hillview_postgres
+    mem_limit: 4g
     restart: always
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
@@ -32,6 +33,7 @@ services:
       context: backend
       dockerfile: api/app/Dockerfile
     container_name: hillview_api
+    mem_limit: 3g
     ports:
       - "127.0.0.1:8055:8055"
     volumes:
@@ -94,9 +96,12 @@ services:
     init: true
     restart: always
     build:
-      context: frontend
-      dockerfile: Dockerfile
+      # repo root: the web build imports shared/zoomview via the $zoomview
+      # alias (see frontend/Dockerfile + its Dockerfile.dockerignore allowlist)
+      context: .
+      dockerfile: frontend/Dockerfile
     container_name: hillview_frontend
+    mem_limit: 2g
     ports:
       - "127.0.0.1:3000:3000"
     environment:
@@ -143,6 +148,7 @@ services:
     image: ghcr.io/umami-software/umami@sha256:e3f80c0625aad7179b49da27d475357cabb1068b8cacd9a792cfd6966888b123
 #    image: ghcr.io/umami-software/umami:postgresql-latest
     container_name: hillview_umami
+    mem_limit: 1g
     restart: always
     ports:
       - "127.0.0.1:3344:3344"
@@ -166,6 +172,9 @@ services:
     container_name: hillview_analyzer
     profiles: ["analyzer"]
     restart: unless-stopped
+    # OOM guard: the analyzer is light (httpx + sqlalchemy, images stay remote),
+    # but a leak in a long-running LLM loop shouldn't be able to take the box
+    mem_limit: 1g
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - OPENROUTER_API_KEY_FILE=/run/secrets/openrouter_api_key
