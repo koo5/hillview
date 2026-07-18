@@ -25,9 +25,18 @@
 		decided_at: string | null;
 		anchor: { uri: string; lat: number; lon: number } | null;
 	}
+	interface TargetChange {
+		annotation_id: string;
+		photo_id: string;
+		sizes: Record<string, { url?: string }> | null;
+		current_rect: string | null;
+		proposed_rect: string;
+	}
 	interface Suggestions {
 		suggestions: Suggestion[];
 		landed: Suggestion[];
+		creates: Suggestion[];
+		target_changes: TargetChange[];
 	}
 
 	let data = $state<Suggestions | null>(null);
@@ -58,7 +67,8 @@
 	let exportMsg = $state<string | null>(null);
 
 	async function exportPackage() {
-		if (!data?.suggestions.length) return;
+		if (!data || (!data.suggestions.length && !data.creates.length && !data.target_changes.length))
+			return;
 		exporting = true;
 		exportMsg = null;
 		try {
@@ -106,10 +116,14 @@
 
 {#if data}
 	<div class="row" style="align-items:center; gap:12px">
-		<h2 style="margin:0">Pending — {data.suggestions.length}</h2>
-		{#if data.suggestions.length}
+		<h2 style="margin:0">
+			Pending — {data.suggestions.length + data.creates.length + data.target_changes.length}
+		</h2>
+		{#if data.suggestions.length || data.creates.length || data.target_changes.length}
 			<button class="primary" disabled={exporting} onclick={exportPackage}>
-				{exporting ? 'building…' : `⬇ export package (${data.suggestions.length})`}
+				{exporting
+					? 'building…'
+					: `⬇ export package (${data.suggestions.length + data.creates.length + data.target_changes.length})`}
 			</button>
 		{/if}
 	</div>
@@ -167,8 +181,71 @@
 				{/each}
 			</tbody>
 		</table>
-	{:else}
+	{:else if !data.creates.length && !data.target_changes.length}
 		<p class="muted">nothing pending — approve labels/anchors on annotation pages to propose changes</p>
+	{/if}
+
+	{#if data.creates.length}
+		<h2 style="margin-top:18px">New annotations to create — {data.creates.length}</h2>
+		<p class="muted" style="font-size:12px">
+			workbench-drawn annotations (origin=workbench) that don't exist in Hillview yet — the
+			package CREATES them there (idempotent by their id), then the mirror sync retires the
+			local copy
+		</p>
+		<table>
+			<thead><tr><th>pano</th><th>annotation</th><th>body</th><th>driving facts</th></tr></thead>
+			<tbody>
+				{#each data.creates as s (s.annotation_id)}
+					<tr>
+						<td style="width:76px">
+							<a href="/photos/{s.photo_id}"><PhotoThumb sizes={s.sizes} size={70} /></a>
+						</td>
+						<td style="white-space:nowrap">
+							<a href="/annotations/{s.annotation_id}" class="mono" style="font-size:12px">{s.annotation_id.slice(0, 8)}</a>
+						</td>
+						<td>
+							<div class="mono" style="font-size:12px; color:var(--ok)">{s.suggested_body}</div>
+							<span class="pill" style="font-size:10px">create</span>
+						</td>
+						<td style="font-size:11px">
+							{#each s.facts as f (f.fact)}
+								<div class="mono" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:340px" title={f.fact}>
+									<span class="pill ok" style="font-size:9px">✓</span> {f.predicate} = {f.value}
+								</div>
+							{/each}
+						</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	{/if}
+
+	{#if data.target_changes.length}
+		<h2 style="margin-top:18px">Reshapes to graduate — {data.target_changes.length}</h2>
+		<p class="muted" style="font-size:12px">
+			mirrored annotations reshaped in the workbench (a proposed geometry) — the package
+			applies the new rectangle to Hillview (keeping the body), then the mirror confirms it
+		</p>
+		<table>
+			<thead><tr><th>pano</th><th>annotation</th><th>rect x,y,w,h</th></tr></thead>
+			<tbody>
+				{#each data.target_changes as t (t.annotation_id)}
+					<tr>
+						<td style="width:76px">
+							<a href="/photos/{t.photo_id}"><PhotoThumb sizes={t.sizes} size={70} /></a>
+						</td>
+						<td style="white-space:nowrap">
+							<a href="/annotations/{t.annotation_id}" class="mono" style="font-size:12px">{t.annotation_id.slice(0, 8)}</a>
+						</td>
+						<td class="mono" style="font-size:11px">
+							<div class="muted" style="text-decoration:line-through">{t.current_rect ?? '—'}</div>
+							<div style="color:var(--ok)">{t.proposed_rect}</div>
+							<span class="pill" style="font-size:10px">reshape</span>
+						</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
 	{/if}
 
 	{#if data.landed.length}

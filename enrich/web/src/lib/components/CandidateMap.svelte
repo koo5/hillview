@@ -11,7 +11,9 @@
 		annotationPie = null,
 		selected = null,
 		onselect,
-		onmapclick
+		onmapclick,
+		fit = true,
+		onviewport
 	}: {
 		photo: CandidatePhoto;
 		candidates: Candidate[];
@@ -24,6 +26,11 @@
 		onselect?: (candidate: string) => void;
 		// background-click → (lat, lon); marker clicks don't fire this
 		onmapclick?: (lat: number, lon: number) => void;
+		// auto-fit the view to the candidates on render (off for map-area mode,
+		// where the user's pan/zoom defines the query)
+		fit?: boolean;
+		// current viewport bounds, emitted on moveend (map-area candidate mode)
+		onviewport?: (b: { minlon: number; minlat: number; maxlon: number; maxlat: number }) => void;
 	} = $props();
 
 	// destination point along a bearing (spherical earth) — for sector polygons
@@ -204,7 +211,18 @@
 			m.on('click', () => onselect?.(c.candidate));
 			pts.push([c.lat, c.lon]);
 		}
-		if (pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 15 });
+		if (fit && pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 15 });
+	}
+
+	function emitViewport() {
+		if (!map || !onviewport) return;
+		const b = map.getBounds();
+		onviewport({
+			minlon: b.getWest(),
+			minlat: b.getSouth(),
+			maxlon: b.getEast(),
+			maxlat: b.getNorth()
+		});
 	}
 
 	onMount(async () => {
@@ -217,7 +235,9 @@
 		}).addTo(map);
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		map.on('click', (e: any) => onmapclick?.(e.latlng.lat, e.latlng.lng));
+		map.on('moveend', emitViewport);
 		render();
+		emitViewport(); // seed the page with the initial viewport
 	});
 	onDestroy(() => map?.remove());
 

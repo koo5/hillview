@@ -48,7 +48,11 @@
 	const verdictFacts = $derived((ann?.facts ?? []).filter((f) => f.predicate === 'depictedIn'));
 	const parseFacts = $derived(
 		(ann?.facts ?? []).filter(
-			(f) => f.predicate !== 'anchorCandidate' && f.predicate !== 'depictedIn' && isAboutAnn(f)
+			(f) =>
+				f.predicate !== 'anchorCandidate' &&
+				f.predicate !== 'depictedIn' &&
+				f.predicate !== 'depicts' &&
+				isAboutAnn(f)
 		)
 	);
 	const otherFacts = $derived(
@@ -111,6 +115,7 @@
 		sq = '';
 		pin = null;
 		load();
+		loadPois();
 	});
 
 	async function runSuggest() {
@@ -248,6 +253,51 @@
 	}
 	// the Nominatim hit's leading name component — same text shown in the row
 	const hitName = (s: Suggestion) => s.display_name.split(',')[0].trim();
+
+	// POI relations for triangulation: this annotation may depict a shared POI
+	interface PoiRow {
+		poi_id: string;
+		label: string | null;
+		n_annotations: number;
+	}
+	let pois = $state<PoiRow[]>([]);
+	let poiLabel = $state('');
+	let relatePoiId = $state('');
+	let poiBusy = $state(false);
+	const depictsFacts = $derived((ann?.facts ?? []).filter((f) => f.predicate === 'depicts'));
+
+	async function loadPois() {
+		try {
+			pois = (await api.get<{ pois: PoiRow[] }>('/pois')).pois;
+		} catch {
+			pois = [];
+		}
+	}
+	async function createPoi() {
+		if (!ann) return;
+		poiBusy = true;
+		try {
+			await api.post('/pois', {
+				label: poiLabel.trim() || null,
+				annotation_ids: [ann.id]
+			});
+			poiLabel = '';
+			await Promise.all([load(), loadPois()]);
+		} finally {
+			poiBusy = false;
+		}
+	}
+	async function relateToPoi() {
+		if (!ann || !relatePoiId) return;
+		poiBusy = true;
+		try {
+			await api.post(`/pois/${relatePoiId}/annotations`, { annotation_id: ann.id });
+			relatePoiId = '';
+			await Promise.all([load(), loadPois()]);
+		} finally {
+			poiBusy = false;
+		}
+	}
 
 	async function attachWiki() {
 		if (!ann || !wq.trim()) return;
@@ -562,6 +612,45 @@
 				</p>
 			{/if}
 		</div>
+	</div>
+
+	<h2 style="margin-top:16px">
+		POI / triangulation
+		{#if depictsFacts.length}
+			<a href="/triangulate?poi={depictsFacts[0].value.split('/').pop()}" style="font-size:13px; margin-left:10px; text-transform:none">triangulate →</a>
+		{/if}
+	</h2>
+	<p class="muted" style="font-size:12px; margin:2px 0 8px">
+		If this annotation and others depict the SAME real-world thing, relate them to one POI —
+		then their sight-rays triangulate its location on the <a href="/triangulate">Triangulate</a> page.
+	</p>
+	{#if depictsFacts.length}
+		<div class="card" style="font-size:12px">
+			depicts:
+			{#each depictsFacts as f (f.value)}
+				<a href="/triangulate?poi={f.value.split('/').pop()}" class="mono">
+					{pois.find((p) => f.value.endsWith(p.poi_id))?.label ?? f.value.split('/').pop()?.slice(0, 8)}
+				</a>{' '}
+			{/each}
+		</div>
+	{/if}
+	<div class="card row" style="gap:14px; font-size:12px; flex-wrap:wrap; align-items:center">
+		<div class="row" style="gap:6px">
+			<input placeholder="new POI label (optional)" bind:value={poiLabel} style="width:200px" />
+			<button disabled={poiBusy} onclick={createPoi}>＋ new POI from this annotation</button>
+		</div>
+		{#if pois.length}
+			<div class="row" style="gap:6px">
+				<span class="muted">or add to:</span>
+				<select bind:value={relatePoiId} style="max-width:220px">
+					<option value="">— existing POI —</option>
+					{#each pois as p (p.poi_id)}
+						<option value={p.poi_id}>{p.label ?? p.poi_id.slice(0, 8)} ({p.n_annotations})</option>
+					{/each}
+				</select>
+				<button disabled={poiBusy || !relatePoiId} onclick={relateToPoi}>relate</button>
+			</div>
+		{/if}
 	</div>
 
 	<h2 style="margin-top:16px">

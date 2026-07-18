@@ -53,6 +53,23 @@ async def _photo_pool(exclude_id: str, lon: float, lat: float, radius_m: float):
             {"pid": exclude_id, "lon": lon, "lat": lat, "rad": radius_m})).all()
 
 
+async def _photo_pool_bbox(exclude_id: str, minlon: float, minlat: float,
+                           maxlon: float, maxlat: float, limit: int):
+    """Photos whose position falls in the given lon/lat box (the map viewport) —
+    the manual-scan pool, no pie/distance gate."""
+    async with wb_engine.connect() as conn:
+        return (await conn.execute(text(
+            "SELECT id, ST_X(geometry) AS lon, ST_Y(geometry) AS lat, compass_angle, "
+            "(analysis->>'farthest_object_distance')::float AS far_m, title, "
+            "width, height "
+            "FROM photo_mirror WHERE deleted = false AND missing_since IS NULL "
+            "AND geometry IS NOT NULL AND compass_angle IS NOT NULL AND id != :pid "
+            "AND geometry && ST_MakeEnvelope(:minlon, :minlat, :maxlon, :maxlat, 4326) "
+            "LIMIT :lim"),
+            {"pid": exclude_id, "minlon": minlon, "minlat": minlat,
+             "maxlon": maxlon, "maxlat": maxlat, "lim": limit})).all()
+
+
 async def _pano_pie(photo_id: str, compass, slack: float, default_far: float,
                     assumed_fov: float) -> dict | None:
     """The ORIGIN pano's own view pie: calibrated centre/FOV when available
@@ -115,8 +132,8 @@ async def view_candidates(ann_id: str, slack: float = 2.0, half: float = 60,
                           limit: int = 60, mode: str = "auto",
                           ray_half: float | None = None, near_m: float = 200,
                           far_m: float = 15000, assumed_fov: float = 90,
-                          overlap: bool = True):
-    """Candidates for matching, two modes:
+                          overlap: bool = True, bbox: str | None = None):
+    """Candidates for matching, three modes:
     - target (anchor known): photos whose view pie contains the anchor point +
       same-side constraint — the confirmation flow.
     - ray (no anchor — e.g. a bare '?' rect): the pano's calibration turns the
@@ -124,10 +141,39 @@ async def view_candidates(ann_id: str, slack: float = 2.0, half: float = 60,
       azimuth ± ray_half over [near_m, far_m]. overlap=true additionally demands
       the candidate's own pie SEE the ray (tested by sampling points along it —
       viewpie×viewpie via the existing point gate); overlap=false is plain
-      position-in-wedge. mode=auto picks target when an anchor exists."""
+      position-in-wedge. mode=auto picks target when an anchor exists.
+    - bbox (mode=bbox, bbox=minlon,minlat,maxlon,maxlat): every photo in the map
+      viewport, no geometric gate — manual visual scanning by pan+zoom."""
     target = wedge = None
     pano = None
-    if mode in ("auto", "target"):
+    if mode == "bbox":
+        if not bbox:
+            raise HTTPException(422, "bbox mode needs bbox=minlon,minlat,maxlon,maxlat")
+        try:
+            minlon, minlat, maxlon, maxlat = (float(x) for x in bbox.split(","))
+        except (ValueError, TypeError):
+            raise HTTPException(422, "bbox must be minlon,minlat,maxlon,maxlat")
+        async with wb_engine.connect() as conn:
+            row = (await conn.execute(text(
+                "SELECT a.photo_id, ST_X(p.geometry) AS lon, ST_Y(p.geometry) AS lat, "
+                "p.compass_angle FROM annotation_mirror a "
+                "JOIN photo_mirror p ON p.id = a.photo_id WHERE a.id = :id"),
+                {"id": ann_id})).first()
+        if not row:
+            raise HTTPException(404, "annotation not found")
+        pano = {"id": row.photo_id, "lat": row.lat, "lon": row.lon,
+                "compass_angle": row.compass_angle}
+        from ..calibrate import haversine_km
+        rows = await _photo_pool_bbox(row.photo_id, minlon, minlat, maxlon, maxlat, limit)
+        cands = []
+        for r in rows:
+            c = _cand_dict(r, slack, half, default_far)
+            c["dist_m"] = (round(haversine_km(row.lon, row.lat, r.lon, r.lat) * 1000)
+                           if row.lat is not None and r.lat is not None else 0)
+            c["off"] = 0
+            cands.append(c)
+        used_mode = "bbox"
+    elif mode in ("auto", "target"):
         try:
             t = await _target_for(ann_id)
             pano = t["pano"]
@@ -136,7 +182,9 @@ async def view_candidates(ann_id: str, slack: float = 2.0, half: float = 60,
             if mode == "target" or e.status_code == 404:
                 raise
 
-    if target:
+    if mode == "bbox":
+        pass  # candidates already built above
+    elif target:
         rows = await _photo_pool(pano["id"], t["lon"], t["lat"], 25000)
         cands = []
         for r in rows:

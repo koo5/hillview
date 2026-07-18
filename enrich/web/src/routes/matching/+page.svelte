@@ -37,7 +37,7 @@
 		verdict: string;
 	}
 	interface ViewResponse {
-		mode: 'target' | 'ray';
+		mode: 'target' | 'ray' | 'bbox';
 		target: { lat: number; lon: number; anchor: string; rule: string } | null;
 		wedge:
 			| {
@@ -72,8 +72,17 @@
 		// ray-mode knobs (used when the annotation has no anchor)
 		near: 200,
 		far: 15000,
-		overlap: true
+		overlap: true,
+		// bbox mode: candidates = whatever's in the map viewport (manual scan),
+		// ignoring pie/ray/distance entirely
+		bbox: false
 	});
+
+	// current map viewport, emitted by CandidateMap; used when bbox mode is on
+	let mapBounds = $state<{ minlon: number; minlat: number; maxlon: number; maxlat: number } | null>(
+		null
+	);
+	let bboxReloadTimer: ReturnType<typeof setTimeout> | null = null;
 
 	let list = $state<AnnotationList | null>(null);
 	let sel = $state<AnnotationRow | null>(null);
@@ -125,15 +134,25 @@
 		loadingView = true;
 		try {
 			const k = $knobs;
-			const p = new URLSearchParams({
-				slack: String(k.slack),
-				half: String(k.half),
-				sameside: String(k.sameside),
-				limit: String(k.limit),
-				near_m: String(k.near),
-				far_m: String(k.far),
-				overlap: String(k.overlap)
-			});
+			let p: URLSearchParams;
+			if (k.bbox && mapBounds) {
+				// map-area mode: candidates come from the current viewport, not the pie
+				p = new URLSearchParams({
+					mode: 'bbox',
+					bbox: `${mapBounds.minlon},${mapBounds.minlat},${mapBounds.maxlon},${mapBounds.maxlat}`,
+					limit: String(k.limit)
+				});
+			} else {
+				p = new URLSearchParams({
+					slack: String(k.slack),
+					half: String(k.half),
+					sameside: String(k.sameside),
+					limit: String(k.limit),
+					near_m: String(k.near),
+					far_m: String(k.far),
+					overlap: String(k.overlap)
+				});
+			}
 			view = await api.get<ViewResponse>(`/annotations/${sel.id}/view_candidates?${p}`);
 			err = null;
 		} catch (e) {
@@ -142,6 +161,15 @@
 		} finally {
 			loadingView = false;
 		}
+	}
+
+	// map viewport changed: remember it; in bbox mode, re-query the visible area
+	// (debounced so a pan/zoom gesture triggers one reload, not a storm)
+	function onViewport(b: { minlon: number; minlat: number; maxlon: number; maxlat: number }) {
+		mapBounds = b;
+		if (!$knobs.bbox || !sel) return;
+		if (bboxReloadTimer) clearTimeout(bboxReloadTimer);
+		bboxReloadTimer = setTimeout(loadView, 450);
 	}
 
 	function select(a: AnnotationRow) {
@@ -205,7 +233,10 @@
 			pollMs = wanted;
 		}
 	});
-	onDestroy(() => poller && clearInterval(poller));
+	onDestroy(() => {
+		if (poller) clearInterval(poller);
+		if (bboxReloadTimer) clearTimeout(bboxReloadTimer);
+	});
 
 	function label(a: AnnotationRow): string {
 		return (
@@ -293,21 +324,27 @@
 
 {#if sel}
 	<div class="card row" style="gap:16px; font-size:12px; flex-wrap:wrap">
-				<label>slack ×<input type="number" step="0.5" min="1" max="10" style="width:60px"
-					bind:value={$knobs.slack} onchange={loadView} /></label>
-				<label>±half °<input type="number" step="5" min="10" max="180" style="width:60px"
-					bind:value={$knobs.half} onchange={loadView} /></label>
-				{#if view?.mode !== 'ray'}
-					<label>same-side °<input type="number" step="10" min="30" max="180" style="width:60px"
-						bind:value={$knobs.sameside} onchange={loadView} /></label>
-				{:else}
-					<label>near m<input type="number" step="100" min="0" style="width:70px"
-						bind:value={$knobs.near} onchange={loadView} /></label>
-					<label>far m<input type="number" step="1000" min="500" style="width:80px"
-						bind:value={$knobs.far} onchange={loadView} /></label>
-					<label title="require the candidate's own view pie to see the ray (viewpie×viewpie); off = plain position-in-wedge">
-						<input type="checkbox" bind:checked={$knobs.overlap} onchange={loadView} /> pie∩ray
-					</label>
+				<label title="ignore the view pie / ray — list every photo currently in the map viewport (manual visual scan by pan+zoom)">
+					<input type="checkbox" bind:checked={$knobs.bbox} onchange={loadView} />
+					<b>map area</b>
+				</label>
+				{#if !$knobs.bbox}
+					<label>slack ×<input type="number" step="0.5" min="1" max="10" style="width:60px"
+						bind:value={$knobs.slack} onchange={loadView} /></label>
+					<label>±half °<input type="number" step="5" min="10" max="180" style="width:60px"
+						bind:value={$knobs.half} onchange={loadView} /></label>
+					{#if view?.mode !== 'ray'}
+						<label>same-side °<input type="number" step="10" min="30" max="180" style="width:60px"
+							bind:value={$knobs.sameside} onchange={loadView} /></label>
+					{:else}
+						<label>near m<input type="number" step="100" min="0" style="width:70px"
+							bind:value={$knobs.near} onchange={loadView} /></label>
+						<label>far m<input type="number" step="1000" min="500" style="width:80px"
+							bind:value={$knobs.far} onchange={loadView} /></label>
+						<label title="require the candidate's own view pie to see the ray (viewpie×viewpie); off = plain position-in-wedge">
+							<input type="checkbox" bind:checked={$knobs.overlap} onchange={loadView} /> pie∩ray
+						</label>
+					{/if}
 				{/if}
 				<label>limit <input type="number" step="10" min="10" max="1000" style="width:60px"
 					bind:value={$knobs.limit} onchange={loadView} /></label>
@@ -319,7 +356,9 @@
 				{#if view}
 					<span class="muted">
 						{view.total} candidates (showing {view.candidates.length}) ·
-						{#if view.mode === 'ray' && view.wedge}
+						{#if view.mode === 'bbox'}
+							<b>map area</b> — every photo in the viewport (pan/zoom to change)
+						{:else if view.mode === 'ray' && view.wedge}
 							<b style="color:var(--warn)">ray</b> az {view.wedge.azimuth}° ±{view.wedge.half}°
 							{view.wedge.calibrated ? '(calibrated)' : '(compass only!)'}
 						{:else if view.target}
@@ -343,6 +382,8 @@
 					annotationPie={view.annotation_pie}
 					selected={selCand}
 					onselect={(c) => (selCand = c)}
+					fit={!$knobs.bbox}
+					onviewport={onViewport}
 				/>
 				<p class="muted" style="font-size:11px; margin:3px 0 0">
 					dashed blue = pano's view pie{view.pano.pie?.calibrated ? ' (calibrated FOV)' : ''} ·

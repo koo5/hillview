@@ -41,6 +41,9 @@ PHOTO_JSON = ["geocode", "sizes", "exif_data", "analysis", "detected_objects"]
 ANN_PLAIN = [
     "id", "photo_id", "user_id", "body",
     "is_current", "superseded_by", "created_at", "event_type",
+    # graduated-from-workbench provenance: lets the workbench observe that a
+    # native annotation has landed in hillview (and retire the local copy)
+    "source_annotation_id",
 ]
 ANN_JSON = ["target"]
 
@@ -156,12 +159,18 @@ async def sync_reconcile() -> dict:
         async with hv_engine.connect() as hv:
             src = dict((await hv.execute(text(
                 f"SELECT id, md5(to_jsonb(t)::text) FROM {spec['source']} t"))).all())
+        # annotation_mirror can hold workbench-native rows (origin<>'hillview')
+        # that have no source row — they must never be stamped missing
+        native = mirror == "annotation_mirror"
+        oc = ", origin" if native else ""
         async with wb_engine.connect() as wb:
-            mir = {r[0]: (r[1], r[2]) for r in (await wb.execute(text(
-                f"SELECT id, row_hash, missing_since FROM {mirror}"))).all()}
+            mir = {r[0]: (r[1], r[2], (r[3] if native else "hillview"))
+                   for r in (await wb.execute(text(
+                       f"SELECT id, row_hash, missing_since{oc} FROM {mirror}"))).all()}
 
         changed = [i for i, h in src.items() if i not in mir or mir[i][0] != h]
-        missing = [i for i in mir if i not in src and mir[i][1] is None]
+        missing = [i for i in mir
+                   if i not in src and mir[i][1] is None and mir[i][2] == "hillview"]
         reappeared = [i for i, h in src.items()
                       if i in mir and mir[i][1] is not None and mir[i][0] == h]
 
@@ -190,6 +199,18 @@ async def sync_reconcile() -> dict:
                 await wb.execute(text(
                     f"UPDATE {mirror} SET missing_since = NULL WHERE id = ANY(:ids)"),
                     {"ids": reappeared})
+            # retire a workbench-native annotation once its graduated hillview copy
+            # has landed (a mirrored row now references it) — no duplicate, and the
+            # export stops re-emitting it
+            if native:
+                # source_annotation_id is the native annotation's IRI; the local
+                # id is its last path segment (regexp is a no-op on a bare id, so
+                # this also matches older bare-uuid packages)
+                await wb.execute(text(
+                    f"UPDATE {mirror} SET missing_since = now(), is_current = false "
+                    f"WHERE origin = 'workbench' AND missing_since IS NULL AND id IN "
+                    f"(SELECT regexp_replace(source_annotation_id, '^.*/', '') "
+                    f" FROM {mirror} WHERE source_annotation_id IS NOT NULL)"))
             await wb.execute(text(
                 "INSERT INTO sync_state (table_name, last_reconcile_at, stats) "
                 "VALUES (:t, now(), CAST(:s AS jsonb)) "

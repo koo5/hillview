@@ -23,7 +23,10 @@
 		is_current: boolean;
 		created_at: string | null;
 		missing: boolean;
+		origin: string; // 'hillview' | 'workbench'
 		rect: { x: number; y?: number; w?: number; h?: number } | null;
+		// approved reshape (pending graduation) for a mirrored annotation
+		proposed_rect: { x: number; y: number; w: number; h: number } | null;
 	}
 	interface MatchRow {
 		id: string;
@@ -122,8 +125,66 @@
 		void page.params.id;
 		placement = null;
 		poiErr = null;
+		drawing = false;
+		editMsg = null;
 		load();
 	});
+
+	// draw a new workbench-native annotation on this photo (for triangulation etc.)
+	let drawing = $state(false);
+	let drawBusy = $state(false);
+	let editMsg = $state<string | null>(null);
+	async function saveDrawnRect(target: Record<string, unknown>) {
+		if (!data) return;
+		drawBusy = true;
+		try {
+			await api.post('/annotations/native', { photo_id: data.photo.id, body: '?', target });
+			await load(); // the persisted rect returns via the rects prop
+		} finally {
+			drawBusy = false;
+		}
+	}
+
+	// an existing rect was moved/resized. Native (workbench-drawn) → save in place;
+	// mirrored (hillview) → can't persist here (the mirror faithfully copies the
+	// source, and reconcile would revert it), so revert with a note.
+	async function saveEditedRect(id: string, target: Record<string, unknown>) {
+		const a = data?.annotations.find((x) => x.id === id);
+		if (!a) return; // transient/unknown id — ignore
+		drawBusy = true;
+		try {
+			if (a.origin === 'workbench') {
+				await api.put(`/annotations/native/${id}`, { target });
+				editMsg = null;
+			} else {
+				// mirrored hillview rect: can't reshape in place; record a curated
+				// reshape proposal that graduates as a set_annotation_target op.
+				// The view reverts to the current shape until the change lands.
+				await api.post(`/annotations/${id}/geometry`, { target });
+				editMsg = 'Hillview annotation — reshape proposed (shown as pending; graduates as a target change on the Graduation page).';
+			}
+			await load();
+		} finally {
+			drawBusy = false;
+		}
+	}
+	async function deleteRect(id: string) {
+		const a = data?.annotations.find((x) => x.id === id);
+		if (!a) return;
+		if (a.origin !== 'workbench') {
+			editMsg = 'That is a Hillview annotation — delete it in Hillview. Reverted.';
+			await load();
+			return;
+		}
+		drawBusy = true;
+		try {
+			await api.del(`/annotations/native/${id}`);
+			editMsg = null;
+			await load();
+		} finally {
+			drawBusy = false;
+		}
+	}
 
 	async function placePoi(save: boolean) {
 		if (!data || !poiUrl.trim()) return;
@@ -163,15 +224,21 @@
 		return p?.type === 'dzi' ? p : null;
 	});
 	const osdRects = $derived.by((): OsdRect[] =>
-		rectAnns.map((a) => ({
-			id: a.id,
-			x: a.rect!.x,
-			y: a.rect!.y ?? 0,
-			w: a.rect!.w ?? 0.01,
-			h: a.rect!.h ?? 0.1,
-			label: (a.body ?? '').split('|')[0].trim() || undefined,
-			kind: 'other' as const
-		}))
+		rectAnns.map((a) => {
+			// show the PROPOSED shape when a reshape is pending graduation (so the
+			// edit "sticks" visually), otherwise the mirror's current rect
+			const r = a.proposed_rect ?? a.rect!;
+			const base = (a.body ?? '').split('|')[0].trim();
+			return {
+				id: a.id,
+				x: r.x,
+				y: r.y ?? 0,
+				w: r.w ?? 0.01,
+				h: r.h ?? 0.1,
+				label: a.proposed_rect ? `${base || '?'} · reshape pending` : base || undefined,
+				kind: (a.proposed_rect ? 'current' : 'other') as 'current' | 'other'
+			};
+		})
 	);
 	const osdMarks = $derived.by((): OsdMark[] => {
 		const out: OsdMark[] = protos
@@ -223,6 +290,23 @@
 	</div>
 
 	{#if (pyramid || stripUrl) && p.width && p.height}
+		<div class="row" style="justify-content:space-between; align-items:center; margin-bottom:4px">
+			<span class="muted" style="font-size:11px">
+				{#if drawing}<b style="color:var(--accent, #6ca4ff)">editing</b> — drag empty space for a new rect, or move/resize a rect (Del removes){drawBusy ? ' · saving…' : ''}{:else}click a rect to open its annotation{/if}
+			</span>
+			<button
+				class:primary={drawing}
+				style="font-size:12px"
+				title="edit mode: draw new rects, and move/resize/delete existing ones (workbench-drawn rects save; hillview rects revert)"
+				onclick={() => {
+					drawing = !drawing;
+					editMsg = null;
+				}}
+			>
+				{drawing ? '✓ done editing' : '✎ edit rects'}
+			</button>
+		</div>
+		{#if editMsg}<div class="muted" style="font-size:11px; color:var(--warn, #e0a23a); margin-bottom:4px">{editMsg}</div>{/if}
 		{#key p.id}
 			<OsdViewer
 				pyramid={pyramid}
@@ -233,12 +317,16 @@
 				rects={osdRects}
 				marks={osdMarks}
 				viewHeight={340}
-				onrectclick={(id) => goto(`/annotations/${id}`)}
+				editable={drawing}
+				ondraw={saveDrawnRect}
+				onedit={saveEditedRect}
+				ondelete={deleteRect}
+				onrectclick={(id) => (drawing ? null : goto(`/annotations/${id}`))}
 			/>
 		{/key}
 		<p class="muted" style="font-size:11px; margin:3px 0 0">
-			{rectAnns.length} annotation rects · {protos.length} proto-annotations — click a rect
-			to open its annotation; out-of-frame protos sit past the image edges
+			{rectAnns.length} annotation rects · {protos.length} proto-annotations — in edit mode,
+			draw new rects or adjust workbench-drawn ones (then label / relate to a POI on the detail page)
 		</p>
 	{/if}
 

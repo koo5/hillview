@@ -11,6 +11,7 @@
 		{ href: '/geocode', label: 'Geocode' },
 		{ href: '/calibration', label: 'Calibration' },
 		{ href: '/matching', label: 'Matching' },
+		{ href: '/triangulate', label: 'Triangulate' },
 		{ href: '/graduation', label: 'Graduation' },
 		{ href: '/runs', label: 'Runs' },
 		{ href: '/sparql', label: 'SPARQL' }

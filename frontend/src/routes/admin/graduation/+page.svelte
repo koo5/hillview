@@ -39,8 +39,9 @@
 		width: number | null;
 		height: number | null;
 	}
-	type OpStatus = 'clean' | 'conflict' | 'already_applied' | 'missing' | 'deleted';
+	type OpStatus = 'clean' | 'conflict' | 'already_applied' | 'missing' | 'deleted' | 'new';
 	interface Op {
+		op?: string; // 'set_annotation_body' | 'create_annotation'
 		annotation_id: string;
 		current_annotation_id: string | null;
 		photo_id: string;
@@ -50,6 +51,7 @@
 		summary: string | null;
 		status: OpStatus;
 		target: Record<string, unknown> | null;
+		current_target?: Record<string, unknown> | null; // set_annotation_target: the old rect
 		photo: PhotoSrc | null;
 		facts: Fact[];
 	}
@@ -79,10 +81,12 @@
 		conflict: 'changed since export',
 		already_applied: 'already applied',
 		missing: 'annotation gone',
-		deleted: 'annotation deleted'
+		deleted: 'annotation deleted',
+		new: 'new annotation'
 	};
 	// an op can be applied unless there's nothing to change / nothing to target
-	const applicable = (o: Op) => o.status === 'clean' || o.status === 'conflict';
+	const applicable = (o: Op) =>
+		o.status === 'clean' || o.status === 'conflict' || o.status === 'new';
 
 	let listLoadedOnce = false;
 	$: if ($isAdmin && !listLoadedOnce) {
@@ -135,21 +139,26 @@
 		? preview.ops.filter((o) => applicable(o) && selected[o.annotation_id]).length
 		: 0;
 
-	// the focused op's annotation as an OSD rect (normalized geometry → OsdRect)
-	function opRect(o: Op): OsdRect | null {
-		const g = (o.target as { selector?: { geometry?: Record<string, number> } })?.selector
-			?.geometry;
+	function rectFrom(
+		target: Record<string, unknown> | null,
+		id: string,
+		kind: 'current' | 'other',
+		label?: string
+	): OsdRect | null {
+		const g = (target as { selector?: { geometry?: Record<string, number> } })?.selector?.geometry;
 		if (!g || g.x == null) return null;
+		return { id, x: g.x, y: g.y ?? 0, w: g.w ?? 0.01, h: g.h ?? 0.1, label, kind };
+	}
+	// the rects to show for the focused op. For a reshape, show BOTH the current
+	// rect (amber 'other') and the proposed rect (blue 'current'); otherwise one.
+	function opRects(o: Op): OsdRect[] {
 		const label = (o.suggested_body || '').split('|')[0].trim() || undefined;
-		return {
-			id: o.annotation_id,
-			x: g.x,
-			y: g.y ?? 0,
-			w: g.w ?? 0.01,
-			h: g.h ?? 0.1,
-			label,
-			kind: 'current'
-		};
+		const proposed = rectFrom(o.target, o.annotation_id, 'current', label);
+		if (o.op === 'set_annotation_target') {
+			const cur = rectFrom(o.current_target ?? null, o.annotation_id + ':old', 'other', 'current');
+			return [cur, proposed].filter(Boolean) as OsdRect[];
+		}
+		return proposed ? [proposed] : [];
 	}
 
 	async function applySelected() {
@@ -313,8 +322,8 @@
 													fallbackUrl={focusOp.photo.pyramid ? focusOp.photo.fallback_url : null}
 													width={focusOp.photo.width}
 													height={focusOp.photo.height}
-													rects={opRect(focusOp) ? [opRect(focusOp)!] : []}
-													focus={opRect(focusOp)}
+													rects={opRects(focusOp)}
+													focus={opRects(focusOp).at(-1) ?? null}
 													viewHeight={300}
 												/>
 											{:else}
@@ -333,23 +342,48 @@
 												versions are shown — applying supersedes the current one.
 											</div>
 										{/if}
+										{#if focusOp.op === 'create_annotation'}
+											<div class="create-note">
+												New annotation drawn in the workbench — applying creates it on this photo
+												(the rectangle shown), attributed to you.
+											</div>
+										{/if}
+										{#if focusOp.op === 'set_annotation_target'}
+											<div class="create-note">
+												Reshape — <b>amber</b> is the current rectangle, <b>blue</b> the proposed one.
+												Applying supersedes the annotation with the new shape (its text is unchanged).
+											</div>
+										{/if}
 
 										<div class="bodies">
-											<div class="body-row">
-												<span class="body-tag">workbench saw</span>
-												<code>{focusOp.precondition_body ?? '—'}</code>
-											</div>
-											<div
-												class="body-row"
-												class:changed={focusOp.status === 'conflict'}
-											>
-												<span class="body-tag">Hillview now</span>
-												<code>{focusOp.current_body ?? '(none)'}</code>
-											</div>
-											<div class="body-row suggested">
-												<span class="body-tag">will become</span>
-												<code>{focusOp.suggested_body}</code>
-											</div>
+											{#if focusOp.op === 'set_annotation_target'}
+												<div class="body-row">
+													<span class="body-tag">text (unchanged)</span>
+													<code>{focusOp.current_body ?? '(none)'}</code>
+												</div>
+												<div class="body-row suggested">
+													<span class="body-tag">reshape</span>
+													<code>{focusOp.summary}</code>
+												</div>
+											{:else}
+												{#if focusOp.op !== 'create_annotation'}
+													<div class="body-row">
+														<span class="body-tag">workbench saw</span>
+														<code>{focusOp.precondition_body ?? '—'}</code>
+													</div>
+													<div
+														class="body-row"
+														class:changed={focusOp.status === 'conflict'}
+													>
+														<span class="body-tag">Hillview now</span>
+														<code>{focusOp.current_body ?? '(none)'}</code>
+													</div>
+												{/if}
+												<div class="body-row suggested">
+													<span class="body-tag">{focusOp.op === 'create_annotation' ? 'new body' : 'will become'}</span>
+													<code>{focusOp.suggested_body}</code>
+												</div>
+											{/if}
 										</div>
 
 										{#if focusOp.facts.length}
@@ -557,6 +591,10 @@
 		background: #dcfce7;
 		color: #15803d;
 	}
+	.badge-new {
+		background: #dbeafe;
+		color: #1d4ed8;
+	}
 	.badge-conflict {
 		background: #fef3c7;
 		color: #b45309;
@@ -584,6 +622,15 @@
 		background: #fffbeb;
 		border: 1px solid #fde68a;
 		color: #92400e;
+		border-radius: 8px;
+		padding: 8px 10px;
+		font-size: 0.8rem;
+		margin-top: 10px;
+	}
+	.create-note {
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		color: #1e40af;
 		border-radius: 8px;
 		padding: 8px 10px;
 		font-size: 0.8rem;

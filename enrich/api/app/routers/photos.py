@@ -87,7 +87,7 @@ async def photo_detail(photo_id: str):
         if not photo:
             raise HTTPException(404, "photo not found")
         anns = (await conn.execute(text(
-            "SELECT id, body, target, is_current, created_at, missing_since "
+            "SELECT id, body, target, is_current, created_at, missing_since, origin "
             "FROM annotation_mirror WHERE photo_id = :id "
             "ORDER BY is_current DESC, created_at"), {"id": photo_id})).all()
         as_pano = (await conn.execute(text(
@@ -137,6 +137,23 @@ SELECT ?ann ?status WHERE {{
                 (b.get("status", {}).get("value", "").rsplit("#", 1)[-1] or "proposed")
                 for b in res["results"]["bindings"]}
 
+    # approved geometry proposals (mirrored rects reshaped in the workbench) — so
+    # the page can show the PROPOSED shape (pending graduation), not just the
+    # mirror's still-original one
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?ann ?rect WHERE {{
+  GRAPH ?f {{ ?ann hv:proposedGeometry ?rect }}
+  GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status hv:approved }}
+}}""")
+    proposed_rects = {}
+    for b in res["results"]["bindings"]:
+        try:
+            x, y, ww, hh = (float(v) for v in b["rect"]["value"].split(","))
+            proposed_rects[b["ann"]["value"].rsplit("/", 1)[-1]] = {
+                "x": x, "y": y, "w": ww, "h": hh}
+        except (ValueError, KeyError):
+            pass
+
     w, h = photo.width or 0, photo.height or 0
     d = dict(photo._mapping)
     d["is_pano"] = bool(w and h and max(w, h) / max(min(w, h), 1) >= 2.0)
@@ -150,7 +167,8 @@ SELECT ?ann ?status WHERE {{
         "photo": d,
         "annotations": [{"id": a.id, "body": a.body, "is_current": a.is_current,
                          "created_at": a.created_at, "missing": a.missing_since is not None,
-                         "rect": _rect(a.target)} for a in anns],
+                         "origin": a.origin, "rect": _rect(a.target),
+                         "proposed_rect": proposed_rects.get(a.id)} for a in anns],
         "facts": photo_facts,
         "matches": {
             "as_pano": [dict(r._mapping) for r in as_pano],

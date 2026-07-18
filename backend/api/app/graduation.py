@@ -131,6 +131,17 @@ def photo_osd(photo) -> dict:
     }
 
 
+def rect_of(target) -> str | None:
+    """A target's canonical normalized 'x,y,w,h' (5 dp) — the comparison key for
+    set_annotation_target ops (raw target JSON is float/key-order fragile)."""
+    g = ((target or {}).get("selector") or {}).get("geometry") or {}
+    try:
+        return (f'{float(g["x"]):.5f},{float(g["y"]):.5f},'
+                f'{float(g["w"]):.5f},{float(g["h"]):.5f}')
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def classify(precondition_body, current_body, suggested_body, found: bool) -> str:
     """clean = current still matches what the workbench saw; conflict = it
     changed since; already_applied = current already equals the suggestion;

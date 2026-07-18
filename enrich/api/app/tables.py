@@ -57,6 +57,12 @@ annotation_mirror = sa.Table(
     sa.Column("synced_at", sa.DateTime(timezone=True), nullable=False,
               server_default=sa.func.now()),
     sa.Column("missing_since", sa.DateTime(timezone=True)),
+    # 'hillview' (mirrored from source) | 'workbench' (drawn here) — reconcile
+    # never stamps non-hillview rows missing (they have no source row)
+    sa.Column("origin", sa.Text, nullable=False, server_default="hillview"),
+    # mirrored from hillview: the workbench-native id a graduated annotation came
+    # from (retire the local native row once its landed copy carries this)
+    sa.Column("source_annotation_id", sa.Text),
 )
 
 runs = sa.Table(

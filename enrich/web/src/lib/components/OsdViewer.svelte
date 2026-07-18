@@ -2,6 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { buildTileSource, type DziPyramid } from '$zoomview/tileSource';
 	import { OSD_VIEWER_DEFAULTS, initialSourceFor, swapInMainSource } from '$zoomview/viewerInit';
+	import { targetToNormalized } from '$zoomview/annotationTargets';
+	import { UserSelectAction } from '@annotorious/core';
 	import '@annotorious/openseadragon/annotorious-openseadragon.css';
 	import {
 		buildLabelCommands,
@@ -42,7 +44,11 @@
 		marks = [],
 		focus = null,
 		viewHeight = 380,
-		onrectclick
+		onrectclick,
+		editable = false,
+		ondraw,
+		onedit,
+		ondelete
 	}: {
 		pyramid?: DziPyramid | null;
 		url: string;
@@ -56,6 +62,14 @@
 		focus?: OsdRect | null; // zoom to this rect after open
 		viewHeight?: number;
 		onrectclick?: (id: string) => void;
+		// drawing mode: enables the rectangle tool; a finished rect is reported as
+		// a NORMALIZED annotation target for the caller to persist
+		editable?: boolean;
+		ondraw?: (target: Record<string, unknown>) => void;
+		// existing rect moved/resized (id = the rect's id) → normalized target;
+		// and delete. The caller routes by id (native → save, mirrored → revert).
+		onedit?: (id: string, target: Record<string, unknown>) => void;
+		ondelete?: (id: string) => void;
 	} = $props();
 
 	let el: HTMLDivElement;
@@ -176,6 +190,9 @@
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let annotator: any = null;
+	// true while we're programmatically replacing annotations — swallow the
+	// updateAnnotation events that re-sync can emit (else save→reload→save loop)
+	let syncing = false;
 	const kindById = () => new Map(rects.map((r) => [r.id, r.kind ?? 'other']));
 
 	// rects → annotorious annotations. NB: annotorious's internal format REQUIRES
@@ -204,9 +221,14 @@
 			};
 		});
 		try {
+			syncing = true;
 			annotator.setAnnotations(anns);
 		} catch (e) {
 			console.warn('[OsdViewer] could not sync annotations:', e);
+		} finally {
+			// release after the current tick so any events setAnnotations emits
+			// synchronously are still swallowed
+			setTimeout(() => (syncing = false), 0);
 		}
 	}
 
@@ -229,8 +251,10 @@
 			navigatorWidth: 220,
 			imageLoaderLimit: 2
 		});
-		// read-only annotorious mount: rect rendering + selection, no drawing
+		// annotorious mount: rect rendering + click-select; existing rects become
+		// movable/resizable only in edit mode (userSelectAction EDIT vs SELECT)
 		annotator = createOSDAnnotator(viewer, {
+			userSelectAction: () => (editable ? UserSelectAction.EDIT : UserSelectAction.SELECT),
 			style: (a: { id?: string }) =>
 				kindById().get(a?.id ?? '') === 'current'
 					? { fill: '#6ca4ff', fillOpacity: 0.08, stroke: '#6ca4ff', strokeWidth: 2, strokeOpacity: 0.9 }
@@ -240,6 +264,31 @@
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			annotator.on('clickAnnotation', (a: any) => onrectclick(String(a.id)));
 		}
+		// drawing: a finished rectangle → normalized target for the caller to
+		// persist. Registered always; only fires while drawing is enabled (below).
+		annotator.setDrawingTool?.('rectangle');
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		annotator.on('createAnnotation', (a: any) => {
+			const norm = targetToNormalized(a.target, width, height);
+			if (norm) ondraw?.(norm as Record<string, unknown>);
+			// drop the transient shape; the persisted rect returns via `rects`
+			try {
+				annotator.removeAnnotation?.(a);
+			} catch {
+				/* older annotorious: setAnnotations on re-sync clears it */
+			}
+		});
+		// existing rect moved/resized → normalized target, routed by id upstream.
+		// (a spurious update for a just-drawn transient id finds no rect upstream
+		// and is a harmless no-op.)
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		annotator.on('updateAnnotation', (a: any) => {
+			if (syncing) return; // programmatic re-sync, not a user edit
+			const norm = targetToNormalized(a.target, width, height);
+			if (norm) onedit?.(String(a.id), norm as Record<string, unknown>);
+		});
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		annotator.on('deleteAnnotation', (a: any) => ondelete?.(String(a.id)));
 
 		viewer.addHandler('open', () => {
 			syncRects();
@@ -274,6 +323,14 @@
 			lastFingerprint = '';
 			scheduleLabels();
 		}
+	});
+	// toggle drawing (new rects) + editing of existing rects live, without
+	// remounting (keeps the current zoom/pan)
+	$effect(() => {
+		annotator?.setDrawingEnabled?.(editable);
+		annotator?.setUserSelectAction?.(() =>
+			editable ? UserSelectAction.EDIT : UserSelectAction.SELECT
+		);
 	});
 
 	onDestroy(() => {

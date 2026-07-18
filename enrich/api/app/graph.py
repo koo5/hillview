@@ -69,6 +69,15 @@ def proto_annotation_iri(hash16: str) -> str:
     return f"{BASE}/id/proto-annotation/{hash16}"
 
 
+def poi_iri(poi_id: str) -> str:
+    """An abstract Point Of Interest — the shared subject that several annotations
+    (across different photos) can each depict, via `annotation hv:depicts poi`.
+    It's a first-class node so the triangulated location and a label hang off IT,
+    not off any one annotation. Minted with a uuid at creation (a durable entity,
+    not a content-derived fact)."""
+    return f"{BASE}/id/poi/{poi_id}"
+
+
 def photo_web_url(photo_id: str) -> str:
     """The human-facing web page for a photo — an explicit external reference,
     used as the OBJECT of hv:webPage, never as an identifier. The web app keys

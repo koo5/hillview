@@ -73,11 +73,9 @@ def suggest_body(body: str | None, label: str | None,
     return " | ".join(segs), changes
 
 
-async def _compute_suggestions() -> tuple[list[dict], list[dict]]:
-    """→ (pending, landed). pending = annotations whose approved facts imply a
-    body change; landed = approved facts already reflected in the body. Each item
-    also carries the non-geo candidate metadata fact-graph IRIs (`meta_facts`) so
-    the export can dump a self-contained provenance appendix."""
+async def _approved_context() -> tuple[dict, dict, dict]:
+    """The approved-fact context shared by set-body suggestions and native
+    creates: (by_ann facts map, coords_map, meta_facts)."""
     ann_prefix = graph.annotation_iri("")
     res = await graph.store.query(f"""{graph.PREFIXES}
 SELECT ?s ?p ?v ?f ?decidedAt WHERE {{
@@ -109,8 +107,6 @@ SELECT ?s ?p ?v ?f ?decidedAt WHERE {{
             d["wiki"] = val
         else:
             d.setdefault("anchors", []).append(val)
-    if not by_ann:
-        return [], []
 
     # coords for non-geo anchor candidates live in their metadata facts; keep the
     # fact-graph IRIs too, so the provenance appendix can carry them
@@ -132,45 +128,139 @@ SELECT ?cand ?f ?p ?w WHERE {{ VALUES ?cand {{ {values} }} GRAPH ?f {{ ?cand ?p 
                     coords_map[cand] = (float(lat), float(lon))
                 except ValueError:
                     pass
+    return by_ann, coords_map, meta_facts
 
+
+def _build_item(r, d: dict, coords_map: dict, meta_facts: dict) -> dict:
+    """One suggestion item from an annotation row `r` (id/body/photo_id/sizes/
+    target) and its approved-fact bundle `d`. suggested_body + changes come from
+    serializing the facts into the body; fact_iris feed the provenance appendix."""
+    anchor_uri, anchor = None, None
+    # approved wikipediaPage fact wins; a wiki-URL anchor also implies the page
+    wiki_url = d.get("wiki")
+    for a in d.get("anchors", []):
+        g = graph.parse_geo_uri(a) or coords_map.get(a)
+        if g:
+            anchor_uri, anchor = a, g
+            if not wiki_url and WIKI_URL_RE.match(a):
+                wiki_url = a
+            break
+    suggested, changes = suggest_body(r.body, d.get("label"), anchor, wiki_url)
+    return {"annotation_id": r.id, "photo_id": r.photo_id, "sizes": r.sizes,
+            "current_body": r.body, "suggested_body": suggested,
+            "changes": changes, "facts": d["facts"],
+            "target": r.target,
+            "decided_at": d.get("decided_at") or None,
+            "fact_iris": [f["fact"] for f in d["facts"]]
+            + (meta_facts.get(anchor_uri, []) if anchor_uri else []),
+            "anchor": ({"uri": anchor_uri, "lat": anchor[0], "lon": anchor[1]}
+                       if anchor else None)}
+
+
+async def _compute_suggestions() -> tuple[list[dict], list[dict]]:
+    """→ (pending, landed) for MIRRORED (hillview-origin) annotations. pending =
+    approved facts imply a body change; landed = already reflected. Native
+    (workbench-drawn) annotations are handled as create ops, not here."""
+    by_ann, coords_map, meta_facts = await _approved_context()
+    if not by_ann:
+        return [], []
     async with wb_engine.connect() as conn:
         rows = (await conn.execute(text(
-            "SELECT a.id, a.body, a.photo_id, p.sizes "
+            "SELECT a.id, a.body, a.photo_id, a.target, p.sizes "
             "FROM annotation_mirror a JOIN photo_mirror p ON p.id = a.photo_id "
-            "WHERE a.id = ANY(:ids) AND a.is_current AND a.missing_since IS NULL"),
+            "WHERE a.id = ANY(:ids) AND a.is_current AND a.missing_since IS NULL "
+            "AND a.origin = 'hillview'"),
             {"ids": list(by_ann)})).all()
-
     pending, landed = [], []
     for r in rows:
-        d = by_ann[r.id]
-        anchor_uri, anchor = None, None
-        # approved wikipediaPage fact wins; a wiki-URL anchor also implies the page
-        wiki_url = d.get("wiki")
-        for a in d.get("anchors", []):
-            g = graph.parse_geo_uri(a) or coords_map.get(a)
-            if g:
-                anchor_uri, anchor = a, g
-                if not wiki_url and WIKI_URL_RE.match(a):
-                    wiki_url = a
-                break
-        suggested, changes = suggest_body(r.body, d.get("label"), anchor, wiki_url)
-        item = {"annotation_id": r.id, "photo_id": r.photo_id, "sizes": r.sizes,
-                "current_body": r.body, "suggested_body": suggested,
-                "changes": changes, "facts": d["facts"],
-                "decided_at": d["decided_at"] or None,
-                # provenance appendix: driving fact graphs + any candidate-metadata
-                # fact graphs that justify the anchor's coords
-                "fact_iris": [f["fact"] for f in d["facts"]]
-                + (meta_facts.get(anchor_uri, []) if anchor_uri else []),
-                "anchor": ({"uri": anchor_uri, "lat": anchor[0], "lon": anchor[1]}
-                           if anchor else None)}
-        (pending if changes else landed).append(item)
-    # most recently curated first; annotation_id as a stable tiebreak
+        item = _build_item(r, by_ann[r.id], coords_map, meta_facts)
+        (pending if item["changes"] else landed).append(item)
     def _key(i):
         return (i["decided_at"] or "", i["annotation_id"])
     pending.sort(key=_key, reverse=True)
     landed.sort(key=_key, reverse=True)
     return pending, landed
+
+
+async def _native_create_ops() -> list[dict]:
+    """Workbench-native annotations (origin='workbench', not yet graduated) as
+    create-annotation items. Body = its facts serialized (or its raw body if
+    uncurated). Sorted newest-curation first, like suggestions."""
+    by_ann, coords_map, meta_facts = await _approved_context()
+    async with wb_engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT a.id, a.body, a.photo_id, a.target, p.sizes "
+            "FROM annotation_mirror a JOIN photo_mirror p ON p.id = a.photo_id "
+            "WHERE a.origin = 'workbench' AND a.is_current "
+            "AND a.missing_since IS NULL"))).all()
+    out = []
+    for r in rows:
+        d = by_ann.get(r.id, {"facts": [], "decided_at": ""})
+        out.append(_build_item(r, d, coords_map, meta_facts))
+    out.sort(key=lambda i: (i["decided_at"] or "", i["annotation_id"]), reverse=True)
+    return out
+
+
+def _rect_of(target) -> str | None:
+    """A target's canonical normalized 'x,y,w,h' (5 dp), or None."""
+    g = ((target or {}).get("selector") or {}).get("geometry") or {}
+    try:
+        return (f'{float(g["x"]):.5f},{float(g["y"]):.5f},'
+                f'{float(g["w"]):.5f},{float(g["h"]):.5f}')
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _rect_to_target(rect: str) -> dict:
+    x, y, w, h = (float(v) for v in rect.split(","))
+    return {"selector": {"type": "RECTANGLE",
+                         "geometry": {"x": x, "y": y, "w": w, "h": h}}}
+
+
+async def _target_ops() -> list[dict]:
+    """Annotations with an approved hv:proposedGeometry fact whose rect differs
+    from the mirror's CURRENT target → set-target items (a reshape to graduate).
+    Already-matching ones are dropped (landed by observation after apply+sync)."""
+    ann_prefix = graph.annotation_iri("")
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?s ?v ?f ?decidedAt WHERE {{
+  GRAPH ?f {{ ?s hv:proposedGeometry ?v }}
+  GRAPH <{graph.GRAPH_CURATION}> {{
+    ?f hv:status hv:approved .
+    OPTIONAL {{ ?f hv:decidedAt ?decidedAt }}
+  }}
+}}""")
+    props = {}
+    for b in res["results"]["bindings"]:
+        s = b["s"]["value"]
+        if not s.startswith(ann_prefix):
+            continue
+        props[s[len(ann_prefix):]] = {
+            "rect": b["v"]["value"], "fact": b["f"]["value"],
+            "decided_at": b.get("decidedAt", {}).get("value", "")}
+    if not props:
+        return []
+    async with wb_engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT a.id, a.body, a.photo_id, a.target, p.sizes "
+            "FROM annotation_mirror a JOIN photo_mirror p ON p.id = a.photo_id "
+            "WHERE a.id = ANY(:ids) AND a.is_current AND a.missing_since IS NULL "
+            # only mirrored annotations reshape via graduation; native ones edit in place
+            "AND a.origin = 'hillview'"),
+            {"ids": list(props)})).all()
+    out = []
+    for r in rows:
+        pr = props[r.id]
+        cur = _rect_of(r.target)
+        if cur == pr["rect"]:
+            continue  # already reflected
+        out.append({"annotation_id": r.id, "photo_id": r.photo_id, "sizes": r.sizes,
+                    "current_body": r.body, "current_rect": cur,
+                    "proposed_rect": pr["rect"], "target": _rect_to_target(pr["rect"]),
+                    "current_target": r.target, "decided_at": pr["decided_at"] or None,
+                    "fact": pr["fact"], "fact_iris": [pr["fact"]]})
+    out.sort(key=lambda i: (i["decided_at"] or "", i["annotation_id"]), reverse=True)
+    return out
 
 
 def _public(item: dict) -> dict:
@@ -181,8 +271,12 @@ def _public(item: dict) -> dict:
 @router.get("/graduation/suggestions")
 async def suggestions():
     pending, landed = await _compute_suggestions()
+    creates = await _native_create_ops()
+    targets = await _target_ops()
     return {"suggestions": [_public(i) for i in pending],
-            "landed": [_public(i) for i in landed]}
+            "landed": [_public(i) for i in landed],
+            "creates": [_public(i) for i in creates],
+            "target_changes": [_public(i) for i in targets]}
 
 
 def _nt_term(b: dict) -> str:
@@ -245,10 +339,14 @@ async def export(req: ExportRequest):
     is observed via the mirror sync, so nothing is marked here; a run row records
     the export for the ledger."""
     pending, _ = await _compute_suggestions()
+    creates = await _native_create_ops()
+    targets = await _target_ops()
     if req.annotation_ids is not None:
         wanted = set(req.annotation_ids)
         pending = [i for i in pending if i["annotation_id"] in wanted]
-    if not pending:
+        creates = [i for i in creates if i["annotation_id"] in wanted]
+        targets = [i for i in targets if i["annotation_id"] in wanted]
+    if not pending and not creates and not targets:
         raise HTTPException(422, "nothing to export (no pending suggestions in scope)")
 
     ops, all_facts = [], []
@@ -264,6 +362,35 @@ async def export(req: ExportRequest):
             "body": i["suggested_body"],
             "summary": f'{whats}: {i["current_body"] or "(empty)"} → {i["suggested_body"]}',
             "facts": [f["fact"] for f in i["facts"]],
+        })
+        all_facts += i["fact_iris"]
+    for i in creates:
+        # a workbench-drawn annotation to CREATE in hillview; annotation_id is the
+        # native id, which becomes source_annotation_id there (idempotency key)
+        ops.append({
+            "op": "create_annotation",
+            "annotation_id": i["annotation_id"],
+            # provenance identity = the annotation's workbench IRI (same IRI the
+            # TriG appendix uses for its facts), stored in hillview as the source
+            "source_annotation_id": graph.annotation_iri(i["annotation_id"]),
+            "photo_id": i["photo_id"],
+            "body": i["suggested_body"],
+            "target": i["target"],
+            "summary": f'create: {i["suggested_body"]}',
+            "facts": [f["fact"] for f in i["facts"]],
+        })
+        all_facts += i["fact_iris"]
+    for i in targets:
+        # reshape an existing (mirrored) annotation; precondition = the rect the
+        # workbench last saw, so a concurrent hillview reshape → skip, never clobber
+        ops.append({
+            "op": "set_annotation_target",
+            "annotation_id": i["annotation_id"],
+            "photo_id": i["photo_id"],
+            "precondition": {"rect": i["current_rect"]},
+            "target": i["target"],
+            "summary": f'reshape: {i["current_rect"]} → {i["proposed_rect"]}',
+            "facts": [i["fact"]],
         })
         all_facts += i["fact_iris"]
     # dedupe fact IRIs, preserve first-seen order

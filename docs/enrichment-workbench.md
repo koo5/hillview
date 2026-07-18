@@ -470,6 +470,122 @@ this? → jobs → suggestions" as a native Hillview flow.
   with curator+timestamp. Frontend rebuilt (measured host build 2.94 GB peak < 4G
   before the docker build; image built then container recreated, 2 s downtime).
 
+- **Map-area candidate mode ✅ (2026-07-17)** — matching bench `map area` toggle:
+  `view_candidates?mode=bbox&bbox=minlon,minlat,maxlon,maxlat` returns every photo
+  in the map viewport (`geometry && ST_MakeEnvelope`, ranked by dist to pano), no
+  pie/ray/distance gate — manual visual scanning. CandidateMap emits its viewport on
+  moveend (+ once on mount) via `onviewport`, and `fit=false` in bbox mode so the
+  user's pan/zoom defines the query; the page debounces (450 ms) a reload on move.
+
+- **POI object + triangulation ✅ (2026-07-17)** — the abstract-subject model (design
+  choice (a) over a direct annotation↔annotation relation: a POI is a first-class
+  uuid node so the LABEL and the TRIANGULATED location hang off IT, it scales to N
+  depicting annotations, and it stays plain-triple — no RDF-star/metadata-on-triples,
+  matching the no-star doctrine). Relation = `annotation hv:depicts poi` (one
+  content-addressed graph per pairing, minted+approved). `graph.poi_iri`;
+  `routers/poi.py`: POST /pois {label?, annotation_ids[]} (mints `poi rdf:type
+  hv:PointOfInterest` + `hv:label` + depicts facts), POST /pois/{id}/annotations
+  (relate one more), GET /pois (label + depict count), GET /pois/{id} (annotations +
+  each one's SIGHT RAY + the triangulation). `_annotation_ray` = pano position +
+  azimuth (calibrated rect-x→bearing, else compass±assumed-fov). `triangulate.py`:
+  least-squares intersection of the sight-lines in a local ENU plane (Σ perpendicular
+  miss minimized; per-ray forward_m > 0 = fix is in front of that camera; residual_m
+  = RMS miss). Verified: synthetic round-trip reconstructs a known point to 0.2 m;
+  parallel rays → None; live 2-ray path across two panos (one calibrated, one
+  compass) returns a forward-of-both fix. Frontend `/triangulate` (nav): POI list →
+  TriangulationMap (Leaflet: green solid = calibrated ray, grey dashed = compass ray,
+  violet = the fix; markers at pano origins) + ray table + hillview map↗ link.
+  Annotation detail gained a **POI / triangulation** section: create a POI from this
+  annotation (optional label) or relate to an existing one; `hv:depicts` facts shown +
+  deep-linked to /triangulate. NOTE: the triangulation payoff wants both annotations
+  synced + their panos calibrated — building this while the user prepares that data.
+
+- **In-bench annotation drawing ✅ (2026-07-18)** — draw annotations in the workbench
+  instead of round-tripping through hillview. Storage: annotation_mirror gains an
+  `origin` column ('hillview' | 'workbench'); workbench-native rows live there so
+  POI/matching/calibration see them with ZERO changes. Migration `db/init/
+  004_wb_annotations.sql` (idempotent ALTER, applied at startup) + tables.py column.
+  **Sync guard**: reconcile's `missing` list now excludes origin<>'hillview' (native
+  rows have no source row — verified: a native row survives a full reconcile,
+  missing_since stays NULL). Endpoints (annotations router): POST /annotations/native
+  {photo_id, body?, target} (insert, uuid, is_current, event_type='created'), PUT
+  /annotations/native/{id} (in-place body/target edit — 403 on mirrored rows), DELETE
+  (403 on mirrored rows). Factoring answer: NOTHING new lifted from the frontend
+  zoomview — the one reusable piece (targetToNormalized/targetToPixels) is already in
+  $zoomview/annotationTargets; the frontend's ~200-line editing glue (uiToDb map,
+  inline edit-panel, supersede-on-edit) is UX welded to its own model, not worth
+  sharing. Instead the workbench's OWN OsdViewer got an `editable` prop: registers a
+  createAnnotation handler (finished rect → targetToNormalized → `ondraw` callback,
+  transient shape removed; persisted rect returns via the rects prop), and a reactive
+  `$effect` toggles setDrawingEnabled without remounting (keeps zoom/pan). Photo page:
+  ✎ draw-annotation toggle → OsdViewer editable → POST native (body '?') → reload.
+  Then label / relate-to-POI / calibrate as usual. Verified backend end-to-end
+  (create/edit/delete, read-only guard, reconcile survival). NEXT: graduation extended
+  to CREATE annotations in hillview (new op type) so native ones can push back +
+  reconcile with the mirrored copy; editing EXISTING native rects (move/resize).
+
+- **Graduation create-annotation op ✅ (2026-07-18)** — push workbench-native
+  annotations into hillview. New op `create_annotation` {annotation_id (=bare native
+  id, for UI/selection), source_annotation_id (=the workbench annotation IRI
+  `rdf.hillview.cz/id/annotation/{uuid}` — SAME IRI the TriG facts use, so the created
+  hillview annotation is joinable to its RDF identity), photo_id, target, body, facts}.
+  **Idempotency + provenance**: hillview photo_annotations gains
+  `source_annotation_id` (migration 028, nullable+indexed) storing that IRI; applier
+  creates only if none with that source exists (else already_applied), attributed to
+  admin, event_type='created' (`_op_source(op)` falls back to the bare id for older
+  packages; the reconcile retire regexp-extracts the last path segment, a no-op on a
+  bare id — so both forms match). Workbench
+  export: `_native_create_ops()` (origin='workbench', is_current, not retired) →
+  create ops (body = its facts serialized like a set-body suggestion, or raw '?' if
+  uncurated); `_compute_suggestions` now excludes origin<>'hillview' so a native isn't
+  ALSO a set-body op; both share extracted `_approved_context()` + `_build_item()`.
+  **Reconciliation (landed-by-observation)**: source_annotation_id is mirrored back
+  (ANN_PLAIN + workbench migration 005); the reconcile tier RETIRES a native row
+  (missing_since + is_current=false) once a mirrored row references it → no duplicate,
+  export stops re-emitting. Applier UIs: hillview `/admin/graduation` handles status
+  `new` (blue badge, applicable, "new annotation" note, single-body display, OSD shows
+  the drawn rect); workbench `/graduation` shows a "New annotations to create" section;
+  export count includes creates. Verified full round-trip on a throwaway native:
+  export→drop→preview(new)→apply(created w/ source link)→sync→reconcile RETIRES native
+  →export excludes it (422). GOTCHA: sync append+reconcile are BACKGROUND tasks — the
+  retire fires on the reconcile AFTER the graduated copy has actually synced (one lag
+  cycle; converges since sync is periodic). All test artifacts cleaned.
+
+- **Edit existing rects ✅ (2026-07-18)** — the photo-page edit mode (renamed ✎ edit
+  rects) now also moves/resizes/deletes existing rects, not just draws new ones. All
+  rects editable in the viewer; each edit routed by origin: workbench-native → PUT/
+  DELETE `/annotations/native/{id}` (in-place); mirrored hillview → can't persist (the
+  mirror faithfully copies the source; reconcile would revert), so revert + note "edit
+  in hillview / graduate a change". OsdViewer gained `onedit(id,target)`/`ondelete(id)`;
+  editing of existing rects gated by annotorious `userSelectAction` (EDIT in edit mode,
+  SELECT otherwise — set live via `setUserSelectAction`, no remount, keeps zoom); a
+  `syncing` guard swallows the updateAnnotation events that programmatic setAnnotations
+  re-sync emits (else save→reload→save loop). Photo detail returns `origin` per
+  annotation so the frontend routes correctly. `api` client gained put/del. Verified
+  API round-trip: create native → PUT moves rect x 0.5→0.7 → delete. (The drag gesture
+  itself is browser-only; the annotorious API matches the frontend viewer's proven
+  use.) NOTE: mirrored-rect geometry graduation (a set_annotation_target op) is the
+  natural follow-up if editing hillview shapes from the workbench is wanted.
+
+- **set_annotation_target op ✅ (2026-07-18)** — reshape a MIRRORED annotation and
+  graduate the geometry (the body op's counterpart). Reshaping a mirrored rect in the
+  workbench can't edit the mirror in place (faithful copy; reconcile reverts), so it
+  mints+approves an **hv:proposedGeometry** fact ("x,y,w,h" normalized 5 dp) via
+  `POST /annotations/{id}/geometry` (mirrors set_label: demotes prior approved). Export
+  `_target_ops()` (approved proposedGeometry on origin='hillview' rows whose rect ≠
+  current mirror rect) → op `set_annotation_target {annotation_id, precondition:{rect},
+  target, facts}`. Hillview applier: compares by canonical rect (`rect_of`, float/
+  key-order-safe), status clean/conflict/already_applied; apply supersedes head with
+  the new target KEEPING the body (event_type=updated); archive when reflected. UIs:
+  workbench /graduation "Reshapes to graduate" section; hillview applier shows the op
+  with the current rect (amber) + proposed rect (blue) on OSD + a reshape note.
+  **Proposed-shape visibility**: the photo page now renders the PROPOSED rect (from the
+  approved proposedGeometry fact, marked "reshape pending", blue) instead of snapping
+  back to the mirror's original — so the drag sticks visually while it awaits
+  graduation (photo detail returns `proposed_rect` per annotation). Verified both
+  halves live: workbench proposal→export op (correct precondition=current rect); hillview
+  preview(clean, old+new rects)→apply(0.2→0.75, body kept). All test artifacts cleaned.
+
 Full detail + next steps: plan file `~/.claude/plans/imperative-crafting-wombat.md`.
 Next: RDF cross-check (Hillview independently RE-DERIVES the body from the TriG facts
 and diffs vs the manifest — the two-interpreters agreement; needs the parser +
