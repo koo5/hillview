@@ -267,13 +267,13 @@
 		myGoto(constructPhotoMapUrl(photo));
 	}
 
-	$: headTitle = photo ? buildHeadTitle(photo) : '';
+	$: headTitle = photo ? buildHeadTitle(photo, annotations) : '';
 	$: headOgImage = photo ? pickOgImage(photo) : null;
-	$: headDescription = photo ? buildHeadDescription(photo, annotations) : '';
-	// schema.org ImageObject for the photo (precise structured data, unlike the
-	// coord/annotation-stuffed headDescription). Built in photoDisplay so it's
+	$: headDescription = photo ? buildHeadDescription(photo) : '';
+	// schema.org ImageObject for the photo (precise structured data, incl. the
+	// annotated landmark labels as keywords). Built in photoDisplay so it's
 	// unit-testable against real payloads.
-	$: headJsonLd = buildPhotoImageJsonLd(photo);
+	$: headJsonLd = buildPhotoImageJsonLd(photo, annotations);
 </script>
 
 <svelte:window on:keydown={handleRatingKeydown} />
@@ -292,7 +292,7 @@
 {/if}
 
 <StandardHeaderWithAlert
-	title={photo ? displayTitle(photo) : 'Photo'}
+	title={photo ? displayTitle(photo, annotations) : 'Photo'}
 	showMenuButton={true}
 	fallbackHref="/"
 />
@@ -331,7 +331,7 @@
 			<div class="photo-container">
 				<img
 					src={getDisplayImageUrl(photo)}
-					alt={displayTitle(photo)}
+					alt={displayTitle(photo, annotations)}
 					data-testid="photo-detail-image"
 				/>
 			</div>

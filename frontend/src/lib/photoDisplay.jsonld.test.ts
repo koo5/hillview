@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildPhotoImageJsonLd, pickOgImage, type PublicPhoto } from './photoDisplay';
+import { buildPhotoImageJsonLd, pickOgImage, type PublicPhoto, type PhotoAnnotation } from './photoDisplay';
 import { serializeJsonLd } from './jsonld';
+
+const ann = (body: string): PhotoAnnotation =>
+	({ id: 'a', body, owner_username: 'kolman.jindrich', created_at: '2026-06-03T00:00:00Z' }) as PhotoAnnotation;
 
 // A real /api/photos/public/<uid> payload (captured from a prod-data copy):
 // an all-rights-reserved panorama, no description, owned by 'test'.
@@ -159,6 +162,26 @@ describe('buildPhotoImageJsonLd', () => {
 		expect(withKw.keywords).toEqual(['Gröbovka', 'Havlíčkovy sady']);
 		expect(buildPhotoImageJsonLd({ ...REAL_PHOTO, keywords: [] })!.keywords).toBeUndefined();
 		expect(buildPhotoImageJsonLd(REAL_PHOTO)!.keywords).toBeUndefined();
+	});
+
+	it('folds annotated landmark labels into keywords (deduped, placeholders/URLs dropped)', () => {
+		const ld = buildPhotoImageJsonLd(REAL_PHOTO, [
+			ann('Petřín'),
+			ann('petřín'),
+			ann('?'),
+			ann('Praha Bubny|https://cs.wikipedia.org/wiki/Praha-Bubny')
+		])!;
+		expect(ld.keywords).toEqual(['Petřín', 'Praha Bubny']);
+	});
+
+	it('merges curator keywords with annotation labels, deduped across both', () => {
+		const ld = buildPhotoImageJsonLd({ ...REAL_PHOTO, keywords: ['Praha'] }, [ann('praha'), ann('Petřín')])!;
+		expect(ld.keywords).toEqual(['Praha', 'Petřín']);
+	});
+
+	it('name falls back to the first annotation before the filename', () => {
+		const ld = buildPhotoImageJsonLd(REAL_PHOTO, [ann('Prosek Point')])!;
+		expect(ld.name).toBe('Prosek Point');
 	});
 });
 
