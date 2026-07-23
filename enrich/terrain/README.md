@@ -20,7 +20,9 @@ Renders what the terrain *should* look like from a photo's viewpoint, out to
 | `build_mosaic.py` | DSM/DTM mosaic builder — pdal/gdal CLI wrapper with `--dry-run`, command construction unit-tested |
 | `worker.py` | RabbitMQ worker (untrusted topology, cf. `matcher/`): renders against a local DEM, POSTs artifacts back with a token |
 | `run_worker.sh` | systemd transient unit with memory ceiling (same belt-and-braces as the matcher) |
-| `test_renderer.py` | synthetic-terrain tests — horizon dip, peak bearing/depth, curvature+refraction, occlusion, codec |
+| `test_renderer.py` | synthetic-terrain tests — horizon dip, peak bearing/depth, curvature+refraction, occlusion, codec, window clipping, datum resolution |
+| `make_fixture.py` | deterministic e2e fixtures + the cross-language `golden.json` contract |
+| `../web/tests-playwright/` | Playwright bench suite (route-stubbed API, software-GL chromium) |
 | `../api/app/routers/terrain.py` | enqueue / result callback / artifact serving; `terrain_renders` in `../db/init/006_terrain.sql` |
 | `../web/src/routes/terrain/` | bench chrome: enqueue form, render list, fog controls, pick panel |
 | `../../shared/terrain/` | **the viewer itself** — dependency-free `DepthPanoViewer` (WebGL fog, wheel/drag/pinch, click-back), consumed by the bench AND the main app |
@@ -107,12 +109,31 @@ export TERRAIN_DSM_PATH="/data/dem/dsm10.vrt@15000:/data/dem/dsm_far.vrt"
 export TERRAIN_DTM_PATH="/data/dem/dtm10.vrt"
 cd enrich/terrain && ./run_worker.sh
 
-# tests (no data / rasterio needed)
-python -m pytest enrich/terrain/test_renderer.py -q
+# python tests (no data / rasterio needed)
+python -m pytest enrich/terrain -q
+
+# bench e2e (route-stubbed — no backend/worker/rabbit; needs a browser once:
+#   cd enrich/web && npx playwright install chromium)
+cd enrich/web && npm run test:e2e
+# fixtures regenerate deterministically (depth.bin/meta/golden are bit-stable):
+python3 ../terrain/make_fixture.py
 ```
 
 Then the **Terrain** tab in the bench: enqueue by photo id or ad-hoc lat/lon,
 pick the finished render, drag the visibility slider, click a mountain.
+
+## E2E: the golden thread
+
+`make_fixture.py` renders a synthetic scene (summit 25 km / far ridge 54 km /
+near hill 4 km) and writes `golden.json`: pixel targets plus the geo
+coordinates the PYTHON renderer computes for them. The Playwright suite
+serves those artifacts through route stubs, clicks the pixels, and asserts
+the TypeScript click-back agrees within ~22 m — if `renderer.py` and
+`shared/terrain` ever drift, this goes red. The same suite checks fog is
+Koschmieder-shaped (far ridge swallowed, near hill barely moves), that
+click-back survives cursor-anchored zoom, and the enqueue→done lifecycle
+with a simulated worker. `DepthPanoViewer.readPixel()` is the
+instrumentation hook (synchronous redraw+read, no preserveDrawingBuffer).
 
 ## Reuse in the main app
 

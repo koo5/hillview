@@ -75,6 +75,9 @@
 		if (r.status !== 'done' || !r.meta) return;
 		try {
 			viewer ??= new DepthPanoViewer(canvas, { onPick: (p: TerrainPick | null) => (picked = p) });
+			// e2e instrumentation: the Playwright suite samples pixels via
+			// viewer.readPixel through this handle (admin-only bench, harmless)
+			(window as unknown as { __hvTerrainViewer?: DepthPanoViewer }).__hvTerrainViewer = viewer;
 			await viewer.load({
 				previewUrl: `${apiBase}/terrain/renders/${r.id}/preview`,
 				depthUrl: `${apiBase}/terrain/renders/${r.id}/depth`,
@@ -102,17 +105,17 @@
 <section class="enqueue">
 	<input placeholder="photo id (viewpoint from photo_mirror)" bind:value={photoId} />
 	<span>or</span>
-	<input placeholder="lat" size="9" bind:value={adhocLat} />
-	<input placeholder="lon" size="9" bind:value={adhocLon} />
-	<button onclick={enqueue} disabled={busy}>Enqueue render</button>
-	<button onclick={load}>↻</button>
+	<input placeholder="lat" size="9" data-testid="terrain-lat" bind:value={adhocLat} />
+	<input placeholder="lon" size="9" data-testid="terrain-lon" bind:value={adhocLon} />
+	<button data-testid="terrain-enqueue" onclick={enqueue} disabled={busy}>Enqueue render</button>
+	<button data-testid="terrain-refresh" onclick={load}>↻</button>
 </section>
 
 <section class="split">
 	<ul class="renders">
 		{#each renders as r (r.id)}
 			<li class:active={sel?.id === r.id}>
-				<button onclick={() => select(r)}>
+				<button data-testid="terrain-row" data-status={r.status} onclick={() => select(r)}>
 					<b>{r.status}</b>
 					{r.photo_id ?? `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)}`}
 					<small>{new Date(r.enqueued_at).toLocaleString()}</small>
@@ -123,15 +126,15 @@
 	</ul>
 
 	<div class="viewer">
-		<canvas bind:this={canvas}></canvas>
+		<canvas data-testid="terrain-canvas" bind:this={canvas}></canvas>
 		<div class="controls">
 			<label>
 				Visibility {visibilityKm} km
-				<input type="range" min="2" max="300" bind:value={visibilityKm} />
+				<input type="range" min="2" max="300" data-testid="terrain-visibility" bind:value={visibilityKm} />
 			</label>
 			<label>Sky / fog <input type="color" bind:value={skyColor} /></label>
 			{#if picked}
-				<div class="picked">
+				<div class="picked" data-testid="terrain-picked">
 					📍 {picked.lat.toFixed(5)}, {picked.lon.toFixed(5)}
 					· {(picked.distance_m / 1000).toFixed(1)} km @ {picked.azimuth_deg.toFixed(1)}°
 					<a

@@ -289,6 +289,24 @@ export class DepthPanoViewer {
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 	}
 
+	/** Test/instrumentation hook: RGBA at a CSS-pixel position relative to the
+	 * canvas. Redraws then reads synchronously in the same task, so it works
+	 * without preserveDrawingBuffer (canvas readback is blank after the frame
+	 * otherwise — the e2e suites sample fog behavior through this). */
+	readPixel(cssX: number, cssY: number): [number, number, number, number] {
+		this.draw();
+		const gl = this.gl;
+		const r = this.canvas.getBoundingClientRect();
+		const x = Math.min(this.canvas.width - 1,
+			Math.max(0, Math.round((cssX / r.width) * this.canvas.width)));
+		const yTop = Math.min(this.canvas.height - 1,
+			Math.max(0, Math.round((cssY / r.height) * this.canvas.height)));
+		const out = new Uint8Array(4);
+		gl.readPixels(x, this.canvas.height - 1 - yTop, 1, 1,
+			gl.RGBA, gl.UNSIGNED_BYTE, out);
+		return [out[0], out[1], out[2], out[3]];
+	}
+
 	destroy(): void {
 		this.disposed = true;
 		this.resizeObs?.disconnect();
