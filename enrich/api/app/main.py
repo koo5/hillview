@@ -10,7 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import config, db, graph
 from .routers import (annotations, calibrate, facts, geocode, graduation, health,
-                      matching, parse, photos, poi, proto, runs, sparql, sync)
+                      matching, parse, photos, poi, proto, runs, sparql, sync,
+                      terrain)
 
 
 @asynccontextmanager
@@ -45,3 +46,4 @@ app.include_router(proto.router, prefix="/api")
 app.include_router(photos.router, prefix="/api")
 app.include_router(graduation.router, prefix="/api")
 app.include_router(poi.router, prefix="/api")
+app.include_router(terrain.router, prefix="/api")

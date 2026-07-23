@@ -17,6 +17,12 @@ def match_pair(payload: dict) -> None:
     raise NotImplementedError("producer-side stub")
 
 
+@remoulade.actor(queue_name="terrain")
+def render_panorama(payload: dict) -> None:
+    """Executed by the terrain worker; the API only .send()s it."""
+    raise NotImplementedError("producer-side stub")
+
+
 def init_broker() -> bool:
     """Lazy: the API works fine without a broker (candidates/verdicts don't need it);
     only enqueueing does."""
@@ -28,6 +34,6 @@ def init_broker() -> bool:
         return False
     broker = RabbitmqBroker(url=f"amqp://{url}?timeout=15", confirm_delivery=True)
     remoulade.set_broker(broker)
-    remoulade.declare_actors([match_pair])
+    remoulade.declare_actors([match_pair, render_panorama])
     _ready = True
     return True
