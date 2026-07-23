@@ -124,6 +124,14 @@ def load_geotiff_window(path: str, lat: float, lon: float, radius_m: float) -> D
             raise ValueError("DEM must be a north-up, non-rotated grid")
         win = from_bounds(lon - dlon_r, lat - dr, lon + dlon_r, lat + dr,
                           transform=t).round_offsets().round_lengths()
+        # CLIP to the raster extent: reading an overhanging window returns the
+        # intersection's data, but window_transform() of the UNCLIPPED window
+        # would georeference it from the overhanging corner — silently shifting
+        # the whole grid whenever the request crosses a mosaic edge.
+        from rasterio.windows import Window, intersection
+        win = intersection(win, Window(0, 0, src.width, src.height))
+        if win.width < 2 or win.height < 2:
+            raise ValueError("requested window barely intersects the DEM extent")
         data = src.read(1, window=win, masked=True).astype(np.float32)
         elev = np.where(np.ma.getmaskarray(data), np.nan, np.ma.getdata(data))
         wt = src.window_transform(win)
@@ -131,6 +139,76 @@ def load_geotiff_window(path: str, lat: float, lon: float, radius_m: float) -> D
                        lat_top=wt.f + wt.e / 2.0,       # edge → row-0 center
                        lon_left=wt.c + wt.a / 2.0,
                        dlat=-wt.e, dlon=wt.a)
+
+
+@dataclass
+class CompositeDem:
+    """Ordered stack of DemGrids, finest first: sampling returns the first
+    finite value. This is both the near/far resolution-ring story (10 m DMP
+    close in, 30 m composite far out) and the borders story (fine ČÚZK data
+    inside CZ, Copernicus GLO-30 where Šumava looks into Bavaria)."""
+    grids: list
+
+    def sample(self, lats: np.ndarray, lons: np.ndarray) -> np.ndarray:
+        out = self.grids[0].sample(lats, lons)
+        for g in self.grids[1:]:
+            miss = ~np.isfinite(out)
+            if not miss.any():
+                break
+            out[miss] = g.sample(np.asarray(lats)[miss], np.asarray(lons)[miss])
+        return out
+
+    def cell_size_m(self, at_lat: float) -> float:
+        return min(g.cell_size_m(at_lat) for g in self.grids)
+
+
+# ---------------------------------------------------------------------------
+# observer elevation (refinement #1: the datum problem)
+# ---------------------------------------------------------------------------
+# Phone EXIF altitude is a mess: some devices write ellipsoidal (WGS84)
+# height, some geoid-corrected — and EXIF does not say which. In Czechia the
+# geoid undulation is ~44.5 m, which is indistinguishable from standing on a
+# rozhledna. Policy: treat GPS altitude as a HINT, decide the datum by
+# plausibility against the terrain ground, and clamp the result to a sane
+# band above ground. Every outcome is labelled for provenance (meta.eye_source).
+
+GEOID_OFFSET_CZ_M = 44.5     # ellipsoidal ≈ orthometric + N; EGM grid lookup later
+
+
+def resolve_eye_elevation(ground_m: float, *, observer_height_m: float = 2.0,
+                          gps_altitude_m: float | None = None,
+                          gps_datum: str = "auto",
+                          geoid_offset_m: float = GEOID_OFFSET_CZ_M,
+                          max_above_ground_m: float = 60.0) -> tuple[float, str]:
+    """→ (eye_m, source). ground_m should come from the TERRAIN model (DMR):
+    grounding on a surface model means standing on canopy.
+
+    gps_datum: 'orthometric' (trust raw), 'ellipsoidal' (subtract the geoid
+    offset), or 'auto' (pick whichever interpretation lands closer to
+    ground + observer_height — a rozhledna reads as raw-orthometric, an
+    ellipsoidal fix as corrected). Implausible fixes fall back to
+    ground + observer_height, labelled 'gps-rejected'.
+    """
+    default = ground_m + observer_height_m
+    if gps_altitude_m is None or not math.isfinite(ground_m):
+        return default, "terrain+eye"
+    candidates = {"gps-orthometric": gps_altitude_m,
+                  "gps-ellipsoidal-corrected": gps_altitude_m - geoid_offset_m}
+    if gps_datum == "orthometric":
+        candidates.pop("gps-ellipsoidal-corrected")
+    elif gps_datum == "ellipsoidal":
+        candidates.pop("gps-orthometric")
+    # plausibility FIRST (a corrected reading below ground is the geoid
+    # heuristic misfiring on a lookout tower), proximity to eye height second.
+    # Known ambiguity: a ~geoid-offset-tall tower with a true orthometric fix
+    # is indistinguishable from an ellipsoidal ground fix; we prefer the
+    # ground interpretation, which is the far more common case.
+    lo, hi = ground_m + 0.5, ground_m + max_above_ground_m
+    plausible = {k: v for k, v in candidates.items() if lo <= v <= hi}
+    if not plausible:
+        return default, "gps-rejected"
+    source, eye = min(plausible.items(), key=lambda kv: abs(kv[1] - default))
+    return eye, source
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +260,8 @@ def distance_schedule(min_distance_m: float, max_distance_m: float,
     return np.asarray(out, dtype=np.float64)
 
 
-def render(dem: DemGrid, lat: float, lon: float, *,
+def render(dem, lat: float, lon: float, *,
+           terrain_dem=None,   # DemGrid/CompositeDem for observer grounding (DMR)
            observer_height_m: float = 2.0,
            observer_elevation_m: float | None = None,
            az_start: float = 0.0, az_end: float = 360.0, az_step_deg: float = 0.05,
@@ -193,12 +272,16 @@ def render(dem: DemGrid, lat: float, lon: float, *,
            refraction_k: float = DEFAULT_REFRACTION_K) -> Panorama:
     """Render a depth panorama from (lat, lon) looking across [az_start, az_end)."""
     if observer_elevation_m is not None:
-        eye = float(observer_elevation_m)
+        eye, eye_source = float(observer_elevation_m), "explicit"
     else:
-        ground = float(dem.sample(np.array([lat]), np.array([lon]))[0])
+        # ground the observer on the TERRAIN model when available (a DSM's
+        # "ground" under someone standing between trees is canopy)
+        gdem = terrain_dem if terrain_dem is not None else dem
+        ground = float(gdem.sample(np.array([lat]), np.array([lon]))[0])
         if not math.isfinite(ground):
             raise ValueError("viewpoint is outside the DEM / on nodata")
-        eye = ground + observer_height_m
+        eye, eye_source = resolve_eye_elevation(
+            ground, observer_height_m=observer_height_m)
 
     n_az = max(1, int(round((az_end - az_start) / az_step_deg)))
     azimuths = (az_start + (np.arange(n_az) + 0.5) * az_step_deg) % 360.0
@@ -236,7 +319,8 @@ def render(dem: DemGrid, lat: float, lon: float, *,
 
     return Panorama(depth=depth, surface_elev=surf, azimuths=azimuths,
                     elev_angles=elev_angles, lat=lat, lon=lon, eye_elevation_m=eye,
-                    params={"refraction_k": refraction_k,
+                    params={"eye_source": eye_source,
+                            "refraction_k": refraction_k,
                             "max_distance_m": max_distance_m,
                             "az_step_deg": az_step_deg,
                             "elev_step_deg": elev_step_deg})

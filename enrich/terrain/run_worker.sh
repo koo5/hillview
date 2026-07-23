@@ -26,7 +26,9 @@ systemd-run --user --unit=enrich-terrain \
   -p Restart=on-failure \
   -p RestartSec=30 \
   --setenv=RABBITMQ_URL="${RABBITMQ_URL:-enrich:enrich@127.0.0.1:5672}" \
-  --setenv=TERRAIN_DEM_PATH="${TERRAIN_DEM_PATH:-}" \
+  --setenv=TERRAIN_DSM_PATH="${TERRAIN_DSM_PATH:-${TERRAIN_DEM_PATH:-}}" \
+  --setenv=TERRAIN_DTM_PATH="${TERRAIN_DTM_PATH:-}" \
+  --setenv=TERRAIN_GEOID_OFFSET_M="${TERRAIN_GEOID_OFFSET_M:-44.5}" \
   --setenv=TERRAIN_REQUIRED_GB="${TERRAIN_REQUIRED_GB:-2}" \
   "$VENV_PY" -m remoulade worker --threads 1
 

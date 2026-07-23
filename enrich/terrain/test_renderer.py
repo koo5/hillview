@@ -127,3 +127,107 @@ def test_pixel_to_latlon_sky_is_none():
                   elev_min_deg=-1, elev_max_deg=5, elev_step_deg=0.5,
                   max_distance_m=15_000.0)
     assert pano.pixel_to_latlon(0, 0) is None                  # top pixel: sky
+
+
+# ---------------------------------------------------------------------------
+# refinement #1+2: observer datum + terrain/surface split
+# ---------------------------------------------------------------------------
+from renderer import CompositeDem, resolve_eye_elevation  # noqa: E402
+
+
+def test_resolve_eye_no_gps():
+    eye, src = resolve_eye_elevation(500.0, observer_height_m=2.0)
+    assert (eye, src) == (502.0, "terrain+eye")
+
+
+def test_resolve_eye_orthometric_fix():
+    """A plausible raw fix (phone at ~eye height) is taken as orthometric."""
+    eye, src = resolve_eye_elevation(500.0, gps_altitude_m=501.8)
+    assert src == "gps-orthometric" and eye == pytest.approx(501.8)
+
+
+def test_resolve_eye_ellipsoidal_fix():
+    """A fix ~44.5 m above ground is the geoid talking, not a tower — 'auto'
+    picks the corrected interpretation because it lands nearer eye height."""
+    eye, src = resolve_eye_elevation(500.0, gps_altitude_m=546.0)
+    assert src == "gps-ellipsoidal-corrected" and eye == pytest.approx(501.5)
+
+
+def test_resolve_eye_rozhledna():
+    """30 m above ground: the corrected reading would be BELOW ground, so raw
+    wins — the lookout-tower case survives the geoid heuristic."""
+    eye, src = resolve_eye_elevation(500.0, gps_altitude_m=530.0)
+    assert src == "gps-orthometric" and eye == pytest.approx(530.0)
+
+
+def test_resolve_eye_rejects_nonsense():
+    eye, src = resolve_eye_elevation(500.0, gps_altitude_m=900.0)
+    assert (eye, src) == (502.0, "gps-rejected")
+    eye, src = resolve_eye_elevation(500.0, gps_altitude_m=310.0)
+    assert src == "gps-rejected"
+
+
+def test_resolve_eye_forced_datum():
+    eye, src = resolve_eye_elevation(500.0, gps_altitude_m=546.0,
+                                     gps_datum="orthometric",
+                                     max_above_ground_m=60.0)
+    assert src == "gps-orthometric" and eye == pytest.approx(546.0)
+
+
+def test_composite_dem_fine_over_coarse():
+    fine = flat_dem(radius_m=5_000.0, cell_m=100.0, base_elev=100.0)
+    coarse = flat_dem(radius_m=60_000.0, cell_m=1_000.0, base_elev=700.0)
+    comp = CompositeDem(grids=[fine, coarse])
+    inside = comp.sample(np.array([LAT0]), np.array([LON0]))
+    plat, plon = destination_point(LAT0, LON0, 90.0, 30_000.0)
+    outside = comp.sample(np.array([plat]), np.array([plon]))
+    assert inside[0] == pytest.approx(100.0)
+    assert outside[0] == pytest.approx(700.0)
+    assert comp.cell_size_m(LAT0) == pytest.approx(fine.cell_size_m(LAT0))
+
+
+def test_render_grounds_on_terrain_not_canopy():
+    """Surface model has a 20 m canopy blob at the viewpoint; with a terrain
+    grid supplied, the eye sits at 2 m above BARE ground, not atop the trees —
+    and the horizon dip shrinks accordingly (√(2h/R') for h=2 vs h=22)."""
+    surface = flat_dem(radius_m=30_000.0, cell_m=200.0)
+    n = surface.elev.shape[0]
+    surface.elev[n // 2, n // 2] += 20.0   # one canopy cell AT the viewpoint
+    terrain = flat_dem(radius_m=30_000.0, cell_m=200.0)  # bare earth
+    kw = dict(az_start=170, az_end=190, az_step_deg=1.0,
+              elev_min_deg=-2.0, elev_max_deg=0.5, elev_step_deg=0.005,
+              min_distance_m=500.0,        # march starts beyond the canopy cell
+              max_distance_m=25_000.0)
+    with_t = render(surface, LAT0, LON0, terrain_dem=terrain, **kw)
+    without = render(surface, LAT0, LON0, **kw)
+    assert with_t.eye_elevation_m == pytest.approx(2.0, abs=0.3)
+    assert without.eye_elevation_m == pytest.approx(22.0, abs=1.0)
+    assert with_t.params["eye_source"] == "terrain+eye"
+    dip = lambda h: -math.degrees(math.sqrt(2 * h / effective_radius()))  # noqa: E731
+    top = lambda p: p.elev_angles[int(np.argmax(np.isfinite(p.depth[:, 5])))]  # noqa: E731
+    assert top(with_t) == pytest.approx(dip(2.0), abs=0.02)
+    assert top(without) == pytest.approx(dip(22.0), abs=0.02)
+
+
+def test_geotiff_window_clips_to_extent(tmp_path):
+    """Requesting a window larger than the raster must NOT shift the grid:
+    the returned georeference has to match a known cell (regression for the
+    unclipped-window bug the synthetic E2E caught at a mosaic edge)."""
+    rasterio = pytest.importorskip("rasterio")
+    from rasterio.transform import from_origin
+    from renderer import load_geotiff_window
+    cell = 0.001
+    n = 41
+    elev = np.zeros((n, n), np.float32)
+    elev[5, 30] = 777.0                       # a marker cell NE of center
+    path = str(tmp_path / "d.tif")
+    with rasterio.open(path, "w", driver="GTiff", width=n, height=n, count=1,
+                       dtype="float32", crs="EPSG:4326", nodata=-9999,
+                       transform=from_origin(LON0 - 20.5 * cell,
+                                             LAT0 + 20.5 * cell, cell, cell)) as d:
+        d.write(elev, 1)
+    dem = load_geotiff_window(path, LAT0, LON0, radius_m=10_000_000)  # way oversized
+    marker_lat = LAT0 + (20 - 5) * cell
+    marker_lon = LON0 + (30 - 20) * cell
+    v = dem.sample(np.array([marker_lat]), np.array([marker_lon]))
+    assert v[0] == pytest.approx(777.0)

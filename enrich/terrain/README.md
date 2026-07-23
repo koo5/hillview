@@ -16,7 +16,8 @@ Renders what the terrain *should* look like from a photo's viewpoint, out to
 
 | file | role |
 |---|---|
-| `renderer.py` | pure-numpy core: DEM grid, vectorised horizon march, click-back, preview shading, depth codec |
+| `renderer.py` | pure-numpy core: DEM grids (+`CompositeDem` layering), vectorised horizon march, observer/datum resolution, click-back, preview shading, depth codec |
+| `build_mosaic.py` | DSM/DTM mosaic builder — pdal/gdal CLI wrapper with `--dry-run`, command construction unit-tested |
 | `worker.py` | RabbitMQ worker (untrusted topology, cf. `matcher/`): renders against a local DEM, POSTs artifacts back with a token |
 | `run_worker.sh` | systemd transient unit with memory ceiling (same belt-and-braces as the matcher) |
 | `test_renderer.py` | synthetic-terrain tests — horizon dip, peak bearing/depth, curvature+refraction, occlusion, codec |
@@ -55,31 +56,45 @@ the pixel's depth. 360°×20° at 0.05° over 55 km: ~1.2 s single-core.
   buffer goes straight into `Uint16Array` → WebGL `R32F` texture)
 * `meta` (jsonb on `terrain_renders`) — grid geometry, viewpoint, params
 
-## DEM mosaic (`TERRAIN_DEM_PATH`)
+## DEM mosaics (`TERRAIN_DSM_PATH`, `TERRAIN_DTM_PATH`)
 
-The worker wants one north-up EPSG:4326 raster (COG or VRT). Suggested build:
+Two rasters, two jobs: the **DSM** (surface — canopy and buildings form the
+real skyline) is what the rays march; the **DTM** (bare earth) is what the
+OBSERVER stands on — grounding on a surface model means standing on canopy.
+`build_mosaic.py` builds both (rasterize → warp → vrt; see its docstring for
+the full ČÚZK DMP 1G / DMR 5G / Copernicus GLO-30 flow), and each env var
+takes colon-separated layers, finest first, each optionally capped:
 
-1. **ČÚZK DMP 1G** (surface model — canopy and buildings form the real
-   skyline; open data CC BY 4.0): download sheets for the area of interest
-   from the ČÚZK Geoportal (ATOM feeds), then
-   `pdal pipeline` → rasterize to DSM GeoTIFFs (S-JTSK / EPSG:5514, Bpv heights).
-2. `gdalwarp -t_srs EPSG:4326` each sheet (this also handles the
-   Bpv→ellipsoidal question well enough for rendering: we only compare
-   heights against each other, so a consistent vertical datum suffices).
-3. **Copernicus GLO-30** tiles for the ring beyond the borders
-   (Šumava viewpoints see Bavaria and Austria).
-4. `gdalbuildvrt mosaic.vrt cz_*.tif glo30_*.tif` (finest-resolution-first),
-   optionally `gdal_translate -of COG` for one tidy file.
+```bash
+export TERRAIN_DSM_PATH="mosaic/dsm10.vrt@15000:mosaic/dsm_far.vrt"
+export TERRAIN_DTM_PATH="mosaic/dtm10.vrt"
+```
 
-Resolution strategy: full DMP 1G resolution is overkill beyond ~10 km
-(angular size of a 1 m cell at 10 km ≈ 0.006°, an eighth of a pixel at our
-default 0.05° grid) — a 10 m near / 30 m far composite keeps the windowed
-read around 200 MB per render.
+The `@radius_m` cap is the resolution-ring story (full DMP 1G detail is
+overkill beyond ~10 km: a 1 m cell at 10 km subtends ~0.006°, an eighth of a
+pixel at the default 0.05° grid) and `CompositeDem` (first finite sample
+wins) is also the borders story — fine ČÚZK data inside CZ, GLO-30 where
+Šumava looks into Bavaria. A 10 m near / 30 m far composite keeps the
+windowed read around 200 MB per render. Windows are clipped to each raster's
+extent (an overhanging read would otherwise be silently mis-georeferenced —
+regression-tested).
 
-Practical DSM caveat: the observer often stands *under* the surface model
-(canopy). When the photo has GPS altitude the API passes it as
-`observer_elevation_m` (+1.6 m eye height); otherwise the renderer uses
-DSM + `observer_height_m` and viewpoints in forests will need a manual nudge.
+## Observer elevation: the datum problem
+
+Phone EXIF altitude doesn't say whether it's ellipsoidal or orthometric, and
+in Czechia the geoid undulation (~44.5 m, `TERRAIN_GEOID_OFFSET_M`) is
+exactly a rozhledna's worth of ambiguity. So GPS altitude flows through the
+API as a HINT (`gps_altitude_m`, optional `gps_datum`), and the worker
+resolves it against the DTM ground (`renderer.resolve_eye_elevation`):
+plausibility first (both interpretations must land within
+0.5–60 m above bare ground), proximity to eye height second, implausible
+fixes rejected in favour of ground + `observer_height_m`. The outcome is
+recorded in `meta.eye_source` (`gps-orthometric`,
+`gps-ellipsoidal-corrected`, `gps-rejected`, `terrain+eye`, `explicit`) with
+`ground_m`/`ground_source` alongside — every skyline knows where its eye
+came from. Known residual ambiguity: a ~44 m tower with a true orthometric
+fix reads as an ellipsoidal ground fix; the ground interpretation wins as
+the far more common case.
 
 ## Run
 
@@ -88,7 +103,8 @@ DSM + `observer_height_m` and viewpoints in forests will need a manual nudge.
 docker compose up -d --build api web
 
 # worker, in any venv with numpy+rasterio+pillow+psutil+remoulade+requests:
-export TERRAIN_DEM_PATH=/data/dem/mosaic.vrt
+export TERRAIN_DSM_PATH="/data/dem/dsm10.vrt@15000:/data/dem/dsm_far.vrt"
+export TERRAIN_DTM_PATH="/data/dem/dtm10.vrt"
 cd enrich/terrain && ./run_worker.sh
 
 # tests (no data / rasterio needed)

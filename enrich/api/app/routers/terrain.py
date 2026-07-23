@@ -19,6 +19,7 @@ CALLBACK_BASE = os.getenv("WORKER_CALLBACK_BASE", "http://127.0.0.1:8070")
 
 # render() kwargs a client may set; mirrored in worker.py (defense on both ends).
 ALLOWED_PARAMS = {"observer_height_m", "observer_elevation_m",
+                  "gps_altitude_m", "gps_datum",
                   "az_start", "az_end", "az_step_deg",
                   "elev_min_deg", "elev_max_deg", "elev_step_deg",
                   "min_distance_m", "max_distance_m", "rel_step", "refraction_k"}
@@ -48,10 +49,13 @@ async def enqueue(req: EnqueueRequest):
         if not row:
             raise HTTPException(404, "photo not found or has no position")
         lat, lon = row.lat, row.lon
-        # GPS altitude, when present, beats DSM ground + eye height: on a DSM
-        # the "ground" under an observer standing between trees is canopy.
-        if row.altitude is not None and "observer_elevation_m" not in params:
-            params["observer_elevation_m"] = row.altitude + 1.6
+        # GPS altitude is passed as a HINT, never as a trusted elevation: the
+        # worker resolves its datum (orthometric vs ellipsoidal — EXIF doesn't
+        # say, and the CZ geoid undulation is ~44.5 m, a rozhledna's worth)
+        # against the bare-earth ground and clamps implausible fixes. See
+        # renderer.resolve_eye_elevation; provenance lands in meta.eye_source.
+        if row.altitude is not None and "gps_altitude_m" not in params:
+            params["gps_altitude_m"] = row.altitude
     if lat is None or lon is None:
         raise HTTPException(422, "need photo_id or lat+lon")
 
