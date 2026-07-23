@@ -18,6 +18,7 @@ Renders what the terrain *should* look like from a photo's viewpoint, out to
 |---|---|
 | `renderer.py` | pure-numpy core: DEM grids (+`CompositeDem` layering), vectorised horizon march, observer/datum resolution, click-back, preview shading, depth codec |
 | `build_mosaic.py` | DSM/DTM mosaic builder — pdal/gdal CLI wrapper with `--dry-run`, command construction unit-tested |
+| `download_cuzk.py` | whole-CZ bulk downloader for the ČÚZK ATOM services (stdlib-only, resumable, polite), parsing pinned to real service XML |
 | `worker.py` | RabbitMQ worker (untrusted topology, cf. `matcher/`): renders against a local DEM, POSTs artifacts back with a token |
 | `run_worker.sh` | systemd transient unit with memory ceiling (same belt-and-braces as the matcher) |
 | `test_renderer.py` | synthetic-terrain tests — horizon dip, peak bearing/depth, curvature+refraction, occlusion, codec, window clipping, datum resolution |
@@ -59,6 +60,21 @@ the pixel's depth. 360°×20° at 0.05° over 55 km: ~1.2 s single-core.
 * `meta` (jsonb on `terrain_renders`) — grid geometry, viewpoint, params
 
 ## DEM mosaics (`TERRAIN_DSM_PATH`, `TERRAIN_DTM_PATH`)
+
+Raw data first — the whole country, resumably:
+
+```bash
+python3 download_cuzk.py fetch --dataset dmp1g --out /data/dl/dmp1g --unzip   # surface
+python3 download_cuzk.py fetch --dataset dmr5g --out /data/dl/dmr5g --unzip   # bare earth
+# smoke test a small area first: --bbox 14.2,49.9,14.7,50.2 --limit 20
+```
+
+It walks the verified ATOM contract (dataset feed → per-sheet feeds →
+`openzu.cuzk.gov.cz` ZIPs, whose dated filenames must be RESOLVED, never
+constructed), caches resolved URLs into `index.json`, skips complete files
+by advertised size, and defaults to 4 polite workers. Fair warning: whole-CZ
+DMP 1G + DMR 5G is tens of thousands of sheets and hundreds of GB — plan the
+disk and let it run overnight; reruns only fetch what's missing.
 
 Two rasters, two jobs: the **DSM** (surface — canopy and buildings form the
 real skyline) is what the rays march; the **DTM** (bare earth) is what the
