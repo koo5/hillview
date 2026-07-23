@@ -17,6 +17,7 @@
 		// re-declared here (paths are relative to THIS file, not the generated one)
 		"paths": {
 			"$zoomview/*": ["../../shared/zoomview/*"],
+			"$terrain/*": ["../../shared/terrain/*"],
 			"$lib": ["./src/lib"],
 			"$lib/*": ["./src/lib/*"],
 			"$app/types": ["./.svelte-kit/types/index.d.ts"]

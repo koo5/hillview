@@ -21,7 +21,9 @@ Renders what the terrain *should* look like from a photo's viewpoint, out to
 | `run_worker.sh` | systemd transient unit with memory ceiling (same belt-and-braces as the matcher) |
 | `test_renderer.py` | synthetic-terrain tests — horizon dip, peak bearing/depth, curvature+refraction, occlusion, codec |
 | `../api/app/routers/terrain.py` | enqueue / result callback / artifact serving; `terrain_renders` in `../db/init/006_terrain.sql` |
-| `../web/src/routes/terrain/` | bench UI: WebGL fog viewer, zoom/pan, click-to-coords |
+| `../web/src/routes/terrain/` | bench chrome: enqueue form, render list, fog controls, pick panel |
+| `../../shared/terrain/` | **the viewer itself** — dependency-free `DepthPanoViewer` (WebGL fog, wheel/drag/pinch, click-back), consumed by the bench AND the main app |
+| `../../frontend/src/lib/components/TerrainViewer.svelte` | main-app wrapper around the shared core, ready for the photo pane |
 
 ## The two accuracy terms
 
@@ -95,3 +97,20 @@ python -m pytest enrich/terrain/test_renderer.py -q
 
 Then the **Terrain** tab in the bench: enqueue by photo id or ad-hoc lat/lon,
 pick the finished render, drag the visibility slider, click a mountain.
+
+## Reuse in the main app
+
+The viewer follows the `$zoomview` sharing pattern: the core lives in
+repo-root `shared/terrain/` (vanilla TS, no Svelte/stores/$lib), aliased as
+`$terrain` in both apps (frontend `svelte.config.js` kit.alias + generated
+tsconfig; enrich/web vite alias + manual tsconfig paths), its pure pick math
+unit-tested from the frontend's vitest (`../shared/terrain/**` include), and
+COPYied by the enrich/web Dockerfile like `shared/zoomview`.
+
+`frontend/src/lib/components/TerrainViewer.svelte` is the app-facing wrapper:
+`previewUrl` + `depthUrl` + `meta` in, `onpick` (geo coords) out, bindable
+`visibilityKm`/`skyColor`, touch-ready (Pointer Events pinch in the core).
+Graduation path to the photo pane: (1) main backend serves the two artifacts
+per photo (next to the pyramids), (2) `Photo.svelte` grows a terrain mode
+beside the OSD/Pannellum switch, (3) `onpick` flies the Leaflet map. The
+workbench stays the place where renders are produced and curated.
