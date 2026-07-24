@@ -63,6 +63,8 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 	import '$lib/styles/optimizedMarkers.css';
 	import type { PhotoData } from '$lib/types/photoTypes';
 	import PhotoMarkerIcon from './PhotoMarkerIcon.svelte';
+	import { selectedTerrainRender, terrainRenders } from '$lib/terrain.svelte';
+	import { markerStateOf, type TerrainRender } from '$lib/terrainModel';
 
 	import {get} from "svelte/store";
 	import {stringifyCircularJSON} from "$lib/utils/json";
@@ -434,6 +436,44 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		} else {
 			console.warn('🢄Map: optimizedMarkerSystem.updateMarkers returned undefined');
 		}
+	}
+
+	// ---- terrain mode markers (docs/terrain-mode.md) ----
+	// The map swaps photo markers for terrain RENDER markers: hollow/pulsing
+	// = queued, progress ring = rendering, solid = done, red = failed —
+	// in-progress renders are first-class citizens. Navigation is tapping
+	// markers (no next/prev: sparse viewpoints have no ordering); a tap
+	// recenters the map on the viewpoint, so the range circle's spatial
+	// selection — its unchanged job — picks the render up.
+	let terrainLayer: L.LayerGroup | null = null;
+
+	function clearTerrainMarkers() {
+		terrainLayer?.remove();
+		terrainLayer = null;
+	}
+
+	function updateTerrainMarkers(renders: TerrainRender[], selectedId: string | null) {
+		if (!map) return;
+		clearTerrainMarkers();
+		terrainLayer = L.layerGroup(
+			renders.map((r) => {
+				const state = markerStateOf(r);
+				const selected = r.id === selectedId ? ' terrain-marker--selected' : '';
+				const m = L.marker([r.lat, r.lon], {
+					icon: L.divIcon({
+						className: '',
+						html: `<div class="terrain-marker terrain-marker--${state}${selected}" data-testid="terrain-marker" data-state="${state}"></div>`,
+						iconSize: [22, 22],
+						iconAnchor: [11, 11]
+					})
+				});
+				m.on('click', () => {
+					programmaticMove = true;
+					map.flyTo(new LatLng(r.lat, r.lon), map.getZoom(), { duration: 0.25 });
+				});
+				return m;
+			})
+		).addTo(map);
 	}
 
 	// Calculate how many km are "visible" based on the current zoom/center
@@ -1476,9 +1516,18 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 	}
 
 	// Reactive updates for spatial changes (photos from worker include filtered placeholders)
-	$: if ($visiblePhotos && map) {
+	$: if ($visiblePhotos && map && $app.activity !== 'terrain') {
 		//console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} total photos`);
 		updateOptimizedMarkers($visiblePhotos);
+	}
+
+	// Terrain mode: swap photo markers for terrain render markers (and back)
+	$: if (map && $app.activity === 'terrain') {
+		updateOptimizedMarkers([]);
+		updateTerrainMarkers($terrainRenders, $selectedTerrainRender?.id ?? null);
+	} else if (map) {
+		clearTerrainMarkers();
+		updateOptimizedMarkers(get(visiblePhotos) ?? []);
 	}
 
 	// Ultra-fast bearing color updates (no worker communication)
@@ -1786,6 +1835,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 
 		<div class="svg-overlay">
 
+			{#if $app.activity !== 'terrain'}
 			<BearingStateArrow
 				{width}
 				{height}
@@ -1796,6 +1846,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 				bearingDeg={Math.round($bearingState.bearing ?? 0)}
 				on:arrowdragstart={handleArrowDragStart}
 			/>
+			{/if}
 
 		</div>
 
@@ -2493,4 +2544,42 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		cursor: grab;
 	}
 
+
+	/* terrain render markers — states per docs/terrain-mode.md */
+	:global(.terrain-marker) {
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		box-sizing: border-box;
+		border: 3px solid #3a7d44;
+		background: transparent;
+	}
+	:global(.terrain-marker--queued) {
+		animation: terrain-pulse 1.6s ease-in-out infinite;
+	}
+	:global(.terrain-marker--rendering) {
+		border-top-color: transparent;
+		animation: terrain-spin 1s linear infinite;
+	}
+	:global(.terrain-marker--done) {
+		background: #3a7d44;
+		border-color: white;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+	}
+	:global(.terrain-marker--failed) {
+		background: #e24a4a;
+		border-color: white;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+	}
+	:global(.terrain-marker--selected) {
+		outline: 3px solid #4a90e2;
+		outline-offset: 2px;
+	}
+	@keyframes terrain-pulse {
+		0%, 100% { transform: scale(1); opacity: 1; }
+		50% { transform: scale(0.75); opacity: 0.55; }
+	}
+	@keyframes terrain-spin {
+		to { transform: rotate(360deg); }
+	}
 </style>

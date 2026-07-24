@@ -11,7 +11,7 @@
 		Bug,
 		Maximize2,
 		Minimize2
-	} from 'lucide-svelte';
+	, Mountain} from 'lucide-svelte';
 	import {
 		app,
 		sources,
@@ -38,6 +38,8 @@
 	import DebugOverlay from './DebugOverlay.svelte';
 	import CompassCalibration from './CompassCalibration.svelte';
 	import Lines from './Lines.svelte';
+	import TerrainPane from './TerrainPane.svelte';
+	import { terrainModeAvailable } from '$lib/terrain.svelte';
 import TimelinePanel from './TimelinePanel.svelte';
 	import PhotoInfoWindow from './PhotoInfoWindow.svelte';
 	import {
@@ -81,6 +83,13 @@ import TimelinePanel from './TimelinePanel.svelte';
 
 	$: showCameraView = $app.activity === 'capture';
 	$: showLinesEditor = $app.activity === 'lines';
+	$: showTerrainPane = $app.activity === 'terrain';
+
+	function toggleTerrain() {
+		const mode = showTerrainPane ? 'view' : 'terrain';
+		track(mode === 'terrain' ? 'activityTerrain' : 'activityView');
+		app.update(a => ({...a, activity: mode}));
+	}
 
 	function toggleLines() {
 		const mode = showLinesEditor ? 'view' : 'lines';
@@ -538,6 +547,19 @@ import TimelinePanel from './TimelinePanel.svelte';
 	</svg>
 </button>
 
+{#if terrainModeAvailable}
+<button
+	class="terrain-button {showTerrainPane ? 'active' : ''}"
+	on:click={toggleTerrain}
+	on:keydown={(e) => e.key === 'Enter' && toggleTerrain()}
+	aria-label="{showTerrainPane ? 'Close terrain view' : 'Show terrain view'}"
+	title="{showTerrainPane ? 'Close terrain view' : 'Show terrain view'}"
+	data-testid="terrain-button"
+>
+	<Mountain size={24} />
+</button>
+{/if}
+
 
 <!--{#if BROWSER}
 	<button
@@ -615,6 +637,8 @@ import TimelinePanel from './TimelinePanel.svelte';
 			/>
 		{:else if showLinesEditor}
 			<Lines />
+		{:else if showTerrainPane}
+			<TerrainPane />
 		{:else}
 			<PhotoGallery/>
 		{/if}
@@ -812,6 +836,35 @@ import TimelinePanel from './TimelinePanel.svelte';
 	.lines-button.active {
 		background: #4a90e2;
 		color: white;
+	}
+
+	.terrain-button {
+		position: absolute;
+		top: calc(0px + var(--safe-area-inset-top, 10px));
+		left: calc(150px + var(--safe-area-inset-left, 10px));
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+		transition: all 0.2s ease;
+		color: #3a7d44;
+	}
+
+	.terrain-button.active {
+		background: #3a7d44;
+		color: white;
+	}
+
+	.terrain-button:hover {
+		transform: scale(1.05);
 	}
 
 	.lines-button:hover {
