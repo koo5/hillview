@@ -7,7 +7,7 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import TerrainViewer from './TerrainViewer.svelte';
-	import { gridMetaOf, isViewable, markerStateOf, progressOf } from '$lib/terrainModel';
+	import { artifactVersion, gridMetaOf, isViewable, markerStateOf, progressOf } from '$lib/terrainModel';
 	import {
 		pendingTerrainRect,
 		selectedTerrainRender,
@@ -45,8 +45,8 @@
 		</div>
 	{:else if isViewable(sel)}
 		<TerrainViewer
-			previewUrl={terrainPreviewUrl(sel.id)}
-			depthUrl={terrainDepthUrl(sel.id)}
+			previewUrl={terrainPreviewUrl(sel.id, artifactVersion(sel))}
+			depthUrl={terrainDepthUrl(sel.id, artifactVersion(sel))}
 			meta={gridMetaOf(sel)!}
 			bind:visibilityKm
 			onpick={(p) => terrainPick.set(p)}
@@ -59,6 +59,11 @@
 				<input type="range" min="5" max="200" step="5" bind:value={visibilityKm} />
 				{visibilityKm} km
 			</label>
+			{#if markerStateOf(sel) === 'rendering'}
+				<span class="rendering" data-testid="terrain-pane-rendering">
+					rendering…{#if progressOf(sel) !== null}&nbsp;{progressOf(sel)} %{/if}
+				</span>
+			{/if}
 			{#if pick}
 				<span class="pick" data-testid="terrain-pick">
 					{pick.lat.toFixed(5)}, {pick.lon.toFixed(5)} · {(pick.distance_m / 1000).toFixed(1)} km
@@ -122,5 +127,8 @@
 	}
 	.hint {
 		color: #888;
+	}
+	.rendering {
+		color: #7fb88a;
 	}
 </style>

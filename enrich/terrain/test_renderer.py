@@ -257,3 +257,33 @@ def test_progress_none_is_default_and_harmless():
                   elev_min_deg=-1.0, elev_max_deg=0.5, elev_step_deg=0.25,
                   max_distance_m=8_000.0)
     assert pano.depth.shape[1] == 2
+
+
+def test_checkpoint_partials_are_prefixes_of_the_final():
+    """A milestone partial is a VALID panorama: wherever it sees terrain the
+    final sees the SAME depth (the accumulate is monotone — longer marches
+    only fill in what was sky), everything it sees lies within the milestone
+    distance, and a peak beyond the milestone appears only in the final."""
+    # flat ground fills the partial's lower rows (all within 10 km at these
+    # angles); the 900 m peak at 22 km exists only in the final
+    dem = flat_dem(radius_m=40_000.0, base_elev=0.0)
+    add_peak(dem, 90.0, 22_000.0, 900.0)
+    partials = []
+    final = render(dem, LAT0, LON0, observer_elevation_m=30.0,
+                   az_start=85, az_end=95, az_step_deg=0.25,
+                   elev_min_deg=-2.0, elev_max_deg=3.0, elev_step_deg=0.05,
+                   max_distance_m=30_000.0,
+                   checkpoint=lambda p, f: partials.append((p, f)),
+                   checkpoint_distances_m=(10_000.0, 90_000.0))  # 2nd skipped
+    assert len(partials) == 1, "only the in-range milestone should fire"
+    part, frac = partials[0]
+    assert 0.0 < frac < 1.0
+    vis = np.isfinite(part.depth)
+    assert vis.any(), "the near ground must be visible in the partial"
+    assert np.isfinite(final.depth[vis]).all()
+    np.testing.assert_array_equal(part.depth[vis], final.depth[vis])
+    assert float(np.nanmax(part.depth)) <= 10_500.0  # within the milestone (+step)
+    grown = np.isfinite(final.depth) & ~vis
+    assert grown.any(), "the far peak should appear only in the final"
+    assert float(np.nanmin(final.depth[grown])) > 10_000.0
+    assert part.meta()["width"] == final.meta()["width"]

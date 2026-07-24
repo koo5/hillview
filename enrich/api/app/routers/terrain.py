@@ -1,10 +1,13 @@
 """Terrain bench API: enqueue depth-panorama renders for photo viewpoints
 (or ad-hoc lat/lon), receive worker results, and serve the artifacts the
 bench viewer needs (raw uint16 depth buffer + preview JPEG + meta)."""
+import gzip
 import json
 import os
+import tempfile
 
-from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
+from fastapi import (APIRouter, File, Form, Header, HTTPException, Request,
+                     UploadFile)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -83,29 +86,34 @@ async def result(result_json: str = Form(...),
     d = json.loads(result_json)
     rid = d["result_id"]
 
-    if d.get("status") == "rendering":
-        # Progress ping (tiny JSON, no artifacts): % rides in the meta jsonb
-        # until the final result overwrites it. The status guard keeps an
-        # out-of-order late ping from regressing a finished/failed render.
-        async with wb_engine.begin() as conn:
-            await conn.execute(text(
-                "UPDATE terrain_renders SET status = 'rendering', "
-                "meta = CAST(:meta AS jsonb), worker = :w "
-                "WHERE id = CAST(:id AS uuid) AND status NOT IN ('done', 'error')"),
-                {"meta": json.dumps(d.get("meta")), "w": d.get("worker"), "id": rid})
-        return {"ok": True}
-
     tdir = os.path.join(config.ARTIFACTS_DIR, "terrain")
     os.makedirs(tdir, exist_ok=True)
     depth_path = preview_path = None
     if depth is not None:
         depth_path = os.path.join("terrain", f"{rid}.depth.bin")
-        with open(os.path.join(config.ARTIFACTS_DIR, depth_path), "wb") as f:
-            f.write(await depth.read())
+        _write_atomic(os.path.join(config.ARTIFACTS_DIR, depth_path),
+                      await depth.read(), gzip_too=True)
     if preview is not None:
         preview_path = os.path.join("terrain", f"{rid}.preview.jpg")
-        with open(os.path.join(config.ARTIFACTS_DIR, preview_path), "wb") as f:
-            f.write(await preview.read())
+        _write_atomic(os.path.join(config.ARTIFACTS_DIR, preview_path),
+                      await preview.read())
+
+    if d.get("status") == "rendering":
+        # Progress ping OR a streamed partial panorama (v1.5): meta jsonb is
+        # MERGED, so a %-only ping between milestones can't wipe the partial's
+        # grid meta / artifact_version; artifact paths update only when files
+        # actually arrived. The status guard keeps an out-of-order late ping
+        # from regressing a finished/failed render.
+        async with wb_engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE terrain_renders SET status = 'rendering', "
+                "meta = COALESCE(meta, '{}'::jsonb) || CAST(:meta AS jsonb), "
+                "depth_path = COALESCE(:dp, depth_path), "
+                "preview_path = COALESCE(:pp, preview_path), worker = :w "
+                "WHERE id = CAST(:id AS uuid) AND status NOT IN ('done', 'error')"),
+                {"meta": json.dumps(d.get("meta") or {}), "dp": depth_path,
+                 "pp": preview_path, "w": d.get("worker"), "id": rid})
+        return {"ok": True}
     async with wb_engine.begin() as conn:
         await conn.execute(text(
             "UPDATE terrain_renders SET status = :st, error = :err, "
@@ -131,6 +139,23 @@ async def renders(photo_id: str | None = None, limit: int = 50):
     return {"renders": [dict(r) | {"id": str(r["id"])} for r in rows]}
 
 
+def _write_atomic(path: str, data: bytes, gzip_too: bool = False) -> None:
+    """Partials overwrite the same artifact paths while clients may be mid-
+    download; temp + os.replace keeps every served byte-range self-consistent.
+    gzip_too maintains a .gz sibling (refinement 4: raw uint16 depth shrinks
+    well) served via Content-Encoding when the client accepts it."""
+    d = os.path.dirname(path)
+    fd, tmp = tempfile.mkstemp(dir=d)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+    if gzip_too:
+        fd, tmp = tempfile.mkstemp(dir=d)
+        with os.fdopen(fd, "wb") as f:
+            f.write(gzip.compress(data, compresslevel=6))
+        os.replace(tmp, path + ".gz")
+
+
 async def _artifact(render_id: str, col: str) -> str:
     async with wb_engine.connect() as conn:
         path = (await conn.execute(text(
@@ -142,9 +167,13 @@ async def _artifact(render_id: str, col: str) -> str:
 
 
 @router.get("/terrain/renders/{render_id}/depth")
-async def depth_artifact(render_id: str):
-    return FileResponse(await _artifact(render_id, "depth_path"),
-                        media_type="application/octet-stream")
+async def depth_artifact(render_id: str, request: Request):
+    path = await _artifact(render_id, "depth_path")
+    gz = path + ".gz"
+    if "gzip" in request.headers.get("accept-encoding", "") and os.path.exists(gz):
+        return FileResponse(gz, media_type="application/octet-stream",
+                            headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"})
+    return FileResponse(path, media_type="application/octet-stream")
 
 
 @router.get("/terrain/renders/{render_id}/preview")

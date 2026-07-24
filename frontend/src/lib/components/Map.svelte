@@ -64,7 +64,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 	import type { PhotoData } from '$lib/types/photoTypes';
 	import PhotoMarkerIcon from './PhotoMarkerIcon.svelte';
 	import { enqueueTerrainRender, selectedTerrainRender, terrainPick, terrainRenders, terrainWedge } from '$lib/terrain.svelte';
-	import { markerStateOf, wedgeArcLatLngs, type TerrainRender } from '$lib/terrainModel';
+	import { gridMetaOf, markerStateOf, wedgeArcLatLngs, type TerrainRender } from '$lib/terrainModel';
 
 	import {get} from "svelte/store";
 	import {stringifyCircularJSON} from "$lib/utils/json";
@@ -500,6 +500,14 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		if (!map) return;
 		clearTerrainGeometry();
 		const layers: L.Layer[] = [];
+		// v1.5: faint coverage circle — max_distance, "what this can see"
+		const coverage = viewpoint && sel_meta_max_distance();
+		if (viewpoint && coverage) {
+			layers.push(L.circle([viewpoint.lat, viewpoint.lon], {
+				radius: coverage, color: '#3a7d44', weight: 1, opacity: 0.35,
+				fillOpacity: 0.03, dashArray: '2, 8', interactive: false
+			}));
+		}
 		if (wedge) {
 			// scale with the range circle, like the photo bearing wedge does
 			const pts = wedgeArcLatLngs(wedge, wedge.azimuthDeg, wedge.fovDeg, get(spatialState).range * 1.3);
@@ -1622,6 +1630,12 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 	} else if (map) {
 		clearTerrainMarkers();
 		updateOptimizedMarkers(get(visiblePhotos) ?? []);
+	}
+
+	function sel_meta_max_distance(): number | null {
+		const sel = get(selectedTerrainRender);
+		const m = sel ? gridMetaOf(sel) : null;
+		return typeof m?.max_distance_m === 'number' ? m.max_distance_m : null;
 	}
 
 	// Pane-derived wedge + click-ray (redrawn on range change so the wedge

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+	artifactVersion,
 	isViewable,
 	markerStateOf,
 	nearestRenderWithin,
@@ -125,5 +126,33 @@ describe('progressOf (progress ship-order step 1)', () => {
 
 	it('a bare progress ping is not viewable meta', () => {
 		expect(isViewable(render({ meta: { progress_pct: 42 }, has_depth: true, has_preview: true }))).toBe(false);
+	});
+});
+
+describe('artifactVersion (cache key: new bytes only, never per poll)', () => {
+	const grid = { width: 10, height: 2, az_start: 0, az_end: 359, elev_max_deg: 10,
+		elev_min_deg: -5, lat: 50, lon: 14.5, depth_scale_m: 4 };
+
+	it('finished renders key on finished_at', () => {
+		expect(artifactVersion(render({ finished_at: '2026-07-24T10:00:00Z' })))
+			.toBe('2026-07-24T10:00:00Z');
+	});
+
+	it('streaming partials key on the milestone artifact_version', () => {
+		const r = render({ status: 'rendering',
+			meta: { ...grid, progress_pct: 47, artifact_version: 33 } });
+		expect(artifactVersion(r)).toBe('33');
+	});
+
+	it('a %-only ping between milestones does NOT change the key', () => {
+		const at33 = render({ status: 'rendering',
+			meta: { ...grid, progress_pct: 33, artifact_version: 33 } });
+		const at47 = render({ status: 'rendering',
+			meta: { ...grid, progress_pct: 47, artifact_version: 33 } });
+		expect(artifactVersion(at47)).toBe(artifactVersion(at33));
+	});
+
+	it('falls back to a stable default before any artifacts', () => {
+		expect(artifactVersion(render({ finished_at: null, meta: { progress_pct: 5 } }))).toBe('0');
 	});
 });

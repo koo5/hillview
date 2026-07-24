@@ -89,12 +89,15 @@ selectedTerrainRender.subscribe((sel) => {
 	}
 });
 
-export function terrainPreviewUrl(id: string): string {
-	return `${terrainApiBase}/terrain/renders/${id}/preview`;
+/** version: artifactVersion(render) — a stable cache key that changes only
+ * when new artifact bytes exist (milestone partials / completion), so the
+ * viewer reloads exactly then and never per poll tick. */
+export function terrainPreviewUrl(id: string, version = '0'): string {
+	return `${terrainApiBase}/terrain/renders/${id}/preview?v=${encodeURIComponent(version)}`;
 }
 
-export function terrainDepthUrl(id: string): string {
-	return `${terrainApiBase}/terrain/renders/${id}/depth`;
+export function terrainDepthUrl(id: string, version = '0'): string {
+	return `${terrainApiBase}/terrain/renders/${id}/depth?v=${encodeURIComponent(version)}`;
 }
 
 export async function refreshTerrainRenders(): Promise<void> {

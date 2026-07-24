@@ -270,7 +270,8 @@ def render(dem, lat: float, lon: float, *,
            min_distance_m: float = 50.0, max_distance_m: float = 100_000.0,
            min_step_m: float | None = None, rel_step: float = 0.005,
            refraction_k: float = DEFAULT_REFRACTION_K,
-           progress=None) -> Panorama:
+           progress=None, checkpoint=None,
+           checkpoint_distances_m=(10_000.0, 25_000.0, 50_000.0)) -> Panorama:
     """Render a depth panorama from (lat, lon) looking across [az_start, az_end).
 
     progress: optional callable(fraction_done: float). The distance march is
@@ -279,7 +280,15 @@ def render(dem, lat: float, lon: float, *,
     fraction would race through the near field and stall out far. Called ~20
     times per render plus once at 1.0; exceptions in the callback are the
     caller's problem by design (the worker wraps its own try/except so a
-    progress hiccup can never fail a render)."""
+    progress hiccup can never fail a render).
+
+    checkpoint: optional callable(pano: Panorama, fraction_done: float). The
+    horizon march is maximum.accumulate over distance, so truncating it at a
+    distance milestone yields a VALID partial panorama — terrain grown
+    outward, far ranges still hidden behind ridges. No algorithm change,
+    just checkpointed emission: partials and the final result run the same
+    finish phase. Milestones outside (min_distance, max_distance) are
+    skipped; the final panorama is returned, not checkpointed."""
     if observer_elevation_m is not None:
         eye, eye_source = float(observer_elevation_m), "explicit"
     else:
@@ -308,6 +317,37 @@ def render(dem, lat: float, lon: float, *,
     elv = np.full((len(dists), n_az), np.nan, dtype=np.float32)
     n_steps_total = len(dists)
     report_every = max(1, n_steps_total // 20)
+
+    def _finish(k: int) -> Panorama:
+        """Resolve the panorama from the first k march steps. k = total is
+        the final render; smaller k is a valid partial (the accumulate is
+        monotone, so wherever a partial sees terrain, the final sees the
+        SAME depth — longer marches only ever fill in what was sky)."""
+        horizon = np.maximum.accumulate(ang[:k], axis=0)  # running horizon profile
+        depth = np.full((n_rows, n_az), np.nan, dtype=np.float32)
+        surf = np.full((n_rows, n_az), np.nan, dtype=np.float32)
+        for j in range(n_az):                       # tiny per-column work
+            idx = np.searchsorted(horizon[:, j], pix_rad)  # first step ≥ pixel angle
+            vis = idx < k
+            ii = idx[vis]
+            depth[vis, j] = dists[ii]
+            surf[vis, j] = elv[ii, j]
+        return Panorama(depth=depth, surface_elev=surf, azimuths=azimuths,
+                        elev_angles=elev_angles, lat=lat, lon=lon,
+                        eye_elevation_m=eye,
+                        params={"eye_source": eye_source,
+                                "refraction_k": refraction_k,
+                                "max_distance_m": max_distance_m,
+                                "az_step_deg": az_step_deg,
+                                "elev_step_deg": elev_step_deg})
+
+    cp_steps: set[int] = set()
+    if checkpoint is not None:
+        cp_steps = {int(np.searchsorted(dists, cd))
+                    for cd in checkpoint_distances_m
+                    if min_distance_m < cd < max_distance_m}
+        cp_steps = {k for k in cp_steps if 0 < k < n_steps_total}
+
     for i, d in enumerate(dists):
         plats, plons = destination_point(lat, lon, azimuths, d)
         h = dem.sample(plats, plons)
@@ -318,26 +358,10 @@ def render(dem, lat: float, lon: float, *,
         if progress is not None and ((i + 1) % report_every == 0
                                      or i + 1 == n_steps_total):
             progress((i + 1) / n_steps_total)
+        if (i + 1) in cp_steps:
+            checkpoint(_finish(i + 1), (i + 1) / n_steps_total)
 
-    horizon = np.maximum.accumulate(ang, axis=0)   # running horizon profile
-
-    depth = np.full((n_rows, n_az), np.nan, dtype=np.float32)
-    surf = np.full((n_rows, n_az), np.nan, dtype=np.float32)
-    n_steps = len(dists)
-    for j in range(n_az):                          # tiny per-column work
-        idx = np.searchsorted(horizon[:, j], pix_rad)   # first step ≥ pixel angle
-        vis = idx < n_steps
-        ii = idx[vis]
-        depth[vis, j] = dists[ii]
-        surf[vis, j] = elv[ii, j]
-
-    return Panorama(depth=depth, surface_elev=surf, azimuths=azimuths,
-                    elev_angles=elev_angles, lat=lat, lon=lon, eye_elevation_m=eye,
-                    params={"eye_source": eye_source,
-                            "refraction_k": refraction_k,
-                            "max_distance_m": max_distance_m,
-                            "az_step_deg": az_step_deg,
-                            "elev_step_deg": elev_step_deg})
+    return _finish(n_steps_total)
 
 
 # ---------------------------------------------------------------------------

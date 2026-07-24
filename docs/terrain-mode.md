@@ -13,8 +13,15 @@ enqueue (confirm popup; server policy still TBD), status polling, and
 `tx1..ty2` rect URL sync, and worker-side progress-% emission (throttled
 "rendering" pings on the existing callback, % riding in the meta jsonb
 until the final result overwrites it; "rendering… N %" in the pane).
-**v1 is complete end to end.** Next: v1.5 (partial artifacts reuse the
-same plumbing), and the enqueue auth/quota policy.
+**v1 is complete end to end.** v1.5 followed on the same plumbing:
+streamed partial panoramas (renderer checkpoints at 10/25/50 km share
+the final's finish phase; the worker ships milestone artifacts under
+status `rendering`; the API jsonb-merges meta and swaps artifacts
+atomically; clients reload keyed on `artifact_version` — new bytes
+only, never per poll), the faint coverage circle (max_distance), a fog
+slider in the pane, and gzip depth transport (pre-compressed `.gz`
+sibling served via Content-Encoding). Remaining: the enqueue
+auth/quota policy, and artifact graduation to the main backend.
 
 ## The mode
 

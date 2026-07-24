@@ -93,7 +93,7 @@ def _load_stack(renderer, spec: str, lat: float, lon: float, radius_m: float):
     return grids[0] if len(grids) == 1 else renderer.CompositeDem(grids=grids)
 
 
-def _render(lat: float, lon: float, params: dict, progress=None):
+def _render(lat: float, lon: float, params: dict, progress=None, checkpoint=None):
     import math
 
     import numpy as np
@@ -121,13 +121,19 @@ def _render(lat: float, lon: float, params: dict, progress=None):
     else:
         eye_source = "explicit"
 
-    pano = renderer.render(dem, lat, lon, progress=progress, **kwargs)
+    pano = renderer.render(dem, lat, lon, progress=progress, checkpoint=checkpoint,
+                           **kwargs)
     pano.params.update({"eye_source": eye_source,
                         "ground_m": round(ground, 2), "ground_source": ground_src})
+    return pano.meta(), renderer.encode_depth_u16(pano.depth), _preview_jpeg(pano)
+
+
+def _preview_jpeg(pano) -> bytes:
+    import renderer
     from PIL import Image
     buf = io.BytesIO()
     Image.fromarray(renderer.shade(pano)).save(buf, "JPEG", quality=88)
-    return pano.meta(), renderer.encode_depth_u16(pano.depth), buf.getvalue()
+    return buf.getvalue()
 
 
 @remoulade.actor(queue_name="terrain", time_limit=20 * 60 * 1000, max_retries=1)
@@ -147,6 +153,15 @@ def render_panorama(payload: dict) -> None:
     # spam; failures are swallowed — progress must never fail a render.
     last_progress_post = 0.0
 
+    def _post_rendering(meta: dict, files: dict | None) -> None:
+        requests.post(payload["callback"],
+                      data={"result_json": json.dumps({
+                          "result_id": rid, "status": "rendering",
+                          "worker": socket.gethostname(), "meta": meta})},
+                      files=files or None,
+                      headers={"X-Worker-Token": payload["token"]},
+                      timeout=30)
+
     def post_progress(frac: float) -> None:
         nonlocal last_progress_post
         now = time.monotonic()
@@ -154,21 +169,36 @@ def render_panorama(payload: dict) -> None:
             return
         last_progress_post = now
         try:
-            requests.post(payload["callback"],
-                          data={"result_json": json.dumps({
-                              "result_id": rid, "status": "rendering",
-                              "worker": socket.gethostname(),
-                              "meta": {"progress_pct": int(frac * 100)}})},
-                          headers={"X-Worker-Token": payload["token"]},
-                          timeout=10)
+            _post_rendering({"progress_pct": int(frac * 100)}, None)
         except Exception as e:
             print(f"  {rid}: progress post failed: {e}", flush=True)
+
+    def post_partial(pano, frac: float) -> None:
+        """v1.5 flourish (docs/terrain-mode.md): a milestone partial is a
+        valid panorama, so ship it — full grid meta + artifacts, still
+        status 'rendering'. artifact_version (merged into the meta jsonb,
+        surviving later %-only pings) is what tells clients NEW artifacts
+        landed, so mobile re-downloads at ~4 milestones, not per ping."""
+        pct = int(frac * 100)
+        try:
+            _post_rendering(
+                pano.meta() | {"progress_pct": pct, "artifact_version": pct},
+                {"depth": ("depth.bin", renderer_encode(pano),
+                           "application/octet-stream"),
+                 "preview": ("preview.jpg", _preview_jpeg(pano), "image/jpeg")})
+            print(f"  {rid}: partial @ {pct}%", flush=True)
+        except Exception as e:
+            print(f"  {rid}: partial post failed: {e}", flush=True)
+
+    def renderer_encode(pano) -> bytes:
+        import renderer
+        return renderer.encode_depth_u16(pano.depth)
 
     try:
         ram_gate()
         meta, depth, preview = _render(
             float(payload["lat"]), float(payload["lon"]), payload.get("params") or {},
-            progress=post_progress)
+            progress=post_progress, checkpoint=post_partial)
         result["meta"] = meta
         print(f"  {rid}: {meta['width']}x{meta['height']}", flush=True)
     except Exception as e:

@@ -59,6 +59,16 @@ export function gridMetaOf(r: TerrainRender): TerrainMeta | null {
 	return r.meta && 'width' in r.meta ? (r.meta as TerrainMeta) : null;
 }
 
+/** Cache-buster identity for a render's artifacts: finished_at once done;
+ * while rendering, the worker's artifact_version — bumped ONLY when a
+ * milestone partial actually ships new files (never by %-only pings), so
+ * mobile re-downloads at ~4 milestones, not per poll. */
+export function artifactVersion(r: TerrainRender): string {
+	if (r.finished_at) return r.finished_at;
+	const v = (r.meta as { artifact_version?: unknown } | null)?.artifact_version;
+	return typeof v === 'number' || typeof v === 'string' ? String(v) : '0';
+}
+
 /** Worker progress % while rendering (rides in the meta jsonb until the
  * final result overwrites it), or null when unknown. */
 export function progressOf(r: TerrainRender): number | null {

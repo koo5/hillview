@@ -13,7 +13,7 @@
 	// meta (grid geometry + viewpoint). Today these come from the
 	// enrichment workbench API; the graduation path is the main backend
 	// serving them next to the photo pyramids.
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import {
 		DepthPanoViewer,
 		normalizeRect,
@@ -67,10 +67,13 @@
 		};
 	});
 
-	// (re)load when the artifact sources change
+	// (re)load when the artifact sources change. Only the URLS are tracked:
+	// meta arrives as a fresh object identity on every renders poll, and
+	// tracking it would re-download MBs per tick — the pane versions the
+	// URLs (artifactVersion) precisely when new bytes exist.
 	$effect(() => {
 		const v = viewer;
-		const src = { previewUrl, depthUrl, meta };
+		const src = { previewUrl, depthUrl, meta: untrack(() => meta) };
 		if (!v || !src.previewUrl || !src.depthUrl || !src.meta) return;
 		loading = true;
 		error = null;

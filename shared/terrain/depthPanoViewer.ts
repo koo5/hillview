@@ -46,6 +46,8 @@ export interface TerrainMeta {
 	lat: number;
 	lon: number;
 	depth_scale_m: number;
+	/** the render's marched range — "what this can see" (coverage circle) */
+	max_distance_m?: number;
 }
 
 export interface TerrainPick {
