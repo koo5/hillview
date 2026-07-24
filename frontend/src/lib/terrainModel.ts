@@ -6,7 +6,7 @@
  * spatial selection live here; the stores/polling wrap it in
  * terrain.svelte.ts.
  */
-import { distanceBetween } from '$lib/geo';
+import { destinationPoint, distanceBetween } from '$lib/geo';
 import type { TerrainMeta } from '$terrain/depthPanoViewer';
 
 /** A row from GET /terrain/renders (workbench API today; graduation to the
@@ -69,4 +69,30 @@ export function nearestRenderWithin(
 		}
 	}
 	return best;
+}
+
+/** Above (just below, really) this FOV the whole panorama is in view and a
+ * wedge would be a meaningless full disc — draw nothing instead. */
+export const WEDGE_MAX_FOV_DEG = 355;
+
+/** The map's view wedge as a leaflet-ready sector polygon: viewpoint +
+ * sampled arc at radiusM, spanning azimuthDeg ± fovDeg/2. Purely DERIVED
+ * geometry (pane → map, one-way — wedge-dragging as an input is deferred
+ * sugar, maybe never). Returns null when the full panorama is visible. */
+export function wedgeArcLatLngs(
+	viewpoint: { lat: number; lon: number },
+	azimuthDeg: number,
+	fovDeg: number,
+	radiusM: number,
+	samples = 24
+): [number, number][] | null {
+	if (fovDeg >= WEDGE_MAX_FOV_DEG) return null;
+	const fov = Math.max(2, fovDeg); // keep a sliver visible when zoomed deep
+	const pts: [number, number][] = [[viewpoint.lat, viewpoint.lon]];
+	for (let i = 0; i <= samples; i++) {
+		const az = azimuthDeg - fov / 2 + (fov * i) / samples;
+		const q = destinationPoint(viewpoint.lat, viewpoint.lon, az, radiusM / 1000);
+		pts.push([q.lat, q.lng]);
+	}
+	return pts;
 }

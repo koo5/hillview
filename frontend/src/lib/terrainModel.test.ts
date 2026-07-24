@@ -3,8 +3,11 @@ import {
 	isViewable,
 	markerStateOf,
 	nearestRenderWithin,
+	wedgeArcLatLngs,
+	WEDGE_MAX_FOV_DEG,
 	type TerrainRender
 } from './terrainModel';
+import { bearingBetween, distanceBetween } from './geo';
 
 function render(over: Partial<TerrainRender>): TerrainRender {
 	return {
@@ -65,5 +68,42 @@ describe('nearestRenderWithin (the range circle keeps its job)', () => {
 	it('returns null with no renders in range', () => {
 		expect(nearestRenderWithin([], center, 1e6)).toBeNull();
 		expect(nearestRenderWithin([near], center, 50)).toBeNull();
+	});
+});
+
+describe('wedgeArcLatLngs (derived wedge geometry, pane -> map one-way)', () => {
+	const vp = { lat: 50.0, lon: 14.5 };
+
+	it('builds a sector: viewpoint first, then samples+1 arc points at radius', () => {
+		const pts = wedgeArcLatLngs(vp, 90, 60, 1300, 24)!;
+		expect(pts).toHaveLength(26);
+		expect(pts[0]).toEqual([vp.lat, vp.lon]);
+		for (const [lat, lng] of pts.slice(1)) {
+			expect(distanceBetween(vp.lat, vp.lon, lat, lng) * 1000).toBeCloseTo(1300, 0);
+		}
+	});
+
+	it('spans azimuth ± fov/2, symmetric about the center azimuth', () => {
+		const pts = wedgeArcLatLngs(vp, 90, 60, 1300, 24)!;
+		const first = pts[1];
+		const last = pts[pts.length - 1];
+		expect(bearingBetween(vp.lat, vp.lon, first[0], first[1])).toBeCloseTo(60, 1);
+		expect(bearingBetween(vp.lat, vp.lon, last[0], last[1])).toBeCloseTo(120, 1);
+		const mid = pts[13]; // sample i = 12 of 24 — the arc center
+		expect(bearingBetween(vp.lat, vp.lon, mid[0], mid[1])).toBeCloseTo(90, 1);
+	});
+
+	it('returns null at full-panorama FOV (a wedge would be a meaningless disc)', () => {
+		expect(wedgeArcLatLngs(vp, 0, 360, 1300)).toBeNull();
+		expect(wedgeArcLatLngs(vp, 0, WEDGE_MAX_FOV_DEG, 1300)).toBeNull();
+		expect(wedgeArcLatLngs(vp, 0, WEDGE_MAX_FOV_DEG - 1, 1300)).not.toBeNull();
+	});
+
+	it('keeps a visible sliver when zoomed deep (FOV floor)', () => {
+		const pts = wedgeArcLatLngs(vp, 180, 0.1, 1300, 8)!;
+		const first = pts[1];
+		const last = pts[pts.length - 1];
+		expect(bearingBetween(vp.lat, vp.lon, first[0], first[1])).toBeCloseTo(179, 1);
+		expect(bearingBetween(vp.lat, vp.lon, last[0], last[1])).toBeCloseTo(181, 1);
 	});
 });

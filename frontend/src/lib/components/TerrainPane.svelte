@@ -13,11 +13,11 @@
 		stopTerrainPolling,
 		terrainDepthUrl,
 		terrainError,
-		terrainPreviewUrl
+		terrainPick,
+		terrainPreviewUrl,
+		terrainViewRect
 	} from '$lib/terrain.svelte';
-	import type { TerrainPick } from '$terrain/depthPanoViewer';
 
-	let pick = $state<TerrainPick | null>(null);
 	let visibilityKm = $state(80);
 
 	onMount(() => {
@@ -26,11 +26,7 @@
 	});
 
 	const sel = $derived($selectedTerrainRender);
-	// keep picks from a previous render out of the new one
-	$effect(() => {
-		void sel?.id;
-		pick = null;
-	});
+	const pick = $derived($terrainPick);
 </script>
 
 <div class="terrain-pane" data-testid="terrain-pane">
@@ -46,7 +42,8 @@
 			depthUrl={terrainDepthUrl(sel.id)}
 			meta={sel.meta!}
 			bind:visibilityKm
-			onpick={(p) => (pick = p)}
+			onpick={(p) => terrainPick.set(p)}
+			onviewchange={(r) => terrainViewRect.set(r)}
 		/>
 		<div class="statusbar">
 			<label class="fog">

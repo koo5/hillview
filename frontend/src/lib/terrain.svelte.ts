@@ -13,6 +13,7 @@ import {
 	nearestRenderWithin,
 	type TerrainRender
 } from '$lib/terrainModel';
+import { wedgeFromRect, type TerrainPick, type ViewRect } from '$terrain/depthPanoViewer';
 
 export const terrainApiBase: string | null = import.meta.env.VITE_TERRAIN_API || null;
 export const terrainModeAvailable = !!terrainApiBase;
@@ -25,6 +26,39 @@ export const selectedTerrainRender = derived(
 	[terrainRenders, spatialState],
 	([renders, spatial]) => nearestRenderWithin(renders, spatial.center, spatial.range)
 );
+
+/** The pane's viewport rect (zoom view convention), for the derived wedge
+ * and — once the URL open question is settled — URL sync. Pane-owned. */
+export const terrainViewRect = writable<ViewRect | null>(null);
+
+/** The last depth click-back, for the map's ray + distance label. */
+export const terrainPick = writable<TerrainPick | null>(null);
+
+/** "The map shows a view wedge at the selected viewpoint, purely derived
+ * from the rect: center-x → azimuth, width → wedge FOV. One-directional,
+ * pane → map." Null until a viewable render is selected and its viewer has
+ * reported a rect. */
+export const terrainWedge = derived(
+	[selectedTerrainRender, terrainViewRect],
+	([sel, rect]) => {
+		if (!sel?.meta || !rect) return null;
+		const w = wedgeFromRect(sel.meta, rect);
+		return { lat: sel.lat, lon: sel.lon, ...w };
+	}
+);
+
+// Selection change invalidates pane-derived state: the rect belongs to the
+// outgoing render's viewer, and a stale pick would draw a ray from the wrong
+// viewpoint.
+let lastSelectedId: string | null = null;
+selectedTerrainRender.subscribe((sel) => {
+	const id = sel?.id ?? null;
+	if (id !== lastSelectedId) {
+		lastSelectedId = id;
+		terrainViewRect.set(null);
+		terrainPick.set(null);
+	}
+});
 
 export function terrainPreviewUrl(id: string): string {
 	return `${terrainApiBase}/terrain/renders/${id}/preview`;
