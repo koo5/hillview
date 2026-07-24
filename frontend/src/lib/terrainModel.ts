@@ -19,8 +19,12 @@ export interface TerrainRender {
 	status: string; // queued | rendering (progress ship-order) | done | error
 	error: string | null;
 	/** real grid meta once rendered; while status is 'rendering' it may
-	 * carry only the worker's progress ping ({ progress_pct }) */
-	meta: (TerrainMeta & { progress_pct?: number }) | { progress_pct?: number } | null;
+	 * carry the worker's progress ping (progress_pct) and, once a milestone
+	 * partial ships, the artifact cache key (artifact_version) */
+	meta:
+		| (TerrainMeta & { progress_pct?: number; artifact_version?: number })
+		| { progress_pct?: number; artifact_version?: number }
+		| null;
 	has_depth: boolean;
 	has_preview: boolean;
 	enqueued_at: string;

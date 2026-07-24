@@ -105,8 +105,15 @@ terrain mode.
 **v1.5**: streamed partial panoramas, coverage circles, fog slider in the
 main app, gzip depth transport (refinement 4).
 
-**v2**: "photos that see this point" cross-linking, OSM `natural=peak`
-labels drawn via the existing zoomview label layouter (refinement 7),
+**v2**: "photos that see this point" cross-linking, ~~OSM `natural=peak`
+labels drawn via the existing zoomview label layouter (refinement 7)~~ —
+**landed**: `/terrain/peaks` (Overpass, coarse-grid cached) supplies
+candidates; visibility is decided client-side straight from the depth
+buffer (a peak is labeled iff its column shows terrain at its distance —
+the scan walks down past farther background ridges and stops once terrain
+is nearer, so occlusion falls out of the render itself); marks ride the
+viewport via the rect and paint through the unchanged zoomview
+layouter,
 photo↔render registration for calibration refinement (refinement 6),
 far-field anti-aliasing via max-pooled pyramid + crossing interpolation
 (refinement 3).

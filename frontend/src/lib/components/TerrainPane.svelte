@@ -15,12 +15,16 @@
 		stopTerrainPolling,
 		terrainDepthUrl,
 		terrainError,
+		terrainPeaksFor,
 		terrainPick,
 		terrainPreviewUrl,
 		terrainViewRect
 	} from '$lib/terrain.svelte';
+	import type { Peak } from '$terrain/peakLabels';
 
 	let visibilityKm = $state(80);
+	let showPeakLabels = $state(true);
+	let peaks = $state<Peak[]>([]);
 
 	// A tx1..ty2 deep link applies to the first render this pane loads, then
 	// dies with it — re-entering the mode later must not resurrect it.
@@ -34,6 +38,18 @@
 
 	const sel = $derived($selectedTerrainRender);
 	const pick = $derived($terrainPick);
+
+	// peak candidates follow the selection; failures degrade to no labels
+	$effect(() => {
+		const s = sel;
+		peaks = [];
+		if (!s || !isViewable(s)) return;
+		terrainPeaksFor(s)
+			.then((p) => {
+				if ($selectedTerrainRender?.id === s.id) peaks = p;
+			})
+			.catch(() => {});
+	});
 </script>
 
 <div class="terrain-pane" data-testid="terrain-pane">
@@ -52,8 +68,14 @@
 			onpick={(p) => terrainPick.set(p)}
 			onviewchange={(r) => terrainViewRect.set(r)}
 			{initialRect}
+			{peaks}
+			bind:showPeakLabels
 		/>
 		<div class="statusbar">
+			<label class="labels-toggle">
+				<input type="checkbox" bind:checked={showPeakLabels} />
+				peaks
+			</label>
 			<label class="fog">
 				fog
 				<input type="range" min="5" max="200" step="5" bind:value={visibilityKm} />
@@ -112,6 +134,12 @@
 		padding: 0.3rem 0.6rem;
 		font-size: 0.8rem;
 		flex-wrap: wrap;
+	}
+	.labels-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		white-space: nowrap;
 	}
 	.fog {
 		display: flex;

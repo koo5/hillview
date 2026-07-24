@@ -359,6 +359,17 @@ export class DepthPanoViewer {
 		this.emitView();
 	}
 
+	/** Loaded grid meta, for consumers projecting into the panorama (peak
+	 * labels); null before load. */
+	getMetaData(): TerrainMeta | null {
+		return this.meta;
+	}
+
+	/** The raw uint16 depth buffer backing picks — read-only by convention. */
+	getDepthData(): Uint16Array | null {
+		return this.depthU16;
+	}
+
 	/** Current viewport rect (zoom view convention), null before load. */
 	getRect(): ViewRect | null {
 		return this.meta

@@ -1,10 +1,15 @@
 """Terrain bench API: enqueue depth-panorama renders for photo viewpoints
-(or ad-hoc lat/lon), receive worker results, and serve the artifacts the
-bench viewer needs (raw uint16 depth buffer + preview JPEG + meta)."""
+(or ad-hoc lat/lon), receive worker results, serve the artifacts the bench
+viewer needs (raw uint16 depth buffer + preview JPEG + meta), and provide
+OSM natural=peak candidates for the viewer's peak labels."""
 import gzip
 import json
+import math
 import os
 import tempfile
+import time
+
+import httpx
 
 from fastapi import (APIRouter, File, Form, Header, HTTPException, Request,
                      UploadFile)
@@ -180,3 +185,68 @@ async def depth_artifact(render_id: str, request: Request):
 async def preview_artifact(render_id: str):
     return FileResponse(await _artifact(render_id, "preview_path"),
                         media_type="image/jpeg")
+
+
+# ---------------------------------------------------------------------------
+# peak candidates (terrain-mode v2: OSM natural=peak labels)
+# ---------------------------------------------------------------------------
+# The client draws labels for peaks the RENDER can see — visibility is
+# decided client-side against the depth buffer, so this endpoint only has to
+# answer "which named peaks are in range". Overpass results are cached long
+# (peaks don't move) keyed on a coarse grid, so nearby viewpoints share an
+# entry and Overpass sees us rarely.
+
+OVERPASS_URL = os.getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
+PEAKS_TTL_S = 7 * 24 * 3600
+PEAKS_MAX = 400
+_peaks_cache: dict[tuple, tuple[float, list[dict]]] = {}
+
+
+def parse_ele(v) -> float | None:
+    """OSM ele values arrive as '1602', '1602.4', '1602 m', '1,602'…"""
+    if v is None:
+        return None
+    try:
+        return float(str(v).replace(",", ".").split()[0])
+    except (ValueError, IndexError):
+        return None
+
+
+def peaks_from_overpass(data: dict, limit: int = PEAKS_MAX) -> list[dict]:
+    """Overpass JSON → [{name, lat, lon, ele}], highest first (when several
+    hundred candidates exist, the tall ones are the ones worth labeling)."""
+    out = []
+    for el in data.get("elements", []):
+        name = (el.get("tags") or {}).get("name")
+        lat, lon = el.get("lat"), el.get("lon")
+        if not name or lat is None or lon is None:
+            continue
+        out.append({"name": name, "lat": lat, "lon": lon,
+                    "ele": parse_ele((el.get("tags") or {}).get("ele"))})
+    out.sort(key=lambda p: p["ele"] if p["ele"] is not None else -math.inf,
+             reverse=True)
+    return out[:limit]
+
+
+@router.get("/terrain/peaks")
+async def peaks(lat: float, lon: float, radius_m: float = 100_000.0):
+    radius_m = max(1_000.0, min(radius_m, 200_000.0))
+    key = (round(lat, 2), round(lon, 2), round(radius_m, -3))  # ~1 km grid
+    hit = _peaks_cache.get(key)
+    if hit and time.monotonic() - hit[0] < PEAKS_TTL_S:
+        return {"peaks": hit[1], "cached": True}
+    query = (f"[out:json][timeout:25];"
+             f'node["natural"="peak"]["name"](around:{radius_m:.0f},{lat},{lon});'
+             f"out body;")
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(OVERPASS_URL, data={"data": query})
+            r.raise_for_status()
+            result = peaks_from_overpass(r.json())
+    except httpx.HTTPError as e:
+        # a stale cache entry beats an error for a label overlay
+        if hit:
+            return {"peaks": hit[1], "cached": True, "stale": True}
+        raise HTTPException(502, f"overpass: {e}")
+    _peaks_cache[key] = (time.monotonic(), result)
+    return {"peaks": result}

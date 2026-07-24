@@ -15,6 +15,7 @@ import {
 	type TerrainRender
 } from '$lib/terrainModel';
 import { normalizeRect, wedgeFromRect, type TerrainPick, type ViewRect } from '$terrain/depthPanoViewer';
+import type { Peak } from '$terrain/peakLabels';
 
 export const terrainApiBase: string | null = import.meta.env.VITE_TERRAIN_API || null;
 export const terrainModeAvailable = !!terrainApiBase;
@@ -152,4 +153,29 @@ export async function enqueueTerrainRender(lat: number, lon: number): Promise<vo
 	});
 	if (!r.ok) throw new Error(`enqueue failed: HTTP ${r.status}`);
 	await refreshTerrainRenders();
+}
+
+/** OSM natural=peak candidates around a render's viewpoint, cached per
+ * render id for the session (peaks don't move; the API caches upstream of
+ * Overpass too). Visibility against the depth buffer is the viewer's job —
+ * this list is just "peaks in range". */
+const peaksCache = new Map<string, Peak[]>();
+
+export async function terrainPeaksFor(r: TerrainRender): Promise<Peak[]> {
+	if (!terrainApiBase) return [];
+	const hit = peaksCache.get(r.id);
+	if (hit) return hit;
+	const radius = Math.min(
+		200_000,
+		typeof (r.meta as { max_distance_m?: number } | null)?.max_distance_m === 'number'
+			? (r.meta as { max_distance_m: number }).max_distance_m
+			: 100_000
+	);
+	const resp = await fetch(
+		`${terrainApiBase}/terrain/peaks?lat=${r.lat}&lon=${r.lon}&radius_m=${radius}`
+	);
+	if (!resp.ok) throw new Error(`peaks: HTTP ${resp.status}`);
+	const peaks = ((await resp.json()) as { peaks: Peak[] }).peaks;
+	peaksCache.set(r.id, peaks);
+	return peaks;
 }
