@@ -22,6 +22,14 @@
  *   - depth:    row-major little-endian uint16, metres = value·depth_scale_m,
  *               0 = sky (raw buffer on purpose: canvases truncate PNG16 to 8)
  *   - meta:     grid geometry + viewpoint, see TerrainMeta
+ *
+ * Viewport model (terrain mode = "the zoom view over a synthetic 360°"):
+ * the view transform is exposed as a RECT in the zoom view's OSD-style
+ * convention — image width normalized to 1.0, y in width units — via
+ * getRect/setRect + an onViewChange callback, so the app serializes it with
+ * the same x1..y2 URL convention as the zoom view. Rects live on a cylinder:
+ * TEXTURE_WRAP_S = REPEAT on both textures, the horizontal offset wraps
+ * modulo 1, and a URL rect's x may leave [0, 1] — normalizeRect on parse.
  */
 
 export interface TerrainMeta {
@@ -108,6 +116,80 @@ export function hexToRgb(hex: string): [number, number, number] {
 	return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255) as [number, number, number];
 }
 
+// ---- viewport rect (pure) ----
+
+/** Viewport bounds in the zoom view's convention: image width normalized to
+ * 1.0, y measured in width units (OSD viewport coordinates). x may leave
+ * [0, 1] for seam-straddling views. */
+export interface ViewRect {
+	x1: number;
+	y1: number;
+	x2: number;
+	y2: number;
+}
+
+/** Internal view transform in texture UV space. */
+export interface ViewState {
+	offX: number;
+	offY: number;
+	scale: number;
+}
+
+export function wrap01(x: number): number {
+	return ((x % 1) + 1) % 1;
+}
+
+export function textureAspect(meta: TerrainMeta): number {
+	return meta.height / meta.width;
+}
+
+export function rectFromView(meta: TerrainMeta, v: ViewState): ViewRect {
+	const a = textureAspect(meta);
+	const w = 1 / v.scale;
+	return { x1: v.offX, y1: v.offY * a, x2: v.offX + w, y2: (v.offY + w) * a };
+}
+
+/** Inverse of rectFromView. Scale derives from the rect WIDTH alone (the
+ * texture aspect is fixed, mirroring how the zoom view treats its bounds);
+ * x wraps onto the cylinder, y passes through un-clamped like the pan does. */
+export function viewFromRect(meta: TerrainMeta, r: ViewRect): ViewState {
+	const a = textureAspect(meta);
+	const scale = Math.min(40, Math.max(1, 1 / Math.max(1e-9, r.x2 - r.x1)));
+	return { offX: wrap01(r.x1), offY: r.y1 / a, scale };
+}
+
+/** URL rects may arrive with x outside [0, 1] (seam wrap); shift the pair so
+ * x1 lands in [0, 1) while preserving the width. */
+export function normalizeRect(r: ViewRect): ViewRect {
+	const shift = Math.floor(r.x1);
+	return shift === 0 ? r : { ...r, x1: r.x1 - shift, x2: r.x2 - shift };
+}
+
+/** Azimuth at a horizontal texture coordinate u ∈ [0, 1): column centers sit
+ * at (col + 0.5) / width, so this is azimuthForColumn at a fractional col. */
+export function azimuthAtU(meta: TerrainMeta, u: number): number {
+	return azimuthForColumn(meta, u * meta.width - 0.5);
+}
+
+/** Total angular sweep the full texture width covers (360 for a full pano). */
+export function angularSpanDeg(meta: TerrainMeta): number {
+	const step =
+		meta.az_step_deg ?? (meta.width > 1 ? (meta.az_end - meta.az_start) / (meta.width - 1) : 0);
+	return step * meta.width;
+}
+
+/** The map's view wedge, purely DERIVED from the rect (pane → map, one-way):
+ * center-x → azimuth, width → wedge FOV. */
+export function wedgeFromRect(
+	meta: TerrainMeta,
+	r: ViewRect
+): { azimuthDeg: number; fovDeg: number } {
+	return {
+		azimuthDeg: azimuthAtU(meta, wrap01((r.x1 + r.x2) / 2)),
+		fovDeg: Math.min(1, r.x2 - r.x1) * angularSpanDeg(meta)
+	};
+}
+
 const VS = `#version 300 es
 in vec2 aPos; out vec2 vUV;
 uniform vec3 uView; // offX, offY, scale
@@ -120,7 +202,7 @@ in vec2 vUV; out vec4 frag;
 uniform sampler2D uColor; uniform sampler2D uDepth;
 uniform float uDensity; uniform vec3 uSky;
 void main(){
-	if (vUV.x < 0.0 || vUV.x > 1.0 || vUV.y < 0.0 || vUV.y > 1.0) {
+	if (vUV.y < 0.0 || vUV.y > 1.0) { // x wraps via TEXTURE_WRAP_S = REPEAT
 		frag = vec4(0.08, 0.09, 0.11, 1.0); return; }
 	float d = texture(uDepth, vUV).r;
 	vec3 c = texture(uColor, vUV).rgb;
@@ -145,6 +227,8 @@ export class DepthPanoViewer {
 	private gl: WebGL2RenderingContext;
 	private prog: WebGLProgram;
 	private onPick?: (pick: TerrainPick | null) => void;
+	private onViewChange?: (rect: ViewRect) => void;
+	private pendingRect: ViewRect | null = null;
 	private meta: TerrainMeta | null = null;
 	private depthU16: Uint16Array | null = null;
 	// view transform in texture UV space
@@ -160,9 +244,18 @@ export class DepthPanoViewer {
 	private resizeObs: ResizeObserver | null = null;
 	private disposed = false;
 
-	constructor(canvas: HTMLCanvasElement, opts: { onPick?: (p: TerrainPick | null) => void } = {}) {
+	constructor(
+		canvas: HTMLCanvasElement,
+		opts: {
+			onPick?: (p: TerrainPick | null) => void;
+			/** fires on USER-driven view changes (and reset/load), never from
+			 * setRect — so URL-sync consumers can't feedback-loop */
+			onViewChange?: (rect: ViewRect) => void;
+		} = {}
+	) {
 		this.canvas = canvas;
 		this.onPick = opts.onPick;
+		this.onViewChange = opts.onViewChange;
 		const gl = canvas.getContext('webgl2');
 		if (!gl) throw new Error('WebGL2 is required for the terrain viewer');
 		this.gl = gl;
@@ -235,7 +328,7 @@ export class DepthPanoViewer {
 		const tex = (unit: number) => {
 			gl.activeTexture(gl.TEXTURE0 + unit);
 			gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); // cylinder seam
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		};
 		tex(0);
@@ -249,8 +342,48 @@ export class DepthPanoViewer {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 		gl.uniform1i(gl.getUniformLocation(this.prog, 'uColor'), 0);
 		gl.uniform1i(gl.getUniformLocation(this.prog, 'uDepth'), 1);
-		this.resetView();
+		if (this.pendingRect) {
+			const v = viewFromRect(meta, this.pendingRect);
+			this.pendingRect = null;
+			this.scale = v.scale;
+			this.offX = v.offX;
+			this.offY = v.offY;
+		} else {
+			this.scale = 1;
+			this.offX = 0;
+			this.offY = 0;
+		}
 		this.resize();
+		this.emitView();
+	}
+
+	/** Current viewport rect (zoom view convention), null before load. */
+	getRect(): ViewRect | null {
+		return this.meta
+			? rectFromView(this.meta, { offX: this.offX, offY: this.offY, scale: this.scale })
+			: null;
+	}
+
+	/** Restore a viewport rect (e.g. from URL params — run normalizeRect on
+	 * parse first). Before load() it is stashed and applied on load, so deep
+	 * links restore without a flash of the reset view. Does NOT emit. */
+	setRect(rect: ViewRect): void {
+		if (!this.meta) {
+			this.pendingRect = rect;
+			return;
+		}
+		const v = viewFromRect(this.meta, rect);
+		this.scale = v.scale;
+		this.offX = v.offX;
+		this.offY = v.offY;
+		this.draw();
+	}
+
+	private emitView(): void {
+		if (this.meta && this.onViewChange)
+			this.onViewChange(
+				rectFromView(this.meta, { offX: this.offX, offY: this.offY, scale: this.scale })
+			);
 	}
 
 	setFog({ visibilityKm, skyColor }: FogParams): void {
@@ -264,6 +397,7 @@ export class DepthPanoViewer {
 		this.offX = 0;
 		this.offY = 0;
 		this.draw();
+		this.emitView();
 	}
 
 	resize(): void {
@@ -333,9 +467,10 @@ export class DepthPanoViewer {
 		const [ux, uy] = this.uvAt(clientX, clientY);
 		this.scale = Math.min(40, Math.max(1, this.scale * factor));
 		const r = this.canvas.getBoundingClientRect();
-		this.offX = ux - (clientX - r.left) / r.width / this.scale;
+		this.offX = wrap01(ux - (clientX - r.left) / r.width / this.scale);
 		this.offY = uy - (clientY - r.top) / r.height / this.scale;
 		this.draw();
+		this.emitView();
 	}
 
 	private onWheel = (e: WheelEvent): void => {
@@ -365,18 +500,20 @@ export class DepthPanoViewer {
 			return;
 		}
 		const r = this.canvas.getBoundingClientRect();
-		this.offX -= (e.clientX - prev.x) / r.width / this.scale;
+		this.offX = wrap01(this.offX - (e.clientX - prev.x) / r.width / this.scale);
 		this.offY -= (e.clientY - prev.y) / r.height / this.scale;
 		this.moved += Math.abs(e.clientX - prev.x) + Math.abs(e.clientY - prev.y);
 		this.draw();
+		this.emitView();
 	};
 
 	private onUp = (e: PointerEvent): void => {
 		this.pointers.delete(e.pointerId);
 		this.pinchDist = 0;
 		if (this.moved > 4 || !this.meta || !this.depthU16 || !this.onPick) return;
-		const [u, v] = this.uvAt(e.clientX, e.clientY);
-		if (u < 0 || u > 1 || v < 0 || v > 1) return;
+		const [uRaw, v] = this.uvAt(e.clientX, e.clientY);
+		if (v < 0 || v > 1) return;
+		const u = wrap01(uRaw); // seam: the viewport lives on a cylinder
 		const col = Math.min(this.meta.width - 1, Math.floor(u * this.meta.width));
 		const row = Math.min(this.meta.height - 1, Math.floor(v * this.meta.height));
 		this.onPick(pickFromDepth(this.meta, this.depthU16, col, row));

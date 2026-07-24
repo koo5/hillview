@@ -16,8 +16,10 @@
 	import { onMount } from 'svelte';
 	import {
 		DepthPanoViewer,
+		normalizeRect,
 		type TerrainMeta,
-		type TerrainPick
+		type TerrainPick,
+		type ViewRect
 	} from '$terrain/depthPanoViewer';
 
 	let {
@@ -26,7 +28,9 @@
 		meta,
 		visibilityKm = $bindable(80),
 		skyColor = $bindable('#a7cdf0'),
-		onpick
+		onpick,
+		initialRect,
+		onviewchange
 	}: {
 		previewUrl: string;
 		depthUrl: string;
@@ -34,6 +38,11 @@
 		visibilityKm?: number;
 		skyColor?: string;
 		onpick?: (pick: TerrainPick | null) => void;
+		/** viewport rect to restore (zoom view's x1..y2 convention, e.g. from
+		 * URL params); normalized here, so seam-straddling x is fine */
+		initialRect?: ViewRect | null;
+		/** user-driven viewport changes, for URL sync — never echoes setRect */
+		onviewchange?: (rect: ViewRect) => void;
 	} = $props();
 
 	let canvas: HTMLCanvasElement;
@@ -43,7 +52,11 @@
 
 	onMount(() => {
 		try {
-			viewer = new DepthPanoViewer(canvas, { onPick: (p) => onpick?.(p) });
+			viewer = new DepthPanoViewer(canvas, {
+				onPick: (p) => onpick?.(p),
+				onViewChange: (r) => onviewchange?.(r)
+			});
+			if (initialRect) viewer.setRect(normalizeRect(initialRect)); // applied on load
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 			return;
@@ -79,6 +92,14 @@
 
 	export function resetView(): void {
 		viewer?.resetView();
+	}
+
+	export function setRect(rect: ViewRect): void {
+		viewer?.setRect(normalizeRect(rect));
+	}
+
+	export function getRect(): ViewRect | null {
+		return viewer?.getRect() ?? null;
 	}
 </script>
 
