@@ -13,7 +13,7 @@ import {
 	nearestRenderWithin,
 	type TerrainRender
 } from '$lib/terrainModel';
-import { wedgeFromRect, type TerrainPick, type ViewRect } from '$terrain/depthPanoViewer';
+import { normalizeRect, wedgeFromRect, type TerrainPick, type ViewRect } from '$terrain/depthPanoViewer';
 
 export const terrainApiBase: string | null = import.meta.env.VITE_TERRAIN_API || null;
 export const terrainModeAvailable = !!terrainApiBase;
@@ -26,6 +26,33 @@ export const selectedTerrainRender = derived(
 	[terrainRenders, spatialState],
 	([renders, spatial]) => nearestRenderWithin(renders, spatial.center, spatial.range)
 );
+
+/** A rect parsed from tx1..ty2 URL params at page load — the zoom view's
+ * x1..y2 convention under a terrain-namespaced twin, so terrain deep links
+ * can never be mistaken for photo zoom-view deep links (that was the URL
+ * open question in the design doc; namespacing settles it). Consumed by the
+ * FIRST viewer load after the pane mounts, then cleared. Parsed here at
+ * module init (URL params are static at page load) so no component mount
+ * ordering can race the capture. */
+export const pendingTerrainRect = writable<ViewRect | null>(null);
+
+export function parseTerrainRectParams(params: URLSearchParams): ViewRect | null {
+	const [tx1, ty1, tx2, ty2] = ['tx1', 'ty1', 'tx2', 'ty2'].map((k) => params.get(k));
+	if (tx1 === null || ty1 === null || tx2 === null || ty2 === null) return null;
+	const r = {
+		x1: parseFloat(tx1),
+		y1: parseFloat(ty1),
+		x2: parseFloat(tx2),
+		y2: parseFloat(ty2)
+	};
+	if (![r.x1, r.y1, r.x2, r.y2].every(Number.isFinite) || r.x2 <= r.x1) return null;
+	// "URL rect x may leave [0, 1] and is normalized on parse" — the seam
+	return normalizeRect(r);
+}
+
+if (typeof window !== 'undefined') {
+	pendingTerrainRect.set(parseTerrainRectParams(new URLSearchParams(window.location.search)));
+}
 
 /** The pane's viewport rect (zoom view convention), for the derived wedge
  * and — once the URL open question is settled — URL sync. Pane-owned. */

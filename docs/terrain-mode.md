@@ -6,6 +6,13 @@ thread, whole-CZ downloader). This doc is the design record for integrating
 terrain into the main app; the engine underneath is documented in
 `enrich/terrain/README.md`.
 
+Implementation status (2026-07-24): **v1 client slice landed** — viewport
+rect + seam wrap in the shared viewer, mode button + marker states,
+tap-to-select via the range circle, derived wedge, click-ray, long-press
+enqueue (confirm popup; server policy still TBD), status polling, and
+`tx1..ty2` rect URL sync. Still open for v1: worker-side progress-%
+emission (client polling is ready for it).
+
 ## The mode
 
 A new **mode button next to the Lines tool** switches the app into terrain
@@ -99,9 +106,13 @@ far-field anti-aliasing via max-pooled pyramid + crossing interpolation
 - Auth/quota model for public enqueue.
 - Graduation of artifact serving from the workbench API to the main backend
   (next to the photo pyramids) — prerequisite for the photo-pane bridge.
-- Whether `rect` for terrain lives in the same URL param as the zoom view's
-  or a namespaced twin (decide when touching the URL code; follow whatever
-  keeps deep links unambiguous between modes).
+- ~~Whether `rect` for terrain lives in the same URL param as the zoom
+  view's or a namespaced twin~~ — **settled while touching the URL code: a
+  namespaced twin, `tx1..ty2`.** The zoom view's `x1..y2` doubles as an
+  open-the-overlay signal at page load, so sharing the param would make a
+  terrain deep link read as a photo zoom-view deep link; the twin keeps
+  them unambiguous unconditionally. Parsed (and seam-normalized) at store
+  module init, consumed by the pane's first viewer load.
 
 ## Operational notes for a fresh session
 

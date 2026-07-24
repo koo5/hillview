@@ -5,9 +5,11 @@
 	// citizens) and as the shared depth-pano viewer once artifacts exist.
 	// Owns the render-list polling for the mode's lifetime.
 	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
 	import TerrainViewer from './TerrainViewer.svelte';
 	import { isViewable, markerStateOf } from '$lib/terrainModel';
 	import {
+		pendingTerrainRect,
 		selectedTerrainRender,
 		startTerrainPolling,
 		stopTerrainPolling,
@@ -19,6 +21,11 @@
 	} from '$lib/terrain.svelte';
 
 	let visibilityKm = $state(80);
+
+	// A tx1..ty2 deep link applies to the first render this pane loads, then
+	// dies with it — re-entering the mode later must not resurrect it.
+	const initialRect = get(pendingTerrainRect);
+	pendingTerrainRect.set(null);
 
 	onMount(() => {
 		startTerrainPolling();
@@ -44,6 +51,7 @@
 			bind:visibilityKm
 			onpick={(p) => terrainPick.set(p)}
 			onviewchange={(r) => terrainViewRect.set(r)}
+			{initialRect}
 		/>
 		<div class="statusbar">
 			<label class="fog">

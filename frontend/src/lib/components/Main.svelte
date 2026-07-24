@@ -39,7 +39,7 @@
 	import CompassCalibration from './CompassCalibration.svelte';
 	import Lines from './Lines.svelte';
 	import TerrainPane from './TerrainPane.svelte';
-	import { terrainModeAvailable } from '$lib/terrain.svelte';
+	import { terrainModeAvailable, terrainViewRect } from '$lib/terrain.svelte';
 import TimelinePanel from './TimelinePanel.svelte';
 	import PhotoInfoWindow from './PhotoInfoWindow.svelte';
 	import {
@@ -108,6 +108,10 @@ import TimelinePanel from './TimelinePanel.svelte';
 
 	// When update_url becomes true, flush current photo state that may have
 	// been missed (photoInFront can fire before update_url is enabled).
+	$: if (update_url && $app.activity !== 'terrain') {
+		updateUrlParams({ tx1: null, ty1: null, tx2: null, ty2: null });
+	}
+
 	$: if (update_url) {
 		flushPhotoToUrl(get(photoInFront));
 		// Reconcile zoom params too: the pending overlay can be dismissed (or its
@@ -164,6 +168,24 @@ import TimelinePanel from './TimelinePanel.svelte';
 		const unsubscribe1 = photoInFront.subscribe(photo => {
 			if (!update_url) return;
 			flushPhotoToUrl(photo);
+		});
+
+		// Sync the terrain viewport rect to its namespaced URL twin (tx1..ty2
+		// — the zoom view convention, kept unambiguous between modes). The
+		// store nulls on selection change and never fires outside terrain
+		// mode (the pane owns it), so null simply clears the params.
+		const unsubscribeTerrainRect = terrainViewRect.subscribe(rect => {
+			if (!update_url) return;
+			if (rect && get(app).activity === 'terrain') {
+				updateUrlParams({
+					tx1: rect.x1.toFixed(6),
+					ty1: rect.y1.toFixed(6),
+					tx2: rect.x2.toFixed(6),
+					ty2: rect.y2.toFixed(6),
+				});
+			} else {
+				updateUrlParams({ tx1: null, ty1: null, tx2: null, ty2: null });
+			}
 		});
 
 		// Sync zoom viewport bounds to URL params
@@ -223,6 +245,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 		return () => {
 			unsubscribe1();
 			unsubscribeZoomBounds();
+			unsubscribeTerrainRect();
 			unsubscribeZoomClose();
 			unsubscribePendingClose();
 			unsubscribePendingZoom();
