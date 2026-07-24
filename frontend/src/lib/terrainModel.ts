@@ -18,7 +18,9 @@ export interface TerrainRender {
 	lon: number;
 	status: string; // queued | rendering (progress ship-order) | done | error
 	error: string | null;
-	meta: TerrainMeta | null;
+	/** real grid meta once rendered; while status is 'rendering' it may
+	 * carry only the worker's progress ping ({ progress_pct }) */
+	meta: (TerrainMeta & { progress_pct?: number }) | { progress_pct?: number } | null;
 	has_depth: boolean;
 	has_preview: boolean;
 	enqueued_at: string;
@@ -47,7 +49,21 @@ export function markerStateOf(r: Pick<TerrainRender, 'status'>): TerrainMarkerSt
 /** A render is viewable once its artifacts exist — which includes partial
  * panoramas later (v1.5 streaming): status alone doesn't gate viewing. */
 export function isViewable(r: TerrainRender): boolean {
-	return !!(r.meta && r.has_depth && r.has_preview);
+	// 'width' distinguishes real grid meta from a bare progress ping
+	return !!(r.meta && 'width' in r.meta && r.has_depth && r.has_preview);
+}
+
+/** The render's REAL grid meta, or null while meta only carries a progress
+ * ping — the narrowing the union type asks callers to do. */
+export function gridMetaOf(r: TerrainRender): TerrainMeta | null {
+	return r.meta && 'width' in r.meta ? (r.meta as TerrainMeta) : null;
+}
+
+/** Worker progress % while rendering (rides in the meta jsonb until the
+ * final result overwrites it), or null when unknown. */
+export function progressOf(r: TerrainRender): number | null {
+	const p = (r.meta as { progress_pct?: unknown } | null)?.progress_pct;
+	return typeof p === 'number' && Number.isFinite(p) ? p : null;
 }
 
 /** "The range circle keeps its job — it selects a render, spatially": the

@@ -10,8 +10,11 @@ Implementation status (2026-07-24): **v1 client slice landed** — viewport
 rect + seam wrap in the shared viewer, mode button + marker states,
 tap-to-select via the range circle, derived wedge, click-ray, long-press
 enqueue (confirm popup; server policy still TBD), status polling, and
-`tx1..ty2` rect URL sync. Still open for v1: worker-side progress-%
-emission (client polling is ready for it).
+`tx1..ty2` rect URL sync, and worker-side progress-% emission (throttled
+"rendering" pings on the existing callback, % riding in the meta jsonb
+until the final result overwrites it; "rendering… N %" in the pane).
+**v1 is complete end to end.** Next: v1.5 (partial artifacts reuse the
+same plumbing), and the enqueue auth/quota policy.
 
 ## The mode
 

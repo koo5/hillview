@@ -231,3 +231,29 @@ def test_geotiff_window_clips_to_extent(tmp_path):
     marker_lon = LON0 + (30 - 20) * cell
     v = dem.sample(np.array([marker_lat]), np.array([marker_lon]))
     assert v[0] == pytest.approx(777.0)
+
+
+def test_progress_callback_marches_to_completion():
+    """Progress reports the ITERATION fraction of the distance march (each
+    step costs the same, so it's an honest wall-clock estimate): strictly
+    increasing, ~20 reports, final call exactly 1.0."""
+    dem = flat_dem(radius_m=30_000.0)
+    seen = []
+    render(dem, LAT0, LON0, observer_elevation_m=50.0,
+           az_start=0, az_end=5, az_step_deg=0.5,
+           elev_min_deg=-2.0, elev_max_deg=1.0, elev_step_deg=0.1,
+           max_distance_m=25_000.0, progress=seen.append)
+    assert seen, "progress callback never fired"
+    assert seen == sorted(seen) and len(seen) == len(set(seen))
+    assert seen[-1] == pytest.approx(1.0)
+    assert 15 <= len(seen) <= 25
+    assert all(0.0 < f <= 1.0 for f in seen)
+
+
+def test_progress_none_is_default_and_harmless():
+    dem = flat_dem(radius_m=10_000.0)
+    pano = render(dem, LAT0, LON0, observer_elevation_m=50.0,
+                  az_start=0, az_end=2, az_step_deg=1.0,
+                  elev_min_deg=-1.0, elev_max_deg=0.5, elev_step_deg=0.25,
+                  max_distance_m=8_000.0)
+    assert pano.depth.shape[1] == 2

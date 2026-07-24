@@ -269,8 +269,17 @@ def render(dem, lat: float, lon: float, *,
            elev_step_deg: float = 0.05,
            min_distance_m: float = 50.0, max_distance_m: float = 100_000.0,
            min_step_m: float | None = None, rel_step: float = 0.005,
-           refraction_k: float = DEFAULT_REFRACTION_K) -> Panorama:
-    """Render a depth panorama from (lat, lon) looking across [az_start, az_end)."""
+           refraction_k: float = DEFAULT_REFRACTION_K,
+           progress=None) -> Panorama:
+    """Render a depth panorama from (lat, lon) looking across [az_start, az_end).
+
+    progress: optional callable(fraction_done: float). The distance march is
+    where the seconds go and every step costs the same (n_az samples), so the
+    ITERATION fraction is an honest wall-clock estimate — geometric distance
+    fraction would race through the near field and stall out far. Called ~20
+    times per render plus once at 1.0; exceptions in the callback are the
+    caller's problem by design (the worker wraps its own try/except so a
+    progress hiccup can never fail a render)."""
     if observer_elevation_m is not None:
         eye, eye_source = float(observer_elevation_m), "explicit"
     else:
@@ -297,6 +306,8 @@ def render(dem, lat: float, lon: float, *,
     # march: apparent elevation angle of every (step, azimuth) sample
     ang = np.full((len(dists), n_az), -np.inf, dtype=np.float32)
     elv = np.full((len(dists), n_az), np.nan, dtype=np.float32)
+    n_steps_total = len(dists)
+    report_every = max(1, n_steps_total // 20)
     for i, d in enumerate(dists):
         plats, plons = destination_point(lat, lon, azimuths, d)
         h = dem.sample(plats, plons)
@@ -304,6 +315,9 @@ def render(dem, lat: float, lon: float, *,
         hit = np.isfinite(h)
         ang[i, hit] = a[hit].astype(np.float32)
         elv[i] = h
+        if progress is not None and ((i + 1) % report_every == 0
+                                     or i + 1 == n_steps_total):
+            progress((i + 1) / n_steps_total)
 
     horizon = np.maximum.accumulate(ang, axis=0)   # running horizon profile
 

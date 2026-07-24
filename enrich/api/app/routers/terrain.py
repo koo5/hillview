@@ -82,6 +82,19 @@ async def result(result_json: str = Form(...),
         raise HTTPException(403, "bad worker token")
     d = json.loads(result_json)
     rid = d["result_id"]
+
+    if d.get("status") == "rendering":
+        # Progress ping (tiny JSON, no artifacts): % rides in the meta jsonb
+        # until the final result overwrites it. The status guard keeps an
+        # out-of-order late ping from regressing a finished/failed render.
+        async with wb_engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE terrain_renders SET status = 'rendering', "
+                "meta = CAST(:meta AS jsonb), worker = :w "
+                "WHERE id = CAST(:id AS uuid) AND status NOT IN ('done', 'error')"),
+                {"meta": json.dumps(d.get("meta")), "w": d.get("worker"), "id": rid})
+        return {"ok": True}
+
     tdir = os.path.join(config.ARTIFACTS_DIR, "terrain")
     os.makedirs(tdir, exist_ok=True)
     depth_path = preview_path = None

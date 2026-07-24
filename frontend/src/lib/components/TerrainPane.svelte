@@ -7,7 +7,7 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import TerrainViewer from './TerrainViewer.svelte';
-	import { isViewable, markerStateOf } from '$lib/terrainModel';
+	import { gridMetaOf, isViewable, markerStateOf, progressOf } from '$lib/terrainModel';
 	import {
 		pendingTerrainRect,
 		selectedTerrainRender,
@@ -47,7 +47,7 @@
 		<TerrainViewer
 			previewUrl={terrainPreviewUrl(sel.id)}
 			depthUrl={terrainDepthUrl(sel.id)}
-			meta={sel.meta!}
+			meta={gridMetaOf(sel)!}
 			bind:visibilityKm
 			onpick={(p) => terrainPick.set(p)}
 			onviewchange={(r) => terrainViewRect.set(r)}
@@ -73,7 +73,7 @@
 			{#if markerStateOf(sel) === 'failed'}
 				render failed{sel.error ? `: ${sel.error}` : ''}
 			{:else if markerStateOf(sel) === 'rendering'}
-				rendering…
+				rendering…{#if progressOf(sel) !== null}&nbsp;{progressOf(sel)} %{/if}
 			{:else}
 				queued…
 			{/if}

@@ -93,7 +93,7 @@ def _load_stack(renderer, spec: str, lat: float, lon: float, radius_m: float):
     return grids[0] if len(grids) == 1 else renderer.CompositeDem(grids=grids)
 
 
-def _render(lat: float, lon: float, params: dict):
+def _render(lat: float, lon: float, params: dict, progress=None):
     import math
 
     import numpy as np
@@ -121,7 +121,7 @@ def _render(lat: float, lon: float, params: dict):
     else:
         eye_source = "explicit"
 
-    pano = renderer.render(dem, lat, lon, **kwargs)
+    pano = renderer.render(dem, lat, lon, progress=progress, **kwargs)
     pano.params.update({"eye_source": eye_source,
                         "ground_m": round(ground, 2), "ground_source": ground_src})
     from PIL import Image
@@ -132,16 +132,43 @@ def _render(lat: float, lon: float, params: dict):
 
 @remoulade.actor(queue_name="terrain", time_limit=20 * 60 * 1000, max_retries=1)
 def render_panorama(payload: dict) -> None:
+    import time
+
     import requests
     rid = payload["result_id"]
     print(f"render_panorama {rid} @ ({payload.get('lat')}, {payload.get('lon')})…",
           flush=True)
     result = {"result_id": rid, "worker": socket.gethostname(), "status": "done"}
     depth = preview = None
+
+    # Progress ship-order step 1 (docs/terrain-mode.md): tiny JSON pings on
+    # the SAME callback, status "rendering", % riding in the meta jsonb (the
+    # final result overwrites it). Throttled to ~2 s so a fast render doesn't
+    # spam; failures are swallowed — progress must never fail a render.
+    last_progress_post = 0.0
+
+    def post_progress(frac: float) -> None:
+        nonlocal last_progress_post
+        now = time.monotonic()
+        if now - last_progress_post < 2.0:
+            return
+        last_progress_post = now
+        try:
+            requests.post(payload["callback"],
+                          data={"result_json": json.dumps({
+                              "result_id": rid, "status": "rendering",
+                              "worker": socket.gethostname(),
+                              "meta": {"progress_pct": int(frac * 100)}})},
+                          headers={"X-Worker-Token": payload["token"]},
+                          timeout=10)
+        except Exception as e:
+            print(f"  {rid}: progress post failed: {e}", flush=True)
+
     try:
         ram_gate()
         meta, depth, preview = _render(
-            float(payload["lat"]), float(payload["lon"]), payload.get("params") or {})
+            float(payload["lat"]), float(payload["lon"]), payload.get("params") or {},
+            progress=post_progress)
         result["meta"] = meta
         print(f"  {rid}: {meta['width']}x{meta['height']}", flush=True)
     except Exception as e:

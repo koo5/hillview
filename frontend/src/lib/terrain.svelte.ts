@@ -10,6 +10,7 @@
 import { derived, get, writable } from 'svelte/store';
 import { spatialState } from '$lib/mapState';
 import {
+	gridMetaOf,
 	nearestRenderWithin,
 	type TerrainRender
 } from '$lib/terrainModel';
@@ -68,8 +69,9 @@ export const terrainPick = writable<TerrainPick | null>(null);
 export const terrainWedge = derived(
 	[selectedTerrainRender, terrainViewRect],
 	([sel, rect]) => {
-		if (!sel?.meta || !rect) return null;
-		const w = wedgeFromRect(sel.meta, rect);
+		const meta = sel ? gridMetaOf(sel) : null;
+		if (!sel || !meta || !rect) return null;
+		const w = wedgeFromRect(meta, rect);
 		return { lat: sel.lat, lon: sel.lon, ...w };
 	}
 );

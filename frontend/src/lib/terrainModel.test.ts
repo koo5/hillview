@@ -3,6 +3,7 @@ import {
 	isViewable,
 	markerStateOf,
 	nearestRenderWithin,
+	progressOf,
 	wedgeArcLatLngs,
 	WEDGE_MAX_FOV_DEG,
 	type TerrainRender
@@ -105,5 +106,24 @@ describe('wedgeArcLatLngs (derived wedge geometry, pane -> map one-way)', () => 
 		const last = pts[pts.length - 1];
 		expect(bearingBetween(vp.lat, vp.lon, first[0], first[1])).toBeCloseTo(179, 1);
 		expect(bearingBetween(vp.lat, vp.lon, last[0], last[1])).toBeCloseTo(181, 1);
+	});
+});
+
+describe('progressOf (progress ship-order step 1)', () => {
+	const meta = { width: 10, height: 2, az_start: 0, az_end: 359, elev_max_deg: 10,
+		elev_min_deg: -5, lat: 50, lon: 14.5, depth_scale_m: 4 };
+
+	it('reads the worker ping riding in meta', () => {
+		expect(progressOf(render({ status: 'rendering', meta: { progress_pct: 42 } }))).toBe(42);
+	});
+
+	it('null when absent or malformed', () => {
+		expect(progressOf(render({ meta: null }))).toBeNull();
+		expect(progressOf(render({ meta }))).toBeNull();
+		expect(progressOf(render({ meta: { progress_pct: 'x' as unknown as number } }))).toBeNull();
+	});
+
+	it('a bare progress ping is not viewable meta', () => {
+		expect(isViewable(render({ meta: { progress_pct: 42 }, has_depth: true, has_preview: true }))).toBe(false);
 	});
 });
