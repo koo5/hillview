@@ -27,7 +27,8 @@ const config = {
 		// too (enrich/web). The docker build COPYies this dir to /shared/zoomview
 		// (see Dockerfile; build context is the repo root for that reason).
 		alias: {
-			$zoomview: '../shared/zoomview'
+			$zoomview: '../shared/zoomview',
+			$terrain: '../shared/terrain'
 		},
 
 		/*experimental: {

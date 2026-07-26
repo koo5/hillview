@@ -6,10 +6,11 @@ import { defineConfig } from 'vite';
 // frontend too — see docs/enrichment-workbench.md). The docker build COPYies
 // that dir to the same relative spot (/shared/zoomview from /app).
 const zoomview = new URL('../../shared/zoomview', import.meta.url).pathname;
+const terrain = new URL('../../shared/terrain', import.meta.url).pathname;
 
 export default defineConfig({
 	resolve: {
-		alias: { $zoomview: zoomview }
+		alias: { $zoomview: zoomview, $terrain: terrain }
 	},
 	server: {
 		host: true,
@@ -18,7 +19,7 @@ export default defineConfig({
 		allowedHosts: true,
 		// same-origin /api on the direct dev server too
 		proxy: { '/api': 'http://localhost:8070' },
-		fs: { allow: ['.', zoomview] }
+		fs: { allow: ['.', zoomview, terrain] }
 	},
 	plugins: [
 		sveltekit({

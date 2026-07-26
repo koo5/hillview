@@ -17,6 +17,7 @@ export default defineConfig({
       'src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',
       // shared zoomview modules live outside src/ but their tests run here
       '../shared/zoomview/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',
+      '../shared/terrain/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',
     ],
     coverage: {
       provider: 'v8',
@@ -36,6 +37,7 @@ export default defineConfig({
     alias: {
       $lib: path.resolve('./src/lib'),
       $zoomview: path.resolve('../shared/zoomview'),
+      $terrain: path.resolve('../shared/terrain'),
       $app: path.resolve('./.svelte-kit/runtime/app'),
       'tauri-plugin-hillview-api': path.resolve('./src/tests/mocks/tauri-plugin-hillview-api.ts'),
     },

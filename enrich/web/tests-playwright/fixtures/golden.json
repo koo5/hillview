@@ -1,0 +1,35 @@
+{
+ "viewpoint": {
+  "lat": 50.0,
+  "lon": 14.5
+ },
+ "summit": {
+  "col": 299,
+  "row": 41,
+  "lat": 49.99968068239713,
+  "lon": 14.845575527140227,
+  "distance_m": 24700.0,
+  "azimuth_deg": 89.95
+ },
+ "far_ridge": {
+  "col": 449,
+  "row": 112,
+  "lat": 49.87297461590898,
+  "lon": 15.225007878684892,
+  "distance_m": 53776.0,
+  "azimuth_deg": 104.95
+ },
+ "near_slope": {
+  "col": 149,
+  "row": 72,
+  "lat": 50.008750607814015,
+  "lon": 14.550702748371236,
+  "distance_m": 3752.0,
+  "azimuth_deg": 74.95
+ },
+ "sky": {
+  "col": 49,
+  "row": 2
+ },
+ "tolerance_deg": 0.0002
+}

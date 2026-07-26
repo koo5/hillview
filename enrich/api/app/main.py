@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import config, db, graph
 from .routers import (annotations, calibrate, facts, geocode, graduation, health,
                       matching, parse, photos, poi, proto, runs, sparql, sync,
-                      transfer)
+                      terrain, transfer)
 
 
 @asynccontextmanager
@@ -47,3 +47,4 @@ app.include_router(photos.router, prefix="/api")
 app.include_router(graduation.router, prefix="/api")
 app.include_router(poi.router, prefix="/api")
 app.include_router(transfer.router, prefix="/api")
+app.include_router(terrain.router, prefix="/api")

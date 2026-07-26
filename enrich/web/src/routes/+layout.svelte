@@ -13,6 +13,7 @@
 		{ href: '/matching', label: 'Matching' },
 		{ href: '/transfer', label: 'Transfer' },
 		{ href: '/triangulate', label: 'Triangulate' },
+		{ href: '/terrain', label: 'Terrain' },
 		{ href: '/graduation', label: 'Graduation' },
 		{ href: '/runs', label: 'Runs' },
 		{ href: '/sparql', label: 'SPARQL' }

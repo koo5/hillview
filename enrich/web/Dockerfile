@@ -14,6 +14,7 @@ COPY enrich/web/package.json enrich/web/bun.lock ./
 RUN bun install --frozen-lockfile
 COPY enrich/web/ .
 COPY shared/zoomview /shared/zoomview
+COPY shared/terrain /shared/terrain
 RUN bun run build
 
 FROM oven/bun:1

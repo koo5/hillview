@@ -1,0 +1,17 @@
+{
+ "width": 600,
+ "height": 200,
+ "az_start": 60.05,
+ "az_end": 119.95,
+ "elev_max_deg": 2.49,
+ "elev_min_deg": -1.4900000000000002,
+ "lat": 50.0,
+ "lon": 14.5,
+ "eye_elevation_m": 302.0,
+ "depth_scale_m": 4.0,
+ "eye_source": "explicit",
+ "refraction_k": 0.13,
+ "max_distance_m": 70000.0,
+ "az_step_deg": 0.1,
+ "elev_step_deg": 0.02
+}
