@@ -5,6 +5,7 @@
 	import { api, ApiError } from '$lib/api';
 	import { fitSummary, residual } from '$lib/theilsen';
 	import CalibScatter from '$lib/components/CalibScatter.svelte';
+	import Help from '$lib/components/Help.svelte';
 	import PhotoThumb from '$lib/components/PhotoThumb.svelte';
 
 	interface Pano {
@@ -142,7 +143,82 @@
 	const f1 = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(1));
 </script>
 
-<h1>Calibration</h1>
+<div class="row" style="gap:8px">
+	<h1>Calibration</h1>
+	<Help>
+		<h4>what this page does</h4>
+		<p>
+			Turns a pano into a compass: fits a linear map from horizontal image position
+			(rect-x, 0–1) to absolute azimuth, using the pano's own annotations as evidence.
+			Each annotation with a geolocated anchor gives one point — where its rectangle
+			sits in the image vs the true bearing from the pano's position to the anchor.
+			The fit is Theil-Sen (median of pairwise slopes), so a few wrong anchors don't
+			drag it; you exclude the rest by hand or with auto-kick.
+		</p>
+		<h4>pano list (left)</h4>
+		<dl>
+			<dt>pano</dt>
+			<dd>title + short id; sorted most-annotated first (more annotations = better fit)</dd>
+			<dt>anns</dt>
+			<dd>current annotations on the pano</dd>
+			<dt>🧭</dt>
+			<dd>calibration facts already accepted for this pano</dd>
+		</dl>
+		<h4>fit stats</h4>
+		<dl>
+			<dt>FOV</dt>
+			<dd>|slope| — angular width the full image spans</dd>
+			<dt>centre bearing</dt>
+			<dd>absolute azimuth at image centre (x = 0.5)</dd>
+			<dt>bias vs compass</dt>
+			<dd>fit centre minus the stored phone compass — how wrong the compass was</dd>
+			<dt>RMS</dt>
+			<dd>root-mean-square residual over the n included points</dd>
+		</dl>
+		<h4>scatter</h4>
+		<p>
+			x = rectangle centre across the image, y = Δ° (bearing to anchor relative to
+			stored compass, wrapped ±180). Line = current fit. Click a point to
+			exclude/re-include it — same as the table checkboxes.
+		</p>
+		<h4>table columns (sorted worst residual first)</h4>
+		<dl>
+			<dt>☑</dt>
+			<dd>include this point in the fit</dd>
+			<dt>annotation</dt>
+			<dd>body text, with the chosen anchor's display name under it</dd>
+			<dt>rule</dt>
+			<dd>
+				how the anchor was picked, in precedence order: <b>approved</b> (human-approved
+				candidate) &gt; <b>pinned</b> (author coordinate / map pin) &gt;
+				<b>wikipedia</b> &gt; <b>auto</b> (best in-view Nominatim hit by importance).
+				Trust approved/pinned; treat auto with suspicion when the residual is large.
+			</dd>
+			<dt>km</dt>
+			<dd>distance to the anchor. &lt; 0.2 km is unusable — "at camera", no azimuth signal</dd>
+			<dt>Δ°</dt>
+			<dd>bearing to anchor minus stored compass</dd>
+			<dt>resid°</dt>
+			<dd>distance from the current fit line; &gt; 10° highlighted amber</dd>
+		</dl>
+		<h4>actions</h4>
+		<dl>
+			<dt>auto-kick &gt;10°</dt>
+			<dd>iteratively exclude the worst residual until all are ≤ 10° (keeps ≥ 3 points)</dd>
+			<dt>accept fit</dt>
+			<dd>
+				server-side refit over the included set → writes calibratedBearing /
+				calibratedFov / calibrationRms facts, run-tracked
+			</dd>
+		</dl>
+		<h4>downstream</h4>
+		<p>
+			Calibration is what makes a pano's geometry trustworthy: the matching bench uses
+			it for the view pie, triangulation for sight-rays, and the transfer bench only
+			lets <i>calibrated</i> donors contribute azimuth datapoints to its prior.
+		</p>
+	</Help>
+</div>
 <p class="muted">
 	Per-pano Theil-Sen fit: anchor azimuth vs rectangle-x. Click points or checkboxes to
 	exclude outliers — the fit updates live. Accept writes calibration facts.

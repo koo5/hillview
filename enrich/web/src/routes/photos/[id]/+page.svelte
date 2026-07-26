@@ -6,6 +6,7 @@
 	import type { DziPyramid } from '$zoomview/tileSource';
 	import CandidateMap from '$lib/components/CandidateMap.svelte';
 	import FactChip from '$lib/components/FactChip.svelte';
+	import Help from '$lib/components/Help.svelte';
 	import OsdViewer, { type OsdMark, type OsdRect } from '$lib/components/OsdViewer.svelte';
 	import PhotoThumb from '$lib/components/PhotoThumb.svelte';
 
@@ -274,12 +275,50 @@
 	{@const p = data.photo}
 	<div class="row" style="align-items:baseline">
 		<h1 style="font-size:17px">{p.title ?? p.id.slice(0, 8)}</h1>
+		<Help>
+			<h4>what this page does</h4>
+			<p>
+				One photo's full record: the zoomable image with every annotation rect drawn on
+				it, plus all facts, proto-annotations, and match activity that touch it. For
+				panos, the header links jump to the calibration and transfer benches with this
+				photo preselected.
+			</p>
+			<h4>the viewer</h4>
+			<p>
+				Rects are clickable (→ annotation page). <b>✎ edit rects</b> turns on edit
+				mode: drag empty space to draw a new workbench-native annotation, or
+				move/resize/Del existing rects — workbench-drawn rects save directly, reshaped
+				Hillview rects become pending rect-changes in Graduation.
+			</p>
+			<h4>sections</h4>
+			<dl>
+				<dt>Facts about this photo</dt>
+				<dd>photo-level facts (calibration values live here once accepted)</dd>
+				<dt>Proto-annotations</dt>
+				<dd>
+					POI-derived suggestions projected into this pano via its calibration —
+					subjects that <i>should</i> be visible here but aren't annotated yet; approve
+					to place one
+				</dd>
+				<dt>Annotations</dt>
+				<dd>current annotations with their parse state; match ↗ deep-links each into the matching bench</dd>
+				<dt>Matches from this pano</dt>
+				<dd>MASt3R jobs where this photo's annotations were the source</dd>
+				<dt>Matched as candidate</dt>
+				<dd>
+					jobs where this photo was the candidate side — for a new pano this is where
+					donor annotations found their landing spots (transfer bench → continues that
+					flow)
+				</dd>
+			</dl>
+		</Help>
 		<span class="mono muted" style="font-size:11px">{p.id.slice(0, 8)}</span>
 		{#if p.is_pano}<span class="pill" style="font-size:11px">pano</span>{/if}
 		{#if calibrated}<span class="pill ok" style="font-size:11px">calibrated 🧭</span>{/if}
 		{#if p.missing_since}<span class="pill" style="font-size:11px; border-color:var(--bad); color:var(--bad)">missing from source</span>{/if}
 		<div style="flex:1"></div>
 		{#if p.is_pano}<a href="/calibration?pano={p.id}">calibration bench →</a>{/if}
+		{#if p.is_pano}<a href="/transfer?target={p.id}" title="clone annotations from nearby panos onto this one">transfer bench →</a>{/if}
 		<a href={p.web_url} target="_blank" rel="noreferrer">hillview.cz ↗</a>
 	</div>
 	<div class="muted" style="font-size:12px; margin:2px 0 10px">
@@ -497,7 +536,11 @@
 			{/if}
 
 			{#if data.matches.as_candidate.length}
-				<h2>Matched as candidate</h2>
+				<h2>
+					Matched as candidate
+					<a href="/transfer?target={data.photo.id}" style="font-size:12px; font-weight:normal; margin-left:8px"
+						title="clone annotations from nearby panos onto this photo">transfer bench →</a>
+				</h2>
 				<table>
 					<thead><tr><th>pano / annotation</th><th>result</th><th>verdict</th></tr></thead>
 					<tbody>

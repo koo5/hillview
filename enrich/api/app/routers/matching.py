@@ -361,53 +361,92 @@ class EnqueueRequest(BaseModel):
     annotation_id: str
     photo_ids: list[str]
     matcher: str = "mast3r"
+    # optional target WINDOW ({x,y,w,h} normalized to the target photo): match
+    # against this pyramid crop instead of the whole image — the pano→pano
+    # annotation-transfer path; the projected donor rect comes back with it
+    window: dict | None = None
+    # optional donor CONTEXT region ({x,y,w,h} normalized): crop this instead of
+    # rect+margin so donor crop and target window cover a comparable angular
+    # span (small rects fail on scale mismatch otherwise); rect still projects
+    context: dict | None = None
 
 
-@router.post("/matching/enqueue")
-async def enqueue(req: EnqueueRequest):
+async def enqueue_pair(annotation_id: str, photo_id: str, *, matcher: str = "mast3r",
+                       window: list[float] | None = None,
+                       context: list[float] | None = None,
+                       extra_params: dict | None = None) -> str | None:
+    """Insert a match_results row and send one match_pair job. → result_id,
+    or None when the target photo has no full-size URL. window/context are
+    [x,y,w,h] normalized (target window crop / donor context region);
+    extra_params are merged into the stored params (e.g. transfer_id, stage)."""
     from .. import actors
     if not actors.init_broker():
         raise HTTPException(503, "no RABBITMQ_URL configured")
-
     async with wb_engine.connect() as conn:
         ann = (await conn.execute(text(
             "SELECT a.id, a.target, a.photo_id, p.sizes, p.width, p.height "
             "FROM annotation_mirror a JOIN photo_mirror p ON p.id = a.photo_id "
-            "WHERE a.id = :id"), {"id": req.annotation_id})).first()
+            "WHERE a.id = :id"), {"id": annotation_id})).first()
         if not ann:
             raise HTTPException(404, "annotation not found")
-        photos = {r.id: r.sizes for r in (await conn.execute(text(
-            "SELECT id, sizes FROM photo_mirror WHERE id = ANY(:ids)"),
-            {"ids": req.photo_ids})).all()}
+        psizes = (await conn.execute(text(
+            "SELECT sizes FROM photo_mirror WHERE id = :id"),
+            {"id": photo_id})).scalar()
 
     g = (ann.target.get("selector") or {}).get("geometry") or {}
     rect = [float(g.get("x", 0)), float(g.get("y", 0)),
             float(g.get("w", 0)), float(g.get("h", 0))]
     full = (ann.sizes or {}).get("full") or {}
+    pfull = ((psizes or {}).get("full") or {})
+    purl = pfull.get("url")
+    if not purl:
+        return None
+    rid = str(uuid_mod.uuid4())
+    params = {"rect": rect, **(extra_params or {})}
+    if window:
+        params["window"] = window
+    if context:
+        params["context"] = context
+    async with wb_engine.begin() as conn:
+        await conn.execute(text(
+            "INSERT INTO match_results (id, annotation_id, photo_id, matcher, params) "
+            "VALUES (CAST(:id AS uuid), :aid, :pid, :m, CAST(:p AS jsonb))"),
+            {"id": rid, "aid": annotation_id, "pid": photo_id, "m": matcher,
+             "p": json.dumps(params)})
+    payload = {
+        "result_id": rid,
+        "matcher": matcher,
+        "crop": {"rect": rect, "full_url": full.get("url"),
+                 "pyramid": full.get("pyramid"),
+                 "width": ann.width, "height": ann.height},
+        "photo_url": purl,
+        "callback": f"{CALLBACK_BASE}/api/matching/result",
+        "token": WORKER_TOKEN,
+    }
+    if window:
+        # window slack is baked in by the caller; no extra margin
+        payload["photo"] = {"rect": window, "margin": 0.0,
+                            "full_url": purl, "pyramid": pfull.get("pyramid")}
+    if context:
+        payload["crop"]["context_rect"] = context
+    actors.match_pair.send(payload)
+    return rid
+
+
+@router.post("/matching/enqueue")
+async def enqueue(req: EnqueueRequest):
+    wrect = None
+    if req.window:
+        wrect = [float(req.window.get(k, 0)) for k in ("x", "y", "w", "h")]
+    ctx = None
+    if req.context:
+        ctx = [float(req.context.get(k, 0)) for k in ("x", "y", "w", "h")]
     queued = []
     for pid in req.photo_ids:
-        psizes = photos.get(pid) or {}
-        purl = ((psizes.get("full") or {}).get("url"))
-        if not purl:
-            continue
-        rid = str(uuid_mod.uuid4())
-        async with wb_engine.begin() as conn:
-            await conn.execute(text(
-                "INSERT INTO match_results (id, annotation_id, photo_id, matcher, params) "
-                "VALUES (CAST(:id AS uuid), :aid, :pid, :m, CAST(:p AS jsonb))"),
-                {"id": rid, "aid": req.annotation_id, "pid": pid, "m": req.matcher,
-                 "p": json.dumps({"rect": rect})})
-        actors.match_pair.send({
-            "result_id": rid,
-            "matcher": req.matcher,
-            "crop": {"rect": rect, "full_url": full.get("url"),
-                     "pyramid": full.get("pyramid"),
-                     "width": ann.width, "height": ann.height},
-            "photo_url": purl,
-            "callback": f"{CALLBACK_BASE}/api/matching/result",
-            "token": WORKER_TOKEN,
-        })
-        queued.append(rid)
+        rid = await enqueue_pair(req.annotation_id, pid, matcher=req.matcher,
+                                 window=wrect, context=ctx)
+        if rid:
+            queued.append(rid)
     return {"queued": queued}
 
 
@@ -428,11 +467,14 @@ async def result(result_json: str = Form(...),
         await conn.execute(text(
             "UPDATE match_results SET status = :st, raw_matches = :raw, "
             "inliers = :inl, ratio = :ratio, error = :err, overlay_path = :ov, "
-            "worker = :w, finished_at = now() WHERE id = CAST(:id AS uuid)"),
+            "worker = :w, projection = CAST(:proj AS jsonb), finished_at = now() "
+            "WHERE id = CAST(:id AS uuid)"),
             {"st": d.get("status", "done"), "raw": d.get("raw"),
              "inl": d.get("inliers"), "ratio": d.get("ratio"),
              "err": d.get("error"), "ov": overlay_path,
-             "w": d.get("worker"), "id": d["result_id"]})
+             "w": d.get("worker"),
+             "proj": json.dumps(d["projection"]) if d.get("projection") else None,
+             "id": d["result_id"]})
     return {"ok": True}
 
 

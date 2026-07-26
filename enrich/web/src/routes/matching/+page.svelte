@@ -7,6 +7,7 @@
 	import type { AnnotationList, AnnotationRow } from '$lib/types';
 	import type { DziPyramid } from '$zoomview/tileSource';
 	import CandidateMap from '$lib/components/CandidateMap.svelte';
+	import Help from '$lib/components/Help.svelte';
 	import OsdViewer, { type OsdRect } from '$lib/components/OsdViewer.svelte';
 	import PhotoThumb from '$lib/components/PhotoThumb.svelte';
 
@@ -274,7 +275,67 @@
 	});
 </script>
 
-<h1>Matching</h1>
+<div class="row" style="gap:8px">
+	<h1>Matching</h1>
+	<Help>
+		<h4>what this page does</h4>
+		<p>
+			Answers "which other photos show this annotation's subject?". A geometric gate
+			proposes candidates, MASt3R match jobs score them, and your ✓/✗ verdicts become
+			<span class="mono">depictedIn</span> facts — the <b>gold set</b> that everything
+			downstream (POIs, transfer, evaluation) trusts.
+		</p>
+		<h4>candidate modes</h4>
+		<dl>
+			<dt>anchor</dt>
+			<dd>
+				the annotation has a geocoded anchor: candidates are photos whose position +
+				compass could plausibly see that point (the view-pie gate)
+			</dd>
+			<dt>ray</dt>
+			<dd>
+				no anchor: candidates lie near the annotation's sight-ray (from its pano
+				position along its azimuth), ranked by distance to the ray
+			</dd>
+			<dt>bbox</dt>
+			<dd>manual scan — candidates are simply whatever photos sit in the map viewport</dd>
+		</dl>
+		<h4>knobs (live — the table refilters as you type)</h4>
+		<dl>
+			<dt>slack ×</dt>
+			<dd>widens each photo's assumed field of view by this factor</dd>
+			<dt>±half °</dt>
+			<dd>half-angle of the wedge searched around the target bearing</dd>
+			<dt>same-side °</dt>
+			<dd>reject photos looking at the anchor from the opposite side</dd>
+			<dt>near / far m</dt>
+			<dd>distance band of eligible photos</dd>
+		</dl>
+		<h4>columns</h4>
+		<dl>
+			<dt>dist / ray dist</dt>
+			<dd>distance from the anchor (anchor mode) or from the sight-ray (ray mode)</dd>
+			<dt>Δ°</dt>
+			<dd>how far off the photo's compass bearing is from pointing at the target</dd>
+			<dt>match</dt>
+			<dd>
+				MASt3R result as <span class="mono">inliers/raw = %</span> — the small ? by the
+				column header explains how to read the numbers and the overlay
+			</dd>
+			<dt>verdict</dt>
+			<dd>
+				✓ depicted / ✗ not depicted / unset — writes the gold-set fact; shown as chip
+				colors on the map dots too
+			</dd>
+		</dl>
+		<h4>map</h4>
+		<p>
+			Amber ring = the annotation's anchor; dashed blue = each pano's view pie
+			(calibrated FOV when available); violet = the annotation's exact rect slice with
+			its sight-ray; dots = candidates colored by verdict.
+		</p>
+	</Help>
+</div>
 <p class="muted">
 	View-pie candidate gate (live knobs) → verdicts (the gold set) → MASt3R match jobs via the
 	queue. Amber ring = target anchor; dots = candidate photos colored by verdict.
@@ -455,8 +516,9 @@
 							Read it as: raw = "how much looked similar", inliers = "how much of that agrees
 							on one viewing geometry". Strong = high raw <i>and</i> high&nbsp;% (300/500). A
 							high&nbsp;% on a tiny raw count is noise — below 8 raw pairs RANSAC can't run at
-							all and inliers is 0. <b>overlay</b> opens the side-by-side image: green lines =
-							inliers, red = rejected pairs (drawn only when sparse).
+							all and inliers is 0. <b>overlay</b> opens the side-by-side image: inlier lines
+							are rainbow-colored by their left-panel x — a correct match reads as a smooth
+							hue sweep, crossings jump out; red = rejected pairs (drawn only when sparse).
 						</p>
 						<p style="margin-bottom:0">
 							Caution: repetitive or generic structures (chimneys, towers, façade grids) can

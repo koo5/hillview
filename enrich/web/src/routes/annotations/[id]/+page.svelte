@@ -5,6 +5,7 @@
 	import type { DziPyramid } from '$zoomview/tileSource';
 	import CandidateMap from '$lib/components/CandidateMap.svelte';
 	import FactChip from '$lib/components/FactChip.svelte';
+	import Help from '$lib/components/Help.svelte';
 	import OsdViewer, { type OsdRect } from '$lib/components/OsdViewer.svelte';
 	import PhotoThumb from '$lib/components/PhotoThumb.svelte';
 
@@ -46,6 +47,9 @@
 	const candidateFacts = $derived((ann?.facts ?? []).filter((f) => f.predicate === 'anchorCandidate'));
 	const candidateSet = $derived(new Set(candidateFacts.map((f) => f.value)));
 	const verdictFacts = $derived((ann?.facts ?? []).filter((f) => f.predicate === 'depictedIn'));
+	// compact = verdict language ("✗ not depicted in …"); raw = the underlying
+	// fact chip with curation styling — precedent for semantic-vs-raw sections
+	let verdictsRaw = $state(false);
 	const parseFacts = $derived(
 		(ann?.facts ?? []).filter(
 			(f) =>
@@ -345,6 +349,59 @@
 {#if ann}
 	<div class="row" style="align-items:baseline">
 		<h1 class="mono" style="font-size:16px">{ann.id.slice(0, 8)}</h1>
+		<Help>
+			<h4>what this page does</h4>
+			<p>
+				Everything the workbench knows about one annotation, and every curation verb
+				that applies to it. The body is mirrored from Hillview (read-only here);
+				everything else is workbench-derived facts layered on top.
+			</p>
+			<h4>sections</h4>
+			<dl>
+				<dt>Photo</dt>
+				<dd>the annotation's rect on its photo; map with the sight-ray when azimuth is known</dd>
+				<dt>Body / History</dt>
+				<dd>raw mirrored body and its edit history in Hillview</dd>
+				<dt>Facts</dt>
+				<dd>
+					parsed + geocode-candidate chips with ✓/✗/↺ curation — the ? next to the
+					Facts heading explains the chip kinds in detail
+				</dd>
+				<dt>matching verdicts</dt>
+				<dd>
+					gold-set depictedIn verdicts: ✓ depicted / ✗ NOT depicted in a photo — a
+					negative verdict is deliberate data, not a discarded fact (toggle raw to see
+					the underlying facts)
+				</dd>
+				<dt>Anchor</dt>
+				<dd>
+					the approved real-world location; pick a candidate below or click the map to
+					pin an exact point (ideally along the sight-ray)
+				</dd>
+				<dt>POI / triangulation</dt>
+				<dd>
+					relate this annotation to a shared POI so its sight-ray joins the
+					triangulation of that subject
+				</dd>
+				<dt>Matching</dt>
+				<dd>candidate photos + verdicts, deep link to the matching bench</dd>
+			</dl>
+			<h4>header verbs</h4>
+			<dl>
+				<dt>✎ label</dt>
+				<dd>
+					set the curated name (labelText fact, approved in one act; demotes the
+					previous one; future geocoding follows the new name)
+				</dd>
+				<dt>re-parse</dt>
+				<dd>re-run the body parser after a rename or parser change</dd>
+				<dt>📖 attach</dt>
+				<dd>
+					(in the Anchor section) attach a Wikipedia page — fetches its coordinates as
+					a candidate and offers its title as the name
+				</dd>
+			</dl>
+		</Help>
 		{#if currentLabel && currentLabel !== ann.body}<b>{currentLabel}</b>{/if}
 		<a href="/annotations">← back to list</a>
 		<div style="flex:1"></div>
@@ -482,9 +539,15 @@
 			{#if verdictFacts.length}
 				<h3 class="muted" style="font-size:11px; text-transform:uppercase; margin:12px 0 2px">
 					matching verdicts (gold set)
+					<button
+						style="font-size:10px; padding:0 7px; text-transform:none; margin-left:6px"
+						onclick={() => (verdictsRaw = !verdictsRaw)}>{verdictsRaw ? 'compact' : 'raw'}</button
+					>
 				</h3>
 				{#each verdictFacts as f (f.fact)}
-					<div style="margin:6px 0"><FactChip fact={f} interactive onchange={() => {}} /></div>
+					<div style="margin:6px 0">
+						<FactChip fact={f} interactive verdict={!verdictsRaw} onchange={() => {}} />
+					</div>
 				{/each}
 			{/if}
 			{#if otherFacts.length}

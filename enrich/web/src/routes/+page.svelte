@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { api, ApiError } from '$lib/api';
 	import type { SyncStatus, Health } from '$lib/types';
+	import Help from '$lib/components/Help.svelte';
 
 	let health = $state<Health | null>(null);
 	let status = $state<SyncStatus | null>(null);
@@ -46,7 +47,42 @@
 	const fmt = (t: string | null) => (t ? new Date(t).toLocaleString() : '—');
 </script>
 
-<h1>Dashboard</h1>
+<div class="row" style="gap:8px">
+	<h1>Dashboard</h1>
+	<Help>
+		<h4>what this page does</h4>
+		<p>
+			Health of the workbench plumbing. The workbench never edits Hillview's tables: it
+			keeps a read-only <b>mirror</b> of photos and annotations, enriches on top of the
+			mirror, and pushes curation back only through Graduation packages.
+		</p>
+		<h4>sync modes</h4>
+		<dl>
+			<dt>append</dt>
+			<dd>
+				cheap incremental pull — fetches rows with <span class="mono">created_at</span>
+				past the stored watermark
+			</dd>
+			<dt>reconcile</dt>
+			<dd>
+				full pass — row-hash comparison catches edits, deletions, and anything append
+				missed. <b>Run this after importing a dump</b>: dump rows keep their old
+				production timestamps, which sit behind the watermark, so append skips them
+			</dd>
+		</dl>
+		<h4>sections</h4>
+		<dl>
+			<dt>Services</dt>
+			<dd>API, workbench DB, Oxigraph, queue — red means a container is down</dd>
+			<dt>Mirror</dt>
+			<dd>row counts per mirrored table</dd>
+			<dt>Sync state</dt>
+			<dd>per-table watermark + when each mode last ran</dd>
+			<dt>Recent sync runs</dt>
+			<dd>the same runs as on the Runs page, filtered to sync</dd>
+		</dl>
+	</Help>
+</div>
 <p class="muted">Live mirror of the Hillview dev data + enrichment run history.</p>
 
 {#if err}<div class="card" style="border-color:var(--bad)">{err}</div>{/if}

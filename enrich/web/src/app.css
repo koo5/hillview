@@ -165,6 +165,41 @@ th {
 .muted {
 	color: var(--muted);
 }
+
+/* typography for page-help content (rendered by Help.svelte, authored per page) */
+.help-panel h4 {
+	margin: 12px 0 4px;
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--muted);
+}
+.help-panel h4:first-child {
+	margin-top: 0;
+}
+.help-panel p {
+	margin: 6px 0;
+}
+.help-panel dl {
+	margin: 4px 0;
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 3px 14px;
+}
+.help-panel dt {
+	color: var(--accent);
+	font-family: ui-monospace, monospace;
+	font-size: 12px;
+	white-space: nowrap;
+}
+.help-panel dd {
+	margin: 0;
+}
+.help-panel ul {
+	margin: 4px 0;
+	padding-left: 18px;
+}
 .pill {
 	display: inline-block;
 	padding: 1px 8px;

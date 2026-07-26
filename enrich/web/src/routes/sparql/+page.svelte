@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { api, ApiError } from '$lib/api';
 	import { localStorageSharedStore } from '$lib/svelte-shared-store';
+	import Help from '$lib/components/Help.svelte';
 
 	const EXAMPLES: Record<string, string> = {
 		'facts of one annotation': `PREFIX hv: <https://rdf.hillview.cz/ns#>
@@ -43,7 +44,47 @@ SELECT ?run (COUNT(?f) AS ?facts) WHERE {
 	}
 </script>
 
-<h1>SPARQL</h1>
+<div class="row" style="gap:8px">
+	<h1>SPARQL</h1>
+	<Help>
+		<h4>what this page does</h4>
+		<p>
+			Raw read access to the Oxigraph fact store — the same store all benches write to.
+			The examples dropdown seeds runnable queries for the common shapes.
+		</p>
+		<h4>how the store is laid out</h4>
+		<dl>
+			<dt>fact graphs</dt>
+			<dd>
+				each fact is ONE triple in its own named graph
+				<span class="mono">…/id/fact/&lt;hash&gt;</span>, content-addressed from
+				(s,&nbsp;p,&nbsp;o) — asserting the same fact twice is a no-op, and curation can
+				point at the fact without RDF-star
+			</dd>
+			<dt>curation graph</dt>
+			<dd>
+				<span class="mono">…/id/graph/curation</span> — per-fact
+				<span class="mono">hv:status</span> (proposed / approved / rejected) +
+				<span class="mono">hv:decidedAt</span>
+			</dd>
+			<dt>meta graph</dt>
+			<dd>
+				<span class="mono">…/id/graph/meta</span> — provenance:
+				<span class="mono">prov:wasGeneratedBy</span> links each fact to its run,
+				<span class="mono">hv:about</span> links it to its main entity
+			</dd>
+		</dl>
+		<h4>vocabulary</h4>
+		<p>
+			Namespace <span class="mono">https://rdf.hillview.cz/ns#</span> (prefix
+			<span class="mono">hv:</span>); entities live under
+			<span class="mono">…/id/annotation/…</span>, <span class="mono">…/id/photo/…</span>,
+			<span class="mono">…/id/poi/…</span>, <span class="mono">…/id/run/…</span>. The
+			usual pattern is joining <span class="mono">GRAPH ?f {'{ … }'}</span> against the
+			curation/meta graphs, as in the examples.
+		</p>
+	</Help>
+</div>
 <p class="muted">Raw query access to the fact store (Oxigraph). Full quads fun.</p>
 
 <div class="card">

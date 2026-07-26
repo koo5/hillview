@@ -586,6 +586,91 @@ this? → jobs → suggestions" as a native Hillview flow.
   halves live: workbench proposal→export op (correct precondition=current rect); hillview
   preview(clean, old+new rects)→apply(0.2→0.75, body kept). All test artifacts cleaned.
 
+- **Pano→pano annotation transfer, matcher half ✅ (2026-07-19)** — the engine for
+  cloning annotations between overlapping panos of the same spot (first case: new giant
+  Prosek pano `ed294e68` 176047×9615 vs donors east `333e8851` (88 anns, calibrated
+  143.5°±40.6°) + west `6ed01a83` (83 anns)). Worker: target can be a **window crop_spec**
+  (`payload.photo` dict → `_get_crop`) instead of a whole-photo URL; `_dzi_region` now
+  picks the pyramid level so crops land ≤ `max_px` (2048) instead of always full-res —
+  and returns the DELIVERED bounds; **`_expand_aspect`** grows a crop's short side to
+  ≥1:2 pixel aspect (pano rects are 20:1+ strips — after MASt3R's 512px resize there was
+  ~16px of height, no structure: identity test gave a twisted quad, 14 inliers; with the
+  fix, 1815). **`_project_rect`**: homography (RANSAC, affine fallback) on the
+  correspondences → donor rect corners pushed through → `projection` {method, h_inliers,
+  quad, bbox} normalized to the FULL target photo (`_load_geom` replicates dust3r's
+  512-resize + %16 center-crop, incl. the square→4:3 special case). Overlay draws the
+  projected quad (cyan) + declutters to ~400 lines. API: enqueue takes `window`
+  {x,y,w,h}; result stores `projection` (006_projection.sql). **Verified**: identity
+  test (annotation vs own pano, offset window) reprojects to 3e-4; cross-pano Třešňovka
+  (winter donor → summer-golden-hour target!) found by a 4-window sweep — 3 windows
+  agree on bbox (0.3100, 0.412, 0.038, 0.033) with up to 1703 inliers, wrong window
+  self-reports (78 inliers, garbage fit). First warp datapoint: az 158.1° ↦ x 0.329,
+  local ~1189 px/° (donor is 824) → est. span ~130–150°, uncalibrated. Windows sized
+  w≈0.10–0.13 (±5–7° slack) around a linear az prior.
+  **Scale-matched context (same day)**: SMALL rects (buildings, 300–500px) failed
+  against wide windows — the object fills the crop but ~4% of the window (20px at 512).
+  Fix: crop_spec gains **`context_rect`** (enqueue param `context`) — crop a donor
+  region of ~the window's angular span (w≈0.182 ≈15° on the east donor) around the
+  rect; `rect` still projects. All 4 building tests then landed (890–1108 h_inliers),
+  incl. a 37px-wide church spire (Dubeček); linear az prior held to ~0.5° over
+  110–158°, ~2° at the left edge (the bend). **Two-stage refine**: the 15°-slice
+  homography has ~0.1° model error (pano projection difference + parallax — fits the
+  dominant/distant plane) → second pass with tight matched-scale crops (context
+  w≈0.006, window w≈0.004 around the coarse fix) converged onto the spire
+  (2896/2925 inliers, residual ~0.02°). Transfer bench should automate: coarse
+  (prior window + 15° context) → refine (3–5× rect) → review.
+- **Transfer bench ✅ (2026-07-19)** — `/transfer?target={photo_id}` + `routers/transfer.py`.
+  `transfers` table (007): one row per (donor annotation, target photo), records only the
+  DECISION (open/accepted/rejected + accepted_annotation_id); pipeline state derived from
+  match_results rows carrying `params.transfer_id` + `stage` (sweep|coarse|refine).
+  `enqueue_pair()` factored out of matching enqueue (shared job builder). Endpoints:
+  `GET bench` (donor auto-suggest ≤200 m w/ annotations; per-annotation azimuth, prediction,
+  transfer state; datapoints), `POST sweep` (seed: scan whole target width w/ one big
+  annotation, 14 windows), `POST coarse` (batch; predicted window + 15° context),
+  `POST refine`, `POST accept` (native clone w/ donor body + approved `hv:derivedFrom` +
+  POI: donor's reused else minted w/ label from body's first segment — acceptance = the
+  identity assertion; re-accept after reopen updates the same native row), `POST
+  reject/reopen`. **Self-improving prior**: every confident (h_inliers≥100) projection of
+  a CALIBRATED-donor annotation is an (az ↦ x, local px/°) datapoint; prediction =
+  nearest-datapoint linear w/ distance-growing slack (piecewise by construction — absorbs
+  the bend); compass-only donors (west!) get predictions but contribute NO datapoints
+  (would corrupt the az space — calibrate west before trusting its azimuths). UI: donor
+  groups w/ state chips, ▶ coarse-all, auto-refine toggle (client-driven: polls, refines
+  confident coarse w/ bbox.w<0.012 once), review pane = donor OSD (rect-focused) over
+  target OSD (proposal rect, EDITABLE for nudge; predicted-x mark pre-coarse), per-stage
+  results table w/ overlay links. Verified live: bench (8 datapoints az 110–158°, 171
+  predictions), batch coarse ×3 (972–987 h_inl incl. 32px-wide Technická), refine endpoint
+  (→1583 h_inl), accept e2e on the Dubeček church: native `fd58b7b9` + POI `96a64db4`
+  (label auto-adopted, both anns relate, derivedFrom fact approved) + graduation
+  create-op appears. Prior evidence rows backfilled w/ transfer_id (SQL, kept).
+  Overlay v2 (same day): inlier lines RAINBOW-COLORED BY DONOR-X (correct match = smooth
+  hue sweep, crossings jump out — a dense same-color bundle read as noise; scales were
+  always correct, both panels ARE the 512-loaded arrays the matcher ran on), 2× upscale,
+  ≤120 sampled lines, outliers drawn only when ≤60 (sparse = informative), donor rect
+  (amber) on the left panel + projected quad (cyan) right, rects OVER the lines.
+  Links: photo page header gets "transfer bench →" (panos) + one in the Matched-as-
+  candidate section; transfer bench got a browse ▾ pano picker (the /photos index
+  search: title/place/id, ann counts, 🧭 calibrated).
+- **Verdict chips ✅ (2026-07-19)** — a rejected `depictedIn` fact rendered as generic
+  strikethrough FactChip, reading as "superseded/exclusive" when it means "verdict: NOT
+  depicted in this photo" (negative gold data). FactChip gained a `verdict` mode
+  (✓ depicted in / ✗ not depicted in / ? undecided, photo id links to /photos/{id},
+  no strikethrough, verbs retitled); annotation page gold-set section uses it, with a
+  compact/raw toggle in the heading — PRECEDENT: semantic rendering by default, raw
+  fact chip one click away.
+- **Page help ✅ (2026-07-19)** — `Help.svelte`: a ? button next to every page h1 that
+  drops an explainer panel (purpose, columns, symbols, actions, where the page sits in
+  the pipeline; Esc closes). Content authored per page as the children snippet; shared
+  `.help-panel` typography in app.css (snippets compile in parent scope, so component-
+  scoped styles can't reach them). All 13 pages covered incl. photo/annotation detail.
+  Kept the matching bench's inline match-numbers ? (referenced from page help) and
+  updated its stale "green lines" overlay text to the rainbow-by-donor-x scheme.
+- **Dump 3 (2026-07-19)** — `photos_3.csv` etc. imported via `seed_dev_from_dump.sh`
+  (+1870 photos, +19 anns). GOTCHA: dump-seeded annotations carry old prod `created_at`
+  BEHIND the append watermark (advanced by live dev annotations) → append skips them;
+  `reconcile` backfills (treats source-not-in-mirror as changed). Run reconcile after
+  every dump import.
+
 Full detail + next steps: plan file `~/.claude/plans/imperative-crafting-wombat.md`.
 Next: RDF cross-check (Hillview independently RE-DERIVES the body from the TriG facts
 and diffs vs the manifest — the two-interpreters agreement; needs the parser +

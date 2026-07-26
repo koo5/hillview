@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
+	import Help from '$lib/components/Help.svelte';
 	import TriangulationMap, {
 		type TriRay,
 		type TriFix
@@ -62,7 +63,43 @@
 	});
 </script>
 
-<h1>Triangulate</h1>
+<div class="row" style="gap:8px">
+	<h1>Triangulate</h1>
+	<Help>
+		<h4>what this page does</h4>
+		<p>
+			Locates a POI from pure geometry: each annotation that depicts it defines a
+			sight-ray (pano position + the azimuth of the annotation's rect), and two or more
+			rays from different panos intersect at the subject. No geocoder involved — this is
+			the independent check on (or replacement for) a Nominatim anchor.
+		</p>
+		<h4>prerequisites</h4>
+		<p>
+			Relate annotations to a shared POI on their detail pages (or let transfer-accept
+			do it). Rays need an azimuth: <b>cal</b> rays use the pano's accepted calibration,
+			<b>compass</b> rays fall back to phone compass + assumed FOV — usable but wobbly,
+			which is why the map draws them differently.
+		</p>
+		<h4>columns</h4>
+		<dl>
+			<dt>annotation</dt>
+			<dd>the depicting annotation (hover to highlight its ray on the map)</dd>
+			<dt>pano</dt>
+			<dd>the photo the ray starts from</dd>
+			<dt>azimuth</dt>
+			<dd>ray bearing, tagged cal / compass</dd>
+			<dt>fwd</dt>
+			<dd>distance from the pano to the fix along the ray</dd>
+		</dl>
+		<h4>the fix</h4>
+		<p>
+			Least-squares intersection of all usable rays; <b>residual</b> is the mean
+			perpendicular miss distance — a large value means at least one ray is wrong
+			(compass error, bad calibration, or the annotations don't actually share a
+			subject). The map ↗ link opens the fix on hillview.cz.
+		</p>
+	</Help>
+</div>
 <p class="muted">
 	A <b>POI</b> is the shared subject that several annotations depict. Relate the annotations to
 	one POI (on each annotation's detail page), then their sight-rays are intersected here to

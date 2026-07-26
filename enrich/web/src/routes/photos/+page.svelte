@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, ApiError } from '$lib/api';
+	import Help from '$lib/components/Help.svelte';
 	import PhotoThumb from '$lib/components/PhotoThumb.svelte';
 
 	interface PhotoRow {
@@ -52,7 +53,41 @@
 	onMount(load);
 </script>
 
-<h1>Photos</h1>
+<div class="row" style="gap:8px">
+	<h1>Photos</h1>
+	<Help>
+		<h4>what this page does</h4>
+		<p>
+			Browse the read-only mirror of Hillview's photo table (synced by append/reconcile —
+			see the Dashboard). Everything else in the workbench hangs off a photo's record
+			page: annotations, facts, calibration, matching, transfer.
+		</p>
+		<h4>filters</h4>
+		<dl>
+			<dt>search</dt>
+			<dd>title / place / id substring</dd>
+			<dt>panos</dt>
+			<dd>aspect ratio ≥ 2 only</dd>
+			<dt>annotated</dt>
+			<dd>has at least one current annotation</dd>
+			<dt>calibrated 🧭</dt>
+			<dd>carries accepted calibration facts (see the Calibration bench)</dd>
+		</dl>
+		<h4>columns</h4>
+		<dl>
+			<dt>photo</dt>
+			<dd>thumbnail — click through to the record page</dd>
+			<dt>title / place</dt>
+			<dd>title, geocoded place name, short id</dd>
+			<dt>size</dt>
+			<dd>pixel dimensions; <i>pano</i> pill when aspect ≥ 2</dd>
+			<dt>anns</dt>
+			<dd>current annotation count (default sort, most first)</dd>
+			<dt>uploaded</dt>
+			<dd>upload date in Hillview</dd>
+		</dl>
+	</Help>
+</div>
 <p class="muted">
 	The mirrored photo set, most-annotated first. Click through to a photo's record page —
 	annotations, facts, protos, matches in one place.

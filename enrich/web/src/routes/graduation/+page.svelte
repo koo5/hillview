@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api, ApiError } from '$lib/api';
+	import Help from '$lib/components/Help.svelte';
 	import PhotoThumb from '$lib/components/PhotoThumb.svelte';
 
 	interface Change {
@@ -99,7 +100,44 @@
 	});
 </script>
 
-<h1>Graduation</h1>
+<div class="row" style="gap:8px">
+	<h1>Graduation</h1>
+	<Help>
+		<h4>what this page does</h4>
+		<p>
+			The one-way valve from workbench back to Hillview. Curation here never writes to
+			the production database directly; this page derives what <i>would</i> change,
+			bundles it into a reviewable package, and Hillview's admin applies it. Landing is
+			then observed through the normal mirror sync — nothing is trusted blindly.
+		</p>
+		<h4>the three pending sections</h4>
+		<dl>
+			<dt>body rewrites</dt>
+			<dd>
+				annotations with an approved labelText / anchorCandidate fact: the facts are
+				serialized back into the <span class="mono">name | context | … | lat, lon</span>
+				body format. <b>driving facts</b> shows which approvals produced the change;
+				the struck-through line is the current body being replaced (segments the parser
+				doesn't recognize are preserved verbatim)
+			</dd>
+			<dt>new annotations</dt>
+			<dd>
+				workbench-native annotations (drawn in-bench or accepted transfers) to be
+				created in Hillview, with their rect and body
+			</dd>
+			<dt>rect changes</dt>
+			<dd>reshaped rectangles for existing annotations (struck-through = current rect)</dd>
+		</dl>
+		<h4>export package</h4>
+		<p>
+			Bundles the whole pending set into a JSON ops manifest + TriG provenance appendix.
+			Each op carries a precondition on the current body/rect, so anything edited
+			concurrently in Hillview is skipped, never clobbered. Drop the file into
+			Hillview's admin; after the next sync, applied items disappear from pending
+			("already reflected").
+		</p>
+	</Help>
+</div>
 <p class="muted">
 	What approved curation would push back into Hillview: for every annotation with an
 	<b>approved</b> labelText or anchorCandidate fact, the suggested body is the facts

@@ -5,8 +5,9 @@
 	let {
 		fact,
 		interactive = false,
+		verdict = false,
 		onchange
-	}: { fact: Fact; interactive?: boolean; onchange?: () => void } = $props();
+	}: { fact: Fact; interactive?: boolean; verdict?: boolean; onchange?: () => void } = $props();
 
 	let busy = $state(false);
 
@@ -24,25 +25,53 @@
 	const display = $derived(
 		fact.value_type === 'uri' ? fact.value.replace(/^https?:\/\//, '').slice(0, 46) : fact.value
 	);
+
+	// verdict mode: a rejected depictedIn is a negative verdict ("not depicted
+	// in this photo"), not a discarded fact — say so instead of striking through
+	const photoId = $derived(fact.value.split('/').pop() ?? '');
+	const verdictLabel = $derived(
+		fact.status === 'approved'
+			? '✓ depicted in'
+			: fact.status === 'rejected'
+				? '✗ not depicted in'
+				: '? depicted in — undecided'
+	);
 </script>
 
-<span class="fact status-{fact.status}" title={fact.fact}>
-	<span class="pred">{fact.predicate}</span>
-	{#if fact.value_type === 'uri' && fact.value.startsWith('http') && !fact.value.includes('rdf.hillview.cz')}
-		<a href={fact.value} target="_blank" rel="noreferrer">{display}</a>
+<span class="fact status-{fact.status}" class:verdict title={fact.fact}>
+	{#if verdict}
+		<span class="pred">{verdictLabel}</span>
+		<a class="val" href="/photos/{photoId}">{photoId.slice(0, 8)}</a>
 	{:else}
-		<span class="val">{display}</span>
+		<span class="pred">{fact.predicate}</span>
+		{#if fact.value_type === 'uri' && fact.value.startsWith('http') && !fact.value.includes('rdf.hillview.cz')}
+			<a href={fact.value} target="_blank" rel="noreferrer">{display}</a>
+		{:else}
+			<span class="val">{display}</span>
+		{/if}
 	{/if}
 	{#if interactive}
 		<span class="verbs">
 			{#if fact.status !== 'approved'}
-				<button disabled={busy} title="approve" onclick={() => curate('approved')}>✓</button>
+				<button
+					disabled={busy}
+					title={verdict ? 'mark depicted' : 'approve'}
+					onclick={() => curate('approved')}>✓</button
+				>
 			{/if}
 			{#if fact.status !== 'rejected'}
-				<button disabled={busy} title="reject" onclick={() => curate('rejected')}>✗</button>
+				<button
+					disabled={busy}
+					title={verdict ? 'mark not depicted' : 'reject'}
+					onclick={() => curate('rejected')}>✗</button
+				>
 			{/if}
 			{#if fact.status !== 'proposed'}
-				<button disabled={busy} title="reset to proposed" onclick={() => curate('proposed')}>↺</button>
+				<button
+					disabled={busy}
+					title={verdict ? 'reset to undecided' : 'reset to proposed'}
+					onclick={() => curate('proposed')}>↺</button
+				>
 			{/if}
 		</span>
 	{/if}
@@ -77,10 +106,15 @@
 	}
 	.status-rejected {
 		border-color: var(--rejected);
+	}
+	.status-rejected:not(.verdict) {
 		opacity: 0.65;
 	}
-	.status-rejected .val {
+	.status-rejected:not(.verdict) .val {
 		text-decoration: line-through;
+	}
+	.verdict.status-rejected .pred {
+		color: var(--rejected);
 	}
 	.verbs button {
 		padding: 0 6px;

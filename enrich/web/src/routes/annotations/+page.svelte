@@ -3,6 +3,7 @@
 	import { localStorageSharedStore } from '$lib/svelte-shared-store';
 	import type { AnnotationList } from '$lib/types';
 	import FactChip from '$lib/components/FactChip.svelte';
+	import Help from '$lib/components/Help.svelte';
 	import PhotoThumb from '$lib/components/PhotoThumb.svelte';
 
 	const filters = localStorageSharedStore('enrich_ann_filters', {
@@ -47,7 +48,45 @@
 	}
 </script>
 
-<h1>Annotations</h1>
+<div class="row" style="gap:8px">
+	<h1>Annotations</h1>
+	<Help>
+		<h4>what this page does</h4>
+		<p>
+			The mirrored annotations with the facts the parser extracted from each body.
+			Bodies are pipe-separated (<span class="mono">name|wiki-url|…</span>); the parser
+			worker turns them into RDF facts (labelText, wikipediaUrl, …), each stored as its
+			own content-addressed graph with proposed/approved/rejected curation status.
+		</p>
+		<h4>filters</h4>
+		<dl>
+			<dt>panos only</dt>
+			<dd>annotations on photos with aspect ≥ 2</dd>
+			<dt>status</dt>
+			<dd>show only annotations having a fact with that curation status</dd>
+			<dt>search</dt>
+			<dd>body substring</dd>
+		</dl>
+		<h4>columns</h4>
+		<dl>
+			<dt>photo</dt>
+			<dd>the photo the annotation sits on</dd>
+			<dt>body</dt>
+			<dd>raw body text, segments split on |; links to the annotation detail page</dd>
+			<dt>facts</dt>
+			<dd>
+				parsed fact chips — green border approved, red/struck rejected, plain proposed.
+				Curation verbs live on the detail page
+			</dd>
+		</dl>
+		<h4>downstream</h4>
+		<p>
+			The detail page is where everything happens: rename, wiki-attach, anchor curation
+			(geocode), POI relations, matching verdicts. Approved facts eventually flow back
+			into Hillview via Graduation.
+		</p>
+	</Help>
+</div>
 <p class="muted">
 	Annotation bodies → parsed facts. Curate on the detail page or via the chips' verbs there.
 </p>

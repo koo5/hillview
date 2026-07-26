@@ -4,6 +4,7 @@
 	import { localStorageSharedStore } from '$lib/svelte-shared-store';
 	import type { AnnotationList, AnnotationRow, CandidatesResponse } from '$lib/types';
 	import CandidateMap from '$lib/components/CandidateMap.svelte';
+	import Help from '$lib/components/Help.svelte';
 	import PhotoThumb from '$lib/components/PhotoThumb.svelte';
 
 	const q = localStorageSharedStore('enrich_geo_q', '');
@@ -70,7 +71,49 @@
 	});
 </script>
 
-<h1>Geocode</h1>
+<div class="row" style="gap:8px">
+	<h1>Geocode</h1>
+	<Help>
+		<h4>what this page does</h4>
+		<p>
+			Resolves each annotation's label to a place on Earth. The geocoder worker queries
+			Nominatim (and Wikipedia coordinates when the body carries a wiki link) per label
+			and mints <span class="mono">anchorCandidate</span> facts; here you pick the right
+			one. An <b>approved</b> candidate becomes the annotation's <b>anchor</b> — its
+			assumed real-world location.
+		</p>
+		<h4>candidate table</h4>
+		<dl>
+			<dt>candidate</dt>
+			<dd>display name + source URI (OSM object, Wikipedia page, or a geo: pin)</dd>
+			<dt>km</dt>
+			<dd>distance from the photo</dd>
+			<dt>Δ°</dt>
+			<dd>bearing to the candidate minus the photo's compass — in-view candidates have small Δ</dd>
+			<dt>type</dt>
+			<dd>OSM object type (node/way/relation kind)</dd>
+			<dt>✓ / ✗</dt>
+			<dd>approve (= make it the anchor) / reject the candidate fact</dd>
+		</dl>
+		<h4>map</h4>
+		<p>
+			Blue dot = the photo's position, dashed ray = its stored compass bearing, markers =
+			candidates (click to select). A plausible anchor sits near the ray at a sane
+			distance.
+		</p>
+		<h4>actions</h4>
+		<dl>
+			<dt>⟳ run geocode</dt>
+			<dd>enqueue the geocoder over all current labels (cached; re-runs pick up renames)</dd>
+		</dl>
+		<h4>downstream</h4>
+		<p>
+			Anchors feed calibration (azimuth reference points), the matching bench's view-pie
+			gate, and triangulation. A rename (on the annotation page) redirects future
+			geocoding to the new label.
+		</p>
+	</Help>
+</div>
 <p class="muted">
 	Nominatim/Wikipedia candidates per label. Approve the right one — it becomes the anchor.
 	Blue dot = photo, dashed ray = its bearing.
