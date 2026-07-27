@@ -5,7 +5,7 @@ import uuid
 import logging
 import asyncio
 import requests
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, Union, Tuple
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
@@ -74,6 +74,23 @@ def consume_oauth_state(nonce: Optional[str]) -> Optional[Dict[str, Any]]:
 	if utcnow() > entry['expires_at']:
 		return None
 	return entry
+
+
+def parse_legacy_oauth_state(state: str) -> Tuple[str, str, Optional[str]]:
+	"""Parse the legacy stateless state format: provider:redirect_uri[:session_id].
+
+	The session id (when present) is always after the last colon and is UUID-shaped;
+	everything else after the first colon belongs to the redirect URI, which itself
+	contains colons (https://, cz.hillview://). Returns (provider, redirect_uri,
+	session_id). Caller must ensure state contains at least one colon.
+	"""
+	provider, remainder = state.split(":", 1)
+	if remainder and ":" in remainder:
+		# Split from the right; keep the last part only if it looks like a session UUID.
+		url_part, potential_session = remainder.rsplit(":", 1)
+		if len(potential_session) >= 30 and "-" in potential_session:
+			return provider, url_part, potential_session
+	return provider, remainder, None
 
 async def cleanup_expired_sessions():
     """Clean up expired OAuth sessions"""
@@ -676,25 +693,7 @@ async def oauth_callback(
 		polling_session_id = state_entry.get("session_id")
 	elif state and ":" in state:
 		# Legacy stateless format: provider:redirect_uri[:session_id]
-		provider, remainder = state.split(":", 1)
-
-		# Check if remainder has session ID (format: url:session_id)
-		# Session ID is always after the last colon and is a UUID format
-		if remainder and ":" in remainder:
-			# Split from the right to get the last part as potential session ID
-			url_part, potential_session = remainder.rsplit(":", 1)
-
-			# Check if the last part looks like a session ID (UUID format)
-			if len(potential_session) >= 30 and "-" in potential_session:
-				final_redirect_uri = url_part
-				polling_session_id = potential_session
-			else:
-				# Last part doesn't look like session ID, treat whole remainder as URL
-				final_redirect_uri = remainder
-				polling_session_id = None
-		else:
-			final_redirect_uri = remainder
-			polling_session_id = None
+		provider, final_redirect_uri, polling_session_id = parse_legacy_oauth_state(state)
 	else:
 		# Fallback to default if state is malformed
 		provider = "google"
@@ -1087,7 +1086,10 @@ async def oauth_login_internal(
 	# nonce (the web frontend does), it's authoritative — validate + consume it and
 	# take provider/redirect from it, never from the (spoofable) client body. The
 	# backend oauth-callback path already consumed the nonce, so it passes no state
-	# here and falls through to the body-provided provider.
+	# here and falls through to the body-provided provider. In legacy mode (strict
+	# state off) the web frontend still sends no provider, so recover it from the
+	# legacy provider:redirect_uri[:session_id] state — same parsing as the GET
+	# callback; without this, flag-off leaves provider None and web login 400s.
 	provider = oauth_data.provider
 	redirect_from_state: Optional[str] = None
 	if is_oauth_strict_state_enabled() and oauth_data.state:
@@ -1097,6 +1099,8 @@ async def oauth_login_internal(
 			raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
 		provider = state_entry["provider"]
 		redirect_from_state = state_entry["redirect_uri"]
+	elif provider is None and oauth_data.state and ":" in oauth_data.state:
+		provider, redirect_from_state, _ = parse_legacy_oauth_state(oauth_data.state)
 
 	log.info(f"oauth_login_internal - Provider: {provider}")
 
