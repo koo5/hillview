@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+	<!-- enrichment workbench: terrain skyline motif (yellow = the overlay
+	     skyline colour, rgba(255,220,50) in the viewers) -->
+	<rect width="64" height="64" rx="12" fill="#141a22"/>
+	<path d="M0 46 L14 30 L24 40 L38 20 L50 34 L64 26 L64 64 L0 64 Z" fill="#2e4057"/>
+	<path d="M0 46 L14 30 L24 40 L38 20 L50 34 L64 26" fill="none" stroke="#ffdc32" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>
+	<circle cx="51" cy="13" r="5" fill="#8fb4d9"/>
+</svg>
