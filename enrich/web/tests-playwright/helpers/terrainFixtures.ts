@@ -74,6 +74,9 @@ export async function stubTerrainApi(page: Page, rows: () => unknown[]) {
 		if (url.includes('/terrain/enqueue')) {
 			return route.fulfill({ json: { queued: RENDER_ID } });
 		}
+		if (url.includes('/terrain/peaks')) {
+			return route.fulfill({ json: { peaks: [] } });
+		}
 		return route.fulfill({ json: { renders: rows() } });
 	});
 }

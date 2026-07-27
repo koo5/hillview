@@ -13,6 +13,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "remoulade[rabbitmq,limits]>=7",   # extras: broker.py needs limits, RabbitmqBroker needs amqpstorm
     "python-multipart>=0.0.9",
+    "rasterio>=1.3",           # peaks endpoint: fill missing OSM ele by sampling the DEM
 ]
 
 [dependency-groups]

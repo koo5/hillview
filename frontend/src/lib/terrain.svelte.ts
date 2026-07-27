@@ -156,12 +156,18 @@ export function stopTerrainPolling(): void {
 	pollTimer = null;
 }
 
-export async function enqueueTerrainRender(lat: number, lon: number): Promise<void> {
+/** params: allowlisted render params (see the API's ALLOWED_PARAMS) — e.g.
+ * dsm_stack ('glo30' | 'cuzk') and az_step_deg/elev_step_deg (resolution). */
+export async function enqueueTerrainRender(
+	lat: number,
+	lon: number,
+	params: Record<string, unknown> = {}
+): Promise<void> {
 	if (!terrainApiBase) return;
 	const r = await fetch(`${terrainApiBase}/terrain/enqueue`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ lat, lon })
+		body: JSON.stringify({ lat, lon, params })
 	});
 	if (!r.ok) throw new Error(`enqueue failed: HTTP ${r.status}`);
 	await refreshTerrainRenders();

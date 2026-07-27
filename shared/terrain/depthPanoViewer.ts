@@ -57,6 +57,8 @@ export interface TerrainPick {
 	azimuth_deg: number;
 	col: number;
 	row: number;
+	/** set when the pick came from tapping a label: the feature's name */
+	label?: string;
 }
 
 export interface FogParams {
@@ -111,6 +113,22 @@ export function pickFromDepth(
 	const azimuth_deg = azimuthForColumn(meta, col);
 	const p = destinationPoint(meta.lat, meta.lon, azimuth_deg, distance_m);
 	return { lat: p.lat, lon: p.lon, distance_m, azimuth_deg, col, row };
+}
+
+/** Sky-click UX: a click above the skyline means "that direction" — snap
+ * DOWN the column to the first terrain row (the horizon) and pick it. A
+ * terrain click is unchanged; null only when the whole column is sky. */
+export function pickFromDepthOrHorizon(
+	meta: TerrainMeta,
+	depth: Uint16Array,
+	col: number,
+	row: number
+): TerrainPick | null {
+	if (col < 0 || col >= meta.width) return null;
+	for (let r = Math.max(0, row); r < meta.height; r++) {
+		if (depth[r * meta.width + col] !== 0) return pickFromDepth(meta, depth, col, r);
+	}
+	return null;
 }
 
 export function hexToRgb(hex: string): [number, number, number] {
@@ -191,6 +209,59 @@ export function angularSpanDeg(meta: TerrainMeta): number {
 	return step * meta.width;
 }
 
+/** Horizontal offset policy: full 360° panoramas live on a cylinder (offX
+ * wraps), but a SECTOR render must clamp — wrapping would tile the sector,
+ * showing a seam where its two edges meet under a compass that keeps
+ * counting linearly. */
+export function clampPartialOffX(
+	meta: TerrainMeta | null,
+	offX: number,
+	scale: number
+): number {
+	if (!meta || angularSpanDeg(meta) >= 359.9) return wrap01(offX);
+	return Math.min(Math.max(offX, 0), Math.max(0, 1 - 1 / scale));
+}
+
+/** Azimuth ruler ticks for the current view (the compass strip painted along
+ * the canvas bottom). Tick spacing adapts to zoom: the smallest of
+ * 1°/5°/15°/45° that keeps ticks ≥ ~26 px apart. Majors are the 45°
+ * cardinals (N NE E …); when zoomed in enough for ≤5° minors, those get
+ * degree labels too. Pure — x positions are linear in unwrapped azimuth, so
+ * seam-straddling views just work. */
+export interface CompassTick {
+	x: number;
+	azimuthDeg: number;
+	major: boolean;
+	label: string | null;
+}
+
+const CARDINALS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+export function compassTicks(meta: TerrainMeta, rect: ViewRect, W: number): CompassTick[] {
+	const w = rect.x2 - rect.x1;
+	if (!(w > 0) || !(W > 0)) return [];
+	const stepDeg =
+		meta.az_step_deg ?? (meta.width > 1 ? (meta.az_end - meta.az_start) / (meta.width - 1) : 0);
+	if (!(stepDeg > 0)) return [];
+	const a1 = meta.az_start + (rect.x1 * meta.width - 0.5) * stepDeg; // unwrapped
+	const span = w * stepDeg * meta.width;
+	const pxPerDeg = W / span;
+	const minor = [1, 5, 15, 45].find((s) => s * pxPerDeg >= 26) ?? 45;
+	const out: CompassTick[] = [];
+	// epsilon keeps the first tick stable when a1 sits exactly on a multiple
+	for (let a = Math.ceil((a1 - 1e-9) / minor) * minor; a <= a1 + span + 1e-9; a += minor) {
+		const az = ((a % 360) + 360) % 360;
+		const major = az % 45 === 0;
+		out.push({
+			x: ((a - a1) / span) * W,
+			azimuthDeg: az,
+			major,
+			label: major ? CARDINALS[az / 45] : minor <= 5 ? `${az}°` : null
+		});
+	}
+	return out;
+}
+
 /** The map's view wedge, purely DERIVED from the rect (pane → map, one-way):
  * center-x → azimuth, width → wedge FOV. */
 export function wedgeFromRect(
@@ -216,15 +287,19 @@ uniform sampler2D uColor; uniform sampler2D uDepth;
 uniform float uDensity; uniform vec3 uSky;
 void main(){
 	// x wraps via TEXTURE_WRAP_S = REPEAT; y beyond the strip continues the
-	// scene: open sky above the panorama's top edge, dark ground below
+	// scene: open sky above the panorama's top edge, and below the bottom
+	// edge the last row extends with a progressive darkening (a hard void
+	// there reads as a rendering bug)
 	if (vUV.y < 0.0) { frag = vec4(uSky * 1.08, 1.0); return; }
-	if (vUV.y > 1.0) { frag = vec4(0.08, 0.09, 0.11, 1.0); return; }
-	float d = texture(uDepth, vUV).r;
-	vec3 c = texture(uColor, vUV).rgb;
+	vec2 uv = vec2(vUV.x, min(vUV.y, 1.0));
+	float d = texture(uDepth, uv).r;
+	vec3 c = texture(uColor, uv).rgb;
 	if (d <= 0.0) { // sky: subtle vertical gradient
-		frag = vec4(mix(uSky * 1.08, uSky * 0.92, vUV.y), 1.0); return; }
+		frag = vec4(mix(uSky * 1.08, uSky * 0.92, uv.y), 1.0); return; }
 	float fog = 1.0 - exp(-d * uDensity);
-	frag = vec4(mix(c, uSky, fog), 1.0);
+	vec3 shaded = mix(c, uSky, fog);
+	float below = clamp((vUV.y - 1.0) * 6.0, 0.0, 0.45);
+	frag = vec4(shaded * (1.0 - below), 1.0);
 }`;
 
 export interface LoadOptions {
@@ -254,6 +329,16 @@ export class DepthPanoViewer {
 	 * the pane); the vertical view window follows this, so zooming grows the
 	 * strip vertically instead of magnifying inside a fixed noodle */
 	private cAspect = 0.5;
+	/** vertical exaggeration: a degree of elevation gets exag× the screen of
+	 * a degree of azimuth. DISPLAY-ONLY — depths, picks, and occlusion are
+	 * untouched; the rect/labels track it because getRect reports the true
+	 * (shrunken) vertical window. */
+	private exag = 1;
+	/** texture-V center of the terrain content band (skyline top → bottom),
+	 * measured from the depth buffer at load. Default views center on THIS,
+	 * not the texture middle: the render's elevation window (−8..+12° by
+	 * default) is mostly sky from lowland viewpoints. */
+	private contentCenterV = 0.5;
 	private visibilityKm = 80;
 	private skyColor = '#a7cdf0';
 	// pointer state (mouse + touch + pinch via Pointer Events)
@@ -340,6 +425,16 @@ export class DepthPanoViewer {
 			);
 		this.meta = meta;
 		this.depthU16 = depthU16;
+		// terrain band: topmost row with any non-sky pixel (bottom is terrain
+		// by construction); one-time scan, sky rows are the fast path
+		let topRow = meta.height - 1;
+		outer: for (let r = 0; r < meta.height; r++)
+			for (let c = 0; c < meta.width; c++)
+				if (depthU16[r * meta.width + c] !== 0) {
+					topRow = r;
+					break outer;
+				}
+		this.contentCenterV = (topRow + meta.height) / 2 / meta.height;
 		const depthF32 = new Float32Array(depthU16.length);
 		for (let i = 0; i < depthU16.length; i++) depthF32[i] = depthU16[i] * meta.depth_scale_m;
 
@@ -366,7 +461,7 @@ export class DepthPanoViewer {
 			const v = viewFromRect(meta, this.pendingRect);
 			this.pendingRect = null;
 			this.scale = v.scale;
-			this.offX = v.offX;
+			this.offX = clampPartialOffX(meta, v.offX, v.scale);
 			this.offY = v.offY;
 		} else {
 			this.scale = 1;
@@ -389,13 +484,15 @@ export class DepthPanoViewer {
 		return this.depthU16;
 	}
 
-	/** Current viewport rect (zoom view convention), null before load. */
+	/** Current viewport rect (zoom view convention), null before load.
+	 * Reports the EFFECTIVE vertical window (canvas aspect / exaggeration),
+	 * which is what keeps labels and URL sync honest under exaggeration. */
 	getRect(): ViewRect | null {
 		return this.meta
 			? rectFromView(
 					this.meta,
 					{ offX: this.offX, offY: this.offY, scale: this.scale },
-					this.cAspect
+					this.cAspect / this.exag
 				)
 			: null;
 	}
@@ -410,7 +507,7 @@ export class DepthPanoViewer {
 		}
 		const v = viewFromRect(this.meta, rect);
 		this.scale = v.scale;
-		this.offX = v.offX;
+		this.offX = clampPartialOffX(this.meta, v.offX, v.scale);
 		this.offY = v.offY;
 		this.draw();
 	}
@@ -421,28 +518,44 @@ export class DepthPanoViewer {
 				rectFromView(
 					this.meta,
 					{ offX: this.offX, offY: this.offY, scale: this.scale },
-					this.cAspect
+					this.cAspect / this.exag
 				)
 			);
 	}
 
 	/** Visible vertical window in texture-V units: the horizontal window
-	 * scaled by canvasAspect/textureAspect — square angular pixels. */
+	 * scaled by canvasAspect/textureAspect — square angular pixels at
+	 * exag 1, vertically stretched by exag otherwise. */
 	private vWin(): number {
 		const m = this.meta;
-		return m ? ((1 / this.scale) * this.cAspect) / textureAspect(m) : 1 / this.scale;
+		return m
+			? ((1 / this.scale) * this.cAspect) / (textureAspect(m) * this.exag)
+			: 1 / this.scale;
 	}
 
-	/** Center the panorama band vertically (sky above, dark below, when the
-	 * viewport is angularly taller than the strip). */
+	/** Center the view on the terrain content band (not the texture middle —
+	 * lowland renders are mostly sky), so zooming in keeps terrain
+	 * mid-screen instead of empty sky. */
 	private centerY(): void {
-		this.offY = (1 - this.vWin()) / 2;
+		this.offY = this.contentCenterV - this.vWin() / 2;
 	}
 
 	setFog({ visibilityKm, skyColor }: FogParams): void {
 		if (visibilityKm !== undefined) this.visibilityKm = visibilityKm;
 		if (skyColor !== undefined) this.skyColor = skyColor;
 		this.draw();
+	}
+
+	/** Vertical exaggeration (display-only). Keeps the view's vertical
+	 * center fixed while the stretch changes, so the horizon doesn't jump. */
+	setExaggeration(e: number): void {
+		const next = Math.min(10, Math.max(0.25, e));
+		if (next === this.exag) return;
+		const oldWin = this.vWin();
+		this.exag = next;
+		this.offY += (oldWin - this.vWin()) / 2;
+		this.draw();
+		this.emitView();
 	}
 
 	resetView(): void {
@@ -531,7 +644,11 @@ export class DepthPanoViewer {
 		const [ux, uy] = this.uvAt(clientX, clientY);
 		this.scale = Math.min(40, Math.max(1, this.scale * factor));
 		const r = this.canvas.getBoundingClientRect();
-		this.offX = wrap01(ux - (clientX - r.left) / r.width / this.scale);
+		this.offX = clampPartialOffX(
+			this.meta,
+			ux - (clientX - r.left) / r.width / this.scale,
+			this.scale
+		);
 		this.offY = uy - ((clientY - r.top) / r.height) * this.vWin();
 		this.draw();
 		this.emitView();
@@ -564,7 +681,11 @@ export class DepthPanoViewer {
 			return;
 		}
 		const r = this.canvas.getBoundingClientRect();
-		this.offX = wrap01(this.offX - (e.clientX - prev.x) / r.width / this.scale);
+		this.offX = clampPartialOffX(
+			this.meta,
+			this.offX - (e.clientX - prev.x) / r.width / this.scale,
+			this.scale
+		);
 		this.offY -= ((e.clientY - prev.y) / r.height) * this.vWin();
 		this.moved += Math.abs(e.clientX - prev.x) + Math.abs(e.clientY - prev.y);
 		this.draw();
@@ -576,11 +697,13 @@ export class DepthPanoViewer {
 		this.pinchDist = 0;
 		if (this.moved > 4 || !this.meta || !this.depthU16 || !this.onPick) return;
 		const [uRaw, v] = this.uvAt(e.clientX, e.clientY);
-		if (v < 0 || v > 1) return;
+		// v < 0 (open sky above the strip) snaps to the horizon like any sky
+		// click; below the strip's bottom stays a no-op
+		if (v > 1) return;
 		const u = wrap01(uRaw); // seam: the viewport lives on a cylinder
 		const col = Math.min(this.meta.width - 1, Math.floor(u * this.meta.width));
-		const row = Math.min(this.meta.height - 1, Math.floor(v * this.meta.height));
-		this.onPick(pickFromDepth(this.meta, this.depthU16, col, row));
+		const row = Math.min(this.meta.height - 1, Math.max(0, Math.floor(v * this.meta.height)));
+		this.onPick(pickFromDepthOrHorizon(this.meta, this.depthU16, col, row));
 	};
 
 	private onCancel = (e: PointerEvent): void => {

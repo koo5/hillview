@@ -14,6 +14,8 @@ import type { TerrainMeta } from '$terrain/depthPanoViewer';
 export interface TerrainRender {
 	id: string;
 	photo_id: string | null;
+	/** photo_mirror title joined in by the API, when the render came from a photo */
+	photo_title?: string | null;
 	lat: number;
 	lon: number;
 	status: string; // queued | rendering (progress ship-order) | done | error

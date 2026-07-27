@@ -1,7 +1,7 @@
 """Terrain bench API: enqueue depth-panorama renders for photo viewpoints
 (or ad-hoc lat/lon), receive worker results, serve the artifacts the bench
 viewer needs (raw uint16 depth buffer + preview JPEG + meta), and provide
-OSM natural=peak candidates for the viewer's peak labels."""
+OSM label candidates (peaks, observation towers, masts) for the viewer."""
 import gzip
 import json
 import math
@@ -25,9 +25,11 @@ router = APIRouter()
 
 WORKER_TOKEN = os.getenv("ENRICH_WORKER_TOKEN", "dev-worker-token")
 
-# render() kwargs a client may set; mirrored in worker.py (defense on both ends).
+# render() kwargs a client may set; mirrored in worker.py (defense on both
+# ends). dsm_stack is not a render() kwarg: the worker maps it to a named
+# TERRAIN_DSM_PATH_<STACK> env stack (glo30 / cuzk).
 ALLOWED_PARAMS = {"observer_height_m", "observer_elevation_m",
-                  "gps_altitude_m", "gps_datum",
+                  "gps_altitude_m", "gps_datum", "dsm_stack",
                   "az_start", "az_end", "az_step_deg",
                   "elev_min_deg", "elev_max_deg", "elev_step_deg",
                   "min_distance_m", "max_distance_m", "rel_step", "refraction_k"}
@@ -51,7 +53,8 @@ async def enqueue(req: EnqueueRequest):
     if req.photo_id:
         async with wb_engine.connect() as conn:
             row = (await conn.execute(text(
-                "SELECT ST_Y(geometry) AS lat, ST_X(geometry) AS lon, altitude "
+                "SELECT ST_Y(geometry) AS lat, ST_X(geometry) AS lon, altitude, "
+                "compass_angle, width, height "
                 "FROM photo_mirror WHERE id = :id AND geometry IS NOT NULL"),
                 {"id": req.photo_id})).first()
         if not row:
@@ -64,6 +67,19 @@ async def enqueue(req: EnqueueRequest):
         # renderer.resolve_eye_elevation; provenance lands in meta.eye_source.
         if row.altitude is not None and "gps_altitude_m" not in params:
             params["gps_altitude_m"] = row.altitude
+        # Photos with a known bearing render only their view wedge (pie:
+        # calibrated FOV when available, compass ± assumed 90° otherwise)
+        # + margin — no point marching 360° for a photograph, pano or not.
+        # Explicit az params always win; wedges that would cover the whole
+        # circle anyway fall back to the full sweep.
+        if "az_start" not in params and "az_end" not in params:
+            from .matching import _pano_pie
+            pie = await _pano_pie(req.photo_id, row.compass_angle,
+                                  slack=2.0, default_far=2000, assumed_fov=90)
+            margin = 5.0
+            if pie and 2 * (pie["half"] + margin) < 360:
+                params["az_start"] = pie["bearing"] - pie["half"] - margin
+                params["az_end"] = pie["bearing"] + pie["half"] + margin
     if lat is None or lon is None:
         raise HTTPException(422, "need photo_id or lat+lon")
 
@@ -175,14 +191,16 @@ async def _queue_state() -> dict | None:
 
 @router.get("/terrain/renders")
 async def renders(photo_id: str | None = None, limit: int = 50):
-    where = "WHERE photo_id = :pid" if photo_id else ""
+    where = "WHERE tr.photo_id = :pid" if photo_id else ""
     async with wb_engine.connect() as conn:
         rows = (await conn.execute(text(
-            "SELECT id, photo_id, lat, lon, params, status, error, meta, "
-            "depth_path IS NOT NULL AS has_depth, "
-            "preview_path IS NOT NULL AS has_preview, worker, "
-            "enqueued_at, finished_at FROM terrain_renders "
-            f"{where} ORDER BY enqueued_at DESC LIMIT :lim"),
+            "SELECT tr.id, tr.photo_id, pm.title AS photo_title, "
+            "tr.lat, tr.lon, tr.params, tr.status, tr.error, tr.meta, "
+            "tr.depth_path IS NOT NULL AS has_depth, "
+            "tr.preview_path IS NOT NULL AS has_preview, tr.worker, "
+            "tr.enqueued_at, tr.finished_at FROM terrain_renders tr "
+            "LEFT JOIN photo_mirror pm ON pm.id = tr.photo_id "
+            f"{where} ORDER BY tr.enqueued_at DESC LIMIT :lim"),
             {"pid": photo_id, "lim": limit})).mappings().all()
     return {"renders": [dict(r) | {"id": str(r["id"])} for r in rows],
             "queue": await _queue_state()}
@@ -244,26 +262,36 @@ async def preview_artifact(render_id: str):
 
 
 # ---------------------------------------------------------------------------
-# peak candidates (terrain-mode v2: OSM natural=peak labels)
+# label candidates (terrain-mode v2: OSM peaks + observation towers/masts)
 # ---------------------------------------------------------------------------
-# The client draws labels for peaks the RENDER can see — visibility is
+# The client draws labels for features the RENDER can see — visibility is
 # decided client-side against the depth buffer, so this endpoint only has to
-# answer "which named peaks are in range". Overpass results are cached long
-# (peaks don't move) keyed on a coarse grid, so nearby viewpoints share an
-# entry and Overpass sees us rarely.
+# answer "which named features are in range". UNCAPPED on purpose: the old
+# global top-400-by-ele cap measured at Prosek kept nothing nearer than
+# 55 km and dropped Říp (oneoff probes 2026-07-27). Overpass results are
+# cached long (peaks don't move) keyed on a coarse grid, so nearby
+# viewpoints share an entry and Overpass sees us rarely.
+#
+# Overpass [timeout:N] is a KILL switch, not a best-effort budget: a query
+# either completes fully or aborts, and an abort surfaces as a "remark" in
+# the JSON — which we treat as failure and never cache.
 
 OVERPASS_URL = os.getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
 # overpass-api.de 406es default library User-Agents (usage policy wants an
 # identifying one) — send who we are, overridable for other instances
 OVERPASS_UA = os.getenv("OVERPASS_USER_AGENT",
                         "hillview-enrich-terrain/1.0 (+https://github.com/koo5/hillview)")
+# DSM for filling missing OSM ele tags (half the named peaks in the Prosek
+# pool lack one and would otherwise be unrankable). The api mounts the earth
+# volume read-only; a SURFACE model also gives towers/masts their visible
+# top height rather than the ground at their base.
+PEAKS_DEM = os.getenv("PEAKS_DEM_PATH", "/dem/glo30.vrt")
 PEAKS_TTL_S = 7 * 24 * 3600
-PEAKS_MAX = 400
 _peaks_cache: dict[tuple, tuple[float, list[dict]]] = {}
 
 
 def parse_ele(v) -> float | None:
-    """OSM ele values arrive as '1602', '1602.4', '1602 m', '1,602'…"""
+    """OSM ele/prominence values arrive as '1602', '1602.4', '1602 m', '1,602'…"""
     if v is None:
         return None
     try:
@@ -272,20 +300,50 @@ def parse_ele(v) -> float | None:
         return None
 
 
-def peaks_from_overpass(data: dict, limit: int = PEAKS_MAX) -> list[dict]:
-    """Overpass JSON → [{name, lat, lon, ele}], highest first (when several
-    hundred candidates exist, the tall ones are the ones worth labeling)."""
+def features_from_overpass(data: dict) -> list[dict]:
+    """Overpass JSON (peaks ∪ towers/masts union) → candidate dicts.
+    kind: peak | tower (observation) | mast (communication). prominence rides
+    along where OSM has it (~2% of peaks — but precisely the famous ones):
+    the client uses it for label priority now that the pool is uncapped."""
     out = []
     for el in data.get("elements", []):
-        name = (el.get("tags") or {}).get("name")
-        lat, lon = el.get("lat"), el.get("lon")
+        tags = el.get("tags") or {}
+        name, lat, lon = tags.get("name"), el.get("lat"), el.get("lon")
         if not name or lat is None or lon is None:
             continue
-        out.append({"name": name, "lat": lat, "lon": lon,
-                    "ele": parse_ele((el.get("tags") or {}).get("ele"))})
-    out.sort(key=lambda p: p["ele"] if p["ele"] is not None else -math.inf,
-             reverse=True)
-    return out[:limit]
+        if tags.get("natural") == "peak":
+            kind = "peak"
+        elif tags.get("tower:type") == "observation":
+            kind = "tower"
+        else:
+            kind = "mast"
+        f = {"name": name, "lat": lat, "lon": lon, "kind": kind,
+             "ele": parse_ele(tags.get("ele"))}
+        prom = parse_ele(tags.get("prominence"))
+        if prom is not None:
+            f["prominence"] = prom
+        out.append(f)
+    return out
+
+
+def fill_missing_ele(feats: list[dict]) -> None:
+    """Sample the DSM at features whose OSM ele tag is missing (sync — run
+    via threadpool). Estimates are flagged; on any failure candidates simply
+    keep ele None — labels still work, only ranking degrades."""
+    missing = [f for f in feats if f["ele"] is None]
+    if not missing or not os.path.exists(PEAKS_DEM):
+        return
+    try:
+        import rasterio
+        with rasterio.open(PEAKS_DEM) as src:
+            samples = src.sample([(f["lon"], f["lat"]) for f in missing])
+            for f, v in zip(missing, samples):
+                val = float(v[0])
+                if math.isfinite(val) and val > -1000:
+                    f["ele"] = round(val, 1)
+                    f["ele_estimated"] = True
+    except Exception as e:  # noqa: BLE001
+        print(f"terrain: DEM ele fill failed: {e}", flush=True)
 
 
 @router.get("/terrain/peaks")
@@ -295,19 +353,30 @@ async def peaks(lat: float, lon: float, radius_m: float = 100_000.0):
     hit = _peaks_cache.get(key)
     if hit and time.monotonic() - hit[0] < PEAKS_TTL_S:
         return {"peaks": hit[1], "cached": True}
-    query = (f"[out:json][timeout:25];"
-             f'node["natural"="peak"]["name"](around:{radius_m:.0f},{lat},{lon});'
-             f"out body;")
+    around = f"around:{radius_m:.0f},{lat},{lon}"
+    query = (
+        f"[out:json][timeout:60];("
+        f'node["natural"="peak"]["name"]({around});'
+        f'node["man_made"~"^(tower|mast)$"]'
+        f'["tower:type"~"^(observation|communication)$"]["name"]({around});'
+        f");out body;")
     try:
-        async with httpx.AsyncClient(timeout=30,
+        async with httpx.AsyncClient(timeout=90,
                                      headers={"User-Agent": OVERPASS_UA}) as client:
             r = await client.post(OVERPASS_URL, data={"data": query})
             r.raise_for_status()
-            result = peaks_from_overpass(r.json())
-    except httpx.HTTPError as e:
+            data = r.json()
+            if data.get("remark"):
+                raise HTTPException(502, f"overpass aborted: {data['remark']}")
+            result = features_from_overpass(data)
+    except (httpx.HTTPError, ValueError) as e:
         # a stale cache entry beats an error for a label overlay
         if hit:
             return {"peaks": hit[1], "cached": True, "stale": True}
         raise HTTPException(502, f"overpass: {e}")
+    from starlette.concurrency import run_in_threadpool
+    await run_in_threadpool(fill_missing_ele, result)
+    result.sort(key=lambda p: p["ele"] if p["ele"] is not None else -math.inf,
+                reverse=True)
     _peaks_cache[key] = (time.monotonic(), result)
     return {"peaks": result}

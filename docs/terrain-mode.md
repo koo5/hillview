@@ -142,3 +142,33 @@ far-field anti-aliasing via max-pooled pyramid + crossing interpolation
 - Data: `download_cuzk.py` → `build_mosaic.py` → worker env
   (`TERRAIN_DSM_PATH` layered `path@radius:…`, `TERRAIN_DTM_PATH`,
   `TERRAIN_GEOID_OFFSET_M`).
+
+## Update 2026-07-27 — containerized pipeline + viewer maturation
+
+Everything above still describes the architecture; the operational reality
+moved substantially (full details: `enrich/terrain/README.md`):
+
+- **Worker is containerized** (compose `terrain-worker`) with auto-built
+  DEMs on the `earth` volume (`/shared/earth` 9p share): GLO-30 for CZ +
+  margin, ČÚZK 2 m/10 m rings for `TERRAIN_AUTO_CUZK_BBOX`. Named stacks
+  selectable per render (`dsm_stack`); the ČÚZK composite is promoted to
+  the DEFAULT stack where built.
+- **Render defaults got smart**: 0.025° grid, elevation window auto-fit to
+  the probed horizon (top +1.5°, near-field bottom trim, 4000-row cap),
+  photo enqueues render only their pie wedge (calibrated FOV when known).
+  Sector rungs ×10/×20 for high detail. `min_distance_m` clips the
+  (data-limited) near field.
+- **Viewer**: TerrainViewer.svelte is now SHARED (`shared/terrain/`),
+  fills its pane responsively, and grew: vertical exaggeration, compass
+  ruler, sky-anchored clickable peak labels (prominence-first,
+  per-column-neighborhood thinning, tolerance slider), sky-click →
+  horizon snap, content-band centering, sector pan clamping.
+- **Label candidates**: uncapped Overpass pool (peaks ∪ observation
+  towers/masts), DEM-filled missing elevations, prominence tags.
+- **Bench**: viewer-first layout with overlay toolbar, fullscreen, title
+  search, photo-page deep links, mobile layout — plus the
+  `/terrain/overlay` EXPERIMENT: render skyline drawn over the source
+  pano (horizontal from the pie, vertical manually aligned — a saved
+  vertical calibration is the natural next step).
+- Licensing: attribution rides each render's meta per stack; see
+  `docs/terrain-data-licensing.md`.

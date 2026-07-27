@@ -74,6 +74,10 @@ services:
       - ENRICH_WORKER_TOKEN=${ENRICH_WORKER_TOKEN:-dev-worker-token}
       # empty is fine — config.py falls back to its built-in allowlist
       - ENRICH_CORS_ORIGINS=${ENRICH_CORS_ORIGINS:-}
+      # peaks endpoint: Overpass instance override + DSM for filling missing
+      # OSM ele tags (sampled from the read-only earth volume below)
+      - OVERPASS_URL=${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
+      - PEAKS_DEM_PATH=${PEAKS_DEM_PATH:-/dem/glo30.vrt}
     ports:
       - "127.0.0.1:${ENRICH_API_HOST_PORT:-8070}:8070"
     volumes:
@@ -81,6 +85,8 @@ services:
       - ./db/init:/app/schema:ro
       # live-reload dev loop: code mounted over the image copy
       - ./api/app:/app/app
+      # DEM read-only for peaks ele fill (worker owns writes)
+      - terrain_dem:/dem:ro
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8070", "--reload"]
     networks:
       default: {}
@@ -112,6 +118,15 @@ services:
       - TERRAIN_DTM_PATH=${TERRAIN_DTM_PATH:-}
       # empty + auto GLO-30 → entrypoint fills in the required Copernicus notice
       - TERRAIN_ATTRIBUTION=${TERRAIN_ATTRIBUTION:-}
+      # named stacks for the per-render dsm_stack param: glo30 is wired by the
+      # entrypoint's auto path; cuzk either auto-builds for this bbox (LAZ →
+      # pdal → 10 m near ring; heavy first build, incremental after) or comes
+      # pre-built via TERRAIN_DSM_PATH_CUZK. Attribution defaults are set by
+      # the entrypoint (ČÚZK CC BY credit + the composite's Copernicus notice).
+      - TERRAIN_AUTO_CUZK_BBOX=${TERRAIN_AUTO_CUZK_BBOX:-}
+      - TERRAIN_DSM_PATH_CUZK=${TERRAIN_DSM_PATH_CUZK:-}
+      - TERRAIN_DTM_PATH_CUZK=${TERRAIN_DTM_PATH_CUZK:-}
+      - TERRAIN_ATTRIBUTION_CUZK=${TERRAIN_ATTRIBUTION_CUZK:-}
       - TERRAIN_GEOID_OFFSET_M=${TERRAIN_GEOID_OFFSET_M:-44.5}
       - TERRAIN_REQUIRED_GB=${TERRAIN_REQUIRED_GB:-2}
     volumes:
@@ -146,4 +161,13 @@ volumes:
   oxigraph_data: {}
   enrich_artifacts: {}
   rabbitmq_data: {}
-  terrain_dem: {}
+  # DEM data — big (whole-republic ČÚZK prefetch is hundreds of GB),
+  # re-downloadable, useful outside the VM, so it lives on the libvirt 9p
+  # host share rather than in docker's dir. Created manually (the host path
+  # stays out of this file):
+  #   docker volume create --opt type=none --opt o=bind \
+  #       --opt device=/shared/earth earth
+  # (9p maps container-root writes to the share owner — fine here.)
+  terrain_dem:
+    external: true
+    name: earth

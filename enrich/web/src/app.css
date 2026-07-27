@@ -59,6 +59,21 @@ nav.top {
 	top: 0;
 	z-index: 10;
 }
+/* mobile: one swipeable strip instead of 3 wrapped rows of links */
+@media (max-width: 760px) {
+	nav.top {
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		padding: 8px 12px;
+		scrollbar-width: none;
+	}
+	nav.top::-webkit-scrollbar {
+		display: none;
+	}
+	nav.top a {
+		white-space: nowrap;
+	}
+}
 nav.top .brand {
 	font-weight: 700;
 	margin-right: 14px;

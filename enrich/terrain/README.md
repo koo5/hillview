@@ -27,9 +27,10 @@ Renders what the terrain *should* look like from a photo's viewpoint, out to
 | `make_fixture.py` | deterministic e2e fixtures + the cross-language `golden.json` contract |
 | `../web/tests-playwright/` | Playwright bench suite (route-stubbed API, software-GL chromium) |
 | `../api/app/routers/terrain.py` | enqueue / result callback / artifact serving; `terrain_renders` in `../db/init/006_terrain.sql` |
-| `../web/src/routes/terrain/` | bench chrome: enqueue form, render list, fog controls, pick panel |
-| `../../shared/terrain/` | **the viewer itself** — dependency-free `DepthPanoViewer` (WebGL fog, wheel/drag/pinch, click-back), consumed by the bench AND the main app |
-| `../../frontend/src/lib/components/TerrainViewer.svelte` | main-app wrapper around the shared core, ready for the photo pane |
+| `auto_cuzk.sh` | bbox-scoped ČÚZK build (fetch → pdal rasterize → 2 m + 10 m warp rings → vrt), incremental; whole-republic prefetch = same script, CZ bbox |
+| `../web/src/routes/terrain/` | bench: viewer-first layout (overlay toolbar, fullscreen, title search, mobile), enqueue form with labeled fields + help |
+| `../web/src/routes/terrain/overlay/` | EXPERIMENT: render skyline overlaid on the source pano — horizontal from the pie, vertical manually aligned (candidate future vertical calibration) |
+| `../../shared/terrain/` | **the viewer** — dependency-free `DepthPanoViewer` core (WebGL fog, zoom/pan/pinch, click-back, compass, sector clamp) + the SHARED `TerrainViewer.svelte` wrapper (labels, exaggeration, overlays) consumed by the bench AND the main app |
 
 ## The two accuracy terms
 
@@ -99,6 +100,50 @@ windowed read around 200 MB per render. Windows are clipped to each raster's
 extent (an overhanging read would otherwise be silently mis-georeferenced —
 regression-tested).
 
+## Render defaults & knobs (2026-07)
+
+What a plain enqueue does, and which allowlisted params change it
+(`ALLOWED_PARAMS` in the API, `RENDER_KEYS` + stack env in the worker —
+defense on both ends):
+
+* **Grid**: 0.025° in both axes (worker `setdefault`; the renderer's own
+  default stays 0.05°). UI rungs: 0.1° / 0.05° / 0.025° / sector ×10
+  (0.005°, 36°) / sector ×20 (0.0025°, 18°). Sectors exist because a full
+  360° at ×10 would be a 72k-column texture — beyond GPU limits; each rung
+  keeps the same 7200-column artifact over a narrower `az_start..az_end`.
+* **Elevation window**: auto-fit when not explicit — a coarse probe (1°
+  azimuth, ~5% cost) finds the horizon; top clamps to it + 1.5° (sky
+  headroom for labels), bottom trims rows that are pure near-field
+  (every column < 300 m), capped at 4000 rows (mobile GPU texture limit).
+  Provenance in `meta.elev_fit`.
+* **Photo enqueues**: viewpoint + EXIF-altitude hint from `photo_mirror`;
+  the azimuth sweep is limited to the photo's pie — calibrated
+  centre/FOV when a calibration exists, compass ± 45° assumed otherwise,
+  ± 5° margin; wedges covering the full circle fall back to 360°.
+* **DEM stacks** (`dsm_stack` param): `auto` = the worker default, which
+  the entrypoint promotes to the ČÚZK composite where built
+  (2 m ring @ 4 km → 10 m @ 15 km → GLO-30; bare-earth DTM grounding);
+  `glo30` forces the 30 m model alone (source comparison); `cuzk` names
+  the composite explicitly. Per-stack attribution rides `meta.attribution`.
+* **Near field**: `min_distance_m` (default 50) clips the march start —
+  useful at ~300 for vista comparison, since sub-50 m objects are
+  data-limited anyway (one or two cells → giant interpolated slabs) —
+  but note clipped obstacles no longer occlude.
+* **Label candidates** (`/terrain/peaks`): UNCAPPED Overpass pool — named
+  `natural=peak` ∪ observation towers/communication masts — with missing
+  `ele` filled by sampling the DSM (flagged `ele_estimated`), `prominence`
+  passed through (client label priority), identifying User-Agent, and
+  Overpass `remark` (abort) detection; cached 7 d per ~1 km grid.
+* **Queue feedback**: `/terrain/renders` carries RabbitMQ
+  `{messages, consumers}` so the UIs can say "no worker connected".
+
+Viewer (the SHARED `shared/terrain/TerrainViewer.svelte`, mounted by both
+apps): responsive fill, cursor-anchored wheel/pinch zoom, sector pan
+clamping, vertical exaggeration (display-only), compass ruler, sky-anchored
+clickable peak labels (prominence-first, per-column-neighborhood thinning,
+depth-match tolerance slider), sky-click → horizon snap, initial view
+centered on the measured terrain band.
+
 ## Observer elevation: the datum problem
 
 Phone EXIF altitude doesn't say whether it's ellipsoidal or orthometric, and
@@ -128,10 +173,23 @@ docker compose up -d --build terrain-worker
 docker logs -f enrich_terrain_worker
 ```
 
-30 m surface data is plenty for far skylines; when the fine ČÚZK near-ring
-mosaics exist, mount them into the service and set
-`TERRAIN_DSM_PATH`/`TERRAIN_DTM_PATH` (see `.env.example`) — or run the
-host-side worker instead:
+30 m surface data is plenty for far skylines. The fine ČÚZK near ring is a
+second auto path: set `TERRAIN_AUTO_CUZK_BBOX` (see `.env.example`) and the
+entrypoint downloads the DMP 1G + DMR 5G sheets for that bbox, rasterizes
+(pdal, 2 m), warps to the 10 m near ring and exposes it as the `cuzk` stack —
+a composite with the default DSM beyond 15 km / outside the bbox. Every stage
+is incremental, so growing the bbox later only adds sheets; the whole-republic
+overnight prefetch is the SAME machinery run detached (plan hundreds of GB —
+zips + laz + rasters stay in the volume for resumability, ~3-4× the download):
+
+```bash
+docker compose run --rm --entrypoint sh terrain-worker \
+    auto_cuzk.sh "12.09,48.55,18.87,51.06"   # CZ-wide; resumable, rerun anytime
+```
+
+Prefer pre-built mosaics? Mount them and set
+`TERRAIN_DSM_PATH`/`TERRAIN_DTM_PATH` (or the `_CUZK` stack variants) — or
+run the host-side worker instead:
 
 ```bash
 # schema lands on API restart (idempotent init SQL)

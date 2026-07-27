@@ -28,6 +28,12 @@ Environment:
                        mosaics behind TERRAIN_DSM_PATH require (the GLO-30
                        licence mandates a notice on derived works; ČÚZK is
                        CC BY). The UIs display it wherever renders are shown.
+    TERRAIN_DSM_PATH_<STACK> / TERRAIN_DTM_PATH_<STACK> /
+    TERRAIN_ATTRIBUTION_<STACK>
+                       named stacks the client selects per render via the
+                       `dsm_stack` param (e.g. GLO30, CUZK). DTM/attribution
+                       fall back to the globals; a requested stack without a
+                       DSM path fails the render visibly.
 
 Run (from repo root; venv per requirements.txt — hash-pinned, see README):
     cd enrich/terrain && python -m remoulade worker --processes 1 --threads 1
@@ -36,6 +42,7 @@ or under the systemd memory scope:  ./run_worker.sh
 import io
 import json
 import os
+import re
 import socket
 import sys
 
@@ -109,22 +116,55 @@ def _load_stack(renderer, spec: str, lat: float, lon: float, radius_m: float):
     return grids[0] if len(grids) == 1 else renderer.CompositeDem(grids=grids)
 
 
+STACK_RE = re.compile(r"[a-z0-9_]{1,32}\Z")
+
+
+def _resolve_stack(params: dict) -> tuple[str, str, str, str]:
+    """Per-render DSM stack selection: the client's `dsm_stack` param picks
+    TERRAIN_DSM_PATH_<STACK> (+ per-stack DTM/attribution, falling back to
+    the globals). No param → the default env stack, exactly as before. An
+    unknown or unconfigured stack raises — the render fails VISIBLY in the
+    UI instead of silently using the wrong data. → (dsm, dtm, attribution,
+    stack_name)."""
+    stack = params.pop("dsm_stack", None)
+    if stack is None:
+        return DSM_PATH, DTM_PATH, ATTRIBUTION, "default"
+    stack = str(stack).lower()
+    if not STACK_RE.match(stack):
+        raise RuntimeError(f"bad dsm_stack {stack!r}")
+    s = stack.upper()
+    dsm = os.getenv(f"TERRAIN_DSM_PATH_{s}", "")
+    if not dsm:
+        raise RuntimeError(f"DSM stack '{stack}' not configured on this worker "
+                           f"(set TERRAIN_DSM_PATH_{s})")
+    return (dsm,
+            os.getenv(f"TERRAIN_DTM_PATH_{s}", "") or DTM_PATH,
+            os.getenv(f"TERRAIN_ATTRIBUTION_{s}", "") or ATTRIBUTION,
+            stack)
+
+
 def _render(lat: float, lon: float, params: dict, progress=None, checkpoint=None):
     import math
 
     import numpy as np
     import renderer
-    if not DSM_PATH:
-        raise RuntimeError("TERRAIN_DSM_PATH not set (see enrich/terrain/README.md)")
     params = dict(params or {})
+    dsm_path, dtm_path, attribution, stack = _resolve_stack(params)
+    if not dsm_path:
+        raise RuntimeError("TERRAIN_DSM_PATH not set (see enrich/terrain/README.md)")
     gps_alt, gps_datum = params.pop("gps_altitude_m", None), params.pop("gps_datum", "auto")
     kwargs = {k: v for k, v in params.items() if k in RENDER_KEYS}
+    # worker default grid: 2× the renderer's 0.05° in both axes — combined
+    # with elevation auto-fit and pie-limited sweeps the pixels go where the
+    # view is, so the finer default stays affordable
+    kwargs.setdefault("az_step_deg", 0.025)
+    kwargs.setdefault("elev_step_deg", 0.025)
     max_d = float(kwargs.get("max_distance_m", 100_000.0))
-    dem = _load_stack(renderer, DSM_PATH, lat, lon, max_d * 1.05)
+    dem = _load_stack(renderer, dsm_path, lat, lon, max_d * 1.05)
 
     # refinement #1+2: ground the observer on bare earth, resolve GPS hints
-    ground_src = "dtm" if DTM_PATH else "dsm"
-    gdem = _load_stack(renderer, DTM_PATH, lat, lon, 500.0) if DTM_PATH else dem
+    ground_src = "dtm" if dtm_path else "dsm"
+    gdem = _load_stack(renderer, dtm_path, lat, lon, 500.0) if dtm_path else dem
     ground = float(gdem.sample(np.array([lat]), np.array([lon]))[0])
     if not math.isfinite(ground):
         raise RuntimeError("viewpoint outside the DEM / on nodata")
@@ -137,12 +177,48 @@ def _render(lat: float, lon: float, params: dict, progress=None, checkpoint=None
     else:
         eye_source = "explicit"
 
+    # Auto-fit the elevation window when the caller didn't pin one: the
+    # static default (−8..+12°) wastes most rows on empty sky from lowland
+    # viewpoints. A coarse probe (1° azimuth grid ≈ 5% of the render cost)
+    # finds the highest horizon point; the top clamps to it + margin (sky
+    # labels float above the skyline, so leave them headroom).
+    elev_fit = "explicit"
+    if "elev_max_deg" not in kwargs and "elev_min_deg" not in kwargs:
+        probe_kwargs = {k: kwargs[k] for k in
+                        ("observer_elevation_m", "max_distance_m",
+                         "min_distance_m", "rel_step", "refraction_k")
+                        if k in kwargs}
+        probe = renderer.render(dem, lat, lon, az_step_deg=1.0,
+                                elev_step_deg=0.25, elev_min_deg=-10.0,
+                                elev_max_deg=25.0, **probe_kwargs)
+        rows = np.nonzero(np.isfinite(probe.depth).any(axis=1))[0]
+        top_elev = float(probe.elev_angles[rows[0]]) if rows.size else 0.0
+        kwargs["elev_max_deg"] = max(top_elev + 1.5, 1.0)
+        # bottom fit: rows where EVERY column is nearer than 300 m are
+        # featureless foreground (grass at your feet) — trim them too
+        far_per_row = np.where(np.isfinite(probe.depth), probe.depth, 0.0).max(axis=1)
+        far_rows = np.nonzero(far_per_row >= 300.0)[0]
+        if far_rows.size:
+            bottom_elev = float(probe.elev_angles[far_rows[-1]])
+            kwargs["elev_min_deg"] = max(min(-1.0, bottom_elev - 0.5), -10.0)
+        # row budget: fine sector steps × a tall fitted window would blow past
+        # mobile GPU texture limits (seen: 7500 rows at 0.0025°). Keep the
+        # skyline, crop the foreground.
+        MAX_ROWS = 4000.0
+        step = float(kwargs["elev_step_deg"])
+        lo = kwargs.get("elev_min_deg", -8.0)
+        if (kwargs["elev_max_deg"] - lo) / step > MAX_ROWS:
+            kwargs["elev_min_deg"] = kwargs["elev_max_deg"] - MAX_ROWS * step
+        elev_fit = (f"auto ({kwargs.get('elev_min_deg', -8.0):.1f}"
+                    f"..{kwargs['elev_max_deg']:.1f}°, horizon {top_elev:.2f}°)")
+
     pano = renderer.render(dem, lat, lon, progress=progress, checkpoint=checkpoint,
                            **kwargs)
-    pano.params.update({"eye_source": eye_source,
+    pano.params.update({"eye_source": eye_source, "dsm_stack": stack,
+                        "elev_fit": elev_fit,
                         "ground_m": round(ground, 2), "ground_source": ground_src})
-    if ATTRIBUTION:
-        pano.params["attribution"] = ATTRIBUTION
+    if attribution:
+        pano.params["attribution"] = attribution
     return pano.meta(), renderer.encode_depth_u16(pano.depth), _preview_jpeg(pano)
 
 

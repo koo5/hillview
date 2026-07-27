@@ -80,11 +80,11 @@ test('click-back survives zoom (cursor-anchored) ', async ({ page }) => {
 	expect(Math.abs(got.lon - golden.summit.lon)).toBeLessThan(tol);
 });
 
-test('sky click clears the pick', async ({ page }) => {
-	await clickAndReadCoords(page, golden.summit);
+test('sky click snaps to the horizon in that column', async ({ page }) => {
+	// fixture: the sky target's column has its skyline at row 97, 3824 m
 	const s = await pagePoint(page, golden.sky);
 	await page.mouse.click(s.x, s.y);
-	await expect(page.getByTestId('terrain-picked')).toHaveCount(0);
+	await expect(page.getByTestId('terrain-picked')).toContainText('3.8 km');
 });
 
 test('fog is Koschmieder-shaped: distance-dependent, live', async ({ page }) => {

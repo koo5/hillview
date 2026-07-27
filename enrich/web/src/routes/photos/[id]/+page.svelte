@@ -319,6 +319,8 @@
 		<div style="flex:1"></div>
 		{#if p.is_pano}<a href="/calibration?pano={p.id}">calibration bench →</a>{/if}
 		{#if p.is_pano}<a href="/transfer?target={p.id}" title="clone annotations from nearby panos onto this one">transfer bench →</a>{/if}
+		{#if p.lat != null && p.lon != null}<a href="/terrain?photo={p.id}" title="synthetic terrain view from this photo's viewpoint">terrain bench →</a>{/if}
+		{#if p.lat != null && p.lon != null}<a href="/terrain/overlay?photo={p.id}" title="overlay the render's skyline onto this photo (experiment)">terrain overlay →</a>{/if}
 		<a href={p.web_url} target="_blank" rel="noreferrer">hillview.cz ↗</a>
 	</div>
 	<div class="muted" style="font-size:12px; margin:2px 0 10px">

@@ -30,6 +30,13 @@ export interface Peak {
 	lon: number;
 	/** summit elevation in metres, when the source knows it */
 	ele?: number | null;
+	/** true when ele was estimated by sampling the DEM (no OSM ele tag) */
+	ele_estimated?: boolean;
+	/** OSM topographic prominence in metres — sparse (~2% of peaks) but
+	 * tagged precisely on the famous ones; drives label priority */
+	prominence?: number | null;
+	/** peak | tower (observation) | mast (communication); default peak */
+	kind?: string;
 }
 
 /** A peak projected into the panorama: texture coords + display facts. */
@@ -40,6 +47,8 @@ export interface PeakMark {
 	distance_m: number;
 	azimuth_deg: number;
 	ele?: number | null;
+	prominence?: number | null;
+	kind?: string;
 }
 
 /** Inverse geodesic on the same sphere as destinationPoint (haversine
@@ -73,9 +82,12 @@ export function colForAzimuth(meta: TerrainMeta, azimuthDeg: number): number | n
 	return col >= 0 && col < meta.width ? col : null;
 }
 
-/** Relative depth tolerance for the visibility match. The march's far steps
- * are rel_step·d (~0.5%), OSM summit coords wobble a few grid cells, and
- * depth is quantized — 6% plus a couple of quanta absorbs all three. */
+/** Default relative depth tolerance for the visibility match. The march's
+ * far steps are rel_step·d (~0.5%), OSM summit coords wobble a few grid
+ * cells, and depth is quantized — 6% plus a couple of quanta absorbs all
+ * three. Callers may pass their own (the pane exposes it as a slider:
+ * looser → more labels, at the cost of occasionally labeling a peak whose
+ * summit is actually just hidden behind a similar-depth ridge). */
 export const PEAK_DEPTH_REL_TOL = 0.06;
 export const PEAK_MIN_DISTANCE_M = 500;
 
@@ -90,14 +102,15 @@ export const PEAK_MIN_DISTANCE_M = 500;
 export function projectPeak(
 	meta: TerrainMeta,
 	depth: Uint16Array,
-	peak: Peak
+	peak: Peak,
+	relTol = PEAK_DEPTH_REL_TOL
 ): PeakMark | null {
 	const { bearingDeg, distanceM } = bearingDistance(meta.lat, meta.lon, peak.lat, peak.lon);
 	if (distanceM < PEAK_MIN_DISTANCE_M) return null;
 	if (typeof meta.max_distance_m === 'number' && distanceM > meta.max_distance_m) return null;
 	const col = colForAzimuth(meta, bearingDeg);
 	if (col === null) return null;
-	const tol = distanceM * PEAK_DEPTH_REL_TOL + 2 * meta.depth_scale_m;
+	const tol = distanceM * relTol + 2 * meta.depth_scale_m;
 	for (let row = 0; row < meta.height; row++) {
 		const q = depth[row * meta.width + col];
 		if (q === 0) continue; // sky above the skyline
@@ -109,7 +122,9 @@ export function projectPeak(
 				v: (row + 0.5) / meta.height,
 				distance_m: distanceM,
 				azimuth_deg: bearingDeg,
-				ele: peak.ele
+				ele: peak.ele,
+				prominence: peak.prominence,
+				kind: peak.kind
 			};
 		}
 		// nearer than the peak (beyond tolerance): monotonicity says the
@@ -119,14 +134,99 @@ export function projectPeak(
 	return null;
 }
 
-export function projectPeaks(meta: TerrainMeta, depth: Uint16Array, peaks: Peak[]): PeakMark[] {
+export function projectPeaks(
+	meta: TerrainMeta,
+	depth: Uint16Array,
+	peaks: Peak[],
+	relTol = PEAK_DEPTH_REL_TOL
+): PeakMark[] {
 	const out: PeakMark[] = [];
 	for (const p of peaks) {
-		const m = projectPeak(meta, depth, p);
+		const m = projectPeak(meta, depth, p, relTol);
 		if (m) out.push(m);
 	}
-	// nearest first, so caps keep the most legible labels
-	return out.sort((a, b) => a.distance_m - b.distance_m);
+	// prominence-tagged features first (OSM tags it precisely on the famous
+	// ones — Říp beats a taller nondescript ridge), then nearest first so
+	// downstream label caps keep the most legible of the rest
+	return out.sort(
+		(a, b) => (b.prominence ?? 0) - (a.prominence ?? 0) || a.distance_m - b.distance_m
+	);
+}
+
+/** Sky-anchored label layout (vista-board style): each pill floats directly
+ * above its summit with a short leader, so the label never covers what it
+ * labels — the sky above a skyline point is empty by definition.
+ *
+ * Input order = priority (feed prominence-first). Selection is PER SCREEN
+ * NEIGHBORHOOD: a label whose target sits within minGapX of an already
+ * accepted one is skipped — the best name wins its column, instead of a
+ * global cap letting far famous peaks displace everything near (measured:
+ * that made the tolerance slider FEEL inverted). Residual overlaps stack
+ * upward; pills pushed past the top edge are dropped. Pure and
+ * painter-agnostic: returns pill rects + target points; the zoomview
+ * painter's edge:'bottom' case draws exactly this geometry. */
+export interface SkyLabel {
+	label: string;
+	cx: number;
+	cy: number; // target point (summit) in canvas px
+	pillW: number;
+	pillH: number;
+	tx: number;
+	ty: number; // pill top-left
+	id?: string;
+}
+
+export function layoutSkyLabels(
+	inputs: { label: string; cx: number; cy: number; pillW: number; id?: string }[],
+	W: number,
+	H: number,
+	opts: { pillH?: number; gap?: number; leader?: number; minGapX?: number } = {}
+): SkyLabel[] {
+	const pillH = opts.pillH ?? 20;
+	const gap = opts.gap ?? 3;
+	const leader = opts.leader ?? 12;
+	const minGapX = opts.minGapX ?? 40;
+	const placed: SkyLabel[] = [];
+	for (const i of inputs) {
+		if (i.cx < 0 || i.cx > W || i.cy < 0 || i.cy > H) continue;
+		if (placed.some((p) => Math.abs(p.cx - i.cx) < minGapX)) continue;
+		const c: SkyLabel = {
+			...i,
+			pillH,
+			tx: Math.min(Math.max(i.cx - i.pillW / 2, 2), Math.max(2, W - i.pillW - 2)),
+			ty: i.cy - leader - pillH
+		};
+		let moved = true;
+		while (moved) {
+			moved = false;
+			for (const p of placed) {
+				const overlapX = c.tx < p.tx + p.pillW + gap && p.tx < c.tx + c.pillW + gap;
+				const overlapY = c.ty < p.ty + p.pillH + gap && p.ty < c.ty + c.pillH + gap;
+				if (overlapX && overlapY) {
+					c.ty = p.ty - pillH - gap; // stack upward, keep tether column
+					moved = true;
+				}
+			}
+		}
+		if (c.ty >= 2) placed.push(c);
+	}
+	return placed;
+}
+
+/** Hit test a tap against placed sky labels (slop widens the target for
+ * touch). First match wins — placed order is priority order. */
+export function hitSkyLabel<T extends SkyLabel>(
+	placed: T[],
+	x: number,
+	y: number,
+	slop = 4
+): T | null {
+	for (const l of placed) {
+		if (x >= l.tx - slop && x <= l.tx + l.pillW + slop
+			&& y >= l.ty - slop && y <= l.ty + l.pillH + slop)
+			return l;
+	}
+	return null;
 }
 
 /** Texture coords → canvas pixels under a viewport rect, on the cylinder:

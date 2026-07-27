@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+	clampPartialOffX,
 	angularSpanDeg,
 	azimuthAtU,
 	azimuthForColumn,
+	compassTicks,
 	destinationPoint,
 	hexToRgb,
 	normalizeRect,
 	pickFromDepth,
+	pickFromDepthOrHorizon,
 	rectFromView,
 	viewFromRect,
 	wedgeFromRect,
@@ -84,6 +87,26 @@ describe('pickFromDepth', () => {
 	});
 });
 
+describe('pickFromDepthOrHorizon — sky clicks snap to the skyline', () => {
+	const depth = new Uint16Array(meta.width * meta.height);
+	const col = 1800;
+	for (let row = 250; row < meta.height; row++) depth[row * meta.width + col] = 5000; // 20 km
+
+	it('sky click snaps down to the first terrain row in the column', () => {
+		const p = pickFromDepthOrHorizon(meta, depth, col, 10)!;
+		expect(p.row).toBe(250);
+		expect(p.distance_m).toBe(20000);
+	});
+
+	it('a terrain click is unchanged', () => {
+		expect(pickFromDepthOrHorizon(meta, depth, col, 300)!.row).toBe(300);
+	});
+
+	it('an all-sky column still returns null', () => {
+		expect(pickFromDepthOrHorizon(meta, depth, 0, 10)).toBeNull();
+	});
+});
+
 describe('hexToRgb', () => {
 	it('parses with and without the hash', () => {
 		expect(hexToRgb('#ff0080')[0]).toBeCloseTo(1);
@@ -133,6 +156,54 @@ describe('viewport rect (zoom view convention, width normalized to 1)', () => {
 		expect(wrap01(1.25)).toBeCloseTo(0.25, 9);
 		expect(wrap01(-0.25)).toBeCloseTo(0.75, 9);
 		expect(wrap01(1)).toBe(0);
+	});
+});
+
+describe('clampPartialOffX — sectors clamp, full panos wrap', () => {
+	const sector: TerrainMeta = { ...meta, width: 720, az_start: 351, az_end: 8.975 };
+	// span = 0.05 × 720 = 36° → partial
+
+	it('full 360° keeps cylinder wrap', () => {
+		expect(clampPartialOffX(meta, 1.25, 2)).toBeCloseTo(0.25, 9);
+	});
+
+	it('a sector clamps panning to its edges', () => {
+		expect(clampPartialOffX(sector, -0.2, 2)).toBe(0);
+		expect(clampPartialOffX(sector, 0.9, 2)).toBeCloseTo(0.5, 9); // 1 - 1/scale
+		expect(clampPartialOffX(sector, 0.3, 2)).toBeCloseTo(0.3, 9);
+	});
+
+	it('at fit zoom a sector pins to its start', () => {
+		expect(clampPartialOffX(sector, 0.4, 1)).toBe(0);
+	});
+});
+
+describe('compassTicks — azimuth ruler for the current view', () => {
+	const a = meta.height / meta.width;
+
+	it('full 360° view: 15° minors, cardinals at the right x positions', () => {
+		const ticks = compassTicks(meta, { x1: 0, y1: 0, x2: 1, y2: a }, 720);
+		// pxPerDeg = 2 → 1°/5° too dense, 15° (30 px) wins
+		const azs = ticks.filter((t) => t.major).map((t) => t.label);
+		expect(azs.slice(0, 4)).toEqual(['N', 'NE', 'E', 'SE']);
+		const east = ticks.find((t) => t.azimuthDeg === 90 && t.major)!;
+		expect(east.x).toBeCloseTo(180, 0); // 90° of 360° across 720 px
+		expect(east.label).toBe('E');
+	});
+
+	it('zoomed view gets degree labels on 5° minors', () => {
+		// 10% of the sweep = 36°, 720 px → 20 px/deg → 5° minors (100 px)
+		const ticks = compassTicks(meta, { x1: 0.2, y1: 0, x2: 0.3, y2: a }, 720);
+		const minor = ticks.find((t) => !t.major && t.label)!;
+		expect(minor.label).toMatch(/°$/);
+	});
+
+	it('seam-straddling view wraps azimuths but keeps x monotonic', () => {
+		const ticks = compassTicks(meta, { x1: 0.9, y1: 0, x2: 1.1, y2: a }, 720);
+		const north = ticks.find((t) => t.label === 'N')!;
+		expect(north.x).toBeGreaterThan(300); // due north mid-view
+		expect(north.x).toBeLessThan(420);
+		for (let i = 1; i < ticks.length; i++) expect(ticks[i].x).toBeGreaterThan(ticks[i - 1].x);
 	});
 });
 

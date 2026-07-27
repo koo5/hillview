@@ -4,6 +4,8 @@ import { destinationPoint } from './depthPanoViewer';
 import {
 	bearingDistance,
 	colForAzimuth,
+	hitSkyLabel,
+	layoutSkyLabels,
 	projectPeak,
 	projectPeaks,
 	texToCanvas,
@@ -78,6 +80,15 @@ describe('projectPeak — visibility straight from the depth buffer', () => {
 		expect(m.v).toBeCloseTo((5 + 0.5) / 20, 9); // rows 2..4 background, 5 = summit
 	});
 
+	it('relTol widens/narrows the depth match (the pane slider)', () => {
+		// rendered surface at 22 km, peak at 20 km: 10% off
+		const depth = makeDepth({ 90: { skyTop: 5, depths: [22_000] } });
+		const peak = peakAt(90.5, 20_000);
+		expect(projectPeak(meta, depth, peak)).toBeNull(); // default 6% rejects
+		expect(projectPeak(meta, depth, peak, 0.15)).not.toBeNull(); // loose accepts
+		expect(projectPeak(meta, depth, peak, 0.01)).toBeNull(); // strict rejects
+	});
+
 	it('respects range and the minimum distance', () => {
 		const depth = makeDepth({ 90: { skyTop: 5, depths: [20_000] } });
 		expect(projectPeak(meta, depth, peakAt(90.5, 200_000))).toBeNull(); // beyond max
@@ -96,6 +107,67 @@ describe('projectPeak — visibility straight from the depth buffer', () => {
 			peakAt(270.5, 50_000, 'Hidden')
 		]);
 		expect(marks.map((m) => m.name)).toEqual(['Near', 'Far']);
+	});
+
+	it('prominence-tagged peaks outrank nearer untagged ones', () => {
+		const depth = makeDepth({
+			90: { skyTop: 5, depths: [20_000] },
+			180: { skyTop: 7, depths: [60_000] }
+		});
+		const famous = { ...peakAt(180.5, 60_000, 'Famous'), prominence: 232 };
+		const marks = projectPeaks(meta, depth, [peakAt(90.5, 20_000, 'Near'), famous]);
+		expect(marks.map((m) => m.name)).toEqual(['Famous', 'Near']);
+		expect(marks[0].prominence).toBe(232);
+	});
+});
+
+describe('layoutSkyLabels — pills above summits, stacking upward', () => {
+	const W = 800, H = 400;
+	const mk = (cx: number, cy: number, w = 60, label = 'X') => ({ label, cx, cy, pillW: w });
+
+	it('places the pill centered above the target, leader-gap clear of it', () => {
+		const [l] = layoutSkyLabels([mk(400, 200)], W, H);
+		expect(l.tx).toBe(400 - 30);
+		expect(l.ty).toBe(200 - 12 - 20); // cy - leader - pillH
+	});
+
+	it('thins same-neighborhood labels: the higher-priority one wins its column', () => {
+		const placed = layoutSkyLabels([mk(400, 200, 60, 'First'), mk(410, 205, 60, 'Second')], W, H);
+		expect(placed.map((p) => p.label)).toEqual(['First']);
+	});
+
+	it('stacks pills whose columns are distinct but pills still overlap', () => {
+		// 50 px apart: past minGapX (40), but 60 px pills overlap → stack
+		const [a, b] = layoutSkyLabels([mk(400, 200), mk(450, 205)], W, H);
+		expect(b.ty).toBe(a.ty - 20 - 3); // pillH + gap higher
+	});
+
+	it('non-overlapping labels keep their own height', () => {
+		const [a, b] = layoutSkyLabels([mk(100, 200), mk(700, 200)], W, H);
+		expect(a.ty).toBe(b.ty);
+	});
+
+	it('clamps pills horizontally into the canvas', () => {
+		const [l] = layoutSkyLabels([mk(2, 200)], W, H);
+		expect(l.tx).toBe(2);
+	});
+
+	it('hitSkyLabel finds the pill under a tap, with touch slop', () => {
+		const placed = layoutSkyLabels([mk(400, 200, 60, 'Hit')], W, H);
+		const { tx, ty, pillW, pillH } = placed[0];
+		expect(hitSkyLabel(placed, tx + pillW / 2, ty + pillH / 2)?.label).toBe('Hit');
+		expect(hitSkyLabel(placed, tx - 3, ty - 3)?.label).toBe('Hit'); // slop
+		expect(hitSkyLabel(placed, tx + pillW + 20, ty)).toBeNull();
+	});
+
+	it('drops labels pushed past the top instead of piling up', () => {
+		// distinct 45 px columns (past thinning) near the top edge: wide
+		// pills overlap → stack upward → overflow the canvas top → dropped
+		const crowd = Array.from({ length: 12 }, (_, i) => mk(150 + i * 45, 60, 200, `P${i}`));
+		const placed = layoutSkyLabels(crowd, W, H);
+		expect(placed.length).toBeLessThan(12);
+		expect(placed.length).toBeGreaterThan(0);
+		for (const l of placed) expect(l.ty).toBeGreaterThanOrEqual(2);
 	});
 });
 
