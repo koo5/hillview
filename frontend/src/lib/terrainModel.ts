@@ -22,8 +22,8 @@ export interface TerrainRender {
 	 * carry the worker's progress ping (progress_pct) and, once a milestone
 	 * partial ships, the artifact cache key (artifact_version) */
 	meta:
-		| (TerrainMeta & { progress_pct?: number; artifact_version?: number })
-		| { progress_pct?: number; artifact_version?: number }
+		| (TerrainMeta & { progress_pct?: number; artifact_version?: number; attribution?: string })
+		| { progress_pct?: number; artifact_version?: number; attribution?: string }
 		| null;
 	has_depth: boolean;
 	has_preview: boolean;
@@ -78,6 +78,14 @@ export function artifactVersion(r: TerrainRender): string {
 export function progressOf(r: TerrainRender): number | null {
 	const p = (r.meta as { progress_pct?: unknown } | null)?.progress_pct;
 	return typeof p === 'number' && Number.isFinite(p) ? p : null;
+}
+
+/** Data-source credit the worker stamped into the render (TERRAIN_ATTRIBUTION
+ * → meta.attribution). Displaying it is a licence obligation, not decoration:
+ * GLO-30 derived works must carry the Copernicus notice, ČÚZK is CC BY. */
+export function attributionOf(r: TerrainRender): string | null {
+	const a = (r.meta as { attribution?: unknown } | null)?.attribution;
+	return typeof a === 'string' && a ? a : null;
 }
 
 /** "The range circle keeps its job — it selects a render, spatially": the

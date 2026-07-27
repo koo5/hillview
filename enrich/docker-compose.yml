@@ -72,6 +72,8 @@ services:
       - GEOCODE_DELAY=${GEOCODE_DELAY:-0.7}
       - RABBITMQ_URL=${RABBITMQ_USER:-enrich}:${RABBITMQ_PASS:-enrich}@rabbitmq:5672
       - ENRICH_WORKER_TOKEN=${ENRICH_WORKER_TOKEN:-dev-worker-token}
+      # empty is fine — config.py falls back to its built-in allowlist
+      - ENRICH_CORS_ORIGINS=${ENRICH_CORS_ORIGINS:-}
     ports:
       - "127.0.0.1:${ENRICH_API_HOST_PORT:-8070}:8070"
     volumes:
@@ -88,6 +90,36 @@ services:
       workbench-db:
         condition: service_healthy
       oxigraph:
+        condition: service_started
+
+  terrain-worker:
+    # containerized twin of terrain/run_worker.sh — same untrusted-worker
+    # topology (broker + HTTP callback, no DB creds). First start downloads
+    # the GLO-30 tiles for TERRAIN_AUTO_DEM_BBOX (~45 tiles / ~2 GB for the
+    # CZ default) into terrain_dem; later starts only HEAD-check them.
+    build:
+      context: ./terrain
+    container_name: enrich_terrain_worker
+    restart: unless-stopped
+    mem_limit: 4g
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_USER:-enrich}:${RABBITMQ_PASS:-enrich}@rabbitmq:5672
+      - TERRAIN_CALLBACK_URL=http://api:8070/api/terrain/result
+      - ENRICH_WORKER_TOKEN=${ENRICH_WORKER_TOKEN:-dev-worker-token}
+      - TERRAIN_AUTO_DEM_BBOX=${TERRAIN_AUTO_DEM_BBOX:-11.5,47.5,19.5,51.5}
+      # set these (plus a mount) to use fine ČÚZK mosaics instead of auto GLO-30
+      - TERRAIN_DSM_PATH=${TERRAIN_DSM_PATH:-}
+      - TERRAIN_DTM_PATH=${TERRAIN_DTM_PATH:-}
+      # empty + auto GLO-30 → entrypoint fills in the required Copernicus notice
+      - TERRAIN_ATTRIBUTION=${TERRAIN_ATTRIBUTION:-}
+      - TERRAIN_GEOID_OFFSET_M=${TERRAIN_GEOID_OFFSET_M:-44.5}
+      - TERRAIN_REQUIRED_GB=${TERRAIN_REQUIRED_GB:-2}
+    volumes:
+      - terrain_dem:/dem
+    depends_on:
+      rabbitmq:
+        condition: service_started
+      api:
         condition: service_started
 
   web:
@@ -114,3 +146,4 @@ volumes:
   oxigraph_data: {}
   enrich_artifacts: {}
   rabbitmq_data: {}
+  terrain_dem: {}

@@ -23,6 +23,11 @@ Environment:
     TERRAIN_CALLBACK_URL    where results are POSTed
                        (default http://127.0.0.1:8070/api/terrain/result)
     ENRICH_WORKER_TOKEN     X-Worker-Token for the callback
+    TERRAIN_ATTRIBUTION     data-source credit stamped into each render's
+                       meta.attribution — set to whatever the licences of the
+                       mosaics behind TERRAIN_DSM_PATH require (the GLO-30
+                       licence mandates a notice on derived works; ČÚZK is
+                       CC BY). The UIs display it wherever renders are shown.
 
 Run (from repo root; venv per requirements.txt — hash-pinned, see README):
     cd enrich/terrain && python -m remoulade worker --processes 1 --threads 1
@@ -50,6 +55,7 @@ RAM_GATE_TIMEOUT_S = float(os.getenv("TERRAIN_RAM_GATE_TIMEOUT_S", "600"))
 CALLBACK_URL = os.getenv("TERRAIN_CALLBACK_URL",
                          "http://127.0.0.1:8070/api/terrain/result")
 WORKER_TOKEN = os.getenv("ENRICH_WORKER_TOKEN", "dev-worker-token")
+ATTRIBUTION = os.getenv("TERRAIN_ATTRIBUTION", "")
 
 broker = RabbitmqBroker(url=f"amqp://{RABBITMQ_URL}?timeout=15", confirm_delivery=True)
 remoulade.set_broker(broker)
@@ -135,6 +141,8 @@ def _render(lat: float, lon: float, params: dict, progress=None, checkpoint=None
                            **kwargs)
     pano.params.update({"eye_source": eye_source,
                         "ground_m": round(ground, 2), "ground_source": ground_src})
+    if ATTRIBUTION:
+        pano.params["attribution"] = ATTRIBUTION
     return pano.meta(), renderer.encode_depth_u16(pano.depth), _preview_jpeg(pano)
 
 

@@ -79,6 +79,7 @@ async def enqueue(req: EnqueueRequest):
     actors.render_panorama.send({
         "result_id": str(rid), "lat": lat, "lon": lon, "params": params,
     })
+    print(f"terrain: enqueued {rid} @ ({lat:.5f}, {lon:.5f})", flush=True)
     return {"queued": str(rid)}
 
 
@@ -137,6 +138,41 @@ async def result(result_json: str = Form(...),
     return {"ok": True}
 
 
+# "Queued with zero consumers" is otherwise perfectly silent (the worker is a
+# host process the stack can't see), so the renders poll carries the terrain
+# queue's message/consumer counts and the client can say "no worker connected".
+# Passive declare over a short-lived connection, TTL-cached so the 3 s poll
+# doesn't churn broker connections.
+QUEUE_STATE_TTL_S = 5.0
+_queue_state_cache: tuple[float, dict | None] | None = None
+
+
+def _queue_state_now() -> dict | None:
+    url = os.getenv("RABBITMQ_URL")
+    if not url:
+        return None
+    import amqpstorm
+    try:
+        with amqpstorm.UriConnection(f"amqp://{url}?timeout=3") as conn:
+            with conn.channel() as ch:
+                d = ch.queue.declare("terrain", passive=True)
+                return {"messages": d["message_count"],
+                        "consumers": d["consumer_count"]}
+    except amqpstorm.AMQPError:
+        return None  # unreachable broker / missing queue → "unknown", not an error
+
+
+async def _queue_state() -> dict | None:
+    global _queue_state_cache
+    if (_queue_state_cache
+            and time.monotonic() - _queue_state_cache[0] < QUEUE_STATE_TTL_S):
+        return _queue_state_cache[1]
+    from starlette.concurrency import run_in_threadpool
+    state = await run_in_threadpool(_queue_state_now)
+    _queue_state_cache = (time.monotonic(), state)
+    return state
+
+
 @router.get("/terrain/renders")
 async def renders(photo_id: str | None = None, limit: int = 50):
     where = "WHERE photo_id = :pid" if photo_id else ""
@@ -148,7 +184,8 @@ async def renders(photo_id: str | None = None, limit: int = 50):
             "enqueued_at, finished_at FROM terrain_renders "
             f"{where} ORDER BY enqueued_at DESC LIMIT :lim"),
             {"pid": photo_id, "lim": limit})).mappings().all()
-    return {"renders": [dict(r) | {"id": str(r["id"])} for r in rows]}
+    return {"renders": [dict(r) | {"id": str(r["id"])} for r in rows],
+            "queue": await _queue_state()}
 
 
 def _artifact_abspath(rel: str) -> str:
@@ -216,6 +253,10 @@ async def preview_artifact(render_id: str):
 # entry and Overpass sees us rarely.
 
 OVERPASS_URL = os.getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
+# overpass-api.de 406es default library User-Agents (usage policy wants an
+# identifying one) — send who we are, overridable for other instances
+OVERPASS_UA = os.getenv("OVERPASS_USER_AGENT",
+                        "hillview-enrich-terrain/1.0 (+https://github.com/koo5/hillview)")
 PEAKS_TTL_S = 7 * 24 * 3600
 PEAKS_MAX = 400
 _peaks_cache: dict[tuple, tuple[float, list[dict]]] = {}
@@ -258,7 +299,8 @@ async def peaks(lat: float, lon: float, radius_m: float = 100_000.0):
              f'node["natural"="peak"]["name"](around:{radius_m:.0f},{lat},{lon});'
              f"out body;")
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30,
+                                     headers={"User-Agent": OVERPASS_UA}) as client:
             r = await client.post(OVERPASS_URL, data={"data": query})
             r.raise_for_status()
             result = peaks_from_overpass(r.json())

@@ -23,6 +23,13 @@ export const terrainModeAvailable = !!terrainApiBase;
 export const terrainRenders = writable<TerrainRender[]>([]);
 export const terrainError = writable<string | null>(null);
 
+/** Terrain job queue counts from the renders poll — null while unknown
+ * (broker unreachable or not configured). consumers === 0 is the "enqueued
+ * into the void" signal: the render worker is a host-side process, so
+ * without this the UI has no way to see that nothing will ever pick the
+ * job up. */
+export const terrainQueue = writable<{ messages: number; consumers: number } | null>(null);
+
 /** The range circle's spatial selection — nearest render within range. */
 export const selectedTerrainRender = derived(
 	[terrainRenders, spatialState],
@@ -106,7 +113,12 @@ export async function refreshTerrainRenders(): Promise<void> {
 	try {
 		const r = await fetch(`${terrainApiBase}/terrain/renders`);
 		if (!r.ok) throw new Error(`HTTP ${r.status}`);
-		terrainRenders.set(((await r.json()) as { renders: TerrainRender[] }).renders);
+		const body = (await r.json()) as {
+			renders: TerrainRender[];
+			queue?: { messages: number; consumers: number } | null;
+		};
+		terrainRenders.set(body.renders);
+		terrainQueue.set(body.queue ?? null);
 		terrainError.set(null);
 	} catch (e) {
 		terrainError.set(e instanceof Error ? e.message : String(e));

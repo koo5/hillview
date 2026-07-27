@@ -10,6 +10,7 @@
 import { expect, test } from '@playwright/test';
 import {
 	colorDist,
+	frameTarget,
 	golden,
 	openFixtureRender,
 	pagePoint,
@@ -28,8 +29,7 @@ async function clickAndReadCoords(page: import('@playwright/test').Page, pick: {
 	col: number;
 	row: number;
 }) {
-	const box = (await page.getByTestId('terrain-canvas').boundingBox())!;
-	const p = pagePoint(box, pick);
+	const p = await pagePoint(page, pick);
 	await page.mouse.click(p.x, p.y);
 	const text = await page.getByTestId('terrain-picked').innerText();
 	const m = text.match(/(-?\d+\.\d+), (-?\d+\.\d+)/);
@@ -38,11 +38,16 @@ async function clickAndReadCoords(page: import('@playwright/test').Page, pick: {
 }
 
 test('paints terrain and sky distinctly', async ({ page }) => {
-	const summitPx = await readPixelAt(page, golden.summit);
+	// the NEAR slope: at the default visibility a 25 km summit is 70% fogged
+	// toward the sky BY DESIGN (Koschmieder), so it can't anchor a
+	// "distinctly terrain" assertion — the 4 km slope can
+	await frameTarget(page, golden.near_slope);
+	const terrainPx = await readPixelAt(page, golden.near_slope);
+	await frameTarget(page, golden.sky);
 	const skyPx = await readPixelAt(page, golden.sky);
 	// sky pixel sits near the configured sky color; terrain pixel does not
 	expect(colorDist(skyPx, SKY_RGB)).toBeLessThan(40);
-	expect(colorDist(summitPx, SKY_RGB)).toBeGreaterThan(60);
+	expect(colorDist(terrainPx, SKY_RGB)).toBeGreaterThan(60);
 });
 
 test('golden click-back: summit coords match the Python renderer', async ({ page }) => {
@@ -66,8 +71,7 @@ test('golden click-back: far ridge and near slope', async ({ page }) => {
 });
 
 test('click-back survives zoom (cursor-anchored) ', async ({ page }) => {
-	const box = (await page.getByTestId('terrain-canvas').boundingBox())!;
-	const p = pagePoint(box, golden.summit);
+	const p = await pagePoint(page, golden.summit);
 	await page.mouse.move(p.x, p.y);
 	for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -100); // zoomAt anchors cursor
 	const got = await clickAndReadCoords(page, golden.summit);
@@ -78,19 +82,27 @@ test('click-back survives zoom (cursor-anchored) ', async ({ page }) => {
 
 test('sky click clears the pick', async ({ page }) => {
 	await clickAndReadCoords(page, golden.summit);
-	const box = (await page.getByTestId('terrain-canvas').boundingBox())!;
-	const s = pagePoint(box, golden.sky);
+	const s = await pagePoint(page, golden.sky);
 	await page.mouse.click(s.x, s.y);
 	await expect(page.getByTestId('terrain-picked')).toHaveCount(0);
 });
 
 test('fog is Koschmieder-shaped: distance-dependent, live', async ({ page }) => {
+	// Visibility pair chosen so the fixture separates cleanly: 300→80 km
+	// swallows the 54 km ridge (transmittance 0.50→0.07) while the 4 km
+	// slope barely moves (0.95→0.83). A very hazy low setting would move the
+	// NEAR hill by more absolute color than the already-saturated ridge —
+	// exponential extinction, not a bug.
 	const vis = page.getByTestId('terrain-visibility');
 	await vis.fill('300'); // ~clear: far ridge (54 km) half-fogged, near hill (4 km) barely
+	await frameTarget(page, golden.far_ridge);
 	const farClear = await readPixelAt(page, golden.far_ridge);
+	await frameTarget(page, golden.near_slope);
 	const nearClear = await readPixelAt(page, golden.near_slope);
-	await vis.fill('30'); // hazy: far ridge fully swallowed, near hill only partly
+	await vis.fill('80'); // hazy: far ridge fully swallowed, near hill only partly
+	await frameTarget(page, golden.far_ridge);
 	const farHazy = await readPixelAt(page, golden.far_ridge);
+	await frameTarget(page, golden.near_slope);
 	const nearHazy = await readPixelAt(page, golden.near_slope);
 
 	const toSky = (px: number[]) => colorDist(px, SKY_RGB);

@@ -145,10 +145,21 @@ export function textureAspect(meta: TerrainMeta): number {
 	return meta.height / meta.width;
 }
 
-export function rectFromView(meta: TerrainMeta, v: ViewState): ViewRect {
+/** canvasAspect (css height / css width) decides how much V the viewport
+ * spans: square angular pixels mean the vertical window is the horizontal
+ * one scaled by canvasAspect/textureAspect. The default (canvasAspect =
+ * textureAspect) is the legacy "canvas locked to the texture strip" case,
+ * where both windows coincide — kept as the default so the pure-fn tests
+ * and any unstyled consumer keep their old meaning. */
+export function rectFromView(
+	meta: TerrainMeta,
+	v: ViewState,
+	canvasAspect = textureAspect(meta)
+): ViewRect {
 	const a = textureAspect(meta);
 	const w = 1 / v.scale;
-	return { x1: v.offX, y1: v.offY * a, x2: v.offX + w, y2: (v.offY + w) * a };
+	const vwV = (w * canvasAspect) / a; // vertical window in texture-V units
+	return { x1: v.offX, y1: v.offY * a, x2: v.offX + w, y2: (v.offY + vwV) * a };
 }
 
 /** Inverse of rectFromView. Scale derives from the rect WIDTH alone (the
@@ -194,8 +205,8 @@ export function wedgeFromRect(
 
 const VS = `#version 300 es
 in vec2 aPos; out vec2 vUV;
-uniform vec3 uView; // offX, offY, scale
-void main(){ vUV = (aPos * 0.5 + 0.5) / uView.z + uView.xy;
+uniform vec4 uView; // offX, offY, uWindow, vWindow
+void main(){ vUV = (aPos * 0.5 + 0.5) * uView.zw + uView.xy;
 	gl_Position = vec4(aPos.x, -aPos.y, 0.0, 1.0); }`;
 
 const FS = `#version 300 es
@@ -204,8 +215,10 @@ in vec2 vUV; out vec4 frag;
 uniform sampler2D uColor; uniform sampler2D uDepth;
 uniform float uDensity; uniform vec3 uSky;
 void main(){
-	if (vUV.y < 0.0 || vUV.y > 1.0) { // x wraps via TEXTURE_WRAP_S = REPEAT
-		frag = vec4(0.08, 0.09, 0.11, 1.0); return; }
+	// x wraps via TEXTURE_WRAP_S = REPEAT; y beyond the strip continues the
+	// scene: open sky above the panorama's top edge, dark ground below
+	if (vUV.y < 0.0) { frag = vec4(uSky * 1.08, 1.0); return; }
+	if (vUV.y > 1.0) { frag = vec4(0.08, 0.09, 0.11, 1.0); return; }
 	float d = texture(uDepth, vUV).r;
 	vec3 c = texture(uColor, vUV).rgb;
 	if (d <= 0.0) { // sky: subtle vertical gradient
@@ -237,6 +250,10 @@ export class DepthPanoViewer {
 	private scale = 1;
 	private offX = 0;
 	private offY = 0;
+	/** canvas css height/width — the consumer's CSS sizes the canvas (fill
+	 * the pane); the vertical view window follows this, so zooming grows the
+	 * strip vertically instead of magnifying inside a fixed noodle */
+	private cAspect = 0.5;
 	private visibilityKm = 80;
 	private skyColor = '#a7cdf0';
 	// pointer state (mouse + touch + pinch via Pointer Events)
@@ -344,6 +361,7 @@ export class DepthPanoViewer {
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 		gl.uniform1i(gl.getUniformLocation(this.prog, 'uColor'), 0);
 		gl.uniform1i(gl.getUniformLocation(this.prog, 'uDepth'), 1);
+		const restored = this.pendingRect !== null;
 		if (this.pendingRect) {
 			const v = viewFromRect(meta, this.pendingRect);
 			this.pendingRect = null;
@@ -353,9 +371,10 @@ export class DepthPanoViewer {
 		} else {
 			this.scale = 1;
 			this.offX = 0;
-			this.offY = 0;
 		}
-		this.resize();
+		this.resize(); // establishes cAspect (centerY needs it)
+		if (!restored) this.centerY();
+		this.draw();
 		this.emitView();
 	}
 
@@ -373,7 +392,11 @@ export class DepthPanoViewer {
 	/** Current viewport rect (zoom view convention), null before load. */
 	getRect(): ViewRect | null {
 		return this.meta
-			? rectFromView(this.meta, { offX: this.offX, offY: this.offY, scale: this.scale })
+			? rectFromView(
+					this.meta,
+					{ offX: this.offX, offY: this.offY, scale: this.scale },
+					this.cAspect
+				)
 			: null;
 	}
 
@@ -395,8 +418,25 @@ export class DepthPanoViewer {
 	private emitView(): void {
 		if (this.meta && this.onViewChange)
 			this.onViewChange(
-				rectFromView(this.meta, { offX: this.offX, offY: this.offY, scale: this.scale })
+				rectFromView(
+					this.meta,
+					{ offX: this.offX, offY: this.offY, scale: this.scale },
+					this.cAspect
+				)
 			);
+	}
+
+	/** Visible vertical window in texture-V units: the horizontal window
+	 * scaled by canvasAspect/textureAspect — square angular pixels. */
+	private vWin(): number {
+		const m = this.meta;
+		return m ? ((1 / this.scale) * this.cAspect) / textureAspect(m) : 1 / this.scale;
+	}
+
+	/** Center the panorama band vertically (sky above, dark below, when the
+	 * viewport is angularly taller than the strip). */
+	private centerY(): void {
+		this.offY = (1 - this.vWin()) / 2;
 	}
 
 	setFog({ visibilityKm, skyColor }: FogParams): void {
@@ -408,7 +448,7 @@ export class DepthPanoViewer {
 	resetView(): void {
 		this.scale = 1;
 		this.offX = 0;
-		this.offY = 0;
+		this.centerY();
 		this.draw();
 		this.emitView();
 	}
@@ -417,10 +457,15 @@ export class DepthPanoViewer {
 		const { canvas, meta } = this;
 		if (!meta || canvas.clientWidth === 0) return;
 		const dpr = globalThis.devicePixelRatio ?? 1;
-		const cssH = canvas.clientWidth * (meta.height / meta.width);
-		canvas.style.height = `${cssH}px`;
+		// The consumer's CSS owns the canvas box (typically: fill the pane);
+		// the backing store follows it and cAspect feeds the vertical window.
+		// An inline height is always legacy: this class used to lock the
+		// canvas to the texture aspect that way, and a leftover (e.g. across
+		// HMR) would override the consumer's CSS height — clear it first.
+		if (canvas.style.height) canvas.style.height = '';
+		if (canvas.clientHeight > 0) this.cAspect = canvas.clientHeight / canvas.clientWidth;
 		canvas.width = Math.round(canvas.clientWidth * dpr);
-		canvas.height = Math.round(cssH * dpr);
+		canvas.height = Math.round(canvas.clientWidth * this.cAspect * dpr);
 		this.draw();
 	}
 
@@ -428,7 +473,13 @@ export class DepthPanoViewer {
 		const { gl, prog, meta } = this;
 		if (!meta) return;
 		gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-		gl.uniform3f(gl.getUniformLocation(prog, 'uView'), this.offX, this.offY, this.scale);
+		gl.uniform4f(
+			gl.getUniformLocation(prog, 'uView'),
+			this.offX,
+			this.offY,
+			1 / this.scale,
+			this.vWin()
+		);
 		// Koschmieder: extinction for 2% contrast threshold at visibility V
 		gl.uniform1f(gl.getUniformLocation(prog, 'uDensity'), 3.912 / (this.visibilityKm * 1000));
 		const [r, g, b] = hexToRgb(this.skyColor);
@@ -472,7 +523,7 @@ export class DepthPanoViewer {
 		const r = this.canvas.getBoundingClientRect();
 		return [
 			(clientX - r.left) / r.width / this.scale + this.offX,
-			(clientY - r.top) / r.height / this.scale + this.offY
+			((clientY - r.top) / r.height) * this.vWin() + this.offY
 		];
 	}
 
@@ -481,7 +532,7 @@ export class DepthPanoViewer {
 		this.scale = Math.min(40, Math.max(1, this.scale * factor));
 		const r = this.canvas.getBoundingClientRect();
 		this.offX = wrap01(ux - (clientX - r.left) / r.width / this.scale);
-		this.offY = uy - (clientY - r.top) / r.height / this.scale;
+		this.offY = uy - ((clientY - r.top) / r.height) * this.vWin();
 		this.draw();
 		this.emitView();
 	}
@@ -514,7 +565,7 @@ export class DepthPanoViewer {
 		}
 		const r = this.canvas.getBoundingClientRect();
 		this.offX = wrap01(this.offX - (e.clientX - prev.x) / r.width / this.scale);
-		this.offY -= (e.clientY - prev.y) / r.height / this.scale;
+		this.offY -= ((e.clientY - prev.y) / r.height) * this.vWin();
 		this.moved += Math.abs(e.clientX - prev.x) + Math.abs(e.clientY - prev.y);
 		this.draw();
 		this.emitView();

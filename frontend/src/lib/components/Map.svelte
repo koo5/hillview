@@ -486,6 +486,9 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 	// coords AND a ray on the map: viewpoint → picked point with a distance
 	// label. This is the moment the feature explains itself."
 	let terrainGeomLayer: L.LayerGroup | null = null;
+	// dedicated SVG renderer for the pick ray's textpath label (created on
+	// first pick, kept for reuse — clearTerrainGeometry runs per update)
+	let terrainSvgRenderer: L.SVG | null = null;
 
 	function clearTerrainGeometry() {
 		terrainGeomLayer?.remove();
@@ -519,9 +522,18 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 			}
 		}
 		if (pick && viewpoint) {
+			// setText (leaflet-textpath) only works on the SVG renderer — on the
+			// preferCanvas map a canvas-rendered path has no _path element and
+			// every redraw throws. Same dedicated-L.svg() pattern as the Lines
+			// feature (lineSvgRenderer).
+			if (!terrainSvgRenderer) {
+				terrainSvgRenderer = L.svg();
+				terrainSvgRenderer.addTo(map);
+			}
 			const ray = L.polyline(
 				[[viewpoint.lat, viewpoint.lon], [pick.lat, pick.lon]],
-				{ color: '#e2a04a', weight: 3, dashArray: '6, 6', interactive: false }
+				{ color: '#e2a04a', weight: 3, dashArray: '6, 6', interactive: false,
+				  renderer: terrainSvgRenderer }
 			);
 			(ray as any).setText(`${(pick.distance_m / 1000).toFixed(1)} km`, {
 				center: true,

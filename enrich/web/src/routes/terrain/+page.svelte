@@ -90,7 +90,12 @@
 	}
 
 	$effect(() => {
-		viewer?.setFog({ visibilityKm, skyColor });
+		// read the fog params BEFORE the viewer null-check: on the effect's
+		// first run viewer is still null, and `viewer?.` short-circuiting
+		// would leave the effect with zero tracked dependencies — the slider
+		// would never re-trigger it (runes track only what a run actually reads)
+		const fog = { visibilityKm, skyColor };
+		viewer?.setFog(fog);
 	});
 
 	onMount(() => {
@@ -160,7 +165,9 @@
 	.renders { list-style: none; padding: 0; margin: 0; overflow-y: auto; max-height: 70vh; }
 	.renders li button { width: 100%; text-align: left; display: flex; flex-direction: column; }
 	.renders li.active button { outline: 2px solid var(--accent, #4a90e2); }
-	canvas { width: 100%; display: block; background: #16181c; cursor: crosshair; }
+	/* the canvas box sets the viewer's vertical FOV (the shared core follows
+	   the CSS size instead of locking to the texture aspect) */
+	canvas { width: 100%; height: 60vh; display: block; background: #16181c; cursor: crosshair; }
 	.controls { display: flex; gap: 1.2rem; align-items: center; flex-wrap: wrap; padding: 0.5rem 0; }
 	.picked { font-variant-numeric: tabular-nums; }
 	.hint { opacity: 0.6; }

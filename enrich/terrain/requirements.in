@@ -8,5 +8,5 @@ numpy==2.4.4
 pillow==12.2.0
 psutil==7.2.2
 rasterio
-remoulade[rabbitmq]==7.0.0
+remoulade[rabbitmq,limits]==7.0.0   # extras: broker.py needs limits, RabbitmqBroker needs amqpstorm (cf. api/pyproject.toml)
 requests==2.34.2

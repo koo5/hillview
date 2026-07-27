@@ -4,6 +4,7 @@
 *
 !frontend
 !shared/zoomview
+!shared/terrain
 frontend/**/.github
 frontend/**/.claude
 frontend/**/.idea

@@ -165,9 +165,13 @@
 			});
 	});
 
-	// live fog re-shade — no re-render, just a uniform update
+	// live fog re-shade — no re-render, just a uniform update. Read the params
+	// BEFORE the null-check: `viewer?.` short-circuiting on the first run
+	// would leave the effect with zero tracked dependencies, so the sliders
+	// would never re-trigger it (viewer itself is deliberately non-reactive).
 	$effect(() => {
-		viewer?.setFog({ visibilityKm, skyColor });
+		const fog = { visibilityKm, skyColor };
+		viewer?.setFog(fog);
 	});
 
 	// peaks / toggle changes: re-project against the loaded depth + repaint
@@ -202,9 +206,15 @@
 	.terrain-viewer {
 		position: relative;
 		width: 100%;
+		/* fill the pane (flex column): the canvas box is what decides the
+		   viewer's vertical FOV — the core no longer locks it to the texture
+		   aspect, so zoom can grow the strip into this space */
+		flex: 1;
+		min-height: 0;
 	}
 	canvas {
 		width: 100%;
+		height: 100%;
 		display: block;
 		background: #16181c;
 		cursor: crosshair;

@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY frontend/ ./
 COPY shared/zoomview /shared/zoomview
+COPY shared/terrain /shared/terrain
 
 COPY frontend/src/routes/+page.svelte.web        src/routes/+page.svelte
 COPY frontend/src/routes/+page.ts.web            src/routes/+page.ts

@@ -78,23 +78,45 @@ export async function stubTerrainApi(page: Page, rows: () => unknown[]) {
 	});
 }
 
-/** Page coordinates of a fixture pixel's center (view untransformed). */
-export function pagePoint(
-	box: { x: number; y: number; width: number; height: number },
-	pick: { col: number; row: number }
-) {
+const wrap01 = (x: number) => ((x % 1) + 1) % 1;
+
+/** Fixture pixel center → canvas CSS coords through the viewer's LIVE rect
+ * (mirrors peakLabels.texToCanvas). The canvas no longer coincides with the
+ * texture: it fills its CSS box and the vertical window follows the canvas
+ * aspect, so a fixed col/row→px mapping would land off the strip. */
+async function cssPoint(page: Page, pick: { col: number; row: number }) {
+	const box = (await page.getByTestId('terrain-canvas').boundingBox())!;
+	const rect = await page.evaluate(
+		() =>
+			(
+				window as unknown as {
+					__hvTerrainViewer?: {
+						getRect(): { x1: number; y1: number; x2: number; y2: number } | null;
+					};
+				}
+			).__hvTerrainViewer!.getRect()!
+	);
+	const a = meta.height / meta.width;
+	const u = (pick.col + 0.5) / meta.width;
+	const v = (pick.row + 0.5) / meta.height;
+	const dx = wrap01(u - wrap01(rect.x1));
 	return {
-		x: box.x + ((pick.col + 0.5) / meta.width) * box.width,
-		y: box.y + ((pick.row + 0.5) / meta.height) * box.height
+		box,
+		cssX: (dx / (rect.x2 - rect.x1)) * box.width,
+		cssY: ((v * a - rect.y1) / (rect.y2 - rect.y1)) * box.height
 	};
+}
+
+/** Page coordinates of a fixture pixel's center under the current view. */
+export async function pagePoint(page: Page, pick: { col: number; row: number }) {
+	const { box, cssX, cssY } = await cssPoint(page, pick);
+	return { x: box.x + cssX, y: box.y + cssY };
 }
 
 /** RGBA at a fixture pixel via the viewer's readPixel hook (CSS coords are
  * canvas-relative; redraw+read happens synchronously inside the page). */
 export async function readPixelAt(page: Page, pick: { col: number; row: number }) {
-	const box = (await page.getByTestId('terrain-canvas').boundingBox())!;
-	const cssX = ((pick.col + 0.5) / meta.width) * box.width;
-	const cssY = ((pick.row + 0.5) / meta.height) * box.height;
+	const { cssX, cssY } = await cssPoint(page, pick);
 	return page.evaluate(
 		([x, y]) =>
 			(
@@ -108,6 +130,33 @@ export async function readPixelAt(page: Page, pick: { col: number; row: number }
 
 export function colorDist(a: number[], b: [number, number, number]) {
 	return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+/** Zoom so the texture's full height fills the canvas with the target's
+ * column centered — single-pixel color reads are meaningless in the squeezed
+ * reset view (a texture row maps to a fraction of a device pixel and the
+ * shader resolves the pixel to a neighbouring row). This reproduces the
+ * framing the old texture-aspect-locked canvas gave every sample. */
+export async function frameTarget(page: Page, pick: { col: number; row: number }) {
+	const a = meta.height / meta.width;
+	const u = (pick.col + 0.5) / meta.width;
+	await page.evaluate(
+		([u_, a_]) => {
+			const v = (
+				window as unknown as {
+					__hvTerrainViewer?: {
+						getRect(): { x1: number; y1: number; x2: number; y2: number } | null;
+						setRect(r: { x1: number; y1: number; x2: number; y2: number }): void;
+					};
+				}
+			).__hvTerrainViewer!;
+			const r = v.getRect()!;
+			// uWindow that makes vWindow exactly the full texture height
+			const w = ((r.x2 - r.x1) * a_) / (r.y2 - r.y1);
+			v.setRect({ x1: u_ - w / 2, y1: 0, x2: u_ + w / 2, y2: a_ });
+		},
+		[u, a]
+	);
 }
 
 /** Selects the fixture render and waits for the canvas to actually paint

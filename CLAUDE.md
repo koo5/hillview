@@ -99,6 +99,7 @@ Each subdirectory has its own `CLAUDE.md` with detailed instructions:
 ## Documentation Guides
 
 - **[Database Migrations Guide](docs/database-migrations.md)**: Complete workflow for managing database schema changes with Alembic
+- **[Terrain Data Licensing](docs/terrain-data-licensing.md)**: DEM/OSM licence obligations for terrain renders (required notices, pre-launch checklist)
 
 ## Common Issues & Solutions
 

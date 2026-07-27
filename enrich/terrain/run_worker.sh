@@ -31,6 +31,7 @@ systemd-run --user --unit=enrich-terrain \
   --setenv=TERRAIN_DSM_PATH="${TERRAIN_DSM_PATH:-${TERRAIN_DEM_PATH:-}}" \
   --setenv=TERRAIN_DTM_PATH="${TERRAIN_DTM_PATH:-}" \
   --setenv=TERRAIN_GEOID_OFFSET_M="${TERRAIN_GEOID_OFFSET_M:-44.5}" \
+  --setenv=TERRAIN_ATTRIBUTION="${TERRAIN_ATTRIBUTION:-}" \
   --setenv=TERRAIN_REQUIRED_GB="${TERRAIN_REQUIRED_GB:-2}" \
   "$VENV_PY" -m remoulade worker --threads 1
 

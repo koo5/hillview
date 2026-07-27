@@ -19,6 +19,8 @@ Renders what the terrain *should* look like from a photo's viewpoint, out to
 | `renderer.py` | pure-numpy core: DEM grids (+`CompositeDem` layering), vectorised horizon march, observer/datum resolution, click-back, preview shading, depth codec |
 | `build_mosaic.py` | DSM/DTM mosaic builder — pdal/gdal CLI wrapper with `--dry-run`, command construction unit-tested |
 | `download_cuzk.py` | whole-CZ bulk downloader for the ČÚZK ATOM services (stdlib-only, resumable, polite), parsing pinned to real service XML |
+| `download_glo30.py` | Copernicus GLO-30 tile downloader for a bbox (stdlib-only, resumable) — the containerized worker's auto-DSM and the far/borders layer of the full flow |
+| `Dockerfile` + `docker-entrypoint.sh` | containerized worker (compose service `terrain-worker`): auto-downloads GLO-30 for `TERRAIN_AUTO_DEM_BBOX` into the `terrain_dem` volume, stitches a VRT, runs |
 | `worker.py` | RabbitMQ worker (untrusted topology, cf. `matcher/`): renders against a local DEM, POSTs artifacts back with a token |
 | `run_worker.sh` | systemd transient unit with memory ceiling (same belt-and-braces as the matcher) |
 | `test_renderer.py` | synthetic-terrain tests — horizon dip, peak bearing/depth, curvature+refraction, occlusion, codec, window clipping, datum resolution |
@@ -116,6 +118,21 @@ the far more common case.
 
 ## Run
 
+The zero-setup path is the **containerized worker** — first start downloads
+the GLO-30 tiles for `TERRAIN_AUTO_DEM_BBOX` (default: CZ + margin, ~2 GB,
+one-time into the `terrain_dem` volume), stitches a VRT and consumes the
+`terrain` queue:
+
+```bash
+docker compose up -d --build terrain-worker
+docker logs -f enrich_terrain_worker
+```
+
+30 m surface data is plenty for far skylines; when the fine ČÚZK near-ring
+mosaics exist, mount them into the service and set
+`TERRAIN_DSM_PATH`/`TERRAIN_DTM_PATH` (see `.env.example`) — or run the
+host-side worker instead:
+
 ```bash
 # schema lands on API restart (idempotent init SQL)
 docker compose up -d --build api web
@@ -142,6 +159,31 @@ python3 ../terrain/make_fixture.py
 
 Then the **Terrain** tab in the bench: enqueue by photo id or ad-hoc lat/lon,
 pick the finished render, drag the visibility slider, click a mountain.
+
+## Licensing / attribution
+
+Full obligations write-up (exact required notices, what's discharged where,
+the pre-launch checklist, licence-text link): **`docs/terrain-data-licensing.md`**.
+Summary:
+
+The rendered artifacts are derived works of the DEMs, so the data licences
+follow the renders wherever they are shown. The worker stamps
+`TERRAIN_ATTRIBUTION` into each render's `meta.attribution` and the viewers
+display it; the containerized auto-GLO-30 path defaults it to the required
+Copernicus notice — set it yourself when other sources feed the mosaics.
+
+* **Copernicus GLO-30** (Licence for COP-DEM-GLO-30, Art. 6(b) — adapted /
+  modified data): *"produced using Copernicus WorldDEM-30 © DLR e.V.
+  2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under
+  COPERNICUS by the European Union and ESA; all rights reserved"*.
+  Publishing renders to the general public additionally requires (Art. 6(c))
+  this sentence in the covering legal notice / terms: *"The organisations in
+  charge of the Copernicus programme by law or by delegation do not incur any
+  liability for any use of the Copernicus WorldDEM-30"*.
+* **ČÚZK DMP 1G / DMR 5G** — CC BY 4.0: credit "© ČÚZK" once mosaics built
+  from them feed the worker (fold it into `TERRAIN_ATTRIBUTION`).
+* **OSM peak labels** — ODbL: the viewer shows "peaks © OpenStreetMap
+  contributors" whenever peak candidates are displayed.
 
 ## E2E: the golden thread
 
