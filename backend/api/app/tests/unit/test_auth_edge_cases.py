@@ -269,6 +269,76 @@ class TestOAuthStateParameter:
                 assert not any(bad in location.lower() for bad in ["evil.com", "javascript:", "file://"])
 
 
+class TestLegacyStateFallback:
+    """POST /auth/oauth with strict state OFF (legacy mode).
+
+    The web frontend sends no provider — only the state it got back from
+    /auth/oauth-redirect. In legacy mode that state is the stateless
+    provider:redirect_uri[:session_id] form, and the endpoint must recover the
+    provider from it instead of failing with "Unsupported OAuth provider: None"
+    (which is how prod web login broke when the post-strict-state frontend was
+    deployed against a strict-off backend).
+    """
+
+    def test_parse_legacy_oauth_state_formats(self):
+        import user_routes
+
+        assert user_routes.parse_legacy_oauth_state("google:https://hillview.cz/oauth/callback") == \
+            ("google", "https://hillview.cz/oauth/callback", None)
+
+        # Deep-link redirect: scheme colons stay in the URI
+        assert user_routes.parse_legacy_oauth_state("google:cz.hillview://auth") == \
+            ("google", "cz.hillview://auth", None)
+
+        # Trailing UUID-shaped segment is a polling session id
+        session = "0f8fad5b-d9cb-469f-a165-70867728950e"
+        assert user_routes.parse_legacy_oauth_state(f"google:http://localhost:8055/api/auth/oauth-polling-callback:{session}") == \
+            ("google", "http://localhost:8055/api/auth/oauth-polling-callback", session)
+
+        # A short non-UUID trailing segment (e.g. a port) stays in the URI
+        assert user_routes.parse_legacy_oauth_state("github:http://localhost:3000/oauth/callback") == \
+            ("github", "http://localhost:3000/oauth/callback", None)
+
+    @patch.dict(os.environ, {"OAUTH_STRICT_STATE": "false"})
+    @patch('user_routes.requests.post')
+    def test_post_oauth_resolves_provider_from_legacy_state(self, mock_post):
+        """No provider in the body; the legacy state must supply it. The mocked
+        token exchange then fails, proving we got past provider resolution."""
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.json.return_value = {"error": "invalid_grant"}
+        mock_post.return_value.text = '{"error": "invalid_grant"}'
+
+        response = client.post(
+            "/api/auth/oauth",
+            json={
+                "code": "fake_code",
+                "state": "google:http://localhost:8212/oauth/callback",
+                "redirect_uri": "http://localhost:8212/oauth/callback"
+            }
+        )
+
+        assert response.status_code == 400
+        detail = response.json().get("detail", "")
+        assert "Unsupported OAuth provider" not in detail
+        assert "Failed to obtain OAuth token" in detail
+
+    @patch.dict(os.environ, {"OAUTH_STRICT_STATE": "false"})
+    def test_post_oauth_without_provider_or_parseable_state_still_rejects(self):
+        """Legacy mode with neither a provider nor a colon-delimited state must
+        still fail cleanly on provider resolution, not crash."""
+        response = client.post(
+            "/api/auth/oauth",
+            json={
+                "code": "fake_code",
+                "state": "malformed_state_without_colon",
+                "redirect_uri": "http://localhost:8212/oauth/callback"
+            }
+        )
+
+        assert response.status_code == 400
+        assert "Unsupported OAuth provider" in response.json().get("detail", "")
+
+
 class TestOAuthProviderSpecificEdgeCases:
     """Test provider-specific edge cases and error handling"""
 
