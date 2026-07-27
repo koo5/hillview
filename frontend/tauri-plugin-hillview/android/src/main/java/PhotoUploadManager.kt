@@ -96,6 +96,30 @@ class PhotoUploadManager(private val context: Context) {
     }
 
 
+    /**
+     * One-shot follow-up that reconciles "processing" photos with the server
+     * (PhotoStatusSyncWorker). Runs as its own job so the upload drain can
+     * finish — and stop KEEP-blocking fresh capture triggers — without
+     * waiting on the status round-trip. Short delay + REPLACE: back-to-back
+     * drains coalesce into one sync, which re-queries the DB when it runs,
+     * and the delay gives the server a moment to actually finish processing.
+     */
+    fun schedulePostUploadStatusSync() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val request = OneTimeWorkRequestBuilder<PhotoStatusSyncWorker>()
+            .setConstraints(constraints)
+            .setInitialDelay(5, TimeUnit.SECONDS)
+            .build()
+        Log.d(TAG, "🢄📤 enqueue ${PhotoStatusSyncWorker.WORK_NAME}")
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            PhotoStatusSyncWorker.WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            request,
+        )
+    }
+
     // todo: call this on initialization or something?
     fun scheduleUploadWorker(workManager: WorkManager, enabled: Boolean, wifiOnly: Boolean = true) {
         Log.i(TAG, "📤 [scheduleUploadWorker] CALLED with enabled: $enabled, wifiOnly: $wifiOnly")

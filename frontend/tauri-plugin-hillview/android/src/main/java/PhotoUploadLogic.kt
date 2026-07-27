@@ -4,6 +4,7 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.net.ConnectivityManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -157,7 +158,13 @@ class PhotoUploadLogic(private val context: Context) {
 				).count { isEligibleNow(it, triggerSource, nowSnap) }
 
 				var workerBusy = false
+				var networkDeferred = false
 				while (true) {
+					// Stop promptly when WorkManager cancels this run (e.g. the
+					// wifi-only constraint stopped holding mid-drain) — everything
+					// below is blocking I/O that never notices cancellation by itself.
+					currentCoroutineContext().ensureActive()
+
 					// Check auto-upload setting on each iteration
 					val prefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
 					val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
@@ -167,6 +174,23 @@ class PhotoUploadLogic(private val context: Context) {
 							TAG,
 							"Auto upload disabled, stopping upload work"
 						)
+						break
+					}
+
+					// Enforce wifi-only at the point of upload, not only at
+					// enqueue. The WorkManager UNMETERED constraint gates job
+					// START: a drain that began on wifi keeps running after the
+					// network switches to mobile data (the stop signal arrives
+					// with latency and blocking I/O ignores it), and a job
+					// enqueued back when wifi_only was still off carries its
+					// permissive CONNECTED constraint forever under KEEP. The
+					// manual retry button keeps its documented bypass.
+					if (prefs.getBoolean("wifi_only", false)
+						&& triggerSource != "retry_button"
+						&& isActiveNetworkMetered()
+					) {
+						Log.d(TAG, "wifi-only is set and active network is metered — deferring drain")
+						networkDeferred = true
 						break
 					}
 
@@ -287,6 +311,15 @@ class PhotoUploadLogic(private val context: Context) {
 						photoDao.updateUploadStatus(photo.id, photo.uploadStatus, photo.uploadedAt)
 						workerBusy = true
 						break
+					} catch (e: CancellationException) {
+						// WorkManager stopped this run (network constraint lost,
+						// shutdown). Not a failure of THIS photo: restore its prior
+						// status instead of burning a retry, then let the
+						// cancellation propagate so the drain actually stops — the
+						// generic catch below used to swallow it and keep looping,
+						// marking every remaining photo "failed".
+						photoDao.updateUploadStatus(photo.id, photo.uploadStatus, photo.uploadedAt)
+						throw e
 					} catch (e: Exception) {
 						Log.e(
 							TAG,
@@ -304,17 +337,35 @@ class PhotoUploadLogic(private val context: Context) {
 				}
 
 
-				// Sync status for photos that are in "processing" state
-				syncProcessingPhotosStatus()
+				// Status sync for "processing" photos runs as its own WorkManager
+				// job (PhotoStatusSyncWorker) instead of inline here. While the
+				// sync's network round-trip ran inside this worker, the job
+				// lingered in RUNNING for seconds after the final null
+				// getNextPhotoForUpload query — and ExistingWorkPolicy.KEEP
+				// silently dropped the capture triggers that arrived in that
+				// window, leaving the session's last photo stuck in "pending".
+				if (photoDao.getProcessingPhotos().isNotEmpty()) {
+					PhotoUploadManager(context).schedulePostUploadStatusSync()
+				}
 
 				if (workerBusy) {
 					Log.d(TAG, "Worker busy — letting WorkManager reschedule the drain")
 					return ListenableWorker.Result.retry()
 				}
 
+				if (networkDeferred) {
+					Log.d(TAG, "Metered network with wifi-only — letting WorkManager reschedule the drain")
+					return ListenableWorker.Result.retry()
+				}
+
 				Log.d(TAG, "Photo upload worker completed successfully")
 				return ListenableWorker.Result.success()
 
+			} catch (e: CancellationException) {
+				// Stopped by WorkManager — propagate so the run counts as
+				// stopped, not failed; WorkManager re-runs it when the
+				// constraints hold again.
+				throw e
 			} catch (e: Exception) {
 				Log.e(TAG, "Photo upload worker failed", e)
 				return ListenableWorker.Result.retry()
@@ -500,6 +551,10 @@ class PhotoUploadLogic(private val context: Context) {
 			throw e
 		} catch (e: WorkerBusyException) {
 			// Let this propagate - the drain loop aborts the whole pass on it
+			throw e
+		} catch (e: CancellationException) {
+			// Worker stopped mid-upload — not an upload failure, let the
+			// drain loop restore the photo's status and stop.
 			throw e
 		} catch (e: java.net.ConnectException) {
 			Log.w(TAG, "🌐 Connection failed for ${photo.filename}: Server unreachable (${e.message})")
@@ -830,6 +885,16 @@ class PhotoUploadLogic(private val context: Context) {
     }
 
     /**
+     * Metered = mobile data (or wifi the user flagged as metered / a metered
+     * VPN). The drain loop's per-photo wifi-only check — see the comment
+     * there for why the WorkManager constraint alone is not enough.
+     */
+    private fun isActiveNetworkMetered(): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        return cm.isActiveNetworkMetered
+    }
+
+    /**
      * Whether a candidate photo may be uploaded right now. The single source
      * for the backoff rule, shared by the drain loop's skip and the progress
      * count's denominator so they can't drift. Pure — no DB writes / file I/O
@@ -854,7 +919,7 @@ class PhotoUploadLogic(private val context: Context) {
      * Sync processing status for photos in "processing" state.
      * Sends batch request to POST /api/photos/status and updates local DB.
      */
-    private suspend fun syncProcessingPhotosStatus() = withContext(Dispatchers.IO) {
+    internal suspend fun syncProcessingPhotosStatus() = withContext(Dispatchers.IO) {
         val processingPhotos = photoDao.getProcessingPhotos()
 
         if (processingPhotos.isEmpty()) {
