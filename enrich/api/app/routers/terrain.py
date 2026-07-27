@@ -8,6 +8,7 @@ import math
 import os
 import tempfile
 import time
+import uuid
 
 import httpx
 
@@ -23,7 +24,6 @@ from ..db import wb_engine
 router = APIRouter()
 
 WORKER_TOKEN = os.getenv("ENRICH_WORKER_TOKEN", "dev-worker-token")
-CALLBACK_BASE = os.getenv("WORKER_CALLBACK_BASE", "http://127.0.0.1:8070")
 
 # render() kwargs a client may set; mirrored in worker.py (defense on both ends).
 ALLOWED_PARAMS = {"observer_height_m", "observer_elevation_m",
@@ -73,10 +73,11 @@ async def enqueue(req: EnqueueRequest):
             "VALUES (:pid, :lat, :lon, CAST(:p AS jsonb)) RETURNING id"),
             {"pid": req.photo_id, "lat": lat, "lon": lon,
              "p": json.dumps(params)})).scalar_one()
+    # No callback URL or token in the message: the worker takes both from ITS
+    # environment (TERRAIN_CALLBACK_URL / ENRICH_WORKER_TOKEN), so a
+    # compromised broker can't redirect artifacts or read the secret.
     actors.render_panorama.send({
         "result_id": str(rid), "lat": lat, "lon": lon, "params": params,
-        "callback": f"{CALLBACK_BASE}/api/terrain/result",
-        "token": WORKER_TOKEN,
     })
     return {"queued": str(rid)}
 
@@ -89,18 +90,24 @@ async def result(result_json: str = Form(...),
     if x_worker_token != WORKER_TOKEN:
         raise HTTPException(403, "bad worker token")
     d = json.loads(result_json)
-    rid = d["result_id"]
+    try:
+        # canonical uuid BEFORE any filesystem use: result_id names artifact
+        # files, and the CAST in the UPDATE below would reject a traversal
+        # payload only after the bytes had already landed on disk
+        rid = str(uuid.UUID(str(d["result_id"])))
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(422, "result_id must be a uuid")
 
     tdir = os.path.join(config.ARTIFACTS_DIR, "terrain")
     os.makedirs(tdir, exist_ok=True)
     depth_path = preview_path = None
     if depth is not None:
         depth_path = os.path.join("terrain", f"{rid}.depth.bin")
-        _write_atomic(os.path.join(config.ARTIFACTS_DIR, depth_path),
+        _write_atomic(_artifact_abspath(depth_path),
                       await depth.read(), gzip_too=True)
     if preview is not None:
         preview_path = os.path.join("terrain", f"{rid}.preview.jpg")
-        _write_atomic(os.path.join(config.ARTIFACTS_DIR, preview_path),
+        _write_atomic(_artifact_abspath(preview_path),
                       await preview.read())
 
     if d.get("status") == "rendering":
@@ -144,6 +151,18 @@ async def renders(photo_id: str | None = None, limit: int = 50):
     return {"renders": [dict(r) | {"id": str(r["id"])} for r in rows]}
 
 
+def _artifact_abspath(rel: str) -> str:
+    """Resolve an artifact-relative path under ARTIFACTS_DIR, refusing any
+    result that escapes it (symlinks included). Both the write side (worker
+    results) and the serve side (paths read back from the DB) go through
+    here, so no stored or supplied path can reach the wider filesystem."""
+    root = os.path.realpath(config.ARTIFACTS_DIR)
+    full = os.path.realpath(os.path.join(root, rel))
+    if os.path.commonpath([root, full]) != root:
+        raise HTTPException(400, "artifact path escapes the artifacts dir")
+    return full
+
+
 def _write_atomic(path: str, data: bytes, gzip_too: bool = False) -> None:
     """Partials overwrite the same artifact paths while clients may be mid-
     download; temp + os.replace keeps every served byte-range self-consistent.
@@ -168,7 +187,7 @@ async def _artifact(render_id: str, col: str) -> str:
             {"id": render_id})).scalar()
     if not path:
         raise HTTPException(404, "artifact not available")
-    return os.path.join(config.ARTIFACTS_DIR, path)
+    return _artifact_abspath(path)
 
 
 @router.get("/terrain/renders/{render_id}/depth")

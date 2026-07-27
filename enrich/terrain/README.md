@@ -120,9 +120,14 @@ the far more common case.
 # schema lands on API restart (idempotent init SQL)
 docker compose up -d --build api web
 
-# worker, in any venv with numpy+rasterio+pillow+psutil+remoulade+requests:
+# worker deps are hash-pinned (requirements.txt, compiled from requirements.in)
+# — provision the venv once:
+uv pip install -p ../../scripts/enrich/.venv/bin/python --require-hashes -r requirements.txt
+#   (plain pip works too: pip install --require-hashes -r requirements.txt)
 export TERRAIN_DSM_PATH="/data/dem/dsm10.vrt@15000:/data/dem/dsm_far.vrt"
 export TERRAIN_DTM_PATH="/data/dem/dtm10.vrt"
+# remote boxes also set TERRAIN_CALLBACK_URL + ENRICH_WORKER_TOKEN — the
+# callback and token come from worker env, never from the queue message
 cd enrich/terrain && ./run_worker.sh
 
 # python tests (no data / rasterio needed)

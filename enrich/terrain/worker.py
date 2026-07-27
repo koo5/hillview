@@ -5,6 +5,10 @@ jobs from RabbitMQ, renders against a LOCAL DEM mosaic, and POSTs results
 (depth buffer + preview JPEG + meta) back to the API with a token. No DB
 credentials — the same shape a rented box will use, pointed at a tunneled broker.
 
+The callback URL and worker token come from THIS process's environment, never
+from the queue message: a compromised broker can neither redirect the artifact
+POST nor learn the token from payloads (deliberate divergence from matcher).
+
 Environment:
     TERRAIN_DSM_PATH   surface mosaic(s) marched by the rays — colon-separated
                        EPSG:4326 COG/VRT entries, FINEST FIRST, each optionally
@@ -16,8 +20,11 @@ Environment:
     TERRAIN_GEOID_OFFSET_M  ellipsoidal→orthometric offset for GPS altitude
                        plausibility (default 44.5, the CZ undulation)
     RABBITMQ_URL       default enrich:enrich@127.0.0.1:5672
+    TERRAIN_CALLBACK_URL    where results are POSTed
+                       (default http://127.0.0.1:8070/api/terrain/result)
+    ENRICH_WORKER_TOKEN     X-Worker-Token for the callback
 
-Run (from repo root, any venv with numpy+rasterio+pillow+remoulade+requests):
+Run (from repo root; venv per requirements.txt — hash-pinned, see README):
     cd enrich/terrain && python -m remoulade worker --processes 1 --threads 1
 or under the systemd memory scope:  ./run_worker.sh
 """
@@ -40,6 +47,9 @@ GEOID_OFFSET_M = float(os.getenv("TERRAIN_GEOID_OFFSET_M", "44.5"))
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "enrich:enrich@127.0.0.1:5672")
 REQUIRED_GB = float(os.getenv("TERRAIN_REQUIRED_GB", "2"))
 RAM_GATE_TIMEOUT_S = float(os.getenv("TERRAIN_RAM_GATE_TIMEOUT_S", "600"))
+CALLBACK_URL = os.getenv("TERRAIN_CALLBACK_URL",
+                         "http://127.0.0.1:8070/api/terrain/result")
+WORKER_TOKEN = os.getenv("ENRICH_WORKER_TOKEN", "dev-worker-token")
 
 broker = RabbitmqBroker(url=f"amqp://{RABBITMQ_URL}?timeout=15", confirm_delivery=True)
 remoulade.set_broker(broker)
@@ -154,12 +164,12 @@ def render_panorama(payload: dict) -> None:
     last_progress_post = 0.0
 
     def _post_rendering(meta: dict, files: dict | None) -> None:
-        requests.post(payload["callback"],
+        requests.post(CALLBACK_URL,
                       data={"result_json": json.dumps({
                           "result_id": rid, "status": "rendering",
                           "worker": socket.gethostname(), "meta": meta})},
                       files=files or None,
-                      headers={"X-Worker-Token": payload["token"]},
+                      headers={"X-Worker-Token": WORKER_TOKEN},
                       timeout=30)
 
     def post_progress(frac: float) -> None:
@@ -209,10 +219,10 @@ def render_panorama(payload: dict) -> None:
         files["depth"] = ("depth.bin", depth, "application/octet-stream")
     if preview is not None:
         files["preview"] = ("preview.jpg", preview, "image/jpeg")
-    requests.post(payload["callback"],
+    requests.post(CALLBACK_URL,
                   data={"result_json": json.dumps(result)},
                   files=files or None,
-                  headers={"X-Worker-Token": payload["token"]},
+                  headers={"X-Worker-Token": WORKER_TOKEN},
                   timeout=120)
 
 
