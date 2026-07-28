@@ -233,6 +233,24 @@ def test_geotiff_window_clips_to_extent(tmp_path):
     assert v[0] == pytest.approx(777.0)
 
 
+def test_geotiff_window_outside_extent_is_coverage_error(tmp_path):
+    """A viewpoint entirely outside a raster raises DemCoverageError (a
+    ValueError subclass) — composite stacks catch exactly that to skip the
+    ring instead of failing the render (the 'Intersection is empty' bug)."""
+    rasterio = pytest.importorskip("rasterio")
+    from rasterio.transform import from_origin
+    from renderer import DemCoverageError, load_geotiff_window
+    cell = 0.001
+    n = 21
+    path = str(tmp_path / "far.tif")
+    with rasterio.open(path, "w", driver="GTiff", width=n, height=n, count=1,
+                       dtype="float32", crs="EPSG:4326", nodata=-9999,
+                       transform=from_origin(5.0, 40.0, cell, cell)) as d:
+        d.write(np.zeros((n, n), np.float32), 1)
+    with pytest.raises(DemCoverageError):
+        load_geotiff_window(path, LAT0, LON0, radius_m=1_000.0)
+
+
 def test_progress_callback_marches_to_completion():
     """Progress reports the ITERATION fraction of the distance march (each
     step costs the same, so it's an honest wall-clock estimate): strictly

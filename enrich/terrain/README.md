@@ -130,10 +130,24 @@ defense on both ends):
   data-limited anyway (one or two cells → giant interpolated slabs) —
   but note clipped obstacles no longer occlude.
 * **Label candidates** (`/terrain/peaks`): UNCAPPED Overpass pool — named
-  `natural=peak` ∪ observation towers/communication masts — with missing
-  `ele` filled by sampling the DSM (flagged `ele_estimated`), `prominence`
-  passed through (client label priority), identifying User-Agent, and
-  Overpass `remark` (abort) detection; cached 7 d per ~1 km grid.
+  `natural=peak` ∪ observation towers/communication masts ∪ settlement
+  `place` nodes (city/town/village/suburb/quarter) — with missing `ele`
+  filled by sampling the DSM (flagged `ele_estimated`), `prominence` and
+  `population` passed through (client label priority: prominence for
+  terrain, log-population mapped to prominence-like metres for places —
+  1M ≈ 450 m; near-universal on city/town/village, sparse on districts),
+  identifying User-Agent, and Overpass `remark` (abort) detection. Fetched
+  per FIXED 0.5° GLOBAL TILE (a monolithic around:200km query with places
+  outgrew the Overpass kill switch): tiles retry individually, are cached
+  7 d each (nearby viewpoints share them — warm nearby request ≈ 0.6 s vs
+  ~60 s cold), deduplicate across concurrent clients (in-flight registry),
+  and are SERIALIZED against the instance (global semaphore, default 1;
+  `OVERPASS_CONCURRENCY`/`OVERPASS_TILE_TIMEOUT_S`). Failed tiles degrade
+  to a `partial: true` response, stale tiles beat holes in the pool. The client caps places by kind (village 30 km,
+  town 80 km, district 15–20 km, city uncapped — vista-board style) and
+  both apps expose a `places` sub-toggle next to the peaks toggle.
+  Visibility needs no elevation data: a settlement is a ground point, so
+  the same depth-match-at-its-distance scan decides it, occlusion included.
 * **Queue feedback**: `/terrain/renders` carries RabbitMQ
   `{messages, consumers}` so the UIs can say "no worker connected".
 

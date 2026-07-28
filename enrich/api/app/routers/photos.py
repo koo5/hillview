@@ -114,6 +114,7 @@ async def photo_detail(photo_id: str):
     res = await graph.store.query(f"""{graph.PREFIXES}
 SELECT ?p ?v ?f ?status WHERE {{
   GRAPH ?f {{ <{graph.photo_iri(photo_id)}> ?p ?v }}
+  FILTER STRSTARTS(STR(?f), "{graph.BASE}/id/fact/")
   OPTIONAL {{ GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status ?status }} }}
 }}""")
     photo_facts = []

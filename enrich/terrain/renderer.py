@@ -105,6 +105,13 @@ class DemGrid:
                    self.dlon * 111_320.0 * max(0.1, math.cos(math.radians(at_lat))))
 
 
+class DemCoverageError(ValueError):
+    """The requested window misses (or barely grazes) this raster's extent.
+    Composite stacks treat it as "this layer has nothing here" and fall
+    through to the coarser rings, instead of failing the whole render —
+    config errors (wrong CRS, rotated grid) stay plain ValueError and loud."""
+
+
 def load_geotiff_window(path: str, lat: float, lon: float, radius_m: float) -> DemGrid:
     """Windowed read of an EPSG:4326 GeoTIFF/VRT/COG around the viewpoint.
 
@@ -128,10 +135,14 @@ def load_geotiff_window(path: str, lat: float, lon: float, radius_m: float) -> D
         # intersection's data, but window_transform() of the UNCLIPPED window
         # would georeference it from the overhanging corner — silently shifting
         # the whole grid whenever the request crosses a mosaic edge.
+        from rasterio.errors import WindowError
         from rasterio.windows import Window, intersection
-        win = intersection(win, Window(0, 0, src.width, src.height))
+        try:
+            win = intersection(win, Window(0, 0, src.width, src.height))
+        except WindowError as e:  # no overlap at all (viewpoint outside layer)
+            raise DemCoverageError(f"window outside the DEM extent: {e}") from e
         if win.width < 2 or win.height < 2:
-            raise ValueError("requested window barely intersects the DEM extent")
+            raise DemCoverageError("requested window barely intersects the DEM extent")
         data = src.read(1, window=win, masked=True).astype(np.float32)
         elev = np.where(np.ma.getmaskarray(data), np.nan, np.ma.getdata(data))
         wt = src.window_transform(win)

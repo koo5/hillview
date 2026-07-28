@@ -92,6 +92,67 @@ def fit_summary(points: list[dict], compass: float | None) -> dict | None:
     }
 
 
+def fit_rectilinear(points: list[dict], compass: float | None) -> dict | None:
+    """Rectilinear (f0) model: delta(x) = c + atan(k·(x − x0)), degrees — for
+    panos whose stitch OUTPUT projection is rectilinear (a straight line fit
+    bows on those: ends one sign, middle the other; see
+    docs/pano-source-archaeology.md). Coarse (x0, k) grid + local refinement;
+    c is the median offset, the robust mirror of the Theil-Sen intercept.
+    Reported fov = azimuth SPAN across the full width, so pie consumers keep
+    their semantics; x0 is the projection centre (principal point x)."""
+    if len(points) < 4:
+        return None
+    xs = [p["x"] for p in points]
+    ys = [p["delta"] for p in points]
+
+    def eval_at(x0: float, k: float) -> tuple[float, float]:
+        at = [math.degrees(math.atan(k * (x - x0))) for x in xs]
+        r = sorted(y - a for y, a in zip(ys, at))
+        c = r[len(r) // 2]
+        return c, sum((y - c - a) ** 2 for y, a in zip(ys, at))
+
+    best: tuple[float, float, float, float] | None = None  # (sse, x0, k, c)
+
+    def consider(x0: float, k: float) -> None:
+        nonlocal best
+        if k <= 0.05:
+            return
+        c, s = eval_at(x0, k)
+        if best is None or s < best[0]:
+            best = (s, x0, k, c)
+
+    for i in range(-25, 76):              # x0: −0.5 … 1.5, step 0.02
+        for j in range(2, 81):            # k: 0.2 … 8, step 0.1
+            consider(i * 0.02, j * 0.1)
+    dx, dk = 0.02, 0.1
+    for _ in range(3):
+        _, bx0, bk, _ = best
+        for i in range(-5, 6):
+            for j in range(-5, 6):
+                consider(bx0 + i * dx / 5, bk + j * dk / 5)
+        dx /= 5
+        dk /= 5
+
+    sse, x0, k, c = best
+    for p in points:
+        p["residual"] = round(
+            p["delta"] - (c + math.degrees(math.atan(k * (p["x"] - x0)))), 2)
+    rms = math.sqrt(sse / len(points))
+    fov = math.degrees(math.atan(k * (1 - x0)) - math.atan(k * (0 - x0)))
+    centre_bias = c + math.degrees(math.atan(k * (0.5 - x0)))
+    return {
+        "model": "rectilinear",
+        "intercept": round(c, 2), "x0": round(x0, 4), "k": round(k, 4),
+        "slope": round(math.degrees(k), 2),   # d(delta)/dx at x0, °/x
+        "fov": round(fov, 1),
+        "centre_bias": round(centre_bias, 2),
+        "centre_bearing": (round((compass + centre_bias) % 360, 2)
+                           if compass is not None else None),
+        "rms": round(rms, 2),
+        "n": len(points),
+    }
+
+
 def pick_anchor(candidates: list[dict], photo_lon, photo_lat, compass,
                 importance: dict[str, float]) -> tuple[dict | None, str]:
     """Choose one anchor per annotation. approved > wikipedia > best in-view nominatim

@@ -86,6 +86,44 @@ def test_bbox_intersects():
     assert bbox_intersects((11.9, 48.4, 12.1, 48.6), cz)     # edge overlap
 
 
+def test_load_index_refetches_poisoned_empty_cache(tmp_path: Path, monkeypatch):
+    """An EMPTY cached index.json (artifact of a past bad fetch) must refetch
+    instead of filtering every future bbox to zero forever — the Mělník
+    on-demand build found '0 sheets' exactly this way (2026-07-28)."""
+    import download_cuzk as dc
+    (tmp_path / "index.json").write_text("[]")
+    monkeypatch.setattr(dc, "http_get", lambda url: DATASET_FEED.encode())
+    sheets = dc.load_index(tmp_path, "dmp1g", refresh=False)
+    assert [s.code for s in sheets] == ["BENE09"]
+    # and the refreshed (non-empty) index landed on disk
+    assert "BENE09" in (tmp_path / "index.json").read_text()
+
+
+def test_load_index_never_caches_an_empty_parse(tmp_path: Path, monkeypatch):
+    import download_cuzk as dc
+    empty = DATASET_FEED.split("<entry>")[0] + "</feed>"
+    monkeypatch.setattr(dc, "http_get", lambda url: empty.encode())
+    with pytest.raises(RuntimeError, match="0 sheets"):
+        dc.load_index(tmp_path, "dmp1g", refresh=False)
+    assert not (tmp_path / "index.json").exists()
+
+
+def test_fetch_bbox_run_keeps_the_full_index(tmp_path: Path, monkeypatch):
+    """A bbox-scoped fetch must not amputate index.json to its own subset —
+    the Prague seed build did exactly that (16301 → 24 → 0 for the next
+    bbox), which is how on-demand Mělník found '0 sheets'."""
+    import argparse
+
+    import download_cuzk as dc
+    monkeypatch.setattr(dc, "http_get", lambda url: DATASET_FEED.encode())
+    a = argparse.Namespace(out=tmp_path, dataset="dmp1g",
+                           bbox="10.0,40.0,10.5,40.5",   # misses BENE09
+                           limit=None, workers=1, epsg="5514",
+                           unzip=False, sleep=0.0)
+    dc.cmd_fetch(a)
+    assert "BENE09" in (tmp_path / "index.json").read_text()
+
+
 def test_want_download_skip_if_complete(tmp_path: Path):
     f = tmp_path / "a.zip"
     assert want_download(f, 100)                 # missing → download

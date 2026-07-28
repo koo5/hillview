@@ -14,6 +14,12 @@ set -eu
 
 bbox="$1"
 base=/dem/cuzk
+mkdir -p "$base"
+# Serialize concurrent builds — container start, the worker's on-demand
+# fetches, and manual prefetch runs may all share the volume. The lock lives
+# HERE (not in callers) so every path gets it and none can deadlock a child.
+exec 9>"$base/.build.lock"
+flock 9
 echo "auto_cuzk: ČÚZK near ring for bbox $bbox → $base (incremental)"
 
 python download_cuzk.py fetch --dataset dmp1g --out "$base/dl/dmp1g" --bbox "$bbox" --unzip

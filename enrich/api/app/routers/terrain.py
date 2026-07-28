@@ -1,7 +1,9 @@
 """Terrain bench API: enqueue depth-panorama renders for photo viewpoints
 (or ad-hoc lat/lon), receive worker results, serve the artifacts the bench
 viewer needs (raw uint16 depth buffer + preview JPEG + meta), and provide
-OSM label candidates (peaks, observation towers, masts) for the viewer."""
+OSM label candidates (peaks, observation towers, masts, and settlement
+place names) for the viewer."""
+import asyncio
 import gzip
 import json
 import math
@@ -287,7 +289,39 @@ OVERPASS_UA = os.getenv("OVERPASS_USER_AGENT",
 # top height rather than the ground at their base.
 PEAKS_DEM = os.getenv("PEAKS_DEM_PATH", "/dem/glo30.vrt")
 PEAKS_TTL_S = 7 * 24 * 3600
-_peaks_cache: dict[tuple, tuple[float, list[dict]]] = {}
+# The candidate pool is fetched per FIXED GLOBAL TILE (0.5°×0.5°), not per
+# request disc: one monolithic around:200km query (peaks ∪ towers ∪ places)
+# grew past what Overpass finishes inside its kill-switch timeout, and a
+# per-viewpoint cache made every new viewpoint pay full price again. Tiles
+# are small (seconds each), retried individually, fetched with bounded
+# concurrency (Overpass fair use: ~2 connections), and cached by tile — a
+# nearby viewpoint reuses almost all of them. Failed tiles degrade to a
+# `partial` response instead of a 502.
+PEAKS_TILE_DEG = 0.5
+# GLOBAL fetch discipline (not per request): at most OVERPASS_CONCURRENCY
+# queries in flight against the instance across ALL clients (default 1 —
+# fully serialized), one shared HTTP client, and an in-flight registry so
+# two clients wanting the same tile share one fetch instead of racing it.
+OVERPASS_CONCURRENCY = max(1, int(os.getenv("OVERPASS_CONCURRENCY", "1")))
+# [timeout:N] is Overpass's SERVER-side budget for the query — generous, so
+# a slow-but-progressing tile finishes instead of being killed and retried
+# into the same wall (healthy tiles take ~1-3 s regardless). The HTTP client
+# timeout must EXCEED it: giving up first abandons a query the server is
+# still crunching — wasted work that still counts against per-IP quotas.
+OVERPASS_TILE_TIMEOUT_S = int(os.getenv("OVERPASS_TILE_TIMEOUT_S", "60"))
+_overpass_sem = asyncio.Semaphore(OVERPASS_CONCURRENCY)
+_overpass_client: httpx.AsyncClient | None = None
+_tile_cache: dict[tuple[float, float], tuple[float, list[dict]]] = {}
+_tile_inflight: dict[tuple[float, float], "asyncio.Task[list[dict]]"] = {}
+
+
+def _client() -> httpx.AsyncClient:
+    global _overpass_client
+    if _overpass_client is None:
+        _overpass_client = httpx.AsyncClient(
+            timeout=OVERPASS_TILE_TIMEOUT_S + 15,
+            headers={"User-Agent": OVERPASS_UA})
+    return _overpass_client
 
 
 def parse_ele(v) -> float | None:
@@ -300,18 +334,32 @@ def parse_ele(v) -> float | None:
         return None
 
 
+def parse_pop(v) -> int | None:
+    """OSM population arrives as '1324277', '1 324 277', '1,324,277'…"""
+    if v is None:
+        return None
+    try:
+        return int(float(str(v).replace(",", "").replace(" ", "").replace(" ", "")))
+    except ValueError:
+        return None
+
+
 def features_from_overpass(data: dict) -> list[dict]:
-    """Overpass JSON (peaks ∪ towers/masts union) → candidate dicts.
-    kind: peak | tower (observation) | mast (communication). prominence rides
-    along where OSM has it (~2% of peaks — but precisely the famous ones):
-    the client uses it for label priority now that the pool is uncapped."""
+    """Overpass JSON (peaks ∪ towers/masts ∪ places union) → candidate dicts.
+    kind: peak | tower (observation) | mast (communication) | city | town |
+    village | suburb | quarter. prominence rides along where OSM has it (~2%
+    of peaks — but precisely the famous ones); population where places have
+    it (~98% around Prague, probed 2026-07-28): the client uses both for
+    label priority now that the pool is uncapped."""
     out = []
     for el in data.get("elements", []):
         tags = el.get("tags") or {}
         name, lat, lon = tags.get("name"), el.get("lat"), el.get("lon")
         if not name or lat is None or lon is None:
             continue
-        if tags.get("natural") == "peak":
+        if tags.get("place"):
+            kind = tags["place"]
+        elif tags.get("natural") == "peak":
             kind = "peak"
         elif tags.get("tower:type") == "observation":
             kind = "tower"
@@ -322,6 +370,9 @@ def features_from_overpass(data: dict) -> list[dict]:
         prom = parse_ele(tags.get("prominence"))
         if prom is not None:
             f["prominence"] = prom
+        pop = parse_pop(tags.get("population"))
+        if pop is not None:
+            f["population"] = pop
         out.append(f)
     return out
 
@@ -346,37 +397,287 @@ def fill_missing_ele(feats: list[dict]) -> None:
         print(f"terrain: DEM ele fill failed: {e}", flush=True)
 
 
-@router.get("/terrain/peaks")
-async def peaks(lat: float, lon: float, radius_m: float = 100_000.0):
-    radius_m = max(1_000.0, min(radius_m, 200_000.0))
-    key = (round(lat, 2), round(lon, 2), round(radius_m, -3))  # ~1 km grid
-    hit = _peaks_cache.get(key)
-    if hit and time.monotonic() - hit[0] < PEAKS_TTL_S:
-        return {"peaks": hit[1], "cached": True}
-    around = f"around:{radius_m:.0f},{lat},{lon}"
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    la1, la2 = math.radians(lat1), math.radians(lat2)
+    a = (math.sin((la2 - la1) / 2) ** 2
+         + math.cos(la1) * math.cos(la2)
+         * math.sin(math.radians(lon2 - lon1) / 2) ** 2)
+    return 2 * 6_371_000 * math.asin(min(1.0, math.sqrt(a)))
+
+
+def tiles_for(lat: float, lon: float, radius_m: float) -> list[tuple[float, float]]:
+    """(south, west) corners of the fixed global grid tiles intersecting the
+    radius disc — corner tiles whose NEAREST point is beyond it are skipped."""
+    dlat = radius_m / 111_320.0
+    dlon = radius_m / (111_320.0 * max(0.1, math.cos(math.radians(lat))))
+    out = []
+    for ti in range(math.floor((lat - dlat) / PEAKS_TILE_DEG),
+                    math.floor((lat + dlat) / PEAKS_TILE_DEG) + 1):
+        for ui in range(math.floor((lon - dlon) / PEAKS_TILE_DEG),
+                        math.floor((lon + dlon) / PEAKS_TILE_DEG) + 1):
+            s, w = ti * PEAKS_TILE_DEG, ui * PEAKS_TILE_DEG
+            near_lat = min(max(lat, s), s + PEAKS_TILE_DEG)
+            near_lon = min(max(lon, w), w + PEAKS_TILE_DEG)
+            if _haversine_m(lat, lon, near_lat, near_lon) <= radius_m:
+                out.append((round(s, 4), round(w, 4)))
+    return out
+
+
+async def _fetch_tile(s: float, w: float) -> list[dict]:
+    """One tile's candidates, with per-tile retries (transient Overpass load
+    shedding is the norm, not the exception)."""
+    bbox = f"{s},{w},{s + PEAKS_TILE_DEG},{w + PEAKS_TILE_DEG}"
     query = (
-        f"[out:json][timeout:60];("
-        f'node["natural"="peak"]["name"]({around});'
+        f"[out:json][timeout:{OVERPASS_TILE_TIMEOUT_S}];("
+        f'node["natural"="peak"]["name"]({bbox});'
         f'node["man_made"~"^(tower|mast)$"]'
-        f'["tower:type"~"^(observation|communication)$"]["name"]({around});'
+        f'["tower:type"~"^(observation|communication)$"]["name"]({bbox});'
+        f'node["place"~"^(city|town|village|suburb|quarter)$"]["name"]({bbox});'
         f");out body;")
-    try:
-        async with httpx.AsyncClient(timeout=90,
-                                     headers={"User-Agent": OVERPASS_UA}) as client:
-            r = await client.post(OVERPASS_URL, data={"data": query})
+    last: Exception | None = None
+    for attempt in range(3):
+        if attempt:
+            await asyncio.sleep(0.5 * 4 ** (attempt - 1))  # 0.5 s, 2 s
+        try:
+            r = await _client().post(OVERPASS_URL, data={"data": query})
             r.raise_for_status()
             data = r.json()
             if data.get("remark"):
-                raise HTTPException(502, f"overpass aborted: {data['remark']}")
-            result = features_from_overpass(data)
-    except (httpx.HTTPError, ValueError) as e:
-        # a stale cache entry beats an error for a label overlay
-        if hit:
-            return {"peaks": hit[1], "cached": True, "stale": True}
-        raise HTTPException(502, f"overpass: {e}")
+                raise RuntimeError(f"overpass aborted: {data['remark']}")
+            return features_from_overpass(data)
+        except (httpx.HTTPError, ValueError, RuntimeError) as e:
+            last = e
+    raise RuntimeError(f"tile {s},{w}: {last}")
+
+
+async def _tile_task(t: tuple[float, float]) -> list[dict]:
+    """THE single in-flight fetch for a tile — every concurrent requester
+    awaits this one task. Serialized against Overpass by the global
+    semaphore; caches on success."""
+    async with _overpass_sem:
+        feats = await _fetch_tile(*t)
+    _tile_cache[t] = (time.monotonic(), feats)
+    return feats
+
+
+@router.get("/terrain/peaks")
+async def peaks(lat: float, lon: float, radius_m: float = 100_000.0):
+    radius_m = max(1_000.0, min(radius_m, 200_000.0))
+    tiles = tiles_for(lat, lon, radius_m)
+    now = time.monotonic()
+    failed: list[tuple[float, float]] = []
+    fetched = 0
+
+    async def tile_feats(t: tuple[float, float]) -> list[dict]:
+        nonlocal fetched
+        hit = _tile_cache.get(t)
+        if hit and now - hit[0] < PEAKS_TTL_S:
+            return hit[1]
+        # join the in-flight fetch if another request already started one
+        task = _tile_inflight.get(t)
+        if task is None or task.done():
+            task = asyncio.create_task(_tile_task(t))
+            _tile_inflight[t] = task
+            task.add_done_callback(lambda _tk, key=t: _tile_inflight.pop(key, None))
+            fetched += 1
+        try:
+            # shield: one client disconnecting must not cancel a fetch other
+            # clients are awaiting (and the cache wants the result anyway)
+            return await asyncio.shield(task)
+        except Exception as e:  # noqa: BLE001 — degrade to stale/partial
+            print(f"terrain peaks: {e}", flush=True)
+            if hit:  # a stale tile beats a hole in the pool
+                return hit[1]
+            failed.append(t)
+            return []
+
+    per_tile = await asyncio.gather(*(tile_feats(t) for t in tiles))
+    if failed and len(failed) == len(tiles):
+        raise HTTPException(502, "overpass: all candidate tiles failed")
+
+    # assemble: dedupe tile-boundary nodes (Overpass bboxes are inclusive),
+    # then cut the square union back to the requested disc
+    seen: set[tuple] = set()
+    result: list[dict] = []
+    for feats in per_tile:
+        for f in feats:
+            k = (f["name"], f["lat"], f["lon"])
+            if k in seen:
+                continue
+            seen.add(k)
+            if _haversine_m(lat, lon, f["lat"], f["lon"]) <= radius_m:
+                result.append(f)
     from starlette.concurrency import run_in_threadpool
+    # mutates the cached dicts in place — the DEM fill sticks per tile, so
+    # later requests over the same tiles skip the resampling too
     await run_in_threadpool(fill_missing_ele, result)
     result.sort(key=lambda p: p["ele"] if p["ele"] is not None else -math.inf,
                 reverse=True)
-    _peaks_cache[key] = (time.monotonic(), result)
-    return {"peaks": result}
+    out = {"peaks": result, "tiles": len(tiles), "fetched": fetched}
+    if failed:
+        out["partial"] = True
+        out["failed_tiles"] = len(failed)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# overlay fit: the /terrain/overlay bench's manual pano↔render alignment,
+# saved as ONE content-addressed fact (hv:terrainOverlayFit, canonical-JSON
+# literal) about the photo — same run/curation plumbing as calibrate accept.
+# The fit is pure image-intrinsic geometry (projection, absolute centre
+# bearing, fov, horizon %, vertical scale, roll, piecewise warp in degrees);
+# which render it was fitted against is provenance and lives in run params.
+# ---------------------------------------------------------------------------
+
+class OverlayFitRequest(BaseModel):
+    photo_id: str
+    render_id: str | None = None
+    projection: str                  # equirect | cylindrical | rectilinear
+    centre_bearing: float            # absolute, degrees
+    fov_deg: float
+    horizon_pct: float               # horizon line, % of image height
+    v_scale: float                   # vertical trim × the square-pixel guess
+    roll_deg: float
+    warp: list[float] = []           # per-handle offsets, degrees, left→right
+    # atmospheric visibility read off the photo (fog slider), km; null = full
+    visibility_km: float | None = None
+    # client wall-clock (epoch ms) of the change — DRAFTS ONLY, so a browser
+    # can tell its stale local live-state from a fresher draft written by
+    # another browser; facts stay timestamp-free (content-addressed)
+    saved_at: float | None = None
+    note: str | None = None
+
+
+def _overlay_fit_json(req: OverlayFitRequest, with_ts: bool = False) -> str:
+    fit = {"projection": req.projection,
+           "centre_bearing": round(req.centre_bearing, 3),
+           "fov_deg": round(req.fov_deg, 3),
+           "horizon_pct": round(req.horizon_pct, 3),
+           "v_scale": round(req.v_scale, 4),
+           "roll_deg": round(req.roll_deg, 3),
+           "warp": [round(w, 4) for w in req.warp],
+           "visibility_km": (round(req.visibility_km, 1)
+                             if req.visibility_km is not None else None)}
+    if with_ts and req.saved_at is not None:
+        fit["saved_at"] = round(req.saved_at)
+    return json.dumps(fit, sort_keys=True, separators=(",", ":"))
+
+
+@router.post("/terrain/overlay-fit")
+async def save_overlay_fit(req: OverlayFitRequest):
+    from .. import facts, graph
+    from ..runs import create_run, fail_run, finish_run
+    if req.projection not in ("equirect", "cylindrical", "rectilinear"):
+        raise HTTPException(422, "unknown projection")
+    fit_json = _overlay_fit_json(req)
+    run_id = await create_run(
+        kind="overlay_fit",
+        params={"photo_id": req.photo_id, "render_id": req.render_id,
+                "fit": json.loads(fit_json)},
+        note=req.note)
+    try:
+        ph = facts.iri(graph.photo_iri(req.photo_id))
+        s, p, o = ph, facts._p("terrainOverlayFit"), facts.lit(fit_json)
+        g = graph.fact_iri(facts.fact_hash(s, p, o))
+        await graph.store.load_turtle(g, f"{s} {p} {o} .\n")
+        run = facts.iri(graph.run_iri(run_id))
+        meta = (f"{facts.iri(g)} <http://www.w3.org/ns/prov#wasGeneratedBy> {run} .\n"
+                f"{facts.iri(g)} {facts._p('about')} {ph} .")
+        await graph.store.load_turtle(graph.GRAPH_META,
+                                      graph.PREFIXES + "\n" + meta)
+        await finish_run(run_id, stats={"facts": 1},
+                         graph_iri=graph.run_iri(run_id))
+        return {"run_id": str(run_id), "fact": g}
+    except Exception as e:
+        await fail_run(run_id, f"{type(e).__name__}: {e}")
+        raise HTTPException(500, f"overlay fit save failed: {e}")
+
+
+@router.get("/terrain/overlay-fit")
+async def get_overlay_fit(photo_id: str):
+    """Newest non-rejected saved fit for the photo (approved beats newer,
+    mirroring the calibration pick)."""
+    from .. import graph
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?f ?v ?run ?status WHERE {{
+  GRAPH ?f {{ <{graph.photo_iri(photo_id)}> hv:terrainOverlayFit ?v }}
+  OPTIONAL {{ GRAPH <{graph.GRAPH_META}> {{ ?f prov:wasGeneratedBy ?run }} }}
+  OPTIONAL {{ GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status ?status }} }}
+}}""")
+    cands = []
+    for b in res["results"]["bindings"]:
+        status = b.get("status", {}).get("value", "")
+        if status.endswith("rejected"):
+            continue
+        cands.append({"fact": b["f"]["value"],
+                      "run": b.get("run", {}).get("value", ""),
+                      "approved": status.endswith("approved"),
+                      "value": b["v"]["value"]})
+    if not cands:
+        return {"fit": None}
+    order: dict[str, int] = {}
+    run_ids = [c["run"].rsplit("/", 1)[-1] for c in cands if c["run"]]
+    if run_ids:
+        async with wb_engine.connect() as conn:
+            rows = (await conn.execute(text(
+                "SELECT id FROM runs WHERE id = ANY(CAST(:ids AS uuid[])) "
+                "ORDER BY started_at"), {"ids": run_ids})).all()
+        for i, (rid,) in enumerate(rows):
+            order[str(rid)] = i
+    best = max(cands, key=lambda c: (c["approved"],
+                                     order.get(c["run"].rsplit("/", 1)[-1], -1)))
+    try:
+        fit = json.loads(best["value"])
+    except ValueError:
+        return {"fit": None}
+    return {"fit": fit, "run_id": best["run"].rsplit("/", 1)[-1] or None,
+            "approved": best["approved"]}
+
+
+# ---------------------------------------------------------------------------
+# overlay draft: the bench's intermediate alignment state, auto-saved — same
+# mutable-RDF pattern as the calibration draft (one JSON literal in a
+# per-photo draft graph, replaced wholesale; NOT a content-addressed fact).
+# Promoting to a fact via POST /terrain/overlay-fit clears it client-side.
+# ---------------------------------------------------------------------------
+
+def _overlay_draft_graph(photo_id: str) -> str:
+    from .. import graph
+    return f"{graph.BASE}/id/graph/draft/overlay/{photo_id}"
+
+
+@router.get("/terrain/overlay-draft")
+async def get_overlay_draft(photo_id: str):
+    from .. import graph
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?v WHERE {{
+  GRAPH <{_overlay_draft_graph(photo_id)}> {{
+    <{graph.photo_iri(photo_id)}> hv:terrainOverlayDraft ?v }}
+}}""")
+    b = res["results"]["bindings"]
+    if not b:
+        return {"draft": None}
+    try:
+        return {"draft": json.loads(b[0]["v"]["value"])}
+    except ValueError:
+        return {"draft": None}
+
+
+@router.put("/terrain/overlay-draft")
+async def put_overlay_draft(req: OverlayFitRequest):
+    from .. import facts, graph
+    g = _overlay_draft_graph(req.photo_id)
+    fit_json = _overlay_fit_json(req, with_ts=True)
+    await graph.store.update(f"DROP SILENT GRAPH <{g}>")
+    ph = facts.iri(graph.photo_iri(req.photo_id))
+    await graph.store.load_turtle(
+        g, f"{ph} {facts._p('terrainOverlayDraft')} {facts.lit(fit_json)} .\n")
+    return {"draft": json.loads(fit_json)}
+
+
+@router.delete("/terrain/overlay-draft")
+async def delete_overlay_draft(photo_id: str):
+    from .. import graph
+    await graph.store.update(
+        f"DROP SILENT GRAPH <{_overlay_draft_graph(photo_id)}>")
+    return {"draft": None}

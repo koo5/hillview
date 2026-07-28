@@ -21,6 +21,7 @@
 	import { azimuthForColumn, type TerrainMeta } from '$terrain/depthPanoViewer';
 	import {
 		layoutSkyLabels,
+		PLACE_KINDS,
 		projectPeaks,
 		type Peak,
 		type PeakMark
@@ -32,7 +33,14 @@
 		sizes: Record<string, { url?: string }> | null;
 		width: number | null;
 		height: number | null;
-		pie: { bearing: number; half: number; calibrated: boolean } | null;
+		pie: {
+			bearing: number;
+			half: number;
+			calibrated: boolean;
+			/** from calibratedProjection/calibratedX0 facts, when accepted */
+			projection?: string;
+			x0?: number;
+		} | null;
 	}
 	interface RenderRow {
 		id: string;
@@ -47,19 +55,78 @@
 	let depth: Uint16Array | null = null;
 	let err = $state<string | null>(null);
 	let status = $state('');
+	let saving = $state(false);
+	let saveMsg = $state('');
+	let draftState = $state('');
+	let suppressDraft = true; // no autosave until a photo's state is restored
+	let draftTimer: ReturnType<typeof setTimeout> | undefined;
+	// cross-tab live sync: every alignment change writes a per-photo
+	// localStorage key (instant `storage` events in the OTHER tabs), so the
+	// same pano can be open in several windows zoomed at different sections
+	// while one shared fit is adjusted. Each tab keeps its own zoom/pan.
+	// `lastSync` breaks echo loops: applying a received state re-runs the
+	// write effect with an identical serialization, which is skipped.
+	const liveKey = (id: string) => `overlay-fit-live:${id}`;
+	let lastSync = '';
+	let lastTs = 0; // saved_at of the newest state written or applied here
+	/** canonical alignment serialization WITHOUT identity/timestamp — echo
+	 * detection must ignore saved_at, since every local write re-stamps it */
+	const bareOf = (f: Record<string, unknown>) => {
+		const { saved_at: _s, photo_id: _p, render_id: _r, ...rest } = f;
+		return JSON.stringify(rest);
+	};
+	// BroadcastChannel is the delivery mechanism (explicit postMessage — no
+	// storage-event value-changed quirks); localStorage keeps the freshest
+	// state for load-time restore, and its storage event doubles as fallback
+	let bc: BroadcastChannel | null = null;
+
+	/** apply a live snapshot broadcast by a sibling window */
+	function applyRemote(raw: string) {
+		if (!photo) return;
+		try {
+			const f = JSON.parse(raw) as OverlayFit;
+			lastSync = bareOf(f as unknown as Record<string, unknown>);
+			lastTs = f.saved_at ?? Date.now();
+			const vk = applyFitState(f);
+			if (vk === null) visLog = visLogMax;
+			else setFogKm(vk);
+		} catch {
+			/* malformed live state — ignore */
+		}
+	}
+
+	/** saved manual alignment (hv:terrainOverlayFit fact via the API) */
+	interface OverlayFit {
+		projection: string;
+		centre_bearing: number;
+		fov_deg: number;
+		horizon_pct: number;
+		v_scale: number;
+		roll_deg: number;
+		warp: number[];
+		/** atmospheric visibility that day, km; null/absent = full */
+		visibility_km?: number | null;
+		/** client wall-clock of the change (epoch ms) — drafts/live only */
+		saved_at?: number;
+	}
 
 	// manual alignment: bearing trim + fov (horizontal, for uncalibrated
 	// panos), horizon position + vertical scale (always manual)
 	let bearingOffset = $state(0);
 	let fovDeg = $state(90);
-	let horizonFrac = $state(0.5);
+	let horizonPct = $state(50);
 	let vScale = $state(1);
+	// pano output projection — from the stitch .pto p-line (f0 rectilinear,
+	// f1 cylindrical, f2 equirect); it VARIES per pano, never assume (see
+	// docs/pano-source-archaeology.md — e.g. board pano 333e8851 is f0)
+	let proj = $state<'equirect' | 'cylindrical' | 'rectilinear'>('equirect');
 	let rollDeg = $state(0);
 	let showCurve = $state(true);
 	// peak labels: candidates from /terrain/peaks, visibility decided against
 	// the depth buffer (projectPeaks) exactly like the viewer — named anchors
 	// make the manual fit tractable
 	let showLabels = $state(true);
+	let showPlaces = $state(true);
 	let peaks: Peak[] = [];
 	let marks = $state<PeakMark[]>([]);
 	// fog: visibility cutoff for the skyline (log10 metres on the slider;
@@ -68,11 +135,11 @@
 	const maxDistM = $derived(render?.meta?.max_distance_m ?? 200000);
 	const visLogMax = $derived(Math.log10(maxDistM));
 	const visCutoffM = $derived(visLog >= visLogMax - 0.005 ? null : Math.pow(10, visLog));
-	const visLabel = $derived.by(() => {
-		if (visCutoffM === null) return 'full';
-		const km = visCutoffM / 1000;
-		return `${km >= 10 ? Math.round(km) : km.toFixed(1)} km`;
-	});
+	const visKm = $derived(+((visCutoffM ?? maxDistM) / 1000).toFixed(1));
+	function setFogKm(km: number) {
+		if (!Number.isFinite(km) || km <= 0) return;
+		visLog = Math.min(visLogMax, Math.log10(km * 1000));
+	}
 	// vertical warp: control-point offsets in degrees (index 0 = left edge,
 	// last = right edge), linearly interpolated between; always reassigned
 	// (never mutated in place) so the redraw effect tracks it by reference
@@ -112,17 +179,65 @@
 		depth = null;
 		peaks = [];
 		marks = [];
+		saveMsg = '';
+		draftState = '';
+		suppressDraft = true;
 		resetView();
 		warp = warp.map(() => 0);
 		rollDeg = 0;
+		horizonPct = 50;
+		vScale = 1;
 		if (!photoId) return;
 		try {
 			status = 'loading photo…';
 			const pd = await api.get<{ photo: PhotoInfo }>(`/photos/${photoId}`);
 			photo = pd.photo;
-			if (photo.pie) {
-				fovDeg = Math.round(photo.pie.half * 2);
-				bearingOffset = 0;
+			pieDefaults();
+			// restore order: pie defaults → saved fit → draft (newest working
+			// state wins; fog applies later — the render load below resets
+			// the slider to full first)
+			let savedVisKm: number | null = null;
+			const applyFit = (f: OverlayFit) => {
+				savedVisKm = applyFitState(f);
+			};
+			try {
+				const sf = await api.get<{ fit: OverlayFit | null }>(
+					`/terrain/overlay-fit?photo_id=${photoId}`
+				);
+				if (sf.fit) {
+					applyFit(sf.fit);
+					saveMsg = 'restored saved fit';
+				}
+			} catch {
+				/* no saved fit is fine */
+			}
+			// draft (server) vs live key (this browser): NEWEST wins — this
+			// tab's live key may be staler than a draft another window kept
+			// writing after this one went quiet
+			let restored: { f: OverlayFit; src: string } | null = null;
+			try {
+				const dr = await api.get<{ draft: OverlayFit | null }>(
+					`/terrain/overlay-draft?photo_id=${photoId}`
+				);
+				if (dr.draft) restored = { f: dr.draft, src: 'draft' };
+			} catch {
+				/* no draft is fine */
+			}
+			try {
+				const raw = localStorage.getItem(liveKey(photoId));
+				if (raw) {
+					const f = JSON.parse(raw) as OverlayFit;
+					if (!restored || (f.saved_at ?? 0) >= (restored.f.saved_at ?? 0))
+						restored = { f, src: 'live tab state' };
+				}
+			} catch {
+				/* no cross-tab state is fine */
+			}
+			if (restored) {
+				applyFit(restored.f);
+				lastSync = bareOf(restored.f as unknown as Record<string, unknown>);
+				lastTs = restored.f.saved_at ?? 0;
+				saveMsg = `restored ${restored.src}`;
 			}
 			status = 'loading render…';
 			const rs = await api.get<{ renders: RenderRow[] }>(
@@ -134,32 +249,45 @@
 			if (!done) {
 				status = '';
 				err = 'no finished render for this photo — enqueue one on the terrain bench first';
+				suppressDraft = false; // controls still usable; keep drafting
 				return;
 			}
 			render = done;
 			skyCaches.clear();
 			visLog = Math.log10(done.meta?.max_distance_m ?? 200000);
+			if (savedVisKm !== null) setFogKm(savedVisKm);
 			status = 'loading depth…';
 			const buf = await (await fetch(`${apiBase}/terrain/renders/${done.id}/depth`)).arrayBuffer();
 			depth = new Uint16Array(buf);
-			status = 'loading peaks…';
-			// label candidates; failures degrade to an unlabeled overlay
+			// the fit is fully workable now — labels are cosmetic. Drafting/
+			// sync must NOT wait for the peaks fetch (a cold Overpass pass can
+			// take minutes; sitting at "loading peaks" used to silently
+			// disable all persistence)
+			suppressDraft = false;
+			requestAnimationFrame(draw);
+			status = 'loading peak labels… (fitting already works)';
+			// label candidates; failures/timeouts degrade to an unlabeled overlay
 			try {
 				const meta = done.meta!;
 				const radius = Math.min(200_000, meta.max_distance_m ?? 100_000);
-				const pr = await api.get<{ peaks: Peak[] }>(
-					`/terrain/peaks?lat=${meta.lat}&lon=${meta.lon}&radius_m=${radius}`
-				);
+				const pr = (await (
+					await fetch(
+						`${apiBase}/terrain/peaks?lat=${meta.lat}&lon=${meta.lon}&radius_m=${radius}`,
+						{ signal: AbortSignal.timeout(45_000) }
+					)
+				).json()) as { peaks?: Peak[] };
 				peaks = pr.peaks ?? [];
 			} catch {
 				peaks = [];
 			}
 			marks = done.meta && depth ? projectPeaks(done.meta, depth, peaks) : [];
 			status = '';
-			requestAnimationFrame(draw);
 		} catch (e) {
 			status = '';
 			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+			// a failed load must not silently disable drafting/sync for the
+			// session — the controls that DID restore are still adjustable
+			suppressDraft = false;
 		}
 	}
 
@@ -212,6 +340,93 @@
 	}
 
 	const wrapDelta = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
+
+	/** apply a fit/draft/live snapshot to the alignment knobs; returns its
+	 * visibility_km (null = full) for the caller to apply once the render's
+	 * fog range is known */
+	function applyFitState(f: OverlayFit): number | null {
+		proj = f.projection as typeof proj;
+		fovDeg = f.fov_deg;
+		bearingOffset = +wrapDelta(f.centre_bearing - (photo?.pie?.bearing ?? 0)).toFixed(2);
+		horizonPct = f.horizon_pct;
+		vScale = f.v_scale;
+		rollDeg = f.roll_deg;
+		if (f.warp?.length >= 2) warp = f.warp.slice();
+		return f.visibility_km ?? null;
+	}
+
+	/** best-known defaults: bearing/fov/projection from the accepted
+	 * calibration (via the pie — incl. the calibratedProjection fact),
+	 * neutral vertical/warp/roll/fog */
+	function pieDefaults() {
+		if (photo?.pie) fovDeg = +(photo.pie.half * 2).toFixed(1);
+		bearingOffset = 0;
+		// never a stale projection from the previously loaded photo
+		proj =
+			photo?.pie?.projection === 'rectilinear' || photo?.pie?.projection === 'cylindrical'
+				? photo.pie.projection
+				: 'equirect';
+		horizonPct = 50;
+		vScale = 1;
+		rollDeg = 0;
+		warp = warp.map(() => 0);
+		visLog = visLogMax;
+	}
+
+	function resetToDefaults() {
+		pieDefaults();
+		saveMsg = '';
+		draftState = '';
+		if (photo) {
+			api.del(`/terrain/overlay-draft?photo_id=${photo.id}`).catch(() => {});
+			try {
+				localStorage.removeItem(liveKey(photo.id));
+			} catch {
+				/* fine */
+			}
+			lastSync = '';
+		}
+	}
+
+	function fitPayload() {
+		return {
+			photo_id: photo!.id,
+			render_id: render?.id ?? null,
+			projection: proj,
+			centre_bearing: (photo!.pie?.bearing ?? 0) + bearingOffset,
+			fov_deg: fovDeg,
+			horizon_pct: horizonPct,
+			v_scale: vScale,
+			roll_deg: rollDeg,
+			warp: [...warp],
+			visibility_km: visCutoffM === null ? null : +(visCutoffM / 1000).toFixed(1),
+			saved_at: Date.now()
+		};
+	}
+
+	async function saveFit() {
+		if (!photo) return;
+		saving = true;
+		saveMsg = '';
+		try {
+			const r = await api.post<{ run_id: string }>('/terrain/overlay-fit', fitPayload());
+			saveMsg = `saved ✓ run ${r.run_id.slice(0, 8)}`;
+			// the fact now carries this state — draft and live key are redundant
+			draftState = '';
+			api.del(`/terrain/overlay-draft?photo_id=${photo.id}`).catch(() => {});
+			try {
+				localStorage.removeItem(liveKey(photo.id));
+			} catch {
+				/* fine */
+			}
+			lastSync = '';
+		} catch (e) {
+			saveMsg =
+				e instanceof ApiError ? `save failed: ${e.status} ${e.message}` : 'save failed';
+		} finally {
+			saving = false;
+		}
+	}
 
 	/** warp offset (degrees, + = up) at horizontal fraction 0..1 */
 	function warpAt(frac: number): number {
@@ -291,7 +506,7 @@
 		const H = baseH;
 		const xb = (i / (warp.length - 1)) * W;
 		const rollK = Math.tan((rollDeg * Math.PI) / 180);
-		const yb = horizonFrac * H + (xb - W / 2) * rollK - warpAt(xb / W) * pxPerDegBase();
+		const yb = (horizonPct / 100) * H + (xb - W / 2) * rollK - warpAt(xb / W) * pxPerDegBase();
 		return { x: xb, y: yb };
 	}
 
@@ -373,11 +588,35 @@
 		ctx.clearRect(0, 0, sw, sh);
 
 		const centre = (photo.pie?.bearing ?? 0) + bearingOffset;
-		const horizonY = horizonFrac * H;
+		const horizonY = (horizonPct / 100) * H;
 		const pxPerDeg = (W / fovDeg) * vScale; // equirect square-pixel guess × trim
 		const rollK = Math.tan((rollDeg * Math.PI) / 180);
 		// warped+rolled horizon in base space, then base → screen
 		const hyBase = (x: number) => horizonY + (x - W / 2) * rollK - warpAt(x / W) * pxPerDeg;
+		// projection: (azimuth delta, elevation)° → base x + px displacement
+		// above the horizon. All three share px/deg = W/fov at the centre of
+		// the horizon, so switching projections keeps the rough fit.
+		const fovRad = (Math.min(fovDeg, 358) * Math.PI) / 180;
+		const fCyl = (W / fovRad) * vScale;
+		const fRectH = W / 2 / Math.tan(Math.min(fovRad, (178 * Math.PI) / 180) / 2);
+		const project = (deltaDeg: number, elevDeg: number): { xb: number; dy: number } | null => {
+			const a = (deltaDeg * Math.PI) / 180;
+			const e = (elevDeg * Math.PI) / 180;
+			switch (proj) {
+				case 'equirect':
+					if (Math.abs(deltaDeg) > fovDeg / 2 + 2) return null;
+					return { xb: W * (0.5 + deltaDeg / fovDeg), dy: elevDeg * pxPerDeg };
+				case 'cylindrical':
+					if (Math.abs(deltaDeg) > fovDeg / 2 + 2) return null;
+					return { xb: W * (0.5 + deltaDeg / fovDeg), dy: fCyl * Math.tan(e) };
+				case 'rectilinear': {
+					if (Math.abs(deltaDeg) >= 89) return null;
+					const xb = W / 2 + fRectH * Math.tan(a);
+					if (xb < -0.1 * W || xb > 1.1 * W) return null;
+					return { xb, dy: (fRectH * vScale * Math.tan(e)) / Math.cos(a) };
+				}
+			}
+		};
 		const toX = (x: number) => x * z + tx;
 		const toY = (y: number) => y * z + ty;
 
@@ -420,15 +659,19 @@
 				let pen = false;
 				for (let c = 0; c < meta.width; c++) {
 					const elev = curve[c];
-					const delta = wrapDelta(azimuthForColumn(meta, c) - centre);
-					if (elev === null || Math.abs(delta) > fovDeg / 2 + 2) {
+					if (elev === null) {
 						pen = false;
 						continue;
 					}
-					const xb = W * (0.5 + delta / fovDeg);
-					const yb = hyBase(xb) - elev * pxPerDeg;
-					if (pen) ctx.lineTo(toX(xb), toY(yb));
-					else ctx.moveTo(toX(xb), toY(yb));
+					const delta = wrapDelta(azimuthForColumn(meta, c) - centre);
+					const pt = project(delta, elev);
+					if (!pt) {
+						pen = false;
+						continue;
+					}
+					const yb = hyBase(pt.xb) - pt.dy;
+					if (pen) ctx.lineTo(toX(pt.xb), toY(yb));
+					else ctx.moveTo(toX(pt.xb), toY(yb));
 					pen = true;
 				}
 				ctx.stroke();
@@ -441,26 +684,31 @@
 		// per-neighborhood thinning keeps the best name per column
 		if (showLabels && marks.length) {
 			ctx.font = '11px system-ui, sans-serif';
-			const inputs: { label: string; cx: number; cy: number; pillW: number }[] = [];
+			const inputs: { label: string; cx: number; cy: number; pillW: number; id?: string }[] = [];
 			for (const m of marks) {
+				if (!showPlaces && m.kind && PLACE_KINDS.has(m.kind)) continue;
 				if (visCutoffM !== null && m.distance_m > visCutoffM) continue;
 				const delta = wrapDelta(m.azimuth_deg - centre);
-				if (Math.abs(delta) > fovDeg / 2 + 2) continue;
-				const xb = W * (0.5 + delta / fovDeg);
 				const elev =
 					meta.elev_max_deg - m.v * (meta.elev_max_deg - meta.elev_min_deg);
-				const yb = hyBase(xb) - elev * pxPerDeg;
+				const pt = project(delta, elev);
+				if (!pt) continue;
+				const xb = pt.xb;
+				const yb = hyBase(xb) - pt.dy;
 				const km = m.distance_m / 1000;
 				const label = `${m.name} · ${km >= 10 ? Math.round(km) : km.toFixed(1)} km`;
 				inputs.push({
 					label,
 					cx: toX(xb),
 					cy: toY(yb),
-					pillW: Math.ceil(ctx.measureText(label).width) + 12
+					pillW: Math.ceil(ctx.measureText(label).width) + 12,
+					id: m.kind
 				});
 			}
 			ctx.textBaseline = 'middle';
 			for (const l of layoutSkyLabels(inputs, sw, sh, { pillH: 18, leader: 14 })) {
+				// settlements tinted blue vs terrain features' yellow/black
+				const isPlace = !!l.id && PLACE_KINDS.has(l.id);
 				ctx.strokeStyle = 'rgba(255,255,255,0.55)';
 				ctx.lineWidth = 1;
 				ctx.beginPath();
@@ -469,11 +717,11 @@
 				ctx.stroke();
 				ctx.beginPath();
 				ctx.arc(l.cx, l.cy, 2.2, 0, Math.PI * 2);
-				ctx.fillStyle = 'rgba(255,220,50,0.95)';
+				ctx.fillStyle = isPlace ? 'rgba(143,180,217,0.95)' : 'rgba(255,220,50,0.95)';
 				ctx.fill();
 				ctx.beginPath();
 				ctx.roundRect(l.tx, l.ty, l.pillW, l.pillH, 4);
-				ctx.fillStyle = 'rgba(0,0,0,0.62)';
+				ctx.fillStyle = isPlace ? 'rgba(20,44,74,0.68)' : 'rgba(0,0,0,0.62)';
 				ctx.fill();
 				ctx.strokeStyle = 'rgba(255,255,255,0.35)';
 				ctx.stroke();
@@ -505,12 +753,14 @@
 	$effect(() => {
 		void bearingOffset;
 		void fovDeg;
-		void horizonFrac;
+		void proj;
+		void horizonPct;
 		void vScale;
 		void rollDeg;
 		void warp;
 		void showCurve;
 		void showLabels;
+		void showPlaces;
 		void marks;
 		void visLog;
 		void z;
@@ -519,6 +769,47 @@
 		void baseW;
 		void baseH;
 		draw();
+	});
+
+	// auto-save the working state as a per-photo draft (debounced). Restore
+	// order on load is saved fit → draft, so a reload resumes exactly here;
+	// "save fit" promotes to a fact and clears the draft.
+	$effect(() => {
+		void proj;
+		void bearingOffset;
+		void fovDeg;
+		void horizonPct;
+		void vScale;
+		void rollDeg;
+		void warp;
+		void visLog;
+		if (!photo || suppressDraft) {
+			if (photo && suppressDraft)
+				console.log('overlay-sync: change while suppressed (load not finished?)');
+			return;
+		}
+		const payload = fitPayload();
+		const bare = bareOf(payload);
+		// identical alignment to one just received from another window → the
+		// writer already persisted it; rewriting would ping-pong events
+		if (bare === lastSync) return;
+		lastSync = bare;
+		lastTs = payload.saved_at;
+		const raw = JSON.stringify(payload);
+		try {
+			localStorage.setItem(liveKey(photo.id), raw);
+			console.log(`overlay-sync: wrote ${liveKey(photo.id)}`);
+		} catch (e) {
+			console.log('overlay-sync: localStorage write failed', e);
+		}
+		bc?.postMessage({ key: liveKey(photo.id), raw });
+		draftState = `synced ${new Date().toLocaleTimeString()}`;
+		clearTimeout(draftTimer);
+		draftTimer = setTimeout(() => {
+			api.put('/terrain/overlay-draft', payload)
+				.then(() => (draftState = 'draft ✓'))
+				.catch(() => (draftState = 'draft save failed'));
+		}, 800);
 	});
 
 	// action on the stage div: it lives behind {#if imgUrl}, so it doesn't
@@ -545,6 +836,45 @@
 			photoId = pid;
 			load();
 		}
+		// receive live state from sibling windows: BroadcastChannel is the
+		// primary channel (explicit delivery, no storage-event quirks); the
+		// storage event stays as fallback. Neither fires in the sender.
+		bc = 'BroadcastChannel' in globalThis ? new BroadcastChannel('terrain-overlay-fit') : null;
+		if (bc)
+			bc.onmessage = (e: MessageEvent) => {
+				if (!photo || e.data?.key !== liveKey(photo.id)) return;
+				console.log('overlay-sync: received via BroadcastChannel');
+				applyRemote(e.data.raw as string);
+			};
+		const onStorage = (e: StorageEvent) => {
+			if (!photo || !e.newValue || e.key !== liveKey(photo.id)) return;
+			console.log('overlay-sync: received via storage event');
+			applyRemote(e.newValue);
+		};
+		window.addEventListener('storage', onStorage);
+		// cross-browser/device live sync: the backend draft is the only
+		// channel that crosses origins and browsers — poll it lightly and
+		// apply anything newer than what this window has seen
+		const poll = setInterval(async () => {
+			if (!photo || suppressDraft || document.hidden) return;
+			try {
+				const dr = await api.get<{ draft: OverlayFit | null }>(
+					`/terrain/overlay-draft?photo_id=${photo.id}`
+				);
+				const f = dr.draft;
+				if (f?.saved_at && f.saved_at > lastTs + 1) {
+					console.log('overlay-sync: received via draft poll');
+					applyRemote(JSON.stringify(f));
+				}
+			} catch {
+				/* api hiccup — next tick */
+			}
+		}, 2500);
+		return () => {
+			bc?.close();
+			clearInterval(poll);
+			window.removeEventListener('storage', onStorage);
+		};
 	});
 </script>
 
@@ -569,28 +899,55 @@
 	<section class="controls">
 		<label><input type="checkbox" bind:checked={showCurve} /> skyline</label>
 		<label><input type="checkbox" bind:checked={showLabels} /> labels</label>
+		{#if showLabels}
+			<label title="include settlement names (city/town/village/district)">
+				<input type="checkbox" bind:checked={showPlaces} /> places
+			</label>
+		{/if}
 		<label>
-			bearing <span class="val">{bearingOffset >= 0 ? '+' : ''}{bearingOffset.toFixed(1)}°</span>
-			<input type="range" min="-20" max="20" step="0.1" bind:value={bearingOffset} />
+			proj
+			<select bind:value={proj}>
+				<option value="equirect">equirect (f2)</option>
+				<option value="cylindrical">cylindrical (f1)</option>
+				<option value="rectilinear">rectilinear (f0)</option>
+			</select>
 		</label>
 		<label>
-			fov <span class="val">{fovDeg}°</span>
-			<input type="range" min="20" max="360" step="1" bind:value={fovDeg} />
+			bearing
+			<input class="num" type="number" step="0.01" bind:value={bearingOffset} />°
+			<input type="range" min="-20" max="20" step="0.01" bind:value={bearingOffset} />
 		</label>
 		<label>
-			horizon <span class="val">{(horizonFrac * 100).toFixed(1)}%</span>
-			<input type="range" min="0" max="1" step="0.002" bind:value={horizonFrac} />
+			fov
+			<input class="num" type="number" min="5" max="360" step="0.1" bind:value={fovDeg} />°
+			<input type="range" min="20" max="360" step="0.1" bind:value={fovDeg} />
 		</label>
 		<label>
-			v-scale <span class="val">×{vScale.toFixed(2)}</span>
+			horizon
+			<input class="num" type="number" min="0" max="100" step="0.1" bind:value={horizonPct} />%
+			<input type="range" min="0" max="100" step="0.1" bind:value={horizonPct} />
+		</label>
+		<label>
+			v-scale ×
+			<input class="num" type="number" min="0.1" max="5" step="0.01" bind:value={vScale} />
 			<input type="range" min="0.4" max="2.5" step="0.01" bind:value={vScale} />
 		</label>
 		<label>
-			roll <span class="val">{rollDeg >= 0 ? '+' : ''}{rollDeg.toFixed(2)}°</span>
+			roll
+			<input class="num" type="number" min="-10" max="10" step="0.05" bind:value={rollDeg} />°
 			<input type="range" min="-8" max="8" step="0.05" bind:value={rollDeg} />
 		</label>
 		<label>
-			fog <span class="val">{visLabel}</span>
+			fog
+			<input
+				class="num"
+				type="number"
+				min="1"
+				max={Math.ceil(maxDistM / 1000)}
+				step="1"
+				value={visKm}
+				oninput={(e) => setFogKm(e.currentTarget.valueAsNumber)}
+			/>km
 			<input type="range" min="3" max={visLogMax} step="0.01" bind:value={visLog} />
 		</label>
 		<span class="group">
@@ -602,6 +959,16 @@
 		<span class="group">
 			zoom <span class="val">×{z.toFixed(2)}</span>
 			<button onclick={resetView} disabled={z <= 1.001}>reset</button>
+		</span>
+		<span class="group">
+			<button
+				onclick={resetToDefaults}
+				disabled={!photo}
+				title="reset all alignment to the calibration-derived defaults and discard the draft"
+			>defaults</button>
+			<button onclick={saveFit} disabled={saving || !photo}>save fit</button>
+			{#if saveMsg}<span class="info">{saveMsg}</span>{/if}
+			{#if draftState}<span class="info">{draftState}</span>{/if}
 		</span>
 	</section>
 
@@ -630,6 +997,9 @@
 		<canvas bind:this={overlay}></canvas>
 	</div>
 	<p class="hint">
+		<b>proj</b> must match the pano's stitch output projection — read the .pto p-line's f-value
+		(f0 rectilinear / f1 cylindrical / f2 equirect); it varies per pano, see
+		docs/pano-source-archaeology.md. Wrong projection = unfittable by design.
 		<b>wheel / pinch</b> zooms about the cursor, <b>drag</b> pans, <b>double-click</b> resets.
 		The dashed line is the horizon reference — drag its <b>round handles</b> up/down to bend the
 		fit locally (offsets interpolate between handles; <b>segments ±</b> adds or removes them —
@@ -661,6 +1031,16 @@
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 	}
+	/* editable readouts: exact entry + spinner-arrow single steps; fixed
+	   width keeps the row from reflowing mid-drag */
+	.controls .num {
+		width: 4.6em;
+		font-size: 12px;
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+	/* longer track = finer °/px — the sliders were heavy-handed */
+	.controls input[type='range'] { width: 150px; }
 	.controls .group { display: flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
 	.controls .group button { font-size: 12px; padding: 0 0.45rem; }
 	.stage {

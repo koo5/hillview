@@ -35,8 +35,12 @@ export interface Peak {
 	/** OSM topographic prominence in metres — sparse (~2% of peaks) but
 	 * tagged precisely on the famous ones; drives label priority */
 	prominence?: number | null;
-	/** peak | tower (observation) | mast (communication); default peak */
+	/** peak | tower (observation) | mast (communication) | city | town |
+	 * village | suburb | quarter; default peak */
 	kind?: string;
+	/** OSM population — near-universal on place nodes (~98% around Prague);
+	 * drives label priority for settlements the way prominence does peaks */
+	population?: number | null;
 }
 
 /** A peak projected into the panorama: texture coords + display facts. */
@@ -49,6 +53,7 @@ export interface PeakMark {
 	ele?: number | null;
 	prominence?: number | null;
 	kind?: string;
+	population?: number | null;
 }
 
 /** Inverse geodesic on the same sphere as destinationPoint (haversine
@@ -91,6 +96,35 @@ export function colForAzimuth(meta: TerrainMeta, azimuthDeg: number): number | n
 export const PEAK_DEPTH_REL_TOL = 0.06;
 export const PEAK_MIN_DISTANCE_M = 500;
 
+/** Settlement kinds (OSM place=*) among label candidates. */
+export const PLACE_KINDS = new Set(['city', 'town', 'village', 'suburb', 'quarter']);
+
+/** Per-kind distance caps for settlements — a village at 70 km is an
+ * unresolvable speck; physical vista boards cap the same way. Cities are
+ * uncapped (a capital's skyline reads at any distance the render covers). */
+export const PLACE_MAX_DIST_M: Record<string, number> = {
+	town: 80_000,
+	village: 30_000,
+	suburb: 20_000,
+	quarter: 15_000
+};
+
+/** Unified label priority: prominence for terrain features, population
+ * (log-mapped into prominence-like metres) for settlements — 1k ≈ 180,
+ * 100k ≈ 360, 1M ≈ 450, so a capital ranks with a major peak and a
+ * nondescript village with a nondescript ridge. */
+export function labelPriority(p: {
+	prominence?: number | null;
+	kind?: string;
+	population?: number | null;
+}): number {
+	if (p.kind && PLACE_KINDS.has(p.kind)) {
+		const pop = p.population ?? 0;
+		return pop > 0 ? Math.max(0, 90 * Math.log10(pop / 10)) : 0;
+	}
+	return p.prominence ?? 0;
+}
+
 /** Project one peak into the panorama, or null when out of range, outside
  * the sweep, or occluded. The row is found by scanning the peak's column
  * for the TOPMOST pixel whose depth matches the peak's distance — the
@@ -108,6 +142,8 @@ export function projectPeak(
 	const { bearingDeg, distanceM } = bearingDistance(meta.lat, meta.lon, peak.lat, peak.lon);
 	if (distanceM < PEAK_MIN_DISTANCE_M) return null;
 	if (typeof meta.max_distance_m === 'number' && distanceM > meta.max_distance_m) return null;
+	const kindCap = peak.kind ? PLACE_MAX_DIST_M[peak.kind] : undefined;
+	if (kindCap !== undefined && distanceM > kindCap) return null;
 	const col = colForAzimuth(meta, bearingDeg);
 	if (col === null) return null;
 	const tol = distanceM * relTol + 2 * meta.depth_scale_m;
@@ -124,7 +160,8 @@ export function projectPeak(
 				azimuth_deg: bearingDeg,
 				ele: peak.ele,
 				prominence: peak.prominence,
-				kind: peak.kind
+				kind: peak.kind,
+				population: peak.population
 			};
 		}
 		// nearer than the peak (beyond tolerance): monotonicity says the
@@ -145,11 +182,12 @@ export function projectPeaks(
 		const m = projectPeak(meta, depth, p, relTol);
 		if (m) out.push(m);
 	}
-	// prominence-tagged features first (OSM tags it precisely on the famous
-	// ones — Říp beats a taller nondescript ridge), then nearest first so
-	// downstream label caps keep the most legible of the rest
+	// highest label priority first (prominence for terrain — OSM tags it
+	// precisely on the famous ones, Říp beats a taller nondescript ridge;
+	// population for settlements), then nearest first so downstream label
+	// caps keep the most legible of the rest
 	return out.sort(
-		(a, b) => (b.prominence ?? 0) - (a.prominence ?? 0) || a.distance_m - b.distance_m
+		(a, b) => labelPriority(b) - labelPriority(a) || a.distance_m - b.distance_m
 	);
 }
 

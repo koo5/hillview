@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
-	import { fitSummary, residual } from '$lib/theilsen';
+	import { fitRectilinear, fitSummary, residual } from '$lib/theilsen';
 	import CalibScatter from '$lib/components/CalibScatter.svelte';
 	import Help from '$lib/components/Help.svelte';
 	import PhotoThumb from '$lib/components/PhotoThumb.svelte';
@@ -45,14 +45,17 @@
 	let accepting = $state(false);
 	let accepted = $state<string | null>(null);
 
+	// azimuth↔x law: linear for cylindrical/equirect stitches (f1/f2), atan
+	// for rectilinear (f0) — per pano, read off the .pto p-line, never assume
+	let model = $state<'linear' | 'rectilinear'>('linear');
+	function fitWith(pts: { x: number; delta: number }[]) {
+		const compass = data?.photo.compass_angle ?? null;
+		return model === 'rectilinear' ? fitRectilinear(pts, compass) : fitSummary(pts, compass);
+	}
+
 	const usableRows = $derived((data?.rows ?? []).filter((r) => r.usable));
 	const includedRows = $derived(usableRows.filter((r) => !excluded.has(r.annotation_id)));
-	const fit = $derived(
-		fitSummary(
-			includedRows.map((r) => ({ x: r.rect_x!, delta: r.delta! })),
-			data?.photo.compass_angle ?? null
-		)
-	);
+	const fit = $derived(fitWith(includedRows.map((r) => ({ x: r.rect_x!, delta: r.delta! }))));
 	const scatterPoints = $derived(
 		usableRows.map((r) => ({
 			id: r.annotation_id,
@@ -68,6 +71,24 @@
 		return residual({ x: r.rect_x, delta: r.delta }, fit);
 	}
 
+	// the include/exclude working set persists per pano in REAL TIME as a
+	// server-side draft (plain mutable RDF in a per-pano draft graph), so it
+	// survives reloads, pano switches, and browser/device changes
+	async function loadDraft(id: string): Promise<Set<string>> {
+		try {
+			const d = await api.get<{ excluded: string[] }>(`/calibrate/draft?photo_id=${id}`);
+			return new Set(d.excluded);
+		} catch {
+			return new Set();
+		}
+	}
+	function saveDraft() {
+		if (!sel) return;
+		api.put(`/calibrate/draft`, { photo_id: sel.id, excluded: [...excluded] }).catch(() => {
+			/* draft save is best-effort */
+		});
+	}
+
 	async function loadPanos() {
 		panos = await api.get<Pano[]>('/panos');
 	}
@@ -76,11 +97,29 @@
 		data = null;
 		excluded = new Set();
 		accepted = null;
+		const draft = loadDraft(p.id);
 		try {
 			data = await api.get<CalData>(`/panos/${p.id}/calibration`);
 			err = null;
 		} catch (e) {
 			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+		}
+		excluded = await draft;
+	}
+
+	// re-pick anchors + rows server-side WITHOUT touching the selection —
+	// for after approving/pinning an annotation's coords in another tab
+	let refreshing = $state(false);
+	async function refresh() {
+		if (!sel) return;
+		refreshing = true;
+		try {
+			data = await api.get<CalData>(`/panos/${sel.id}/calibration`);
+			err = null;
+		} catch (e) {
+			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+		} finally {
+			refreshing = false;
 		}
 	}
 	// selection lives in the URL (?pano=…) so pano links are shareable/reloadable
@@ -99,16 +138,18 @@
 		if (s.has(id)) s.delete(id);
 		else s.add(id);
 		excluded = s;
+		saveDraft();
+	}
+	function includeAll() {
+		excluded = new Set();
+		saveDraft();
 	}
 	function autoKick(threshold: number) {
 		// exclude worst residuals iteratively until all |resid| <= threshold
 		const s = new Set(excluded);
 		for (let i = 0; i < 50; i++) {
 			const rows = usableRows.filter((r) => !s.has(r.annotation_id));
-			const f = fitSummary(
-				rows.map((r) => ({ x: r.rect_x!, delta: r.delta! })),
-				data?.photo.compass_angle ?? null
-			);
+			const f = fitWith(rows.map((r) => ({ x: r.rect_x!, delta: r.delta! })));
 			if (!f || rows.length <= 3) break;
 			const worst = rows.reduce((w, r) =>
 				Math.abs(residual({ x: r.rect_x!, delta: r.delta! }, f)) >
@@ -120,6 +161,7 @@
 			s.add(worst.annotation_id);
 		}
 		excluded = s;
+		saveDraft();
 	}
 
 	async function acceptFit() {
@@ -128,7 +170,7 @@
 		try {
 			const res = await api.post<{ run_id: string; fit: Record<string, number> }>(
 				'/calibrate/accept',
-				{ photo_id: sel.id, annotation_ids: includedRows.map((r) => r.annotation_id) }
+				{ photo_id: sel.id, annotation_ids: includedRows.map((r) => r.annotation_id), model }
 			);
 			accepted = `saved — run ${res.run_id.slice(0, 8)}, bearing ${res.fit.centre_bearing}°, FOV ${res.fit.fov}°`;
 			loadPanos();
@@ -201,8 +243,24 @@
 			<dt>resid°</dt>
 			<dd>distance from the current fit line; &gt; 10° highlighted amber</dd>
 		</dl>
+		<h4>model</h4>
+		<p>
+			The azimuth↔x law depends on the pano's stitch <b>output projection</b> — read the
+			.pto p-line f-value, it varies per pano (see docs/pano-source-archaeology.md):
+			<b>linear</b> fits cylindrical/equirect stitches (f1/f2); <b>rectilinear</b> (f0)
+			fits Δ = atan(k·(x−x₀)) — needs ≥ 4 points and also reports x₀, the principal-point
+			x. The tell for a wrong model: residuals <i>bow</i> — both ends one sign, the middle
+			the other, worst on far approved anchors (a straight line through an atan curve).
+			Accepting a rectilinear fit also writes calibratedProjection/calibratedX0 facts;
+			FOV stays "azimuth span across the image", so pie consumers are unaffected.
+		</p>
 		<h4>actions</h4>
 		<dl>
+			<dt>↻ recalc</dt>
+			<dd>
+				re-pick anchors and recompute rows server-side, keeping your selection —
+				use after approving/pinning an annotation's coords in another tab
+			</dd>
 			<dt>auto-kick &gt;10°</dt>
 			<dd>iteratively exclude the worst residual until all are ≤ 10° (keeps ≥ 3 points)</dd>
 			<dt>accept fit</dt>
@@ -211,6 +269,11 @@
 				calibratedFov / calibrationRms facts, run-tracked
 			</dd>
 		</dl>
+		<p>
+			The include/exclude set is a per-pano <b>draft</b>: every toggle saves it
+			server-side (a mutable draft graph in the store), so it survives reloads, pano
+			switches, and browser/device changes (until you include all).
+		</p>
 		<h4>downstream</h4>
 		<p>
 			Calibration is what makes a pano's geometry trustworthy: the matching bench uses
@@ -267,9 +330,25 @@
 				<div class="stat"><div class="n">{f1(fit?.centre_bearing)}°</div><div class="l">centre bearing</div></div>
 				<div class="stat"><div class="n">{f1(fit?.centre_bias)}°</div><div class="l">bias vs compass</div></div>
 				<div class="stat"><div class="n">{f1(fit?.rms)}°</div><div class="l">RMS ({fit?.n ?? 0} pts)</div></div>
+				{#if fit?.model === 'rectilinear'}
+					<div class="stat"><div class="n">{fit.x0?.toFixed(3)}</div><div class="l">x₀ (proj centre)</div></div>
+				{/if}
 				<div style="flex:1"></div>
+				<label style="font-size:12px; display:flex; align-items:center; gap:4px"
+					title="The pano's stitch OUTPUT projection sets the azimuth↔x law: linear for cylindrical/equirect (f1/f2), atan for rectilinear (f0). Read the .pto p-line f-value — it varies per pano, never assume (docs/pano-source-archaeology.md). Symptom of the wrong model: residuals bow — both ends one sign, middle the other, worst on far APPROVED anchors. Rectilinear needs ≥ 4 included points.">
+					model
+					<select bind:value={model}>
+						<option value="linear">linear — cylindrical/equirect (f1/f2)</option>
+						<option value="rectilinear">rectilinear — f0, Δ = atan(k·(x−x₀))</option>
+					</select>
+				</label>
+				{#if excluded.size}<span class="muted" style="font-size:11px">{excluded.size} excluded (kept as draft)</span>{/if}
+				<button onclick={refresh} disabled={refreshing}
+					title="re-pick anchors and recompute rows — use after approving/pinning coords in another tab; keeps your selection">
+					{refreshing ? '↻ …' : '↻ recalc'}
+				</button>
 				<button onclick={() => autoKick(10)} title="iteratively exclude worst residuals > 10°">auto-kick &gt;10°</button>
-				<button onclick={() => (excluded = new Set())} disabled={excluded.size === 0}>include all</button>
+				<button onclick={includeAll} disabled={excluded.size === 0}>include all</button>
 				<button class="primary" onclick={acceptFit} disabled={accepting || !fit}>
 					{accepting ? 'saving…' : 'accept fit'}
 				</button>

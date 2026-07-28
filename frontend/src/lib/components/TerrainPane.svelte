@@ -7,7 +7,7 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import TerrainViewer from '$terrain/TerrainViewer.svelte';
-	import { artifactVersion, attributionOf, gridMetaOf, isViewable, markerStateOf, progressOf } from '$lib/terrainModel';
+	import { artifactVersion, attributionOf, gridMetaOf, isViewable, markerStateOf, progressOf, stageOf } from '$lib/terrainModel';
 	import {
 		enqueueTerrainRender,
 		pendingTerrainRect,
@@ -27,6 +27,7 @@
 
 	let visibilityKm = $state(80);
 	let showPeakLabels = $state(true);
+	let showPlaces = $state(true);
 	// display-only vertical stretch (1 = true angles) — far relief is
 	// sub-degree at real scale, exaggeration makes it readable
 	let exaggeration = $state(1);
@@ -54,6 +55,10 @@
 	// built-up viewpoint the SURFACE model's roofline is the horizon — ~25 m
 	// sees over it (the "what would a tower here see" knob).
 	let eyeHeight = $state(2);
+	// renderer default 100 km; uint16 depth at 4 m steps caps out at 262 km.
+	// Beyond ~100 km mind DEM coverage (TERRAIN_AUTO_DEM_BBOX) — terrain
+	// outside the downloaded bbox renders as sky.
+	let maxKm = $state(100);
 
 	function createParams(): Record<string, unknown> {
 		const p: Record<string, unknown> = {};
@@ -70,6 +75,8 @@
 			p.elev_step_deg = stepDeg;
 		}
 		if (eyeHeight !== 2 && Number.isFinite(eyeHeight)) p.observer_height_m = eyeHeight;
+		if (maxKm !== 100 && Number.isFinite(maxKm))
+			p.max_distance_m = Math.round(Math.min(260, Math.max(1, maxKm)) * 1000);
 		return p;
 	}
 
@@ -177,6 +184,21 @@
 					/>
 					m
 				</label>
+				<label
+					class="create-opt eye"
+					title="how far the horizon march goes (default 100 km). Depth encoding caps at 262 km; beyond ~100 km the DEM bbox must cover that far — terrain outside it renders as sky"
+				>
+					range
+					<input
+						type="number"
+						min="5"
+						max="260"
+						step="5"
+						bind:value={maxKm}
+						data-testid="terrain-max-km"
+					/>
+					km
+				</label>
 				<button
 					class="create-btn"
 					data-testid="terrain-pane-create"
@@ -238,6 +260,7 @@
 			{initialRect}
 			{peaks}
 			bind:showPeakLabels
+			bind:showPlaces
 			bind:peakTolerance
 			bind:exaggeration
 		/>
@@ -247,6 +270,13 @@
 				peaks
 			</label>
 			{#if showPeakLabels}
+				<label
+					class="labels-toggle"
+					title="include settlement names (city/town/village/district) among the labels"
+				>
+					<input type="checkbox" bind:checked={showPlaces} />
+					places
+				</label>
 				<label
 					class="peak-tol"
 					title="depth-match tolerance: looser shows more labels, but may label peaks actually hidden behind a similar-depth ridge"
@@ -284,7 +314,9 @@
 			</label>
 			{#if markerStateOf(sel) === 'rendering'}
 				<span class="rendering" data-testid="terrain-pane-rendering">
-					rendering…{#if progressOf(sel) !== null}&nbsp;{progressOf(sel)} %{/if}
+					{#if stageOf(sel)}{stageOf(sel)}…{:else}
+						rendering…{#if progressOf(sel) !== null}&nbsp;{progressOf(sel)} %{/if}
+					{/if}
 				</span>
 			{/if}
 			{#if pick}
@@ -298,7 +330,7 @@
 			{#if attributionOf(sel) || peaks.length}
 				<span class="attribution" data-testid="terrain-attribution">
 					{attributionOf(sel) ?? ''}{attributionOf(sel) && peaks.length ? ' · ' : ''}{peaks.length
-						? 'peaks © OpenStreetMap contributors'
+						? 'labels © OpenStreetMap contributors'
 						: ''}
 				</span>
 			{/if}
@@ -308,7 +340,9 @@
 			{#if markerStateOf(sel) === 'failed'}
 				render failed{sel.error ? `: ${sel.error}` : ''}
 			{:else if markerStateOf(sel) === 'rendering'}
-				rendering…{#if progressOf(sel) !== null}&nbsp;{progressOf(sel)} %{/if}
+				{#if stageOf(sel)}{stageOf(sel)}…{:else}
+					rendering…{#if progressOf(sel) !== null}&nbsp;{progressOf(sel)} %{/if}
+				{/if}
 			{:else}
 				queued…
 			{/if}

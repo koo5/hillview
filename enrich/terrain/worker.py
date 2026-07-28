@@ -63,6 +63,15 @@ CALLBACK_URL = os.getenv("TERRAIN_CALLBACK_URL",
                          "http://127.0.0.1:8070/api/terrain/result")
 WORKER_TOKEN = os.getenv("ENRICH_WORKER_TOKEN", "dev-worker-token")
 ATTRIBUTION = os.getenv("TERRAIN_ATTRIBUTION", "")
+# On-demand ČÚZK: when a default/cuzk render lands OUTSIDE the built near
+# rings, download + build the sheets around the viewpoint first (auto_cuzk.sh
+# is incremental — the mosaic only ever grows; the Prague seed box measured
+# ~550 MB / 24 sheets, and the default ±5 km is about that size again). Set
+# by the entrypoint when the auto-ČÚZK machinery is live. Any failure just
+# logs: the coverage skip in _load_stack renders from the coarser rings.
+AUTO_CUZK_FETCH = os.getenv("TERRAIN_AUTO_CUZK_FETCH", "")
+AUTO_CUZK_RADIUS_M = float(os.getenv("TERRAIN_AUTO_CUZK_RADIUS_M", "5000"))
+CUZK_DSM_VRT = os.getenv("TERRAIN_CUZK_DSM_VRT", "/dem/cuzk/dsm10.vrt")
 
 broker = RabbitmqBroker(url=f"amqp://{RABBITMQ_URL}?timeout=15", confirm_delivery=True)
 remoulade.set_broker(broker)
@@ -110,9 +119,21 @@ def _parse_layers(spec: str) -> list[tuple[str, float | None]]:
 
 
 def _load_stack(renderer, spec: str, lat: float, lon: float, radius_m: float):
-    grids = [renderer.load_geotiff_window(p, lat, lon,
-                                          min(radius_m, cap) if cap else radius_m)
-             for p, cap in _parse_layers(spec)]
+    # a ring that doesn't reach this viewpoint (ČÚZK covers a bbox, GLO-30
+    # the country + margin) is SKIPPED, not fatal — first-finite-wins falls
+    # through to the next layer, which is the whole point of the ring design
+    grids, skipped = [], []
+    for p, cap in _parse_layers(spec):
+        try:
+            grids.append(renderer.load_geotiff_window(
+                p, lat, lon, min(radius_m, cap) if cap else radius_m))
+        except renderer.DemCoverageError:
+            skipped.append(p)
+    if not grids:
+        raise RuntimeError(f"no DEM layer covers ({lat:.4f}, {lon:.4f}) in {spec}")
+    if skipped:
+        print(f"  stack: skipped out-of-coverage layer(s): {', '.join(skipped)}",
+              flush=True)
     return grids[0] if len(grids) == 1 else renderer.CompositeDem(grids=grids)
 
 
@@ -143,6 +164,64 @@ def _resolve_stack(params: dict) -> tuple[str, str, str, str]:
             stack)
 
 
+def _ensure_glo30_coverage(lat: float, lon: float, radius_m: float) -> None:
+    """On-demand GLO-30: any viewpoint worldwide works. Download the 1° tiles
+    covering the render window that aren't on the volume yet, then refresh
+    the VRT atomically (tmp + rename — concurrent readers keep their handle).
+    TERRAIN_AUTO_DEM_BBOX pre-seeding is now just a warm cache. Ocean gaps
+    are normal — a .ocean marker remembers the bucket's 404 so later renders
+    don't re-HEAD it. Fetch failures degrade to rendering with the coverage
+    we have (the window read handles holes)."""
+    import glob
+    import math
+    import subprocess
+    from concurrent.futures import ThreadPoolExecutor
+
+    tiles_dir = os.getenv("TERRAIN_GLO30_TILES_DIR", "")
+    vrt = os.getenv("TERRAIN_GLO30_VRT", "")
+    if not tiles_dir or not vrt:
+        return
+    import download_glo30 as g30
+
+    dlat = radius_m * 1.1 / 111_320.0
+    dlon = radius_m * 1.1 / (111_320.0 * max(0.2, math.cos(math.radians(lat))))
+    todo = []
+    for tlat, tlon in g30.tiles_for_bbox(lon - dlon, lat - dlat, lon + dlon, lat + dlat):
+        if not (-90 <= tlat <= 89) or not (-180 <= tlon <= 179):
+            continue
+        name = g30.tile_name(tlat, tlon)
+        if (os.path.exists(os.path.join(tiles_dir, name + ".tif"))
+                or os.path.exists(os.path.join(tiles_dir, name + ".ocean"))):
+            continue
+        todo.append((tlat, tlon, name))
+    if not todo:
+        return
+    print(f"terrain: fetching {len(todo)} GLO-30 tile(s) on demand", flush=True)
+
+    def _one(t):
+        tlat, tlon, name = t
+        try:
+            return name, g30.fetch_tile(tlat, tlon, tiles_dir)[1]
+        except Exception as e:  # noqa: BLE001 — render with what we have
+            print(f"terrain: glo30 {name} fetch failed: {e}", flush=True)
+            return name, "failed"
+
+    new = 0
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for name, status in pool.map(_one, todo):
+            if status == "ocean":
+                open(os.path.join(tiles_dir, name + ".ocean"), "w").close()
+            elif status == "ok":
+                new += 1
+    if new:
+        tifs = sorted(glob.glob(os.path.join(tiles_dir, "*.tif")))
+        subprocess.run(
+            ["gdalbuildvrt", "-resolution", "highest", vrt + ".tmp"] + tifs,
+            check=True)
+        os.replace(vrt + ".tmp", vrt)
+        print(f"terrain: glo30 VRT refreshed (+{new} tiles)", flush=True)
+
+
 def _render(lat: float, lon: float, params: dict, progress=None, checkpoint=None):
     import math
 
@@ -160,6 +239,7 @@ def _render(lat: float, lon: float, params: dict, progress=None, checkpoint=None
     kwargs.setdefault("az_step_deg", 0.025)
     kwargs.setdefault("elev_step_deg", 0.025)
     max_d = float(kwargs.get("max_distance_m", 100_000.0))
+    _ensure_glo30_coverage(lat, lon, max_d * 1.05)
     dem = _load_stack(renderer, dsm_path, lat, lon, max_d * 1.05)
 
     # refinement #1+2: ground the observer on bare earth, resolve GPS hints
@@ -230,7 +310,49 @@ def _preview_jpeg(pano) -> bytes:
     return buf.getvalue()
 
 
-@remoulade.actor(queue_name="terrain", time_limit=20 * 60 * 1000, max_retries=1)
+def _cuzk_covered(lat: float, lon: float) -> bool:
+    """Is the viewpoint inside BUILT ČÚZK data? The vrt's bounds are a
+    rectangle over possibly L-shaped sheet coverage, so sample the actual
+    cell rather than trusting the bbox."""
+    import math
+    if not os.path.exists(CUZK_DSM_VRT):
+        return False
+    try:
+        import rasterio
+        with rasterio.open(CUZK_DSM_VRT) as src:
+            left, bottom, right, top = src.bounds
+            if not (left <= lon <= right and bottom <= lat <= top):
+                return False
+            v = next(src.sample([(lon, lat)], masked=True))
+            hidden = bool(getattr(v, "mask", [False])[0])
+            return not hidden and math.isfinite(float(v[0]))
+    except Exception as e:  # noqa: BLE001 — a broken check must not spam builds
+        print(f"  cuzk coverage check failed: {e}", flush=True)
+        return True
+
+
+def _ensure_cuzk_coverage(lat: float, lon: float, notify=None) -> None:
+    """Incremental on-demand build around an uncovered viewpoint (the lock
+    serializing concurrent builds lives in auto_cuzk.sh itself). Failures are
+    logged, never raised — a viewpoint outside CZ simply finds no sheets and
+    the render proceeds on whatever rings do cover it."""
+    import math
+    import subprocess
+    dlat = AUTO_CUZK_RADIUS_M / 111_320.0
+    dlon = AUTO_CUZK_RADIUS_M / (111_320.0 * max(0.1, math.cos(math.radians(lat))))
+    bbox = f"{lon - dlon:.4f},{lat - dlat:.4f},{lon + dlon:.4f},{lat + dlat:.4f}"
+    if notify:
+        notify("downloading ČÚZK elevation data for this area")
+    print(f"  cuzk on-demand build for {bbox}…", flush=True)
+    r = subprocess.run(["sh", "auto_cuzk.sh", bbox], cwd=HERE)
+    if r.returncode != 0:
+        print(f"  cuzk on-demand build failed (rc {r.returncode}) — "
+              f"rendering from the coarser rings", flush=True)
+
+
+# time limit fits a worst-case render PLUS a first on-demand ČÚZK build
+# (download + pdal rasterize of ~30 sheets)
+@remoulade.actor(queue_name="terrain", time_limit=60 * 60 * 1000, max_retries=1)
 def render_panorama(payload: dict) -> None:
     import time
 
@@ -263,7 +385,9 @@ def render_panorama(payload: dict) -> None:
             return
         last_progress_post = now
         try:
-            _post_rendering({"progress_pct": int(frac * 100)}, None)
+            # stage: None clears a lingering "downloading…" note (the meta
+            # jsonb is merged server-side, so old keys survive otherwise)
+            _post_rendering({"progress_pct": int(frac * 100), "stage": None}, None)
         except Exception as e:
             print(f"  {rid}: progress post failed: {e}", flush=True)
 
@@ -290,8 +414,22 @@ def render_panorama(payload: dict) -> None:
 
     try:
         ram_gate()
+        params = payload.get("params") or {}
+        # on-demand ČÚZK: no dsm_stack means the default stack — fetch only
+        # when that default IS the promoted ČÚZK composite
+        wants_cuzk = (params.get("dsm_stack") == "cuzk"
+                      or (params.get("dsm_stack") is None and "cuzk" in DSM_PATH))
+        if AUTO_CUZK_FETCH and wants_cuzk:
+            lat_f, lon_f = float(payload["lat"]), float(payload["lon"])
+            if not _cuzk_covered(lat_f, lon_f):
+                def _note(stage: str) -> None:
+                    try:
+                        _post_rendering({"stage": stage}, None)
+                    except Exception as e:
+                        print(f"  {rid}: stage post failed: {e}", flush=True)
+                _ensure_cuzk_coverage(lat_f, lon_f, notify=_note)
         meta, depth, preview = _render(
-            float(payload["lat"]), float(payload["lon"]), payload.get("params") or {},
+            float(payload["lat"]), float(payload["lon"]), params,
             progress=post_progress, checkpoint=post_partial)
         result["meta"] = meta
         print(f"  {rid}: {meta['width']}x{meta['height']}", flush=True)

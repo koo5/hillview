@@ -24,7 +24,14 @@
 		lon: number;
 		status: string;
 		error: string | null;
-		meta: (TerrainMeta & { attribution?: string; max_distance_m?: number }) | null;
+		meta:
+			| (TerrainMeta & {
+					attribution?: string;
+					max_distance_m?: number;
+					progress_pct?: number;
+					stage?: string | null;
+			  })
+			| null;
 		has_depth: boolean;
 		has_preview: boolean;
 		enqueued_at: string;
@@ -44,6 +51,10 @@
 	let dsmStack = $state<'auto' | 'glo30' | 'cuzk'>('auto');
 	let stepDeg = $state(0.025); // worker default (2x the renderer's 0.05)
 	let eyeHeight = $state(2);
+	// renderer default 100 km; uint16 depth at 4 m steps caps out at 262 km.
+	// Beyond ~100 km also mind DEM coverage: the auto GLO-30 bbox is CZ +
+	// margin (TERRAIN_AUTO_DEM_BBOX) — terrain outside it renders as sky.
+	let maxKm = $state(100);
 	// 0.005° is sector-only (full 360° at ×10 = 72k columns, beyond GPU
 	// texture limits); rendered ±18° around this center azimuth
 	let sectorAz = $state(0);
@@ -63,6 +74,8 @@
 			p.elev_step_deg = stepDeg;
 		}
 		if (eyeHeight !== 2 && Number.isFinite(eyeHeight)) p.observer_height_m = eyeHeight;
+		if (maxKm !== 100 && Number.isFinite(maxKm))
+			p.max_distance_m = Math.round(Math.min(260, Math.max(1, maxKm)) * 1000);
 		return p;
 	}
 
@@ -70,6 +83,7 @@
 	let visibilityKm = $state(80); // meteorological visibility
 	let skyColor = $state('#a7cdf0');
 	let showPeakLabels = $state(true);
+	let showPlaces = $state(true);
 	let peakTolerance = $state(0.06);
 	let exaggeration = $state(1); // display-only vertical stretch
 	// fullscreen: collapse the sidebar and the workbench nav; Esc exits
@@ -281,6 +295,21 @@
 					<em>m above ground</em>
 				</span>
 			</label>
+			<label class="field">
+				<span>max distance</span>
+				<span class="pair">
+					<input
+						type="number"
+						min="5"
+						max="260"
+						step="5"
+						data-testid="terrain-max-km"
+						bind:value={maxKm}
+						title="how far the horizon march goes. Depth encoding caps at 262 km; beyond ~100 km check the DEM bbox covers that far (TERRAIN_AUTO_DEM_BBOX) — terrain outside it renders as sky"
+					/>
+					<em>km · ≤ 262</em>
+				</span>
+			</label>
 			<div class="row">
 				<button data-testid="terrain-enqueue" onclick={enqueue} disabled={busy}>
 					Enqueue render
@@ -320,6 +349,7 @@
 				onpick={(p) => (picked = p)}
 				{peaks}
 				bind:showPeakLabels
+				bind:showPlaces
 				bind:peakTolerance
 				bind:exaggeration
 				canvasTestId="terrain-canvas"
@@ -328,7 +358,10 @@
 			/>
 		{:else}
 			<div class="placeholder">
-				{sel ? `render is ${sel.status}` : 'select a render'}
+				{#if !sel}select a render{:else if sel.meta?.stage}{sel.meta.stage}…{:else}
+					render is {sel.status}{#if sel.status === 'rendering' && sel.meta?.progress_pct != null}
+						&nbsp;— {sel.meta.progress_pct} %{/if}
+				{/if}
 			</div>
 		{/if}
 
@@ -370,6 +403,9 @@
 			</label>
 			<label><input type="checkbox" bind:checked={showPeakLabels} /> peaks</label>
 			{#if showPeakLabels}
+				<label title="include settlement names (city/town/village/district) among the labels">
+					<input type="checkbox" bind:checked={showPlaces} /> places
+				</label>
 				<label
 					title="depth-match tolerance: looser shows more labels, but may label peaks actually hidden behind a similar-depth ridge"
 				>
@@ -403,7 +439,7 @@
 		{#if viewable?.meta?.attribution || peaks.length}
 			{@const credits = [
 				viewable?.meta?.attribution,
-				peaks.length ? 'peaks © OpenStreetMap contributors' : null
+				peaks.length ? 'labels © OpenStreetMap contributors' : null
 			]
 				.filter(Boolean)
 				.join(' · ')}
@@ -497,13 +533,14 @@
 	}
 	.pair {
 		display: flex;
+		flex-wrap: wrap; /* long unit hints drop below, never squeeze the input */
 		gap: 0.35rem;
 		align-items: center;
 		min-width: 0;
 	}
 	.pair input {
-		flex: 1;
-		min-width: 0;
+		flex: 1 1 5em;
+		min-width: 5em; /* digits stay visible no matter the hint length */
 		box-sizing: border-box;
 	}
 	.pair em {

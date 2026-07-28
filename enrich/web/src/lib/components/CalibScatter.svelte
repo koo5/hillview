@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { FitSummary } from '$lib/theilsen';
+	import { predict, type FitSummary } from '$lib/theilsen';
 
 	export interface ScatterPoint {
 		id: string;
@@ -58,15 +58,18 @@
 		Δ azimuth vs compass (°)
 	</text>
 
-	<!-- fit line + residual whiskers -->
+	<!-- fit curve (straight for linear, atan for rectilinear) + residual whiskers -->
 	{#if fit}
-		<line
-			x1={sx(0)} y1={sy(fit.intercept)} x2={sx(1)} y2={sy(fit.intercept + fit.slope)}
-			stroke="var(--accent)" stroke-width="2" opacity="0.85"
+		<polyline
+			points={Array.from({ length: 61 }, (_, i) => {
+				const x = i / 60;
+				return `${sx(x)},${sy(predict(fit, x))}`;
+			}).join(' ')}
+			fill="none" stroke="var(--accent)" stroke-width="2" opacity="0.85"
 		/>
 		{#each points.filter((p) => p.included) as p (p.id)}
 			<line
-				x1={sx(p.x)} y1={sy(p.delta)} x2={sx(p.x)} y2={sy(fit.intercept + fit.slope * p.x)}
+				x1={sx(p.x)} y1={sy(p.delta)} x2={sx(p.x)} y2={sy(predict(fit, p.x))}
 				stroke="var(--muted)" stroke-width="1" opacity="0.35"
 			/>
 		{/each}
@@ -98,7 +101,7 @@
 			<text x={tx + 7} y={ty + 12} font-size="10" fill="var(--fg)">{hover.label.slice(0, 30)}</text>
 			<text x={tx + 7} y={ty + 24} font-size="10" fill="var(--muted)">
 				x {hover.x.toFixed(3)} · Δ {hover.delta.toFixed(1)}°
-				{fit && hover.included ? ` · resid ${(hover.delta - (fit.intercept + fit.slope * hover.x)).toFixed(1)}°` : ''}
+				{fit && hover.included ? ` · resid ${(hover.delta - predict(fit, hover.x)).toFixed(1)}°` : ''}
 			</text>
 		</g>
 	{/if}

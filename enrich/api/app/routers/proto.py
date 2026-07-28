@@ -55,7 +55,8 @@ async def _calibration_for(photo_id: str) -> dict | None:
     res = await graph.store.query(f"""{graph.PREFIXES}
 SELECT ?p ?v ?run ?status WHERE {{
   GRAPH ?f {{ <{graph.photo_iri(photo_id)}> ?p ?v }}
-  VALUES ?p {{ hv:calibratedBearing hv:calibratedFov hv:calibrationRms }}
+  VALUES ?p {{ hv:calibratedBearing hv:calibratedFov hv:calibrationRms
+               hv:calibratedProjection hv:calibratedX0 }}
   OPTIONAL {{ GRAPH <{graph.GRAPH_META}> {{ ?f prov:wasGeneratedBy ?run }} }}
   OPTIONAL {{ GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status ?status }} }}
 }}""")
@@ -66,7 +67,12 @@ SELECT ?p ?v ?run ?status WHERE {{
             continue
         run = b.get("run", {}).get("value", "")
         d = by_run.setdefault(run, {"approved": False})
-        d[b["p"]["value"].rsplit("#", 1)[-1]] = float(b["v"]["value"])
+        val = b["v"]["value"]
+        try:
+            val = float(val)          # calibratedProjection stays a string
+        except ValueError:
+            pass
+        d[b["p"]["value"].rsplit("#", 1)[-1]] = val
         if status.endswith("approved"):
             d["approved"] = True
     complete = {r: d for r, d in by_run.items()
@@ -86,7 +92,9 @@ SELECT ?p ?v ?run ?status WHERE {{
                                order.get(kv[0].rsplit("/", 1)[-1], -1)))
     d = best[1]
     return {"centre_bearing": d["calibratedBearing"], "fov": d["calibratedFov"],
-            "rms": d.get("calibrationRms"), "run": best[0],
+            "rms": d.get("calibrationRms"),
+            "projection": d.get("calibratedProjection"),
+            "x0": d.get("calibratedX0"), "run": best[0],
             "approved": d["approved"]}
 
 

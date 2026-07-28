@@ -5,6 +5,7 @@ import {
 	bearingDistance,
 	colForAzimuth,
 	hitSkyLabel,
+	labelPriority,
 	layoutSkyLabels,
 	projectPeak,
 	projectPeaks,
@@ -118,6 +119,35 @@ describe('projectPeak — visibility straight from the depth buffer', () => {
 		const marks = projectPeaks(meta, depth, [peakAt(90.5, 20_000, 'Near'), famous]);
 		expect(marks.map((m) => m.name)).toEqual(['Famous', 'Near']);
 		expect(marks[0].prominence).toBe(232);
+	});
+});
+
+describe('settlement place names as label candidates', () => {
+	it('labelPriority: population log-maps into prominence-like metres', () => {
+		expect(labelPriority({ kind: 'city', population: 1_000_000 })).toBeCloseTo(450, 0);
+		expect(labelPriority({ kind: 'town', population: 10_000 })).toBeCloseTo(270, 0);
+		expect(labelPriority({ kind: 'village', population: null })).toBe(0);
+		expect(labelPriority({ kind: 'village', population: 5 })).toBe(0); // never negative
+		expect(labelPriority({ prominence: 232 })).toBe(232); // peaks unchanged
+	});
+
+	it('per-kind distance caps: a village beyond 30 km drops, a city never', () => {
+		const depth = makeDepth({ 90: { skyTop: 5, depths: [60_000] } });
+		const village: Peak = { ...peakAt(90.5, 60_000, 'Ves'), kind: 'village' };
+		const city: Peak = { ...peakAt(90.5, 60_000, 'Město'), kind: 'city', population: 500_000 };
+		expect(projectPeak(meta, depth, village)).toBeNull();
+		expect(projectPeak(meta, depth, city)).not.toBeNull();
+	});
+
+	it('a populous city outranks a nearer nondescript peak', () => {
+		const depth = makeDepth({
+			90: { skyTop: 5, depths: [20_000] },
+			180: { skyTop: 7, depths: [60_000] }
+		});
+		const city: Peak = { ...peakAt(180.5, 60_000, 'Praha'), kind: 'city', population: 1_300_000 };
+		const marks = projectPeaks(meta, depth, [peakAt(90.5, 20_000, 'Kopec'), city]);
+		expect(marks.map((m) => m.name)).toEqual(['Praha', 'Kopec']);
+		expect(marks[0].population).toBe(1_300_000);
 	});
 });
 

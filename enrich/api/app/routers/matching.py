@@ -83,10 +83,15 @@ async def _pano_pie(photo_id: str, compass, slack: float, default_far: float,
     bearing = cal["centre_bearing"] if cal else compass
     if bearing is None:
         return None
-    return {"bearing": round(bearing, 1),
-            "half": round((cal["fov"] if cal else assumed_fov) / 2, 1),
-            "radius_m": round((far or default_far) * slack),
-            "calibrated": cal is not None}
+    pie = {"bearing": round(bearing, 1),
+           "half": round((cal["fov"] if cal else assumed_fov) / 2, 1),
+           "radius_m": round((far or default_far) * slack),
+           "calibrated": cal is not None}
+    if cal and cal.get("projection"):
+        pie["projection"] = cal["projection"]
+    if cal and cal.get("x0") is not None:
+        pie["x0"] = cal["x0"]
+    return pie
 
 
 async def _annotation_pie(ann_id: str, slack: float, default_far: float,

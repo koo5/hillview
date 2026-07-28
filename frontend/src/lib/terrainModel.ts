@@ -24,8 +24,13 @@ export interface TerrainRender {
 	 * carry the worker's progress ping (progress_pct) and, once a milestone
 	 * partial ships, the artifact cache key (artifact_version) */
 	meta:
-		| (TerrainMeta & { progress_pct?: number; artifact_version?: number; attribution?: string })
-		| { progress_pct?: number; artifact_version?: number; attribution?: string }
+		| (TerrainMeta & {
+				progress_pct?: number;
+				artifact_version?: number;
+				attribution?: string;
+				stage?: string | null;
+		  })
+		| { progress_pct?: number; artifact_version?: number; attribution?: string; stage?: string | null }
 		| null;
 	has_depth: boolean;
 	has_preview: boolean;
@@ -80,6 +85,13 @@ export function artifactVersion(r: TerrainRender): string {
 export function progressOf(r: TerrainRender): number | null {
 	const p = (r.meta as { progress_pct?: unknown } | null)?.progress_pct;
 	return typeof p === 'number' && Number.isFinite(p) ? p : null;
+}
+
+/** Pre-render stage note ("downloading ČÚZK elevation data…") — set by the
+ * worker before the march starts, cleared by the first progress ping. */
+export function stageOf(r: TerrainRender): string | null {
+	const s = (r.meta as { stage?: unknown } | null)?.stage;
+	return typeof s === 'string' && s ? s : null;
 }
 
 /** Data-source credit the worker stamped into the render (TERRAIN_ATTRIBUTION

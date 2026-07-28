@@ -28,6 +28,7 @@
 	import {
 		hitSkyLabel,
 		layoutSkyLabels,
+		PLACE_KINDS,
 		projectPeaks,
 		texToCanvas,
 		type Peak,
@@ -48,6 +49,7 @@
 		onviewchange,
 		peaks = [],
 		showPeakLabels = $bindable(true),
+		showPlaces = $bindable(true),
 		peakTolerance = $bindable(0.06),
 		exaggeration = $bindable(1),
 		canvasTestId = undefined,
@@ -68,6 +70,9 @@
 		 * decided here against the depth buffer (terrain-mode v2) */
 		peaks?: Peak[];
 		showPeakLabels?: boolean;
+		/** include settlement place names (city/town/village/suburb/quarter)
+		 * among the labels; peaks/towers are unaffected */
+		showPlaces?: boolean;
 		/** relative depth tolerance for the peak-visibility match — looser
 		 * shows more labels (see peakLabels.PEAK_DEPTH_REL_TOL) */
 		peakTolerance?: number;
@@ -108,7 +113,10 @@
 	function recomputeMarks(): void {
 		const m = viewer?.getMetaData();
 		const d = viewer?.getDepthData();
-		marks = m && d && peaks.length ? projectPeaks(m, d, peaks, peakTolerance) : [];
+		const pool = showPlaces
+			? peaks
+			: peaks.filter((p) => !(p.kind && PLACE_KINDS.has(p.kind)));
+		marks = m && d && pool.length ? projectPeaks(m, d, pool, peakTolerance) : [];
 	}
 
 	function repaintLabels(): void {
@@ -281,6 +289,7 @@
 	$effect(() => {
 		void peaks;
 		void showPeakLabels;
+		void showPlaces;
 		void peakTolerance;
 		recomputeMarks();
 		repaintLabels();

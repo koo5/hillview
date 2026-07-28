@@ -112,6 +112,7 @@ async def calibration(photo_id: str):
 class AcceptRequest(BaseModel):
     photo_id: str
     annotation_ids: list[str]      # the INCLUDED set (UI's toggles, authoritative)
+    model: str = "linear"          # linear (f1/f2 stitches) | rectilinear (f0)
     note: str | None = None
 
 
@@ -121,9 +122,16 @@ async def accept(req: AcceptRequest):
     included = [r for r in data["rows"]
                 if r["usable"] and r["annotation_id"] in set(req.annotation_ids)]
     pts = [{"x": r["rect_x"], "delta": r["delta"]} for r in included]
-    fit = calibrate.fit_summary(pts, data["photo"]["compass_angle"])
-    if not fit:
-        raise HTTPException(422, "need at least 2 usable included anchors")
+    if req.model == "rectilinear":
+        fit = calibrate.fit_rectilinear(pts, data["photo"]["compass_angle"])
+        if not fit:
+            raise HTTPException(422, "rectilinear needs at least 4 usable included anchors")
+    elif req.model == "linear":
+        fit = calibrate.fit_summary(pts, data["photo"]["compass_angle"])
+        if not fit:
+            raise HTTPException(422, "need at least 2 usable included anchors")
+    else:
+        raise HTTPException(422, "unknown model")
 
     run_id = await create_run(
         kind="calibration",
@@ -145,6 +153,13 @@ async def accept(req: AcceptRequest):
                         facts.lit(str(fit["fov"]), facts.XSD + "double")))
         triples.append((ph, facts._p("calibrationRms"),
                         facts.lit(str(fit["rms"]), facts.XSD + "double")))
+        if fit.get("model") == "rectilinear":
+            # azimuth↔x law is atan about x0, not linear — consumers that
+            # only need centre bearing + span can ignore these two
+            triples.append((ph, facts._p("calibratedProjection"),
+                            facts.lit("rectilinear")))
+            triples.append((ph, facts._p("calibratedX0"),
+                            facts.lit(str(fit["x0"]), facts.XSD + "double")))
         # meta links facts to the pano's annotations? No — hv:about the photo's
         # annotation set is indirect; link to the photo via hv:about instead.
         fact_graphs: dict[str, str] = {}
@@ -166,3 +181,44 @@ async def accept(req: AcceptRequest):
     except Exception as e:
         await fail_run(run_id, f"{type(e).__name__}: {e}")
         raise HTTPException(500, f"calibration accept failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# selection draft: the bench's include/exclude working set, as plain MUTABLE
+# RDF in a per-pano draft graph (not content-addressed facts — it's working
+# state, replaced wholesale on every save; last write wins). Server-side so
+# the draft survives browser/device switches.
+# ---------------------------------------------------------------------------
+
+def _draft_graph(photo_id: str) -> str:
+    return f"{graph.BASE}/id/graph/draft/calibration/{photo_id}"
+
+
+@router.get("/calibrate/draft")
+async def get_calibration_draft(photo_id: str):
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?a WHERE {{
+  GRAPH <{_draft_graph(photo_id)}> {{ ?ph hv:calibrationDraftExcludes ?a }}
+}}""")
+    excluded = [b["a"]["value"].rsplit("/", 1)[-1]
+                for b in res["results"]["bindings"]]
+    return {"excluded": excluded}
+
+
+class DraftRequest(BaseModel):
+    photo_id: str
+    excluded: list[str]
+
+
+@router.put("/calibrate/draft")
+async def put_calibration_draft(req: DraftRequest):
+    g = _draft_graph(req.photo_id)
+    await graph.store.update(f"DROP SILENT GRAPH <{g}>")
+    if req.excluded:
+        ph = facts.iri(graph.photo_iri(req.photo_id))
+        nt = "".join(
+            f"{ph} {facts._p('calibrationDraftExcludes')} "
+            f"{facts.iri(graph.annotation_iri(a))} .\n"
+            for a in req.excluded)
+        await graph.store.load_turtle(g, nt)
+    return {"excluded": req.excluded}

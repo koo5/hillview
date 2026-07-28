@@ -131,10 +131,20 @@ def http_get(url: str, retries: int = 3, timeout: float = 120.0) -> bytes:
 def load_index(out: Path, dataset: str, refresh: bool) -> list[Sheet]:
     idx = out / "index.json"
     if idx.exists() and not refresh:
-        return [Sheet(**{**d, "bbox": tuple(d["bbox"])}) for d in json.loads(idx.read_text())]
+        cached = [Sheet(**{**d, "bbox": tuple(d["bbox"])})
+                  for d in json.loads(idx.read_text())]
+        # an empty cached index is always a poisoned artifact of a past bad
+        # fetch, not reality (DMP1G alone has ~16k sheets) — refetch instead
+        # of filtering every future bbox to zero forever
+        if cached:
+            return cached
+        print("cached index is EMPTY — refetching the dataset feed")
     ds = DATASETS[dataset]
     print(f"fetching dataset feed {ATOM_BASE}/{ds}/{ds}.xml …")
     sheets = parse_dataset_feed(http_get(f"{ATOM_BASE}/{ds}/{ds}.xml").decode("utf-8"))
+    if not sheets:
+        raise RuntimeError(f"dataset feed for {ds} parsed to 0 sheets — "
+                           "service hiccup or feed format change; not caching")
     out.mkdir(parents=True, exist_ok=True)
     save_index(out, sheets)
     print(f"  {len(sheets)} sheets indexed")
@@ -199,7 +209,14 @@ def cmd_index(a: argparse.Namespace) -> None:
 
 
 def cmd_fetch(a: argparse.Namespace) -> None:
-    sheets = load_index(a.out, a.dataset, refresh=False)
+    # keep the FULL index around: the periodic save_index below must persist
+    # all sheets, not the bbox-filtered subset — saving the subset amputated
+    # the index on every scoped run (Prague seed cut 16301 → 24, the next
+    # bbox then intersected against 24 and found nothing). The resolved zip
+    # URLs still land in the saved file: fetch_sheet mutates the same Sheet
+    # objects the full list holds.
+    all_sheets = load_index(a.out, a.dataset, refresh=False)
+    sheets = all_sheets
     if a.bbox:
         box = tuple(float(x) for x in a.bbox.split(","))
         sheets = [s for s in sheets if bbox_intersects(s.bbox, box)]
@@ -222,8 +239,8 @@ def cmd_fetch(a: argparse.Namespace) -> None:
                 print(f"[{done + errs}/{len(sheets)}] {s.code} FAILED: {e}",
                       file=sys.stderr, flush=True)
             if (done + errs) % 200 == 0:
-                save_index(a.out, sheets)       # persist resolved zip URLs
-    save_index(a.out, sheets)
+                save_index(a.out, all_sheets)   # persist resolved zip URLs
+    save_index(a.out, all_sheets)
     print(f"done: {done} ok, {errs} failed"
           + (" — rerun to retry failures (resumable)" if errs else ""))
 
