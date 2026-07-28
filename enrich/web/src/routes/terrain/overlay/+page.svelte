@@ -80,6 +80,42 @@
 	// state for load-time restore, and its storage event doubles as fallback
 	let bc: BroadcastChannel | null = null;
 
+	// phone-home debug log: batched to the API (POST /terrain/client-log) so
+	// mobile sessions are inspectable without tethered devtools — read back
+	// with GET /terrain/client-log?session=<id> or `docker logs enrich_api`
+	const dbgSession = Math.random().toString(36).slice(2, 8);
+	let dbgQueue: { t: string; msg: string }[] = [];
+	let dbgTimer: ReturnType<typeof setTimeout> | undefined;
+	function flushDlog() {
+		if (!dbgQueue.length) return;
+		const body = JSON.stringify({
+			session: dbgSession,
+			page: location.pathname + location.search,
+			ua: navigator.userAgent,
+			messages: dbgQueue
+		});
+		dbgQueue = [];
+		try {
+			fetch(`${apiBase}/terrain/client-log`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body,
+				keepalive: true
+			}).catch(() => {});
+		} catch {
+			/* offline — local console still has it */
+		}
+	}
+	function dlog(msg: string) {
+		console.log(`overlay[${dbgSession}]: ${msg}`);
+		dbgQueue.push({ t: new Date().toISOString().slice(11, 23), msg });
+		if (dbgQueue.length >= 40) flushDlog();
+		else {
+			clearTimeout(dbgTimer);
+			dbgTimer = setTimeout(flushDlog, 1000);
+		}
+	}
+
 	/** apply a live snapshot broadcast by a sibling window */
 	function applyRemote(raw: string) {
 		if (!photo) return;
@@ -154,6 +190,7 @@
 	let ty = $state(0);
 	let baseW = $state(0);
 	let baseH = $state(0);
+	let naturalW = $state(0); // image native px — crisp rendering past 1:1
 
 	let img: HTMLImageElement;
 	let overlay: HTMLCanvasElement;
@@ -189,9 +226,11 @@
 		vScale = 1;
 		if (!photoId) return;
 		try {
+			dlog(`load start photo=${photoId}`);
 			status = 'loading photo…';
 			const pd = await api.get<{ photo: PhotoInfo }>(`/photos/${photoId}`);
 			photo = pd.photo;
+			dlog(`photo ok "${photo.title}" pie=${JSON.stringify(photo.pie)}`);
 			pieDefaults();
 			// restore order: pie defaults → saved fit → draft (newest working
 			// state wins; fog applies later — the render load below resets
@@ -238,6 +277,7 @@
 				lastSync = bareOf(restored.f as unknown as Record<string, unknown>);
 				lastTs = restored.f.saved_at ?? 0;
 				saveMsg = `restored ${restored.src}`;
+				dlog(`restored ${restored.src} (saved_at=${restored.f.saved_at ?? 'none'})`);
 			}
 			status = 'loading render…';
 			const rs = await api.get<{ renders: RenderRow[] }>(
@@ -253,12 +293,18 @@
 				return;
 			}
 			render = done;
+			dlog(
+				`render ${done.id.slice(0, 8)} ${done.meta?.width}x${done.meta?.height} ` +
+					`max_d=${done.meta?.max_distance_m}`
+			);
 			skyCaches.clear();
 			visLog = Math.log10(done.meta?.max_distance_m ?? 200000);
 			if (savedVisKm !== null) setFogKm(savedVisKm);
 			status = 'loading depth…';
+			dlog('depth fetch…');
 			const buf = await (await fetch(`${apiBase}/terrain/renders/${done.id}/depth`)).arrayBuffer();
 			depth = new Uint16Array(buf);
+			dlog(`depth ok ${(buf.byteLength / 1048576).toFixed(1)} MB`);
 			// the fit is fully workable now — labels are cosmetic. Drafting/
 			// sync must NOT wait for the peaks fetch (a cold Overpass pass can
 			// take minutes; sitting at "loading peaks" used to silently
@@ -266,25 +312,47 @@
 			suppressDraft = false;
 			requestAnimationFrame(draw);
 			status = 'loading peak labels… (fitting already works)';
-			// label candidates; failures/timeouts degrade to an unlabeled overlay
+			// label candidates arrive CHUNKED, nearest tiles first: small
+			// individually-retryable requests with progressive label paint —
+			// the monolithic pool fetch kept timing out on phones. A failed
+			// chunk just thins the pool.
 			try {
 				const meta = done.meta!;
 				const radius = Math.min(200_000, meta.max_distance_m ?? 100_000);
-				const pr = (await (
-					await fetch(
-						`${apiBase}/terrain/peaks?lat=${meta.lat}&lon=${meta.lon}&radius_m=${radius}`,
-						{ signal: AbortSignal.timeout(45_000) }
-					)
-				).json()) as { peaks?: Peak[] };
-				peaks = pr.peaks ?? [];
-			} catch {
+				const CHUNKS = 8;
+				dlog(`peaks fetch… radius=${radius} chunks=${CHUNKS}`);
+				peaks = [];
+				let failedChunks = 0;
+				for (let i = 0; i < CHUNKS; i++) {
+					if (render?.id !== done.id) return; // superseded by a new load
+					try {
+						const resp = await fetch(
+							`${apiBase}/terrain/peaks?lat=${meta.lat}&lon=${meta.lon}` +
+								`&radius_m=${radius}&chunk=${i}&chunks=${CHUNKS}`,
+							{ signal: AbortSignal.timeout(30_000) }
+						);
+						if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+						const pr = (await resp.json()) as { peaks?: Peak[] };
+						peaks = peaks.concat(pr.peaks ?? []);
+						marks = projectPeaks(meta, depth!, peaks);
+						status = `loading peak labels ${i + 1}/${CHUNKS}… (fitting already works)`;
+					} catch (e) {
+						failedChunks++;
+						dlog(`peaks chunk ${i + 1}/${CHUNKS} FAILED: ${e}`);
+					}
+				}
+				dlog(`peaks done: ${peaks.length} candidates (${failedChunks} chunk(s) failed)`);
+			} catch (e) {
+				dlog(`peaks FAILED: ${e}`);
 				peaks = [];
 			}
 			marks = done.meta && depth ? projectPeaks(done.meta, depth, peaks) : [];
+			dlog(`marks placed: ${marks.length}`);
 			status = '';
 		} catch (e) {
 			status = '';
 			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+			dlog(`load FAILED: ${err}`);
 			// a failed load must not silently disable drafting/sync for the
 			// session — the controls that DID restore are still adjustable
 			suppressDraft = false;
@@ -466,6 +534,7 @@
 	function fit() {
 		if (!stageEl || !img?.naturalWidth || !img.naturalHeight) return;
 		const a = img.naturalWidth / img.naturalHeight;
+		naturalW = img.naturalWidth;
 		baseW = Math.min(stageEl.clientWidth, stageEl.clientHeight * a);
 		baseH = baseW / a;
 		clampPan();
@@ -483,7 +552,12 @@
 	}
 
 	function zoomAt(px: number, py: number, factor: number) {
-		const z2 = Math.min(16, Math.max(1, z * factor));
+		// cap relative to the image's NATIVE pixels: allow up to ~8× beyond
+		// 1:1 (over-zoom is genuinely useful when nudging the curve by 0.01°),
+		// with ×16 as the floor for small images
+		const native = baseW > 0 && img?.naturalWidth ? img.naturalWidth / baseW : 1;
+		const zMax = Math.max(16, native * 8);
+		const z2 = Math.min(zMax, Math.max(1, z * factor));
 		const f = z2 / z;
 		tx = px - (px - tx) * f;
 		ty = py - (py - ty) * f;
@@ -785,7 +859,7 @@
 		void visLog;
 		if (!photo || suppressDraft) {
 			if (photo && suppressDraft)
-				console.log('overlay-sync: change while suppressed (load not finished?)');
+				dlog('sync: change while suppressed (load not finished?)');
 			return;
 		}
 		const payload = fitPayload();
@@ -798,9 +872,9 @@
 		const raw = JSON.stringify(payload);
 		try {
 			localStorage.setItem(liveKey(photo.id), raw);
-			console.log(`overlay-sync: wrote ${liveKey(photo.id)}`);
+			dlog('sync: wrote live key + broadcast');
 		} catch (e) {
-			console.log('overlay-sync: localStorage write failed', e);
+			dlog(`sync: localStorage write FAILED: ${e}`);
 		}
 		bc?.postMessage({ key: liveKey(photo.id), raw });
 		draftState = `synced ${new Date().toLocaleTimeString()}`;
@@ -831,6 +905,14 @@
 	}
 
 	onMount(() => {
+		dlog(`page open ${navigator.userAgent}`);
+		const onErr = (e: ErrorEvent) =>
+			dlog(`JS ERROR: ${e.message} @ ${e.filename?.split('/').pop()}:${e.lineno}`);
+		const onRej = (e: PromiseRejectionEvent) => dlog(`UNHANDLED REJECTION: ${e.reason}`);
+		const onHide = () => flushDlog();
+		window.addEventListener('error', onErr);
+		window.addEventListener('unhandledrejection', onRej);
+		window.addEventListener('pagehide', onHide);
 		const pid = page.url.searchParams.get('photo');
 		if (pid) {
 			photoId = pid;
@@ -843,12 +925,12 @@
 		if (bc)
 			bc.onmessage = (e: MessageEvent) => {
 				if (!photo || e.data?.key !== liveKey(photo.id)) return;
-				console.log('overlay-sync: received via BroadcastChannel');
+				dlog('sync: received via BroadcastChannel');
 				applyRemote(e.data.raw as string);
 			};
 		const onStorage = (e: StorageEvent) => {
 			if (!photo || !e.newValue || e.key !== liveKey(photo.id)) return;
-			console.log('overlay-sync: received via storage event');
+			dlog('sync: received via storage event');
 			applyRemote(e.newValue);
 		};
 		window.addEventListener('storage', onStorage);
@@ -863,7 +945,7 @@
 				);
 				const f = dr.draft;
 				if (f?.saved_at && f.saved_at > lastTs + 1) {
-					console.log('overlay-sync: received via draft poll');
+					dlog('sync: received via draft poll');
 					applyRemote(JSON.stringify(f));
 				}
 			} catch {
@@ -874,6 +956,9 @@
 			bc?.close();
 			clearInterval(poll);
 			window.removeEventListener('storage', onStorage);
+			window.removeEventListener('error', onErr);
+			window.removeEventListener('unhandledrejection', onRej);
+			window.removeEventListener('pagehide', onHide);
 		};
 	});
 </script>
@@ -988,11 +1073,14 @@
 			src={imgUrl}
 			alt={photo?.title ?? 'pano'}
 			draggable="false"
+			class:pixelated={naturalW > 0 && z * baseW > naturalW}
 			style="width: {baseW}px; transform: translate({tx}px, {ty}px) scale({z})"
 			onload={() => {
+				dlog(`img loaded ${img.naturalWidth}x${img.naturalHeight}`);
 				fit();
 				draw();
 			}}
+			onerror={() => dlog(`img FAILED: ${imgUrl}`)}
 		/>
 		<canvas bind:this={overlay}></canvas>
 	</div>
@@ -1062,6 +1150,10 @@
 		height: auto;
 		transform-origin: 0 0;
 		will-change: transform;
+	}
+	/* past 1:1 native pixels, smoothing turns detail to mush — go crisp */
+	.stage img.pixelated {
+		image-rendering: pixelated;
 	}
 	.stage canvas { position: absolute; inset: 0; pointer-events: none; }
 	.hint { font-size: 12px; opacity: 0.6; max-width: 60rem; }

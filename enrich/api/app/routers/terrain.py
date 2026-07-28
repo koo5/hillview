@@ -5,6 +5,7 @@ OSM label candidates (peaks, observation towers, masts, and settlement
 place names) for the viewer."""
 import asyncio
 import gzip
+import hashlib
 import json
 import math
 import os
@@ -288,7 +289,10 @@ OVERPASS_UA = os.getenv("OVERPASS_USER_AGENT",
 # volume read-only; a SURFACE model also gives towers/masts their visible
 # top height rather than the ground at their base.
 PEAKS_DEM = os.getenv("PEAKS_DEM_PATH", "/dem/glo30.vrt")
-PEAKS_TTL_S = 7 * 24 * 3600
+# OSM peaks/places drift slowly — 60 d default, env-tunable. The DB layer
+# below makes this TTL real: the in-process dict alone was wiped by every
+# api reload (each deploy/edit), so first clients kept paying cold passes.
+PEAKS_TTL_S = int(os.getenv("PEAKS_TTL_S", str(60 * 24 * 3600)))
 # The candidate pool is fetched per FIXED GLOBAL TILE (0.5°×0.5°), not per
 # request disc: one monolithic around:200km query (peaks ∪ towers ∪ places)
 # grew past what Overpass finishes inside its kill-switch timeout, and a
@@ -313,6 +317,50 @@ _overpass_sem = asyncio.Semaphore(OVERPASS_CONCURRENCY)
 _overpass_client: httpx.AsyncClient | None = None
 _tile_cache: dict[tuple[float, float], tuple[float, list[dict]]] = {}
 _tile_inflight: dict[tuple[float, float], "asyncio.Task[list[dict]]"] = {}
+
+# the union body is the tile query's IDENTITY: it fingerprints the durable
+# cache key, so editing the query (new feature kinds etc.) auto-invalidates
+# stored tiles instead of mixing schemas
+_TILE_UNION = (
+    'node["natural"="peak"]["name"]({bbox});'
+    'node["man_made"~"^(tower|mast)$"]'
+    '["tower:type"~"^(observation|communication)$"]["name"]({bbox});'
+    'node["place"~"^(city|town|village|suburb|quarter)$"]["name"]({bbox});')
+_TILE_QUERY_FP = hashlib.md5(_TILE_UNION.encode()).hexdigest()[:8]
+
+
+def _tile_db_key(t: tuple[float, float]) -> str:
+    return f"{_TILE_QUERY_FP}:{t[0]:g}:{t[1]:g}"
+
+
+async def _tile_db_get(t: tuple[float, float]) -> list[dict] | None:
+    """L2: durable tile cache in the workbench DB (geocode_cache pattern) —
+    survives the api reloads that wipe the in-process L1."""
+    try:
+        async with wb_engine.connect() as conn:
+            row = (await conn.execute(text(
+                "SELECT result, extract(epoch from now() - fetched_at) AS age "
+                "FROM geocode_cache "
+                "WHERE kind = 'overpass_tile' AND query = :q"),
+                {"q": _tile_db_key(t)})).first()
+        if row is not None and row.age < PEAKS_TTL_S and isinstance(row.result, list):
+            return row.result
+    except Exception as e:  # noqa: BLE001 — cache miss beats an error
+        print(f"terrain peaks: tile db read failed: {e}", flush=True)
+    return None
+
+
+async def _tile_db_put(t: tuple[float, float], feats: list[dict]) -> None:
+    try:
+        async with wb_engine.begin() as conn:
+            await conn.execute(text(
+                "INSERT INTO geocode_cache (kind, query, result) "
+                "VALUES ('overpass_tile', :q, CAST(:r AS jsonb)) "
+                "ON CONFLICT (kind, query) DO UPDATE SET "
+                "result = EXCLUDED.result, fetched_at = now()"),
+                {"q": _tile_db_key(t), "r": json.dumps(feats)})
+    except Exception as e:  # noqa: BLE001 — a lost cache write is harmless
+        print(f"terrain peaks: tile db write failed: {e}", flush=True)
 
 
 def _client() -> httpx.AsyncClient:
@@ -427,13 +475,8 @@ async def _fetch_tile(s: float, w: float) -> list[dict]:
     """One tile's candidates, with per-tile retries (transient Overpass load
     shedding is the norm, not the exception)."""
     bbox = f"{s},{w},{s + PEAKS_TILE_DEG},{w + PEAKS_TILE_DEG}"
-    query = (
-        f"[out:json][timeout:{OVERPASS_TILE_TIMEOUT_S}];("
-        f'node["natural"="peak"]["name"]({bbox});'
-        f'node["man_made"~"^(tower|mast)$"]'
-        f'["tower:type"~"^(observation|communication)$"]["name"]({bbox});'
-        f'node["place"~"^(city|town|village|suburb|quarter)$"]["name"]({bbox});'
-        f");out body;")
+    query = (f"[out:json][timeout:{OVERPASS_TILE_TIMEOUT_S}];("
+             + _TILE_UNION.format(bbox=bbox) + ");out body;")
     last: Exception | None = None
     for attempt in range(3):
         if attempt:
@@ -452,18 +495,32 @@ async def _fetch_tile(s: float, w: float) -> list[dict]:
 
 async def _tile_task(t: tuple[float, float]) -> list[dict]:
     """THE single in-flight fetch for a tile — every concurrent requester
-    awaits this one task. Serialized against Overpass by the global
-    semaphore; caches on success."""
-    async with _overpass_sem:
-        feats = await _fetch_tile(*t)
+    awaits this one task. L2 (DB) first, Overpass only on a true miss,
+    serialized by the global semaphore; caches to both layers on success."""
+    feats = await _tile_db_get(t)
+    if feats is None:
+        async with _overpass_sem:
+            feats = await _fetch_tile(*t)
+        await _tile_db_put(t, feats)
     _tile_cache[t] = (time.monotonic(), feats)
     return feats
 
 
 @router.get("/terrain/peaks")
-async def peaks(lat: float, lon: float, radius_m: float = 100_000.0):
+async def peaks(lat: float, lon: float, radius_m: float = 100_000.0,
+                chunk: int | None = None, chunks: int = 1):
     radius_m = max(1_000.0, min(radius_m, 200_000.0))
     tiles = tiles_for(lat, lon, radius_m)
+    # chunked delivery (chunk=i&chunks=n): distance-sorted contiguous tile
+    # slices, chunk 0 nearest — the client streams the pool near-first in
+    # small, individually-retryable requests instead of one 45-s-fragile
+    # monolith. No chunk param = the whole pool (old behavior).
+    n_chunks = max(1, min(64, chunks))
+    if chunk is not None:
+        tiles.sort(key=lambda t: _haversine_m(
+            lat, lon, t[0] + PEAKS_TILE_DEG / 2, t[1] + PEAKS_TILE_DEG / 2))
+        i = max(0, min(chunk, n_chunks - 1))
+        tiles = tiles[i * len(tiles) // n_chunks:(i + 1) * len(tiles) // n_chunks]
     now = time.monotonic()
     failed: list[tuple[float, float]] = []
     fetched = 0
@@ -514,6 +571,8 @@ async def peaks(lat: float, lon: float, radius_m: float = 100_000.0):
     result.sort(key=lambda p: p["ele"] if p["ele"] is not None else -math.inf,
                 reverse=True)
     out = {"peaks": result, "tiles": len(tiles), "fetched": fetched}
+    if chunk is not None:
+        out["chunk"], out["chunks"] = chunk, n_chunks
     if failed:
         out["partial"] = True
         out["failed_tiles"] = len(failed)
@@ -681,3 +740,42 @@ async def delete_overlay_draft(photo_id: str):
     await graph.store.update(
         f"DROP SILENT GRAPH <{_overlay_draft_graph(photo_id)}>")
     return {"draft": None}
+
+
+# ---------------------------------------------------------------------------
+# client phone-home debug log: the overlay page batches its debug lines here
+# so MOBILE sessions are inspectable without tethered devtools. Kept in an
+# in-memory ring (GET) and echoed to stdout (docker logs enrich_api).
+# ---------------------------------------------------------------------------
+
+from collections import deque as _deque
+
+_client_log: "_deque[dict]" = _deque(maxlen=800)
+
+
+class ClientLogRequest(BaseModel):
+    session: str
+    page: str
+    ua: str | None = None
+    messages: list[dict]
+
+
+@router.post("/terrain/client-log")
+async def client_log(req: ClientLogRequest):
+    now = time.strftime("%H:%M:%S")
+    for m in req.messages[:100]:
+        entry = {"at": now, "session": str(req.session)[:16],
+                 "page": str(req.page)[:120], "ua": (req.ua or "")[:180],
+                 "t": str(m.get("t", ""))[:16],
+                 "msg": str(m.get("msg", ""))[:600]}
+        _client_log.append(entry)
+        print(f"client-log [{entry['session'][:6]}] {entry['t']} {entry['msg']}",
+              flush=True)
+    return {"ok": len(req.messages)}
+
+
+@router.get("/terrain/client-log")
+async def client_log_read(n: int = 200, session: str | None = None):
+    items = [e for e in _client_log
+             if not session or e["session"].startswith(session)]
+    return {"entries": items[-max(1, min(n, 800)):]}

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from . import config, db, graph
 from .routers import (annotations, calibrate, facts, geocode, graduation, health,
@@ -31,6 +32,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# big JSON payloads (peaks pool ~4 MB raw) gzip ~10:1 — decisive on phones
+app.add_middleware(GZipMiddleware, minimum_size=1500)
 
 app.include_router(health.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")
