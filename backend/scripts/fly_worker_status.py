@@ -24,6 +24,10 @@ Usage:
 
 Only `started` machines are polled in edge mode -- suspended/stopped machines
 are listed but not hit, so edge mode never autostarts a sleeping machine.
+
+When a machine stops answering (ERR row / "no metric"), its last-known numbers
+stay on the row, dimmed, with their age -- so a death still reads as "full of
+tasks" vs "idle" instead of collapsing to a bare error.
 """
 import argparse
 import json
@@ -292,6 +296,30 @@ def phase_summary(active_phases, width):
 	return s
 
 
+def fmt_age(seconds):
+	s = int(seconds)
+	return f"{s}s" if s < 120 else f"{s // 60}m{s % 60:02d}s"
+
+
+def stale_cells(data):
+	"""The PEND..LAG columns rendered from a machine's last good poll, dimmed
+	uniformly (no threshold colours) so stale numbers can't be mistaken for
+	live ones. Same widths as the live row, so columns stay aligned."""
+	pend_s = f"{data.get('pending_tasks', '?')}/{data.get('max_pending_tasks', '?')}"
+	slot_s = f"{data.get('slots_in_use', '?')}/{data.get('concurrency', '?')}"
+	ram = data.get("available_ram_mb")
+	stgr = data.get("start_stagger_s")
+	lag = data.get("event_loop_lag_s")
+	ram_s = "?" if ram is None else str(ram)
+	stgr_s = "?" if stgr is None else f"{stgr:g}"
+	lag_s = "-" if lag is None else f"{lag:.2f}"
+	return dim(
+		f"{pend_s:>7} {slot_s:>5} {data.get('processing', '?'):>4} "
+		f"{data.get('stalled_in_gate', '?'):>5} {data.get('queued_for_slot', '?'):>5} "
+		f"{ram_s:>6} {stgr_s:>5} {lag_s:>5}"
+	)
+
+
 HEADER = (
 	f"{'MACHINE':<14} {'REG':<3} {'STATE':<7} {'CHK':<4} "
 	f"{'PEND':>7} {'SLOT':>5} {'PROC':>4} {'STALL':>5} {'QUEUE':>5} "
@@ -299,7 +327,7 @@ HEADER = (
 )
 
 
-def render(app, base_url, machines, results, list_age, error_note=None):
+def render(app, base_url, machines, results, list_age, error_note=None, last_seen=None):
 	term_w = os.get_terminal_size().columns if sys.stdout.isatty() else 120
 	lines = []
 	now = time.strftime("%H:%M:%S")
@@ -328,16 +356,36 @@ def render(app, base_url, machines, results, list_age, error_note=None):
 		chk_col = {"ok": green, "FAIL": red, "warn": yellow, "-": dim}.get(chk, yellow)(f"{chk:<4}")
 		state_col = green(f"{state:<7}") if state == "started" else dim(f"{state:<7}")
 
+		stale = (last_seen or {}).get(mid)
+
 		if state != "started":
-			lines.append(f"{dim(mid):<14} {reg:<3} {state_col} {chk_col} {dim('(not polled)')}")
+			if stale:
+				sdata, seen_at = stale
+				note = f"(not polled; last data {fmt_age(time.monotonic() - seen_at)} ago)"
+				lines.append(
+					f"{dim(mid):<14} {reg:<3} {state_col} {chk_col} "
+					f"{stale_cells(sdata)}  {dim(note)}"
+				)
+			else:
+				lines.append(f"{dim(mid):<14} {reg:<3} {state_col} {chk_col} {dim('(not polled)')}")
 			continue
 
 		data, err = results.get(mid, (None, "n/a"))
 		if err:
-			lines.append(
-				f"{mid:<14} {reg:<3} {state_col} {chk_col} "
-				f"{red('ERR ' + err)}"
-			)
+			if stale:
+				sdata, seen_at = stale
+				note = f"last data {fmt_age(time.monotonic() - seen_at)} ago"
+				avail = phase_w - len("ERR " + err) - len(note) - 4
+				ph = phase_summary(sdata.get("active_phases"), avail) if avail >= 8 else ""
+				lines.append(
+					f"{mid:<14} {reg:<3} {state_col} {chk_col} "
+					f"{stale_cells(sdata)}  {red('ERR ' + err)} {dim(note)} {dim(ph)}"
+				)
+			else:
+				lines.append(
+					f"{mid:<14} {reg:<3} {state_col} {chk_col} "
+					f"{red('ERR ' + err)}"
+				)
 			continue
 
 		reachable += 1
@@ -456,6 +504,7 @@ def main():
 	base_url = args.base_url
 	org = args.org
 	list_fetched_at = 0.0
+	last_seen = {}  # machine_id -> (data, monotonic ts) from the last good poll
 
 	try:
 		while True:
@@ -508,6 +557,11 @@ def main():
 						except Exception as e:  # noqa: BLE001 - surface any straggler as a row error
 							results[mid] = (None, type(e).__name__)
 
+			poll_ts = time.monotonic()
+			for mid, (data, _err) in results.items():
+				if data is not None:
+					last_seen[mid] = (data, poll_ts)
+
 			if args.timeline:
 				with open(args.timeline, "a") as f:
 					for ln in timeline_lines(machines, results):
@@ -515,7 +569,7 @@ def main():
 
 			src_label = base_url if args.source == "edge" else f"prometheus:{org}"
 			if not args.quiet:
-				frame = render(args.app, src_label, machines, results, time.monotonic() - list_fetched_at, error_note)
+				frame = render(args.app, src_label, machines, results, time.monotonic() - list_fetched_at, error_note, last_seen)
 				if args.once:
 					print(frame)
 					return 0
