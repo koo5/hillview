@@ -47,6 +47,13 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-enrich}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-enrich}
+      # Consumer ack deadline, 12 h (default is 30 MINUTES). A reconstruction routinely
+      # runs longer than that — the first 28-frame dense walk took 32 min — and when the
+      # deadline passes RabbitMQ closes the channel, which (a) kills the worker on its ack
+      # and (b) REQUEUES the message, so a completed job re-runs forever. The actor's own
+      # time_limit is 6 h; this has to be at least as generous or it silently overrides it.
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: >-
+        -rabbit consumer_timeout ${RABBITMQ_CONSUMER_TIMEOUT_MS:-432000000}
     ports:
       # loopback-published so HOST-side matcher workers (scripts/enrich venv,
       # torch+MASt3R) can connect — the untrusted-worker topology: workers talk
@@ -78,6 +85,8 @@ services:
       # OSM ele tags (sampled from the read-only earth volume below)
       - OVERPASS_URL=${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
       - PEAKS_DEM_PATH=${PEAKS_DEM_PATH:-/dem/glo30.vrt}
+      # archived reconstruct.py runs, for POST /api/recon/import (read-only)
+      - RECON_ARCHIVE_DIR=/recon-archive
     ports:
       - "127.0.0.1:${ENRICH_API_HOST_PORT:-8070}:8070"
     volumes:
@@ -87,6 +96,9 @@ services:
       - ./api/app:/app/app
       # DEM read-only for peaks ele fill (worker owns writes)
       - terrain_dem:/dem:ro
+      # archived recon runs, read-only: the import endpoint copies each run's sparse
+      # layer into ARTIFACTS_DIR and never writes back here
+      - ../scripts/enrich/runs:/recon-archive:ro
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8070", "--reload"]
     networks:
       default: {}

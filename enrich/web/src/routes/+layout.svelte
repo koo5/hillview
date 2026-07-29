@@ -14,6 +14,7 @@
 		{ href: '/transfer', label: 'Transfer' },
 		{ href: '/triangulate', label: 'Triangulate' },
 		{ href: '/terrain', label: 'Terrain' },
+		{ href: '/recon', label: 'Recon' },
 		{ href: '/graduation', label: 'Graduation' },
 		{ href: '/runs', label: 'Runs' },
 		{ href: '/sparql', label: 'SPARQL' }

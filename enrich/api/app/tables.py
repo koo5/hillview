@@ -14,6 +14,7 @@ photo_mirror = sa.Table(
     sa.Column("owner_id", sa.Text),
     sa.Column("filename", sa.Text),
     sa.Column("original_filename", sa.Text),
+    sa.Column("client_public_key_id", sa.String),   # per-device; see 009_photo_client_key
     sa.Column("file_md5", sa.Text),
     sa.Column("geometry", Geometry("POINT", srid=4326)),
     sa.Column("altitude", sa.Float),

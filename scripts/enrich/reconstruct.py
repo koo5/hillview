@@ -23,8 +23,13 @@ from PIL import Image
 
 csv.field_size_limit(10**9)
 HERE = os.path.dirname(os.path.abspath(__file__))
-MAST3R_REPO = os.path.join(HERE, "mast3r_repo")
-MAST3R_CKPT = os.path.join(MAST3R_REPO, "checkpoints", "mast3r.pth")
+# env-overridable so a worker (or a rented GPU box) can point at its own copy —
+# matches enrich/matcher/worker.py's convention
+# `or`, not a getenv default: an unset-but-passed-through env var arrives as "" (systemd
+# --setenv, docker compose passthrough), and an empty path must fall back, not win.
+MAST3R_REPO = os.getenv("MAST3R_REPO") or os.path.join(HERE, "mast3r_repo")
+MAST3R_CKPT = (os.getenv("MAST3R_CKPT")
+               or os.path.join(MAST3R_REPO, "checkpoints", "mast3r.pth"))
 DUMP_DIR = "/shared/dbdump"
 PHOTOS_CSV = None  # explicit photos-CSV path override (set from --photos_csv)
 
@@ -141,6 +146,46 @@ def select_cluster(center, radius_m, n, start, maxscan, stride=1, after="", befo
     log(f"selected slice [{start}:{start+n}] -> {len(sub)} photos, "
         f"cap {sub[0]['cap'][:19] if sub else '-'} .. {sub[-1]['cap'][:19] if sub else '-'}")
     return sub
+
+
+def load_manifest(path, center):
+    """Frames selected upstream → the same dict shape select_cluster returns.
+
+    The workbench picks the cluster from the live mirror and hands the worker an explicit
+    list, so runs are a recorded decision rather than a query re-derived against whatever
+    the dump happened to contain — and the worker still needs no DB credentials. Only the
+    fields download()/report_html/metadata actually consume are required; ENU offsets and
+    distance are derived here from the run centre.
+
+    Manifest: {"frames": [{id, lat, lon, altitude, compass_angle, captured_at, full_url,
+                           width, height, title, original_filename, anon_boxes, injected}]}
+    """
+    lat0, lon0 = center
+    kx = 111320.0 * math.cos(math.radians(lat0))
+    ky = 110540.0
+    with open(path) as fh:
+        frames = json.load(fh)["frames"]
+    out = []
+    for f in frames:
+        lat, lon = float(f["lat"]), float(f["lon"])
+        e, nth = (lon - lon0) * kx, (lat - lat0) * ky
+        title = (f.get("title") or "")[:60]
+        out.append({
+            "id": f["id"], "lat": lat, "lon": lon,
+            "e": e, "n": nth, "d": math.hypot(e, nth),
+            "alt": float(f["altitude"]) if f.get("altitude") is not None else None,
+            "brg": float(f["compass_angle"]) if f.get("compass_angle") is not None else None,
+            "cap": f.get("captured_at") or "",
+            "full": f["full_url"], "t640": f.get("thumb_url"),
+            "ttl": ("INJECTED:" + title[:50]) if f.get("injected") else title,
+            "anon": [tuple(b) for b in (f.get("anon_boxes") or [])],
+            "ow": int(f.get("width") or 0), "oh": int(f.get("height") or 0),
+            "ofn": f.get("original_filename") or "",
+            **({"inj": True} if f.get("injected") else {}),
+        })
+    if len(out) < 2:
+        raise SystemExit(f"manifest has {len(out)} frame(s); need >= 2")
+    return out
 
 
 def fetch_by_ids(prefixes, center):
@@ -592,6 +637,19 @@ def main():
                     help="gray out Solocator overlay (green marks + top bar) on Solocator-origin photos")
     ap.add_argument("--out", default=os.path.join(HERE, "runs", "recon"))
     ap.add_argument("--photos_csv", default="", help="explicit photos CSV (overrides /shared/dbdump glob)")
+    ap.add_argument("--shared_intrinsics", action="store_true",
+                    help="solve ONE focal for the whole cluster. Correct whenever the frames "
+                         "come from one camera at one zoom — which every walk and burst here "
+                         "does — and it removes the dominant tail: frames filled by a single "
+                         "textureless near surface (pavement, grass) cannot constrain focal, "
+                         "so per-frame focals wander (571 and 300 px against a 392 median on "
+                         "walk_dense) and those frames carry 30-700 px of reprojection error. "
+                         "Per-frame focal deviation correlates with per-frame reprojection at "
+                         "rho +0.4 to +0.5.")
+    ap.add_argument("--manifest", default="",
+                    help="JSON file listing the frames to use (bypasses dump-CSV "
+                         "selection; --radius/--n/--stride/--after/--before/--inject "
+                         "are then ignored). See load_manifest().")
     a = ap.parse_args()
     global PHOTOS_CSV
     PHOTOS_CSV = a.photos_csv or None
@@ -599,11 +657,21 @@ def main():
     os.makedirs(a.out, exist_ok=True)
     t0 = time.time()
 
-    sub = select_cluster((lat0, lon0), a.radius, a.n, a.start, a.maxscan, a.stride, a.after, a.before)
-    inj = fetch_by_ids([p.strip() for p in a.inject.split(",") if p.strip()], (lat0, lon0))
-    if inj:
-        log(f"injecting {len(inj)} impostor(s): {[p['id'][:8] for p in inj]}")
-        sub = sub + inj
+    if a.manifest:
+        # Frames chosen upstream (the workbench selects from the live photo_mirror
+        # rather than a dump CSV, and the worker holds no DB credentials). Same dict
+        # shape select_cluster produces; ENU is recomputed here so the manifest only
+        # has to carry what the DB actually stores.
+        sub = load_manifest(a.manifest, (lat0, lon0))
+        log(f"manifest: {len(sub)} frames from {a.manifest}")
+    else:
+        sub = select_cluster((lat0, lon0), a.radius, a.n, a.start, a.maxscan, a.stride,
+                             a.after, a.before)
+        inj = fetch_by_ids([p.strip() for p in a.inject.split(",") if p.strip()],
+                           (lat0, lon0))
+        if inj:
+            log(f"injecting {len(inj)} impostor(s): {[p['id'][:8] for p in inj]}")
+            sub = sub + inj
     if len(sub) < 2:
         raise SystemExit("need >=2 images")
     paths = download(sub, os.path.join(a.out, "imgs"),
@@ -687,7 +755,8 @@ def main():
     scene = sparse_global_alignment(
         paths, pairs, cache, model,
         lr1=0.07, niter1=a.niter1, lr2=0.01, niter2=a.niter2,
-        device=a.device, matching_conf_thr=5.0, shared_intrinsics=False)
+        device=a.device, matching_conf_thr=5.0,
+        shared_intrinsics=a.shared_intrinsics)
     recon_s = time.time() - tr
     log(f"reconstruction done in {recon_s:.0f}s")
 
@@ -707,8 +776,15 @@ def main():
     cams = poses[:, :3, 3]                                       # camera centers
     log(f"{len(pts)} sparse points, {len(cams)} cameras, focals={np.round(focals,1)}")
 
+    # Save the full intrinsics, not just focals: sparse_ga optimizes principal points
+    # (opt_pp=True), and recon_metrics measures reprojection error in pixels, so a pp
+    # guessed at the image centre biases it by more than a good solve's whole error
+    # (masktest: 0.71 px true vs 3.57 px with centre-pp). Runs saved before this line
+    # need recon_resolve.py to recover them.
+    K_full = scene.intrinsics.detach().cpu().numpy()
     np.savez(os.path.join(a.out, "scene.npz"),
-             poses=poses, focals=focals, points=pts, colors=cols, cams=cams)
+             poses=poses, focals=focals, points=pts, colors=cols, cams=cams,
+             intrinsics=K_full)
     write_ply(os.path.join(a.out, "points.ply"), pts, cols)
 
     # DENSE extraction (one 3D point per confident pixel, colored from the RGB frames)

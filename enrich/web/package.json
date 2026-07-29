@@ -27,8 +27,10 @@
 	},
 	"dependencies": {
 		"@annotorious/openseadragon": "3.7.22",
+		"@types/three": "^0.185.1",
 		"leaflet": "^1.9.4",
 		"lucide-svelte": "^1.0.1",
-		"openseadragon": "^6.0.2"
+		"openseadragon": "^6.0.2",
+		"three": "^0.185.1"
 	}
 }

@@ -23,6 +23,15 @@ def render_panorama(payload: dict) -> None:
     raise NotImplementedError("producer-side stub")
 
 
+# Own queue, not `matching`: a walk-sized reconstruction runs 50 min - 1.3 h and is the
+# heaviest thing in the stack, so it needs its own consumer, its own memory ceiling, and a
+# time_limit the matching actor's 30 min would blow.
+@remoulade.actor(queue_name="recon", time_limit=6 * 60 * 60 * 1000, max_retries=0)
+def reconstruct_cluster(payload: dict) -> None:
+    """Executed by the recon worker (enrich/recon/worker.py); the API only .send()s it."""
+    raise NotImplementedError("producer-side stub")
+
+
 def init_broker() -> bool:
     """Lazy: the API works fine without a broker (candidates/verdicts don't need it);
     only enqueueing does."""
@@ -34,6 +43,6 @@ def init_broker() -> bool:
         return False
     broker = RabbitmqBroker(url=f"amqp://{url}?timeout=15", confirm_delivery=True)
     remoulade.set_broker(broker)
-    remoulade.declare_actors([match_pair, render_panorama])
+    remoulade.declare_actors([match_pair, render_panorama, reconstruct_cluster])
     _ready = True
     return True

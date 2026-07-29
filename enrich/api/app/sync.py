@@ -35,6 +35,12 @@ PHOTO_PLAIN = [
     "captured_at", "uploaded_at", "effective_at", "record_created_ts",
     "title", "description", "place_name",
     "processing_status", "is_public", "deleted", "version",
+    # Per-DEVICE identity (SHA256 fingerprint of the uploading client's public key).
+    # 100% populated in production (28.3 k/28.3 k rows, 1424 distinct keys), which makes
+    # it the reliable "same camera" signal for app photos — owner alone is not, since one
+    # account can upload from several devices, and the app strips camera EXIF entirely.
+    # Recon uses it to decide whether one focal is physically shared across a cluster.
+    "client_public_key_id",
 ]
 PHOTO_JSON = ["geocode", "sizes", "exif_data", "analysis", "detected_objects"]
 
