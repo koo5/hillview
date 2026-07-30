@@ -189,6 +189,7 @@
 
 <svelte:head>
 	<title>Activity - Hillview</title>
+	<meta name="description" content="Recent uploads on Hillview — the latest geotagged photos contributed by the community, grouped by day and contributor." />
 </svelte:head>
 
 <StandardHeaderWithAlert

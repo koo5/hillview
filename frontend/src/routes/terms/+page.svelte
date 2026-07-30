@@ -16,6 +16,7 @@
 
 <StandardHeaderWithAlert
 	title="Terms of Service"
+	titleTag="div"
 	showMenuButton={true}
 	fallbackHref="/"
 />

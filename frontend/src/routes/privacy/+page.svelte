@@ -16,6 +16,7 @@
 
 <StandardHeaderWithAlert
 	title="Privacy Policy"
+	titleTag="div"
 	showMenuButton={true}
 	fallbackHref="/"
 />

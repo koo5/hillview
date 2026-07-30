@@ -17,6 +17,7 @@
 
 <StandardHeaderWithAlert
 	title="Licensing"
+	titleTag="div"
 	showMenuButton={true}
 	fallbackHref="/"
 />

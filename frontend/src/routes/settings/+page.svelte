@@ -26,6 +26,12 @@
 </script>
 
 
+<svelte:head>
+	<title>Settings - Hillview</title>
+	<meta name="description" content="Configure Hillview — camera, upload, compass, and notification settings." />
+	<meta name="robots" content="noindex" />
+</svelte:head>
+
 <StandardHeaderWithAlert
 	title="Settings"
 	showMenuButton={true}
