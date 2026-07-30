@@ -2,7 +2,15 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
+      <module fileurl="file://$PROJECT_DIR$/.idea/enrich-api.iml" filepath="$PROJECT_DIR$/.idea/enrich-api.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/hillview.iml" filepath="$PROJECT_DIR$/.idea/hillview.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/hillview-analyzer.iml" filepath="$PROJECT_DIR$/.idea/hillview-analyzer.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/hillview-api.iml" filepath="$PROJECT_DIR$/.idea/hillview-api.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/hillview-backend.iml" filepath="$PROJECT_DIR$/.idea/hillview-backend.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/hillview-common.iml" filepath="$PROJECT_DIR$/.idea/hillview-common.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/hillview-geotag.iml" filepath="$PROJECT_DIR$/.idea/hillview-geotag.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/hillview-tests.iml" filepath="$PROJECT_DIR$/.idea/hillview-tests.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/hillview-worker.iml" filepath="$PROJECT_DIR$/.idea/hillview-worker.iml" />
     </modules>
   </component>
 </project>
