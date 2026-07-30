@@ -42,6 +42,11 @@ export const activeFilterCount = derived(filters, ($filters) => {
 export const hasActiveFilters = derived(activeFilterCount, ($count) => $count > 0);
 
 export function clearFilters(): void {
+	// Skip the no-op set: filters.set notifies subscribers even when the value is
+	// unchanged, and an active timeline walk reloads its window on any filters
+	// notification — whose completion re-asserts the cursor photo and can clobber
+	// a ?photo= URL navigation (clearFilters is called on every such navigation).
+	if (JSON.stringify(get(filters)) === JSON.stringify(defaultFilters)) return;
 	filters.set(defaultFilters);
 }
 

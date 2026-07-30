@@ -8,8 +8,10 @@ processing, stall, RAM, active phases) and renders it as a refreshing table.
 Two data sources:
   edge (default) -- poll each started machine's /status through Fly's public
     edge via the `fly-force-instance-id` header. No WireGuard/ssh needed, but
-    each poll is an HTTP request that resets the machine's idle timer (keeps it
-    awake) and can't see a suspended machine. Good for an on-demand look.
+    each poll is an HTTP request that resets the proxy's idle timer -- moot
+    since auto_stop_machines='off' (2026-07-27; the worker's own bored
+    shutdown counts /status as noise) -- and can't see a suspended machine.
+    Good for an on-demand look.
   prometheus (--source prometheus) -- read the worker_* gauges from Fly's
     managed Prometheus (scraped over the private network from /metrics). Does
     NOT touch the machines, so it doesn't perturb suspend/autostart, and it
@@ -28,6 +30,15 @@ are listed but not hit, so edge mode never autostarts a sleeping machine.
 When a machine stops answering (ERR row / "no metric"), its last-known numbers
 stay on the row, dimmed, with their age -- so a death still reads as "full of
 tasks" vs "idle" instead of collapsing to a bare error.
+
+The reaper (--reap-after N) replaces the janitor role proxy autostop played as
+a side effect before auto_stop_machines='off': a machine that stays `started`
+with critical Fly health checks yet dark to polling for >= N consecutive
+seconds gets `fly machine stop` (guards in reaper_tick; --reap-dry-run to
+watch decisions without acting). Needs the live loop -- darkness onset is
+tracked across polls, so --once never reaps. Headless watchdog form:
+
+    ./fly_worker_status.py --quiet --timeline worker.log --reap-after 600
 """
 import argparse
 import json
@@ -121,6 +132,74 @@ def poll_status(base_url, endpoint, machine_id, timeout):
 		return None, str(getattr(e, "reason", e))
 	except (TimeoutError, json.JSONDecodeError, OSError) as e:
 		return None, type(e).__name__
+
+
+# --- Frozen-machine reaper --------------------------------------------------
+REAP_COOLDOWN_S = 600.0  # min seconds between stop attempts on the same machine
+
+
+def reaper_tick(machines, results, infra_failed, list_age, reap_after, dark_since, reaped_at):
+	"""Frozen-machine detection: returns [(machine, dark_for_seconds), ...] to stop now.
+
+	Freeze signature (matched to the 2026-07-13/14 incidents): state `started`
+	AND Fly's own health checks critical AND dark to our polling (ERR / no
+	metric) for >= reap_after consecutive seconds. The checks requirement is
+	the discriminator against flaky fly-force-instance-id routing: that makes a
+	healthy machine dark to US, but Fly's checker runs host-side, so dark to
+	both is a real freeze. Guards: no evaluation while the polling
+	infrastructure itself failed (prometheus query error) or the machine list
+	is stale, and 2+ started machines ALL dark in one cycle reads as our-side
+	failure, not simultaneous freezes. A successful poll clears the onset;
+	REAP_COOLDOWN_S spaces repeat attempts (fly machine stop can take up to
+	kill_timeout to land on a frozen guest)."""
+	now = time.monotonic()
+	started = [m for m in machines if m.get("state") == "started"]
+	started_ids = {m.get("id") for m in started}
+	for mid in list(dark_since):  # stopped/gone machines have nothing to accumulate
+		if mid not in started_ids:
+			del dark_since[mid]
+	if infra_failed or list_age > 90:
+		return []
+	dark = [m for m in started if results.get(m.get("id"), (None, "n/a"))[1] is not None]
+	if len(started) > 1 and len(dark) == len(started):
+		return []
+	to_reap = []
+	for m in started:
+		mid = m.get("id")
+		data, err = results.get(mid, (None, "n/a"))
+		if err is None:
+			dark_since.pop(mid, None)
+			continue
+		onset = dark_since.setdefault(mid, now)
+		if check_health(m) != "FAIL":
+			continue
+		if now - onset < reap_after:
+			continue
+		if now - reaped_at.get(mid, float("-inf")) < REAP_COOLDOWN_S:
+			continue
+		to_reap.append((m, now - onset))
+	return to_reap
+
+
+def reap_machine(app, machine_id, dry_run):
+	"""Issue `fly machine stop` for a frozen machine. Returns an outcome string.
+
+	The CLI may block while flyd walks the guest through kill_timeout; a local
+	timeout here does not cancel the server-side stop, and the caller's
+	cooldown prevents pile-ups either way."""
+	if dry_run:
+		return "dry-run (no stop issued)"
+	try:
+		proc = subprocess.run(
+			["fly", "machine", "stop", machine_id, "-a", app],
+			capture_output=True, text=True, timeout=90,
+		)
+	except FileNotFoundError:
+		return "fly CLI not found"
+	except subprocess.TimeoutExpired:
+		return "stop issued (CLI timed out waiting; server-side stop continues)"
+	out = (proc.stderr or proc.stdout or "").strip()
+	return "stop issued" if proc.returncode == 0 else f"stop rc={proc.returncode}: {out[:200]}"
 
 
 # --- Prometheus source (non-perturbing: reads scraped metrics, no machine hits)
@@ -327,7 +406,7 @@ HEADER = (
 )
 
 
-def render(app, base_url, machines, results, list_age, error_note=None, last_seen=None):
+def render(app, base_url, machines, results, list_age, error_note=None, last_seen=None, reap_notes=None):
 	term_w = os.get_terminal_size().columns if sys.stdout.isatty() else 120
 	lines = []
 	now = time.strftime("%H:%M:%S")
@@ -460,6 +539,10 @@ def render(app, base_url, machines, results, list_age, error_note=None, last_see
 	if error_note:
 		lines.append(red(f"error: {error_note}"))
 
+	# Reap events survive the redraw the same way (last few, most recent last).
+	for note in (reap_notes or [])[-3:]:
+		lines.append(yellow(f"reaper: {note}"))
+
 	return "\n".join(lines)
 
 
@@ -487,6 +570,14 @@ def main():
 					help="append one compact snapshot line per machine per poll to FILE (history the "
 						 "live redraw doesn't keep); use with --quiet for a headless recorder")
 	ap.add_argument("--quiet", action="store_true", help="no screen output (for --timeline recorders)")
+	ap.add_argument("--reap-after", type=float, default=0.0, metavar="SECONDS",
+					help="arm the frozen-machine reaper: `fly machine stop` any machine that stays "
+						 "'started' with critical health checks yet dark to polling for this many "
+						 "consecutive seconds (0 = off; 600 is a sane start). Replaces the reaping "
+						 "proxy autostop did as a side effect before auto_stop_machines='off'. "
+						 "Needs the live loop; --once never reaps (onset is tracked across polls).")
+	ap.add_argument("--reap-dry-run", action="store_true",
+					help="log reap decisions (screen + --timeline) without stopping anything")
 	args = ap.parse_args()
 
 	if args.no_color:
@@ -505,6 +596,9 @@ def main():
 	org = args.org
 	list_fetched_at = 0.0
 	last_seen = {}  # machine_id -> (data, monotonic ts) from the last good poll
+	dark_since = {}  # machine_id -> monotonic onset of started-but-unpollable darkness
+	reaped_at = {}   # machine_id -> monotonic ts of the last stop we issued (cooldown)
+	reap_notes = []  # human-readable reap events, shown in-frame and appended to --timeline
 
 	try:
 		while True:
@@ -562,6 +656,24 @@ def main():
 				if data is not None:
 					last_seen[mid] = (data, poll_ts)
 
+			if args.reap_after > 0:
+				infra_failed = args.source == "prometheus" and error_note is not None
+				list_age_s = time.monotonic() - list_fetched_at
+				for m, dark_for in reaper_tick(machines, results, infra_failed, list_age_s,
+											   args.reap_after, dark_since, reaped_at):
+					mid = m.get("id", "?")
+					reaped_at[mid] = time.monotonic()
+					outcome = reap_machine(args.app, mid, args.reap_dry_run)
+					note = (f"{mid} started+checks-critical+dark {dark_for:.0f}s "
+							f">= {args.reap_after:.0f}s -> {outcome}")
+					reap_notes.append(f"{time.strftime('%H:%M:%S')} {note}")
+					del reap_notes[:-20]
+					if args.timeline:
+						with open(args.timeline, "a") as f:
+							f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} REAP {note}\n")
+					if args.quiet:
+						print(f"REAP {note}", file=sys.stderr)
+
 			if args.timeline:
 				with open(args.timeline, "a") as f:
 					for ln in timeline_lines(machines, results):
@@ -569,7 +681,7 @@ def main():
 
 			src_label = base_url if args.source == "edge" else f"prometheus:{org}"
 			if not args.quiet:
-				frame = render(args.app, src_label, machines, results, time.monotonic() - list_fetched_at, error_note, last_seen)
+				frame = render(args.app, src_label, machines, results, time.monotonic() - list_fetched_at, error_note, last_seen, reap_notes)
 				if args.once:
 					print(frame)
 					return 0

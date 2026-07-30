@@ -7,7 +7,7 @@
 	import { activeFilterCount, openFiltersModal, clearFilters } from './filters-modal/filtersStore';
 	import { longPress } from '$lib/actions/longPress';
 	import L from 'leaflet';
-import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from '$lib/timeline';
+import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, toggleTimeline } from '$lib/timeline';
 	import 'leaflet/dist/leaflet.css';
 	import 'leaflet-textpath';
 	import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
@@ -91,6 +91,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 	let map: any;
 	let timelineRoute: any = null; // Leaflet polyline of the active timeline route
 	let unsubTimelineCurrent: (() => void) | null = null;
+	let unsubTimelineRecenter: (() => void) | null = null;
 	let unsubTimelinePhotos: (() => void) | null = null;
 	let unsubTimelineActive: (() => void) | null = null;
 	// Throttle for timeline stepping: rapid prev/next (key autorepeat, mashing the
@@ -1170,11 +1171,19 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		// it if in-window, or goes stale → refresh button if not). Genuine cursor moves
 		// after mount still drive selection.
 		let timelineFollowReady = !new URLSearchParams(window.location.search).get('photo');
+		// The uid this subscription last routed through handleMarkerClick. A window
+		// reload with an unchanged cursor (e.g. the filters notification fired by
+		// clearFilters() on URL navigation) re-emits timelineCurrent with the same
+		// photo; re-asserting it would clobber whatever the user navigated to. Only
+		// a target with a *different* uid — a genuine cursor move — drives selection.
+		let timelineLastStepUid: string | null = null;
 		unsubTimelineCurrent = timelineCurrent.subscribe((target) => {
-			if (!timelineFollowReady) { timelineFollowReady = true; return; }
+			if (!timelineFollowReady) { timelineFollowReady = true; timelineLastStepUid = target?.uid ?? null; return; }
+			if (target && target.uid === timelineLastStepUid) return;
 			if (timelineStepTimer) clearTimeout(timelineStepTimer);
 			timelineStepTimer = null;
-			if (!target || !get(timelineActive)) return;
+			if (!target || !get(timelineActive)) { timelineLastStepUid = null; return; }
+			timelineLastStepUid = target.uid;
 			// Tag the walk's own selection so the timeline's cursor-follow can ignore it
 			// (and the in-range transients the map surfaces while flying to the target).
 			const elapsed = Date.now() - timelineStepFiredAt;
@@ -1188,6 +1197,18 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 					if (get(timelineActive)) handleMarkerClick(target, 'timeline_step');
 				}, TIMELINE_STEP_THROTTLE_MS - elapsed);
 			}
+		});
+		// Deliberate same-row click in the panel: re-center on the cursor photo. Its
+		// own channel because the same-uid dedupe above swallows the cursor emission
+		// such a click produces (jumpToIndex onto the current index bumps the counter).
+		let timelineRecenterSeen: number | null = null;
+		unsubTimelineRecenter = timelineRecenter.subscribe((n) => {
+			const first = timelineRecenterSeen === null;
+			timelineRecenterSeen = n;
+			if (first) return;
+			const target = get(timelineCurrent);
+			if (!target || !get(timelineActive)) return;
+			handleMarkerClick(target, 'timeline_step');
 		});
 		unsubTimelinePhotos = timelinePhotos.subscribe(() => redrawTimelineRoute());
 		unsubTimelineActive = timelineActive.subscribe(() => redrawTimelineRoute());
@@ -1302,9 +1323,10 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		isOnMapRoute.set(false);
 		// Tear down timeline route + subscriptions
 		unsubTimelineCurrent?.();
+		unsubTimelineRecenter?.();
 		unsubTimelinePhotos?.();
 		unsubTimelineActive?.();
-		unsubTimelineCurrent = unsubTimelinePhotos = unsubTimelineActive = null;
+		unsubTimelineCurrent = unsubTimelineRecenter = unsubTimelinePhotos = unsubTimelineActive = null;
 		if (timelineStepTimer) {
 			clearTimeout(timelineStepTimer);
 			timelineStepTimer = null;
