@@ -930,10 +930,19 @@ async def await_handler(task_id: str, request: Request):
 			if await request.is_disconnected():
 				logger.info(f"Client {str(request.client)} disconnected while awaiting task {task_id}")
 				return
+			# Never yield/await while holding the mutex: an async generator that
+			# suspends inside the `with` parks WITH the lock held; if the chunk's
+			# `await send()` then stalls (proxy flow control), any other coroutine
+			# acquiring this sync lock blocks the whole event loop and the holder
+			# can never resume to release it. That deadlock froze machine
+			# 1859476b503e38 for 2h on 2026-07-30 ("started + checks critical +
+			# silent", py-spy: MainThread blocked at this acquire) — and matches
+			# the 2026-07-13/14 freeze signature.
 			with pending_background_tasks_mutex:
-				if task_id not in pending_background_tasks:
-					yield b'{"status": "completed"}\n'
-					return
+				completed = task_id not in pending_background_tasks
+			if completed:
+				yield b'{"status": "completed"}\n'
+				return
 			try:
 				logger.debug(f"Awaiting task {task_id}, sending heartbeat to client {str(request.client)}")
 			except Exception as e:
