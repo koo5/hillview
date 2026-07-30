@@ -1,7 +1,7 @@
 import { get } from 'svelte/store';
 import { auth, logout, getAuthGeneration } from './auth.svelte';
 import {backendUrl} from "$lib/config";
-import { showNetworkError } from './alertSystem.svelte';
+import { reportConnectivityLoss, reportConnectivityRestored } from './connectivity';
 import { createTokenManager } from './tokenManagerFactory';
 import type { TokenManager } from './tokenManager';
 import { TokenExpiredError as TokenManagerExpiredError, TokenRefreshError } from './tokenManager';
@@ -62,6 +62,9 @@ export class HttpClient {
         headers,
       });
 
+      // Reaching the server at all (any status) ends a connectivity episode.
+      reportConnectivityRestored();
+
       // Handle authentication errors
       if (response.status === 401) {
         // Only attempt refresh if we actually sent an auth token that was rejected
@@ -110,9 +113,14 @@ export class HttpClient {
         throw error;
       }
 
-      // Show toast for network errors
+      // Network-level failure → soft, self-healing "Reconnecting…" episode
+      // (connectivity.ts) instead of a hard persistent error: at phone-wake
+      // requests routinely fail for a few seconds while Android re-attaches
+      // the network. Navigation aborts are not connectivity problems.
       const errorMessage = error instanceof Error ? error.message : 'Network error';
-      showNetworkError(`Network error: ${errorMessage}`, 'http');
+      if ((error as { name?: string })?.name !== 'AbortError') {
+        reportConnectivityLoss();
+      }
 
       // Wrap other errors
       const apiError = new Error(errorMessage) as ApiError;

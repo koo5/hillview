@@ -97,6 +97,22 @@ class PhotoUploadManager(private val context: Context) {
 
 
     /**
+     * Cancel every queued/running one-time upload drain. Called when
+     * auto-upload is disabled: WORK_NOW / WORK_BATCH jobs — including the
+     * WorkManager retry chains a busy or stuck worker leaves behind — are
+     * persistent (they survive process death and reboots) and would
+     * otherwise fire hours after the toggle went off, the moment their
+     * backoff elapses or their network constraint is finally met.
+     * A RUNNING drain is stopped via cancellation; the drain loop restores
+     * the in-flight photo's status on that path.
+     */
+    fun cancelQueuedUploads(workManager: WorkManager) {
+        Log.d(TAG, "🢄📤 cancelling $WORK_NOW + $WORK_BATCH")
+        workManager.cancelUniqueWork(WORK_NOW)
+        workManager.cancelUniqueWork(WORK_BATCH)
+    }
+
+    /**
      * One-shot follow-up that reconciles "processing" photos with the server
      * (PhotoStatusSyncWorker). Runs as its own job so the upload drain can
      * finish — and stop KEEP-blocking fresh capture triggers — without

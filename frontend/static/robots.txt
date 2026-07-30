@@ -20,7 +20,7 @@ Disallow: /account
 Disallow: /account-deletion
 Disallow: /device-photos
 Disallow: /hidden
-Disallow: /settings/
+Disallow: /settings
 Disallow: /users/
 Disallow: /tile
 

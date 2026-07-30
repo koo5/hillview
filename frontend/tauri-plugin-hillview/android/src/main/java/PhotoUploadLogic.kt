@@ -169,7 +169,12 @@ class PhotoUploadLogic(private val context: Context) {
 					val prefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
 					val autoUploadEnabled = prefs.getBoolean("auto_upload_enabled", false)
 
-					if (!autoUploadEnabled && !photoId.isNullOrEmpty()) {
+					// Bulk drains obey the auto-upload toggle per photo — WorkManager
+					// jobs (and their retry chains) are persistent and can outlive a
+					// toggle flip by hours, so the enqueue-time gate in
+					// startAutomaticUpload is not enough. An explicitly targeted
+					// photoId is a manual action and proceeds regardless.
+					if (!autoUploadEnabled && photoId.isNullOrEmpty()) {
 						Log.d(
 							TAG,
 							"Auto upload disabled, stopping upload work"

@@ -8,15 +8,19 @@ vi.mock('$lib/auth.svelte', () => ({
     logout: vi.fn(),
     getAuthGeneration: vi.fn(() => 7),
 }));
-vi.mock('$lib/alertSystem.svelte', () => ({ showNetworkError: vi.fn() }));
+vi.mock('$lib/connectivity', () => ({
+    reportConnectivityLoss: vi.fn(),
+    reportConnectivityRestored: vi.fn(),
+}));
 
 import { HttpClient, TokenExpiredError } from '$lib/http';
 import { TokenExpiredError as TokenManagerExpiredError } from '$lib/tokenManager';
 import { logout } from '$lib/auth.svelte';
-import { showNetworkError } from '$lib/alertSystem.svelte';
+import { reportConnectivityLoss, reportConnectivityRestored } from '$lib/connectivity';
 
 const logoutMock = vi.mocked(logout);
-const showNetworkErrorMock = vi.mocked(showNetworkError);
+const reportConnectivityLossMock = vi.mocked(reportConnectivityLoss);
+const reportConnectivityRestoredMock = vi.mocked(reportConnectivityRestored);
 const getValidToken = tokenManagerMock.getValidToken;
 
 function resp(status: number, body: unknown = {}): Response {
@@ -80,7 +84,7 @@ describe('HttpClient — auth handling', () => {
         global.fetch = vi.fn().mockResolvedValueOnce(resp(401));
 
         await expect(client.get('/x')).rejects.toMatchObject({ status: 0 });
-        expect(showNetworkErrorMock).toHaveBeenCalled();
+        expect(reportConnectivityLossMock).toHaveBeenCalled();
         expect(logoutMock).not.toHaveBeenCalled();
     });
 
@@ -99,5 +103,31 @@ describe('HttpClient — auth handling', () => {
         await expect(client.get('/x')).rejects.toBeInstanceOf(TokenExpiredError);
         expect(logoutMock).toHaveBeenCalled();
         expect(global.fetch).not.toHaveBeenCalled();
+    });
+});
+
+describe('HttpClient — connectivity episodes', () => {
+    it('reports connectivity loss on a network-level fetch failure', async () => {
+        getValidToken.mockResolvedValue(null);
+        global.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+        await expect(client.get('/x')).rejects.toMatchObject({ status: 0 });
+        expect(reportConnectivityLossMock).toHaveBeenCalled();
+    });
+
+    it('does NOT report connectivity loss for navigation aborts', async () => {
+        getValidToken.mockResolvedValue(null);
+        global.fetch = vi.fn().mockRejectedValue(new DOMException('The operation was aborted.', 'AbortError'));
+
+        await expect(client.get('/x')).rejects.toMatchObject({ status: 0 });
+        expect(reportConnectivityLossMock).not.toHaveBeenCalled();
+    });
+
+    it('reports connectivity restored when a request reaches the server, even on a 5xx', async () => {
+        getValidToken.mockResolvedValue(null);
+        global.fetch = vi.fn().mockResolvedValue(resp(500));
+
+        await client.get('/x');
+        expect(reportConnectivityRestoredMock).toHaveBeenCalled();
     });
 });

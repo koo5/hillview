@@ -23,6 +23,8 @@ COPY frontend/src/routes/privacy/+page.ts.web    src/routes/privacy/+page.ts
 COPY frontend/src/routes/terms/+page.ts.web      src/routes/terms/+page.ts
 COPY frontend/src/routes/licensing/+page.ts.web  src/routes/licensing/+page.ts
 COPY frontend/src/routes/download/+page.ts.web   src/routes/download/+page.ts
+COPY frontend/src/routes/users/+page.ts.web      src/routes/users/+page.ts
+COPY frontend/src/routes/settings/+page.ts.web   src/routes/settings/+page.ts
 # Docker COPY interprets `[uid]` as a glob character class and silently fails,
 # so we copy the photo/[uid] shadows via shell.
 RUN cp "src/routes/photo/[uid]/+page.ts.web"        "src/routes/photo/[uid]/+page.ts" \

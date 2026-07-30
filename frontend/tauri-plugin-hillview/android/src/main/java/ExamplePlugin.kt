@@ -2410,6 +2410,10 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 						Log.i(TAG, "🔧 Settings saved, upload worker scheduled")
 					} else {
 						workManager.cancelUniqueWork(PhotoUploadWorker.WORK_NAME)
+						// One-time drains + their retry chains survive the toggle
+						// otherwise and fire again hours later (e.g. when a stuck
+						// worker comes back) — see cancelQueuedUploads.
+						photoUploadManager.cancelQueuedUploads(workManager)
 						Log.i(TAG, "🔧 Settings saved, upload worker cancelled")
 					}
 				}
