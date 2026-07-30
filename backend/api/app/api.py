@@ -399,6 +399,10 @@ import annotation_routes
 
 app.include_router(annotation_routes.router)
 
+import graduation_routes
+
+app.include_router(graduation_routes.router)
+
 import featured_routes
 
 app.include_router(featured_routes.router)

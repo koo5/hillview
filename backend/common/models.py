@@ -463,6 +463,11 @@ class PhotoAnnotation(Base):
 	created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
 	event_type: Mapped[str] = mapped_column(String(16), default='created')
 
+	# Provenance + idempotency for annotations graduated from the enrichment
+	# workbench: the workbench-native annotation id this one was created from.
+	# NULL for ordinary user annotations. (See graduation create-annotation ops.)
+	source_annotation_id: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
+
 	# Relationships
 	photo: Mapped["Photo"] = relationship()
 	user: Mapped["User"] = relationship()

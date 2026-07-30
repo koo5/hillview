@@ -53,6 +53,7 @@ services:
         MAGICK_HEIGHT_LIMIT: ${MAGICK_HEIGHT_LIMIT:-65536}
         MAGICK_AREA_LIMIT: ${MAGICK_AREA_LIMIT:-1GP}
     container_name: hillview_worker
+    mem_limit: 12g
     network_mode: host
     depends_on:
       volume-permissions:

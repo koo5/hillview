@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Shield, Mail, Flag, ScrollText, MessageSquare, Image, Users, Lock } from 'lucide-svelte';
+	import { Shield, Mail, Flag, ScrollText, MessageSquare, Image, Users, Lock, Sprout } from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import ProfileGate from '$lib/components/ProfileGate.svelte';
@@ -131,6 +131,14 @@
 							<span class="card-title">User management</span>
 						</div>
 						<div class="card-sub">roles, suspend, delete</div>
+					</a>
+
+					<a class="admin-card link" href="/admin/graduation" data-testid="admin-card-graduation">
+						<div class="card-top">
+							<Sprout size={20} />
+							<span class="card-title">Graduation</span>
+						</div>
+						<div class="card-sub">apply enrichment-workbench edits</div>
 					</a>
 				</section>
 

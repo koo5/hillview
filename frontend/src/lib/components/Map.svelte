@@ -63,6 +63,8 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	import '$lib/styles/optimizedMarkers.css';
 	import type { PhotoData } from '$lib/types/photoTypes';
 	import PhotoMarkerIcon from './PhotoMarkerIcon.svelte';
+	import { enqueueTerrainRender, selectedTerrainRender, terrainPick, terrainRenders, terrainWedge } from '$lib/terrain.svelte';
+	import { gridMetaOf, markerStateOf, wedgeArcLatLngs, type TerrainRender } from '$lib/terrainModel';
 
 	import {get} from "svelte/store";
 	import {stringifyCircularJSON} from "$lib/utils/json";
@@ -200,6 +202,11 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	// Expose map to window for testing and fix initial size
 	$: if (map && typeof window !== 'undefined') {
 		(window as any).leafletMap = map;
+
+		if (!terrainCreateHandlerSetup) {
+			map.on('contextmenu', handleTerrainCreate);
+			terrainCreateHandlerSetup = true;
+		}
 
 		// Set up marker click event delegation (once)
 		if (!markerClickDelegationSetup) {
@@ -435,6 +442,153 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		} else {
 			console.warn('🢄Map: optimizedMarkerSystem.updateMarkers returned undefined');
 		}
+	}
+
+	// ---- terrain mode markers (docs/terrain-mode.md) ----
+	// The map swaps photo markers for terrain RENDER markers: hollow/pulsing
+	// = queued, progress ring = rendering, solid = done, red = failed —
+	// in-progress renders are first-class citizens. Navigation is tapping
+	// markers (no next/prev: sparse viewpoints have no ordering); a tap
+	// recenters the map on the viewpoint, so the range circle's spatial
+	// selection — its unchanged job — picks the render up.
+	let terrainLayer: L.LayerGroup | null = null;
+
+	function clearTerrainMarkers() {
+		terrainLayer?.remove();
+		terrainLayer = null;
+	}
+
+	function updateTerrainMarkers(renders: TerrainRender[], selectedId: string | null) {
+		if (!map) return;
+		clearTerrainMarkers();
+		terrainLayer = L.layerGroup(
+			renders.map((r) => {
+				const state = markerStateOf(r);
+				const selected = r.id === selectedId ? ' terrain-marker--selected' : '';
+				const m = L.marker([r.lat, r.lon], {
+					icon: L.divIcon({
+						className: '',
+						html: `<div class="terrain-marker terrain-marker--${state}${selected}" data-testid="terrain-marker" data-state="${state}"></div>`,
+						iconSize: [22, 22],
+						iconAnchor: [11, 11]
+					})
+				});
+				m.on('click', () => {
+					programmaticMove = true;
+					map.flyTo(new LatLng(r.lat, r.lon), map.getZoom(), { duration: 0.25 });
+				});
+				return m;
+			})
+		).addTo(map);
+	}
+
+	// Pane-derived terrain geometry: the view wedge (rect → azimuth/FOV,
+	// strictly pane → map) and the click-ray — "click a mountain → geo
+	// coords AND a ray on the map: viewpoint → picked point with a distance
+	// label. This is the moment the feature explains itself."
+	let terrainGeomLayer: L.LayerGroup | null = null;
+	// dedicated SVG renderer for the pick ray's textpath label (created on
+	// first pick, kept for reuse — clearTerrainGeometry runs per update)
+	let terrainSvgRenderer: L.SVG | null = null;
+
+	function clearTerrainGeometry() {
+		terrainGeomLayer?.remove();
+		terrainGeomLayer = null;
+	}
+
+	function updateTerrainGeometry(
+		wedge: { lat: number; lon: number; azimuthDeg: number; fovDeg: number } | null,
+		pick: { lat: number; lon: number; distance_m: number } | null,
+		viewpoint: { lat: number; lon: number } | null
+	) {
+		if (!map) return;
+		clearTerrainGeometry();
+		const layers: L.Layer[] = [];
+		// v1.5: faint coverage circle — max_distance, "what this can see"
+		const coverage = viewpoint && sel_meta_max_distance();
+		if (viewpoint && coverage) {
+			layers.push(L.circle([viewpoint.lat, viewpoint.lon], {
+				radius: coverage, color: '#3a7d44', weight: 1, opacity: 0.35,
+				fillOpacity: 0.03, dashArray: '2, 8', interactive: false
+			}));
+		}
+		if (wedge) {
+			// scale with the range circle, like the photo bearing wedge does
+			const pts = wedgeArcLatLngs(wedge, wedge.azimuthDeg, wedge.fovDeg, get(spatialState).range * 1.3);
+			if (pts) {
+				layers.push(L.polygon(pts, {
+					color: '#3a7d44', weight: 2, opacity: 0.8,
+					fillColor: '#3a7d44', fillOpacity: 0.12, interactive: false
+				}));
+			}
+		}
+		if (pick && viewpoint) {
+			// setText (leaflet-textpath) only works on the SVG renderer — on the
+			// preferCanvas map a canvas-rendered path has no _path element and
+			// every redraw throws. Same dedicated-L.svg() pattern as the Lines
+			// feature (lineSvgRenderer).
+			if (!terrainSvgRenderer) {
+				terrainSvgRenderer = L.svg();
+				terrainSvgRenderer.addTo(map);
+			}
+			const ray = L.polyline(
+				[[viewpoint.lat, viewpoint.lon], [pick.lat, pick.lon]],
+				{ color: '#e2a04a', weight: 3, dashArray: '6, 6', interactive: false,
+				  renderer: terrainSvgRenderer }
+			);
+			(ray as any).setText(`${(pick.distance_m / 1000).toFixed(1)} km`, {
+				center: true,
+				offset: -5,
+				attributes: {
+					'font-size': '13px', fill: '#000000', 'font-family': 'sans-serif',
+					'paint-order': 'stroke', stroke: '#ffffff', 'stroke-width': '3px',
+					'stroke-linecap': 'round', 'stroke-linejoin': 'round'
+				}
+			});
+			layers.push(ray);
+			layers.push(L.marker([pick.lat, pick.lon], {
+				interactive: false,
+				icon: L.divIcon({
+					className: '',
+					html: '<div class="terrain-pick-dot" data-testid="terrain-pick-dot"></div>',
+					iconSize: [12, 12], iconAnchor: [6, 6]
+				})
+			}));
+		}
+		if (layers.length) terrainGeomLayer = L.layerGroup(layers).addTo(map);
+	}
+
+	// Creation: "long-press on empty map in terrain mode → drop viewpoint →
+	// enqueue." Leaflet's contextmenu covers both mobile long-press and
+	// desktop right-click. Rendering is real compute (login/rate-limit/
+	// dedupe policy is TBD server-side), so a one-tap confirm popup sits
+	// between the press and the queue.
+	let terrainCreateHandlerSetup = false;
+
+	function handleTerrainCreate(e: L.LeafletMouseEvent) {
+		if (get(app).activity !== 'terrain') return;
+		const { lat, lng } = e.latlng;
+		const el = document.createElement('div');
+		el.className = 'terrain-create-popup';
+		el.innerHTML = `<div class="coords">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>`;
+		const btn = document.createElement('button');
+		btn.textContent = 'Render terrain view here';
+		btn.dataset.testid = 'terrain-create-confirm';
+		el.appendChild(btn);
+		const popup = L.popup({ closeButton: true, autoClose: true })
+			.setLatLng(e.latlng)
+			.setContent(el)
+			.openOn(map);
+		btn.addEventListener('click', async () => {
+			btn.disabled = true;
+			btn.textContent = 'enqueuing…';
+			try {
+				await enqueueTerrainRender(lat, lng);
+				map.closePopup(popup);
+			} catch (err) {
+				btn.textContent = err instanceof Error ? err.message : String(err);
+			}
+		});
 	}
 
 	// Calculate how many km are "visible" based on the current zoom/center
@@ -1498,9 +1652,33 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	}
 
 	// Reactive updates for spatial changes (photos from worker include filtered placeholders)
-	$: if ($visiblePhotos && map) {
+	$: if ($visiblePhotos && map && $app.activity !== 'terrain') {
 		//console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} total photos`);
 		updateOptimizedMarkers($visiblePhotos);
+	}
+
+	// Terrain mode: swap photo markers for terrain render markers (and back)
+	$: if (map && $app.activity === 'terrain') {
+		updateOptimizedMarkers([]);
+		updateTerrainMarkers($terrainRenders, $selectedTerrainRender?.id ?? null);
+	} else if (map) {
+		clearTerrainMarkers();
+		updateOptimizedMarkers(get(visiblePhotos) ?? []);
+	}
+
+	function sel_meta_max_distance(): number | null {
+		const sel = get(selectedTerrainRender);
+		const m = sel ? gridMetaOf(sel) : null;
+		return typeof m?.max_distance_m === 'number' ? m.max_distance_m : null;
+	}
+
+	// Pane-derived wedge + click-ray (redrawn on range change so the wedge
+	// keeps hugging the circle; cleared with the mode)
+	$: if (map && $app.activity === 'terrain') {
+		void $spatialState.range;
+		updateTerrainGeometry($terrainWedge, $terrainPick, $selectedTerrainRender ?? null);
+	} else if (map) {
+		clearTerrainGeometry();
 	}
 
 	// Ultra-fast bearing color updates (no worker communication)
@@ -1808,6 +1986,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 
 		<div class="svg-overlay">
 
+			{#if $app.activity !== 'terrain'}
 			<BearingStateArrow
 				{width}
 				{height}
@@ -1818,6 +1997,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 				bearingDeg={Math.round($bearingState.bearing ?? 0)}
 				on:arrowdragstart={handleArrowDragStart}
 			/>
+			{/if}
 
 		</div>
 
@@ -2515,4 +2695,75 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		cursor: grab;
 	}
 
+
+	/* terrain render markers — states per docs/terrain-mode.md */
+	:global(.terrain-marker) {
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		box-sizing: border-box;
+		border: 3px solid #3a7d44;
+		background: transparent;
+	}
+	:global(.terrain-marker--queued) {
+		animation: terrain-pulse 1.6s ease-in-out infinite;
+	}
+	:global(.terrain-marker--rendering) {
+		border-top-color: transparent;
+		animation: terrain-spin 1s linear infinite;
+	}
+	:global(.terrain-marker--done) {
+		background: #3a7d44;
+		border-color: white;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+	}
+	:global(.terrain-marker--failed) {
+		background: #e24a4a;
+		border-color: white;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+	}
+	:global(.terrain-create-popup) {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		align-items: center;
+	}
+	:global(.terrain-create-popup .coords) {
+		font-size: 12px;
+		color: #666;
+		font-variant-numeric: tabular-nums;
+	}
+	:global(.terrain-create-popup button) {
+		background: #3a7d44;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		padding: 6px 10px;
+		cursor: pointer;
+		font-size: 13px;
+	}
+	:global(.terrain-create-popup button:disabled) {
+		opacity: 0.6;
+		cursor: default;
+	}
+	:global(.terrain-pick-dot) {
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		background: #e2a04a;
+		border: 2px solid white;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+		box-sizing: border-box;
+	}
+	:global(.terrain-marker--selected) {
+		outline: 3px solid #4a90e2;
+		outline-offset: 2px;
+	}
+	@keyframes terrain-pulse {
+		0%, 100% { transform: scale(1); opacity: 1; }
+		50% { transform: scale(0.75); opacity: 0.55; }
+	}
+	@keyframes terrain-spin {
+		to { transform: rotate(360deg); }
+	}
 </style>

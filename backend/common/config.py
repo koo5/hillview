@@ -38,6 +38,17 @@ def get_pics_dir() -> Path:
 	"""Get the pics directory path from environment."""
 	return Path(os.getenv("PICS_DIR", "/app/pics"))
 
+def get_graduation_incoming_dir() -> Path:
+	"""Directory the operator drops enrichment graduation packages into.
+	Under the mounted /app/data (host ./backend/data), so packages exported from
+	the enrichment workbench can be reviewed and applied via the admin UI."""
+	return Path(os.getenv("GRADUATION_INCOMING_DIR", "/app/data/graduation/incoming"))
+
+def get_graduation_applied_dir() -> Path:
+	"""Where a package file is moved once all its ops have been applied — a
+	simple filesystem ledger of what has been graduated."""
+	return Path(os.getenv("GRADUATION_APPLIED_DIR", "/app/data/graduation/applied"))
+
 def get_pics_url() -> str:
 	"""Get the pics URL prefix from environment."""
 	return os.getenv("PICS_URL", "")

@@ -60,6 +60,7 @@
 	import { MoreVertical, Share } from 'lucide-svelte';
 	import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 	import { myGoto } from '$lib/navigation.svelte';
+	import { buildTileSource } from '$zoomview/tileSource';
 
 	export let data: ZoomViewData;
 	export let onClose: () => void;
@@ -446,15 +447,7 @@
 		const dims = getImageDims();
 		const w3cAnnotations = annotations
 			.filter((a) => a.target)
-			.map((a) => ({
-				'@context': 'http://www.w3.org/ns/anno.jsonld',
-				id: a.id,
-				type: 'Annotation',
-				body: a.body
-					? [{ type: 'TextualBody', value: a.body, purpose: 'commenting' }]
-					: [],
-				target: targetToPixels(a.target, dims.w, dims.h),
-			}));
+			.map((a) => toW3cAnnotation(a, dims.w, dims.h));
 		//console.log('[OSD] Syncing annotations to viewer:', w3cAnnotations.length, w3cAnnotations);
 		try {
 			annotator.setAnnotations(w3cAnnotations);
@@ -480,46 +473,8 @@
 	 * fetching them is wasteful (one HTTP request each for a tiny image that
 	 * OSD never even displays at normal zoom).
 	 */
-	function computeMinLevel(width: number, height: number, tileSize: number): number {
-		const maxDim = Math.max(width, height);
-		const maxLevel = Math.ceil(Math.log2(maxDim));
-		// Walk from the top level down; the first level where the image fits
-		// in a single tile is the last one we want.  Everything below is waste.
-		for (let level = maxLevel; level >= 0; level--) {
-			const levelDim = Math.ceil(maxDim / Math.pow(2, maxLevel - level));
-			if (levelDim <= tileSize) return level;
-		}
-		return 0;
-	}
-
-	function buildTileSource() {
-		const p = data.pyramid;
-		if (p && p.type === 'dzi') {
-			const minLevel = computeMinLevel(p.width, p.height, p.tile_size);
-			console.log('[OSD] Using DZI pyramid for tile source:', p, '| minLevel:', minLevel);
-			return {
-				Image: {
-					xmlns: 'http://schemas.microsoft.com/deepzoom/2008',
-					Url: p.tiles_url + '/',
-					Format: p.format,
-					Overlap: String(p.overlap),
-					TileSize: String(p.tile_size),
-					Size: {
-						Width: String(p.width),
-						Height: String(p.height),
-					},
-				},
-				minLevel,
-				// crossOriginPolicy: 'Anonymous', // only needed for WebGL; causes CORS cache poisoning with fallback images
-			};
-		}
-		// Fallback: single full-size image
-		console.warn('[OSD] No DZI pyramid available, falling back to single-image source: ', JSON.stringify(p));
-		return {
-			type: 'image',
-			url: data.url,
-		};
-	}
+	// Tile-source construction lives in $zoomview/tileSource (extracted for
+	// reuse by the enrichment workbench; unit-tested there).
 
 	// Pre-parsed annotation data for drawLabels — rebuilt only when annotations change
 	interface ParsedAnnotation {
@@ -657,7 +612,10 @@
 		LABEL_GAP,
 		type LabelInput,
 		type LabelDrawCmd
-	} from '$lib/utils/labelLayout';
+	} from '$zoomview/labelLayout';
+	import { paintLabels } from '$zoomview/labelPaint';
+	import { toW3cAnnotation } from '$zoomview/annotationTargets';
+	import { OSD_VIEWER_DEFAULTS, initialSourceFor, swapInMainSource } from '$zoomview/viewerInit';
 
 	const BASE_LABEL_FONT_SIZE = 12;
 	const LABEL_FONT_FAMILY = 'system-ui,sans-serif';
@@ -803,48 +761,16 @@
 		}
 		labelDrawCmds = cmds;
 
-		ctx.clearRect(0, 0, W, H);
-
-		// Pass 1: leader lines for every label, drawn first so that all label
-		// pills (pass 2) sit on top of them — otherwise a later annotation's
-		// yellow-black line would draw over an earlier annotation's pill.
-		for (const { cx, cy, edge, tx, ty, pillW, pillH } of cmds) {
-			const pillCx = tx + pillW / 2;
-			const pillCy = ty + pillH / 2;
-			const toX = edge === 'left' || edge === 'right' ? tx + (edge === 'left' ? 0 : pillW) : pillCx;
-			const toY = edge === 'top' || edge === 'bottom' ? ty + (edge === 'top' ? 0 : pillH) : pillCy;
-
-			ctx.beginPath();
-			ctx.moveTo(cx, cy);
-			ctx.strokeStyle = 'rgba(255,255,55,1)';
-			ctx.lineWidth = leaderWidth;
-			ctx.lineTo(toX, toY);
-			ctx.stroke();
-
-			ctx.beginPath();
-			ctx.moveTo(cx, cy);
-			ctx.setLineDash([leaderDash, leaderDash]);
-			ctx.lineTo(toX, toY);
-			ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-			ctx.lineWidth = leaderWidth;
-			ctx.stroke();
-			ctx.setLineDash([]);
-		}
-
-		// Pass 2: label pills, drawn on top of all leader lines.
-		ctx.font = labelFont;
-		for (const { label, tx, ty, pillW, pillH } of cmds) {
-			ctx.fillStyle = 'rgba(0,0,0,0.75)';
-			ctx.beginPath();
-			if (typeof (ctx as any).roundRect === 'function') {
-				(ctx as any).roundRect(tx, ty, pillW, pillH, pillRadius);
-			} else {
-				ctx.rect(tx, ty, pillW, pillH);
-			}
-			ctx.fill();
-			ctx.fillStyle = '#fff';
-			ctx.fillText(label, tx + labelPad, ty + pillH - textBaselineOffset);
-		}
+		// Painting lives in $zoomview/labelPaint (extracted for reuse by the
+		// enrichment workbench; op sequence pinned by unit tests there).
+		paintLabels(ctx, W, H, cmds, {
+			labelFont,
+			labelPad,
+			leaderWidth,
+			leaderDash,
+			pillRadius,
+			textBaselineOffset
+		});
 	}
 
 	onMount(async () => {
@@ -857,85 +783,28 @@
 
 		// If we have a fallback thumbnail (likely browser-cached), show it
 		// immediately while the main source (DZI or full-size) loads.
+		// Source selection + swap logic live in $zoomview/viewerInit
+		// (extracted for reuse by the enrichment workbench; behavior pinned
+		// by unit tests there).
 		console.log('[OSD] fallback_url:', JSON.stringify(data.fallback_url), 'main url:', JSON.stringify(data.url));
-		usingFallback = !!data.fallback_url;
-		const initialSource = usingFallback
-			? { type: 'image', url: data.fallback_url }
-			: buildTileSource();
+		const initial = initialSourceFor(data.fallback_url, data.pyramid, data.url);
+		usingFallback = initial.usingFallback;
 
-		const options = {
-			zoomPerScroll: 2.5,
+		viewer = new OpenSeadragon.Viewer({
+			...OSD_VIEWER_DEFAULTS,
 			element: container,
-			drawer: 'canvas' as const,
-			tileSources: initialSource,
-			// Disable default controls – we supply our own close button
-			showNavigationControl: false,
-			showNavigator: false,
-			animationTime: 0.3,
-			// Allow dragging even without a button press (touch-friendly)
-			gestureSettingsMouse: { clickToZoom: false, dblClickToZoom: true },
-			gestureSettingsTouch: { clickToZoom: false, dblClickToZoom: true },
-			immediateRender: false,
-			imageLoaderLimit: 1,
-			// Allow zooming well beyond native resolution (default is 1.1)
-			maxZoomPixelRatio: 4,
-			imageSmoothingEnabled: false,
-			placeholderFillStyle: '#009900'
-			// Note: crossOriginPolicy is set per-source (on DZI tile sources), NOT here.
-			// Setting it on the viewer would apply to fallback images too, which share
-			// URLs with regular <img> tags. If the browser cached a non-CORS response,
-			// loading with crossOrigin='anonymous' would fail (CORS cache poisoning).
+			tileSources: initial.source
 			//debugMode: true
-		}
-
-		viewer = new OpenSeadragon.Viewer(options);
+		});
 
 		viewer.addHandler('open', () => {
 			console.log('[OSD] open event fired, usingFallback:', usingFallback, 'itemCount:', viewer.world.getItemCount());
-			if (!usingFallback) {
-				// No fallback path — the real source loaded directly
-				isLoading = false;
-				applyInitialBounds();
-				return;
-			}
-			// Fallback thumbnail loaded (from browser cache) — dismiss spinner
+			// Real source loaded directly, or fallback thumbnail loaded (from
+			// browser cache) — either way, dismiss the spinner
 			isLoading = false;
 			applyInitialBounds();
-			console.log('[OSD] Fallback loaded, spinner dismissed. Adding main source...');
-
-			// Now add the real source on top — it renders over the fallback
-			// as tiles arrive, then we remove the fallback once fully loaded.
-			const mainSource = buildTileSource();
-			viewer.addTiledImage({
-				tileSource: mainSource,
-				success: (event: any) => {
-					const mainItem = event.item;
-					const removeFallback = () => {
-						const fallbackItem = viewer.world.getItemAt(0);
-						if (fallbackItem && fallbackItem !== mainItem && viewer.world.getItemCount() > 1) {
-							viewer.world.removeItem(fallbackItem);
-							console.log('[OSD] Fallback image removed');
-						}
-					};
-					// Listen on the TiledImage itself for fully-loaded-change,
-					// which fires reliably for DZI sources (unlike world metrics-change).
-					if (mainItem.getFullyLoaded()) {
-						removeFallback();
-					} else {
-						const onLoaded = (e: any) => {
-							if (!e.fullyLoaded) return;
-							mainItem.removeHandler('fully-loaded-change', onLoaded);
-							removeFallback();
-						};
-						mainItem.addHandler('fully-loaded-change', onLoaded);
-					}
-				},
-				error: (event: any) => {
-					// Main source failed — keep the fallback visible
-					console.warn('[OSD] Main tile source failed to load, keeping fallback');
-					throw new Error(`[OSD] addTiledImage error: ${event?.message || event?.source || JSON.stringify(event)}`);
-				},
-			});
+			if (!usingFallback) return;
+			swapInMainSource(viewer, buildTileSource(data.pyramid, data.url));
 		});
 
 		viewer.addHandler('open-failed', (event: any) => {

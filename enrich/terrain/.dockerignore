@@ -1,0 +1,10 @@
+# keep the build context tiny — mosaic workdirs from the ČÚZK flow (dl/,
+# rast/, warp/, mosaic/) can hold hundreds of GB
+dl
+rast
+warp
+mosaic
+__pycache__
+*.pyc
+.pytest_cache
+test_*.py

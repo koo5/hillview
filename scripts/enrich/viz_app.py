@@ -920,4 +920,5 @@ l.classList.toggle('hide',(s<mn||(io_&&!inl))&&!l.classList.contains('pin'));}})
 
 if __name__ == "__main__":
     ENG = Engine()
-    app.run(host="0.0.0.0", port=8765, threaded=True)
+    # 8766: caddy now owns 8765 (fronts the enrich workbench for the ygg address)
+    app.run(host="0.0.0.0", port=int(os.environ.get("VIZ_PORT", 8766)), threaded=True)
