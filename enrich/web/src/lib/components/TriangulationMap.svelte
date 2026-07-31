@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { html } from '$lib/html';
 	import 'leaflet/dist/leaflet.css';
 
 	export interface TriRay {
@@ -80,7 +81,7 @@
 				fillOpacity: 0.85
 			})
 				.bindTooltip(
-					`${r.photo_id.slice(0, 8)}<br>az ${r.azimuth}°${r.calibrated ? ' (calibrated)' : ' (compass)'}`
+					html`${r.photo_id.slice(0, 8)}<br>az ${r.azimuth}°${r.calibrated ? ' (calibrated)' : ' (compass)'}`
 				)
 				.addTo(layer);
 			m.on('click', () => onselect?.(r.annotation_id));
@@ -95,7 +96,7 @@
 				fillColor: '#b48cff',
 				fillOpacity: 0.6
 			})
-				.bindTooltip(`triangulated POI<br>±${fix.residual_m} m residual`, { permanent: false })
+				.bindTooltip(html`triangulated POI<br>±${fix.residual_m} m residual`, { permanent: false })
 				.addTo(layer);
 			pts.push([fix.lat, fix.lon]);
 		}

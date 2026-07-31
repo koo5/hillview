@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import type { Candidate, CandidatePhoto, Wedge } from '$lib/types';
+	import { escapeHtml, html } from '$lib/html';
 	import 'leaflet/dist/leaflet.css';
 
 	let {
@@ -120,7 +121,7 @@
 				weight: 3,
 				fillOpacity: 0.5
 			})
-				.bindTooltip(target.label ?? 'target')
+				.bindTooltip(escapeHtml(target.label ?? 'target'))
 				.addTo(layer);
 			pts.push([target.lat, target.lon]);
 		}
@@ -205,7 +206,7 @@
 				bubblingMouseEvents: false
 			})
 				.bindTooltip(
-					`${c.displayName ?? c.candidate}<br>${c.km ?? '?'} km · Δ${c.bearing_offset ?? '?'}°`
+					html`${c.displayName ?? c.candidate}<br>${c.km ?? '?'} km · Δ${c.bearing_offset ?? '?'}°`
 				)
 				.addTo(layer);
 			m.on('click', () => onselect?.(c.candidate));
