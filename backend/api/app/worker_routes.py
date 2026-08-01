@@ -21,7 +21,19 @@ WORKER_URL = os.environ["WORKER_URL"]
 # Key: fly_machine_id, Value: number of active pingback threads.
 _active_pingbacks: dict[str, int] = {}
 _active_pingbacks_lock = threading.Lock()
+# Matches [http_service.concurrency] soft_limit = 2 in backend/fly.toml: the
+# held-open /await streams fill a busy machine's connection soft limit, so
+# fly-proxy steers new uploads toward emptier machines. Change the two together.
 _PINGBACKS_PER_WORKER = 2
+# A healthy iteration blocks on the worker's ~15 s /await heartbeat stream, so
+# the loop is naturally paced and reconnecting immediately keeps the soft-limit
+# backpressure continuous. Iterations that come back fast (proxy 5xx while the
+# worker drains/stops, connect errors) are paced to the minimum interval, and
+# after MAX_STRIKES consecutive failures the thread gives up: a stopped machine
+# never answers again (fly-force-instance-id does not autostart it), and if the
+# worker is alive with the task still pending, its 10 s ping loop respawns us.
+_PINGBACK_MIN_INTERVAL_S = 5.0
+_PINGBACK_MAX_STRIKES = 10
 
 
 class WorkerPingRequest(BaseModel):
@@ -60,7 +72,9 @@ def _worker_pingback_thread(request: WorkerPingRequest):
 	with _active_pingbacks_lock:
 		_active_pingbacks[machine_id] = _active_pingbacks.get(machine_id, 0) + 1
 	try:
-		while True:
+		strikes = 0
+		while strikes < _PINGBACK_MAX_STRIKES:
+			started = time.monotonic()
 			try:
 				response = httpx.post(
 					f"{WORKER_URL}/await",
@@ -75,10 +89,21 @@ def _worker_pingback_thread(request: WorkerPingRequest):
 				log.info(f"Pingback to worker {machine_id}: status={response.status_code}, body={body!r}")
 				if '"completed"' in body:
 					break
+				if 200 <= response.status_code < 300:
+					strikes = 0
+				else:
+					strikes += 1
 			except Exception as e:
 				err_text = getattr(e, "message", None) or str(e) or repr(e) or e.__class__.__name__
 				log.warning(f"Pingback to worker {machine_id} failed: {err_text}")
-				time.sleep(5)
+				strikes += 1
+			elapsed = time.monotonic() - started
+			if elapsed < _PINGBACK_MIN_INTERVAL_S:
+				time.sleep(_PINGBACK_MIN_INTERVAL_S - elapsed)
+		else:
+			log.warning(
+				f"Pingback to worker {machine_id}: giving up after {_PINGBACK_MAX_STRIKES} consecutive failures "
+				f"(machine stopped or unreachable; a live worker's ping loop will respawn pingbacks)")
 	finally:
 		with _active_pingbacks_lock:
 			_active_pingbacks[machine_id] = _active_pingbacks.get(machine_id, 1) - 1

@@ -69,6 +69,7 @@
 
 <svelte:head>
 	<title>Users - Hillview</title>
+	<meta name="description" content="Browse Hillview contributors — see each user's photo count and their latest geotagged uploads." />
 </svelte:head>
 
 <StandardHeaderWithAlert

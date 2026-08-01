@@ -176,6 +176,11 @@ async def lifespan(app: FastAPI):
 	# Always runs (60 s log heartbeat = freeze forensics); the bored-shutdown
 	# part inside is gated on BORED_SHUTDOWN_SECONDS > 0.
 	_bored_task = asyncio.create_task(_bored_shutdown_loop())
+	if EVENT_LOOP_WATCHDOG_SECONDS > 0:
+		# Plain daemon thread — see the watchdog block below for why it stays
+		# independent of the loop, app locks, and the logging module.
+		threading.Thread(target=_event_loop_watchdog, args=(asyncio.get_running_loop(),),
+						 name="event-loop-watchdog", daemon=True).start()
 	yield
 	worker_processing.shutdown()
 
@@ -361,6 +366,69 @@ async def _bored_shutdown_loop():
 					f"Fly stops this machine and autostarts on next request")
 				os.kill(os.getpid(), signal.SIGTERM)
 				return
+
+
+# ---------------------------------------------------------------------------
+# Event-loop watchdog: a plain thread that proves the asyncio loop is still
+# scheduling, and hard-exits the process when it is not.
+#
+# Motivation (2026-07-30, machine 1859476b503e38): the /await generator
+# suspended holding pending_background_tasks_mutex and deadlocked the event
+# loop — and every in-band liveness signal died with it ([heartbeat] is an
+# asyncio task; background_loop blocked on the same mutex; /servicecheck needs
+# the loop), so the machine sat "started + checks critical + silent" for 2 h.
+# A liveness signal can only witness deaths it shares no dependency with, so
+# this thread must never touch the loop (beyond call_soon_threadsafe), any app
+# lock, or even the logging module (its handler lock is shared) on the death
+# path — hence raw os.write(2, ...).
+#
+# Probe: schedule a trivial callback with call_soon_threadsafe and watch for
+# its side effect. A busy-but-alive loop only echoes late — and GIL starvation
+# of this thread gives echoes MORE time to land, so detection can be delayed
+# but never falsified. No echo for EVENT_LOOP_WATCHDOG_SECONDS means the loop
+# is not scheduling at all: os._exit(1), and under the on-failure restart
+# policy flyd reboots the machine in seconds instead of it sitting frozen
+# until a human notices. In-flight work is lost either way — a dead loop was
+# never going to finish it. 0 disables.
+EVENT_LOOP_WATCHDOG_SECONDS = int(os.getenv("EVENT_LOOP_WATCHDOG_SECONDS", "60"))
+_WATCHDOG_PROBE_INTERVAL_S = 10.0
+_watchdog_echo = 0  # last probe seq the loop echoed back (int store: GIL-atomic)
+
+
+def _watchdog_probe(seq):
+	global _watchdog_echo
+	_watchdog_echo = seq
+
+
+def _event_loop_watchdog(loop):
+	seq = 0
+	dead_since = None
+	while True:
+		seq += 1
+		try:
+			loop.call_soon_threadsafe(_watchdog_probe, seq)
+		except RuntimeError:
+			return  # loop closed — normal process shutdown
+		time.sleep(_WATCHDOG_PROBE_INTERVAL_S)
+		if _watchdog_echo >= seq:
+			dead_since = None
+			continue
+		now = time.monotonic()
+		if dead_since is None:
+			dead_since = now
+		elif now - dead_since >= EVENT_LOOP_WATCHDOG_SECONDS:
+			# Deliberately lock-free reads (len() is GIL-atomic, values may be
+			# a beat stale) — acquiring any lock here could hang the watchdog.
+			try:
+				os.set_blocking(2, False)  # a full log pipe must not block the exit
+				os.write(2, (
+					f"[watchdog] EVENT LOOP DEAD: no probe echo for {now - dead_since:.0f}s "
+					f"(seq={seq} echoed={_watchdog_echo} inflight={_inflight_requests} "
+					f"pending={len(pending_background_tasks)}) — os._exit(1) so fly restarts this machine\n"
+				).encode())
+			except OSError:
+				pass
+			os._exit(1)
 
 
 @app.middleware("http")
@@ -930,10 +998,19 @@ async def await_handler(task_id: str, request: Request):
 			if await request.is_disconnected():
 				logger.info(f"Client {str(request.client)} disconnected while awaiting task {task_id}")
 				return
+			# Never yield/await while holding the mutex: an async generator that
+			# suspends inside the `with` parks WITH the lock held; if the chunk's
+			# `await send()` then stalls (proxy flow control), any other coroutine
+			# acquiring this sync lock blocks the whole event loop and the holder
+			# can never resume to release it. That deadlock froze machine
+			# 1859476b503e38 for 2h on 2026-07-30 ("started + checks critical +
+			# silent", py-spy: MainThread blocked at this acquire) — and matches
+			# the 2026-07-13/14 freeze signature.
 			with pending_background_tasks_mutex:
-				if task_id not in pending_background_tasks:
-					yield b'{"status": "completed"}\n'
-					return
+				completed = task_id not in pending_background_tasks
+			if completed:
+				yield b'{"status": "completed"}\n'
+				return
 			try:
 				logger.debug(f"Awaiting task {task_id}, sending heartbeat to client {str(request.client)}")
 			except Exception as e:

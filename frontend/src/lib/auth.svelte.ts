@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { browser } from '$app/environment';
-import { http } from '$lib/http';
+import { http, type ApiError } from '$lib/http';
 
 import { backendUrl } from './config';
 import { createTokenManager } from './tokenManagerFactory';
@@ -395,9 +395,17 @@ async function performUserFetch(): Promise<User | null> {
             // resets userStatus to 'idle' — don't override that here.
             console.warn('🢄[AUTH] Session expired during user data fetch');
             auth.update(a => ({ ...a, checked: true }));
+        } else if ((error as ApiError).status === 0) {
+            // Network-level failure (offline, server unreachable, or the fetch was
+            // aborted by a navigation — http.ts wraps these with status 0). Handled
+            // the same as a non-OK response above: an expected degraded state, so
+            // warn, don't error, keeping the resilience no-error-spam guard meaningful.
+            console.warn('🢄[AUTH] Could not fetch user data (network):', error);
+            auth.update(s => ({ ...s, checked: true, userStatus: s.user ? s.userStatus : 'error' }));
         } else {
-            // Transient/other failure: keep the session, mark the profile load failed
-            // (unless we still have a previously-loaded profile to show).
+            // Unexpected failure (e.g. a malformed response body): keep the session,
+            // mark the profile load failed (unless we still have a previously-loaded
+            // profile to show).
             console.error('🢄[AUTH] Error fetching user data:', error);
             auth.update(s => ({ ...s, checked: true, userStatus: s.user ? s.userStatus : 'error' }));
         }

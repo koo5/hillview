@@ -164,6 +164,57 @@ test.describe('Timeline refresh + cursor-follow', () => {
 		await expect(status).toHaveText('1 / 2');
 	});
 
+	test('clicking the active panel row re-centers the map on the cursor photo', async ({ page, testUsers }) => {
+		test.setTimeout(180_000);
+		await loginAs(page, 'test', testUsers.passwords.test);
+		await openMap(page, CENTER, [idA1, idA2, idB1]);
+
+		await openTimelineAnchoredOn(page, idA1);
+		const status = page.getByTestId('timeline-status');
+		await expect(status).toHaveText('1 / 2', { timeout: T(15000) });
+
+		// Drag the map well away from the cursor photo. The walk pins its photos, so
+		// the marker may stay loaded off-screen — the URL's lat/lon (synced on every
+		// move) is the reliable re-center observable, not marker presence.
+		const box = await page.locator('.leaflet-container').boundingBox();
+		if (!box) throw new Error('map container has no bounding box');
+		// Start each drag in the upper-left quadrant, away from the marker cluster at
+		// screen center, so the mousedown grabs the map pane and not a marker.
+		const cx = box.x + box.width * 0.2;
+		const cy = box.y + box.height * 0.25;
+		for (let i = 0; i < 3; i++) {
+			await page.mouse.move(cx, cy);
+			await page.mouse.down();
+			await page.mouse.move(cx + 300, cy + 200, { steps: 8 });
+			await page.mouse.up();
+		}
+		await page.waitForFunction(
+			(a1: { lat: number; lng: number }) => {
+				const q = new URLSearchParams(window.location.search);
+				const lat = parseFloat(q.get('lat') || '');
+				const lon = parseFloat(q.get('lon') || '');
+				return Math.abs(lat - a1.lat) > 0.002 || Math.abs(lon - a1.lng) > 0.002;
+			},
+			A1,
+			{ timeout: T(15000) },
+		);
+
+		// Click the active row (the photo the cursor already points at) — the map
+		// must fly back to it. The walk itself doesn't move.
+		await page.locator('[data-testid="timeline-row"].active').click();
+		await page.waitForFunction(
+			(a1: { lat: number; lng: number }) => {
+				const q = new URLSearchParams(window.location.search);
+				const lat = parseFloat(q.get('lat') || '');
+				const lon = parseFloat(q.get('lon') || '');
+				return Math.abs(lat - a1.lat) < 0.0005 && Math.abs(lon - a1.lng) < 0.0005;
+			},
+			A1,
+			{ timeout: T(15000) },
+		);
+		await expect(status).toHaveText('1 / 2');
+	});
+
 	test('stepping advances through out-of-range photos without cycling or looping', async ({ page, testUsers }) => {
 		test.setTimeout(180_000);
 		await loginAs(page, 'admin', testUsers.passwords.admin);

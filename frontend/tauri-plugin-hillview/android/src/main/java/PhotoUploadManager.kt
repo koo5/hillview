@@ -96,6 +96,46 @@ class PhotoUploadManager(private val context: Context) {
     }
 
 
+    /**
+     * Cancel every queued/running one-time upload drain. Called when
+     * auto-upload is disabled: WORK_NOW / WORK_BATCH jobs — including the
+     * WorkManager retry chains a busy or stuck worker leaves behind — are
+     * persistent (they survive process death and reboots) and would
+     * otherwise fire hours after the toggle went off, the moment their
+     * backoff elapses or their network constraint is finally met.
+     * A RUNNING drain is stopped via cancellation; the drain loop restores
+     * the in-flight photo's status on that path.
+     */
+    fun cancelQueuedUploads(workManager: WorkManager) {
+        Log.d(TAG, "🢄📤 cancelling $WORK_NOW + $WORK_BATCH")
+        workManager.cancelUniqueWork(WORK_NOW)
+        workManager.cancelUniqueWork(WORK_BATCH)
+    }
+
+    /**
+     * One-shot follow-up that reconciles "processing" photos with the server
+     * (PhotoStatusSyncWorker). Runs as its own job so the upload drain can
+     * finish — and stop KEEP-blocking fresh capture triggers — without
+     * waiting on the status round-trip. Short delay + REPLACE: back-to-back
+     * drains coalesce into one sync, which re-queries the DB when it runs,
+     * and the delay gives the server a moment to actually finish processing.
+     */
+    fun schedulePostUploadStatusSync() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val request = OneTimeWorkRequestBuilder<PhotoStatusSyncWorker>()
+            .setConstraints(constraints)
+            .setInitialDelay(5, TimeUnit.SECONDS)
+            .build()
+        Log.d(TAG, "🢄📤 enqueue ${PhotoStatusSyncWorker.WORK_NAME}")
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            PhotoStatusSyncWorker.WORK_NAME,
+            ExistingWorkPolicy.REPLACE,
+            request,
+        )
+    }
+
     // todo: call this on initialization or something?
     fun scheduleUploadWorker(workManager: WorkManager, enabled: Boolean, wifiOnly: Boolean = true) {
         Log.i(TAG, "📤 [scheduleUploadWorker] CALLED with enabled: $enabled, wifiOnly: $wifiOnly")

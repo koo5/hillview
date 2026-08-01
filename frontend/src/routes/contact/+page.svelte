@@ -65,6 +65,7 @@
 
 <StandardHeaderWithAlert
     title="Contact Us"
+    titleTag="div"
     showMenuButton={true}
     fallbackHref="/"
 />

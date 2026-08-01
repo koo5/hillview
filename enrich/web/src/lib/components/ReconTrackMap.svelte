@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { html } from '$lib/html';
 	import 'leaflet/dist/leaflet.css';
 
 	// GPS track vs the Umeyama-aligned recovered camera track for one reconstruction.
@@ -77,9 +78,9 @@
 					fillOpacity: 0.85
 				})
 					.bindTooltip(
-						`frame ${f.idx}` +
-							(r.residual_m != null ? `<br>GPS residual ${r.residual_m} m` : '') +
-							(r.reproj_px != null ? `<br>reprojection ${r.reproj_px} px` : '')
+						html`frame ${f.idx}` +
+							(r.residual_m != null ? html`<br>GPS residual ${r.residual_m} m` : '') +
+							(r.reproj_px != null ? html`<br>reprojection ${r.reproj_px} px` : '')
 					)
 					.addTo(layer);
 				m.on('click', () => onselect?.(f.idx));

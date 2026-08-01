@@ -7,6 +7,8 @@
 	import AdminBadge from '$lib/components/AdminBadge.svelte';
 
     export let title: string;
+    // Pages that render their own content <h1> should pass 'div' so the page has a single h1
+    export let titleTag: string = 'h1';
     export let showBackButton: boolean = true;
     export let showMenuButton: boolean = true;
     export let onMenuClick: (() => void) | null = null;
@@ -60,7 +62,7 @@
     </div>
 
     <div class="header-center">
-        <h1 class="header-title">{title}</h1>
+        <svelte:element this={titleTag} class="header-title">{title}</svelte:element>
     </div>
 
     <div class="header-right">

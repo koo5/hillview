@@ -384,9 +384,16 @@ function maybePrefetch() {
 	}
 }
 
+// Deliberate re-select of the photo the cursor already points at (clicking the
+// active panel row): bumps a counter the map turns into a re-center fly. Needs its
+// own channel because the map dedupes same-uid `timelineCurrent` emissions — window
+// reloads re-emit an unchanged cursor (see the clearFilters/?photo= clobber).
+export const timelineRecenter = writable(0);
+
 export function jumpToIndex(i: number) {
 	const photos = get(timelinePhotos);
 	if (i < 0 || i >= photos.length) return;
+	if (i === get(timelineCursor)) timelineRecenter.update(n => n + 1);
 	timelineCursor.set(i);
 	lastTimelineAnchorId = photos[i].id;  // track position for filter-driven reloads
 	pinWindow(i);

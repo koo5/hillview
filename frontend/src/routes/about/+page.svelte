@@ -131,6 +131,7 @@
 
 <StandardHeaderWithAlert
     title="About Hillview"
+    titleTag="div"
     showMenuButton={true}
     fallbackHref="/"
 />
