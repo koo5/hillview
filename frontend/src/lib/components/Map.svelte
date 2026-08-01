@@ -56,7 +56,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	import {getAngularDistance} from "$lib/utils/bearingUtils";
 	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
-	import { turn_to_photo_to, app, sourceLoadingStatus } from "$lib/data.svelte.js";
+	import { turn_to_photo_to, app, sourceLoadingStatus, powerSavingActive } from "$lib/data.svelte.js";
 	import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking, lastKnownGpsLocation, backgroundLocationTracking, setBackgroundLocationTracking } from "$lib/location.svelte.js";
 	import { isOnMapRoute, compassEnabled, disableCompass } from "$lib/compass.svelte.js";
 	import { optimizedMarkerSystem, setupMarkerClickDelegation } from '$lib/optimizedMarkers';
@@ -1070,7 +1070,10 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		// Only ACTIVE tracking moves the map to follow GPS. In BACKGROUND the map
 		// stays parked at the user's manual pan; the fix is still recorded (table +
 		// alt_location) but must not yank the view.
-		if (map && get(locationTracking)) {
+		// Power saving behaves like BACKGROUND here: the marker keeps moving (via
+		// lastKnownGpsLocation) but the map doesn't chase fixes — it catches up
+		// once per capture (CameraCapture pushes the live fix into spatialState).
+		if (map && get(locationTracking) && !get(powerSavingActive)) {
 			const latLng = new L.LatLng(latitude, longitude);
 
 			updateSpatialState({
@@ -1168,17 +1171,28 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		const container = map?.getContainer();
 		if (!container) return;
 
-		function applyBearing(cx: number, cy: number) {
+		function pointerBearing(cx: number, cy: number) {
 			const rect = container!.getBoundingClientRect();
 			const px = cx - rect.left;
 			const py = cy - rect.top;
 			const dx = px - centerX;
 			const dy = py - centerY;
-			const bearing = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+			return (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+		}
+
+		// Car mode rotates by the angle the pointer travels instead of jumping to
+		// the touch angle — the whole range circle is grabbable there
+		// (fullCircleHitArea), and a jump on first touch would swing the mount
+		// offset by however far from the arrow the grab happened to land.
+		let prevPointerBearing = pointerBearing(e.detail.clientX, e.detail.clientY);
+
+		function applyBearing(cx: number, cy: number) {
+			const bearing = pointerBearing(cx, cy);
 			if ($bearingMode === 'car') {
 				// Translate drag into a mount-offset change so Kotlin (Tauri) /
 				// the subsequent gps-kalman diffs (browser) stay consistent.
-				adjustMountOffset(getAngularDistance($bearingState.bearing, bearing));
+				adjustMountOffset(getAngularDistance(prevPointerBearing, bearing));
+				prevPointerBearing = bearing;
 			} else {
 				updateBearing(bearing, 'arrow_drag');
 			}
@@ -1995,6 +2009,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 				{arrowX}
 				{arrowY}
 				bearingDeg={Math.round($bearingState.bearing ?? 0)}
+				fullCircleHitArea={$bearingMode === 'car'}
 				on:arrowdragstart={handleArrowDragStart}
 			/>
 			{/if}

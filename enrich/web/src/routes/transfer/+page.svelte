@@ -42,7 +42,7 @@
 		rect: Rect | null;
 		origin: string;
 		azimuth: number | null;
-		prediction: { x: number; slack_deg: number; dist_deg: number } | null;
+		prediction: { x: number; slack_deg: number; dist_deg: number; pxdeg: number } | null;
 		transfer?: Transfer;
 	}
 	interface PhotoMeta {
@@ -267,11 +267,22 @@
 			? [{ id: 'proposal', ...targetRect, label: label(selEntry), kind: 'current' }]
 			: []
 	);
-	const targetMarks = $derived<OsdMark[]>(
-		selEntry?.prediction && !targetRect
-			? [{ id: 'pred', x: selEntry.prediction.x, color: '#b48cff', label: 'predicted' }]
-			: []
-	);
+	// the azimuth prior only knows x (datapoints are az↦x-center — no vertical
+	// model), so the prediction is a line, not a rect; band = ± slack in target px
+	const targetMarks = $derived.by<OsdMark[]>(() => {
+		const p = selEntry?.prediction;
+		if (!p || targetRect || !bench) return [];
+		const half = (p.slack_deg * p.pxdeg) / bench.target.width;
+		return [
+			{
+				id: 'pred',
+				x: p.x,
+				color: '#b48cff',
+				label: `predicted ±${p.slack_deg.toFixed(1)}°`,
+				band: [p.x - half, p.x + half]
+			}
+		];
+	});
 	const bestResult = $derived(
 		bestOf(selEntry?.transfer, ['refine']) ?? bestOf(selEntry?.transfer, ['coarse', 'sweep'])
 	);
@@ -382,7 +393,9 @@
 		<h4>review & accept</h4>
 		<p>
 			Top viewer = donor with the source rect; bottom = target with the editable
-			proposal (violet mark = predicted x before coarse). Drag to nudge, then
+			proposal. Before coarse runs, the violet line marks the prior's predicted
+			x-center with a ± slack band — a line, not a rect, because the azimuth prior
+			has no vertical model; the coarse pass finds the actual rect. Drag to nudge, then
 			<b>accept</b>: creates a workbench-native clone of the donor body, an approved
 			<span class="mono">derivedFrom</span> fact, and links both annotations to a shared
 			POI (donor's reused, else minted). Flows into Hillview via the graduation

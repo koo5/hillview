@@ -99,6 +99,14 @@ FROM _dump_anns d
 WHERE a.id = d.id AND NULLIF(d.superseded_by,'') IS NOT NULL
   AND EXISTS (SELECT 1 FROM photo_annotations x WHERE x.id = d.superseded_by);
 
+-- versioning mutates in prod (supersede flips is_current off on the old row);
+-- carry it, else old+new versions are both "current" here and in the mirror
+UPDATE photo_annotations a
+SET is_current = NULLIF(d.is_current,'')::boolean
+FROM _dump_anns d
+WHERE a.id = d.id AND NULLIF(d.is_current,'') IS NOT NULL
+  AND a.is_current IS DISTINCT FROM NULLIF(d.is_current,'')::boolean;
+
 DROP TABLE _dump_photos, _dump_anns;
 SQL
 

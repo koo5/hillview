@@ -1,11 +1,11 @@
 <script lang="ts">
-	import {Car, ArrowRight, Compass} from 'lucide-svelte';
+	import {Car, ArrowRight, Compass, Leaf} from 'lucide-svelte';
 	import {createEventDispatcher, onDestroy, onMount} from 'svelte';
 	import {TAURI} from '$lib/tauri';
 	import {invoke} from '@tauri-apps/api/core';
 	import {get} from 'svelte/store';
 	import {playShutterSound} from '$lib/utils/shutterSound';
-	import {app, mockCamera, fakeCamera} from "$lib/data.svelte.js";
+	import {app, mockCamera, fakeCamera, powerSaving, powerSavingActive} from "$lib/data.svelte.js";
 	import DualCaptureButton from './DualCaptureButton.svelte';
 	import CaptureQueueStatus from './CaptureQueueStatus.svelte';
 	import CaptureQueueIndicator from './CaptureQueueIndicator.svelte';
@@ -15,8 +15,8 @@
 	import {captureQueue} from '$lib/captureQueue';
 	import {injectPlaceholder, removePlaceholder} from '$lib/placeholderInjector';
 	import {generatePhotoId, type PlaceholderLocation} from '$lib/utils/placeholderUtils';
-	import {bearingMode, bearingState, spatialState} from '$lib/mapState';
-	import {gpsLocation, backgroundLocationTracking} from '$lib/location.svelte';
+	import {bearingMode, bearingState, spatialState, updateSpatialState} from '$lib/mapState';
+	import {gpsLocation, backgroundLocationTracking, locationTracking} from '$lib/location.svelte';
 	import {needsCalibration, shouldShowSwitchToCarModeHint, shouldShowBearingTrackingHint, shouldShowLocationTrackingHint, hideBearingTrackingHint, hideLocationTrackingHint} from '$lib/hints.svelte';
 	import {showCalibrationView} from '$lib/data.svelte.js';
 	import {createPermissionManager} from '$lib/permissionManager';
@@ -502,6 +502,40 @@
 	}
 
 
+	// Power saving: drop the preview frame rate — the preview is the biggest
+	// per-frame cost (ISP + compositing) and framing works fine at 15 fps.
+	// Captures are single drawImage() grabs, so photo quality is unaffected.
+	const POWER_SAVING_PREVIEW_FPS = 5;
+	let normalPreviewFrameRate: number | null = null;
+
+	$: if (videoTrack && cameraReady) applyPowerSavingPreviewFps($powerSavingActive);
+
+	async function applyPowerSavingPreviewFps(save: boolean) {
+		if (!videoTrack) return;
+		try {
+			if (save) {
+				const fps = (videoTrack.getSettings() as any).frameRate;
+				if (fps && fps > POWER_SAVING_PREVIEW_FPS) {
+					normalPreviewFrameRate = fps;
+					await videoTrack.applyConstraints({
+						advanced: [{frameRate: POWER_SAVING_PREVIEW_FPS} as any]
+					} as MediaTrackConstraints);
+					console.log(`🢄[CAMERA] Power saving: preview frame rate ${fps} → ${POWER_SAVING_PREVIEW_FPS}`);
+				}
+			} else if (normalPreviewFrameRate) {
+				const fps = normalPreviewFrameRate;
+				normalPreviewFrameRate = null;
+				await videoTrack.applyConstraints({
+					advanced: [{frameRate: fps} as any]
+				} as MediaTrackConstraints);
+				console.log(`🢄[CAMERA] Power saving off: preview frame rate restored to ${fps}`);
+			}
+		} catch (error) {
+			// Best effort — some devices reject frame rate changes on a live track
+			console.warn('🢄[CAMERA] Failed to adjust preview frame rate:', error);
+		}
+	}
+
 	async function setFocusDistance(distance: number) {
 		if (!videoTrack || !focusDistanceSupported) return;
 
@@ -520,6 +554,7 @@
 
 	function resetCameraCapabilities() {
 		videoTrack = null;
+		normalPreviewFrameRate = null;
 		zoomSupported = false;
 		zoomLevel = 1;
 		minZoom = 1;
@@ -819,8 +854,23 @@
 		const timestamp = Date.now();
 		const captureStartTime = performance.now();
 
+		// Power saving parks the map, so spatialState (which feeds locationData)
+		// can be stale. Stamp the capture with the live GPS fix instead, and push
+		// it into spatialState below so the map catches up once per capture rather
+		// than once per fix. Only when ACTIVE tracking would have followed GPS —
+		// a manually parked map (BACKGROUND) keeps meaning "I'm at the map position".
+		const powerSaveGps = get(powerSavingActive) && get(locationTracking) ? get(gpsLocation) : null;
+
 		// Inject placeholder for immediate display
-		const validLocation: PlaceholderLocation = {
+		const validLocation: PlaceholderLocation = powerSaveGps ? {
+			latitude: powerSaveGps.coords.latitude,
+			longitude: powerSaveGps.coords.longitude,
+			altitude: powerSaveGps.coords.altitude,
+			accuracy: powerSaveGps.coords.accuracy || 1,
+			bearing: locationData.bearing!,  // Assert non-null since bearingState always provides it
+			location_source: 'gps',
+			bearing_source: locationData.bearing_source,
+		} : {
 			latitude: locationData.latitude!,
 			longitude: locationData.longitude!,
 			altitude: locationData.altitude,
@@ -829,6 +879,12 @@
 			location_source: locationData.location_source,
 			bearing_source: locationData.bearing_source,
 		};
+
+		if (powerSaveGps) {
+			updateSpatialState({
+				center: {lat: powerSaveGps.coords.latitude, lng: powerSaveGps.coords.longitude}
+			}, 'gps');
+		}
 
 		injectPlaceholder(validLocation, sharedId);
 
@@ -1496,6 +1552,19 @@
 					photoCaptured={photoCapturedCount}
 				/>
 
+				<!-- Power saving toggle: map only catches up after each capture,
+				     lower preview frame rate, CSS animations stopped -->
+				<button
+					class="power-saving-button"
+					class:active={$powerSaving}
+					on:click={() => powerSaving.update(v => !v)}
+					aria-label={$powerSaving ? 'Disable power saving mode' : 'Enable power saving mode'}
+					title={$powerSaving ? 'Power saving on: map moves only after captures, reduced preview frame rate, animations off' : 'Enable power saving mode'}
+					data-testid="power-saving-btn"
+				>
+					<Leaf size={20}/>
+				</button>
+
 				<!-- Calibrate Compass button - shows when compass accuracy is low -->
 				{#if $needsCalibration}
 					<button
@@ -1869,6 +1938,36 @@
 
 	.camera-selector-button:hover {
 		background: rgba(255, 255, 255, 0.3);
+	}
+
+	.power-saving-button {
+		position: absolute;
+		z-index: 1003;
+		/* Right edge, below the top-right corner — that corner belongs to Main's
+		   debug-toggle / native-camera-toggle (40px tall) when debug is enabled. */
+		top: calc(52px + var(--safe-area-inset-top, 0px));
+		right: calc(8px + var(--safe-area-inset-right, 0px));
+		width: 38px;
+		height: 38px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(255, 255, 255, 0.2);
+		border: 1px solid rgba(255, 255, 255, 0.3);
+		color: white;
+		cursor: pointer;
+		border-radius: 50%;
+		transition: background 0.2s;
+		backdrop-filter: blur(10px);
+	}
+
+	.power-saving-button:hover {
+		background: rgba(255, 255, 255, 0.3);
+	}
+
+	.power-saving-button.active {
+		background: rgba(46, 160, 67, 0.55);
+		border-color: rgba(110, 231, 130, 0.8);
 	}
 
 	.camera-selector-dropdown {

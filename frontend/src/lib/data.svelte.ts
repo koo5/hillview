@@ -387,6 +387,25 @@ export function closeDebug() {
 export let mockCamera = localStorageSharedStore('mockCamera', false);
 export let fakeCamera = localStorageSharedStore('fakeCamera', false);
 
+// Power-saving mode, toggled from the capture UI, persisted. When active, GPS
+// fixes move only the location marker (like background tracking) instead of the
+// map — the map catches up once per capture, which also stamps the capture with
+// the live GPS fix. Also lowers the camera preview frame rate and disables CSS
+// animations/transitions (body.power-saving in app.css).
+export let powerSaving = localStorageSharedStore('powerSaving', false);
+
+// Effects only apply while actually capturing — leaving the capture activity
+// restores normal behavior with the toggle still remembered for next time.
+export const powerSavingActive = derived(
+	[powerSaving, app],
+	([$powerSaving, $app]) => $powerSaving && $app.activity === 'capture'
+);
+
+// Stop CSS animations/transitions globally while power saving (rule in app.css).
+if (typeof document !== 'undefined') {
+	powerSavingActive.subscribe(active => document.body.classList.toggle('power-saving', active));
+}
+
 // Debug: render anonymization object detections (bounding boxes) in the zoom view
 export let showDetections = localStorageSharedStore('showDetections', false);
 

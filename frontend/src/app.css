@@ -85,3 +85,13 @@
 .action-button.upload:hover {
 	background-color: #f0fdf4;
 }
+
+/* Power-saving mode (capture activity): stop all CSS animations and
+   transitions. The class is kept in sync with powerSavingActive by
+   data.svelte.ts. */
+body.power-saving *,
+body.power-saving *::before,
+body.power-saving *::after {
+	animation: none !important;
+	transition: none !important;
+}
