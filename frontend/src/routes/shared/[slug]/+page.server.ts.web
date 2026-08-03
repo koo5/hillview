@@ -1,0 +1,21 @@
+import { error, redirect } from '@sveltejs/kit';
+import type { PageServerLoad } from './$types';
+import { backendInternalUrl } from '$lib/config.server';
+
+// Resolve the short link and 301 to its map target. The resolve endpoint also
+// counts the visit. Social scrapers follow the redirect and read the photo's
+// OpenGraph tags off the SSR'd map page, so no head tags are needed here.
+export const load: PageServerLoad = async ({ params, fetch }) => {
+	const res = await fetch(`${backendInternalUrl}/shared/${encodeURIComponent(params.slug)}`);
+
+	if (res.status === 404) {
+		throw error(404, 'Share link not found');
+	}
+	if (!res.ok) {
+		console.error('shared/[slug] SSR: resolve endpoint HTTP', res.status);
+		throw error(502, 'Failed to resolve share link');
+	}
+
+	const data = await res.json();
+	throw redirect(301, data.target);
+};

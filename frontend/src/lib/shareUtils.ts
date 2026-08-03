@@ -3,7 +3,10 @@
  * Used by PhotoActionsMenu and OpenSeadragonViewer (ZoomView)
  */
 
-import { constructShareUrl } from '$lib/urlUtils';
+import { get } from 'svelte/store';
+import { constructShareUrl, extractCoordinates, HILLVIEW_BASE_URL } from '$lib/urlUtils';
+import { spatialState } from '$lib/mapState';
+import { http } from '$lib/http';
 import { TAURI } from '$lib/tauri';
 import { invoke } from '@tauri-apps/api/core';
 import type { PhotoData } from '$lib/sources';
@@ -21,6 +24,44 @@ export interface ShareResult {
 }
 
 /**
+ * Mint a short /shared/{slug} link on the backend. Returns null on any failure
+ * so callers fall back to the long constructShareUrl() form.
+ */
+async function mintShortShareUrl(photo: PhotoData | any, zoomViewBounds?: { x1: number; y1: number; x2: number; y2: number }): Promise<string | null> {
+	try {
+		let photoUid = photo.uid;
+		if (!photoUid && photo.id) {
+			photoUid = `hillview-${photo.id}`;
+		}
+		if (!photoUid) return null;
+
+		const coords = extractCoordinates(photo);
+		const state = get(spatialState);
+		const zoom = state?.zoom ? Math.min(22, Math.max(1, state.zoom)) : undefined;
+		const bearing = coords?.bearing !== undefined && coords?.bearing !== null
+			? ((coords.bearing % 360) + 360) % 360
+			: undefined;
+
+		const response = await http.post('/shared', {
+			photo_uid: photoUid,
+			zoom,
+			lat: coords?.lat,
+			lon: coords?.lon,
+			bearing,
+			zoom_view_bounds: zoomViewBounds ?? null
+		});
+		if (!response.ok) return null;
+
+		const data = await response.json();
+		if (!data?.slug) return null;
+		return `${HILLVIEW_BASE_URL}/shared/${data.slug}`;
+	} catch (error) {
+		console.warn('🔗 Short share link minting failed, falling back to long URL:', error);
+		return null;
+	}
+}
+
+/**
  * Share a photo using native sharing (Tauri) or clipboard fallback (web).
  * Returns a result with a user-facing message and error flag.
  */
@@ -28,7 +69,7 @@ export async function sharePhoto(photo: PhotoData | any, zoomViewBounds?: { x1: 
 	if (!photo) return { message: '', error: false };
 
 	try {
-		const shareUrl = constructShareUrl(photo, zoomViewBounds);
+		const shareUrl = (await mintShortShareUrl(photo, zoomViewBounds)) ?? constructShareUrl(photo, zoomViewBounds);
 		const shareText = `Check out this photo on Hillview${getUserName(photo) ? ` by @${getUserName(photo)}` : ''}`;
 
 		if (TAURI) {

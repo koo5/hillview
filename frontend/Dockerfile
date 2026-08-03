@@ -26,9 +26,11 @@ COPY frontend/src/routes/download/+page.ts.web   src/routes/download/+page.ts
 COPY frontend/src/routes/users/+page.ts.web      src/routes/users/+page.ts
 COPY frontend/src/routes/settings/+page.ts.web   src/routes/settings/+page.ts
 # Docker COPY interprets `[uid]` as a glob character class and silently fails,
-# so we copy the photo/[uid] shadows via shell.
+# so we copy the photo/[uid] and shared/[slug] shadows via shell.
 RUN cp "src/routes/photo/[uid]/+page.ts.web"        "src/routes/photo/[uid]/+page.ts" \
- && cp "src/routes/photo/[uid]/+page.server.ts.web" "src/routes/photo/[uid]/+page.server.ts"
+ && cp "src/routes/photo/[uid]/+page.server.ts.web" "src/routes/photo/[uid]/+page.server.ts" \
+ && cp "src/routes/shared/[slug]/+page.ts.web"        "src/routes/shared/[slug]/+page.ts" \
+ && cp "src/routes/shared/[slug]/+page.server.ts.web" "src/routes/shared/[slug]/+page.server.ts"
 
 # Install dependencies
 RUN bun install --frozen-lockfile

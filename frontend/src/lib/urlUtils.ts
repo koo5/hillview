@@ -19,7 +19,7 @@ export { HILLVIEW_BASE_URL };
  * @param photo Photo object in any supported format
  * @returns Object with lat, lon, and bearing or null if no valid coordinates found
  */
-function extractCoordinates(photo: any): { lat: number; lon: number; bearing?: number } | null {
+export function extractCoordinates(photo: any): { lat: number; lon: number; bearing?: number } | null {
     // PhotoData type (from map/gallery) - coordinates stored in coord.lat/lng
     if (photo?.coord?.lat !== undefined && photo?.coord?.lng !== undefined) {
         return {

@@ -509,3 +509,32 @@ class Notification(Base):
 			name='notifications_user_or_key_check'
 		),
 	)
+
+
+class ShareLink(Base):
+	"""A short share link (/shared/{slug}) minted when a user clicks the share button.
+
+	The target is a relative map path (/?lat=...&photo=...) constructed server-side —
+	never a client-supplied URL — and is the row's identity: minting upserts on it,
+	so repeated shares of the same view return the same link. The public slug is
+	derived, not stored: "{id}-{title-slug}", with the title part recomputed from
+	the photo's current title at each mint (improved titles carry into new shares)
+	and ignored on resolution, which uses only the leading id (Stack Overflow
+	style; id-first survives tail truncation by messengers). Rows are kept
+	forever: a short link that dies after being posted somewhere is worse than
+	useless.
+	"""
+	__tablename__ = "share_links"
+
+	id: Mapped[int] = mapped_column(Integer, primary_key=True)
+	target: Mapped[str] = mapped_column(Text, unique=True)  # Relative path + query, e.g. /?lat=..&photo=..
+	photo_uid: Mapped[str] = mapped_column(String(200))  # Source-prefixed uid, e.g. hillview-<id>, mapillary-<id>
+	# Set only for hillview-source photos; links outlive photo deletion
+	photo_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("photos.id", ondelete="SET NULL"), index=True, nullable=True)
+	created_by: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)  # First minter, when logged in
+	visit_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text('0'))
+	created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+	# Relationships
+	photo: Mapped[Optional["Photo"]] = relationship()
+	creator: Mapped[Optional["User"]] = relationship()
