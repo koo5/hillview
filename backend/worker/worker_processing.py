@@ -198,11 +198,15 @@ def _run_photo_processing(file_path, filename, user_id, photo_id, client_signatu
                           metadata=None, quality=None, fast=False, output_base=None):
 	"""Run async photo processing to completion in a dedicated event loop.
 
-	``output_base`` is this job's work dir: we repoint the processor's output
-	root at it so every size variant + DZI tile lands under it, and the parent
-	reclaims the whole job with a single rmtree (no per-file cleanup list).
-	Safe to set on the shared singleton because each worker processes one job at
-	a time. Heavy imports (blur, photo_processor) happen here, lazily.
+	``output_base`` is this job's work dir: every size variant + DZI tile lands
+	under it, and the parent reclaims the whole job with a single rmtree (no
+	per-file cleanup list). It is passed through as a per-call parameter, NOT
+	set on the shared photo_processor singleton: the production pool shape is
+	one process running N puller threads, so singleton state is shared across
+	concurrent jobs — a second job's set would redirect the first job's output
+	into its work dir, which then gets rmtree'd under it when the second job
+	finishes first (observed 2026-08-03 as intermittent ENOENT in _save_webp).
+	Heavy imports (blur, photo_processor) happen here, lazily.
 	"""
 	from logging_context import task_context
 	try:
@@ -215,8 +219,6 @@ def _run_photo_processing(file_path, filename, user_id, photo_id, client_signatu
 				loop = asyncio.new_event_loop()
 				try:
 					from photo_processor import photo_processor
-					if output_base:
-						photo_processor.upload_dir = output_base
 					result = loop.run_until_complete(
 						photo_processor.process_uploaded_photo(
 							file_path=file_path,
@@ -228,6 +230,7 @@ def _run_photo_processing(file_path, filename, user_id, photo_id, client_signatu
 							metadata=metadata,
 							quality=quality,
 							fast=fast,
+							output_base=output_base,
 						)
 					)
 				finally:
