@@ -2,7 +2,7 @@
 	import {onMount, onDestroy, tick} from 'svelte';
 	import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
 	import {LatLng} from 'leaflet';
-	import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Filter, Clock} from 'lucide-svelte';
+	import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Filter, Clock, Leaf} from 'lucide-svelte';
 	import FiltersModal from './filters-modal/FiltersModal.svelte';
 	import { activeFilterCount, openFiltersModal, clearFilters } from './filters-modal/filtersStore';
 	import { longPress } from '$lib/actions/longPress';
@@ -1046,6 +1046,15 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	}
 
 
+	// Whether the map has been moved to a GPS fix during the current ACTIVE
+	// tracking run. Under power saving the map parks after that one initial
+	// sync. Reset on any tracking toggle, so pressing the track-location
+	// button while power saving still snaps the map to you once.
+	let gpsFollowSyncedOnce = false;
+	locationTracking.subscribe(() => {
+		gpsFollowSyncedOnce = false;
+	});
+
 	// Handle GPS location updates only (position/coordinates)
 	async function handleGpsLocationUpdate(position: GeolocationPosition) {
 		// Run in both ACTIVE and BACKGROUND so the marker keeps moving and the
@@ -1070,10 +1079,14 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		// Only ACTIVE tracking moves the map to follow GPS. In BACKGROUND the map
 		// stays parked at the user's manual pan; the fix is still recorded (table +
 		// alt_location) but must not yank the view.
-		// Power saving behaves like BACKGROUND here: the marker keeps moving (via
-		// lastKnownGpsLocation) but the map doesn't chase fixes — it catches up
-		// once per capture (CameraCapture pushes the live fix into spatialState).
-		if (map && get(locationTracking) && !get(powerSavingActive)) {
+		// Power saving behaves like BACKGROUND here after one initial sync: the
+		// first fix of a tracking run still moves the map (so entering capture
+		// doesn't leave it parked somewhere unrelated), then the marker keeps
+		// moving (via lastKnownGpsLocation) but the map stops chasing fixes — it
+		// catches up once per capture (CameraCapture pushes the live fix into
+		// spatialState).
+		if (map && get(locationTracking) && (!get(powerSavingActive) || !gpsFollowSyncedOnce)) {
+			gpsFollowSyncedOnce = true;
 			const latLng = new L.LatLng(latitude, longitude);
 
 			updateSpatialState({
@@ -2172,12 +2185,17 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	<button
 		class={$locationTracking ? 'active' : ''}
 		on:click={(e) => handleButtonClick('location', e)}
-		title="Track my location"
+		title={$powerSavingActive ? 'Track my location (power saving: map catches up after each capture)' : 'Track my location'}
 		data-testid="track-location-btn"
 		class:flash={locationApiEventFlash}
 		class:background={$backgroundLocationTracking}
 	>
 		<LocationButtonInner />
+		{#if $powerSavingActive}
+			<span class="power-saving-badge" data-testid="location-power-saving-badge">
+				<Leaf size={12}/>
+			</span>
+		{/if}
 	</button>
 	<CompassButton />
 </div>
@@ -2405,6 +2423,25 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		justify-content: center;
 		transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		position: relative;
+	}
+
+	/* Power saving: little leaf on the location button — the map isn't following
+	   GPS, it catches up after each capture. */
+	.power-saving-badge {
+		position: absolute;
+		top: -6px;
+		right: -6px;
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		background: #2ea043;
+		color: white;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+		pointer-events: none;
 	}
 
 	.location-button-container button:hover {
