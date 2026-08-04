@@ -79,3 +79,54 @@ def test_empty_body_gets_placeholder_name():
     s, _ = suggest_body(None, None, ANCHOR, None)
     assert s == "? | 50.05422N, 14.46877E"
     assert parse_body(s).unnamed
+
+
+def test_comma_decimal_coords_replaced_not_appended():
+    # the RKS Liblice regression: Czech decimal-comma coords went unrecognized,
+    # so the approved anchor was APPENDED and the body carried coordinates twice
+    body = "RKS Liblice 2 - jih| 50,0620061, 14,8864855"
+    s, ch = suggest_body(body, None, (50.06198, 14.88649), None)
+    assert s == "RKS Liblice 2 - jih | 50.06198N, 14.88649E"
+    assert [c["what"] for c in ch] == ["coords"]
+    assert ch[0]["from"] == "50,0620061, 14,8864855"
+    # and the canonical result is stable
+    s2, ch2 = suggest_body(s, None, (50.06198, 14.88649), None)
+    assert s2 == s and ch2 == []
+
+
+def test_comma_decimal_coords_parse():
+    p = parse_body("RKS Liblice 2 - jih| 50,0620061, 14,8864855")
+    assert p.coords == (50.0620061, 14.8864855)
+    assert p.roles == ["name", "coords"]
+    assert p.context is None          # v2 misfiled the coords segment as context
+    assert p.name == "RKS Liblice 2 - jih"
+
+
+def test_roles_full_body():
+    p = parse_body("Ještěd | highest point | https://cs.wikipedia.org/wiki/Ještěd"
+                   " | 50.732N, 15.008E")
+    assert p.roles == ["name", "context", "wiki", "coords"]
+
+
+def test_long_decimal_coords_replaced_url_segment_verbatim():
+    body = ("Sídliště Lehovec |50.10294800206575, 14.548184982903308"
+            " |https://maps.app.goo.gl/s6s1cWJ8rFMZwGYQ6")
+    s, ch = suggest_body(body, None, (50.10300, 14.54820), None)
+    assert s == ("Sídliště Lehovec | 50.10300N, 14.54820E"
+                 " | https://maps.app.goo.gl/s6s1cWJ8rFMZwGYQ6")
+    assert [c["what"] for c in ch] == ["coords"]
+
+
+def test_label_takes_over_pure_coords_body():
+    # a body that is ONLY coordinates has no name; the label claims the name
+    # slot and the anchor is appended, never overwriting the label again
+    p = parse_body("50.732, 15.008")
+    assert p.roles == ["coords"] and p.unnamed
+    s, ch = suggest_body("50.732, 15.008", "Ještěd", (50.73280, 15.01000), None)
+    assert s == "Ještěd | 50.73280N, 15.01000E"
+    assert [c["what"] for c in ch] == ["label", "coords"]
+
+
+def test_url_first_body_is_unnamed():
+    p = parse_body("https://www.ok1khl.com/view.php?cisloclanku=2026021501")
+    assert p.roles == ["url"] and p.unnamed and p.name is None
