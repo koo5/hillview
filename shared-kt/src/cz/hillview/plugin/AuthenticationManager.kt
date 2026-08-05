@@ -219,6 +219,12 @@ class AuthenticationManager(
         return prefs.getString(KEY_REFRESH_TOKEN, null)
     }
 
+    // Added for frontend2 (2026-08): its TokenStore is an adapter over this
+    // class, and session restore needs the refresh expiry too.
+    fun getRefreshTokenExpiresAt(): String? {
+        return prefs.getString(KEY_REFRESH_EXPIRES_AT, null)
+    }
+
     fun isTokenExpired(bufferMinutes: Int = 2): Boolean {
         val expiresAt = prefs.getString(KEY_EXPIRES_AT, null) ?: return true
 

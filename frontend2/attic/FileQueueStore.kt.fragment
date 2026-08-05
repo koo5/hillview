@@ -1,0 +1,33 @@
+/** JSON-file-backed queue store (Room swap is planned; interface is stable). */
+class FileQueueStore(private val file: File) : QueueStore {
+    private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+    override suspend fun load(): List<PendingUpload> =
+        if (file.exists()) {
+            try {
+                json.decodeFromString(
+                    kotlinx.serialization.builtins.ListSerializer(PendingUpload.serializer()),
+                    file.readText(),
+                )
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
+
+    override suspend fun save(entries: List<PendingUpload>) {
+        file.parentFile?.mkdirs()
+        val tmp = File(file.parentFile, file.name + ".tmp")
+        tmp.writeText(
+            json.encodeToString(
+                kotlinx.serialization.builtins.ListSerializer(PendingUpload.serializer()),
+                entries,
+            )
+        )
+        if (!tmp.renameTo(file)) {
+            file.writeText(tmp.readText())
+            tmp.delete()
+        }
+    }
+}

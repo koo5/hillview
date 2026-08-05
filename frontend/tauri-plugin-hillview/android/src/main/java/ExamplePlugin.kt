@@ -1543,38 +1543,24 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					// Hash is always provided by Rust (calculated from bytes in memory)
 					val fileHash = args.file_hash ?: throw Exception("File hash is required")
 
-					// Generate ID if not provided (using the hash from Rust)
-					val photoId = if (args.id.isNullOrEmpty()) {
-						PhotoUtils.generatePhotoId(fileHash)
-					} else {
-						args.id!!
-					}
-
-					Log.d(TAG, "📸 Creating PhotoEntity: id=$photoId, hash=$fileHash")
-
-					// Create PhotoEntity from args
-					val photoEntity = PhotoEntity(
-						id = photoId,
+					// Entity build + insert moved to the shared
+					// PhotoUploadLogic.registerCapturedPhoto (2026-08); this
+					// handler keeps parse/validate + the bridge response.
+					val photoId = photoUploadLogic.registerCapturedPhoto(
+						id = args.id,
 						filename = args.filename!!,
 						path = args.path!!,
 						latitude = args.latitude,
 						longitude = args.longitude,
-						altitude = args.altitude ?: 0.0,
-						bearing = args.bearing ?: 0.0,
+						altitude = args.altitude,
+						bearing = args.bearing,
 						capturedAt = args.captured_at,
 						accuracy = args.accuracy,
 						width = args.width,
 						height = args.height,
 						fileSize = args.file_size,
-						createdAt = System.currentTimeMillis(),
-						uploadStatus = "pending",
-						fileHash = fileHash  // Always use the calculated/provided hash
+						fileHash = fileHash,
 					)
-
-					// Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)
-					db.photoDao().insertPhoto(photoEntity)
-
-					Log.d(TAG, "📸 Photo added to photoDao: ${photoId}")
 
 					val result = JSObject()
 					result.put("success", true)
