@@ -21,8 +21,9 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import org.json.JSONArray
-import app.tauri.plugin.JSObject
-import app.tauri.plugin.Invoke
+// app.tauri imports removed at graduation into shared-kt/src — their only
+// users are the handle* extension functions in the app-side
+// PhotoUploadCommands.kt, which imports them itself.
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -34,7 +35,19 @@ import androidx.work.ListenableWorker
 import cz.hillview.plugin.PhotoDatabase
 import cz.hillview.plugin.PhotoEntity
 
-// DuplicateFileException / WorkerBusyException moved to shared-kt UploadProtocol.kt (same package).
+/**
+ * Exception thrown when a duplicate file is detected and handled
+ */
+class DuplicateFileException(message: String) : Exception(message)
+
+/**
+ * Worker reported its upload queue is full (503). The drain loop aborts the
+ * whole pass instead of pushing the remaining queue at a worker that will
+ * reject it; WorkManager's retry/backoff reschedules the drain.
+ * Deliberately not an IOException so the generic network catches don't
+ * swallow it into a per-photo failure.
+ */
+class WorkerBusyException(message: String) : Exception(message)
 
 /**
  * Secure Upload Manager for Android Background Uploads
@@ -48,9 +61,13 @@ import cz.hillview.plugin.PhotoEntity
  *
  * Also provides foreground service capabilities for persistent uploads with notifications.
  */
-class PhotoUploadLogic(private val context: Context) {
+// context/photoDao are `internal` (not private) so the Tauri-bridge
+// extension functions in the app-side PhotoUploadCommands.kt can reach them.
+// (editDao went back to private once the edit/anonymization logic moved into
+// this class as createEdit/getPhotoAnonymizationState.)
+class PhotoUploadLogic(internal val context: Context) {
 	private val database: PhotoDatabase = PhotoDatabase.getDatabase(context)
-	private val photoDao = database.photoDao()
+	internal val photoDao = database.photoDao()
 	private val editDao = database.editDao()
 
 	companion object {
@@ -96,17 +113,17 @@ class PhotoUploadLogic(private val context: Context) {
 	private val prefs: SharedPreferences by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 	private val authManager by lazy { AuthenticationManager(context) }
 	private val clientCrypto by lazy { ClientCryptoManager(context) }
-	private val uploadProtocol by lazy {
-		UploadProtocol(client, object : UploadTokenProvider {
-			override suspend fun getValidToken() = authManager.getValidToken()
-			override suspend fun forceRefreshToken() = authManager.forceRefreshToken()
-		})
-	}
 	private val notificationHelper by lazy { NotificationHelper(context) }
 
 
 
-	// UploadAuthorizationResponse moved to shared-kt UploadProtocol.kt.
+	data class UploadAuthorizationResponse(
+		val upload_jwt: String,
+		val photo_id: String,
+		val expires_at: String,
+		val worker_url: String,
+		val upload_authorized_at: Long  // Unix timestamp when upload was authorized
+	)
 
 
 	suspend fun doWorkInternal(triggerSource: String, photoId: String?, onProgress: ((String) -> Unit)? = null, onBeforePhoto: (suspend () -> Unit)? = null): androidx.work.ListenableWorker.Result {
@@ -573,6 +590,7 @@ class PhotoUploadLogic(private val context: Context) {
 	 */
 	private suspend fun requestUploadAuthorization(photo: PhotoEntity): UploadAuthorizationResponse {
 		val serverUrl = getServerUrl() ?: throw Exception("Server URL not configured")
+		val authToken = authManager.getValidToken() ?: throw Exception("No valid auth token")
 		val contentType = PhotoUtils.getContentType(photo.filename)
 
 		// Convert timestamp to ISO format for captured_at
@@ -588,28 +606,90 @@ class PhotoUploadLogic(private val context: Context) {
 			throw Exception("No upload license configured")
 		}
 
+		val json = JSONObject().apply {
+			put("filename", photo.filename)
+			put("file_size", photo.fileSize)
+			put("content_type", contentType)
+			put("file_md5", photo.fileHash)  // MD5 hash for duplicate detection
+			put("client_key_id", keyInfo.keyId)  // Key ID that will be used for signing
+			put("description", "")  // Could be made configurable
+			put("is_public", true)  // Could be made configurable
+			put("version", photo.version)  // Version for re-upload support
+			put("license", license)
+			// Use PhotoEntity geolocation data
+			put("latitude", photo.latitude)
+			put("longitude", photo.longitude)
+			if (photo.altitude > 0) put("altitude", photo.altitude)
+			if (photo.bearing != 0.0) put("compass_angle", photo.bearing)
+			capturedAt?.let { put("captured_at", it) }
+		}
+
+		val requestBody = json.toString().toRequestBody("application/json".toMediaType())
+
+		Log.d(TAG, "Requesting upload authorization for: ${photo.filename}")
+
+		// Do the call. If the server returns 401, the local access token was
+		// invalidated server-side (blacklist, password change, force-logout,
+		// etc.) despite still looking valid locally. forceRefreshToken
+		// exchanges the refresh token for a fresh pair; on refresh failure it
+		// fires showAuthExpiredNotification() internally, so a bubbled-up
+		// exception from here just becomes a regular upload failure and the
+		// user has already been notified.
+		fun buildRequest(token: String) = Request.Builder()
+			.url("$serverUrl/photos/authorize-upload")
+			.addHeader("Authorization", "Bearer $token")
+			.post(requestBody)
+			.build()
+
 		try {
-			return uploadProtocol.requestUploadAuthorization(
-				serverUrl = serverUrl,
-				job = UploadJobData(
-					filename = photo.filename,
-					fileSize = photo.fileSize,
-					contentType = contentType,
-					fileMd5 = photo.fileHash,
-					version = photo.version,
-					latitude = photo.latitude,
-					longitude = photo.longitude,
-					altitude = photo.altitude,
-					bearing = photo.bearing,
-					capturedAtIso = capturedAt,
-				),
-				clientKeyId = keyInfo.keyId,
-				license = license,
-			)
-		} catch (e: DuplicateFileException) {
-			// Mark the local photo as completed since it already exists on the server
-			photoDao.updateUploadStatus(photo.id, "completed", System.currentTimeMillis())
-			throw e
+			var response = client.newCall(buildRequest(authToken)).execute()
+			if (response.code == 401) {
+				response.close()
+				Log.w(TAG, "authorize-upload → 401, forcing token refresh and retrying once")
+				val refreshed = authManager.forceRefreshToken()
+				if (!refreshed) {
+					throw Exception("Upload authorization failed: session invalid and refresh failed")
+				}
+				val newToken = authManager.getValidToken()
+					?: throw Exception("Upload authorization failed: no token after refresh")
+				response = client.newCall(buildRequest(newToken)).execute()
+			}
+			response.use { r ->
+				if (!r.isSuccessful) {
+					val error = r.body?.string() ?: "Unknown error"
+					throw Exception("Upload authorization failed: ${r.code} - $error")
+				}
+
+				val responseJson = JSONObject(r.body!!.string())
+
+				// Check if this is a duplicate file detection response
+				if (responseJson.optBoolean("duplicate", false)) {
+					val duplicateMessage = responseJson.optString("message", "This file has already been uploaded")
+					Log.i(TAG, "Duplicate file detected for ${photo.filename}: $duplicateMessage")
+
+					// Mark the local photo as completed since it already exists on the server
+					val currentTime = System.currentTimeMillis()
+					val dao = photoDao
+					dao.updateUploadStatus(photo.id, "completed", currentTime)
+
+					// Return a special response indicating duplicate was handled
+					throw DuplicateFileException("Duplicate file successfully handled: $duplicateMessage")
+				}
+
+				return UploadAuthorizationResponse(
+					upload_jwt = responseJson.getString("upload_jwt"),
+					photo_id = responseJson.getString("photo_id"),
+					expires_at = responseJson.getString("expires_at"),
+					worker_url = responseJson.getString("worker_url"),
+					upload_authorized_at = responseJson.getLong("upload_authorized_at")
+				)
+			}
+		} catch (e: java.net.ConnectException) {
+			throw Exception("❌ Cannot reach API server: ${e.message}")
+		} catch (e: java.net.SocketTimeoutException) {
+			throw Exception("⏱️ API server timeout: ${e.message}")
+		} catch (e: java.net.UnknownHostException) {
+			throw Exception("🔍 Cannot resolve API server hostname: ${e.message}")
 		}
 	}
 
@@ -635,24 +715,130 @@ class PhotoUploadLogic(private val context: Context) {
 		workerUrl: String,
 		photoId: String,
 		anonymizationOverride: String? = null
-	): Boolean = uploadProtocol.uploadToWorker(
-		fileBytes = fileBytes,
-		filename = filename,
-		contentType = PhotoUtils.getContentType(filename),
-		uploadJwt = uploadJwt,
-		signature = signature,
-		workerUrl = workerUrl,
-		anonymizationOverride = anonymizationOverride,
-		heartbeat = {
-			try {
-				val database = PhotoDatabase.getDatabase(context)
-				database.photoDao().updateUploadHeartbeat(photoId, System.currentTimeMillis())
-				Log.v(TAG, "Updated upload heartbeat for $filename")
-			} catch (e: Exception) {
-				Log.w(TAG, "Failed to update heartbeat for $filename: ${e.message}")
+	): Boolean {
+		// Pre-flight readiness check — /ready returns 503 only when the WHOLE
+		// fleet is saturated (a single busy machine's 503 carries fly-replay and
+		// the edge re-runs the preflight on a sibling before we ever see it).
+		// The 200 body carries the answering machine's id — pin the upload to it
+		// (see pinnedWorkerMachine). 404 = older worker without /ready; other
+		// failures fall through to the upload attempt itself.
+		try {
+			val readyBuilder = Request.Builder()
+				.url("$workerUrl/ready")
+				.get()
+			pinnedWorkerMachine?.let { readyBuilder.addHeader("fly-force-instance-id", it) }
+			client.newCall(readyBuilder.build()).execute().use { readyResponse ->
+				if (readyResponse.code == 503) {
+					pinnedWorkerMachine = null
+					throw WorkerBusyException("Worker upload queue is full (readiness check)")
+				}
+				if (readyResponse.code == 200) {
+					try {
+						val machineId = JSONObject(readyResponse.body?.string() ?: "")
+							.optString("fly_machine_id")
+						if (machineId.isNotEmpty()) {
+							if (machineId != pinnedWorkerMachine) {
+								Log.d(TAG, "🔌 Pinning uploads to worker machine $machineId")
+							}
+							pinnedWorkerMachine = machineId
+						}
+					} catch (e: Exception) {
+						Log.w(TAG, "Could not parse /ready body for machine id: ${e.message}")
+					}
+				}
 			}
-		},
-	)
+		} catch (e: IOException) {
+			// The pinned machine may be stopped/gone (force-pinned requests fail
+			// outright) — drop the pin so the next attempt re-discovers.
+			pinnedWorkerMachine = null
+			Log.w(TAG, "Readiness check failed for $workerUrl, proceeding with upload: ${e.message}")
+		}
+
+		val mediaType = PhotoUtils.getContentType(filename).toMediaType()
+
+		val multipartBuilder = MultipartBody.Builder()
+			.setType(MultipartBody.FORM)
+			.addFormDataPart(
+				"file",
+				filename,
+				fileBytes.toRequestBody(mediaType)
+			)
+			.addFormDataPart("client_signature", signature)
+
+		// Add anonymization override if present
+		if (anonymizationOverride != null) {
+			multipartBuilder.addFormDataPart("anonymization_override", anonymizationOverride)
+			Log.d(TAG, "Including anonymization_override: $anonymizationOverride")
+		}
+
+		val requestBody = multipartBuilder.build()
+
+		val requestBuilder = Request.Builder()
+			.url("$workerUrl/upload_async")
+			.addHeader("Authorization", "Bearer $uploadJwt")
+			.post(requestBody)
+		pinnedWorkerMachine?.let { requestBuilder.addHeader("fly-force-instance-id", it) }
+		val request = requestBuilder.build()
+
+		Log.d(TAG, "Uploading $filename to worker $workerUrl")
+
+		// Start heartbeat coroutine to update lastUploadAttempt during upload
+		val heartbeatJob = CoroutineScope(Dispatchers.IO).launch {
+			while (isActive) {
+				delay(30_000) // Every 30 seconds
+				try {
+					val database = PhotoDatabase.getDatabase(context)
+					database.photoDao().updateUploadHeartbeat(photoId, System.currentTimeMillis())
+					Log.v(TAG, "Updated upload heartbeat for $filename")
+				} catch (e: Exception) {
+					Log.w(TAG, "Failed to update heartbeat for $filename: ${e.message}")
+				}
+			}
+		}
+
+		try {
+			client.newCall(request).execute().use { response ->
+				if (response.code == 503) {
+					pinnedWorkerMachine = null
+					val error = response.body?.string() ?: "Unknown error"
+					Log.w(TAG, "Worker rejected upload as busy: $error")
+					throw WorkerBusyException("Worker upload queue is full")
+				}
+
+				if (!response.isSuccessful) {
+					val error = response.body?.string() ?: "Unknown error"
+					Log.e(TAG, "Worker upload failed: ${response.code} - $error")
+					return false
+				}
+
+				val responseJson = JSONObject(response.body!!.string())
+				val success = responseJson.optBoolean("success", false)
+
+				if (success) {
+					Log.d(TAG, "✅ Secure upload completed: $filename")
+				} else {
+					val errorMsg = responseJson.optString("error", "Unknown worker error")
+					Log.e(TAG, "❌ Secure upload $filename failed: $errorMsg")
+				}
+
+				return success
+			}
+		} catch (e: java.net.ConnectException) {
+			Log.e(TAG, "❌ Cannot reach worker server for $filename: ${e.message}")
+			return false
+		} catch (e: java.net.SocketTimeoutException) {
+			Log.e(TAG, "⏱️ Worker upload timeout for $filename: ${e.message}")
+			return false
+		} catch (e: java.net.UnknownHostException) {
+			Log.e(TAG, "🔍 Cannot resolve worker hostname for $filename: ${e.message}")
+			return false
+		} catch (e: IOException) {
+			Log.e(TAG, "📡 Network I/O error during worker upload for $filename: ${e.message}")
+			return false
+		} finally {
+			heartbeatJob.cancel()
+		}
+	}
 
 
 	private fun getServerUrl(): String? {
@@ -885,71 +1071,17 @@ class PhotoUploadLogic(private val context: Context) {
         return updatedCount
     }
 
-    data class ServerPhotoStatus(
-        val id: String,
-        val processingStatus: String,
-        val error: String?,
-        val deleted: Boolean = false
-    )
+    // The three methods below hold logic moved verbatim out of the Tauri-bridge
+    // handlers in the plugin's PhotoUploadCommands.kt (2026-08), so frontend2
+    // can call it without the bridge. Callers run them on Dispatchers.IO
+    // (blocking DAO access), like the rest of this class.
 
     /**
-     * Handle get_processing_photo_ids cmd from frontend.
-     * Returns list of serverPhotoIds for photos in "processing" state.
+     * Create an edit action for a photo (e.g. anonymization override).
+     * actionJson is the {"action": ..., "value": ...} object.
+     * @return the new edit's row id
      */
-    fun handleGetProcessingPhotoIds(invoke: Invoke) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val processingPhotos = photoDao.getProcessingPhotos()
-                val serverPhotoIds = processingPhotos.mapNotNull { it.serverPhotoId }
-
-                val result = JSObject()
-                result.put("success", true)
-                result.put("photo_ids", JSONArray(serverPhotoIds))
-                invoke.resolve(result)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error getting processing photo IDs", e)
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", e.message)
-                invoke.resolve(error)
-            }
-        }
-    }
-
-    /**
-     * Handle create_edit cmd from frontend.
-     * Creates an edit action for a photo (e.g., setting anonymization override).
-     * Params: { photo_id: string, action: string, value: any }
-     */
-    fun handleCreateEdit(invoke: Invoke, params: JSObject) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val photoId = params.getString("photo_id")
-                val action = params.getString("action")
-
-                // Build action JSON
-                val actionJson = JSONObject()
-                actionJson.put("action", action)
-
-                // Handle value - can be null, array, or object
-                if (params.has("value")) {
-                    if (params.isNull("value")) {
-                        actionJson.put("value", JSONObject.NULL)
-                    } else {
-                        // Try to get as JSONArray first, then as other types
-                        try {
-                            val valueArray = params.getJSONArray("value")
-                            actionJson.put("value", valueArray)
-                        } catch (e: Exception) {
-                            // Not an array, try other types
-                            actionJson.put("value", params.get("value"))
-                        }
-                    }
-                } else {
-                    actionJson.put("value", JSONObject.NULL)
-                }
-
+    fun createEdit(photoId: String, actionJson: JSONObject): Long {
                 val editEntity = EditEntity(
                     photoId = photoId,
                     actionJson = actionJson.toString(),
@@ -958,108 +1090,15 @@ class PhotoUploadLogic(private val context: Context) {
 
                 val editId = editDao.insertEdit(editEntity)
                 Log.d(TAG, "Created edit $editId for photo $photoId: $actionJson")
-
-                val result = JSObject()
-                result.put("success", true)
-                result.put("edit_id", editId)
-                invoke.resolve(result)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error creating edit", e)
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", e.message)
-                invoke.resolve(error)
-            }
-        }
+        return editId
     }
 
     /**
-     * Handle check_photo_file_exists cmd from frontend.
-     * Checks if the photo file exists on disk.
-     * Params: { photo_id: string }
+     * Effective anonymization state of a photo after applying pending edits.
+     * @return null when the photo is not in the database
      */
-    fun handleCheckPhotoFileExists(invoke: Invoke, params: JSObject) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val photoId = params.getString("photo_id")
-
-                val photo = photoDao.getPhotoById(photoId)
-
-                val result = JSObject()
-                if (photo == null) {
-                    result.put("success", false)
-                    result.put("error", "Photo not found in database")
-                } else {
-                    val fileExists = PhotoUtils.pathExists(context, photo.path)
-                    result.put("success", true)
-                    result.put("exists", fileExists)
-                    result.put("path", photo.path)
-                }
-                invoke.resolve(result)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error checking photo file exists", e)
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", e.message)
-                invoke.resolve(error)
-            }
-        }
-    }
-
-    /**
-     * Handle get_photo_id_by_server_photo_id cmd from frontend.
-     * Returns the device photo ID for a given server photo ID.
-     * Params: { server_photo_id: string }
-     */
-    fun handleGetPhotoIdByServerPhotoId(invoke: Invoke, params: JSObject) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val serverPhotoId = params.getString("server_photo_id")
-
-                val photo = photoDao.getPhotoByServerPhotoId(serverPhotoId)
-
-                val result = JSObject()
-                if (photo != null) {
-                    result.put("success", true)
-                    result.put("photo_id", photo.id)
-                } else {
-                    result.put("success", false)
-                    result.put("error", "Photo not found for server ID: $serverPhotoId")
-                }
-                invoke.resolve(result)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error getting photo ID by server photo ID", e)
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", e.message)
-                invoke.resolve(error)
-            }
-        }
-    }
-
-    /**
-     * Handle get_photo_anonymization_state cmd from frontend.
-     * Returns the effective anonymization state after applying pending edits.
-     * Params: { photo_id: string }
-     * Returns: { success: true, state: "auto" | "none" | "custom", value: null | "[]" | "[{...}]" }
-     */
-    fun handleGetPhotoAnonymizationState(invoke: Invoke, params: JSObject) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val photoId = params.getString("photo_id")
-
-                val photo = photoDao.getPhotoById(photoId)
-
-                if (photo == null) {
-                    val error = JSObject()
-                    error.put("success", false)
-                    error.put("error", "Photo not found in database")
-                    invoke.resolve(error)
-                    return@launch
-                }
+    fun getPhotoAnonymizationState(photoId: String): AnonymizationState? {
+        val photo = photoDao.getPhotoById(photoId) ?: return null
 
                 // Start with the current stored value
                 var currentOverride: String? = photo.anonymizationOverride
@@ -1088,35 +1127,19 @@ class PhotoUploadLogic(private val context: Context) {
                     currentOverride == "[]" -> "none"
                     else -> "custom"
                 }
-
-                val result = JSObject()
-                result.put("success", true)
-                result.put("state", state)
-                if (currentOverride != null) {
-                    result.put("value", currentOverride)
-                } else {
-                    result.put("value", JSONObject.NULL)
-                }
-                invoke.resolve(result)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error getting photo anonymization state", e)
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", e.message)
-                invoke.resolve(error)
-            }
-        }
+        return AnonymizationState(state, currentOverride)
     }
 
+    data class AnonymizationState(
+        val state: String,  // "auto" | "none" | "custom"
+        val value: String?  // null | "[]" | "[{...}]" (JSON regions array)
+    )
+
     /**
-     * Handle update_photo_statuses cmd from frontend.
-     * Params: { statuses: [{ id, processing_status, error }] }
+     * Parse a statuses JSON array (as sent by the frontend) and apply it.
+     * @return number of photos updated
      */
-    fun handleUpdatePhotoStatuses(invoke: Invoke, params: JSObject) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val statusesArray = params.getJSONArray("statuses")
+    fun updatePhotoStatusesFromJson(statusesArray: JSONArray): Int {
                 val statuses = mutableListOf<ServerPhotoStatus>()
 
                 for (i in 0 until statusesArray.length()) {
@@ -1129,20 +1152,14 @@ class PhotoUploadLogic(private val context: Context) {
                 }
 
                 val updatedCount = updatePhotoStatusesFromFrontend(statuses)
-
-                val result = JSObject()
-                result.put("success", true)
-                result.put("updated_count", updatedCount)
-                invoke.resolve(result)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error updating photo statuses", e)
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", e.message)
-                invoke.resolve(error)
-            }
-        }
+        return updatedCount
     }
+
+    data class ServerPhotoStatus(
+        val id: String,
+        val processingStatus: String,
+        val error: String?,
+        val deleted: Boolean = false
+    )
 
 }
