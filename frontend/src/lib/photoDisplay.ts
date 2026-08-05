@@ -154,7 +154,8 @@ export function buildCopyrightNotice(photo: {
  * against real API payloads.
  */
 export function buildPhotoImageJsonLd(
-	photo: PublicPhoto | null
+	photo: PublicPhoto | null,
+	annotations: PhotoAnnotation[] = []
 ): Record<string, unknown> | null {
 	if (!photo) return null;
 	// contentUrl: highest-res variant we'd hand a crawler (capped below 'full',
@@ -184,12 +185,20 @@ export function buildPhotoImageJsonLd(
 						: undefined
 				}
 			: undefined;
+	// keywords: any curator-set keywords, plus the distinct landmark labels the
+	// annotations name — deduped case-insensitively across both. These describe
+	// what's actually in the frame (a topical/geographic signal for the image),
+	// so a densely-annotated Prague pano reads unambiguously as a view *of Prague*.
+	const keywords = dedupeCaseInsensitive([
+		...(photo.keywords ?? []),
+		...annotationKeywords(annotations)
+	]);
 	return {
 		'@context': 'https://schema.org',
 		'@type': 'ImageObject',
-		name: displayTitle(photo),
+		name: displayTitle(photo, annotations),
 		description: photo.description || undefined,
-		keywords: photo.keywords && photo.keywords.length ? photo.keywords : undefined,
+		keywords: keywords.length ? keywords : undefined,
 		contentUrl: content?.url || undefined,
 		thumbnailUrl: thumb?.url || undefined,
 		width: content?.width || undefined,
@@ -213,12 +222,26 @@ export function buildPhotoImageJsonLd(
 	};
 }
 
-export function displayTitle(photo: {
-	title?: string | null;
-	description?: string | null;
-	original_filename: string | null;
-}): string {
-	return photo.title || photo.description || photo.original_filename || 'Photo';
+export function displayTitle(
+	photo: {
+		title?: string | null;
+		description?: string | null;
+		original_filename: string | null;
+	},
+	annotations: PhotoAnnotation[] = []
+): string {
+	// A user-written landmark label beats the raw camera filename (036A8750.webp,
+	// EOS dumps, emoji blobs) as the public title/h1/og:title. Annotations are the
+	// image's real caption when title + description are both empty, so prefer them
+	// before falling through to the filename. Grid callers pass no annotations and
+	// keep the old title/description/filename behaviour.
+	return (
+		photo.title ||
+		photo.description ||
+		firstAnnotationText(annotations) ||
+		photo.original_filename ||
+		'Photo'
+	);
 }
 
 export function parseAnnotationBody(body: string | null | undefined): AnnotationBodySegment[] {
@@ -232,51 +255,88 @@ export function parseAnnotationBody(body: string | null | undefined): Annotation
 		);
 }
 
+// A meaningful annotation segment is a text segment (not a URL) that isn't a
+// placeholder ('?', 'oops') the annotators use for "don't know yet".
+function meaningfulAnnotationText(value: string): string | null {
+	const trimmed = value.trim();
+	const placeholder = trimmed.toLowerCase();
+	if (!trimmed || placeholder === '?' || placeholder === 'oops') return null;
+	return trimmed;
+}
+
 /**
  * First meaningful text segment across a photo's annotations, or '' if none.
- * Skips link segments and placeholder bodies ('?', 'oops'). Used to enrich the
- * social/meta description with a human-written caption when one exists.
+ * Skips link segments and placeholder bodies. Used as a title fallback for
+ * photos whose only human text is a landmark label (see displayTitle).
  */
 export function firstAnnotationText(annotations: PhotoAnnotation[]): string {
 	for (const a of annotations) {
 		if (!a.body) continue;
 		for (const seg of parseAnnotationBody(a.body)) {
 			if (seg.kind !== 'text') continue;
-			const trimmed = seg.value.trim();
-			// Skip placeholder captions that carry no real information.
-			const placeholder = trimmed.toLowerCase();
-			if (!trimmed || placeholder === '?' || placeholder === 'oops') continue;
-			return trimmed;
+			const text = meaningfulAnnotationText(seg.value);
+			if (text) return text;
 		}
 	}
 	return '';
 }
 
+/**
+ * Distinct landmark labels a photo's annotations name, for schema.org keywords:
+ * text segments only (URLs dropped), placeholders skipped, de-duplicated
+ * case-insensitively (the raw set has repeats, e.g. 'Průmyslový palác' ×3).
+ */
+export function annotationKeywords(annotations: PhotoAnnotation[] = []): string[] {
+	const out: string[] = [];
+	for (const a of annotations) {
+		if (!a.body) continue;
+		for (const seg of parseAnnotationBody(a.body)) {
+			if (seg.kind !== 'text') continue;
+			const text = meaningfulAnnotationText(seg.value);
+			if (text) out.push(text);
+		}
+	}
+	return dedupeCaseInsensitive(out);
+}
+
+/** De-duplicate strings case-insensitively (by trimmed lowercase), keeping the
+ *  first occurrence's original casing and order. Drops empties. */
+export function dedupeCaseInsensitive(values: string[]): string[] {
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const v of values) {
+		const key = v.trim().toLowerCase();
+		if (!key || seen.has(key)) continue;
+		seen.add(key);
+		out.push(v);
+	}
+	return out;
+}
+
 /** `<title>` / og:title for a photo: its display title suffixed with the site name. */
-export function buildHeadTitle(photo: PublicPhoto): string {
-	return `${displayTitle(photo)} - Hillview`;
+export function buildHeadTitle(photo: PublicPhoto, annotations: PhotoAnnotation[] = []): string {
+	return `${displayTitle(photo, annotations)} - Hillview`;
 }
 
 /**
- * og:description / <meta name="description"> for a photo: its description, the
- * first annotation caption, and coordinates joined together, with a generic
- * fallback. Deliberately loose human text — precise structured metadata lives in
- * the schema.org ImageObject (buildPhotoImageJsonLd) instead. Shared by the
- * /photo/[uid] detail route and the map homepage's ?photo= share cards so both
- * emit identical head tags.
+ * og:description / <meta name="description"> for a photo. Picks the best single
+ * human-readable line available: the author's description, else the
+ * reverse-geocoded place name, else the bare coordinates as a last resort.
+ *
+ * Deliberately does NOT splice in an annotation — cherry-picking the *first*
+ * label ("… — Strojimport") was arbitrary noise; the full landmark set now lives
+ * in the ImageObject's keywords, and a lone label (when it's all a photo has)
+ * surfaces as the title instead (see displayTitle). Precise structured metadata
+ * lives in buildPhotoImageJsonLd. Shared by the /photo/[uid] detail route and
+ * the map homepage's ?photo= share cards so both emit identical head tags.
  */
-export function buildHeadDescription(
-	photo: PublicPhoto,
-	annotations: PhotoAnnotation[] = []
-): string {
-	const parts: string[] = [];
-	if (photo.description) parts.push(photo.description);
-	const ann = firstAnnotationText(annotations);
-	if (ann) parts.push(ann);
+export function buildHeadDescription(photo: PublicPhoto): string {
+	if (photo.description) return photo.description;
+	if (photo.place_name) return photo.place_name;
 	if (photo.latitude != null && photo.longitude != null) {
-		parts.push(`${photo.latitude.toFixed(4)}, ${photo.longitude.toFixed(4)}`);
+		return `${photo.latitude.toFixed(4)}, ${photo.longitude.toFixed(4)}`;
 	}
-	return parts.join(' — ') || 'Photo on Hillview';
+	return 'Photo on Hillview';
 }
 
 export function formatDate(value: string | null | undefined): string {

@@ -407,6 +407,10 @@ import featured_routes
 
 app.include_router(featured_routes.router)
 
+import share_routes
+
+app.include_router(share_routes.router)
+
 # Debug + internal-debug routers are pure debug tooling. Outside debug mode we
 # don't even register them: their routes then 404 at the routing layer (not just
 # via @debug_only / require_debug_enabled) and never enter /openapi.json or /docs.

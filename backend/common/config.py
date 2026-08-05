@@ -154,6 +154,10 @@ class RateLimitConfig:
 	user_registration_max_requests: int
 	user_registration_window_hours: int
 
+	# Share link minting limits (per IP)
+	share_mint_max_requests: int
+	share_mint_window_hours: int
+
 	# Worker-to-API limits (per IP)
 	worker_upload_max_requests: int
 	worker_upload_window_hours: int
@@ -205,6 +209,10 @@ class RateLimitConfig:
 			user_registration_max_requests=int(os.getenv('RATE_LIMIT_USER_REGISTRATION', '30')),
 			user_registration_window_hours=int(os.getenv('RATE_LIMIT_USER_REGISTRATION_WINDOW', '1')),
 
+			# Share link minting
+			share_mint_max_requests=int(os.getenv('RATE_LIMIT_SHARE_MINT', '60')),
+			share_mint_window_hours=int(os.getenv('RATE_LIMIT_SHARE_MINT_WINDOW', '1')),
+
 			# Worker file upload
 			worker_upload_max_requests=int(os.getenv('RATE_LIMIT_WORKER_UPLOAD', '50000')),
 			worker_upload_window_hours=int(os.getenv('RATE_LIMIT_WORKER_UPLOAD_WINDOW', '1')),
@@ -240,6 +248,11 @@ class RateLimitConfig:
 			'public_read': {
 				'max_requests': self.public_read_max_requests,
 				'window_hours': self.public_read_window_hours,
+				'per_user': False  # Per IP
+			},
+			'share_mint': {
+				'max_requests': self.share_mint_max_requests,
+				'window_hours': self.share_mint_window_hours,
 				'per_user': False  # Per IP
 			},
 			'activity_recent': {

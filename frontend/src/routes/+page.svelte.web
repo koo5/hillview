@@ -63,8 +63,8 @@
 
 {#if photo}
 	<PhotoHead
-		title={buildHeadTitle(photo)}
-		description={buildHeadDescription(photo, annotations)}
+		title={buildHeadTitle(photo, annotations)}
+		description={buildHeadDescription(photo)}
 		ogType="article"
 		ogUrl={$page.url.href}
 		ogImage={ogImage ? { url: ogImage.url, width: ogImage.width, height: ogImage.height } : null}
@@ -72,7 +72,7 @@
 		longitude={photo.longitude}
 		canonicalUrl={`${HILLVIEW_BASE_URL}/photo/${encodeURIComponent(photo.uid)}`}
 	/>
-	<JsonLd data={buildPhotoImageJsonLd(photo)} />
+	<JsonLd data={buildPhotoImageJsonLd(photo, annotations)} />
 {:else}
 	<PhotoHead
 		title="Hillview - annotated panoramas"

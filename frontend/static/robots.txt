@@ -11,6 +11,7 @@ Allow: /contact
 Allow: /bestof
 Allow: /activity
 Allow: /photo/
+Allow: /shared/
 Disallow: /api/
 Disallow: /auth/
 Disallow: /oauth/

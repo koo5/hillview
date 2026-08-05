@@ -496,16 +496,18 @@ class PhotoProcessor:
 
 
 	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None, quality: Optional[int] = None, fast: bool = False, encoding: Optional[str] = None,
+									 output_base: Optional[str] = None,
 									 ) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
 		"""Create optimized versions with anonymization and unique IDs.
 
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
 		encoding: EXR pixel encoding ('srgb'/'linear') sourced from upload metadata;
 			passed to read_image so it need not read the embedded header tag.
+		output_base: per-job output root (see process_uploaded_photo).
 		"""
 
 		sizes_info = {}
-		output_base = self.upload_dir
+		output_base = output_base or self.upload_dir
 		webp_quality_sizes = quality if quality is not None else WEBP_QUALITY_SIZES
 		webp_quality_dzi = quality if quality is not None else WEBP_QUALITY_DZI
 
@@ -707,7 +709,7 @@ class PhotoProcessor:
 			# Store metadata inline in sizes['full']['pyramid'] so the client can
 			# initialise OpenSeadragon without an extra round-trip for the .dzi file.
 			if 'full' in sizes_info:
-				pyramid = await self.generate_dzi_pyramid(image, unique_id, photo_id, client_signature, quality=quality)
+				pyramid = await self.generate_dzi_pyramid(image, unique_id, photo_id, client_signature, quality=quality, output_base=output_base)
 				if pyramid:
 					sizes_info['full']['pyramid'] = pyramid
 
@@ -718,11 +720,12 @@ class PhotoProcessor:
 	# Skip DZI pyramid generation for images where both dimensions are below this threshold
 	DZI_MIN_DIMENSION = 2048
 
-	async def generate_dzi_pyramid(self, image: np.ndarray, unique_id: str, photo_id: str = None, client_signature: str = None, quality: Optional[int] = None) -> Optional[Dict[str, Any]]:
+	async def generate_dzi_pyramid(self, image: np.ndarray, unique_id: str, photo_id: str = None, client_signature: str = None, quality: Optional[int] = None, output_base: Optional[str] = None) -> Optional[Dict[str, Any]]:
 		"""Generate a DZI (Deep Zoom Image) pyramid from an anonymized image.
 
 		Args:
 			image: Anonymized image as a numpy BGR array (already sRGB 8-bit).
+			output_base: per-job output root (see process_uploaded_photo).
 
 		Returns pyramid metadata dict for inline use by OpenSeadragon, or None if generation fails.
 		The metadata allows the client to open the deep-zoom viewer without a separate .dzi fetch.
@@ -737,7 +740,7 @@ class PhotoProcessor:
 			user_id_part = validate_user_id(user_id_part)
 			safe_photo_id = sanitize_filename(photo_id_part)
 
-			output_base = self.upload_dir
+			output_base = output_base or self.upload_dir
 			dzi_dir = validate_file_path(os.path.join(output_base, 'opt', 'dzi', user_id_part), output_base)
 			os.makedirs(dzi_dir, exist_ok=True)
 
@@ -958,6 +961,7 @@ class PhotoProcessor:
 		metadata: Optional[Dict[str, Any]] = None,
 		quality: Optional[int] = None,
 		fast: bool = False,
+		output_base: Optional[str] = None,
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results.
 
@@ -969,6 +973,9 @@ class PhotoProcessor:
 			  per the stored blurred flags and persist verbatim (see
 			  AnonymizationOverride)
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
+		output_base: This job's output root (its per-job work dir). Defaults to
+			self.upload_dir. Must be a parameter, not singleton state: concurrent
+			jobs run as threads sharing this PhotoProcessor instance.
 		"""
 
 		validate_user_id(str(user_id))
@@ -1152,7 +1159,7 @@ class PhotoProcessor:
 		# .exr.encoding sidecar value); read_image falls back to the embedded
 		# header tag when this is absent.
 		encoding = metadata.get('encoding') if metadata else None
-		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding)
+		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base)
 
 		# Extract captured_at from EXIF DateTimeOriginal (with corruption fix)
 		raw_data = exif_data.get('data', {})
