@@ -92,11 +92,14 @@ class SessionManager(
 
     /**
      * Runs [block] with a valid access token, refreshing once on 401.
+     * When the store has a platform refresher (Android), its token wins —
+     * it may have rotated the session underneath us.
      */
     suspend fun <T> authorized(block: suspend (accessToken: String) -> T): T {
         val t = tokens ?: throw NotLoggedInException()
+        val platformToken = store.freshAccessToken()
         return try {
-            block(t.accessToken)
+            block(platformToken ?: t.accessToken)
         } catch (e: UnauthorizedException) {
             refresh()
             val fresh = tokens ?: throw SessionExpiredException("logged out during refresh")
@@ -114,6 +117,16 @@ class SessionManager(
             val current = tokens ?: throw SessionExpiredException("logged out")
             // Another caller already refreshed while we waited.
             if (current.accessToken != before.accessToken) return
+            // A platform refresher (shared-kt AuthenticationManager on
+            // Android) may have rotated the store underneath us — adopt its
+            // tokens instead of replaying our now-spent refresh token, which
+            // strict single-use rotation would treat as theft and answer by
+            // revoking the whole session.
+            val storedNow = store.load()
+            if (storedNow != null && storedNow.accessToken != current.accessToken) {
+                tokens = storedNow
+                return
+            }
             val refreshToken = current.refreshToken
                 ?: throw SessionExpiredException("no refresh token")
             val newToken = try {

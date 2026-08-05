@@ -29,6 +29,7 @@ fun HomeScreen(
     onOpenLogin: () -> Unit,
     onOpenClockVideo: () -> Unit,
     onOpenCapture: () -> Unit,
+    onOpenSettings: () -> Unit,
     session: SessionManager = koinInject(),
 ) {
     val sessionState by session.state.collectAsState()
@@ -78,6 +79,15 @@ fun HomeScreen(
                 .testTag("home-clock-video-button"),
         ) {
             Text("Clock calibration video")
+        }
+
+        OutlinedButton(
+            onClick = onOpenSettings,
+            modifier = Modifier
+                .padding(top = 12.dp)
+                .testTag("home-settings-button"),
+        ) {
+            Text("Settings")
         }
 
         when (sessionState) {

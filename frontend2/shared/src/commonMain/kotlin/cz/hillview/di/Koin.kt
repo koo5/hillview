@@ -17,7 +17,13 @@ import org.koin.dsl.module
 expect fun platformModule(): Module
 
 val appModule = module {
-    single<BackendConfig> { defaultBackendConfig() }
+    // The API URL has ONE home: the settings repository. defaultBackendConfig()
+    // only supplies the platform default for a fresh install (see the
+    // repository bindings). Resolved once at startup — a URL edit in settings
+    // reaches auth on next app start; the upload stack reads it per drain.
+    single<BackendConfig> {
+        BackendConfig(get<cz.hillview.settings.UploadSettingsRepository>().settings.value.serverUrl)
+    }
     single { createHttpClient() }
     single { AuthApi(get(), get()) }
     single { SessionManager(get(), get()) }

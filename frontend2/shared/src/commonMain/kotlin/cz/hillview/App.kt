@@ -20,6 +20,8 @@ import cz.hillview.nav.CaptureKey
 import cz.hillview.nav.ClockVideoKey
 import cz.hillview.nav.HomeKey
 import cz.hillview.nav.LoginKey
+import cz.hillview.nav.SettingsKey
+import cz.hillview.settings.ui.SettingsScreen
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
 import kotlinx.serialization.modules.subclass
@@ -33,6 +35,7 @@ private val navSavedStateConfig = SavedStateConfiguration {
             subclass(LoginKey::class)
             subclass(ClockVideoKey::class)
             subclass(CaptureKey::class)
+            subclass(SettingsKey::class)
         }
     }
 }
@@ -51,7 +54,11 @@ fun App() {
                         onOpenLogin = { backStack.add(LoginKey) },
                         onOpenClockVideo = { backStack.add(ClockVideoKey) },
                         onOpenCapture = { backStack.add(CaptureKey) },
+                        onOpenSettings = { backStack.add(SettingsKey) },
                     )
+                }
+                entry<SettingsKey> {
+                    SettingsScreen(onBack = { backStack.removeLastOrNull() })
                 }
                 entry<CaptureKey> {
                     CaptureScreen(onBack = { backStack.removeLastOrNull() })

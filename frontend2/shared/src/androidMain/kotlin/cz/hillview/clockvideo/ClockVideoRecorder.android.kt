@@ -538,10 +538,10 @@ private class AndroidClockVideoRecorder(
 
     @Composable
     override fun CameraPane(modifier: Modifier) {
-        var granted by remember { mutableStateOf(hasPermission()) }
-        val launcher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { granted = it }
+        val camera = cz.hillview.core.permissions.rememberPermissionsState(
+            permissions = listOf(Manifest.permission.CAMERA),
+        )
+        val granted = camera.granted
 
         if (granted) {
             BoxWithConstraints(modifier = modifier.background(Color(0xFF111111))) {
@@ -600,21 +600,12 @@ private class AndroidClockVideoRecorder(
                 }
             }
         } else {
-            Box(
-                modifier = modifier.background(Color(0xFF111111)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "Camera access is needed to record the calibration video.",
-                        color = Color.White,
-                        modifier = Modifier.padding(bottom = 12.dp),
-                    )
-                    Button(onClick = { launcher.launch(Manifest.permission.CAMERA) }) {
-                        Text("Grant camera access")
-                    }
-                }
-            }
+            cz.hillview.core.permissions.PermissionGatePane(
+                state = camera,
+                explanation = "Camera access is needed to record the calibration video.",
+                testTagPrefix = "clockvideo-camera",
+                modifier = modifier,
+            )
         }
 
         // Live preview from the moment the pane is usable — aim first, record

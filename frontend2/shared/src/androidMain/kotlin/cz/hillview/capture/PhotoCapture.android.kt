@@ -26,10 +26,12 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -42,11 +44,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import cz.hillview.core.permissions.PermissionGatePane
+import cz.hillview.core.permissions.rememberPermissionsState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -133,10 +138,14 @@ private class AndroidPhotoCapture(
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     }
 
-    fun hasPermissions(): Boolean =
+    // Camera is the hard requirement; location soft-degrades (captures still
+    // work, just not geotagged — the pane shows a banner).
+    fun hasCameraPermission(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-            PackageManager.PERMISSION_GRANTED &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
+    fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
 
     fun openCamera() {
@@ -154,7 +163,7 @@ private class AndroidPhotoCapture(
 
     private suspend fun ensureCameraBound() {
         if (cameraBound) return
-        if (!hasPermissions()) throw IllegalStateException("permissions not granted")
+        if (!hasCameraPermission()) throw IllegalStateException("camera permission not granted")
 
         val provider = suspendCancellableCoroutine<ProcessCameraProvider> { cont ->
             val future = ProcessCameraProvider.getInstance(context)
@@ -180,23 +189,35 @@ private class AndroidPhotoCapture(
         cameraBound = true
     }
 
+    private var gpsStarted = false
+    private var rotationStarted = false
+
+    /**
+     * Idempotent; called again when location gets granted after the pane is
+     * already up (the soft-degrade path), so GPS joins late.
+     */
     @SuppressLint("MissingPermission")
-    private fun startSensors() {
-        if (!hasPermissions()) return
-        try {
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER, 1_000L, 0f, locationListener,
-            )
-            locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let {
-                lastLocation = it
+    fun startSensors() {
+        if (hasLocationPermission() && !gpsStarted) {
+            try {
+                locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER, 1_000L, 0f, locationListener,
+                )
+                locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let {
+                    lastLocation = it
+                }
+                gpsStarted = true
+            } catch (e: Exception) {
+                Log.w(TAG, "GPS updates unavailable", e)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "GPS updates unavailable", e)
         }
-        sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let { sensor ->
-            sensorManager.registerListener(
-                rotationListener, sensor, SensorManager.SENSOR_DELAY_UI,
-            )
+        if (!rotationStarted) {
+            sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let { sensor ->
+                sensorManager.registerListener(
+                    rotationListener, sensor, SensorManager.SENSOR_DELAY_UI,
+                )
+                rotationStarted = true
+            }
         }
     }
 
@@ -204,6 +225,17 @@ private class AndroidPhotoCapture(
         val capture = imageCapture ?: return
         if (state.capturing) return
         state = state.copy(capturing = true, errorMessage = null)
+
+        // A wedged camera pipeline can swallow a still capture without
+        // delivering EITHER callback (seen with camera-pipe on the API-31
+        // emulator) — never leave the shutter dead forever.
+        val watchdog = scope.launch {
+            kotlinx.coroutines.delay(15_000)
+            if (state.capturing) {
+                Log.e(TAG, "capture timed out — no callback from takePicture")
+                state = state.copy(capturing = false, errorMessage = "capture timed out")
+            }
+        }
 
         val dir = File(
             context.getExternalFilesDir(Environment.DIRECTORY_PICTURES),
@@ -219,6 +251,7 @@ private class AndroidPhotoCapture(
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(results: ImageCapture.OutputFileResults) {
+                    watchdog.cancel()
                     try {
                         PhotoExifWriter.write(file, snapshot)
                         state = state.copy(
@@ -233,6 +266,7 @@ private class AndroidPhotoCapture(
                 }
 
                 override fun onError(exception: ImageCaptureException) {
+                    watchdog.cancel()
                     Log.e(TAG, "capture failed", exception)
                     state = state.copy(capturing = false, errorMessage = "capture failed: ${exception.message}")
                 }
@@ -267,56 +301,79 @@ private class AndroidPhotoCapture(
         cameraProvider = null
         imageCapture = null
         cameraBound = false
+        gpsStarted = false
+        rotationStarted = false
         scope.cancel()
     }
 
     @Composable
     override fun CameraPane(modifier: Modifier) {
-        var granted by remember { mutableStateOf(hasPermissions()) }
-        val launcher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { results -> granted = results.values.all { it } }
+        // Camera gates the pane; location rides along in the same first
+        // request flow but only degrades the experience when denied.
+        val camera = rememberPermissionsState(
+            permissions = listOf(Manifest.permission.CAMERA),
+            alsoRequest = listOf(Manifest.permission.ACCESS_FINE_LOCATION),
+        )
+        val location = rememberPermissionsState(
+            permissions = listOf(Manifest.permission.ACCESS_FINE_LOCATION),
+        )
 
-        if (granted) {
-            AndroidView(
-                factory = { c ->
-                    PreviewView(c).apply {
-                        scaleType = PreviewView.ScaleType.FIT_CENTER
-                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                    }.also { previewView = it }
-                },
-                modifier = modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF111111))
-                    .clipToBounds(),
-            )
-        } else {
-            Box(
-                modifier = modifier.background(Color(0xFF111111)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "Camera and location access are needed to capture geotagged photos.",
-                        color = Color.White,
-                        modifier = Modifier.padding(bottom = 12.dp),
-                    )
-                    Button(onClick = {
-                        launcher.launch(
-                            arrayOf(
-                                Manifest.permission.CAMERA,
-                                Manifest.permission.ACCESS_FINE_LOCATION,
-                            )
+        if (camera.granted) {
+            Box(modifier = modifier.background(Color(0xFF111111))) {
+                AndroidView(
+                    factory = { c ->
+                        PreviewView(c).apply {
+                            scaleType = PreviewView.ScaleType.FIT_CENTER
+                            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                        }.also { previewView = it }
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clipToBounds(),
+                )
+                if (!location.granted) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.6f))
+                            .padding(horizontal = 8.dp)
+                            .testTag("capture-location-banner"),
+                    ) {
+                        Text(
+                            text = "No location — photos won't be geotagged",
+                            color = Color.White,
                         )
-                    }) {
-                        Text("Grant access")
+                        TextButton(
+                            onClick = {
+                                if (location.permanentlyDenied) location.openAppSettings()
+                                else location.request()
+                            },
+                            modifier = Modifier.testTag("capture-location-grant"),
+                        ) {
+                            Text(if (location.permanentlyDenied) "Settings" else "Enable")
+                        }
                     }
                 }
             }
+        } else {
+            PermissionGatePane(
+                state = camera,
+                explanation = "Camera access is needed to capture photos" +
+                    " (location too, so they are geotagged).",
+                testTagPrefix = "capture-camera",
+                modifier = modifier,
+            )
         }
 
-        LaunchedEffect(granted) {
-            if (granted) openCamera()
+        LaunchedEffect(camera.granted) {
+            if (camera.granted) openCamera()
+        }
+        // GPS joins late when location is granted after the camera was already
+        // up (startSensors is idempotent).
+        LaunchedEffect(location.granted) {
+            if (location.granted && camera.granted) startSensors()
         }
     }
 }

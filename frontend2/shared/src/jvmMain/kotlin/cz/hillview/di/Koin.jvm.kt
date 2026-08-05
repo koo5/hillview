@@ -29,6 +29,11 @@ private class JavaPrefsTokenStore : TokenStore {
 }
 
 actual fun platformModule(): Module = module {
+    single<cz.hillview.settings.UploadSettingsRepository> {
+        cz.hillview.settings.JavaPrefsUploadSettingsRepository(
+            cz.hillview.settings.defaultUploadSettings(cz.hillview.core.net.defaultBackendConfig().apiUrl),
+        )
+    }
     single<TokenStore> { JavaPrefsTokenStore() }
     // Desktop can't capture, so there is no upload path here.
     single<cz.hillview.upload.UploadPipeline> { cz.hillview.upload.NoopUploadPipeline() }

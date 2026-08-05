@@ -17,3 +17,6 @@ data object ClockVideoKey : NavKey
 
 @Serializable
 data object CaptureKey : NavKey
+
+@Serializable
+data object SettingsKey : NavKey
