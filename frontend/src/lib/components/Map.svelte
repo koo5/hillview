@@ -52,7 +52,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	import { overrideFilters } from '$lib/components/filters-modal/filtersStore';
 	import {featuredPhotoData, maybeFetchFeaturedPhoto} from "$lib/featuredPhoto";
 	import {updateBearingWithPhoto, disableBearingTracking} from "$lib/bearingTracking";
-	import {adjustMountOffset} from "$lib/gpsOrientation.svelte";
+	import {adjustMountOffset, gpsOrientationEnabled} from "$lib/gpsOrientation.svelte";
 	import {getAngularDistance} from "$lib/utils/bearingUtils";
 	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
@@ -1188,7 +1188,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 
 		function applyBearing(cx: number, cy: number) {
 			const bearing = pointerBearing(cx, cy);
-			if ($bearingMode === 'car') {
+			if ($bearingMode === 'car' && $gpsOrientationEnabled) {
 				// Translate drag into a mount-offset change so Kotlin (Tauri) /
 				// the subsequent gps-kalman diffs (browser) stay consistent.
 				adjustMountOffset(getAngularDistance(prevPointerBearing, bearing));
@@ -2009,7 +2009,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 				{arrowX}
 				{arrowY}
 				bearingDeg={Math.round($bearingState.bearing ?? 0)}
-				fullCircleHitArea={$bearingMode === 'car'}
+				fullCircleHitArea={$bearingMode === 'car' && $gpsOrientationEnabled}
 				on:arrowdragstart={handleArrowDragStart}
 			/>
 			{/if}

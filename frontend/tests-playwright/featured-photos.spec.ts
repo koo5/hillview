@@ -10,6 +10,7 @@ const TEST_PHOTO_MAP_URL = '/?lat=50.1153&lon=14.4938&zoom=18';
 
 /** Set or unset the featured flag on a photo via the debug API. */
 async function setFeatured(photoId: string, featured: boolean): Promise<void> {
+	if (!photoId) throw new Error("photoId is empty — the serial 'setup:' test did not run; re-run the whole spec file");
 	const res = await fetch(
 		`${BACKEND_URL}/api/debug/set-featured?photo_id=${encodeURIComponent(photoId)}&featured=${featured}`,
 		{ method: 'POST' },

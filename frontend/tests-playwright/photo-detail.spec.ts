@@ -8,6 +8,12 @@ test.describe('Photo Detail Page', () => {
 
 	let photoUid = '';
 
+	/** photoUid is set by the serial setup test; line-filtered reruns skip it. */
+	function requirePhotoUid(): string {
+		if (!photoUid) throw new Error("photoUid is empty — the serial 'setup:' test did not run; re-run the whole spec file");
+		return photoUid;
+	}
+
 	test('setup: upload a test photo', async ({ page, testUsers }) => {
 		test.setTimeout(120_000);
 		await loginAsTestUser(page, testUsers.passwords.test);
@@ -20,7 +26,7 @@ test.describe('Photo Detail Page', () => {
 	});
 
 	test('should load and display photo details', async ({ page }) => {
-		await page.goto(`/photo/${photoUid}`);
+		await page.goto(`/photo/${requirePhotoUid()}`);
 
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: T(10000) });
 		await expect(page.getByTestId('photo-detail-image')).toBeVisible();
@@ -39,7 +45,7 @@ test.describe('Photo Detail Page', () => {
 	});
 
 	test('should navigate to map when View on Map is clicked', async ({ page }) => {
-		await page.goto(`/photo/${photoUid}`);
+		await page.goto(`/photo/${requirePhotoUid()}`);
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: T(10000) });
 
 		await page.getByTestId('photo-detail-view-on-map').click();
@@ -51,7 +57,7 @@ test.describe('Photo Detail Page', () => {
 	test('should show action buttons', async ({ page, testUsers }) => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
-		await page.goto(`/photo/${photoUid}`);
+		await page.goto(`/photo/${requirePhotoUid()}`);
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: T(10000) });
 
 		// Rating buttons
@@ -71,7 +77,7 @@ test.describe('Photo Detail Page', () => {
 	test('should flag and unflag a photo', async ({ page, testUsers }) => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
-		await page.goto(`/photo/${photoUid}`);
+		await page.goto(`/photo/${requirePhotoUid()}`);
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: T(10000) });
 
 		const flagButton = page.getByTestId('menu-flag');
@@ -91,7 +97,7 @@ test.describe('Photo Detail Page', () => {
 	});
 
 	test('should navigate to user profile when owner link is clicked', async ({ page }) => {
-		await page.goto(`/photo/${photoUid}`);
+		await page.goto(`/photo/${requirePhotoUid()}`);
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: T(10000) });
 
 		await page.getByTestId('photo-detail-owner').click();
