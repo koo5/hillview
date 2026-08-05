@@ -65,20 +65,6 @@ import TimelinePanel from './TimelinePanel.svelte';
 	let containerElement: HTMLElement;
 	let screenAngleUnlisten: PluginListener | null = null;
 
-	async function handleNativeCapture() {
-		console.log('🢄[NATIVE CAMERA] Starting native camera capture');
-		try {
-			const result: any = await invoke('take_native_photo');
-			console.log('🢄[NATIVE CAMERA] Result:', JSON.stringify(result));
-			if (result.success) {
-				console.log('🢄[NATIVE CAMERA] Photo captured with id:', result.photo_id);
-			} else {
-				console.error('🢄[NATIVE CAMERA] Error:', result.error);
-			}
-		} catch (error) {
-			console.error('🢄[NATIVE CAMERA] Invoke error:', error);
-		}
-	}
 
 
 	$: showCameraView = $app.activity === 'capture';
@@ -639,17 +625,6 @@ import TimelinePanel from './TimelinePanel.svelte';
 			</button>
 		{/if}
 
-		{#if TAURI && $app.debug}
-			<button
-				on:click={handleNativeCapture}
-				class="native-camera-toggle"
-				aria-label="Native camera capture"
-				title="Native camera capture (tauri-plugin-camera)"
-				data-testid="native-camera-btn"
-			>
-				📸
-			</button>
-		{/if}
 
 		{#if $showCalibrationView}
 			<CompassCalibration />
@@ -822,30 +797,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 		transition: all 0.2s ease;
 	}
 
-	.native-camera-toggle {
-		position: absolute;
-		top: calc(0px + var(--safe-area-inset-top, 0px));
-		right: calc(50px + var(--safe-area-inset-right, 0px));
-		z-index: 30001;
-		background: orange;
-		border-radius: 50%;
-		width: 40px;
-		height: 40px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-		cursor: pointer;
-		border: none;
-		padding: 0;
-		font-size: 20px;
-		transition: all 0.2s ease;
-	}
 
-	.native-camera-toggle:active {
-		transform: scale(0.95);
-		background: darkorange;
-	}
 
 	.camera-button.active {
 		background: #4a90e2;
