@@ -3,6 +3,7 @@ import { test, expect } from './fixtures';
 import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
+import { BACKEND_URL } from './helpers/adminAuth';
 import { collectErrors } from './helpers/consoleLogging';
 
 type Page = import('@playwright/test').Page;
@@ -385,6 +386,20 @@ test.describe('Zoom View URL Parameters', () => {
       return page.evaluate(() => (window as any).__lastClipboardText as string);
     }
 
+    /** Share mints a short /shared/{slug} link; resolve it via the backend and
+     * return the target map URL, which carries the actual map params. */
+    async function resolveShareTarget(clipboardText: string): Promise<URL> {
+      const urlMatch = clipboardText.match(/https?:\/\/\S+/);
+      expect(urlMatch, 'Share clipboard should contain a URL').toBeTruthy();
+      const shareUrl = new URL(urlMatch![0]);
+      expect(shareUrl.pathname, 'Share should mint a short /shared/{slug} link').toMatch(/^\/shared\/\d+/);
+      const slug = shareUrl.pathname.slice('/shared/'.length);
+      const res = await fetch(`${BACKEND_URL}/api/shared/${encodeURIComponent(slug)}`);
+      expect(res.ok, `Short share link should resolve, got ${res.status}`).toBe(true);
+      const { target } = await res.json();
+      return new URL(target, shareUrl.origin);
+    }
+
     test('share URL from zoom view should include x1/y1/x2/y2 params', async ({ page, testUsers }) => {
       await loginAsTestUser(page, testUsers.passwords.test);
       await uploadPhoto(page, testPhotos[0]);
@@ -402,12 +417,8 @@ test.describe('Zoom View URL Parameters', () => {
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
 
-      // Read share URL from intercepted clipboard
-      const clipboardText = await getLastClipboardText(page);
-      const urlMatch = clipboardText.match(/https?:\/\/\S+/);
-      expect(urlMatch, 'Share clipboard should contain a URL').toBeTruthy();
-
-      const shareUrl = new URL(urlMatch![0]);
+      // Read share URL from intercepted clipboard and resolve the short link
+      const shareUrl = await resolveShareTarget(await getLastClipboardText(page));
       const x1 = shareUrl.searchParams.get('x1');
       const y1 = shareUrl.searchParams.get('y1');
       const x2 = shareUrl.searchParams.get('x2');
@@ -441,8 +452,7 @@ test.describe('Zoom View URL Parameters', () => {
       await page.click('[data-testid="osd-display-menu-toggle"]');
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
-      const defaultClip = await getLastClipboardText(page);
-      const defaultUrl = new URL(defaultClip.match(/https?:\/\/\S+/)![0]);
+      const defaultUrl = await resolveShareTarget(await getLastClipboardText(page));
       const defaultWidth = parseFloat(defaultUrl.searchParams.get('x2')!) - parseFloat(defaultUrl.searchParams.get('x1')!);
 
       // Zoom in by double-clicking
@@ -459,8 +469,7 @@ test.describe('Zoom View URL Parameters', () => {
       await page.click('[data-testid="osd-display-menu-toggle"]');
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
-      const zoomedClip = await getLastClipboardText(page);
-      const zoomedUrl = new URL(zoomedClip.match(/https?:\/\/\S+/)![0]);
+      const zoomedUrl = await resolveShareTarget(await getLastClipboardText(page));
       const zoomedWidth = parseFloat(zoomedUrl.searchParams.get('x2')!) - parseFloat(zoomedUrl.searchParams.get('x1')!);
 
       // After zooming in, viewport width should be smaller
