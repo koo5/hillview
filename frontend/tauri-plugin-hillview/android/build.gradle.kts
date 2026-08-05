@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "cz.hillview.plugin"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         minSdk = 21
@@ -81,13 +81,11 @@ dependencies {
     kapt("androidx.room:room-compiler:2.6.1")
 
     // WorkManager for background tasks.
-    // 2.10.x declares `foregroundServiceType="dataSync"` on SystemForegroundService
-    // (plus the matching permission), but it requires compileSdk 35 + AGP 8.6+.
-    // Staying on 2.9.1 and patching the missing type/permission into our own
-    // manifest (see AndroidManifest.xml) keeps the compileSdk/AGP bump out of
-    // scope. When the project moves to compileSdk 35, bump to 2.10.x and drop
-    // the manifest overrides.
-    implementation("androidx.work:work-runtime-ktx:2.9.1")
+    // Bumped 2.9.1 -> 2.10.5 with the compileSdk 36 / AGP 8.9 pass (2026-08).
+    // NOTE: verified that 2.10.5 still does NOT declare the dataSync
+    // foregroundServiceType/permission itself — our AndroidManifest.xml
+    // patches remain required (see the comment there).
+    implementation("androidx.work:work-runtime-ktx:2.10.5")
 
     // HTTP client for uploads
     implementation("com.squareup.okhttp3:okhttp:4.11.0")
@@ -132,4 +130,5 @@ dependencies {
 //}
 
 // Kotlin shared verbatim with frontend2 (see /shared-kt/README.md).
-android.sourceSets.getByName("main").java.srcDirs("src/main/java", "../../../shared-kt/src")
+// src-pending: shared-in-principle files frontend2 can't compile yet.
+android.sourceSets.getByName("main").java.srcDirs("src/main/java", "../../../shared-kt/src", "../../../shared-kt/src-pending")
