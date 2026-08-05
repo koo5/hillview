@@ -1155,6 +1155,67 @@ class PhotoUploadLogic(internal val context: Context) {
         return updatedCount
     }
 
+    /**
+     * Register a captured photo in the DB as "pending" — the capture flow's
+     * ingestion point (the drain's directory scan is only a supplementary
+     * sweep). Body moved verbatim from ExamplePlugin.addPhotoToDatabase
+     * (2026-08); parameters mirror its AddPhotoArgs. fileHash is the MD5 of
+     * the photo bytes (Rust computes it in the Tauri app; frontend2 uses
+     * PhotoUtils.calculateFileHash) — the "hash required" check stayed in the
+     * handler, here the parameter is non-null. A null/empty [id] derives one
+     * from the hash.
+     * @return the photo id
+     */
+    fun registerCapturedPhoto(
+        id: String?,
+        filename: String,
+        path: String,
+        latitude: Double,
+        longitude: Double,
+        altitude: Double?,
+        bearing: Double?,
+        capturedAt: Long,
+        accuracy: Double,
+        width: Int,
+        height: Int,
+        fileSize: Long,
+        fileHash: String,
+    ): String {
+					// Generate ID if not provided (using the hash from Rust)
+					val photoId = if (id.isNullOrEmpty()) {
+						PhotoUtils.generatePhotoId(fileHash)
+					} else {
+						id
+					}
+
+					Log.d(TAG, "📸 Creating PhotoEntity: id=$photoId, hash=$fileHash")
+
+					// Create PhotoEntity from args
+					val photoEntity = PhotoEntity(
+						id = photoId,
+						filename = filename,
+						path = path,
+						latitude = latitude,
+						longitude = longitude,
+						altitude = altitude ?: 0.0,
+						bearing = bearing ?: 0.0,
+						capturedAt = capturedAt,
+						accuracy = accuracy,
+						width = width,
+						height = height,
+						fileSize = fileSize,
+						createdAt = System.currentTimeMillis(),
+						uploadStatus = "pending",
+						fileHash = fileHash  // Always use the calculated/provided hash
+					)
+
+					// Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)
+					photoDao.insertPhoto(photoEntity)
+
+					Log.d(TAG, "📸 Photo added to photoDao: ${photoId}")
+        return photoId
+    }
+
     data class ServerPhotoStatus(
         val id: String,
         val processingStatus: String,
