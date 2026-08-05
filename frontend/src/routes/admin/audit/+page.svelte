@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScrollText, Trash2, Lock } from 'lucide-svelte';
+	import { ScrollText, Trash2, Pencil, Lock } from 'lucide-svelte';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import ProfileGate from '$lib/components/ProfileGate.svelte';
@@ -57,6 +57,13 @@
 		const filename = (x.original_filename as string) || (x.filename as string) || '';
 		return title || filename || '';
 	}
+
+	// For 'edit' entries: the field names whose old/new values were snapshotted.
+	function changedFields(ev: AuditEntry): string {
+		const changes = ev.extra_data?.changes;
+		if (!changes || typeof changes !== 'object') return '';
+		return Object.keys(changes).join(', ');
+	}
 </script>
 
 <StandardHeaderWithAlert title="Moderation audit" showMenuButton={true} fallbackHref={$isAdmin ? '/admin' : '/moderate'} />
@@ -86,14 +93,17 @@
 						{#each entries as ev (ev.id)}
 							<li class="entry" data-testid="admin-audit-entry" data-entry-id={ev.id} data-action={ev.action}>
 								<span class="action action-{ev.action}">
-									<Trash2 size={13} /> {ev.action}
+									{#if ev.action === 'edit'}<Pencil size={13} />{:else}<Trash2 size={13} />{/if} {ev.action}
 								</span>
 								<div class="entry-main">
 									<div class="line">
 										<span class="actor" data-testid="admin-audit-actor">{ev.actor_username ?? ev.actor_user_id}</span>
 										{#if ev.actor_role}<span class="role">{ev.actor_role}</span>{/if}
-										<span class="verb">removed</span>
+										<span class="verb">{ev.action === 'edit' ? 'edited' : 'removed'}</span>
 										<span class="owner" data-testid="admin-audit-owner">{ev.photo_owner_username ?? 'unknown'}</span><span class="verb">'s photo</span>
+										{#if ev.action === 'edit' && changedFields(ev)}
+											<span class="verb">({changedFields(ev)})</span>
+										{/if}
 									</div>
 									<div class="meta">
 										<span class="photo" title={`photo ${ev.photo_id}`}>{ev.photo_source} · {ev.photo_id.slice(0, 12)}…</span>
@@ -190,6 +200,11 @@
 		border-radius: 999px;
 		background: #fee2e2;
 		color: #b91c1c;
+	}
+
+	.action.action-edit {
+		background: #e0e7ff;
+		color: #4338ca;
 	}
 
 	.entry-main {

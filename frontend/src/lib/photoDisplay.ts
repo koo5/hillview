@@ -18,6 +18,7 @@ export interface PublicPhoto {
 	place_name?: string | null;
 	license?: string | null;
 	is_public?: boolean;
+	featured?: boolean;
 	latitude: number | null;
 	longitude: number | null;
 	bearing: number | null;

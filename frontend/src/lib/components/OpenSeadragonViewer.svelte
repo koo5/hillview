@@ -23,7 +23,7 @@
 	 * Background close: clicking/tapping the black area outside the image
 	 * closes the viewer (mirroring the original ZoomView behaviour).
 	 */
-	import { openExternalUrl } from '$lib/urlUtils';
+	import { openExternalUrl, constructMapUrl } from '$lib/urlUtils';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { togglePhotoRating, fetchPhotoRating, ratingShortcutFor, type Rating } from '$lib/photoActions';
 	import type { PhotoData } from '$lib/sources';
@@ -48,6 +48,7 @@
 	import type { ZoomViewData } from '$lib/zoomView.svelte';
 	import { zoomViewportBounds, type ZoomViewInitialBounds } from '$lib/zoomView.svelte';
 	import { parseAnnotationBody, type BodyItem } from '$lib/utils/annotationBody';
+	import { firstCoords } from '$lib/utils/coordParser';
 	import { requireAuth } from './signInModal.svelte';
 	import {
 		showDropdownMenu,
@@ -271,8 +272,27 @@
 			items.push({ type: 'divider' });
 		}
 
+		// Go-to-map item for a coordinate pair found in the body
+		const pushCoordsItem = (label: string, lat: number, lon: number, i: number) => {
+			items.push({
+				id: `annotation-menu-coords-${i}`,
+				label,
+				onclick: () => {
+					trackItem(label);
+					closeDropdownMenu();
+					onClose();
+					myGoto(constructMapUrl({ lat, lon }));
+				},
+				testId: `annotation-menu-coords-${i}`,
+			});
+		};
+
 		for (let i = 0; i < bodyItems.length; i++) {
 			const item = bodyItems[i];
+			if (item.type === 'coords') {
+				pushCoordsItem(item.value, item.lat, item.lon, i);
+				continue;
+			}
 			if (item.type === 'url') {
 				items.push({
 					id: `annotation-menu-body-${i}`,
@@ -299,6 +319,11 @@
 					testId: `annotation-menu-body-${i}`,
 				});
 			}
+			// Coords embedded in a text/URL segment ("Je\u0161t\u011bd 50.732N, 15.008E",
+			// maps links) \u2014 parse_body extracts these from any segment, so give
+			// them a go-to-map item too.
+			const c = firstCoords(item.value);
+			if (c) pushCoordsItem(c.text, c.lat, c.lon, i);
 		}
 
 		return items;

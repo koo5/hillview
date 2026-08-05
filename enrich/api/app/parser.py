@@ -11,15 +11,20 @@ import re
 import urllib.parse
 from dataclasses import dataclass, field
 
-PARSER_VERSION = "3"   # 3: decimal-comma coords ("50,0620061, 14,8864855") parse; per-
+PARSER_VERSION = "4"   # 4: S/W hemisphere letters negate the coordinate (lat<0 for S,
+                       #    lon<0 for W); pattern mirrored in the frontend TS twin
+                       # 3: decimal-comma coords ("50,0620061, 14,8864855") parse; per-
                        #    segment roles emitted (coords no longer misfiled as context;
                        #    URL-/coords-first bodies count as unnamed)
                        # 2: type keywords match on word boundaries (v1 substring-matched
                        #    "hrad" inside "Zahradní" → castle, "vrch" in "Vrchlického", …)
 
 # lat first, lon second (matches the source convention: "50.73N, 15.00E");
-# [.,] decimal separator — Czech bodies also write "50,0620061, 14,8864855"
-COORD_RE = re.compile(r"(\d{1,2}[.,]\d{3,})\s*[NnSs]?[,\s]+(\d{1,2}[.,]\d{3,})\s*[EeWw]?")
+# [.,] decimal separator — Czech bodies also write "50,0620061, 14,8864855";
+# S/W hemisphere letters negate the value.
+# TS twin: frontend/src/lib/utils/coordParser.ts (clickable coords in the
+# zoomview) — keep the pattern and semantics in sync both ways.
+COORD_RE = re.compile(r"(\d{1,2}[.,]\d{3,})\s*([NnSs])?[,\s]+(\d{1,2}[.,]\d{3,})\s*([EeWw])?")
 WIKI_RE = re.compile(r"https?://(\w{2,3})\.wikipedia\.org/wiki/([^\s|)]+)")
 URL_RE = re.compile(r"https?://")
 
@@ -59,6 +64,12 @@ def _coord_float(s: str) -> float:
     return float(s.replace(",", "."))
 
 
+def _coords_from_match(m: re.Match) -> tuple[float, float]:
+    lat = _coord_float(m.group(1)) * (-1 if (m.group(2) or "").upper() == "S" else 1)
+    lon = _coord_float(m.group(3)) * (-1 if (m.group(4) or "").upper() == "W" else 1)
+    return lat, lon
+
+
 def _segment_role(i: int, seg: str) -> str:
     if WIKI_RE.search(seg):
         return "wiki"
@@ -96,7 +107,7 @@ def parse_body(body: str | None) -> ParsedBody:
     for p in parts:
         m = COORD_RE.search(p)
         if m and result.coords is None:
-            result.coords = (_coord_float(m.group(1)), _coord_float(m.group(2)))
+            result.coords = _coords_from_match(m)
         w = WIKI_RE.search(p)
         if w and result.wiki is None:
             result.wiki = (w.group(1), urllib.parse.unquote(w.group(2)).replace("_", " "))

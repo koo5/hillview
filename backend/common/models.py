@@ -300,7 +300,7 @@ class FlaggedPhoto(Base):
 
 class PhotoModerationAudit(Base):
 	"""Audit trail of moderation actions taken by admins/moderators on photos
-	they do not own (currently: deletions).
+	they do not own (currently: deletions and metadata edits).
 
 	Deliberately denormalized and free of FK cascade deletes: the actor's and
 	the owner's usernames/ids are snapshotted so the record survives later
@@ -310,7 +310,7 @@ class PhotoModerationAudit(Base):
 	__tablename__ = "photo_moderation_audit"
 
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
-	action: Mapped[str] = mapped_column(String(32), index=True)  # 'delete'
+	action: Mapped[str] = mapped_column(String(32), index=True)  # 'delete' | 'edit'
 
 	# Actor: the admin/moderator who performed the action.
 	actor_user_id: Mapped[str] = mapped_column(String, index=True)  # no FK — keep audit if actor is deleted

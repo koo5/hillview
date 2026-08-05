@@ -59,6 +59,13 @@ def test_coords_only_segment():
     assert p.context is None
 
 
+def test_coords_hemisphere_sign():
+    # v4: S/W negate; N/E and letterless stay positive
+    assert parse_body("? | 33.8568S, 151.2153E").coords == (-33.8568, 151.2153)
+    assert parse_body("? | 40.7128N, 74.0060W").coords == (40.7128, -74.006)
+    assert parse_body("? | 50.732, 15.008").coords == (50.732, 15.008)
+
+
 def test_url_second_segment_not_context():
     p = parse_body("Kostel | https://en.wikipedia.org/wiki/Church")
     assert p.name == "Kostel"

@@ -38,6 +38,7 @@
 
 import os
 import sys
+import math
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -781,8 +782,8 @@ async def list_moderation_audit(
 	"""List moderation-audit entries (admin/moderator only), newest first.
 
 	Records the moderation actions taken by admins/moderators on photos they did
-	not own (currently: deletions). See ``PhotoModerationAudit`` and the DELETE
-	handler below.
+	not own (currently: deletions and metadata edits). See ``PhotoModerationAudit``
+	and the DELETE/PATCH handlers below.
 
 	NOTE: declared before ``/{photo_id}`` so FastAPI doesn't route this literal
 	path into the photo-detail handler.
@@ -1064,6 +1065,130 @@ async def delete_photo(
 		)
 
 
+class PhotoModerationEditRequest(BaseModel):
+	# None = leave unchanged. An empty/whitespace title or description clears
+	# the field (moderators may need to strip an offensive title).
+	title: Optional[str] = None
+	description: Optional[str] = None
+	featured: Optional[bool] = None
+	bearing: Optional[float] = None  # degrees; normalized into [0, 360)
+	reason: Optional[str] = None
+
+
+@router.patch("/{photo_id}")
+async def moderator_edit_photo(
+	request: Request,
+	photo_id: str,
+	payload: PhotoModerationEditRequest,
+	current_user: User = Depends(get_current_active_user),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Edit a photo's title, description, bearing, or featured flag
+	(admin/moderator only).
+
+	Fields left null are unchanged; an empty/whitespace title or description
+	clears the field. When the actor doesn't own the photo, the change is
+	recorded in the moderation audit (see ``PhotoModerationAudit``) with the
+	old and new values snapshotted in ``extra_data['changes']``.
+	"""
+	if current_user.role not in (UserRole.ADMIN, UserRole.MODERATOR):
+		raise HTTPException(
+			status_code=status.HTTP_403_FORBIDDEN,
+			detail="Admin or moderator access required"
+		)
+
+	await rate_limit_photo_operations(request, current_user.id)
+
+	try:
+		result = await db.execute(
+			select(Photo).where(
+				Photo.id == photo_id,
+				Photo.deleted == False
+			)
+		)
+		photo = result.scalars().first()
+
+		if not photo:
+			raise HTTPException(
+				status_code=status.HTTP_404_NOT_FOUND,
+				detail="Photo not found"
+			)
+
+		changes = {}
+		if payload.title is not None:
+			new_title = payload.title.strip() or None
+			if new_title != photo.title:
+				changes["title"] = {"old": photo.title, "new": new_title}
+				photo.title = new_title
+		if payload.description is not None:
+			new_description = payload.description.strip() or None
+			if new_description != photo.description:
+				changes["description"] = {"old": photo.description, "new": new_description}
+				photo.description = new_description
+		if payload.featured is not None and payload.featured != bool(photo.featured):
+			changes["featured"] = {"old": bool(photo.featured), "new": payload.featured}
+			photo.featured = payload.featured
+		if payload.bearing is not None:
+			if not math.isfinite(payload.bearing):
+				raise HTTPException(
+					status_code=status.HTTP_400_BAD_REQUEST,
+					detail="Bearing must be a finite number of degrees"
+				)
+			new_bearing = payload.bearing % 360
+			if new_bearing != photo.compass_angle:
+				changes["bearing"] = {"old": photo.compass_angle, "new": new_bearing}
+				photo.compass_angle = new_bearing
+
+		if changes:
+			is_owner = photo.owner_id == str(current_user.id)
+			if not is_owner:
+				owner_username = await db.scalar(
+					select(User.username).where(User.id == photo.owner_id)
+				)
+				db.add(PhotoModerationAudit(
+					action="edit",
+					actor_user_id=str(current_user.id),
+					actor_username=current_user.username,
+					actor_role=current_user.role.value if current_user.role else None,
+					photo_source="hillview",
+					photo_id=photo.id,
+					photo_owner_id=photo.owner_id,
+					photo_owner_username=owner_username,
+					reason=payload.reason.strip() if payload.reason and payload.reason.strip() else None,
+					ip_address=get_client_ip(request),
+					user_agent=request.headers.get("user-agent"),
+					extra_data={
+						"original_filename": photo.original_filename,
+						"title": photo.title,
+						"changes": changes,
+					},
+				))
+				logger.warning(
+					f"Moderation: {current_user.role.value} {current_user.username} "
+					f"({current_user.id}) edited photo {photo.id} owned by "
+					f"{photo.owner_id} ({owner_username}): {list(changes)}"
+				)
+			await db.commit()
+
+		return {
+			"id": photo.id,
+			"title": photo.title,
+			"description": photo.description,
+			"featured": bool(photo.featured),
+			"bearing": photo.compass_angle,
+			"changed": sorted(changes),
+		}
+
+	except HTTPException:
+		raise
+	except Exception as e:
+		logger.error(f"Error editing photo {photo_id}: {str(e)}")
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Failed to edit photo"
+		)
+
+
 def _pick_og_image(sizes: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 	"""Pick the og:image variant for share/SEO cards.
 
@@ -1328,6 +1453,7 @@ async def get_public_photo(
 			"place_name": photo.place_name,
 			"license": legal_rights_to_license(photo.legal_rights),
 			"is_public": photo.is_public,
+			"featured": bool(photo.featured),
 			"latitude": latitude,
 			"longitude": longitude,
 			"bearing": photo.compass_angle,

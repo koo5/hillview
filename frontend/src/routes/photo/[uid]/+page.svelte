@@ -12,7 +12,8 @@
 		Trash2,
 		Map as MapIcon,
 		MoreVertical,
-		Clock
+		Clock,
+		Pencil
 	} from 'lucide-svelte';
 	import { http, handleApiError, TokenExpiredError } from '$lib/http';
 	import { auth } from '$lib/auth.svelte';
@@ -257,6 +258,65 @@
 		});
 	}
 
+	// --- Moderator metadata edit form (featured/title/description/bearing) ---
+	// Synced from the photo only when a different photo loads (guarded by uid),
+	// so in-progress edits survive the reassignments rating clicks make.
+	let modEditUid = '';
+	let modTitle = '';
+	let modDescription = '';
+	let modBearing: number | null = null;
+	let modFeatured = false;
+	let isSavingModEdit = false;
+
+	$: if (photo && photo.uid !== modEditUid) {
+		modEditUid = photo.uid;
+		syncModEditForm(photo);
+	}
+
+	function syncModEditForm(p: PublicPhoto) {
+		modTitle = p.title ?? '';
+		modDescription = p.description ?? '';
+		modBearing = p.bearing;
+		modFeatured = p.featured ?? false;
+	}
+
+	async function saveModeratorEdit() {
+		if (!photo || isSavingModEdit) return;
+
+		isSavingModEdit = true;
+		try {
+			const response = await http.patch(`/photos/${photo.id}`, {
+				title: modTitle,
+				description: modDescription,
+				featured: modFeatured,
+				bearing: modBearing
+			});
+			if (!response.ok) {
+				const errorText = await response.text();
+				throw new Error(`Failed to save: ${response.status} ${errorText}`);
+			}
+			const updated = await response.json();
+			photo = {
+				...photo,
+				title: updated.title,
+				description: updated.description,
+				featured: updated.featured,
+				bearing: updated.bearing
+			};
+			syncModEditForm(photo);
+			setStatus(
+				updated.changed.length ? `Saved: ${updated.changed.join(', ')}` : 'No changes to save',
+				false,
+				3000
+			);
+		} catch (err) {
+			console.error('🢄 Error saving moderator edit:', err);
+			setStatus(`Save failed: ${handleApiError(err)}`, true, 5000);
+		} finally {
+			isSavingModEdit = false;
+		}
+	}
+
 	function viewUserProfile() {
 		if (!photo?.owner_id) return;
 		myGoto(constructUserProfileUrl(photo.owner_id));
@@ -471,6 +531,58 @@
 				</div>
 			{/if}
 
+			<!-- Moderator-only metadata edit form with an explicit save. Hillview
+			     photos only — external sources can't be edited. -->
+			{#if $isModerator && photo.source === 'hillview'}
+				<div class="moderator-edit" data-testid="photo-moderator-edit">
+					<h3 class="moderator-edit-heading"><Pencil size={14} /> Moderation</h3>
+					<label class="mod-field">
+						<span>Title</span>
+						<input
+							type="text"
+							bind:value={modTitle}
+							data-testid="photo-moderator-title-input"
+						/>
+					</label>
+					<label class="mod-field">
+						<span>Description</span>
+						<textarea
+							rows="3"
+							bind:value={modDescription}
+							data-testid="photo-moderator-description-input"
+						></textarea>
+					</label>
+					<div class="mod-field-row">
+						<label class="mod-field bearing">
+							<span>Bearing°</span>
+							<input
+								type="number"
+								step="any"
+								placeholder="unchanged"
+								bind:value={modBearing}
+								data-testid="photo-moderator-bearing-input"
+							/>
+						</label>
+						<label class="mod-checkbox">
+							<input
+								type="checkbox"
+								bind:checked={modFeatured}
+								data-testid="photo-moderator-featured-checkbox"
+							/>
+							<span>Featured</span>
+						</label>
+						<button
+							class="action-button save"
+							on:click={saveModeratorEdit}
+							disabled={isSavingModEdit}
+							data-testid="photo-moderator-save-button"
+						>
+							{isSavingModEdit ? 'Saving…' : 'Save'}
+						</button>
+					</div>
+				</div>
+			{/if}
+
 			<PhotoAnnotations {annotations} />
 
 			<!-- Moderators/admins can inspect the full edit history of this photo's annotations. -->
@@ -670,6 +782,76 @@
 		background: #fffbeb;
 		color: #92400e;
 		border-color: #fde68a;
+	}
+
+	.moderator-edit {
+		margin-top: 16px;
+		padding-top: 16px;
+		border-top: 1px solid #eee;
+	}
+
+	.moderator-edit-heading {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0 0 10px 0;
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: #4f46e5;
+	}
+
+	.mod-field {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		margin-bottom: 10px;
+		font-size: 0.85rem;
+		color: #555;
+	}
+
+	.mod-field input,
+	.mod-field textarea {
+		padding: 6px 8px;
+		border: 1px solid #d1d5db;
+		border-radius: 4px;
+		font-size: 14px;
+		font-family: inherit;
+		color: #1f2937;
+	}
+
+	.mod-field-row {
+		display: flex;
+		gap: 16px;
+		align-items: center;
+		flex-wrap: wrap;
+	}
+
+	.mod-field-row .mod-field {
+		margin-bottom: 0;
+	}
+
+	.mod-field.bearing input {
+		width: 110px;
+	}
+
+	.mod-checkbox {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 0.9rem;
+		color: #555;
+		cursor: pointer;
+	}
+
+	.action-button.save {
+		background: #4a90e2;
+		color: white;
+		border-color: transparent;
+	}
+
+	.action-button.save:hover:not(:disabled) {
+		background: #3b7fd1;
+		color: white;
 	}
 
 	.rating-count {

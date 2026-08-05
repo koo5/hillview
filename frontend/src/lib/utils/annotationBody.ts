@@ -2,12 +2,17 @@
  * Utility for parsing annotation body text into structured items.
  *
  * Body format: pipe-separated segments, e.g. "foo | https://x.com | bar"
- * Each segment is trimmed and classified as either a URL or plain text.
+ * Each segment is trimmed and classified as a URL, a coordinate pair, or
+ * plain text. Coordinate classification mirrors _segment_role in the Python
+ * parser (enrich/api/app/parser.py); the formats live in ./coordParser.
  */
+
+import { firstCoords, isCoordsOnly } from './coordParser';
 
 export type BodyItem =
 	| { type: 'text'; value: string }
-	| { type: 'url'; value: string; display: string };
+	| { type: 'url'; value: string; display: string }
+	| { type: 'coords'; value: string; lat: number; lon: number };
 
 const URL_RE = /^https?:\/\//i;
 
@@ -45,6 +50,10 @@ function displayForUrl(url: string): string {
  * - Splits on '|'
  * - Trims each segment
  * - Segments starting with http:// or https:// become URL items
+ * - Segments containing a coordinate pair become coords items — except the
+ *   first segment, which is the name slot and only counts as coords when it
+ *   is nothing but a pair (parser.py _segment_role; embedded coords after a
+ *   name stay part of the name)
  * - Everything else becomes plain text
  * - Empty segments are skipped
  */
@@ -52,12 +61,18 @@ export function parseAnnotationBody(body: string): BodyItem[] {
 	if (!body) return [];
 
 	const items: BodyItem[] = [];
-	for (const raw of body.split('|')) {
-		const value = raw.trim();
+	const segments = body.split('|');
+	for (let i = 0; i < segments.length; i++) {
+		const value = segments[i].trim();
 		if (!value) continue;
 
 		if (URL_RE.test(value)) {
 			items.push({ type: 'url', value, display: displayForUrl(value) });
+			continue;
+		}
+		const c = i === 0 ? (isCoordsOnly(value) ? firstCoords(value) : null) : firstCoords(value);
+		if (c) {
+			items.push({ type: 'coords', value, lat: c.lat, lon: c.lon });
 		} else {
 			items.push({ type: 'text', value });
 		}
