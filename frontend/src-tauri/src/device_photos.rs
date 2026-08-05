@@ -35,7 +35,7 @@ pub struct DevicePhotoMetadata {
 }
 
 // Memory safety constants
-const MAX_CHUNK_AGE_SECS: u64 = 300; // 5 minute TTL for chunks
+const MAX_CHUNK_AGE_SECS: u64 = 3600000;
 const MAX_SINGLE_PHOTO_SIZE_MB: usize = 100; // 100 MB max per photo
 const MAX_IMAGE_DIMENSION: u32 = 10000; // Max 10000x10000 pixels
 
@@ -269,18 +269,23 @@ fn save_to_directory(
 	}
 
 	// Verify save by reading the file back
-	let verified_size = std::fs::File::open(&photo_path)?.metadata()?.len();
-	if verified_size != image_data.len() as u64 {
-		return Err(std::io::Error::new(
-			std::io::ErrorKind::Other,
-			format!(
-				"Verification failed: wrote {} bytes but file has {} bytes",
-				image_data.len(),
-				verified_size
-			),
-		));
+	#[cfg(debug_assertions)]
+	{
+		let verified_size = std::fs::File::open(&photo_path)?.metadata()?.len();
+
+		if verified_size != image_data.len() as u64 {
+			return Err(std::io::Error::new(
+				std::io::ErrorKind::Other,
+				format!(
+					"Verification failed: wrote {} bytes but file has {} bytes",
+					image_data.len(),
+					verified_size
+				),
+			));
+		}
+		info!("🢄✓ Verified save: {} bytes", verified_size);
 	}
-	info!("🢄✓ Verified save: {} bytes", verified_size);
+
 
 	Ok(photo_path)
 }
