@@ -21,8 +21,9 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import org.json.JSONArray
-import app.tauri.plugin.JSObject
-import app.tauri.plugin.Invoke
+// app.tauri imports removed at graduation into shared-kt/src — their only
+// users are the handle* extension functions in the app-side
+// PhotoUploadCommands.kt, which imports them itself.
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -60,9 +61,13 @@ class WorkerBusyException(message: String) : Exception(message)
  *
  * Also provides foreground service capabilities for persistent uploads with notifications.
  */
-class PhotoUploadLogic(private val context: Context) {
+// context/photoDao are `internal` (not private) so the Tauri-bridge
+// extension functions in the app-side PhotoUploadCommands.kt can reach them.
+// (editDao went back to private once the edit/anonymization logic moved into
+// this class as createEdit/getPhotoAnonymizationState.)
+class PhotoUploadLogic(internal val context: Context) {
 	private val database: PhotoDatabase = PhotoDatabase.getDatabase(context)
-	private val photoDao = database.photoDao()
+	internal val photoDao = database.photoDao()
 	private val editDao = database.editDao()
 
 	companion object {
@@ -1066,71 +1071,17 @@ class PhotoUploadLogic(private val context: Context) {
         return updatedCount
     }
 
-    data class ServerPhotoStatus(
-        val id: String,
-        val processingStatus: String,
-        val error: String?,
-        val deleted: Boolean = false
-    )
+    // The three methods below hold logic moved verbatim out of the Tauri-bridge
+    // handlers in the plugin's PhotoUploadCommands.kt (2026-08), so frontend2
+    // can call it without the bridge. Callers run them on Dispatchers.IO
+    // (blocking DAO access), like the rest of this class.
 
     /**
-     * Handle get_processing_photo_ids cmd from frontend.
-     * Returns list of serverPhotoIds for photos in "processing" state.
+     * Create an edit action for a photo (e.g. anonymization override).
+     * actionJson is the {"action": ..., "value": ...} object.
+     * @return the new edit's row id
      */
-    fun handleGetProcessingPhotoIds(invoke: Invoke) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val processingPhotos = photoDao.getProcessingPhotos()
-                val serverPhotoIds = processingPhotos.mapNotNull { it.serverPhotoId }
-
-                val result = JSObject()
-                result.put("success", true)
-                result.put("photo_ids", JSONArray(serverPhotoIds))
-                invoke.resolve(result)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error getting processing photo IDs", e)
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", e.message)
-                invoke.resolve(error)
-            }
-        }
-    }
-
-    /**
-     * Handle create_edit cmd from frontend.
-     * Creates an edit action for a photo (e.g., setting anonymization override).
-     * Params: { photo_id: string, action: string, value: any }
-     */
-    fun handleCreateEdit(invoke: Invoke, params: JSObject) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val photoId = params.getString("photo_id")
-                val action = params.getString("action")
-
-                // Build action JSON
-                val actionJson = JSONObject()
-                actionJson.put("action", action)
-
-                // Handle value - can be null, array, or object
-                if (params.has("value")) {
-                    if (params.isNull("value")) {
-                        actionJson.put("value", JSONObject.NULL)
-                    } else {
-                        // Try to get as JSONArray first, then as other types
-                        try {
-                            val valueArray = params.getJSONArray("value")
-                            actionJson.put("value", valueArray)
-                        } catch (e: Exception) {
-                            // Not an array, try other types
-                            actionJson.put("value", params.get("value"))
-                        }
-                    }
-                } else {
-                    actionJson.put("value", JSONObject.NULL)
-                }
-
+    fun createEdit(photoId: String, actionJson: JSONObject): Long {
                 val editEntity = EditEntity(
                     photoId = photoId,
                     actionJson = actionJson.toString(),
@@ -1139,108 +1090,15 @@ class PhotoUploadLogic(private val context: Context) {
 
                 val editId = editDao.insertEdit(editEntity)
                 Log.d(TAG, "Created edit $editId for photo $photoId: $actionJson")
-
-                val result = JSObject()
-                result.put("success", true)
-                result.put("edit_id", editId)
-                invoke.resolve(result)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error creating edit", e)
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", e.message)
-                invoke.resolve(error)
-            }
-        }
+        return editId
     }
 
     /**
-     * Handle check_photo_file_exists cmd from frontend.
-     * Checks if the photo file exists on disk.
-     * Params: { photo_id: string }
+     * Effective anonymization state of a photo after applying pending edits.
+     * @return null when the photo is not in the database
      */
-    fun handleCheckPhotoFileExists(invoke: Invoke, params: JSObject) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val photoId = params.getString("photo_id")
-
-                val photo = photoDao.getPhotoById(photoId)
-
-                val result = JSObject()
-                if (photo == null) {
-                    result.put("success", false)
-                    result.put("error", "Photo not found in database")
-                } else {
-                    val fileExists = PhotoUtils.pathExists(context, photo.path)
-                    result.put("success", true)
-                    result.put("exists", fileExists)
-                    result.put("path", photo.path)
-                }
-                invoke.resolve(result)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error checking photo file exists", e)
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", e.message)
-                invoke.resolve(error)
-            }
-        }
-    }
-
-    /**
-     * Handle get_photo_id_by_server_photo_id cmd from frontend.
-     * Returns the device photo ID for a given server photo ID.
-     * Params: { server_photo_id: string }
-     */
-    fun handleGetPhotoIdByServerPhotoId(invoke: Invoke, params: JSObject) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val serverPhotoId = params.getString("server_photo_id")
-
-                val photo = photoDao.getPhotoByServerPhotoId(serverPhotoId)
-
-                val result = JSObject()
-                if (photo != null) {
-                    result.put("success", true)
-                    result.put("photo_id", photo.id)
-                } else {
-                    result.put("success", false)
-                    result.put("error", "Photo not found for server ID: $serverPhotoId")
-                }
-                invoke.resolve(result)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error getting photo ID by server photo ID", e)
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", e.message)
-                invoke.resolve(error)
-            }
-        }
-    }
-
-    /**
-     * Handle get_photo_anonymization_state cmd from frontend.
-     * Returns the effective anonymization state after applying pending edits.
-     * Params: { photo_id: string }
-     * Returns: { success: true, state: "auto" | "none" | "custom", value: null | "[]" | "[{...}]" }
-     */
-    fun handleGetPhotoAnonymizationState(invoke: Invoke, params: JSObject) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val photoId = params.getString("photo_id")
-
-                val photo = photoDao.getPhotoById(photoId)
-
-                if (photo == null) {
-                    val error = JSObject()
-                    error.put("success", false)
-                    error.put("error", "Photo not found in database")
-                    invoke.resolve(error)
-                    return@launch
-                }
+    fun getPhotoAnonymizationState(photoId: String): AnonymizationState? {
+        val photo = photoDao.getPhotoById(photoId) ?: return null
 
                 // Start with the current stored value
                 var currentOverride: String? = photo.anonymizationOverride
@@ -1269,35 +1127,19 @@ class PhotoUploadLogic(private val context: Context) {
                     currentOverride == "[]" -> "none"
                     else -> "custom"
                 }
-
-                val result = JSObject()
-                result.put("success", true)
-                result.put("state", state)
-                if (currentOverride != null) {
-                    result.put("value", currentOverride)
-                } else {
-                    result.put("value", JSONObject.NULL)
-                }
-                invoke.resolve(result)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error getting photo anonymization state", e)
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", e.message)
-                invoke.resolve(error)
-            }
-        }
+        return AnonymizationState(state, currentOverride)
     }
 
+    data class AnonymizationState(
+        val state: String,  // "auto" | "none" | "custom"
+        val value: String?  // null | "[]" | "[{...}]" (JSON regions array)
+    )
+
     /**
-     * Handle update_photo_statuses cmd from frontend.
-     * Params: { statuses: [{ id, processing_status, error }] }
+     * Parse a statuses JSON array (as sent by the frontend) and apply it.
+     * @return number of photos updated
      */
-    fun handleUpdatePhotoStatuses(invoke: Invoke, params: JSObject) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val statusesArray = params.getJSONArray("statuses")
+    fun updatePhotoStatusesFromJson(statusesArray: JSONArray): Int {
                 val statuses = mutableListOf<ServerPhotoStatus>()
 
                 for (i in 0 until statusesArray.length()) {
@@ -1310,20 +1152,14 @@ class PhotoUploadLogic(private val context: Context) {
                 }
 
                 val updatedCount = updatePhotoStatusesFromFrontend(statuses)
-
-                val result = JSObject()
-                result.put("success", true)
-                result.put("updated_count", updatedCount)
-                invoke.resolve(result)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error updating photo statuses", e)
-                val error = JSObject()
-                error.put("success", false)
-                error.put("error", e.message)
-                invoke.resolve(error)
-            }
-        }
+        return updatedCount
     }
+
+    data class ServerPhotoStatus(
+        val id: String,
+        val processingStatus: String,
+        val error: String?,
+        val deleted: Boolean = false
+    )
 
 }
