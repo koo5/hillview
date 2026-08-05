@@ -1,17 +1,10 @@
 package cz.hillview.plugin
 
-import android.app.*
 import android.content.Context
-import android.content.Intent
 import android.content.SharedPreferences
 import android.net.ConnectivityManager
-import android.os.Binder
 import android.os.Build
-import android.os.IBinder
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -26,14 +19,8 @@ import org.json.JSONArray
 // PhotoUploadCommands.kt, which imports them itself.
 import java.io.File
 import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.*
 import java.util.concurrent.TimeUnit
 import androidx.work.ListenableWorker
-
-// Database imports for duplicate handling
-import cz.hillview.plugin.PhotoDatabase
-import cz.hillview.plugin.PhotoEntity
 
 /**
  * Exception thrown when a duplicate file is detected and handled
@@ -1082,14 +1069,14 @@ class PhotoUploadLogic(internal val context: Context) {
      * @return the new edit's row id
      */
     fun createEdit(photoId: String, actionJson: JSONObject): Long {
-                val editEntity = EditEntity(
-                    photoId = photoId,
-                    actionJson = actionJson.toString(),
-                    createdAt = System.currentTimeMillis()
-                )
+        val editEntity = EditEntity(
+            photoId = photoId,
+            actionJson = actionJson.toString(),
+            createdAt = System.currentTimeMillis()
+        )
 
-                val editId = editDao.insertEdit(editEntity)
-                Log.d(TAG, "Created edit $editId for photo $photoId: $actionJson")
+        val editId = editDao.insertEdit(editEntity)
+        Log.d(TAG, "Created edit $editId for photo $photoId: $actionJson")
         return editId
     }
 
@@ -1100,33 +1087,33 @@ class PhotoUploadLogic(internal val context: Context) {
     fun getPhotoAnonymizationState(photoId: String): AnonymizationState? {
         val photo = photoDao.getPhotoById(photoId) ?: return null
 
-                // Start with the current stored value
-                var currentOverride: String? = photo.anonymizationOverride
+        // Start with the current stored value
+        var currentOverride: String? = photo.anonymizationOverride
 
-                // Apply any pending edits to compute effective state
-                val pendingEdits = editDao.getPendingEditsForPhoto(photoId)
-                for (edit in pendingEdits) {
-                    try {
-                        val actionJson = org.json.JSONObject(edit.actionJson)
-                        val action = actionJson.optString("action")
-                        if (action == "set_anonymization_override") {
-                            currentOverride = if (actionJson.isNull("value")) {
-                                null
-                            } else {
-                                actionJson.getJSONArray("value").toString()
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Error parsing edit action for state computation: ${e.message}")
+        // Apply any pending edits to compute effective state
+        val pendingEdits = editDao.getPendingEditsForPhoto(photoId)
+        for (edit in pendingEdits) {
+            try {
+                val actionJson = org.json.JSONObject(edit.actionJson)
+                val action = actionJson.optString("action")
+                if (action == "set_anonymization_override") {
+                    currentOverride = if (actionJson.isNull("value")) {
+                        null
+                    } else {
+                        actionJson.getJSONArray("value").toString()
                     }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error parsing edit action for state computation: ${e.message}")
+            }
+        }
 
-                // Determine state type
-                val state = when {
-                    currentOverride == null -> "auto"
-                    currentOverride == "[]" -> "none"
-                    else -> "custom"
-                }
+        // Determine state type
+        val state = when {
+            currentOverride == null -> "auto"
+            currentOverride == "[]" -> "none"
+            else -> "custom"
+        }
         return AnonymizationState(state, currentOverride)
     }
 
@@ -1140,18 +1127,18 @@ class PhotoUploadLogic(internal val context: Context) {
      * @return number of photos updated
      */
     fun updatePhotoStatusesFromJson(statusesArray: JSONArray): Int {
-                val statuses = mutableListOf<ServerPhotoStatus>()
+        val statuses = mutableListOf<ServerPhotoStatus>()
 
-                for (i in 0 until statusesArray.length()) {
-                    val obj = statusesArray.getJSONObject(i)
-                    statuses.add(ServerPhotoStatus(
-                        id = obj.getString("id"),
-                        processingStatus = obj.optString("processing_status", ""),
-                        error = if (obj.isNull("error")) null else obj.optString("error")
-                    ))
-                }
+        for (i in 0 until statusesArray.length()) {
+            val obj = statusesArray.getJSONObject(i)
+            statuses.add(ServerPhotoStatus(
+                id = obj.getString("id"),
+                processingStatus = obj.optString("processing_status", ""),
+                error = if (obj.isNull("error")) null else obj.optString("error")
+            ))
+        }
 
-                val updatedCount = updatePhotoStatusesFromFrontend(statuses)
+        val updatedCount = updatePhotoStatusesFromFrontend(statuses)
         return updatedCount
     }
 
@@ -1181,38 +1168,38 @@ class PhotoUploadLogic(internal val context: Context) {
         fileSize: Long,
         fileHash: String,
     ): String {
-					// Generate ID if not provided (using the hash from Rust)
-					val photoId = if (id.isNullOrEmpty()) {
-						PhotoUtils.generatePhotoId(fileHash)
-					} else {
-						id
-					}
+        // Generate ID if not provided (using the hash from Rust)
+        val photoId = if (id.isNullOrEmpty()) {
+            PhotoUtils.generatePhotoId(fileHash)
+        } else {
+            id
+        }
 
-					Log.d(TAG, "📸 Creating PhotoEntity: id=$photoId, hash=$fileHash")
+        Log.d(TAG, "📸 Creating PhotoEntity: id=$photoId, hash=$fileHash")
 
-					// Create PhotoEntity from args
-					val photoEntity = PhotoEntity(
-						id = photoId,
-						filename = filename,
-						path = path,
-						latitude = latitude,
-						longitude = longitude,
-						altitude = altitude ?: 0.0,
-						bearing = bearing ?: 0.0,
-						capturedAt = capturedAt,
-						accuracy = accuracy,
-						width = width,
-						height = height,
-						fileSize = fileSize,
-						createdAt = System.currentTimeMillis(),
-						uploadStatus = "pending",
-						fileHash = fileHash  // Always use the calculated/provided hash
-					)
+        // Create PhotoEntity from args
+        val photoEntity = PhotoEntity(
+            id = photoId,
+            filename = filename,
+            path = path,
+            latitude = latitude,
+            longitude = longitude,
+            altitude = altitude ?: 0.0,
+            bearing = bearing ?: 0.0,
+            capturedAt = capturedAt,
+            accuracy = accuracy,
+            width = width,
+            height = height,
+            fileSize = fileSize,
+            createdAt = System.currentTimeMillis(),
+            uploadStatus = "pending",
+            fileHash = fileHash  // Always use the calculated/provided hash
+        )
 
-					// Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)
-					photoDao.insertPhoto(photoEntity)
+        // Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)
+        photoDao.insertPhoto(photoEntity)
 
-					Log.d(TAG, "📸 Photo added to photoDao: ${photoId}")
+        Log.d(TAG, "📸 Photo added to photoDao: ${photoId}")
         return photoId
     }
 

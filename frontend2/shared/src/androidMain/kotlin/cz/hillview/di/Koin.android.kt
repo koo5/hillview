@@ -3,7 +3,6 @@ package cz.hillview.di
 import android.content.Context
 import cz.hillview.auth.StoredTokens
 import cz.hillview.auth.TokenStore
-import cz.hillview.core.net.backendJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.koin.android.ext.koin.androidContext

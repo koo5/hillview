@@ -4,18 +4,12 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Environment
 import android.os.SystemClock
 import android.util.Log
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -79,14 +73,10 @@ actual fun rememberPhotoCapture(): PhotoCapture {
 }
 
 /**
- * P1 capture slice: CameraX ImageCapture + a sensor snapshot (GPS via
- * LocationManager, azimuth via the rotation-vector sensor) written into the
- * JPEG's EXIF. Battery discipline: camera and sensors run only while the
- * capture screen is open — release() tears everything down.
- *
- * Known simplification, tracked for P4: bearing is relative to magnetic
- * north (ref "M" in EXIF); declination correction joins when the tracking
- * code is ported.
+ * CameraX ImageCapture + a sensor snapshot (GPS via LocationManager, heading
+ * via the shared-kt EnhancedSensorService — declination-corrected true north)
+ * written into the JPEG's EXIF. Battery discipline: camera and sensors run
+ * only while the capture screen is open — release() tears everything down.
  */
 private class AndroidPhotoCapture(
     private val context: Context,
@@ -106,8 +96,6 @@ private class AndroidPhotoCapture(
 
     private val locationManager =
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    private val sensorManager =
-        context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
     @Volatile private var lastLocation: Location? = null
     @Volatile private var lastOrientation: OrientationSensorData? = null
