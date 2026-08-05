@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- app_name is generated per build type (resValue in build.gradle.kts):
+         "Hillview" for release, "Hillview Dev" for debug. -->
+</resources>
