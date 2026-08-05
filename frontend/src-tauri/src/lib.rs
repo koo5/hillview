@@ -48,8 +48,6 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_hillview::init());
 
-    #[cfg(mobile)]
-    let builder = builder.plugin(tauri_plugin_camera::init());
 
     match builder
         .invoke_handler(tauri::generate_handler![
@@ -58,7 +56,6 @@ pub fn run() {
             commands::get_build_commit_hash,
             commands::get_build_branch,
             commands::get_build_ts,
-            commands::take_native_photo,
             device_photos::store_photo_chunk,
             device_photos::save_photo_with_metadata,
         ])

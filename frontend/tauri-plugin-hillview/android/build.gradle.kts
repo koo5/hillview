@@ -130,3 +130,6 @@ dependencies {
 //        freeCompilerArgs.add("-Xcontext-parameters")
 //    }
 //}
+
+// Kotlin shared verbatim with frontend2 (see /shared-kt/README.md).
+android.sourceSets.getByName("main").java.srcDirs("src/main/java", "../../../shared-kt/src")

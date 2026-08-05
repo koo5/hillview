@@ -16,7 +16,7 @@ from sqlalchemy import text
 
 from .. import facts, graph
 from ..db import wb_engine
-from ..parser import COORD_RE, WIKI_RE, parse_body
+from ..parser import parse_body
 from ..runs import create_run, fail_run, finish_run
 
 router = APIRouter()
@@ -40,18 +40,20 @@ def suggest_body(body: str | None, label: str | None,
     when no wiki segment exists. Every other segment — context, non-wiki URLs,
     anything the parser doesn't model — is preserved verbatim, so the
     suggestion is exactly the semantic delta and untouched aspects never
-    reformat."""
+    reformat. Segments are addressed by their PARSER role — this function never
+    re-interprets the raw body itself."""
     p = parse_body(body)
     segs = list(p.segments) if p.segments else ["?"]
+    roles = list(p.roles) if p.roles else ["name"]
     changes: list[dict] = []
 
     if label and label != p.name:
         # a curated label is a certain one — uncertainty markers don't carry over
         changes.append({"what": "label", "from": segs[0] or "?", "to": label})
         segs[0] = label
+        roles[0] = "name"   # whatever occupied the slot, it now holds the name
 
-    coord_idx = next((i for i, s in enumerate(segs)
-                      if COORD_RE.search(s) and not WIKI_RE.search(s)), None)
+    coord_idx = next((i for i, r in enumerate(roles) if r == "coords"), None)
     if anchor:
         same = (p.coords is not None
                 and f"{p.coords[0]:.5f},{p.coords[1]:.5f}" ==

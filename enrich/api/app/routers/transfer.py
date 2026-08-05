@@ -26,6 +26,7 @@ from sqlalchemy import text
 
 from .. import facts, graph
 from ..db import wb_engine
+from ..parser import parse_body
 from ..runs import create_run, fail_run, finish_run
 from .annotations import NativeAnnotationCreate, create_native_annotation
 from .matching import enqueue_pair
@@ -407,15 +408,6 @@ async def refine(req: TransferIdRequest):
     return {"result_id": rid, "window": window, "context": context}
 
 
-def _label_guess(body: str | None) -> str | None:
-    if not body:
-        return None
-    seg = body.split("|")[0].strip()
-    if not seg or seg.startswith("http") or seg == "?":
-        return None
-    return seg
-
-
 class AcceptRequest(BaseModel):
     transfer_id: str
     rect: dict | None = None       # nudged {x,y,w,h}; defaults to the proposal
@@ -477,7 +469,7 @@ SELECT ?poi WHERE {{
                 await relate_annotation(poi_id, RelateRequest(annotation_id=new_id))
             else:
                 out = await create_poi(CreatePoiRequest(
-                    label=req.poi_label or _label_guess(donor.body),
+                    label=req.poi_label or parse_body(donor.body).name,
                     annotation_ids=[t.annotation_id, new_id]))
                 poi_id = out["poi_id"]
 
