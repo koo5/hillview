@@ -63,6 +63,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.ktor.client.okhttp)
             implementation(libs.okhttp)
+            implementation(libs.play.services.location)
             implementation(libs.zxing.core)
         }
         commonMain.dependencies {

@@ -32,6 +32,15 @@ class SessionManager(
     private val _state = MutableStateFlow<SessionState>(SessionState.Unknown)
     val state: StateFlow<SessionState> = _state.asStateFlow()
 
+    /**
+     * One-shot involuntary-death notice ("session expired: refresh token
+     * rejected"), surfaced by the UI until dismissed or the user logs in
+     * again. Fed from the platform auth manager's persisted flag (restore)
+     * and its live callback (see [onPlatformSessionExpired]).
+     */
+    private val _sessionExpiredNotice = MutableStateFlow<String?>(null)
+    val sessionExpiredNotice: StateFlow<String?> = _sessionExpiredNotice.asStateFlow()
+
     private var tokens: StoredTokens? = null
     private val refreshMutex = Mutex()
     private var restored = false
@@ -40,6 +49,10 @@ class SessionManager(
     suspend fun restoreIfNeeded() {
         if (restored) return
         restored = true
+        // Surface an involuntary death that happened while the UI was gone
+        // (background drain hit a definitive 401) — mirrors the Tauri app's
+        // JS reconciler reading the same persisted flag.
+        store.consumeSessionExpiredReason()?.let { _sessionExpiredNotice.value = it }
         val stored = store.load()
         tokens = stored
         _state.value = if (stored != null) {
@@ -50,10 +63,27 @@ class SessionManager(
     }
 
     /**
+     * Live push from the platform auth manager's session-death choke point
+     * (Android wires AuthenticationManager.onSessionExpired to this): tokens
+     * are already cleared natively — drop the UI state in lockstep.
+     */
+    suspend fun onPlatformSessionExpired() {
+        _sessionExpiredNotice.value =
+            store.consumeSessionExpiredReason() ?: "session expired"
+        tokens = null
+        _state.value = SessionState.LoggedOut
+    }
+
+    fun dismissSessionExpiredNotice() {
+        _sessionExpiredNotice.value = null
+    }
+
+    /**
      * Throws [InvalidCredentialsException] or [TransientBackendException].
      */
     suspend fun login(username: String, password: String) {
         val token = api.token(username, password)
+        _sessionExpiredNotice.value = null // superseded by the new session
         val stored = StoredTokens(
             accessToken = token.accessToken,
             refreshToken = token.refreshToken,
@@ -136,6 +166,7 @@ class SessionManager(
                 tokens = null
                 store.clear()
                 _state.value = SessionState.LoggedOut
+                _sessionExpiredNotice.value = e.message ?: "session expired"
                 throw e
             }
             // (TransientBackendException propagates with tokens intact.)

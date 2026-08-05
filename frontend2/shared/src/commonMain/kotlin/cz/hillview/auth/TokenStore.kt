@@ -20,10 +20,24 @@ interface TokenStore {
      * refresh path applies (desktop, tests).
      */
     suspend fun freshAccessToken(): String? = null
+
+    /**
+     * The platform auth manager's persisted involuntary-session-death marker
+     * (Android: AuthenticationManager.sessionExpired ran — e.g. a background
+     * drain's refresh was rejected with 401). Consuming clears the flag; the
+     * reason is surfaced once in the UI. Null when there is no marker (or no
+     * platform auth manager).
+     */
+    suspend fun consumeSessionExpiredReason(): String? = null
 }
 
-class InMemoryTokenStore(private var tokens: StoredTokens? = null) : TokenStore {
+class InMemoryTokenStore(
+    private var tokens: StoredTokens? = null,
+    private var expiredReason: String? = null,
+) : TokenStore {
     override suspend fun load(): StoredTokens? = tokens
     override suspend fun save(tokens: StoredTokens) { this.tokens = tokens }
     override suspend fun clear() { tokens = null }
+    override suspend fun consumeSessionExpiredReason(): String? =
+        expiredReason.also { expiredReason = null }
 }

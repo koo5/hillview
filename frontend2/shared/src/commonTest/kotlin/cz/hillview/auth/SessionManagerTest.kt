@@ -182,4 +182,43 @@ class SessionManagerTest {
         assertEquals(SessionState.LoggedOut, session.state.value)
         assertNull(store.load())
     }
+
+    @Test
+    fun restoreSurfacesPersistedSessionExpiryOnce() = runTest {
+        // The platform auth manager killed the session while the UI was gone
+        // (background drain, definitive 401): tokens gone, flag persisted.
+        val scripted = Scripted()
+        val store = InMemoryTokenStore(
+            tokens = null,
+            expiredReason = "refresh token rejected (401)",
+        )
+        val session = sessionWith(scripted, store)
+        session.restoreIfNeeded()
+
+        assertEquals(SessionState.LoggedOut, session.state.value)
+        assertEquals("refresh token rejected (401)", session.sessionExpiredNotice.value)
+        // Consumed from the store — a fresh manager would not see it again.
+        assertNull(store.consumeSessionExpiredReason())
+
+        // A successful login supersedes the notice.
+        scripted.enqueue { respond(tokenJson("a2"), HttpStatusCode.OK, jsonHeaders) }
+        scripted.enqueue { respond(meJson, HttpStatusCode.OK, jsonHeaders) }
+        session.login("test", "pw")
+        assertNull(session.sessionExpiredNotice.value)
+    }
+
+    @Test
+    fun platformSessionExpiryDropsStateInLockstep() = runTest {
+        val scripted = Scripted()
+        val store = InMemoryTokenStore(StoredTokens("a1", "r1", username = "test"))
+        val session = sessionWith(scripted, store)
+        session.restoreIfNeeded()
+        assertEquals(SessionState.LoggedIn("test"), session.state.value)
+
+        // Live callback path: the native side already cleared its store.
+        session.onPlatformSessionExpired()
+
+        assertEquals(SessionState.LoggedOut, session.state.value)
+        assertNotNull(session.sessionExpiredNotice.value)
+    }
 }

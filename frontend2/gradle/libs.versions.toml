@@ -68,6 +68,9 @@ androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref =
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 androidx-work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "workmanager" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version = "4.12.0" }
+# Matches the Tauri plugin — shared-kt sensor family (FusedOrientationProvider,
+# fused location).
+play-services-location = { module = "com.google.android.gms:play-services-location", version = "21.3.0" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 # Not used by the skeleton yet — pre-declared for the rewrite (HTTP client,
 # JSON, image loading), matching what the official KMP template ships.

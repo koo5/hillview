@@ -52,6 +52,8 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import cz.hillview.core.permissions.PermissionGatePane
 import cz.hillview.core.permissions.rememberPermissionsState
+import cz.hillview.plugin.EnhancedSensorService
+import cz.hillview.plugin.OrientationSensorData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -108,34 +110,29 @@ private class AndroidPhotoCapture(
         context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
     @Volatile private var lastLocation: Location? = null
-    @Volatile private var azimuthDeg: Float? = null
+    @Volatile private var lastOrientation: OrientationSensorData? = null
     private var lastAzimuthPush = 0L
 
     private val locationListener = LocationListener { location ->
         lastLocation = location
+        // Declination (magnetic → true) needs coordinates.
+        sensorService.updateLocation(location.latitude, location.longitude)
         val age = SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos
         state = state.copy(hasFix = age < 15_000_000_000L)
     }
 
-    private val rotationListener = object : SensorEventListener {
-        private val rotationMatrix = FloatArray(9)
-        private val orientation = FloatArray(3)
-
-        override fun onSensorChanged(event: SensorEvent) {
-            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-            SensorManager.getOrientation(rotationMatrix, orientation)
-            val deg = Math.toDegrees(orientation[0].toDouble()).toFloat()
-            val normalized = ((deg % 360f) + 360f) % 360f
-            azimuthDeg = normalized
-            // Throttle state (and recomposition) to ~4 Hz.
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastAzimuthPush > 250) {
-                lastAzimuthPush = now
-                state = state.copy(bearingDeg = normalized)
-            }
+    // The shared-kt heading engine — the same fusion/declination pipeline the
+    // Tauri app runs (upright-rotation-vector default mode, EMA smoothing,
+    // GeomagneticField declination). Replaces the earlier ad-hoc
+    // rotation-vector listener, which produced MAGNETIC azimuth only.
+    private val sensorService = EnhancedSensorService(context) { data ->
+        lastOrientation = data
+        // Throttle state (and recomposition) to ~4 Hz; display true heading.
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastAzimuthPush > 250) {
+            lastAzimuthPush = now
+            state = state.copy(bearingDeg = data.trueHeading)
         }
-
-        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     }
 
     // Camera is the hard requirement; location soft-degrades (captures still
@@ -190,7 +187,7 @@ private class AndroidPhotoCapture(
     }
 
     private var gpsStarted = false
-    private var rotationStarted = false
+    private var orientationStarted = false
 
     /**
      * Idempotent; called again when location gets granted after the pane is
@@ -205,19 +202,16 @@ private class AndroidPhotoCapture(
                 )
                 locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let {
                     lastLocation = it
+                    sensorService.updateLocation(it.latitude, it.longitude)
                 }
                 gpsStarted = true
             } catch (e: Exception) {
                 Log.w(TAG, "GPS updates unavailable", e)
             }
         }
-        if (!rotationStarted) {
-            sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let { sensor ->
-                sensorManager.registerListener(
-                    rotationListener, sensor, SensorManager.SENSOR_DELAY_UI,
-                )
-                rotationStarted = true
-            }
+        if (!orientationStarted) {
+            sensorService.startSensor()
+            orientationStarted = true
         }
     }
 
@@ -276,6 +270,7 @@ private class AndroidPhotoCapture(
 
     private fun snapshotSensors(capturedAtMs: Long): SensorSnapshot {
         val location = lastLocation
+        val orientation = lastOrientation
         val ageMs = location?.let {
             (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / 1_000_000
         }
@@ -284,7 +279,9 @@ private class AndroidPhotoCapture(
             longitude = location?.longitude,
             altitude = location?.takeIf { it.hasAltitude() }?.altitude,
             accuracyM = location?.takeIf { it.hasAccuracy() }?.accuracy,
-            bearingDeg = azimuthDeg,
+            bearingDeg = orientation?.magneticHeading,
+            trueBearingDeg = orientation?.trueHeading,
+            bearingSource = orientation?.source,
             capturedAtMs = capturedAtMs,
             locationAgeMs = ageMs,
         )
@@ -296,13 +293,13 @@ private class AndroidPhotoCapture(
         } catch (e: Exception) {
             // ignore
         }
-        sensorManager.unregisterListener(rotationListener)
+        sensorService.stopSensor()
         cameraProvider?.unbindAll()
         cameraProvider = null
         imageCapture = null
         cameraBound = false
         gpsStarted = false
-        rotationStarted = false
+        orientationStarted = false
         scope.cancel()
     }
 

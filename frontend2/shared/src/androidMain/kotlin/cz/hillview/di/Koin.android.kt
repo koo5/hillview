@@ -62,6 +62,12 @@ private class AuthManagerTokenStore(context: Context) : TokenStore {
     override suspend fun freshAccessToken(): String? = withContext(Dispatchers.IO) {
         auth.getValidToken()
     }
+
+    override suspend fun consumeSessionExpiredReason(): String? = withContext(Dispatchers.IO) {
+        val info = auth.getSessionExpiredInfo() ?: return@withContext null
+        auth.clearSessionExpiredFlag()
+        info.second
+    }
 }
 
 actual fun platformModule(): Module = module {

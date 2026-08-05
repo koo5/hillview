@@ -15,6 +15,14 @@ data class SensorSnapshot(
     val accuracyM: Float? = null,
     /** Compass azimuth, degrees clockwise from magnetic north. */
     val bearingDeg: Float? = null,
+    /**
+     * Declination-corrected azimuth (true north) — what the whole pipeline
+     * stores and interprets (the EXIF parser reads the magnitude only, and
+     * every writer in the ecosystem puts TRUE heading there).
+     */
+    val trueBearingDeg: Float? = null,
+    /** Which sensor produced the heading — EXIF provenance (bearing_source). */
+    val bearingSource: String? = null,
     val capturedAtMs: Long,
     /** Age of the location fix at capture time, or null without a fix. */
     val locationAgeMs: Long? = null,

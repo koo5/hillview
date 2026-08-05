@@ -33,6 +33,7 @@ fun HomeScreen(
     session: SessionManager = koinInject(),
 ) {
     val sessionState by session.state.collectAsState()
+    val expiredNotice by session.sessionExpiredNotice.collectAsState()
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -64,6 +65,17 @@ fun HomeScreen(
                 .padding(bottom = 24.dp)
                 .testTag("home-session-status"),
         )
+
+        expiredNotice?.let { reason ->
+            Text(
+                text = "Session expired ($reason) — please sign in again.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .padding(bottom = 16.dp)
+                    .testTag("home-session-expired"),
+            )
+        }
 
         Button(
             onClick = onOpenCapture,

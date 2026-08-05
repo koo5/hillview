@@ -46,7 +46,9 @@ fun CaptureScreen(
                 latitude = photo.snapshot.latitude,
                 longitude = photo.snapshot.longitude,
                 altitude = photo.snapshot.altitude,
-                bearing = photo.snapshot.bearingDeg?.toDouble(),
+                // True heading — the DB/authorize bearing is true north
+                // everywhere in the pipeline (see SensorSnapshot).
+                bearing = photo.snapshot.trueBearingDeg?.toDouble(),
             )
         )
     }

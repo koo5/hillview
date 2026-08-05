@@ -61,9 +61,30 @@ class SharedStackUploadPipeline(
         refreshStats()
     }
 
+    private var lastStatusSyncMs = 0L
+
     override suspend fun refreshStats() {
         withContext(Dispatchers.IO) {
             val dao = PhotoDatabase.getDatabase(context).photoDao()
+
+            // While photos sit in server-side processing, re-query their
+            // status (rate-limited — the stats poll runs every ~2s) so the
+            // visible counts converge without waiting for the next drain.
+            // The Tauri app gets the same effect from its my-photos page;
+            // background convergence still rides the post-drain sync worker.
+            if (dao.getProcessingCount() > 0) {
+                val now = System.currentTimeMillis()
+                if (now - lastStatusSyncMs > 10_000) {
+                    lastStatusSyncMs = now
+                    try {
+                        uploadLogic.syncProcessingPhotosStatus()
+                    } catch (e: Exception) {
+                        // The stats poll must never throw; the next drain's
+                        // sync worker remains the fallback.
+                    }
+                }
+            }
+
             _stats.value = QueueStats(
                 pending = dao.getPendingUploadCount() + dao.getUploadingCount() +
                     dao.getProcessingCount(),
