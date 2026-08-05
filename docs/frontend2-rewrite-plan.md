@@ -44,6 +44,22 @@ and accounts, so there is no cutover moment.
   bearing, photo markers w/ optional bearing ticks, tap callback); cheap
   interim backing (osmdroid in AndroidView). Nearby-photos markers so
   coverage gaps are visible while shooting.
+  - **Float mode (PiP)** — the map's killer mode (decided 2026-08-05):
+    Picture-in-Picture, the same API Maps navigation uses. The activity
+    shrinks to a system-managed bubble over other apps — notably the user's
+    NATIVE camera app — while Hillview keeps logging true heading + GPS
+    (PiP counts as visible; the shared EnhancedSensorService keeps flowing)
+    into GeoTrackingManager's bearing/location series. Native-camera photos
+    carry no GPSImgDirection, so timestamp-pairing against that log is how
+    they get bearings at import time — the pieces are already in shared-kt.
+    Mechanics: `android:supportsPictureInPicture` + PictureInPictureParams
+    (aspect ~1:1, `setAutoEnterEnabled` on API 31+; feature-gate 26+), strip
+    chrome via `isInPictureInPictureMode`, RELEASE our camera in float mode
+    (exclusive resource), no permissions needed (unlike SYSTEM_ALERT_WINDOW
+    overlays — avoid those). Content is glanceable-only: compass + coverage
+    wedge + markers; a RemoteAction or two (pause logging) at most. If the
+    bubble is dismissed, logging survives only via the P4 location
+    foreground service — the two phases meet there.
 - **P4 — tracking & battery**: foreground-service geo tracking, car mode /
   Kalman port, GPS duty cycling, battery measurement harness (see Testing).
 - **P5 — field-tool completion**: settings subset, share intents, FCM,
