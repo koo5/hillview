@@ -2,6 +2,7 @@ package cz.hillview.capture
 
 import android.content.ContentValues
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
@@ -87,6 +88,23 @@ object PhotoStorage {
     } catch (e: Exception) {
         Log.w(TAG, "cannot prepare $mode: ${e.message}")
         null
+    }
+
+    /**
+     * A File-API write into DCIM is NOT in the media database — verified on
+     * API 36: files written that way stayed unindexed while MediaStore-written
+     * siblings in the same folder showed up. Gallery apps read the database,
+     * so without this the photo is invisible to them (the Tauri app has the
+     * same gap). Skipped for ".Hillview", where hiding is the point.
+     */
+    fun indexInGallery(context: Context, file: File) {
+        try {
+            MediaScannerConnection.scanFile(
+                context, arrayOf(file.absolutePath), arrayOf("image/jpeg"), null,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "media scan failed for ${file.absolutePath}: ${e.message}")
+        }
     }
 
     private fun fileOptions(dir: File, filename: String): Pair<ImageCapture.OutputFileOptions, File>? {

@@ -40,6 +40,24 @@ enum class StorageMode(val key: String) {
     }
 }
 
+/**
+ * What a storage choice actually means ON THIS DEVICE. Every one of these
+ * depends on the Android version — Android/data stopped being browsable to
+ * file managers in 11, direct writes into DCIM were blocked in 10 and need a
+ * permission before that, MediaStore's RELATIVE_PATH only exists from 10 —
+ * so the settings screen asks the platform instead of stating universals.
+ */
+data class StorageFacts(
+    val inGallery: Boolean,
+    val fileManagerReachable: Boolean,
+    val survivesUninstall: Boolean,
+    /** False when this device can't use the mode at all; the chain falls through. */
+    val availableHere: Boolean,
+    val note: String,
+)
+
+expect fun storageFacts(mode: StorageMode, hideFromGallery: Boolean): StorageFacts
+
 val ALLOWED_LICENSES = listOf("ccbysa4+osm", "full1")
 
 /**

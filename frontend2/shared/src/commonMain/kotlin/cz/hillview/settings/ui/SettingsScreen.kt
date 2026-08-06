@@ -26,6 +26,7 @@ import cz.hillview.core.permissions.rememberNotificationPermissionRequester
 import cz.hillview.settings.ALLOWED_LICENSES
 import cz.hillview.settings.CompassSettingsRepository
 import cz.hillview.settings.StorageMode
+import cz.hillview.settings.storageFacts
 import cz.hillview.settings.UploadSettingsRepository
 import org.koin.compose.koinInject
 
@@ -129,28 +130,19 @@ fun SettingsScreen(
             }
         }
 
-        Column {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Photo storage", style = MaterialTheme.typography.bodyLarge)
             Text(
-                "Where captures are saved; if the chosen target is unavailable " +
-                    "the others are tried in order.",
+                "If the chosen target is unavailable, the others are tried in order.",
                 style = MaterialTheme.typography.bodySmall,
             )
             StorageMode.entries.forEach { mode ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
-                        selected = settings.storage == mode,
-                        onClick = { repository.update { it.copy(storage = mode) } },
-                        modifier = Modifier.testTag("settings-storage-${mode.key}"),
-                    )
-                    Column {
-                        Text(storageLabel(mode), style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            storageDetail(mode, settings.hideFromGallery),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
+                StorageOption(
+                    mode = mode,
+                    selected = settings.storage == mode,
+                    hideFromGallery = settings.hideFromGallery,
+                    onSelect = { repository.update { it.copy(storage = mode) } },
+                )
             }
         }
 
@@ -195,17 +187,77 @@ fun SettingsScreen(
     }
 }
 
-private fun storageLabel(mode: StorageMode) = when (mode) {
-    StorageMode.PublicFolder -> "Public folder"
-    StorageMode.PrivateFolder -> "App-private folder"
-    StorageMode.MediaStore -> "Gallery (MediaStore)"
+/**
+ * One storage choice, with the three things that actually decide it: does the
+ * photo show up in the gallery, can a file manager reach it, and does it
+ * survive uninstalling the app.
+ */
+@Composable
+private fun StorageOption(
+    mode: StorageMode,
+    selected: Boolean,
+    hideFromGallery: Boolean,
+    onSelect: () -> Unit,
+) {
+    val folder = if (hideFromGallery) ".Hillview" else "Hillview"
+    // Version-dependent — asked of the platform, never assumed.
+    val facts = storageFacts(mode, hideFromGallery)
+
+    Row(
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = onSelect,
+            enabled = facts.availableHere,
+            modifier = Modifier.testTag("settings-storage-${mode.key}"),
+        )
+        Column(Modifier.padding(top = 12.dp)) {
+            Text(
+                text = when (mode) {
+                    StorageMode.PublicFolder -> "DCIM/$folder"
+                    StorageMode.PrivateFolder -> "App-private folder"
+                    StorageMode.MediaStore -> "DCIM/$folder (via the gallery database)"
+                } + if (facts.availableHere) "" else " — unavailable on this phone",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            if (facts.availableHere) {
+                Property(
+                    facts.inGallery,
+                    if (facts.inGallery) "Shows in the gallery" else "Hidden from the gallery",
+                )
+                Property(
+                    facts.fileManagerReachable,
+                    if (facts.fileManagerReachable) "Reachable with a file manager"
+                    else "Not reachable with a file manager",
+                )
+                Property(
+                    facts.survivesUninstall,
+                    if (facts.survivesUninstall) "Kept when the app is uninstalled"
+                    else "Deleted when the app is uninstalled",
+                )
+            }
+            Text(
+                text = facts.note,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+    }
 }
 
-private fun storageDetail(mode: StorageMode, hideFromGallery: Boolean): String {
-    val folder = if (hideFromGallery) ".Hillview" else "Hillview"
-    return when (mode) {
-        StorageMode.PublicFolder -> "DCIM/$folder — survives uninstall"
-        StorageMode.PrivateFolder -> "Android/data/…/Pictures/$folder — removed on uninstall"
-        StorageMode.MediaStore -> "DCIM/$folder via MediaStore — no storage permission"
-    }
+@Composable
+private fun Property(good: Boolean, text: String) {
+    Text(
+        text = (if (good) "✓ " else "✗ ") + text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (good) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+    )
 }

@@ -286,6 +286,9 @@ private class AndroidPhotoCapture(
                         }
                         if (file != null) {
                             PhotoExifWriter.write(file, snapshot)
+                            // After the EXIF rewrite, so the indexed entry has
+                            // the final bytes.
+                            if (!hideFromGallery) PhotoStorage.indexInGallery(context, file)
                         } else {
                             PhotoExifWriter.write(context, uri!!, snapshot)
                         }
