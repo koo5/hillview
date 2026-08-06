@@ -1,6 +1,8 @@
 # App behaviour, as the test suites define it
 
-Extracted from the Appium suite (`frontend/tests-appium/specs/`, 27 specs).
+Extracted from the Appium suite (`frontend/tests-appium/specs/`, 27 specs)
+and the map/capture half of the Playwright suite
+(`frontend/tests-playwright/`).
 Where the source tells you *how* the app works, these tell you what it is
 *supposed to do* — including rules that only exist as an assertion plus a
 comment explaining which bug it was written for. Companion to
@@ -132,6 +134,62 @@ Must survive: backgrounding (auth, bearing, controls), orientation flips
 session-expired flag). Must not survive: a genuinely 401'd session. An API
 failure on the photo list shows an inline error and recovers on remount.
 
+## From the web suite
+
+The Playwright specs cover the same product through the browser, and add
+rules the Android suite does not exercise.
+
+### Map controls the port is missing entirely
+
+- **Rotate buttons**, titled "Rotate view 15° counterclockwise/clockwise" —
+  the step is exactly **15°** per click (the same step the `x`/`b` keys use
+  on Android).
+- **Move forward / backward**, which step the view along the current bearing.
+- **Turn to the photo on the left / right**.
+- **Two-finger rotation** is expected to work alongside these.
+
+### Selection is a first-class concept
+
+- Exactly one marker is the front photo and carries `.bearing-circle
+  .selected`; the gallery shows it. The choice is *"the bearing-closest
+  in-range photo (uid tiebreak)"*.
+- The current selection is **pinned**: with `maxPhotosInArea = 3` and four
+  photos where the other three are featured, the selected non-featured photo
+  must still be visible after an area refresh, because *"the picked photo
+  (non-featured) would be dropped WITHOUT picks support"*.
+- Clicking a greyed (filtered-out) marker auto-enables hunter mode and
+  un-greys it.
+- Arriving at a URL whose photo is featured leaves hunter mode **off**; a
+  non-featured one turns it **on**.
+
+### Filters affect markers by greying, never by removing
+
+With "show unanalyzed" **off**, every marker gains `.grayed` — the count of
+greyed circles equals the marker count — and re-checking returns it to zero.
+The timeline, by contrast, *hard-excludes* them. The modal also disables
+"clear filters" and "show unanalyzed" while no filter is active, and the
+button label carries the active count as `(n)`.
+
+### Capture gating
+
+The shutter becomes enabled only once **both** the preview is ready **and**
+a location fix exists (*"implies cameraReady && locationData"*), and it is
+disabled again while an upload is in flight — *"If you fire the next
+capture immediately, its page reload interrupts the previous upload and the
+queue wedges"*. Captured photos take their position and bearing from app
+state, not from the image: *"a canvas frame carries no EXIF GPS/bearing, so
+the map-centre location and compass bearing we set per capture are
+authoritative"* — with the same 141° default bearing seen elsewhere.
+
+### Robustness expectations
+
+Arbitrary pan/zoom/rotate sequences, including five rapid pans 100 ms apart
+and continuous circular drags, must leave the map visible with tiles
+present. Malformed URL parameters must never crash it. A long list of
+console errors is explicitly forbidden (`spatialState`, `bearingState`,
+`turn_to_photo_to`, `photosInArea`, …), which is really a statement that
+those code paths must not throw under gesture load.
+
 ---
 
 ## Where frontend2 disagrees today
@@ -160,3 +218,14 @@ Found by reading the above against the port; unfixed unless noted.
    ("Session expired (reason)" vs the asserted "session has expired").
 9. **The location button exposes no state** an external test could read
    (the original uses `active`/`background` classes).
+10. **No rotate ±15°, move forward/backward, or turn-to-photo controls** —
+    the port has only zoom and the draggable arrow.
+11. **No photo selection at all**: no front photo, no pinning of the
+    selection across refreshes, no click-to-select, so the whole
+    selection-driven half of the UX is absent.
+12. **The filters dialog lacks "clear filters" and "show unanalyzed"** and
+    their disabled-until-relevant states; greying-instead-of-removing is
+    implemented for featured photos but not driven by filters.
+13. **The shutter does not require a location fix**, unlike the web app.
+    Worth deciding deliberately rather than by omission — a photo with no
+    position is rejected by the backend later anyway.
