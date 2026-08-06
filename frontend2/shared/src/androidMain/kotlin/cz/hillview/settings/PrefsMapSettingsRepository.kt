@@ -20,6 +20,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
                 BearingMode.Walking
             },
             hunterModePref = prefs.getBoolean("hunter_mode", false),
+            showUnanalyzed = prefs.getBoolean("show_unanalyzed", true),
         )
     )
     override val settings: StateFlow<MapSettings> = _settings.asStateFlow()
@@ -31,6 +32,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             .putInt("max_photos", next.maxPhotos.coerceIn(MIN_MAX_PHOTOS, MAX_MAX_PHOTOS))
             .putString("bearing_mode", if (next.bearingMode == BearingMode.Car) "car" else "walking")
             .putBoolean("hunter_mode", next.hunterModePref)
+            .putBoolean("show_unanalyzed", next.showUnanalyzed)
             .apply()
         _settings.value = next
     }

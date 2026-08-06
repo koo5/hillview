@@ -2,7 +2,9 @@ package cz.hillview.map
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -256,11 +258,61 @@ class MapDialogsTest {
         setContent {
             FiltersDialog(
                 settings = MapSettings(maxPhotos = 250),
+                activeFilterCount = 0,
                 onDismiss = {},
                 onSettingsChange = {},
             )
         }
         onNodeWithTag("filters-max-photos-value").assertIsDisplayed()
         onNodeWithTag("filters-max-photos").assertIsDisplayed()
+    }
+
+    @Test
+    fun theTrailingFilterControlsAreDisabledUntilAFilterIsActive() = runComposeUiTest {
+        // "The modal also disables 'clear filters' and 'show unanalyzed'
+        // while no filter is active" — there is nothing to clear, and
+        // unanalyzed-ness only means something relative to a filter.
+        setContent {
+            FiltersDialog(
+                settings = MapSettings(),
+                activeFilterCount = 0,
+                onDismiss = {},
+                onSettingsChange = {},
+            )
+        }
+        onNodeWithTag("filters-clear").assertIsNotEnabled()
+        onNodeWithTag("filters-show-unanalyzed").assertIsNotEnabled()
+    }
+
+    @Test
+    fun anActiveFilterEnablesClearAndShowUnanalyzed() = runComposeUiTest {
+        var cleared = false
+        setContent {
+            FiltersDialog(
+                settings = MapSettings(),
+                activeFilterCount = 2,
+                onDismiss = {},
+                onSettingsChange = {},
+                onClearFilters = { cleared = true },
+            )
+        }
+        onNodeWithTag("filters-clear").assertIsEnabled().performClick()
+        onNodeWithTag("filters-show-unanalyzed").assertIsEnabled()
+        assertTrue(cleared, "the clear button must call back once enabled")
+    }
+
+    @Test
+    fun showUnanalyzedDefaultsOnAndTogglesThroughSettings() = runComposeUiTest {
+        var latest: MapSettings? = null
+        setContent {
+            FiltersDialog(
+                settings = MapSettings(),
+                activeFilterCount = 1,
+                onDismiss = {},
+                onSettingsChange = { transform -> latest = transform(MapSettings()) },
+            )
+        }
+        onNodeWithTag("filters-show-unanalyzed").assertIsOn().performClick()
+        assertEquals(false, latest?.showUnanalyzed)
     }
 }

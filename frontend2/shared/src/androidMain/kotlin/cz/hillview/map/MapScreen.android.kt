@@ -415,8 +415,14 @@ actual fun MapScreen(
         if (showFilters) {
             FiltersDialog(
                 settings = mapSettings,
+                // No analysis filters exist against the local marker source
+                // yet, so nothing can activate the trailing controls — but
+                // their gating is real and tested, ready for the backend
+                // query.
+                activeFilterCount = 0,
                 onDismiss = { showFilters = false },
                 onSettingsChange = { transform -> settings.update(transform) },
+                onClearFilters = { settings.update { it.copy(showUnanalyzed = true) } },
             )
         }
         if (showProviders) {

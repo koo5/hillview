@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -520,12 +521,27 @@ private fun ModeRow(
 @Composable
 fun FiltersDialog(
     settings: MapSettings,
+    activeFilterCount: Int,
     onDismiss: () -> Unit,
     onSettingsChange: ((MapSettings) -> MapSettings) -> Unit,
+    onClearFilters: () -> Unit = {},
 ) {
+    // Both trailing controls are disabled until some filter is active —
+    // there is nothing to clear, and "show unanalyzed" only *means*
+    // anything relative to an analysis that is filtering. The original
+    // gates them the same way and its suite asserts it.
+    val anyFilterActive = activeFilterCount > 0
+
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        dismissButton = {
+            TextButton(
+                onClick = onClearFilters,
+                enabled = anyFilterActive,
+                modifier = Modifier.testTag("filters-clear"),
+            ) { Text("Clear filters") }
+        },
         title = { Text("Filters") },
         text = {
             Column {
@@ -546,6 +562,28 @@ fun FiltersDialog(
                     valueRange = MIN_MAX_PHOTOS.toFloat()..MAX_MAX_PHOTOS.toFloat(),
                     modifier = Modifier.testTag("filters-max-photos"),
                 )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Checkbox(
+                        checked = settings.showUnanalyzed,
+                        onCheckedChange = { v ->
+                            onSettingsChange { it.copy(showUnanalyzed = v) }
+                        },
+                        enabled = anyFilterActive,
+                        modifier = Modifier.testTag("filters-show-unanalyzed"),
+                    )
+                    Text(
+                        "Show unanalyzed photos",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (anyFilterActive) {
+                            Color.Unspecified
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        },
+                    )
+                }
                 Text(
                     "The analysis filters (time of day, scenic score, features…) " +
                         "need the backend photo query, which this screen does not use yet.",

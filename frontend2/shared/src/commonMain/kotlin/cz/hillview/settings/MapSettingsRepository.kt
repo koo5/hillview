@@ -17,6 +17,13 @@ data class MapSettings(
     val bearingMode: BearingMode = BearingMode.Walking,
     /** The persisted half of hunter mode; the override is session-only. */
     val hunterModePref: Boolean = false,
+    /**
+     * "Show unanalyzed photos": default on, and only *meaningful* once some
+     * analysis filter is active — unchecked it greys every photo the
+     * analysis has not passed, which locally is all of them. The modal
+     * disables it until a filter is active, per the contract.
+     */
+    val showUnanalyzed: Boolean = true,
 )
 
 const val MIN_MAX_PHOTOS = 10
