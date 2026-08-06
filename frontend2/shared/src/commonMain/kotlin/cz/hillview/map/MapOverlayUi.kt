@@ -210,9 +210,7 @@ private fun HunterPanel(visible: Boolean, content: @Composable () -> Unit) {
         shape = RoundedCornerShape(8.dp),
         shadowElevation = 2.dp,
     ) {
-        Box(Modifier.pointerInput(visible) { if (!visible) awaitPointerEventScope { } }) {
-            content()
-        }
+        content()
     }
 }
 
