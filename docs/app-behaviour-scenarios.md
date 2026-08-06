@@ -204,23 +204,28 @@ Found by reading the above against the port; unfixed unless noted.
 3. ~~No `aria-valuenow` on the arrow.~~ **Fixed**: the arrow publishes its
    bearing through Compose semantics (`ProgressBarRangeInfo` plus a spoken
    description).
-4. **Markers carry no identity.** They are canvas-drawn, so there is no
-   per-photo node to find, unlike `photo-marker-<id>`.
-5. **Entering capture does not re-arm location tracking**, so the
-   BACKGROUND → capture → ACTIVE regression the suite guards is unguarded
-   here.
+4. ~~Markers carry no identity.~~ **Fixed**: each photo emits a
+   `photo-marker-<id>` semantics node at its drawn position (rose members
+   anchor on their own tick); selection state rides along as
+   `stateDescription`.
+5. ~~Entering capture does not re-arm location tracking.~~ **Fixed**:
+   tracking state moved to a process-wide MapSession; entering capture arms
+   a clean ACTIVE, leaving stands bearing tracking down. Emulator-verified.
 6. **No auto-upload prompt after the first capture**, and no licence gate on
    the auto-upload toggle.
-7. **No two-finger map rotation** — rotation is arrow-only.
+7. ~~No two-finger map rotation.~~ **Fixed**: RotationSyncOverlay +
+   orientation in SpatialState (persisted); an ↑N badge resets north.
+   Device-tested with real two-pointer MotionEvents.
 8. **The session-expired notice is not persistent and worded differently**
    ("Session expired (reason)" vs the asserted "session has expired").
-9. **The location button exposes no state** an external test could read
-   (the original uses `active`/`background` classes).
+9. ~~The location button exposes no state.~~ **Fixed**: off/active/
+   background published as semantics stateDescription.
 10. **No rotate ±15°, move forward/backward, or turn-to-photo controls** —
     the port has only zoom and the draggable arrow.
-11. **No photo selection at all**: no front photo, no pinning of the
-    selection across refreshes, no click-to-select, so the whole
-    selection-driven half of the UX is absent.
+11. ~~No photo selection at all.~~ **Fixed**: frontPhoto() picks the
+    bearing-closest in-range photo (id tiebreak), taps select via
+    markerAtTap() with the selection pinned against the photo limit, and
+    marker_click bearings carry the photo uid. Emulator-verified.
 12. **The filters dialog lacks "clear filters" and "show unanalyzed"** and
     their disabled-until-relevant states; greying-instead-of-removing is
     implemented for featured photos but not driven by filters.
