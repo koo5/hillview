@@ -67,7 +67,7 @@ class PhotoMarkerOverlay : Overlay() {
             projection.toPixels(GeoPoint(marker.latitude, marker.longitude), point)
             Placed(marker, point.x.toFloat(), point.y.toFloat())
         }
-        val clusters = cluster(placed, radiusPx = 20f * density)
+        val clusters = clusterByProximity(placed, 20f * density, { it.x }, { it.y })
 
         // Tiers, drawn back to front.
         clusters.sortedBy { c ->
@@ -87,26 +87,6 @@ class PhotoMarkerOverlay : Overlay() {
     }
 
     private class Placed(val marker: PhotoMarker, val x: Float, val y: Float)
-
-    /** Single pass, good enough for the ≤ maxPhotos markers we draw. */
-    private fun cluster(placed: List<Placed>, radiusPx: Float): List<List<Placed>> {
-        val remaining = placed.toMutableList()
-        val out = mutableListOf<List<Placed>>()
-        while (remaining.isNotEmpty()) {
-            val seed = remaining.removeAt(0)
-            val group = mutableListOf(seed)
-            val it = remaining.iterator()
-            while (it.hasNext()) {
-                val candidate = it.next()
-                if (kotlin.math.hypot(candidate.x - seed.x, candidate.y - seed.y) <= radiusPx) {
-                    group.add(candidate)
-                    it.remove()
-                }
-            }
-            out.add(group)
-        }
-        return out
-    }
 
     private fun drawSolo(canvas: Canvas, placed: Placed, mapView: MapView, density: Float) {
         val marker = placed.marker
@@ -243,8 +223,7 @@ class PhotoMarkerOverlay : Overlay() {
         if (marker.featured) return withAlpha(Color.rgb(255, 215, 0), alphaScale * 0.8f)
         val bearing = marker.bearingDeg
             ?: return withAlpha(Color.rgb(158, 158, 158), alphaScale * 0.8f)
-        val step = Math.round(absBearingDiff(bearing, viewBearing) / (200.0 / 7.0)).toInt()
-        val a = if (step > 0) 1f / step else 1f
+        val a = bearingAgreementAlpha(absBearingDiff(bearing, viewBearing))
         // hsl(120,100%,70%) = #66FF66
         return withAlpha(Color.rgb(102, 255, 102), a * 0.8f * alphaScale)
     }
