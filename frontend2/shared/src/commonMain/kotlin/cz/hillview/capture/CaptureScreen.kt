@@ -35,11 +35,21 @@ import kotlin.math.roundToInt
 @Composable
 fun CaptureScreen(
     onBack: () -> Unit,
+    onOpenSettings: () -> Unit = {},
     uploadPipeline: UploadPipeline = org.koin.compose.koinInject(),
+    uploadSettingsRepo: cz.hillview.settings.UploadSettingsRepository =
+        org.koin.compose.koinInject(),
 ) {
     val capture = rememberPhotoCapture()
     val state = capture.state
     val queueStats by uploadPipeline.stats.collectAsState()
+    val uploadSettings by uploadSettingsRepo.settings.collectAsState()
+
+    // The after-capture auto-upload prompt: shown once a capture lands while
+    // auto-upload is off, unless the user chose "never". Session-dismissed
+    // so it cannot nag a rapid-fire run.
+    var promptVisible by rememberSaveable { mutableStateOf(false) }
+    var promptDismissed by rememberSaveable { mutableStateOf(false) }
 
     // 0 = one shot per tap; otherwise the shutter arms a repeating run.
     var intervalSec by rememberSaveable { mutableStateOf(0) }
@@ -71,6 +81,15 @@ fun CaptureScreen(
                 capturedAtMs = photo.snapshot.capturedAtMs,
             )
         )
+        // The original waits 800 ms after the shutter before prompting, "to
+        // avoid UI confusion" right at the moment of capture.
+        if (!uploadSettings.autoUploadEnabled &&
+            uploadSettings.autoUploadPromptEnabled &&
+            !promptDismissed
+        ) {
+            delay(800)
+            promptVisible = true
+        }
     }
 
     // Stats poll for pipelines that derive stats from external state (the
@@ -103,6 +122,17 @@ fun CaptureScreen(
                 .fillMaxWidth()
                 .weight(1f),
         )
+
+        if (promptVisible) {
+            AutoUploadPrompt(
+                onConfigure = { promptVisible = false; onOpenSettings() },
+                onDismiss = { promptVisible = false; promptDismissed = true },
+                onNever = {
+                    promptVisible = false
+                    uploadSettingsRepo.update { it.copy(autoUploadPromptEnabled = false) }
+                },
+            )
+        }
 
         StatusLine(state)
 
@@ -229,4 +259,42 @@ private fun StatusLine(state: CaptureState) {
 private fun fmt(value: Double): String {
     val rounded = (value * 100_000).roundToInt() / 100_000.0
     return rounded.toString()
+}
+
+/**
+ * "Your photos are staying on this device." One line, three exits — the
+ * same three the original offers: configure (goes to upload settings, where
+ * the licence gate lives), not now, and never (persisted, so the overlay
+ * can never block a rapid-fire run again).
+ */
+@Composable
+private fun AutoUploadPrompt(
+    onConfigure: () -> Unit,
+    onDismiss: () -> Unit,
+    onNever: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("auto-upload-prompt"),
+    ) {
+        Text(
+            "Auto-upload is off — captures stay on this device.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Row {
+            TextButton(
+                onClick = onConfigure,
+                modifier = Modifier.testTag("configure-auto-upload"),
+            ) { Text("Set up") }
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("dismiss-auto-upload-prompt"),
+            ) { Text("Not now") }
+            TextButton(
+                onClick = onNever,
+                modifier = Modifier.testTag("never-auto-upload-prompt"),
+            ) { Text("Never ask") }
+        }
+    }
 }

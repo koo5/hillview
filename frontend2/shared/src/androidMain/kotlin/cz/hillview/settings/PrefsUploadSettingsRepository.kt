@@ -27,12 +27,13 @@ class PrefsUploadSettingsRepository(
             wifiOnly =
                 if (prefs.contains("wifi_only")) prefs.getBoolean("wifi_only", false)
                 else defaults.wifiOnly,
-            license = prefs.getString("auto_upload_license", null) ?: defaults.license,
+            license = prefs.getString("auto_upload_license", null),
             storage = StorageMode.fromKey(prefs.getString("preferred_storage", null))
                 ?: defaults.storage,
             hideFromGallery =
                 if (prefs.contains("hide_from_gallery")) prefs.getBoolean("hide_from_gallery", false)
                 else defaults.hideFromGallery,
+            autoUploadPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true),
         ).also(::persist)
     )
     override val settings: StateFlow<UploadSettings> = _settings.asStateFlow()
@@ -53,6 +54,7 @@ class PrefsUploadSettingsRepository(
             // keeps it in localStorage; here it joins the other upload prefs).
             .putString("preferred_storage", s.storage.key)
             .putBoolean("hide_from_gallery", s.hideFromGallery)
+            .putBoolean("auto_upload_prompt_enabled", s.autoUploadPromptEnabled)
             .apply()
     }
 }

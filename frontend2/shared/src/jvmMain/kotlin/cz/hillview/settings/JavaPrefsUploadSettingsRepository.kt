@@ -20,9 +20,10 @@ class JavaPrefsUploadSettingsRepository(
             serverUrl = node.get("server_url", null) ?: defaults.serverUrl,
             autoUploadEnabled = node.getBoolean("auto_upload_enabled", defaults.autoUploadEnabled),
             wifiOnly = node.getBoolean("wifi_only", defaults.wifiOnly),
-            license = node.get("auto_upload_license", null) ?: defaults.license,
+            license = node.get("auto_upload_license", null),
             storage = StorageMode.fromKey(node.get("preferred_storage", null)) ?: defaults.storage,
             hideFromGallery = node.getBoolean("hide_from_gallery", defaults.hideFromGallery),
+            autoUploadPromptEnabled = node.getBoolean("auto_upload_prompt_enabled", true),
         ).also(::persist)
     )
     override val settings: StateFlow<UploadSettings> = _settings.asStateFlow()
@@ -37,8 +38,12 @@ class JavaPrefsUploadSettingsRepository(
         node.put("server_url", s.serverUrl)
         node.putBoolean("auto_upload_enabled", s.autoUploadEnabled)
         node.putBoolean("wifi_only", s.wifiOnly)
-        node.put("auto_upload_license", s.license)
+        // java.util.prefs has no remove-on-null put; model "not accepted"
+        // as key absence, matching the Android prefs behaviour.
+        s.license?.let { node.put("auto_upload_license", it) }
+            ?: node.remove("auto_upload_license")
         node.put("preferred_storage", s.storage.key)
         node.putBoolean("hide_from_gallery", s.hideFromGallery)
+        node.putBoolean("auto_upload_prompt_enabled", s.autoUploadPromptEnabled)
     }
 }

@@ -82,7 +82,11 @@ fun SettingsScreen(
             Column(Modifier.weight(1f)) {
                 Text("Auto-upload", style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Upload captures in the background",
+                    if (settings.license == null) {
+                        "Pick an upload license below first"
+                    } else {
+                        "Upload captures in the background"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -94,6 +98,11 @@ fun SettingsScreen(
                     if (on) requestNotifications()
                     repository.update { it.copy(autoUploadEnabled = on) }
                 },
+                // Inert until the licence is accepted: turning this on is an
+                // agreement to publish under it, so there must be a licence
+                // to agree to. The shared upload stack enforces the same
+                // null-check server-side of this switch.
+                enabled = settings.license != null,
                 modifier = Modifier.testTag("settings-auto-upload"),
             )
         }
@@ -118,6 +127,13 @@ fun SettingsScreen(
 
         Column {
             Text("Upload license", style = MaterialTheme.typography.bodyLarge)
+            if (settings.license == null) {
+                Text(
+                    "Not accepted — uploads stay on this device until you pick one.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("settings-license-unset"),
+                )
+            }
             ALLOWED_LICENSES.forEach { license ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(

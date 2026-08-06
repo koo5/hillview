@@ -13,11 +13,24 @@ data class UploadSettings(
     val serverUrl: String,
     val autoUploadEnabled: Boolean,
     val wifiOnly: Boolean,
-    /** Backend vocabulary (user_routes.ALLOWED_LICENSES). */
-    val license: String,
+    /**
+     * Backend vocabulary (user_routes.ALLOWED_LICENSES) — or null while the
+     * user has not accepted one. Null is load-bearing twice over: the shared
+     * upload stack refuses to upload without it ("No upload license
+     * configured"), and the settings UI keeps the auto-upload controls inert
+     * until it is set. Defaulting to an accepted licence would quietly agree
+     * to it on the user's behalf.
+     */
+    val license: String?,
     val storage: StorageMode,
     /** Save into ".Hillview" instead of "Hillview" (hidden from gallery scans). */
     val hideFromGallery: Boolean,
+    /**
+     * "Disabled (never prompt)": suppresses the after-capture auto-upload
+     * prompt entirely, "so the capture-then-prompt overlay doesn't block
+     * rapid-fire clicks".
+     */
+    val autoUploadPromptEnabled: Boolean = true,
 )
 
 /**
@@ -69,7 +82,7 @@ fun defaultUploadSettings(apiUrl: String) = UploadSettings(
     serverUrl = apiUrl,
     autoUploadEnabled = false,
     wifiOnly = false,
-    license = ALLOWED_LICENSES.first(),
+    license = null,
     // Matches the Tauri default (device_photos.rs falls back to
     // "public_folder"): photos in the gallery where the user can find them.
     storage = StorageMode.PublicFolder,

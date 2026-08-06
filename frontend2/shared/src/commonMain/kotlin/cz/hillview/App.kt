@@ -83,7 +83,10 @@ fun App() {
                         session.onEnterCapture()
                         onDispose { session.onLeaveCapture() }
                     }
-                    CaptureScreen(onBack = { backStack.removeLastOrNull() })
+                    CaptureScreen(
+                        onBack = { backStack.removeLastOrNull() },
+                        onOpenSettings = { backStack.add(SettingsKey) },
+                    )
                 }
                 entry<LoginKey> {
                     LoginScreen(
