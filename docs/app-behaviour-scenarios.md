@@ -211,13 +211,17 @@ Found by reading the above against the port; unfixed unless noted.
 5. ~~Entering capture does not re-arm location tracking.~~ **Fixed**:
    tracking state moved to a process-wide MapSession; entering capture arms
    a clean ACTIVE, leaving stands bearing tracking down. Emulator-verified.
-6. **No auto-upload prompt after the first capture**, and no licence gate on
-   the auto-upload toggle.
+6. ~~No auto-upload prompt, no licence gate.~~ **Fixed**: licence is null
+   until accepted (the shared stack refuses uploads without one), the
+   auto-upload switch stays inert until then, and the after-capture
+   `configure-auto-upload` prompt has Set up / Not now / Never ask with the
+   never flag persisted. Emulator-verified.
 7. ~~No two-finger map rotation.~~ **Fixed**: RotationSyncOverlay +
    orientation in SpatialState (persisted); an ↑N badge resets north.
    Device-tested with real two-pointer MotionEvents.
-8. **The session-expired notice is not persistent and worded differently**
-   ("Session expired (reason)" vs the asserted "session has expired").
+8. ~~Session-expired notice not persistent, wrong wording.~~ **Fixed**:
+   the persisted flag now survives until the user dismisses it or signs
+   back in, and the text contains the asserted "session has expired".
 9. ~~The location button exposes no state.~~ **Fixed**: off/active/
    background published as semantics stateDescription.
 10. **No rotate ±15°, move forward/backward, or turn-to-photo controls** —
@@ -226,9 +230,9 @@ Found by reading the above against the port; unfixed unless noted.
     bearing-closest in-range photo (id tiebreak), taps select via
     markerAtTap() with the selection pinned against the photo limit, and
     marker_click bearings carry the photo uid. Emulator-verified.
-12. **The filters dialog lacks "clear filters" and "show unanalyzed"** and
-    their disabled-until-relevant states; greying-instead-of-removing is
-    implemented for featured photos but not driven by filters.
+12. ~~Filters dialog lacks clear/show-unanalyzed.~~ **Fixed**: both exist
+    with the disabled-until-a-filter-is-active gating, desktop-tested;
+    greying by filters still awaits the backend photo query.
 13. **The shutter does not require a location fix**, unlike the web app.
     Worth deciding deliberately rather than by omission — a photo with no
     position is rejected by the backend later anyway.
