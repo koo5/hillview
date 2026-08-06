@@ -4,21 +4,19 @@ import cz.hillview.map.BearingMode
 import cz.hillview.map.DEFAULT_TILE_PROVIDER
 import kotlinx.coroutines.flow.StateFlow
 
+/**
+ * Only what the Tauri app persists (see docs/tauri-map-ui-contract.md).
+ * Deliberately absent: compass/GPS-orientation enablement, the sensor mode
+ * and the car mount offset — every session there starts with tracking off,
+ * and copying that is the point.
+ */
 data class MapSettings(
     val tileProviderKey: String = DEFAULT_TILE_PROVIDER,
-    /**
-     * How many recent photos the map draws. Bounds match the Tauri filters
-     * dialog's maxPhotosInArea (10…1000, default 100).
-     */
+    /** CullingGrid limit; the Tauri filters modal bounds it to 10…1000. */
     val maxPhotos: Int = 100,
     val bearingMode: BearingMode = BearingMode.Walking,
-    /** Rotate the map to the sensor heading (the Tauri app's compassEnabled). */
-    val compassEnabled: Boolean = false,
-    /**
-     * Which fusion the shared EnhancedSensorService runs; values are its
-     * MODE_* constants (4 = upright rotation vector, its default).
-     */
-    val sensorMode: Int = 4,
+    /** The persisted half of hunter mode; the override is session-only. */
+    val hunterModePref: Boolean = false,
 )
 
 const val MIN_MAX_PHOTOS = 10

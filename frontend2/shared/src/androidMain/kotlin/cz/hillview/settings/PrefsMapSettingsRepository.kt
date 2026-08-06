@@ -19,8 +19,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             } else {
                 BearingMode.Walking
             },
-            compassEnabled = prefs.getBoolean("compass_enabled", false),
-            sensorMode = prefs.getInt("sensor_mode", 4),
+            hunterModePref = prefs.getBoolean("hunter_mode", false),
         )
     )
     override val settings: StateFlow<MapSettings> = _settings.asStateFlow()
@@ -31,8 +30,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             .putString("tile_provider", next.tileProviderKey)
             .putInt("max_photos", next.maxPhotos.coerceIn(MIN_MAX_PHOTOS, MAX_MAX_PHOTOS))
             .putString("bearing_mode", if (next.bearingMode == BearingMode.Car) "car" else "walking")
-            .putBoolean("compass_enabled", next.compassEnabled)
-            .putInt("sensor_mode", next.sensorMode)
+            .putBoolean("hunter_mode", next.hunterModePref)
             .apply()
         _settings.value = next
     }

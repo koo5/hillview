@@ -1,22 +1,26 @@
 package cz.hillview.map
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,208 +30,456 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import cz.hillview.settings.MAX_MAX_PHOTOS
 import cz.hillview.settings.MIN_MAX_PHOTOS
 import cz.hillview.settings.MapSettings
-import kotlin.math.atan2
-import kotlin.math.hypot
-import kotlin.math.min
 import kotlin.math.roundToInt
 
+/** The blue the Tauri controls use for "on". */
+private val ACTIVE_BLUE = Color(0xFF4285F4)
+private val ACTIVE_BLUE_BORDER = Color(0xFF3367D6)
+private val PANEL_WHITE = Color(0xE6FFFFFF)
+
+/** What the compass button shows — intent and reality are separate. */
+enum class TrackingPhase { Inactive, Starting, Active, Error }
+
+data class MapSourceUi(
+    val id: String,
+    val name: String,
+    val enabled: Boolean,
+    val loading: Boolean = false,
+)
+
 /**
- * Everything drawn over the map: the bearing arrow (draggable), the sensor
- * controls, and the filters entry point.
+ * Everything drawn over the map, laid out as in the Tauri app: the
+ * location/compass pair top-right, and the hunter-controls grid bottom-right
+ * whose panels appear only in hunter mode. See
+ * docs/tauri-map-ui-contract.md.
  */
 @Composable
 fun MapOverlayUi(
     onBack: () -> Unit,
-    camera: MapCamera,
     settings: MapSettings,
+    hunterMode: Boolean,
+    sources: List<MapSourceUi>,
+    activeFilterCount: Int,
+    overrideFilters: Boolean,
+    locationTracking: LocationTracking,
+    locationFlash: Boolean,
+    locationLoading: Boolean,
+    powerSavingActive: Boolean,
+    trackingWanted: Boolean,
+    trackingPhase: TrackingPhase,
+    compassUnavailable: Boolean,
     markerCount: Int,
-    hasFix: Boolean,
-    sensorHeading: Float?,
-    onBearingDrag: (Double) -> Unit,
-    onCompassDisabledByDrag: () -> Unit,
-    onSettingsChange: ((MapSettings) -> MapSettings) -> Unit,
+    onToggleHunterMode: () -> Unit,
+    onToggleSource: (String) -> Unit,
+    onOpenFilters: () -> Unit,
+    onToggleOverrideFilters: () -> Unit,
+    onOpenTileProviders: () -> Unit,
+    onToggleLocation: () -> Unit,
+    onToggleTracking: () -> Unit,
+    onSelectBearingMode: (BearingMode) -> Unit,
     onZoom: (Double) -> Unit,
 ) {
-    var showFilters by remember { mutableStateOf(false) }
-    var showSensors by remember { mutableStateOf(false) }
-
-    BearingArrow(
-        bearingDeg = camera.bearingDeg,
-        fullCircleHitArea = settings.bearingMode == BearingMode.Car,
-        onDragStart = onCompassDisabledByDrag,
-        onBearing = onBearingDrag,
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .safeContentPadding()
-            .padding(12.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top,
-        ) {
-            Card {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onBack) { Text("< Back") }
-                    Text(
-                        text = "${camera.bearingDeg.roundToInt()}° · $markerCount photos" +
-                            (if (hasFix) "" else " · no GPS"),
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier
-                            .padding(end = 12.dp)
-                            .testTag("map-status"),
-                    )
-                }
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Card {
-                    TextButton(
-                        onClick = { showSensors = true },
-                        modifier = Modifier.testTag("map-sensors-button"),
-                    ) { Text("Sensors") }
-                }
-                Card(modifier = Modifier.padding(top = 6.dp)) {
-                    TextButton(
-                        onClick = { showFilters = true },
-                        modifier = Modifier.testTag("map-filters-button"),
-                    ) { Text("Filters") }
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-        ) {
-            Card {
+    Box(Modifier.fillMaxSize().safeContentPadding()) {
+        // Top-left: zoom, where Leaflet keeps it (44dp touch targets).
+        Column(Modifier.align(Alignment.TopStart).padding(8.dp)) {
+            ControlSurface {
                 TextButton(
                     onClick = { onZoom(1.0) },
-                    modifier = Modifier.testTag("map-zoom-in"),
+                    modifier = Modifier.size(44.dp).testTag("zoom-in-btn"),
                 ) { Text("+", style = MaterialTheme.typography.titleLarge) }
             }
-            Card(modifier = Modifier.padding(start = 6.dp)) {
+            ControlSurface(Modifier.padding(top = 2.dp)) {
                 TextButton(
                     onClick = { onZoom(-1.0) },
-                    modifier = Modifier.testTag("map-zoom-out"),
+                    modifier = Modifier.size(44.dp).testTag("zoom-out-btn"),
                 ) { Text("−", style = MaterialTheme.typography.titleLarge) }
             }
+            ControlSurface(Modifier.padding(top = 8.dp)) {
+                TextButton(onClick = onBack, modifier = Modifier.testTag("map-back")) {
+                    Text("< Back")
+                }
+            }
+        }
+
+        // Top-right pair: location, then compass.
+        Row(
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            LocationButton(
+                tracking = locationTracking,
+                flash = locationFlash,
+                loading = locationLoading,
+                powerSaving = powerSavingActive,
+                onClick = onToggleLocation,
+            )
+            CompassButton(
+                bearingMode = settings.bearingMode,
+                wanted = trackingWanted,
+                phase = trackingPhase,
+                unavailable = compassUnavailable,
+                onToggle = onToggleTracking,
+                onSelectMode = onSelectBearingMode,
+            )
+        }
+
+        // Bottom-right hunter grid: the toggle owns the corner, the source
+        // panel grows up from it, the button panel grows left.
+        Column(
+            modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 4.dp, end = 6.dp),
+            horizontalAlignment = Alignment.End,
+        ) {
+            HunterPanel(visible = hunterMode) {
+                Column(
+                    modifier = Modifier.heightIn(max = 320.dp).padding(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    sources.forEach { source ->
+                        SourceButton(source, onClick = { onToggleSource(source.id) })
+                    }
+                }
+            }
+
+            Row(verticalAlignment = Alignment.Bottom) {
+                HunterPanel(visible = hunterMode) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    ) {
+                        FiltersButton(
+                            activeFilterCount = activeFilterCount,
+                            overridden = overrideFilters,
+                            onShortPress = onOpenFilters,
+                            onLongPress = onToggleOverrideFilters,
+                        )
+                        PanelSeparator()
+                        TextButton(
+                            onClick = onOpenTileProviders,
+                            modifier = Modifier.testTag("tile-provider-button"),
+                        ) { Text("Map ▾") }
+                    }
+                }
+
+                HunterToggle(active = hunterMode, onClick = onToggleHunterMode)
+            }
+        }
+
+        Text(
+            text = "$markerCount photos",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.Black.copy(alpha = 0.7f),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(8.dp)
+                .testTag("map-status"),
+        )
+    }
+}
+
+@Composable
+private fun ControlSurface(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        modifier = modifier,
+        color = PANEL_WHITE,
+        shape = RoundedCornerShape(4.dp),
+        shadowElevation = 2.dp,
+        content = { content() },
+    )
+}
+
+/** Panels fade rather than disappear, as in the CSS (opacity + no hit test). */
+@Composable
+private fun HunterPanel(visible: Boolean, content: @Composable () -> Unit) {
+    val alpha by animateFloatAsState(if (visible) 1f else 0f, label = "hunter-panel")
+    if (alpha == 0f) return
+    Surface(
+        modifier = Modifier.alpha(alpha).padding(bottom = 2.dp),
+        color = PANEL_WHITE,
+        shape = RoundedCornerShape(8.dp),
+        shadowElevation = 2.dp,
+    ) {
+        Box(Modifier.pointerInput(visible) { if (!visible) awaitPointerEventScope { } }) {
+            content()
         }
     }
+}
 
-    if (showFilters) {
-        FiltersDialog(
-            settings = settings,
-            onDismiss = { showFilters = false },
-            onSettingsChange = onSettingsChange,
-        )
+@Composable
+private fun HunterToggle(active: Boolean, onClick: () -> Unit) {
+    Surface(
+        color = PANEL_WHITE,
+        shape = RoundedCornerShape(topStart = 4.dp, bottomEnd = 8.dp),
+        shadowElevation = if (active) 0.dp else 2.dp,
+        modifier = Modifier.testTag("hunter-mode-toggle"),
+    ) {
+        TextButton(onClick = onClick) {
+            // The bow icon is inlined lucide art in the original; a caret
+            // pair plus a bow glyph reads the same at this size.
+            Text(
+                text = if (active) "⌄ 🏹" else "⌃ 🏹",
+                color = if (active) ACTIVE_BLUE else Color.Black.copy(alpha = 0.6f),
+            )
+        }
     }
-    if (showSensors) {
-        SensorsDialog(
-            settings = settings,
-            sensorHeading = sensorHeading,
-            onDismiss = { showSensors = false },
-            onSettingsChange = onSettingsChange,
-        )
+}
+
+@Composable
+private fun SourceButton(source: MapSourceUi, onClick: () -> Unit) {
+    Surface(
+        color = if (source.enabled) ACTIVE_BLUE else Color.White,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (source.enabled) ACTIVE_BLUE_BORDER else Color(0xFFCCCCCC),
+        ),
+        shape = RoundedCornerShape(4.dp),
+        modifier = Modifier.testTag("source-toggle-${source.id}"),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            TextButton(onClick = onClick) {
+                Text(
+                    text = source.name,
+                    color = if (source.enabled) Color.White else Color.Black,
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
+            if (source.enabled && source.loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = Color.White,
+                )
+            }
+        }
     }
 }
 
 /**
- * Centre dot with an arrow to the range circle. Dragging sets the bearing —
- * the grabbable area is the outer third of the arrow, or the whole circle in
- * car mode (where the arrow may sit anywhere relative to travel, so requiring
- * a precise grab would be cruel). Ported from BearingStateArrow.svelte.
+ * Short press opens the modal, long press toggles the override — and when
+ * overridden the label is struck through, as in the CSS.
  */
 @Composable
-private fun BearingArrow(
-    bearingDeg: Double,
-    fullCircleHitArea: Boolean,
-    onDragStart: () -> Unit,
-    onBearing: (Double) -> Unit,
+private fun FiltersButton(
+    activeFilterCount: Int,
+    overridden: Boolean,
+    onShortPress: () -> Unit,
+    onLongPress: () -> Unit,
 ) {
-    val arrowColor = Color(0xFF0405FA)
-    Canvas(
+    Surface(
+        color = if (activeFilterCount > 0) Color(0xFF3B82F6) else Color.Transparent,
+        shape = RoundedCornerShape(4.dp),
         modifier = Modifier
-            .fillMaxSize()
-            .testTag("map-bearing-arrow")
-            .pointerInput(fullCircleHitArea) {
-                val centre = Offset(size.width / 2f, size.height / 2f)
-                val radius = min(size.width, size.height) / 2f * 0.75f
-
-                fun bearingOf(position: Offset): Double {
-                    val dx = position.x - centre.x
-                    val dy = position.y - centre.y
-                    return (Math.toDegrees(atan2(dx, -dy).toDouble()) + 360.0) % 360.0
-                }
-
-                fun grabbable(position: Offset): Boolean {
-                    val distance = hypot(position.x - centre.x, position.y - centre.y)
-                    if (fullCircleHitArea) return distance <= radius * 1.15f
-                    // Outer third of the arrow, with slack for fingers.
-                    return distance in (radius * 0.55f)..(radius * 1.15f)
-                }
-
-                var dragging = false
-                detectDragGestures(
-                    onDragStart = { position ->
-                        dragging = grabbable(position)
-                        if (dragging) {
-                            onDragStart()
-                            onBearing(bearingOf(position))
-                        }
-                    },
-                    onDragEnd = { dragging = false },
-                    onDragCancel = { dragging = false },
-                    onDrag = { change, _ ->
-                        if (dragging) {
-                            change.consume()
-                            onBearing(bearingOf(change.position))
-                        }
-                    },
-                )
+            .testTag("filters-button")
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { onShortPress() }, onLongPress = { onLongPress() })
             },
     ) {
-        val centre = Offset(size.width / 2f, size.height / 2f)
-        val radius = min(size.width, size.height) / 2f * 0.75f
-        val radians = Math.toRadians(bearingDeg)
-        val tip = Offset(
-            centre.x + (kotlin.math.sin(radians) * radius).toFloat(),
-            centre.y - (kotlin.math.cos(radians) * radius).toFloat(),
+        Text(
+            text = "Filters ($activeFilterCount)",
+            color = if (activeFilterCount > 0) Color.White else Color.Black,
+            textDecoration = if (overridden) TextDecoration.LineThrough else null,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
         )
-
-        // Range circle — also the drag target in car mode.
-        drawCircle(
-            color = arrowColor.copy(alpha = if (fullCircleHitArea) 0.35f else 0.18f),
-            radius = radius,
-            center = centre,
-            style = Stroke(width = if (fullCircleHitArea) 6f else 3f),
-        )
-        drawLine(
-            color = arrowColor.copy(alpha = 0.6f),
-            start = centre,
-            end = tip,
-            strokeWidth = 10f,
-        )
-        drawCircle(color = arrowColor.copy(alpha = 0.7f), radius = 16f, center = tip)
-        drawCircle(color = Color.Red.copy(alpha = 0.6f), radius = 9f, center = centre)
     }
 }
 
 @Composable
-private fun FiltersDialog(
+private fun PanelSeparator() {
+    Box(
+        Modifier
+            .padding(horizontal = 4.dp)
+            .size(width = 1.dp, height = 24.dp)
+            .background(Color.Black.copy(alpha = 0.15f)),
+    )
+}
+
+/**
+ * Tri-state: white when off, blue when following, half-blue in background —
+ * "GPS still on (and still flashing on each fix) but the map no longer
+ * follows". Green flash on each fix, leaf badge under power saving.
+ */
+@Composable
+private fun LocationButton(
+    tracking: LocationTracking,
+    flash: Boolean,
+    loading: Boolean,
+    powerSaving: Boolean,
+    onClick: () -> Unit,
+) {
+    val fill = when (tracking) {
+        LocationTracking.Active -> ACTIVE_BLUE
+        LocationTracking.Background -> ACTIVE_BLUE.copy(alpha = 0.5f)
+        LocationTracking.Off -> PANEL_WHITE
+    }
+    Box {
+        Surface(
+            color = fill,
+            shape = RoundedCornerShape(4.dp),
+            shadowElevation = 2.dp,
+            border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFDDDDDD)),
+            modifier = Modifier
+                .alpha(if (tracking == LocationTracking.Off) 0.6f else 1f)
+                .testTag("track-location-btn"),
+        ) {
+            TextButton(onClick = onClick, modifier = Modifier.size(width = 60.dp, height = 44.dp)) {
+                if (loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = ACTIVE_BLUE,
+                    )
+                } else {
+                    Text(
+                        text = "◎",
+                        color = if (flash) Color(0xFF34D399) else {
+                            if (tracking == LocationTracking.Off) Color.Black else Color.White
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+            }
+        }
+        if (powerSaving) {
+            Surface(
+                color = Color(0xFF2EA043),
+                shape = RoundedCornerShape(9.dp),
+                modifier = Modifier
+                    .size(18.dp)
+                    .align(Alignment.TopEnd)
+                    .testTag("location-power-saving-badge"),
+            ) {
+                Text("🍃", style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+/**
+ * Intent (`wanted`) drives "active"; the phase drives loading/error; only
+ * walking mode can be unavailable. Long press opens the mode menu.
+ */
+@Composable
+private fun CompassButton(
+    bearingMode: BearingMode,
+    wanted: Boolean,
+    phase: TrackingPhase,
+    unavailable: Boolean,
+    onToggle: () -> Unit,
+    onSelectMode: (BearingMode) -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+
+    Box {
+        Surface(
+            color = if (wanted) ACTIVE_BLUE else PANEL_WHITE,
+            shape = RoundedCornerShape(4.dp),
+            shadowElevation = 2.dp,
+            border = androidx.compose.foundation.BorderStroke(
+                2.dp,
+                if (phase == TrackingPhase.Error) Color(0xFFF44336) else Color(0xFFDDDDDD),
+            ),
+            modifier = Modifier
+                .alpha(if (unavailable) 0.5f else if (phase == TrackingPhase.Starting) 0.7f else 1f)
+                .testTag("compass-button")
+                .pointerInput(unavailable) {
+                    detectTapGestures(
+                        onTap = { if (!unavailable) onToggle() },
+                        onLongPress = { menuOpen = true },
+                    )
+                },
+        ) {
+            Row(
+                modifier = Modifier.size(width = 60.dp, height = 44.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "🧭",
+                    color = if (wanted) Color.White else Color.Black,
+                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = if (bearingMode == BearingMode.Car) "🚗" else "🚶",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    Text("⌄", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+
+        if (menuOpen) {
+            AlertDialog(
+                onDismissRequest = { menuOpen = false },
+                confirmButton = {
+                    TextButton(onClick = { menuOpen = false }) { Text("Close") }
+                },
+                title = { Text("Bearing mode") },
+                text = {
+                    Column {
+                        ModeRow(
+                            title = "Walking Mode",
+                            subtitle = "Compass bearing",
+                            selected = bearingMode == BearingMode.Walking,
+                            testTag = "walking-mode-option",
+                        ) { onSelectMode(BearingMode.Walking); menuOpen = false }
+                        ModeRow(
+                            title = "Car Mode",
+                            subtitle = "GPS bearing",
+                            selected = bearingMode == BearingMode.Car,
+                            testTag = "car-mode-option",
+                        ) { onSelectMode(BearingMode.Car); menuOpen = false }
+                    }
+                },
+                modifier = Modifier.testTag("compass-mode-menu"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModeRow(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    testTag: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        color = if (selected) ACTIVE_BLUE.copy(alpha = 0.15f) else Color.Transparent,
+        shape = RoundedCornerShape(4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .testTag(testTag),
+    ) {
+        TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth()) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+/**
+ * Max-photos only for now: the Tauri modal's other groups filter on backend
+ * analysis, which frontend2's local marker source has nothing to answer
+ * with. The override semantics (long-press) are implemented above.
+ */
+@Composable
+fun FiltersDialog(
     settings: MapSettings,
     onDismiss: () -> Unit,
     onSettingsChange: ((MapSettings) -> MapSettings) -> Unit,
@@ -239,118 +491,64 @@ private fun FiltersDialog(
         text = {
             Column {
                 Text(
-                    "Recent photos shown: ${settings.maxPhotos}",
+                    "Max photos in area: ${settings.maxPhotos}",
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.testTag("filters-max-photos-value"),
                 )
                 Text(
-                    "Scaffolding: the last N photos captured on this device. " +
-                        "Browsing photos from the server comes later.",
+                    "Maximum number of photos to load and display on the map",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Slider(
                     value = settings.maxPhotos.toFloat(),
-                    onValueChange = { value ->
-                        onSettingsChange { it.copy(maxPhotos = value.roundToInt()) }
+                    onValueChange = { v ->
+                        onSettingsChange { it.copy(maxPhotos = v.roundToInt()) }
                     },
                     valueRange = MIN_MAX_PHOTOS.toFloat()..MAX_MAX_PHOTOS.toFloat(),
                     modifier = Modifier.testTag("filters-max-photos"),
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("$MIN_MAX_PHOTOS", style = MaterialTheme.typography.bodySmall)
-                    Text("$MAX_MAX_PHOTOS", style = MaterialTheme.typography.bodySmall)
-                }
+                Text(
+                    "The analysis filters (time of day, scenic score, features…) " +
+                        "need the backend photo query, which this screen does not use yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         },
     )
 }
 
-/** The five fusion modes of the shared EnhancedSensorService, by its constants. */
-private val SENSOR_MODES = listOf(
-    4 to "Upright rotation vector",
-    0 to "Rotation vector",
-    1 to "Game rotation vector",
-    2 to "Madgwick AHRS",
-    3 to "Complementary filter",
-)
-
 @Composable
-private fun SensorsDialog(
-    settings: MapSettings,
-    sensorHeading: Float?,
+fun TileProviderDialog(
+    currentKey: String,
+    onPick: (String) -> Unit,
     onDismiss: () -> Unit,
-    onSettingsChange: ((MapSettings) -> MapSettings) -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-        title = { Text("Sensors") },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        title = { Text("Map provider") },
         text = {
             Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Compass", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            text = sensorHeading?.let { "reading ${it.roundToInt()}° true" }
-                                ?: "off — the arrow stays where you drag it",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    Switch(
-                        checked = settings.compassEnabled,
-                        onCheckedChange = { on ->
-                            onSettingsChange { it.copy(compassEnabled = on) }
+                TILE_PROVIDERS.filterNot { it.devOnly }.forEach { provider ->
+                    Surface(
+                        color = if (provider.key == currentKey) {
+                            ACTIVE_BLUE.copy(alpha = 0.15f)
+                        } else {
+                            Color.Transparent
                         },
-                        modifier = Modifier.testTag("sensors-compass-toggle"),
-                    )
-                }
-
-                Text(
-                    "Fusion mode",
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-                SENSOR_MODES.forEach { (mode, label) ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        FilterChip(
-                            selected = settings.sensorMode == mode,
-                            onClick = { onSettingsChange { it.copy(sensorMode = mode) } },
-                            label = { Text(label) },
-                            modifier = Modifier
-                                .padding(vertical = 2.dp)
-                                .testTag("sensors-mode-$mode"),
-                        )
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("tile-provider-option-${provider.key}"),
+                    ) {
+                        TextButton(
+                            onClick = { onPick(provider.key); onDismiss() },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(provider.displayName, Modifier.fillMaxWidth())
+                        }
                     }
                 }
-
-                Text(
-                    "Bearing mode",
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-                Row {
-                    BearingMode.entries.forEach { mode ->
-                        FilterChip(
-                            selected = settings.bearingMode == mode,
-                            onClick = { onSettingsChange { it.copy(bearingMode = mode) } },
-                            label = { Text(if (mode == BearingMode.Car) "Car" else "Walking") },
-                            modifier = Modifier
-                                .padding(end = 6.dp)
-                                .testTag("sensors-bearing-${mode.name.lowercase()}"),
-                        )
-                    }
-                }
-                Text(
-                    "Car mode drags the camera mount offset instead of the heading, " +
-                        "and the whole circle is grabbable.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
             }
         },
     )

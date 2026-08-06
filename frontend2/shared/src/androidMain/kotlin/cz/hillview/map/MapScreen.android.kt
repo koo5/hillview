@@ -3,14 +3,15 @@ package cz.hillview.map
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.location.LocationListener
 import android.location.LocationManager
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,18 +24,12 @@ import cz.hillview.plugin.EnhancedSensorService
 import cz.hillview.plugin.GeoTrackingManager
 import cz.hillview.settings.MapSettingsRepository
 import kotlinx.coroutines.delay
-import org.koin.compose.koinInject
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 
 /**
- * The orientation map: where you are, which way you're pointed, and the
- * photos already taken around you.
- *
- * The heading comes from the shared-kt EnhancedSensorService — the same
- * engine the capture screen uses, so the arrow and the EXIF agree. In car
- * mode the drag adjusts GeoTrackingManager's mount offset instead of the
- * heading itself, exactly like the Tauri app.
+ * The orientation map, ported control-for-control from the Tauri app —
+ * see docs/tauri-map-ui-contract.md, which is the spec this follows.
  */
 @Composable
 actual fun MapScreen(
@@ -46,33 +41,73 @@ actual fun MapScreen(
     val mapSettings by settings.settings.collectAsState()
     val markers by markerSource.markers.collectAsState()
 
-    var camera by remember { mutableStateOf(MapCamera()) }
-    var sensorHeading by remember { mutableStateOf<Float?>(null) }
-    var hasFix by remember { mutableStateOf(false) }
+    val state = remember { MapStateHolder() }
+    val spatial by state.spatial.collectAsState()
+    val bearing by state.bearing.collectAsState()
+
+    // Hunter mode: persisted preference, overridable per session.
+    var hunterOverride by remember { mutableStateOf<Boolean?>(null) }
+    val hunterMode = hunterOverride ?: mapSettings.hunterModePref
+
+    // Session-only, exactly as in the Svelte app.
+    var trackingWanted by remember { mutableStateOf(false) }
+    var trackingPhase by remember { mutableStateOf(TrackingPhase.Inactive) }
+    var locationTracking by remember { mutableStateOf(LocationTracking.Off) }
+    var locationFlash by remember { mutableStateOf(false) }
+    var overrideFilters by remember { mutableStateOf(false) }
+    var showFilters by remember { mutableStateOf(false) }
+    var showProviders by remember { mutableStateOf(false) }
+    var deviceSourceEnabled by remember { mutableStateOf(true) }
+    var arrowTipPx by remember { mutableStateOf(120f) }
 
     val controller = remember { MapSensorController(context.applicationContext) }
     DisposableEffect(controller) { onDispose { controller.release() } }
 
-    // Sensors run only while this screen is up (battery discipline, same as
-    // the capture screen).
-    LaunchedEffect(mapSettings.compassEnabled, mapSettings.sensorMode) {
-        controller.apply(
-            enabled = mapSettings.compassEnabled,
-            mode = mapSettings.sensorMode,
-            onHeading = { sensorHeading = it },
-            onLocation = { lat, lon, fix ->
-                hasFix = fix
-                camera = camera.copy(latitude = lat, longitude = lon)
-            },
-        )
+    // Bearing tracking: walking runs the compass, car runs GPS orientation.
+    // A failed start reverts the user's intent, like the original.
+    LaunchedEffect(trackingWanted, mapSettings.bearingMode) {
+        if (!trackingWanted) {
+            controller.stopBearing()
+            trackingPhase = TrackingPhase.Inactive
+            return@LaunchedEffect
+        }
+        trackingPhase = TrackingPhase.Starting
+        val started = controller.startBearing(mapSettings.bearingMode) { heading, accuracy ->
+            trackingPhase = TrackingPhase.Active
+            // Only the compass drives the view bearing directly, and only
+            // past a 1° dead-band.
+            if (mapSettings.bearingMode == BearingMode.Walking &&
+                absBearingDiff(heading.toDouble(), state.bearing.value.bearing) > 1.0
+            ) {
+                state.updateBearing(
+                    bearing = heading.toDouble(),
+                    source = "android-compass-true",
+                    accuracyLevel = accuracy,
+                    now = System.currentTimeMillis(),
+                )
+            }
+        }
+        if (!started) {
+            trackingPhase = TrackingPhase.Error
+            trackingWanted = false
+            trackingPhase = TrackingPhase.Inactive
+        }
     }
 
-    // While the compass drives the view, the map turns with the heading.
-    LaunchedEffect(sensorHeading, mapSettings.compassEnabled, mapSettings.bearingMode) {
-        val heading = sensorHeading ?: return@LaunchedEffect
-        if (mapSettings.compassEnabled && mapSettings.bearingMode == BearingMode.Walking) {
-            camera = camera.copy(bearingDeg = heading.toDouble())
+    // GPS: runs in ACTIVE and BACKGROUND, only ACTIVE moves the map.
+    LaunchedEffect(locationTracking) {
+        controller.setLocationEnabled(locationTracking != LocationTracking.Off) { lat, lon ->
+            locationFlash = true
+            if (locationTracking == LocationTracking.Active) {
+                state.updateSpatial(
+                    latitude = lat, longitude = lon,
+                    source = "gps", now = System.currentTimeMillis(),
+                )
+            }
         }
+    }
+    LaunchedEffect(locationFlash) {
+        if (locationFlash) { delay(100); locationFlash = false }
     }
 
     LaunchedEffect(mapSettings.maxPhotos) {
@@ -83,8 +118,8 @@ actual fun MapScreen(
     }
 
     val markerOverlay = remember { PhotoMarkerOverlay() }
+    val rangeOverlay = remember { RangeCircleOverlay() }
     val mapView = rememberMapView()
-    // What the MapView has already been told, so update() can skip no-ops.
     val applied = remember { AppliedCamera() }
 
     Box(Modifier.fillMaxSize()) {
@@ -96,54 +131,155 @@ actual fun MapScreen(
                     view.applyProvider(tileProvider(mapSettings.tileProviderKey))
                     applied.providerKey = mapSettings.tileProviderKey
                 }
+                if (rangeOverlay !in view.overlays) view.overlays.add(rangeOverlay)
                 if (markerOverlay !in view.overlays) view.overlays.add(markerOverlay)
-                markerOverlay.markers = markers
 
-                // Only push what actually changed. Re-issuing setCenter/setZoom
-                // on every recomposition (the compass ticks at ~4 Hz) restarts
-                // the tile requests each time and the map never finishes
-                // loading — it renders as bare grid.
-                if (applied.zoom != camera.zoom) {
-                    view.controller.setZoom(camera.zoom)
-                    applied.zoom = camera.zoom
+                // range = what 70 screen pixels are worth on the ground; it
+                // sizes the circle and the arrow, so it must come from the
+                // live projection rather than a stored value.
+                val centre = GeoPoint(spatial.latitude, spatial.longitude)
+                val rangeMeters = view.projection.let { p ->
+                    val a = p.toPixels(centre, null)
+                    val b = p.fromPixels(a.x + 70, a.y)
+                    centre.distanceToAsDouble(b)
+                }.takeIf { it > 0 } ?: spatial.range
+                rangeOverlay.centre = centre
+                rangeOverlay.radiusMeters = rangeMeters
+                // The tip sits on the circle (1.3x, as in the original).
+                arrowTipPx = 70f * 1.3f * view.context.resources.displayMetrics.density
+
+                markerOverlay.viewBearing = bearing.bearing
+                // Greying rule from the contract: outside hunter mode, when
+                // featured photos exist, non-featured ones INSIDE the range
+                // circle are washed out (outside it they are not).
+                val visible = markers.filter { deviceSourceEnabled || it.source != "device" }
+                val anyFeatured = visible.any { it.featured }
+                markerOverlay.markers = visible.map { marker ->
+                    val greyed = !hunterMode && anyFeatured && !marker.featured &&
+                        centre.distanceToAsDouble(
+                            GeoPoint(marker.latitude, marker.longitude),
+                        ) <= rangeMeters
+                    if (greyed == marker.greyed) marker else marker.copy(greyed = greyed)
                 }
-                if (applied.latitude != camera.latitude || applied.longitude != camera.longitude) {
-                    view.controller.setCenter(GeoPoint(camera.latitude, camera.longitude))
-                    applied.latitude = camera.latitude
-                    applied.longitude = camera.longitude
+
+                if (applied.zoom != spatial.zoom) {
+                    view.controller.setZoom(spatial.zoom)
+                    applied.zoom = spatial.zoom
                 }
-                // Rotation is cheap to apply but forces a full redraw, so move
-                // it only when the heading meaningfully changed.
-                if (kotlin.math.abs(applied.bearing - camera.bearingDeg) > 1.0) {
-                    view.mapOrientation = -camera.bearingDeg.toFloat()
-                    applied.bearing = camera.bearingDeg
+                if (applied.latitude != spatial.latitude || applied.longitude != spatial.longitude) {
+                    view.controller.setCenter(centre)
+                    applied.latitude = spatial.latitude
+                    applied.longitude = spatial.longitude
+                }
+                if (kotlin.math.abs(applied.bearing - bearing.bearing) > 1.0) {
+                    view.mapOrientation = -bearing.bearing.toFloat()
+                    applied.bearing = bearing.bearing
                 }
                 view.invalidate()
             },
         )
 
+        BearingArrow(
+            bearingDeg = bearing.bearing,
+            // Car mode makes the whole ring grabbable, and only while GPS
+            // orientation is actually running.
+            fullCircleHitArea = mapSettings.bearingMode == BearingMode.Car && trackingWanted,
+            tipRadiusPx = arrowTipPx,
+            onDragStart = {
+                // Dragging the arrow stops the compass — but not GPS
+                // orientation, whose drag means "adjust the mount".
+                if (mapSettings.bearingMode == BearingMode.Walking && trackingWanted) {
+                    trackingWanted = false
+                }
+            },
+            onBearing = { value ->
+                state.updateBearing(value, source = "arrow_drag", now = System.currentTimeMillis())
+            },
+            onBearingDelta = { delta ->
+                controller.adjustMountOffset(delta)
+                state.updateBearingByDiff(delta, source = "gps-kalman", now = System.currentTimeMillis())
+            },
+        )
+
         MapOverlayUi(
             onBack = onBack,
-            camera = camera,
             settings = mapSettings,
+            hunterMode = hunterMode,
+            sources = listOf(
+                MapSourceUi(id = "device", name = "Device", enabled = deviceSourceEnabled),
+            ),
+            activeFilterCount = 0,
+            overrideFilters = overrideFilters,
+            locationTracking = locationTracking,
+            locationFlash = locationFlash,
+            locationLoading = false,
+            powerSavingActive = false,
+            trackingWanted = trackingWanted,
+            trackingPhase = trackingPhase,
+            compassUnavailable = mapSettings.bearingMode == BearingMode.Walking &&
+                !controller.compassAvailable(),
             markerCount = markers.size,
-            hasFix = hasFix,
-            sensorHeading = sensorHeading,
-            onBearingDrag = { bearing ->
-                if (mapSettings.bearingMode == BearingMode.Car) {
-                    // Car mode moves the camera mount, not the heading.
-                    controller.adjustMountOffset(bearing - camera.bearingDeg)
-                }
-                camera = camera.copy(bearingDeg = bearing)
+            onToggleHunterMode = {
+                hunterOverride = null
+                settings.update { it.copy(hunterModePref = !hunterMode) }
             },
-            onCompassDisabledByDrag = {
-                if (mapSettings.compassEnabled) {
-                    settings.update { it.copy(compassEnabled = false) }
+            onToggleSource = { deviceSourceEnabled = !deviceSourceEnabled },
+            onOpenFilters = { showFilters = true },
+            onToggleOverrideFilters = { overrideFilters = !overrideFilters },
+            onOpenTileProviders = { showProviders = true },
+            onToggleLocation = {
+                locationTracking = when (locationTracking) {
+                    // ACTIVE or BACKGROUND both turn fully off.
+                    LocationTracking.Active, LocationTracking.Background -> LocationTracking.Off
+                    LocationTracking.Off -> LocationTracking.Active
                 }
             },
-            onSettingsChange = { transform -> settings.update(transform) },
-            onZoom = { delta -> camera = camera.copy(zoom = (camera.zoom + delta).coerceIn(3.0, 22.0)) },
+            onToggleTracking = { trackingWanted = !trackingWanted },
+            onSelectBearingMode = { mode ->
+                // Switching mode stops both and re-arms the chosen one.
+                val wasOn = trackingWanted
+                trackingWanted = false
+                settings.update { it.copy(bearingMode = mode) }
+                trackingWanted = wasOn
+            },
+            onZoom = { delta ->
+                state.updateSpatial(
+                    zoom = (spatial.zoom + delta).coerceIn(3.0, 22.0),
+                    now = System.currentTimeMillis(),
+                )
+            },
         )
+
+        if (showFilters) {
+            FiltersDialog(
+                settings = mapSettings,
+                onDismiss = { showFilters = false },
+                onSettingsChange = { transform -> settings.update(transform) },
+            )
+        }
+        if (showProviders) {
+            TileProviderDialog(
+                currentKey = mapSettings.tileProviderKey,
+                onPick = { key -> settings.update { it.copy(tileProviderKey = key) } },
+                onDismiss = { showProviders = false },
+            )
+        }
+    }
+
+    // Panning demotes ACTIVE to BACKGROUND rather than stopping GPS.
+    DisposableEffect(mapView, locationTracking) {
+        val listener = object : org.osmdroid.events.MapListener {
+            override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
+                if (locationTracking == LocationTracking.Active) {
+                    locationTracking = LocationTracking.Background
+                }
+                return false
+            }
+
+            override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean = false
+        }
+        mapView.addMapListener(listener)
+        onDispose { mapView.removeMapListener(listener) }
     }
 }
 
@@ -154,18 +290,13 @@ private fun rememberMapView(): MapView {
         initOsmdroid(context.applicationContext)
         MapView(context).apply {
             setMultiTouchControls(true)
-            // The bearing arrow owns rotation; osmdroid's own rotation gesture
-            // would fight it.
             isTilesScaledToDpi = true
         }
     }
-    DisposableEffect(mapView) {
-        onDispose { mapView.onDetach() }
-    }
+    DisposableEffect(mapView) { onDispose { mapView.onDetach() } }
     return mapView
 }
 
-/** Mutable holder — deliberately not state; nothing recomposes on it. */
 private class AppliedCamera {
     var providerKey: String? = null
     var latitude = Double.NaN
@@ -175,8 +306,9 @@ private class AppliedCamera {
 }
 
 /**
- * Heading + location for the map, over the shared sensor stack. Keeping it
- * out of the composable means the listeners have a lifetime we control.
+ * Sensors and GPS for the map, over the shared-kt stack. Bearing tracking
+ * and location tracking are separate concerns here exactly as they are in
+ * the Svelte app.
  */
 private class MapSensorController(private val context: Context) {
     private val locationManager =
@@ -185,69 +317,73 @@ private class MapSensorController(private val context: Context) {
 
     private var sensorService: EnhancedSensorService? = null
     private var locationListener: LocationListener? = null
-    private var runningMode: Int? = null
 
-    @SuppressLint("MissingPermission")
-    fun apply(
-        enabled: Boolean,
-        mode: Int,
-        onHeading: (Float?) -> Unit,
-        onLocation: (Double, Double, Boolean) -> Unit,
-    ) {
-        if (locationListener == null && hasLocationPermission()) {
-            val listener = LocationListener { location ->
-                sensorService?.updateLocation(location.latitude, location.longitude)
-                onLocation(location.latitude, location.longitude, true)
-            }
-            locationListener = listener
-            try {
-                locationManager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER, 1_000L, 0f, listener,
-                )
-                locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let {
-                    onLocation(it.latitude, it.longitude, true)
-                }
-            } catch (e: Exception) {
-                locationListener = null
-            }
-        }
+    fun compassAvailable(): Boolean =
+        (context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager)
+            .getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR) != null
 
-        if (!enabled) {
-            sensorService?.stopSensor()
+    /** @return false when the sensor could not be started (reverts intent). */
+    fun startBearing(mode: BearingMode, onHeading: (Float, Int?) -> Unit): Boolean {
+        stopBearing()
+        if (mode == BearingMode.Walking && !compassAvailable()) return false
+        return try {
+            sensorService = EnhancedSensorService(context) { data ->
+                onHeading(data.trueHeading, data.accuracyLevel)
+            }.also { it.startSensor() }
+            true
+        } catch (e: Exception) {
             sensorService = null
-            runningMode = null
-            onHeading(null)
-            return
-        }
-        if (sensorService != null && runningMode == mode) return
-
-        sensorService?.stopSensor()
-        sensorService = EnhancedSensorService(context) { data ->
-            onHeading(data.trueHeading)
-        }.also {
-            it.startSensor(mode)
-            runningMode = mode
+            false
         }
     }
 
+    fun stopBearing() {
+        sensorService?.stopSensor()
+        sensorService = null
+    }
+
+    @SuppressLint("MissingPermission")
+    fun setLocationEnabled(enabled: Boolean, onFix: (Double, Double) -> Unit) {
+        if (!enabled) {
+            locationListener?.let {
+                try {
+                    locationManager.removeUpdates(it)
+                } catch (e: Exception) {
+                    // already gone
+                }
+            }
+            locationListener = null
+            return
+        }
+        if (locationListener != null || !hasLocationPermission()) return
+        val listener = LocationListener { location ->
+            sensorService?.updateLocation(location.latitude, location.longitude)
+            onFix(location.latitude, location.longitude)
+        }
+        locationListener = listener
+        try {
+            locationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER, 1_000L, 0f, listener,
+            )
+            locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let {
+                onFix(it.latitude, it.longitude)
+            }
+        } catch (e: Exception) {
+            locationListener = null
+        }
+    }
+
+    /** Car mode: the drag moves the camera mount, not the heading. */
     fun adjustMountOffset(deltaDeg: Double) {
         geoTracking.setMountOffset(geoTracking.getMountOffset() + deltaDeg)
     }
 
     fun release() {
-        sensorService?.stopSensor()
-        sensorService = null
-        locationListener?.let {
-            try {
-                locationManager.removeUpdates(it)
-            } catch (e: Exception) {
-                // already gone
-            }
-        }
-        locationListener = null
+        stopBearing()
+        setLocationEnabled(false) { _, _ -> }
     }
 
     private fun hasLocationPermission() =
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
+            PackageManager.PERMISSION_GRANTED
 }

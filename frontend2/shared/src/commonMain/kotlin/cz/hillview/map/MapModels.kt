@@ -7,10 +7,16 @@ data class PhotoMarker(
     val id: String,
     val latitude: Double,
     val longitude: Double,
-    /** True-north heading the photo was shot at, if known — drawn as a tick. */
+    /** True-north heading the photo was shot at; null when unknown. */
     val bearingDeg: Double?,
     val capturedAtMs: Long,
     val uploadStatus: String,
+    /** Which photo source it came from — decides the marker's border colour. */
+    val source: String = "device",
+    /** Gold, and never recoloured by bearing. */
+    val featured: Boolean = false,
+    /** Washed out: filtered without override, or non-featured inside range. */
+    val greyed: Boolean = false,
 )
 
 /**
@@ -25,17 +31,6 @@ interface PhotoMarkerSource {
     /** Re-read with the current limit (see FilterSettings.maxPhotos). */
     suspend fun refresh()
 }
-
-/**
- * Where the map is looking. Bearing is true north, degrees clockwise —
- * the same convention as the EXIF the capture writes.
- */
-data class MapCamera(
-    val latitude: Double = 50.0874,
-    val longitude: Double = 14.4212,
-    val zoom: Double = 16.0,
-    val bearingDeg: Double = 0.0,
-)
 
 /** Walking rotates the view to the sensor heading; car keeps a mount offset. */
 enum class BearingMode { Walking, Car }
