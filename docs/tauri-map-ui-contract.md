@@ -311,6 +311,58 @@ flight).
 
 Range circle hidden, no marker drawn as selected, bearing recolouring off.
 
+## Gestures, and the guards around them
+
+- **Edge-drag guard**: a touch starting within **40 px of any container
+  edge** disables map dragging until that touch ends — *"Prevent drags from
+  touch events starting near screen edges (accidental touches while holding
+  phone)"*. Plus the inert `bottom-gesture-guard` strip over the safe-area
+  inset so the system back-swipe doesn't pan the map.
+- **Wheel zoom is hand-rolled on Android** (Leaflet's is disabled there):
+  ±0.5 zoom steps anchored at the cursor, with dragging temporarily disabled
+  for 100 ms to stop the wheel from panning.
+- **Zoom buttons are not user pans**: pressing one sets `isZoomButtonEvent`
+  for 500 ms so the move doesn't demote location tracking to background, and
+  re-arms tracking 200 ms later.
+- Tap vs drag on markers is a **10 px** threshold, and the touch handler
+  deliberately does not `stopPropagation` — *"Leaflet's document-level
+  touchend handler must fire so it cleans up its drag state. Otherwise its
+  stale document-level touchmove handler intercepts subsequent swipes in the
+  gallery and pans the map."*
+
+## The arrow, exactly
+
+- Tip is the **range-circle edge projected along the bearing**, at
+  `range × 1.3`, computed geographically then projected to screen — *"This
+  accounts for Mercator distortion so the arrow always touches the circle
+  regardless of direction"* — and it uses the map's **live** centre during a
+  drag, because the stored centre only settles on `moveend`.
+- Grab area is a transparent 30 px-wide stroke over the **outer third** of
+  the arrow; in car mode an additional 36 px-wide invisible **ring** on the
+  range circle, with `pointer-events: stroke` so the disc inside stays free
+  for panning and marker taps.
+- It is `role="slider"` with `aria-valuenow` — worth keeping for
+  accessibility parity.
+
+## Keyboard (lives in Main.svelte, not the map)
+
+`z`/`k` turn to the photo left/right, `x`/`b` rotate ∓15° and `X`/`B` ∓1°
+(each disabling bearing tracking first), `c`/`v` step the view forward and
+back by 70 px along the bearing, `t` toggles the timeline, `,`/`.` walk it
+older/newer, `Esc` closes it, `i` toggles the info window, `d` cycles debug,
+`s`/`m` toggle sources. All bail out when focus is in a text field.
+
+## Do not port
+
+`Map.svelte` carries a dead slideshow (timer, long-press handlers, styles)
+and a `handleButtonClick` whose `left/right/rotate/forward/backward` actions
+are unreachable from its own markup — those actions now arrive via the
+keyboard. There are also several unused imports and a
+`removeEventListener('orientationchange', () => {})` that passes a fresh
+closure and therefore removes nothing. The `spatialState.subscribe` in the
+map is never unsubscribed on destroy, so a remount adds another one — scope
+it to the screen's lifecycle in the port rather than copying it.
+
 ## Filters (the modal)
 
 Max photos in area (10–1000, default 100, stepper — not part of the filter
