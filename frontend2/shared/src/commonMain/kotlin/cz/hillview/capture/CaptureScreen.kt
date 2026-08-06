@@ -2,13 +2,16 @@ package cz.hillview.capture
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
+import androidx.compose.material3.Slider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -16,11 +19,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import cz.hillview.upload.PendingUpload
 import cz.hillview.upload.UploadPipeline
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -33,6 +40,18 @@ fun CaptureScreen(
     val capture = rememberPhotoCapture()
     val state = capture.state
     val queueStats by uploadPipeline.stats.collectAsState()
+
+    // 0 = one shot per tap; otherwise the shutter arms a repeating run.
+    var intervalSec by rememberSaveable { mutableStateOf(0) }
+    var repeating by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(repeating, intervalSec) {
+        if (!repeating || intervalSec <= 0) return@LaunchedEffect
+        while (true) {
+            if (!state.capturing) capture.capture()
+            delay(intervalSec * 1000L)
+        }
+    }
 
     // Every capture goes straight into the offline-first pipeline; it no-ops
     // when logged out and the entry survives for auto-upload-on-login.
@@ -102,16 +121,70 @@ fun CaptureScreen(
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Interval as a continuous slider rather than a couple of fixed
+            // modes: the useful spacing depends on how fast you're moving.
+            IntervalSlider(
+                intervalSec = intervalSec,
+                enabled = !repeating,
+                onChange = { intervalSec = it },
+            )
+
             Button(
-                onClick = capture::capture,
-                enabled = state.ready && !state.capturing,
+                onClick = {
+                    if (intervalSec == 0) capture.capture() else repeating = !repeating
+                },
+                enabled = state.ready && (repeating || !state.capturing),
                 modifier = Modifier
                     .size(width = 160.dp, height = 56.dp)
                     .testTag("capture-shutter"),
             ) {
-                Text(if (state.capturing) "…" else "Capture")
+                Text(
+                    when {
+                        repeating -> "Stop"
+                        intervalSec > 0 -> "Start ${intervalSec}s"
+                        state.capturing -> "…"
+                        else -> "Capture"
+                    }
+                )
             }
+        }
+    }
+}
+
+/** Off, then 1…60 s. Vertical because it sits beside the shutter. */
+@Composable
+private fun IntervalSlider(
+    intervalSec: Int,
+    enabled: Boolean,
+    onChange: (Int) -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(end = 16.dp),
+    ) {
+        Text(
+            text = if (intervalSec == 0) "single" else "${intervalSec}s",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.testTag("capture-interval-value"),
+        )
+        Box(
+            modifier = Modifier.size(width = 48.dp, height = 140.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            // Material has no vertical slider; rotating a horizontal one and
+            // giving it the box's height as its width is the usual trick.
+            Slider(
+                value = intervalSec.toFloat(),
+                onValueChange = { onChange(it.roundToInt()) },
+                valueRange = 0f..60f,
+                enabled = enabled,
+                modifier = Modifier
+                    .requiredWidth(140.dp)
+                    .rotate(-90f)
+                    .testTag("capture-interval-slider"),
+            )
         }
     }
 }

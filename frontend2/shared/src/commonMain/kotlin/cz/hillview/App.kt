@@ -20,6 +20,8 @@ import cz.hillview.nav.CaptureKey
 import cz.hillview.nav.ClockVideoKey
 import cz.hillview.nav.HomeKey
 import cz.hillview.nav.LoginKey
+import cz.hillview.nav.MapKey
+import cz.hillview.map.MapScreen
 import cz.hillview.nav.SettingsKey
 import cz.hillview.settings.ui.SettingsScreen
 import kotlinx.serialization.modules.SerializersModule
@@ -36,6 +38,7 @@ private val navSavedStateConfig = SavedStateConfiguration {
             subclass(ClockVideoKey::class)
             subclass(CaptureKey::class)
             subclass(SettingsKey::class)
+            subclass(MapKey::class)
         }
     }
 }
@@ -55,6 +58,14 @@ fun App() {
                         onOpenClockVideo = { backStack.add(ClockVideoKey) },
                         onOpenCapture = { backStack.add(CaptureKey) },
                         onOpenSettings = { backStack.add(SettingsKey) },
+                        onOpenMap = { backStack.add(MapKey) },
+                    )
+                }
+                entry<MapKey> {
+                    MapScreen(
+                        onBack = { backStack.removeLastOrNull() },
+                        settings = org.koin.compose.koinInject(),
+                        markerSource = org.koin.compose.koinInject(),
                     )
                 }
                 entry<SettingsKey> {

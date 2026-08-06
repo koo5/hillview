@@ -20,3 +20,6 @@ data object CaptureKey : NavKey
 
 @Serializable
 data object SettingsKey : NavKey
+
+@Serializable
+data object MapKey : NavKey

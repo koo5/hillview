@@ -88,6 +88,12 @@ actual fun platformModule(): Module = module {
     single<cz.hillview.settings.CompassSettingsRepository> {
         cz.hillview.settings.PrefsCompassSettingsRepository(androidContext())
     }
+    single<cz.hillview.settings.MapSettingsRepository> {
+        cz.hillview.settings.PrefsMapSettingsRepository(androidContext())
+    }
+    single<cz.hillview.map.PhotoMarkerSource> {
+        cz.hillview.map.RecentPhotoMarkerSource(androidContext(), get())
+    }
     single<TokenStore> { AuthManagerTokenStore(androidContext()) }
     // Captures go to the shared-kt upload stack — the same code the Tauri
     // app runs. See /shared-kt/README.md.

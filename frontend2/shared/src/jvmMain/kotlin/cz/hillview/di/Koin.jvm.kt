@@ -37,7 +37,23 @@ actual fun platformModule(): Module = module {
     single<cz.hillview.settings.CompassSettingsRepository> {
         cz.hillview.settings.JavaPrefsCompassSettingsRepository()
     }
+    single<cz.hillview.settings.MapSettingsRepository> { InMemoryMapSettings() }
+    single<cz.hillview.map.PhotoMarkerSource> { EmptyMarkerSource() }
     single<TokenStore> { JavaPrefsTokenStore() }
     // Desktop can't capture, so there is no upload path here.
     single<cz.hillview.upload.UploadPipeline> { cz.hillview.upload.NoopUploadPipeline() }
+}
+
+/** Desktop has no map yet; these keep the graph resolvable. */
+private class InMemoryMapSettings : cz.hillview.settings.MapSettingsRepository {
+    private val state = kotlinx.coroutines.flow.MutableStateFlow(cz.hillview.settings.MapSettings())
+    override val settings = state
+    override fun update(transform: (cz.hillview.settings.MapSettings) -> cz.hillview.settings.MapSettings) {
+        state.value = transform(state.value)
+    }
+}
+
+private class EmptyMarkerSource : cz.hillview.map.PhotoMarkerSource {
+    override val markers = kotlinx.coroutines.flow.MutableStateFlow(emptyList<cz.hillview.map.PhotoMarker>())
+    override suspend fun refresh() {}
 }

@@ -68,6 +68,10 @@ androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref =
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 androidx-work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "workmanager" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version = "4.12.0" }
+# Raster-tile map for the orientation view (P3). Deliberately boring: our tile
+# palette is raster, and this is a plain AndroidView — the serious map-library
+# evaluation is a later gate (see docs/frontend2-rewrite-plan.md).
+osmdroid = { module = "org.osmdroid:osmdroid-android", version = "6.1.20" }
 # Matches the Tauri plugin — shared-kt sensor family (FusedOrientationProvider,
 # fused location).
 play-services-location = { module = "com.google.android.gms:play-services-location", version = "21.3.0" }
