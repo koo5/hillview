@@ -11,12 +11,16 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * Photo markers, matching the Tauri app's DivIcon (see
- * docs/tauri-map-ui-contract.md):
+ * Photo markers. A lone photo draws as in the Tauri app (see
+ * docs/tauri-map-ui-contract.md): a cross on the GPS point, a bearing
+ * circle and an arrow in the shooting direction.
  *
- *  - a small cross exactly on the GPS point,
- *  - a bearing circle pushed 7 dp forward along the photo's bearing,
- *  - an arrow in that direction.
+ * DELIBERATE DIVERGENCE: photos bunched at one viewpoint collapse into a
+ * single bearing rose — one tick per photo at its own bearing, with the
+ * count in the middle — instead of a pile. The Tauri app nudges every
+ * marker 7px along its bearing to spread such piles, which does not scale
+ * with how many share the spot and cannot separate two photos shot the same
+ * way; the offset is dropped here because the rose does that job properly.
  *
  * The circle's fill is how closely the photo's bearing agrees with the
  * current view bearing (opaque green when aligned, fading as it diverges);
@@ -40,6 +44,15 @@ class PhotoMarkerOverlay : Overlay() {
         color = Color.WHITE
     }
     private val arrowStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val tick = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val count = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.BLACK
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+    }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow) return
@@ -47,52 +60,145 @@ class PhotoMarkerOverlay : Overlay() {
         val density = mapView.context.resources.displayMetrics.density
         val point = android.graphics.Point()
 
+        // Project once, then group anything that lands within a marker's
+        // width of another. Photos from one viewpoint are the normal case,
+        // so overlap is the rule rather than the exception.
+        val placed = markers.map { marker ->
+            projection.toPixels(GeoPoint(marker.latitude, marker.longitude), point)
+            Placed(marker, point.x.toFloat(), point.y.toFloat())
+        }
+        val clusters = cluster(placed, radiusPx = 20f * density)
+
         // Tiers, drawn back to front.
-        val ordered = markers.sortedBy {
+        clusters.sortedBy { c ->
             when {
-                it.id == selectedId -> 3
-                it.featured -> 2
-                it.greyed -> 0
+                c.any { it.marker.id == selectedId } -> 3
+                c.any { it.marker.featured } -> 2
+                c.all { it.marker.greyed } -> 0
                 else -> 1
             }
-        }
-
-        ordered.forEach { marker ->
-            projection.toPixels(GeoPoint(marker.latitude, marker.longitude), point)
-            val gx = point.x.toFloat()
-            val gy = point.y.toFloat()
-            val selected = marker.id == selectedId
-            val bearing = marker.bearingDeg
-            // Screen angle: the map may be rotated under us.
-            val rad = Math.toRadians((bearing ?: 0.0) - mapView.mapOrientation)
-
-            // The circle+arrow sit 7dp ahead of the photo's position; the
-            // cross stays on it.
-            val offset = if (bearing == null) 0f else 7f * density
-            val cx = gx + (sin(rad) * offset).toFloat()
-            val cy = gy - (cos(rad) * offset).toFloat()
-
-            val alphaScale = if (marker.greyed) 0.45f else 1f
-            val circleRadius = (if (selected) 16f else 9.6f) * density
-
-            fill.color = circleColor(marker, alphaScale)
-            canvas.drawCircle(cx, cy, circleRadius, fill)
-
-            border.color = withAlpha(sourceColor(marker.source), alphaScale)
-            border.strokeWidth = (if (selected) 3f else 1f) * density
-            canvas.drawCircle(cx, cy, circleRadius, border)
-
-            if (bearing != null) {
-                drawArrow(canvas, cx, cy, rad, density, selected, alphaScale)
+        }.forEach { members ->
+            if (members.size == 1) {
+                drawSolo(canvas, members.first(), mapView, density)
+            } else {
+                drawRose(canvas, members, mapView, density)
             }
-
-            // Cross on the true position (5dp, 1dp bars).
-            cross.strokeWidth = 1f * density
-            cross.alpha = (153 * alphaScale).toInt()
-            val arm = 2.5f * density
-            canvas.drawLine(gx - arm, gy, gx + arm, gy, cross)
-            canvas.drawLine(gx, gy - arm, gx, gy + arm, cross)
         }
+    }
+
+    private class Placed(val marker: PhotoMarker, val x: Float, val y: Float)
+
+    /** Single pass, good enough for the ≤ maxPhotos markers we draw. */
+    private fun cluster(placed: List<Placed>, radiusPx: Float): List<List<Placed>> {
+        val remaining = placed.toMutableList()
+        val out = mutableListOf<List<Placed>>()
+        while (remaining.isNotEmpty()) {
+            val seed = remaining.removeAt(0)
+            val group = mutableListOf(seed)
+            val it = remaining.iterator()
+            while (it.hasNext()) {
+                val candidate = it.next()
+                if (kotlin.math.hypot(candidate.x - seed.x, candidate.y - seed.y) <= radiusPx) {
+                    group.add(candidate)
+                    it.remove()
+                }
+            }
+            out.add(group)
+        }
+        return out
+    }
+
+    private fun drawSolo(canvas: Canvas, placed: Placed, mapView: MapView, density: Float) {
+        val marker = placed.marker
+        val selected = marker.id == selectedId
+        val bearing = marker.bearingDeg
+        val rad = Math.toRadians((bearing ?: 0.0) - mapView.mapOrientation)
+
+        // Nothing to declutter, so no offset — the arrow already says which
+        // way it looks. (The Tauri app always offsets by 7px; that was a
+        // stand-in for the overlap handling now done by the rose.)
+        val cx = placed.x
+        val cy = placed.y
+        val alphaScale = if (marker.greyed) 0.45f else 1f
+        val circleRadius = (if (selected) 16f else 9.6f) * density
+
+        fill.color = circleColor(marker, alphaScale)
+        canvas.drawCircle(cx, cy, circleRadius, fill)
+        border.color = withAlpha(sourceColor(marker.source), alphaScale)
+        border.strokeWidth = (if (selected) 3f else 1f) * density
+        canvas.drawCircle(cx, cy, circleRadius, border)
+
+        if (bearing != null) drawArrow(canvas, cx, cy, rad, density, selected, alphaScale)
+
+        cross.strokeWidth = 1f * density
+        cross.alpha = (153 * alphaScale).toInt()
+        val arm = 2.5f * density
+        canvas.drawLine(cx - arm, cy, cx + arm, cy, cross)
+        canvas.drawLine(cx, cy - arm, cx, cy + arm, cross)
+    }
+
+    /**
+     * Photos taken from (nearly) one spot become one rose: a tick per photo
+     * at its own bearing, coloured by how well it agrees with the current
+     * view, and the count in the middle. That answers the question the map
+     * is for — "which directions from here have I already shot?" — which a
+     * pile of overlapping pins cannot.
+     */
+    private fun drawRose(
+        canvas: Canvas,
+        members: List<Placed>,
+        mapView: MapView,
+        density: Float,
+    ) {
+        val cx = members.map { it.x }.average().toFloat()
+        val cy = members.map { it.y }.average().toFloat()
+        val selected = members.any { it.marker.id == selectedId }
+        val featured = members.any { it.marker.featured }
+        val alphaScale = if (members.all { it.marker.greyed }) 0.45f else 1f
+
+        val outer = (if (selected) 22f else 18f) * density
+        val inner = 8f * density
+
+        // Faint disc so the rose reads as one object.
+        fill.color = withAlpha(Color.WHITE, 0.75f * alphaScale)
+        canvas.drawCircle(cx, cy, outer, fill)
+
+        members.forEach { m ->
+            val bearing = m.marker.bearingDeg ?: return@forEach
+            val rad = Math.toRadians(bearing - mapView.mapOrientation)
+            tick.color = circleColor(m.marker, alphaScale)
+            tick.strokeWidth = 3.5f * density
+            canvas.drawLine(
+                cx + (sin(rad) * inner).toFloat(),
+                cy - (cos(rad) * inner).toFloat(),
+                cx + (sin(rad) * outer).toFloat(),
+                cy - (cos(rad) * outer).toFloat(),
+                tick,
+            )
+        }
+
+        border.color = withAlpha(
+            if (featured) Color.rgb(255, 215, 0) else sourceColor(members.first().marker.source),
+            alphaScale,
+        )
+        border.strokeWidth = (if (selected) 3f else 1.5f) * density
+        canvas.drawCircle(cx, cy, outer, border)
+
+        // Count in the middle.
+        fill.color = withAlpha(Color.WHITE, 0.95f * alphaScale)
+        canvas.drawCircle(cx, cy, inner, fill)
+        count.textSize = 11f * density
+        count.alpha = (255 * alphaScale).toInt()
+        val label = members.size.toString()
+        canvas.drawText(
+            label, cx, cy - (count.descent() + count.ascent()) / 2f, count,
+        )
+
+        cross.strokeWidth = 1f * density
+        cross.alpha = (153 * alphaScale).toInt()
+        val arm = 2.5f * density
+        canvas.drawLine(cx - arm, cy, cx + arm, cy, cross)
+        canvas.drawLine(cx, cy - arm, cx, cy + arm, cross)
     }
 
     private fun drawArrow(
