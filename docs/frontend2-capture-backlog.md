@@ -29,7 +29,42 @@ before reimplementing, per the contract method).
 - **Capture queue indicator** (`CaptureQueueIndicator/Status.svelte`):
   upload-queue depth on the capture screen.
 
-## The camera-control question (open)
+## The camera-control question — research findings (2026-08-06)
+
+Researched (agent report, primary sources). The short version: **stay on
+CameraX, skip OpenCamera entirely, mine two Apache-2.0 apps for code.**
+
+- **OpenCamera is GPL-3.0-or-later** — linking it (or porting its code)
+  would relicense the app. It is a monolith, not a library, and there is no
+  permissively-licensed fork. Reference-reading only, never copy.
+- **CameraX 1.6.1 stable covers everything hillview actually needs**:
+  tap-to-focus (`FocusMeteringAction`), exposure compensation, AE/AWB lock,
+  `ResolutionSelector`, torch strength, video incl. HDR/slow-motion,
+  RAW/DNG (`OUTPUT_FORMAT_RAW_JPEG`, since 1.5). `camera-compose` is stable
+  (a `CameraXViewfinder` composable), and **1.7.0-alpha02 ships built-in
+  tap-to-focus + pinch-zoom gestures** on it.
+- What CameraX cannot do natively: manual ISO / shutter / focus distance /
+  white balance — those need experimental `Camera2Interop` per-feature, the
+  recommended pattern over raw Camera2. Exposure/focus **bracketing** and
+  **panorama** have no permissive library at all (DIY on Camera2
+  `captureBurst` + NDK stitching) — not on hillview's roadmap anyway.
+- **Code to mine (both Apache-2.0, both alive)**:
+  - `google/jetpack-camera-app` — Google's full CameraX+Compose reference
+    app; the architectural template for the capture screen.
+  - `LineageOS Aperture` — production CameraX camera app; liftable
+    `LevelerView`, grid, lens selector, countdown, QR (views not Compose —
+    take the logic).
+- **KMP options** if iOS ever matters: Kamera (CameraK) 1.1 and Camposer
+  1.0.3, both Apache-2.0, both CameraX-backed on Android — so dropping down
+  for pro features stays possible.
+- **Dead, do not adopt**: CameraView, Fotoapparat, google/cameraview,
+  CameraKit, EasyCamera, peekaboo.
+
+Still in flight: a second report on PiP/ForegroundService constraints
+(Android 14+ `foregroundServiceType=camera`), video with per-frame
+metadata, and Compose tap-to-focus sample specifics.
+
+## The camera-control question (original framing)
 
 Users expect native-camera behaviours: tap to focus/expose, exposure
 slider, and eventually a video mode. Options under research (see the
