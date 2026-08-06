@@ -37,6 +37,15 @@ class PhotoMarkerOverlay : Overlay() {
     var onPhotoTapped: ((PhotoMarker) -> Unit)? = null
 
     /**
+     * Where the markers ended up, reported after each draw that moved
+     * anything. A canvas has nothing in the view tree to point at, so this
+     * is what lets the screen name its photos — for a screen reader as much
+     * as for a test.
+     */
+    var onDrawn: ((List<Pair<String, Pair<Float, Float>>>) -> Unit)? = null
+    private var lastReported: List<Pair<String, Pair<Float, Float>>> = emptyList()
+
+    /**
      * Where each marker ended up on screen in the last draw — the only
      * honest basis for hit testing, since a rose moves its members to the
      * group's centre and re-projecting from lat/lon would miss them.
@@ -106,6 +115,7 @@ class PhotoMarkerOverlay : Overlay() {
 
         // Tiers, drawn back to front.
         val drawn = mutableListOf<Placed>()
+        val anchors = mutableListOf<Placed>()
         clusters.sortedBy { c ->
             when {
                 c.any { it.marker.id == selectedId } -> 3
@@ -115,15 +125,25 @@ class PhotoMarkerOverlay : Overlay() {
             }
         }.forEach { members ->
             val at = if (members.size == 1) {
-                drawSolo(canvas, members.first(), mapView, density)
+                drawSolo(canvas, members.first(), mapView, density).also {
+                    anchors += Placed(members.first().marker, it.first, it.second)
+                }
             } else {
-                drawRose(canvas, members, mapView, density)
+                drawRose(canvas, members, mapView, density, anchors)
             }
-            // Every member of a rose answers to the group's centre, because
-            // that is the only thing on screen to aim at.
+            // For hit testing every member of a rose answers to the group's
+            // centre, because one glyph is all a finger can aim at.
             members.forEach { drawn += Placed(it.marker, at.first, at.second) }
         }
         lastDrawn = drawn
+
+        // Only on a real move: draw runs on every frame, and reporting
+        // unconditionally would recompose the screen for no reason.
+        val report = anchors.map { it.marker.id to (it.x to it.y) }
+        if (report != lastReported) {
+            lastReported = report
+            onDrawn?.invoke(report)
+        }
     }
 
     private class Placed(val marker: PhotoMarker, val x: Float, val y: Float)
@@ -175,6 +195,8 @@ class PhotoMarkerOverlay : Overlay() {
         members: List<Placed>,
         mapView: MapView,
         density: Float,
+        /** Filled with each photo's own tick, for [onDrawn] — see there. */
+        anchors: MutableList<Placed>,
     ): Pair<Float, Float> {
         val cx = members.map { it.x }.average().toFloat()
         val cy = members.map { it.y }.average().toFloat()
@@ -190,8 +212,21 @@ class PhotoMarkerOverlay : Overlay() {
         canvas.drawCircle(cx, cy, outer, fill)
 
         members.forEach { m ->
-            val bearing = m.marker.bearingDeg ?: return@forEach
+            val bearing = m.marker.bearingDeg
+            if (bearing == null) {
+                // No tick to stand on, so it answers to the middle.
+                anchors += Placed(m.marker, cx, cy)
+                return@forEach
+            }
             val rad = Math.toRadians(bearing - mapView.mapOrientation)
+            // The tick *is* the photo, so that is where its name belongs —
+            // and it gives every photo in the rose its own place to be
+            // pointed at instead of one occluded pile.
+            anchors += Placed(
+                m.marker,
+                cx + (sin(rad) * outer).toFloat(),
+                cy - (cos(rad) * outer).toFloat(),
+            )
             tick.color = circleColor(m.marker, alphaScale)
             tick.strokeWidth = 3.5f * density
             canvas.drawLine(

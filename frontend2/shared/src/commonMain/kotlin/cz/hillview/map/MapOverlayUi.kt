@@ -31,9 +31,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import cz.hillview.settings.MAX_MAX_PHOTOS
@@ -87,6 +90,8 @@ fun MapOverlayUi(
     onToggleTracking: () -> Unit,
     onSelectBearingMode: (BearingMode) -> Unit,
     onZoom: (Double) -> Unit,
+    mapOrientation: Double = 0.0,
+    onResetNorth: () -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize().safeContentPadding()) {
         // Top-left: zoom, where Leaflet keeps it (44dp touch targets).
@@ -106,6 +111,30 @@ fun MapOverlayUi(
             ControlSurface(Modifier.padding(top = 8.dp)) {
                 TextButton(onClick = onBack, modifier = Modifier.testTag("map-back")) {
                     Text("< Back")
+                }
+            }
+
+            // A turned map needs a way back, or the gesture is a trap: the
+            // original never rotates, so it never had to answer this. The
+            // needle appears only once the map is off north, points at true
+            // north, and puts it back — the badge every map app uses, which
+            // means nobody has to be taught it.
+            if (kotlin.math.abs(normalizeBearing(mapOrientation).let {
+                    if (it > 180) it - 360 else it
+                }) >= 1.0
+            ) {
+                ControlSurface(Modifier.padding(top = 8.dp)) {
+                    TextButton(
+                        onClick = onResetNorth,
+                        modifier = Modifier.size(44.dp).testTag("reset-north-btn"),
+                    ) {
+                        Text(
+                            "↑N",
+                            color = Color(0xFFD93025),
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.rotate(-mapOrientation.toFloat()),
+                        )
+                    }
                 }
             }
         }
@@ -329,6 +358,18 @@ private fun LocationButton(
             border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFDDDDDD)),
             modifier = Modifier
                 .alpha(if (tracking == LocationTracking.Off) 0.6f else 1f)
+                // Which of the three states this is in must be readable from
+                // outside, not just inferable from a colour. The original
+                // carries it as `active`/`background` classes, which is what
+                // its suite asserts on; this is the same fact by another
+                // name, and it is what a screen reader announces too.
+                .semantics {
+                    stateDescription = when (tracking) {
+                        LocationTracking.Off -> "off"
+                        LocationTracking.Active -> "active"
+                        LocationTracking.Background -> "background"
+                    }
+                }
                 .testTag("track-location-btn"),
         ) {
             TextButton(onClick = onClick, modifier = Modifier.size(width = 60.dp, height = 44.dp)) {

@@ -14,4 +14,5 @@ expect fun MapScreen(
     settings: MapSettingsRepository,
     markerSource: PhotoMarkerSource,
     stateStore: MapStateStore,
+    session: MapSession,
 )

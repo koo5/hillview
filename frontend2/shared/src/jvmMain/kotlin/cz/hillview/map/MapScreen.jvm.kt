@@ -17,6 +17,7 @@ actual fun MapScreen(
     settings: MapSettingsRepository,
     markerSource: PhotoMarkerSource,
     stateStore: MapStateStore,
+    session: MapSession,
 ) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {

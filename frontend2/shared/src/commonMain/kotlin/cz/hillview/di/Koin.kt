@@ -30,6 +30,9 @@ val appModule = module {
     // Kept for the jvm backend-contract tests; the app's upload path is the
     // platform UploadPipeline (shared-kt stack on Android).
     single { cz.hillview.upload.PhotoUploadApi(get(), get(), get()) }
+    // One per process: tracking has to survive moving between the map and
+    // capture, which is a different lifetime from either screen.
+    single { cz.hillview.map.MapSession() }
     viewModel { LoginViewModel(get()) }
 }
 

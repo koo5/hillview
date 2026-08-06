@@ -7,7 +7,9 @@ import android.content.pm.PackageManager
 import android.location.LocationListener
 import android.location.LocationManager
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -17,18 +19,23 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import cz.hillview.plugin.EnhancedSensorService
 import cz.hillview.plugin.GeoTrackingManager
 import cz.hillview.settings.MapSettingsRepository
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 
@@ -42,6 +49,7 @@ actual fun MapScreen(
     settings: MapSettingsRepository,
     markerSource: PhotoMarkerSource,
     stateStore: MapStateStore,
+    session: MapSession,
 ) {
     val context = LocalContext.current
     val mapSettings by settings.settings.collectAsState()
@@ -61,10 +69,15 @@ actual fun MapScreen(
     var hunterOverride by remember { mutableStateOf<Boolean?>(null) }
     val hunterMode = hunterOverride ?: mapSettings.hunterModePref
 
-    // Session-only, exactly as in the Svelte app.
-    var trackingWanted by remember { mutableStateOf(false) }
+    // Session-only, exactly as in the Svelte app — but held in MapSession
+    // rather than the composition, because the map is its own destination
+    // here and a trip through capture would otherwise reset it. The effects
+    // below keep the two in step in both directions: what the user does on
+    // this screen is written back, and what happened while the screen was
+    // away (capture arming a clean ACTIVE) is adopted.
+    var trackingWanted by remember { mutableStateOf(session.bearingTrackingWanted.value) }
     var trackingPhase by remember { mutableStateOf(TrackingPhase.Inactive) }
-    var locationTracking by remember { mutableStateOf(LocationTracking.Off) }
+    var locationTracking by remember { mutableStateOf(session.locationTracking.value) }
     var locationFlash by remember { mutableStateOf(false) }
     var overrideFilters by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
@@ -74,6 +87,18 @@ actual fun MapScreen(
     // The front photo: what the gallery would show and the marker drawn as
     // selected. Recomputed from bearing + range, or set by tapping.
     var selectedPhotoId by remember { mutableStateOf<String?>(null) }
+    // Published by the marker overlay after each draw that moved anything.
+    var markerPositions by remember {
+        mutableStateOf<List<Pair<String, Pair<Float, Float>>>>(emptyList())
+    }
+    val density = LocalDensity.current
+
+    val sessionLocation by session.locationTracking.collectAsState()
+    val sessionBearingWanted by session.bearingTrackingWanted.collectAsState()
+    LaunchedEffect(sessionLocation) { locationTracking = sessionLocation }
+    LaunchedEffect(sessionBearingWanted) { trackingWanted = sessionBearingWanted }
+    LaunchedEffect(locationTracking) { session.setLocationTracking(locationTracking) }
+    LaunchedEffect(trackingWanted) { session.setBearingTrackingWanted(trackingWanted) }
 
     val controller = remember { MapSensorController(context.applicationContext) }
     DisposableEffect(controller) { onDispose { controller.release() } }
@@ -143,6 +168,7 @@ actual fun MapScreen(
     }
 
     val markerOverlay = remember { PhotoMarkerOverlay() }
+    markerOverlay.onDrawn = { markerPositions = it }
     val rangeOverlay = remember { RangeCircleOverlay() }
     val arrowOverlay = remember { BearingArrowOverlay() }
     // Arrow drag: walking sets the bearing outright, car adjusts the mount
@@ -293,6 +319,41 @@ actual fun MapScreen(
                 },
         )
 
+        // Markers are drawn on a canvas, so nothing in the tree stands for a
+        // photo and neither a test nor a screen reader can name one. These
+        // carry that identity — the same `photo-marker-<id>` the Appium suite
+        // looks for — and sit where the marker actually is, which is what
+        // makes them worth having: stacked at one point they would be a
+        // single occluded node, and useless to point at.
+        //
+        // They take no touches, so the map keeps every gesture.
+        val byId = markers.associateBy { it.id }
+        markerPositions.forEach { (id, at) ->
+            val marker = byId[id] ?: return@forEach
+            val half = with(density) { 24.dp.toPx() / 2f }
+            Box(
+                Modifier
+                    .offset {
+                        IntOffset(
+                            (at.first - half).roundToInt(),
+                            (at.second - half).roundToInt(),
+                        )
+                    }
+                    .size(24.dp)
+                    .testTag("photo-marker-$id")
+                    .semantics {
+                        stateDescription = if (id == selectedPhotoId) {
+                            "selected"
+                        } else {
+                            "not selected"
+                        }
+                        contentDescription = marker.bearingDeg
+                            ?.let { "Photo facing ${it.toInt()} degrees" }
+                            ?: "Photo with no bearing"
+                    },
+            )
+        }
+
         MapOverlayUi(
             onBack = onBack,
             settings = mapSettings,
@@ -338,6 +399,14 @@ actual fun MapScreen(
             onZoom = { delta ->
                 state.updateSpatial(
                     zoom = (spatial.zoom + delta).coerceIn(3.0, 22.0),
+                    now = System.currentTimeMillis(),
+                )
+            },
+            mapOrientation = spatial.orientation,
+            onResetNorth = {
+                state.updateSpatial(
+                    orientation = 0.0,
+                    source = "map",
                     now = System.currentTimeMillis(),
                 )
             },

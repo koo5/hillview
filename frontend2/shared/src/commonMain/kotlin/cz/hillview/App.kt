@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation3.runtime.NavKey
@@ -67,12 +68,21 @@ fun App() {
                         settings = org.koin.compose.koinInject(),
                         markerSource = org.koin.compose.koinInject(),
                         stateStore = org.koin.compose.koinInject(),
+                        session = org.koin.compose.koinInject(),
                     )
                 }
                 entry<SettingsKey> {
                     SettingsScreen(onBack = { backStack.removeLastOrNull() })
                 }
                 entry<CaptureKey> {
+                    // Entering capture arms a clean ACTIVE and leaving stands
+                    // the bearing side down — see MapSession, and the
+                    // regression it names.
+                    val session = org.koin.compose.koinInject<cz.hillview.map.MapSession>()
+                    DisposableEffect(session) {
+                        session.onEnterCapture()
+                        onDispose { session.onLeaveCapture() }
+                    }
                     CaptureScreen(onBack = { backStack.removeLastOrNull() })
                 }
                 entry<LoginKey> {
