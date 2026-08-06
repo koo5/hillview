@@ -52,7 +52,7 @@ class SessionManager(
         // Surface an involuntary death that happened while the UI was gone
         // (background drain hit a definitive 401) — mirrors the Tauri app's
         // JS reconciler reading the same persisted flag.
-        store.consumeSessionExpiredReason()?.let { _sessionExpiredNotice.value = it }
+        store.peekSessionExpiredReason()?.let { _sessionExpiredNotice.value = it }
         val stored = store.load()
         tokens = stored
         _state.value = if (stored != null) {
@@ -69,13 +69,14 @@ class SessionManager(
      */
     suspend fun onPlatformSessionExpired() {
         _sessionExpiredNotice.value =
-            store.consumeSessionExpiredReason() ?: "session expired"
+            store.peekSessionExpiredReason() ?: "session expired"
         tokens = null
         _state.value = SessionState.LoggedOut
     }
 
-    fun dismissSessionExpiredNotice() {
+    suspend fun dismissSessionExpiredNotice() {
         _sessionExpiredNotice.value = null
+        store.acknowledgeSessionExpired()
     }
 
     /**
@@ -84,6 +85,7 @@ class SessionManager(
     suspend fun login(username: String, password: String) {
         val token = api.token(username, password)
         _sessionExpiredNotice.value = null // superseded by the new session
+        store.acknowledgeSessionExpired()
         val stored = StoredTokens(
             accessToken = token.accessToken,
             refreshToken = token.refreshToken,
@@ -178,7 +180,7 @@ class SessionManager(
                     tokens = null
                     _state.value = SessionState.LoggedOut
                     _sessionExpiredNotice.value =
-                        store.consumeSessionExpiredReason() ?: "session expired"
+                        store.peekSessionExpiredReason() ?: "session expired"
                     throw SessionExpiredException("platform refresh rejected")
                 }
                 tokens = after

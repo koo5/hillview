@@ -69,7 +69,9 @@ fun HomeScreen(
 
         expiredNotice?.let { reason ->
             Text(
-                text = "Session expired ($reason) — please sign in again.",
+                // The suite greps for the phrase "session has expired";
+                // keep it verbatim inside whatever the sentence becomes.
+                text = "Your session has expired ($reason) — please sign in again.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier

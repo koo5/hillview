@@ -39,11 +39,19 @@ interface TokenStore {
     /**
      * The platform auth manager's persisted involuntary-session-death marker
      * (Android: AuthenticationManager.sessionExpired ran — e.g. a background
-     * drain's refresh was rejected with 401). Consuming clears the flag; the
-     * reason is surfaced once in the UI. Null when there is no marker (or no
-     * platform auth manager).
+     * drain's refresh was rejected with 401). Null when there is no marker
+     * (or no platform auth manager).
+     *
+     * Peeking does NOT clear it: the flag must survive process death until
+     * the user has actually seen the notice — the original keeps it through
+     * the token clear for exactly that reason, so a kill between expiry and
+     * delivery still surfaces at next launch. Clear it only via
+     * [acknowledgeSessionExpired], from a user action.
      */
-    suspend fun consumeSessionExpiredReason(): String? = null
+    suspend fun peekSessionExpiredReason(): String? = null
+
+    /** The user saw the notice (dismissed it, or signed back in). */
+    suspend fun acknowledgeSessionExpired() {}
 }
 
 class InMemoryTokenStore(
@@ -53,6 +61,6 @@ class InMemoryTokenStore(
     override suspend fun load(): StoredTokens? = tokens
     override suspend fun save(tokens: StoredTokens) { this.tokens = tokens }
     override suspend fun clear() { tokens = null }
-    override suspend fun consumeSessionExpiredReason(): String? =
-        expiredReason.also { expiredReason = null }
+    override suspend fun peekSessionExpiredReason(): String? = expiredReason
+    override suspend fun acknowledgeSessionExpired() { expiredReason = null }
 }

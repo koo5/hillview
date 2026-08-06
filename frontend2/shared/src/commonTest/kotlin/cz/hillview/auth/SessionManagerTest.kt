@@ -212,7 +212,7 @@ class SessionManagerTest {
             return false
         }
 
-        override suspend fun consumeSessionExpiredReason(): String? =
+        override suspend fun peekSessionExpiredReason(): String? =
             if (tokens == null && clearOnFailure) "refresh token rejected (401)" else null
     }
 
@@ -289,14 +289,31 @@ class SessionManagerTest {
 
         assertEquals(SessionState.LoggedOut, session.state.value)
         assertEquals("refresh token rejected (401)", session.sessionExpiredNotice.value)
-        // Consumed from the store — a fresh manager would not see it again.
-        assertNull(store.consumeSessionExpiredReason())
+        // NOT consumed by restore: the flag must survive a process death
+        // between expiry and the user actually seeing the notice. Only a
+        // user action clears it.
+        assertEquals("refresh token rejected (401)", store.peekSessionExpiredReason())
 
         // A successful login supersedes the notice.
         scripted.enqueue { respond(tokenJson("a2"), HttpStatusCode.OK, jsonHeaders) }
         scripted.enqueue { respond(meJson, HttpStatusCode.OK, jsonHeaders) }
         session.login("test", "pw")
         assertNull(session.sessionExpiredNotice.value)
+        // Logging in IS the acknowledgement — now the store forgets too.
+        assertNull(store.peekSessionExpiredReason())
+    }
+
+    @Test
+    fun dismissingTheNoticeAcknowledgesThePersistedFlag() = runTest {
+        val store = InMemoryTokenStore(expiredReason = "refresh token rejected (401)")
+        val session = sessionWith(Scripted(), store)
+        session.restoreIfNeeded()
+        assertEquals("refresh token rejected (401)", session.sessionExpiredNotice.value)
+
+        session.dismissSessionExpiredNotice()
+
+        assertNull(session.sessionExpiredNotice.value)
+        assertNull(store.peekSessionExpiredReason())
     }
 
     @Test

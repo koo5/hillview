@@ -69,10 +69,12 @@ private class AuthManagerTokenStore(context: Context) : TokenStore {
         auth.forceRefreshToken()
     }
 
-    override suspend fun consumeSessionExpiredReason(): String? = withContext(Dispatchers.IO) {
-        val info = auth.getSessionExpiredInfo() ?: return@withContext null
-        auth.clearSessionExpiredFlag()
-        info.second
+    override suspend fun peekSessionExpiredReason(): String? = withContext(Dispatchers.IO) {
+        auth.getSessionExpiredInfo()?.second
+    }
+
+    override suspend fun acknowledgeSessionExpired() {
+        withContext(Dispatchers.IO) { auth.clearSessionExpiredFlag() }
     }
 }
 
