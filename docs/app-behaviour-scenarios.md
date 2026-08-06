@@ -224,8 +224,12 @@ Found by reading the above against the port; unfixed unless noted.
    back in, and the text contains the asserted "session has expired".
 9. ~~The location button exposes no state.~~ **Fixed**: off/active/
    background published as semantics stateDescription.
-10. **No rotate ±15°, move forward/backward, or turn-to-photo controls** —
-    the port has only zoom and the draggable arrow.
+10. ~~No rotate/move/turn-to-photo controls.~~ **Resolved by observation**:
+    in the current Tauri app those actions are keyboard-only (`x`/`b`,
+    `c`/`v`, `z`/`k`) and the on-map buttons for them are documented dead
+    code (unreachable from markup — see the contract's "Do not port").
+    A phone has no keyboard, so there is nothing to port; two-finger
+    rotation covers the rotate case.
 11. ~~No photo selection at all.~~ **Fixed**: frontPhoto() picks the
     bearing-closest in-range photo (id tiebreak), taps select via
     markerAtTap() with the selection pinned against the photo limit, and
