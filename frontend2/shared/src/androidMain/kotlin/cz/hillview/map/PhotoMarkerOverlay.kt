@@ -33,6 +33,41 @@ class PhotoMarkerOverlay : Overlay() {
     var viewBearing: Double = 0.0
     var selectedId: String? = null
 
+    /** Tapping a marker selects that photo; a rose yields its best match. */
+    var onPhotoTapped: ((PhotoMarker) -> Unit)? = null
+
+    /**
+     * Where each marker ended up on screen in the last draw — the only
+     * honest basis for hit testing, since a rose moves its members to the
+     * group's centre and re-projecting from lat/lon would miss them.
+     */
+    private var lastDrawn: List<Placed> = emptyList()
+
+    override fun onSingleTapConfirmed(event: android.view.MotionEvent?, mapView: MapView?): Boolean {
+        val tap = event ?: return false
+        val view = mapView ?: return false
+        val handler = onPhotoTapped ?: return false
+        val density = view.context.resources.displayMetrics.density
+        // Generous target: the drawn glyph is ~20dp across and fingers are
+        // not precise. Same spirit as the web app's 10px tap threshold.
+        val radius = 24f * density
+
+        val hit = markerAtTap(
+            drawn = lastDrawn,
+            tapX = tap.x,
+            tapY = tap.y,
+            radius = radius,
+            viewBearing = viewBearing,
+            x = { it.x },
+            y = { it.y },
+            id = { it.marker.id },
+            bearing = { it.marker.bearingDeg },
+        ) ?: return false
+
+        handler(hit.marker)
+        return true
+    }
+
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val cross = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -70,6 +105,7 @@ class PhotoMarkerOverlay : Overlay() {
         val clusters = clusterByProximity(placed, 20f * density, { it.x }, { it.y })
 
         // Tiers, drawn back to front.
+        val drawn = mutableListOf<Placed>()
         clusters.sortedBy { c ->
             when {
                 c.any { it.marker.id == selectedId } -> 3
@@ -78,17 +114,26 @@ class PhotoMarkerOverlay : Overlay() {
                 else -> 1
             }
         }.forEach { members ->
-            if (members.size == 1) {
+            val at = if (members.size == 1) {
                 drawSolo(canvas, members.first(), mapView, density)
             } else {
                 drawRose(canvas, members, mapView, density)
             }
+            // Every member of a rose answers to the group's centre, because
+            // that is the only thing on screen to aim at.
+            members.forEach { drawn += Placed(it.marker, at.first, at.second) }
         }
+        lastDrawn = drawn
     }
 
     private class Placed(val marker: PhotoMarker, val x: Float, val y: Float)
 
-    private fun drawSolo(canvas: Canvas, placed: Placed, mapView: MapView, density: Float) {
+    private fun drawSolo(
+        canvas: Canvas,
+        placed: Placed,
+        mapView: MapView,
+        density: Float,
+    ): Pair<Float, Float> {
         val marker = placed.marker
         val selected = marker.id == selectedId
         val bearing = marker.bearingDeg
@@ -115,6 +160,7 @@ class PhotoMarkerOverlay : Overlay() {
         val arm = 2.5f * density
         canvas.drawLine(cx - arm, cy, cx + arm, cy, cross)
         canvas.drawLine(cx, cy - arm, cx, cy + arm, cross)
+        return cx to cy
     }
 
     /**
@@ -129,7 +175,7 @@ class PhotoMarkerOverlay : Overlay() {
         members: List<Placed>,
         mapView: MapView,
         density: Float,
-    ) {
+    ): Pair<Float, Float> {
         val cx = members.map { it.x }.average().toFloat()
         val cy = members.map { it.y }.average().toFloat()
         val selected = members.any { it.marker.id == selectedId }
@@ -179,6 +225,7 @@ class PhotoMarkerOverlay : Overlay() {
         val arm = 2.5f * density
         canvas.drawLine(cx - arm, cy, cx + arm, cy, cross)
         canvas.drawLine(cx, cy - arm, cx, cy + arm, cross)
+        return cx to cy
     }
 
     private fun drawArrow(

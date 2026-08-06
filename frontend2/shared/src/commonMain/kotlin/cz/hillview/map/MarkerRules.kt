@@ -53,3 +53,56 @@ fun <T> clusterByProximity(
     }
     return out
 }
+
+/**
+ * The front photo: of the photos **in range**, the one whose own bearing is
+ * closest to where the view is pointed, with the id as tiebreak.
+ *
+ * The tiebreak is not decoration — the Playwright suite notes that without
+ * it "the front photo is decided by a diff-0 tie and flips under marker
+ * churn". Returns null when nothing is in range.
+ */
+fun <T> frontPhoto(
+    photos: List<T>,
+    viewBearing: Double,
+    id: (T) -> String,
+    bearing: (T) -> Double?,
+    inRange: (T) -> Boolean,
+): T? = photos
+    .filter { inRange(it) && bearing(it) != null }
+    .minWithOrNull(
+        compareBy<T> { absBearingDiff(bearing(it)!!, viewBearing) }.thenBy { id(it) },
+    )
+
+/**
+ * Which marker a tap picks: the nearest one inside the touch radius, and
+ * when a rose has stacked several at the very same point, the one that best
+ * agrees with the current view.
+ *
+ * That second rule matters because a rose is *drawn* as one glyph, so every
+ * photo in it is exactly equidistant from the tap. Falling back to the same
+ * "closest to where we are looking" test [frontPhoto] uses keeps a tap and
+ * the automatic selection from ever disagreeing about the same pile.
+ */
+fun <T> markerAtTap(
+    drawn: List<T>,
+    tapX: Float,
+    tapY: Float,
+    radius: Float,
+    viewBearing: Double,
+    x: (T) -> Float,
+    y: (T) -> Float,
+    id: (T) -> String,
+    bearing: (T) -> Double?,
+): T? {
+    fun distance(item: T): Float = kotlin.math.hypot(tapX - x(item), tapY - y(item))
+    return drawn
+        .filter { distance(it) <= radius }
+        .minWithOrNull(
+            compareBy<T> { distance(it) }
+                // A photo with no bearing sorts last: it can never be the
+                // thing you are looking at.
+                .thenBy { bearing(it)?.let { b -> absBearingDiff(b, viewBearing) } ?: 360.0 }
+                .thenBy { id(it) },
+        )
+}

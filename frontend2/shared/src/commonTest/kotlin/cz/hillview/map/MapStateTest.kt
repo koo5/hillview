@@ -262,3 +262,111 @@ class MapStatePersistenceTest {
         assertNull(fresh.spatial.value.ts)
     }
 }
+
+/**
+ * Which photo is "in front" — the selection the whole gallery and marker
+ * highlighting hang off. Rule and tiebreak from the Playwright suite.
+ */
+class FrontPhotoTest {
+
+    private data class P(val id: String, val bearing: Double?, val inRange: Boolean = true)
+
+    private fun front(photos: List<P>, viewBearing: Double) =
+        frontPhoto(photos, viewBearing, { it.id }, { it.bearing }, { it.inRange })
+
+    @Test
+    fun picksTheBearingClosestToWhereWeAreLooking() {
+        val photos = listOf(P("a", 10.0), P("b", 90.0), P("c", 200.0))
+        assertEquals("b", front(photos, 85.0)?.id)
+    }
+
+    @Test
+    fun comparesTheShortWayRoundNorth() {
+        val photos = listOf(P("a", 350.0), P("b", 180.0))
+        assertEquals("a", front(photos, 5.0)?.id)
+    }
+
+    @Test
+    fun tiesBreakOnIdSoTheChoiceCannotFlipUnderChurn() {
+        // Same bearing for both: without a tiebreak the winner would depend
+        // on list order, which changes as markers are re-culled.
+        val ordered = listOf(P("b", 90.0), P("a", 90.0))
+        assertEquals("a", front(ordered, 90.0)?.id)
+        assertEquals("a", front(ordered.reversed(), 90.0)?.id)
+    }
+
+    @Test
+    fun ignoresPhotosOutOfRange() {
+        val photos = listOf(P("near", 200.0, inRange = true), P("far", 90.0, inRange = false))
+        assertEquals("near", front(photos, 90.0)?.id)
+    }
+
+    @Test
+    fun ignoresPhotosWithoutABearing() {
+        val photos = listOf(P("unknown", null), P("known", 300.0))
+        assertEquals("known", front(photos, 90.0)?.id)
+    }
+
+    @Test
+    fun nothingInRangeMeansNoFrontPhoto() {
+        assertNull(front(listOf(P("a", 10.0, inRange = false)), 10.0))
+        assertNull(front(emptyList(), 10.0))
+    }
+}
+
+/**
+ * Tapping a marker. The port shipped with the hit list never populated, so
+ * taps silently did nothing on a device while every other test passed —
+ * hence these, which pin the choice rule rather than the plumbing.
+ */
+class MarkerAtTapTest {
+
+    private data class M(val id: String, val x: Float, val y: Float, val bearing: Double? = null)
+
+    private fun tap(markers: List<M>, x: Float, y: Float, radius: Float = 24f, view: Double = 90.0) =
+        markerAtTap(markers, x, y, radius, view, { it.x }, { it.y }, { it.id }, { it.bearing })
+
+    @Test
+    fun tapsPickTheNearestMarkerInReach() {
+        val markers = listOf(M("far", 100f, 100f), M("near", 12f, 0f))
+        assertEquals("near", tap(markers, 0f, 0f)?.id)
+    }
+
+    @Test
+    fun tapsOnEmptyMapSelectNothing() {
+        assertNull(tap(listOf(M("a", 500f, 500f)), 0f, 0f))
+        assertNull(tap(emptyList(), 0f, 0f))
+    }
+
+    @Test
+    fun theRadiusIsInclusive() {
+        assertEquals("edge", tap(listOf(M("edge", 24f, 0f)), 0f, 0f)?.id)
+        assertNull(tap(listOf(M("just-out", 24.5f, 0f)), 0f, 0f))
+    }
+
+    @Test
+    fun tappingARoseYieldsThePhotoFacingWhereWeLook() {
+        // A rose draws every member at one point, so distance cannot decide
+        // and the view bearing has to.
+        val rose = listOf(
+            M("behind", 50f, 50f, bearing = 270.0),
+            M("ahead", 50f, 50f, bearing = 95.0),
+            M("sideways", 50f, 50f, bearing = 180.0),
+        )
+        assertEquals("ahead", tap(rose, 50f, 50f, view = 90.0)?.id)
+        assertEquals("behind", tap(rose, 50f, 50f, view = 265.0)?.id)
+    }
+
+    @Test
+    fun aStackedPhotoWithNoBearingLosesToOneThatHasIt() {
+        val rose = listOf(M("unknown", 0f, 0f, bearing = null), M("known", 0f, 0f, bearing = 300.0))
+        assertEquals("known", tap(rose, 0f, 0f, view = 90.0)?.id)
+    }
+
+    @Test
+    fun aFullyTiedRoseStillPicksTheSamePhotoEveryTime() {
+        val rose = listOf(M("b", 0f, 0f, bearing = 90.0), M("a", 0f, 0f, bearing = 90.0))
+        assertEquals("a", tap(rose, 0f, 0f)?.id)
+        assertEquals("a", tap(rose.reversed(), 0f, 0f)?.id)
+    }
+}

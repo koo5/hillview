@@ -18,6 +18,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import cz.hillview.plugin.EnhancedSensorService
@@ -66,6 +71,9 @@ actual fun MapScreen(
     var showProviders by remember { mutableStateOf(false) }
     var deviceSourceEnabled by remember { mutableStateOf(true) }
     var arrowTipPx by remember { mutableStateOf(120f) }
+    // The front photo: what the gallery would show and the marker drawn as
+    // selected. Recomputed from bearing + range, or set by tapping.
+    var selectedPhotoId by remember { mutableStateOf<String?>(null) }
 
     val controller = remember { MapSensorController(context.applicationContext) }
     DisposableEffect(controller) { onDispose { controller.release() } }
@@ -128,8 +136,29 @@ actual fun MapScreen(
         stateStore.save(spatial, bearing)
     }
 
+    // Pin the selection so the photo limit can never drop it out from under
+    // the user.
+    LaunchedEffect(selectedPhotoId) {
+        (markerSource as? RecentPhotoMarkerSource)?.pinnedId = selectedPhotoId
+    }
+
     val markerOverlay = remember { PhotoMarkerOverlay() }
     val rangeOverlay = remember { RangeCircleOverlay() }
+    val arrowOverlay = remember { BearingArrowOverlay() }
+    // Arrow drag: walking sets the bearing outright, car adjusts the mount
+    // offset by the angle travelled.
+    arrowOverlay.onDragStart = {
+        if (mapSettings.bearingMode == BearingMode.Walking && trackingWanted) {
+            trackingWanted = false
+        }
+    }
+    arrowOverlay.onBearing = { value ->
+        state.updateBearing(value, source = "arrow_drag", now = System.currentTimeMillis())
+    }
+    arrowOverlay.onBearingDelta = { delta ->
+        controller.adjustMountOffset(delta)
+        state.updateBearingByDiff(delta, source = "gps-kalman", now = System.currentTimeMillis())
+    }
     val mapView = rememberMapView()
     val applied = remember { AppliedCamera() }
 
@@ -144,6 +173,9 @@ actual fun MapScreen(
                 }
                 if (rangeOverlay !in view.overlays) view.overlays.add(rangeOverlay)
                 if (markerOverlay !in view.overlays) view.overlays.add(markerOverlay)
+                // Last, so it draws on top — and so its touch handler gets
+                // first refusal before the map pans.
+                if (arrowOverlay !in view.overlays) view.overlays.add(arrowOverlay)
 
                 // The ring is screen-constant: 70 CSS pixels in the web app,
                 // so 70dp here. `range` is what that radius happens to mean
@@ -161,13 +193,46 @@ actual fun MapScreen(
                 rangeOverlay.radiusPx = ringPx
                 // Tip at 1.3x the ring, as in the original — just outside it.
                 arrowTipPx = ringPx * 1.3f
+                arrowOverlay.bearingDeg = bearing.bearing
+                arrowOverlay.tipRadiusPx = arrowTipPx
+                arrowOverlay.fullCircleHitArea =
+                    mapSettings.bearingMode == BearingMode.Car && trackingWanted
 
                 markerOverlay.viewBearing = bearing.bearing
+                markerOverlay.onPhotoTapped = { photo ->
+                    // Turning the view to the photo IS the selection — the
+                    // bearing carries the photo id, exactly as the original
+                    // does via updateBearingWithPhoto.
+                    photo.bearingDeg?.let { photoBearing ->
+                        state.updateBearing(
+                            bearing = photoBearing,
+                            source = "marker_click",
+                            photoUid = photo.id,
+                            now = System.currentTimeMillis(),
+                        )
+                    }
+                    selectedPhotoId = photo.id
+                    // Tapping a greyed-out photo un-greys the set, like the
+                    // original's overrideFilters flip.
+                    if (!hunterMode) hunterOverride = true
+                }
                 // Greying rule from the contract: outside hunter mode, when
                 // featured photos exist, non-featured ones INSIDE the range
                 // circle are washed out (outside it they are not).
                 val visible = markers.filter { deviceSourceEnabled || it.source != "device" }
                 val anyFeatured = visible.any { it.featured }
+
+                // The front photo follows the view unless the user picked
+                // one; a bearing whose source is a tap keeps that choice.
+                val inRange = { m: PhotoMarker ->
+                    centre.distanceToAsDouble(GeoPoint(m.latitude, m.longitude)) <= rangeMeters
+                }
+                selectedPhotoId = if (bearing.photoUid != null) {
+                    bearing.photoUid
+                } else {
+                    frontPhoto(visible, bearing.bearing, { it.id }, { it.bearingDeg }, inRange)?.id
+                }
+                markerOverlay.selectedId = selectedPhotoId
                 markerOverlay.markers = visible.map { marker ->
                     val greyed = !hunterMode && anyFeatured && !marker.featured &&
                         centre.distanceToAsDouble(
@@ -193,26 +258,20 @@ actual fun MapScreen(
             },
         )
 
-        BearingArrow(
-            bearingDeg = bearing.bearing,
-            // Car mode makes the whole ring grabbable, and only while GPS
-            // orientation is actually running.
-            fullCircleHitArea = mapSettings.bearingMode == BearingMode.Car && trackingWanted,
-            tipRadiusPx = arrowTipPx,
-            onDragStart = {
-                // Dragging the arrow stops the compass — but not GPS
-                // orientation, whose drag means "adjust the mount".
-                if (mapSettings.bearingMode == BearingMode.Walking && trackingWanted) {
-                    trackingWanted = false
-                }
-            },
-            onBearing = { value ->
-                state.updateBearing(value, source = "arrow_drag", now = System.currentTimeMillis())
-            },
-            onBearingDelta = { delta ->
-                controller.adjustMountOffset(delta)
-                state.updateBearingByDiff(delta, source = "gps-kalman", now = System.currentTimeMillis())
-            },
+        // The arrow itself lives in the map's overlay layer (see
+        // BearingArrowOverlay); this node only publishes its value so
+        // accessibility services and UI tests can read it without covering
+        // the map.
+        Box(
+            Modifier
+                .testTag("map-bearing-arrow")
+                .semantics {
+                    progressBarRangeInfo = ProgressBarRangeInfo(
+                        current = bearing.bearing.toFloat(),
+                        range = 0f..360f,
+                    )
+                    contentDescription = "Bearing ${bearing.bearing.toInt()} degrees"
+                },
         )
 
         MapOverlayUi(
@@ -281,17 +340,42 @@ actual fun MapScreen(
         }
     }
 
-    // Panning demotes ACTIVE to BACKGROUND rather than stopping GPS.
+    // The upward half of the loop: what the user does to the map becomes
+    // state. Without this the store never learns about a pan, and the next
+    // state-driven update would yank the view back.
     DisposableEffect(mapView, locationTracking) {
+        fun syncFromMap() {
+            val centre = mapView.mapCenter
+            // Record where the map now is, so the downward path sees no
+            // difference and does not re-issue setCenter for a move the user
+            // just made.
+            applied.latitude = centre.latitude
+            applied.longitude = centre.longitude
+            applied.zoom = mapView.zoomLevelDouble
+            state.updateSpatial(
+                latitude = centre.latitude,
+                longitude = centre.longitude,
+                zoom = mapView.zoomLevelDouble,
+                source = "map",
+                now = System.currentTimeMillis(),
+            )
+        }
+
         val listener = object : org.osmdroid.events.MapListener {
             override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
+                // A manual pan demotes tracking instead of stopping GPS —
+                // the fixes keep coming, the map just stops following.
                 if (locationTracking == LocationTracking.Active) {
                     locationTracking = LocationTracking.Background
                 }
+                syncFromMap()
                 return false
             }
 
-            override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean = false
+            override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
+                syncFromMap()
+                return false
+            }
         }
         mapView.addMapListener(listener)
         onDispose { mapView.removeMapListener(listener) }

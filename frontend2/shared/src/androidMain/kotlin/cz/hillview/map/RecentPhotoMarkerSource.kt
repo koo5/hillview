@@ -23,11 +23,26 @@ class RecentPhotoMarkerSource(
     private val _markers = MutableStateFlow<List<PhotoMarker>>(emptyList())
     override val markers: StateFlow<List<PhotoMarker>> = _markers.asStateFlow()
 
+    /**
+     * The selected photo is pinned: the limit must never drop what the user
+     * is looking at. The Tauri app calls these "picks" and sends them to the
+     * backend for the same reason — otherwise a quota filled by other photos
+     * silently deselects you.
+     */
+    var pinnedId: String? = null
+
     override suspend fun refresh() {
         val limit = settings.settings.value.maxPhotos
+        val pinned = pinnedId
         _markers.value = withContext(Dispatchers.IO) {
-            PhotoDatabase.getDatabase(context).photoDao()
-                .getPhotosPaginated(limit, 0)
+            val dao = PhotoDatabase.getDatabase(context).photoDao()
+            val page = dao.getPhotosPaginated(limit, 0)
+            val withPin = if (pinned != null && page.none { it.id == pinned }) {
+                page + listOfNotNull(dao.getPhotoById(pinned))
+            } else {
+                page
+            }
+            withPin
                 .filter { it.latitude != 0.0 || it.longitude != 0.0 }
                 .map {
                     PhotoMarker(
