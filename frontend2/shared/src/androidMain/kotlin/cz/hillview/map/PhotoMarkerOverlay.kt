@@ -161,12 +161,15 @@ class PhotoMarkerOverlay : Overlay() {
 }
 
 /**
- * The dashed range ring: everything inside it is "in range" for navigation
- * and greying, and its edge is where the bearing arrow points.
+ * The dashed range ring. It is a **screen-constant** circle — the Tauri app
+ * derives `range` from a fixed 70 CSS pixels, so the ring keeps its size
+ * while zoom changes what it means on the ground. Drawn straight at that
+ * pixel radius rather than round-tripping through metres, which would only
+ * add projection drift.
  */
 class RangeCircleOverlay : Overlay() {
-    /** Metres; the caller keeps this equal to 70 screen pixels. */
-    var radiusMeters: Double = 1000.0
+    /** Screen radius in device pixels (70dp worth). */
+    var radiusPx: Float = 0f
     var centre: GeoPoint? = null
     var visible: Boolean = true
 
@@ -182,21 +185,14 @@ class RangeCircleOverlay : Overlay() {
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow || !visible) return
         val c = centre ?: return
+        if (radiusPx <= 0f) return
         val density = mapView.context.resources.displayMetrics.density
         val point = android.graphics.Point()
         mapView.projection.toPixels(c, point)
-        // Metres → pixels through the projection's own scale.
-        val edge = c.destinationPoint(radiusMeters, 90.0)
-        val edgePoint = android.graphics.Point()
-        mapView.projection.toPixels(edge, edgePoint)
-        val radiusPx = kotlin.math.hypot(
-            (edgePoint.x - point.x).toDouble(),
-            (edgePoint.y - point.y).toDouble(),
-        ).toFloat()
-        if (radiusPx <= 0f) return
 
         canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), radiusPx, inner)
-        ring.strokeWidth = 8.8f * density / 2.75f
+        // Leaflet weight/dash are CSS pixels, i.e. dp here.
+        ring.strokeWidth = 8.8f * density
         ring.pathEffect = android.graphics.DashPathEffect(
             floatArrayOf(5f * density, 15f * density), 0f,
         )

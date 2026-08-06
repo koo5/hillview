@@ -134,19 +134,22 @@ actual fun MapScreen(
                 if (rangeOverlay !in view.overlays) view.overlays.add(rangeOverlay)
                 if (markerOverlay !in view.overlays) view.overlays.add(markerOverlay)
 
-                // range = what 70 screen pixels are worth on the ground; it
-                // sizes the circle and the arrow, so it must come from the
-                // live projection rather than a stored value.
+                // The ring is screen-constant: 70 CSS pixels in the web app,
+                // so 70dp here. `range` is what that radius happens to mean
+                // on the ground at this zoom — used for in-range/greying,
+                // never for drawing.
                 val centre = GeoPoint(spatial.latitude, spatial.longitude)
+                val density = view.context.resources.displayMetrics.density
+                val ringPx = 70f * density
                 val rangeMeters = view.projection.let { p ->
                     val a = p.toPixels(centre, null)
-                    val b = p.fromPixels(a.x + 70, a.y)
+                    val b = p.fromPixels(a.x + ringPx.toInt(), a.y)
                     centre.distanceToAsDouble(b)
                 }.takeIf { it > 0 } ?: spatial.range
                 rangeOverlay.centre = centre
-                rangeOverlay.radiusMeters = rangeMeters
-                // The tip sits on the circle (1.3x, as in the original).
-                arrowTipPx = 70f * 1.3f * view.context.resources.displayMetrics.density
+                rangeOverlay.radiusPx = ringPx
+                // Tip at 1.3x the ring, as in the original — just outside it.
+                arrowTipPx = ringPx * 1.3f
 
                 markerOverlay.viewBearing = bearing.bearing
                 // Greying rule from the contract: outside hunter mode, when
