@@ -196,16 +196,14 @@ those code paths must not throw under gesture load.
 
 Found by reading the above against the port; unfixed unless noted.
 
-1. **Bearing is not persisted.** The map holds its state in `remember`, so
-   backgrounding or leaving the screen loses it. The suite asserts the
-   bearing is byte-identical after backgrounding, and the Tauri store
-   persists it (default 141°).
-2. **Picking a bearing mode does not enable tracking.** The port preserves
-   the previous on/off state; the original turns tracking *on* as a side
-   effect of choosing a mode.
-3. **No `aria-valuenow` on the arrow.** The canvas arrow exposes no
-   semantics, so the bearing is unreadable from outside — bad for both
-   accessibility and any future UI test.
+1. ~~Bearing is not persisted.~~ **Fixed**: a `MapStateStore` seam restores
+   camera and bearing (including the intent timestamp) at open and saves on
+   change, with tests.
+2. ~~Picking a bearing mode does not enable tracking.~~ **Fixed**: choosing
+   a mode now stops the old tracker and starts the new one.
+3. ~~No `aria-valuenow` on the arrow.~~ **Fixed**: the arrow publishes its
+   bearing through Compose semantics (`ProgressBarRangeInfo` plus a spoken
+   description).
 4. **Markers carry no identity.** They are canvas-drawn, so there is no
    per-photo node to find, unlike `photo-marker-<id>`.
 5. **Entering capture does not re-arm location tracking**, so the

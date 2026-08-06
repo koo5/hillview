@@ -215,3 +215,50 @@ class MarkerClusteringTest {
         assertEquals(0, cluster(emptyList(), radius = 20f).size)
     }
 }
+
+/**
+ * Persistence, because "the bearing must be byte-identical after the app is
+ * backgrounded" is an assertion in the Appium suite and the port failed it —
+ * the state lived in `remember` and died with the composition.
+ */
+class MapStatePersistenceTest {
+
+    @Test
+    fun aRestoredBearingComesBackExactly() {
+        val store = InMemoryMapStateStore()
+        val before = MapStateHolder()
+        before.updateBearing(137.5, source = "arrow_drag", now = 1_000)
+        store.save(before.spatial.value, before.bearing.value)
+
+        val (spatial, bearing) = store.load()!!
+        val after = MapStateHolder(spatial, bearing)
+
+        assertEquals(137.5, after.bearing.value.bearing)
+        assertEquals("arrow_drag", after.bearing.value.source)
+    }
+
+    @Test
+    fun aRestoredPositionCountsAsPriorIntent() {
+        // ts is what stops automatic navigation from steering later, so it
+        // has to survive too — otherwise a restored session looks like a
+        // blank first run.
+        val store = InMemoryMapStateStore()
+        val before = MapStateHolder()
+        before.updateSpatial(latitude = 50.115, longitude = 14.501, now = 9_000)
+        store.save(before.spatial.value, before.bearing.value)
+
+        val restored = MapStateHolder(store.load()!!.first, store.load()!!.second)
+
+        assertEquals(9_000, restored.spatial.value.ts)
+        assertEquals(50.115, restored.spatial.value.latitude)
+    }
+
+    @Test
+    fun anEmptyStoreLeavesTheDefaults() {
+        val store = InMemoryMapStateStore()
+        assertNull(store.load())
+        val fresh = MapStateHolder()
+        assertEquals(141.0, fresh.bearing.value.bearing)
+        assertNull(fresh.spatial.value.ts)
+    }
+}

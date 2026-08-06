@@ -36,12 +36,19 @@ actual fun MapScreen(
     onBack: () -> Unit,
     settings: MapSettingsRepository,
     markerSource: PhotoMarkerSource,
+    stateStore: MapStateStore,
 ) {
     val context = LocalContext.current
     val mapSettings by settings.settings.collectAsState()
     val markers by markerSource.markers.collectAsState()
 
-    val state = remember { MapStateHolder() }
+    // Restored, so the bearing survives backgrounding and restarts — the
+    // Appium suite asserts it is unchanged after the app comes back.
+    val state = remember {
+        stateStore.load()
+            ?.let { (spatial, bearing) -> MapStateHolder(spatial, bearing) }
+            ?: MapStateHolder()
+    }
     val spatial by state.spatial.collectAsState()
     val bearing by state.bearing.collectAsState()
 
@@ -115,6 +122,10 @@ actual fun MapScreen(
             markerSource.refresh()
             delay(5_000)
         }
+    }
+
+    LaunchedEffect(spatial, bearing) {
+        stateStore.save(spatial, bearing)
     }
 
     val markerOverlay = remember { PhotoMarkerOverlay() }
@@ -239,11 +250,12 @@ actual fun MapScreen(
             },
             onToggleTracking = { trackingWanted = !trackingWanted },
             onSelectBearingMode = { mode ->
-                // Switching mode stops both and re-arms the chosen one.
-                val wasOn = trackingWanted
+                // Picking a mode stops the old tracker and starts the new
+                // one — enabling tracking is a deliberate side effect of the
+                // choice, not something the user has to do afterwards.
                 trackingWanted = false
                 settings.update { it.copy(bearingMode = mode) }
-                trackingWanted = wasOn
+                trackingWanted = true
             },
             onZoom = { delta ->
                 state.updateSpatial(

@@ -66,6 +66,7 @@ fun App() {
                         onBack = { backStack.removeLastOrNull() },
                         settings = org.koin.compose.koinInject(),
                         markerSource = org.koin.compose.koinInject(),
+                        stateStore = org.koin.compose.koinInject(),
                     )
                 }
                 entry<SettingsKey> {

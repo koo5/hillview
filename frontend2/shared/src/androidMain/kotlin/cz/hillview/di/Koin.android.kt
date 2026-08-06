@@ -91,6 +91,7 @@ actual fun platformModule(): Module = module {
     single<cz.hillview.settings.MapSettingsRepository> {
         cz.hillview.settings.PrefsMapSettingsRepository(androidContext())
     }
+    single<cz.hillview.map.MapStateStore> { cz.hillview.map.PrefsMapStateStore(androidContext()) }
     single<cz.hillview.map.PhotoMarkerSource> {
         cz.hillview.map.RecentPhotoMarkerSource(androidContext(), get())
     }

@@ -11,6 +11,10 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -50,6 +54,17 @@ fun BearingArrow(
         modifier = modifier
             .fillMaxSize()
             .testTag("map-bearing-arrow")
+            // The web app publishes the bearing as aria-valuenow on the
+            // arrow's hit area — the only externally readable bearing in the
+            // app, and what its tests assert against. Same idea here, so the
+            // value is available to accessibility services and UI tests.
+            .semantics {
+                progressBarRangeInfo = ProgressBarRangeInfo(
+                    current = bearingDeg.toFloat(),
+                    range = 0f..360f,
+                )
+                contentDescription = "Bearing ${bearingDeg.toInt()} degrees"
+            }
             .pointerInput(fullCircleHitArea, tipRadiusPx) {
                 val centre = Offset(size.width / 2f, size.height / 2f)
 

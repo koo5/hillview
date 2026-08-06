@@ -13,4 +13,5 @@ expect fun MapScreen(
     onBack: () -> Unit,
     settings: MapSettingsRepository,
     markerSource: PhotoMarkerSource,
+    stateStore: MapStateStore,
 )

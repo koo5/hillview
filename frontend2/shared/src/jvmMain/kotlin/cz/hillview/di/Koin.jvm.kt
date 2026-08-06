@@ -38,6 +38,7 @@ actual fun platformModule(): Module = module {
         cz.hillview.settings.JavaPrefsCompassSettingsRepository()
     }
     single<cz.hillview.settings.MapSettingsRepository> { InMemoryMapSettings() }
+    single<cz.hillview.map.MapStateStore> { cz.hillview.map.InMemoryMapStateStore() }
     single<cz.hillview.map.PhotoMarkerSource> { EmptyMarkerSource() }
     single<TokenStore> { JavaPrefsTokenStore() }
     // Desktop can't capture, so there is no upload path here.
