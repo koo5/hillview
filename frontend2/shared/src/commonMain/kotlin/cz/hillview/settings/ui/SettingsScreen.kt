@@ -24,6 +24,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import cz.hillview.core.permissions.rememberNotificationPermissionRequester
 import cz.hillview.settings.ALLOWED_LICENSES
+import cz.hillview.settings.CompassSettingsRepository
+import cz.hillview.settings.StorageMode
 import cz.hillview.settings.UploadSettingsRepository
 import org.koin.compose.koinInject
 
@@ -38,8 +40,10 @@ import org.koin.compose.koinInject
 fun SettingsScreen(
     onBack: () -> Unit,
     repository: UploadSettingsRepository = koinInject(),
+    compassRepository: CompassSettingsRepository = koinInject(),
 ) {
     val settings by repository.settings.collectAsState()
+    val compass by compassRepository.settings.collectAsState()
     val requestNotifications = rememberNotificationPermissionRequester()
 
     Column(
@@ -124,5 +128,84 @@ fun SettingsScreen(
                 }
             }
         }
+
+        Column {
+            Text("Photo storage", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Where captures are saved; if the chosen target is unavailable " +
+                    "the others are tried in order.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            StorageMode.entries.forEach { mode ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = settings.storage == mode,
+                        onClick = { repository.update { it.copy(storage = mode) } },
+                        modifier = Modifier.testTag("settings-storage-${mode.key}"),
+                    )
+                    Column {
+                        Text(storageLabel(mode), style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            storageDetail(mode, settings.hideFromGallery),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Hide from gallery", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Save into \".Hillview\" instead of \"Hillview\"",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = settings.hideFromGallery,
+                onCheckedChange = { on -> repository.update { it.copy(hideFromGallery = on) } },
+                modifier = Modifier.testTag("settings-hide-from-gallery"),
+            )
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Landscape compass workaround", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Negate the heading when face-down in landscape " +
+                        "(device quirk; found on an Armor 22)",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = compass.landscapeWorkaround,
+                onCheckedChange = { on ->
+                    compassRepository.update { it.copy(landscapeWorkaround = on) }
+                },
+                modifier = Modifier.testTag("settings-landscape-workaround"),
+            )
+        }
+    }
+}
+
+private fun storageLabel(mode: StorageMode) = when (mode) {
+    StorageMode.PublicFolder -> "Public folder"
+    StorageMode.PrivateFolder -> "App-private folder"
+    StorageMode.MediaStore -> "Gallery (MediaStore)"
+}
+
+private fun storageDetail(mode: StorageMode, hideFromGallery: Boolean): String {
+    val folder = if (hideFromGallery) ".Hillview" else "Hillview"
+    return when (mode) {
+        StorageMode.PublicFolder -> "DCIM/$folder — survives uninstall"
+        StorageMode.PrivateFolder -> "Android/data/…/Pictures/$folder — removed on uninstall"
+        StorageMode.MediaStore -> "DCIM/$folder via MediaStore — no storage permission"
     }
 }

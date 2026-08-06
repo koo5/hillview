@@ -1,7 +1,10 @@
 package cz.hillview.capture
 
+import android.content.Context
+import android.net.Uri
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -17,7 +20,21 @@ import kotlin.math.roundToInt
 object PhotoExifWriter {
 
     fun write(file: File, snapshot: SensorSnapshot) {
-        val exif = ExifInterface(file.absolutePath)
+        write(ExifInterface(file.absolutePath), snapshot)
+    }
+
+    /**
+     * MediaStore saves hand back a content:// URI, not a path. ExifInterface
+     * can rewrite through a read-write file descriptor, which MediaStore
+     * images support.
+     */
+    fun write(context: Context, uri: Uri, snapshot: SensorSnapshot) {
+        context.contentResolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+            write(ExifInterface(pfd.fileDescriptor), snapshot)
+        } ?: throw IOException("cannot open $uri for EXIF write")
+    }
+
+    private fun write(exif: ExifInterface, snapshot: SensorSnapshot) {
 
         if (snapshot.latitude != null && snapshot.longitude != null) {
             exif.setLatLong(snapshot.latitude, snapshot.longitude)

@@ -42,13 +42,14 @@ fun CaptureScreen(
             PendingUpload(
                 id = photo.path,
                 filePath = photo.path,
-                filename = photo.path.substringAfterLast('/'),
+                filename = photo.filename,
                 latitude = photo.snapshot.latitude,
                 longitude = photo.snapshot.longitude,
                 altitude = photo.snapshot.altitude,
                 // True heading — the DB/authorize bearing is true north
                 // everywhere in the pipeline (see SensorSnapshot).
                 bearing = photo.snapshot.trueBearingDeg?.toDouble(),
+                capturedAtMs = photo.snapshot.capturedAtMs,
             )
         )
     }
@@ -134,7 +135,7 @@ private fun StatusLine(state: CaptureState) {
             } else {
                 "no location"
             }
-            add("saved ${photo.path.substringAfterLast('/')} $loc")
+            add("saved ${photo.filename} $loc")
         }
         state.errorMessage?.takeIf { state.supported }?.let { add(it) }
     }

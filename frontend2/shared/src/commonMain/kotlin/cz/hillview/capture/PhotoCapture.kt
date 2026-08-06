@@ -29,7 +29,14 @@ data class SensorSnapshot(
 )
 
 data class CapturedPhoto(
+    /**
+     * Locator for the saved photo: an absolute file path, or a content://
+     * URI when it went to MediaStore. Never parse a filename out of this —
+     * a URI's last segment is a numeric id, and the backend rejects an
+     * extensionless name ("File type not allowed").
+     */
     val path: String,
+    val filename: String,
     val snapshot: SensorSnapshot,
 )
 

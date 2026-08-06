@@ -48,13 +48,17 @@ import cz.hillview.core.permissions.PermissionGatePane
 import cz.hillview.core.permissions.rememberPermissionsState
 import cz.hillview.plugin.EnhancedSensorService
 import cz.hillview.plugin.OrientationSensorData
+import cz.hillview.settings.StorageMode
+import cz.hillview.settings.UploadSettingsRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
+import java.io.IOException
 import kotlin.coroutines.resume
 
 private const val TAG = "PhotoCapture"
@@ -63,8 +67,9 @@ private const val TAG = "PhotoCapture"
 actual fun rememberPhotoCapture(): PhotoCapture {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val uploadSettings: UploadSettingsRepository = org.koin.compose.koinInject()
     val capture = remember(lifecycleOwner) {
-        AndroidPhotoCapture(context.applicationContext, lifecycleOwner)
+        AndroidPhotoCapture(context.applicationContext, lifecycleOwner, uploadSettings)
     }
     DisposableEffect(capture) {
         onDispose { capture.release() }
@@ -81,6 +86,7 @@ actual fun rememberPhotoCapture(): PhotoCapture {
 private class AndroidPhotoCapture(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
+    private val uploadSettings: UploadSettingsRepository,
 ) : PhotoCapture {
 
     override var state by mutableStateOf(CaptureState())
@@ -219,15 +225,50 @@ private class AndroidPhotoCapture(
             }
         }
 
-        val dir = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_PICTURES),
-            "hillview_photos",
-        ).also { it.mkdirs() }
         val capturedAtMs = System.currentTimeMillis()
-        val file = File(dir, "hillview_photo_$capturedAtMs.jpg")
+        val filename = "hillview_photo_$capturedAtMs.jpg"
         val snapshot = snapshotSensors(capturedAtMs)
+        val settings = uploadSettings.settings.value
+        takePictureWithFallback(
+            capture = capture,
+            chain = PhotoStorage.chain(settings.storage),
+            filename = filename,
+            hideFromGallery = settings.hideFromGallery,
+            snapshot = snapshot,
+            watchdog = watchdog,
+        )
+    }
 
-        val options = ImageCapture.OutputFileOptions.Builder(file).build()
+    /**
+     * Walk the storage chain: the first target that both prepares and saves
+     * wins. Mirrors device_photos.rs — a target blocked by scoped storage (a
+     * direct DCIM write on API 29+) degrades to the next instead of losing
+     * the photo.
+     */
+    private fun takePictureWithFallback(
+        capture: ImageCapture,
+        chain: List<StorageMode>,
+        filename: String,
+        hideFromGallery: Boolean,
+        snapshot: SensorSnapshot,
+        watchdog: Job,
+    ) {
+        val mode = chain.firstOrNull()
+        if (mode == null) {
+            watchdog.cancel()
+            Log.e(TAG, "every storage target failed")
+            state = state.copy(capturing = false, errorMessage = "could not save photo anywhere")
+            return
+        }
+        val prepared = PhotoStorage.outputOptions(context, mode, filename, hideFromGallery)
+        if (prepared == null) {
+            takePictureWithFallback(
+                capture, chain.drop(1), filename, hideFromGallery, snapshot, watchdog,
+            )
+            return
+        }
+        val (options, file) = prepared
+
         capture.takePicture(
             options,
             ContextCompat.getMainExecutor(context),
@@ -235,22 +276,48 @@ private class AndroidPhotoCapture(
                 override fun onImageSaved(results: ImageCapture.OutputFileResults) {
                     watchdog.cancel()
                     try {
-                        PhotoExifWriter.write(file, snapshot)
+                        // MediaStore saves report a content:// URI; file saves
+                        // report none, and the path is the locator.
+                        val uri = results.savedUri
+                        val locator = when {
+                            file != null -> file.absolutePath
+                            uri != null -> uri.toString()
+                            else -> throw IOException("save reported neither file nor uri")
+                        }
+                        if (file != null) {
+                            PhotoExifWriter.write(file, snapshot)
+                        } else {
+                            PhotoExifWriter.write(context, uri!!, snapshot)
+                        }
                         state = state.copy(
                             capturing = false,
-                            lastPhoto = CapturedPhoto(file.absolutePath, snapshot),
+                            lastPhoto = CapturedPhoto(locator, filename, snapshot),
                         )
-                        Log.i(TAG, "captured ${file.name} (${file.length()} bytes)")
+                        Log.i(TAG, "captured $filename via ${mode.key} -> $locator")
                     } catch (e: Exception) {
-                        Log.e(TAG, "EXIF write failed", e)
-                        state = state.copy(capturing = false, errorMessage = "EXIF write failed: ${e.message}")
+                        Log.e(TAG, "post-save handling failed", e)
+                        state = state.copy(
+                            capturing = false,
+                            errorMessage = "EXIF write failed: ${e.message}",
+                        )
                     }
                 }
 
                 override fun onError(exception: ImageCaptureException) {
+                    val rest = chain.drop(1)
+                    Log.w(TAG, "save via ${mode.key} failed: ${exception.message}")
+                    if (rest.isNotEmpty()) {
+                        takePictureWithFallback(
+                            capture, rest, filename, hideFromGallery, snapshot, watchdog,
+                        )
+                        return
+                    }
                     watchdog.cancel()
                     Log.e(TAG, "capture failed", exception)
-                    state = state.copy(capturing = false, errorMessage = "capture failed: ${exception.message}")
+                    state = state.copy(
+                        capturing = false,
+                        errorMessage = "capture failed: ${exception.message}",
+                    )
                 }
             },
         )

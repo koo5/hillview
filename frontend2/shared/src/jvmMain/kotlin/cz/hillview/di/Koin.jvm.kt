@@ -34,6 +34,9 @@ actual fun platformModule(): Module = module {
             cz.hillview.settings.defaultUploadSettings(cz.hillview.core.net.defaultBackendConfig().apiUrl),
         )
     }
+    single<cz.hillview.settings.CompassSettingsRepository> {
+        cz.hillview.settings.JavaPrefsCompassSettingsRepository()
+    }
     single<TokenStore> { JavaPrefsTokenStore() }
     // Desktop can't capture, so there is no upload path here.
     single<cz.hillview.upload.UploadPipeline> { cz.hillview.upload.NoopUploadPipeline() }

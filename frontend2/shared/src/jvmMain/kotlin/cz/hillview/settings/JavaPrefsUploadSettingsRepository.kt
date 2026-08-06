@@ -21,6 +21,8 @@ class JavaPrefsUploadSettingsRepository(
             autoUploadEnabled = node.getBoolean("auto_upload_enabled", defaults.autoUploadEnabled),
             wifiOnly = node.getBoolean("wifi_only", defaults.wifiOnly),
             license = node.get("auto_upload_license", null) ?: defaults.license,
+            storage = StorageMode.fromKey(node.get("preferred_storage", null)) ?: defaults.storage,
+            hideFromGallery = node.getBoolean("hide_from_gallery", defaults.hideFromGallery),
         ).also(::persist)
     )
     override val settings: StateFlow<UploadSettings> = _settings.asStateFlow()
@@ -36,5 +38,7 @@ class JavaPrefsUploadSettingsRepository(
         node.putBoolean("auto_upload_enabled", s.autoUploadEnabled)
         node.putBoolean("wifi_only", s.wifiOnly)
         node.put("auto_upload_license", s.license)
+        node.put("preferred_storage", s.storage.key)
+        node.putBoolean("hide_from_gallery", s.hideFromGallery)
     }
 }

@@ -15,7 +15,30 @@ data class UploadSettings(
     val wifiOnly: Boolean,
     /** Backend vocabulary (user_routes.ALLOWED_LICENSES). */
     val license: String,
+    val storage: StorageMode,
+    /** Save into ".Hillview" instead of "Hillview" (hidden from gallery scans). */
+    val hideFromGallery: Boolean,
 )
+
+/**
+ * Where captures are saved — the same three the Tauri app offers (its
+ * device_photos.rs `preferred_storage`), with the same fallback semantics:
+ * the preferred target is tried first, the others after it.
+ */
+enum class StorageMode(val key: String) {
+    /** DCIM/Hillview — visible in the gallery, survives uninstall. */
+    PublicFolder("public_folder"),
+
+    /** Android/data/<pkg>/files/Pictures/Hillview — no permission, uninstall-deleted. */
+    PrivateFolder("private_folder"),
+
+    /** MediaStore insert with RELATIVE_PATH DCIM/Hillview; yields a content:// URI. */
+    MediaStore("mediastore_api");
+
+    companion object {
+        fun fromKey(key: String?): StorageMode? = entries.firstOrNull { it.key == key }
+    }
+}
 
 val ALLOWED_LICENSES = listOf("ccbysa4+osm", "full1")
 
@@ -29,6 +52,10 @@ fun defaultUploadSettings(apiUrl: String) = UploadSettings(
     autoUploadEnabled = false,
     wifiOnly = false,
     license = ALLOWED_LICENSES.first(),
+    // Matches the Tauri default (device_photos.rs falls back to
+    // "public_folder"): photos in the gallery where the user can find them.
+    storage = StorageMode.PublicFolder,
+    hideFromGallery = false,
 )
 
 /**

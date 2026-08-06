@@ -85,6 +85,9 @@ actual fun platformModule(): Module = module {
             cz.hillview.settings.defaultUploadSettings(cz.hillview.core.net.defaultBackendConfig().apiUrl),
         )
     }
+    single<cz.hillview.settings.CompassSettingsRepository> {
+        cz.hillview.settings.PrefsCompassSettingsRepository(androidContext())
+    }
     single<TokenStore> { AuthManagerTokenStore(androidContext()) }
     // Captures go to the shared-kt upload stack — the same code the Tauri
     // app runs. See /shared-kt/README.md.

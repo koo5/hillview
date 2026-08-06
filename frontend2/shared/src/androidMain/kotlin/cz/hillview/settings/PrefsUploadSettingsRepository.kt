@@ -28,6 +28,11 @@ class PrefsUploadSettingsRepository(
                 if (prefs.contains("wifi_only")) prefs.getBoolean("wifi_only", false)
                 else defaults.wifiOnly,
             license = prefs.getString("auto_upload_license", null) ?: defaults.license,
+            storage = StorageMode.fromKey(prefs.getString("preferred_storage", null))
+                ?: defaults.storage,
+            hideFromGallery =
+                if (prefs.contains("hide_from_gallery")) prefs.getBoolean("hide_from_gallery", false)
+                else defaults.hideFromGallery,
         ).also(::persist)
     )
     override val settings: StateFlow<UploadSettings> = _settings.asStateFlow()
@@ -44,6 +49,10 @@ class PrefsUploadSettingsRepository(
             .putBoolean("auto_upload_enabled", s.autoUploadEnabled)
             .putBoolean("wifi_only", s.wifiOnly)
             .putString("auto_upload_license", s.license)
+            // Same key/vocabulary as the Tauri app's preferred_storage (it
+            // keeps it in localStorage; here it joins the other upload prefs).
+            .putString("preferred_storage", s.storage.key)
+            .putBoolean("hide_from_gallery", s.hideFromGallery)
             .apply()
     }
 }
