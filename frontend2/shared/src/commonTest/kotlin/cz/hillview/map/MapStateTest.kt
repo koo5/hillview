@@ -97,11 +97,34 @@ class MapStateTest {
     }
 
     @Test
+    fun rotatingTheMapIsASpatialChangeAndDedupsLikeOne() {
+        // A two-finger turn has to reach the store, or the map snaps back
+        // north-up the next time anything else updates.
+        val state = MapStateHolder()
+        assertEquals(0.0, state.spatial.value.orientation)
+        assertTrue(state.updateSpatial(orientation = 42.0, now = 1_000))
+        assertEquals(42.0, state.spatial.value.orientation)
+        assertFalse(state.updateSpatial(orientation = 42.0, now = 2_000))
+    }
+
+    @Test
+    fun rotatingDoesNotDisturbTheBearing() {
+        // Which way the map is held and which way the user looks are
+        // different questions; the arrow answers the second one.
+        val state = MapStateHolder()
+        state.updateBearing(141.0, source = "arrow_drag", now = 1)
+        state.updateSpatial(orientation = 90.0, now = 2)
+        assertEquals(141.0, state.bearing.value.bearing)
+        assertEquals("arrow_drag", state.bearing.value.source)
+    }
+
+    @Test
     fun defaultsMatchThePersistedTauriState() {
         // The Svelte store's defaults, which users see on a fresh install.
         val state = MapStateHolder()
         assertEquals(141.0, state.bearing.value.bearing)
         assertEquals(10.0, state.spatial.value.zoom)
+        assertEquals(0.0, state.spatial.value.orientation)
         assertEquals(1000.0, state.spatial.value.range)
         assertNotNull(state.spatial.value.source)
     }

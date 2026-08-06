@@ -21,6 +21,13 @@ data class SpatialState(
     val longitude: Double = 14.488374441862108,
     val zoom: Double = 10.0,
     val range: Double = 1000.0,
+    /**
+     * Which way is up, in degrees clockwise, as set by a two-finger rotate.
+     * Part of spatial state rather than the bearing: it says how the map is
+     * held, not where the user is looking. A rotated map that silently
+     * snapped back north-up on resume would read as the gesture being lost.
+     */
+    val orientation: Double = 0.0,
     val source: String = "map",
     val ts: Long? = null,
 )
@@ -60,6 +67,7 @@ class MapStateHolder(
         longitude: Double = _spatial.value.longitude,
         zoom: Double = _spatial.value.zoom,
         range: Double = _spatial.value.range,
+        orientation: Double = _spatial.value.orientation,
         source: String = "map",
         setTimestamp: Boolean = true,
         now: Long,
@@ -67,7 +75,7 @@ class MapStateHolder(
         val old = _spatial.value
         val candidate = old.copy(
             latitude = latitude, longitude = longitude, zoom = zoom,
-            range = range, source = source,
+            range = range, orientation = orientation, source = source,
         )
         if (candidate.copy(ts = null) == old.copy(ts = null)) return false
         _spatial.value = candidate.copy(ts = if (setTimestamp) now else old.ts)

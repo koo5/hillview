@@ -16,6 +16,7 @@ class PrefsMapStateStore(context: Context) : MapStateStore {
             latitude = prefs.getFloat("lat", 50.1169f).toDouble(),
             longitude = prefs.getFloat("lon", 14.4884f).toDouble(),
             zoom = prefs.getFloat("zoom", 10f).toDouble(),
+            orientation = prefs.getFloat("orientation", 0f).toDouble(),
             range = prefs.getFloat("range", 1000f).toDouble(),
             source = prefs.getString("spatial_source", "map") ?: "map",
             // A restored position IS prior user intent, so the timestamp
@@ -38,6 +39,7 @@ class PrefsMapStateStore(context: Context) : MapStateStore {
             .putFloat("lat", spatial.latitude.toFloat())
             .putFloat("lon", spatial.longitude.toFloat())
             .putFloat("zoom", spatial.zoom.toFloat())
+            .putFloat("orientation", spatial.orientation.toFloat())
             .putFloat("range", spatial.range.toFloat())
             .putString("spatial_source", spatial.source)
             .putLong("spatial_ts", spatial.ts ?: 0L)

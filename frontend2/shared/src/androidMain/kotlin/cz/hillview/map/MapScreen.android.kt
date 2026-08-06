@@ -161,6 +161,16 @@ actual fun MapScreen(
     }
     val mapView = rememberMapView()
     val applied = remember { AppliedCamera() }
+    val rotationOverlay = remember(mapView) {
+        RotationSyncOverlay(mapView) { orientation ->
+            applied.orientation = orientation
+            state.updateSpatial(
+                orientation = orientation,
+                source = "map",
+                now = System.currentTimeMillis(),
+            )
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         AndroidView(
@@ -173,9 +183,13 @@ actual fun MapScreen(
                 }
                 if (rangeOverlay !in view.overlays) view.overlays.add(rangeOverlay)
                 if (markerOverlay !in view.overlays) view.overlays.add(markerOverlay)
-                // Last, so it draws on top — and so its touch handler gets
-                // first refusal before the map pans.
+                // Late, so it draws on top — and so its touch handler gets
+                // refusal before the map pans.
                 if (arrowOverlay !in view.overlays) view.overlays.add(arrowOverlay)
+                // Truly last: osmdroid offers touches to overlays in reverse,
+                // so this sees every pointer first. It never consumes them,
+                // it only watches for the second finger.
+                if (rotationOverlay !in view.overlays) view.overlays.add(rotationOverlay)
 
                 // The ring is screen-constant: 70 CSS pixels in the web app,
                 // so 70dp here. `range` is what that radius happens to mean
@@ -250,9 +264,14 @@ actual fun MapScreen(
                     applied.latitude = spatial.latitude
                     applied.longitude = spatial.longitude
                 }
-                if (kotlin.math.abs(applied.bearing - bearing.bearing) > 1.0) {
-                    view.mapOrientation = -bearing.bearing.toFloat()
-                    applied.bearing = bearing.bearing
+                // The map is north-up unless the user turns it: the bearing
+                // is shown by the arrow, exactly as in the original, where
+                // Leaflet never rotates. (An earlier version drove
+                // mapOrientation from the bearing, which would have spun the
+                // map under a drag and moved the arrow at twice the finger.)
+                if (applied.orientation != spatial.orientation) {
+                    view.mapOrientation = spatial.orientation.toFloat()
+                    applied.orientation = spatial.orientation
                 }
                 view.invalidate()
             },
@@ -352,10 +371,12 @@ actual fun MapScreen(
             applied.latitude = centre.latitude
             applied.longitude = centre.longitude
             applied.zoom = mapView.zoomLevelDouble
+            applied.orientation = mapView.mapOrientation.toDouble()
             state.updateSpatial(
                 latitude = centre.latitude,
                 longitude = centre.longitude,
                 zoom = mapView.zoomLevelDouble,
+                orientation = mapView.mapOrientation.toDouble(),
                 source = "map",
                 now = System.currentTimeMillis(),
             )
@@ -401,7 +422,7 @@ private class AppliedCamera {
     var latitude = Double.NaN
     var longitude = Double.NaN
     var zoom = Double.NaN
-    var bearing = Double.NaN
+    var orientation = Double.NaN
 }
 
 /**
