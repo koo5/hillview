@@ -38,9 +38,9 @@ curl -s -X POST localhost:7878/query \
   --data 'SELECT * WHERE { GRAPH ?g { ?s ?p ?o } } LIMIT 3'
 # api healthy (checks workbench-db + hillview db + oxigraph)?
 curl -s localhost:8070/api/health | jq
-# mirror the dev data (append = new rows; reconcile = changes + missing-stamps)
-curl -s -X POST localhost:8070/api/sync/run -H 'Content-Type: application/json' -d '{"mode":"append"}'
-curl -s -X POST localhost:8070/api/sync/run -H 'Content-Type: application/json' -d '{"mode":"reconcile"}'
+# mirror the dev data — one pass: new rows in, edits carried, vanished rows
+# stamped missing (never deleted), workbench-native rows untouched
+curl -s -X POST localhost:8070/api/sync/run -H 'Content-Type: application/json' -d '{}'
 curl -s localhost:8070/api/sync/status | jq
 ```
 

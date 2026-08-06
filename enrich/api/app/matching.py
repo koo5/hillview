@@ -49,3 +49,32 @@ def dest_point(lat: float, lon: float, bearing: float, meters: float) -> tuple[f
     l2 = l1 + math.atan2(math.sin(b) * math.sin(d) * math.cos(p1),
                          math.cos(d) - math.sin(p1) * math.sin(p2))
     return math.degrees(p2), (math.degrees(l2) + 540.0) % 360.0 - 180.0
+
+
+# --- match evidence vs the rect it was computed against ------------------------
+# A match_results row stores params.rect: the annotation rect the matcher actually
+# saw. Reshaping the annotation afterwards (native edit, or an accepted
+# proposedGeometry) leaves that evidence describing a rect that no longer exists.
+# The measurement is still real, it is just no longer ABOUT the current annotation,
+# so it gets flagged — never hidden, never deleted.
+
+RECT_EPS = 1e-6   # normalized units; 1e-6 of a 176k-px pano is 0.17 px
+
+
+def rect_of_target(target: dict | None) -> list[float] | None:
+    """[x, y, w, h] normalized, out of an annotation's W3C target.
+    None when the target carries no geometry (nothing to compare)."""
+    g = ((target or {}).get("selector") or {}).get("geometry") or {}
+    if not g:
+        return None
+    return [float(g.get("x", 0)), float(g.get("y", 0)),
+            float(g.get("w", 0)), float(g.get("h", 0))]
+
+
+def rect_is_stale(params: dict | None, current: list[float] | None) -> bool:
+    """Did the annotation move since this result was computed? False whenever
+    either side is unknown — an unanswerable question must not read as an accusation."""
+    was = (params or {}).get("rect")
+    if not was or not current or len(was) != 4:
+        return False
+    return any(abs(float(a) - float(b)) > RECT_EPS for a, b in zip(was, current))

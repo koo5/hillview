@@ -54,6 +54,10 @@
 	}
 
 	const usableRows = $derived((data?.rows ?? []).filter((r) => r.usable));
+	const unusableRows = $derived((data?.rows ?? []).filter((r) => !r.usable));
+	// rule "none" = no located candidate at all — the geocoder has not run on these
+	// (distinct from an anchor that exists but was rejected or judged out of view)
+	const noAnchorRows = $derived(unusableRows.filter((r) => r.rule === 'none'));
 	const includedRows = $derived(usableRows.filter((r) => !excluded.has(r.annotation_id)));
 	const fit = $derived(fitWith(includedRows.map((r) => ({ x: r.rect_x!, delta: r.delta! }))));
 	const scatterPoints = $derived(
@@ -122,6 +126,40 @@
 			refreshing = false;
 		}
 	}
+	// Anchors come from anchorCandidate facts, which only a GEOCODE run mints —
+	// parse alone leaves freshly-imported annotations with rule "none". Scoped to
+	// this pano so it never turns into an all-current external-lookup sweep.
+	let geocoding = $state<string | null>(null);
+	async function geocodePano() {
+		if (!sel || geocoding) return;
+		geocoding = 'starting…';
+		try {
+			const res = await api.post<{ run_id: string; annotations: number }>('/geocode/run', {
+				scope: 'photo',
+				photo_id: sel.id,
+				note: 'from calibration bench'
+			});
+			// the run is a background task; poll it, then re-pick anchors
+			for (;;) {
+				await new Promise((r) => setTimeout(r, 1500));
+				const run = await api.get<{ status: string; stats: { done?: number } | null; error: string | null }>(
+					`/runs/${res.run_id}`
+				);
+				if (run.status === 'running') {
+					geocoding = `${run.stats?.done ?? 0}/${res.annotations}…`;
+					continue;
+				}
+				if (run.status === 'failed') err = `geocode run failed: ${run.error ?? ''}`;
+				break;
+			}
+			await refresh();
+		} catch (e) {
+			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+		} finally {
+			geocoding = null;
+		}
+	}
+
 	// selection lives in the URL (?pano=…) so pano links are shareable/reloadable
 	function pick(p: Pano) {
 		goto(`?pano=${p.id}`, { noScroll: true, keepFocus: true });
@@ -347,6 +385,10 @@
 					title="re-pick anchors and recompute rows — use after approving/pinning coords in another tab; keeps your selection">
 					{refreshing ? '↻ …' : '↻ recalc'}
 				</button>
+				<button onclick={geocodePano} disabled={!!geocoding}
+					title="run the geocoder over THIS pano's annotations: mints anchorCandidate facts (body coords → geo: pin, wiki link → Wikipedia coords, label → Nominatim), then recalcs. Needed after new annotations arrive — parse alone gives them no anchor.">
+					{geocoding ? `⌖ ${geocoding}` : '⌖ geocode pano'}
+				</button>
 				<button onclick={() => autoKick(10)} title="iteratively exclude worst residuals > 10°">auto-kick &gt;10°</button>
 				<button onclick={includeAll} disabled={excluded.size === 0}>include all</button>
 				<button class="primary" onclick={acceptFit} disabled={accepting || !fit}>
@@ -390,11 +432,20 @@
 					{/each}
 				</tbody>
 			</table>
-			{#if data.rows.some((r) => !r.usable)}
+			{#if unusableRows.length}
 				<p class="muted" style="font-size:12px">
-					{data.rows.filter((r) => !r.usable).length} annotations unusable
-					(no anchor / bad rect / no compass): {data.rows.filter((r) => !r.usable).map((r) => r.body || '(unnamed)').slice(0, 8).join(' · ')}…
+					{unusableRows.length} annotations unusable
+					(no anchor / bad rect / no compass): {unusableRows.map((r) => r.body || '(unnamed)').slice(0, 8).join(' · ')}…
 				</p>
+				{#if noAnchorRows.length}
+					<p class="muted" style="font-size:12px">
+						{noAnchorRows.length} of those have <b>no located candidate at all</b> — run
+						<button onclick={geocodePano} disabled={!!geocoding} style="font-size:11px">
+							{geocoding ? `⌖ ${geocoding}` : '⌖ geocode pano'}
+						</button>
+						to mint anchors for them.
+					</p>
+				{/if}
 			{/if}
 		{:else}
 			<p class="muted">← pick a pano</p>

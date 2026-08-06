@@ -1,13 +1,44 @@
 #!/usr/bin/env bash
 # Seed the LOCAL DEV hillview Postgres from a prod CSV dump, so the dev stack
 # (and the enrichment workbench mirroring it) has realistic data.
-# Additive + idempotent: ON CONFLICT DO NOTHING; creates stub users for FKs.
+# Creates stub users for FKs.
 #
-#   ./seed_dev_from_dump.sh [/shared/photos_1.csv] [/shared/photo_annotations_1.csv]
+#   ./seed_dev_from_dump.sh [--additive] /shared/photos_5.csv /shared/photo_annotations_5.csv
+#
+# Default is a FRESH RELOAD: photos + annotations are truncated and rebuilt from the
+# dump, so the dump is authoritative for every column. This is not paranoia about
+# duplicates — photo rows MUTATE IN PLACE in prod (analysis, geocode, place_*, title,
+# deleted), and an insert-only load can never catch that. Worse, the staleness is
+# invisible downstream: the workbench mirror reconciles against THIS db, so both sides
+# agree on the stale value and nothing ever flags it.
+#
+# --additive keeps the old insert-only behaviour (ON CONFLICT DO NOTHING). Use it when
+# the dev db holds rows that exist nowhere else — notably annotations GRADUATED from
+# the workbench, which a truncate would destroy along with the round-trip they close.
+# The fresh path counts those and prints them before touching anything.
+#
+# The truncate and the reload run in ONE transaction: a concurrent workbench reconcile
+# must never observe an empty source, or it would stamp every mirror row missing_since.
 set -euo pipefail
 
-PHOTOS_CSV="${1:-/shared/photos_1.csv}"
-ANNS_CSV="${2:-/shared/photo_annotations_1.csv}"
+MODE=fresh
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --additive) MODE=additive ;;
+    --fresh)    MODE=fresh ;;
+    -*) echo "unknown flag: $a" >&2; exit 2 ;;
+    *)  ARGS+=("$a") ;;
+  esac
+done
+if [ "${#ARGS[@]}" -lt 2 ]; then
+  # no defaults on purpose: the fresh path is destructive, and a default pointing at
+  # whichever dump was newest when this was written is exactly the wrong footgun
+  echo "usage: $0 [--additive] <photos.csv> <photo_annotations.csv>" >&2
+  exit 2
+fi
+PHOTOS_CSV="${ARGS[0]}"
+ANNS_CSV="${ARGS[1]}"
 PG="psql -h 127.0.0.1 -p ${POSTGRES_HOST_PORT:-5432} -U ${POSTGRES_USER:-hillview} -d ${POSTGRES_DB:-hillview} -v ON_ERROR_STOP=1"
 export PGPASSWORD="${POSTGRES_PASSWORD:-hillview}"
 
@@ -29,7 +60,9 @@ CREATE TABLE _dump_photos (
 );
 CREATE TABLE _dump_anns (
   id text, photo_id text, user_id text, body text, target text,
-  created_at text, is_current text, superseded_by text, event_type text
+  created_at text, is_current text, superseded_by text, event_type text,
+  -- annotation dump format 2 (2026-08): graduation provenance link
+  source_annotation_id text
 );
 SQL
 
@@ -42,8 +75,29 @@ $PG -c "\\copy _dump_photos (${PHOTO_HEADER}) FROM '${PHOTOS_CSV}' CSV HEADER"
 ANN_HEADER=$(head -1 "$ANNS_CSV")
 $PG -c "\\copy _dump_anns (${ANN_HEADER}) FROM '${ANNS_CSV}' CSV HEADER"
 
-echo "== stub users + insert =="
-$PG <<'SQL'
+if [ "$MODE" = fresh ]; then
+  echo "== fresh reload: what the truncate destroys =="
+  $PG <<'SQL'
+SELECT 'photos not in this dump' AS what, count(*) FROM photos p
+ WHERE NOT EXISTS (SELECT 1 FROM _dump_photos d WHERE d.id = p.id)
+UNION ALL
+SELECT 'annotations not in this dump', count(*) FROM photo_annotations a
+ WHERE NOT EXISTS (SELECT 1 FROM _dump_anns d WHERE d.id = a.id)
+UNION ALL
+SELECT '  ...of which graduated from the workbench', count(*) FROM photo_annotations a
+ WHERE a.source_annotation_id IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM _dump_anns d WHERE d.id = a.id)
+UNION ALL
+SELECT 'share_links (FK dependent, goes with the photos)', count(*) FROM share_links;
+SQL
+fi
+
+echo "== stub users + insert (${MODE}) =="
+{
+  # named explicitly rather than leaning on CASCADE alone, so the script says out loud
+  # what it clears; CASCADE only covers FK dependents added later
+  [ "$MODE" = fresh ] && printf 'TRUNCATE photo_annotations, share_links, photos CASCADE;\n'
+  cat <<'SQL'
 -- stub users for FK integrity (dev only)
 INSERT INTO users (id, username, is_test, role, is_active)
 SELECT DISTINCT u, 'dump-' || left(u, 8), false, 'USER'::userrole, true
@@ -78,17 +132,24 @@ SELECT
   NULLIF(title,''), NULLIF(keywords,'')::text[], NULLIF(geocode,'')::jsonb,
   NULLIF(place_name,''), NULLIF(place_slug,''),
   NULLIF(place_parent_name,''), NULLIF(place_parent_slug,''),
+  -- effective_at is deliberately NOT loaded even though the dump carries it (fully
+  -- populated) and the mirror mirrors it: migration 022 keeps it current with a
+  -- BEFORE INSERT OR UPDATE trigger, COALESCE(captured_at, uploaded_at AT TIME ZONE
+  -- 'UTC'), which overwrites anything we supply. Both inputs ARE loaded here, so the
+  -- trigger reproduces prod's value exactly (verified: 0 rows deviate).
   NULLIF(retry_after_minutes,'')::int
 FROM _dump_photos
 ON CONFLICT (id) DO NOTHING;
 
 -- annotations: two passes (superseded_by is a self-FK)
 INSERT INTO photo_annotations (
-  id, photo_id, user_id, body, target, created_at, is_current, event_type)
+  id, photo_id, user_id, body, target, created_at, is_current, event_type,
+  source_annotation_id)
 SELECT id, photo_id, NULLIF(user_id,''), NULLIF(body,''), NULLIF(target,'')::json,
        NULLIF(created_at,'')::timestamptz,
        COALESCE(NULLIF(is_current,'')::boolean, true),
-       COALESCE(NULLIF(event_type,''), 'created')
+       COALESCE(NULLIF(event_type,''), 'created'),
+       NULLIF(source_annotation_id,'')
 FROM _dump_anns
 WHERE photo_id IN (SELECT id FROM photos)
 ON CONFLICT (id) DO NOTHING;
@@ -109,6 +170,23 @@ WHERE a.id = d.id AND NULLIF(d.is_current,'') IS NOT NULL
 
 DROP TABLE _dump_photos, _dump_anns;
 SQL
+} | $PG --single-transaction
 
 echo "== result =="
 $PG -c "SELECT 'photos' AS t, count(*) FROM photos UNION ALL SELECT 'annotations', count(*) FROM photo_annotations"
+
+echo "== mirror into the workbench =="
+if curl -sf -X POST "${ENRICH_API:-http://localhost:8070}/api/sync/run" \
+     -H 'Content-Type: application/json' -d '{}' >/dev/null; then
+  # the sync runs in the background; report where it landed rather than just
+  # claiming it started
+  for _ in $(seq 1 200); do
+    sleep 3
+    st=$(curl -s "${ENRICH_API:-http://localhost:8070}/api/sync/status")
+    case "$st" in *'"running":false'*) break ;; esac
+  done
+  echo "$st" | python3 -c 'import json,sys; r=json.load(sys.stdin)["last_runs"][0]; print(r["status"], json.dumps(r["stats"]))'
+else
+  echo "!! workbench api unreachable — mirror NOT updated. Run this when it is up:" >&2
+  echo "   curl -X POST localhost:8070/api/sync/run -H 'Content-Type: application/json' -d '{}'" >&2
+fi

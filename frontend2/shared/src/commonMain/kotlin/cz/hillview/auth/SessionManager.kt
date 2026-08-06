@@ -157,6 +157,34 @@ class SessionManager(
                 tokens = storedNow
                 return
             }
+
+            // Where a platform refresher exists (Android), IT owns refreshing:
+            // it serializes with the upload stack on a process-wide mutex, so
+            // the stored refresh token is never presented twice. Running our
+            // own Ktor refresh alongside it would race — and the backend
+            // answers a replayed single-use refresh token by revoking the
+            // whole session.
+            val platformRefreshed = store.forceRefresh()
+            if (platformRefreshed != null) {
+                val after = store.load()
+                if (platformRefreshed && after != null) {
+                    tokens = after
+                    return
+                }
+                // Failed. The platform manager clears tokens only on a
+                // definitive rejection; surviving tokens mean 5xx/IO, which
+                // must NOT log the user out.
+                if (after == null) {
+                    tokens = null
+                    _state.value = SessionState.LoggedOut
+                    _sessionExpiredNotice.value =
+                        store.consumeSessionExpiredReason() ?: "session expired"
+                    throw SessionExpiredException("platform refresh rejected")
+                }
+                tokens = after
+                throw TransientBackendException("platform refresh failed (session kept)")
+            }
+
             val refreshToken = current.refreshToken
                 ?: throw SessionExpiredException("no refresh token")
             val newToken = try {

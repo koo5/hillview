@@ -234,3 +234,10 @@ th {
 	color: var(--warn);
 	border-color: var(--warn);
 }
+/* evidence measured against a rect that has since moved. Warn, not bad: the
+   measurement was sound when it was taken, it just no longer describes the
+   annotation as it stands now. */
+.pill.stale {
+	color: var(--warn);
+	border-color: var(--warn);
+}

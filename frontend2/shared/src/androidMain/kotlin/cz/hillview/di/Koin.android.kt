@@ -62,6 +62,13 @@ private class AuthManagerTokenStore(context: Context) : TokenStore {
         auth.getValidToken()
     }
 
+    override suspend fun forceRefresh(): Boolean = withContext(Dispatchers.IO) {
+        // Unconditional refresh under the shared process-wide mutex — this is
+        // the path the native manager documents for HTTP callers that got a
+        // 401 on a locally-valid token.
+        auth.forceRefreshToken()
+    }
+
     override suspend fun consumeSessionExpiredReason(): String? = withContext(Dispatchers.IO) {
         val info = auth.getSessionExpiredInfo() ?: return@withContext null
         auth.clearSessionExpiredFlag()

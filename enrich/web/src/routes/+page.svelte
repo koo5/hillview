@@ -22,10 +22,10 @@
 		}
 	}
 
-	async function sync(mode: 'append' | 'reconcile') {
-		busy = mode;
+	async function sync() {
+		busy = 'sync';
 		try {
-			await api.post('/sync/run', { mode });
+			await api.post('/sync/run', {});
 			for (let i = 0; i < 120; i++) {
 				await new Promise((r) => setTimeout(r, 1500));
 				await refresh();
@@ -107,11 +107,13 @@
 		</div>
 	{/each}
 	<div style="flex:1"></div>
-	<button class="primary" disabled={busy !== null || status?.running} onclick={() => sync('append')}>
-		{busy === 'append' ? 'Appending…' : 'Sync append'}
-	</button>
-	<button disabled={busy !== null || status?.running} onclick={() => sync('reconcile')}>
-		{busy === 'reconcile' ? 'Reconciling…' : 'Reconcile'}
+	<button
+		class="primary"
+		disabled={busy !== null || status?.running}
+		title="full scan against the source: new rows in, edits carried, vanished rows stamped (never deleted)"
+		onclick={() => sync()}
+	>
+		{busy ? 'Syncing…' : 'Sync'}
 	</button>
 	{#if status?.running}<span class="pill running">running</span>{/if}
 </div>
@@ -119,14 +121,12 @@
 <h2>Sync state</h2>
 <table>
 	<thead>
-		<tr><th>table</th><th>watermark</th><th>last append</th><th>last reconcile</th></tr>
+		<tr><th>table</th><th>last sync</th></tr>
 	</thead>
 	<tbody>
 		{#each status?.state ?? [] as s (s.table_name)}
 			<tr>
 				<td>{s.table_name}</td>
-				<td class="mono muted">{fmt(s.watermark)}</td>
-				<td class="muted">{fmt(s.last_append_at)}</td>
 				<td class="muted">{fmt(s.last_reconcile_at)}</td>
 			</tr>
 		{/each}

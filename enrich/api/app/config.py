@@ -20,12 +20,14 @@ ALLOW_RAW_UPDATE = os.getenv("ENRICH_ALLOW_RAW_UPDATE", "0") in ("1", "true", "y
 SCHEMA_DIR = os.getenv("SCHEMA_DIR", str(Path(__file__).parents[2] / "db" / "init"))
 # Workbench web UI, plus the main hillview frontend's origins — its terrain
 # mode (VITE_TERRAIN_API) calls this API cross-origin from the vite dev server
-# (:8212) or the Caddy h2 origin. Deliberately NOT "*": the API is unauthed,
-# an allowlist keeps arbitrary websites from reading it via the user's browser.
+# (:8212), the built frontend container (:3000) or the Caddy h2 origin.
+# Deliberately NOT "*": the API is unauthed, an allowlist keeps arbitrary
+# websites from reading it via the user's browser.
 # `or` (not a getenv default) so an empty compose passthrough falls back too.
 CORS_ORIGINS = (
     os.getenv("ENRICH_CORS_ORIGINS")
     or "http://localhost:8071,http://127.0.0.1:8071,"
     "http://localhost:8212,http://127.0.0.1:8212,"
+    "http://localhost:3000,http://127.0.0.1:3000,"
     "https://hillview.dev4.local"
 ).split(",")

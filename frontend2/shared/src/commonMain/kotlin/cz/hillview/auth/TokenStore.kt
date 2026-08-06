@@ -22,6 +22,21 @@ interface TokenStore {
     suspend fun freshAccessToken(): String? = null
 
     /**
+     * Hand the refresh to the platform auth manager, which serializes it with
+     * every other refresher in the process (Android: shared-kt
+     * AuthenticationManager's STATIC refresh mutex, also held by the upload
+     * stack). Returns true when the session was rotated, false when the
+     * attempt failed — the caller classifies definitive-vs-transient by
+     * whether tokens survived. Null means there is no platform refresher and
+     * the caller must run its own refresh (desktop, tests).
+     *
+     * The backend rotates refresh tokens single-use and treats a replay as
+     * theft by revoking the session, so two independent refreshers must never
+     * both present the stored token: on Android there is exactly ONE.
+     */
+    suspend fun forceRefresh(): Boolean? = null
+
+    /**
      * The platform auth manager's persisted involuntary-session-death marker
      * (Android: AuthenticationManager.sessionExpired ran — e.g. a background
      * drain's refresh was rejected with 401). Consuming clears the flag; the
