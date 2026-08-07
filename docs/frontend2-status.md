@@ -33,6 +33,31 @@ orientation page; the detail lives in the documents it points to.
    decision. The full API URL is one config value, never assembled.
 6. Build instructions: `frontend2/README.md`. Research record (camera
    libraries, PiP/FGS, per-frame metadata): `frontend2-capture-backlog.md`.
+7. **Check for a Tauri Kotlin twin BEFORE building any subsystem.** The
+   marker-source episode: a parallel Ktor client was half-built before the
+   plugin's photo-worker stack (richer in every way) was found and
+   graduated instead. The plugin's src/main/java is the first place to
+   look, always.
+8. **Phone-in-hand rounds outrank everything.** Every single user
+   observation this cycle was a real bug with a clean root cause
+   (unrequested permissions, stale-fix display, claim-blind gate, arrow
+   grab annulus, unbounded fling, poll-instead-of-moveend, double zoom
+   buttons, tile bleed, dialog-window animations, dialog-shaped capture
+   pane). Ship a build, collect observations, fix with a regression test
+   each — the loop converges fast.
+9. **Merged-world testing rules** (one process, one persisted activity):
+   arrange state in @Before, never assume a fresh app; a persisted capture
+   activity composes at LAUNCH — before @Before — so helpers bounce it;
+   GMS's fused location cache is SYSTEM-wide and survives reinstalls, so
+   mocks must cover both the platform provider AND fused mock mode;
+   connected test runs uninstall the app afterward (data gone); offscreen
+   Compose nodes get "clicked" wherever their coordinates land — scroll
+   into view first; keep gate-semantics tests strict and let everything
+   else use adaptive openers.
+10. Compose platform edges collected: view-interop containers do not clip
+    children (osmdroid tile bleed); Compose dialogs ignore activity-theme
+    dialog styles (strip animations per-window via DialogWindowProvider);
+    a property named like an interface method collides on the JVM.
 
 ## Where things stand
 
@@ -48,7 +73,14 @@ orientation page; the detail lives in the documents it points to.
 - The exploration pill + manual-position claim: pan is exploration,
   "Capture here" is the only way the map position becomes the capture
   position; claim survives entering capture; withdrawal everywhere.
-- Tests: ~130 jvm + 158 android-host + 40+ shared instrumented + 13 app
+- The Main page merge is LIVE: split layout over an always-mounted map,
+  persisted activities, hamburger menu, capture pane in the original's
+  camera shape; MapStateHolder is process-wide (capture and map move one
+  camera); locations ride shared-kt's fused PreciseLocationService; the
+  photo folder is Hillview2 (HILLVIEW_FOLDER env var overrides).
+- /device-photos is ported (cards, status palette, global retry, menu
+  entry); the anonymization menu is deferred.
+- Tests: ~135 jvm + 160 android-host + 51 shared instrumented + 15 app
   behaviour tests, all green. The behaviour layer covers map tracking
   (incl. the return-from-capture demote regression it caught), capture
   gating (mock-GPS determinism), storage shape per preference, upload
