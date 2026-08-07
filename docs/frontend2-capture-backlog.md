@@ -6,10 +6,12 @@ before reimplementing, per the contract method).
 
 ## Widgets to port
 
-- **Camera overlay** (`CameraOverlay.svelte`, 396 lines): the
-  bearing/location/hint layer drawn over the preview — live bearing
-  readout, fix state, and the capture hints. Port it the way the map went:
-  read the component, write the contract section, then implement.
+- ~~Camera overlay~~ **DONE 2026-08-07**: observed into
+  docs/tauri-capture-ui-contract.md, then ported — glass panel with the
+  six-level tap-cycled backdrop (persisted), 4 s post-open hint per
+  bearing mode, bearing/lat/lon/altitude/accuracy rows showing the
+  *effective* capture position (claimed manual position marked as such).
+  Dead code (sensor accuracy, compass lag) not ported.
 - ~~Compass calibration overlay~~ **DONE 2026-08-07**: trigger rule +
   figure-8 sheet + live accuracy + auto-dismiss + car-mode escape hatch;
   desktop-tested, trigger rules commonTest'd.
