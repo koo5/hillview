@@ -60,9 +60,62 @@ CameraX, skip OpenCamera entirely, mine two Apache-2.0 apps for code.**
 - **Dead, do not adopt**: CameraView, Fotoapparat, google/cameraview,
   CameraKit, EasyCamera, peekaboo.
 
-Still in flight: a second report on PiP/ForegroundService constraints
-(Android 14+ `foregroundServiceType=camera`), video with per-frame
-metadata, and Compose tap-to-focus sample specifics.
+## PiP / ForegroundService — research findings (2026-08-06)
+
+Second report, verified against primary sources (AOSP AppOps.md,
+CameraService.cpp, behaviour-change docs) and grounded in this repo.
+
+**The float-mode plan (map in PiP over the native camera app) is viable,
+and easier than feared:**
+
+- **PiP counts as a visible activity** — the process stays `PROCESS_STATE_TOP`
+  with ALL capabilities. While the map floats, hillview keeps GPS + compass
+  with **no foreground service at all**. The FGS machinery is only needed if
+  we ever want sensors to outlive the PiP window (or record video with the
+  screen off).
+- Hillview must **release its own camera** in float mode (any TOP camera
+  client evicts lower ones — that is the by-design eviction path in
+  `CameraService`), which the plan already intended: the native app records.
+- Guard `onPause()` with `isInPictureInPictureMode` — PiP pauses the
+  activity but keeps rendering.
+
+**If/when a camera-typed FGS is wanted (background video recording):**
+
+- `foregroundServiceType="camera"` is the supported mechanism; **no timeout**
+  through API 37 (unlike dataSync's 6 h/24 h).
+- Hard rules: must be started **while an activity is visible** (API 34+
+  throws `SecurityException` otherwise, and `checkSelfPermission()` lies —
+  it returns granted even when the start would throw); **no auto-start after
+  reboot** (Android 15 put `camera` on the `BOOT_COMPLETED` blocklist);
+  runtime CAMERA permission must exist before `startForeground()`.
+- CameraX must bind to a **`LifecycleService`**, not the Activity —
+  ON_STOP suspends use cases. **Repo grounding: both of our camera paths
+  (PhotoCapture.android.kt:179, ClockVideoRecorder.android.kt) currently
+  bind to the Activity lifecycle**, so the camera closes at ON_STOP today.
+- Build for eviction: `onDisconnected` → close → reopen on
+  `onCameraAvailable`; segment recordings so eviction costs one segment.
+- Users can kill the app from the Task Manager with **no callback**
+  (detect post-hoc via `ApplicationExitInfo`); FGS notifications are
+  dismissible since 14; indicators always show — covert capture is
+  impossible by design.
+- Play gates: FGS **declaration + demo video** required (TYPE_CAMERA has
+  exactly one preset use case, "background camera streaming"); mandatory
+  in-app prominent disclosure before the permission ask; battery-optimization
+  exemption requests are policy-prohibited for recorders; **target API 36 by
+  2026-08-31** (same deadline as the Tauri Play pass).
+- Watch-items: Android 16 bucket-limits jobs running concurrently with an
+  FGS (move uploads to user-initiated data-transfer jobs if they must ride
+  along); Android 17 app **memory limits** are exactly the risk profile of a
+  long-running video encoder.
+- Repo corrections from the report: minSdk is **24** (not 26), targetSdk 36
+  already — every Android 14/15 rule above applies now. Neither manifest
+  declares a camera FGS type yet (only dataSync for WorkManager).
+
+Still open (research agent hit the spend limit before covering it): video
+recording with **per-frame metadata** — whether CameraX VideoCapture exposes
+frame-timestamp callbacks or MediaCodec/Camera2 is needed. Partly moot: the
+clockvideo recorder already burns per-frame QR timestamps via
+OverlayEffect(VIDEO_CAPTURE) and is emulator-verified.
 
 ## The camera-control question (original framing)
 
