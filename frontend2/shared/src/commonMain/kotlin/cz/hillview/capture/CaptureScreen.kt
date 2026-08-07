@@ -89,6 +89,8 @@ fun CaptureScreen(
     val state = capture.state
     val queueStats by uploadPipeline.stats.collectAsState()
     val uploadSettings by uploadSettingsRepo.settings.collectAsState()
+    val sessionManager: cz.hillview.auth.SessionManager = org.koin.compose.koinInject()
+    val sessionState by sessionManager.state.collectAsState()
 
     // The lifted-gate state: session-scoped, so the fix requirement guards
     // every fresh visit and lifting it is a deliberate act each time.
@@ -224,8 +226,11 @@ fun CaptureScreen(
         }
 
         // The original waits 800 ms after the shutter before prompting, "to
-        // avoid UI confusion" right at the moment of capture.
-        if (!uploadSettings.autoUploadEnabled &&
+        // avoid UI confusion" right at the moment of capture. Its trigger:
+        // (!authed || !autoUploadEnabled) — a logged-out user gets it even
+        // with the switch on, because logged out means uploads CANNOT run.
+        if ((!uploadSettings.autoUploadEnabled ||
+                sessionState !is cz.hillview.auth.SessionState.LoggedIn) &&
             uploadSettings.autoUploadPromptEnabled &&
             !promptDismissed
         ) {
@@ -278,20 +283,12 @@ fun CaptureScreen(
                         it.copy(cameraOverlayOpacity = nextOverlayOpacity(it.cameraOverlayOpacity))
                     }
                 },
-            )
-            StatusLine(state)
-            Text(
-                text = "uploads: ${queueStats.done} done" +
+                statusText = statusLineText(state),
+                uploadsText = "uploads: ${queueStats.done} done" +
                     (if (queueStats.duplicate > 0) ", ${queueStats.duplicate} dup" else "") +
                     (if (queueStats.pending > 0) ", ${queueStats.pending} pending" else "") +
                     (if (queueStats.failed > 0) ", ${queueStats.failed} failed" else "") +
                     (queueStats.lastError?.let { " · $it" } ?: ""),
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0x99FFFFFF),
-                modifier = Modifier
-                    .background(DarkGlass, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                    .testTag("capture-upload-stats"),
             )
         }
 
@@ -735,45 +732,33 @@ private fun IntervalSlider(
     }
 }
 
-@Composable
-private fun StatusLine(state: CaptureState) {
-    val parts = buildList {
-        add(
-            when {
-                !state.supported -> state.errorMessage ?: "Not supported on this platform"
-                !state.ready -> "Starting camera…"
-                state.hasFix -> "GPS fix"
-                else -> "no GPS fix"
-            }
-        )
-        // No bearing here: the pill's 🧭 row above already shows it live
-        // (it used to repeat when this strip was the pane's only readout).
-        state.lastPhoto?.let { photo ->
-            val s = photo.snapshot
-            val loc = if (s.latitude != null && s.longitude != null) {
-                "@${fmt(s.latitude)},${fmt(s.longitude)}"
-            } else {
-                "no location"
-            }
-            add("saved ${photo.filename} $loc")
+/**
+ * The camera-lifecycle line, rendered as a pill row. No fix state here:
+ * the pill's own rows carry it (📍 when a fix exists, the spinner when
+ * not) — "GPS fix"/"no GPS fix" used to repeat that in words. No bearing
+ * either: the 🧭 row shows it live. What remains is what the pill can't
+ * say: the camera's own state, the last save, and errors (⚠️-prefixed —
+ * one type style up here, no red exception).
+ */
+internal fun statusLineText(state: CaptureState): String = buildList {
+    add(
+        when {
+            !state.supported -> "⚠️ " + (state.errorMessage ?: "Not supported on this platform")
+            !state.ready -> "Starting camera…"
+            else -> "ready"
         }
-        state.errorMessage?.takeIf { state.supported }?.let { add(it) }
-    }
-    Text(
-        text = parts.joinToString(" · "),
-        style = MaterialTheme.typography.bodySmall,
-        color = if (state.errorMessage != null && state.supported) {
-            MaterialTheme.colorScheme.error
-        } else {
-            // Light on the glass strip, over live video.
-            Color(0xCCFFFFFF)
-        },
-        modifier = Modifier
-            .background(DarkGlass, RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-            .testTag("capture-status"),
     )
-}
+    state.lastPhoto?.let { photo ->
+        val s = photo.snapshot
+        val loc = if (s.latitude != null && s.longitude != null) {
+            "@${fmt(s.latitude)},${fmt(s.longitude)}"
+        } else {
+            "no location"
+        }
+        add("saved ${photo.filename} $loc")
+    }
+    state.errorMessage?.takeIf { state.supported }?.let { add("⚠️ $it") }
+}.joinToString(" · ")
 
 private fun fmt(value: Double): String {
     val rounded = (value * 100_000).roundToInt() / 100_000.0

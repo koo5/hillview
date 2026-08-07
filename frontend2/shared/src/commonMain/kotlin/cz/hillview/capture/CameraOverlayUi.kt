@@ -48,6 +48,13 @@ fun CameraOverlayUi(
     opacityLevel: Int,
     onCycleOpacity: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * The camera/save/error line and the upload tally — frontend2
+     * extensions rendered INSIDE the pill so one glass and one type style
+     * govern everything up here (round 5: the separate strips clashed).
+     */
+    statusText: String? = null,
+    uploadsText: String? = null,
 ) {
     // The post-open hint: 4 s from the camera coming ready, as the
     // original fires doCalibrationHint right after the stream starts.
@@ -97,6 +104,8 @@ fun CameraOverlayUi(
                 showHint -> HintContent(bearingMode)
                 else -> LocationRows(state, overridePosition)
             }
+            statusText?.let { MonoText(it, Modifier.testTag("capture-status")) }
+            uploadsText?.let { MonoText(it, Modifier.testTag("capture-upload-stats")) }
         }
         Box(
             modifier = Modifier

@@ -70,7 +70,10 @@ fun App() {
                 entry<MapKey> { main() }
                 entry<CaptureKey> { main() }
                 entry<SettingsKey> {
-                    SettingsScreen(onBack = { backStack.removeLastOrNull() })
+                    SettingsScreen(
+                        onBack = { backStack.removeLastOrNull() },
+                        onOpenLogin = { backStack.add(LoginKey) },
+                    )
                 }
                 entry<DevicePhotosKey> {
                     cz.hillview.devicephotos.DevicePhotosScreen(

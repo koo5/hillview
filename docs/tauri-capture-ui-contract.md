@@ -140,8 +140,12 @@ the run (release back over the button cancels, tap stops a run); the manual
 shutter-speed ladder (no original equivalent; added for crisp car shots)
 collapses behind
 a ⚡ button lower-right, expanding upward like the 📷 selector; the
-status/upload-stats lines (no original equivalent) ride under the pill as
-dark glass strips.
+status/upload-stats lines (no original equivalent) are rows INSIDE the
+pill — one glass, one mono style — carrying only what the pill's own
+rows can't say: camera lifecycle (starting/ready), the last save, errors
+(⚠️-prefixed), and the upload tally. Fix state is NOT worded there: the
+📍/spinner rows are it ("GPS fix"/"no GPS fix" used to duplicate them;
+the gating tests anchor on shutter/escape-hatch semantics instead).
 
 ## Fix freshness — a frontend2 divergence (15 s), not a port
 

@@ -81,9 +81,14 @@ class CaptureGatingBehaviourTest {
     fun gateShutsWithoutFixLiftsByHandAndOpensOnAFix() {
         compose.openCaptureAndAwaitCamera()
 
-        // Shut: camera ready, no fix, no photo.
-        val status = compose.captureStatus()
-        assertTrue("expected the no-fix state, got: $status", status.contains("no GPS fix"))
+        // Shut: camera ready, no fix, no photo. Anchored on the gate's own
+        // signals — the escape hatch offered, the shutter disabled. (The
+        // status strip stopped wording the fix state in round 5; the pill
+        // owns it now.)
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("capture-use-map-position")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
         assertFalse("shutter must be gated while there is no fix", compose.shutterIsEnabled())
 
         // The position the lift will copy — read through the same live
@@ -105,12 +110,10 @@ class CaptureGatingBehaviourTest {
         compose.onNodeWithTag("capture-manual-location").performClick()
         compose.waitUntil(5_000) { !compose.shutterIsEnabled() }
 
-        // A fix opens it with no lift involved.
+        // A fix opens it with no lift involved — the gate state IS the
+        // assertion, not the wording.
         gps.inject(50.0755, 14.4378)
-        compose.waitUntil(15_000) {
-            val s = compose.captureStatus()
-            s.contains("GPS fix") && !s.contains("no GPS fix")
-        }
+        compose.waitUntil(15_000) { compose.shutterIsEnabled() }
         assertTrue("a fresh fix must open the gate", compose.shutterIsEnabled())
     }
 }

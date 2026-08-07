@@ -41,11 +41,14 @@ import org.koin.compose.koinInject
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    onOpenLogin: () -> Unit = {},
     repository: UploadSettingsRepository = koinInject(),
     compassRepository: CompassSettingsRepository = koinInject(),
+    sessionManager: cz.hillview.auth.SessionManager = koinInject(),
 ) {
     val settings by repository.settings.collectAsState()
     val compass by compassRepository.settings.collectAsState()
+    val sessionState by sessionManager.state.collectAsState()
     val requestNotifications = rememberNotificationPermissionRequester()
 
     Column(
@@ -106,6 +109,27 @@ fun SettingsScreen(
                 enabled = settings.license != null,
                 modifier = Modifier.testTag("settings-auto-upload"),
             )
+        }
+
+        // Uploads are impossible logged out, and this section is where a
+        // user chasing the auto-upload prompt lands — so the way in sits
+        // right here. (A frontend2 addition: the original's upload settings
+        // page has no login affordance.)
+        if (sessionState !is cz.hillview.auth.SessionState.LoggedIn) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    "Uploading needs an account.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    onClick = onOpenLogin,
+                    modifier = Modifier.testTag("settings-login-button"),
+                ) { Text("Sign in") }
+            }
         }
 
         Row(
