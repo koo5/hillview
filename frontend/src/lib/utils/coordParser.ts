@@ -7,15 +7,17 @@
  *
  * Accepted formats (lat first, lon second, matching the source convention
  * "50.73N, 15.00E"):
- *   50.732N, 15.008E         hemisphere letters optional; S/W negate
+ *   50.732N, 15.008E         hemisphere letters optional
  *   50.732, 15.008           comma- or whitespace-separated
  *   50.732 15.008
  *   50,0620061, 14,8864855   Czech decimal comma
+ *   -33.8568, 151.2153       southern/western may use a minus or an S/W letter
  * Each number needs 3+ decimal places, so prose numbers ("1938, 1500 m")
  * don't false-positive.
  */
 
-const COORD_SRC = '(\\d{1,2}[.,]\\d{3,})\\s*([NnSs])?[,\\s]+(\\d{1,2}[.,]\\d{3,})\\s*([EeWw])?';
+const COORD_SRC =
+	'(-?\\d{1,2}[.,]\\d{3,})\\s*([NnSs])?[,\\s]+(-?\\d{1,3}[.,]\\d{3,})\\s*([EeWw])?';
 
 const COORD_RE = new RegExp(COORD_SRC);
 const COORD_RE_GLOBAL = new RegExp(COORD_SRC, 'g');
@@ -35,11 +37,19 @@ function coordFloat(s: string): number {
 	return parseFloat(s.replace(',', '.'));
 }
 
-/** _coords_from_match in parser.py: S/W hemisphere letters negate. */
+/**
+ * _hemisphere in parser.py: a leading minus already signed the value; an S/W
+ * letter forces the southern/western hemisphere.
+ */
+function hemisphere(value: number, letter: string | undefined, negative: string): number {
+	return letter?.toUpperCase() === negative ? -Math.abs(value) : value;
+}
+
+/** _coords_from_match in parser.py. */
 function toCoordMatch(m: RegExpMatchArray): CoordMatch {
 	return {
-		lat: coordFloat(m[1]) * (m[2]?.toUpperCase() === 'S' ? -1 : 1),
-		lon: coordFloat(m[3]) * (m[4]?.toUpperCase() === 'W' ? -1 : 1),
+		lat: hemisphere(coordFloat(m[1]), m[2], 'S'),
+		lon: hemisphere(coordFloat(m[3]), m[4], 'W'),
 		text: m[0],
 		index: m.index ?? 0,
 	};
@@ -63,4 +73,26 @@ export function findCoords(text: string): CoordMatch[] {
  */
 export function isCoordsOnly(text: string): boolean {
 	return COORD_RE_FULL.test(text);
+}
+
+export type CoordRun =
+	| { type: 'text'; value: string }
+	| ({ type: 'coords' } & CoordMatch);
+
+/**
+ * Split `text` into alternating plain-text and coordinate runs, so a body can
+ * be rendered with only the coordinate spans made clickable. Concatenating
+ * every run's text reproduces the input exactly. No Python counterpart — the
+ * backend consumes coordinates, it never re-renders the prose around them.
+ */
+export function splitOnCoords(text: string): CoordRun[] {
+	const runs: CoordRun[] = [];
+	let at = 0;
+	for (const c of findCoords(text)) {
+		if (c.index > at) runs.push({ type: 'text', value: text.slice(at, c.index) });
+		runs.push({ type: 'coords', ...c });
+		at = c.index + c.text.length;
+	}
+	if (at < text.length) runs.push({ type: 'text', value: text.slice(at) });
+	return runs;
 }

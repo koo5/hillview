@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findCoords, firstCoords, isCoordsOnly } from './coordParser';
+import { findCoords, firstCoords, isCoordsOnly, splitOnCoords } from './coordParser';
 
 // Cases mirror the Python twin's suite: enrich/api/app/tests/test_parser.py
 describe('firstCoords', () => {
@@ -35,6 +35,11 @@ describe('firstCoords', () => {
 		expect(firstCoords('40.7128N, 74.0060W')).toMatchObject({ lat: 40.7128, lon: -74.006 });
 	});
 
+	it('parses signed decimals', () => {
+		expect(firstCoords('-33.8568, 151.2153')).toMatchObject({ lat: -33.8568, lon: 151.2153 });
+		expect(firstCoords('40.7128, -74.0060')).toMatchObject({ lat: 40.7128, lon: -74.006 });
+	});
+
 	it('reports the offset of an embedded pair', () => {
 		const c = firstCoords('Ještěd 50.732N, 15.008E');
 		expect(c?.index).toBe(7);
@@ -59,10 +64,43 @@ describe('findCoords', () => {
 	});
 });
 
+describe('splitOnCoords', () => {
+	it('splits prose around an embedded pair', () => {
+		expect(splitOnCoords('summit at 50.732N, 15.008E roughly')).toEqual([
+			{ type: 'text', value: 'summit at ' },
+			{ type: 'coords', lat: 50.732, lon: 15.008, text: '50.732N, 15.008E', index: 10 },
+			{ type: 'text', value: ' roughly' },
+		]);
+	});
+
+	it('returns a single coords run for a bare pair', () => {
+		const runs = splitOnCoords('50.732N, 15.008E');
+		expect(runs).toHaveLength(1);
+		expect(runs[0].type).toBe('coords');
+	});
+
+	it('returns a single text run when nothing matches', () => {
+		expect(splitOnCoords('Petřín')).toEqual([{ type: 'text', value: 'Petřín' }]);
+	});
+
+	it('returns nothing for empty input', () => {
+		expect(splitOnCoords('')).toEqual([]);
+	});
+
+	it('reproduces the input when runs are concatenated', () => {
+		const input = 'a 50.732N, 15.008E b -33.8568, 151.2153 c';
+		const joined = splitOnCoords(input)
+			.map((r) => (r.type === 'coords' ? r.text : r.value))
+			.join('');
+		expect(joined).toBe(input);
+	});
+});
+
 describe('isCoordsOnly', () => {
 	it('accepts a bare pair', () => {
 		expect(isCoordsOnly('50.732N, 15.008E')).toBe(true);
 		expect(isCoordsOnly('50,0620061, 14,8864855')).toBe(true);
+		expect(isCoordsOnly('-33.8568, 151.2153')).toBe(true);
 	});
 
 	it('rejects a pair embedded after a name', () => {

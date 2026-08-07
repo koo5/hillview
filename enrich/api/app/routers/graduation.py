@@ -28,7 +28,10 @@ WIKI_URL_RE = re.compile(r"^https?://\w{2,3}\.(?:m\.)?wikipedia\.org/wiki/")
 
 
 def _coord_seg(lat: float, lon: float) -> str:
-    return f"{lat:.5f}N, {lon:.5f}E"
+    # hemisphere letter rather than a minus sign, so the segment re-parses as
+    # the same point (COORD_RE reads both, but the corpus convention is letters)
+    return (f"{abs(lat):.5f}{'S' if lat < 0 else 'N'}, "
+            f"{abs(lon):.5f}{'W' if lon < 0 else 'E'}")
 
 
 def suggest_body(body: str | None, label: str | None,

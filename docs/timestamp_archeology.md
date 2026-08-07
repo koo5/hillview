@@ -149,3 +149,19 @@ can still land NULL.
 - The `2026-03-14` offset is inferred, not read — revisit if those boranovice frames' originals resurface.
 - Optional: teach the worker to fall back to the filename `_photo_/_capture_` stamp so future
   metadata-less uploads don't land NULL.
+
+## Display-side timezone (frontend)
+
+Stored instants are UTC; the frontend (`$lib/photoDisplay.ts`) parses offset-less strings as UTC
+(`parseUtcTimestamp`) and renders them in the **viewer's** zone with an explicit label
+("… 15:29:13 GMT+2", `formatDateTime`). For a Czech site viewing Czech photos this is also the
+photo-place wall clock, so it reads right.
+
+- Semantically ideal for `captured_at` would be the local time **at the photo's location**
+  (tz-lookup from lat/lon — e.g. the small `tz-lookup` package — then
+  `Intl.DateTimeFormat(…, { timeZone })`). Not done; only matters once photos far from the
+  viewer's zone are common.
+- Open question before doing that: what zone for `uploaded_at`, displayed right next to it?
+  Place-local is nonsense for a server event, viewer-local next to a place-local `captured_at`
+  makes one row mix two zones. Explicit per-value zone labels (already emitted) are probably the
+  answer, but decide before switching `captured_at`.

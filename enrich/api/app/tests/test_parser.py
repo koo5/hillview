@@ -66,6 +66,11 @@ def test_coords_hemisphere_sign():
     assert parse_body("? | 50.732, 15.008").coords == (50.732, 15.008)
 
 
+def test_coords_signed_decimals():
+    assert parse_body("? | -33.8568, 151.2153").coords == (-33.8568, 151.2153)
+    assert parse_body("? | 40.7128, -74.0060").coords == (40.7128, -74.006)
+
+
 def test_url_second_segment_not_context():
     p = parse_body("Kostel | https://en.wikipedia.org/wiki/Church")
     assert p.name == "Kostel"

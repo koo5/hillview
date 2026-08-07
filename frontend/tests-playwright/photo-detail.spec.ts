@@ -34,8 +34,23 @@ test.describe('Photo Detail Page', () => {
 		// Owner should be shown
 		await expect(page.getByTestId('photo-detail-owner')).toHaveText('@test');
 
-		// View on Map link should be present (test photos have GPS)
-		await expect(page.getByTestId('photo-detail-view-on-map')).toBeVisible();
+		// View on Map link should be present (test photos have GPS). It must be a
+		// real anchor with an href, not a click handler: /photo/<uid> is the
+		// canonical target of shared photos, so the hop from there to the
+		// interactive map has to be crawlable and open-in-new-tab-able.
+		const mapLink = page.getByTestId('photo-detail-view-on-map');
+		await expect(mapLink).toBeVisible();
+		await expect(mapLink).toHaveAttribute('href', /^\/\?lat=[-\d.]+&lon=[-\d.]+.*&photo=/);
+
+		// The photo itself is the same crawlable hop into the interactive map
+		await expect(page.getByTestId('photo-detail-image-link')).toHaveAttribute(
+			'href',
+			/^\/\?lat=[-\d.]+&lon=[-\d.]+.*&photo=/
+		);
+
+		// Uniform labeled details row (captured_at is data-dependent — the test
+		// fixture photo carries no EXIF datetime — so only uploaded is asserted)
+		await expect(page.getByTestId('photo-detail-uploaded')).toBeVisible();
 	});
 
 	test('should show 404 for invalid uid', async ({ page }) => {

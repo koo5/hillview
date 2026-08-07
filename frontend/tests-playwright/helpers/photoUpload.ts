@@ -154,11 +154,22 @@ export async function uploadPhoto(page: Page, photoFilename: string): Promise<st
     return uploadSuccessEntry || batchCompleteEntry;
   }, { timeout: T(30000) });
 
-  // Extract photo ID from the success log entry
+  // Extract photo ID from the success log entry. The wait above is satisfied
+  // by EITHER the per-photo success entry OR the batch_complete entry — under
+  // load batch_complete can render first, and a one-shot read here then
+  // returned '' (callers built photo=hillview- URLs and failed mysteriously
+  // later). Wait for the success entry's id specifically, and fail loudly.
+  await page.waitForFunction(() => {
+    const entry = document.querySelector('[data-testid="log-entry"][data-operation="upload"][data-outcome="success"]');
+    return !!entry?.getAttribute('data-photo-id');
+  }, { timeout: T(10000) }).catch(() => {});
   const photoId = await page.evaluate(() => {
     const entry = document.querySelector('[data-testid="log-entry"][data-operation="upload"][data-outcome="success"]');
     return entry?.getAttribute('data-photo-id') || '';
   });
+  if (!photoId) {
+    throw new Error('uploadPhoto: upload finished but no success log entry with data-photo-id appeared');
+  }
 
   // Wait for file input to be cleared
   await page.waitForFunction(() => {

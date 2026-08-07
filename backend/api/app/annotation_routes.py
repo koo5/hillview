@@ -15,6 +15,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, PhotoAnnotation, User, HiddenUser
+from common.utc import format_utc
 from auth import get_current_active_user, get_current_user_optional
 
 logger = logging.getLogger(__name__)
@@ -80,7 +81,9 @@ def _serialize(ann: PhotoAnnotation, username: Optional[str] = None) -> Annotati
         target=ann.target,
         is_current=ann.is_current,
         superseded_by=ann.superseded_by,
-        created_at=ann.created_at.isoformat() if ann.created_at else None,
+        # format_utc, not bare isoformat: the column is naive UTC, and without
+        # the 'Z' suffix clients would read the string in their local zone
+        created_at=format_utc(ann.created_at),
         event_type=ann.event_type,
         owner_username=username,
     )

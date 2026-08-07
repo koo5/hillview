@@ -83,6 +83,32 @@ def _save_webp(rgb_array, output_path: str, quality: int, method: int) -> None:
 		) from e
 
 
+def _assert_output_base_owned(output_base: str, photo_id) -> None:
+	"""Guard against cross-job output roots (the 2026-08-03 clobber class).
+
+	Per-job work dirs are named ``{photo_id}-{suffix}`` and live under
+	``.../work/`` (see app.process). If ``output_base`` is such a dir, it must
+	be THIS job's: another photo's id there means per-job state leaked between
+	concurrent pool threads again (e.g. via an attribute on the shared
+	photo_processor singleton) — this job's files would land in a dir whose
+	owner rmtree's it on completion. The leak is deterministic on job overlap
+	(only the downstream ENOENT was intermittent), so failing loud here catches
+	the whole class at its first occurrence. Shared roots (KEEP_PICS_IN_WORKER
+	/ the default upload_dir) have no ``work/`` parent and are exempt — they
+	are shared by design.
+	"""
+	if not photo_id:
+		return
+	base = os.path.normpath(output_base)
+	if os.path.basename(os.path.dirname(base)) != 'work':
+		return
+	owner = os.path.basename(base).rsplit('-', 1)[0]  # strip the random hex suffix
+	if owner != str(photo_id):
+		raise RuntimeError(
+			f"output_base {output_base!r} is another job's work dir "
+			f"(this photo_id={photo_id}): per-job state leaked across pool threads")
+
+
 def create_center_crop(image, target_width: int, target_height: int):
 	"""Resize and center-crop an image to exact target dimensions.
 
@@ -508,6 +534,7 @@ class PhotoProcessor:
 
 		sizes_info = {}
 		output_base = output_base or self.upload_dir
+		_assert_output_base_owned(output_base, photo_id)
 		webp_quality_sizes = quality if quality is not None else WEBP_QUALITY_SIZES
 		webp_quality_dzi = quality if quality is not None else WEBP_QUALITY_DZI
 
@@ -741,6 +768,7 @@ class PhotoProcessor:
 			safe_photo_id = sanitize_filename(photo_id_part)
 
 			output_base = output_base or self.upload_dir
+			_assert_output_base_owned(output_base, photo_id)
 			dzi_dir = validate_file_path(os.path.join(output_base, 'opt', 'dzi', user_id_part), output_base)
 			os.makedirs(dzi_dir, exist_ok=True)
 

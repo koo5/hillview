@@ -11,8 +11,9 @@ import re
 import urllib.parse
 from dataclasses import dataclass, field
 
-PARSER_VERSION = "4"   # 4: S/W hemisphere letters negate the coordinate (lat<0 for S,
-                       #    lon<0 for W); pattern mirrored in the frontend TS twin
+PARSER_VERSION = "4"   # 4: southern/western coords parse — S/W letters and leading
+                       #    minus both sign the value; lon accepts 3 integer digits
+                       #    (100-180°); pattern mirrored in the frontend TS twin
                        # 3: decimal-comma coords ("50,0620061, 14,8864855") parse; per-
                        #    segment roles emitted (coords no longer misfiled as context;
                        #    URL-/coords-first bodies count as unnamed)
@@ -21,10 +22,10 @@ PARSER_VERSION = "4"   # 4: S/W hemisphere letters negate the coordinate (lat<0 
 
 # lat first, lon second (matches the source convention: "50.73N, 15.00E");
 # [.,] decimal separator — Czech bodies also write "50,0620061, 14,8864855";
-# S/W hemisphere letters negate the value.
+# southern/western values may be marked either way, "-33.8568" or "33.8568S".
 # TS twin: frontend/src/lib/utils/coordParser.ts (clickable coords in the
 # zoomview) — keep the pattern and semantics in sync both ways.
-COORD_RE = re.compile(r"(\d{1,2}[.,]\d{3,})\s*([NnSs])?[,\s]+(\d{1,2}[.,]\d{3,})\s*([EeWw])?")
+COORD_RE = re.compile(r"(-?\d{1,2}[.,]\d{3,})\s*([NnSs])?[,\s]+(-?\d{1,3}[.,]\d{3,})\s*([EeWw])?")
 WIKI_RE = re.compile(r"https?://(\w{2,3})\.wikipedia\.org/wiki/([^\s|)]+)")
 URL_RE = re.compile(r"https?://")
 
@@ -64,10 +65,15 @@ def _coord_float(s: str) -> float:
     return float(s.replace(",", "."))
 
 
+def _hemisphere(value: float, letter: str | None, negative: str) -> float:
+    """A leading minus already signed the value; an S/W letter forces the
+    southern/western hemisphere. N/E (and no letter) leave it as parsed."""
+    return -abs(value) if (letter or "").upper() == negative else value
+
+
 def _coords_from_match(m: re.Match) -> tuple[float, float]:
-    lat = _coord_float(m.group(1)) * (-1 if (m.group(2) or "").upper() == "S" else 1)
-    lon = _coord_float(m.group(3)) * (-1 if (m.group(4) or "").upper() == "W" else 1)
-    return lat, lon
+    return (_hemisphere(_coord_float(m.group(1)), m.group(2), "S"),
+            _hemisphere(_coord_float(m.group(3)), m.group(4), "W"))
 
 
 def _segment_role(i: int, seg: str) -> str:

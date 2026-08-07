@@ -69,8 +69,9 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 	import {get} from "svelte/store";
 	import {stringifyCircularJSON} from "$lib/utils/json";
 	import {TAURI} from "$lib/tauri";
-	import {parsePhotoUid} from "$lib/urlUtilsServer";
-	import {pendingZoomView} from '$lib/zoomView.svelte';
+	import {parsePhotoUid, parsePhotoUidParts} from "$lib/urlUtilsServer";
+	import {pendingZoomView, pendingZoomViewError} from '$lib/zoomView.svelte';
+	import {http} from '$lib/http';
 	import {openExternalUrl} from "$lib/urlUtils";
 	import {lines, linesVisible} from "$lib/data.svelte.js";
 	import {bearingBetween, distanceBetween, destinationPoint} from "$lib/geo";
@@ -241,6 +242,47 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		}
 	}
 
+	/** A URL ?photo= link can go stale two ways: the photo was deleted (the
+	 *  pending overlay would spin forever) or it was moved (its source will
+	 *  never stream it into the URL's map bounds). One probe of the public
+	 *  endpoint settles both: 404 → tell the pending overlay; 200 with
+	 *  coordinates away from the URL position → pan to the photo's real
+	 *  location, which re-runs the normal stream flow (moveend → spatial state
+	 *  → sources → hunter) and lets the zoomview open; the URL heals via the
+	 *  existing viewport sync. Hillview uids only — other sources have no
+	 *  public endpoint. Deliberately NOT completion-tracking of sources: the
+	 *  probe is one request and also covers photos outside the stale bounds. */
+	async function verifyUrlRequestedPhoto(photoUid: string, urlLat: number, urlLon: number) {
+		if (parsePhotoUidParts(photoUid)?.source !== 'hillview') return;
+		try {
+			const res = await http.get(`/photos/public/${encodeURIComponent(photoUid)}`);
+			if (res.status === 404) {
+				pendingZoomViewError.set('Photo not found — it may have been deleted.');
+				return;
+			}
+			if (!res.ok) return; // transient server trouble — leave the normal flow alone
+			const photo = await res.json();
+			if (photo?.latitude == null || photo?.longitude == null || !map) return;
+			const moved =
+				Math.abs(photo.latitude - urlLat) > 2e-5 || Math.abs(photo.longitude - urlLon) > 2e-5;
+			// Steer whenever the pending overlay is still open — the user is
+			// visibly waiting for exactly this photo, so the pan is always
+			// wanted. Without a pending view (plain ?photo=), fall back to a
+			// position check so we don't yank a user who already panned away.
+			// (Do NOT gate the pending case on position: the probe resolves
+			// mid initial-animation, when getCenter() is an intermediate value
+			// — comparing it against the URL position is a flake machine.)
+			const c = map.getCenter();
+			const stillAtUrlPos = Math.abs(c.lat - urlLat) < 1e-3 && Math.abs(c.lng - urlLon) < 1e-3;
+			if (moved && (get(pendingZoomView) !== null || stillAtUrlPos)) {
+				console.log('🢄URL photo has moved — panning to its current location', photo.latitude, photo.longitude);
+				map.setView([photo.latitude, photo.longitude], map.getZoom());
+			}
+		} catch {
+			// network error — the connectivity machinery handles messaging
+		}
+	}
+
 	async function afterInit() {
 		// console.log('🢄Map afterInit');
 		// console.log('🢄Map afterInit: current spatialState center:', JSON.stringify(get(spatialState).center));
@@ -315,6 +357,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		const photoUid = parsePhotoUid(photoParam);
 		if (photoUid) {
 			//console.log('🢄Photo parameter from URL:', photoUid);
+			pendingZoomViewError.set(null); // fresh open attempt
 			enableSourceForPhotoUid(photoUid);
 			picks.set(new Set([photoUid])); // ensure culling grid keeps this photo
 			// Switch to view mode when opening a specific photo
@@ -345,8 +388,20 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 				x1: parseFloat(x1),
 				y1: parseFloat(y1),
 				x2: parseFloat(x2),
-				y2: parseFloat(y2)
+				y2: parseFloat(y2),
+				// Bind the pending view to the requested photo so the open
+				// bridge can't hijack it for a nearby photo that streams in
+				// first (matters when the requested photo was deleted/moved)
+				photoUid: photoUid ?? undefined
 			});
+		}
+
+		// Fire-and-forget: settle whether the URL-requested photo can arrive at
+		// all (deleted → pending error, moved → corrective pan). Deliberately
+		// after the pendingZoomView.set above — the probe's pan decision reads
+		// that store, and a fast localhost response could otherwise beat it.
+		if (photoUid) {
+			void verifyUrlRequestedPhoto(photoUid, p.center.lat, p.center.lng);
 		}
 
 		setTimeout(() => {

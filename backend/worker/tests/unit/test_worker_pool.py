@@ -11,6 +11,11 @@ plumbing runs without cv2/torch. Covers:
     NOT mislabelled ``ProcessingTimeout`` (the submit() shield / ``fut.done()``
     guard)
   * per-photo phase updates piped back into the parent's ``processing_state``
+  * per-job ``output_base`` isolation under a concurrent burst — each job must
+    observe ITS OWN submitted work dir (regression pin for the 2026-08-03
+    clobber, where ``photo_processor.upload_dir = output_base`` on the shared
+    singleton made overlapping jobs encode into the last-submitted job's dir,
+    which its owner then rmtree'd under them)
   * the per-job budget timeout surfacing as ``ProcessingTimeout``
   * a worker dying mid-job → supervisor attributes it and fails fast as
     ``WorkerDied`` → pool recovers
@@ -26,6 +31,7 @@ timeout backstop — fine in reality, too flaky to assert on in CI.
 """
 import asyncio
 import os
+import random
 import shutil
 import sys
 import tempfile
@@ -72,7 +78,11 @@ def _stub_heavy_modules():
 			            raise ValueError("corrupt image")    # permanent failure
 			        if fn == "RAMTIMEOUT":
 			            raise TimeoutError("no free RAM")     # a TimeoutError raised BY the job
-			        return {"ok": True, "photo_id": kw.get("photo_id")}
+			        if fn.startswith("SLEEP:"):              # tunable duration for overlap tests
+			            await asyncio.sleep(float(fn.split(":")[1]))
+			        # echo output_base so tests can assert per-job isolation: it must
+			        # arrive as per-call data, never via shared singleton state
+			        return {"ok": True, "photo_id": kw.get("photo_id"), "output_base": kw.get("output_base")}
 			photo_processor = _PP()
 		'''))
 	# spawn copies the parent's sys.path into each child, so the stub dir must be
@@ -103,7 +113,8 @@ async def test_worker_pool_end_to_end():
 		await asyncio.sleep(0.8)  # let the worker spawn
 
 		# success round-trip
-		assert await worker_processing.submit(_job("p1", "ok.jpg"), timeout=20) == {"ok": True, "photo_id": "p1"}
+		assert await worker_processing.submit(_job("p1", "ok.jpg"), timeout=20) == \
+			{"ok": True, "photo_id": "p1", "output_base": "/tmp/work/p1"}
 
 		# the child's puller threads give real intra-process concurrency:
 		# two jobs complete together, through one process
@@ -112,6 +123,20 @@ async def test_worker_pool_end_to_end():
 			worker_processing.submit(_job("p1b", "ok.jpg"), timeout=20),
 		)
 		assert [x["photo_id"] for x in r] == ["p1a", "p1b"]
+
+		# output_base isolation under a genuinely overlapping burst (seeded
+		# varied durations force staggered finishes across the puller threads):
+		# every job must observe ITS OWN work dir. Under the pre-2026-08-03
+		# singleton scheme this fails for every job (output_base never reached
+		# the processor as per-call data), so the pin is deterministic — no
+		# reliance on winning the original race's timing.
+		rng = random.Random(20260803)
+		burst = [(f"pb{i}", f"SLEEP:{rng.uniform(0.02, 0.25):.2f}") for i in range(12)]
+		burst_r = await asyncio.gather(
+			*(worker_processing.submit(_job(pid, fn), timeout=30) for pid, fn in burst))
+		assert [x["photo_id"] for x in burst_r] == [pid for pid, _ in burst]
+		for x in burst_r:
+			assert x["output_base"] == "/tmp/work/" + x["photo_id"]
 
 		# a ValueError raised in the child comes back as a ValueError (not a
 		# generic RuntimeError), so process() can route it as a permanent failure
@@ -149,9 +174,11 @@ async def test_worker_pool_end_to_end():
 		# the pool self-heals: a respawned worker serves the next job; each
 		# success counts serial mode down until parallelism resumes
 		await asyncio.sleep(2.0)
-		assert await worker_processing.submit(_job("p6", "ok.jpg"), timeout=20) == {"ok": True, "photo_id": "p6"}
+		assert await worker_processing.submit(_job("p6", "ok.jpg"), timeout=20) == \
+			{"ok": True, "photo_id": "p6", "output_base": "/tmp/work/p6"}
 		assert worker_processing.serial_mode()  # 1 of 2 recovery jobs done
-		assert await worker_processing.submit(_job("p7", "ok.jpg"), timeout=20) == {"ok": True, "photo_id": "p7"}
+		assert await worker_processing.submit(_job("p7", "ok.jpg"), timeout=20) == \
+			{"ok": True, "photo_id": "p7", "output_base": "/tmp/work/p7"}
 		assert not worker_processing.serial_mode()  # recovered
 	finally:
 		worker_processing.shutdown()

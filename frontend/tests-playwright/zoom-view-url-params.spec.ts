@@ -479,6 +479,35 @@ test.describe('Zoom View URL Parameters', () => {
 
   test.describe('Error handling', () => {
 
+    test('should show not-found instead of an eternal spinner for a deleted photo', async ({ page }) => {
+      // Well-formed uid that exists nowhere — same shape as a deleted photo's
+      // stale share link. The public-endpoint probe 404s and the pending
+      // overlay must say so rather than spin forever.
+      await page.goto(
+        '/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-00000000-0000-0000-0000-000000000000&x1=0.2&y1=0.2&x2=0.6&y2=0.6'
+      );
+      await expect(page.getByTestId('zoom-view-pending-error')).toBeVisible({ timeout: T(15000) });
+
+      // The overlay still closes normally
+      await page.getByTestId('zoom-view-pending-close').click();
+      await expect(page.getByTestId('zoom-view-pending')).not.toBeVisible();
+    });
+
+    test('should pan to the photo\'s real location when the URL position is stale', async ({ page, testUsers }) => {
+      await loginAsTestUser(page, testUsers.passwords.test);
+      const photoId = await uploadPhoto(page, testPhotos[0]);
+
+      await page.goto('/');
+      await ensureSourceEnabled(page, 'hillview', true);
+
+      // ~5.5 km north of the photo's actual position — outside the streamed
+      // bounds, so without the probe's corrective pan the photo never arrives.
+      await page.goto(
+        `/?lat=50.1653&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=0.2&y1=0.2&x2=0.6&y2=0.6`
+      );
+      await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(30000) });
+    });
+
     test('should handle malformed zoom params gracefully', async ({ page }) => {
       const { errors } = collectErrors(page);
 

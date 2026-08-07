@@ -10,8 +10,7 @@
 		Share,
 		Flag,
 		Trash2,
-		Map as MapIcon,
-		MoreVertical,
+		Glasses,
 		Clock,
 		Pencil
 	} from 'lucide-svelte';
@@ -29,6 +28,7 @@
 		buildPhotoImageJsonLd,
 		buildHeadTitle,
 		buildHeadDescription,
+		buildAnnotationSummary,
 		displayTitle,
 		type PublicPhoto,
 		type PhotoAnnotation
@@ -51,8 +51,7 @@
 	import HideUserDialog from '$lib/components/HideUserDialog.svelte';
 	import FlagReasonDialog from '$lib/components/FlagReasonDialog.svelte';
 	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
-	import { showDropdownMenu } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
-	import { getPhotoMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
+	import { openAnonymizationModalForServerPhoto } from '$lib/components/anonymization-modal/anonymizationModal.svelte.js';
 	import { isModerator } from '$lib/adminNotifications';
 
 	export let data: { photo?: PublicPhoto; annotations?: PhotoAnnotation[] } | undefined = undefined;
@@ -247,17 +246,6 @@
 		}
 	}
 
-	// --- Anonymization menu (same pattern as /photos/+page.svelte) ---
-	function showAnonymizationMenu(event: MouseEvent) {
-		if (!photo) return;
-		const button = event.currentTarget as HTMLButtonElement;
-		const items = getPhotoMenuItemsForServerPhoto(photo.id);
-		showDropdownMenu(items, button, {
-			placement: 'below-right',
-			testId: 'photo-detail-anonymization-menu'
-		});
-	}
-
 	// --- Moderator metadata edit form (featured/title/description/bearing) ---
 	// Synced from the photo only when a different photo loads (guarded by uid),
 	// so in-progress edits survive the reassignments rating clicks make.
@@ -317,19 +305,14 @@
 		}
 	}
 
-	function viewUserProfile() {
-		if (!photo?.owner_id) return;
-		myGoto(constructUserProfileUrl(photo.owner_id));
-	}
-
-	function viewOnMap() {
-		if (!photo) return;
-		myGoto(constructPhotoMapUrl(photo));
-	}
-
 	$: headTitle = photo ? buildHeadTitle(photo, annotations) : '';
 	$: headOgImage = photo ? pickOgImage(photo) : null;
-	$: headDescription = photo ? buildHeadDescription(photo) : '';
+	$: headDescription = photo ? buildHeadDescription(photo, annotations) : '';
+	// Visible twin of the head-description fallback: when the author wrote no
+	// description, say what the annotations name right under the title. Visible
+	// text is a stronger snippet source for crawlers than any meta tag — the
+	// page otherwise ends in menu items.
+	$: annotationSummary = photo && !photo.description ? buildAnnotationSummary(annotations) : '';
 	// schema.org ImageObject for the photo (precise structured data, incl. the
 	// annotated landmark labels as keywords). Built in photoDisplay so it's
 	// unit-testable against real payloads.
@@ -388,55 +371,64 @@
 		</div>
 	{:else if photo}
 		<div class="photo-detail" data-testid="photo-detail">
-			<div class="photo-container">
+			{#if annotationSummary}
+				<p class="annotation-summary" data-testid="photo-detail-summary">{annotationSummary}</p>
+			{/if}
+
+			<!-- The photo itself opens the interactive map/zoomview — same target
+			     as the Location detail below. A real anchor, not a click handler:
+			     this page is the canonical target for shared photos, so the hop to
+			     the interactive map must be crawlable and open-in-new-tab-able. -->
+			<a
+				class="photo-container"
+				href={constructPhotoMapUrl(photo)}
+				title="Open in the interactive map"
+				data-testid="photo-detail-image-link"
+			>
 				<img
 					src={getDisplayImageUrl(photo)}
 					alt={displayTitle(photo, annotations)}
 					data-testid="photo-detail-image"
 				/>
-			</div>
+			</a>
 
 			<div class="metadata">
 				{#if photo.description}
 					<p class="description" data-testid="photo-detail-description">{photo.description}</p>
 				{/if}
 
-				<div class="meta-row">
+				<!-- Every fact in one uniformly labeled row -->
+				<div class="details-row" data-testid="photo-detail-details">
 					{#if photo.owner_username}
-						<button
-							class="owner-link"
-							on:click={viewUserProfile}
-							data-testid="photo-detail-owner"
-						>
-							@{photo.owner_username}
-						</button>
+						<span class="detail">
+							<span class="detail-label">By</span>
+							{#if photo.owner_id}
+								<a href={constructUserProfileUrl(photo.owner_id)} data-testid="photo-detail-owner">@{photo.owner_username}</a>
+							{:else}
+								<span data-testid="photo-detail-owner">@{photo.owner_username}</span>
+							{/if}
+						</span>
 					{/if}
 					{#if photo.captured_at}
-						<span class="captured">
-							<Clock size={14} />
-							{formatDateTime(photo.captured_at)}
+						<span class="detail">
+							<span class="detail-label">Captured</span>
+							<span data-testid="photo-detail-captured">{formatDateTime(photo.captured_at)}</span>
+						</span>
+					{/if}
+					{#if photo.uploaded_at}
+						<span class="detail">
+							<span class="detail-label">Uploaded</span>
+							<span data-testid="photo-detail-uploaded">{formatDateTime(photo.uploaded_at)}</span>
+						</span>
+					{/if}
+					{#if photo.latitude != null && photo.longitude != null}
+						<span class="detail">
+							<span class="detail-label">Location</span>
+							<a href={constructPhotoMapUrl(photo)} data-testid="photo-detail-view-on-map"
+								>{photo.latitude.toFixed(4)}, {photo.longitude.toFixed(4)}</a>
 						</span>
 					{/if}
 				</div>
-
-				{#if photo.latitude != null && photo.longitude != null}
-					<div class="meta-row">
-						<button
-							class="map-link"
-							on:click={viewOnMap}
-							data-testid="photo-detail-view-on-map"
-						>
-							<MapIcon size={14} />
-							View on Map ({photo.latitude.toFixed(4)}, {photo.longitude.toFixed(4)})
-						</button>
-					</div>
-				{/if}
-
-				{#if photo.uploaded_at}
-					<p class="uploaded" data-testid="photo-detail-uploaded">
-						Uploaded: {formatDateTime(photo.uploaded_at)}
-					</p>
-				{/if}
 			</div>
 
 			<!-- Rating buttons (same as PhotoActionsMenu) -->
@@ -518,14 +510,16 @@
 						Delete
 					</button>
 					{#if TAURI || BROWSER}
+						<!-- Direct button — this used to be a "More" dropdown whose menu
+						     held exactly this one action -->
 						<button
 							class="action-button"
-							on:click={showAnonymizationMenu}
-							title="Anonymization options"
-							data-testid="photo-menu-button"
+							on:click={() => photo && openAnonymizationModalForServerPhoto(photo.id)}
+							title="Change blur settings"
+							data-testid="photo-detail-anonymization-button"
 						>
-							<MoreVertical size={16} />
-							More
+							<Glasses size={16} />
+							Anonymization
 						</button>
 					{/if}
 				</div>
@@ -583,7 +577,7 @@
 				</div>
 			{/if}
 
-			<PhotoAnnotations {annotations} />
+			<PhotoAnnotations {annotations} {photo} />
 
 			<!-- Moderators/admins can inspect the full edit history of this photo's annotations. -->
 			{#if $isModerator && photoUid && parsePhotoUidParts(photoUid)?.source === 'hillview'}
@@ -648,6 +642,12 @@
 		text-decoration: underline;
 	}
 
+	.annotation-summary {
+		margin: 0 0 12px 0;
+		color: #555;
+		font-size: 0.95rem;
+	}
+
 	.photo-container {
 		display: flex;
 		justify-content: center;
@@ -673,45 +673,27 @@
 		margin: 0 0 12px 0;
 	}
 
-	.meta-row {
+	.details-row {
 		display: flex;
 		gap: 16px;
-		align-items: center;
+		align-items: baseline;
 		flex-wrap: wrap;
-		margin-bottom: 8px;
 		color: #555;
 		font-size: 0.9rem;
 	}
 
-	.captured {
-		display: flex;
-		align-items: center;
-		gap: 4px;
+	.detail-label {
+		color: #999;
+		margin-right: 2px;
 	}
 
-	.owner-link,
-	.map-link {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		background: none;
-		border: none;
+	.detail a {
 		color: #1565c0;
-		cursor: pointer;
-		padding: 0;
-		font-size: inherit;
 		text-decoration: underline;
 	}
 
-	.owner-link:hover,
-	.map-link:hover {
+	.detail a:hover {
 		color: #0d47a1;
-	}
-
-	.uploaded {
-		font-size: 0.8rem;
-		color: #888;
-		margin: 4px 0 0 0;
 	}
 
 	.actions-row {
