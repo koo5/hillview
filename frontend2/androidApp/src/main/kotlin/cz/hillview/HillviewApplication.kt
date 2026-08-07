@@ -23,6 +23,9 @@ class HillviewApplication : Application() {
         // Build-configured photo folder (HILLVIEW_FOLDER / debug default) —
         // see androidApp/build.gradle.kts.
         cz.hillview.capture.PhotoStorage.folderBase = BuildConfig.HILLVIEW_FOLDER
+        // Native Sign in with Google — empty keeps the button hidden.
+        cz.hillview.auth.NativeAuthConfig.googleServerClientId =
+            BuildConfig.HILLVIEW_GOOGLE_CLIENT_ID
         // The UploadSettingsRepository (createdAtStart) materializes the
         // upload-settings prefs the shared-kt stack reads.
         initKoin {

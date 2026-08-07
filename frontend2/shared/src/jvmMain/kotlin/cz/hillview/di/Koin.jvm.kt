@@ -41,6 +41,8 @@ actual fun platformModule(): Module = module {
     single<cz.hillview.map.MapStateStore> { cz.hillview.map.InMemoryMapStateStore() }
     single<cz.hillview.map.PhotoMarkerSource> { EmptyMarkerSource() }
     single<TokenStore> { JavaPrefsTokenStore() }
+    // Desktop has no credential provider.
+    single<cz.hillview.auth.CredentialGateway> { cz.hillview.auth.NoopCredentialGateway() }
     single<cz.hillview.devicephotos.DevicePhotoBrowser> {
         cz.hillview.devicephotos.EmptyDevicePhotoBrowser()
     }

@@ -80,6 +80,11 @@ osmdroid = { module = "org.osmdroid:osmdroid-android", version = "6.1.20" }
 # Matches the Tauri plugin — shared-kt sensor family (FusedOrientationProvider,
 # fused location).
 play-services-location = { module = "com.google.android.gms:play-services-location", version = "21.3.0" }
+# Native auth (CredentialGateway): the Credential Manager facade, its Play
+# services password/passkey backend, and Google's ID-token credential type.
+androidx-credentials = { module = "androidx.credentials:credentials", version = "1.5.0" }
+androidx-credentials-play = { module = "androidx.credentials:credentials-play-services-auth", version = "1.5.0" }
+googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version = "1.1.1" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 # Not used by the skeleton yet — pre-declared for the rewrite (HTTP client,
 # JSON, image loading), matching what the official KMP template ships.

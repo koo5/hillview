@@ -79,6 +79,12 @@ private class AuthManagerTokenStore(context: Context) : TokenStore {
 }
 
 actual fun platformModule(): Module = module {
+    // Native auth: Credential Manager + Sign in with Google, behind the
+    // common CredentialGateway seam (config in NativeAuthConfig, set by
+    // HillviewApplication from BuildConfig).
+    single<cz.hillview.auth.CredentialGateway> {
+        cz.hillview.auth.AndroidCredentialGateway(androidContext())
+    }
     // Eager: construction materializes hillview_upload_prefs defaults, which
     // must exist before first login (client-key registration reads server_url).
     single<cz.hillview.settings.UploadSettingsRepository>(createdAtStart = true) {

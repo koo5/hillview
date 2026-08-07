@@ -42,7 +42,7 @@ val appModule = module {
             ?.let { (spatial, bearing) -> cz.hillview.map.MapStateHolder(spatial, bearing) }
             ?: cz.hillview.map.MapStateHolder()
     }
-    viewModel { LoginViewModel(get()) }
+    viewModel { LoginViewModel(get(), get()) }
 }
 
 fun initKoin(config: KoinAppDeclaration? = null) {

@@ -268,6 +268,10 @@ fun ComposeTestRule.loginThroughTheUi(
     username: String = "test",
     password: String = "StrongTestPassword123!",
 ) {
+    // Tests run in the app's process: kill the Credential Manager sheets
+    // (saved-password offer on screen open, save-on-success) — a system
+    // bottom sheet would block the driven UI outside Compose's reach.
+    cz.hillview.auth.NativeAuthConfig.uiEnabled = false
     openMenu()
     if (onAllNodesWithTag("menu-logout-button").fetchSemanticsNodes().isNotEmpty()) {
         onNodeWithTag("menu-logout-button").performClick()

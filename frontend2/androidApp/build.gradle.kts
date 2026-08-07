@@ -59,6 +59,14 @@ android {
             "HILLVIEW_FOLDER",
             "\"${System.getenv("HILLVIEW_FOLDER") ?: "Hillview2"}\"",
         )
+        // Native Sign in with Google: the backend's GOOGLE_CLIENT_ID (the
+        // WEB client id — it lands in the ID token's `aud`, which the
+        // server verifies). Empty keeps the Google button hidden.
+        buildConfigField(
+            "String",
+            "HILLVIEW_GOOGLE_CLIENT_ID",
+            "\"${System.getenv("HILLVIEW_GOOGLE_CLIENT_ID") ?: ""}\"",
+        )
     }
     packaging {
         resources {

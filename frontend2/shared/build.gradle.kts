@@ -64,6 +64,11 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.camera.camera2)
+            // Native auth: Credential Manager + Sign in with Google
+            // (CredentialGateway.android.kt).
+            implementation(libs.androidx.credentials)
+            implementation(libs.androidx.credentials.play)
+            implementation(libs.googleid)
             implementation(libs.androidx.camera.core)
             implementation(libs.androidx.camera.effects)
             implementation(libs.androidx.camera.lifecycle)
