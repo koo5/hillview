@@ -216,6 +216,8 @@ private class AndroidPhotoCapture(
             hasFix = age < FIX_FRESH_MS * 1_000_000,
             fixLatitude = location.latitude,
             fixLongitude = location.longitude,
+            fixAltitude = location.takeIf { it.hasAltitude() }?.altitude,
+            fixAccuracyM = location.takeIf { it.hasAccuracy() }?.accuracy,
         )
     }
 

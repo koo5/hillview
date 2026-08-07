@@ -52,6 +52,8 @@ data class CaptureState(
     /** Latest fix, so the screen can keep the map in step while tracking. */
     val fixLatitude: Double? = null,
     val fixLongitude: Double? = null,
+    val fixAltitude: Double? = null,
+    val fixAccuracyM: Float? = null,
     /** Magnetometer status on Android's 0-3 scale; null = not yet known. */
     val compassAccuracy: Int? = null,
     /** Device advertises MANUAL_SENSOR — shutter control is offerable. */
@@ -94,6 +96,17 @@ fun shutterPriorityIso(
 ): Int {
     val ideal = meteredIso.toDouble() * meteredExposureNs.toDouble() / pinnedExposureNs.toDouble()
     return ideal.roundToInt().coerceIn(minIso, maxIso)
+}
+
+/**
+ * The overlay backdrop cycle from CameraOverlay.svelte: +2 wrapping past 5
+ * to 0, so from the default 3 it settles into the {0, 2, 4} walk. The
+ * content never disappears — the cycle only trades legibility against how
+ * much preview the glass eats.
+ */
+fun nextOverlayOpacity(current: Int): Int {
+    val next = current + 2
+    return if (next > 5) 0 else next
 }
 
 /** What the shutter should sound like — the pocket has no screen. */

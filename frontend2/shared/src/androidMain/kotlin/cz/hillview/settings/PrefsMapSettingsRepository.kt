@@ -22,6 +22,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             hunterModePref = prefs.getBoolean("hunter_mode", false),
             showUnanalyzed = prefs.getBoolean("show_unanalyzed", true),
             powerSavingPref = prefs.getBoolean("power_saving", false),
+            cameraOverlayOpacity = prefs.getInt("camera_overlay_opacity", 3),
         )
     )
     override val settings: StateFlow<MapSettings> = _settings.asStateFlow()
@@ -35,6 +36,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             .putBoolean("hunter_mode", next.hunterModePref)
             .putBoolean("show_unanalyzed", next.showUnanalyzed)
             .putBoolean("power_saving", next.powerSavingPref)
+            .putInt("camera_overlay_opacity", next.cameraOverlayOpacity.coerceIn(0, 5))
             .apply()
         _settings.value = next
     }

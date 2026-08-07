@@ -48,3 +48,99 @@ class CompassCalibrationUiTest {
         onNodeWithText("Accuracy is good! Closing soon…").assertIsDisplayed()
     }
 }
+
+/** The camera overlay's states, desktop-run like the rest of the UI. */
+@OptIn(ExperimentalTestApi::class)
+class CameraOverlayUiTest {
+
+    @Test
+    fun aFixShowsBearingAndCoordinates() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(
+                    ready = false, // no hint window
+                    bearingDeg = 5.4f,
+                    fixLatitude = 50.115044,
+                    fixLongitude = 14.500907,
+                    fixAltitude = 320.5,
+                    fixAccuracyM = 8f,
+                ),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+            )
+        }
+        onNodeWithText("🧭 5.4°").assertIsDisplayed()
+        onNodeWithText("📍 50.115044°, 14.500907°").assertIsDisplayed()
+        onNodeWithText("⛰️ 320.5m").assertIsDisplayed()
+        onNodeWithText("🎯 ±8m").assertIsDisplayed()
+    }
+
+    @Test
+    fun aClaimedPositionShowsItselfAndClaimsNoMeasurements() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(
+                    ready = false,
+                    fixLatitude = 50.0, // live fix exists…
+                    fixLongitude = 14.0,
+                    fixAccuracyM = 5f,
+                ),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                // …but the claim wins, and the overlay must say so.
+                overridePosition = ManualLocation(49.897330, 14.500907),
+                opacityLevel = 3,
+                onCycleOpacity = {},
+            )
+        }
+        onNodeWithText("📍 49.897330°, 14.500907°").assertIsDisplayed()
+        onNodeWithText("(map position)").assertIsDisplayed()
+    }
+
+    @Test
+    fun noPositionShowsTheSpinnerLine() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(ready = false),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+            )
+        }
+        onNodeWithText("Getting location...").assertIsDisplayed()
+    }
+
+    @Test
+    fun tapCyclesTheBackdrop() = runComposeUiTest {
+        var cycled = false
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(ready = false),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = { cycled = true },
+            )
+        }
+        onNodeWithTag("location-overlay").performClick()
+        assertTrue(cycled)
+    }
+
+    @Test
+    fun theHintOwnsTheFirstFourSeconds() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(ready = true, fixLatitude = 50.0, fixLongitude = 14.0),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+            )
+        }
+        // Unmerged: the clickable panel merges its children's semantics.
+        onNodeWithTag("calibration-hint", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithText("• Calibrate compass.").assertIsDisplayed()
+    }
+}

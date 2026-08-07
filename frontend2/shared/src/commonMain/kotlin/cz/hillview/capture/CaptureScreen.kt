@@ -181,11 +181,27 @@ fun CaptureScreen(
             )
         }
 
-        capture.CameraPane(
-            modifier = Modifier
+        Box(
+            Modifier
                 .fillMaxWidth()
                 .weight(1f),
-        )
+        ) {
+            capture.CameraPane(Modifier.fillMaxSize())
+            CameraOverlayUi(
+                state = state,
+                bearingMode = mapSettings.bearingMode,
+                overridePosition = if (capture.manualLocationWins) capture.manualLocation else null,
+                opacityLevel = mapSettings.cameraOverlayOpacity,
+                onCycleOpacity = {
+                    mapSettingsRepo.update {
+                        it.copy(cameraOverlayOpacity = nextOverlayOpacity(it.cameraOverlayOpacity))
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 24.dp, top = 24.dp),
+            )
+        }
 
         if (promptVisible) {
             AutoUploadPrompt(

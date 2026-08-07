@@ -127,3 +127,32 @@ class CaptureToneTest {
         assertEquals(CaptureTone.Degraded, captureTone(null, null))
     }
 }
+
+/** The overlay backdrop cycle and number formatting, from the contract. */
+class CameraOverlayRulesTest {
+
+    @Test
+    fun theOpacityWalkMatchesTheOriginal() {
+        // From the default 3: 3 → 5 → 0 → 2 → 4 → 0 → … ({0,2,4} loop).
+        assertEquals(5, nextOverlayOpacity(3))
+        assertEquals(0, nextOverlayOpacity(5))
+        assertEquals(2, nextOverlayOpacity(0))
+        assertEquals(4, nextOverlayOpacity(2))
+        assertEquals(0, nextOverlayOpacity(4))
+        assertEquals(3, nextOverlayOpacity(1))
+    }
+
+    @Test
+    fun coordinatesFormatLikeToFixed6() {
+        assertEquals("50.115044", fmtDecimals(50.1150435, 6))
+        assertEquals("14.500000", fmtDecimals(14.5, 6))
+        assertEquals("-1.234568", fmtDecimals(-1.2345678, 6))
+    }
+
+    @Test
+    fun bearingFormatsLikeToFixed1() {
+        assertEquals("5.4", fmtDecimals(5.39563, 1))
+        assertEquals("0.0", fmtDecimals(0.04, 1))
+        assertEquals("359.9", fmtDecimals(359.94, 1))
+    }
+}

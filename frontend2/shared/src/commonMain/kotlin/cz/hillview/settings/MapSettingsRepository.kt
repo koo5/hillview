@@ -31,6 +31,8 @@ data class MapSettings(
      * toggle remembered.
      */
     val powerSavingPref: Boolean = false,
+    /** CameraOverlay backdrop level 0-5 (Tauri cameraOverlayOpacity). */
+    val cameraOverlayOpacity: Int = 3,
 )
 
 const val MIN_MAX_PHOTOS = 10
