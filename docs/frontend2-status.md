@@ -97,10 +97,18 @@ Implementation, roughly in value order:
    photos to Downloads" escape hatch; Tauri-side repair flow for
    `alt_location` (still unimplemented there).
 
-Decisions parked until the user can play with the app:
+Decided 2026-08-07 (phone in hand): **match the Tauri navigation** — one
+Main page (resizable split: photo panel over an always-mounted map) with
+persisted activities (view/capture), floating camera/menu buttons, real
+routes only for settings/login/etc. The contract section "Main page:
+routes, activities, split layout" in tauri-map-ui-contract.md is the spec;
+implementation is the next big task. Phone-in-hand fixes already landed:
+map location-permission ask on the location button, capture auto-asks
+location on entry, single zoom-button set, reload-on-move (no polling),
+arrow grab restricted to the arrow outside car mode, osmdroid fling off.
 
-- **Navigation architecture**: routes-from-menu vs modes-in-map, mode
-  persistence across restarts, CMP-idiom tension, maybe a setting.
+Still parked:
+
 - **Exploration pill UX pass** with real thumbs (placement, wording,
   small screens).
 - **Storage**: the hidden-.Hillview / `.nomedia` question (analysis in

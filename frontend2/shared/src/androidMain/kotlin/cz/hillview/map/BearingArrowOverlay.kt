@@ -119,7 +119,18 @@ class BearingArrowOverlay : Overlay() {
                 dragging = if (fullCircleHitArea) {
                     kotlin.math.abs(distance - tipRadiusPx) <= slack * 2
                 } else {
-                    distance >= tipRadiusPx * 0.6f - slack && distance <= tipRadiusPx + slack
+                    // Only the arrow itself is grabbable outside car mode —
+                    // the original's pointer-events land on the arrow SVG,
+                    // not the disc. Radially the outer part of the shaft,
+                    // and angularly within a finger's width of the line
+                    // (without this, any pan starting near the rim got
+                    // eaten as a bearing drag).
+                    val offAxisPx = kotlin.math.abs(
+                        sin(Math.toRadians(angularDistance(bearingAt(), bearingDeg))),
+                    ) * distance
+                    distance >= tipRadiusPx * 0.6f - slack &&
+                        distance <= tipRadiusPx + slack &&
+                        offAxisPx <= slack
                 }
                 if (!dragging) return false // let the map pan
                 onDragStart?.invoke()

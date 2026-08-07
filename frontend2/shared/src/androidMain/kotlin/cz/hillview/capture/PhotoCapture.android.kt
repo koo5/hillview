@@ -700,6 +700,18 @@ private class AndroidPhotoCapture(
             permissions = listOf(Manifest.permission.ACCESS_FINE_LOCATION),
         )
 
+        // The original asks for LOCATION as soon as capture opens, before
+        // its in-app camera gate — the geotag matters more than the shot
+        // order suggests. One ask per entry; the banner below remains the
+        // manual path after a denial.
+        var locationAsked by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            if (!locationAsked && !location.granted && !location.permanentlyDenied) {
+                locationAsked = true
+                location.request()
+            }
+        }
+
         if (camera.granted) {
             Box(modifier = modifier.background(Color(0xFF111111))) {
                 AndroidView(

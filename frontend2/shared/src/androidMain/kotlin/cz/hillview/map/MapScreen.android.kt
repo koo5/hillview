@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
@@ -35,6 +36,7 @@ import cz.hillview.plugin.EnhancedSensorService
 import cz.hillview.plugin.GeoTrackingManager
 import cz.hillview.settings.MapSettingsRepository
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.roundToInt
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -54,6 +56,14 @@ actual fun MapScreen(
     val context = LocalContext.current
     val mapSettings by settings.settings.collectAsState()
     val markers by markerSource.markers.collectAsState()
+
+    // The original's enableLocationTracking runs through the geolocation
+    // plugin, which raises the OS permission dialog on first use — here the
+    // location button does the asking (nothing on this screen needs it
+    // sooner, and an unprompted dialog on open would be a divergence).
+    val locationPermission = cz.hillview.core.permissions.rememberPermissionsState(
+        permissions = listOf(android.Manifest.permission.ACCESS_FINE_LOCATION),
+    )
 
     // Restored, so the bearing survives backgrounding and restarts — the
     // Appium suite asserts it is unchanged after the app comes back.
@@ -140,8 +150,10 @@ actual fun MapScreen(
         }
     }
 
-    // GPS: runs in ACTIVE and BACKGROUND, only ACTIVE moves the map.
-    LaunchedEffect(locationTracking) {
+    // GPS: runs in ACTIVE and BACKGROUND, only ACTIVE moves the map. Also
+    // keyed on the permission so a grant mid-session arms the listener the
+    // button optimistically asked for.
+    LaunchedEffect(locationTracking, locationPermission.granted) {
         controller.setLocationEnabled(locationTracking != LocationTracking.Off) { lat, lon ->
             locationFlash = true
             if (locationTracking == LocationTracking.Active) {
@@ -192,26 +204,27 @@ actual fun MapScreen(
     val mapView = rememberMapView()
     val applied = remember { AppliedCamera() }
 
-    // The marker poll: tell the sources where the map is looking (the
-    // backend source queries by viewport; pre-layout the view has no real
-    // bounding box, so wait for a size), then refresh. The api source
-    // dedupes identical requests internally, so the 5 s cadence stays a
-    // local-DB cost between real moves.
-    LaunchedEffect(mapSettings.maxPhotos) {
-        while (true) {
-            if (mapView.width > 0) {
-                val box = mapView.boundingBox
-                markerSource.setViewport(
-                    MapViewport(
-                        topLeftLat = box.latNorth,
-                        topLeftLon = box.lonWest,
-                        bottomRightLat = box.latSouth,
-                        bottomRightLon = box.lonEast,
-                    ),
-                )
-            }
+    // Sources reload when the map moves — a pan, a zoom, or the GPS follow
+    // all write spatial state, exactly the triggers the original's
+    // moveend-driven area updates fire on. collectLatest + delay is the
+    // debounce: a drag's stream of positions collapses into one reload
+    // after the camera settles. Entering the screen emits the current
+    // state, so the first load needs no special case (it just waits for
+    // the view to have a real bounding box).
+    LaunchedEffect(mapSettings.maxPhotos, mapSettings.showUnanalyzed) {
+        snapshotFlow { spatial }.collectLatest {
+            delay(350)
+            while (mapView.width == 0) delay(50)
+            val box = mapView.boundingBox
+            markerSource.setViewport(
+                MapViewport(
+                    topLeftLat = box.latNorth,
+                    topLeftLon = box.lonWest,
+                    bottomRightLat = box.latSouth,
+                    bottomRightLon = box.lonEast,
+                ),
+            )
             markerSource.refresh()
-            delay(5_000)
         }
     }
     val rotationOverlay = remember(mapView) {
@@ -442,7 +455,19 @@ actual fun MapScreen(
                 locationTracking = when (locationTracking) {
                     // ACTIVE or BACKGROUND both turn fully off.
                     LocationTracking.Active, LocationTracking.Background -> LocationTracking.Off
-                    LocationTracking.Off -> LocationTracking.Active
+                    LocationTracking.Off -> {
+                        // Optimistic, like the original: tracking arms now,
+                        // fixes start once the user grants (the location
+                        // effect re-runs on the grant).
+                        if (!locationPermission.granted) {
+                            if (locationPermission.permanentlyDenied) {
+                                locationPermission.openAppSettings()
+                            } else {
+                                locationPermission.request()
+                            }
+                        }
+                        LocationTracking.Active
+                    }
                 }
             },
             onToggleTracking = { trackingWanted = !trackingWanted },
@@ -599,6 +624,17 @@ private fun rememberMapView(): MapView {
         MapView(context).apply {
             setMultiTouchControls(true)
             isTilesScaledToDpi = true
+            // The overlay's zoom buttons are the only zoom buttons — the
+            // original restyles Leaflet's own control into that role; two
+            // sets (osmdroid's fade-in pair appearing on touch) is a bug.
+            zoomController.setVisibility(
+                org.osmdroid.views.CustomZoomButtonsController.Visibility.NEVER,
+            )
+            // osmdroid's fling glides essentially unbounded — a fast pan
+            // sails the camera far off the map the user was reading, where
+            // Leaflet's inertia is short and friction-heavy. Off is the
+            // closest match to the original's controlled feel.
+            isFlingEnabled = false
         }
     }
     DisposableEffect(mapView) { onDispose { mapView.onDetach() } }

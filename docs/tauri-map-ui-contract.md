@@ -378,3 +378,41 @@ the backend** — they come back flagged and sorted into tiers (featured,
 passing, unanalyzed, filtered-out), which is what makes the grey-out and the
 long-press override possible client-side.
 
+
+## Main page: routes, activities, split layout (observed 2026-08-07)
+
+Read out of Main.svelte / appActions.ts / data.svelte.ts for the frontend2
+merge; phone-in-hand review drove this pass.
+
+- **Routes vs activities.** `/` IS the app: `Main.svelte`. The hamburger
+  menu navigates to real routes (settings, device-photos, login, about…);
+  everything on the main page is an *activity* — `$app.activity` ∈
+  `view | capture | lines | terrain` — switched by floating buttons, not
+  navigation. Activity is persisted (appSettings localStorage store) and
+  survives restarts; `VITE_PICS_OFF` builds force `view`.
+- **The split.** Main is a draggable resizable split (portrait:
+  top/bottom, landscape: left/right; `splitPercent` persisted, min pane
+  100px). The **photo panel** shows exactly one of: CompassCalibration
+  (outranks everything) → CameraCapture (capture) → Lines → TerrainPane →
+  PhotoGallery (view default). The **map panel** holds the Map — ALWAYS
+  mounted, every activity — plus PhotoInfoWindow.
+- **Floating controls** over everything: hamburger, camera toggle (icon
+  rotates with `relativeOrientationExif`), lines toggle, terrain toggle
+  (only when terrain is available).
+- **toggleCamera nuances**: switching INTO capture bumps zoom to ≥17;
+  entering capture enables location + bearing tracking (this is where the
+  OS location permission dialog first appears); returning to view stands
+  bearing tracking down and leaves location tracking alone.
+- **Zoom buttons**: Leaflet's own control, restyled and retagged
+  (`zoom-in-btn`) — there is exactly ONE set of zoom buttons.
+- **Marker/source reloads** happen on map movement (gesture `moveend`,
+  GPS-follow updates) — never on a timer.
+- **Arrow grab zones**: `fullCircleHitArea` only in car mode with GPS
+  orientation on (drag = angle travelled → mount offset); otherwise only
+  the arrow SVG itself is grabbable (drag = jump to angle) and the rest of
+  the disc pans the map.
+
+frontend2 divergences (deliberate): osmdroid's fling is disabled — its
+glide is essentially unbounded where Leaflet's inertia is short and
+friction-heavy, and a fast pan sailed the camera far off the map
+(phone-in-hand find); revisit with a tuned scroller if inertia is missed.
