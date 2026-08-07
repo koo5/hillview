@@ -5,8 +5,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.os.Environment
 import android.os.SystemClock
 import android.util.Log
@@ -117,8 +115,9 @@ private class AndroidPhotoCapture(
     private var imageCapture: ImageCapture? = null
     private var cameraBound = false
 
-    private val locationManager =
-        context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    // The shared-kt fused service (PRIORITY_HIGH_ACCURACY) — the same
+    // location path the Tauri app's capture geotag rides on.
+    private var preciseLocation: cz.hillview.plugin.PreciseLocationService? = null
 
     /** How old a fix may be and still count as "has a fix" (and beat manual). */
     private val FIX_FRESH_MS = 15_000L
@@ -207,7 +206,7 @@ private class AndroidPhotoCapture(
     @Volatile private var lastOrientation: OrientationSensorData? = null
     private var lastAzimuthPush = 0L
 
-    private val locationListener = LocationListener { location ->
+    private fun onLocation(location: Location) {
         lastLocation = location
         // Declination (magnetic → true) needs coordinates.
         sensorService.updateLocation(location.latitude, location.longitude)
@@ -220,6 +219,17 @@ private class AndroidPhotoCapture(
             fixAccuracyM = location.takeIf { it.hasAccuracy() }?.accuracy,
         )
     }
+
+    /** PreciseLocationData → the platform Location the snapshot path reads. */
+    private fun asLocation(data: cz.hillview.plugin.PreciseLocationData): Location =
+        Location(data.provider ?: "fused").apply {
+            latitude = data.latitude
+            longitude = data.longitude
+            accuracy = data.accuracy
+            data.altitude?.let { altitude = it }
+            time = data.timestamp
+            elapsedRealtimeNanos = data.elapsedRealtimeNanos
+        }
 
     // The shared-kt heading engine — the same fusion/declination pipeline the
     // Tauri app runs (upright-rotation-vector default mode, EMA smoothing,
@@ -487,16 +497,17 @@ private class AndroidPhotoCapture(
     fun startSensors() {
         if (hasLocationPermission() && !gpsStarted) {
             try {
-                locationManager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER, 1_000L, 0f, locationListener,
-                )
-                locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let {
-                    lastLocation = it
-                    sensorService.updateLocation(it.latitude, it.longitude)
-                }
+                // Fused delivers its current best estimate immediately and
+                // precise fixes on a 1 s cadence; freshness is judged at
+                // capture time (FIX_FRESH_MS), so a stale seed can never
+                // geotag a photo.
+                preciseLocation = cz.hillview.plugin.PreciseLocationService(
+                    context,
+                    onLocationUpdate = { data -> onLocation(asLocation(data)) },
+                ).also { it.startLocationUpdates() }
                 gpsStarted = true
             } catch (e: Exception) {
-                Log.w(TAG, "GPS updates unavailable", e)
+                Log.w(TAG, "location updates unavailable", e)
             }
         }
         if (!orientationStarted) {
@@ -667,7 +678,8 @@ private class AndroidPhotoCapture(
 
     fun release() {
         try {
-            locationManager.removeUpdates(locationListener)
+            preciseLocation?.stopLocationUpdates()
+            preciseLocation = null
         } catch (e: Exception) {
             // ignore
         }

@@ -2,7 +2,6 @@ package cz.hillview.plugin
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
@@ -28,12 +27,13 @@ data class PreciseLocationData(
 )
 
 class PreciseLocationService(
-    private val activity: Activity,
+    // Widened from Activity (2026-08-07): only Context semantics were ever
+    // used, and frontend2's map/capture controllers hold no Activity.
+    // Source-compatible for the Tauri plugin — an Activity IS a Context.
+    private val context: Context,
     private val onLocationUpdate: (PreciseLocationData) -> Unit,
     private val onLocationStopped: (() -> Unit)? = null
 ) {
-    // Provide context from activity for convenience
-    private val context: Context = activity
 
     companion object {
         private const val TAG = "🢄PreciseLocationService"
@@ -45,7 +45,7 @@ class PreciseLocationService(
         private const val MAX_WAIT_TIME = 1000L
     }
 
-    private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(activity)
+    private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
     private var locationCallback: LocationCallback? = null
     private var isRequestingUpdates = false
 
@@ -165,12 +165,12 @@ class PreciseLocationService(
     // Check if location permissions are granted
     private fun hasLocationPermissions(): Boolean {
         val fineLocationGranted = ContextCompat.checkSelfPermission(
-            activity,
+            context,
             Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
 
         val coarseLocationGranted = ContextCompat.checkSelfPermission(
-            activity,
+            context,
             Manifest.permission.ACCESS_COARSE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
 

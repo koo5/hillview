@@ -30,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -146,17 +147,20 @@ fun MainScreen(
             )
         }
 
+        // clipToBounds on both panes: Compose's view-interop containers do
+        // not clip children, so osmdroid's tile pass would draw full tiles
+        // past the pane edge, overreaching into the photo panel.
         if (portrait) {
             Column(Modifier.fillMaxSize()) {
-                Box(Modifier.fillMaxWidth().weight(split)) { photoPanel() }
+                Box(Modifier.fillMaxWidth().weight(split).clipToBounds()) { photoPanel() }
                 divider()
-                Box(Modifier.fillMaxWidth().weight(100f - split)) { mapPanel() }
+                Box(Modifier.fillMaxWidth().weight(100f - split).clipToBounds()) { mapPanel() }
             }
         } else {
             Row(Modifier.fillMaxSize()) {
-                Box(Modifier.fillMaxHeight().weight(split)) { photoPanel() }
+                Box(Modifier.fillMaxHeight().weight(split).clipToBounds()) { photoPanel() }
                 divider()
-                Box(Modifier.fillMaxHeight().weight(100f - split)) { mapPanel() }
+                Box(Modifier.fillMaxHeight().weight(100f - split).clipToBounds()) { mapPanel() }
             }
         }
 

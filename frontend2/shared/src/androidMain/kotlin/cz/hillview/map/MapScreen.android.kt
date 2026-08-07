@@ -1,11 +1,8 @@
 package cz.hillview.map
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
-import android.location.LocationListener
-import android.location.LocationManager
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxSize
@@ -679,12 +676,10 @@ private class AppliedCamera {
  * the Svelte app.
  */
 private class MapSensorController(private val context: Context) {
-    private val locationManager =
-        context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     private val geoTracking by lazy { GeoTrackingManager(context) }
 
     private var sensorService: EnhancedSensorService? = null
-    private var locationListener: LocationListener? = null
+    private var preciseLocation: cz.hillview.plugin.PreciseLocationService? = null
 
     fun compassAvailable(): Boolean =
         (context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager)
@@ -710,35 +705,26 @@ private class MapSensorController(private val context: Context) {
         sensorService = null
     }
 
-    @SuppressLint("MissingPermission")
     fun setLocationEnabled(enabled: Boolean, onFix: (Double, Double) -> Unit) {
         if (!enabled) {
-            locationListener?.let {
-                try {
-                    locationManager.removeUpdates(it)
-                } catch (e: Exception) {
-                    // already gone
-                }
-            }
-            locationListener = null
+            preciseLocation?.stopLocationUpdates()
+            preciseLocation = null
             return
         }
-        if (locationListener != null || !hasLocationPermission()) return
-        val listener = LocationListener { location ->
-            sensorService?.updateLocation(location.latitude, location.longitude)
-            onFix(location.latitude, location.longitude)
-        }
-        locationListener = listener
-        try {
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER, 1_000L, 0f, listener,
-            )
-            locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let {
-                onFix(it.latitude, it.longitude)
-            }
-        } catch (e: Exception) {
-            locationListener = null
-        }
+        if (preciseLocation != null || !hasLocationPermission()) return
+        // The shared-kt fused service — the SAME location path the Tauri app
+        // runs (PRIORITY_HIGH_ACCURACY, 1 s cadence). The previous raw
+        // GPS_PROVIDER wiring here pushed getLastKnownLocation with no
+        // freshness check, which centred the map kilometres away on
+        // wherever the phone last saw GPS; fused's own seed is its current
+        // best estimate, not an ancient satellite fix.
+        preciseLocation = cz.hillview.plugin.PreciseLocationService(
+            context,
+            onLocationUpdate = { data ->
+                sensorService?.updateLocation(data.latitude, data.longitude)
+                onFix(data.latitude, data.longitude)
+            },
+        ).also { it.startLocationUpdates() }
     }
 
     /** Car mode: the drag moves the camera mount, not the heading. */
