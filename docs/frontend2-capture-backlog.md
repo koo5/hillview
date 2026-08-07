@@ -28,6 +28,11 @@ before reimplementing, per the contract method).
   menu should show real sensor modes, not a hardcoded list.
 - **Capture queue indicator** (`CaptureQueueIndicator/Status.svelte`):
   upload-queue depth on the capture screen.
+- ~~Shutter-time control~~ **DONE 2026-08-07**: shutter-priority ladder
+  (1/125…1/2000) on the capture screen, ISO auto-scaled to preserve the
+  metered exposure product; Camera2Interop, gated on MANUAL_SENSOR.
+  Emulator-verified at the CaptureResult level (the emulator's JPEG EXIF
+  is canned — do not trust it).
 
 ## The camera-control question — research findings (2026-08-06)
 
@@ -35,8 +40,10 @@ Researched (agent report, primary sources). The short version: **stay on
 CameraX, skip OpenCamera entirely, mine two Apache-2.0 apps for code.**
 
 - **OpenCamera is GPL-3.0-or-later** — linking it (or porting its code)
-  would relicense the app. It is a monolith, not a library, and there is no
-  permissively-licensed fork. Reference-reading only, never copy.
+  would commit the whole app to GPLv3. Per the user that is not out of the
+  question, just a hassle to commit to — and since it is a monolith, not a
+  library, with no permissively-licensed fork, the cost/benefit says:
+  reference-reading unless something genuinely unobtainable turns up.
 - **CameraX 1.6.1 stable covers everything hillview actually needs**:
   tap-to-focus (`FocusMeteringAction`), exposure compensation, AE/AWB lock,
   `ResolutionSelector`, torch strength, video incl. HDR/slow-motion,
