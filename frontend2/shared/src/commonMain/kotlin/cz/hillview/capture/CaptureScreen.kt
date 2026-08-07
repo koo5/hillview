@@ -49,6 +49,40 @@ fun CaptureScreen(
     // every fresh visit and lifting it is a deliberate act each time.
     var manualLocationArmed by rememberSaveable { mutableStateOf(false) }
     val mapStateStore: cz.hillview.map.MapStateStore = org.koin.compose.koinInject()
+    val mapSettingsRepo: cz.hillview.settings.MapSettingsRepository = org.koin.compose.koinInject()
+    val mapSettings by mapSettingsRepo.settings.collectAsState()
+    val session: cz.hillview.map.MapSession = org.koin.compose.koinInject()
+    val locationTracking by session.locationTracking.collectAsState()
+    var showCalibration by rememberSaveable { mutableStateOf(false) }
+
+    // Eco effects apply only while this screen is up — the composition IS
+    // the activity gate the Tauri `powerSavingActive` derives.
+    val ecoActive = mapSettings.powerSavingPref
+    LaunchedEffect(ecoActive) { capture.ecoPreviewFps = ecoActive }
+
+    // The map follows the fixes while tracking is ACTIVE, exactly as it
+    // would if the map screen were the one open — except under eco, where
+    // it only catches up at each capture (the whole point of the toggle).
+    fun followMapTo(latitude: Double, longitude: Double) {
+        val (spatial, bearing) = mapStateStore.load()
+            ?: (cz.hillview.map.SpatialState() to cz.hillview.map.BearingState())
+        mapStateStore.save(
+            spatial.copy(
+                latitude = latitude,
+                longitude = longitude,
+                source = "gps",
+                ts = cz.hillview.core.nowMs(),
+            ),
+            bearing,
+        )
+    }
+    LaunchedEffect(state.fixLatitude, state.fixLongitude, ecoActive, locationTracking) {
+        val lat = state.fixLatitude ?: return@LaunchedEffect
+        val lon = state.fixLongitude ?: return@LaunchedEffect
+        if (locationTracking == cz.hillview.map.LocationTracking.Active && !ecoActive) {
+            followMapTo(lat, lon)
+        }
+    }
 
     // The after-capture auto-upload prompt: shown once a capture lands while
     // auto-upload is off, unless the user chose "never". Session-dismissed
@@ -86,6 +120,15 @@ fun CaptureScreen(
                 capturedAtMs = photo.snapshot.capturedAtMs,
             )
         )
+        // Under eco the map catches up here, once per capture — Tauri's
+        // "power saving: map catches up after each capture".
+        if (locationTracking == cz.hillview.map.LocationTracking.Active &&
+            photo.snapshot.locationSource == "gps" &&
+            photo.snapshot.latitude != null && photo.snapshot.longitude != null
+        ) {
+            followMapTo(photo.snapshot.latitude, photo.snapshot.longitude)
+        }
+
         // The original waits 800 ms after the shutter before prompting, "to
         // avoid UI confusion" right at the moment of capture.
         if (!uploadSettings.autoUploadEnabled &&
@@ -152,6 +195,43 @@ fun CaptureScreen(
                 .fillMaxWidth()
                 .testTag("capture-upload-stats"),
         )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // The Leaf: lower preview fps here, and the map only catches up
+            // after each capture instead of chasing every fix.
+            TextButton(
+                onClick = {
+                    mapSettingsRepo.update { it.copy(powerSavingPref = !it.powerSavingPref) }
+                },
+                modifier = Modifier.testTag("power-saving-btn"),
+            ) {
+                Text(
+                    if (ecoActive) "[eco]" else "eco",
+                    color = if (ecoActive) {
+                        androidx.compose.ui.graphics.Color(0xFF2EA043)
+                    } else {
+                        androidx.compose.ui.graphics.Color.Gray
+                    },
+                )
+            }
+
+            // Appears exactly when calibration would help: walking-mode
+            // bearing with the magnetometer reporting below-HIGH accuracy.
+            if (needsCompassCalibration(
+                    walkingMode = mapSettings.bearingMode == cz.hillview.map.BearingMode.Walking,
+                    accuracyLevel = state.compassAccuracy,
+                )
+            ) {
+                TextButton(
+                    onClick = { showCalibration = true },
+                    modifier = Modifier.testTag("calibrate-compass-btn"),
+                ) { Text("Calibrate Compass") }
+            }
+        }
 
         // Shutter time, for crisp shots out of a moving vehicle. Only shown
         // where the sensor takes manual orders at all; ISO follows the pin
@@ -257,6 +337,17 @@ fun CaptureScreen(
                 )
             }
         }
+    }
+
+    if (showCalibration) {
+        CompassCalibrationOverlay(
+            accuracyLevel = state.compassAccuracy,
+            walkingMode = mapSettings.bearingMode == cz.hillview.map.BearingMode.Walking,
+            onSwitchToCarMode = {
+                mapSettingsRepo.update { it.copy(bearingMode = cz.hillview.map.BearingMode.Car) }
+            },
+            onClose = { showCalibration = false },
+        )
     }
 }
 

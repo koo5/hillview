@@ -366,7 +366,11 @@ actual fun MapScreen(
             locationTracking = locationTracking,
             locationFlash = locationFlash,
             locationLoading = false,
-            powerSavingActive = false,
+            // The badge shows the armed eco preference: with separate
+            // screens the Tauri "active while capturing" moment can never
+            // coincide with the map being visible, so armed is the honest
+            // rendering of the same fact.
+            powerSavingActive = mapSettings.powerSavingPref,
             trackingWanted = trackingWanted,
             trackingPhase = trackingPhase,
             compassUnavailable = mapSettings.bearingMode == BearingMode.Walking &&

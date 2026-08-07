@@ -24,6 +24,13 @@ data class MapSettings(
      * disables it until a filter is active, per the contract.
      */
     val showUnanalyzed: Boolean = true,
+    /**
+     * The eco toggle (the Leaf on the capture screen). Persisted like the
+     * Tauri `powerSaving` localStorage flag; its *effects* apply only while
+     * capturing — leaving capture restores normal behaviour with the
+     * toggle remembered.
+     */
+    val powerSavingPref: Boolean = false,
 )
 
 const val MIN_MAX_PHOTOS = 10

@@ -49,6 +49,11 @@ data class CaptureState(
     val ready: Boolean = false,
     val capturing: Boolean = false,
     val hasFix: Boolean = false,
+    /** Latest fix, so the screen can keep the map in step while tracking. */
+    val fixLatitude: Double? = null,
+    val fixLongitude: Double? = null,
+    /** Magnetometer status on Android's 0-3 scale; null = not yet known. */
+    val compassAccuracy: Int? = null,
     /** Device advertises MANUAL_SENSOR — shutter control is offerable. */
     val manualShutterSupported: Boolean = false,
     /** The pinned shutter time, null = auto exposure. */
@@ -121,6 +126,14 @@ interface PhotoCapture {
      * [shutterPriorityIso] so brightness tracks what the metering last saw.
      */
     var shutterNs: Long?
+
+    /**
+     * Power saving: cap the preview frame rate. One of the three effects
+     * the Tauri toggle documents ("map moves only after captures, reduced
+     * preview frame rate, animations off") — the map effect lives in the
+     * screen, and there are no ambient animations here to stop.
+     */
+    var ecoPreviewFps: Boolean
 
     fun capture()
 

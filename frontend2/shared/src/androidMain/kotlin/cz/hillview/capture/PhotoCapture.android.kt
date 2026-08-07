@@ -142,7 +142,11 @@ private class AndroidPhotoCapture(
         // Declination (magnetic → true) needs coordinates.
         sensorService.updateLocation(location.latitude, location.longitude)
         val age = SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos
-        state = state.copy(hasFix = age < FIX_FRESH_MS * 1_000_000)
+        state = state.copy(
+            hasFix = age < FIX_FRESH_MS * 1_000_000,
+            fixLatitude = location.latitude,
+            fixLongitude = location.longitude,
+        )
     }
 
     // The shared-kt heading engine — the same fusion/declination pipeline the
@@ -257,8 +261,8 @@ private class AndroidPhotoCapture(
         )
         state = state.copy(manualShutterSupported = manualSensor)
 
-        // A pin chosen before (re)binding still applies.
-        shutterNs?.let { applyShutter(it) }
+        // Options chosen before (re)binding still apply.
+        if (shutterNs != null || ecoPreviewFps) applyRequestOptions()
         cameraBound = true
     }
 
@@ -266,51 +270,70 @@ private class AndroidPhotoCapture(
         set(value) {
             Log.d(TAG, "shutterNs <- $value")
             field = value
-            if (value == null) clearShutter() else applyShutter(value)
+            applyRequestOptions()
         }
 
-    private fun applyShutter(pinnedNs: Long) {
-        val cam = camera
-        if (cam == null) {
-            Log.w(TAG, "applyShutter: no camera")
-            return
+    override var ecoPreviewFps: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            applyRequestOptions()
         }
-        if (!state.manualShutterSupported) {
-            Log.w(TAG, "applyShutter: manual sensor unsupported")
-            return
-        }
-        val exposure = exposureRange
-            ?.let { pinnedNs.coerceIn(it.lower, it.upper) }
-            ?: pinnedNs
-        val iso = shutterPriorityIso(
-            // No metering yet (pin applied before the first preview frame):
-            // scale from a plausible daylight midpoint rather than refuse.
-            meteredExposureNs = meteredExposureNs ?: 10_000_000L,
-            meteredIso = meteredIso ?: 100,
-            pinnedExposureNs = exposure,
-            minIso = isoRange?.lower ?: 50,
-            maxIso = isoRange?.upper ?: 3200,
-        )
-        Camera2CameraControl.from(cam.cameraControl).setCaptureRequestOptions(
-            CaptureRequestOptions.Builder()
+
+    /**
+     * ONE application point for every Camera2 request option — the
+     * interop's setCaptureRequestOptions REPLACES the whole set, so
+     * independent features writing it separately would silently erase each
+     * other.
+     */
+    private fun applyRequestOptions() {
+        val cam = camera ?: return
+        val builder = CaptureRequestOptions.Builder()
+        var applied = "none"
+
+        val pinnedNs = shutterNs
+        if (pinnedNs != null && state.manualShutterSupported) {
+            val exposure = exposureRange
+                ?.let { pinnedNs.coerceIn(it.lower, it.upper) }
+                ?: pinnedNs
+            val iso = shutterPriorityIso(
+                // No metering yet (pin applied before the first preview
+                // frame): scale from a plausible daylight midpoint rather
+                // than refuse.
+                meteredExposureNs = meteredExposureNs ?: 10_000_000L,
+                meteredIso = meteredIso ?: 100,
+                pinnedExposureNs = exposure,
+                minIso = isoRange?.lower ?: 50,
+                maxIso = isoRange?.upper ?: 3200,
+            )
+            builder
                 .setCaptureRequestOption(
                     CaptureRequest.CONTROL_AE_MODE,
                     CameraMetadata.CONTROL_AE_MODE_OFF,
                 )
                 .setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure)
                 .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
-                .build(),
+            applied = "shutter=$exposure iso=$iso"
+            state = state.copy(shutterNs = exposure)
+        } else {
+            state = state.copy(shutterNs = null)
+        }
+
+        if (ecoPreviewFps) {
+            // Half the usual 30: visibly alive, meaningfully cheaper.
+            builder.setCaptureRequestOption(
+                CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                android.util.Range(15, 15),
+            )
+            applied += " +eco15fps"
+        }
+
+        Camera2CameraControl.from(cam.cameraControl).setCaptureRequestOptions(
+            builder.build(),
         ).addListener(
-            { Log.d(TAG, "applyShutter: options applied exposure=$exposure iso=$iso") },
+            { Log.d(TAG, "request options applied: $applied") },
             ContextCompat.getMainExecutor(context),
         )
-        state = state.copy(shutterNs = exposure)
-    }
-
-    private fun clearShutter() {
-        val cam = camera ?: return
-        Camera2CameraControl.from(cam.cameraControl).clearCaptureRequestOptions()
-        state = state.copy(shutterNs = null)
     }
 
     private var gpsStarted = false

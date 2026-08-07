@@ -18,6 +18,7 @@ private class DesktopPhotoCapture : PhotoCapture {
 
     override var manualLocation: ManualLocation? = null
     override var shutterNs: Long? = null
+    override var ecoPreviewFps: Boolean = false
 
     override fun capture() {}
 
