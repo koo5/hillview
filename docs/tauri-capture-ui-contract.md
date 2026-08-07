@@ -63,3 +63,30 @@ alive only for these corpses.
 ### testids
 
 `location-overlay` (the panel, role=button), `calibration-hint`.
+
+## Camera & resolution selector (`CameraCapture.svelte` lower-left 📷)
+
+A 📷 button (lower-left of the camera view) toggles a dropdown;
+click-outside closes it. Inside:
+
+- Every enumerated camera as a row: facing emoji (🤳 front / 📷 back /
+  📹 unknown), label, ⭐ on the preferred back camera. Tapping selects the
+  camera — and **clears the stored resolution** (per-camera choices don't
+  transfer).
+- Under the *selected* camera only: its resolution options, with a
+  per-camera loading spinner and empty/error states. The punchline the
+  machinery hides: `getCameraSupportedResolutions` returns a **hardcoded
+  list** — 4K (3840×2160), 1440p (2560×1440), 1080p (1920×1080),
+  720p (1280×720) — because the web cannot enumerate sensor modes.
+- Selection is persisted (`selectedResolution`, matched by width for the
+  highlight; `selectedCameraId` likewise) and applied by restarting the
+  camera with a `width: {ideal}` constraint; default is 1440p when nothing
+  is saved; a resolution that makes the camera fail to start is cleared.
+- testids: `camera-option-<deviceId>`, `resolution-option-<w>x<h>`.
+
+**frontend2 divergence (deliberate)**: CameraX can enumerate the real JPEG
+output sizes (StreamConfigurationMap), so the port offers actual sensor
+modes instead of the hardcoded four, plus an explicit "Auto" (CameraX's
+own choice under MAXIMIZE_QUALITY). Camera *enumeration/selection* (the
+front/back/multi-lens rows) is not ported yet — the menu structure leaves
+room for it.
