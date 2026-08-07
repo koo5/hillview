@@ -82,8 +82,11 @@ orientation page; the detail lives in the documents it points to.
   floats over it in the original's absolute spots (pill 60/60, shutter
   pill bottom-centre, 📷 lower-left, ⚡ shutter-speed menu lower-right,
   Leaf top-right, upload prompt = floating card, never a dialog); the
-  interval slider hides behind a shutter long-press. Contract section:
-  "Capture pane layout — the video IS the pane".
+  interval slider works the DualCaptureButton way — one finger: hold
+  300 ms, slide onto it, release starts the run (release on the button
+  cancels, tap stops); run badge on the button + session total in the
+  corner (CaptureQueueIndicator). Contract section: "Capture pane
+  layout — the video IS the pane".
 - /device-photos is ported (cards, status palette, global retry, menu
   entry); the anonymization menu is deferred.
 - Tests: ~135 jvm + 160 android-host + 51 shared instrumented + 15 app

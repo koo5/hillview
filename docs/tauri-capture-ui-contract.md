@@ -120,9 +120,18 @@ control row below the stream, no scrolling, and no dialog anywhere:
   dismissal); `neverAskAgain()` exists in the source but no button renders
   it — the settings screen owns that switch.
 
+- **Queue indicator** (`CaptureQueueIndicator.svelte`): absolute
+  `bottom: 6px; right: 0` — a dark pill with 💾 + queue size + spinner
+  while saves are pending, and `(totalCaptured)`, the session total (its
+  stats live in a module singleton = webview-session lifetime). Two
+  counters, two meanings: the badge on the capture button counts the
+  CURRENT run; the corner counts the whole session.
+
 **frontend2 divergences (deliberate, round 4)**: the slow/fast pair is a
-continuous 0–60 s vertical interval slider, hidden until a long-press on
-the shutter summons it, auto-folding after ~5 s untouched; the manual
+continuous 0–60 s vertical interval slider driven by the ORIGINAL's
+one-finger grammar — hold 300 ms and it unfolds beside the still-held
+thumb, slide onto it to pick the interval live, release there to start
+the run (release back over the button cancels, tap stops a run); the manual
 shutter-speed ladder (no original equivalent; added for crisp car shots)
 collapses behind
 a ⚡ button lower-right, expanding upward like the 📷 selector; the

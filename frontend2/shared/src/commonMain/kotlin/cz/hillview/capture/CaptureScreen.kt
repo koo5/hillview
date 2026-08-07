@@ -1,9 +1,10 @@
 package cz.hillview.capture
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Column
@@ -32,7 +33,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import cz.hillview.upload.PendingUpload
 import cz.hillview.upload.UploadPipeline
 import kotlinx.coroutines.delay
@@ -42,7 +54,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalFoundationApi::class)
+/**
+ * Session totals for the corner indicator — the original's captureQueue
+ * stats singleton lives for the webview session; a process-wide object is
+ * the same lifetime here: it survives pane bounces and navigation and
+ * resets with the app.
+ */
+internal object CaptureSessionCounters {
+    val totalCaptured = androidx.compose.runtime.mutableStateOf(0)
+}
+
 @Composable
 fun CaptureScreen(
     onOpenSettings: () -> Unit = {},
@@ -139,21 +160,11 @@ fun CaptureScreen(
         }
     }
 
-    // 0 = one shot per tap; otherwise the shutter arms a repeating run.
+    // The last-used interval doubles as the slider's starting position when
+    // the gesture next unfolds it; repeating is the running-run flag.
     var intervalSec by rememberSaveable { mutableStateOf(0) }
     var repeating by rememberSaveable { mutableStateOf(false) }
-    // The slider hides until a long press on the shutter summons it — the
-    // original's 300 ms press expands its slow/fast modes the same way —
-    // then folds away after a few untouched seconds.
-    var intervalVisible by remember { mutableStateOf(false) }
-    var sliderTouched by remember { mutableStateOf(0) }
     var runCount by remember { mutableStateOf(0) }
-    LaunchedEffect(intervalVisible, sliderTouched, repeating) {
-        if (intervalVisible) {
-            delay(5_000)
-            intervalVisible = false
-        }
-    }
 
     LaunchedEffect(repeating, intervalSec) {
         if (!repeating || intervalSec <= 0) {
@@ -174,6 +185,7 @@ fun CaptureScreen(
     // when logged out and the entry survives for auto-upload-on-login.
     LaunchedEffect(state.lastPhoto) {
         val photo = state.lastPhoto ?: return@LaunchedEffect
+        CaptureSessionCounters.totalCaptured.value++
         uploadPipeline.onPhotoCaptured(
             PendingUpload(
                 id = photo.path,
@@ -330,17 +342,21 @@ fun CaptureScreen(
             }
         }
 
-        // Shutter time, for crisp shots out of a moving vehicle — this
-        // port's addition (the original has no manual exposure). Collapsed
-        // behind a ⚡ button in the lower-right, expanding upward like the
-        // camera selector; the open ladder used to sprawl across the pane
-        // (round-4 feedback). ISO follows the pin automatically (shutter
-        // priority), so this stays a one-axis control.
-        if (state.manualShutterSupported) {
-            Column(
-                Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 6.dp),
-                horizontalAlignment = Alignment.End,
-            ) {
+        // The lower-right column: the ⚡ shutter-speed control stacked over
+        // the original's corner counter (CaptureQueueIndicator, bottom:6
+        // right:0 — the counter keeps the very corner).
+        Column(
+            Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 6.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            // Shutter time, for crisp shots out of a moving vehicle — this
+            // port's addition (the original has no manual exposure).
+            // Collapsed behind a ⚡ button, expanding upward like the
+            // camera selector; the open ladder used to sprawl across the
+            // pane (round-4 feedback). ISO follows the pin automatically
+            // (shutter priority), so this stays a one-axis control.
+            if (state.manualShutterSupported) {
                 if (showShutterMenu) {
                     Column(
                         Modifier
@@ -372,6 +388,34 @@ fun CaptureScreen(
                         "⚡ " + (state.shutterNs?.let { formatShutter(it) } ?: "Auto"),
                         color = Color.White,
                     )
+                }
+            }
+
+            // The original's CaptureQueueIndicator: the in-flight save and
+            // the session's running total, in a dark pill. There is no
+            // multi-item capture queue in this port (CameraX hands the
+            // JPEG straight to the storage chain), so the 💾 slot only
+            // shows while a save is in flight.
+            val sessionTotal = CaptureSessionCounters.totalCaptured.value
+            if (state.capturing || sessionTotal > 0) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .background(Color(0xB3000000), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                        .testTag("capture-queue-indicator"),
+                ) {
+                    if (state.capturing) {
+                        Text("💾 …", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (sessionTotal > 0) {
+                        Text(
+                            "($sessionTotal)",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
         }
@@ -444,51 +488,128 @@ fun CaptureScreen(
                 }
             }
 
-            // The shutter, shaped like the original's DualCaptureButton: a
-            // dark pill holding a circular button. A plain tap is one shot;
-            // a long press reveals the interval slider (this port's
-            // continuous take on the original's slow/fast pair); with an
-            // interval armed, a tap starts/stops the repeating run.
-            Box {
+            // The shutter, shaped like the original's DualCaptureButton —
+            // and driven like it, as ONE gesture. Tap = one shot. Holding
+            // 300 ms (the original's "shorter timeout for quicker
+            // response") unfolds the interval slider beside the still-held
+            // thumb; sliding onto it picks an interval live; RELEASING
+            // there starts the repeating run. Releasing back over the
+            // button cancels, as the original's release-over-nothing does.
+            // A tap stops a running run. The continuous slider is this
+            // port's take on the original's fixed slow/fast pair.
+            var sliderVisible by remember { mutableStateOf(false) }
+            var circleBounds by remember { mutableStateOf<Rect?>(null) }
+            var sliderZone by remember { mutableStateOf<Rect?>(null) }
+            var clusterOrigin by remember { mutableStateOf(Offset.Zero) }
+            val gateOpen =
+                shutterEnabled(state.ready, state.hasFix, manualLocationArmed || manualClaimed)
+            // The location gate (see shutterEnabled): no fix, no photo —
+            // unless deliberately lifted (the local lift OR the pill's
+            // accepted claim; phone-in-hand find: the claim used to leave
+            // the gate shut).
+            val tappable = gateOpen && (repeating || !state.capturing)
+            Box(
+                Modifier
+                    .onGloballyPositioned { clusterOrigin = it.positionInRoot() }
+                    .pointerInput(gateOpen, repeating) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val circle = circleBounds ?: return@awaitEachGesture
+                            if (!circle.contains(clusterOrigin + down.position)) {
+                                return@awaitEachGesture
+                            }
+                            if (!gateOpen) return@awaitEachGesture
+                            if (repeating) {
+                                // A running run: any completed press on the
+                                // button stops it (the original's
+                                // handleSingleCapture with activeMode set).
+                                val up = waitForUpOrCancellation() ?: return@awaitEachGesture
+                                if (circle.contains(clusterOrigin + up.position)) repeating = false
+                                return@awaitEachGesture
+                            }
+                            if (state.capturing) return@awaitEachGesture
+                            down.consume()
+                            val quick = withTimeoutOrNull(300L) {
+                                if (waitForUpOrCancellation() != null) "tap" else "cancel"
+                            }
+                            if (quick == "tap") {
+                                capture.capture()
+                                return@awaitEachGesture
+                            }
+                            if (quick == "cancel") return@awaitEachGesture
+                            // Long-press reached with the finger still down.
+                            sliderVisible = true
+                            var overSlider = false
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                        ?: event.changes.first()
+                                    val pos = clusterOrigin + change.position
+                                    // Everything left of the button is the
+                                    // slider's catch zone — a mid-gesture
+                                    // thumb is not a precision instrument.
+                                    overSlider = pos.x < circle.left
+                                    val zone = sliderZone
+                                    if (overSlider && zone != null && zone.height > 0f) {
+                                        intervalSec =
+                                            ((zone.bottom - pos.y) / zone.height * 60f)
+                                                .roundToInt().coerceIn(0, 60)
+                                    }
+                                    change.consume()
+                                    if (event.changes.none { it.pressed }) {
+                                        if (overSlider && intervalSec > 0) repeating = true
+                                        break
+                                    }
+                                }
+                            } finally {
+                                // The slider lives exactly as long as the
+                                // finger does, run or no run.
+                                sliderVisible = false
+                            }
+                        }
+                    },
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .background(Color(0x80000000), RoundedCornerShape(40.dp))
                         .padding(4.dp),
                 ) {
-                    if (intervalVisible) {
+                    if (sliderVisible) {
                         IntervalSlider(
                             intervalSec = intervalSec,
-                            enabled = !repeating,
-                            onChange = { intervalSec = it; sliderTouched++ },
+                            enabled = true,
+                            onChange = { intervalSec = it },
+                            onTrackPositioned = { sliderZone = it },
                         )
                     }
 
-                    val gateOpen =
-                        shutterEnabled(state.ready, state.hasFix, manualLocationArmed || manualClaimed)
                     Box(
                         modifier = Modifier
                             .size(70.dp)
                             .clip(CircleShape)
                             .background(
                                 when {
-                                    // The location gate (see shutterEnabled):
-                                    // no fix, no photo — unless deliberately
-                                    // lifted (the local lift OR the pill's
-                                    // accepted claim; phone-in-hand find: the
-                                    // claim used to leave the gate shut).
                                     !gateOpen -> Color(0x802196F3)
                                     repeating -> Color(0xFF4CAF50)
                                     else -> Color(0xFF2196F3)
                                 },
                             )
-                            .combinedClickable(
-                                enabled = gateOpen && (repeating || !state.capturing),
-                                onLongClick = { intervalVisible = true; sliderTouched++ },
-                                onClick = {
-                                    if (intervalSec == 0) capture.capture() else repeating = !repeating
-                                },
-                            )
+                            .onGloballyPositioned { circleBounds = it.boundsInRoot() }
+                            // Touch goes through the cluster's pointerInput
+                            // (the gesture spans slider and button); this
+                            // keeps the click/enabled contract for tests
+                            // and accessibility.
+                            .semantics {
+                                role = Role.Button
+                                if (!tappable) disabled()
+                                onClick(label = null) {
+                                    if (!tappable) return@onClick false
+                                    if (repeating) repeating = false else capture.capture()
+                                    true
+                                }
+                            }
                             .testTag("capture-shutter"),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -497,14 +618,9 @@ fun CaptureScreen(
                                 if (state.capturing && !repeating) "…" else "📷",
                                 style = MaterialTheme.typography.titleMedium,
                             )
-                            val label = when {
-                                repeating -> "Stop"
-                                intervalSec > 0 -> "${intervalSec}s"
-                                else -> null
-                            }
-                            label?.let {
+                            if (repeating) {
                                 Text(
-                                    it,
+                                    "Stop",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color.White,
                                 )
@@ -553,12 +669,18 @@ fun CaptureScreen(
     }
 }
 
-/** Off, then 1…60 s. Vertical because it sits beside the shutter. */
+/**
+ * Off, then 1…60 s. Vertical because it sits beside the shutter. During
+ * the one-finger gesture it is a display — the cluster's pointerInput
+ * drives the value from the thumb position via [onTrackPositioned]'s
+ * reported track bounds (root coords, bottom = 0 s, top = 60 s).
+ */
 @Composable
 private fun IntervalSlider(
     intervalSec: Int,
     enabled: Boolean,
     onChange: (Int) -> Unit,
+    onTrackPositioned: (Rect) -> Unit = {},
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -571,7 +693,9 @@ private fun IntervalSlider(
             modifier = Modifier.testTag("capture-interval-value"),
         )
         Box(
-            modifier = Modifier.size(width = 48.dp, height = 140.dp),
+            modifier = Modifier
+                .size(width = 48.dp, height = 140.dp)
+                .onGloballyPositioned { onTrackPositioned(it.boundsInRoot()) },
             contentAlignment = Alignment.Center,
         ) {
             // Material has no vertical slider; rotating a horizontal one and
@@ -601,7 +725,8 @@ private fun StatusLine(state: CaptureState) {
                 else -> "no GPS fix"
             }
         )
-        state.bearingDeg?.let { add("bearing ${it.roundToInt()}°") }
+        // No bearing here: the pill's 🧭 row above already shows it live
+        // (it used to repeat when this strip was the pane's only readout).
         state.lastPhoto?.let { photo ->
             val s = photo.snapshot
             val loc = if (s.latitude != null && s.longitude != null) {
