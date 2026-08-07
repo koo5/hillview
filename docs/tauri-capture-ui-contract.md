@@ -90,3 +90,34 @@ modes instead of the hardcoded four, plus an explicit "Auto" (CameraX's
 own choice under MAXIMIZE_QUALITY). Camera *enumeration/selection* (the
 front/back/multi-lens rows) is not ported yet — the menu structure leaves
 room for it.
+
+## Fix freshness — a frontend2 divergence (15 s), not a port
+
+The original has NO fix-age concept. Its capture location is `locationData`
+← spatialState: under ACTIVE tracking that is "the last fix ever received",
+however old — walk into a tunnel and photos keep geotagging from the
+pre-tunnel fix, still labelled `location_source: 'gps'`, with nothing
+recorded about its age. The gate is merely "some location exists". The only
+staleness handling is structural: power-saving stamps the live fix instead
+of the parked map, and BACKGROUND rides the live fix along as
+`alt_location` in UserComment.
+
+frontend2 added `FIX_FRESH_MS = 15 s` (judged at capture time, from the
+fix's elapsedRealtimeNanos). Effects — deliberately narrow:
+
+1. the location GATE opens only on a fix ≤15 s old (a stale fused seed
+   cannot open it; the map-position lift is the escape hatch);
+2. an armed manual position beats a fix older than 15 s (fresh fixes beat
+   fallback manual; a claimed position beats everything);
+3. the shutter tone degrades past 15 s, and `locationAgeMs` is recorded.
+
+A photo captured after signal loss (fix once fresh, now old, no manual
+armed) still geotags from that last fix — same as the original — just
+audibly degraded and with the age written down.
+
+Why 15: at the 1 Hz update cadence, 15 missed updates means the signal is
+genuinely gone rather than jittering; and at walking pace 15 s ≈ 20 m —
+the same order as GPS accuracy, so a fix that age still means "here".
+The log-and-pair design (capture backlog) supersedes point-in-time
+freshness eventually: post-hoc interpolation over the GeoTrackingManager
+table dates each photo's position properly.
