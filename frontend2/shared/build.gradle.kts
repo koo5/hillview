@@ -25,6 +25,12 @@ kotlin {
             enable = true
         }
 
+        // Host tests: commonTest also runs on the Android target's JVM
+        // (task :shared:testAndroidHostTest) — same rules, one more
+        // compiler's opinion, and it silences the per-build Gradle warning
+        // that the source set exists but is unwired.
+        withHostTest {}
+
         // Instrumented tests: the contracts that only exist on a device —
         // EXIF written by Android's ExifInterface, the storage targets, and
         // what the platform reports about them.
