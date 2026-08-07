@@ -38,11 +38,12 @@ object PhotoStorage {
     private const val TAG = "PhotoStorage"
 
     /**
-     * The folder's base name. "Hillview" in release — parity with the
-     * Tauri app, whose photos share the device — but debug builds default
-     * to "HillviewDev" (and the HILLVIEW_FOLDER env var at build time
-     * overrides either), so test captures never mix into the real folder.
-     * Set once at app start from BuildConfig (HillviewApplication).
+     * The folder's base name. "Hillview2" in both build types — this app
+     * generation keeps its own folder, deliberately never mixing with the
+     * Tauri app's DCIM/Hillview on the same device (the HILLVIEW_FOLDER
+     * env var at build time overrides it). Set once at app start from
+     * BuildConfig (HillviewApplication); this in-code default only serves
+     * hosts without that wiring (tests, previews).
      */
     var folderBase: String = "Hillview"
 

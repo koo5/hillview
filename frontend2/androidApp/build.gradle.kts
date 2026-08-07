@@ -50,14 +50,14 @@ android {
         versionName = "0.1.0"
         resValue("string", "app_name", "Hillview")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // The photo folder under DCIM/. Release keeps "Hillview" — parity
-        // with the Tauri app on the same device; the HILLVIEW_FOLDER env
-        // var at build time overrides it (and the debug default below), so
-        // test builds keep their captures out of the real folder.
+        // The photo folder under DCIM/. "Hillview2" in BOTH build types —
+        // this app generation keeps its own folder, never mixing with the
+        // Tauri app's DCIM/Hillview on the same device; the HILLVIEW_FOLDER
+        // env var at build time overrides it.
         buildConfigField(
             "String",
             "HILLVIEW_FOLDER",
-            "\"${System.getenv("HILLVIEW_FOLDER") ?: "Hillview"}\"",
+            "\"${System.getenv("HILLVIEW_FOLDER") ?: "Hillview2"}\"",
         )
     }
     packaging {
@@ -70,11 +70,6 @@ android {
             // Coexist with the installed production (Tauri) cz.hillview app.
             applicationIdSuffix = ".debug"
             resValue("string", "app_name", "Hillview Dev")
-            buildConfigField(
-                "String",
-                "HILLVIEW_FOLDER",
-                "\"${System.getenv("HILLVIEW_FOLDER") ?: "HillviewDev"}\"",
-            )
         }
         getByName("release") {
             isMinifyEnabled = false
