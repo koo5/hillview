@@ -24,6 +24,8 @@ data class SensorSnapshot(
     /** Which sensor produced the heading — EXIF provenance (bearing_source). */
     val bearingSource: String? = null,
     val capturedAtMs: Long,
+    /** EXIF provenance: "gps" or "manual" (map-positioned, gate lifted). */
+    val locationSource: String? = null,
     /** Age of the location fix at capture time, or null without a fix. */
     val locationAgeMs: Long? = null,
 )
@@ -51,9 +53,29 @@ data class CaptureState(
     val errorMessage: String? = null,
 )
 
+/** A user-supplied position for when the sky is unreachable. */
+data class ManualLocation(val latitude: Double, val longitude: Double)
+
+/**
+ * The shutter requires a location fix — a photo mapping app's photos must
+ * land somewhere, and first-time users have to be walked into using it
+ * right. The requirement is liftable, deliberately: someone starting the
+ * app underground can position the map by hand and shoot against that.
+ */
+fun shutterEnabled(ready: Boolean, hasFix: Boolean, manualLocationArmed: Boolean): Boolean =
+    ready && (hasFix || manualLocationArmed)
+
 @Stable
 interface PhotoCapture {
     val state: CaptureState
+
+    /**
+     * The lifted-gate position: when set, captures without a fresh fix are
+     * stamped with it, tagged location_source "manual". A fresh GPS fix
+     * always wins over this — the map position goes stale as the user
+     * walks, the fix does not.
+     */
+    var manualLocation: ManualLocation?
 
     fun capture()
 

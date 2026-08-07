@@ -45,6 +45,11 @@ fun CaptureScreen(
     val queueStats by uploadPipeline.stats.collectAsState()
     val uploadSettings by uploadSettingsRepo.settings.collectAsState()
 
+    // The lifted-gate state: session-scoped, so the fix requirement guards
+    // every fresh visit and lifting it is a deliberate act each time.
+    var manualLocationArmed by rememberSaveable { mutableStateOf(false) }
+    val mapStateStore: cz.hillview.map.MapStateStore = org.koin.compose.koinInject()
+
     // The after-capture auto-upload prompt: shown once a capture lands while
     // auto-upload is off, unless the user chose "never". Session-dismissed
     // so it cannot nag a rapid-fire run.
@@ -148,6 +153,43 @@ fun CaptureScreen(
                 .testTag("capture-upload-stats"),
         )
 
+        // The gate's escape hatch, offered only while it is actually shut:
+        // shooting underground means positioning the map by hand first and
+        // capturing against that.
+        if (state.ready && !state.hasFix) {
+            if (!manualLocationArmed) {
+                TextButton(
+                    onClick = {
+                        val spatial = mapStateStore.load()?.first
+                            ?: cz.hillview.map.SpatialState()
+                        capture.manualLocation = ManualLocation(
+                            latitude = spatial.latitude,
+                            longitude = spatial.longitude,
+                        )
+                        manualLocationArmed = true
+                    },
+                    modifier = Modifier.testTag("capture-use-map-position"),
+                ) {
+                    Text("No GPS fix — capture at the map position instead")
+                }
+            } else {
+                TextButton(
+                    onClick = {
+                        capture.manualLocation = null
+                        manualLocationArmed = false
+                    },
+                    modifier = Modifier.testTag("capture-manual-location"),
+                ) {
+                    val at = capture.manualLocation
+                    Text(
+                        "Using map position" +
+                            (at?.let { " (${fmt(it.latitude)}, ${fmt(it.longitude)})" } ?: "") +
+                            " — tap to require GPS again",
+                    )
+                }
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center,
@@ -165,7 +207,10 @@ fun CaptureScreen(
                 onClick = {
                     if (intervalSec == 0) capture.capture() else repeating = !repeating
                 },
-                enabled = state.ready && (repeating || !state.capturing),
+                // The location gate (see shutterEnabled): no fix, no photo —
+                // unless the user has deliberately lifted it below.
+                enabled = shutterEnabled(state.ready, state.hasFix, manualLocationArmed) &&
+                    (repeating || !state.capturing),
                 modifier = Modifier
                     .size(width = 160.dp, height = 56.dp)
                     .testTag("capture-shutter"),

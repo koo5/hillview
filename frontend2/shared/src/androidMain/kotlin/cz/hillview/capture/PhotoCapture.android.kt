@@ -103,7 +103,11 @@ private class AndroidPhotoCapture(
     private val locationManager =
         context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
+    /** How old a fix may be and still count as "has a fix" (and beat manual). */
+    private val FIX_FRESH_MS = 15_000L
+
     @Volatile private var lastLocation: Location? = null
+    @Volatile override var manualLocation: ManualLocation? = null
     @Volatile private var lastOrientation: OrientationSensorData? = null
     private var lastAzimuthPush = 0L
 
@@ -112,7 +116,7 @@ private class AndroidPhotoCapture(
         // Declination (magnetic → true) needs coordinates.
         sensorService.updateLocation(location.latitude, location.longitude)
         val age = SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos
-        state = state.copy(hasFix = age < 15_000_000_000L)
+        state = state.copy(hasFix = age < FIX_FRESH_MS * 1_000_000)
     }
 
     // The shared-kt heading engine — the same fusion/declination pipeline the
@@ -332,17 +336,37 @@ private class AndroidPhotoCapture(
         val ageMs = location?.let {
             (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / 1_000_000
         }
-        return SensorSnapshot(
-            latitude = location?.latitude,
-            longitude = location?.longitude,
-            altitude = location?.takeIf { it.hasAltitude() }?.altitude,
-            accuracyM = location?.takeIf { it.hasAccuracy() }?.accuracy,
-            bearingDeg = orientation?.magneticHeading,
-            trueBearingDeg = orientation?.trueHeading,
-            bearingSource = orientation?.source,
-            capturedAtMs = capturedAtMs,
-            locationAgeMs = ageMs,
-        )
+        // A fresh fix always beats the manual position (see the interface
+        // doc); the manual position only fills a hole, it never overrides.
+        val manual = manualLocation.takeIf {
+            location == null || (ageMs != null && ageMs > FIX_FRESH_MS)
+        }
+        return if (manual != null) {
+            SensorSnapshot(
+                latitude = manual.latitude,
+                longitude = manual.longitude,
+                // No altitude and no claimed accuracy: this is where the
+                // user says they are, not a measurement.
+                bearingDeg = orientation?.magneticHeading,
+                trueBearingDeg = orientation?.trueHeading,
+                bearingSource = orientation?.source,
+                capturedAtMs = capturedAtMs,
+                locationSource = "manual",
+            )
+        } else {
+            SensorSnapshot(
+                latitude = location?.latitude,
+                longitude = location?.longitude,
+                altitude = location?.takeIf { it.hasAltitude() }?.altitude,
+                accuracyM = location?.takeIf { it.hasAccuracy() }?.accuracy,
+                bearingDeg = orientation?.magneticHeading,
+                trueBearingDeg = orientation?.trueHeading,
+                bearingSource = orientation?.source,
+                capturedAtMs = capturedAtMs,
+                locationSource = location?.let { "gps" },
+                locationAgeMs = ageMs,
+            )
+        }
     }
 
     fun release() {

@@ -61,7 +61,7 @@ object PhotoExifWriter {
         }
 
         // Provenance, same shape and tag (UserComment) as the Rust writer.
-        val locationSource = if (snapshot.latitude != null) "gps" else null
+        val locationSource = snapshot.locationSource
         if (locationSource != null || snapshot.bearingSource != null) {
             val fields = buildList {
                 locationSource?.let { add("\"location_source\":\"$it\"") }
