@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import cz.hillview.settings.UploadSettingsRepository
@@ -89,6 +90,9 @@ class UploadCoalescingBehaviourTest {
         val burst = 5
         repeat(burst) { i ->
             compose.waitUntil(15_000) { compose.shutterIsEnabled() }
+            // The half-height capture pane scrolls its controls — an
+            // offscreen node's click coordinate would land on the map.
+            runCatching { compose.onNodeWithTag("capture-shutter").performScrollTo() }
             compose.onNodeWithTag("capture-shutter").performClick()
             // Each save must land before the next shot — the per-save trigger
             // fires from the save, and the run count is only meaningful if
@@ -136,7 +140,8 @@ class UploadCoalescingBehaviourTest {
         assertTrue("runs=$runs across $windows window(s)", runs in 1..(windows * 2))
         assertTrue("no coalescing: runs=$runs enqueues=$enqueues", runs < enqueues)
 
-        // The original's responsiveness proxy: the screen is still alive.
-        compose.onNodeWithTag("capture-status").assertIsDisplayed()
+        // The original's responsiveness proxy: the screen is still alive
+        // (scrolling it back into view IS interaction).
+        compose.onNodeWithTag("capture-status").performScrollTo().assertIsDisplayed()
     }
 }

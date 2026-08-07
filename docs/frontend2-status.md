@@ -101,8 +101,16 @@ Decided 2026-08-07 (phone in hand): **match the Tauri navigation** — one
 Main page (resizable split: photo panel over an always-mounted map) with
 persisted activities (view/capture), floating camera/menu buttons, real
 routes only for settings/login/etc. The contract section "Main page:
-routes, activities, split layout" in tauri-map-ui-contract.md is the spec;
-implementation is the next big task. Phone-in-hand fixes already landed:
+routes, activities, split layout" in tauri-map-ui-contract.md is the spec.
+**LANDED same day** (MainScreen.kt): draggable persisted split, persisted
+activity with the enter/leave-capture wiring and the zoom>=17 bump, the
+hamburger menu absorbing Home (session status/expiry notice, settings,
+login, clock video), MapStateHolder lifted to a Koin singleton so capture's
+follow-me/claim and the mounted map move the same camera, capture pane
+scrollable. The view activity's photo panel is a PLACEHOLDER — the real
+gallery is deliberately deferred. All 13 app-behaviour tests migrated to
+the merged UI (camera-button toggle, menu navigation, bounce-on-persisted-
+capture) and green; both activities verified visually on the emulator. Phone-in-hand fixes already landed:
 map location-permission ask on the location button, capture auto-asks
 location on entry, single zoom-button set, reload-on-move (no polling),
 arrow grab restricted to the arrow outside car mode, osmdroid fling off.

@@ -88,20 +88,22 @@ class SessionExpiryBehaviourTest {
         val reason = runBlocking { store.peekSessionExpiredReason() }
         assertNotNull("expired flag must be persisted at the choke point", reason)
 
-        // Live lockstep: the home screen drops to signed-out and shows the
-        // persistent notice with the asserted phrase.
+        // Live lockstep: the Main page shows the persistent notice with the
+        // asserted phrase, and the menu drops to signed-out.
         compose.waitUntil(10_000) {
-            compose.onAllNodesWithTag("home-session-expired")
+            compose.onAllNodesWithTag("session-expired-notice")
                 .fetchSemanticsNodes().isNotEmpty()
         }
-        val notice = compose.onNodeWithTag("home-session-expired")
+        val notice = compose.onNodeWithTag("session-expired-notice")
             .fetchSemanticsNode().config.getOrNull(SemanticsProperties.Text)
             ?.joinToString(" ") { it.text } ?: ""
         assertTrue("got: $notice", notice.contains("session has expired"))
+        compose.openMenu()
         compose.waitUntil(10_000) {
-            compose.onAllNodesWithTag("home-login-button")
+            compose.onAllNodesWithTag("menu-login-button")
                 .fetchSemanticsNodes().isNotEmpty()
         }
+        compose.closeMenu()
 
         // The next launch, from the persisted flag alone: a fresh
         // SessionManager (the startup reconciler) over the same store.

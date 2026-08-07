@@ -139,9 +139,23 @@ fun ComposeTestRule.shutterIsEnabled(): Boolean {
     return !node.config.contains(SemanticsProperties.Disabled)
 }
 
-/** Home → capture, then wait out the camera cold start on the capped emulator. */
+/**
+ * Switch the Main page into the capture activity, then wait out the camera
+ * cold start on the capped emulator.
+ *
+ * The activity is PERSISTED: a previous test may have left it on, in which
+ * case the capture pane composed at activity launch — BEFORE this test's
+ * setup (mock GPS install, prefs) ran. Bounce it so the camera pane
+ * re-subscribes under the test's arrangements.
+ */
 fun ComposeTestRule.openCaptureAndAwaitCamera() {
-    onNodeWithTag("home-capture-button").performClick()
+    if (onAllNodesWithTag("capture-status").fetchSemanticsNodes().isNotEmpty()) {
+        onNodeWithTag("camera-button").performClick()
+        waitUntil(10_000) {
+            onAllNodesWithTag("capture-status").fetchSemanticsNodes().isEmpty()
+        }
+    }
+    onNodeWithTag("camera-button").performClick()
     waitUntil(15_000) {
         onAllNodesWithTag("capture-status").fetchSemanticsNodes().isNotEmpty()
     }
@@ -156,6 +170,9 @@ fun ComposeTestRule.liftGateToMapPosition() {
     waitUntil(10_000) {
         onAllNodesWithTag("capture-use-map-position").fetchSemanticsNodes().isNotEmpty()
     }
+    // The capture pane's controls scroll now that it shares the screen
+    // with the map — bring the target into view before tapping.
+    runCatching { onNodeWithTag("capture-use-map-position").performScrollTo() }
     onNodeWithTag("capture-use-map-position").performClick()
     waitUntil(5_000) { shutterIsEnabled() }
 }
@@ -168,6 +185,7 @@ fun ComposeTestRule.captureOnePhoto(): PhotoEntity {
     val dao = Behaviour.photoDao()
     val before = dao.getTotalPhotoCount()
     waitUntil(15_000) { shutterIsEnabled() }
+    runCatching { onNodeWithTag("capture-shutter").performScrollTo() }
     onNodeWithTag("capture-shutter").performClick()
     waitUntil(30_000) { dao.getTotalPhotoCount() > before }
     return dao.getAllPhotos().maxByOrNull { it.createdAt }!!
@@ -192,31 +210,61 @@ fun ComposeTestRule.setSwitch(tag: String, on: Boolean) {
     }
 }
 
+/** Open the Main page's hamburger menu; no-op when already open. */
+fun ComposeTestRule.openMenu() {
+    if (onAllNodesWithTag("navigation-menu").fetchSemanticsNodes().isNotEmpty()) return
+    onNodeWithTag("hamburger-menu").performClick()
+    waitUntil(5_000) {
+        onAllNodesWithTag("navigation-menu").fetchSemanticsNodes().isNotEmpty()
+    }
+}
+
+/** Close the menu via its scrim (the click-outside path). */
+fun ComposeTestRule.closeMenu() {
+    if (onAllNodesWithTag("navigation-menu").fetchSemanticsNodes().isEmpty()) return
+    // The scrim sits over the hamburger, so this tap lands on it.
+    onNodeWithTag("hamburger-menu").performClick()
+    waitUntil(5_000) {
+        onAllNodesWithTag("navigation-menu").fetchSemanticsNodes().isEmpty()
+    }
+}
+
 /**
- * Sign in through the real login screen, as a user would. Logs a leftover
- * session out first — earlier runs may have left one whose tokens a
- * recreate-test-users call just invalidated.
+ * Sign in through the menu and the real login screen, as a user would.
+ * Logs a leftover session out first — earlier runs may have left one whose
+ * tokens a recreate-test-users call just invalidated.
  */
 fun ComposeTestRule.loginThroughTheUi(
     username: String = "test",
     password: String = "StrongTestPassword123!",
 ) {
-    if (onAllNodesWithTag("home-logout-button").fetchSemanticsNodes().isNotEmpty()) {
-        onNodeWithTag("home-logout-button").performClick()
+    openMenu()
+    if (onAllNodesWithTag("menu-logout-button").fetchSemanticsNodes().isNotEmpty()) {
+        onNodeWithTag("menu-logout-button").performClick()
         waitUntil(10_000) {
-            onAllNodesWithTag("home-login-button").fetchSemanticsNodes().isNotEmpty()
+            onAllNodesWithTag("navigation-menu").fetchSemanticsNodes().isEmpty()
+        }
+        openMenu()
+        waitUntil(10_000) {
+            onAllNodesWithTag("menu-login-button").fetchSemanticsNodes().isNotEmpty()
         }
     }
-    onNodeWithTag("home-login-button").performClick()
+    onNodeWithTag("menu-login-button").performClick()
     waitUntil(10_000) {
         onAllNodesWithTag("login-username").fetchSemanticsNodes().isNotEmpty()
     }
     onNodeWithTag("login-username").performTextInput(username)
     onNodeWithTag("login-password").performTextInput(password)
     onNodeWithTag("login-submit").performClick()
+    // Success pops back to Main; signed-in shows as the menu's Sign out.
     waitUntil(20_000) {
-        onAllNodesWithTag("home-logout-button").fetchSemanticsNodes().isNotEmpty()
+        onAllNodesWithTag("hamburger-menu").fetchSemanticsNodes().isNotEmpty()
     }
+    openMenu()
+    waitUntil(10_000) {
+        onAllNodesWithTag("menu-logout-button").fetchSemanticsNodes().isNotEmpty()
+    }
+    closeMenu()
 }
 
 /**

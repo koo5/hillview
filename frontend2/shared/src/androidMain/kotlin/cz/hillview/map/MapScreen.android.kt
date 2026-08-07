@@ -47,9 +47,9 @@ import org.osmdroid.views.MapView
  */
 @Composable
 actual fun MapScreen(
-    onBack: () -> Unit,
     settings: MapSettingsRepository,
     markerSource: PhotoMarkerSource,
+    stateHolder: MapStateHolder,
     stateStore: MapStateStore,
     session: MapSession,
 ) {
@@ -65,13 +65,11 @@ actual fun MapScreen(
         permissions = listOf(android.Manifest.permission.ACCESS_FINE_LOCATION),
     )
 
-    // Restored, so the bearing survives backgrounding and restarts — the
-    // Appium suite asserts it is unchanged after the app comes back.
-    val state = remember {
-        stateStore.load()
-            ?.let { (spatial, bearing) -> MapStateHolder(spatial, bearing) }
-            ?: MapStateHolder()
-    }
+    // The process-wide holder (restored from the store at first injection),
+    // so the bearing survives backgrounding and restarts — the Appium suite
+    // asserts it is unchanged after the app comes back — and so capture's
+    // follow-me and this map are moving the SAME camera.
+    val state = stateHolder
     val spatial by state.spatial.collectAsState()
     val bearing by state.bearing.collectAsState()
 
@@ -422,7 +420,6 @@ actual fun MapScreen(
         }
 
         MapOverlayUi(
-            onBack = onBack,
             settings = mapSettings,
             hunterMode = hunterMode,
             sources = listOf(

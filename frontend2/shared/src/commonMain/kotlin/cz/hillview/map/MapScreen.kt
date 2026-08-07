@@ -10,9 +10,10 @@ import cz.hillview.settings.MapSettingsRepository
  */
 @Composable
 expect fun MapScreen(
-    onBack: () -> Unit,
     settings: MapSettingsRepository,
     markerSource: PhotoMarkerSource,
+    /** The process-wide camera/bearing state (Koin) — shared with capture. */
+    stateHolder: MapStateHolder,
     stateStore: MapStateStore,
     session: MapSession,
 )

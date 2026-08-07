@@ -1,0 +1,306 @@
+package cz.hillview.main
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import cz.hillview.auth.SessionManager
+import cz.hillview.auth.SessionState
+import cz.hillview.capture.CaptureScreen
+import cz.hillview.core.nowMs
+import cz.hillview.map.MapScreen
+import cz.hillview.map.MapSession
+import cz.hillview.map.MapStateHolder
+import cz.hillview.settings.MapSettingsRepository
+import kotlinx.coroutines.launch
+import org.koin.compose.koinInject
+
+/**
+ * The Main page — the app itself, as the Tauri `/` route is (see
+ * docs/tauri-map-ui-contract.md, "Main page: routes, activities, split
+ * layout"): a resizable split with the photo panel over an ALWAYS-mounted
+ * map. Activities (view | capture) switch panel content, never navigation;
+ * the activity and the split are persisted. Real navigation exists only
+ * behind the hamburger (settings, login, clock video).
+ *
+ * Lines and terrain are web-only activities — not ported.
+ */
+@Composable
+fun MainScreen(
+    onOpenSettings: () -> Unit,
+    onOpenLogin: () -> Unit,
+    onOpenClockVideo: () -> Unit,
+    settingsRepo: MapSettingsRepository = koinInject(),
+    session: MapSession = koinInject(),
+    sessionManager: SessionManager = koinInject(),
+    stateHolder: MapStateHolder = koinInject(),
+) {
+    val mapSettings by settingsRepo.settings.collectAsState()
+    val activity = mapSettings.mainActivity
+    val sessionState by sessionManager.state.collectAsState()
+    val expiredNotice by sessionManager.sessionExpiredNotice.collectAsState()
+    val scope = rememberCoroutineScope()
+    var menuOpen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { sessionManager.restoreIfNeeded() }
+
+    // The original's appOldActivity block: entering capture arms tracking
+    // (both on a toggle AND on initial load of a persisted capture
+    // activity); returning to view stands the bearing side down.
+    var oldActivity by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(activity) {
+        if (oldActivity != activity) {
+            when {
+                activity == "capture" -> session.onEnterCapture()
+                oldActivity == "capture" -> session.onLeaveCapture()
+            }
+            oldActivity = activity
+        }
+    }
+
+    fun toggleCamera() {
+        val entering = activity != "capture"
+        if (entering && stateHolder.spatial.value.zoom < 17.0) {
+            // The original bumps a wide view to street level on entering
+            // capture — that is where the photo is about to be taken.
+            stateHolder.updateSpatial(zoom = 17.0, now = nowMs())
+        }
+        settingsRepo.update {
+            it.copy(mainActivity = if (entering) "capture" else "view")
+        }
+    }
+
+    BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
+        val portrait = maxHeight >= maxWidth
+        val totalPx = if (portrait) constraints.maxHeight else constraints.maxWidth
+        var split by remember { mutableStateOf(mapSettings.splitPercent.coerceIn(10f, 90f)) }
+
+        val photoPanel: @Composable () -> Unit = {
+            when (activity) {
+                "capture" -> CaptureScreen(onOpenSettings = onOpenSettings)
+                else -> GalleryPlaceholder()
+            }
+        }
+        val mapPanel: @Composable () -> Unit = {
+            MapScreen(
+                settings = settingsRepo,
+                markerSource = koinInject(),
+                stateHolder = stateHolder,
+                stateStore = koinInject(),
+                session = session,
+            )
+        }
+        val divider: @Composable () -> Unit = {
+            Box(
+                modifier = Modifier
+                    .then(
+                        if (portrait) {
+                            Modifier.fillMaxWidth().height(10.dp)
+                        } else {
+                            Modifier.fillMaxHeight().width(10.dp)
+                        },
+                    )
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .testTag("split-divider")
+                    .pointerInput(portrait, totalPx) {
+                        detectDragGestures(
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                val delta = if (portrait) dragAmount.y else dragAmount.x
+                                split = (split + delta / totalPx * 100f).coerceIn(10f, 90f)
+                            },
+                            onDragEnd = {
+                                settingsRepo.update { it.copy(splitPercent = split) }
+                            },
+                        )
+                    },
+            )
+        }
+
+        if (portrait) {
+            Column(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxWidth().weight(split)) { photoPanel() }
+                divider()
+                Box(Modifier.fillMaxWidth().weight(100f - split)) { mapPanel() }
+            }
+        } else {
+            Row(Modifier.fillMaxSize()) {
+                Box(Modifier.fillMaxHeight().weight(split)) { photoPanel() }
+                divider()
+                Box(Modifier.fillMaxHeight().weight(100f - split)) { mapPanel() }
+            }
+        }
+
+        // Floating controls along the top-left, as the original places them
+        // (hamburger at the edge, camera next to it).
+        Row(Modifier.align(Alignment.TopStart).padding(4.dp)) {
+            FloatingControl(
+                label = "☰",
+                tag = "hamburger-menu",
+                onClick = { menuOpen = !menuOpen },
+            )
+            FloatingControl(
+                label = "📷",
+                tag = "camera-button",
+                active = activity == "capture",
+                onClick = {
+                    menuOpen = false
+                    toggleCamera()
+                },
+            )
+        }
+
+        // The involuntary-death notice, persistent until addressed — the
+        // original keeps it in the main page's alert area.
+        expiredNotice?.let { reason ->
+            Text(
+                text = "Your session has expired ($reason) — please sign in again.",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 56.dp, start = 16.dp, end = 16.dp)
+                    .background(
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                        RoundedCornerShape(6.dp),
+                    )
+                    .clickable {
+                        scope.launch { sessionManager.dismissSessionExpiredNotice() }
+                    }
+                    .padding(8.dp)
+                    .testTag("session-expired-notice"),
+            )
+        }
+
+        if (menuOpen) {
+            // Scrim: any outside tap closes.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clickable { menuOpen = false },
+            )
+            Surface(
+                tonalElevation = 6.dp,
+                shape = RoundedCornerShape(bottomEnd = 12.dp),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 52.dp)
+                    .testTag("navigation-menu"),
+            ) {
+                Column(Modifier.padding(8.dp)) {
+                    Text(
+                        text = when (val s = sessionState) {
+                            is SessionState.LoggedIn -> "Signed in as ${s.username ?: "?"}"
+                            SessionState.LoggedOut -> "Not signed in"
+                            SessionState.Unknown -> "…"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .testTag("menu-session-status"),
+                    )
+                    MenuLink("Settings", "settings-menu-link") {
+                        menuOpen = false
+                        onOpenSettings()
+                    }
+                    MenuLink("Clock video", "menu-clock-video") {
+                        menuOpen = false
+                        onOpenClockVideo()
+                    }
+                    if (sessionState is SessionState.LoggedIn) {
+                        MenuLink("Sign out", "menu-logout-button") {
+                            menuOpen = false
+                            scope.launch { sessionManager.logout() }
+                        }
+                    } else {
+                        MenuLink("Sign in", "menu-login-button") {
+                            menuOpen = false
+                            onOpenLogin()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FloatingControl(
+    label: String,
+    tag: String,
+    active: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = CircleShape,
+        tonalElevation = 4.dp,
+        color = if (active) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        modifier = Modifier.padding(4.dp),
+    ) {
+        TextButton(onClick = onClick, modifier = Modifier.testTag(tag)) {
+            Text(label, style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+@Composable
+private fun MenuLink(label: String, tag: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth().testTag(tag)) {
+        Text(label, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+/**
+ * The view activity's photo panel. The real gallery (photo display, swipe
+ * between in-range photos) is its own future piece — deliberately not
+ * sketched here, per the plan.
+ */
+@Composable
+private fun GalleryPlaceholder() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .testTag("gallery-placeholder"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            "Photo gallery — on its way",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}

@@ -68,7 +68,8 @@ class SettingsPersistenceBehaviourTest {
     }
 
     private fun openSettings() {
-        compose.onNodeWithTag("home-settings-button").performClick()
+        compose.openMenu()
+        compose.onNodeWithTag("settings-menu-link").performClick()
         compose.waitUntil(10_000) {
             compose.onAllNodesWithTag("settings-auto-upload")
                 .fetchSemanticsNodes().isNotEmpty()
@@ -80,7 +81,7 @@ class SettingsPersistenceBehaviourTest {
             it.onBackPressedDispatcher.onBackPressed()
         }
         compose.waitUntil(10_000) {
-            compose.onAllNodesWithTag("home-settings-button")
+            compose.onAllNodesWithTag("hamburger-menu")
                 .fetchSemanticsNodes().isNotEmpty()
         }
     }
@@ -88,7 +89,7 @@ class SettingsPersistenceBehaviourTest {
     private fun recreateAndReopenSettings() {
         compose.activityRule.scenario.recreate()
         compose.waitUntil(15_000) {
-            compose.onAllNodesWithTag("home-settings-button")
+            compose.onAllNodesWithTag("hamburger-menu")
                 .fetchSemanticsNodes().isNotEmpty()
         }
         openSettings()

@@ -13,16 +13,15 @@ import cz.hillview.settings.MapSettingsRepository
 
 @Composable
 actual fun MapScreen(
-    onBack: () -> Unit,
     settings: MapSettingsRepository,
     markerSource: PhotoMarkerSource,
+    stateHolder: MapStateHolder,
     stateStore: MapStateStore,
     session: MapSession,
 ) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("The map is Android-only for now.", style = MaterialTheme.typography.bodyLarge)
-            TextButton(onClick = onBack) { Text("< Back") }
         }
     }
 }

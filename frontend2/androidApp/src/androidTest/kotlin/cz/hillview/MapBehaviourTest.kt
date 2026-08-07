@@ -9,7 +9,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.swipe
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import cz.hillview.map.LocationTracking
@@ -50,8 +50,8 @@ class MapBehaviourTest {
         session.setLocationTracking(LocationTracking.Off)
     }
 
-    private fun openMap() {
-        compose.onNodeWithTag("home-map-button").performClick()
+    /** The map is a pane of the always-shown Main page now — just wait for it. */
+    private fun awaitMap() {
         compose.waitUntil(15_000) {
             compose.onAllNodesWithTag("map-bearing-arrow")
                 .fetchSemanticsNodes().isNotEmpty()
@@ -73,7 +73,7 @@ class MapBehaviourTest {
     /** "The bearing must be byte-identical after the app comes back." */
     @Test
     fun bearingSurvivesActivityRecreation() {
-        openMap()
+        awaitMap()
         val before = bearing()
 
         compose.activityRule.scenario.recreate()
@@ -92,15 +92,21 @@ class MapBehaviourTest {
      */
     @Test
     fun panDemotesAndThePillRevertsToFollowing() {
-        openMap()
+        awaitMap()
         locationState("off")
 
         compose.onNodeWithTag("track-location-btn").performClick()
         locationState("active")
 
-        // A real swipe across the map area — the osmdroid view receives it
-        // through the window like any finger.
-        compose.onRoot().performTouchInput { swipeUp() }
+        // A real swipe within the MAP pane (the bottom half of the split in
+        // portrait) — the osmdroid view receives it through the window like
+        // any finger.
+        compose.onRoot().performTouchInput {
+            swipe(
+                start = androidx.compose.ui.geometry.Offset(centerX, height * 0.9f),
+                end = androidx.compose.ui.geometry.Offset(centerX, height * 0.65f),
+            )
+        }
         compose.waitUntil(5_000) {
             compose.onAllNodesWithTag("map-position-prompt")
                 .fetchSemanticsNodes().isNotEmpty()
@@ -116,18 +122,23 @@ class MapBehaviourTest {
     }
 
     /**
-     * Returning from capture: tracking is already ACTIVE when the map
-     * composes. osmdroid's first-layout settle event must read as our own
-     * camera push, not as a user pan — the regression here demoted to
-     * BACKGROUND and raised the exploration pill on merely opening the map.
+     * Tracking already ACTIVE when the map composes (with the merged Main
+     * page that is any relaunch mid-tracking). osmdroid's first-layout
+     * settle event must read as our own camera push, not as a user pan —
+     * the regression here demoted to BACKGROUND and raised the exploration
+     * pill on merely opening the map.
      */
     @Test
     fun activeTrackingSurvivesEnteringTheMap() {
+        awaitMap()
         session.setLocationTracking(LocationTracking.Active)
-        openMap()
+        // Recreate: the MapView remounts with tracking already active — the
+        // return-from-anywhere shape.
+        compose.activityRule.scenario.recreate()
+        awaitMap()
 
         // The settle event fires from the MapView's first layout, which can
-        // trail the compose-side nodes openMap waits on — give it the frame.
+        // trail the compose-side nodes awaitMap waits on — give it the frame.
         android.os.SystemClock.sleep(750)
         compose.waitForIdle()
 

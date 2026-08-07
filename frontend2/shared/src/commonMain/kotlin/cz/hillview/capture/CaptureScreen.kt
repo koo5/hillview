@@ -1,6 +1,7 @@
 package cz.hillview.capture
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Column
@@ -36,7 +37,6 @@ import kotlin.math.roundToInt
 
 @Composable
 fun CaptureScreen(
-    onBack: () -> Unit,
     onOpenSettings: () -> Unit = {},
     uploadPipeline: UploadPipeline = org.koin.compose.koinInject(),
     uploadSettingsRepo: cz.hillview.settings.UploadSettingsRepository =
@@ -50,7 +50,10 @@ fun CaptureScreen(
     // The lifted-gate state: session-scoped, so the fix requirement guards
     // every fresh visit and lifting it is a deliberate act each time.
     var manualLocationArmed by rememberSaveable { mutableStateOf(false) }
-    val mapStateStore: cz.hillview.map.MapStateStore = org.koin.compose.koinInject()
+    // The LIVE map state — the same holder the always-mounted map pane
+    // renders, so follow-me and the claim move the camera the user is
+    // looking at (a store write would go behind the mounted map's back).
+    val mapState: cz.hillview.map.MapStateHolder = org.koin.compose.koinInject()
     val mapSettingsRepo: cz.hillview.settings.MapSettingsRepository = org.koin.compose.koinInject()
     val mapSettings by mapSettingsRepo.settings.collectAsState()
     val session: cz.hillview.map.MapSession = org.koin.compose.koinInject()
@@ -62,7 +65,7 @@ fun CaptureScreen(
     // degraded shutter tone says so out loud.
     LaunchedEffect(manualClaimed) {
         if (manualClaimed) {
-            val spatial = mapStateStore.load()?.first ?: cz.hillview.map.SpatialState()
+            val spatial = mapState.spatial.value
             capture.manualLocation = ManualLocation(spatial.latitude, spatial.longitude)
             capture.manualLocationWins = true
         } else {
@@ -92,20 +95,16 @@ fun CaptureScreen(
     val ecoActive = mapSettings.powerSavingPref
     LaunchedEffect(ecoActive) { capture.ecoPreviewFps = ecoActive }
 
-    // The map follows the fixes while tracking is ACTIVE, exactly as it
-    // would if the map screen were the one open — except under eco, where
-    // it only catches up at each capture (the whole point of the toggle).
+    // The map follows the fixes while tracking is ACTIVE — live through the
+    // shared holder, so the mounted map pane moves as the fixes come in —
+    // except under eco, where it only catches up at each capture (the whole
+    // point of the toggle).
     fun followMapTo(latitude: Double, longitude: Double) {
-        val (spatial, bearing) = mapStateStore.load()
-            ?: (cz.hillview.map.SpatialState() to cz.hillview.map.BearingState())
-        mapStateStore.save(
-            spatial.copy(
-                latitude = latitude,
-                longitude = longitude,
-                source = "gps",
-                ts = cz.hillview.core.nowMs(),
-            ),
-            bearing,
+        mapState.updateSpatial(
+            latitude = latitude,
+            longitude = longitude,
+            source = "gps",
+            now = cz.hillview.core.nowMs(),
         )
     }
     LaunchedEffect(state.fixLatitude, state.fixLongitude, ecoActive, locationTracking) {
@@ -181,6 +180,9 @@ fun CaptureScreen(
         }
     }
 
+    // A pane of the Main page now (no header, no back — the floating camera
+    // button toggles the activity): the preview takes what the controls
+    // leave, and the controls scroll when the pane runs short.
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -188,15 +190,6 @@ fun CaptureScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("< Back") }
-            Text(
-                text = "Capture",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
-
         Box(
             Modifier
                 .fillMaxWidth()
@@ -264,6 +257,13 @@ fun CaptureScreen(
                 }
             }
         }
+
+        Column(
+            modifier = Modifier
+                .weight(1f, fill = false)
+                .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
 
         if (promptVisible) {
             AutoUploadPrompt(
@@ -397,8 +397,7 @@ fun CaptureScreen(
             if (!manualLocationArmed) {
                 TextButton(
                     onClick = {
-                        val spatial = mapStateStore.load()?.first
-                            ?: cz.hillview.map.SpatialState()
+                        val spatial = mapState.spatial.value
                         capture.manualLocation = ManualLocation(
                             latitude = spatial.latitude,
                             longitude = spatial.longitude,
@@ -462,6 +461,7 @@ fun CaptureScreen(
                 )
             }
         }
+        } // controls scroll column
     }
 
     if (showCalibration) {

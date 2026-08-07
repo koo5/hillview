@@ -84,8 +84,9 @@ class StorageShapeBehaviourTest {
 
     private fun runCase(mode: StorageMode) {
         // The preference is chosen through the real settings radio, as the
-        // Appium spec drives it.
-        compose.onNodeWithTag("home-settings-button").performClick()
+        // Appium spec drives it — settings live behind the menu now.
+        compose.openMenu()
+        compose.onNodeWithTag("settings-menu-link").performClick()
         compose.waitUntil(10_000) {
             compose.onAllNodesWithTag("settings-storage-${mode.key}")
                 .fetchSemanticsNodes().isNotEmpty()
@@ -97,7 +98,7 @@ class StorageShapeBehaviourTest {
             it.onBackPressedDispatcher.onBackPressed()
         }
         compose.waitUntil(10_000) {
-            compose.onAllNodesWithTag("home-capture-button")
+            compose.onAllNodesWithTag("hamburger-menu")
                 .fetchSemanticsNodes().isNotEmpty()
         }
 

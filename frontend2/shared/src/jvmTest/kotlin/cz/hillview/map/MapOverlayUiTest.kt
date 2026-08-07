@@ -54,7 +54,6 @@ class MapOverlayUiTest {
     private fun androidx.compose.ui.test.ComposeUiTest.overlay(h: Harness) {
         setContent {
             MapOverlayUi(
-                onBack = {},
                 settings = h.settings,
                 hunterMode = h.hunterMode,
                 sources = h.sources,

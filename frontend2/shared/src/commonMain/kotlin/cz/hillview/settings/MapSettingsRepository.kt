@@ -35,6 +35,13 @@ data class MapSettings(
     val cameraOverlayOpacity: Int = 3,
     /** Pinned still size as "WxH"; null = auto (Tauri selectedResolution). */
     val captureResolution: String? = null,
+    /**
+     * The Main page's activity — "view" or "capture" — persisted so the
+     * mode survives restarts, as the Tauri appSettings.activity does.
+     */
+    val mainActivity: String = "view",
+    /** The Main page's split position (photo panel %, Tauri splitPercent). */
+    val splitPercent: Float = 50f,
 )
 
 const val MIN_MAX_PHOTOS = 10

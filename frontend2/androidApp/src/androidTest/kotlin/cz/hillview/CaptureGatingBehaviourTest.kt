@@ -3,6 +3,7 @@ package cz.hillview
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import org.junit.After
@@ -62,10 +63,10 @@ class CaptureGatingBehaviourTest {
         assertTrue("expected the no-fix state, got: $status", status.contains("no GPS fix"))
         assertFalse("shutter must be gated while there is no fix", compose.shutterIsEnabled())
 
-        // The position the lift will copy — read through the same store the
-        // screen reads, before touching anything.
-        val spatial = GlobalContext.get().get<cz.hillview.map.MapStateStore>()
-            .load()?.first ?: cz.hillview.map.SpatialState()
+        // The position the lift will copy — read through the same live
+        // holder the capture pane reads, before touching anything.
+        val spatial = GlobalContext.get().get<cz.hillview.map.MapStateHolder>()
+            .spatial.value
 
         // Lifted: the deliberate act opens the shutter, and the capture
         // geotags from the map position, not from any fix.
@@ -77,6 +78,7 @@ class CaptureGatingBehaviourTest {
         compose.dismissAutoUploadPromptIfShown()
 
         // Withdrawn: requiring GPS again shuts the gate on the spot.
+        runCatching { compose.onNodeWithTag("capture-manual-location").performScrollTo() }
         compose.onNodeWithTag("capture-manual-location").performClick()
         compose.waitUntil(5_000) { !compose.shutterIsEnabled() }
 

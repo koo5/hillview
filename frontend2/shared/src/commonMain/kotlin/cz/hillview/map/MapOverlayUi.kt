@@ -68,7 +68,6 @@ data class MapSourceUi(
  */
 @Composable
 fun MapOverlayUi(
-    onBack: () -> Unit,
     settings: MapSettings,
     hunterMode: Boolean,
     sources: List<MapSourceUi>,
@@ -112,11 +111,8 @@ fun MapOverlayUi(
                     modifier = Modifier.size(44.dp).testTag("zoom-out-btn"),
                 ) { Text("−", style = MaterialTheme.typography.titleLarge) }
             }
-            ControlSurface(Modifier.padding(top = 8.dp)) {
-                TextButton(onClick = onBack, modifier = Modifier.testTag("map-back")) {
-                    Text("< Back")
-                }
-            }
+            // (The interim "< Back" button is gone: the map is a pane of the
+            // Main page now, not a destination — the original never had one.)
 
             // A turned map needs a way back, or the gesture is a trap: the
             // original never rotates, so it never had to answer this. The

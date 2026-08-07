@@ -24,6 +24,8 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             powerSavingPref = prefs.getBoolean("power_saving", false),
             cameraOverlayOpacity = prefs.getInt("camera_overlay_opacity", 3),
             captureResolution = prefs.getString("capture_resolution", null),
+            mainActivity = prefs.getString("main_activity", null) ?: "view",
+            splitPercent = prefs.getFloat("split_percent", 50f),
         )
     )
     override val settings: StateFlow<MapSettings> = _settings.asStateFlow()
@@ -39,6 +41,8 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             .putBoolean("power_saving", next.powerSavingPref)
             .putInt("camera_overlay_opacity", next.cameraOverlayOpacity.coerceIn(0, 5))
             .putString("capture_resolution", next.captureResolution)
+            .putString("main_activity", next.mainActivity)
+            .putFloat("split_percent", next.splitPercent.coerceIn(10f, 90f))
             .apply()
         _settings.value = next
     }

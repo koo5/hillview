@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation3.runtime.NavKey
@@ -13,16 +12,15 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import androidx.savedstate.serialization.SavedStateConfiguration
 import cz.hillview.auth.ui.LoginScreen
-import cz.hillview.capture.CaptureScreen
 import cz.hillview.clockvideo.ClockVideoScreen
 import cz.hillview.core.theme.HillviewTheme
-import cz.hillview.home.HomeScreen
+import cz.hillview.main.MainScreen
 import cz.hillview.nav.CaptureKey
 import cz.hillview.nav.ClockVideoKey
 import cz.hillview.nav.HomeKey
 import cz.hillview.nav.LoginKey
+import cz.hillview.nav.MainKey
 import cz.hillview.nav.MapKey
-import cz.hillview.map.MapScreen
 import cz.hillview.nav.SettingsKey
 import cz.hillview.settings.ui.SettingsScreen
 import kotlinx.serialization.modules.SerializersModule
@@ -31,9 +29,12 @@ import kotlinx.serialization.modules.subclass
 
 // Registration point for every route key — the back stack serializes across
 // process death, and NavKey polymorphism must be declared explicitly.
+// The legacy keys (Home/Map/Capture) stay registered so a stack persisted
+// by a pre-merge build still deserializes; their entries alias to Main.
 private val navSavedStateConfig = SavedStateConfiguration {
     serializersModule = SerializersModule {
         polymorphic(NavKey::class) {
+            subclass(MainKey::class)
             subclass(HomeKey::class)
             subclass(LoginKey::class)
             subclass(ClockVideoKey::class)
@@ -48,45 +49,25 @@ private val navSavedStateConfig = SavedStateConfiguration {
 @Preview
 fun App() {
     HillviewTheme {
-        val backStack = rememberNavBackStack(navSavedStateConfig, HomeKey)
+        val backStack = rememberNavBackStack(navSavedStateConfig, MainKey)
+        val main: @Composable () -> Unit = {
+            MainScreen(
+                onOpenSettings = { backStack.add(SettingsKey) },
+                onOpenLogin = { backStack.add(LoginKey) },
+                onOpenClockVideo = { backStack.add(ClockVideoKey) },
+            )
+        }
         NavDisplay(
             backStack = backStack,
             onBack = { backStack.removeLastOrNull() },
             entryProvider = entryProvider {
-                entry<HomeKey> {
-                    HomeScreen(
-                        onOpenLogin = { backStack.add(LoginKey) },
-                        onOpenClockVideo = { backStack.add(ClockVideoKey) },
-                        onOpenCapture = { backStack.add(CaptureKey) },
-                        onOpenSettings = { backStack.add(SettingsKey) },
-                        onOpenMap = { backStack.add(MapKey) },
-                    )
-                }
-                entry<MapKey> {
-                    MapScreen(
-                        onBack = { backStack.removeLastOrNull() },
-                        settings = org.koin.compose.koinInject(),
-                        markerSource = org.koin.compose.koinInject(),
-                        stateStore = org.koin.compose.koinInject(),
-                        session = org.koin.compose.koinInject(),
-                    )
-                }
+                entry<MainKey> { main() }
+                // Legacy aliases — see navSavedStateConfig.
+                entry<HomeKey> { main() }
+                entry<MapKey> { main() }
+                entry<CaptureKey> { main() }
                 entry<SettingsKey> {
                     SettingsScreen(onBack = { backStack.removeLastOrNull() })
-                }
-                entry<CaptureKey> {
-                    // Entering capture arms a clean ACTIVE and leaving stands
-                    // the bearing side down — see MapSession, and the
-                    // regression it names.
-                    val session = org.koin.compose.koinInject<cz.hillview.map.MapSession>()
-                    DisposableEffect(session) {
-                        session.onEnterCapture()
-                        onDispose { session.onLeaveCapture() }
-                    }
-                    CaptureScreen(
-                        onBack = { backStack.removeLastOrNull() },
-                        onOpenSettings = { backStack.add(SettingsKey) },
-                    )
                 }
                 entry<LoginKey> {
                     LoginScreen(
