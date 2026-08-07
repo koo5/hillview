@@ -20,6 +20,9 @@ import org.koin.core.context.GlobalContext
 class HillviewApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Build-configured photo folder (HILLVIEW_FOLDER / debug default) —
+        // see androidApp/build.gradle.kts.
+        cz.hillview.capture.PhotoStorage.folderBase = BuildConfig.HILLVIEW_FOLDER
         // The UploadSettingsRepository (createdAtStart) materializes the
         // upload-settings prefs the shared-kt stack reads.
         initKoin {

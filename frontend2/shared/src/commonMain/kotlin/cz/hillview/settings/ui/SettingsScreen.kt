@@ -27,6 +27,7 @@ import cz.hillview.settings.ALLOWED_LICENSES
 import cz.hillview.settings.CompassSettingsRepository
 import cz.hillview.settings.StorageMode
 import cz.hillview.settings.storageFacts
+import cz.hillview.settings.storageFolderName
 import cz.hillview.settings.UploadSettingsRepository
 import org.koin.compose.koinInject
 
@@ -169,7 +170,8 @@ fun SettingsScreen(
             Column(Modifier.weight(1f)) {
                 Text("Hide from gallery", style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Save into \".Hillview\" instead of \"Hillview\"",
+                    "Save into \"${storageFolderName(true)}\" instead of " +
+                        "\"${storageFolderName(false)}\"",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -215,7 +217,7 @@ private fun StorageOption(
     hideFromGallery: Boolean,
     onSelect: () -> Unit,
 ) {
-    val folder = if (hideFromGallery) ".Hillview" else "Hillview"
+    val folder = storageFolderName(hideFromGallery)
     // Version-dependent — asked of the platform, never assumed.
     val facts = storageFacts(mode, hideFromGallery)
 

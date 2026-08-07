@@ -74,6 +74,9 @@ object Behaviour {
 class MockGps {
     private val locationManager =
         Behaviour.context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    private val fused =
+        com.google.android.gms.location.LocationServices
+            .getFusedLocationProviderClient(Behaviour.context)
 
     /** Call before the capture screen opens, so its GPS subscribe sees the mock. */
     @Suppress("DEPRECATION")
@@ -96,25 +99,34 @@ class MockGps {
             android.location.Criteria.ACCURACY_FINE,
         )
         locationManager.setTestProviderEnabled(LocationManager.GPS_PROVIDER, true)
+        // Belt and braces: the fused provider keeps a SYSTEM-wide cache
+        // (it survives reinstalls) and can surface a past fix even while
+        // the platform GPS provider is mocked silent. Its own mock mode
+        // makes it forget the world until we say otherwise.
+        com.google.android.gms.tasks.Tasks.await(fused.setMockMode(true))
     }
 
     fun inject(latitude: Double, longitude: Double) {
-        locationManager.setTestProviderLocation(
-            LocationManager.GPS_PROVIDER,
-            Location(LocationManager.GPS_PROVIDER).apply {
-                this.latitude = latitude
-                this.longitude = longitude
-                accuracy = 5f
-                altitude = 300.0
-                // Both stamps are required or the platform rejects the fix;
-                // elapsedRealtimeNanos is also what hasFix freshness reads.
-                time = System.currentTimeMillis()
-                elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
-            },
-        )
+        val location = Location(LocationManager.GPS_PROVIDER).apply {
+            this.latitude = latitude
+            this.longitude = longitude
+            accuracy = 5f
+            altitude = 300.0
+            // Both stamps are required or the platform rejects the fix;
+            // elapsedRealtimeNanos is also what hasFix freshness reads.
+            time = System.currentTimeMillis()
+            elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
+        }
+        locationManager.setTestProviderLocation(LocationManager.GPS_PROVIDER, location)
+        com.google.android.gms.tasks.Tasks.await(fused.setMockLocation(location))
     }
 
     fun remove() {
+        try {
+            com.google.android.gms.tasks.Tasks.await(fused.setMockMode(false))
+        } catch (_: Exception) {
+            // mock mode never engaged
+        }
         try {
             locationManager.removeTestProvider(LocationManager.GPS_PROVIDER)
         } catch (_: Exception) {

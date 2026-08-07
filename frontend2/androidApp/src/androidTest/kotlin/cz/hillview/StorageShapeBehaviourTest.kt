@@ -60,16 +60,20 @@ class StorageShapeBehaviourTest {
 
     /** Both folder spellings are valid — hide-from-gallery prefixes a dot. */
     private fun classify(locator: String): String? {
+        // The folder base is build-configured (HILLVIEW_FOLDER; debug
+        // defaults to HillviewDev) — read the runtime truth, not a literal.
+        val visible = cz.hillview.capture.PhotoStorage.folderName(false)
+        val hidden = cz.hillview.capture.PhotoStorage.folderName(true)
         val publicDcim = Environment
             .getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).absolutePath
         val privatePictures = Behaviour.context
             .getExternalFilesDir(Environment.DIRECTORY_PICTURES)!!.absolutePath
         return when {
             locator.startsWith("content://") -> StorageMode.MediaStore.key
-            locator.startsWith("$publicDcim/Hillview/") ||
-                locator.startsWith("$publicDcim/.Hillview/") -> StorageMode.PublicFolder.key
-            locator.startsWith("$privatePictures/Hillview/") ||
-                locator.startsWith("$privatePictures/.Hillview/") -> StorageMode.PrivateFolder.key
+            locator.startsWith("$publicDcim/$visible/") ||
+                locator.startsWith("$publicDcim/$hidden/") -> StorageMode.PublicFolder.key
+            locator.startsWith("$privatePictures/$visible/") ||
+                locator.startsWith("$privatePictures/$hidden/") -> StorageMode.PrivateFolder.key
             else -> null
         }
     }

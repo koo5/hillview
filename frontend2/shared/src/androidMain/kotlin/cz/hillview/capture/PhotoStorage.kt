@@ -37,7 +37,17 @@ data class SavedPhoto(
 object PhotoStorage {
     private const val TAG = "PhotoStorage"
 
-    fun folderName(hideFromGallery: Boolean) = if (hideFromGallery) ".Hillview" else "Hillview"
+    /**
+     * The folder's base name. "Hillview" in release — parity with the
+     * Tauri app, whose photos share the device — but debug builds default
+     * to "HillviewDev" (and the HILLVIEW_FOLDER env var at build time
+     * overrides either), so test captures never mix into the real folder.
+     * Set once at app start from BuildConfig (HillviewApplication).
+     */
+    var folderBase: String = "Hillview"
+
+    fun folderName(hideFromGallery: Boolean) =
+        if (hideFromGallery) ".$folderBase" else folderBase
 
     /** Preferred target first, then the rest — mirrors device_photos.rs. */
     fun chain(preferred: StorageMode): List<StorageMode> =

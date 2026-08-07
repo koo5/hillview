@@ -183,3 +183,10 @@ For the full capture→upload loop against a local backend, source
 `WORKER_URL` override the emulator needs (`http://10.0.2.2:8056`). Gotcha:
 the api container loses that override on a bare restart; re-run the
 compose up from the env file. Dev login: `test` / `StrongTestPassword123!`.
+
+## Photo folder naming
+
+The DCIM folder is build-configured: release uses `Hillview` (parity with
+the Tauri app on the same device), debug defaults to `HillviewDev`, and the
+`HILLVIEW_FOLDER` env var at build time overrides either — so test builds
+never mix captures into the real folder. See androidApp/build.gradle.kts.

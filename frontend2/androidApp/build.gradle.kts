@@ -25,6 +25,10 @@ dependencies {
     // Tauri suites reach through cmd.get_device_photos); shared's Room dep
     // is implementation-scoped, so the supertype needs naming here.
     androidTestImplementation(libs.androidx.room.runtime)
+    // MockGps drives the fused provider's official mock mode — the
+    // LocationManager test provider alone leaks GMS's system-wide cache
+    // across test boundaries.
+    androidTestImplementation(libs.play.services.location)
     debugImplementation(libs.compose.uiTestManifest)
 }
 
@@ -35,6 +39,7 @@ android {
     // AGP 9 ships this off by default; needed for the per-build-type app_name.
     buildFeatures {
         resValues = true
+        buildConfig = true
     }
 
     defaultConfig {
@@ -45,6 +50,15 @@ android {
         versionName = "0.1.0"
         resValue("string", "app_name", "Hillview")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // The photo folder under DCIM/. Release keeps "Hillview" — parity
+        // with the Tauri app on the same device; the HILLVIEW_FOLDER env
+        // var at build time overrides it (and the debug default below), so
+        // test builds keep their captures out of the real folder.
+        buildConfigField(
+            "String",
+            "HILLVIEW_FOLDER",
+            "\"${System.getenv("HILLVIEW_FOLDER") ?: "Hillview"}\"",
+        )
     }
     packaging {
         resources {
@@ -56,6 +70,11 @@ android {
             // Coexist with the installed production (Tauri) cz.hillview app.
             applicationIdSuffix = ".debug"
             resValue("string", "app_name", "Hillview Dev")
+            buildConfigField(
+                "String",
+                "HILLVIEW_FOLDER",
+                "\"${System.getenv("HILLVIEW_FOLDER") ?: "HillviewDev"}\"",
+            )
         }
         getByName("release") {
             isMinifyEnabled = false

@@ -71,6 +71,9 @@ data class StorageFacts(
 
 expect fun storageFacts(mode: StorageMode, hideFromGallery: Boolean): StorageFacts
 
+/** The photo folder's display name (build-configurable on Android). */
+expect fun storageFolderName(hideFromGallery: Boolean): String
+
 val ALLOWED_LICENSES = listOf("ccbysa4+osm", "full1")
 
 /**
