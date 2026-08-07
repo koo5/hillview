@@ -243,3 +243,41 @@ Found by reading the above against the port; unfixed unless noted.
     ("capture at the map position instead") for cases like starting the
     app underground with a hand-positioned map. Lifted captures carry
     location_source "manual"; a fresh fix always wins back.
+
+## Ported onto the app-behaviour test layer (2026-08-07)
+
+The scenarios above started migrating from prose into
+`androidApp/src/androidTest/` — Appium specs re-expressed against the real
+MainActivity through Compose semantics. Ported so far, beyond the first two
+map tests:
+
+- **Capture gating flow** (`CaptureGatingBehaviourTest`): gate shut without
+  a fix, the deliberate lift, capture geotagged from the map position,
+  withdrawal re-shutting the gate, a fresh fix opening it. Determinism
+  comes from a mock GPS provider (`MockGps` in `BehaviourSupport.kt`) that
+  replaces the emulator's virtual GPS — the instrumented substitute for the
+  Appium suite's `geo fix` console access. The permission-dialog
+  choreography is deliberately not ported: GrantPermissionRule pre-grants.
+- **Storage shape** (`StorageShapeBehaviourTest`): per-preference capture
+  through the real settings radios, locator classified against the three
+  recognized shapes (hint-not-promise, as the spec insists), matrix cell
+  logged, and — beyond the original — the saved bytes proven readable.
+  API 36 matrix: every preference lands in its named location (public DCIM
+  raw-path writes work again since API 30's FUSE relaxation).
+- **Upload coalescing** (`UploadCoalescingBehaviourTest`): a 5-capture
+  burst through the real shutter; logcat markers assert the shared-kt
+  window arithmetic (5 enqueues → 2 worker runs across 2 windows observed)
+  and that a foreground app never promotes to a foreground service. Runs
+  logged-out on purpose: a drain without an auth token stops cleanly, so
+  the run count stays pure coalescing.
+
+The suite's one-process reality found a real bug: `MapSession` outlives
+activities, so the gating test left tracking ACTIVE — and merely opening
+the map then demoted it to BACKGROUND with the exploration pill raised.
+Root cause: camera pushes made before the MapView's first layout read back
+garbage echo values, so osmdroid's first-layout settle event failed the
+is-our-own-move check and was treated as a user pan. That is the
+return-from-capture path in the real app. Fixed (`AppliedCamera.echoValid`
++ the settle branch in `isOurOwnMove`), regression-tested by
+`activeTrackingSurvivesEnteringTheMap`, and `MapBehaviourTest` now arranges
+tracking-Off explicitly instead of assuming a fresh process.

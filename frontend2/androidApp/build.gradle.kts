@@ -21,6 +21,10 @@ dependencies {
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.rules)
+    // The behaviour ports read the shared-kt Room DB directly (the rows the
+    // Tauri suites reach through cmd.get_device_photos); shared's Room dep
+    // is implementation-scoped, so the supertype needs naming here.
+    androidTestImplementation(libs.androidx.room.runtime)
     debugImplementation(libs.compose.uiTestManifest)
 }
 

@@ -320,6 +320,17 @@ actual fun MapScreen(
                     applied.orientation = spatial.orientation
                     applied.echoOrientation = view.mapOrientation.toDouble()
                 }
+                // Echoes read back from an unlaid view (width 0, no real
+                // projection) are garbage; they only start meaning something
+                // once the map has a size. If the first-layout settle event
+                // already validated them (see isOurOwnMove), this is a no-op.
+                if (!applied.echoValid && view.width > 0) {
+                    applied.echoLatitude = view.mapCenter.latitude
+                    applied.echoLongitude = view.mapCenter.longitude
+                    applied.echoZoom = view.zoomLevelDouble
+                    applied.echoOrientation = view.mapOrientation.toDouble()
+                    applied.echoValid = true
+                }
                 view.invalidate()
             },
         )
@@ -481,6 +492,22 @@ actual fun MapScreen(
         // BACKGROUND and follow-me would undo itself.
         fun isOurOwnMove(): Boolean {
             if (applied.pushing) return true
+            if (!applied.echoValid) {
+                // The first-layout settle: our camera pushes landed on a view
+                // with no size, osmdroid held them (setExpectedCenter) and
+                // applies them here, at the first real layout — firing this
+                // event from inside the layout pass, synchronously, before
+                // any finger could possibly have touched the map. Without
+                // this branch that settle mismatched the pre-layout echo
+                // garbage and demoted ACTIVE on merely (re)opening the map —
+                // i.e. every return from capture.
+                applied.echoLatitude = mapView.mapCenter.latitude
+                applied.echoLongitude = mapView.mapCenter.longitude
+                applied.echoZoom = mapView.zoomLevelDouble
+                applied.echoOrientation = mapView.mapOrientation.toDouble()
+                applied.echoValid = true
+                return true
+            }
             val centre = mapView.mapCenter
             return kotlin.math.abs(centre.latitude - applied.echoLatitude) < 1e-9 &&
                 kotlin.math.abs(centre.longitude - applied.echoLongitude) < 1e-9 &&
@@ -581,6 +608,14 @@ private class AppliedCamera {
     var echoLongitude = Double.NaN
     var echoZoom = Double.NaN
     var echoOrientation = Double.NaN
+
+    /**
+     * False until the echoes were read from a laid-out view. Pushes made
+     * before the first layout read back garbage (the projection has no
+     * size), and comparing events against garbage classified osmdroid's own
+     * first-layout settle as a user pan.
+     */
+    var echoValid = false
 }
 
 /**

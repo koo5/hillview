@@ -12,10 +12,14 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
+import cz.hillview.map.LocationTracking
+import cz.hillview.map.MapSession
 import org.junit.Assert.assertEquals
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.koin.core.context.GlobalContext
 
 /**
  * The first Appium behaviour ports, driving the real MainActivity through
@@ -34,6 +38,17 @@ class MapBehaviourTest {
 
     @get:Rule(order = 1)
     val compose = createAndroidComposeRule<MainActivity>()
+
+    private val session: MapSession
+        get() = GlobalContext.get().get()
+
+    @Before
+    fun startFromTrackingOff() {
+        // MapSession outlives activities AND test classes (one app process
+        // for the whole suite); a fresh app start begins Off, so the tests
+        // asserting the Off→Active→Background cycle arrange that here.
+        session.setLocationTracking(LocationTracking.Off)
+    }
 
     private fun openMap() {
         compose.onNodeWithTag("home-map-button").performClick()
@@ -98,5 +113,29 @@ class MapBehaviourTest {
             compose.onAllNodesWithTag("map-position-prompt")
                 .fetchSemanticsNodes().isEmpty()
         }
+    }
+
+    /**
+     * Returning from capture: tracking is already ACTIVE when the map
+     * composes. osmdroid's first-layout settle event must read as our own
+     * camera push, not as a user pan — the regression here demoted to
+     * BACKGROUND and raised the exploration pill on merely opening the map.
+     */
+    @Test
+    fun activeTrackingSurvivesEnteringTheMap() {
+        session.setLocationTracking(LocationTracking.Active)
+        openMap()
+
+        // The settle event fires from the MapView's first layout, which can
+        // trail the compose-side nodes openMap waits on — give it the frame.
+        android.os.SystemClock.sleep(750)
+        compose.waitForIdle()
+
+        locationState("active")
+        assertEquals(
+            0,
+            compose.onAllNodesWithTag("map-position-prompt")
+                .fetchSemanticsNodes().size,
+        )
     }
 }
