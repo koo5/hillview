@@ -553,7 +553,10 @@ fun FiltersDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        confirmButton = {
+            cz.hillview.core.ui.InstantDialogWindow()
+            TextButton(onClick = onDismiss) { Text("Done") }
+        },
         dismissButton = {
             TextButton(
                 onClick = onClearFilters,
@@ -622,7 +625,10 @@ fun TileProviderDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = {
+            cz.hillview.core.ui.InstantDialogWindow()
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
         title = { Text("Map provider") },
         text = {
             Column {
