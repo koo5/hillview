@@ -50,11 +50,15 @@ In Android Studio / IntelliJ, set Gradle JDK to the bundled JBR
 
 ## Commands
 
+Everything assumes `JAVA_HOME` points at the JBR (see above). On a
+RAM-constrained box, wrap gradle in a scope:
+`systemd-run --user --scope -p MemoryMax=12G ./gradlew …`.
+
 ```bash
-# Android debug APK (output: androidApp/build/outputs/apk/debug/)
+# Android debug APK (output: androidApp/build/outputs/apk/debug/androidApp-debug.apk)
 ./gradlew :androidApp:assembleDebug
 
-# Install on a running emulator/device
+# Install on a running emulator/device (or: adb install -r <apk>)
 ./gradlew :androidApp:installDebug
 
 # Run the desktop app
@@ -62,9 +66,64 @@ In Android Studio / IntelliJ, set Gradle JDK to the bundled JBR
 
 # Desktop with Compose Hot Reload (bundled with CMP since 1.10)
 ./gradlew :desktopApp:hotRun --auto
+```
 
-# Shared-module unit tests (JVM)
+Install-under-a-running-app gotcha: `adb install -r` while the app is open
+leaves the OLD code running (and even screencaps blank) — force-stop and
+relaunch after installing:
+
+```bash
+adb shell am force-stop cz.hillview.debug
+adb shell am start -n cz.hillview.debug/cz.hillview.MainActivity
+```
+
+## Tests
+
+Four layers, cheapest first:
+
+```bash
+# 1. Pure rules + desktop Compose UI tests (no device; ~130 tests)
 ./gradlew :shared:jvmTest
+
+# 2. The same commonTest rules on the Android target's JVM
+./gradlew :shared:testAndroidHostTest
+
+# 3. Shared-module instrumented tests (needs an emulator/device):
+#    EXIF golden, storage chain, map gestures with real MotionEvents
+./gradlew :shared:connectedAndroidDeviceTest
+
+# 4. App-level behaviour tests (needs an emulator/device): the Appium
+#    scenario ports driving the real MainActivity through Compose semantics
+./gradlew :androidApp:connectedDebugAndroidTest
+```
+
+Notes for the device layers:
+- Filtering instrumented tests uses
+  `-Pandroid.testInstrumentationRunnerArguments.package=cz.hillview.map`
+  (`--tests` is not a connected-test option).
+- ddmlib finds the adb server via `ANDROID_ADB_SERVER_PORT` (it ignores
+  `ADB_SERVER_SOCKET`) — only relevant when driving a forwarded adb.
+- Camera still-capture needs an API 34+ image (API 31 + CameraX 1.6
+  camera-pipe loses capture callbacks), and the emulated camera's JPEG
+  EXIF is canned — verify exposure via CaptureResult logs, never EXIF.
+
+## Emulator
+
+`scripts/emulator.sh {start|stop|status}` boots the `Medium_Phone_API_36`
+AVD headless with a CPU quota (an unguarded emulator idles at ~800% CPU)
+and a memory cap, clears the stale multiinstance.lock that silently blocks
+boots, and waits for `boot_completed`.
+
+The AVD's back camera is `hw.camera.back = emulated` (not virtualscene):
+the virtualscene camera lacks MANUAL_SENSOR, which the shutter-time
+control gates on.
+
+Useful emulator drives:
+
+```bash
+adb emu geo fix <lng> <lat>        # set the GPS position
+# synthesise a compass heading θ for an upright phone:
+adb emu sensor set magnetic-field <-48.4*sinθ>:5.9:<-48.4*cosθ>
 ```
 
 ## App identity
@@ -116,5 +175,11 @@ convention — `home-clock-video-button`, `clock-video-start-button`,
 
 Same backend as the rest of the repo (`docker compose up -d api`, port 8055).
 From the Android emulator use `http://10.0.2.2:8055`; from desktop,
-`http://localhost:8055`. Ktor client + kotlinx-serialization + Coil are
-pre-declared in the version catalog but not yet wired into any module.
+`http://localhost:8055`. The app's server URL lives in upload settings and
+is always the FULL API URL (`…/api`) — never assembled from a host.
+
+For the full capture→upload loop against a local backend, source
+`~/env/android_emu` (fish) before `docker compose up` — it carries the
+`WORKER_URL` override the emulator needs (`http://10.0.2.2:8056`). Gotcha:
+the api container loses that override on a bare restart; re-run the
+compose up from the env file. Dev login: `test` / `StrongTestPassword123!`.

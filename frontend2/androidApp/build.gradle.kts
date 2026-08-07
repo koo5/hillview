@@ -14,6 +14,14 @@ dependencies {
     implementation(libs.compose.uiToolingPreview)
     implementation(libs.koin.android)
     implementation(libs.koin.core)
+
+    // App-level instrumented tests: the Appium behaviour ports drive the
+    // real MainActivity through Compose semantics.
+    androidTestImplementation(libs.compose.uiTestJunit4)
+    androidTestImplementation(libs.androidx.test.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.rules)
+    debugImplementation(libs.compose.uiTestManifest)
 }
 
 android {
@@ -32,6 +40,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         resValue("string", "app_name", "Hillview")
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     packaging {
         resources {
