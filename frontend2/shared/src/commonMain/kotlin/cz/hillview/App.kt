@@ -17,6 +17,7 @@ import cz.hillview.core.theme.HillviewTheme
 import cz.hillview.main.MainScreen
 import cz.hillview.nav.CaptureKey
 import cz.hillview.nav.ClockVideoKey
+import cz.hillview.nav.DevicePhotosKey
 import cz.hillview.nav.HomeKey
 import cz.hillview.nav.LoginKey
 import cz.hillview.nav.MainKey
@@ -40,6 +41,7 @@ private val navSavedStateConfig = SavedStateConfiguration {
             subclass(ClockVideoKey::class)
             subclass(CaptureKey::class)
             subclass(SettingsKey::class)
+            subclass(DevicePhotosKey::class)
             subclass(MapKey::class)
         }
     }
@@ -55,6 +57,7 @@ fun App() {
                 onOpenSettings = { backStack.add(SettingsKey) },
                 onOpenLogin = { backStack.add(LoginKey) },
                 onOpenClockVideo = { backStack.add(ClockVideoKey) },
+                onOpenDevicePhotos = { backStack.add(DevicePhotosKey) },
             )
         }
         NavDisplay(
@@ -68,6 +71,11 @@ fun App() {
                 entry<CaptureKey> { main() }
                 entry<SettingsKey> {
                     SettingsScreen(onBack = { backStack.removeLastOrNull() })
+                }
+                entry<DevicePhotosKey> {
+                    cz.hillview.devicephotos.DevicePhotosScreen(
+                        onBack = { backStack.removeLastOrNull() },
+                    )
                 }
                 entry<LoginKey> {
                     LoginScreen(

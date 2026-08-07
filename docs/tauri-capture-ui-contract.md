@@ -121,3 +121,30 @@ the same order as GPS accuracy, so a fix that age still means "here".
 The log-and-pair design (capture backlog) supersedes point-in-time
 freshness eventually: post-hoc interpolation over the GeoTrackingManager
 table dates each photo's position properly.
+
+## /device-photos route, as observed (for the frontend2 port)
+
+Data: `cmd.get_device_photos {page, page_size: 50}` — the shared Room DB,
+newest first, paginated. Structure:
+
+- Header "<platform> Photos" + a Refresh button (`refresh-button`).
+- DevicePhotoStats: counts by upload status.
+- `photos-grid` of `photo-card`s: thumbnail (`photo-thumbnail`, the actual
+  file) with a colored status overlay — Completed #10b981 / "upload
+  Pending" #f59e0b / Uploading #3b82f6 / "upload Failed" #ef4444, else
+  gray; file name + a per-photo ⋮ menu (`photo-menu-button` — the
+  anonymization menu); detail rows: Size (B/KB/MB/GB, toFixed(2) with
+  trailing zeros stripped), Date, Time (locale), Location (only when not
+  0,0; 6 decimals), Bearing (1 decimal, only when non-null), Dimensions,
+  Retries (only when >0); the file path (Tauri only); a RetryUploadsButton
+  per card — shown when the photo isn't completed, actually a GLOBAL
+  retry: `cmd.retry_uploads` → PhotoUploadManager.startAutomaticUpload
+  ("retry_button") (bypasses wifi-only). When auto-upload is off or logged
+  out it degrades to the hint "Enable auto-upload in settings to retry
+  failed uploads."
+- `load-more-button` while has_more; `no-data` empty state; `error-message`.
+
+frontend2 divergences (deliberate): the anonymization ⋮ menu is NOT
+ported yet (server-side flow, its own phase); date/time use the device
+locale via java.text; the screen is reached from the hamburger menu
+directly (`menu-device-photos`) — the original nests it under /photos.

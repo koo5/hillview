@@ -31,5 +31,9 @@ data object CaptureKey : NavKey
 @Serializable
 data object SettingsKey : NavKey
 
+/** The /device-photos analog: every capture and its upload fate. */
+@Serializable
+data object DevicePhotosKey : NavKey
+
 @Serializable
 data object MapKey : NavKey

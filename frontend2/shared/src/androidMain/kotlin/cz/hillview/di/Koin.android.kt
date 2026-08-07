@@ -118,6 +118,9 @@ actual fun platformModule(): Module = module {
         )
     }
     single<TokenStore> { AuthManagerTokenStore(androidContext()) }
+    single<cz.hillview.devicephotos.DevicePhotoBrowser> {
+        cz.hillview.devicephotos.DaoDevicePhotoBrowser(androidContext())
+    }
     // Captures go to the shared-kt upload stack — the same code the Tauri
     // app runs. See /shared-kt/README.md.
     single<cz.hillview.upload.UploadPipeline> {

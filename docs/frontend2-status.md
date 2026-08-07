@@ -93,9 +93,15 @@ Implementation, roughly in value order:
    the menu structure left room.
 6. **Video recording mode** — extend the clockvideo CameraX stack; the
    per-frame metadata recipe is researched and written down.
-7. Smaller: `locationAgeMs` as a surfaced quality signal; "copy pending
-   photos to Downloads" escape hatch; Tauri-side repair flow for
-   `alt_location` (still unimplemented there).
+7. Smaller: "copy pending photos to Downloads" escape hatch; Tauri-side
+   repair flow for `alt_location` (still unimplemented there).
+   (`locationAgeMs` landed: EXIF UserComment + the stale-fix warning.)
+
+Also landed 2026-08-07: the /device-photos port (DevicePhotosScreen —
+cards with thumbnail/status/details from the shared Room DB, global
+retry via the shared-kt retry_button path, menu entry
+`menu-device-photos`; the anonymization ⋮ menu deliberately deferred —
+contract section in tauri-capture-ui-contract.md).
 
 Decided 2026-08-07 (phone in hand): **match the Tauri navigation** — one
 Main page (resizable split: photo panel over an always-mounted map) with

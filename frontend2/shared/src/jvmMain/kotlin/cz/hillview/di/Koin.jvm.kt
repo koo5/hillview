@@ -41,6 +41,9 @@ actual fun platformModule(): Module = module {
     single<cz.hillview.map.MapStateStore> { cz.hillview.map.InMemoryMapStateStore() }
     single<cz.hillview.map.PhotoMarkerSource> { EmptyMarkerSource() }
     single<TokenStore> { JavaPrefsTokenStore() }
+    single<cz.hillview.devicephotos.DevicePhotoBrowser> {
+        cz.hillview.devicephotos.EmptyDevicePhotoBrowser()
+    }
     // Desktop can't capture, so there is no upload path here.
     single<cz.hillview.upload.UploadPipeline> { cz.hillview.upload.NoopUploadPipeline() }
 }
