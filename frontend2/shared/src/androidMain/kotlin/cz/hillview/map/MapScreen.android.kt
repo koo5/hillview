@@ -79,6 +79,9 @@ actual fun MapScreen(
     var trackingPhase by remember { mutableStateOf(TrackingPhase.Inactive) }
     var locationTracking by remember { mutableStateOf(session.locationTracking.value) }
     var locationFlash by remember { mutableStateOf(false) }
+    // A pan just demoted ACTIVE — entering manual-position mode now needs
+    // a tap; ignored (a pocket cannot answer), following resumes by itself.
+    var demotePrompt by remember { mutableStateOf(false) }
     var overrideFilters by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
     var showProviders by remember { mutableStateOf(false) }
@@ -148,6 +151,17 @@ actual fun MapScreen(
     }
     LaunchedEffect(locationFlash) {
         if (locationFlash) { delay(100); locationFlash = false }
+    }
+    LaunchedEffect(demotePrompt) {
+        if (demotePrompt) {
+            delay(10_000)
+            if (demotePrompt) {
+                // Nobody confirmed: treat the pan as the accident it
+                // probably was and fall back into step with the GPS.
+                demotePrompt = false
+                locationTracking = LocationTracking.Active
+            }
+        }
     }
 
     LaunchedEffect(mapSettings.maxPhotos) {
@@ -416,6 +430,12 @@ actual fun MapScreen(
                     now = System.currentTimeMillis(),
                 )
             },
+            demotePrompt = demotePrompt,
+            onDemoteConfirm = { demotePrompt = false },
+            onDemoteResume = {
+                demotePrompt = false
+                locationTracking = LocationTracking.Active
+            },
             mapOrientation = spatial.orientation,
             onResetNorth = {
                 state.updateSpatial(
@@ -502,6 +522,7 @@ actual fun MapScreen(
                 // the fixes keep coming, the map just stops following.
                 if (locationTracking == LocationTracking.Active) {
                     locationTracking = LocationTracking.Background
+                    demotePrompt = true
                 }
                 syncFromMap()
                 return false

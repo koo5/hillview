@@ -123,6 +123,33 @@ private class AndroidPhotoCapture(
     /** How old a fix may be and still count as "has a fix" (and beat manual). */
     private val FIX_FRESH_MS = 15_000L
 
+    // The shutter's voice: the stock click for a healthy capture, a double
+    // beep when the position is degraded — audible from a pocket.
+    private val shutterSound by lazy {
+        android.media.MediaActionSound().apply {
+            load(android.media.MediaActionSound.SHUTTER_CLICK)
+        }
+    }
+    private val warnTone by lazy {
+        android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION, 90)
+    }
+
+    private fun playCaptureTone(snapshot: SensorSnapshot) {
+        val tone = captureTone(snapshot.locationSource, snapshot.locationAgeMs)
+        Log.d(TAG, "capture tone: $tone (source=${snapshot.locationSource} age=${snapshot.locationAgeMs})")
+        try {
+            when (tone) {
+                CaptureTone.Normal ->
+                    shutterSound.play(android.media.MediaActionSound.SHUTTER_CLICK)
+                CaptureTone.Degraded -> {
+                    warnTone.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 250)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "capture tone failed", e)
+        }
+    }
+
     private var camera: Camera? = null
     private var isoRange: android.util.Range<Int>? = null
     private var exposureRange: android.util.Range<Long>? = null
@@ -494,6 +521,7 @@ private class AndroidPhotoCapture(
                             capturing = false,
                             lastPhoto = CapturedPhoto(locator, filename, snapshot),
                         )
+                        playCaptureTone(snapshot)
                         Log.i(TAG, "captured $filename via ${mode.key} -> $locator")
                     } catch (e: Exception) {
                         Log.e(TAG, "post-save handling failed", e)
@@ -570,6 +598,12 @@ private class AndroidPhotoCapture(
             // ignore
         }
         sensorService.stopSensor()
+        try {
+            shutterSound.release()
+            warnTone.release()
+        } catch (e: Exception) {
+            // lazy instances may never have been created
+        }
         cameraProvider?.unbindAll()
         cameraProvider = null
         camera = null

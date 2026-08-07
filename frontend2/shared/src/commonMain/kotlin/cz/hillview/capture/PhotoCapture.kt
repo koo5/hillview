@@ -96,6 +96,22 @@ fun shutterPriorityIso(
     return ideal.roundToInt().coerceIn(minIso, maxIso)
 }
 
+/** What the shutter should sound like — the pocket has no screen. */
+enum class CaptureTone { Normal, Degraded }
+
+/**
+ * A different tone when the photo's position is anything but a fresh fix:
+ * interval capture runs in a pocket, and an accidental slip into a
+ * degraded location mode must be audible, not just visible. (User-raised:
+ * repairing mis-positioned photos after a session is a manual slog.)
+ */
+fun captureTone(locationSource: String?, locationAgeMs: Long?): CaptureTone =
+    if (locationSource == "gps" && (locationAgeMs == null || locationAgeMs <= 15_000)) {
+        CaptureTone.Normal
+    } else {
+        CaptureTone.Degraded
+    }
+
 /** A user-supplied position for when the sky is unreachable. */
 data class ManualLocation(val latitude: Double, val longitude: Double)
 

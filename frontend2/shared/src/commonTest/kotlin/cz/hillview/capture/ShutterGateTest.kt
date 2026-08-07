@@ -99,3 +99,31 @@ class ShutterFormatTest {
         )
     }
 }
+
+/**
+ * The shutter's voice. Interval capture runs in a pocket; a slide into a
+ * degraded location mode must be audible, not just visible.
+ */
+class CaptureToneTest {
+
+    @Test
+    fun aFreshFixSoundsNormal() {
+        assertEquals(CaptureTone.Normal, captureTone("gps", 500))
+        assertEquals(CaptureTone.Normal, captureTone("gps", null))
+    }
+
+    @Test
+    fun aManualPositionSoundsTheWarning() {
+        assertEquals(CaptureTone.Degraded, captureTone("manual", null))
+    }
+
+    @Test
+    fun aStaleFixSoundsTheWarning() {
+        assertEquals(CaptureTone.Degraded, captureTone("gps", 16_000))
+    }
+
+    @Test
+    fun noLocationAtAllSoundsTheWarning() {
+        assertEquals(CaptureTone.Degraded, captureTone(null, null))
+    }
+}
