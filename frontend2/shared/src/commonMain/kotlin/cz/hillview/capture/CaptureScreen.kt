@@ -153,6 +153,38 @@ fun CaptureScreen(
                 .testTag("capture-upload-stats"),
         )
 
+        // Shutter time, for crisp shots out of a moving vehicle. Only shown
+        // where the sensor takes manual orders at all; ISO follows the pin
+        // automatically (shutter priority), so this stays a one-axis
+        // control.
+        if (state.manualShutterSupported) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Shutter", style = MaterialTheme.typography.bodySmall)
+                val active = state.shutterNs
+                TextButton(
+                    onClick = { capture.shutterNs = null },
+                    enabled = active != null,
+                    modifier = Modifier.testTag("capture-shutter-auto"),
+                ) { Text(if (active == null) "[Auto]" else "Auto") }
+                SHUTTER_CHOICES_NS.forEach { ns ->
+                    val selected = active == ns
+                    TextButton(
+                        onClick = { capture.shutterNs = ns },
+                        enabled = !selected,
+                        modifier = Modifier.testTag(
+                            "capture-shutter-${1_000_000_000L / ns}",
+                        ),
+                    ) {
+                        Text(if (selected) "[${formatShutter(ns)}]" else formatShutter(ns))
+                    }
+                }
+            }
+        }
+
         // The gate's escape hatch, offered only while it is actually shut:
         // shooting underground means positioning the map by hand first and
         // capturing against that.

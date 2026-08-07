@@ -2,6 +2,7 @@ package cz.hillview.capture
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
+import kotlin.math.roundToInt
 import androidx.compose.ui.Modifier
 
 /**
@@ -48,10 +49,47 @@ data class CaptureState(
     val ready: Boolean = false,
     val capturing: Boolean = false,
     val hasFix: Boolean = false,
+    /** Device advertises MANUAL_SENSOR — shutter control is offerable. */
+    val manualShutterSupported: Boolean = false,
+    /** The pinned shutter time, null = auto exposure. */
+    val shutterNs: Long? = null,
     val bearingDeg: Float? = null,
     val lastPhoto: CapturedPhoto? = null,
     val errorMessage: String? = null,
 )
+
+/**
+ * The offered shutter times, in nanoseconds. Chosen for the app's actual
+ * use case — killing motion blur when shooting from a moving vehicle —
+ * so the ladder starts where handheld auto-exposure typically ends.
+ */
+val SHUTTER_CHOICES_NS: List<Long> = listOf(
+    8_000_000L, // 1/125
+    4_000_000L, // 1/250
+    2_000_000L, // 1/500
+    1_000_000L, // 1/1000
+    500_000L, // 1/2000
+)
+
+fun formatShutter(ns: Long): String = "1/${(1_000_000_000.0 / ns).roundToInt()}"
+
+/**
+ * Shutter priority, done by hand because Camera2 has no such AE mode: keep
+ * the exposure product (time x gain) the metering chose, at the pinned
+ * time. Pinning a faster shutter raises ISO to compensate; the range clamp
+ * means very fast pins in dim light underexpose rather than fail — which
+ * is the honest outcome.
+ */
+fun shutterPriorityIso(
+    meteredExposureNs: Long,
+    meteredIso: Int,
+    pinnedExposureNs: Long,
+    minIso: Int,
+    maxIso: Int,
+): Int {
+    val ideal = meteredIso.toDouble() * meteredExposureNs.toDouble() / pinnedExposureNs.toDouble()
+    return ideal.roundToInt().coerceIn(minIso, maxIso)
+}
 
 /** A user-supplied position for when the sky is unreachable. */
 data class ManualLocation(val latitude: Double, val longitude: Double)
@@ -76,6 +114,13 @@ interface PhotoCapture {
      * walks, the fix does not.
      */
     var manualLocation: ManualLocation?
+
+    /**
+     * Pinned shutter time in nanoseconds, null = auto. Only honoured when
+     * [CaptureState.manualShutterSupported]; ISO follows via
+     * [shutterPriorityIso] so brightness tracks what the metering last saw.
+     */
+    var shutterNs: Long?
 
     fun capture()
 

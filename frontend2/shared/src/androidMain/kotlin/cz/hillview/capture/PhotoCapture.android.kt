@@ -10,6 +10,17 @@ import android.location.LocationManager
 import android.os.Environment
 import android.os.SystemClock
 import android.util.Log
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraMetadata
+import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
+import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.CaptureRequestOptions
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -83,6 +94,7 @@ actual fun rememberPhotoCapture(): PhotoCapture {
  * written into the JPEG's EXIF. Battery discipline: camera and sensors run
  * only while the capture screen is open — release() tears everything down.
  */
+@OptIn(ExperimentalCamera2Interop::class)
 private class AndroidPhotoCapture(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
@@ -105,6 +117,20 @@ private class AndroidPhotoCapture(
 
     /** How old a fix may be and still count as "has a fix" (and beat manual). */
     private val FIX_FRESH_MS = 15_000L
+
+    private var camera: Camera? = null
+    private var isoRange: android.util.Range<Int>? = null
+    private var exposureRange: android.util.Range<Long>? = null
+
+    /**
+     * What auto-exposure last chose, harvested from preview capture
+     * results while AE runs. This is the metering a shutter pin scales
+     * from — see [shutterPriorityIso]. Not updated while pinned (the
+     * results would only echo our own values back).
+     */
+    @Volatile private var meteredExposureNs: Long? = null
+    @Volatile private var meteredIso: Int? = null
+    @Volatile private var lastFrameLog = 0L
 
     @Volatile private var lastLocation: Location? = null
     @Volatile override var manualLocation: ManualLocation? = null
@@ -171,7 +197,33 @@ private class AndroidPhotoCapture(
             .build()
         imageCapture = capture
 
-        val preview = Preview.Builder().build()
+        val previewBuilder = Preview.Builder()
+        // Harvest AE's choices from every preview frame — the metering a
+        // shutter pin scales its ISO from (see the frame-metadata research:
+        // this is the sanctioned per-frame window CameraX offers).
+        Camera2Interop.Extender(previewBuilder).setSessionCaptureCallback(
+            object : android.hardware.camera2.CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
+                    session: android.hardware.camera2.CameraCaptureSession,
+                    request: CaptureRequest,
+                    result: TotalCaptureResult,
+                ) {
+                    val exp = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+                    val iso = result.get(CaptureResult.SENSOR_SENSITIVITY)
+                    // Ground truth for the pin (the emulator's JPEG EXIF is
+                    // canned, so this log is the only honest witness there).
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastFrameLog > 2_000) {
+                        lastFrameLog = now
+                        Log.d(TAG, "frame exposureNs=$exp iso=$iso pinned=$shutterNs")
+                    }
+                    if (shutterNs != null) return
+                    exp?.let { meteredExposureNs = it }
+                    iso?.let { meteredIso = it }
+                }
+            },
+        )
+        val preview = previewBuilder.build()
         previewView?.let { preview.surfaceProvider = it.surfaceProvider }
 
         val group = UseCaseGroup.Builder()
@@ -180,8 +232,85 @@ private class AndroidPhotoCapture(
             .build()
 
         provider.unbindAll()
-        provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, group)
+        val cam = provider.bindToLifecycle(
+            lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, group,
+        )
+        camera = cam
+
+        val info = Camera2CameraInfo.from(cam.cameraInfo)
+        val capabilities = info.getCameraCharacteristic(
+            CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES,
+        )
+        val manualSensor = capabilities?.contains(
+            CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR,
+        ) == true
+        isoRange = info.getCameraCharacteristic(
+            CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE,
+        )
+        exposureRange = info.getCameraCharacteristic(
+            CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE,
+        )
+        Log.d(
+            TAG,
+            "camera caps: manualSensor=$manualSensor iso=$isoRange exposure=$exposureRange " +
+                "capabilities=${capabilities?.joinToString()}",
+        )
+        state = state.copy(manualShutterSupported = manualSensor)
+
+        // A pin chosen before (re)binding still applies.
+        shutterNs?.let { applyShutter(it) }
         cameraBound = true
+    }
+
+    override var shutterNs: Long? = null
+        set(value) {
+            Log.d(TAG, "shutterNs <- $value")
+            field = value
+            if (value == null) clearShutter() else applyShutter(value)
+        }
+
+    private fun applyShutter(pinnedNs: Long) {
+        val cam = camera
+        if (cam == null) {
+            Log.w(TAG, "applyShutter: no camera")
+            return
+        }
+        if (!state.manualShutterSupported) {
+            Log.w(TAG, "applyShutter: manual sensor unsupported")
+            return
+        }
+        val exposure = exposureRange
+            ?.let { pinnedNs.coerceIn(it.lower, it.upper) }
+            ?: pinnedNs
+        val iso = shutterPriorityIso(
+            // No metering yet (pin applied before the first preview frame):
+            // scale from a plausible daylight midpoint rather than refuse.
+            meteredExposureNs = meteredExposureNs ?: 10_000_000L,
+            meteredIso = meteredIso ?: 100,
+            pinnedExposureNs = exposure,
+            minIso = isoRange?.lower ?: 50,
+            maxIso = isoRange?.upper ?: 3200,
+        )
+        Camera2CameraControl.from(cam.cameraControl).setCaptureRequestOptions(
+            CaptureRequestOptions.Builder()
+                .setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AE_MODE,
+                    CameraMetadata.CONTROL_AE_MODE_OFF,
+                )
+                .setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure)
+                .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
+                .build(),
+        ).addListener(
+            { Log.d(TAG, "applyShutter: options applied exposure=$exposure iso=$iso") },
+            ContextCompat.getMainExecutor(context),
+        )
+        state = state.copy(shutterNs = exposure)
+    }
+
+    private fun clearShutter() {
+        val cam = camera ?: return
+        Camera2CameraControl.from(cam.cameraControl).clearCaptureRequestOptions()
+        state = state.copy(shutterNs = null)
     }
 
     private var gpsStarted = false
@@ -378,6 +507,7 @@ private class AndroidPhotoCapture(
         sensorService.stopSensor()
         cameraProvider?.unbindAll()
         cameraProvider = null
+        camera = null
         imageCapture = null
         cameraBound = false
         gpsStarted = false
