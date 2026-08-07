@@ -282,13 +282,20 @@ actual fun MapScreen(
                 }
 
                 if (applied.zoom != spatial.zoom) {
+                    applied.pushing = true
                     view.controller.setZoom(spatial.zoom)
+                    applied.pushing = false
                     applied.zoom = spatial.zoom
+                    applied.echoZoom = view.zoomLevelDouble
                 }
                 if (applied.latitude != spatial.latitude || applied.longitude != spatial.longitude) {
+                    applied.pushing = true
                     view.controller.setCenter(centre)
+                    applied.pushing = false
                     applied.latitude = spatial.latitude
                     applied.longitude = spatial.longitude
+                    applied.echoLatitude = view.mapCenter.latitude
+                    applied.echoLongitude = view.mapCenter.longitude
                 }
                 // The map is north-up unless the user turns it: the bearing
                 // is shown by the arrow, exactly as in the original, where
@@ -296,8 +303,11 @@ actual fun MapScreen(
                 // mapOrientation from the bearing, which would have spun the
                 // map under a drag and moved the arrow at twice the finger.)
                 if (applied.orientation != spatial.orientation) {
+                    applied.pushing = true
                     view.mapOrientation = spatial.orientation.toFloat()
+                    applied.pushing = false
                     applied.orientation = spatial.orientation
+                    applied.echoOrientation = view.mapOrientation.toDouble()
                 }
                 view.invalidate()
             },
@@ -442,6 +452,24 @@ actual fun MapScreen(
     // state. Without this the store never learns about a pan, and the next
     // state-driven update would yank the view back.
     DisposableEffect(mapView, locationTracking) {
+        // osmdroid's MapListener cannot tell a finger from a setCenter —
+        // the exact Leaflet failing that forced the original's ts/source
+        // machinery. The AppliedCamera is the disambiguator: our own
+        // pushes are recorded there *before* the event arrives, so an
+        // event that matches it is our echo, and only a mismatch is the
+        // user. Without this, the first GPS follow would demote ACTIVE to
+        // BACKGROUND and follow-me would undo itself.
+        fun isOurOwnMove(): Boolean {
+            if (applied.pushing) return true
+            val centre = mapView.mapCenter
+            return kotlin.math.abs(centre.latitude - applied.echoLatitude) < 1e-9 &&
+                kotlin.math.abs(centre.longitude - applied.echoLongitude) < 1e-9 &&
+                kotlin.math.abs(mapView.zoomLevelDouble - applied.echoZoom) < 1e-9 &&
+                kotlin.math.abs(
+                    mapView.mapOrientation.toDouble() - applied.echoOrientation,
+                ) < 1e-6
+        }
+
         fun syncFromMap() {
             val centre = mapView.mapCenter
             // Record where the map now is, so the downward path sees no
@@ -451,6 +479,12 @@ actual fun MapScreen(
             applied.longitude = centre.longitude
             applied.zoom = mapView.zoomLevelDouble
             applied.orientation = mapView.mapOrientation.toDouble()
+            // Later events of this same gesture at the same place are not
+            // news either.
+            applied.echoLatitude = centre.latitude
+            applied.echoLongitude = centre.longitude
+            applied.echoZoom = applied.zoom
+            applied.echoOrientation = applied.orientation
             state.updateSpatial(
                 latitude = centre.latitude,
                 longitude = centre.longitude,
@@ -463,6 +497,7 @@ actual fun MapScreen(
 
         val listener = object : org.osmdroid.events.MapListener {
             override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
+                if (isOurOwnMove()) return false
                 // A manual pan demotes tracking instead of stopping GPS —
                 // the fixes keep coming, the map just stops following.
                 if (locationTracking == LocationTracking.Active) {
@@ -473,6 +508,7 @@ actual fun MapScreen(
             }
 
             override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
+                if (isOurOwnMove()) return false
                 syncFromMap()
                 return false
             }
@@ -498,10 +534,29 @@ private fun rememberMapView(): MapView {
 
 private class AppliedCamera {
     var providerKey: String? = null
+    /**
+     * True while WE are moving the camera. osmdroid dispatches MapListener
+     * events synchronously from inside setCenter/setZoom, i.e. before the
+     * call even returns — so a flag around the call is the only reliable
+     * "this one is ours" for those; the echo values below catch any that
+     * arrive late.
+     */
+    var pushing = false
+    // What state last asked for — diffed against state so recompositions
+    // do not re-issue camera calls (re-issuing restarts tile loading).
     var latitude = Double.NaN
     var longitude = Double.NaN
     var zoom = Double.NaN
     var orientation = Double.NaN
+
+    // What the MapView actually reads back after our own push. The map
+    // quantizes coordinates to its pixel grid (setCenter(50.115) reads
+    // back as 50.11521), so echo detection must compare against the
+    // readback, never the request.
+    var echoLatitude = Double.NaN
+    var echoLongitude = Double.NaN
+    var echoZoom = Double.NaN
+    var echoOrientation = Double.NaN
 }
 
 /**
