@@ -19,11 +19,11 @@ before reimplementing, per the contract method).
   (persisted), 15 fps preview cap, map catches up per capture instead of
   following live; emulator-verified at the persisted-state level. Map badge
   shows the armed pref.
-- **Resolution menu**: the Tauri app enumerates per-camera supported
-  resolutions (`getCameraSupportedResolutions`, cached, with a loading set
-  per camera) and persists `selectedResolution`. frontend2's CameraX path
-  currently takes the default. CameraX offers `ResolutionSelector`; the
-  menu should show real sensor modes, not a hardcoded list.
+- ~~Resolution menu~~ **DONE 2026-08-07**: 📷 button + dropdown with Auto
+  and the sensor's real JPEG ladder (Tauri's list turned out hardcoded —
+  the web cannot enumerate). Persisted, applied via ResolutionSelector
+  with an aspect fence (the default selector prefers 4:3 and silently
+  downgraded a 16:9 pin). Camera-row enumeration left for later.
 - ~~Capture queue indicator~~ **resolved 2026-08-07**: the Tauri component
   watches its webview-side capture queue (max 50, slow/fast modes) — a
   structure frontend2 does not have; upload depth is already on the
