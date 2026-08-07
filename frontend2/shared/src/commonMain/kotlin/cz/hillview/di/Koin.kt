@@ -17,13 +17,22 @@ import org.koin.dsl.module
 expect fun platformModule(): Module
 
 val appModule = module {
-    single<BackendConfig> { defaultBackendConfig() }
+    // The API URL has ONE home: the settings repository. defaultBackendConfig()
+    // only supplies the platform default for a fresh install (see the
+    // repository bindings). Resolved once at startup — a URL edit in settings
+    // reaches auth on next app start; the upload stack reads it per drain.
+    single<BackendConfig> {
+        BackendConfig(get<cz.hillview.settings.UploadSettingsRepository>().settings.value.serverUrl)
+    }
     single { createHttpClient() }
     single { AuthApi(get(), get()) }
     single { SessionManager(get(), get()) }
     // Kept for the jvm backend-contract tests; the app's upload path is the
     // platform UploadPipeline (shared-kt stack on Android).
     single { cz.hillview.upload.PhotoUploadApi(get(), get(), get()) }
+    // One per process: tracking has to survive moving between the map and
+    // capture, which is a different lifetime from either screen.
+    single { cz.hillview.map.MapSession() }
     viewModel { LoginViewModel(get()) }
 }
 

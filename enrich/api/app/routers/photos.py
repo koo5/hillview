@@ -10,7 +10,7 @@ GET /api/photos/{photo_id}
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import text
 
-from .. import graph
+from .. import graph, matching
 from ..db import wb_engine
 
 router = APIRouter()
@@ -65,6 +65,16 @@ SELECT DISTINCT ?ph WHERE {{ GRAPH ?f {{ ?ph hv:calibratedBearing ?o }} }}""")
                        for r in rows]}
 
 
+def _match_row(r, **extra) -> dict:
+    """One match_results row for the page, plus stale_rect: whether the annotation
+    has been reshaped since the matcher looked at it. params/ann_target are only
+    carried this far to answer that, so they are dropped from the payload."""
+    d = dict(r._mapping)
+    target, params = d.pop("ann_target", None), d.pop("params", None)
+    d["stale_rect"] = matching.rect_is_stale(params, matching.rect_of_target(target))
+    return {**d, **extra}
+
+
 def _rect(target) -> dict | None:
     try:
         g = (target.get("selector") or {}).get("geometry") or {}
@@ -93,7 +103,8 @@ async def photo_detail(photo_id: str):
         as_pano = (await conn.execute(text(
             "SELECT m.id, m.annotation_id, m.photo_id AS candidate_id, m.status, "
             "m.raw_matches, m.inliers, m.ratio, m.error, m.overlay_path IS NOT NULL AS has_overlay, "
-            "m.enqueued_at, a.body, c.title AS candidate_title, c.sizes AS candidate_sizes "
+            "m.enqueued_at, m.params, a.target AS ann_target, "
+            "a.body, c.title AS candidate_title, c.sizes AS candidate_sizes "
             "FROM match_results m "
             "JOIN annotation_mirror a ON a.id = m.annotation_id "
             "LEFT JOIN photo_mirror c ON c.id = m.photo_id "
@@ -102,7 +113,8 @@ async def photo_detail(photo_id: str):
         as_candidate = (await conn.execute(text(
             "SELECT m.id, m.annotation_id, m.status, m.raw_matches, m.inliers, "
             "m.ratio, m.error, m.overlay_path IS NOT NULL AS has_overlay, "
-            "m.enqueued_at, a.body, a.photo_id AS pano_id, "
+            "m.enqueued_at, m.params, a.target AS ann_target, "
+            "a.body, a.photo_id AS pano_id, "
             "s.title AS pano_title, s.sizes AS pano_sizes "
             "FROM match_results m "
             "JOIN annotation_mirror a ON a.id = m.annotation_id "
@@ -172,8 +184,7 @@ SELECT ?ann ?rect WHERE {{
                          "proposed_rect": proposed_rects.get(a.id)} for a in anns],
         "facts": photo_facts,
         "matches": {
-            "as_pano": [dict(r._mapping) for r in as_pano],
-            "as_candidate": [{**dict(r._mapping),
-                              "verdict": verdicts.get(r.annotation_id, "none")}
+            "as_pano": [_match_row(r) for r in as_pano],
+            "as_candidate": [_match_row(r, verdict=verdicts.get(r.annotation_id, "none"))
                              for r in as_candidate]},
     }

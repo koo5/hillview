@@ -20,6 +20,13 @@ Rules:
 - Pure-logic files (MadgwickAHRS, HeadingFilter, culling) are candidates to
   graduate further into frontend2's commonMain later; they enter here first.
 
+Sensor family COMPLETE (2026-08-05, second wave): EnhancedSensorService,
+DeviceOrientationProvider, MyDeviceOrientationSensor, PreciseLocationService,
+AppLifecycleObserver (pure moves) + GeoTrackingManager (its two JSObject
+command handlers carved to the plugin's GeoTrackingCommands.kt). frontend2
+gained play-services-location 21.3.0. Adoption in frontend2's capture
+bearing is the next step (EXIF direction-ref contract review first).
+
 Pilot COMPLETE (2026-08-05): the full upload family compiles in both apps —
 PhotoUploadLogic (Tauri bridge carved out to the plugin's
 PhotoUploadCommands.kt as same-package extension functions),

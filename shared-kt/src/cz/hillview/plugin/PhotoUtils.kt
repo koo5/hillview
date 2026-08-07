@@ -138,6 +138,17 @@ object PhotoUtils {
      * Calculate MD5 hash of a file
      * @return MD5 hash as hex string, or null if calculation fails
      */
+    /**
+     * Same MD5 dedup key as [calculateFileHash], for callers that already
+     * hold the bytes — e.g. a photo saved through MediaStore, which is a
+     * content:// URI with no File behind it (added 2026-08 for frontend2's
+     * storage modes; the upload path reads bytes the same way).
+     */
+    fun calculateHash(bytes: ByteArray): String =
+        MessageDigest.getInstance("MD5")
+            .digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+
     fun calculateFileHash(file: File): String? {
         return try {
             val digest = MessageDigest.getInstance("MD5")

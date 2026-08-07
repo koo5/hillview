@@ -96,6 +96,8 @@ data class PendingUpload(
     val altitude: Double? = null,
     val bearing: Double? = null,
     val capturedAtIso: String? = null,
+    /** Capture instant from the sensor snapshot — authoritative, unlike a file mtime. */
+    val capturedAtMs: Long? = null,
     val state: UploadState = UploadState.Pending,
     val attempts: Int = 0,
     val lastError: String? = null,

@@ -24,6 +24,15 @@ kotlin {
         androidResources {
             enable = true
         }
+
+        // Instrumented tests: the contracts that only exist on a device —
+        // EXIF written by Android's ExifInterface, the storage targets, and
+        // what the platform reports about them.
+        withDeviceTestBuilder {
+            sourceSetTreeName = "test"
+        }.configure {
+            instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        }
     }
 
     jvm()
@@ -63,6 +72,8 @@ kotlin {
             implementation(libs.kotlinx.coroutines.android)
             implementation(libs.ktor.client.okhttp)
             implementation(libs.okhttp)
+            implementation(libs.osmdroid)
+            implementation(libs.play.services.location)
             implementation(libs.zxing.core)
         }
         commonMain.dependencies {
@@ -95,6 +106,10 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(libs.ktor.client.okhttp)
+        }
+        getByName("androidDeviceTest").dependencies {
+            implementation(libs.androidx.test.runner)
+            implementation(libs.androidx.test.junit)
         }
         jvmTest.dependencies {
             implementation(libs.compose.uiTest)

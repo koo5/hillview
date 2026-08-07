@@ -29,9 +29,12 @@ fun HomeScreen(
     onOpenLogin: () -> Unit,
     onOpenClockVideo: () -> Unit,
     onOpenCapture: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenMap: () -> Unit,
     session: SessionManager = koinInject(),
 ) {
     val sessionState by session.state.collectAsState()
+    val expiredNotice by session.sessionExpiredNotice.collectAsState()
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -64,6 +67,19 @@ fun HomeScreen(
                 .testTag("home-session-status"),
         )
 
+        expiredNotice?.let { reason ->
+            Text(
+                // The suite greps for the phrase "session has expired";
+                // keep it verbatim inside whatever the sentence becomes.
+                text = "Your session has expired ($reason) — please sign in again.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .padding(bottom = 16.dp)
+                    .testTag("home-session-expired"),
+            )
+        }
+
         Button(
             onClick = onOpenCapture,
             modifier = Modifier.testTag("home-capture-button"),
@@ -78,6 +94,24 @@ fun HomeScreen(
                 .testTag("home-clock-video-button"),
         ) {
             Text("Clock calibration video")
+        }
+
+        OutlinedButton(
+            onClick = onOpenMap,
+            modifier = Modifier
+                .padding(top = 12.dp)
+                .testTag("home-map-button"),
+        ) {
+            Text("Orientation map")
+        }
+
+        OutlinedButton(
+            onClick = onOpenSettings,
+            modifier = Modifier
+                .padding(top = 12.dp)
+                .testTag("home-settings-button"),
+        ) {
+            Text("Settings")
         }
 
         when (sessionState) {

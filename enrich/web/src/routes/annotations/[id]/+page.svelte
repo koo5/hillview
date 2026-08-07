@@ -76,6 +76,8 @@
 		raw_matches: number | null;
 		inliers: number | null;
 		ratio: number | null;
+		// measured against a rect that has since moved (annotation reshaped)
+		stale_rect: boolean;
 	}
 	let matchResults = $state<MatchResult[]>([]);
 	const metadataFor = (uri: string) => (ann?.facts ?? []).filter((f) => f.subject === uri);
@@ -729,7 +731,16 @@
 				{#each matchResults.slice(0, 8) as m (m.id)}
 					<tr>
 						<td><a href="/photos/{m.photo_id}" class="mono" style="font-size:12px">{m.photo_id.slice(0, 8)}</a></td>
-						<td style="font-size:12px">{m.status}</td>
+						<td style="font-size:12px">
+							{m.status}
+							{#if m.stale_rect}
+								<span
+									class="pill stale"
+									title="measured against a different rect — the annotation has been reshaped since"
+									>rect moved</span
+								>
+							{/if}
+						</td>
 						<td class="mono" style="font-size:12px">
 							{#if m.status === 'done'}
 								{m.inliers}/{m.raw_matches} = {Math.round((m.ratio ?? 0) * 100)}%

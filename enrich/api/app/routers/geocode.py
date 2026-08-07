@@ -83,13 +83,21 @@ async def geocode_run(req: GeocodeRequest):
     if geocode_lock.locked():
         raise HTTPException(409, "a geocode run is already running")
 
+    # strict, like parse/run: a scope missing its key must NOT silently widen to
+    # every current annotation (that is a few hundred external lookups)
     where, params = ["a.is_current", "a.missing_since IS NULL"], {}
-    if req.scope == "photo" and req.photo_id:
+    if req.scope == "photo":
+        if not req.photo_id:
+            raise HTTPException(422, "photo scope needs photo_id")
         where.append("a.photo_id = :pid")
         params["pid"] = req.photo_id
-    elif req.scope == "annotations" and req.annotation_ids:
+    elif req.scope == "annotations":
+        if not req.annotation_ids:
+            raise HTTPException(422, "annotations scope needs annotation_ids")
         where.append("a.id = ANY(:ids)")
         params["ids"] = req.annotation_ids
+    elif req.scope != "all-current":
+        raise HTTPException(422, "scope must be all-current | photo | annotations")
     async with wb_engine.connect() as conn:
         ann_ids = [r[0] for r in (await conn.execute(text(
             f"SELECT a.id FROM annotation_mirror a WHERE {' AND '.join(where)}"),

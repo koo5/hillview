@@ -1860,9 +1860,10 @@
 
 	.calibrate-compass-button {
 		position: absolute;
-		bottom: 0px;
+		/* Sit above the shutter (bottom: 6px + 78px tall container), not on top of it */
+		bottom: 92px;
 		left: 50%;
-		transform: translate(-50%, -50%);
+		transform: translateX(-50%);
 		padding: 0.75rem 1rem;
 		background: #e24a4a;
 		color: white;
@@ -2230,7 +2231,7 @@
 		}
 
 		.calibrate-compass-button {
-			bottom: calc(0px + var(--safe-area-inset-bottom, 0px));
+			bottom: calc(92px + var(--safe-area-inset-bottom, 0px));
 		}
 
 		.switch-to-car-mode-button {

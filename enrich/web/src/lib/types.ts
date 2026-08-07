@@ -1,5 +1,7 @@
 export interface SyncTableState {
 	table_name: string;
+	// relics of the append tier removed 2026-08-06: still returned by the API,
+	// no longer updated. last_reconcile_at is the one live timestamp.
 	watermark: string | null;
 	last_append_at: string | null;
 	last_reconcile_at: string | null;

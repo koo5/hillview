@@ -11,13 +11,16 @@ router = APIRouter()
 
 
 class SyncRequest(BaseModel):
-    mode: str = "append"   # append | reconcile
+    # one pass now; 'reconcile' still accepted as its historical name
+    mode: str = "sync"
 
 
 @router.post("/sync/run")
-async def sync_run(req: SyncRequest):
-    if req.mode not in ("append", "reconcile"):
-        raise HTTPException(422, "mode must be append or reconcile")
+async def sync_run(req: SyncRequest = SyncRequest()):
+    if req.mode == "append":
+        raise HTTPException(422, sync_mod.APPEND_GONE)
+    if req.mode not in ("sync", "reconcile"):
+        raise HTTPException(422, "mode must be sync")
     if sync_mod.sync_lock.locked():
         raise HTTPException(409, "a sync is already running")
 

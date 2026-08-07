@@ -16,6 +16,8 @@ private class DesktopPhotoCapture : PhotoCapture {
         errorMessage = "Photo capture is only available on Android.",
     )
 
+    override var manualLocation: ManualLocation? = null
+
     override fun capture() {}
 
     @Composable

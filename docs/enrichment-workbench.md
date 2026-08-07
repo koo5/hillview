@@ -54,10 +54,18 @@ Implemented & verified in `enrich/`:
   via `default_transaction_read_only`)/`tables`/`graph` (Oxigraph HTTP-SPARQL client)/`runs`
   + `health`. `/api/health` = all three deps green. *(Gotcha: multi-statement schema SQL needs
   the raw asyncpg connection — prepared statements reject it.)*
-- **M0-3 ✅** two-tier sync (`app/sync.py`, routers `sync`+`runs`, CLI `python -m app.sync`).
+- **M0-3 ✅** sync (`app/sync.py`, routers `sync`+`runs`, CLI `python -m app.sync`).
   Backfilled **28,458 photos / 650 annotations** == source. Full correctness gauntlet passes:
-  idempotent reconcile, monotone append, insert→append, mutate→reconcile, delete→missing_since
+  idempotent reconcile, insert→picked up, mutate→carried, delete→missing_since
   (row kept), reappear→cleared.
+  **2026-08-06: the append tier was removed** — one full-scan pass now. Append could
+  never update an existing row (watermark filter, and `ON CONFLICT DO NOTHING`), so a
+  prod-side edit stayed invisible while both sides looked self-consistent; it also
+  could not see dump-seeded rows, whose `created_at` sits behind the watermark. It
+  inserted nothing the scan does not insert anyway (`changed` includes ids absent from
+  the mirror). Cost of the scan: **10.8 s** for 51,416 photos + 939 annotations. If the
+  workbench is ever pointed at a LIVE hillview DB, reintroduce it as an internal fast
+  path only, paired with a periodic full scan — see the `app/sync.py` docstring.
 - **M0-4 ✅** SvelteKit web: dashboard (health pills, mirror counts, append/reconcile buttons,
   sync-state + run history). `bun run check` clean; CORS ok.
 - **M1-1 ✅** parser (`app/parser.py`) ported from `resolve_anchors.py:parse_body` — pure,

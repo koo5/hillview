@@ -1,19 +1,31 @@
-"""Two-tier mirror sync from the hillview source DB. The mirror only GAINS
-information:
+"""One-pass mirror sync from the hillview source DB. The mirror only GAINS
+information: compare source-side row hashes (md5(to_jsonb(row))) against the
+stored row_hash, upsert changed AND new rows, stamp missing_since on rows gone
+from the source (NEVER delete), clear it on reappearance. Workbench-native rows
+(origin <> 'hillview') have no source row and are never stamped.
 
-  * append    — monotone: INSERT rows newer than the watermark
-                (COALESCE(record_created_ts, uploaded_at) / created_at).
-                Never touches existing rows. Cheap; run often.
-  * reconcile — non-destructive repair: compare source-side row hashes
-                (md5(to_jsonb(row))) against stored row_hash, upsert changed
-                rows, stamp missing_since on rows gone from the source
-                (NEVER delete), clear it on reappearance.
+Rationale: the source has no updated-at column — analysis, geocode, deleted,
+is_current, compass_angle all mutate silently — so a full scan is the only thing
+that can see a mutation at all. See docs/enrichment-workbench.md.
 
-Rationale: the source has no updated-at column — analysis/geocode/deleted/
-is_current mutate silently — so mutations are only catchable by the reconcile
-scan, while inserts are safely watermarkable. See docs/enrichment-workbench.md.
+REMOVED 2026-08-06 — the `append` tier, which INSERTed rows newer than a
+watermark (COALESCE(record_created_ts, uploaded_at) / created_at). It was a
+latency optimization for a live-DB source that never materialized, and against a
+dump-fed source it was a trap: it can never update an existing row (the watermark
+filter skips it, and its ON CONFLICT DO NOTHING would skip it anyway), so a
+prod-side edit — a corrected compass_angle, say — stayed invisible while both
+sides looked self-consistent. It also could not see dump rows at all, since those
+carry their prod created_at, behind the watermark. Nothing was lost by removing
+it: the scan below already inserts what it inserted, because `changed` includes
+every id absent from the mirror.
 
-Also runnable as a CLI: python -m app.sync [append|reconcile|backfill]
+If the workbench is ever pointed at a LIVE hillview DB and this full scan becomes
+too expensive, bring it back as an INTERNAL fast path — never as a mode a human
+picks — and only ever PAIRED with a periodic full scan, because a
+watermark-bounded pass is structurally incapable of seeing an older row mutate.
+sync_state.watermark is left in place, unmaintained, for that day.
+
+Also runnable as a CLI: python -m app.sync
 """
 import asyncio
 import sys
@@ -55,18 +67,20 @@ ANN_JSON = ["target"]
 
 
 def _select_sql(table: str, plain: list[str], json_cols: list[str],
-                has_geom: bool, wm_expr: str) -> str:
+                has_geom: bool) -> str:
     cols = list(plain)
     cols += [f"{c}::text AS {c}" for c in json_cols]
     if has_geom:
         cols.append("encode(ST_AsEWKB(geometry), 'hex') AS geom_hex")
     cols.append(f"md5(to_jsonb(t)::text) AS row_hash")
-    cols.append(f"{wm_expr} AS wm")
     return f"SELECT {', '.join(cols)} FROM {table} t"
 
 
 def _upsert_sql(mirror: str, plain: list[str], json_cols: list[str],
-                has_geom: bool, on_conflict_update: bool) -> str:
+                has_geom: bool) -> str:
+    """INSERT … ON CONFLICT DO UPDATE. Always an upsert: a row already in the
+    mirror is exactly the case that needs writing (its source changed), which is
+    what the removed append tier got backwards."""
     cols = list(plain) + list(json_cols) + (["geometry"] if has_geom else [])
     cols += ["row_hash", "synced_at", "missing_since"]
     vals = [f":{c}" for c in plain]
@@ -74,25 +88,24 @@ def _upsert_sql(mirror: str, plain: list[str], json_cols: list[str],
     if has_geom:
         vals.append("CAST(:geom_hex AS geometry)")
     vals += [":row_hash", "now()", "NULL"]
-    sql = (f"INSERT INTO {mirror} ({', '.join(cols)}) VALUES ({', '.join(vals)}) "
-           f"ON CONFLICT (id) DO ")
-    if on_conflict_update:
-        sets = [f"{c} = EXCLUDED.{c}" for c in cols if c != "synced_at"]
-        sets.append("synced_at = now()")
-        sql += "UPDATE SET " + ", ".join(sets)
-    else:
-        sql += "NOTHING"
-    return sql
+    sets = [f"{c} = EXCLUDED.{c}" for c in cols if c != "synced_at"]
+    sets.append("synced_at = now()")
+    return (f"INSERT INTO {mirror} ({', '.join(cols)}) VALUES ({', '.join(vals)}) "
+            f"ON CONFLICT (id) DO UPDATE SET " + ", ".join(sets))
 
 
+# "when did this row appear" per table. Unused by the pass below, which scans
+# everything — kept because they are the one piece a live-DB fast path would need,
+# and rederiving them means rediscovering that photos have no single creation
+# timestamp (record_created_ts is absent on older rows).
 PHOTO_WM = "COALESCE(record_created_ts, uploaded_at, 'epoch'::timestamptz)"
 ANN_WM = "COALESCE(created_at, 'epoch'::timestamptz)"
 
 SPECS = {
     "photo_mirror": dict(source="photos", plain=PHOTO_PLAIN, json_cols=PHOTO_JSON,
-                         has_geom=True, wm_expr=PHOTO_WM),
+                         has_geom=True),
     "annotation_mirror": dict(source="photo_annotations", plain=ANN_PLAIN,
-                              json_cols=ANN_JSON, has_geom=False, wm_expr=ANN_WM),
+                              json_cols=ANN_JSON, has_geom=False),
 }
 
 
@@ -105,57 +118,7 @@ def _params(row, spec) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# append tier (monotone)
-# ---------------------------------------------------------------------------
-
-async def sync_append() -> dict:
-    stats = {}
-    for mirror, spec in SPECS.items():
-        async with wb_engine.connect() as wb:
-            wm_row = (await wb.execute(text(
-                "SELECT watermark FROM sync_state WHERE table_name = :t"),
-                {"t": mirror})).first()
-        watermark = wm_row[0] if wm_row and wm_row[0] else None
-
-        sel = _select_sql(spec["source"], spec["plain"], spec["json_cols"],
-                          spec["has_geom"], spec["wm_expr"])
-        cond = f"WHERE {spec['wm_expr']} > :wm" if watermark else ""
-        q = f"{sel} {cond} ORDER BY wm, id"
-        ins = _upsert_sql(mirror, spec["plain"], spec["json_cols"],
-                          spec["has_geom"], on_conflict_update=False)
-
-        async with wb_engine.connect() as wb:
-            before = (await wb.execute(text(f"SELECT count(*) FROM {mirror}"))).scalar()
-
-        scanned = 0
-        new_wm = watermark
-        async with hv_engine.connect() as hv:
-            result = await hv.stream(text(q), {"wm": watermark} if watermark else {})
-            async for chunk in result.partitions(BATCH):
-                params = [_params(r, spec) for r in chunk]
-                async with wb_engine.begin() as wb:
-                    await wb.execute(text(ins), params)
-                scanned += len(params)
-                new_wm = chunk[-1]._mapping["wm"]
-
-        async with wb_engine.connect() as wb:
-            after = (await wb.execute(text(f"SELECT count(*) FROM {mirror}"))).scalar()
-        inserted = after - before
-
-        async with wb_engine.begin() as wb:
-            await wb.execute(text(
-                "INSERT INTO sync_state (table_name, watermark, last_append_at) "
-                "VALUES (:t, :wm, now()) "
-                "ON CONFLICT (table_name) DO UPDATE SET "
-                "watermark = COALESCE(EXCLUDED.watermark, sync_state.watermark), "
-                "last_append_at = now()"),
-                {"t": mirror, "wm": new_wm})
-        stats[mirror] = {"inserted": inserted, "scanned": scanned, "watermark": str(new_wm)}
-    return stats
-
-
-# ---------------------------------------------------------------------------
-# reconcile tier (non-destructive repair)
+# the sync pass (non-destructive repair)
 # ---------------------------------------------------------------------------
 
 async def sync_reconcile() -> dict:
@@ -182,9 +145,9 @@ async def sync_reconcile() -> dict:
 
         # 2. upsert changed/new rows (missing_since cleared by the upsert itself)
         sel = _select_sql(spec["source"], spec["plain"], spec["json_cols"],
-                          spec["has_geom"], spec["wm_expr"])
+                          spec["has_geom"])
         ups = _upsert_sql(mirror, spec["plain"], spec["json_cols"],
-                          spec["has_geom"], on_conflict_update=True)
+                          spec["has_geom"])
         for i in range(0, len(changed), BATCH):
             ids = changed[i:i + BATCH]
             async with hv_engine.connect() as hv:
@@ -237,12 +200,24 @@ async def sync_reconcile() -> dict:
 sync_lock = asyncio.Lock()
 
 
-async def run_sync(mode: str) -> dict:
-    """Execute one sync tier as a runs-row-tracked operation."""
-    fn = {"append": sync_append, "reconcile": sync_reconcile}[mode]
-    run_id = await create_run(kind=f"sync_{mode}")
+APPEND_GONE = ("the append tier was removed — run the plain sync, which inserts new "
+               "rows too and, unlike append, also catches edits to rows already "
+               "mirrored (see app/sync.py)")
+
+
+async def run_sync(mode: str = "sync") -> dict:
+    """Execute the sync as a runs-row-tracked operation. `mode` is tolerated for
+    older callers: 'reconcile' is this pass's historical name; 'append' is refused
+    loudly rather than silently doing something subtly different."""
+    if mode == "append":
+        raise ValueError(APPEND_GONE)
+    if mode not in ("sync", "reconcile"):
+        raise ValueError(f"unknown sync mode: {mode}")
+    # run kind stays sync_reconcile: the runs history and the /runs filter are
+    # full of it, and renaming would orphan every past row for no gain
+    run_id = await create_run(kind="sync_reconcile")
     try:
-        stats = await fn()
+        stats = await sync_reconcile()
         await finish_run(run_id, stats=stats)
         return {"run_id": str(run_id), "status": "succeeded", "stats": stats}
     except Exception as e:
@@ -251,13 +226,11 @@ async def run_sync(mode: str) -> dict:
 
 
 async def _main(argv: list[str]) -> None:
-    modes = argv or ["backfill"]
-    if modes == ["backfill"]:
-        modes = ["append", "reconcile"]
-    for m in modes:
-        print(f"== sync {m} ==", flush=True)
-        out = await run_sync(m)
-        print(out, flush=True)
+    # old invocations (reconcile | backfill) still land on the one pass
+    if "append" in argv:
+        raise SystemExit(APPEND_GONE)
+    print("== sync ==", flush=True)
+    print(await run_sync(), flush=True)
 
 
 if __name__ == "__main__":
