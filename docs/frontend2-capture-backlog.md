@@ -216,3 +216,14 @@ predictive back, deep links all assume routes), and suggested a setting
 could choose between styles. To discuss before the app grows more
 destinations: what is a route vs a mode, what persists, and what the back
 button does in each style.
+
+## Pan-demote protection (DONE 2026-08-07, user-raised)
+
+An accidental pocket-pan used to silently park the map (and in Tauri, the
+photo positions with it). Now: demotion asks — "Map panned, stop following
+GPS?"; staying manual takes a tap, silence self-heals back to following in
+10 s. And the shutter is bilingual: stock click for a fresh-fix capture, a
+warning beep when the position is manual/stale/absent — the pocket can
+hear what it cannot see. Still open on the Tauri side: promoting the
+background-tagged fixes out of UserComment/alt_location (the repair flow)
+remains unimplemented there.
