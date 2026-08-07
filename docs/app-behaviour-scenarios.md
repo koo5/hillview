@@ -237,6 +237,9 @@ Found by reading the above against the port; unfixed unless noted.
 12. ~~Filters dialog lacks clear/show-unanalyzed.~~ **Fixed**: both exist
     with the disabled-until-a-filter-is-active gating, desktop-tested;
     greying by filters still awaits the backend photo query.
-13. **The shutter does not require a location fix**, unlike the web app.
-    Worth deciding deliberately rather than by omission — a photo with no
-    position is rejected by the backend later anyway.
+13. ~~The shutter does not require a location fix.~~ **Decided and fixed**
+    (user, 2026-08-07): the requirement is protection for first-time
+    users, so it gates by default — and is deliberately liftable
+    ("capture at the map position instead") for cases like starting the
+    app underground with a hand-positioned map. Lifted captures carry
+    location_source "manual"; a fresh fix always wins back.

@@ -111,11 +111,34 @@ and easier than feared:**
   already — every Android 14/15 rule above applies now. Neither manifest
   declares a camera FGS type yet (only dataSync for WorkManager).
 
-Still open (research agent hit the spend limit before covering it): video
-recording with **per-frame metadata** — whether CameraX VideoCapture exposes
-frame-timestamp callbacks or MediaCodec/Camera2 is needed. Partly moot: the
-clockvideo recorder already burns per-frame QR timestamps via
-OverlayEffect(VIDEO_CAPTURE) and is emulator-verified.
+## Video with per-frame metadata — research findings (2026-08-07)
+
+Third report, primary-source-verified. **CameraX suffices; no MediaCodec
+drop needed.** For pairing video frames with GPS/compass samples:
+
+- Best route: `Camera2Interop.Extender.setSessionCaptureCallback` on the
+  `VideoCapture` builder — per-frame `CaptureResult.SENSOR_TIMESTAMP`
+  (identical on every output buffer of the capture), zero extra streams.
+  Alternative: `OverlayEffect.Frame.getTimestampNanos()` — documented to
+  equal `ImageInfo.getTimestamp()` for the same sensor frame; **this is the
+  path our clockvideo recorder already rides.**
+- Clock domains: check `SENSOR_INFO_TIMESTAMP_SOURCE` once. `REALTIME` →
+  camera timestamps share `SensorEvent.timestamp`'s clock
+  (elapsedRealtimeNanos) — pair nearest-neighbour directly. `UNKNOWN` →
+  roughly uptime-based; add a measured boottime−uptime offset (constant
+  while recording; they only diverge in deep sleep).
+- **Log timestamps at capture time — the mp4 cannot carry them.**
+  MPEG4Writer rebases PTS to ~0, and CameraX's VideoTimebaseConverter
+  rewrites REALTIME→UPTIME before the encoder. Post-hoc,
+  `MediaExtractor.getSampleTime()` recovers per-sample deltas which align
+  against the logged list by index/delta matching (OpenCamera-Sensors,
+  the Skoltech fork, is prior art for exactly this technique).
+- A parallel `ImageAnalysis` purely for timestamps is possible (values
+  match exactly across streams) but both streams drop frames
+  independently and the binding combination is device-dependent — the
+  interop callback avoids all of that.
+- No public `Recorder` per-frame API exists through 1.7.0-alpha02; the
+  CameraX team's standing advice is the interop callback.
 
 ## The camera-control question (original framing)
 
