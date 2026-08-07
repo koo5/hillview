@@ -180,15 +180,15 @@ fun CaptureScreen(
         }
     }
 
-    // A pane of the Main page now (no header, no back — the floating camera
-    // button toggles the activity): the preview takes what the controls
-    // leave, and the controls scroll when the pane runs short.
+    // A pane of the Main page, shaped like the original's camera-content:
+    // an edge-to-edge black column, the camera view taking every pixel the
+    // controls below don't need, overlays drawn ON the video. (An earlier
+    // cut looked like "a scrollable dialog with a video rectangle" —
+    // phone-in-hand feedback.)
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .safeContentPadding()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .background(androidx.compose.ui.graphics.Color.Black),
     ) {
         Box(
             Modifier
@@ -258,11 +258,14 @@ fun CaptureScreen(
             }
         }
 
+        // The shutter bar under the video, as the original's
+        // shutter-container — compact, scrolling only if a thin pane forces it.
         Column(
             modifier = Modifier
                 .weight(1f, fill = false)
-                .verticalScroll(androidx.compose.foundation.rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
 
         if (promptVisible) {
@@ -275,20 +278,6 @@ fun CaptureScreen(
                 },
             )
         }
-
-        StatusLine(state)
-
-        Text(
-            text = "uploads: ${queueStats.done} done" +
-                (if (queueStats.duplicate > 0) ", ${queueStats.duplicate} dup" else "") +
-                (if (queueStats.pending > 0) ", ${queueStats.pending} pending" else "") +
-                (if (queueStats.failed > 0) ", ${queueStats.failed} failed" else "") +
-                (queueStats.lastError?.let { " · $it" } ?: ""),
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("capture-upload-stats"),
-        )
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -393,7 +382,7 @@ fun CaptureScreen(
         // The gate's escape hatch, offered only while it is actually shut:
         // shooting underground means positioning the map by hand first and
         // capturing against that.
-        if (state.ready && !state.hasFix) {
+        if (state.ready && !state.hasFix && !manualClaimed) {
             if (!manualLocationArmed) {
                 TextButton(
                     onClick = {
@@ -445,7 +434,10 @@ fun CaptureScreen(
                 },
                 // The location gate (see shutterEnabled): no fix, no photo —
                 // unless the user has deliberately lifted it below.
-                enabled = shutterEnabled(state.ready, state.hasFix, manualLocationArmed) &&
+                // A manual position stands in for the fix whichever way it
+                // arrived: the local lift OR the pill's accepted claim
+                // (phone-in-hand find: the claim used to leave the gate shut).
+                enabled = shutterEnabled(state.ready, state.hasFix, manualLocationArmed || manualClaimed) &&
                     (repeating || !state.capturing),
                 modifier = Modifier
                     .size(width = 160.dp, height = 56.dp)
@@ -461,6 +453,22 @@ fun CaptureScreen(
                 )
             }
         }
+
+        StatusLine(state)
+
+        Text(
+            text = "uploads: ${queueStats.done} done" +
+                (if (queueStats.duplicate > 0) ", ${queueStats.duplicate} dup" else "") +
+                (if (queueStats.pending > 0) ", ${queueStats.pending} pending" else "") +
+                (if (queueStats.failed > 0) ", ${queueStats.failed} failed" else "") +
+                (queueStats.lastError?.let { " · $it" } ?: ""),
+            style = MaterialTheme.typography.bodySmall,
+            color = androidx.compose.ui.graphics.Color(0x99FFFFFF),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("capture-upload-stats"),
+        )
+
         } // controls scroll column
     }
 
@@ -541,7 +549,8 @@ private fun StatusLine(state: CaptureState) {
         color = if (state.errorMessage != null && state.supported) {
             MaterialTheme.colorScheme.error
         } else {
-            MaterialTheme.colorScheme.onSurface
+            // The pane is black now, like the original's camera-content.
+            androidx.compose.ui.graphics.Color(0xCCFFFFFF)
         },
         modifier = Modifier
             .fillMaxWidth()

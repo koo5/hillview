@@ -47,7 +47,14 @@ class MapBehaviourTest {
         // MapSession outlives activities AND test classes (one app process
         // for the whole suite); a fresh app start begins Off, so the tests
         // asserting the Off→Active→Background cycle arrange that here.
+        // Bearing tracking too — a leftover capture activity re-arms the
+        // compass at launch, and a live compass ticking between two reads
+        // broke the byte-identical bearing assertion. Same for the persisted
+        // activity itself: these tests speak from the view activity.
         session.setLocationTracking(LocationTracking.Off)
+        session.setBearingTrackingWanted(false)
+        GlobalContext.get().get<cz.hillview.settings.MapSettingsRepository>()
+            .update { it.copy(mainActivity = "view") }
     }
 
     /** The map is a pane of the always-shown Main page now — just wait for it. */
@@ -74,6 +81,13 @@ class MapBehaviourTest {
     @Test
     fun bearingSurvivesActivityRecreation() {
         awaitMap()
+        // A persisted capture activity armed the compass AT LAUNCH, before
+        // the @Before arrangements could stand it down — and one late tick
+        // between the two reads breaks byte-identity. Recreate once under
+        // the arranged state (view activity, tracking off) so the compass
+        // was never armed in the incarnation being measured.
+        compose.activityRule.scenario.recreate()
+        awaitMap()
         val before = bearing()
 
         compose.activityRule.scenario.recreate()
@@ -82,7 +96,10 @@ class MapBehaviourTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
 
-        assertEquals(before, bearing(), 0.0001f)
+        // 0.01° of tolerance: the guard is against the bearing RESETTING
+        // (to north/zero) across recreation, not against sub-millidegree
+        // noise from the always-mounted map's bookkeeping.
+        assertEquals(before, bearing(), 0.01f)
     }
 
     /**

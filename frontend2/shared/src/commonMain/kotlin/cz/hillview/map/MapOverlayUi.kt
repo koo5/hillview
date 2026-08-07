@@ -484,31 +484,25 @@ private fun CompassButton(
             }
         }
 
-        if (menuOpen) {
-            AlertDialog(
-                onDismissRequest = { menuOpen = false },
-                confirmButton = {
-                    TextButton(onClick = { menuOpen = false }) { Text("Close") }
-                },
-                title = { Text("Bearing mode") },
-                text = {
-                    Column {
-                        ModeRow(
-                            title = "Walking Mode",
-                            subtitle = "Compass bearing",
-                            selected = bearingMode == BearingMode.Walking,
-                            testTag = "walking-mode-option",
-                        ) { onSelectMode(BearingMode.Walking); menuOpen = false }
-                        ModeRow(
-                            title = "Car Mode",
-                            subtitle = "GPS bearing",
-                            selected = bearingMode == BearingMode.Car,
-                            testTag = "car-mode-option",
-                        ) { onSelectMode(BearingMode.Car); menuOpen = false }
-                    }
-                },
-                modifier = Modifier.testTag("compass-mode-menu"),
-            )
+        // Anchored dropdown, as the original's CompassModeMenu portal under
+        // the button — instant, no dialog-window animation.
+        androidx.compose.material3.DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+            modifier = Modifier.testTag("compass-mode-menu"),
+        ) {
+            ModeRow(
+                title = "Walking Mode",
+                subtitle = "Compass bearing",
+                selected = bearingMode == BearingMode.Walking,
+                testTag = "walking-mode-option",
+            ) { onSelectMode(BearingMode.Walking); menuOpen = false }
+            ModeRow(
+                title = "Car Mode",
+                subtitle = "GPS bearing",
+                selected = bearingMode == BearingMode.Car,
+                testTag = "car-mode-option",
+            ) { onSelectMode(BearingMode.Car); menuOpen = false }
         }
     }
 }

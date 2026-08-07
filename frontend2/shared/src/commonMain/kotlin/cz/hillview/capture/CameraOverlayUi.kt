@@ -121,6 +121,24 @@ private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?)
     val lat = overridePosition?.latitude ?: state.fixLatitude
     val lon = overridePosition?.longitude ?: state.fixLongitude
 
+    // The stale-fix warning, in the overlay's ⚠️ slot: a capture right now
+    // would stamp the photo with this aging fix (the original stamps
+    // silently, however old). Ticks once a second so the age is live.
+    var nowMs by remember { mutableStateOf(cz.hillview.core.nowMs()) }
+    LaunchedEffect(state.fixAtMs) {
+        while (true) {
+            nowMs = cz.hillview.core.nowMs()
+            delay(1_000)
+        }
+    }
+    if (staleFixWarning(state.fixAtMs, nowMs, manualAvailable = overridePosition != null)) {
+        MonoText(
+            "⚠️ GPS stale — photos would use a fix " +
+                "${(nowMs - (state.fixAtMs ?: nowMs)) / 1000}s old",
+            Modifier.testTag("stale-fix-warning"),
+        )
+    }
+
     if (lat == null || lon == null) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(

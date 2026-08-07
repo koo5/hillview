@@ -80,7 +80,7 @@ class UploadCoalescingBehaviourTest {
     @Test
     fun captureBurstCoalescesIntoFewRunsAndNeverPromotesInForeground() {
         compose.openCaptureAndAwaitCamera()
-        compose.liftGateToMapPosition()
+        compose.ensureCaptureReady()
 
         Behaviour.shell("logcat -c")
         val dao = Behaviour.photoDao()

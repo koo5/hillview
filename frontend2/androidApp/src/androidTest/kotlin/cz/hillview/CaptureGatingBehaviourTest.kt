@@ -1,6 +1,7 @@
 package cz.hillview
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -52,6 +53,28 @@ class CaptureGatingBehaviourTest {
     @After
     fun unmaskTheRealGps() {
         gps.remove()
+        // Withdraw any claim this class made (claims are session-long).
+        GlobalContext.get().get<cz.hillview.map.MapSession>()
+            .setLocationTracking(cz.hillview.map.LocationTracking.Off)
+    }
+
+    /**
+     * Phone-in-hand regression: an ACCEPTED claim (the exploration pill's
+     * "Capture here") must open the gate exactly like the local lift does —
+     * it used to leave the shutter shut, honoring only the lift.
+     */
+    @Test
+    fun anAcceptedClaimOpensTheGateWithoutAFix() {
+        GlobalContext.get().get<cz.hillview.map.MapSession>().claimManualPosition()
+        compose.openCaptureAndAwaitCamera()
+
+        compose.waitUntil(10_000) { compose.shutterIsEnabled() }
+        // And the lift row must not double-offer while the claim stands.
+        assertEquals(
+            0,
+            compose.onAllNodesWithTag("capture-use-map-position")
+                .fetchSemanticsNodes().size,
+        )
     }
 
     @Test

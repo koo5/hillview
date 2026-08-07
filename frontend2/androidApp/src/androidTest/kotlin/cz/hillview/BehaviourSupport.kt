@@ -165,6 +165,24 @@ fun ComposeTestRule.openCaptureAndAwaitCamera() {
     }
 }
 
+/**
+ * Open the shutter by WHATEVER stands: a live fix, a standing claim, or —
+ * failing both — the manual lift. For tests that need capture to work and
+ * don't assert the gate's semantics (that's CaptureGatingBehaviourTest's
+ * job, which uses the strict [liftGateToMapPosition]).
+ */
+fun ComposeTestRule.ensureCaptureReady() {
+    waitUntil(15_000) {
+        shutterIsEnabled() ||
+            onAllNodesWithTag("capture-use-map-position").fetchSemanticsNodes().isNotEmpty()
+    }
+    if (!shutterIsEnabled()) {
+        runCatching { onNodeWithTag("capture-use-map-position").performScrollTo() }
+        onNodeWithTag("capture-use-map-position").performClick()
+        waitUntil(5_000) { shutterIsEnabled() }
+    }
+}
+
 /** The item-13 escape hatch: no fix → capture at the map position instead. */
 fun ComposeTestRule.liftGateToMapPosition() {
     waitUntil(10_000) {

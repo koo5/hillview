@@ -78,6 +78,46 @@ class CameraOverlayUiTest {
     }
 
     @Test
+    fun anAgingFixRaisesTheStaleWarning() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(
+                    ready = false,
+                    fixLatitude = 50.1,
+                    fixLongitude = 14.5,
+                    fixAtMs = cz.hillview.core.nowMs() - 60_000,
+                ),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+            )
+        }
+        onNodeWithTag("stale-fix-warning", useUnmergedTree = true).assertExists()
+    }
+
+    @Test
+    fun aFreshFixRaisesNoWarningAndNeitherDoesAClaim() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(
+                    ready = false,
+                    fixLatitude = 50.1,
+                    fixLongitude = 14.5,
+                    fixAtMs = cz.hillview.core.nowMs() - 60_000,
+                ),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                // A claimed position takes over — the stale fix would not
+                // stamp anything, so no warning.
+                overridePosition = ManualLocation(49.9, 14.1),
+                opacityLevel = 3,
+                onCycleOpacity = {},
+            )
+        }
+        onNodeWithTag("stale-fix-warning", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
     fun aClaimedPositionShowsItselfAndClaimsNoMeasurements() = runComposeUiTest {
         setContent {
             CameraOverlayUi(

@@ -103,7 +103,7 @@ class StorageShapeBehaviourTest {
         }
 
         compose.openCaptureAndAwaitCamera()
-        compose.liftGateToMapPosition()
+        compose.ensureCaptureReady()
         val photo = compose.captureOnePhoto()
 
         val actual = classify(photo.path)

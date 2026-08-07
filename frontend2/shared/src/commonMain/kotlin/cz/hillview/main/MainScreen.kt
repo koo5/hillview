@@ -121,13 +121,15 @@ fun MainScreen(
             )
         }
         val divider: @Composable () -> Unit = {
+            // The split ruler: a visible grip, so the drag affordance reads
+            // at a glance (the original's resizableSplit bar).
             Box(
                 modifier = Modifier
                     .then(
                         if (portrait) {
-                            Modifier.fillMaxWidth().height(10.dp)
+                            Modifier.fillMaxWidth().height(14.dp)
                         } else {
-                            Modifier.fillMaxHeight().width(10.dp)
+                            Modifier.fillMaxHeight().width(14.dp)
                         },
                     )
                     .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -144,7 +146,23 @@ fun MainScreen(
                             },
                         )
                     },
-            )
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .then(
+                            if (portrait) {
+                                Modifier.width(48.dp).height(5.dp)
+                            } else {
+                                Modifier.height(48.dp).width(5.dp)
+                            },
+                        )
+                        .background(
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            RoundedCornerShape(3.dp),
+                        ),
+                )
+            }
         }
 
         // clipToBounds on both panes: Compose's view-interop containers do

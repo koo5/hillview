@@ -54,6 +54,8 @@ data class CaptureState(
     val fixLongitude: Double? = null,
     val fixAltitude: Double? = null,
     val fixAccuracyM: Float? = null,
+    /** Wall-clock ms of the last fix, so the UI can watch it go stale. */
+    val fixAtMs: Long? = null,
     /** Magnetometer status on Android's 0-3 scale; null = not yet known. */
     val compassAccuracy: Int? = null,
     /** Real JPEG output sizes, biggest first — empty until the camera binds. */
@@ -143,8 +145,25 @@ enum class CaptureTone { Normal, Degraded }
  * degraded location mode must be audible, not just visible. (User-raised:
  * repairing mis-positioned photos after a session is a manual slog.)
  */
+/**
+ * How old a fix may be and still count as fresh — the gate, the tone, the
+ * manual-fallback arbitration and the stale warning all share this one
+ * number. A frontend2 divergence (the original has no age concept at all);
+ * see docs/tauri-capture-ui-contract.md, "Fix freshness".
+ */
+const val FIX_FRESH_MS = 15_000L
+
+/**
+ * True when a capture RIGHT NOW would stamp the photo with a stale fix:
+ * there is a fix, it has gone stale, and no manual position (armed fallback
+ * or accepted claim) would take over. The original silently geotags from
+ * however old a fix; here the user gets told.
+ */
+fun staleFixWarning(fixAtMs: Long?, nowMs: Long, manualAvailable: Boolean): Boolean =
+    !manualAvailable && fixAtMs != null && nowMs - fixAtMs > FIX_FRESH_MS
+
 fun captureTone(locationSource: String?, locationAgeMs: Long?): CaptureTone =
-    if (locationSource == "gps" && (locationAgeMs == null || locationAgeMs <= 15_000)) {
+    if (locationSource == "gps" && (locationAgeMs == null || locationAgeMs <= FIX_FRESH_MS)) {
         CaptureTone.Normal
     } else {
         CaptureTone.Degraded

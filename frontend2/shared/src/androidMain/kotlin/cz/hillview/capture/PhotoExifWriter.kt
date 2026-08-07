@@ -60,12 +60,18 @@ object PhotoExifWriter {
             exif.setAttribute(ExifInterface.TAG_GPS_DEST_BEARING_REF, "T")
         }
 
-        // Provenance, same shape and tag (UserComment) as the Rust writer.
+        // Provenance, same shape and tag (UserComment) as the Rust writer —
+        // plus location_age_ms, which the original never records: how old
+        // the stamped fix was at the shutter. Additive key; readers of the
+        // Tauri shape ignore what they don't know.
         val locationSource = snapshot.locationSource
         if (locationSource != null || snapshot.bearingSource != null) {
             val fields = buildList {
                 locationSource?.let { add("\"location_source\":\"$it\"") }
                 snapshot.bearingSource?.let { add("\"bearing_source\":\"$it\"") }
+                if (locationSource == "gps") {
+                    snapshot.locationAgeMs?.let { add("\"location_age_ms\":$it") }
+                }
             }
             exif.setAttribute(
                 ExifInterface.TAG_USER_COMMENT,

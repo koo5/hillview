@@ -119,8 +119,6 @@ private class AndroidPhotoCapture(
     // location path the Tauri app's capture geotag rides on.
     private var preciseLocation: cz.hillview.plugin.PreciseLocationService? = null
 
-    /** How old a fix may be and still count as "has a fix" (and beat manual). */
-    private val FIX_FRESH_MS = 15_000L
 
     // The shutter's voice: the stock click for a healthy capture, a double
     // beep when the position is degraded — audible from a pocket.
@@ -208,6 +206,8 @@ private class AndroidPhotoCapture(
 
     private fun onLocation(location: Location) {
         lastLocation = location
+        val fixAgeMsAtArrival =
+            (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000
         // Declination (magnetic → true) needs coordinates.
         sensorService.updateLocation(location.latitude, location.longitude)
         val age = SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos
@@ -215,6 +215,7 @@ private class AndroidPhotoCapture(
             hasFix = age < FIX_FRESH_MS * 1_000_000,
             fixLatitude = location.latitude,
             fixLongitude = location.longitude,
+            fixAtMs = System.currentTimeMillis() - fixAgeMsAtArrival,
             fixAltitude = location.takeIf { it.hasAltitude() }?.altitude,
             fixAccuracyM = location.takeIf { it.hasAccuracy() }?.accuracy,
         )

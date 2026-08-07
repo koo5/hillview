@@ -28,6 +28,22 @@ class ShutterGateTest {
         assertTrue(shutterEnabled(ready = true, hasFix = false, manualLocationArmed = true))
     }
 
+    // The call site passes `armed || claimed` — an accepted pill claim is a
+    // manual position too (phone-in-hand find: the claim left the gate shut).
+
+    @Test
+    fun aStaleFixWarnsUnlessAManualPositionStandsIn() {
+        val fixAt = 1_000_000L
+        // Fresh: no warning.
+        assertFalse(staleFixWarning(fixAt, fixAt + FIX_FRESH_MS, manualAvailable = false))
+        // Stale and it would stamp the photo: warn.
+        assertTrue(staleFixWarning(fixAt, fixAt + FIX_FRESH_MS + 1, manualAvailable = false))
+        // A manual position would take over instead: nothing to warn about.
+        assertFalse(staleFixWarning(fixAt, fixAt + FIX_FRESH_MS + 1, manualAvailable = true))
+        // No fix at all is the gate's business, not the warning's.
+        assertFalse(staleFixWarning(null, 5_000_000, manualAvailable = false))
+    }
+
     @Test
     fun nothingOpensAGateOnAnUnreadyCamera() {
         assertFalse(shutterEnabled(ready = false, hasFix = true, manualLocationArmed = true))

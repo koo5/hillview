@@ -115,7 +115,7 @@ class UploadQueueOfflineBehaviourTest {
         SystemClock.sleep(2_000)
 
         compose.openCaptureAndAwaitCamera()
-        compose.liftGateToMapPosition()
+        compose.ensureCaptureReady()
         val photo = compose.captureOnePhoto()
         assertEquals("pending", photo.uploadStatus)
 
