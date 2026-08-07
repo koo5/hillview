@@ -614,8 +614,9 @@ fun FiltersDialog(
                     )
                 }
                 Text(
-                    "The analysis filters (time of day, scenic score, features…) " +
-                        "need the backend photo query, which this screen does not use yet.",
+                    "The analysis filter controls (time of day, scenic score, " +
+                        "features…) are still to come; the backend already flags " +
+                        "non-matching photos and the map washes them out.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

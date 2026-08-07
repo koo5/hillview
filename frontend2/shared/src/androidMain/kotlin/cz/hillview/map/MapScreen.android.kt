@@ -161,13 +161,6 @@ actual fun MapScreen(
         if (locationTracking != LocationTracking.Background) positionPrompt = false
     }
 
-    LaunchedEffect(mapSettings.maxPhotos) {
-        while (true) {
-            markerSource.refresh()
-            delay(5_000)
-        }
-    }
-
     LaunchedEffect(spatial, bearing) {
         stateStore.save(spatial, bearing)
     }
@@ -175,7 +168,7 @@ actual fun MapScreen(
     // Pin the selection so the photo limit can never drop it out from under
     // the user.
     LaunchedEffect(selectedPhotoId) {
-        (markerSource as? RecentPhotoMarkerSource)?.pinnedId = selectedPhotoId
+        markerSource.pinnedId = selectedPhotoId
     }
 
     val markerOverlay = remember { PhotoMarkerOverlay() }
@@ -198,6 +191,29 @@ actual fun MapScreen(
     }
     val mapView = rememberMapView()
     val applied = remember { AppliedCamera() }
+
+    // The marker poll: tell the sources where the map is looking (the
+    // backend source queries by viewport; pre-layout the view has no real
+    // bounding box, so wait for a size), then refresh. The api source
+    // dedupes identical requests internally, so the 5 s cadence stays a
+    // local-DB cost between real moves.
+    LaunchedEffect(mapSettings.maxPhotos) {
+        while (true) {
+            if (mapView.width > 0) {
+                val box = mapView.boundingBox
+                markerSource.setViewport(
+                    MapViewport(
+                        topLeftLat = box.latNorth,
+                        topLeftLon = box.lonWest,
+                        bottomRightLat = box.latSouth,
+                        bottomRightLon = box.lonEast,
+                    ),
+                )
+            }
+            markerSource.refresh()
+            delay(5_000)
+        }
+    }
     val rotationOverlay = remember(mapView) {
         RotationSyncOverlay(mapView) { orientation ->
             applied.orientation = orientation
@@ -285,10 +301,16 @@ actual fun MapScreen(
                 }
                 markerOverlay.selectedId = selectedPhotoId
                 markerOverlay.markers = visible.map { marker ->
-                    val greyed = !hunterMode && anyFeatured && !marker.featured &&
-                        centre.distanceToAsDouble(
-                            GeoPoint(marker.latitude, marker.longitude),
-                        ) <= rangeMeters
+                    // Two wash-out reasons compose: the backend's analysis
+                    // filter verdict (unless overridden), and the
+                    // featured-range rule.
+                    val greyed = (marker.filteredOut && !overrideFilters) ||
+                        (
+                            !hunterMode && anyFeatured && !marker.featured &&
+                                centre.distanceToAsDouble(
+                                    GeoPoint(marker.latitude, marker.longitude),
+                                ) <= rangeMeters
+                            )
                     if (greyed == marker.greyed) marker else marker.copy(greyed = greyed)
                 }
 

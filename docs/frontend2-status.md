@@ -70,10 +70,18 @@ Implementation, roughly in value order:
    upload-queue-offline, session-expiry reconcile. Most remaining specs
    wait on features frontend2 doesn't have yet (intents, FCM,
    geo-tracking export, deep-link auth) — the next value is item 2.
-2. **Backend photo query for map markers** — retire the
-   RecentPhotoMarkerSource scaffolding; brings analysis filters to life
-   (the gating is already built and tested) and non-device sources
-   (hillview/mapillary/panoramax) with source-colour borders.
+2. **Backend photo query for map markers** — LANDED 2026-08-07, by
+   graduating the Tauri app's Kotlin photo-worker loaders to shared-kt
+   (StreamPhotoLoader, DevicePhotoLoader, PanoramaxPhotoLoader,
+   CullingGrid, AngularRangeCuller, types) and adapting them behind
+   PhotoMarkerSource: device + hillview merged by content hash, viewport
+   queries with picks, `filtered` → washed-out, featured, source-colour
+   borders. Server-log-verified end to end (viewport → query → marker →
+   selection → picks round-trip). Still open from this area: mapillary/
+   panoramax SourceConfigs + a sources UI, the analysis-filter controls
+   (backend flagging already works), CullingGrid adoption, and carving
+   PhotoWorkerService's ExamplePlugin coupling so the whole orchestrator
+   can graduate too.
 3. **Log-and-pair sensor capture** (design in the backlog doc): feed
    GeoTrackingManager while capturing, stamp captures with
    SENSOR_TIMESTAMP, pair post-hoc with interpolation; fixes load/thermal

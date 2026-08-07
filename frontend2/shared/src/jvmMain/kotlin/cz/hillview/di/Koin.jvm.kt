@@ -56,5 +56,6 @@ private class InMemoryMapSettings : cz.hillview.settings.MapSettingsRepository {
 
 private class EmptyMarkerSource : cz.hillview.map.PhotoMarkerSource {
     override val markers = kotlinx.coroutines.flow.MutableStateFlow(emptyList<cz.hillview.map.PhotoMarker>())
+    override var pinnedId: String? = null
     override suspend fun refresh() {}
 }

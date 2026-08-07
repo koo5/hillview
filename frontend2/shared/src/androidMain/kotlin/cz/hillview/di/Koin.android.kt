@@ -94,8 +94,28 @@ actual fun platformModule(): Module = module {
         cz.hillview.settings.PrefsMapSettingsRepository(androidContext())
     }
     single<cz.hillview.map.MapStateStore> { cz.hillview.map.PrefsMapStateStore(androidContext()) }
+    // Device photos + the backend's viewport query — both through the
+    // shared-kt photo-worker loaders (the Tauri app's Kotlin code) — deduped
+    // by content hash (an uploaded capture shows once, as its backend self).
     single<cz.hillview.map.PhotoMarkerSource> {
-        cz.hillview.map.RecentPhotoMarkerSource(androidContext(), get())
+        val tokenStore = get<TokenStore>()
+        cz.hillview.map.CompositeMarkerSource(
+            listOf(
+                cz.hillview.map.DeviceMarkerSource(androidContext(), get()),
+                cz.hillview.map.StreamMarkerSource(
+                    source = cz.hillview.plugin.SourceConfig(
+                        id = "hillview",
+                        name = "Hillview",
+                        type = "stream",
+                        enabled = true,
+                        color = "#000000",
+                        url = "${get<cz.hillview.core.net.BackendConfig>().apiUrl}/hillview",
+                    ),
+                    settings = get(),
+                    freshToken = { tokenStore.freshAccessToken() },
+                ),
+            ),
+        )
     }
     single<TokenStore> { AuthManagerTokenStore(androidContext()) }
     // Captures go to the shared-kt upload stack — the same code the Tauri
