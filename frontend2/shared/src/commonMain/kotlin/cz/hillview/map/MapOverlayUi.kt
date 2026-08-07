@@ -91,9 +91,9 @@ fun MapOverlayUi(
     onToggleTracking: () -> Unit,
     onSelectBearingMode: (BearingMode) -> Unit,
     onZoom: (Double) -> Unit,
-    demotePrompt: Boolean = false,
-    onDemoteConfirm: () -> Unit = {},
-    onDemoteResume: () -> Unit = {},
+    positionPrompt: Boolean = false,
+    onClaimManualPosition: () -> Unit = {},
+    onRevertToGps: () -> Unit = {},
     mapOrientation: Double = 0.0,
     onResetNorth: () -> Unit = {},
 ) {
@@ -206,40 +206,29 @@ fun MapOverlayUi(
             }
         }
 
-        // The pan-demote guard (user-raised): a pan while following used to
-        // switch the map to manual position silently — fatal in a pocket
-        // during an interval run, and repairing mis-positioned photos
-        // afterwards is a manual slog. Staying manual now takes a tap;
-        // silence resumes following.
-        if (demotePrompt) {
-            Column(
+        // The exploration pill (user-raised, refined): panning is free and
+        // changes nothing — this two-sided control is the only way the map
+        // position becomes the capture position, and its other side snaps
+        // you back to the fix. Deliberately small: it must not obscure the
+        // map it is asking about.
+        if (positionPrompt) {
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 76.dp)
-                    .background(PANEL_WHITE, RoundedCornerShape(8.dp))
-                    .padding(12.dp)
-                    .testTag("map-demote-prompt"),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .background(PANEL_WHITE, RoundedCornerShape(20.dp))
+                    .testTag("map-position-prompt"),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "Map panned — stop following GPS?",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    "Following resumes by itself in a few seconds.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.Black.copy(alpha = 0.6f),
-                )
-                Row {
-                    TextButton(
-                        onClick = onDemoteResume,
-                        modifier = Modifier.testTag("demote-resume-gps"),
-                    ) { Text("Keep following") }
-                    TextButton(
-                        onClick = onDemoteConfirm,
-                        modifier = Modifier.testTag("demote-stay-manual"),
-                    ) { Text("Stay here") }
-                }
+                TextButton(
+                    onClick = onClaimManualPosition,
+                    modifier = Modifier.testTag("accept-manual-position"),
+                ) { Text("Capture here") }
+                PanelSeparator()
+                TextButton(
+                    onClick = onRevertToGps,
+                    modifier = Modifier.testTag("revert-to-gps"),
+                ) { Text("⟲ GPS") }
             }
         }
 

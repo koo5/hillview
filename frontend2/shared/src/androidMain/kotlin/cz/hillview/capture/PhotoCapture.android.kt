@@ -203,6 +203,7 @@ private class AndroidPhotoCapture(
 
     @Volatile private var lastLocation: Location? = null
     @Volatile override var manualLocation: ManualLocation? = null
+    @Volatile override var manualLocationWins: Boolean = false
     @Volatile private var lastOrientation: OrientationSensorData? = null
     private var lastAzimuthPush = 0L
 
@@ -558,10 +559,13 @@ private class AndroidPhotoCapture(
         val ageMs = location?.let {
             (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / 1_000_000
         }
-        // A fresh fix always beats the manual position (see the interface
-        // doc); the manual position only fills a hole, it never overrides.
+        // Fallback mode: a fresh fix beats the manual position, it only
+        // fills a hole. Claimed mode (manualLocationWins): the user said
+        // "I am at the map position" through the accept gate, and that
+        // overrides even a fresh fix.
         val manual = manualLocation.takeIf {
-            location == null || (ageMs != null && ageMs > FIX_FRESH_MS)
+            manualLocationWins ||
+                location == null || (ageMs != null && ageMs > FIX_FRESH_MS)
         }
         return if (manual != null) {
             SensorSnapshot(

@@ -24,8 +24,31 @@ class MapSession {
     private val _bearingTrackingWanted = MutableStateFlow(false)
     val bearingTrackingWanted: StateFlow<Boolean> = _bearingTrackingWanted.asStateFlow()
 
+    /**
+     * "I am at the map position, not at my fix" — the Tauri parked-map
+     * semantic, but claimable only through an explicit accept: panning by
+     * itself is exploration and never changes what captures record. While
+     * claimed, captures geotag from the (live) map centre, tagged
+     * location_source "manual", and the degraded shutter tone sounds.
+     *
+     * Session-only, like the rest of tracking: every app start begins with
+     * GPS priority.
+     */
+    private val _manualPositionClaimed = MutableStateFlow(false)
+    val manualPositionClaimed: StateFlow<Boolean> = _manualPositionClaimed.asStateFlow()
+
+    fun claimManualPosition() {
+        _manualPositionClaimed.value = true
+        _locationTracking.value = LocationTracking.Background
+    }
+
     fun setLocationTracking(value: LocationTracking) {
         _locationTracking.value = value
+        // Taking tracking anywhere but BACKGROUND withdraws the claim —
+        // ACTIVE means "follow me again", OFF means "no position at all".
+        if (value != LocationTracking.Background) {
+            _manualPositionClaimed.value = false
+        }
     }
 
     fun setBearingTrackingWanted(value: Boolean) {
@@ -40,7 +63,14 @@ class MapSession {
      * recording the live fix only as alt_location".
      */
     fun onEnterCapture() {
-        _locationTracking.value = LocationTracking.Active
+        // A *claimed* manual position survives entering capture — the
+        // whole point of the accept gate is that a surviving claim is
+        // deliberate by construction. The clean-ACTIVE re-arm exists to
+        // kill STALE background flags (the stuck-half-blue regression),
+        // and a gated claim cannot be stale.
+        if (!_manualPositionClaimed.value) {
+            _locationTracking.value = LocationTracking.Active
+        }
         _bearingTrackingWanted.value = true
     }
 

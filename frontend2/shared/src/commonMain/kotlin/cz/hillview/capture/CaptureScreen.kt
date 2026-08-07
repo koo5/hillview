@@ -54,6 +54,21 @@ fun CaptureScreen(
     val mapSettings by mapSettingsRepo.settings.collectAsState()
     val session: cz.hillview.map.MapSession = org.koin.compose.koinInject()
     val locationTracking by session.locationTracking.collectAsState()
+    val manualClaimed by session.manualPositionClaimed.collectAsState()
+
+    // A claimed manual position (accepted on the map) overrides the fix:
+    // captures geotag from the map centre, tagged "manual" — and the
+    // degraded shutter tone says so out loud.
+    LaunchedEffect(manualClaimed) {
+        if (manualClaimed) {
+            val spatial = mapStateStore.load()?.first ?: cz.hillview.map.SpatialState()
+            capture.manualLocation = ManualLocation(spatial.latitude, spatial.longitude)
+            capture.manualLocationWins = true
+        } else {
+            capture.manualLocationWins = false
+            if (!manualLocationArmed) capture.manualLocation = null
+        }
+    }
     var showCalibration by rememberSaveable { mutableStateOf(false) }
 
     // Eco effects apply only while this screen is up — the composition IS
@@ -277,6 +292,23 @@ fun CaptureScreen(
                         "capture-shutter-${1_000_000_000L / ns}",
                     ) { capture.shutterNs = ns }
                 }
+            }
+        }
+
+        if (manualClaimed) {
+            TextButton(
+                onClick = {
+                    // Withdrawing the claim from here: back to the fix.
+                    session.setLocationTracking(cz.hillview.map.LocationTracking.Active)
+                },
+                modifier = Modifier.testTag("capture-manual-override"),
+            ) {
+                val at = capture.manualLocation
+                Text(
+                    "Capturing at map position" +
+                        (at?.let { " (${fmt(it.latitude)}, ${fmt(it.longitude)})" } ?: "") +
+                        " — tap for GPS",
+                )
             }
         }
 

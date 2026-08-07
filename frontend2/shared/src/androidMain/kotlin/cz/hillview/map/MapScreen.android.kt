@@ -79,9 +79,12 @@ actual fun MapScreen(
     var trackingPhase by remember { mutableStateOf(TrackingPhase.Inactive) }
     var locationTracking by remember { mutableStateOf(session.locationTracking.value) }
     var locationFlash by remember { mutableStateOf(false) }
-    // A pan just demoted ACTIVE — entering manual-position mode now needs
-    // a tap; ignored (a pocket cannot answer), following resumes by itself.
-    var demotePrompt by remember { mutableStateOf(false) }
+    // A pan happened and no manual position is claimed: exploration is
+    // free, and this offers the two exits — claim this position, or snap
+    // back to the fix. No timeout: reading a map takes as long as it
+    // takes.
+    var positionPrompt by remember { mutableStateOf(false) }
+    val manualClaimed by session.manualPositionClaimed.collectAsState()
     var overrideFilters by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
     var showProviders by remember { mutableStateOf(false) }
@@ -152,16 +155,10 @@ actual fun MapScreen(
     LaunchedEffect(locationFlash) {
         if (locationFlash) { delay(100); locationFlash = false }
     }
-    LaunchedEffect(demotePrompt) {
-        if (demotePrompt) {
-            delay(10_000)
-            if (demotePrompt) {
-                // Nobody confirmed: treat the pan as the accident it
-                // probably was and fall back into step with the GPS.
-                demotePrompt = false
-                locationTracking = LocationTracking.Active
-            }
-        }
+    // The location button is the stronger control: using it while the
+    // prompt is up answers it.
+    LaunchedEffect(locationTracking) {
+        if (locationTracking != LocationTracking.Background) positionPrompt = false
     }
 
     LaunchedEffect(mapSettings.maxPhotos) {
@@ -430,10 +427,13 @@ actual fun MapScreen(
                     now = System.currentTimeMillis(),
                 )
             },
-            demotePrompt = demotePrompt,
-            onDemoteConfirm = { demotePrompt = false },
-            onDemoteResume = {
-                demotePrompt = false
+            positionPrompt = positionPrompt && !manualClaimed,
+            onClaimManualPosition = {
+                positionPrompt = false
+                session.claimManualPosition()
+            },
+            onRevertToGps = {
+                positionPrompt = false
                 locationTracking = LocationTracking.Active
             },
             mapOrientation = spatial.orientation,
@@ -521,9 +521,12 @@ actual fun MapScreen(
                 // A manual pan demotes tracking instead of stopping GPS —
                 // the fixes keep coming, the map just stops following.
                 if (locationTracking == LocationTracking.Active) {
+                    // Exploring: the map parks (following would yank it
+                    // back mid-read), but captures keep geotagging from
+                    // the fix until the claim is accepted.
                     locationTracking = LocationTracking.Background
-                    demotePrompt = true
                 }
+                if (!manualClaimed) positionPrompt = true
                 syncFromMap()
                 return false
             }

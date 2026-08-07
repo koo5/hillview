@@ -137,6 +137,13 @@ interface PhotoCapture {
     var manualLocation: ManualLocation?
 
     /**
+     * When true the manual position beats even a fresh fix — the claimed
+     * "I am at the map position" mode. When false it is only the no-fix
+     * fallback.
+     */
+    var manualLocationWins: Boolean
+
+    /**
      * Pinned shutter time in nanoseconds, null = auto. Only honoured when
      * [CaptureState.manualShutterSupported]; ISO follows via
      * [shutterPriorityIso] so brightness tracks what the metering last saw.

@@ -393,3 +393,52 @@ class MarkerAtTapTest {
         assertEquals("a", tap(rose.reversed(), 0f, 0f)?.id)
     }
 }
+
+/**
+ * The manual-position claim (user-raised, refined): panning is
+ * exploration; only the accepted claim changes what captures record, and
+ * it survives exactly the transitions a deliberate choice should.
+ */
+class MapSessionTest {
+
+    @Test
+    fun claimingParksTrackingAndSurvivesEnteringCapture() {
+        val session = MapSession()
+        session.setLocationTracking(LocationTracking.Active)
+        session.claimManualPosition()
+        assertEquals(LocationTracking.Background, session.locationTracking.value)
+        assertTrue(session.manualPositionClaimed.value)
+
+        // The clean-ACTIVE re-arm kills stale background flags; a gated
+        // claim cannot be stale, so it must survive.
+        session.onEnterCapture()
+        assertEquals(LocationTracking.Background, session.locationTracking.value)
+        assertTrue(session.manualPositionClaimed.value)
+    }
+
+    @Test
+    fun goingActiveWithdrawsTheClaim() {
+        val session = MapSession()
+        session.claimManualPosition()
+        session.setLocationTracking(LocationTracking.Active)
+        assertFalse(session.manualPositionClaimed.value)
+    }
+
+    @Test
+    fun turningTrackingOffWithdrawsTheClaimToo() {
+        val session = MapSession()
+        session.claimManualPosition()
+        session.setLocationTracking(LocationTracking.Off)
+        assertFalse(session.manualPositionClaimed.value)
+    }
+
+    @Test
+    fun enteringCaptureWithoutAClaimStillArmsCleanActive() {
+        // The stuck-half-blue regression stays guarded for everyone who
+        // did not deliberately claim a position.
+        val session = MapSession()
+        session.setLocationTracking(LocationTracking.Background)
+        session.onEnterCapture()
+        assertEquals(LocationTracking.Active, session.locationTracking.value)
+    }
+}
