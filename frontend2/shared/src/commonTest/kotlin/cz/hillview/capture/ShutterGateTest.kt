@@ -156,3 +156,21 @@ class CameraOverlayRulesTest {
         assertEquals("359.9", fmtDecimals(359.94, 1))
     }
 }
+
+/** Resolution labels: the Tauri tier names, extended to real sensor sizes. */
+class ResolutionLabelTest {
+
+    @Test
+    fun theTauriTiersKeepTheirNames() {
+        assertEquals("4K (3840×2160)", resolutionLabel(CaptureResolution(3840, 2160)))
+        assertEquals("1440p (2560×1440)", resolutionLabel(CaptureResolution(2560, 1440)))
+        assertEquals("1080p (1920×1080)", resolutionLabel(CaptureResolution(1920, 1080)))
+        assertEquals("720p (1280×720)", resolutionLabel(CaptureResolution(1280, 720)))
+    }
+
+    @Test
+    fun realSensorSizesGetMegapixels() {
+        assertEquals("12.0 MP (4000×3000)", resolutionLabel(CaptureResolution(4000, 3000)))
+        assertEquals("0.3 MP (640×480)", resolutionLabel(CaptureResolution(640, 480)))
+    }
+}

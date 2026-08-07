@@ -1,5 +1,6 @@
 package cz.hillview.capture
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Column
@@ -70,6 +71,21 @@ fun CaptureScreen(
         }
     }
     var showCalibration by rememberSaveable { mutableStateOf(false) }
+    var showResolutionMenu by rememberSaveable { mutableStateOf(false) }
+
+    // The persisted pin re-applies whenever the camera is (re)bound —
+    // selectResolution dedups, so this cannot rebind-loop.
+    LaunchedEffect(mapSettings.captureResolution, state.ready) {
+        val parsed = mapSettings.captureResolution
+            ?.split("x")
+            ?.takeIf { it.size == 2 }
+            ?.let { (w, h) ->
+                w.toIntOrNull()?.let { wi ->
+                    h.toIntOrNull()?.let { hi -> CaptureResolution(wi, hi) }
+                }
+            }
+        capture.selectResolution(parsed)
+    }
 
     // Eco effects apply only while this screen is up — the composition IS
     // the activity gate the Tauri `powerSavingActive` derives.
@@ -187,6 +203,8 @@ fun CaptureScreen(
                 .weight(1f),
         ) {
             capture.CameraPane(Modifier.fillMaxSize())
+
+
             CameraOverlayUi(
                 state = state,
                 bearingMode = mapSettings.bearingMode,
@@ -201,6 +219,50 @@ fun CaptureScreen(
                     .align(Alignment.TopStart)
                     .padding(start = 24.dp, top = 24.dp),
             )
+            // The 📷 selector, lower-left as in Tauri. Only resolutions for
+            // now; the camera rows join when enumeration is ported.
+            if (state.availableResolutions.isNotEmpty()) {
+                Column(Modifier.align(Alignment.BottomStart).padding(8.dp)) {
+                    if (showResolutionMenu) {
+                        Column(
+                            Modifier
+                                .background(
+                                    androidx.compose.ui.graphics.Color(0xDD222222),
+                                    androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                                )
+                                .padding(4.dp)
+                                .testTag("camera-selector-dropdown"),
+                        ) {
+                            ResolutionOption(
+                                label = "Auto (max quality)",
+                                selected = state.selectedResolution == null,
+                                tag = "resolution-option-auto",
+                            ) {
+                                showResolutionMenu = false
+                                mapSettingsRepo.update { it.copy(captureResolution = null) }
+                            }
+                            // The sensor can offer dozens; the biggest few
+                            // are the ones anyone picks.
+                            state.availableResolutions.take(6).forEach { r ->
+                                ResolutionOption(
+                                    label = resolutionLabel(r),
+                                    selected = state.selectedResolution == r,
+                                    tag = "resolution-option-${r.width}x${r.height}",
+                                ) {
+                                    showResolutionMenu = false
+                                    mapSettingsRepo.update {
+                                        it.copy(captureResolution = "${r.width}x${r.height}")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    TextButton(
+                        onClick = { showResolutionMenu = !showResolutionMenu },
+                        modifier = Modifier.testTag("camera-selector-button"),
+                    ) { Text("📷", style = MaterialTheme.typography.titleMedium) }
+                }
+            }
         }
 
         if (promptVisible) {
@@ -527,5 +589,28 @@ private fun AutoUploadPrompt(
                 modifier = Modifier.testTag("never-auto-upload-prompt"),
             ) { Text("Never ask") }
         }
+    }
+}
+
+@Composable
+private fun ResolutionOption(
+    label: String,
+    selected: Boolean,
+    tag: String,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.testTag(tag),
+    ) {
+        Text(
+            if (selected) "[$label]" else label,
+            color = if (selected) {
+                androidx.compose.ui.graphics.Color(0xFF4A90E2)
+            } else {
+                androidx.compose.ui.graphics.Color.White
+            },
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }

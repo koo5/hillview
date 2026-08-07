@@ -268,9 +268,44 @@ private class AndroidPhotoCapture(
         }
         cameraProvider = provider
 
-        val capture = ImageCapture.Builder()
+        val captureBuilder = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
-            .build()
+        pinnedResolution?.let { r ->
+            // Three fences, because the default selector quietly prefers
+            // 4:3: an aspect strategy derived from the request, a bounding
+            // strategy, and an exact-match-first filter. Without the first,
+            // pinning 1280x720 on the emulator yielded 640x480.
+            val ratio43 = kotlin.math.abs(r.width * 3 - r.height * 4)
+            val ratio169 = kotlin.math.abs(r.width * 9 - r.height * 16)
+            captureBuilder.setResolutionSelector(
+                androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
+                    .setAspectRatioStrategy(
+                        androidx.camera.core.resolutionselector.AspectRatioStrategy(
+                            if (ratio43 <= ratio169) {
+                                androidx.camera.core.AspectRatio.RATIO_4_3
+                            } else {
+                                androidx.camera.core.AspectRatio.RATIO_16_9
+                            },
+                            androidx.camera.core.resolutionselector.AspectRatioStrategy
+                                .FALLBACK_RULE_AUTO,
+                        ),
+                    )
+                    .setResolutionStrategy(
+                        androidx.camera.core.resolutionselector.ResolutionStrategy(
+                            android.util.Size(r.width, r.height),
+                            androidx.camera.core.resolutionselector.ResolutionStrategy
+                                .FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
+                        ),
+                    )
+                    .setResolutionFilter { sizes, _ ->
+                        sizes.sortedByDescending {
+                            it.width == r.width && it.height == r.height
+                        }
+                    }
+                    .build(),
+            )
+        }
+        val capture = captureBuilder.build()
         imageCapture = capture
 
         val previewBuilder = Preview.Builder()
@@ -331,11 +366,44 @@ private class AndroidPhotoCapture(
             "camera caps: manualSensor=$manualSensor iso=$isoRange exposure=$exposureRange " +
                 "capabilities=${capabilities?.joinToString()}",
         )
-        state = state.copy(manualShutterSupported = manualSensor)
+        // The real JPEG menu, from the sensor itself — the whole point of
+        // diverging from Tauri's hardcoded four (see the contract).
+        val jpegSizes = info.getCameraCharacteristic(
+            CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP,
+        )?.getOutputSizes(android.graphics.ImageFormat.JPEG)
+            ?.sortedByDescending { it.width.toLong() * it.height }
+            ?.map { CaptureResolution(it.width, it.height) }
+            ?.distinct()
+            .orEmpty()
+
+        state = state.copy(
+            manualShutterSupported = manualSensor,
+            availableResolutions = jpegSizes,
+            selectedResolution = pinnedResolution,
+        )
+        Log.d(
+            TAG,
+            "bound: pinned=$pinnedResolution actual=${capture.resolutionInfo?.resolution} " +
+                "jpegSizes=${jpegSizes.take(4)}",
+        )
 
         // Options chosen before (re)binding still apply.
         if (shutterNs != null || ecoPreviewFps) applyRequestOptions()
         cameraBound = true
+    }
+
+    @Volatile private var pinnedResolution: CaptureResolution? = null
+
+    override fun selectResolution(resolution: CaptureResolution?) {
+        if (resolution == pinnedResolution) return
+        pinnedResolution = resolution
+        // A use case's resolution is fixed at bind time; changing it means
+        // rebinding. openCamera() rebuilds everything from current fields.
+        if (cameraBound) {
+            cameraBound = false
+            cameraProvider?.unbindAll()
+            openCamera()
+        }
     }
 
     override var shutterNs: Long? = null

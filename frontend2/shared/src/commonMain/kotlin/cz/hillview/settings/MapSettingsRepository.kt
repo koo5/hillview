@@ -33,6 +33,8 @@ data class MapSettings(
     val powerSavingPref: Boolean = false,
     /** CameraOverlay backdrop level 0-5 (Tauri cameraOverlayOpacity). */
     val cameraOverlayOpacity: Int = 3,
+    /** Pinned still size as "WxH"; null = auto (Tauri selectedResolution). */
+    val captureResolution: String? = null,
 )
 
 const val MIN_MAX_PHOTOS = 10

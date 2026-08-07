@@ -21,6 +21,8 @@ private class DesktopPhotoCapture : PhotoCapture {
     override var shutterNs: Long? = null
     override var ecoPreviewFps: Boolean = false
 
+    override fun selectResolution(resolution: CaptureResolution?) {}
+
     override fun capture() {}
 
     @Composable

@@ -56,6 +56,10 @@ data class CaptureState(
     val fixAccuracyM: Float? = null,
     /** Magnetometer status on Android's 0-3 scale; null = not yet known. */
     val compassAccuracy: Int? = null,
+    /** Real JPEG output sizes, biggest first — empty until the camera binds. */
+    val availableResolutions: List<CaptureResolution> = emptyList(),
+    /** The pinned still size; null = CameraX's own choice. */
+    val selectedResolution: CaptureResolution? = null,
     /** Device advertises MANUAL_SENSOR — shutter control is offerable. */
     val manualShutterSupported: Boolean = false,
     /** The pinned shutter time, null = auto exposure. */
@@ -107,6 +111,27 @@ fun shutterPriorityIso(
 fun nextOverlayOpacity(current: Int): Int {
     val next = current + 2
     return if (next > 5) 0 else next
+}
+
+/** A still-capture output size the sensor genuinely offers. */
+data class CaptureResolution(val width: Int, val height: Int)
+
+/**
+ * The Tauri labels ("1080p (1920×1080)"), extended to whatever the sensor
+ * reports: named tiers where they exist, plain dimensions elsewhere.
+ */
+fun resolutionLabel(r: CaptureResolution): String {
+    val name = when (r.height) {
+        2160 -> "4K"
+        1440 -> "1440p"
+        1080 -> "1080p"
+        720 -> "720p"
+        else -> {
+            val mp = (r.width.toLong() * r.height / 1_000_000.0)
+            "${fmtDecimals(mp, 1)} MP"
+        }
+    }
+    return "$name (${r.width}×${r.height})"
 }
 
 /** What the shutter should sound like — the pocket has no screen. */
@@ -170,6 +195,13 @@ interface PhotoCapture {
      * screen, and there are no ambient animations here to stop.
      */
     var ecoPreviewFps: Boolean
+
+    /**
+     * Pin the still-capture size (null = auto). Rebinding the camera is the
+     * implementation's business; the choice lands in
+     * [CaptureState.selectedResolution] when applied.
+     */
+    fun selectResolution(resolution: CaptureResolution?)
 
     fun capture()
 
