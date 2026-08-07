@@ -91,6 +91,44 @@ own choice under MAXIMIZE_QUALITY). Camera *enumeration/selection* (the
 front/back/multi-lens rows) is not ported yet — the menu structure leaves
 room for it.
 
+## Capture pane layout — the video IS the pane
+
+`CameraCapture.svelte`'s structural rule: `.camera-content` fills the pane
+and every control is `position: absolute` **over the video**. There is no
+control row below the stream, no scrolling, and no dialog anywhere:
+
+- **Video**: `.camera-view` takes the whole pane (`flex: 1`). frontend2
+  uses `PreviewView.ScaleType.FILL_CENTER` (centre-crop) so the stream
+  fills the pane at any split ratio — round-4 phone feedback; the saved
+  photo keeps the full sensor frame, only the preview crops.
+- **Pill** (CameraOverlay): `top: 60px; left: 60px` — clear of Main's
+  floating hamburger/camera row.
+- **Shutter**: `.shutter-container` absolute `bottom: 6px`, centred — a
+  dark pill (`rgba(0,0,0,0.5)`, radius 40) holding a 70px blue circle
+  (`DualCaptureButton`). Plain tap = one shot. **300 ms long-press expands
+  extra mode controls in place** (slow 10 s / fast 2 s continuous; release
+  over one starts it, tap again stops); a run shows a blue count badge and
+  a "Stop" label, and pulses green/red by mode.
+- **📷 selector**: absolute lower-left; dropdown opens upward.
+- **Power saving** (Leaf): a 38px translucent circle, absolute top-right
+  at `top: 52px` (the very corner belongs to debug toggles).
+- **Calibrate Compass**: red button, absolute, centred above the shutter.
+- **Auto-upload prompt** (`AutoUploadPrompt.svelte`): an absolute floating
+  card top-left (`top: 80px; left: 1rem`), dark translucent — one red
+  "⚙️ Configure auto-upload" button + an × dismiss. **Never a dialog.**
+  Auto-hides after 12 s in the app (the × alone sets the session
+  dismissal); `neverAskAgain()` exists in the source but no button renders
+  it — the settings screen owns that switch.
+
+**frontend2 divergences (deliberate, round 4)**: the slow/fast pair is a
+continuous 0–60 s vertical interval slider, hidden until a long-press on
+the shutter summons it, auto-folding after ~5 s untouched; the manual
+shutter-speed ladder (no original equivalent; added for crisp car shots)
+collapses behind
+a ⚡ button lower-right, expanding upward like the 📷 selector; the
+status/upload-stats lines (no original equivalent) ride under the pill as
+dark glass strips.
+
 ## Fix freshness — a frontend2 divergence (15 s), not a port
 
 The original has NO fix-age concept. Its capture location is `locationData`

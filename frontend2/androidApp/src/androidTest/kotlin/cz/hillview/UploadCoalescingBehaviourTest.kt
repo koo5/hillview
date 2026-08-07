@@ -140,8 +140,9 @@ class UploadCoalescingBehaviourTest {
         assertTrue("runs=$runs across $windows window(s)", runs in 1..(windows * 2))
         assertTrue("no coalescing: runs=$runs enqueues=$enqueues", runs < enqueues)
 
-        // The original's responsiveness proxy: the screen is still alive
-        // (scrolling it back into view IS interaction).
-        compose.onNodeWithTag("capture-status").performScrollTo().assertIsDisplayed()
+        // The original's responsiveness proxy: the screen is still alive.
+        // (The status line is a fixed overlay on the video now — nothing to
+        // scroll, and performScrollTo throws without a scrollable ancestor.)
+        compose.onNodeWithTag("capture-status").assertIsDisplayed()
     }
 }

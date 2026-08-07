@@ -730,7 +730,13 @@ private class AndroidPhotoCapture(
                 AndroidView(
                     factory = { c ->
                         PreviewView(c).apply {
-                            scaleType = PreviewView.ScaleType.FIT_CENTER
+                            // FILL (centre-crop): the capture pane is the
+                            // camera stream, edge to edge, whatever the
+                            // split ratio — FIT_CENTER letterboxed a small
+                            // rectangle in black (phone-in-hand feedback).
+                            // The captured photo keeps the full sensor
+                            // frame; only the preview crops.
+                            scaleType = PreviewView.ScaleType.FILL_CENTER
                             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                             // Tap detection by hand (down..up within slop):
                             // a GestureDetector would also claim the events

@@ -1,19 +1,23 @@
 package cz.hillview.capture
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,9 +27,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import cz.hillview.upload.PendingUpload
 import cz.hillview.upload.UploadPipeline
 import kotlinx.coroutines.delay
@@ -35,6 +42,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CaptureScreen(
     onOpenSettings: () -> Unit = {},
@@ -75,6 +83,7 @@ fun CaptureScreen(
     }
     var showCalibration by rememberSaveable { mutableStateOf(false) }
     var showResolutionMenu by rememberSaveable { mutableStateOf(false) }
+    var showShutterMenu by rememberSaveable { mutableStateOf(false) }
 
     // The persisted pin re-applies whenever the camera is (re)bound —
     // selectResolution dedups, so this cannot rebind-loop.
@@ -121,14 +130,42 @@ fun CaptureScreen(
     var promptVisible by rememberSaveable { mutableStateOf(false) }
     var promptDismissed by rememberSaveable { mutableStateOf(false) }
 
+    // Tauri auto-hides the card after 12 s (only the × sets the session
+    // dismissal — a timed-out prompt may return after the next capture).
+    LaunchedEffect(promptVisible) {
+        if (promptVisible) {
+            delay(12_000)
+            promptVisible = false
+        }
+    }
+
     // 0 = one shot per tap; otherwise the shutter arms a repeating run.
     var intervalSec by rememberSaveable { mutableStateOf(0) }
     var repeating by rememberSaveable { mutableStateOf(false) }
+    // The slider hides until a long press on the shutter summons it — the
+    // original's 300 ms press expands its slow/fast modes the same way —
+    // then folds away after a few untouched seconds.
+    var intervalVisible by remember { mutableStateOf(false) }
+    var sliderTouched by remember { mutableStateOf(0) }
+    var runCount by remember { mutableStateOf(0) }
+    LaunchedEffect(intervalVisible, sliderTouched, repeating) {
+        if (intervalVisible) {
+            delay(5_000)
+            intervalVisible = false
+        }
+    }
 
     LaunchedEffect(repeating, intervalSec) {
-        if (!repeating || intervalSec <= 0) return@LaunchedEffect
+        if (!repeating || intervalSec <= 0) {
+            // The original zeroes its badge when the run stops.
+            runCount = 0
+            return@LaunchedEffect
+        }
         while (true) {
-            if (!state.capturing) capture.capture()
+            if (!state.capturing) {
+                capture.capture()
+                runCount++
+            }
             delay(intervalSec * 1000L)
         }
     }
@@ -180,24 +217,29 @@ fun CaptureScreen(
         }
     }
 
-    // A pane of the Main page, shaped like the original's camera-content:
-    // an edge-to-edge black column, the camera view taking every pixel the
-    // controls below don't need, overlays drawn ON the video. (An earlier
-    // cut looked like "a scrollable dialog with a video rectangle" —
-    // phone-in-hand feedback.)
-    Column(
+    // The capture pane IS the camera stream — the original's camera-content
+    // fills with the video and positions every control absolutely over it
+    // (CameraCapture.svelte styles). No control rows under the video, no
+    // scroll column. (Round-4 phone-in-hand feedback: the previous cut kept
+    // a letterboxed preview above a stack of visible controls.)
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(androidx.compose.ui.graphics.Color.Black),
+            .background(Color.Black),
     ) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .weight(1f),
+        capture.CameraPane(Modifier.fillMaxSize())
+
+        // Top-left stack at the original pill's spot (CameraOverlay.svelte:
+        // top 60px / left 60px — clear of Main's floating hamburger row).
+        // The status and upload lines are this port's extension; they ride
+        // under the pill as glass strips instead of claiming pane rows.
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = 60.dp, top = 56.dp, end = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalAlignment = Alignment.Start,
         ) {
-            capture.CameraPane(Modifier.fillMaxSize())
-
-
             CameraOverlayUi(
                 state = state,
                 bearingMode = mapSettings.bearingMode,
@@ -208,268 +250,295 @@ fun CaptureScreen(
                         it.copy(cameraOverlayOpacity = nextOverlayOpacity(it.cameraOverlayOpacity))
                     }
                 },
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 24.dp, top = 24.dp),
             )
-            // The 📷 selector, lower-left as in Tauri. Only resolutions for
-            // now; the camera rows join when enumeration is ported.
-            if (state.availableResolutions.isNotEmpty()) {
-                Column(Modifier.align(Alignment.BottomStart).padding(8.dp)) {
-                    if (showResolutionMenu) {
-                        Column(
-                            Modifier
-                                .background(
-                                    androidx.compose.ui.graphics.Color(0xDD222222),
-                                    androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-                                )
-                                .padding(4.dp)
-                                .testTag("camera-selector-dropdown"),
+            StatusLine(state)
+            Text(
+                text = "uploads: ${queueStats.done} done" +
+                    (if (queueStats.duplicate > 0) ", ${queueStats.duplicate} dup" else "") +
+                    (if (queueStats.pending > 0) ", ${queueStats.pending} pending" else "") +
+                    (if (queueStats.failed > 0) ", ${queueStats.failed} failed" else "") +
+                    (queueStats.lastError?.let { " · $it" } ?: ""),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0x99FFFFFF),
+                modifier = Modifier
+                    .background(Color(0x66000000), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .testTag("capture-upload-stats"),
+            )
+        }
+
+        // The Leaf — the original's power-saving-button: a translucent
+        // circle below the top-right corner (that corner belongs to the
+        // debug toggles there). Lower preview fps, and the map only catches
+        // up after each capture instead of chasing every fix.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 52.dp, end = 8.dp)
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(if (ecoActive) Color(0xCC2EA043) else Color(0x33FFFFFF))
+                .clickable {
+                    mapSettingsRepo.update { it.copy(powerSavingPref = !it.powerSavingPref) }
+                }
+                .testTag("power-saving-btn"),
+            contentAlignment = Alignment.Center,
+        ) { Text("🍃") }
+
+        // The 📷 selector, lower-left as in Tauri. Only resolutions for
+        // now; the camera rows join when enumeration is ported.
+        if (state.availableResolutions.isNotEmpty()) {
+            Column(Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 6.dp)) {
+                if (showResolutionMenu) {
+                    Column(
+                        Modifier
+                            .background(
+                                Color(0xDD222222),
+                                RoundedCornerShape(8.dp),
+                            )
+                            .padding(4.dp)
+                            .testTag("camera-selector-dropdown"),
+                    ) {
+                        ResolutionOption(
+                            label = "Auto (max quality)",
+                            selected = state.selectedResolution == null,
+                            tag = "resolution-option-auto",
                         ) {
+                            showResolutionMenu = false
+                            mapSettingsRepo.update { it.copy(captureResolution = null) }
+                        }
+                        // The sensor can offer dozens; the biggest few
+                        // are the ones anyone picks.
+                        state.availableResolutions.take(6).forEach { r ->
                             ResolutionOption(
-                                label = "Auto (max quality)",
-                                selected = state.selectedResolution == null,
-                                tag = "resolution-option-auto",
+                                label = resolutionLabel(r),
+                                selected = state.selectedResolution == r,
+                                tag = "resolution-option-${r.width}x${r.height}",
                             ) {
                                 showResolutionMenu = false
-                                mapSettingsRepo.update { it.copy(captureResolution = null) }
-                            }
-                            // The sensor can offer dozens; the biggest few
-                            // are the ones anyone picks.
-                            state.availableResolutions.take(6).forEach { r ->
-                                ResolutionOption(
-                                    label = resolutionLabel(r),
-                                    selected = state.selectedResolution == r,
-                                    tag = "resolution-option-${r.width}x${r.height}",
-                                ) {
-                                    showResolutionMenu = false
-                                    mapSettingsRepo.update {
-                                        it.copy(captureResolution = "${r.width}x${r.height}")
-                                    }
+                                mapSettingsRepo.update {
+                                    it.copy(captureResolution = "${r.width}x${r.height}")
                                 }
                             }
                         }
                     }
-                    TextButton(
-                        onClick = { showResolutionMenu = !showResolutionMenu },
-                        modifier = Modifier.testTag("camera-selector-button"),
-                    ) { Text("📷", style = MaterialTheme.typography.titleMedium) }
+                }
+                TextButton(
+                    onClick = { showResolutionMenu = !showResolutionMenu },
+                    modifier = Modifier.testTag("camera-selector-button"),
+                ) { Text("📷", style = MaterialTheme.typography.titleMedium) }
+            }
+        }
+
+        // Shutter time, for crisp shots out of a moving vehicle — this
+        // port's addition (the original has no manual exposure). Collapsed
+        // behind a ⚡ button in the lower-right, expanding upward like the
+        // camera selector; the open ladder used to sprawl across the pane
+        // (round-4 feedback). ISO follows the pin automatically (shutter
+        // priority), so this stays a one-axis control.
+        if (state.manualShutterSupported) {
+            Column(
+                Modifier.align(Alignment.BottomEnd).padding(end = 8.dp, bottom = 6.dp),
+                horizontalAlignment = Alignment.End,
+            ) {
+                if (showShutterMenu) {
+                    Column(
+                        Modifier
+                            .background(Color(0xDD222222), RoundedCornerShape(8.dp))
+                            .padding(4.dp)
+                            .testTag("shutter-speed-menu"),
+                    ) {
+                        ShutterChip("Auto", state.shutterNs == null, "capture-shutter-auto") {
+                            showShutterMenu = false
+                            capture.shutterNs = null
+                        }
+                        SHUTTER_CHOICES_NS.forEach { ns ->
+                            ShutterChip(
+                                formatShutter(ns),
+                                state.shutterNs == ns,
+                                "capture-shutter-${1_000_000_000L / ns}",
+                            ) {
+                                showShutterMenu = false
+                                capture.shutterNs = ns
+                            }
+                        }
+                    }
+                }
+                TextButton(
+                    onClick = { showShutterMenu = !showShutterMenu },
+                    modifier = Modifier.testTag("shutter-speed-button"),
+                ) {
+                    Text(
+                        "⚡ " + (state.shutterNs?.let { formatShutter(it) } ?: "Auto"),
+                        color = Color.White,
+                    )
                 }
             }
         }
 
-        // The shutter bar under the video, as the original's
-        // shutter-container — compact, scrolling only if a thin pane forces it.
+        // Bottom-centre stack over the video: hints and gate escapes above
+        // the shutter, as the original stacks its absolute elements above
+        // shutter-container (bottom: 6px, centred).
         Column(
-            modifier = Modifier
-                .weight(1f, fill = false)
-                .verticalScroll(androidx.compose.foundation.rememberScrollState())
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-
-        if (promptVisible) {
-            AutoUploadPrompt(
-                onConfigure = { promptVisible = false; onOpenSettings() },
-                onDismiss = { promptVisible = false; promptDismissed = true },
-                onNever = {
-                    promptVisible = false
-                    uploadSettingsRepo.update { it.copy(autoUploadPromptEnabled = false) }
-                },
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // The Leaf: lower preview fps here, and the map only catches up
-            // after each capture instead of chasing every fix.
-            TextButton(
-                onClick = {
-                    mapSettingsRepo.update { it.copy(powerSavingPref = !it.powerSavingPref) }
-                },
-                modifier = Modifier.testTag("power-saving-btn"),
-            ) {
-                Text(
-                    if (ecoActive) "[eco]" else "eco",
-                    color = if (ecoActive) {
-                        androidx.compose.ui.graphics.Color(0xFF2EA043)
-                    } else {
-                        androidx.compose.ui.graphics.Color.Gray
-                    },
-                )
-            }
-
             // Appears exactly when calibration would help: walking-mode
             // bearing with the magnetometer reporting below-HIGH accuracy.
+            // Red and above the shutter, as the original places it.
             if (needsCompassCalibration(
                     walkingMode = mapSettings.bearingMode == cz.hillview.map.BearingMode.Walking,
                     accuracyLevel = state.compassAccuracy,
                 )
             ) {
-                TextButton(
+                Button(
                     onClick = { showCalibration = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE24A4A)),
                     modifier = Modifier.testTag("calibrate-compass-btn"),
                 ) { Text("Calibrate Compass") }
             }
-        }
 
-        // Shutter time, for crisp shots out of a moving vehicle. Only shown
-        // where the sensor takes manual orders at all; ISO follows the pin
-        // automatically (shutter priority), so this stays a one-axis
-        // control.
-        if (state.manualShutterSupported) {
-            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-            androidx.compose.foundation.layout.FlowRow(
-                // Wraps: the ladder overflows a narrow phone, and an
-                // offscreen chip is an untappable one — scrolling just
-                // hides the problem, a second line does not.
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text("Shutter", style = MaterialTheme.typography.bodySmall)
-                val active = state.shutterNs
-
-                // Compact on purpose: Material's default button min-width
-                // would push the fast end of the ladder offscreen, and an
-                // invisible chip is an untappable one.
-                @Composable
-                fun chip(label: String, selected: Boolean, tag: String, onClick: () -> Unit) {
-                    TextButton(
-                        onClick = onClick,
-                        enabled = !selected,
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 6.dp, vertical = 4.dp,
-                        ),
-                        modifier = Modifier
-                            .defaultMinSize(minWidth = 1.dp, minHeight = 32.dp)
-                            .testTag(tag),
-                    ) { Text(if (selected) "[$label]" else label) }
-                }
-
-                chip("Auto", active == null, "capture-shutter-auto") {
-                    capture.shutterNs = null
-                }
-                SHUTTER_CHOICES_NS.forEach { ns ->
-                    chip(
-                        formatShutter(ns),
-                        active == ns,
-                        "capture-shutter-${1_000_000_000L / ns}",
-                    ) { capture.shutterNs = ns }
-                }
-            }
-        }
-
-        if (manualClaimed) {
-            TextButton(
-                onClick = {
+            if (manualClaimed) {
+                GlassAction(
+                    text = "Capturing at map position" +
+                        (capture.manualLocation?.let {
+                            " (${fmt(it.latitude)}, ${fmt(it.longitude)})"
+                        } ?: "") +
+                        " — tap for GPS",
+                    tag = "capture-manual-override",
+                ) {
                     // Withdrawing the claim from here: back to the fix.
                     session.setLocationTracking(cz.hillview.map.LocationTracking.Active)
-                },
-                modifier = Modifier.testTag("capture-manual-override"),
-            ) {
-                val at = capture.manualLocation
-                Text(
-                    "Capturing at map position" +
-                        (at?.let { " (${fmt(it.latitude)}, ${fmt(it.longitude)})" } ?: "") +
-                        " — tap for GPS",
-                )
+                }
             }
-        }
 
-        // The gate's escape hatch, offered only while it is actually shut:
-        // shooting underground means positioning the map by hand first and
-        // capturing against that.
-        if (state.ready && !state.hasFix && !manualClaimed) {
-            if (!manualLocationArmed) {
-                TextButton(
-                    onClick = {
+            // The gate's escape hatch, offered only while it is actually
+            // shut: shooting underground means positioning the map by hand
+            // first and capturing against that.
+            if (state.ready && !state.hasFix && !manualClaimed) {
+                if (!manualLocationArmed) {
+                    GlassAction(
+                        text = "No GPS fix — capture at the map position instead",
+                        tag = "capture-use-map-position",
+                    ) {
                         val spatial = mapState.spatial.value
                         capture.manualLocation = ManualLocation(
                             latitude = spatial.latitude,
                             longitude = spatial.longitude,
                         )
                         manualLocationArmed = true
-                    },
-                    modifier = Modifier.testTag("capture-use-map-position"),
-                ) {
-                    Text("No GPS fix — capture at the map position instead")
-                }
-            } else {
-                TextButton(
-                    onClick = {
+                    }
+                } else {
+                    GlassAction(
+                        text = "Using map position" +
+                            (capture.manualLocation?.let {
+                                " (${fmt(it.latitude)}, ${fmt(it.longitude)})"
+                            } ?: "") +
+                            " — tap to require GPS again",
+                        tag = "capture-manual-location",
+                    ) {
                         capture.manualLocation = null
                         manualLocationArmed = false
-                    },
-                    modifier = Modifier.testTag("capture-manual-location"),
+                    }
+                }
+            }
+
+            // The shutter, shaped like the original's DualCaptureButton: a
+            // dark pill holding a circular button. A plain tap is one shot;
+            // a long press reveals the interval slider (this port's
+            // continuous take on the original's slow/fast pair); with an
+            // interval armed, a tap starts/stops the repeating run.
+            Box {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .background(Color(0x80000000), RoundedCornerShape(40.dp))
+                        .padding(4.dp),
                 ) {
-                    val at = capture.manualLocation
+                    if (intervalVisible) {
+                        IntervalSlider(
+                            intervalSec = intervalSec,
+                            enabled = !repeating,
+                            onChange = { intervalSec = it; sliderTouched++ },
+                        )
+                    }
+
+                    val gateOpen =
+                        shutterEnabled(state.ready, state.hasFix, manualLocationArmed || manualClaimed)
+                    Box(
+                        modifier = Modifier
+                            .size(70.dp)
+                            .clip(CircleShape)
+                            .background(
+                                when {
+                                    // The location gate (see shutterEnabled):
+                                    // no fix, no photo — unless deliberately
+                                    // lifted (the local lift OR the pill's
+                                    // accepted claim; phone-in-hand find: the
+                                    // claim used to leave the gate shut).
+                                    !gateOpen -> Color(0x802196F3)
+                                    repeating -> Color(0xFF4CAF50)
+                                    else -> Color(0xFF2196F3)
+                                },
+                            )
+                            .combinedClickable(
+                                enabled = gateOpen && (repeating || !state.capturing),
+                                onLongClick = { intervalVisible = true; sliderTouched++ },
+                                onClick = {
+                                    if (intervalSec == 0) capture.capture() else repeating = !repeating
+                                },
+                            )
+                            .testTag("capture-shutter"),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                if (state.capturing && !repeating) "…" else "📷",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            val label = when {
+                                repeating -> "Stop"
+                                intervalSec > 0 -> "${intervalSec}s"
+                                else -> null
+                            }
+                            label?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                )
+                            }
+                        }
+                    }
+                }
+                // The original's capture-counter badge, live during a run.
+                if (runCount > 0) {
                     Text(
-                        "Using map position" +
-                            (at?.let { " (${fmt(it.latitude)}, ${fmt(it.longitude)})" } ?: "") +
-                            " — tap to require GPS again",
+                        "$runCount",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .background(Color(0xFF2196F3), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                            .testTag("capture-run-count"),
                     )
                 }
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Interval as a continuous slider rather than a couple of fixed
-            // modes: the useful spacing depends on how fast you're moving.
-            IntervalSlider(
-                intervalSec = intervalSec,
-                enabled = !repeating,
-                onChange = { intervalSec = it },
-            )
-
-            Button(
-                onClick = {
-                    if (intervalSec == 0) capture.capture() else repeating = !repeating
-                },
-                // The location gate (see shutterEnabled): no fix, no photo —
-                // unless the user has deliberately lifted it below.
-                // A manual position stands in for the fix whichever way it
-                // arrived: the local lift OR the pill's accepted claim
-                // (phone-in-hand find: the claim used to leave the gate shut).
-                enabled = shutterEnabled(state.ready, state.hasFix, manualLocationArmed || manualClaimed) &&
-                    (repeating || !state.capturing),
+        // Drawn last: the card floats over whatever the top-left stack
+        // shows, as the original's absolute overlay does.
+        if (promptVisible) {
+            AutoUploadPrompt(
+                onConfigure = { promptVisible = false; onOpenSettings() },
+                onDismiss = { promptVisible = false; promptDismissed = true },
                 modifier = Modifier
-                    .size(width = 160.dp, height = 56.dp)
-                    .testTag("capture-shutter"),
-            ) {
-                Text(
-                    when {
-                        repeating -> "Stop"
-                        intervalSec > 0 -> "Start ${intervalSec}s"
-                        state.capturing -> "…"
-                        else -> "Capture"
-                    }
-                )
-            }
+                    .align(Alignment.TopStart)
+                    .padding(start = 16.dp, top = 110.dp),
+            )
         }
-
-        StatusLine(state)
-
-        Text(
-            text = "uploads: ${queueStats.done} done" +
-                (if (queueStats.duplicate > 0) ", ${queueStats.duplicate} dup" else "") +
-                (if (queueStats.pending > 0) ", ${queueStats.pending} pending" else "") +
-                (if (queueStats.failed > 0) ", ${queueStats.failed} failed" else "") +
-                (queueStats.lastError?.let { " · $it" } ?: ""),
-            style = MaterialTheme.typography.bodySmall,
-            color = androidx.compose.ui.graphics.Color(0x99FFFFFF),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("capture-upload-stats"),
-        )
-
-        } // controls scroll column
     }
 
     if (showCalibration) {
@@ -498,6 +567,7 @@ private fun IntervalSlider(
         Text(
             text = if (intervalSec == 0) "single" else "${intervalSec}s",
             style = MaterialTheme.typography.bodySmall,
+            color = Color.White,
             modifier = Modifier.testTag("capture-interval-value"),
         )
         Box(
@@ -549,11 +619,12 @@ private fun StatusLine(state: CaptureState) {
         color = if (state.errorMessage != null && state.supported) {
             MaterialTheme.colorScheme.error
         } else {
-            // The pane is black now, like the original's camera-content.
-            androidx.compose.ui.graphics.Color(0xCCFFFFFF)
+            // Light on the glass strip, over live video.
+            Color(0xCCFFFFFF)
         },
         modifier = Modifier
-            .fillMaxWidth()
+            .background(Color(0x66000000), RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
             .testTag("capture-status"),
     )
 }
@@ -564,40 +635,70 @@ private fun fmt(value: Double): String {
 }
 
 /**
- * "Your photos are staying on this device." One line, three exits — the
- * same three the original offers: configure (goes to upload settings, where
- * the licence gate lives), not now, and never (persisted, so the overlay
- * can never block a rapid-fire run again).
+ * A control readable over live video: dark glass backing, light text —
+ * the treatment every original overlay button gets from its CSS.
+ */
+@Composable
+private fun GlassAction(text: String, tag: String, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier
+            .background(Color(0xAA000000), RoundedCornerShape(20.dp))
+            .testTag(tag),
+    ) { Text(text, color = Color.White) }
+}
+
+// Compact on purpose: Material's default button min-width would push the
+// fast end of the ladder offscreen, and an invisible chip is an untappable
+// one.
+@Composable
+private fun ShutterChip(label: String, selected: Boolean, tag: String, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        enabled = !selected,
+        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+        modifier = Modifier
+            .defaultMinSize(minWidth = 1.dp, minHeight = 32.dp)
+            .testTag(tag),
+    ) { Text(if (selected) "[$label]" else label, color = Color.White) }
+}
+
+/**
+ * "Your photos are staying on this device." The original
+ * (AutoUploadPrompt.svelte) is a floating card OVER the video — absolute,
+ * top-left, dark — never a dialog: one red configure button (the path to
+ * upload settings, where the licence gate lives) and an × dismiss. Its
+ * neverAskAgain() exists but no button renders it — mirrored here; the
+ * settings screen owns that switch (auto_upload_prompt_enabled).
  */
 @Composable
 private fun AutoUploadPrompt(
     onConfigure: () -> Unit,
     onDismiss: () -> Unit,
-    onNever: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .background(Color(0xF21E1E1E), RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp)
             .testTag("auto-upload-prompt"),
     ) {
-        Text(
-            "Auto-upload is off — captures stay on this device.",
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Row {
-            TextButton(
-                onClick = onConfigure,
-                modifier = Modifier.testTag("configure-auto-upload"),
-            ) { Text("Set up") }
-            TextButton(
-                onClick = onDismiss,
-                modifier = Modifier.testTag("dismiss-auto-upload-prompt"),
-            ) { Text("Not now") }
-            TextButton(
-                onClick = onNever,
-                modifier = Modifier.testTag("never-auto-upload-prompt"),
-            ) { Text("Never ask") }
-        }
+        Button(
+            onClick = onConfigure,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+            modifier = Modifier.testTag("configure-auto-upload"),
+        ) { Text("⚙️ Configure auto-upload", color = Color.White) }
+        Box(
+            modifier = Modifier
+                .padding(start = 8.dp)
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(Color(0x1AFFFFFF))
+                .clickable(onClick = onDismiss)
+                .testTag("dismiss-auto-upload-prompt"),
+            contentAlignment = Alignment.Center,
+        ) { Text("×", color = Color(0xFFAAAAAA)) }
     }
 }
 
@@ -615,9 +716,9 @@ private fun ResolutionOption(
         Text(
             if (selected) "[$label]" else label,
             color = if (selected) {
-                androidx.compose.ui.graphics.Color(0xFF4A90E2)
+                Color(0xFF4A90E2)
             } else {
-                androidx.compose.ui.graphics.Color.White
+                Color.White
             },
             style = MaterialTheme.typography.bodySmall,
         )

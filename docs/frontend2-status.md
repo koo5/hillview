@@ -78,6 +78,12 @@ orientation page; the detail lives in the documents it points to.
   camera shape; MapStateHolder is process-wide (capture and map move one
   camera); locations ride shared-kt's fused PreciseLocationService; the
   photo folder is Hillview2 (HILLVIEW_FOLDER env var overrides).
+- Capture pane = the video (round 4): FILL_CENTER preview, every control
+  floats over it in the original's absolute spots (pill 60/60, shutter
+  pill bottom-centre, 📷 lower-left, ⚡ shutter-speed menu lower-right,
+  Leaf top-right, upload prompt = floating card, never a dialog); the
+  interval slider hides behind a shutter long-press. Contract section:
+  "Capture pane layout — the video IS the pane".
 - /device-photos is ported (cards, status palette, global retry, menu
   entry); the anonymization menu is deferred.
 - Tests: ~135 jvm + 160 android-host + 51 shared instrumented + 15 app
