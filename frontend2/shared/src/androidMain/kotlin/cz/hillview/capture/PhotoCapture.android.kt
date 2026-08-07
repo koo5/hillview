@@ -29,7 +29,10 @@ import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,6 +49,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -121,6 +126,43 @@ private class AndroidPhotoCapture(
     private var camera: Camera? = null
     private var isoRange: android.util.Range<Int>? = null
     private var exposureRange: android.util.Range<Long>? = null
+
+    /** The tap-to-focus ring: where, and how the attempt is going. */
+    private data class FocusRing(val xPx: Float, val yPx: Float, val phase: FocusPhase)
+    private enum class FocusPhase { Focusing, Success, Failed }
+    private var focusRing by mutableStateOf<FocusRing?>(null)
+    private var focusRingClear: Job? = null
+
+    /**
+     * Tap to focus/expose, the native-camera expectation: AF+AE metering at
+     * the tapped point, auto-cancelling back to continuous after CameraX's
+     * default 5 s. The PreviewView's meteringPointFactory does the
+     * view-to-sensor transform, which is the whole reason to tap on the
+     * PreviewView rather than a Compose layer above it.
+     */
+    private fun focusAt(view: PreviewView, x: Float, y: Float) {
+        val cam = camera ?: return
+        val point = view.meteringPointFactory.createPoint(x, y)
+        focusRingClear?.cancel()
+        focusRing = FocusRing(x, y, FocusPhase.Focusing)
+        val future = cam.cameraControl.startFocusAndMetering(
+            androidx.camera.core.FocusMeteringAction.Builder(point).build(),
+        )
+        future.addListener({
+            val outcome = try {
+                if (future.get().isFocusSuccessful) FocusPhase.Success else FocusPhase.Failed
+            } catch (e: Exception) {
+                // Cancelled by a newer tap, or the camera declined — either
+                // way the ring should not claim success.
+                FocusPhase.Failed
+            }
+            focusRing = focusRing?.takeIf { it.xPx == x && it.yPx == y }?.copy(phase = outcome)
+            focusRingClear = scope.launch {
+                kotlinx.coroutines.delay(900)
+                focusRing = focusRing?.takeIf { it.xPx == x && it.yPx == y }?.let { null }
+            }
+        }, ContextCompat.getMainExecutor(context))
+    }
 
     /**
      * What auto-exposure last chose, harvested from preview capture
@@ -557,12 +599,70 @@ private class AndroidPhotoCapture(
                         PreviewView(c).apply {
                             scaleType = PreviewView.ScaleType.FIT_CENTER
                             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                            // Tap detection by hand (down..up within slop):
+                            // a GestureDetector would also claim the events
+                            // a future pinch-zoom needs.
+                            var downX = 0f
+                            var downY = 0f
+                            setOnTouchListener { v, event ->
+                                when (event.actionMasked) {
+                                    android.view.MotionEvent.ACTION_DOWN -> {
+                                        downX = event.x; downY = event.y; true
+                                    }
+                                    android.view.MotionEvent.ACTION_UP -> {
+                                        val slop = android.view.ViewConfiguration
+                                            .get(v.context).scaledTouchSlop
+                                        if (kotlin.math.hypot(
+                                                event.x - downX,
+                                                event.y - downY,
+                                            ) <= slop
+                                        ) {
+                                            v.performClick()
+                                            focusAt(this, event.x, event.y)
+                                        }
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            }
                         }.also { previewView = it }
                     },
                     modifier = Modifier
                         .fillMaxSize()
                         .clipToBounds(),
                 )
+
+                // The focus ring, drawn where the finger landed: yellow
+                // while hunting, green on lock, red on failure, gone ~1 s
+                // later — the idiom every native camera app trained.
+                focusRing?.let { ring ->
+                    val colour = when (ring.phase) {
+                        FocusPhase.Focusing -> Color(0xFFFFC107)
+                        FocusPhase.Success -> Color(0xFF2EA043)
+                        FocusPhase.Failed -> Color(0xFFD93025)
+                    }
+                    val density = androidx.compose.ui.platform.LocalDensity.current
+                    val sizeDp = 56.dp
+                    Box(
+                        Modifier
+                            .offset {
+                                androidx.compose.ui.unit.IntOffset(
+                                    (ring.xPx - with(density) { sizeDp.toPx() } / 2f).toInt(),
+                                    (ring.yPx - with(density) { sizeDp.toPx() } / 2f).toInt(),
+                                )
+                            }
+                            .size(sizeDp)
+                            .border(2.dp, colour, androidx.compose.foundation.shape.CircleShape)
+                            .testTag("camera-focus-ring")
+                            .semantics {
+                                stateDescription = when (ring.phase) {
+                                    FocusPhase.Focusing -> "focusing"
+                                    FocusPhase.Success -> "focused"
+                                    FocusPhase.Failed -> "focus failed"
+                                }
+                            },
+                    )
+                }
                 if (!location.granted) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,

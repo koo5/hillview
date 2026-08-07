@@ -1,6 +1,7 @@
 package cz.hillview.capture
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -238,29 +239,43 @@ fun CaptureScreen(
         // automatically (shutter priority), so this stays a one-axis
         // control.
         if (state.manualShutterSupported) {
-            Row(
+            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+            androidx.compose.foundation.layout.FlowRow(
+                // Wraps: the ladder overflows a narrow phone, and an
+                // offscreen chip is an untappable one — scrolling just
+                // hides the problem, a second line does not.
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Shutter", style = MaterialTheme.typography.bodySmall)
                 val active = state.shutterNs
-                TextButton(
-                    onClick = { capture.shutterNs = null },
-                    enabled = active != null,
-                    modifier = Modifier.testTag("capture-shutter-auto"),
-                ) { Text(if (active == null) "[Auto]" else "Auto") }
-                SHUTTER_CHOICES_NS.forEach { ns ->
-                    val selected = active == ns
+
+                // Compact on purpose: Material's default button min-width
+                // would push the fast end of the ladder offscreen, and an
+                // invisible chip is an untappable one.
+                @Composable
+                fun chip(label: String, selected: Boolean, tag: String, onClick: () -> Unit) {
                     TextButton(
-                        onClick = { capture.shutterNs = ns },
+                        onClick = onClick,
                         enabled = !selected,
-                        modifier = Modifier.testTag(
-                            "capture-shutter-${1_000_000_000L / ns}",
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            horizontal = 6.dp, vertical = 4.dp,
                         ),
-                    ) {
-                        Text(if (selected) "[${formatShutter(ns)}]" else formatShutter(ns))
-                    }
+                        modifier = Modifier
+                            .defaultMinSize(minWidth = 1.dp, minHeight = 32.dp)
+                            .testTag(tag),
+                    ) { Text(if (selected) "[$label]" else label) }
+                }
+
+                chip("Auto", active == null, "capture-shutter-auto") {
+                    capture.shutterNs = null
+                }
+                SHUTTER_CHOICES_NS.forEach { ns ->
+                    chip(
+                        formatShutter(ns),
+                        active == ns,
+                        "capture-shutter-${1_000_000_000L / ns}",
+                    ) { capture.shutterNs = ns }
                 }
             }
         }
