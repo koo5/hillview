@@ -48,11 +48,16 @@ orientation page; the detail lives in the documents it points to.
 - The exploration pill + manual-position claim: pan is exploration,
   "Capture here" is the only way the map position becomes the capture
   position; claim survives entering capture; withdrawal everywhere.
-- Tests: ~130 jvm + 158 android-host + 40+ shared instrumented + 8 app
+- Tests: ~130 jvm + 158 android-host + 40+ shared instrumented + 13 app
   behaviour tests, all green. The behaviour layer covers map tracking
   (incl. the return-from-capture demote regression it caught), capture
-  gating (mock-GPS determinism), storage shape per preference, and upload
-  coalescing (marker-log arithmetic, no foreground promotion).
+  gating (mock-GPS determinism), storage shape per preference, upload
+  coalescing (marker-log arithmetic, no foreground promotion), settings
+  persistence (restart contract via prefs + fresh-repo + recreation),
+  the offline upload queue (real login, radios off/on, WorkManager
+  drain to the dev backend), and session-expiry reconcile (persisted
+  flag → startup reconciler). The two backend-needing tests SKIP when
+  the dev backend is down.
 
 ## Remaining tasks
 
@@ -60,10 +65,11 @@ Implementation, roughly in value order:
 
 1. **More Appium scenario ports** onto the new app-behaviour layer — the
    suites in `frontend/tests-appium/specs/` are the source; the testTag
-   surface is complete. Done: capture gating flow, storage-shape
-   assertions, upload coalescing (2026-08-07). Good next picks:
-   session-expiry reconcile, upload-queue-offline, settings persistence
-   across restart.
+   surface is complete. Done (2026-08-07): capture gating flow,
+   storage-shape assertions, upload coalescing, settings persistence,
+   upload-queue-offline, session-expiry reconcile. Most remaining specs
+   wait on features frontend2 doesn't have yet (intents, FCM,
+   geo-tracking export, deep-link auth) — the next value is item 2.
 2. **Backend photo query for map markers** — retire the
    RecentPhotoMarkerSource scaffolding; brings analysis filters to life
    (the gating is already built and tested) and non-device sources

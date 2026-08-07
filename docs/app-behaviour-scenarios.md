@@ -271,6 +271,30 @@ map tests:
   logged-out on purpose: a drain without an auth token stops cleanly, so
   the run count stays pure coalescing.
 
+Wave 2, same day:
+
+- **Settings persistence** (`SettingsPersistenceBehaviourTest`): the
+  restart contract scoped down honestly — instrumentation dies with the
+  process, so kill+relaunch becomes (a) the raw SharedPreferences a dead
+  process leaves behind, (b) a fresh repository construction, which IS the
+  startup load path, and (c) activity recreation re-reading the UI. Covers
+  the positive case, the one-control-one-key merge invariant (the Tauri
+  partial-set_settings stomp has a structural fix here — update(transform)
+  persists the whole object — but the invariant stays asserted), and
+  upload-vs-compass cross-file independence.
+- **Upload queue offline** (`UploadQueueOfflineBehaviourTest`): real login
+  through the login screen, both radios off via `svc`, a capture that must
+  sit `pending` with the drain parked (no attempts, no failure states),
+  then radios on → WorkManager's connectivity callback drains it and the
+  Room row gains its serverPhotoId. Backend down → the test SKIPS
+  (Assume); the rest of the suite stays backend-free.
+- **Session expiry reconcile** (`SessionExpiryBehaviourTest`):
+  force-logout server-side, force the native refresh into its definitive
+  401 — flag persisted (probed without consuming), UI drops to signed-out
+  with the verbatim "session has expired" notice — then the next-launch
+  path from the persisted flag alone: a fresh SessionManager's
+  restoreIfNeeded(), the startup reconciler itself.
+
 The suite's one-process reality found a real bug: `MapSession` outlives
 activities, so the gating test left tracking ACTIVE — and merely opening
 the map then demoted it to BACKGROUND with the exploration pill raised.

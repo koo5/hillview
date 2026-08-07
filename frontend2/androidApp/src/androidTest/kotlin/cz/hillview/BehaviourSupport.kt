@@ -7,15 +7,20 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.test.platform.app.InstrumentationRegistry
 import cz.hillview.plugin.PhotoDatabase
 import cz.hillview.plugin.PhotoEntity
 import cz.hillview.plugin.SimplePhotoDao
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Shared plumbing for the Appium behaviour ports — the scenario sources are
@@ -33,6 +38,30 @@ object Behaviour {
             .uiAutomation.executeShellCommand(command)
         return ParcelFileDescriptor.AutoCloseInputStream(pfd)
             .use { String(it.readBytes()) }
+    }
+
+    /**
+     * POST to the dev backend's debug surface (10.0.2.2 = host loopback).
+     * Returns the HTTP status, or -1 when unreachable — callers Assume on
+     * it so backend-needing tests SKIP rather than fail when it is down.
+     */
+    fun post(url: String, jsonBody: String? = null): Int = try {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.connectTimeout = 5_000
+        conn.readTimeout = 20_000
+        if (jsonBody != null) {
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.outputStream.use { it.write(jsonBody.toByteArray()) }
+        }
+        try {
+            conn.responseCode
+        } finally {
+            conn.disconnect()
+        }
+    } catch (e: Exception) {
+        -1
     }
 }
 
@@ -142,6 +171,52 @@ fun ComposeTestRule.captureOnePhoto(): PhotoEntity {
     onNodeWithTag("capture-shutter").performClick()
     waitUntil(30_000) { dao.getTotalPhotoCount() > before }
     return dao.getAllPhotos().maxByOrNull { it.createdAt }!!
+}
+
+/**
+ * Put a Switch into the wanted state, wherever in the scrollable settings
+ * column it sits. Clicking blindly would TOGGLE — reading the toggleable
+ * state first makes this idempotent, which is what lets tests arrange
+ * state without caring what previous tests (or previous runs — app data
+ * persists on the emulator) left behind.
+ */
+fun ComposeTestRule.setSwitch(tag: String, on: Boolean) {
+    val wanted = if (on) ToggleableState.On else ToggleableState.Off
+    val node = onNodeWithTag(tag).performScrollTo()
+    if (node.fetchSemanticsNode().config[SemanticsProperties.ToggleableState] != wanted) {
+        node.performClick()
+    }
+    waitUntil(3_000) {
+        onNodeWithTag(tag).fetchSemanticsNode()
+            .config[SemanticsProperties.ToggleableState] == wanted
+    }
+}
+
+/**
+ * Sign in through the real login screen, as a user would. Logs a leftover
+ * session out first — earlier runs may have left one whose tokens a
+ * recreate-test-users call just invalidated.
+ */
+fun ComposeTestRule.loginThroughTheUi(
+    username: String = "test",
+    password: String = "StrongTestPassword123!",
+) {
+    if (onAllNodesWithTag("home-logout-button").fetchSemanticsNodes().isNotEmpty()) {
+        onNodeWithTag("home-logout-button").performClick()
+        waitUntil(10_000) {
+            onAllNodesWithTag("home-login-button").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+    onNodeWithTag("home-login-button").performClick()
+    waitUntil(10_000) {
+        onAllNodesWithTag("login-username").fetchSemanticsNodes().isNotEmpty()
+    }
+    onNodeWithTag("login-username").performTextInput(username)
+    onNodeWithTag("login-password").performTextInput(password)
+    onNodeWithTag("login-submit").performClick()
+    waitUntil(20_000) {
+        onAllNodesWithTag("home-logout-button").fetchSemanticsNodes().isNotEmpty()
+    }
 }
 
 /**
