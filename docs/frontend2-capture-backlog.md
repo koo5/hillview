@@ -240,3 +240,64 @@ timeout fought the very thing panning is for. Final model:
 
 Still open on the Tauri side: promoting background-tagged fixes out of
 UserComment/alt_location (the repair flow) remains unimplemented there.
+
+## The claim is not the background flag (design note, 2026-08-07)
+
+In Tauri, BACKGROUND *is* manual mode — "a manually parked map keeps
+meaning 'I'm at the map position'", fixes tagged `-background` lose the
+photo-pairing lookup. One flag, two meanings fused.
+
+frontend2 splits them, and the split is the feature:
+
+| state                  | map    | GPS        | captures geotag from |
+|------------------------|--------|------------|----------------------|
+| ACTIVE                 | follows| subscribed | the fix              |
+| BACKGROUND, no claim   | parked | subscribed | **the fix**          |
+| BACKGROUND + claim     | parked | subscribed | map centre, "manual" |
+| OFF                    | parked | off        | nothing / no-fix lift|
+
+Unclaimed BACKGROUND is the exploration state — pan mid-interval-run to
+figure out where you are without touching what captures record. If
+BACKGROUND alone implied manual (the Tauri fusion), that state could not
+exist. Coupling is one-directional: claiming forces BACKGROUND; leaving
+BACKGROUND in either direction withdraws the claim.
+
+Consequences for the future log-and-pair work:
+- The **claim**, not BACKGROUND, must decide which fixes lose the pairing
+  lookup — unclaimed-background fixes are good pairing candidates.
+- Log fixes **untagged always**; let pairing consult the claim history.
+  Then a wrong claim stays repairable after the fact — which the Tauri
+  `-background` tagging (baked in at log time) makes hard, and is why its
+  repair flow (promoting alt_location out of UserComment) never got built.
+
+## Storage: the hidden-.Hillview question revisited (user, 2026-08-07)
+
+The two real user needs pull apart: "photos gone from my gallery" AND
+"photos survive uninstall" (dev-apk swaps; and a bug may have left some
+photos un-uploaded, so losing local files can mean losing photos, period).
+
+What the verified storage facts say (see storageFacts, all API-dependent):
+- **App-private** hides from gallery but dies with uninstall — it is the
+  mode the "that sucks" scenario lives in; the settings screen already
+  shows the ✗.
+- **DCIM/.Hillview via File API (API 30+)** actually satisfies BOTH:
+  hidden from gallery scans, survives uninstall, still reachable by file
+  managers. The idea has merit precisely on modern Android.
+- **MediaStore mode cannot hide** — it rewrites `.Hillview` to
+  `_.Hillview` and indexes anyway (verified on API 36). On API 29, where
+  MediaStore is the only public option, hiding is therefore impossible.
+- Alternative worth considering: **DCIM/Hillview + a `.nomedia` file** —
+  same gallery-hiding effect without the confusing dot-name in file
+  managers, same uninstall survival. Would need the Tauri side to agree
+  (its spec treats `Hillview` and `.Hillview` as the two valid shapes).
+
+Mitigations for the un-uploaded-photos-lost-on-uninstall risk, orthogonal
+to folder choice: the pending-upload count is already visible; a
+"copy pending photos to Downloads" escape hatch would make any uninstall
+safe regardless of storage mode. Dev-apk coexistence also blunts the
+scenario: debug builds install as cz.hillview.debug alongside the release
+app, so "uninstall to try a dev build" is only forced when sideloading a
+release-signed build.
+
+Decision: parked until the user can play with the app; no behaviour
+changed today.
