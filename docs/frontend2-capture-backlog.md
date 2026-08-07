@@ -174,3 +174,45 @@ mode becomes, it should share that stack rather than grow a second one.
 Known CameraX hazard, twice confirmed on API 31 + CameraX 1.6: the
 camera-pipe backend loses still-capture callbacks (watchdog in
 `PhotoCapture.capture()` guards it; capture e2e needs API 34+).
+
+## Capture-time sensor pairing under load (design item, user-raised 2026-08-07)
+
+frontend2's `snapshotSensors()` reads `lastLocation`/`lastOrientation` at
+shutter-press time — a point sample. The Tauri app instead logs compass and
+GPS continuously into a table (GeoTrackingManager) and pairs the capture
+with the sample nearest its timestamp afterwards. The point sample is fine
+on an idle phone and wrong in exactly the conditions this app is used:
+
+- **Load/throttling skew.** Long capture sessions in the sun overheat the
+  phone; under thermal throttling the main thread and sensor delivery lag,
+  so "the freshest sample at shutter time" can be hundreds of ms stale —
+  and `capturedAtMs = System.currentTimeMillis()` at `capture()` entry is
+  itself early: the real exposure happens later in the CameraX pipeline.
+- **No interpolation.** With a table you can pair a capture with one fix
+  before and one after and interpolate — strictly better bearing/position
+  for a moving vehicle. A point sample can never do this.
+
+Direction agreed: eventually switch to the log-and-pair model — the shared
+GeoTrackingManager already exists and the clock-video work already proved
+the timestamp side. Sketch:
+1. Keep feeding EnhancedSensorService + GPS into the shared tracking store
+   while the capture screen is up (the Tauri app does this always).
+2. Stamp the capture with the sensor-clock time of the actual exposure —
+   CameraX's `onCaptureStarted`/`SENSOR_TIMESTAMP` per the frame-metadata
+   research, not wall-clock at `capture()` entry.
+3. Pair post-hoc: nearest sample, then interpolated bracketing samples.
+   EXIF can be written after pairing (the file save already happens off the
+   shutter path).
+Interim mitigation available now: `locationAgeMs` is already recorded in
+the snapshot — surface it as a quality signal.
+
+## Navigation architecture (discussion queued, user 2026-08-07)
+
+How much should frontend2 follow the Tauri navigation style — a menu that
+switches routes, while mode buttons inside the map route switch *modes*,
+with the mode surviving app restarts? The user likes it (deliberately),
+notes it may not be CMP/Android-idiomatic (Nav3 back-stack semantics,
+predictive back, deep links all assume routes), and suggested a setting
+could choose between styles. To discuss before the app grows more
+destinations: what is a route vs a mode, what persists, and what the back
+button does in each style.
