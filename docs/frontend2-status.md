@@ -98,7 +98,8 @@ orientation page; the detail lives in the documents it points to.
   HILLVIEW_GOOGLE_CLIENT_ID is baked in at build; native-only — the
   browser fallback joins with deep-link work). NativeAuthConfig.uiEnabled
   is the test kill-switch for system sheets; GitHub remains unimplemented
-  (the Tauri UI keeps its button commented out too).
+  (the Tauri UI keeps its button commented out too). Full study doc:
+  docs/native-auth.md.
 - Tests: ~135 jvm + 160 android-host + 51 shared instrumented + 15 app
   behaviour tests, all green. The behaviour layer covers map tracking
   (incl. the return-from-capture demote regression it caught), capture
