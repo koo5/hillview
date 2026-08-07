@@ -10,24 +10,22 @@ before reimplementing, per the contract method).
   bearing/location/hint layer drawn over the preview — live bearing
   readout, fix state, and the capture hints. Port it the way the map went:
   read the component, write the contract section, then implement.
-- **Compass calibration overlay** (`CompassCalibration.svelte` +
-  `CalibrationFigure.svelte`): the figure-8 sheet. The trigger rule is
-  already in docs/tauri-map-ui-contract.md — walking-mode compass active
-  and magnetometer accuracy != 3, auto-dismiss 1.5 s after it stops being
-  needed, never in car mode. The map side already receives accuracy from
-  EnhancedSensorService, so the signal exists; only the overlay is missing.
-- **Eco / power-saving mode**: the green badge on the location button is
-  drawn already (`powerSaving` flag in MapOverlayUi) but nothing sets it.
-  Contract: power saving behaves like BACKGROUND after one initial sync —
-  "map catches up after each capture"; tooltip text "power saving: map
-  catches up after each capture".
+- ~~Compass calibration overlay~~ **DONE 2026-08-07**: trigger rule +
+  figure-8 sheet + live accuracy + auto-dismiss + car-mode escape hatch;
+  desktop-tested, trigger rules commonTest'd.
+- ~~Eco / power-saving mode~~ **DONE 2026-08-07**: Leaf toggle on capture
+  (persisted), 15 fps preview cap, map catches up per capture instead of
+  following live; emulator-verified at the persisted-state level. Map badge
+  shows the armed pref.
 - **Resolution menu**: the Tauri app enumerates per-camera supported
   resolutions (`getCameraSupportedResolutions`, cached, with a loading set
   per camera) and persists `selectedResolution`. frontend2's CameraX path
   currently takes the default. CameraX offers `ResolutionSelector`; the
   menu should show real sensor modes, not a hardcoded list.
-- **Capture queue indicator** (`CaptureQueueIndicator/Status.svelte`):
-  upload-queue depth on the capture screen.
+- ~~Capture queue indicator~~ **resolved 2026-08-07**: the Tauri component
+  watches its webview-side capture queue (max 50, slow/fast modes) — a
+  structure frontend2 does not have; upload depth is already on the
+  capture-upload-stats line.
 - ~~Shutter-time control~~ **DONE 2026-08-07**: shutter-priority ladder
   (1/125…1/2000) on the capture screen, ISO auto-scaled to preserve the
   metered exposure product; Camera2Interop, gated on MANUAL_SENSOR.
