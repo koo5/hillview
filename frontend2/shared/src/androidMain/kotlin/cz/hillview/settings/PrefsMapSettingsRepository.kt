@@ -22,6 +22,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             hunterModePref = prefs.getBoolean("hunter_mode", false),
             showUnanalyzed = prefs.getBoolean("show_unanalyzed", true),
             powerSavingPref = prefs.getBoolean("power_saving", false),
+            ecoFps = prefs.getFloat("eco_fps", 15f),
             cameraOverlayOpacity = prefs.getInt("camera_overlay_opacity", 3),
             captureResolution = prefs.getString("capture_resolution", null),
             mainActivity = prefs.getString("main_activity", null) ?: "view",
@@ -39,6 +40,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             .putBoolean("hunter_mode", next.hunterModePref)
             .putBoolean("show_unanalyzed", next.showUnanalyzed)
             .putBoolean("power_saving", next.powerSavingPref)
+            .putFloat("eco_fps", next.ecoFps.coerceIn(0f, 30f))
             .putInt("camera_overlay_opacity", next.cameraOverlayOpacity.coerceIn(0, 5))
             .putString("capture_resolution", next.captureResolution)
             .putString("main_activity", next.mainActivity)

@@ -212,8 +212,14 @@ interface PhotoCapture {
      * the Tauri toggle documents ("map moves only after captures, reduced
      * preview frame rate, animations off") — the map effect lives in the
      * screen, and there are no ambient animations here to stop.
+     *
+     * null = default (no throttle). [ECO_DUTY_MAX_FPS]..30 = an AE
+     * frame-rate cap. Below that, real hardware AE ranges run out, so the
+     * preview USE CASE duty-cycles: bound for a beat every 1/fps seconds,
+     * frozen on its last frame between beats. Exactly 0 = capture-only:
+     * the preview refreshes only when a capture lands.
      */
-    var ecoPreviewFps: Boolean
+    var ecoPreviewFps: Float?
 
     /**
      * Pin the still-capture size (null = auto). Rebinding the camera is the
@@ -227,6 +233,66 @@ interface PhotoCapture {
     /** Camera preview + platform permission UI. */
     @Composable
     fun CameraPane(modifier: Modifier)
+}
+
+/**
+ * The two eco mechanisms and their honest limits (emulator-diagnosed,
+ * see the contract doc): AE target-fps ranges are reliable down to ~7;
+ * duty-cycling the preview use case (600 ms live beat per period) only
+ * makes sense when the period clearly exceeds the beat + the ~200 ms
+ * session reconfiguration, i.e. at and below 1 fps. The 1..7 dead zone
+ * is SKIPPED by the slider axis rather than mislabelled.
+ */
+const val ECO_DUTY_BAND_MAX_FPS = 1f
+const val ECO_AE_MIN_FPS = 7f
+
+/**
+ * The eco slider's value axis (t: 0 = bottom, 1 = top): the very bottom
+ * band is the capture-only sentinel (0); then the duty band runs
+ * logarithmically 0.1..1; the upper half runs 7..30 (the AE band); the
+ * top is 30 ≈ the untouched default. Log, because a linear axis would
+ * crowd every battery-relevant value into the bottom centimetre.
+ */
+fun ecoSliderToFps(t: Float): Float = when {
+    t >= 1f -> 30f
+    t <= 0.05f -> 0f
+    t < 0.5f -> {
+        val u = (t - 0.05f) / 0.45f
+        // 0.1 * 10^u spans 0.1 .. 1.
+        (0.1 * kotlin.math.exp(kotlin.math.ln(10.0) * u)).toFloat()
+    }
+    else -> {
+        val u = (t - 0.5f) / 0.5f
+        // 7 * (30/7)^u spans 7 .. 30.
+        (7.0 * kotlin.math.exp(kotlin.math.ln(30.0 / 7.0) * u)).toFloat()
+    }
+}
+
+/**
+ * [ecoSliderToFps]'s inverse — the slider's initial thumb position.
+ * Dead-zone values (1..7, possible only from old prefs) land on the
+ * band boundary.
+ */
+fun ecoFpsToSlider(fps: Float): Float = when {
+    fps <= 0f -> 0f
+    fps >= 30f -> 1f
+    fps <= 1f -> {
+        val u = (kotlin.math.ln(fps / 0.1) / kotlin.math.ln(10.0)).toFloat()
+        // Shy of 0.5: exactly 0.5 belongs to the AE band's 7.
+        (0.05f + 0.45f * u).coerceIn(0.05f, 0.4995f)
+    }
+    fps < 7f -> 0.5f
+    else -> {
+        val u = (kotlin.math.ln(fps / 7.0) / kotlin.math.ln(30.0 / 7.0)).toFloat()
+        (0.5f + 0.5f * u).coerceIn(0.5f, 1f)
+    }
+}
+
+fun ecoFpsLabel(fps: Float): String = when {
+    fps <= 0f -> "on 📸 only"
+    fps >= 30f -> "default"
+    fps < 1f -> "${fmtDecimals(fps.toDouble(), 1)} fps"
+    else -> "${kotlin.math.round(fps).toInt()} fps"
 }
 
 @Composable

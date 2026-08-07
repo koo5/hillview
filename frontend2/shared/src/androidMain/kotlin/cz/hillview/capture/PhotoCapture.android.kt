@@ -51,6 +51,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -69,8 +70,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.IOException
 import kotlin.coroutines.resume
@@ -319,34 +322,8 @@ private class AndroidPhotoCapture(
         val capture = captureBuilder.build()
         imageCapture = capture
 
-        val previewBuilder = Preview.Builder()
-        // Harvest AE's choices from every preview frame — the metering a
-        // shutter pin scales its ISO from (see the frame-metadata research:
-        // this is the sanctioned per-frame window CameraX offers).
-        Camera2Interop.Extender(previewBuilder).setSessionCaptureCallback(
-            object : android.hardware.camera2.CameraCaptureSession.CaptureCallback() {
-                override fun onCaptureCompleted(
-                    session: android.hardware.camera2.CameraCaptureSession,
-                    request: CaptureRequest,
-                    result: TotalCaptureResult,
-                ) {
-                    val exp = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
-                    val iso = result.get(CaptureResult.SENSOR_SENSITIVITY)
-                    // Ground truth for the pin (the emulator's JPEG EXIF is
-                    // canned, so this log is the only honest witness there).
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - lastFrameLog > 2_000) {
-                        lastFrameLog = now
-                        Log.d(TAG, "frame exposureNs=$exp iso=$iso pinned=$shutterNs")
-                    }
-                    if (shutterNs != null) return
-                    exp?.let { meteredExposureNs = it }
-                    iso?.let { meteredIso = it }
-                }
-            },
-        )
-        val preview = previewBuilder.build()
-        previewView?.let { preview.surfaceProvider = it.surfaceProvider }
+        val preview = buildPreviewUseCase()
+        previewUseCase = preview
 
         val group = UseCaseGroup.Builder()
             .addUseCase(preview)
@@ -358,6 +335,7 @@ private class AndroidPhotoCapture(
             lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, group,
         )
         camera = cam
+        previewBound = true
 
         val info = Camera2CameraInfo.from(cam.cameraInfo)
         val capabilities = info.getCameraCharacteristic(
@@ -399,8 +377,49 @@ private class AndroidPhotoCapture(
         )
 
         // Options chosen before (re)binding still apply.
-        if (shutterNs != null || ecoPreviewFps) applyRequestOptions()
+        if (shutterNs != null || ecoPreviewFps != null) applyRequestOptions()
         cameraBound = true
+        // A rebind starts with the preview in the group — re-enter whatever
+        // eco duty mode is chosen.
+        restartEcoDuty()
+    }
+
+    /**
+     * A FRESH use case for every (re)attach: a Preview reused across
+     * unbind/bind never re-attaches its surface (emulator-verified: the
+     * session streams, the TextureView stays black) — the duty engine
+     * rebuilds instead.
+     */
+    private fun buildPreviewUseCase(): Preview {
+        val previewBuilder = Preview.Builder()
+        // Harvest AE's choices from every preview frame — the metering a
+        // shutter pin scales its ISO from (see the frame-metadata research:
+        // this is the sanctioned per-frame window CameraX offers).
+        Camera2Interop.Extender(previewBuilder).setSessionCaptureCallback(
+            object : android.hardware.camera2.CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
+                    session: android.hardware.camera2.CameraCaptureSession,
+                    request: CaptureRequest,
+                    result: TotalCaptureResult,
+                ) {
+                    val exp = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+                    val iso = result.get(CaptureResult.SENSOR_SENSITIVITY)
+                    // Ground truth for the pin (the emulator's JPEG EXIF is
+                    // canned, so this log is the only honest witness there).
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastFrameLog > 2_000) {
+                        lastFrameLog = now
+                        Log.d(TAG, "frame exposureNs=$exp iso=$iso pinned=$shutterNs")
+                    }
+                    if (shutterNs != null) return
+                    exp?.let { meteredExposureNs = it }
+                    iso?.let { meteredIso = it }
+                }
+            },
+        )
+        val preview = previewBuilder.build()
+        previewView?.let { preview.surfaceProvider = it.surfaceProvider }
+        return preview
     }
 
     @Volatile private var pinnedResolution: CaptureResolution? = null
@@ -424,12 +443,136 @@ private class AndroidPhotoCapture(
             applyRequestOptions()
         }
 
-    override var ecoPreviewFps: Boolean = false
+    override var ecoPreviewFps: Float? = null
         set(value) {
             if (field == value) return
             field = value
             applyRequestOptions()
+            restartEcoDuty()
         }
+
+    // --- the sub-AE eco band: duty-cycling the preview use case ---
+    //
+    // At and below ECO_DUTY_BAND_MAX_FPS the Preview use case is unbound
+    // between beats (AE ranges cover 7..30). ImageCapture stays bound
+    // throughout, so the shutter never waits. One caveat, deliberate:
+    // shutter-pin ISO scales from preview-frame metering, which goes
+    // stale while frozen.
+    //
+    // The frozen frame is NOT free: unbinding blanks the TextureView
+    // (emulator-verified — it does not hold its last frame), so the last
+    // preview bitmap is grabbed at unbind time and CameraPane draws it
+    // over the blank surface while the preview is down.
+    private var previewUseCase: Preview? = null
+    private var previewBound = false
+    private var ecoDutyJob: Job? = null
+    private var captureRefreshJob: Job? = null
+
+    var frozenFrame by mutableStateOf<android.graphics.Bitmap?>(null)
+        private set
+
+    private fun setPreviewBound(want: Boolean) {
+        val provider = cameraProvider ?: return
+        val preview = previewUseCase ?: return
+        if (want == previewBound || !cameraBound) return
+        if (want) {
+            runCatching {
+                // Fresh use case every time — see buildPreviewUseCase.
+                val fresh = buildPreviewUseCase()
+                previewUseCase = fresh
+                camera = provider.bindToLifecycle(
+                    lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, fresh,
+                )
+                previewBound = true
+                // A fresh bind means fresh capture-request options.
+                applyRequestOptions()
+            }.onFailure { Log.w(TAG, "preview rebind failed", it) }
+            // Drop the freeze only when frames ACTUALLY render — the
+            // session's first on-screen frame can trail the bind by most
+            // of a second; a timed clear flashed black through the beat.
+            scope.launch {
+                waitForPreviewStreaming(3_000L)
+                if (previewBound) frozenFrame = null
+            }
+        } else {
+            // Grab only a LIVE frame: a bind whose session never reached
+            // the screen would freeze black — better to keep the last
+            // good frame. (Main thread: PreviewView.getBitmap is legal.)
+            val streaming =
+                previewView?.previewStreamState?.value == PreviewView.StreamState.STREAMING
+            if (streaming) previewView?.bitmap?.let { frozenFrame = it }
+            Log.d(TAG, "eco freeze: streaming=$streaming grabbed=${streaming && frozenFrame != null}")
+            runCatching {
+                provider.unbind(preview)
+                previewBound = false
+            }.onFailure { Log.w(TAG, "preview unbind failed", it) }
+        }
+    }
+
+    /** Resolves when the PreviewView reports real frames, or the timeout. */
+    private suspend fun waitForPreviewStreaming(timeoutMs: Long) {
+        val view = previewView ?: return
+        withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine { cont ->
+                val streamState = view.previewStreamState
+                val observer = object : androidx.lifecycle.Observer<PreviewView.StreamState> {
+                    override fun onChanged(value: PreviewView.StreamState) {
+                        if (value == PreviewView.StreamState.STREAMING) {
+                            streamState.removeObserver(this)
+                            if (cont.isActive) cont.resume(Unit)
+                        }
+                    }
+                }
+                streamState.observeForever(observer)
+                cont.invokeOnCancellation {
+                    scope.launch { streamState.removeObserver(observer) }
+                }
+            }
+        }
+    }
+
+    private fun restartEcoDuty() {
+        ecoDutyJob?.cancel()
+        ecoDutyJob = null
+        captureRefreshJob?.cancel()
+        val eco = ecoPreviewFps
+        when {
+            // Continuous preview: default, or the AE-range band.
+            eco == null || eco > ECO_DUTY_BAND_MAX_FPS -> setPreviewBound(true)
+            // Capture-only: frozen until a capture lands (ecoCaptureRefresh).
+            eco <= 0f -> setPreviewBound(false)
+            // 0.1..1 fps: a beat of live preview every 1/fps seconds. The
+            // beat is stream-gated, not timed: bind, wait for real frames
+            // (the emulator's session start can eat most of a second),
+            // show a few, grab the freeze, unbind.
+            else -> {
+                val periodMs = (1000f / eco).toLong()
+                ecoDutyJob = scope.launch {
+                    while (true) {
+                        val beatStart = SystemClock.elapsedRealtime()
+                        setPreviewBound(true)
+                        waitForPreviewStreaming(2_500L)
+                        delay(300L)
+                        setPreviewBound(false)
+                        val elapsed = SystemClock.elapsedRealtime() - beatStart
+                        delay((periodMs - elapsed).coerceAtLeast(300L))
+                    }
+                }
+            }
+        }
+    }
+
+    /** Capture-only mode: the capture IS the refresh signal. */
+    private fun ecoCaptureRefresh() {
+        if (ecoPreviewFps != 0f) return
+        captureRefreshJob?.cancel()
+        captureRefreshJob = scope.launch {
+            setPreviewBound(true)
+            waitForPreviewStreaming(2_500L)
+            delay(600L)
+            if (ecoPreviewFps == 0f) setPreviewBound(false)
+        }
+    }
 
     /**
      * ONE application point for every Camera2 request option — the
@@ -470,13 +613,18 @@ private class AndroidPhotoCapture(
             state = state.copy(shutterNs = null)
         }
 
-        if (ecoPreviewFps) {
-            // Half the usual 30: visibly alive, meaningfully cheaper.
+        val eco = ecoPreviewFps
+        if (eco != null && eco < 30f) {
+            // The AE band (8..29): the requested cap, as a fixed range —
+            // the proven (15,15) mechanism, now tunable. In the duty-cycled
+            // band the on-beat still runs capped at the duty ceiling so the
+            // beat itself is cheap.
+            val capFps = eco.coerceAtLeast(ECO_AE_MIN_FPS).toInt()
             builder.setCaptureRequestOption(
                 CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
-                android.util.Range(15, 15),
+                android.util.Range(capFps, capFps),
             )
-            applied += " +eco15fps"
+            applied += " +eco${capFps}fps"
         }
 
         Camera2CameraControl.from(cam.cameraControl).setCaptureRequestOptions(
@@ -604,6 +752,9 @@ private class AndroidPhotoCapture(
                             capturing = false,
                             lastPhoto = CapturedPhoto(locator, filename, snapshot),
                         )
+                        // Capture-only eco: this is the moment the frozen
+                        // preview earns a refresh.
+                        ecoCaptureRefresh()
                         playCaptureTone(snapshot)
                         Log.i(TAG, "captured $filename via ${mode.key} -> $locator")
                     } catch (e: Exception) {
@@ -695,6 +846,8 @@ private class AndroidPhotoCapture(
         cameraProvider = null
         camera = null
         imageCapture = null
+        previewUseCase = null
+        previewBound = false
         cameraBound = false
         gpsStarted = false
         orientationStarted = false
@@ -770,6 +923,21 @@ private class AndroidPhotoCapture(
                         .fillMaxSize()
                         .clipToBounds(),
                 )
+
+                // Deep-eco freeze frame: while the preview use case is
+                // unbound the TextureView is blank, so the last live frame
+                // stands in (same centre-crop as FILL_CENTER).
+                frozenFrame?.let { frame ->
+                    androidx.compose.foundation.Image(
+                        bitmap = frame.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clipToBounds()
+                            .testTag("eco-frozen-frame"),
+                    )
+                }
 
                 // The focus ring, drawn where the finger landed: yellow
                 // while hunting, green on lock, red on failure, gone ~1 s

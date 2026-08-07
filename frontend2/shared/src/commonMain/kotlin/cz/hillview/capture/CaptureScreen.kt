@@ -137,9 +137,13 @@ fun CaptureScreen(
     }
 
     // Eco effects apply only while this screen is up — the composition IS
-    // the activity gate the Tauri `powerSavingActive` derives.
+    // the activity gate the Tauri `powerSavingActive` derives. The slider's
+    // 30 means "the untouched default": no throttle even with eco on.
     val ecoActive = mapSettings.powerSavingPref
-    LaunchedEffect(ecoActive) { capture.ecoPreviewFps = ecoActive }
+    LaunchedEffect(ecoActive, mapSettings.ecoFps) {
+        capture.ecoPreviewFps =
+            if (ecoActive && mapSettings.ecoFps < 30f) mapSettings.ecoFps else null
+    }
 
     // The map follows the fixes while tracking is ACTIVE — live through the
     // shared holder, so the mounted map pane moves as the fixes come in —
@@ -295,20 +299,95 @@ fun CaptureScreen(
         // The Leaf — the original's power-saving-button: a translucent
         // circle below the top-right corner (that corner belongs to the
         // debug toggles there). Lower preview fps, and the map only catches
-        // up after each capture instead of chasing every fix.
-        Box(
+        // up after each capture instead of chasing every fix. Tap toggles;
+        // the shutter's one-finger grammar tunes it: hold 300 ms, the fps
+        // slider unfolds beneath, slide onto it, release to set (and arm
+        // eco). Bottom = refresh only on capture, then 0.1..30 fps (log),
+        // top = the untouched default.
+        var ecoSliderVisible by remember { mutableStateOf(false) }
+        var ecoT by remember { mutableStateOf(0f) }
+        var leafBounds by remember { mutableStateOf<Rect?>(null) }
+        var ecoZone by remember { mutableStateOf<Rect?>(null) }
+        var ecoOrigin by remember { mutableStateOf(Offset.Zero) }
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(top = 52.dp, end = 8.dp)
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(if (ecoActive) Color(0xCC2EA043) else LightGlass)
-                .clickable {
-                    mapSettingsRepo.update { it.copy(powerSavingPref = !it.powerSavingPref) }
-                }
-                .testTag("power-saving-btn"),
-            contentAlignment = Alignment.Center,
-        ) { Text("🍃") }
+                .onGloballyPositioned { ecoOrigin = it.positionInRoot() }
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val leaf = leafBounds ?: return@awaitEachGesture
+                        if (!leaf.contains(ecoOrigin + down.position)) return@awaitEachGesture
+                        down.consume()
+                        val quick = withTimeoutOrNull(300L) {
+                            if (waitForUpOrCancellation() != null) "tap" else "cancel"
+                        }
+                        if (quick == "tap") {
+                            mapSettingsRepo.update { it.copy(powerSavingPref = !it.powerSavingPref) }
+                            return@awaitEachGesture
+                        }
+                        if (quick == "cancel") return@awaitEachGesture
+                        ecoT = ecoFpsToSlider(mapSettings.ecoFps)
+                        ecoSliderVisible = true
+                        var overSlider = false
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                    ?: event.changes.first()
+                                val pos = ecoOrigin + change.position
+                                val zone = ecoZone
+                                // Everything below the leaf is the catch zone.
+                                overSlider = pos.y > leaf.bottom
+                                if (overSlider && zone != null && zone.height > 0f) {
+                                    ecoT = (1f - (pos.y - zone.top) / zone.height)
+                                        .coerceIn(0f, 1f)
+                                }
+                                change.consume()
+                                if (event.changes.none { it.pressed }) {
+                                    if (overSlider) {
+                                        // Choosing a level IS choosing eco.
+                                        mapSettingsRepo.update {
+                                            it.copy(
+                                                ecoFps = ecoSliderToFps(ecoT),
+                                                powerSavingPref = true,
+                                            )
+                                        }
+                                    }
+                                    break
+                                }
+                            }
+                        } finally {
+                            ecoSliderVisible = false
+                        }
+                    }
+                },
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(if (ecoActive) Color(0xCC2EA043) else LightGlass)
+                    .onGloballyPositioned { leafBounds = it.boundsInRoot() }
+                    // Touch runs through the container's gesture; semantics
+                    // keep the click contract for tests and accessibility.
+                    .semantics {
+                        role = Role.Button
+                        onClick(label = null) {
+                            mapSettingsRepo.update { it.copy(powerSavingPref = !it.powerSavingPref) }
+                            true
+                        }
+                    }
+                    .testTag("power-saving-btn"),
+                contentAlignment = Alignment.Center,
+            ) { Text("🍃") }
+            if (ecoSliderVisible) {
+                EcoSlider(t = ecoT, onTrackPositioned = { ecoZone = it })
+            }
+        }
 
         // The 📷 selector, lower-left as in Tauri. Only resolutions for
         // now; the camera rows join when enumeration is ported.
@@ -683,6 +762,48 @@ fun CaptureScreen(
             },
             onClose = { showCalibration = false },
         )
+    }
+}
+
+/**
+ * The Leaf's fps ladder, unfolding beneath it mid-gesture. A display like
+ * [IntervalSlider]: the Leaf's pointerInput drives [t] (0 = bottom =
+ * capture-only, 1 = top = default) from the held thumb via the reported
+ * track bounds.
+ */
+@Composable
+private fun EcoSlider(
+    t: Float,
+    onTrackPositioned: (Rect) -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .background(DarkGlass, RoundedCornerShape(24.dp))
+            .padding(6.dp),
+    ) {
+        Text(
+            text = ecoFpsLabel(ecoSliderToFps(t)),
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.White,
+            modifier = Modifier.testTag("eco-fps-value"),
+        )
+        Box(
+            modifier = Modifier
+                .size(width = 48.dp, height = 140.dp)
+                .onGloballyPositioned { onTrackPositioned(it.boundsInRoot()) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Slider(
+                value = t,
+                onValueChange = {},
+                valueRange = 0f..1f,
+                modifier = Modifier
+                    .requiredWidth(140.dp)
+                    .rotate(-90f)
+                    .testTag("eco-fps-slider"),
+            )
+        }
     }
 }
 

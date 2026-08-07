@@ -132,7 +132,25 @@ control row below the stream, no scrolling, and no dialog anywhere:
   counters, two meanings: the badge on the capture button counts the
   CURRENT run; the corner counts the whole session.
 
-**frontend2 divergences (deliberate, round 4)**: the slow/fast pair is a
+**frontend2 divergences (deliberate, rounds 4–7)**: the Leaf answers the
+shutter's gesture grammar too — tap toggles eco, a 300 ms hold unfolds an
+fps ladder beneath it (bottom = the preview refreshes only on capture,
+then a log axis in TWO bands — 0.1–1 (duty) and 7–30 (AE) with the
+unimplementable 1–7 gap skipped, top = the untouched default; release
+over the ladder sets the level AND arms eco). Implementation: the AE
+band caps CONTROL_AE_TARGET_FPS_RANGE (the original toggle's proven
+15,15, now tunable; floor 7); the duty band unbinds the Preview use case
+between stream-gated beats (bind → wait for PreviewView STREAMING → a
+few frames → grab → unbind; ImageCapture stays bound so the shutter
+never waits); 0 = capture-only (a landed capture is the refresh signal).
+Hard-won platform facts: a Preview REUSED across unbind/bind never
+re-attaches its surface (build a fresh one per beat), the TextureView
+does NOT hold its last frame on unbind (a grabbed bitmap overlay is the
+freeze frame, taken only while STREAMING so a failed beat keeps the
+last good frame), and the session's first on-screen frame can trail the
+bind by most of a second (never run the beat on a timer). Shutter-pin
+metering goes stale while frozen — accepted. The slow/fast
+pair itself is a
 continuous 0–15 s vertical interval slider driven by the ORIGINAL's
 one-finger grammar — hold 300 ms and it unfolds beside the still-held
 thumb, slide onto it to pick the interval live, release there to start

@@ -31,6 +31,11 @@ data class MapSettings(
      * toggle remembered.
      */
     val powerSavingPref: Boolean = false,
+    // The eco intensity the Leaf's long-press slider picks: 0 = the
+    // preview refreshes only on capture, 0.1..30 = an fps cap (duty-cycled
+    // below ECO_DUTY_MAX_FPS), 30 = the untouched default. Applied only
+    // while powerSavingPref is on. 15 = the pre-slider eco behaviour.
+    val ecoFps: Float = 15f,
     /** CameraOverlay backdrop level 0-5 (Tauri cameraOverlayOpacity). */
     val cameraOverlayOpacity: Int = 3,
     /** Pinned still size as "WxH"; null = auto (Tauri selectedResolution). */

@@ -85,8 +85,11 @@ orientation page; the detail lives in the documents it points to.
   interval slider works the DualCaptureButton way — one finger: hold
   300 ms, slide onto it, release starts the run (release on the button
   cancels, tap stops); run badge on the button + session total in the
-  corner (CaptureQueueIndicator). Contract section: "Capture pane
-  layout — the video IS the pane".
+  corner (CaptureQueueIndicator); the Leaf answers the same grammar with
+  an fps ladder (capture-only → 0.1–1 duty band → 7–30 AE band →
+  default; stream-gated beats, fresh Preview per beat, bitmap-overlay
+  freeze frames — see the contract's hard-won platform facts).
+  Contract section: "Capture pane layout — the video IS the pane".
 - /device-photos is ported (cards, status palette, global retry, menu
   entry); the anonymization menu is deferred.
 - Native auth is LIVE: backend POST /api/auth/google/native verifies a
