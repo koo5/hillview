@@ -24,6 +24,11 @@ default the walk is 3 → 5 → 0 → 2 → 4 → 0 → …, i.e. it settles int
 The rows themselves stay visible at every level — the cycle only trades
 legibility against how much preview the glass eats.
 
+**frontend2 divergence (deliberate)**: only a narrow LEFT-EDGE handle
+(grip mark) runs the cycle; the rest of the glass has no pointer handler,
+so taps on it fall through to the camera's tap-to-focus instead of being
+swallowed as the original swallows them.
+
 ### Content, by priority
 
 1. **Post-open hint**, 4 s: `doCalibrationHint()` fires on a
@@ -128,7 +133,7 @@ control row below the stream, no scrolling, and no dialog anywhere:
   CURRENT run; the corner counts the whole session.
 
 **frontend2 divergences (deliberate, round 4)**: the slow/fast pair is a
-continuous 0–60 s vertical interval slider driven by the ORIGINAL's
+continuous 0–15 s vertical interval slider driven by the ORIGINAL's
 one-finger grammar — hold 300 ms and it unfolds beside the still-held
 thumb, slide onto it to pick the interval live, release there to start
 the run (release back over the button cancels, tap stops a run); the manual

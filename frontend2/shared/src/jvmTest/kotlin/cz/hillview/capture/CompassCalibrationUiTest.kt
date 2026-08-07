@@ -153,7 +153,7 @@ class CameraOverlayUiTest {
     }
 
     @Test
-    fun tapCyclesTheBackdrop() = runComposeUiTest {
+    fun theLeftEdgeHandleCyclesTheBackdrop() = runComposeUiTest {
         var cycled = false
         setContent {
             CameraOverlayUi(
@@ -164,7 +164,9 @@ class CameraOverlayUiTest {
                 onCycleOpacity = { cycled = true },
             )
         }
-        onNodeWithTag("location-overlay").performClick()
+        // Only the handle cycles — the rest of the glass is deliberately
+        // touch-transparent so taps reach the camera's tap-to-focus.
+        onNodeWithTag("overlay-opacity-handle").performClick()
         assertTrue(cycled)
     }
 

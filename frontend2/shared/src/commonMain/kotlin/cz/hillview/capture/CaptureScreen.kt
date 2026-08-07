@@ -54,6 +54,20 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
+// The two glass families every original overlay uses: dark pills for info
+// and actions (rgba(0,0,0,.5–.7) in the CSS), white glass for the utility
+// buttons (rgba(255,255,255,.2)). One constant each — the pane had drifted
+// into five different alphas of black (phone-in-hand feedback: unify).
+// The location pill is NOT in either family: its six-level white cycle is
+// the ported CameraOverlay contract.
+internal val DarkGlass = Color(0xB3000000)
+internal val LightGlass = Color(0x33FFFFFF)
+
+// Same physical track, finer grain: 15 s is the longest useful spacing
+// (the original's slow mode is 10 s) — a 60 s ceiling made every useful
+// value crowd the bottom centimetre of the slider.
+internal const val INTERVAL_MAX_SEC = 15
+
 /**
  * Session totals for the corner indicator — the original's captureQueue
  * stats singleton lives for the webview session; a process-wide object is
@@ -241,14 +255,16 @@ fun CaptureScreen(
     ) {
         capture.CameraPane(Modifier.fillMaxSize())
 
-        // Top-left stack at the original pill's spot (CameraOverlay.svelte:
-        // top 60px / left 60px — clear of Main's floating hamburger row).
+        // Top-left stack near the original pill's spot (CameraOverlay
+        // .svelte: top 60px / left 60px) — pulled LOWER than the original's
+        // 60: Main's floating hamburger/camera row is taller than the
+        // Tauri one and was eating the pill's first line (phone-in-hand).
         // The status and upload lines are this port's extension; they ride
         // under the pill as glass strips instead of claiming pane rows.
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(start = 60.dp, top = 56.dp, end = 8.dp),
+                .padding(start = 60.dp, top = 88.dp, end = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalAlignment = Alignment.Start,
         ) {
@@ -273,7 +289,7 @@ fun CaptureScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0x99FFFFFF),
                 modifier = Modifier
-                    .background(Color(0x66000000), RoundedCornerShape(4.dp))
+                    .background(DarkGlass, RoundedCornerShape(4.dp))
                     .padding(horizontal = 6.dp, vertical = 2.dp)
                     .testTag("capture-upload-stats"),
             )
@@ -289,7 +305,7 @@ fun CaptureScreen(
                 .padding(top = 52.dp, end = 8.dp)
                 .size(38.dp)
                 .clip(CircleShape)
-                .background(if (ecoActive) Color(0xCC2EA043) else Color(0x33FFFFFF))
+                .background(if (ecoActive) Color(0xCC2EA043) else LightGlass)
                 .clickable {
                     mapSettingsRepo.update { it.copy(powerSavingPref = !it.powerSavingPref) }
                 }
@@ -337,7 +353,9 @@ fun CaptureScreen(
                 }
                 TextButton(
                     onClick = { showResolutionMenu = !showResolutionMenu },
-                    modifier = Modifier.testTag("camera-selector-button"),
+                    modifier = Modifier
+                        .background(LightGlass, CircleShape)
+                        .testTag("camera-selector-button"),
                 ) { Text("📷", style = MaterialTheme.typography.titleMedium) }
             }
         }
@@ -360,7 +378,7 @@ fun CaptureScreen(
                 if (showShutterMenu) {
                     Column(
                         Modifier
-                            .background(Color(0xDD222222), RoundedCornerShape(8.dp))
+                            .background(DarkGlass, RoundedCornerShape(8.dp))
                             .padding(4.dp)
                             .testTag("shutter-speed-menu"),
                     ) {
@@ -382,7 +400,9 @@ fun CaptureScreen(
                 }
                 TextButton(
                     onClick = { showShutterMenu = !showShutterMenu },
-                    modifier = Modifier.testTag("shutter-speed-button"),
+                    modifier = Modifier
+                        .background(LightGlass, RoundedCornerShape(20.dp))
+                        .testTag("shutter-speed-button"),
                 ) {
                     Text(
                         "⚡ " + (state.shutterNs?.let { formatShutter(it) } ?: "Auto"),
@@ -402,7 +422,7 @@ fun CaptureScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier
-                        .background(Color(0xB3000000), RoundedCornerShape(20.dp))
+                        .background(DarkGlass, RoundedCornerShape(20.dp))
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                         .testTag("capture-queue-indicator"),
                 ) {
@@ -553,8 +573,8 @@ fun CaptureScreen(
                                     val zone = sliderZone
                                     if (overSlider && zone != null && zone.height > 0f) {
                                         intervalSec =
-                                            ((zone.bottom - pos.y) / zone.height * 60f)
-                                                .roundToInt().coerceIn(0, 60)
+                                            ((zone.bottom - pos.y) / zone.height * INTERVAL_MAX_SEC)
+                                                .roundToInt().coerceIn(0, INTERVAL_MAX_SEC)
                                     }
                                     change.consume()
                                     if (event.changes.none { it.pressed }) {
@@ -573,7 +593,7 @@ fun CaptureScreen(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .background(Color(0x80000000), RoundedCornerShape(40.dp))
+                        .background(DarkGlass, RoundedCornerShape(40.dp))
                         .padding(4.dp),
                 ) {
                     if (sliderVisible) {
@@ -670,10 +690,11 @@ fun CaptureScreen(
 }
 
 /**
- * Off, then 1…60 s. Vertical because it sits beside the shutter. During
- * the one-finger gesture it is a display — the cluster's pointerInput
- * drives the value from the thumb position via [onTrackPositioned]'s
- * reported track bounds (root coords, bottom = 0 s, top = 60 s).
+ * Off, then 1…[INTERVAL_MAX_SEC] s. Vertical because it sits beside the
+ * shutter. During the one-finger gesture it is a display — the cluster's
+ * pointerInput drives the value from the thumb position via
+ * [onTrackPositioned]'s reported track bounds (root coords, bottom = 0 s,
+ * top = the max).
  */
 @Composable
 private fun IntervalSlider(
@@ -703,7 +724,7 @@ private fun IntervalSlider(
             Slider(
                 value = intervalSec.toFloat(),
                 onValueChange = { onChange(it.roundToInt()) },
-                valueRange = 0f..60f,
+                valueRange = 0f..INTERVAL_MAX_SEC.toFloat(),
                 enabled = enabled,
                 modifier = Modifier
                     .requiredWidth(140.dp)
@@ -748,7 +769,7 @@ private fun StatusLine(state: CaptureState) {
             Color(0xCCFFFFFF)
         },
         modifier = Modifier
-            .background(Color(0x66000000), RoundedCornerShape(4.dp))
+            .background(DarkGlass, RoundedCornerShape(4.dp))
             .padding(horizontal = 6.dp, vertical = 2.dp)
             .testTag("capture-status"),
     )
@@ -768,7 +789,7 @@ private fun GlassAction(text: String, tag: String, onClick: () -> Unit) {
     TextButton(
         onClick = onClick,
         modifier = Modifier
-            .background(Color(0xAA000000), RoundedCornerShape(20.dp))
+            .background(DarkGlass, RoundedCornerShape(20.dp))
             .testTag(tag),
     ) { Text(text, color = Color.White) }
 }

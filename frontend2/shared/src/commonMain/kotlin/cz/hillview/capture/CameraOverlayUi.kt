@@ -3,8 +3,12 @@ package cz.hillview.capture
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -66,8 +70,13 @@ fun CameraOverlayUi(
         else -> 0.75f
     }
 
-    Column(
+    // Only the LEFT EDGE cycles the backdrop; the rest of the glass has no
+    // pointer handler at all, so a tap on it falls through to the camera
+    // view's tap-to-focus (a divergence from the original, where the whole
+    // overlay swallows its taps — phone-in-hand request).
+    Box(
         modifier = modifier
+            .height(IntrinsicSize.Min)
             .let {
                 if (tint > 0f) {
                     it
@@ -81,13 +90,34 @@ fun CameraOverlayUi(
                     it
                 }
             }
-            .clickable(onClick = onCycleOpacity)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
             .testTag("location-overlay"),
     ) {
-        when {
-            showHint -> HintContent(bearingMode)
-            else -> LocationRows(state, overridePosition)
+        Column(Modifier.padding(start = 18.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)) {
+            when {
+                showHint -> HintContent(bearingMode)
+                else -> LocationRows(state, overridePosition)
+            }
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+                .width(18.dp)
+                .clickable(onClick = onCycleOpacity)
+                .testTag("overlay-opacity-handle"),
+            contentAlignment = Alignment.Center,
+        ) {
+            // The grip: the handle's only visual, readable at every tint
+            // level (at level 0 it is all that marks the tap target).
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .fillMaxHeight(0.5f)
+                    .background(
+                        Color.Black.copy(alpha = 0.35f),
+                        RoundedCornerShape(2.dp),
+                    ),
+            )
         }
     }
 }
