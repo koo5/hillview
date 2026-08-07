@@ -217,13 +217,26 @@ could choose between styles. To discuss before the app grows more
 destinations: what is a route vs a mode, what persists, and what the back
 button does in each style.
 
-## Pan-demote protection (DONE 2026-08-07, user-raised)
+## Pan-as-exploration + the manual-position claim (DONE 2026-08-07,
+user-designed)
 
-An accidental pocket-pan used to silently park the map (and in Tauri, the
-photo positions with it). Now: demotion asks — "Map panned, stop following
-GPS?"; staying manual takes a tap, silence self-heals back to following in
-10 s. And the shutter is bilingual: stock click for a fresh-fix capture, a
-warning beep when the position is manual/stale/absent — the pocket can
-hear what it cannot see. Still open on the Tauri side: promoting the
-background-tagged fixes out of UserComment/alt_location (the repair flow)
-remains unimplemented there.
+The long-standing pain, solved in two iterations the same day. First cut
+was a demote-confirm with a 10 s auto-revert; the user refined it: the
+timeout fought the very thing panning is for. Final model:
+
+- **Panning is exploration.** It parks the map (no yank-back, ever) and
+  never changes what captures record — you can pan around mid-interval-run
+  to figure out where you are, harmlessly.
+- A small two-sided pill appears on pan: **"Capture here" / "⟲ GPS"**. The
+  claim side is the only way the map position becomes the capture
+  position — the Tauri parked-map semantic, now behind an explicit accept.
+  While claimed: captures geotag from the map centre even over a fresh fix,
+  tagged location_source "manual", degraded shutter tone on every shot, an
+  override line on the capture screen withdraws it.
+- The claim survives entering capture (a gated claim cannot be stale);
+  everyone else still gets the clean-ACTIVE re-arm regression guard.
+- The shutter is bilingual: stock click for fresh-fix captures, warning
+  beep for manual/stale/absent — the pocket hears what it cannot see.
+
+Still open on the Tauri side: promoting background-tagged fixes out of
+UserComment/alt_location (the repair flow) remains unimplemented there.
