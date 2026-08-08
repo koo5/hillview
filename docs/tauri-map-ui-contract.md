@@ -83,6 +83,13 @@ The richest control on the screen.
 - **Source toggles**, one per `$sources` entry: label = source name, `active`
   class when enabled, an inline spinner while
   `$sourceLoadingStatus[id].is_loading`. Click → `toggleSourceVisibility(id)`.
+  The sources and their defaults (data.svelte.ts): hillview ON, device ON
+  (Tauri-only), mapillary OFF, panoramax OFF; enabled states persist
+  (localStorage sourceStates). frontend2: the panel enumerates the
+  composite's `sourceDescriptors()` (device + hillview until the
+  mapillary/panoramax loaders are wired), overrides persist in map
+  settings, and a disabled source neither refreshes nor contributes
+  cached markers.
 - **Filters button**: short press opens the filters modal, **long press
   toggles `$overrideFilters`**; `active` when `$activeFilterCount > 0`; label
   shows the count; an `overridden` style when the override is on. Tooltip

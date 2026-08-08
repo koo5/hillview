@@ -38,7 +38,27 @@ data class MapViewport(
     val bottomRightLon: Double,
 )
 
+/**
+ * A toggleable photo source, as the original's sources store describes one
+ * (data.svelte.ts: id/name/enabled defaults — hillview and device on,
+ * mapillary/panoramax off until their loaders are wired here).
+ */
+data class MapSourceDescriptor(
+    val id: String,
+    val name: String,
+    val defaultEnabled: Boolean = true,
+)
+
 interface PhotoMarkerSource {
+    /** What this source is on the map's toggle panel; null = not listed. */
+    val descriptor: MapSourceDescriptor? get() = null
+
+    /** The composite's toggle plumbing; leaf sources need not implement. */
+    fun sourceDescriptors(): List<MapSourceDescriptor> =
+        listOfNotNull(descriptor)
+
+    fun setSourceEnabled(id: String, enabled: Boolean) {}
+
     val markers: StateFlow<List<PhotoMarker>>
 
     /**

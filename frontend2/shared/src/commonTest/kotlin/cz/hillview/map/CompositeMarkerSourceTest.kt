@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 
 private class FakeSource(vararg initial: PhotoMarker) : PhotoMarkerSource {
+    override var descriptor: MapSourceDescriptor? = null
     override val markers = MutableStateFlow(initial.toList())
     override var pinnedId: String? = null
     var lastViewport: MapViewport? = null
@@ -84,5 +85,43 @@ class CompositeMarkerSourceTest {
         composite.refresh()
         assertEquals(1, device.refreshes)
         assertEquals(1, api.refreshes)
+    }
+
+    @Test
+    fun aDisabledSourceNeitherShowsNorSpends() = runTest {
+        val device = FakeSource(marker("a", "device")).apply {
+            descriptor = MapSourceDescriptor("device", "Device")
+        }
+        val api = FakeSource(marker("c", "hillview")).apply {
+            descriptor = MapSourceDescriptor("hillview", "Hillview")
+        }
+        val composite = CompositeMarkerSource(listOf(device, api))
+        composite.refresh()
+        assertEquals(2, composite.markers.value.size)
+
+        // Toggling off hides IMMEDIATELY from the cached sets…
+        composite.setSourceEnabled("hillview", false)
+        assertEquals(listOf("a"), composite.markers.value.map { it.id })
+
+        // …and the next refresh doesn't spend network on it.
+        composite.refresh()
+        assertEquals(2, device.refreshes)
+        assertEquals(1, api.refreshes)
+
+        // Back on: cached markers return without waiting for a refresh.
+        composite.setSourceEnabled("hillview", true)
+        assertEquals(2, composite.markers.value.size)
+    }
+
+    @Test
+    fun descriptorDefaultsGateUntouchedSources() = runTest {
+        val off = FakeSource(marker("m", "mapillary")).apply {
+            descriptor = MapSourceDescriptor("mapillary", "Mapillary", defaultEnabled = false)
+        }
+        val composite = CompositeMarkerSource(listOf(off))
+        composite.refresh()
+        // Never toggled: the original's default-off sources stay dark.
+        assertEquals(0, composite.markers.value.size)
+        assertEquals(0, off.refreshes)
     }
 }

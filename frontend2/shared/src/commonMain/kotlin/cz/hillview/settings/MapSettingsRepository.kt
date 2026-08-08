@@ -36,6 +36,9 @@ data class MapSettings(
     // below ECO_DUTY_MAX_FPS), 30 = the untouched default. Applied only
     // while powerSavingPref is on. 15 = the pre-slider eco behaviour.
     val ecoFps: Float = 15f,
+    // Per-source toggle overrides (the original's persisted sourceStates):
+    // absent = the source's own default (hillview/device on).
+    val sourceStates: Map<String, Boolean> = emptyMap(),
     /** CameraOverlay backdrop level 0-5 (Tauri cameraOverlayOpacity). */
     val cameraOverlayOpacity: Int = 3,
     /** Pinned still size as "WxH"; null = auto (Tauri selectedResolution). */

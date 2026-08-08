@@ -93,7 +93,21 @@ actual fun MapScreen(
     var overrideFilters by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
     var showProviders by remember { mutableStateOf(false) }
-    var deviceSourceEnabled by remember { mutableStateOf(true) }
+    // The toggle panel enumerates whatever sources the composite carries
+    // (device + hillview today; mapillary/panoramax join when their
+    // loaders are wired). Overrides persist in map settings; absent =
+    // the source's default.
+    val sourceDescriptors = remember(markerSource) { markerSource.sourceDescriptors() }
+    fun sourceEnabled(d: MapSourceDescriptor): Boolean =
+        mapSettings.sourceStates[d.id] ?: d.defaultEnabled
+    LaunchedEffect(mapSettings.sourceStates) {
+        sourceDescriptors.forEach { d ->
+            markerSource.setSourceEnabled(d.id, sourceEnabled(d))
+        }
+        // A just-enabled source may never have fetched — the gate absorbs
+        // any spam.
+        markerSource.refresh()
+    }
     var arrowTipPx by remember { mutableStateOf(120f) }
     // The front photo: what the gallery would show and the marker drawn as
     // selected. Recomputed from bearing + range, or set by tapping.
@@ -294,7 +308,8 @@ actual fun MapScreen(
                 // Greying rule from the contract: outside hunter mode, when
                 // featured photos exist, non-featured ones INSIDE the range
                 // circle are washed out (outside it they are not).
-                val visible = markers.filter { deviceSourceEnabled || it.source != "device" }
+                // Disabled sources are already excluded by the composite.
+                val visible = markers
                 val anyFeatured = visible.any { it.featured }
 
                 // The front photo follows the view unless the user picked
@@ -419,9 +434,9 @@ actual fun MapScreen(
         MapOverlayUi(
             settings = mapSettings,
             hunterMode = hunterMode,
-            sources = listOf(
-                MapSourceUi(id = "device", name = "Device", enabled = deviceSourceEnabled),
-            ),
+            sources = sourceDescriptors.map { d ->
+                MapSourceUi(id = d.id, name = d.name, enabled = sourceEnabled(d))
+            },
             activeFilterCount = 0,
             overrideFilters = overrideFilters,
             locationTracking = locationTracking,
@@ -441,7 +456,13 @@ actual fun MapScreen(
                 hunterOverride = null
                 settings.update { it.copy(hunterModePref = !hunterMode) }
             },
-            onToggleSource = { deviceSourceEnabled = !deviceSourceEnabled },
+            onToggleSource = { id ->
+                settings.update { s ->
+                    val d = sourceDescriptors.find { it.id == id }
+                    val current = s.sourceStates[id] ?: (d?.defaultEnabled ?: true)
+                    s.copy(sourceStates = s.sourceStates + (id to !current))
+                }
+            },
             onOpenFilters = { showFilters = true },
             onToggleOverrideFilters = { overrideFilters = !overrideFilters },
             onOpenTileProviders = { showProviders = true },

@@ -66,6 +66,10 @@ class DeviceMarkerSource(
         color = "#4ae24d",
     )
 
+    // "Device" is the original's toggle label (data.svelte.ts), Tauri-only
+    // there and native-only here.
+    override val descriptor = MapSourceDescriptor("device", "Device", defaultEnabled = true)
+
     private val _markers = MutableStateFlow<List<PhotoMarker>>(emptyList())
     override val markers: StateFlow<List<PhotoMarker>> = _markers.asStateFlow()
     override var pinnedId: String? = null
@@ -105,6 +109,12 @@ class StreamMarkerSource(
 ) : PhotoMarkerSource {
     private val loader = StreamPhotoLoader()
     private val gate = RefetchGate(REFETCH_MS)
+
+    override val descriptor = MapSourceDescriptor(
+        source.id,
+        source.name.ifBlank { source.id },
+        defaultEnabled = source.enabled,
+    )
 
     private val _markers = MutableStateFlow<List<PhotoMarker>>(emptyList())
     override val markers: StateFlow<List<PhotoMarker>> = _markers.asStateFlow()
