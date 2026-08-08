@@ -144,20 +144,25 @@ orientation page; the detail lives in the documents it points to.
 
 Implementation, roughly in value order:
 
-0. **Car-mode capture bearing (BUG, found 2026-08-08)**: Tauri stamps
-   photos from `$bearingState` (car bearing incl. mount offset in car
-   mode); frontend2's snapshotSensors always takes the compass. Fix at
-   the single arbitration point — the EXIF, tone, AND the effective CSV
-   stream all inherit it.
-0b. **Stamp-refinement design (agreed 2026-08-08, not built)**: write
-   immediately as now; a coalesced WorkManager pass (~20-30 s, and on
-   app start BEFORE the start-time dump clears the tracking tables)
-   interpolates from the tracking tables and rewrites EXIF IN PLACE
-   (MediaStore app-owned entries are rw via ExifInterface+fd; all three
-   storage modes work). Upload drain skips stamp_pending rows within a
-   horizon; late refinement bumps `version` for re-upload (backend
-   already supports it). No write delays, no per-photo jobs, EXIF stays
-   the single source of truth.
+0. **Car-mode capture bearing — FIXED 2026-08-08**: the stamp (and the
+   pill, and the effective CSV) now reads the map's bearing state via
+   PhotoCapture.stampBearing, and car mode actually WORKS on the map:
+   MapSensorController feeds every fix through the shared-kt Kalman
+   heading filter + mount offset (source "gps-kalman", starting the fix
+   stream if follow-me hasn't), both modes drive the holder past a 1°
+   dead-band. Bonus finds fixed with it: compassAccuracy was never set
+   (calibrate button could never appear), and the gps-kalman bearing
+   stream now lands in the tracking tables like Tauri's.
+0b. **Stamp refinement (NEEDS RETHINK — user not convinced, 2026-08-08)**:
+   the restamp_pending core idea stands, the mechanics don't. Open
+   questions the next design must answer (user's list): can EXIF be
+   patched surgically without a whole-file rewrite; tracking-table
+   truncation policy (keep last N days?); eco-mode interplay (long
+   sessions: maybe rely on a short delay there and accept losing the
+   last frame rather than pay CPU for double writes); how this composes
+   with FUTURE parallel photo encoding (~4 workers for max throughput);
+   and NO re-upload fallback — the user does not want the app to ever
+   need one. Do not build until re-designed together.
 
 1. **More Appium scenario ports** onto the new app-behaviour layer — the
    suites in `frontend/tests-appium/specs/` are the source; the testTag

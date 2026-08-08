@@ -121,6 +121,16 @@ fun CaptureScreen(
             if (!manualLocationArmed) capture.manualLocation = null
         }
     }
+    // The capture stamp bearing IS the map's bearing state (Tauri:
+    // locationData.bearing = bearingState.bearing): car mode's
+    // gps-kalman + mount offset, walking's compass, or the hand-set
+    // arrow — whichever currently owns the arrow.
+    LaunchedEffect(Unit) {
+        mapState.bearing.collect { b ->
+            capture.stampBearing = StampBearing(b.bearing.toFloat(), b.source)
+        }
+    }
+
     var showCalibration by rememberSaveable { mutableStateOf(false) }
     var showResolutionMenu by rememberSaveable { mutableStateOf(false) }
     var showShutterMenu by rememberSaveable { mutableStateOf(false) }

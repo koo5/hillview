@@ -21,6 +21,7 @@ private class DesktopPhotoCapture : PhotoCapture {
     override var shutterNs: Long? = null
     override var ecoPreviewFps: Float? = null
     override var focusInfinity: Boolean = false
+    override var stampBearing: StampBearing? = null
 
     override fun selectResolution(resolution: CaptureResolution?) {}
 

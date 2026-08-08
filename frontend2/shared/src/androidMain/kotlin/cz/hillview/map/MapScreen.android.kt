@@ -138,14 +138,18 @@ actual fun MapScreen(
         trackingPhase = TrackingPhase.Starting
         val started = controller.startBearing(mapSettings.bearingMode) { heading, accuracy ->
             trackingPhase = TrackingPhase.Active
-            // Only the compass drives the view bearing directly, and only
-            // past a 1° dead-band.
-            if (mapSettings.bearingMode == BearingMode.Walking &&
-                absBearingDiff(heading.toDouble(), state.bearing.value.bearing) > 1.0
-            ) {
+            // Both modes drive the bearing state past a 1° dead-band:
+            // walking from the compass, car from the gps-kalman course
+            // (mount offset already composed in). The capture stamp reads
+            // this same state — Tauri's known-good semantics.
+            if (absBearingDiff(heading.toDouble(), state.bearing.value.bearing) > 1.0) {
                 state.updateBearing(
                     bearing = heading.toDouble(),
-                    source = "android-compass-true",
+                    source = if (mapSettings.bearingMode == BearingMode.Walking) {
+                        "android-compass-true"
+                    } else {
+                        "gps-kalman"
+                    },
                     accuracyLevel = accuracy,
                     now = System.currentTimeMillis(),
                 )
@@ -699,28 +703,62 @@ private class MapSensorController(private val context: Context) {
         (context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager)
             .getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR) != null
 
+    private var carHeading: ((Float, Int?) -> Unit)? = null
+    private var wantLocation = false
+    private var wantCar = false
+    private var onFix: ((Double, Double) -> Unit)? = null
+
     /** @return false when the sensor could not be started (reverts intent). */
     fun startBearing(mode: BearingMode, onHeading: (Float, Int?) -> Unit): Boolean {
         stopBearing()
-        if (mode == BearingMode.Walking && !compassAvailable()) return false
-        return try {
-            sensorService = EnhancedSensorService(context) { data ->
-                onHeading(data.trueHeading, data.accuracyLevel)
-            }.also { it.startSensor() }
-            true
-        } catch (e: Exception) {
-            sensorService = null
-            false
+        return when (mode) {
+            BearingMode.Walking -> {
+                if (!compassAvailable()) return false
+                try {
+                    sensorService = EnhancedSensorService(context) { data ->
+                        onHeading(data.trueHeading, data.accuracyLevel)
+                    }.also { it.startSensor() }
+                    true
+                } catch (e: Exception) {
+                    sensorService = null
+                    false
+                }
+            }
+            BearingMode.Car -> {
+                // The Tauri car flow, previously MISSING here entirely:
+                // every fix through the Kalman heading filter, composed
+                // with the mount offset (source "gps-kalman") — no compass
+                // involved. Rides the fix stream, starting it if follow-me
+                // has not.
+                if (!hasLocationPermission()) return false
+                geoTracking.resetHeadingFilter()
+                carHeading = onHeading
+                wantCar = true
+                syncLocation()
+                true
+            }
         }
     }
 
     fun stopBearing() {
         sensorService?.stopSensor()
         sensorService = null
+        carHeading = null
+        if (wantCar) {
+            wantCar = false
+            syncLocation()
+        }
     }
 
     fun setLocationEnabled(enabled: Boolean, onFix: (Double, Double) -> Unit) {
-        if (!enabled) {
+        wantLocation = enabled
+        if (enabled) this.onFix = onFix
+        syncLocation()
+    }
+
+    private fun syncLocation() {
+        val want = wantLocation || wantCar
+        if (!want) {
             preciseLocation?.stopLocationUpdates()
             preciseLocation = null
             return
@@ -736,7 +774,12 @@ private class MapSensorController(private val context: Context) {
             context,
             onLocationUpdate = { data ->
                 sensorService?.updateLocation(data.latitude, data.longitude)
-                onFix(data.latitude, data.longitude)
+                if (wantLocation) onFix?.invoke(data.latitude, data.longitude)
+                if (wantCar) {
+                    geoTracking.feedLocationForHeadingFilter(data)?.let { composed ->
+                        carHeading?.invoke(composed.toFloat(), null)
+                    }
+                }
             },
         ).also { it.startLocationUpdates() }
     }

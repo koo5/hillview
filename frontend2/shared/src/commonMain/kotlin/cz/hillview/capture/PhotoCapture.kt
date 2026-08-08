@@ -177,6 +177,14 @@ fun captureTone(locationSource: String?, locationAgeMs: Long?): CaptureTone =
 data class ManualLocation(val latitude: Double, val longitude: Double)
 
 /**
+ * The bearing a capture stamps — Tauri's known-good semantics: photos
+ * carry the MAP's bearing state (the arrow), whatever currently owns it:
+ * walking's compass, car mode's gps-kalman course + mount offset, or a
+ * hand-set arrow. NOT the raw compass (that was the car-mode bug).
+ */
+data class StampBearing(val trueDeg: Float, val source: String)
+
+/**
  * The shutter requires a location fix — a photo mapping app's photos must
  * land somewhere, and first-time users have to be walked into using it
  * right. The requirement is liftable, deliberately: someone starting the
@@ -210,6 +218,12 @@ interface PhotoCapture {
      * [shutterPriorityIso] so brightness tracks what the metering last saw.
      */
     var shutterNs: Long?
+
+    /**
+     * The map bearing state, pushed live by the capture screen — what a
+     * capture stamps and the pill shows (see [StampBearing]).
+     */
+    var stampBearing: StampBearing?
 
     /**
      * Pin focus at infinity — the vista shot this app exists for. A tap

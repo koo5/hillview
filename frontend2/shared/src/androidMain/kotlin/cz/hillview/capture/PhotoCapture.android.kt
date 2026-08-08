@@ -254,6 +254,14 @@ private class AndroidPhotoCapture(
     @Volatile private var lastLocation: Location? = null
     @Volatile override var manualLocation: ManualLocation? = null
     @Volatile override var manualLocationWins: Boolean = false
+
+    override var stampBearing: StampBearing? = null
+        set(value) {
+            field = value
+            // The pill shows what a capture would stamp (Tauri shows
+            // bearingState the same way).
+            value?.let { state = state.copy(bearingDeg = it.trueDeg) }
+        }
     @Volatile private var lastOrientation: OrientationSensorData? = null
     private var lastAzimuthPush = 0L
 
@@ -293,11 +301,16 @@ private class AndroidPhotoCapture(
         lastOrientation = data
         // Raw orientation stream (the manager rate-limits storage).
         geoTracking.storeOrientationSensorData(data)
-        // Throttle state (and recomposition) to ~4 Hz; display true heading.
+        // Throttled ~4 Hz. The displayed/stamped bearing comes from the
+        // map's bearing state now (stampBearing) — here only the
+        // magnetometer accuracy rides up, for the calibration button
+        // (found unwired: compassAccuracy was never set).
         val now = SystemClock.elapsedRealtime()
         if (now - lastAzimuthPush > 250) {
             lastAzimuthPush = now
-            state = state.copy(bearingDeg = data.trueHeading)
+            state = state.copy(
+                compassAccuracy = data.accuracyLevel.takeIf { it >= 0 },
+            )
         }
     }
 
@@ -957,6 +970,11 @@ private class AndroidPhotoCapture(
             manualLocationWins ||
                 location == null || (ageMs != null && ageMs > FIX_FRESH_MS)
         }
+        // The stamp bearing is the MAP's bearing state (Tauri semantics:
+        // capture reads $bearingState) — car mode's gps-kalman + mount
+        // offset included. Raw compass only as a fallback before the
+        // screen pushes the first value.
+        val stamp = stampBearing
         return if (manual != null) {
             SensorSnapshot(
                 latitude = manual.latitude,
@@ -964,8 +982,8 @@ private class AndroidPhotoCapture(
                 // No altitude and no claimed accuracy: this is where the
                 // user says they are, not a measurement.
                 bearingDeg = orientation?.magneticHeading,
-                trueBearingDeg = orientation?.trueHeading,
-                bearingSource = orientation?.source,
+                trueBearingDeg = stamp?.trueDeg ?: orientation?.trueHeading,
+                bearingSource = stamp?.source ?: orientation?.source,
                 capturedAtMs = capturedAtMs,
                 locationSource = "manual",
             )
@@ -976,8 +994,8 @@ private class AndroidPhotoCapture(
                 altitude = location?.takeIf { it.hasAltitude() }?.altitude,
                 accuracyM = location?.takeIf { it.hasAccuracy() }?.accuracy,
                 bearingDeg = orientation?.magneticHeading,
-                trueBearingDeg = orientation?.trueHeading,
-                bearingSource = orientation?.source,
+                trueBearingDeg = stamp?.trueDeg ?: orientation?.trueHeading,
+                bearingSource = stamp?.source ?: orientation?.source,
                 capturedAtMs = capturedAtMs,
                 locationSource = location?.let { "gps" },
                 locationAgeMs = ageMs,
