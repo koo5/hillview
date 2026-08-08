@@ -15,17 +15,17 @@ class ShutterGateTest {
 
     @Test
     fun noFixMeansNoShutter() {
-        assertFalse(shutterEnabled(ready = true, hasFix = false, manualLocationArmed = false))
+        assertFalse(shutterEnabled(ready = true, hasFix = false, mapPositionElected = false))
     }
 
     @Test
     fun aFixOpensTheGate() {
-        assertTrue(shutterEnabled(ready = true, hasFix = true, manualLocationArmed = false))
+        assertTrue(shutterEnabled(ready = true, hasFix = true, mapPositionElected = false))
     }
 
     @Test
     fun liftingTheGateOpensItWithoutAFix() {
-        assertTrue(shutterEnabled(ready = true, hasFix = false, manualLocationArmed = true))
+        assertTrue(shutterEnabled(ready = true, hasFix = false, mapPositionElected = true))
     }
 
     // The call site passes `armed || claimed` — an accepted pill claim is a
@@ -46,7 +46,7 @@ class ShutterGateTest {
 
     @Test
     fun nothingOpensAGateOnAnUnreadyCamera() {
-        assertFalse(shutterEnabled(ready = false, hasFix = true, manualLocationArmed = true))
+        assertFalse(shutterEnabled(ready = false, hasFix = true, mapPositionElected = true))
     }
 }
 

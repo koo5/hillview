@@ -37,18 +37,55 @@ class MapSession {
     private val _manualPositionClaimed = MutableStateFlow(false)
     val manualPositionClaimed: StateFlow<Boolean> = _manualPositionClaimed.asStateFlow()
 
+    /**
+     * The capture pane's escape hatch: "No GPS fix — capture at the map
+     * position instead". The same outcome as a claim, reached differently —
+     * there is no fix to accept the map position *over*, so it needs no gate,
+     * and it is withdrawn by its own button rather than by resuming follow-me.
+     *
+     * It lives here rather than in the capture pane because it decides what
+     * gets written to the tracking tables, and that has to be answerable while
+     * the pane is closed.
+     */
+    private val _mapPositionWithoutFix = MutableStateFlow(false)
+    val mapPositionWithoutFix: StateFlow<Boolean> = _mapPositionWithoutFix.asStateFlow()
+
+    /**
+     * Whether the map position is what captures record — by either route.
+     *
+     * One flow, so there is a single answer to "is the map position elected"
+     * and a single publisher of it to the tracking tables. Two ways in, one
+     * way to read it.
+     */
+    private val _manualPositionElected = MutableStateFlow(false)
+    val manualPositionElected: StateFlow<Boolean> = _manualPositionElected.asStateFlow()
+
+    private fun recomputeElection() {
+        _manualPositionElected.value =
+            _manualPositionClaimed.value || _mapPositionWithoutFix.value
+    }
+
     fun claimManualPosition() {
         _manualPositionClaimed.value = true
         _locationTracking.value = LocationTracking.Background
+        recomputeElection()
+    }
+
+    fun setMapPositionWithoutFix(value: Boolean) {
+        _mapPositionWithoutFix.value = value
+        recomputeElection()
     }
 
     fun setLocationTracking(value: LocationTracking) {
         _locationTracking.value = value
         // Taking tracking anywhere but BACKGROUND withdraws the claim —
         // ACTIVE means "follow me again", OFF means "no position at all".
+        // The no-fix hatch is left alone: it is about there being nothing to
+        // follow, which resuming follow-me does not change.
         if (value != LocationTracking.Background) {
             _manualPositionClaimed.value = false
         }
+        recomputeElection()
     }
 
     fun setBearingTrackingWanted(value: Boolean) {

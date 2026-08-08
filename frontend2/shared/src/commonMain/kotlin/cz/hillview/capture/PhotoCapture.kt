@@ -161,10 +161,15 @@ enum class CaptureTone { Normal, Degraded }
  * repairing mis-positioned photos after a session is a manual slog.)
  */
 /**
- * How old a fix may be and still count as fresh — the gate, the tone, the
- * manual-fallback arbitration and the stale warning all share this one
- * number. A frontend2 divergence (the original has no age concept at all);
- * see docs/tauri-capture-ui-contract.md, "Fix freshness".
+ * How old a fix may be and still count as fresh — the gate, the tone and the
+ * stale warning share this one number. A frontend2 divergence (the original
+ * has no age concept at all); see docs/tauri-capture-ui-contract.md, "Fix
+ * freshness".
+ *
+ * It no longer decides anything on its own. Staleness used to hand over to
+ * the map position silently, which made the election recorded on every
+ * tracking row a lie; now it only WARNS, and the handover is something the
+ * user does.
  */
 const val FIX_FRESH_MS = 15_000L
 
@@ -201,27 +206,31 @@ data class StampBearing(val trueDeg: Float, val source: String)
  * right. The requirement is liftable, deliberately: someone starting the
  * app underground can position the map by hand and shoot against that.
  */
-fun shutterEnabled(ready: Boolean, hasFix: Boolean, manualLocationArmed: Boolean): Boolean =
-    ready && (hasFix || manualLocationArmed)
+fun shutterEnabled(ready: Boolean, hasFix: Boolean, mapPositionElected: Boolean): Boolean =
+    ready && (hasFix || mapPositionElected)
 
 @Stable
 interface PhotoCapture {
     val state: CaptureState
 
     /**
-     * The lifted-gate position: when set, captures without a fresh fix are
-     * stamped with it, tagged location_source "manual". A fresh GPS fix
-     * always wins over this — the map position goes stale as the user
-     * walks, the fix does not.
+     * The map position a capture is stamped with while it is elected — see
+     * [manualLocationElected]. Tagged location_source "manual".
      */
     var manualLocation: ManualLocation?
 
     /**
-     * When true the manual position beats even a fresh fix — the claimed
-     * "I am at the map position" mode. When false it is only the no-fix
-     * fallback.
+     * True while the user has said "I am at the map position", by either of
+     * the two deliberate acts that mean it: the pill's accepted claim, or the
+     * no-fix escape hatch in the capture pane.
+     *
+     * It replaced a rule that let a merely STALE fix hand over to the map
+     * position with nothing said. An election has to be something the user
+     * made — a silent hand-over makes the recorded election a lie, and a lie
+     * there is worse than a wrong-but-honest answer, because the whole point
+     * of recording it is to be able to re-judge the choice afterwards.
      */
-    var manualLocationWins: Boolean
+    var manualLocationElected: Boolean
 
     /**
      * Pinned shutter time in nanoseconds, null = auto. Only honoured when

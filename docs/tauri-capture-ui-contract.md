@@ -189,13 +189,22 @@ fix's elapsedRealtimeNanos). Effects — deliberately narrow:
 
 1. the location GATE opens only on a fix ≤15 s old (a stale fused seed
    cannot open it; the map-position lift is the escape hatch);
-2. an armed manual position beats a fix older than 15 s (fresh fixes beat
-   fallback manual; a claimed position beats everything);
-3. the shutter tone degrades past 15 s, and `locationAgeMs` is recorded.
+2. the shutter tone degrades past 15 s, and `locationAgeMs` is recorded.
 
-A photo captured after signal loss (fix once fresh, now old, no manual
-armed) still geotags from that last fix — same as the original — just
-audibly degraded and with the age written down.
+**Freshness no longer arbitrates (2026-08-08).** It used to: a stale fix
+handed over to the map position silently, so "fresh fixes beat fallback
+manual, a claimed position beats everything" was a third rule on top of the
+two deliberate user acts. That went when the tracking tables started
+recording which source was ELECTED on every row — a silent hand-over makes
+that record a lie, and re-judging the choice afterwards is the whole point of
+keeping it. The map position is now used exactly when the user said so,
+through the pill's accepted claim or the no-fix escape hatch, both of which
+land in `MapSession.manualPositionElected`. See
+`memory/geo-tracking-election.md` and `shared-kt`'s BearingEntity.
+
+A photo captured after signal loss (fix once fresh, now old, nothing elected)
+still geotags from that last fix — same as the original — just audibly
+degraded and with the age written down.
 
 Why 15: at the 1 Hz update cadence, 15 missed updates means the signal is
 genuinely gone rather than jittering; and at walking pace 15 s ≈ 20 m —

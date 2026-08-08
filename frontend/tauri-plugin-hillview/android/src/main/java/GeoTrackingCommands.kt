@@ -30,6 +30,14 @@ fun GeoTrackingManager.storeOrientationManual(params: JSObject) {
 			// honors the default when the key is missing; the single-arg overload returns
 			// "" for missing keys, making `?: "manual"` dead code.
 			val source = params.getString("source", "manual") ?: "manual"
+			// Provenance within the source: the specific gesture the frontend
+			// collapsed into "manual" (arrow_drag, url, featured, …). Empty and
+			// missing both mean "none" — see the getString notes above.
+			val detail = params.getString("detail", "")?.ifEmpty { null }
+			// The election rides along with the row that establishes it, so a row
+			// that CAUSES a switch can never be stamped with the previous era —
+			// the ordering hazard the old pendingLoggingSwitch dance guarded.
+			params.getString("elected", "")?.ifEmpty { null }?.let { setElectedBearingSource(it) }
 			val sourceId = getOrCreateSourceId(source)
 
 			storeBearingEntity(
@@ -39,6 +47,7 @@ fun GeoTrackingManager.storeOrientationManual(params: JSObject) {
 					magneticHeading = if (params.has("magneticHeading")) params.getDouble("magneticHeading").toFloat() else null,
 					accuracyLevel = if (params.has("accuracyLevel")) params.getInteger("accuracyLevel") else null,
 					sourceId = sourceId,
+					detail = detail,
 					pitch = if (params.has("pitch")) params.getDouble("pitch").toFloat() else null,
 					roll = if (params.has("roll")) params.getDouble("roll").toFloat() else null
 				)
@@ -58,6 +67,9 @@ fun GeoTrackingManager.storeLocationManual(params: JSObject) {
 			val latitude = params.getDouble("latitude")
 			val longitude = params.getDouble("longitude")
 			val source = params.getString("source", "manual") ?: "manual"
+			val detail = params.getString("detail", "")?.ifEmpty { null }
+			// See storeOrientationManual — the election travels with its own row.
+			params.getString("elected", "")?.ifEmpty { null }?.let { setElectedLocationSource(it) }
 			val sourceId = getOrCreateSourceId(source)
 
 			storeLocationEntity(
@@ -66,6 +78,7 @@ fun GeoTrackingManager.storeLocationManual(params: JSObject) {
 					latitude = latitude,
 					longitude = longitude,
 					sourceId = sourceId,
+					detail = detail,
 					altitude = if (params.has("altitude")) params.getDouble("altitude") else null,
 					accuracy = if (params.has("accuracy")) params.getDouble("accuracy").toFloat() else null,
 					verticalAccuracy = if (params.has("verticalAccuracy")) params.getDouble("verticalAccuracy").toFloat() else null,

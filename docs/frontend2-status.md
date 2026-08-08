@@ -121,18 +121,28 @@ upload trigger) still publishes only after the final bytes exist.
   zoom + ratio chip, long-press AE/AF lock + chip, Focus Auto/∞ in the
   📷 menu; the original's slider pair retired.
 - Geo-tracking CSVs are WIRED (2026-08-08): raw fused + orientation
-  streams feed shared-kt's GeoTrackingManager while capture is open, and
-  an EFFECTIVE stream samples snapshotSensors() at 1 Hz — the same
-  arbitration a shutter press runs, so a retroactive stamp equals what
-  the app would have written (source names effective_gps /
-  effective_manual; the bearing column carries the EXIF's true heading).
+  streams feed shared-kt's GeoTrackingManager while capture is open.
   Dump-and-clear at capture-session end (auto_export pref) + Export-now
   and the auto-export switch in Settings; CSVs land in GeoTrackingDumps/
-  beside the clock videos. Known wart: both entities keep timestamp as
-  the PK with REPLACE, so a same-ms cross-stream collision silently wins
-  — the composite-key migration is a deliberate shared-kt change for
-  later. Room forbids main-thread DB reads: the sampler snapshots on
-  Main, stores on IO (crash-looped otherwise).
+  beside the clock videos. Room forbids main-thread DB reads — store on
+  IO (this crash-looped otherwise).
+- The ELECTION rework (2026-08-08), a shared-kt change serving both apps.
+  `bearings`/`locations` are keyed on (timestamp, sourceId) instead of
+  timestamp alone, so concurrent streams stop silently eating each
+  other's rows; `source` became a small elect-able vocabulary (android |
+  gps-kalman | manual) with the fine provenance moved to a new `detail`
+  column; and every row records which source was ELECTED at the instant
+  it was written, so a background stream can be re-elected post-hoc.
+  Three things that were the election encoded as data are gone with it:
+  the "-background" source suffix and its write-ordering choreography,
+  the `%background%` exclusion in LocationDao, and frontend2's synthetic
+  effective_* stream (which existed only because the tables could not say
+  which source was in use — now they can). The stale-fix hand-over went
+  too; see tauri-capture-ui-contract.md, "Fix freshness". frontend2's
+  pill survives as the primary way an election happens, with
+  MapSession owning both routes into it. pics consumes it via
+  gps_log.find_effective_before. Full design + rationale:
+  memory/geo-tracking-election.md.
 - Server-URL discipline (the stranded-client-key incident, 2026-08-08):
   the SETTING and the RUNTIME URL are separate values; changing the
   setting shows a restart banner and "Restart now" performs a full
@@ -198,6 +208,36 @@ Implementation, roughly in value order:
    with FUTURE parallel photo encoding (~4 workers for max throughput);
    and NO re-upload fallback — the user does not want the app to ever
    need one. Do not build until re-designed together.
+   Since the election rework, the *data* side of this is in place: every
+   tracking row records which source was elected, so "what should this
+   photo have been stamped with" is answerable after the fact, and
+   background streams can be re-elected. The truncation-policy question
+   is now the binding one — the five-minute window in dumpAndClear is
+   what stands between a restamp and having anything to restamp FROM.
+0d. **Election follow-ups (small, 2026-08-08)**: `is_sensor_bearing_source`
+   in src-tauri/src/device_photos.rs — FIXED. Was a substring sweep
+   ("contains compass/rotation/gyro/sensor/tauri/...") from when source
+   names were long ad-hoc strings; now the explicit
+   `starts_with("android") || == "gps-kalman"`, mirroring
+   `kotlinOwnsSource()` in mapState.ts. The two are one invariant: a
+   source the frontend echoes into the table is one whose frontend value
+   Rust trusts; a source Kotlin owns is one Rust looks up. Deliberate
+   behaviour change: the web DeviceOrientation fallback
+   (`web-absolute-compass-true`) used to match on "compass" and no longer
+   does — its value never crossed the JS bridge, so the staleness the
+   function corrects cannot apply and the frontend value is fresher.
+   STILL OPEN: CaptureScreen's `overridePosition` now also applies for
+   the no-fix hatch, not just the pill's claim, since both set the same
+   flag — consistent, but unverified on a device.
+0e. **Stamp position made live — FIXED 2026-08-08**: `capture.manualLocation`
+   was read once, at the moment the map position was elected, so claiming
+   at one place then panning to another and shooting stamped the FIRST
+   while the tracking table (which does follow pans) recorded the second
+   — photo and log disagreeing about where the user said they were. It
+   now collects `mapState.spatial`, the same shape as the stamp bearing,
+   and the same as Tauri whose locationData is reactive on $spatialState.
+   The freeze predates the election work; what the election work added
+   was a witness to it. Worth a phone-in-hand check: claim, pan, shoot.
 0c. **Eco/sensor design queue (user, 2026-08-08, not built)**: eco
    SUB-FLAGS to test variations — e.g. sleep the bearing sensors until
    around capture time in eco interval runs; a GPS interval slider

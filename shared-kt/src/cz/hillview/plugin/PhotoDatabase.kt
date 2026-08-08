@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [PhotoEntity::class, BearingEntity::class, LocationEntity::class, SourceEntity::class, EditEntity::class],
-    version = 13,
+    version = 14,
     exportSchema = false
 )
 abstract class PhotoDatabase : RoomDatabase() {
@@ -175,6 +175,79 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_13_14 = object : Migration(13, 14) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// bearings and locations are ephemeral by construction —
+				// dumpAndClear keeps a five-minute window — so there is nothing
+				// here worth carrying across. Drop and recreate the way
+				// MIGRATION_8_9 did, not the copy-rename dance a durable table
+				// would need (SQLite cannot ALTER a primary key either way).
+				//
+				// sources goes with them: its vocabulary is replaced wholesale
+				// by the normalization pass that follows ("android
+				// UPRIGHT_ROTATION_VECTOR (EMA smoothed)" -> "android", the
+				// location provider -> "android", arrow_drag/url/featured ->
+				// "manual"), so the old names would only linger as dead rows
+				// holding ids nothing writes again. Children first, so the drop
+				// leaves no dangling reference.
+				database.execSQL("DROP TABLE IF EXISTS bearings")
+				database.execSQL("DROP TABLE IF EXISTS locations")
+				database.execSQL("DROP TABLE IF EXISTS sources")
+
+				database.execSQL("""
+					CREATE TABLE IF NOT EXISTS sources (
+						id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+						name TEXT NOT NULL
+					)
+				""")
+				database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_sources_name ON sources (name)")
+
+				// PRIMARY KEY (timestamp, sourceId): one row per source per
+				// millisecond, instead of one row per millisecond overall.
+				// detail and electedSourceId land now so the later passes that
+				// fill them need no second migration; both stay NULL until then.
+				database.execSQL("""
+					CREATE TABLE bearings (
+						timestamp INTEGER NOT NULL,
+						trueHeading REAL NOT NULL,
+						magneticHeading REAL,
+						accuracyLevel INTEGER,
+						sourceId INTEGER NOT NULL,
+						detail TEXT,
+						electedSourceId INTEGER,
+						pitch REAL,
+						roll REAL,
+						PRIMARY KEY (timestamp, sourceId),
+						FOREIGN KEY (sourceId) REFERENCES sources (id),
+						FOREIGN KEY (electedSourceId) REFERENCES sources (id)
+					)
+				""")
+				database.execSQL("CREATE INDEX IF NOT EXISTS index_bearings_sourceId ON bearings (sourceId)")
+				database.execSQL("CREATE INDEX IF NOT EXISTS index_bearings_electedSourceId ON bearings (electedSourceId)")
+
+				database.execSQL("""
+					CREATE TABLE locations (
+						timestamp INTEGER NOT NULL,
+						latitude REAL NOT NULL,
+						longitude REAL NOT NULL,
+						sourceId INTEGER NOT NULL,
+						detail TEXT,
+						electedSourceId INTEGER,
+						altitude REAL,
+						accuracy REAL,
+						verticalAccuracy REAL,
+						speed REAL,
+						bearing REAL,
+						PRIMARY KEY (timestamp, sourceId),
+						FOREIGN KEY (sourceId) REFERENCES sources (id),
+						FOREIGN KEY (electedSourceId) REFERENCES sources (id)
+					)
+				""")
+				database.execSQL("CREATE INDEX IF NOT EXISTS index_locations_sourceId ON locations (sourceId)")
+				database.execSQL("CREATE INDEX IF NOT EXISTS index_locations_electedSourceId ON locations (electedSourceId)")
+			}
+		}
+
         fun getDatabase(context: Context): PhotoDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -182,7 +255,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                     PhotoDatabase::class.java,
                     "hillview_photos_database"
                 )
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     .build()
                 INSTANCE = instance
                 instance

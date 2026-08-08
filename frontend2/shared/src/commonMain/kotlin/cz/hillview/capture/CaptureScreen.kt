@@ -95,9 +95,9 @@ fun CaptureScreen(
     val sessionManager: cz.hillview.auth.SessionManager = org.koin.compose.koinInject()
     val sessionState by sessionManager.state.collectAsState()
 
-    // The lifted-gate state: session-scoped, so the fix requirement guards
-    // every fresh visit and lifting it is a deliberate act each time.
-    var manualLocationArmed by rememberSaveable { mutableStateOf(false) }
+    // The lifted-gate state now lives on the session (see
+    // MapSession.mapPositionWithoutFix) — it decides what reaches the tracking
+    // tables, so it has to be answerable while this pane is closed.
     // The LIVE map state — the same holder the always-mounted map pane
     // renders, so follow-me and the claim move the camera the user is
     // looking at (a store write would go behind the mounted map's back).
@@ -107,18 +107,30 @@ fun CaptureScreen(
     val session: cz.hillview.map.MapSession = org.koin.compose.koinInject()
     val locationTracking by session.locationTracking.collectAsState()
     val manualClaimed by session.manualPositionClaimed.collectAsState()
+    val mapPositionWithoutFix by session.mapPositionWithoutFix.collectAsState()
+    val manualElected by session.manualPositionElected.collectAsState()
 
     // A claimed manual position (accepted on the map) overrides the fix:
     // captures geotag from the map centre, tagged "manual" — and the
     // degraded shutter tone says so out loud.
-    LaunchedEffect(manualClaimed) {
-        if (manualClaimed) {
-            val spatial = mapState.spatial.value
-            capture.manualLocation = ManualLocation(spatial.latitude, spatial.longitude)
-            capture.manualLocationWins = true
-        } else {
-            capture.manualLocationWins = false
-            if (!manualLocationArmed) capture.manualLocation = null
+    // Two deliberate acts elect the map position, and nothing else does: the
+    // pill's accepted claim and the no-fix escape hatch below. The session
+    // combines them into one answer; this only mirrors it onto the capture
+    // object so a shutter press knows what to stamp. A stale fix quietly
+    // taking over used to be a third, unspoken act.
+    LaunchedEffect(manualElected) {
+        capture.manualLocationElected = manualElected
+    }
+    // The stamp position is the map's centre, LIVE — same shape as the stamp
+    // bearing below, and the same as Tauri, whose locationData is reactive on
+    // $spatialState. It was previously read once at the electing moment, so
+    // claiming at one place, panning to another and shooting stamped the
+    // first while the tracking table recorded the second: the photo and the
+    // log disagreed about where the user said they were. Always populated;
+    // manualLocationElected alone decides whether anything reads it.
+    LaunchedEffect(Unit) {
+        mapState.spatial.collect { s ->
+            capture.manualLocation = ManualLocation(s.latitude, s.longitude)
         }
     }
     // The capture stamp bearing IS the map's bearing state (Tauri:
@@ -303,7 +315,7 @@ fun CaptureScreen(
             CameraOverlayUi(
                 state = state,
                 bearingMode = mapSettings.bearingMode,
-                overridePosition = if (capture.manualLocationWins) capture.manualLocation else null,
+                overridePosition = if (capture.manualLocationElected) capture.manualLocation else null,
                 opacityLevel = mapSettings.cameraOverlayOpacity,
                 onCycleOpacity = {
                     mapSettingsRepo.update {
@@ -626,23 +638,17 @@ fun CaptureScreen(
                 }
             }
 
-            // The gate's escape hatch, offered only while it is actually
-            // shut: shooting underground means positioning the map by hand
-            // first and capturing against that.
-            if (state.ready && !state.hasFix && !manualClaimed) {
-                if (!manualLocationArmed) {
-                    GlassAction(
-                        text = "No GPS fix — capture at the map position instead",
-                        tag = "capture-use-map-position",
-                    ) {
-                        val spatial = mapState.spatial.value
-                        capture.manualLocation = ManualLocation(
-                            latitude = spatial.latitude,
-                            longitude = spatial.longitude,
-                        )
-                        manualLocationArmed = true
-                    }
-                } else {
+            // The gate's escape hatch: shooting underground means positioning
+            // the map by hand first and capturing against that.
+            //
+            // The OFFER is only made while the gate is actually shut, but the
+            // resulting state stays on screen for as long as it is in effect —
+            // including after a fix arrives. It used to vanish with the fix
+            // while still being the elected position, so the label's promise
+            // ("tap to require GPS again") had no button to tap, and a
+            // coordinate marked hours ago could come back silently.
+            if (state.ready && !manualClaimed) {
+                if (mapPositionWithoutFix) {
                     GlassAction(
                         text = "Using map position" +
                             (capture.manualLocation?.let {
@@ -651,8 +657,14 @@ fun CaptureScreen(
                             " — tap to require GPS again",
                         tag = "capture-manual-location",
                     ) {
-                        capture.manualLocation = null
-                        manualLocationArmed = false
+                        session.setMapPositionWithoutFix(false)
+                    }
+                } else if (!state.hasFix) {
+                    GlassAction(
+                        text = "No GPS fix — capture at the map position instead",
+                        tag = "capture-use-map-position",
+                    ) {
+                        session.setMapPositionWithoutFix(true)
                     }
                 }
             }
@@ -671,7 +683,7 @@ fun CaptureScreen(
             var sliderZone by remember { mutableStateOf<Rect?>(null) }
             var clusterOrigin by remember { mutableStateOf(Offset.Zero) }
             val gateOpen =
-                shutterEnabled(state.ready, state.hasFix, manualLocationArmed || manualClaimed)
+                shutterEnabled(state.ready, state.hasFix, manualElected)
             // The location gate (see shutterEnabled): no fix, no photo —
             // unless deliberately lifted (the local lift OR the pill's
             // accepted claim; phone-in-hand find: the claim used to leave

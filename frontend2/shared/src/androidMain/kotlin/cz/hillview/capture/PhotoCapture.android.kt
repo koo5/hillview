@@ -130,50 +130,20 @@ private class AndroidPhotoCapture(
     private var preciseLocation: cz.hillview.plugin.PreciseLocationService? = null
 
     // Geo tracking — the same tables and CSV dumps the Tauri app writes
-    // (GeoTrackingManager, shared-kt). Two kinds of stream, deliberately:
-    // the RAW feeds (fused fixes, orientation samples) as extra data, and
-    // the EFFECTIVE stream — sampled through snapshotSensors(), the exact
-    // arbitration a shutter press runs — so a retroactive stamp reads
-    // "what the app would have written at that instant" (manual claim
-    // beats fix, exactly like a real capture; provenance in the source
-    // name: effective_gps / effective_manual).
+    // (GeoTrackingManager, shared-kt): the raw feeds, fused fixes and
+    // orientation samples.
+    //
+    // There used to be a third, synthetic "effective" stream here, sampling
+    // snapshotSensors() once a second to record what a shutter press WOULD
+    // have stamped. It existed only because the tables could not say which
+    // source the app was actually using, so it logged the outcome instead —
+    // the same move as the old "-background" name mangling. Every row now
+    // carries its own election, and the map position is written as a real
+    // row when it is elected, so the outcome is reconstructable and the
+    // synthetic stream had nothing left to carry. It was also a derived row
+    // sitting among observations, and it overloaded locations.bearing (the
+    // GNSS course) with the composed stamp heading.
     private val geoTracking by lazy { cz.hillview.plugin.GeoTrackingManager(context) }
-    private var effectiveLogJob: Job? = null
-
-    private fun startEffectiveLog() {
-        if (effectiveLogJob != null) return
-        effectiveLogJob = scope.launch {
-            while (true) {
-                // Snapshot on Main (volatile field reads, same as a real
-                // shutter press); the Room work strictly on IO — the source
-                // lookup is a BLOCKING query and Room throws on main.
-                val snap = snapshotSensors(System.currentTimeMillis())
-                kotlinx.coroutines.withContext(Dispatchers.IO) {
-                    logEffectiveSample(snap)
-                }
-                delay(1_000L)
-            }
-        }
-    }
-
-    private suspend fun logEffectiveSample(snap: SensorSnapshot) {
-        val lat = snap.latitude ?: return
-        val lon = snap.longitude ?: return
-        val sourceName = "effective_" + (snap.locationSource ?: return)
-        val sourceId = geoTracking.getOrCreateSourceId(sourceName)
-        geoTracking.storeLocationEntity(
-            cz.hillview.plugin.LocationEntity(
-                timestamp = snap.capturedAtMs,
-                latitude = lat,
-                longitude = lon,
-                sourceId = sourceId,
-                altitude = snap.altitude,
-                accuracy = snap.accuracyM,
-                // The bearing a capture would stamp (true north).
-                bearing = snap.trueBearingDeg,
-            ),
-        )
-    }
 
 
     // The shutter's voice: the stock click for a healthy capture, a double
@@ -260,7 +230,12 @@ private class AndroidPhotoCapture(
 
     @Volatile private var lastLocation: Location? = null
     @Volatile override var manualLocation: ManualLocation? = null
-    @Volatile override var manualLocationWins: Boolean = false
+
+    // Mirrors MapSession.manualPositionElected, pushed in by the screen. This
+    // object only reports what a capture would stamp; publishing the election
+    // to the tracking tables belongs to the map pane, which is always composed
+    // and therefore can answer for it whether or not capture is open.
+    @Volatile override var manualLocationElected: Boolean = false
 
     override var stampBearing: StampBearing? = null
         set(value) {
@@ -889,7 +864,6 @@ private class AndroidPhotoCapture(
             lifecycleOwner.lifecycle.addObserver(orientationLifecycle)
             orientationStarted = true
         }
-        startEffectiveLog()
     }
 
     // Stats timeline: shutter press → CameraX JPEG → finalization; plus
@@ -1089,14 +1063,14 @@ private class AndroidPhotoCapture(
         val ageMs = location?.let {
             (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / 1_000_000
         }
-        // Fallback mode: a fresh fix beats the manual position, it only
-        // fills a hole. Claimed mode (manualLocationWins): the user said
-        // "I am at the map position" through the accept gate, and that
-        // overrides even a fresh fix.
-        val manual = manualLocation.takeIf {
-            manualLocationWins ||
-                location == null || (ageMs != null && ageMs > FIX_FRESH_MS)
-        }
+        // No arbitration here, deliberately. The map position is used exactly
+        // when the user elected it — through the pill's accepted claim or the
+        // no-fix escape hatch — and never because a fix merely went stale. A
+        // silent hand-over would make the election recorded on every row a
+        // lie, and re-judging the choice later is the whole point of recording
+        // it. Which stream is primary is decided in the UI, where it can be
+        // seen and withdrawn; this function only reports the decision.
+        val manual = manualLocation.takeIf { manualLocationElected }
         // The stamp bearing is the MAP's bearing state (Tauri semantics:
         // capture reads $bearingState) — car mode's gps-kalman + mount
         // offset included. Raw compass only as a fallback before the

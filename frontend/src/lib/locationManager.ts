@@ -1,6 +1,6 @@
 import { startPreciseLocationUpdates, stopPreciseLocationUpdates } from './preciseLocation';
 import {locationTracking, backgroundLocationTracking, setBackgroundLocationTracking, setLocationError, setLocationTracking, updateGpsLocation} from "$lib/location.svelte";
-import { setLocationLoggingMode } from "$lib/mapState";
+import { setElectedLocationSource } from "$lib/mapState";
 import { writable } from 'svelte/store';
 import { get } from 'svelte/store';
 
@@ -231,7 +231,7 @@ export    async function stopLocationTracking() {
         // instead of as the primary location.
         if (get(backgroundLocationTracking)) {
             setBackgroundLocationTracking(false);
-            setLocationLoggingMode('active');
+            setElectedLocationSource('android');
         }
         if (!get(locationTracking)) {
             setLocationTracking(true);

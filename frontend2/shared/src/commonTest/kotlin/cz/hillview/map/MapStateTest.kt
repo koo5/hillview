@@ -433,6 +433,39 @@ class MapSessionTest {
     }
 
     @Test
+    fun eitherRouteElectsTheMapPosition() {
+        val session = MapSession()
+        assertFalse(session.manualPositionElected.value)
+
+        session.claimManualPosition()
+        assertTrue(session.manualPositionElected.value)
+        session.setLocationTracking(LocationTracking.Active)
+        assertFalse(session.manualPositionElected.value)
+
+        // The no-fix hatch reaches the same outcome without the gate.
+        session.setMapPositionWithoutFix(true)
+        assertTrue(session.manualPositionElected.value)
+        session.setMapPositionWithoutFix(false)
+        assertFalse(session.manualPositionElected.value)
+    }
+
+    @Test
+    fun resumingFollowMeDoesNotWithdrawTheNoFixHatch() {
+        // Withdrawing the claim means "follow me again". The hatch is about
+        // there being nothing to follow, so it is withdrawn by its own button
+        // and by nothing else — otherwise entering capture, which re-arms a
+        // clean ACTIVE, would silently shut the gate on a user with no fix.
+        val session = MapSession()
+        session.setMapPositionWithoutFix(true)
+        session.setLocationTracking(LocationTracking.Active)
+        assertTrue(session.mapPositionWithoutFix.value)
+        assertTrue(session.manualPositionElected.value)
+
+        session.onEnterCapture()
+        assertTrue(session.manualPositionElected.value)
+    }
+
+    @Test
     fun enteringCaptureWithoutAClaimStillArmsCleanActive() {
         // The stuck-half-blue regression stays guarded for everyone who
         // did not deliberately claim a position.

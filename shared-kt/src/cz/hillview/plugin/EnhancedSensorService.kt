@@ -1051,7 +1051,12 @@ class EnhancedSensorService(
             pitch = finalPitch,
             roll = finalRoll,
             timestamp = System.currentTimeMillis(),
-            source = "android $source (EMA smoothed)"
+            // The source is the platform sensor stack, full stop — it has to
+            // stay a small, stable, elect-able name. Which fusion mode produced
+            // this sample is provenance, so it moves to `detail`, where nothing
+            // matches on it and it can stay as verbose as it likes.
+            source = "android",
+            detail = "$source (EMA smoothed)"
         )
 
         /*val sendTime = System.currentTimeMillis()

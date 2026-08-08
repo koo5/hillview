@@ -90,6 +90,7 @@ actual fun MapScreen(
     // takes.
     var positionPrompt by remember { mutableStateOf(false) }
     val manualClaimed by session.manualPositionClaimed.collectAsState()
+    val manualPositionElected by session.manualPositionElected.collectAsState()
     var overrideFilters by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
     // The toggle panel enumerates whatever sources the composite carries
@@ -187,6 +188,27 @@ actual fun MapScreen(
 
     LaunchedEffect(spatial, bearing) {
         stateStore.save(spatial, bearing)
+    }
+
+    // The elections, published from here because this pane is always composed
+    // (MainScreen renders map and photo side by side, so it is not a
+    // navigation destination that can go away). One publisher each, so there
+    // is never a moment when two of them disagree about what is primary.
+    //
+    // Bearing: whichever stream last moved the arrow owns it, as in Tauri.
+    LaunchedEffect(bearing.source) {
+        controller.publishBearingElection(bearing.source)
+    }
+    // Location: the map position when the user has said so — through the
+    // pill's accepted claim or the capture pane's no-fix hatch — otherwise the
+    // fix stream. Electing it also writes it, or the election would point at a
+    // source with no rows.
+    LaunchedEffect(manualPositionElected, spatial.latitude, spatial.longitude) {
+        controller.publishLocationElection(
+            manualElected = manualPositionElected,
+            latitude = spatial.latitude,
+            longitude = spatial.longitude,
+        )
     }
 
     // Pin the selection so the photo limit can never drop it out from under
@@ -702,6 +724,49 @@ private class MapSensorController(private val context: Context) {
     fun compassAvailable(): Boolean =
         (context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager)
             .getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR) != null
+
+    /**
+     * Hand the tracking tables the elected bearing source, mapped to their
+     * coarse vocabulary — the same rule as toTableSource() in the Tauri app's
+     * mapState.ts, minus the IPC boundary that forced it to live in JS there.
+     */
+    fun publishBearingElection(source: String) {
+        geoTracking.setElectedBearingSource(
+            when {
+                source == "gps-kalman" -> "gps-kalman"
+                source.startsWith("android") -> "android"
+                else -> "manual"
+            }
+        )
+    }
+
+    private var lastLocationElection: String? = null
+
+    /**
+     * Hand over the elected location source, and — while the map position is
+     * the elected one — write it as a real row, so the election never names a
+     * source with nothing in it. Tauri gets the row for free because a pan
+     * writes one anyway; here the electing act has to.
+     *
+     * The name is only pushed when it changes (this is driven by map movement,
+     * which is continuous); the row follows the position, as a pan should.
+     */
+    fun publishLocationElection(manualElected: Boolean, latitude: Double, longitude: Double) {
+        val elected = if (manualElected) "manual" else "android"
+        if (elected != lastLocationElection) {
+            lastLocationElection = elected
+            geoTracking.setElectedLocationSource(elected)
+        }
+        if (manualElected) {
+            geoTracking.storeLocationNamed(
+                timestamp = System.currentTimeMillis(),
+                latitude = latitude,
+                longitude = longitude,
+                source = "manual",
+                detail = "map",
+            )
+        }
+    }
 
     private var carHeading: ((Float, Int?) -> Unit)? = null
     private var wantLocation = false

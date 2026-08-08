@@ -5,19 +5,21 @@
  * no longer just turns tracking off — it enters a third BACKGROUND state:
  *   - the location button goes half-blue (CSS class `background`),
  *   - GPS stays subscribed (pulses continue) but the map stops following it,
- *   - GPS fixes keep flowing to the locations table tagged "<provider>-background"
- *     (GeoTrackingManager.setBackgroundLogging), so they don't win the
- *     photo-location pairing (LocationDao.getLocationNearTimestamp excludes them).
+ *   - GPS fixes keep flowing to the locations table under their own name, but
+ *     the map position becomes the ELECTED source (setElectedLocationSource), so
+ *     the fixes don't win the photo-location pairing — LocationDao.
+ *     getLocationNearTimestamp keeps only rows whose source was the elected one.
  *   - clicking again turns it fully off; the next click re-arms ACTIVE.
  *
  * Four angles:
- *   1. The `set_location_logging_mode` command round-trips through Kotlin.
+ *   1. The `set_elected_location_source` command round-trips through Kotlin.
  *   2. The button state machine OFF → ACTIVE → BACKGROUND → OFF, where the
  *      ACTIVE→BACKGROUND edge is driven by a real swipe/pan of the map.
- *   3. A GPS fix injected while background-logging is on lands in the exported
- *      locations CSV with a `-background` source, while a foreground fix does not
- *      — proving the Kotlin label flips end-to-end (emu geo fix → FusedLocation →
- *      PreciseLocationService → storeLocationPreciseLocationData → CSV).
+ *   3. A GPS fix injected while the map position is elected lands in the exported
+ *      locations CSV as a plain `android` row carrying `elected=manual`, while a
+ *      following-mode fix carries `elected=android` — proving the election flips
+ *      end-to-end (emu geo fix → FusedLocation → PreciseLocationService →
+ *      storeLocationPreciseLocationData → CSV).
  *   4. Regression: entering capture mode while BACKGROUND re-arms clean foreground
  *      ACTIVE, rather than leaving the app stuck in the half-blue background state.
  */
@@ -168,12 +170,19 @@ async function newestLocationsCsv(): Promise<string | null> {
 }
 
 /** Source column (index 3) of every data row of a pulled locations CSV. */
-function csvSources(csv: string): string[] {
-    return csv
-        .split(/\r?\n/)
-        .filter((l) => l && !l.startsWith('#'))
-        .map((l) => l.split(',')[3])
-        .filter((s): s is string => Boolean(s));
+/**
+ * Values of one named column, resolved from the CSV header rather than a fixed
+ * index — the dumps have gained `detail` and `elected` and will gain more.
+ */
+function csvColumn(csv: string, name: string): string[] {
+    const lines = csv.split(/\r?\n/).filter((l) => l.length > 0);
+    const header = (lines[0] ?? '').replace(/^#/, '').split(',');
+    const idx = header.indexOf(name);
+    if (idx < 0) return [];
+    return lines
+        .slice(1)
+        .filter((l) => !l.startsWith('#'))
+        .map((l) => l.split(',')[idx] ?? '');
 }
 
 describe('Background location tracking', () => {
@@ -193,20 +202,20 @@ describe('Background location tracking', () => {
     });
 
     after(async () => {
-        // Don't leave background logging on for later specs.
+        // Don't leave the map position elected for later specs.
         try {
-            await invokeCmd('set_location_logging_mode', { mode: 'active' });
+            await invokeCmd('set_elected_location_source', { source: 'android' });
             await invokePlugin('plugin:hillview|stop_precise_location_listener');
         } catch {
             // best effort
         }
     });
 
-    it('set_location_logging_mode round-trips through Kotlin', async function () {
+    it('set_elected_location_source round-trips through Kotlin', async function () {
         this.timeout(30000);
-        // Both directions should resolve without error (the command returns {}).
-        await invokeCmd('set_location_logging_mode', { mode: 'background' });
-        await invokeCmd('set_location_logging_mode', { mode: 'active' });
+        // Both directions should resolve without error.
+        await invokeCmd('set_elected_location_source', { source: 'manual' });
+        await invokeCmd('set_elected_location_source', { source: 'android' });
     });
 
     it('cycles OFF → ACTIVE → BACKGROUND → OFF (pan enters background, not off)', async function () {
@@ -245,8 +254,8 @@ describe('Background location tracking', () => {
     // Regression: entering capture mode must re-arm a clean foreground ACTIVE
     // state. The capture reactive (Main.svelte) calls enableLocationTracking(),
     // which previously only flipped locationTracking on and left
-    // backgroundLocationTracking set — leaving the button stuck half-blue, GPS
-    // still logging "-background", and captures recording the live fix only as
+    // backgroundLocationTracking set — leaving the button stuck half-blue, the
+    // map position still elected, and captures recording the live fix only as
     // alt_location. enableLocationTracking() now clears the background state, so
     // BACKGROUND → enter-capture → ACTIVE.
     it('entering capture mode from BACKGROUND restores foreground ACTIVE (not stuck half-blue)', async function () {
@@ -278,7 +287,7 @@ describe('Background location tracking', () => {
         await normalizeOff();
     });
 
-    it('a background-mode GPS fix is logged with a -background source in the CSV', async function () {
+    it('a fix taken while the map is panned away still records, but is not the elected source', async function () {
         this.timeout(120000);
 
         await invokePlugin('plugin:hillview|start_precise_location_listener');
@@ -286,22 +295,24 @@ describe('Background location tracking', () => {
         await ensureWebViewContext();
         await browser.pause(1000);
 
-        // Foreground fixes → plain provider source.
-        await invokeCmd('set_location_logging_mode', { mode: 'active' });
+        // Following GPS: the Android location API is the elected source.
+        await invokeCmd('set_elected_location_source', { source: 'android' });
         emuGeoFix(50.0800, 14.4300, { speedMps: 0 });
         await browser.pause(1600);
         emuGeoFix(50.0810, 14.4310, { speedMps: 0 });
         await browser.pause(1600);
 
-        // Background fixes → "<provider>-background" source.
-        await invokeCmd('set_location_logging_mode', { mode: 'background' });
+        // Panned away: the map position is elected. GPS keeps recording under
+        // its own name — only the election changes.
+        await invokeCmd('set_elected_location_source', { source: 'manual' });
         emuGeoFix(50.0900, 14.4400, { speedMps: 0 });
         await browser.pause(1600);
         emuGeoFix(50.0910, 14.4410, { speedMps: 0 });
         await browser.pause(1600);
 
-        // Reset the label before exporting (export reads the already-stored rows).
-        await invokeCmd('set_location_logging_mode', { mode: 'active' });
+        // Restore before exporting; stored rows keep the election they were
+        // stamped with at insert time.
+        await invokeCmd('set_elected_location_source', { source: 'android' });
 
         const result = await invokeCmd('geo_tracking_export');
         expect(result.success).toBe(true);
@@ -311,11 +322,18 @@ describe('Background location tracking', () => {
         expect(filename).not.toBeNull();
         const b64 = (await (driver as any).pullFile(`${DUMP_DIR}/${filename}`)) as string;
         const csv = Buffer.from(b64, 'base64').toString('utf8');
-        const sources = csvSources(csv);
+        const sources = csvColumn(csv, 'source');
+        const elected = csvColumn(csv, 'elected');
         console.log(`[bg-tracking] CSV sources: ${JSON.stringify([...new Set(sources)])}`);
+        console.log(`[bg-tracking] CSV elected: ${JSON.stringify([...new Set(elected)])}`);
 
-        // The background fix flipped the label; the foreground one did not.
-        expect(sources.some((s) => s.includes('background'))).toBe(true);
-        expect(sources.some((s) => !s.includes('background'))).toBe(true);
+        // Every fix is an `android` row now — the source name no longer carries
+        // the mode, which is the whole point of the election column.
+        expect(sources.some((s) => s === 'android')).toBe(true);
+        expect(sources.some((s) => s.includes('background'))).toBe(false);
+
+        // The election is what flipped, and it is what the pairing lookup reads.
+        expect(elected.some((e) => e === 'manual')).toBe(true);
+        expect(elected.some((e) => e === 'android')).toBe(true);
     });
 });
