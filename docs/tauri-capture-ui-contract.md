@@ -143,6 +143,14 @@ band caps CONTROL_AE_TARGET_FPS_RANGE (the original toggle's proven
 between stream-gated beats (bind → wait for PreviewView STREAMING → a
 few frames → grab → unbind; ImageCapture stays bound so the shutter
 never waits); 0 = capture-only (a landed capture is the refresh signal).
+Zoom and focus are a
+DELIBERATE full divergence (user-directed: the original's two vertical
+sliders were necessity UX): pinch-to-zoom on the preview (transient
+ratio chip; re-applied after eco rebinds — zoom is per camera session),
+long-press = AE/AF lock (no-auto-cancel metering, "AE/AF locked" chip, a
+tap refocuses and releases), and Focus Auto/∞ rows in the 📷 menu (the
+vista pin: AF off, lens at 0 diopters; offered only when the sensor has
+AF-off plus a real focus range).
 Hard-won platform facts: a Preview REUSED across unbind/bind never
 re-attaches its surface (build a fresh one per beat), the TextureView
 does NOT hold its last frame on unbind (a grabbed bitmap overlay is the

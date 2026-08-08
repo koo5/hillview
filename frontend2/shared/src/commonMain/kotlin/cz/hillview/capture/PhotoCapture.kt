@@ -64,6 +64,10 @@ data class CaptureState(
     val selectedResolution: CaptureResolution? = null,
     /** Device advertises MANUAL_SENSOR — shutter control is offerable. */
     val manualShutterSupported: Boolean = false,
+    /** AF-off + a real focus range exist — the ∞ toggle is offerable. */
+    val manualFocusSupported: Boolean = false,
+    /** Focus pinned at infinity (the vista shot) — mirrored when applied. */
+    val focusInfinity: Boolean = false,
     /** The pinned shutter time, null = auto exposure. */
     val shutterNs: Long? = null,
     val bearingDeg: Float? = null,
@@ -206,6 +210,14 @@ interface PhotoCapture {
      * [shutterPriorityIso] so brightness tracks what the metering last saw.
      */
     var shutterNs: Long?
+
+    /**
+     * Pin focus at infinity — the vista shot this app exists for. A tap
+     * on the preview (tap-to-focus) hands back to auto. Native-ish
+     * divergence: the original's focus-distance slider was necessity UX;
+     * ∞/auto plus tap and long-press-lock covers the real cases.
+     */
+    var focusInfinity: Boolean
 
     /**
      * Power saving: cap the preview frame rate. One of the three effects

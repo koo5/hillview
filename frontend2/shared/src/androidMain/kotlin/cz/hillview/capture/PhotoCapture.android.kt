@@ -122,6 +122,52 @@ private class AndroidPhotoCapture(
     // location path the Tauri app's capture geotag rides on.
     private var preciseLocation: cz.hillview.plugin.PreciseLocationService? = null
 
+    // Geo tracking — the same tables and CSV dumps the Tauri app writes
+    // (GeoTrackingManager, shared-kt). Two kinds of stream, deliberately:
+    // the RAW feeds (fused fixes, orientation samples) as extra data, and
+    // the EFFECTIVE stream — sampled through snapshotSensors(), the exact
+    // arbitration a shutter press runs — so a retroactive stamp reads
+    // "what the app would have written at that instant" (manual claim
+    // beats fix, exactly like a real capture; provenance in the source
+    // name: effective_gps / effective_manual).
+    private val geoTracking by lazy { cz.hillview.plugin.GeoTrackingManager(context) }
+    private var effectiveLogJob: Job? = null
+
+    private fun startEffectiveLog() {
+        if (effectiveLogJob != null) return
+        effectiveLogJob = scope.launch {
+            while (true) {
+                // Snapshot on Main (volatile field reads, same as a real
+                // shutter press); the Room work strictly on IO — the source
+                // lookup is a BLOCKING query and Room throws on main.
+                val snap = snapshotSensors(System.currentTimeMillis())
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    logEffectiveSample(snap)
+                }
+                delay(1_000L)
+            }
+        }
+    }
+
+    private suspend fun logEffectiveSample(snap: SensorSnapshot) {
+        val lat = snap.latitude ?: return
+        val lon = snap.longitude ?: return
+        val sourceName = "effective_" + (snap.locationSource ?: return)
+        val sourceId = geoTracking.getOrCreateSourceId(sourceName)
+        geoTracking.storeLocationEntity(
+            cz.hillview.plugin.LocationEntity(
+                timestamp = snap.capturedAtMs,
+                latitude = lat,
+                longitude = lon,
+                sourceId = sourceId,
+                altitude = snap.altitude,
+                accuracy = snap.accuracyM,
+                // The bearing a capture would stamp (true north).
+                bearing = snap.trueBearingDeg,
+            ),
+        )
+    }
+
 
     // The shutter's voice: the stock click for a healthy capture, a double
     // beep when the position is degraded — audible from a pocket.
@@ -169,6 +215,10 @@ private class AndroidPhotoCapture(
      */
     private fun focusAt(view: PreviewView, x: Float, y: Float) {
         val cam = camera ?: return
+        // A tap always means AUTO at this point: release a standing AE/AF
+        // lock and un-pin infinity before metering.
+        aeAfLocked = false
+        if (focusInfinity) focusInfinity = false
         val point = view.meteringPointFactory.createPoint(x, y)
         focusRingClear?.cancel()
         focusRing = FocusRing(x, y, FocusPhase.Focusing)
@@ -241,6 +291,8 @@ private class AndroidPhotoCapture(
     // rotation-vector listener, which produced MAGNETIC azimuth only.
     private val sensorService = EnhancedSensorService(context) { data ->
         lastOrientation = data
+        // Raw orientation stream (the manager rate-limits storage).
+        geoTracking.storeOrientationSensorData(data)
         // Throttle state (and recomposition) to ~4 Hz; display true heading.
         val now = SystemClock.elapsedRealtime()
         if (now - lastAzimuthPush > 250) {
@@ -336,6 +388,7 @@ private class AndroidPhotoCapture(
         )
         camera = cam
         previewBound = true
+        applyZoomAfterBind(cam)
 
         val info = Camera2CameraInfo.from(cam.cameraInfo)
         val capabilities = info.getCameraCharacteristic(
@@ -365,8 +418,19 @@ private class AndroidPhotoCapture(
             ?.distinct()
             .orEmpty()
 
+        val afModes = info.getCameraCharacteristic(
+            CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES,
+        )
+        val minFocusDistance = info.getCameraCharacteristic(
+            CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE,
+        )
+        val manualFocus =
+            afModes?.contains(CameraMetadata.CONTROL_AF_MODE_OFF) == true &&
+                (minFocusDistance ?: 0f) > 0f
+
         state = state.copy(
             manualShutterSupported = manualSensor,
+            manualFocusSupported = manualFocus,
             availableResolutions = jpegSizes,
             selectedResolution = pinnedResolution,
         )
@@ -451,6 +515,49 @@ private class AndroidPhotoCapture(
             restartEcoDuty()
         }
 
+    // --- native zoom / focus (deliberate divergence from the original's
+    // necessity-born sliders: pinch to zoom, long-press to lock AE/AF,
+    // ∞/auto in the camera menu — the native grammar) ---
+
+    var zoomRatio by mutableStateOf(1f)
+        private set
+    private var zoomRange: ClosedFloatingPointRange<Float> = 1f..1f
+    var zoomChipVisible by mutableStateOf(false)
+        private set
+    private var zoomChipJob: Job? = null
+    var aeAfLocked by mutableStateOf(false)
+        private set
+
+    fun setZoom(ratio: Float) {
+        val cam = camera ?: return
+        val clamped = ratio.coerceIn(zoomRange)
+        zoomRatio = clamped
+        cam.cameraControl.setZoomRatio(clamped)
+        zoomChipVisible = true
+        zoomChipJob?.cancel()
+        zoomChipJob = scope.launch {
+            delay(1_200L)
+            zoomChipVisible = false
+        }
+    }
+
+    /** Re-arm zoom after any (re)bind — the control is per camera session. */
+    private fun applyZoomAfterBind(cam: androidx.camera.core.Camera) {
+        cam.cameraInfo.zoomState.value?.let {
+            zoomRange = it.minZoomRatio..it.maxZoomRatio
+        }
+        if (zoomRatio > 1f) {
+            cam.cameraControl.setZoomRatio(zoomRatio.coerceIn(zoomRange))
+        }
+    }
+
+    override var focusInfinity: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            applyRequestOptions()
+        }
+
     // --- the sub-AE eco band: duty-cycling the preview use case ---
     //
     // At and below ECO_DUTY_BAND_MAX_FPS the Preview use case is unbound
@@ -484,7 +591,9 @@ private class AndroidPhotoCapture(
                     lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, fresh,
                 )
                 previewBound = true
-                // A fresh bind means fresh capture-request options.
+                // A fresh bind means fresh capture-request options — and
+                // the zoom, which is per camera session too.
+                applyZoomAfterBind(camera!!)
                 applyRequestOptions()
             }.onFailure { Log.w(TAG, "preview rebind failed", it) }
             // Drop the freeze only when frames ACTUALLY render — the
@@ -575,6 +684,37 @@ private class AndroidPhotoCapture(
     }
 
     /**
+     * Long-press: AE/AF LOCK at the pressed point — metering runs once and
+     * stays (no auto-cancel), the native camera idiom. A later tap
+     * refocuses and releases.
+     */
+    private fun lockFocusAt(view: PreviewView, x: Float, y: Float) {
+        val cam = camera ?: return
+        if (focusInfinity) focusInfinity = false
+        val point = view.meteringPointFactory.createPoint(x, y)
+        focusRingClear?.cancel()
+        focusRing = FocusRing(x, y, FocusPhase.Focusing)
+        val action = androidx.camera.core.FocusMeteringAction.Builder(point)
+            .disableAutoCancel()
+            .build()
+        val future = cam.cameraControl.startFocusAndMetering(action)
+        future.addListener({
+            val locked = try {
+                future.get().isFocusSuccessful
+            } catch (e: Exception) {
+                false
+            }
+            aeAfLocked = locked
+            focusRing = focusRing?.takeIf { it.xPx == x && it.yPx == y }
+                ?.copy(phase = if (locked) FocusPhase.Success else FocusPhase.Failed)
+            focusRingClear = scope.launch {
+                delay(900)
+                focusRing = focusRing?.takeIf { it.xPx == x && it.yPx == y }?.let { null }
+            }
+        }, ContextCompat.getMainExecutor(context))
+    }
+
+    /**
      * ONE application point for every Camera2 request option — the
      * interop's setCaptureRequestOptions REPLACES the whole set, so
      * independent features writing it separately would silently erase each
@@ -612,6 +752,18 @@ private class AndroidPhotoCapture(
         } else {
             state = state.copy(shutterNs = null)
         }
+
+        if (focusInfinity && state.manualFocusSupported) {
+            // The vista pin: AF off, lens at infinity (0 diopters).
+            builder
+                .setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AF_MODE,
+                    CameraMetadata.CONTROL_AF_MODE_OFF,
+                )
+                .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, 0f)
+            applied += " +focusInf"
+        }
+        state = state.copy(focusInfinity = focusInfinity && state.manualFocusSupported)
 
         val eco = ecoPreviewFps
         if (eco != null && eco < 30f) {
@@ -652,7 +804,11 @@ private class AndroidPhotoCapture(
                 // geotag a photo.
                 preciseLocation = cz.hillview.plugin.PreciseLocationService(
                     context,
-                    onLocationUpdate = { data -> onLocation(asLocation(data)) },
+                    onLocationUpdate = { data ->
+                        // Raw fused stream, as the Tauri plugin logs it.
+                        geoTracking.storeLocationPreciseLocationData(data)
+                        onLocation(asLocation(data))
+                    },
                 ).also { it.startLocationUpdates() }
                 gpsStarted = true
             } catch (e: Exception) {
@@ -663,6 +819,7 @@ private class AndroidPhotoCapture(
             sensorService.startSensor()
             orientationStarted = true
         }
+        startEffectiveLog()
     }
 
     override fun capture() {
@@ -842,6 +999,14 @@ private class AndroidPhotoCapture(
         } catch (e: Exception) {
             // lazy instances may never have been created
         }
+        // Session over: dump-and-clear like the Tauri cleanup path does —
+        // exports CSVs only when auto_export is on (its own IO scope, so
+        // the scope.cancel() below cannot kill it).
+        try {
+            geoTracking.dumpAndClear()
+        } catch (e: Exception) {
+            Log.w(TAG, "geo tracking dump failed", e)
+        }
         cameraProvider?.unbindAll()
         cameraProvider = null
         camera = null
@@ -891,20 +1056,63 @@ private class AndroidPhotoCapture(
                             // frame; only the preview crops.
                             scaleType = PreviewView.ScaleType.FILL_CENTER
                             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                            // Tap detection by hand (down..up within slop):
-                            // a GestureDetector would also claim the events
-                            // a future pinch-zoom needs.
+                            // The native touch grammar, by hand (a
+                            // GestureDetector would fight the pinch): tap =
+                            // focus, long-press = AE/AF lock, second finger
+                            // = pinch zoom (kills tap and long-press).
                             var downX = 0f
                             var downY = 0f
+                            var scaling = false
+                            var longPressFired = false
+                            var longPress: Runnable? = null
+                            val scaleDetector = android.view.ScaleGestureDetector(
+                                c,
+                                object :
+                                    android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                                    override fun onScale(
+                                        detector: android.view.ScaleGestureDetector,
+                                    ): Boolean {
+                                        setZoom(zoomRatio * detector.scaleFactor)
+                                        return true
+                                    }
+                                },
+                            )
                             setOnTouchListener { v, event ->
+                                scaleDetector.onTouchEvent(event)
                                 when (event.actionMasked) {
                                     android.view.MotionEvent.ACTION_DOWN -> {
-                                        downX = event.x; downY = event.y; true
+                                        downX = event.x; downY = event.y
+                                        scaling = false
+                                        longPressFired = false
+                                        longPress = Runnable {
+                                            longPressFired = true
+                                            lockFocusAt(this, downX, downY)
+                                        }.also { v.postDelayed(it, 450L) }
+                                        true
                                     }
-                                    android.view.MotionEvent.ACTION_UP -> {
+                                    android.view.MotionEvent.ACTION_POINTER_DOWN -> {
+                                        scaling = true
+                                        longPress?.let { v.removeCallbacks(it) }
+                                        true
+                                    }
+                                    android.view.MotionEvent.ACTION_MOVE -> {
                                         val slop = android.view.ViewConfiguration
                                             .get(v.context).scaledTouchSlop
                                         if (kotlin.math.hypot(
+                                                event.x - downX,
+                                                event.y - downY,
+                                            ) > slop
+                                        ) {
+                                            longPress?.let { v.removeCallbacks(it) }
+                                        }
+                                        true
+                                    }
+                                    android.view.MotionEvent.ACTION_UP -> {
+                                        longPress?.let { v.removeCallbacks(it) }
+                                        val slop = android.view.ViewConfiguration
+                                            .get(v.context).scaledTouchSlop
+                                        if (!scaling && !longPressFired &&
+                                            kotlin.math.hypot(
                                                 event.x - downX,
                                                 event.y - downY,
                                             ) <= slop
@@ -912,6 +1120,10 @@ private class AndroidPhotoCapture(
                                             v.performClick()
                                             focusAt(this, event.x, event.y)
                                         }
+                                        true
+                                    }
+                                    android.view.MotionEvent.ACTION_CANCEL -> {
+                                        longPress?.let { v.removeCallbacks(it) }
                                         true
                                     }
                                     else -> false
@@ -937,6 +1149,43 @@ private class AndroidPhotoCapture(
                             .clipToBounds()
                             .testTag("eco-frozen-frame"),
                     )
+                }
+
+                // Native chips, top-centre over the video: the transient
+                // zoom ratio while pinching, and the standing AE/AF lock.
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 40.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    if (zoomChipVisible) {
+                        Text(
+                            text = "%.1f×".format(zoomRatio),
+                            color = Color.White,
+                            modifier = Modifier
+                                .background(
+                                    Color(0xB3000000),
+                                    androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                )
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                .testTag("zoom-chip"),
+                        )
+                    }
+                    if (aeAfLocked) {
+                        Text(
+                            text = "AE/AF locked",
+                            color = Color.White,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .background(
+                                    Color(0xB3000000),
+                                    androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                )
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                .testTag("af-lock-chip"),
+                        )
+                    }
                 }
 
                 // The focus ring, drawn where the finger landed: yellow

@@ -2,6 +2,9 @@ package cz.hillview.capture
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -401,6 +404,9 @@ fun CaptureScreen(
                                 RoundedCornerShape(8.dp),
                             )
                             .padding(4.dp)
+                            // Resolutions + focus outgrow a split pane.
+                            .heightIn(max = 400.dp)
+                            .verticalScroll(rememberScrollState())
                             .testTag("camera-selector-dropdown"),
                     ) {
                         ResolutionOption(
@@ -423,6 +429,34 @@ fun CaptureScreen(
                                 mapSettingsRepo.update {
                                     it.copy(captureResolution = "${r.width}x${r.height}")
                                 }
+                            }
+                        }
+                        // Focus, the vista case: Auto (tap-to-focus and the
+                        // long-press lock live on the preview itself) or
+                        // pinned at infinity. Native-ish divergence — the
+                        // original's focus-distance slider was necessity UX.
+                        if (state.manualFocusSupported) {
+                            Text(
+                                "Focus",
+                                color = Color(0x99FFFFFF),
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+                            )
+                            ResolutionOption(
+                                label = "Auto",
+                                selected = !state.focusInfinity,
+                                tag = "focus-option-auto",
+                            ) {
+                                showResolutionMenu = false
+                                capture.focusInfinity = false
+                            }
+                            ResolutionOption(
+                                label = "∞ landscape",
+                                selected = state.focusInfinity,
+                                tag = "focus-option-infinity",
+                            ) {
+                                showResolutionMenu = false
+                                capture.focusInfinity = true
                             }
                         }
                     }

@@ -20,6 +20,7 @@ private class DesktopPhotoCapture : PhotoCapture {
     override var manualLocationWins: Boolean = false
     override var shutterNs: Long? = null
     override var ecoPreviewFps: Float? = null
+    override var focusInfinity: Boolean = false
 
     override fun selectResolution(resolution: CaptureResolution?) {}
 
