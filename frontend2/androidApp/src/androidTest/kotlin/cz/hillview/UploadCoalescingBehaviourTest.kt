@@ -138,7 +138,16 @@ class UploadCoalescingBehaviourTest {
         // workers shows up as ~$burst runs and fails both bounds.
         val windows = (burstMs / 15_000L).toInt() + 1
         assertTrue("runs=$runs across $windows window(s)", runs in 1..(windows * 2))
-        assertTrue("no coalescing: runs=$runs enqueues=$enqueues", runs < enqueues)
+        // The collapse itself is only OBSERVABLE when at least two captures
+        // can share a window. A starved emulator (e.g. a concurrent gradle
+        // build on the host) can stretch a burst past a window per capture
+        // — seen live at burstMs=72705 — and then runs == enqueues is the
+        // CORRECT behaviour, not a regression.
+        if (windows < burst) {
+            assertTrue("no coalescing: runs=$runs enqueues=$enqueues", runs < enqueues)
+        } else {
+            Log.i("UploadCoalescing", "burst too slow to observe coalescing (windows=$windows) — collapse assertion skipped")
+        }
 
         // The original's responsiveness proxy: the screen is still alive.
         // (The status line is a fixed overlay on the video now — nothing to
