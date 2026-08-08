@@ -7,11 +7,16 @@ pluginManagement {
     resolutionStrategy {
         eachPlugin {
             switch (requested.id.id) {
+                // Only used when this directory is the Gradle root (opening the
+                // plugin standalone in Android Studio). The real APK build pulls
+                // this module in via src-tauri/gen/android, where AGP/Kotlin come
+                // from the Tauri-generated root -- keep these in step with it, or
+                // standalone can't compile against compileSdk 36.
                 case "com.android.library":
-                    useVersion("8.0.2")
+                    useVersion("8.11.0")
                     break
                 case "org.jetbrains.kotlin.android":
-                    useVersion("1.8.20")
+                    useVersion("2.0.20")
                     break
             }
         }

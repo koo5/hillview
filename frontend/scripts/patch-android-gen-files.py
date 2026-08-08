@@ -40,9 +40,20 @@ class AndroidConfigurer:
 
 		# Keep dev-tree targetSdk aligned with the release tree. Tauri's
 		# generated app build.gradle.kts defaults to whatever AGP ships,
-		# which has drifted behind the release worktree. Bump this when
-		# release bumps (grep for `targetSdk =` in the sibling worktree).
-		self.target_sdk = 35
+		# which used to drift behind the release worktree -- as of CLI
+		# 2.11.4 the template ships 36 itself, so this pin now mostly guards
+		# against a CLI downgrade. 36 matches frontend2 and the Play Store
+		# target-API requirement.
+		self.target_sdk = 36
+
+		# compileSdk is likewise generated from AGP's default (34 with AGP
+		# 8.5.1) and must be pinned here, or the app module silently lags
+		# behind tauri-plugin-hillview/android/build.gradle.kts. AAR metadata
+		# checks are unforgiving about this: androidx.work 2.10.5 (pulled in
+		# by the plugin) requires every consumer to compile against 35+, so a
+		# stale app module fails :app:checkUniversalDebugAarMetadata. Keep in
+		# lockstep with the plugin's `compileSdk`.
+		self.compile_sdk = 36
 
 		# Google Services configuration paths
 		self.google_services_target = self.android_root / "app" / "google-services.json"
@@ -762,11 +773,8 @@ if (file("google-services.json").exists()) {
 			self.log(f"Error fixing app build.gradle.kts: {e}", "ERROR")
 			return False
 
-	def _set_target_sdk(self) -> bool:
-		"""Rewrite `targetSdk = N` in the generated app build.gradle.kts to
-		match the release tree (self.target_sdk). Tauri's generator sets
-		this from AGP's default, which has lagged behind the release config.
-		"""
+	def _set_sdk_level(self, field: str, level: int) -> bool:
+		"""Rewrite `<field> = N` in the generated app build.gradle.kts."""
 		if not self.build_gradle_file.exists():
 			self.log(f"App build.gradle.kts not found at {self.build_gradle_file}", "ERROR")
 			return False
@@ -775,27 +783,42 @@ if (file("google-services.json").exists()) {
 			content = self.build_gradle_file.read_text()
 			original = content
 
-			pattern = r'(targetSdk\s*=\s*)\d+'
+			pattern = rf'({field}\s*=\s*)\d+'
 			match = re.search(pattern, content)
 			if not match:
-				self.log("targetSdk assignment not found in app build.gradle.kts", "WARNING")
+				self.log(f"{field} assignment not found in app build.gradle.kts", "WARNING")
 				return True
 
 			current = int(re.search(r'\d+', match.group(0)).group(0))
-			if current == self.target_sdk:
-				self.log(f"targetSdk already = {self.target_sdk}", "SUCCESS")
+			if current == level:
+				self.log(f"{field} already = {level}", "SUCCESS")
 				return True
 
-			content = re.sub(pattern, rf'\g<1>{self.target_sdk}', content, count=1)
+			content = re.sub(pattern, rf'\g<1>{level}', content, count=1)
 			if content != original:
 				self.build_gradle_file.write_text(content)
-				self.log(f"Bumped targetSdk {current} → {self.target_sdk}", "SUCCESS")
+				self.log(f"Bumped {field} {current} → {level}", "SUCCESS")
 
 			return True
 
 		except Exception as e:
-			self.log(f"Error setting targetSdk: {e}", "ERROR")
+			self.log(f"Error setting {field}: {e}", "ERROR")
 			return False
+
+	def _set_target_sdk(self) -> bool:
+		"""Rewrite `targetSdk = N` in the generated app build.gradle.kts to
+		match the release tree (self.target_sdk). Tauri's generator sets
+		this from AGP's default, which has lagged behind the release config.
+		"""
+		return self._set_sdk_level("targetSdk", self.target_sdk)
+
+	def _set_compile_sdk(self) -> bool:
+		"""Rewrite `compileSdk = N` in the generated app build.gradle.kts to
+		match the plugin module (self.compile_sdk). Same drift story as
+		targetSdk, but this one breaks the build outright rather than just
+		the runtime behaviour opt-in — see the field's comment.
+		"""
+		return self._set_sdk_level("compileSdk", self.compile_sdk)
 
 	def _patch_16kb_alignment(self) -> bool:
 		"""Pin NDK and disable legacy jniLibs packaging for 16 KB ELF page alignment.
@@ -992,6 +1015,7 @@ if (file("google-services.json").exists()) {
 			("Configure build.gradle.kts", self.configure_build_gradle),
 			("Patch colors.xml", self.patch_colors_xml),
 			("Fix Kotlin versions", self.fix_kotlin_versions),
+			("Set compileSdk", self._set_compile_sdk),
 			("Set targetSdk", self._set_target_sdk),
 			("Patch 16KB page alignment", self._patch_16kb_alignment),
 			("Copy google-services.json", self.copy_google_services_json),

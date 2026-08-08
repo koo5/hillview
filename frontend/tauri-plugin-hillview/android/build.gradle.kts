@@ -81,7 +81,11 @@ dependencies {
     kapt("androidx.room:room-compiler:2.6.1")
 
     // WorkManager for background tasks.
-    // Bumped 2.9.1 -> 2.10.5 with the compileSdk 36 / AGP 8.9 pass (2026-08).
+    // Bumped 2.9.1 -> 2.10.5 with the compileSdk 36 pass (2026-08). 2.10.5's
+    // AAR metadata demands every consumer compile against 35+, which is what
+    // caught the app module still sitting on the Tauri template's 34 --
+    // src-tauri/gen/ is generated, so its compileSdk is pinned in
+    // scripts/patch-android-gen-files.py, not here.
     // NOTE: verified that 2.10.5 still does NOT declare the dataSync
     // foregroundServiceType/permission itself — our AndroidManifest.xml
     // patches remain required (see the comment there).
