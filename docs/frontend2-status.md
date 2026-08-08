@@ -3,6 +3,20 @@
 Snapshot 2026-08-07, end of the capture/map parity push. This is the
 orientation page; the detail lives in the documents it points to.
 
+**WHY this rewrite exists (user, 2026-08-08)**: the Tauri app stopped
+processing captures fast enough in short-interval mode — Android 15
+update, summer heat, or both (thermal throttling). CAPTURE THROUGHPUT
+UNDER THERMAL PRESSURE is the hard requirement everything else serves.
+Corollaries: auto-uploads and dense marker drawing are secondary (the
+user turns uploads off and drops max markers to ~10 in critical
+sessions); optimizations should concentrate on the shutter-to-final-
+bytes path. First throughput fix landed 2026-08-08: capture
+finalization (whole-file EXIF rewrite + gallery index) moved OFF the
+main executor onto a process-lifetime IO scope — the shutter frees the
+moment CameraX hands the JPEG over, finalizations overlap, and a
+capture just before leaving the pane still finalizes. lastPhoto (the
+upload trigger) still publishes only after the final bytes exist.
+
 ## The approach (how this work is done)
 
 1. **Observe first, port second.** For every UI port, read the Tauri
@@ -163,6 +177,15 @@ Implementation, roughly in value order:
    with FUTURE parallel photo encoding (~4 workers for max throughput);
    and NO re-upload fallback — the user does not want the app to ever
    need one. Do not build until re-designed together.
+0c. **Eco/sensor design queue (user, 2026-08-08, not built)**: eco
+   SUB-FLAGS to test variations — e.g. sleep the bearing sensors until
+   around capture time in eco interval runs; a GPS interval slider
+   (same grammar as the fps ladder); and a deliberate divergence: a
+   separate "EXTERNAL CAMERA" activity where sensors run and tracking
+   tables write CONTINUOUSLY (for shooting with the native camera app;
+   pairs with the PiP float-mode idea) — as opposed to the capture
+   activity, which optimizes around capture moments, and the gallery
+   activity (thought through later).
 
 1. **More Appium scenario ports** onto the new app-behaviour layer — the
    suites in `frontend/tests-appium/specs/` are the source; the testTag

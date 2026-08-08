@@ -80,6 +80,11 @@ import kotlin.coroutines.resume
 
 private const val TAG = "PhotoCapture"
 
+// Finalization (EXIF rewrite, gallery index) must survive the pane: a photo
+// taken a heartbeat before leaving capture still needs its final bytes —
+// the controller's own scope dies in release().
+private val captureFinishScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
 @Composable
 actual fun rememberPhotoCapture(): PhotoCapture {
     val context = LocalContext.current
@@ -901,38 +906,54 @@ private class AndroidPhotoCapture(
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(results: ImageCapture.OutputFileResults) {
                     watchdog.cancel()
-                    try {
-                        // MediaStore saves report a content:// URI; file saves
-                        // report none, and the path is the locator.
-                        val uri = results.savedUri
-                        val locator = when {
-                            file != null -> file.absolutePath
-                            uri != null -> uri.toString()
-                            else -> throw IOException("save reported neither file nor uri")
+                    // The shutter is FREE the moment CameraX hands the JPEG
+                    // over: tone, eco refresh, and the next capture all
+                    // proceed now. The EXIF rewrite below is a WHOLE-FILE
+                    // copy (ExifInterface has no surgical patch) — 4-25 MB
+                    // on a real sensor — and used to run right here on the
+                    // main executor: per-shot jank, and the throughput
+                    // ceiling that killed short-interval mode under thermal
+                    // throttling in the Tauri app. Off-main also means
+                    // overlapping captures finalize in parallel.
+                    state = state.copy(capturing = false)
+                    ecoCaptureRefresh()
+                    playCaptureTone(snapshot)
+                    captureFinishScope.launch {
+                        try {
+                            // MediaStore saves report a content:// URI; file
+                            // saves report none, and the path is the locator.
+                            val uri = results.savedUri
+                            val locator = when {
+                                file != null -> file.absolutePath
+                                uri != null -> uri.toString()
+                                else -> throw IOException("save reported neither file nor uri")
+                            }
+                            if (file != null) {
+                                PhotoExifWriter.write(file, snapshot)
+                                // After the EXIF rewrite, so the indexed entry
+                                // has the final bytes.
+                                if (!hideFromGallery) PhotoStorage.indexInGallery(context, file)
+                            } else {
+                                PhotoExifWriter.write(context, uri!!, snapshot)
+                            }
+                            // lastPhoto ONLY after the final bytes exist:
+                            // the upload enqueue hashes the file it triggers
+                            // on — publishing earlier would hash pre-EXIF
+                            // bytes.
+                            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                state = state.copy(
+                                    lastPhoto = CapturedPhoto(locator, filename, snapshot),
+                                )
+                            }
+                            Log.i(TAG, "captured $filename via ${mode.key} -> $locator")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "post-save handling failed", e)
+                            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                state = state.copy(
+                                    errorMessage = "EXIF write failed: ${e.message}",
+                                )
+                            }
                         }
-                        if (file != null) {
-                            PhotoExifWriter.write(file, snapshot)
-                            // After the EXIF rewrite, so the indexed entry has
-                            // the final bytes.
-                            if (!hideFromGallery) PhotoStorage.indexInGallery(context, file)
-                        } else {
-                            PhotoExifWriter.write(context, uri!!, snapshot)
-                        }
-                        state = state.copy(
-                            capturing = false,
-                            lastPhoto = CapturedPhoto(locator, filename, snapshot),
-                        )
-                        // Capture-only eco: this is the moment the frozen
-                        // preview earns a refresh.
-                        ecoCaptureRefresh()
-                        playCaptureTone(snapshot)
-                        Log.i(TAG, "captured $filename via ${mode.key} -> $locator")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "post-save handling failed", e)
-                        state = state.copy(
-                            capturing = false,
-                            errorMessage = "EXIF write failed: ${e.message}",
-                        )
                     }
                 }
 
