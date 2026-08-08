@@ -120,6 +120,36 @@ actual fun platformModule(): Module = module {
                     settings = get(),
                     freshToken = { tokenStore.freshAccessToken() },
                 ),
+                // Mapillary rides the same backend stream proxy the original
+                // uses (data.svelte.ts: type stream, url backend/mapillary);
+                // default OFF there and here.
+                cz.hillview.map.StreamMarkerSource(
+                    source = cz.hillview.plugin.SourceConfig(
+                        id = "mapillary",
+                        name = "Mapillary",
+                        type = "stream",
+                        enabled = false,
+                        color = "#888888",
+                        url = "${get<cz.hillview.core.net.BackendConfig>().apiUrl}/mapillary",
+                    ),
+                    settings = get(),
+                    freshToken = { tokenStore.freshAccessToken() },
+                ),
+                // Panoramax queries its public instance directly (original:
+                // type panoramax, api.panoramax.xyz, default OFF).
+                cz.hillview.map.PanoramaxMarkerSource(
+                    source = cz.hillview.plugin.SourceConfig(
+                        id = "panoramax",
+                        name = "Panoramax",
+                        type = "panoramax",
+                        enabled = false,
+                        color = "#33aa88",
+                        url = "https://api.panoramax.xyz",
+                    ),
+                    settings = get(),
+                    backendUrl = get<cz.hillview.core.net.BackendConfig>().apiUrl,
+                    freshToken = { tokenStore.freshAccessToken() },
+                ),
             ),
         )
     }

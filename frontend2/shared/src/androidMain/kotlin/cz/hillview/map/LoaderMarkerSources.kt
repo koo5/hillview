@@ -6,6 +6,7 @@ import cz.hillview.core.nowMs
 import cz.hillview.plugin.Bounds
 import cz.hillview.plugin.DevicePhotoLoader
 import cz.hillview.plugin.LatLng
+import cz.hillview.plugin.PanoramaxPhotoLoader
 import cz.hillview.plugin.PhotoData
 import cz.hillview.plugin.SourceConfig
 import cz.hillview.plugin.StreamPhotoLoader
@@ -159,5 +160,68 @@ class StreamMarkerSource(
     companion object {
         private const val TAG = "StreamMarkerSource"
         const val REFETCH_MS = 30_000L
+    }
+}
+
+/**
+ * Panoramax, through the shared-kt PanoramaxPhotoLoader (the Tauri
+ * plugin's own): STAC search against the public instance, hidden-content
+ * filtering resolved through our backend when a token exists. Default
+ * OFF, as the original's data.svelte.ts ships it — the toggle wakes it.
+ */
+class PanoramaxMarkerSource(
+    private val source: SourceConfig,
+    private val settings: MapSettingsRepository,
+    /** Our backend — the hidden-content list rides on it, not Panoramax. */
+    private val backendUrl: String,
+    private val freshToken: suspend () -> String?,
+) : PhotoMarkerSource {
+    private val loader = PanoramaxPhotoLoader()
+    private val gate = RefetchGate(StreamMarkerSource.REFETCH_MS)
+
+    override val descriptor = MapSourceDescriptor(
+        source.id,
+        source.name.ifBlank { source.id },
+        defaultEnabled = source.enabled,
+    )
+
+    private val _markers = MutableStateFlow<List<PhotoMarker>>(emptyList())
+    override val markers: StateFlow<List<PhotoMarker>> = _markers.asStateFlow()
+    override var pinnedId: String? = null
+    private var wantedViewport: MapViewport? = null
+
+    override fun setViewport(viewport: MapViewport) {
+        wantedViewport = viewport
+    }
+
+    override suspend fun refresh() {
+        val vp = wantedViewport ?: return // the map has not told us where it looks yet
+        val s = settings.settings.value
+        val key = "$vp|${s.maxPhotos}"
+        val now = nowMs()
+        if (!gate.shouldFetch(key, now)) return
+
+        try {
+            val photos = withContext(Dispatchers.IO) {
+                loader.loadPhotos(
+                    source = source,
+                    bounds = vp.toBounds(),
+                    maxPhotos = s.maxPhotos,
+                    shouldAbort = { false },
+                    hillviewBackendUrl = backendUrl,
+                    authToken = freshToken(),
+                )
+            }
+            _markers.value = photos.map { it.toMarker() }
+            gate.recordFetch(key, now)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "panoramax fetch failed (keeping last set): ${e.message}")
+        }
+    }
+
+    companion object {
+        private const val TAG = "PanoramaxMarkerSource"
     }
 }

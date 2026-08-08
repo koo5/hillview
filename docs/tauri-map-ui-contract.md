@@ -86,10 +86,17 @@ The richest control on the screen.
   The sources and their defaults (data.svelte.ts): hillview ON, device ON
   (Tauri-only), mapillary OFF, panoramax OFF; enabled states persist
   (localStorage sourceStates). frontend2: the panel enumerates the
-  composite's `sourceDescriptors()` (device + hillview until the
-  mapillary/panoramax loaders are wired), overrides persist in map
-  settings, and a disabled source neither refreshes nor contributes
-  cached markers.
+  composite's `sourceDescriptors()`, overrides persist in map settings,
+  and a disabled source neither refreshes nor contributes cached
+  markers. All four are wired (2026-08-08): hillview + mapillary through
+  the backend stream proxy, panoramax through the shared-kt
+  PanoramaxPhotoLoader against api.panoramax.xyz (hidden-content list
+  via our backend), device native. The tabs sit on the map's RIGHT EDGE
+  with vertical labels, as the original's hunter-panel-right. The
+  bearing-rose cluster divergence is SUPPRESSED for now
+  (PhotoMarkerOverlay.rosesEnabled=false — the count bubble loses
+  per-photo direction): markers draw solo with the original's 7px
+  along-bearing pile nudge; revisited with the gallery work.
 - **Filters button**: short press opens the filters modal, **long press
   toggles `$overrideFilters`**; `active` when `$activeFilterCount > 0`; label
   shows the count; an `overridden` style when the override is on. Tooltip

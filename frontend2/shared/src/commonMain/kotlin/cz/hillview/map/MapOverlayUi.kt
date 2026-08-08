@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -161,23 +162,29 @@ fun MapOverlayUi(
             )
         }
 
-        // Bottom-right hunter grid: the toggle owns the corner, the source
-        // panel grows up from it, the button panel grows left.
+        // Right-edge source tabs — the original's hunter-panel-right:
+        // vertical labels on white tabs down the map's right edge, only in
+        // hunter mode.
+        HunterPanel(
+            visible = hunterMode,
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 2.dp),
+        ) {
+            Column(
+                modifier = Modifier.heightIn(max = 420.dp).padding(2.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                sources.forEach { source ->
+                    SourceButton(source, onClick = { onToggleSource(source.id) })
+                }
+            }
+        }
+
+        // Bottom-right hunter grid: the toggle owns the corner, the button
+        // panel grows left.
         Column(
             modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 4.dp, end = 6.dp),
             horizontalAlignment = Alignment.End,
         ) {
-            HunterPanel(visible = hunterMode) {
-                Column(
-                    modifier = Modifier.heightIn(max = 320.dp).padding(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    sources.forEach { source ->
-                        SourceButton(source, onClick = { onToggleSource(source.id) })
-                    }
-                }
-            }
-
             Row(verticalAlignment = Alignment.Bottom) {
                 HunterPanel(visible = hunterMode) {
                     Row(
@@ -256,11 +263,15 @@ private fun ControlSurface(
 
 /** Panels fade rather than disappear, as in the CSS (opacity + no hit test). */
 @Composable
-private fun HunterPanel(visible: Boolean, content: @Composable () -> Unit) {
+private fun HunterPanel(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
     val alpha by animateFloatAsState(if (visible) 1f else 0f, label = "hunter-panel")
     if (alpha == 0f) return
     Surface(
-        modifier = Modifier.alpha(alpha).padding(bottom = 2.dp),
+        modifier = modifier.alpha(alpha).padding(bottom = 2.dp),
         color = PANEL_WHITE,
         shape = RoundedCornerShape(8.dp),
         shadowElevation = 2.dp,
@@ -268,6 +279,22 @@ private fun HunterPanel(visible: Boolean, content: @Composable () -> Unit) {
         content()
     }
 }
+
+/**
+ * The vertical-tab text swap (the original's `writing-mode: vertical-rl`):
+ * report height×width, then rotate the drawing into the swapped bounds.
+ */
+private fun Modifier.verticalLabel(): Modifier = this
+    .layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints)
+        layout(placeable.height, placeable.width) {
+            placeable.place(
+                x = -(placeable.width / 2 - placeable.height / 2),
+                y = -(placeable.height / 2 - placeable.width / 2),
+            )
+        }
+    }
+    .rotate(90f)
 
 @Composable
 private fun HunterToggle(active: Boolean, onClick: () -> Unit) {
@@ -297,16 +324,20 @@ private fun SourceButton(source: MapSourceUi, onClick: () -> Unit) {
             if (source.enabled) ACTIVE_BLUE_BORDER else Color(0xFFCCCCCC),
         ),
         shape = RoundedCornerShape(4.dp),
+        onClick = onClick,
         modifier = Modifier.testTag("source-toggle-${source.id}"),
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            TextButton(onClick = onClick) {
-                Text(
-                    text = source.name,
-                    color = if (source.enabled) Color.White else Color.Black,
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp),
+        ) {
+            Text(
+                text = source.name,
+                color = if (source.enabled) Color.White else Color.Black,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                modifier = Modifier.verticalLabel(),
+            )
             if (source.enabled && source.loading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(20.dp),
