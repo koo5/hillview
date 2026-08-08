@@ -144,6 +144,21 @@ orientation page; the detail lives in the documents it points to.
 
 Implementation, roughly in value order:
 
+0. **Car-mode capture bearing (BUG, found 2026-08-08)**: Tauri stamps
+   photos from `$bearingState` (car bearing incl. mount offset in car
+   mode); frontend2's snapshotSensors always takes the compass. Fix at
+   the single arbitration point — the EXIF, tone, AND the effective CSV
+   stream all inherit it.
+0b. **Stamp-refinement design (agreed 2026-08-08, not built)**: write
+   immediately as now; a coalesced WorkManager pass (~20-30 s, and on
+   app start BEFORE the start-time dump clears the tracking tables)
+   interpolates from the tracking tables and rewrites EXIF IN PLACE
+   (MediaStore app-owned entries are rw via ExifInterface+fd; all three
+   storage modes work). Upload drain skips stamp_pending rows within a
+   horizon; late refinement bumps `version` for re-upload (backend
+   already supports it). No write delays, no per-photo jobs, EXIF stays
+   the single source of truth.
+
 1. **More Appium scenario ports** onto the new app-behaviour layer — the
    suites in `frontend/tests-appium/specs/` are the source; the testTag
    surface is complete. Done (2026-08-07): capture gating flow,
