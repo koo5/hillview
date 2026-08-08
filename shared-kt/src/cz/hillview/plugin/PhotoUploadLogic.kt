@@ -649,9 +649,14 @@ class PhotoUploadLogic(internal val context: Context) {
 			// account switch all strand it. The key is right here —
 			// re-register with the current token and retry once, healing
 			// the mismatch for good.
-			if (response.code == 400 &&
-				response.peekBody(2048).string().contains("Client public key")
-			) {
+			val keyNotRegistered = (response.code == 409 || response.code == 400) &&
+				response.peekBody(4096).string().let { body ->
+					// 409 + error_code is the current contract; the 400-prose
+					// match keeps the heal working against older backends.
+					body.contains("client_key_not_registered") ||
+						(response.code == 400 && body.contains("Client public key"))
+				}
+			if (keyNotRegistered) {
 				response.close()
 				Log.w(TAG, "authorize-upload → 400 key-not-registered; re-registering client key and retrying once")
 				val token = authManager.getValidToken()

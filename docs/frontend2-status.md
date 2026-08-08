@@ -103,6 +103,16 @@ orientation page; the detail lives in the documents it points to.
   is the test kill-switch for system sheets; GitHub remains unimplemented
   (the Tauri UI keeps its button commented out too). Full study doc:
   docs/native-auth.md.
+- Server-URL discipline (the stranded-client-key incident, 2026-08-08):
+  the SETTING and the RUNTIME URL are separate values; changing the
+  setting shows a restart banner and "Restart now" performs a full
+  process relaunch — the only sanctioned way to move auth, workers, and
+  cached clients together. The settings field persists trimmed (no
+  trailing slash) while editing raw. Backend answers a never-registered
+  client key with 409 + error_code=client_key_not_registered (and a
+  server-side warning log); the shared-kt authorize step self-heals it
+  by re-registering and retrying once (prose-matched 400 fallback for
+  old backends kept).
 - Tests: ~135 jvm + 160 android-host + 51 shared instrumented + 15 app
   behaviour tests, all green. The behaviour layer covers map tracking
   (incl. the return-from-capture demote regression it caught), capture

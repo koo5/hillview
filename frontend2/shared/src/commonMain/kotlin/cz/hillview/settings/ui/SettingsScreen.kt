@@ -18,6 +18,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -68,16 +71,49 @@ fun SettingsScreen(
             )
         }
 
+        // The field edits RAW text (normalizing per keystroke would fight
+        // the cursor); the persisted setting is normalized — trimmed, no
+        // trailing slash (a stored slash doubles up in every "$url/path").
+        var serverUrlText by rememberSaveable { mutableStateOf(settings.serverUrl) }
         OutlinedTextField(
-            value = settings.serverUrl,
-            onValueChange = { url -> repository.update { it.copy(serverUrl = url) } },
+            value = serverUrlText,
+            onValueChange = { url ->
+                serverUrlText = url
+                repository.update { it.copy(serverUrl = url.trim().trimEnd('/')) }
+            },
             label = { Text("API URL") },
-            supportingText = { Text("Full API URL incl. /api — auth picks it up on next start") },
+            supportingText = { Text("Full API URL incl. /api — applies after an app restart") },
             singleLine = true,
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("settings-server-url"),
         )
+
+        // The setting vs the RUNTIME: deliberately separate values. Auth,
+        // the upload workers, and every cached client resolved the runtime
+        // URL at startup; the only sanctioned way to move them all is a
+        // full restart — a live switch leaves components talking to
+        // different servers (the stranded-client-key incident).
+        val runtimeConfig: cz.hillview.core.net.BackendConfig = koinInject()
+        if (settings.serverUrl.trimEnd('/') != runtimeConfig.apiUrl.trimEnd('/')) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings-restart-required"),
+            ) {
+                Text(
+                    "Server URL changed — the app must restart to apply it everywhere.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    onClick = { cz.hillview.core.restartApp() },
+                    modifier = Modifier.testTag("restart-app-button"),
+                ) { Text("Restart now") }
+            }
+        }
 
         Row(
             verticalAlignment = Alignment.CenterVertically,

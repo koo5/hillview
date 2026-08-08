@@ -1687,9 +1687,24 @@ async def authorize_upload(
 		user_public_key = result.scalars().first()
 
 		if not user_public_key:
+			# 409, not 400: the request is well-formed and the auth valid —
+			# the SERVER is missing state (this device key was never
+			# registered under this user: server-URL switch, DB reset, or
+			# account switch). The machine-readable error_code is what
+			# clients key their self-heal on; 401 would be wrong twice over
+			# (auth DID succeed, and clients answer 401s by burning a
+			# refresh-token rotation).
+			log.warning(
+				f"authorize-upload rejected: client key '{auth_request.client_key_id}' is not registered "
+				f"(or inactive) for user {current_user.id} — the client should (re-)register it via "
+				f"/auth/register-client-key"
+			)
 			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail=f"Client public key '{auth_request.client_key_id}' not found or inactive. Please ensure the key is registered and active."
+				status_code=status.HTTP_409_CONFLICT,
+				detail={
+					"error_code": "client_key_not_registered",
+					"message": f"Client public key '{auth_request.client_key_id}' not found or inactive. Please ensure the key is registered and active.",
+				}
 			)
 
 		# Create geometry point from latitude/longitude if available
