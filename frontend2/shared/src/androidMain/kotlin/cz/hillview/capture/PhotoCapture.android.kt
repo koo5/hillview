@@ -617,8 +617,17 @@ private class AndroidPhotoCapture(
             // Drop the freeze only when frames ACTUALLY render — the
             // session's first on-screen frame can trail the bind by most
             // of a second; a timed clear flashed black through the beat.
+            // (Also THE restart-cost number for the stream-vs-restarts
+            // question: bind → first rendered frame.)
+            val bindAt = SystemClock.elapsedRealtime()
+            CaptureStatsLog.increment("preview binds", System.currentTimeMillis())
             scope.launch {
                 waitForPreviewStreaming(3_000L)
+                CaptureStatsLog.record(
+                    "bind→streaming",
+                    SystemClock.elapsedRealtime() - bindAt,
+                    System.currentTimeMillis(),
+                )
                 if (previewBound) frozenFrame = null
             }
         } else {
@@ -677,6 +686,7 @@ private class AndroidPhotoCapture(
                 ecoDutyJob = scope.launch {
                     while (true) {
                         val beatStart = SystemClock.elapsedRealtime()
+                        CaptureStatsLog.increment("eco beats", System.currentTimeMillis())
                         setPreviewBound(true)
                         waitForPreviewStreaming(2_500L)
                         delay(300L)
@@ -840,9 +850,37 @@ private class AndroidPhotoCapture(
         startEffectiveLog()
     }
 
+    // Stats timeline: shutter press → CameraX JPEG → finalization; plus
+    // inter-shot cadence. Feeds the copyable Stats dialog.
+    @Volatile private var captureStartMs = 0L
+    @Volatile private var lastShotAtMs = 0L
+
+    init {
+        CaptureStatsLog.platformLines = {
+            buildList {
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    val pm = context.getSystemService(Context.POWER_SERVICE)
+                        as android.os.PowerManager
+                    val status = when (pm.currentThermalStatus) {
+                        android.os.PowerManager.THERMAL_STATUS_NONE -> "NONE"
+                        android.os.PowerManager.THERMAL_STATUS_LIGHT -> "LIGHT"
+                        android.os.PowerManager.THERMAL_STATUS_MODERATE -> "MODERATE"
+                        android.os.PowerManager.THERMAL_STATUS_SEVERE -> "SEVERE"
+                        android.os.PowerManager.THERMAL_STATUS_CRITICAL -> "CRITICAL"
+                        android.os.PowerManager.THERMAL_STATUS_EMERGENCY -> "EMERGENCY"
+                        android.os.PowerManager.THERMAL_STATUS_SHUTDOWN -> "SHUTDOWN"
+                        else -> "?"
+                    }
+                    add("thermal: $status")
+                }
+            }
+        }
+    }
+
     override fun capture() {
         val capture = imageCapture ?: return
         if (state.capturing) return
+        captureStartMs = SystemClock.elapsedRealtime()
         state = state.copy(capturing = true, errorMessage = null)
 
         // A wedged camera pipeline can swallow a still capture without
@@ -906,6 +944,13 @@ private class AndroidPhotoCapture(
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(results: ImageCapture.OutputFileResults) {
                     watchdog.cancel()
+                    val shotAt = SystemClock.elapsedRealtime()
+                    val wall = System.currentTimeMillis()
+                    CaptureStatsLog.record("shutter→jpeg", shotAt - captureStartMs, wall)
+                    if (lastShotAtMs != 0L) {
+                        CaptureStatsLog.record("cadence", shotAt - lastShotAtMs, wall)
+                    }
+                    lastShotAtMs = shotAt
                     // The shutter is FREE the moment CameraX hands the JPEG
                     // over: tone, eco refresh, and the next capture all
                     // proceed now. The EXIF rewrite below is a WHOLE-FILE
@@ -919,6 +964,7 @@ private class AndroidPhotoCapture(
                     ecoCaptureRefresh()
                     playCaptureTone(snapshot)
                     captureFinishScope.launch {
+                        val finalizeStart = SystemClock.elapsedRealtime()
                         try {
                             // MediaStore saves report a content:// URI; file
                             // saves report none, and the path is the locator.
@@ -945,6 +991,11 @@ private class AndroidPhotoCapture(
                                     lastPhoto = CapturedPhoto(locator, filename, snapshot),
                                 )
                             }
+                            CaptureStatsLog.record(
+                                "finalize(exif+index)",
+                                SystemClock.elapsedRealtime() - finalizeStart,
+                                System.currentTimeMillis(),
+                            )
                             Log.i(TAG, "captured $filename via ${mode.key} -> $locator")
                         } catch (e: Exception) {
                             Log.e(TAG, "post-save handling failed", e)

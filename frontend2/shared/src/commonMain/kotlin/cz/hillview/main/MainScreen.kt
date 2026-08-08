@@ -73,6 +73,7 @@ fun MainScreen(
     val expiredNotice by sessionManager.sessionExpiredNotice.collectAsState()
     val scope = rememberCoroutineScope()
     var menuOpen by remember { mutableStateOf(false) }
+    var showStats by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { sessionManager.restoreIfNeeded() }
 
@@ -260,6 +261,10 @@ fun MainScreen(
                         menuOpen = false
                         onOpenDevicePhotos()
                     }
+                    MenuLink("Stats", "menu-capture-stats") {
+                        menuOpen = false
+                        showStats = true
+                    }
                     MenuLink("Capture guide", "menu-capture-guide") {
                         menuOpen = false
                         onOpenCaptureGuide()
@@ -283,6 +288,50 @@ fun MainScreen(
             }
         }
     }
+
+        // The copyable performance numbers (user-requested): live while
+        // open, monospace, selectable — plus one-tap Copy for pasting
+        // into a chat or a bug note.
+        if (showStats) {
+            var statsText by remember { mutableStateOf("") }
+            LaunchedEffect(Unit) {
+                while (true) {
+                    statsText = cz.hillview.capture.CaptureStatsLog
+                        .snapshotText(cz.hillview.core.nowMs())
+                    kotlinx.coroutines.delay(1_000)
+                }
+            }
+            val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showStats = false },
+                confirmButton = {
+                    cz.hillview.core.ui.InstantDialogWindow()
+                    TextButton(
+                        onClick = {
+                            clipboard.setText(
+                                androidx.compose.ui.text.AnnotatedString(statsText),
+                            )
+                        },
+                        modifier = Modifier.testTag("stats-copy-button"),
+                    ) { Text("Copy") }
+                    TextButton(
+                        onClick = { cz.hillview.capture.CaptureStatsLog.reset() },
+                    ) { Text("Reset") }
+                    TextButton(onClick = { showStats = false }) { Text("Close") }
+                },
+                title = { Text("Capture stats") },
+                text = {
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(
+                            statsText.ifEmpty { "No captures yet." },
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("stats-text"),
+                        )
+                    }
+                },
+            )
+        }
 }
 
 @Composable
