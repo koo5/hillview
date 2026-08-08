@@ -27,6 +27,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import cz.hillview.core.permissions.rememberNotificationPermissionRequester
 import cz.hillview.settings.ALLOWED_LICENSES
+import cz.hillview.settings.exportGeoTrackingNow
+import cz.hillview.settings.geoAutoExportEnabled
+import cz.hillview.settings.setGeoAutoExport
 import cz.hillview.settings.CompassSettingsRepository
 import cz.hillview.settings.StorageMode
 import cz.hillview.settings.storageFacts
@@ -144,6 +147,36 @@ fun SettingsScreen(
                 // null-check server-side of this switch.
                 enabled = settings.license != null,
                 modifier = Modifier.testTag("settings-auto-upload"),
+            )
+        }
+
+        // Geo tracking export: the CSVs that let photos be stamped
+        // retroactively as if taken in the moment (the effective stream
+        // samples the same arbitration the shutter runs). Auto-export
+        // dumps at each capture-session end; the button dumps right now.
+        var geoAutoExport by rememberSaveable { mutableStateOf(geoAutoExportEnabled()) }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Tracking CSV export", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Bearings and locations → GeoTrackingDumps/",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            TextButton(
+                onClick = { exportGeoTrackingNow() },
+                modifier = Modifier.testTag("settings-geo-export-now"),
+            ) { Text("Export now") }
+            Switch(
+                checked = geoAutoExport,
+                onCheckedChange = { on ->
+                    geoAutoExport = on
+                    setGeoAutoExport(on)
+                },
+                modifier = Modifier.testTag("settings-geo-auto-export"),
             )
         }
 

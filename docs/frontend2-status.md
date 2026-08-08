@@ -103,6 +103,22 @@ orientation page; the detail lives in the documents it points to.
   is the test kill-switch for system sheets; GitHub remains unimplemented
   (the Tauri UI keeps its button commented out too). Full study doc:
   docs/native-auth.md.
+- Native zoom/focus (2026-08-08, user-directed divergence): pinch-to-
+  zoom + ratio chip, long-press AE/AF lock + chip, Focus Auto/∞ in the
+  📷 menu; the original's slider pair retired.
+- Geo-tracking CSVs are WIRED (2026-08-08): raw fused + orientation
+  streams feed shared-kt's GeoTrackingManager while capture is open, and
+  an EFFECTIVE stream samples snapshotSensors() at 1 Hz — the same
+  arbitration a shutter press runs, so a retroactive stamp equals what
+  the app would have written (source names effective_gps /
+  effective_manual; the bearing column carries the EXIF's true heading).
+  Dump-and-clear at capture-session end (auto_export pref) + Export-now
+  and the auto-export switch in Settings; CSVs land in GeoTrackingDumps/
+  beside the clock videos. Known wart: both entities keep timestamp as
+  the PK with REPLACE, so a same-ms cross-stream collision silently wins
+  — the composite-key migration is a deliberate shared-kt change for
+  later. Room forbids main-thread DB reads: the sampler snapshots on
+  Main, stores on IO (crash-looped otherwise).
 - Server-URL discipline (the stranded-client-key incident, 2026-08-08):
   the SETTING and the RUNTIME URL are separate values; changing the
   setting shows a restart banner and "Restart now" performs a full
