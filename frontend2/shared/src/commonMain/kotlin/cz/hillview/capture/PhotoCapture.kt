@@ -29,6 +29,17 @@ data class SensorSnapshot(
     val locationSource: String? = null,
     /** Age of the location fix at capture time, or null without a fix. */
     val locationAgeMs: Long? = null,
+    /**
+     * The PURE DEVICE pose at the shutter, degrees in the
+     * OrientationEventListener frame (0 natural, 90 turned clockwise, 180
+     * inverted, 270 counter-clockwise). Gravity-derived — deliberately not
+     * the screen's rotation, which is frozen whenever auto-rotate is off.
+     *
+     * Provenance and diagnostics only: the JPEG's EXIF Orientation tag is
+     * written by CameraX from the target rotation this pose implies, because
+     * only CameraX knows the camera's sensorOrientation and lens facing.
+     */
+    val deviceRotationDeg: Int? = null,
 )
 
 data class CapturedPhoto(

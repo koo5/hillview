@@ -11,6 +11,7 @@ import android.location.LocationManager
 import android.os.Process
 import android.util.Log
 import android.view.OrientationEventListener
+import android.view.Surface
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -41,6 +42,50 @@ enum class DeviceOrientation {
 			LANDSCAPE_RIGHT -> 8
 			else -> throw IllegalArgumentException("Unsupported orientation for EXIF code: $orientation")
 		}
+
+		/**
+		 * The device's own rotation in degrees, in the frame
+		 * OrientationEventListener reports: 0 natural, 90 turned clockwise
+		 * (left edge up), 180 inverted, 270 counter-clockwise.
+		 *
+		 * Unlike toExifCode this does NOT throw on the flat poses — a stale
+		 * number beats a crash in the shutter path. Callers that care get
+		 * the last non-flat pose anyway: MyDeviceOrientationSensor filters
+		 * FLAT_UP/FLAT_DOWN before it ever reports a change.
+		 */
+		fun toDegrees(orientation: DeviceOrientation): Int = when (orientation) {
+			PORTRAIT -> 0
+			LANDSCAPE_LEFT -> 90
+			PORTRAIT_INVERTED -> 180
+			LANDSCAPE_RIGHT -> 270
+			FLAT_UP, FLAT_DOWN -> 0
+		}
+
+		/**
+		 * The Surface rotation the display WOULD have if it followed the
+		 * device — which is what CameraX's ImageCapture.targetRotation
+		 * wants, and from which CameraX derives the JPEG's EXIF Orientation.
+		 *
+		 * Deliberately NOT Display.getRotation(): that is the SCREEN's
+		 * orientation, and it freezes under an auto-rotate lock (or an
+		 * activity orientation lock) while the device keeps turning. Keeping
+		 * the two apart is the same distinction the Tauri plugin draws
+		 * between its `device-orientation` and `screen-angle` events — only
+		 * the frames differ downstream: the webview's canvas frames arrive
+		 * already display-oriented (so the JS side subtracts the screen
+		 * angle), while CameraX buffers arrive in the raw sensor frame, so
+		 * the pure device pose goes straight through.
+		 *
+		 * Note the inversion: turning the phone clockwise turns the display
+		 * counter-clockwise relative to it.
+		 */
+		fun toSurfaceRotation(orientation: DeviceOrientation): Int =
+			when (toDegrees(orientation)) {
+				90 -> Surface.ROTATION_270
+				180 -> Surface.ROTATION_180
+				270 -> Surface.ROTATION_90
+				else -> Surface.ROTATION_0
+			}
     }
 }
 

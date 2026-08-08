@@ -135,6 +135,35 @@ class PhotoExifWriterTest {
         file.delete()
     }
 
+    @Test
+    fun preservesTheOrientationCameraXStamped() {
+        // The Orientation tag belongs to CameraX — it is the only party that
+        // knows the camera's sensorOrientation and lens facing, which the raw
+        // sensor-frame buffer needs folded in. This writer's job is purely to
+        // not lose it, and saveAttributes() rewriting the whole file makes
+        // that a property worth pinning rather than assuming.
+        val file = jpeg()
+        ExifInterface(file.absolutePath).apply {
+            setAttribute(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_ROTATE_90.toString(),
+            )
+            saveAttributes()
+        }
+
+        PhotoExifWriter.write(file, snapshot.copy(deviceRotationDeg = 0))
+
+        assertEquals(
+            ExifInterface.ORIENTATION_ROTATE_90,
+            ExifInterface(file.absolutePath).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_UNDEFINED,
+            ),
+            "the EXIF rewrite must not drop the rotation CameraX stamped",
+        )
+        file.delete()
+    }
+
     /** EXIF rationals arrive as "537/100". */
     private fun String.toRational(): Double {
         val parts = split("/")

@@ -167,6 +167,27 @@ Implementation, roughly in value order:
    dead-band. Bonus finds fixed with it: compassAccuracy was never set
    (calibrate button could never appear), and the gps-kalman bearing
    stream now lands in the tracking tables like Tauri's.
+0a. **EXIF orientation — FIXED 2026-08-08**: every JPEG used to claim the
+   pose the capture pane happened to OPEN in. CameraX derives the EXIF
+   Orientation tag from ImageCapture.targetRotation, whose default is the
+   DISPLAY rotation sampled once at use-case construction — and the
+   activity handles `orientation` config changes itself and never
+   rebinds, so it never moved again; with auto-rotate off (the normal
+   state when shooting) display rotation never tracks the device at all.
+   Now shared-kt's MyDeviceOrientationSensor (accelerometer tilt, the
+   same class driving the Tauri plugin's `device-orientation` event,
+   FLAT_UP/FLAT_DOWN filtered so ground/sky shots keep the last real
+   pose) drives targetRotation live, seeded at bind and re-asserted at
+   the shutter; the pose also lands in SensorSnapshot.deviceRotationDeg.
+   New DeviceOrientation.toDegrees/toSurfaceRotation in shared-kt; the
+   Tauri toExifCode table is untouched and deliberately NOT reused —
+   its canvas frames were already display-oriented, so the same physical
+   pose wants a different tag than a raw CameraX sensor-frame buffer
+   (portrait: 1 there, 6 here). PhotoExifWriter still must not write the
+   tag — only CameraX knows sensorOrientation and lens facing — its job
+   is not to lose it across the whole-file rewrite, now pinned by a
+   test. NOT verifiable on the emulator: its camera's JPEG EXIF is
+   canned, so the four-pose check with auto-rotate OFF needs hardware.
 0b. **Stamp refinement (NEEDS RETHINK — user not convinced, 2026-08-08)**:
    the restamp_pending core idea stands, the mechanics don't. Open
    questions the next design must answer (user's list): can EXIF be

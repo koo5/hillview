@@ -235,11 +235,21 @@ fun CaptureScreen(
         )
         // Under eco the map catches up here, once per capture — Tauri's
         // "power saving: map catches up after each capture".
-        if (locationTracking == cz.hillview.map.LocationTracking.Active &&
-            photo.snapshot.locationSource == "gps" &&
-            photo.snapshot.latitude != null && photo.snapshot.longitude != null
+        //
+        // ECO ONLY, and it catches up to the LATEST FIX, not to the
+        // photo's own stamp. Ungated it fought the live follow above, and
+        // the stamp is shutter-time news: `lastPhoto` only publishes after
+        // the EXIF whole-file rewrite, so pushing it rewound the camera
+        // onto the photo just taken — and, because a spatial write is what
+        // triggers the marker reload, it did so at the exact moment that
+        // photo's marker appeared — until the next fix pulled it forward.
+        val catchUpLat = state.fixLatitude
+        val catchUpLon = state.fixLongitude
+        if (ecoActive &&
+            locationTracking == cz.hillview.map.LocationTracking.Active &&
+            catchUpLat != null && catchUpLon != null
         ) {
-            followMapTo(photo.snapshot.latitude, photo.snapshot.longitude)
+            followMapTo(catchUpLat, catchUpLon)
         }
 
         // The original waits 800 ms after the shutter before prompting, "to

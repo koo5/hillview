@@ -61,7 +61,9 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import cz.hillview.core.permissions.PermissionGatePane
 import cz.hillview.core.permissions.rememberPermissionsState
+import cz.hillview.plugin.DeviceOrientation
 import cz.hillview.plugin.EnhancedSensorService
+import cz.hillview.plugin.MyDeviceOrientationSensor
 import cz.hillview.plugin.OrientationSensorData
 import cz.hillview.settings.StorageMode
 import cz.hillview.settings.UploadSettingsRepository
@@ -319,6 +321,37 @@ private class AndroidPhotoCapture(
         }
     }
 
+    // The PURE DEVICE pose (accelerometer tilt), which is emphatically not
+    // the screen's orientation. CameraX's default targetRotation is the
+    // DISPLAY rotation sampled once, when ImageCapture was built — and this
+    // activity handles `orientation` config changes itself and never
+    // rebinds, so that default never moves again; worse, display rotation
+    // stops tracking the device entirely as soon as auto-rotate is off,
+    // which is the normal state for someone out shooting. Result before
+    // this: every JPEG claimed the pose the pane happened to open in.
+    //
+    // shared-kt's sensor is the right source (the Tauri app drives its
+    // `device-orientation` event from this same class) and it filters
+    // FLAT_UP/FLAT_DOWN, so pointing at the ground or the sky keeps the last
+    // real pose instead of snapping to portrait.
+    @Volatile private var deviceOrientation: DeviceOrientation = DeviceOrientation.PORTRAIT
+
+    private val orientationSensor = MyDeviceOrientationSensor(context) { pose ->
+        deviceOrientation = pose
+        // Settable on an already-bound use case — no rebind, no preview blink.
+        val rotation = DeviceOrientation.toSurfaceRotation(pose)
+        imageCapture?.targetRotation = rotation
+        Log.d(TAG, "device pose $pose (${DeviceOrientation.toDegrees(pose)}°) → targetRotation $rotation")
+    }
+
+    // bindToLifecycle already unbinds the camera on STOP; the accelerometer
+    // has no such contract, so it gets suspended alongside — the same
+    // onPause/onResume pairing the Tauri plugin applies to this class.
+    private val orientationLifecycle = object : androidx.lifecycle.DefaultLifecycleObserver {
+        override fun onStart(owner: LifecycleOwner) = orientationSensor.setSuspended(false)
+        override fun onStop(owner: LifecycleOwner) = orientationSensor.setSuspended(true)
+    }
+
     // Camera is the hard requirement; location soft-degrades (captures still
     // work, just not geotagged — the pane shows a banner).
     fun hasCameraPermission(): Boolean =
@@ -390,6 +423,9 @@ private class AndroidPhotoCapture(
             )
         }
         val capture = captureBuilder.build()
+        // Seed from the device pose rather than inheriting the builder's
+        // display-rotation default; the sensor callback keeps it live.
+        capture.targetRotation = DeviceOrientation.toSurfaceRotation(deviceOrientation)
         imageCapture = capture
 
         val preview = buildPreviewUseCase()
@@ -845,6 +881,12 @@ private class AndroidPhotoCapture(
         }
         if (!orientationStarted) {
             sensorService.startSensor()
+            // Separate listener from the heading engine's own, on purpose:
+            // that one accepts FLAT_UP from ORIENTATION_UNKNOWN, which would
+            // snap the EXIF orientation to portrait every time the phone
+            // tilts flat.
+            orientationSensor.setRunning(true)
+            lifecycleOwner.lifecycle.addObserver(orientationLifecycle)
             orientationStarted = true
         }
         startEffectiveLog()
@@ -896,7 +938,13 @@ private class AndroidPhotoCapture(
 
         val capturedAtMs = System.currentTimeMillis()
         val filename = "hillview_photo_$capturedAtMs.jpg"
-        val snapshot = snapshotSensors(capturedAtMs)
+        // The pose at the shutter, not at whenever the last change event
+        // fired: takePicture() reads targetRotation, so this is the last
+        // moment it can still matter. Same value goes into the snapshot, so
+        // what the tag claims and what the record says cannot drift.
+        val poseAtShutter = deviceOrientation
+        capture.targetRotation = DeviceOrientation.toSurfaceRotation(poseAtShutter)
+        val snapshot = snapshotSensors(capturedAtMs, poseAtShutter)
         val settings = uploadSettings.settings.value
         takePictureWithFallback(
             capture = capture,
@@ -996,7 +1044,11 @@ private class AndroidPhotoCapture(
                                 SystemClock.elapsedRealtime() - finalizeStart,
                                 System.currentTimeMillis(),
                             )
-                            Log.i(TAG, "captured $filename via ${mode.key} -> $locator")
+                            Log.i(
+                                TAG,
+                                "captured $filename via ${mode.key} -> $locator " +
+                                    "(device pose ${snapshot.deviceRotationDeg}°)",
+                            )
                         } catch (e: Exception) {
                             Log.e(TAG, "post-save handling failed", e)
                             kotlinx.coroutines.withContext(Dispatchers.Main) {
@@ -1028,7 +1080,10 @@ private class AndroidPhotoCapture(
         )
     }
 
-    private fun snapshotSensors(capturedAtMs: Long): SensorSnapshot {
+    private fun snapshotSensors(
+        capturedAtMs: Long,
+        pose: DeviceOrientation = deviceOrientation,
+    ): SensorSnapshot {
         val location = lastLocation
         val orientation = lastOrientation
         val ageMs = location?.let {
@@ -1058,6 +1113,7 @@ private class AndroidPhotoCapture(
                 bearingSource = stamp?.source ?: orientation?.source,
                 capturedAtMs = capturedAtMs,
                 locationSource = "manual",
+                deviceRotationDeg = DeviceOrientation.toDegrees(pose),
             )
         } else {
             SensorSnapshot(
@@ -1071,6 +1127,7 @@ private class AndroidPhotoCapture(
                 capturedAtMs = capturedAtMs,
                 locationSource = location?.let { "gps" },
                 locationAgeMs = ageMs,
+                deviceRotationDeg = DeviceOrientation.toDegrees(pose),
             )
         }
     }
@@ -1083,6 +1140,8 @@ private class AndroidPhotoCapture(
             // ignore
         }
         sensorService.stopSensor()
+        orientationSensor.setRunning(false)
+        lifecycleOwner.lifecycle.removeObserver(orientationLifecycle)
         try {
             shutterSound.release()
             warnTone.release()

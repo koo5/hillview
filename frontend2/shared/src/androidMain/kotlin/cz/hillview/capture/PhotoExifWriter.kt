@@ -2,6 +2,7 @@ package cz.hillview.capture
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.io.IOException
@@ -11,6 +12,8 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+private const val TAG = "PhotoExifWriter"
 
 /**
  * Writes the sensor snapshot into the JPEG's EXIF. This is the contract with
@@ -98,6 +101,24 @@ object PhotoExifWriter {
             .apply { timeZone = TimeZone.getTimeZone("UTC") }
         exif.setAttribute(ExifInterface.TAG_GPS_DATESTAMP, utcDate.format(capturedAt))
         exif.setAttribute(ExifInterface.TAG_GPS_TIMESTAMP, utcTime.format(capturedAt))
+
+        // TAG_ORIENTATION is deliberately NOT written here. CameraX already
+        // stamped it from ImageCapture.targetRotation, and only CameraX can:
+        // its buffers are in the raw SENSOR frame, so the correct tag folds
+        // in the camera's sensorOrientation and lens facing, neither of which
+        // the snapshot knows. (This is why the Tauri app's orientation_code
+        // cannot simply be ported — its canvas frames were already
+        // display-oriented, so the same physical pose wants a different tag.)
+        // What this writer must do is not LOSE it: saveAttributes() rewrites
+        // the whole file. A flat 1 in this log for every pose means
+        // targetRotation stopped tracking the device — see the
+        // MyDeviceOrientationSensor wiring in PhotoCapture.android.kt.
+        Log.d(
+            TAG,
+            "exif orientation (CameraX's, preserved): " +
+                "${exif.getAttribute(ExifInterface.TAG_ORIENTATION)} " +
+                "at device pose ${snapshot.deviceRotationDeg}°",
+        )
 
         exif.saveAttributes()
     }
