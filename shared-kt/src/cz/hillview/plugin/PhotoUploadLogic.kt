@@ -641,6 +641,29 @@ class PhotoUploadLogic(internal val context: Context) {
 					?: throw Exception("Upload authorization failed: no token after refresh")
 				response = client.newCall(buildRequest(newToken)).execute()
 			}
+			// The key-not-registered 400: THIS server has never seen this
+			// device key under THIS user — the key itself never changes
+			// (Keystore, per install), but its registration is per
+			// server-and-user and normally happens only during login. A
+			// server-URL change after login, a server DB reset, or an
+			// account switch all strand it. The key is right here —
+			// re-register with the current token and retry once, healing
+			// the mismatch for good.
+			if (response.code == 400 &&
+				response.peekBody(2048).string().contains("Client public key")
+			) {
+				response.close()
+				Log.w(TAG, "authorize-upload → 400 key-not-registered; re-registering client key and retrying once")
+				val token = authManager.getValidToken()
+					?: throw Exception("Upload authorization failed: no valid token for key re-registration")
+				val registration = authManager.registerClientPublicKey(token)
+				if (!registration.success) {
+					throw Exception(
+						"Upload authorization failed: client key re-registration failed: ${registration.error}"
+					)
+				}
+				response = client.newCall(buildRequest(token)).execute()
+			}
 			response.use { r ->
 				if (!r.isSuccessful) {
 					val error = r.body?.string() ?: "Unknown error"
