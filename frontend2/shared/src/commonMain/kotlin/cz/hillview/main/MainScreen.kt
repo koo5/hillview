@@ -61,6 +61,7 @@ fun MainScreen(
     onOpenLogin: () -> Unit,
     onOpenClockVideo: () -> Unit,
     onOpenDevicePhotos: () -> Unit,
+    onOpenCaptureGuide: () -> Unit = {},
     settingsRepo: MapSettingsRepository = koinInject(),
     session: MapSession = koinInject(),
     sessionManager: SessionManager = koinInject(),
@@ -258,6 +259,10 @@ fun MainScreen(
                     MenuLink("Device photos", "menu-device-photos") {
                         menuOpen = false
                         onOpenDevicePhotos()
+                    }
+                    MenuLink("Capture guide", "menu-capture-guide") {
+                        menuOpen = false
+                        onOpenCaptureGuide()
                     }
                     MenuLink("Clock video", "menu-clock-video") {
                         menuOpen = false

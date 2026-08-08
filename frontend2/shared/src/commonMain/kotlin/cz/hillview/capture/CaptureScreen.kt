@@ -392,6 +392,25 @@ fun CaptureScreen(
             }
         }
 
+        // Click-away for the two corner menus, as the original's camera
+        // dropdown closes on outside interaction — an invisible catcher
+        // under the menus, above the video.
+        if (showResolutionMenu || showShutterMenu) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember {
+                            androidx.compose.foundation.interaction.MutableInteractionSource()
+                        },
+                        indication = null,
+                    ) {
+                        showResolutionMenu = false
+                        showShutterMenu = false
+                    },
+            )
+        }
+
         // The 📷 selector, lower-left as in Tauri. Only resolutions for
         // now; the camera rows join when enumeration is ported.
         if (state.availableResolutions.isNotEmpty()) {

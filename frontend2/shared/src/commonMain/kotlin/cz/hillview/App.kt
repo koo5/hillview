@@ -15,6 +15,7 @@ import cz.hillview.auth.ui.LoginScreen
 import cz.hillview.clockvideo.ClockVideoScreen
 import cz.hillview.core.theme.HillviewTheme
 import cz.hillview.main.MainScreen
+import cz.hillview.nav.CaptureGuideKey
 import cz.hillview.nav.CaptureKey
 import cz.hillview.nav.ClockVideoKey
 import cz.hillview.nav.DevicePhotosKey
@@ -58,6 +59,7 @@ fun App() {
                 onOpenLogin = { backStack.add(LoginKey) },
                 onOpenClockVideo = { backStack.add(ClockVideoKey) },
                 onOpenDevicePhotos = { backStack.add(DevicePhotosKey) },
+                onOpenCaptureGuide = { backStack.add(CaptureGuideKey) },
             )
         }
         NavDisplay(
@@ -84,6 +86,11 @@ fun App() {
                     LoginScreen(
                         onBack = { backStack.removeLastOrNull() },
                         onLoggedIn = { backStack.removeLastOrNull() },
+                    )
+                }
+                entry<CaptureGuideKey> {
+                    cz.hillview.help.CaptureGuideScreen(
+                        onBack = { backStack.removeLastOrNull() },
                     )
                 }
                 entry<ClockVideoKey> {

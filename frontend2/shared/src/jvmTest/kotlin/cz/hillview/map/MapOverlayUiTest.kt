@@ -44,7 +44,7 @@ class MapOverlayUiTest {
         var toggledSource: String? = null
         var filtersOpened = 0
         var overrideToggled = 0
-        var providersOpened = 0
+        var pickedProvider: String? = null
         var locationToggled = 0
         var trackingToggled = 0
         var pickedMode: BearingMode? = null
@@ -71,7 +71,8 @@ class MapOverlayUiTest {
                 onToggleSource = { h.toggledSource = it },
                 onOpenFilters = { h.filtersOpened++ },
                 onToggleOverrideFilters = { h.overrideToggled++ },
-                onOpenTileProviders = { h.providersOpened++ },
+                currentTileProvider = DEFAULT_TILE_PROVIDER,
+                onPickTileProvider = { h.pickedProvider = it },
                 onToggleLocation = { h.locationToggled++ },
                 onToggleTracking = { h.trackingToggled++ },
                 onSelectBearingMode = { h.pickedMode = it },
@@ -147,7 +148,9 @@ class MapOverlayUiTest {
         val h = Harness(hunterMode = true)
         overlay(h)
         onNodeWithTag("tile-provider-button").performClick()
-        assertEquals(1, h.providersOpened)
+        // The chooser is a native anchored menu now (the original's
+        // TileProviderSelector is a dropdown too).
+        onNodeWithTag("tile-provider-option-OpenTopoMap").assertIsDisplayed()
     }
 
     @Test
@@ -224,23 +227,12 @@ class MapOverlayUiTest {
         onNodeWithTag("zoom-out-btn").performClick()
         assertEquals(-1.0, h.zoomDelta)
     }
-}
-
-/** The two dialogs the overlay opens. */
-@OptIn(ExperimentalTestApi::class)
-class MapDialogsTest {
 
     @Test
     fun theProviderChooserListsOurPaletteAndReportsAPick() = runComposeUiTest {
-        var picked: String? = null
-        var dismissed = false
-        setContent {
-            TileProviderDialog(
-                currentKey = DEFAULT_TILE_PROVIDER,
-                onPick = { picked = it },
-                onDismiss = { dismissed = true },
-            )
-        }
+        val h = Harness(hunterMode = true)
+        overlay(h)
+        onNodeWithTag("tile-provider-button").performClick()
 
         onNodeWithTag("tile-provider-option-OpenStreetMap.Mapnik").assertIsDisplayed()
         // Dev-only entries stay out of the picker.
@@ -248,9 +240,15 @@ class MapDialogsTest {
 
         onNodeWithTag("tile-provider-option-OpenTopoMap").performClick()
 
-        assertEquals("OpenTopoMap", picked)
-        assertTrue(dismissed, "picking a provider closes the chooser")
+        assertEquals("OpenTopoMap", h.pickedProvider)
+        // The menu closes on pick (native anchored-menu behaviour).
+        onNodeWithTag("tile-provider-option-OpenTopoMap").assertDoesNotExist()
     }
+}
+
+/** The two dialogs the overlay opens. */
+@OptIn(ExperimentalTestApi::class)
+class MapDialogsTest {
 
     @Test
     fun theFiltersDialogShowsTheCurrentPhotoLimit() = runComposeUiTest {

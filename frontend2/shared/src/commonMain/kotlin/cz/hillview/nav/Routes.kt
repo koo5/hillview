@@ -35,5 +35,9 @@ data object SettingsKey : NavKey
 @Serializable
 data object DevicePhotosKey : NavKey
 
+/** The capture-controls manual (gestures follow native conventions). */
+@Serializable
+data object CaptureGuideKey : NavKey
+
 @Serializable
 data object MapKey : NavKey

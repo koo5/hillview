@@ -32,6 +32,17 @@ class HillviewApplication : Application() {
             androidContext(this@HillviewApplication)
         }
 
+        // App-start geo dump, as the Tauri plugin's init does — a crash or
+        // swipe-away skips the session-end dump; this catches up (only
+        // exports when auto_export is on; clears either way).
+        appScope.launch {
+            try {
+                cz.hillview.plugin.GeoTrackingManager(this@HillviewApplication).dumpAndClear()
+            } catch (e: Exception) {
+                android.util.Log.w("HillviewApp", "start-time geo dump failed", e)
+            }
+        }
+
         // Lockstep logout: whichever shared-kt AuthenticationManager instance
         // (upload worker, status sync, UI store) declares the session dead,
         // the Compose UI drops to LoggedOut immediately — the same wiring the

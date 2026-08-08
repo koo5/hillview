@@ -86,7 +86,8 @@ fun MapOverlayUi(
     onToggleSource: (String) -> Unit,
     onOpenFilters: () -> Unit,
     onToggleOverrideFilters: () -> Unit,
-    onOpenTileProviders: () -> Unit,
+    currentTileProvider: String,
+    onPickTileProvider: (String) -> Unit,
     onToggleLocation: () -> Unit,
     onToggleTracking: () -> Unit,
     onSelectBearingMode: (BearingMode) -> Unit,
@@ -198,10 +199,41 @@ fun MapOverlayUi(
                             onLongPress = onToggleOverrideFilters,
                         )
                         PanelSeparator()
-                        TextButton(
-                            onClick = onOpenTileProviders,
-                            modifier = Modifier.testTag("tile-provider-button"),
-                        ) { Text("Map ▾") }
+                        Box {
+                            var tileMenuOpen by remember { mutableStateOf(false) }
+                            TextButton(
+                                onClick = { tileMenuOpen = true },
+                                modifier = Modifier.testTag("tile-provider-button"),
+                            ) { Text("Map ▾") }
+                            // A native anchored popup (closes on click-away,
+                            // scrolls when the list outgrows the screen) —
+                            // the AlertDialog it replaces was neither.
+                            androidx.compose.material3.DropdownMenu(
+                                expanded = tileMenuOpen,
+                                onDismissRequest = { tileMenuOpen = false },
+                                modifier = Modifier.testTag("tile-provider-menu"),
+                            ) {
+                                TILE_PROVIDERS.filterNot { it.devOnly }.forEach { provider ->
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (provider.key == currentTileProvider) {
+                                                    "✓ ${provider.displayName}"
+                                                } else {
+                                                    provider.displayName
+                                                },
+                                            )
+                                        },
+                                        onClick = {
+                                            tileMenuOpen = false
+                                            onPickTileProvider(provider.key)
+                                        },
+                                        modifier = Modifier
+                                            .testTag("tile-provider-option-${provider.key}"),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -643,46 +675,6 @@ fun FiltersDialog(
                         "non-matching photos and the map washes them out.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-            }
-        },
-    )
-}
-
-@Composable
-fun TileProviderDialog(
-    currentKey: String,
-    onPick: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            cz.hillview.core.ui.InstantDialogWindow()
-            TextButton(onClick = onDismiss) { Text("Close") }
-        },
-        title = { Text("Map provider") },
-        text = {
-            Column {
-                TILE_PROVIDERS.filterNot { it.devOnly }.forEach { provider ->
-                    Surface(
-                        color = if (provider.key == currentKey) {
-                            ACTIVE_BLUE.copy(alpha = 0.15f)
-                        } else {
-                            Color.Transparent
-                        },
-                        shape = RoundedCornerShape(4.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("tile-provider-option-${provider.key}"),
-                    ) {
-                        TextButton(
-                            onClick = { onPick(provider.key); onDismiss() },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(provider.displayName, Modifier.fillMaxWidth())
-                        }
-                    }
-                }
             }
         },
     )

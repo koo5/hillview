@@ -92,7 +92,6 @@ actual fun MapScreen(
     val manualClaimed by session.manualPositionClaimed.collectAsState()
     var overrideFilters by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
-    var showProviders by remember { mutableStateOf(false) }
     // The toggle panel enumerates whatever sources the composite carries
     // (device + hillview today; mapillary/panoramax join when their
     // loaders are wired). Overrides persist in map settings; absent =
@@ -465,7 +464,8 @@ actual fun MapScreen(
             },
             onOpenFilters = { showFilters = true },
             onToggleOverrideFilters = { overrideFilters = !overrideFilters },
-            onOpenTileProviders = { showProviders = true },
+            currentTileProvider = mapSettings.tileProviderKey,
+            onPickTileProvider = { key -> settings.update { it.copy(tileProviderKey = key) } },
             onToggleLocation = {
                 locationTracking = when (locationTracking) {
                     // ACTIVE or BACKGROUND both turn fully off.
@@ -530,13 +530,6 @@ actual fun MapScreen(
                 onDismiss = { showFilters = false },
                 onSettingsChange = { transform -> settings.update(transform) },
                 onClearFilters = { settings.update { it.copy(showUnanalyzed = true) } },
-            )
-        }
-        if (showProviders) {
-            TileProviderDialog(
-                currentKey = mapSettings.tileProviderKey,
-                onPick = { key -> settings.update { it.copy(tileProviderKey = key) } },
-                onDismiss = { showProviders = false },
             )
         }
     }
