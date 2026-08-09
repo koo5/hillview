@@ -24,6 +24,7 @@ class JavaPrefsUploadSettingsRepository(
             storage = StorageMode.fromKey(node.get("preferred_storage", null)) ?: defaults.storage,
             hideFromGallery = node.getBoolean("hide_from_gallery", defaults.hideFromGallery),
             autoUploadPromptEnabled = node.getBoolean("auto_upload_prompt_enabled", true),
+            writeExif = node.getBoolean("write_exif", false),
         ).also(::persist)
     )
     override val settings: StateFlow<UploadSettings> = _settings.asStateFlow()
@@ -45,5 +46,6 @@ class JavaPrefsUploadSettingsRepository(
         node.put("preferred_storage", s.storage.key)
         node.putBoolean("hide_from_gallery", s.hideFromGallery)
         node.putBoolean("auto_upload_prompt_enabled", s.autoUploadPromptEnabled)
+        node.putBoolean("write_exif", s.writeExif)
     }
 }

@@ -51,7 +51,38 @@ data class PhotoEntity(
     // - null: auto-detect faces/plates and blur them (default)
     // - "[]": skip anonymization entirely
     // - "[{\"x\":10,\"y\":20,\"width\":100,\"height\":50}]": manual blur rectangles
-    val anonymizationOverride: String? = null
+    val anonymizationOverride: String? = null,
+
+    // Stamp provenance (v15). The table is the canonical stamp: the upload
+    // sends these in the worker's `metadata` form field, which WINS over
+    // whatever EXIF the file carries — so the file needs no EXIF rewrite for
+    // a hillview upload to be complete (the fast-write default), and a later
+    // table-side refinement of the row uploads refined values with no file
+    // rewrite. Null on rows from before v15 or from writers that don't know
+    // them; the worker then falls back to the file's EXIF, as it always has.
+    val bearingSource: String? = null,
+    /** "gps" or "manual" (map-positioned) — same vocabulary as the EXIF provenance. */
+    val locationSource: String? = null,
+    /** Age of the GPS fix at the shutter, ms. */
+    val locationAgeMs: Long? = null,
+    /** The exposure-rule story as a JSON object (see exposureProvenanceJson). */
+    val exposureJson: String? = null,
+
+    // The refiner's upload gate (v16): the drain skips this row until the
+    // deadline passes — set at ingest for refinement-eligible photos, cleared
+    // early by the refiner (success or defeat). A timestamp, not a status,
+    // so a crash mid-refine cannot strand the row: time alone re-arms it.
+    val uploadHoldUntil: Long = 0,
+
+    // When the stamp refiner (v16) replaced the at-the-time values with
+    // interpolated ones — location interpolated across the bracketing fixes,
+    // compass bearing recomputed as a CENTERED window over the ~10 Hz
+    // samples (zero phase lag, unlike the live causal value), car-mode
+    // bearing interpolated across the bracketing Kalman rows. Null = never
+    // refined: not eligible (manual position), no bracketing data in time,
+    // or the upload grabbed the row first — all of which deliberately keep
+    // the at-the-time stamp. Rides into the upload metadata as "refined".
+    val stampRefinedAt: Long? = null
 )
 
 enum class UploadStatus {

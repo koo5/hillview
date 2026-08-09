@@ -393,3 +393,85 @@ class MarkerAtTapTest {
         assertEquals("a", tap(rose.reversed(), 0f, 0f)?.id)
     }
 }
+
+/**
+ * The manual-position claim (user-raised, refined): panning is
+ * exploration; only the accepted claim changes what captures record, and
+ * it survives exactly the transitions a deliberate choice should.
+ */
+class MapSessionTest {
+
+    @Test
+    fun claimingParksTrackingAndSurvivesEnteringCapture() {
+        val session = MapSession()
+        session.setLocationTracking(LocationTracking.Active)
+        session.claimManualPosition()
+        assertEquals(LocationTracking.Background, session.locationTracking.value)
+        assertTrue(session.manualPositionClaimed.value)
+
+        // The clean-ACTIVE re-arm kills stale background flags; a gated
+        // claim cannot be stale, so it must survive.
+        session.onEnterCapture()
+        assertEquals(LocationTracking.Background, session.locationTracking.value)
+        assertTrue(session.manualPositionClaimed.value)
+    }
+
+    @Test
+    fun goingActiveWithdrawsTheClaim() {
+        val session = MapSession()
+        session.claimManualPosition()
+        session.setLocationTracking(LocationTracking.Active)
+        assertFalse(session.manualPositionClaimed.value)
+    }
+
+    @Test
+    fun turningTrackingOffWithdrawsTheClaimToo() {
+        val session = MapSession()
+        session.claimManualPosition()
+        session.setLocationTracking(LocationTracking.Off)
+        assertFalse(session.manualPositionClaimed.value)
+    }
+
+    @Test
+    fun eitherRouteElectsTheMapPosition() {
+        val session = MapSession()
+        assertFalse(session.manualPositionElected.value)
+
+        session.claimManualPosition()
+        assertTrue(session.manualPositionElected.value)
+        session.setLocationTracking(LocationTracking.Active)
+        assertFalse(session.manualPositionElected.value)
+
+        // The no-fix hatch reaches the same outcome without the gate.
+        session.setMapPositionWithoutFix(true)
+        assertTrue(session.manualPositionElected.value)
+        session.setMapPositionWithoutFix(false)
+        assertFalse(session.manualPositionElected.value)
+    }
+
+    @Test
+    fun resumingFollowMeDoesNotWithdrawTheNoFixHatch() {
+        // Withdrawing the claim means "follow me again". The hatch is about
+        // there being nothing to follow, so it is withdrawn by its own button
+        // and by nothing else — otherwise entering capture, which re-arms a
+        // clean ACTIVE, would silently shut the gate on a user with no fix.
+        val session = MapSession()
+        session.setMapPositionWithoutFix(true)
+        session.setLocationTracking(LocationTracking.Active)
+        assertTrue(session.mapPositionWithoutFix.value)
+        assertTrue(session.manualPositionElected.value)
+
+        session.onEnterCapture()
+        assertTrue(session.manualPositionElected.value)
+    }
+
+    @Test
+    fun enteringCaptureWithoutAClaimStillArmsCleanActive() {
+        // The stuck-half-blue regression stays guarded for everyone who
+        // did not deliberately claim a position.
+        val session = MapSession()
+        session.setLocationTracking(LocationTracking.Background)
+        session.onEnterCapture()
+        assertEquals(LocationTracking.Active, session.locationTracking.value)
+    }
+}

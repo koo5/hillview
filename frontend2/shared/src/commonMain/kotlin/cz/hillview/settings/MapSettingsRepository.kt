@@ -24,6 +24,32 @@ data class MapSettings(
      * disables it until a filter is active, per the contract.
      */
     val showUnanalyzed: Boolean = true,
+    /**
+     * The eco toggle (the Leaf on the capture screen). Persisted like the
+     * Tauri `powerSaving` localStorage flag; its *effects* apply only while
+     * capturing — leaving capture restores normal behaviour with the
+     * toggle remembered.
+     */
+    val powerSavingPref: Boolean = false,
+    // The eco intensity the Leaf's long-press slider picks: 0 = the
+    // preview refreshes only on capture, 0.1..30 = an fps cap (duty-cycled
+    // below ECO_DUTY_MAX_FPS), 30 = the untouched default. Applied only
+    // while powerSavingPref is on. 15 = the pre-slider eco behaviour.
+    val ecoFps: Float = 15f,
+    // Per-source toggle overrides (the original's persisted sourceStates):
+    // absent = the source's own default (hillview/device on).
+    val sourceStates: Map<String, Boolean> = emptyMap(),
+    /** CameraOverlay backdrop level 0-5 (Tauri cameraOverlayOpacity). */
+    val cameraOverlayOpacity: Int = 3,
+    /** Pinned still size as "WxH"; null = auto (Tauri selectedResolution). */
+    val captureResolution: String? = null,
+    /**
+     * The Main page's activity — "view" or "capture" — persisted so the
+     * mode survives restarts, as the Tauri appSettings.activity does.
+     */
+    val mainActivity: String = "view",
+    /** The Main page's split position (photo panel %, Tauri splitPercent). */
+    val splitPercent: Float = 50f,
 )
 
 const val MIN_MAX_PHOTOS = 10

@@ -79,6 +79,12 @@ private class AuthManagerTokenStore(context: Context) : TokenStore {
 }
 
 actual fun platformModule(): Module = module {
+    // Native auth: Credential Manager + Sign in with Google, behind the
+    // common CredentialGateway seam (config in NativeAuthConfig, set by
+    // HillviewApplication from BuildConfig).
+    single<cz.hillview.auth.CredentialGateway> {
+        cz.hillview.auth.AndroidCredentialGateway(androidContext())
+    }
     // Eager: construction materializes hillview_upload_prefs defaults, which
     // must exist before first login (client-key registration reads server_url).
     single<cz.hillview.settings.UploadSettingsRepository>(createdAtStart = true) {
@@ -94,10 +100,63 @@ actual fun platformModule(): Module = module {
         cz.hillview.settings.PrefsMapSettingsRepository(androidContext())
     }
     single<cz.hillview.map.MapStateStore> { cz.hillview.map.PrefsMapStateStore(androidContext()) }
+    // Device photos + the backend's viewport query — both through the
+    // shared-kt photo-worker loaders (the Tauri app's Kotlin code) — deduped
+    // by content hash (an uploaded capture shows once, as its backend self).
     single<cz.hillview.map.PhotoMarkerSource> {
-        cz.hillview.map.RecentPhotoMarkerSource(androidContext(), get())
+        val tokenStore = get<TokenStore>()
+        cz.hillview.map.CompositeMarkerSource(
+            listOf(
+                cz.hillview.map.DeviceMarkerSource(androidContext(), get()),
+                cz.hillview.map.StreamMarkerSource(
+                    source = cz.hillview.plugin.SourceConfig(
+                        id = "hillview",
+                        name = "Hillview",
+                        type = "stream",
+                        enabled = true,
+                        color = "#000000",
+                        url = "${get<cz.hillview.core.net.BackendConfig>().apiUrl}/hillview",
+                    ),
+                    settings = get(),
+                    freshToken = { tokenStore.freshAccessToken() },
+                ),
+                // Mapillary rides the same backend stream proxy the original
+                // uses (data.svelte.ts: type stream, url backend/mapillary);
+                // default OFF there and here.
+                cz.hillview.map.StreamMarkerSource(
+                    source = cz.hillview.plugin.SourceConfig(
+                        id = "mapillary",
+                        name = "Mapillary",
+                        type = "stream",
+                        enabled = false,
+                        color = "#888888",
+                        url = "${get<cz.hillview.core.net.BackendConfig>().apiUrl}/mapillary",
+                    ),
+                    settings = get(),
+                    freshToken = { tokenStore.freshAccessToken() },
+                ),
+                // Panoramax queries its public instance directly (original:
+                // type panoramax, api.panoramax.xyz, default OFF).
+                cz.hillview.map.PanoramaxMarkerSource(
+                    source = cz.hillview.plugin.SourceConfig(
+                        id = "panoramax",
+                        name = "Panoramax",
+                        type = "panoramax",
+                        enabled = false,
+                        color = "#33aa88",
+                        url = "https://api.panoramax.xyz",
+                    ),
+                    settings = get(),
+                    backendUrl = get<cz.hillview.core.net.BackendConfig>().apiUrl,
+                    freshToken = { tokenStore.freshAccessToken() },
+                ),
+            ),
+        )
     }
     single<TokenStore> { AuthManagerTokenStore(androidContext()) }
+    single<cz.hillview.devicephotos.DevicePhotoBrowser> {
+        cz.hillview.devicephotos.DaoDevicePhotoBrowser(androidContext())
+    }
     // Captures go to the shared-kt upload stack — the same code the Tauri
     // app runs. See /shared-kt/README.md.
     single<cz.hillview.upload.UploadPipeline> {

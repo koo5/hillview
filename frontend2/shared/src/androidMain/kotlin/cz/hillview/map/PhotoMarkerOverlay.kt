@@ -33,6 +33,15 @@ class PhotoMarkerOverlay : Overlay() {
     var viewBearing: Double = 0.0
     var selectedId: String? = null
 
+    /**
+     * The rose divergence, SUPPRESSED for now (phone-in-hand: the count
+     * bubble loses the per-photo direction the arrows carry). Off = every
+     * photo draws solo with the original's 7px along-bearing nudge for
+     * piles. The rose machinery stays intact behind this flag — the marker
+     * design gets revisited with the gallery work.
+     */
+    var rosesEnabled: Boolean = false
+
     /** Tapping a marker selects that photo; a rose yields its best match. */
     var onPhotoTapped: ((PhotoMarker) -> Unit)? = null
 
@@ -109,9 +118,25 @@ class PhotoMarkerOverlay : Overlay() {
         // so overlap is the rule rather than the exception.
         val placed = markers.map { marker ->
             projection.toPixels(GeoPoint(marker.latitude, marker.longitude), point)
-            Placed(marker, point.x.toFloat(), point.y.toFloat())
+            if (rosesEnabled) {
+                Placed(marker, point.x.toFloat(), point.y.toFloat())
+            } else {
+                // Roses off: the ORIGINAL's pile treatment instead — every
+                // marker nudged 7px along its own bearing, so stacked
+                // photos fan out by direction (Map.svelte's offset).
+                val rad = Math.toRadians((marker.bearingDeg ?: 0.0))
+                Placed(
+                    marker,
+                    point.x.toFloat() + (7f * density * sin(rad)).toFloat(),
+                    point.y.toFloat() - (7f * density * cos(rad)).toFloat(),
+                )
+            }
         }
-        val clusters = clusterByProximity(placed, 20f * density, { it.x }, { it.y })
+        val clusters = if (rosesEnabled) {
+            clusterByProximity(placed, 20f * density, { it.x }, { it.y })
+        } else {
+            placed.map { listOf(it) }
+        }
 
         // Tiers, drawn back to front.
         val drawn = mutableListOf<Placed>()

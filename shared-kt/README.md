@@ -20,6 +20,14 @@ Rules:
 - Pure-logic files (MadgwickAHRS, HeadingFilter, culling) are candidates to
   graduate further into frontend2's commonMain later; they enter here first.
 
+Photo-worker family (2026-08-07, third wave): PhotoWorkerTypes, WorkerState,
+StreamPhotoLoader, DevicePhotoLoader, PanoramaxPhotoLoader, CullingGrid,
+AngularRangeCuller — pure moves, both toolchains verified. frontend2 adopts
+the loaders behind its PhotoMarkerSource adapters (LoaderMarkerSources.kt);
+PhotoWorkerService stays plugin-side until its ExamplePlugin reference is
+carved out (the PhotoUploadCommands pattern). Known upstream quirk kept
+verbatim: StreamPhotoLoader sends client_id=default.
+
 Sensor family COMPLETE (2026-08-05, second wave): EnhancedSensorService,
 DeviceOrientationProvider, MyDeviceOrientationSensor, PreciseLocationService,
 AppLifecycleObserver (pure moves) + GeoTrackingManager (its two JSObject

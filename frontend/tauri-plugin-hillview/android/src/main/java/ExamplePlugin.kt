@@ -2247,15 +2247,18 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					}
 				}
 
-				"set_location_logging_mode" -> {
-					// "background" tags subsequent GPS rows so they don't win the
-					// photo-location pairing. Resolve explicitly: the frontend awaits
-					// this before writing the manual pan location, so the manual row
-					// is guaranteed to be the latest non-background entry.
-					val mode = params.getString("mode", "active") ?: "active"
-					geoTrackingManager.setBackgroundLogging(mode == "background")
-					invoke.resolve(JSObject())
-					return
+				// Which source is primary from now on. Replaces
+				// set_location_logging_mode, whose "background" mode said the same
+				// thing by renaming rows. No explicit resolve and nothing to await:
+				// an election that arrives with a row travels on that row instead
+				// (see storeLocationManual / storeOrientationManual), so there is no
+				// ordering window left to protect.
+				"set_elected_bearing_source" -> {
+					geoTrackingManager.setElectedBearingSource(params.getString("source", "")?.ifEmpty { null })
+				}
+
+				"set_elected_location_source" -> {
+					geoTrackingManager.setElectedLocationSource(params.getString("source", "")?.ifEmpty { null })
 				}
 
 				"geo_tracking_export" -> {

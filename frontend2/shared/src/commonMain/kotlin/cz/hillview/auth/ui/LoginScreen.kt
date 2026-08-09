@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -35,6 +36,10 @@ fun LoginScreen(
     LaunchedEffect(state.done) {
         if (state.done) onLoggedIn()
     }
+
+    // The passive layer: the device's saved password, offered as the screen
+    // opens (Credential Manager sheet; a no-op on platforms without one).
+    LaunchedEffect(Unit) { viewModel.offerSavedCredential() }
 
     Column(
         modifier = Modifier
@@ -93,6 +98,35 @@ fun LoginScreen(
                 .testTag("login-submit"),
         ) {
             Text(if (state.submitting) "Signing in…" else "Sign in")
+        }
+
+        // The original login page's shape: the form, an OR divider, then
+        // Continue with Google (its GitHub button is commented out there —
+        // matched by not surfacing one here either). Native-only for now:
+        // the button hides when no Google client id is configured; the
+        // browser fallback joins with the deep-link work.
+        if (state.googleAvailable) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                HorizontalDivider(Modifier.weight(1f))
+                Text(
+                    "OR",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+                HorizontalDivider(Modifier.weight(1f))
+            }
+            Button(
+                onClick = viewModel::googleSignIn,
+                enabled = !state.submitting,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("continue-with-google"),
+            ) {
+                Text("Continue with Google")
+            }
         }
     }
 }

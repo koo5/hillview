@@ -23,4 +23,19 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    // Credential Manager sheets need a live activity window — registered
+    // here, read by AndroidCredentialGateway. (The sheet itself pauses the
+    // activity; the gateway captures the reference before launching.)
+    override fun onResume() {
+        super.onResume()
+        cz.hillview.auth.CurrentActivityHolder.activity = this
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (cz.hillview.auth.CurrentActivityHolder.activity === this) {
+            cz.hillview.auth.CurrentActivityHolder.activity = null
+        }
+    }
 }

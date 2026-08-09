@@ -33,7 +33,16 @@ val appModule = module {
     // One per process: tracking has to survive moving between the map and
     // capture, which is a different lifetime from either screen.
     single { cz.hillview.map.MapSession() }
-    viewModel { LoginViewModel(get()) }
+    // The live map camera/bearing state — ONE holder, shared by the map
+    // pane and the capture pane (follow-me, the manual-position claim),
+    // restored from the persisted store at first use. The Tauri app has the
+    // same shape: one spatialState store, everything reads and writes it.
+    single {
+        get<cz.hillview.map.MapStateStore>().load()
+            ?.let { (spatial, bearing) -> cz.hillview.map.MapStateHolder(spatial, bearing) }
+            ?: cz.hillview.map.MapStateHolder()
+    }
+    viewModel { LoginViewModel(get(), get()) }
 }
 
 fun initKoin(config: KoinAppDeclaration? = null) {

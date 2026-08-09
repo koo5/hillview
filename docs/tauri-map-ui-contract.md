@@ -83,6 +83,30 @@ The richest control on the screen.
 - **Source toggles**, one per `$sources` entry: label = source name, `active`
   class when enabled, an inline spinner while
   `$sourceLoadingStatus[id].is_loading`. Click → `toggleSourceVisibility(id)`.
+  The sources and their defaults (data.svelte.ts): hillview ON, device ON
+  (Tauri-only), mapillary OFF, panoramax OFF; enabled states persist
+  (localStorage sourceStates). frontend2: the panel enumerates the
+  composite's `sourceDescriptors()`, overrides persist in map settings,
+  and a disabled source neither refreshes nor contributes cached
+  markers. All four are wired (2026-08-08): hillview + mapillary through
+  the backend stream proxy, panoramax through the shared-kt
+  PanoramaxPhotoLoader against api.panoramax.xyz (hidden-content list
+  via our backend), device native. The tabs sit on the map's RIGHT EDGE
+  with vertical labels, as the original's hunter-panel-right. Sizing
+  (2026-08-09): the original caps the panel at `calc(100vh - 120px)` and
+  lets flexbox shrink the buttons (`min-height: 0`) with ellipsized
+  labels; the port's pane is a SPLIT-SHARE of the screen, so the tab
+  band reserves the corners it must not cover (location/compass row
+  above, hunter grid below — a fixed 420dp cap used to draw over the
+  compass button) and divides the rest among the tabs, which shrink and
+  ellipsize the same way (`verticalLabel()` measures with swapped
+  constraints, so the tab's height budget becomes the text's width
+  budget). Guarded by MapOverlayUiTest.
+  theSourceTabsShrinkIntoTheBandBetweenTheCornerControls on a 360dp pane.
+  The bearing-rose cluster divergence is SUPPRESSED for now
+  (PhotoMarkerOverlay.rosesEnabled=false — the count bubble loses
+  per-photo direction): markers draw solo with the original's 7px
+  along-bearing pile nudge; revisited with the gallery work.
 - **Filters button**: short press opens the filters modal, **long press
   toggles `$overrideFilters`**; `active` when `$activeFilterCount > 0`; label
   shows the count; an `overridden` style when the override is on. Tooltip
@@ -378,3 +402,41 @@ the backend** — they come back flagged and sorted into tiers (featured,
 passing, unanalyzed, filtered-out), which is what makes the grey-out and the
 long-press override possible client-side.
 
+
+## Main page: routes, activities, split layout (observed 2026-08-07)
+
+Read out of Main.svelte / appActions.ts / data.svelte.ts for the frontend2
+merge; phone-in-hand review drove this pass.
+
+- **Routes vs activities.** `/` IS the app: `Main.svelte`. The hamburger
+  menu navigates to real routes (settings, device-photos, login, about…);
+  everything on the main page is an *activity* — `$app.activity` ∈
+  `view | capture | lines | terrain` — switched by floating buttons, not
+  navigation. Activity is persisted (appSettings localStorage store) and
+  survives restarts; `VITE_PICS_OFF` builds force `view`.
+- **The split.** Main is a draggable resizable split (portrait:
+  top/bottom, landscape: left/right; `splitPercent` persisted, min pane
+  100px). The **photo panel** shows exactly one of: CompassCalibration
+  (outranks everything) → CameraCapture (capture) → Lines → TerrainPane →
+  PhotoGallery (view default). The **map panel** holds the Map — ALWAYS
+  mounted, every activity — plus PhotoInfoWindow.
+- **Floating controls** over everything: hamburger, camera toggle (icon
+  rotates with `relativeOrientationExif`), lines toggle, terrain toggle
+  (only when terrain is available).
+- **toggleCamera nuances**: switching INTO capture bumps zoom to ≥17;
+  entering capture enables location + bearing tracking (this is where the
+  OS location permission dialog first appears); returning to view stands
+  bearing tracking down and leaves location tracking alone.
+- **Zoom buttons**: Leaflet's own control, restyled and retagged
+  (`zoom-in-btn`) — there is exactly ONE set of zoom buttons.
+- **Marker/source reloads** happen on map movement (gesture `moveend`,
+  GPS-follow updates) — never on a timer.
+- **Arrow grab zones**: `fullCircleHitArea` only in car mode with GPS
+  orientation on (drag = angle travelled → mount offset); otherwise only
+  the arrow SVG itself is grabbable (drag = jump to angle) and the rest of
+  the disc pans the map.
+
+frontend2 divergences (deliberate): osmdroid's fling is disabled — its
+glide is essentially unbounded where Leaflet's inertia is short and
+friction-heavy, and a fast pan sailed the camera far off the map
+(phone-in-hand find); revisit with a tuned scroller if inertia is missed.

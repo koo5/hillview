@@ -1,15 +1,20 @@
 package cz.hillview.map
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.runComposeUiTest
+import androidx.compose.ui.test.v2.runComposeUiTest
+import androidx.compose.ui.unit.dp
 import cz.hillview.settings.MapSettings
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -44,7 +49,7 @@ class MapOverlayUiTest {
         var toggledSource: String? = null
         var filtersOpened = 0
         var overrideToggled = 0
-        var providersOpened = 0
+        var pickedProvider: String? = null
         var locationToggled = 0
         var trackingToggled = 0
         var pickedMode: BearingMode? = null
@@ -54,7 +59,6 @@ class MapOverlayUiTest {
     private fun androidx.compose.ui.test.ComposeUiTest.overlay(h: Harness) {
         setContent {
             MapOverlayUi(
-                onBack = {},
                 settings = h.settings,
                 hunterMode = h.hunterMode,
                 sources = h.sources,
@@ -72,7 +76,8 @@ class MapOverlayUiTest {
                 onToggleSource = { h.toggledSource = it },
                 onOpenFilters = { h.filtersOpened++ },
                 onToggleOverrideFilters = { h.overrideToggled++ },
-                onOpenTileProviders = { h.providersOpened++ },
+                currentTileProvider = DEFAULT_TILE_PROVIDER,
+                onPickTileProvider = { h.pickedProvider = it },
                 onToggleLocation = { h.locationToggled++ },
                 onToggleTracking = { h.trackingToggled++ },
                 onSelectBearingMode = { h.pickedMode = it },
@@ -148,7 +153,9 @@ class MapOverlayUiTest {
         val h = Harness(hunterMode = true)
         overlay(h)
         onNodeWithTag("tile-provider-button").performClick()
-        assertEquals(1, h.providersOpened)
+        // The chooser is a native anchored menu now (the original's
+        // TileProviderSelector is a dropdown too).
+        onNodeWithTag("tile-provider-option-OpenTopoMap").assertIsDisplayed()
     }
 
     @Test
@@ -225,23 +232,12 @@ class MapOverlayUiTest {
         onNodeWithTag("zoom-out-btn").performClick()
         assertEquals(-1.0, h.zoomDelta)
     }
-}
-
-/** The two dialogs the overlay opens. */
-@OptIn(ExperimentalTestApi::class)
-class MapDialogsTest {
 
     @Test
     fun theProviderChooserListsOurPaletteAndReportsAPick() = runComposeUiTest {
-        var picked: String? = null
-        var dismissed = false
-        setContent {
-            TileProviderDialog(
-                currentKey = DEFAULT_TILE_PROVIDER,
-                onPick = { picked = it },
-                onDismiss = { dismissed = true },
-            )
-        }
+        val h = Harness(hunterMode = true)
+        overlay(h)
+        onNodeWithTag("tile-provider-button").performClick()
 
         onNodeWithTag("tile-provider-option-OpenStreetMap.Mapnik").assertIsDisplayed()
         // Dev-only entries stay out of the picker.
@@ -249,9 +245,81 @@ class MapDialogsTest {
 
         onNodeWithTag("tile-provider-option-OpenTopoMap").performClick()
 
-        assertEquals("OpenTopoMap", picked)
-        assertTrue(dismissed, "picking a provider closes the chooser")
+        assertEquals("OpenTopoMap", h.pickedProvider)
+        // The menu closes on pick (native anchored-menu behaviour).
+        onNodeWithTag("tile-provider-option-OpenTopoMap").assertDoesNotExist()
     }
+
+    @Test
+    fun theSourceTabsShrinkIntoTheBandBetweenTheCornerControls() = runComposeUiTest {
+        // The map pane is a split-share of the screen, and the old fixed
+        // 420dp cap drew the tabs over the compass button on a short pane.
+        // Four sources on a 360dp pane must all be present, below the
+        // compass row and above the hunter grid — the original shrinks its
+        // buttons (min-height: 0) and ellipsizes labels rather than
+        // overlapping its corners.
+        val h = Harness(
+            hunterMode = true,
+            sources = listOf(
+                MapSourceUi("hillview", "Hillview", enabled = true),
+                MapSourceUi("device", "Device", enabled = true),
+                MapSourceUi("mapillary", "Mapillary", enabled = false),
+                MapSourceUi("panoramax", "Panoramax", enabled = false),
+            ),
+        )
+        setContent {
+            Box(Modifier.size(width = 400.dp, height = 360.dp)) {
+                MapOverlayUi(
+                    settings = h.settings,
+                    hunterMode = h.hunterMode,
+                    sources = h.sources,
+                    activeFilterCount = h.activeFilterCount,
+                    overrideFilters = h.overrideFilters,
+                    locationTracking = h.locationTracking,
+                    locationFlash = false,
+                    locationLoading = false,
+                    powerSavingActive = h.powerSavingActive,
+                    trackingWanted = h.trackingWanted,
+                    trackingPhase = h.trackingPhase,
+                    compassUnavailable = h.compassUnavailable,
+                    markerCount = 3,
+                    onToggleHunterMode = { h.hunterToggled++ },
+                    onToggleSource = { h.toggledSource = it },
+                    onOpenFilters = { h.filtersOpened++ },
+                    onToggleOverrideFilters = { h.overrideToggled++ },
+                    currentTileProvider = DEFAULT_TILE_PROVIDER,
+                    onPickTileProvider = { h.pickedProvider = it },
+                    onToggleLocation = { h.locationToggled++ },
+                    onToggleTracking = { h.trackingToggled++ },
+                    onSelectBearingMode = { h.pickedMode = it },
+                    onZoom = { h.zoomDelta = it },
+                )
+            }
+        }
+
+        val compassBottom = onNodeWithTag("compass-button")
+            .getUnclippedBoundsInRoot().bottom
+        val hunterTop = onNodeWithTag("hunter-mode-toggle")
+            .getUnclippedBoundsInRoot().top
+        h.sources.forEach { source ->
+            val bounds = onNodeWithTag("source-toggle-${source.id}")
+                .assertExists("every source must keep a tab, however short the pane")
+                .getUnclippedBoundsInRoot()
+            assertTrue(
+                bounds.top >= compassBottom,
+                "${source.id} tab (top=${bounds.top}) must stay below the compass row (bottom=$compassBottom)",
+            )
+            assertTrue(
+                bounds.bottom <= hunterTop,
+                "${source.id} tab (bottom=${bounds.bottom}) must stay above the hunter grid (top=$hunterTop)",
+            )
+        }
+    }
+}
+
+/** The two dialogs the overlay opens. */
+@OptIn(ExperimentalTestApi::class)
+class MapDialogsTest {
 
     @Test
     fun theFiltersDialogShowsTheCurrentPhotoLimit() = runComposeUiTest {

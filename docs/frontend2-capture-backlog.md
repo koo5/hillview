@@ -6,28 +6,33 @@ before reimplementing, per the contract method).
 
 ## Widgets to port
 
-- **Camera overlay** (`CameraOverlay.svelte`, 396 lines): the
-  bearing/location/hint layer drawn over the preview — live bearing
-  readout, fix state, and the capture hints. Port it the way the map went:
-  read the component, write the contract section, then implement.
-- **Compass calibration overlay** (`CompassCalibration.svelte` +
-  `CalibrationFigure.svelte`): the figure-8 sheet. The trigger rule is
-  already in docs/tauri-map-ui-contract.md — walking-mode compass active
-  and magnetometer accuracy != 3, auto-dismiss 1.5 s after it stops being
-  needed, never in car mode. The map side already receives accuracy from
-  EnhancedSensorService, so the signal exists; only the overlay is missing.
-- **Eco / power-saving mode**: the green badge on the location button is
-  drawn already (`powerSaving` flag in MapOverlayUi) but nothing sets it.
-  Contract: power saving behaves like BACKGROUND after one initial sync —
-  "map catches up after each capture"; tooltip text "power saving: map
-  catches up after each capture".
-- **Resolution menu**: the Tauri app enumerates per-camera supported
-  resolutions (`getCameraSupportedResolutions`, cached, with a loading set
-  per camera) and persists `selectedResolution`. frontend2's CameraX path
-  currently takes the default. CameraX offers `ResolutionSelector`; the
-  menu should show real sensor modes, not a hardcoded list.
-- **Capture queue indicator** (`CaptureQueueIndicator/Status.svelte`):
-  upload-queue depth on the capture screen.
+- ~~Camera overlay~~ **DONE 2026-08-07**: observed into
+  docs/tauri-capture-ui-contract.md, then ported — glass panel with the
+  six-level tap-cycled backdrop (persisted), 4 s post-open hint per
+  bearing mode, bearing/lat/lon/altitude/accuracy rows showing the
+  *effective* capture position (claimed manual position marked as such).
+  Dead code (sensor accuracy, compass lag) not ported.
+- ~~Compass calibration overlay~~ **DONE 2026-08-07**: trigger rule +
+  figure-8 sheet + live accuracy + auto-dismiss + car-mode escape hatch;
+  desktop-tested, trigger rules commonTest'd.
+- ~~Eco / power-saving mode~~ **DONE 2026-08-07**: Leaf toggle on capture
+  (persisted), 15 fps preview cap, map catches up per capture instead of
+  following live; emulator-verified at the persisted-state level. Map badge
+  shows the armed pref.
+- ~~Resolution menu~~ **DONE 2026-08-07**: 📷 button + dropdown with Auto
+  and the sensor's real JPEG ladder (Tauri's list turned out hardcoded —
+  the web cannot enumerate). Persisted, applied via ResolutionSelector
+  with an aspect fence (the default selector prefers 4:3 and silently
+  downgraded a 16:9 pin). Camera-row enumeration left for later.
+- ~~Capture queue indicator~~ **resolved 2026-08-07**: the Tauri component
+  watches its webview-side capture queue (max 50, slow/fast modes) — a
+  structure frontend2 does not have; upload depth is already on the
+  capture-upload-stats line.
+- ~~Shutter-time control~~ **DONE 2026-08-07**: shutter-priority ladder
+  (1/125…1/2000) on the capture screen, ISO auto-scaled to preserve the
+  metered exposure product; Camera2Interop, gated on MANUAL_SENSOR.
+  Emulator-verified at the CaptureResult level (the emulator's JPEG EXIF
+  is canned — do not trust it).
 
 ## The camera-control question — research findings (2026-08-06)
 
@@ -35,8 +40,10 @@ Researched (agent report, primary sources). The short version: **stay on
 CameraX, skip OpenCamera entirely, mine two Apache-2.0 apps for code.**
 
 - **OpenCamera is GPL-3.0-or-later** — linking it (or porting its code)
-  would relicense the app. It is a monolith, not a library, and there is no
-  permissively-licensed fork. Reference-reading only, never copy.
+  would commit the whole app to GPLv3. Per the user that is not out of the
+  question, just a hassle to commit to — and since it is a monolith, not a
+  library, with no permissively-licensed fork, the cost/benefit says:
+  reference-reading unless something genuinely unobtainable turns up.
 - **CameraX 1.6.1 stable covers everything hillview actually needs**:
   tap-to-focus (`FocusMeteringAction`), exposure compensation, AE/AWB lock,
   `ResolutionSelector`, torch strength, video incl. HDR/slow-motion,
@@ -169,3 +176,130 @@ mode becomes, it should share that stack rather than grow a second one.
 Known CameraX hazard, twice confirmed on API 31 + CameraX 1.6: the
 camera-pipe backend loses still-capture callbacks (watchdog in
 `PhotoCapture.capture()` guards it; capture e2e needs API 34+).
+
+## Capture-time sensor pairing under load (design item, user-raised 2026-08-07)
+
+frontend2's `snapshotSensors()` reads `lastLocation`/`lastOrientation` at
+shutter-press time — a point sample. The Tauri app instead logs compass and
+GPS continuously into a table (GeoTrackingManager) and pairs the capture
+with the sample nearest its timestamp afterwards. The point sample is fine
+on an idle phone and wrong in exactly the conditions this app is used:
+
+- **Load/throttling skew.** Long capture sessions in the sun overheat the
+  phone; under thermal throttling the main thread and sensor delivery lag,
+  so "the freshest sample at shutter time" can be hundreds of ms stale —
+  and `capturedAtMs = System.currentTimeMillis()` at `capture()` entry is
+  itself early: the real exposure happens later in the CameraX pipeline.
+- **No interpolation.** With a table you can pair a capture with one fix
+  before and one after and interpolate — strictly better bearing/position
+  for a moving vehicle. A point sample can never do this.
+
+Direction agreed: eventually switch to the log-and-pair model — the shared
+GeoTrackingManager already exists and the clock-video work already proved
+the timestamp side. Sketch:
+1. Keep feeding EnhancedSensorService + GPS into the shared tracking store
+   while the capture screen is up (the Tauri app does this always).
+2. Stamp the capture with the sensor-clock time of the actual exposure —
+   CameraX's `onCaptureStarted`/`SENSOR_TIMESTAMP` per the frame-metadata
+   research, not wall-clock at `capture()` entry.
+3. Pair post-hoc: nearest sample, then interpolated bracketing samples.
+   EXIF can be written after pairing (the file save already happens off the
+   shutter path).
+Interim mitigation available now: `locationAgeMs` is already recorded in
+the snapshot — surface it as a quality signal.
+
+## Navigation architecture (discussion queued, user 2026-08-07)
+
+How much should frontend2 follow the Tauri navigation style — a menu that
+switches routes, while mode buttons inside the map route switch *modes*,
+with the mode surviving app restarts? The user likes it (deliberately),
+notes it may not be CMP/Android-idiomatic (Nav3 back-stack semantics,
+predictive back, deep links all assume routes), and suggested a setting
+could choose between styles. To discuss before the app grows more
+destinations: what is a route vs a mode, what persists, and what the back
+button does in each style.
+
+## Pan-as-exploration + the manual-position claim (DONE 2026-08-07,
+user-designed)
+
+The long-standing pain, solved in two iterations the same day. First cut
+was a demote-confirm with a 10 s auto-revert; the user refined it: the
+timeout fought the very thing panning is for. Final model:
+
+- **Panning is exploration.** It parks the map (no yank-back, ever) and
+  never changes what captures record — you can pan around mid-interval-run
+  to figure out where you are, harmlessly.
+- A small two-sided pill appears on pan: **"Capture here" / "⟲ GPS"**. The
+  claim side is the only way the map position becomes the capture
+  position — the Tauri parked-map semantic, now behind an explicit accept.
+  While claimed: captures geotag from the map centre even over a fresh fix,
+  tagged location_source "manual", degraded shutter tone on every shot, an
+  override line on the capture screen withdraws it.
+- The claim survives entering capture (a gated claim cannot be stale);
+  everyone else still gets the clean-ACTIVE re-arm regression guard.
+- The shutter is bilingual: stock click for fresh-fix captures, warning
+  beep for manual/stale/absent — the pocket hears what it cannot see.
+
+Still open on the Tauri side: promoting background-tagged fixes out of
+UserComment/alt_location (the repair flow) remains unimplemented there.
+
+## The claim is not the background flag (design note, 2026-08-07)
+
+In Tauri, BACKGROUND *is* manual mode — "a manually parked map keeps
+meaning 'I'm at the map position'", fixes tagged `-background` lose the
+photo-pairing lookup. One flag, two meanings fused.
+
+frontend2 splits them, and the split is the feature:
+
+| state                  | map    | GPS        | captures geotag from |
+|------------------------|--------|------------|----------------------|
+| ACTIVE                 | follows| subscribed | the fix              |
+| BACKGROUND, no claim   | parked | subscribed | **the fix**          |
+| BACKGROUND + claim     | parked | subscribed | map centre, "manual" |
+| OFF                    | parked | off        | nothing / no-fix lift|
+
+Unclaimed BACKGROUND is the exploration state — pan mid-interval-run to
+figure out where you are without touching what captures record. If
+BACKGROUND alone implied manual (the Tauri fusion), that state could not
+exist. Coupling is one-directional: claiming forces BACKGROUND; leaving
+BACKGROUND in either direction withdraws the claim.
+
+Consequences for the future log-and-pair work:
+- The **claim**, not BACKGROUND, must decide which fixes lose the pairing
+  lookup — unclaimed-background fixes are good pairing candidates.
+- Log fixes **untagged always**; let pairing consult the claim history.
+  Then a wrong claim stays repairable after the fact — which the Tauri
+  `-background` tagging (baked in at log time) makes hard, and is why its
+  repair flow (promoting alt_location out of UserComment) never got built.
+
+## Storage: the hidden-.Hillview question revisited (user, 2026-08-07)
+
+The two real user needs pull apart: "photos gone from my gallery" AND
+"photos survive uninstall" (dev-apk swaps; and a bug may have left some
+photos un-uploaded, so losing local files can mean losing photos, period).
+
+What the verified storage facts say (see storageFacts, all API-dependent):
+- **App-private** hides from gallery but dies with uninstall — it is the
+  mode the "that sucks" scenario lives in; the settings screen already
+  shows the ✗.
+- **DCIM/.Hillview via File API (API 30+)** actually satisfies BOTH:
+  hidden from gallery scans, survives uninstall, still reachable by file
+  managers. The idea has merit precisely on modern Android.
+- **MediaStore mode cannot hide** — it rewrites `.Hillview` to
+  `_.Hillview` and indexes anyway (verified on API 36). On API 29, where
+  MediaStore is the only public option, hiding is therefore impossible.
+- Alternative worth considering: **DCIM/Hillview + a `.nomedia` file** —
+  same gallery-hiding effect without the confusing dot-name in file
+  managers, same uninstall survival. Would need the Tauri side to agree
+  (its spec treats `Hillview` and `.Hillview` as the two valid shapes).
+
+Mitigations for the un-uploaded-photos-lost-on-uninstall risk, orthogonal
+to folder choice: the pending-upload count is already visible; a
+"copy pending photos to Downloads" escape hatch would make any uninstall
+safe regardless of storage mode. Dev-apk coexistence also blunts the
+scenario: debug builds install as cz.hillview.debug alongside the release
+app, so "uninstall to try a dev build" is only forced when sideloading a
+release-signed build.
+
+Decision: parked until the user can play with the app; no behaviour
+changed today.
