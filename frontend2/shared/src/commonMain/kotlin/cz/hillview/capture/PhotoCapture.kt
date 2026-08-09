@@ -42,6 +42,16 @@ data class SensorSnapshot(
      * only CameraX knows the camera's sensorOrientation and lens facing.
      */
     val deviceRotationDeg: Int? = null,
+    /**
+     * The exposure rule in force at the shutter and what it resolved to,
+     * null when AE owned the shot (auto, or a rule still waiting for its
+     * first metering — honest either way: AE exposed that frame). Written
+     * into the UserComment provenance; CameraX stamps what the sensor
+     * actually DID into the standard ExposureTime/ISO tags, so this is the
+     * half the file cannot otherwise tell you — what was asked, and why
+     * the answer came out the way it did.
+     */
+    val exposure: ExposureStamp? = null,
 )
 
 data class CapturedPhoto(
@@ -198,6 +208,19 @@ data class ExposurePlan(
     val exposureNs: Long,
     val iso: Int,
     val outcome: ExposureOutcome,
+)
+
+/**
+ * The rule and its resolution as they stood at the shutter — the debug
+ * numbers the ⚡ menu shows, snapshotted per photo for the UserComment
+ * provenance (see [SensorSnapshot.exposure]).
+ */
+data class ExposureStamp(
+    val rule: ExposureRule,
+    val plan: ExposurePlan,
+    /** The AE reading the plan scaled from — the debugging half. */
+    val meteredExposureNs: Long? = null,
+    val meteredIso: Int? = null,
 )
 
 /**

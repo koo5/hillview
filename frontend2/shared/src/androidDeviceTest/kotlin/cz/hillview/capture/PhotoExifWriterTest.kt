@@ -107,6 +107,52 @@ class PhotoExifWriterTest {
     }
 
     @Test
+    fun recordsTheExposureRuleStoryWhenOneWasInForce() {
+        // The rule/plan/metering triple is the half the file cannot
+        // otherwise tell you — CameraX's standard tags say what the sensor
+        // DID, UserComment says what was asked and why the answer came out
+        // the way it did.
+        val file = jpeg()
+        PhotoExifWriter.write(
+            file,
+            snapshot.copy(
+                exposure = ExposureStamp(
+                    rule = ExposureRule(ExposureMode.Floor, 2_000_000L, -1.0),
+                    plan = ExposurePlan(1_958_333L, 50, ExposureOutcome.Faster),
+                    meteredExposureNs = 10_000_000L,
+                    meteredIso = 100,
+                ),
+            ),
+        )
+
+        val comment = ExifInterface(file.absolutePath)
+            .getAttribute(ExifInterface.TAG_USER_COMMENT)
+        assertNotNull(comment)
+        assertTrue(comment.contains("\"exposure\""), "the exposure block is part of the provenance: $comment")
+        assertTrue(comment.contains("\"mode\":\"floor\""), "the rule should be named: $comment")
+        assertTrue(comment.contains("\"outcome\":\"faster\""), "the resolution should be named: $comment")
+        assertTrue(comment.contains("\"iso\":50"), "the planned gain should be there: $comment")
+        assertTrue(comment.contains("\"metered_ns\":10000000"), "the metering it scaled from should be there: $comment")
+        // The location/bearing provenance must survive the addition.
+        assertTrue(comment.contains("bearing_source"), "provenance is part of the contract: $comment")
+        file.delete()
+    }
+
+    @Test
+    fun anAutoExposedShotCarriesNoExposureBlock() {
+        // Under auto exposure AE owned the frame; claiming a rule would be a
+        // lie, and the standard tags already say everything true.
+        val file = jpeg()
+        PhotoExifWriter.write(file, snapshot)
+
+        val comment = ExifInterface(file.absolutePath)
+            .getAttribute(ExifInterface.TAG_USER_COMMENT)
+        assertNotNull(comment)
+        assertTrue(!comment.contains("\"exposure\""), "no rule, no exposure block: $comment")
+        file.delete()
+    }
+
+    @Test
     fun aPhotoWithoutAHeadingCarriesNoDirectionTags() {
         // Better no bearing than a wrong one — the backend will reject it,
         // which is the honest outcome.

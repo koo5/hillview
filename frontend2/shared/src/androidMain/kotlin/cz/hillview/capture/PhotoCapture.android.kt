@@ -71,11 +71,13 @@ import cz.hillview.settings.UploadSettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.IOException
@@ -912,14 +914,27 @@ private class AndroidPhotoCapture(
             if (!hadPreview) setPreviewBound(true)
             waitForPreviewStreaming(REMETER_STREAM_TIMEOUT_MS)
             awaitMeteredFrames(REMETER_MIN_FRAMES, REMETER_SETTLE_TIMEOUT_MS)
-        } finally {
             meteringWindow = false
+            // Wait for the rule to be genuinely back in force: a still
+            // capture submitted before the manual request lands would be
+            // exposed by whatever AE was doing mid-window.
+            awaitAppliedRequestOptions(REMETER_APPLY_TIMEOUT_MS)
+        } finally {
+            // Cancellation (run stopped, pane left) must not strand the
+            // window: the rule has to go back in force — fire-and-forget is
+            // enough, nobody is about to shoot — and a borrowed preview has
+            // to be returned, or the capture-only eco band is left streaming,
+            // the exact power draw it exists to avoid. NonCancellable because
+            // on that path the scope is already dead and a plain withContext
+            // would refuse to enter.
+            withContext(NonCancellable) {
+                if (meteringWindow) {
+                    meteringWindow = false
+                    applyRequestOptions()
+                }
+                if (!hadPreview) setPreviewBound(false)
+            }
         }
-        // Wait for the rule to be genuinely back in force: a still capture
-        // submitted before the manual request lands would be exposed by
-        // whatever AE was doing mid-window.
-        awaitAppliedRequestOptions(REMETER_APPLY_TIMEOUT_MS)
-        if (!hadPreview) setPreviewBound(false)
         CaptureStatsLog.record(
             "re-meter",
             SystemClock.elapsedRealtime() - startedAt,
@@ -1038,6 +1053,14 @@ private class AndroidPhotoCapture(
         state.plan?.let {
             CaptureStatsLog.increment("exposure ${it.outcome.name.lowercase()}", capturedAtMs)
         }
+        // Same idiom as the pose below: the rule/plan pair as it stands at
+        // the shutter, for the UserComment provenance. Null when AE owns the
+        // shot (auto, or a rule still awaiting its first metering).
+        val exposureAtShutter = state.plan?.let { p ->
+            exposureRule?.let { r ->
+                ExposureStamp(r, p, meteredExposureNs, meteredIso)
+            }
+        }
         val filename = "hillview_photo_$capturedAtMs.jpg"
         // The pose at the shutter, not at whenever the last change event
         // fired: takePicture() reads targetRotation, so this is the last
@@ -1045,7 +1068,7 @@ private class AndroidPhotoCapture(
         // what the tag claims and what the record says cannot drift.
         val poseAtShutter = deviceOrientation
         capture.targetRotation = DeviceOrientation.toSurfaceRotation(poseAtShutter)
-        val snapshot = snapshotSensors(capturedAtMs, poseAtShutter)
+        val snapshot = snapshotSensors(capturedAtMs, poseAtShutter, exposureAtShutter)
         val settings = uploadSettings.settings.value
         takePictureWithFallback(
             capture = capture,
@@ -1184,6 +1207,7 @@ private class AndroidPhotoCapture(
     private fun snapshotSensors(
         capturedAtMs: Long,
         pose: DeviceOrientation = deviceOrientation,
+        exposure: ExposureStamp? = null,
     ): SensorSnapshot {
         val location = lastLocation
         val orientation = lastOrientation
@@ -1215,6 +1239,7 @@ private class AndroidPhotoCapture(
                 capturedAtMs = capturedAtMs,
                 locationSource = "manual",
                 deviceRotationDeg = DeviceOrientation.toDegrees(pose),
+                exposure = exposure,
             )
         } else {
             SensorSnapshot(
@@ -1229,6 +1254,7 @@ private class AndroidPhotoCapture(
                 locationSource = location?.let { "gps" },
                 locationAgeMs = ageMs,
                 deviceRotationDeg = DeviceOrientation.toDegrees(pose),
+                exposure = exposure,
             )
         }
     }

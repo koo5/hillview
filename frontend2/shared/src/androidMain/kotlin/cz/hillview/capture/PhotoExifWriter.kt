@@ -65,15 +65,35 @@ object PhotoExifWriter {
 
         // Provenance, same shape and tag (UserComment) as the Rust writer —
         // plus location_age_ms, which the original never records: how old
-        // the stamped fix was at the shutter. Additive key; readers of the
+        // the stamped fix was at the shutter. Additive keys; readers of the
         // Tauri shape ignore what they don't know.
         val locationSource = snapshot.locationSource
-        if (locationSource != null || snapshot.bearingSource != null) {
+        val exposure = snapshot.exposure
+        if (locationSource != null || snapshot.bearingSource != null || exposure != null) {
             val fields = buildList {
                 locationSource?.let { add("\"location_source\":\"$it\"") }
                 snapshot.bearingSource?.let { add("\"bearing_source\":\"$it\"") }
                 if (locationSource == "gps") {
                     snapshot.locationAgeMs?.let { add("\"location_age_ms\":$it") }
+                }
+                // The exposure-rule story of this shot: what was asked (the
+                // rule), what it resolved to (the plan) and the AE reading it
+                // scaled from. CameraX stamps what the sensor actually DID
+                // into the standard ExposureTime/ISO tags, so this is the
+                // half the file cannot otherwise tell you. Absent when AE
+                // owned the shot.
+                exposure?.let { e ->
+                    val exposureFields = buildList {
+                        add("\"mode\":\"${e.rule.mode.name.lowercase()}\"")
+                        add("\"target_ns\":${e.rule.targetNs}")
+                        add("\"ev_bias\":${e.rule.evBias}")
+                        add("\"applied_ns\":${e.plan.exposureNs}")
+                        add("\"iso\":${e.plan.iso}")
+                        add("\"outcome\":\"${e.plan.outcome.name.lowercase()}\"")
+                        e.meteredExposureNs?.let { add("\"metered_ns\":$it") }
+                        e.meteredIso?.let { add("\"metered_iso\":$it") }
+                    }
+                    add("\"exposure\":${exposureFields.joinToString(",", prefix = "{", postfix = "}")}")
                 }
             }
             exif.setAttribute(

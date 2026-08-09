@@ -119,6 +119,14 @@ upload trigger) still publishes only after the final bytes exist.
   faster / slower / under / overexposed) is tallied per shot in the Stats
   dialog: that tally is how "which mode is right" gets answered from a
   real drive rather than from the couch.
+  2026-08-09: the shot's exposure story also rides in the UserComment
+  provenance JSON — `"exposure":{mode, target_ns, ev_bias, applied_ns,
+  iso, outcome, metered_ns, metered_iso}`, snapshotted at the shutter.
+  CameraX's standard tags say what the sensor DID; this says what was
+  asked and why the answer came out that way. Absent under auto exposure.
+  prepareExposure() is also cancellation-safe now: a run stopped
+  mid-metering-window returns the borrowed preview and puts the rule back
+  (NonCancellable finally) instead of leaving the eco-0 band streaming.
 - /device-photos is ported (cards, status palette, global retry, menu
   entry); the anonymization menu is deferred.
 - Native auth is LIVE: backend POST /api/auth/google/native verifies a
@@ -228,22 +236,33 @@ Implementation, roughly in value order:
    is not to lose it across the whole-file rewrite, now pinned by a
    test. NOT verifiable on the emulator: its camera's JPEG EXIF is
    canned, so the four-pose check with auto-rotate OFF needs hardware.
-0b. **Stamp refinement (NEEDS RETHINK — user not convinced, 2026-08-08)**:
-   the restamp_pending core idea stands, the mechanics don't. Open
-   questions the next design must answer (user's list): can EXIF be
-   patched surgically without a whole-file rewrite; tracking-table
-   truncation policy (keep last N days?); eco-mode interplay (long
-   sessions: maybe rely on a short delay there and accept losing the
-   last frame rather than pay CPU for double writes); how this composes
-   with FUTURE parallel photo encoding (~4 workers for max throughput);
-   and NO re-upload fallback — the user does not want the app to ever
-   need one. Do not build until re-designed together.
-   Since the election rework, the *data* side of this is in place: every
-   tracking row records which source was elected, so "what should this
-   photo have been stamped with" is answerable after the fact, and
-   background streams can be re-elected. The truncation-policy question
-   is now the binding one — the five-minute window in dumpAndClear is
-   what stands between a restamp and having anything to restamp FROM.
+0b. **Stamp refinement — SUPERSEDED by the 2026-08-09 decisions.** The
+   double-writes/restamp_pending mechanics (and every open question they
+   dragged along: surgical EXIF patches, re-upload fallbacks, eco-mode
+   double-write cost) dissolve under the roadmap the user set:
+   - **The DEFAULT capture mode becomes hillview-centered**: finalize =
+     the fastest possible file write, NO EXIF rewrite at all. Metadata
+     lives in the photos table and goes to the worker FROM the table.
+     EXIF writing (today's PhotoExifWriter pass) becomes an OPT-IN for
+     people using the app outside the hillview usecase.
+   - **Interpolation is then a pure table-side refinement**: the photo
+     row is written instantly with the at-the-time values; a refiner
+     updates the row when the bracketing data lands — the NEXT FIX for
+     location and the car-mode (gps-kalman) bearing, both interpolated
+     across the bracket; W/2 of the smoothing window for the compass
+     bearing, recomputed as a CENTERED window over the ~10 Hz samples
+     already in the bearings table (zero-phase: removes the causal EMA's
+     lag, which is worst exactly when shooting while turning). The UI
+     shows a small progress indicator while any refinement is in flight.
+     Truncation is a NON-ISSUE by design: worst case the last few photos
+     of a session keep their at-the-time values (user's explicit
+     acceptance) — no re-uploads, ever, because nothing downstream is
+     stamped until the worker reads the row.
+   - A separate **"external camera" activity** (0c) covers the
+     native-camera-app usecase the tracking tables were originally for.
+   Not built yet — the fast-write pipeline needs its own design pass
+   (photo-table columns vs SensorSnapshot, upload protocol carrying
+   metadata, the opt-in EXIF path) before code.
 0d. **Election follow-ups (small, 2026-08-08)**: `is_sensor_bearing_source`
    in src-tauri/src/device_photos.rs — FIXED. Was a substring sweep
    ("contains compass/rotation/gyro/sensor/tauri/...") from when source
@@ -280,7 +299,9 @@ Implementation, roughly in value order:
    tables write CONTINUOUSLY (for shooting with the native camera app;
    pairs with the PiP float-mode idea) — as opposed to the capture
    activity, which optimizes around capture moments, and the gallery
-   activity (thought through later).
+   activity (thought through later). 2026-08-09: the external-camera
+   activity is CONFIRMED roadmap ("what we'll definitely do"), alongside
+   the hillview-centered fast-write default in 0b.
 
 1. **More Appium scenario ports** onto the new app-behaviour layer — the
    suites in `frontend/tests-appium/specs/` are the source; the testTag
