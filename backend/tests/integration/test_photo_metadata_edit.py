@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Integration tests for moderator photo metadata editing.
+"""Integration tests for photo metadata editing.
 
-Covers PATCH /api/photos/{photo_id} — the admin/moderator-only partial edit of a
-photo's title, description, featured flag and bearing, used by the moderation
-form on the /photo/{uid} detail page.
+Covers PATCH /api/photos/{photo_id} — the partial edit of a photo's title,
+description, bearing and featured flag behind the edit form on the /photo/{uid}
+detail page.
 
 The interesting behaviours, all asserted below:
-  - privilege gate: only admins/moderators may call it (regular user → 403)
+  - authorization: owners edit their own photo, moderators edit any, other
+    regular users get 404 (existence hidden, as for DELETE)
+  - `featured` is a curation flag: only moderators may CHANGE it (403), though
+    an owner re-submitting the current value is a harmless no-op
   - partial semantics: omitted fields unchanged, empty string CLEARS a field
   - bearing is normalized into [0, 360)
   - non-owner edits write a moderation-audit row (action='edit') carrying the
@@ -26,8 +29,8 @@ from utils.test_utils import API_URL, upload_test_image, wait_for_photo_processi
 from utils.image_utils import create_test_image_full_gps
 
 
-class TestPhotoModerationEdit(BasePhotoTest):
-	"""Tests for PATCH /api/photos/{photo_id} (moderator metadata edit)."""
+class TestPhotoMetadataEdit(BasePhotoTest):
+	"""Tests for PATCH /api/photos/{photo_id} (photo metadata edit)."""
 
 	def setUp(self):
 		super().setUp()
@@ -117,20 +120,75 @@ class TestPhotoModerationEdit(BasePhotoTest):
 		assert changes["bearing"]["new"] == 123.5, changes
 
 	@pytest.mark.asyncio
-	async def test_regular_user_forbidden(self):
-		"""A regular user — even the photo's owner — cannot use the moderation edit."""
-		photo_id = await self._create_test_photo("mod_edit_forbidden.jpg", "Original description")
+	async def test_owner_can_edit_own_metadata(self):
+		"""An ordinary owner may retitle/redescribe/re-aim their own photo."""
+		photo_id = await self._create_test_photo("owner_edit.jpg", "Original description")
+
+		response = requests.patch(
+			f"{API_URL}/photos/{photo_id}",
+			json={
+				"title": "My own title",
+				"description": "My own description",
+				"bearing": 12.5,
+			},
+			headers=self.test_headers,
+		)
+		self.assert_success(response, "Owner should be able to edit their own photo")
+		assert sorted(response.json()["changed"]) == ["bearing", "description", "title"], response.json()
+
+		public = self._public_photo(photo_id)
+		assert public["title"] == "My own title", public
+		assert public["description"] == "My own description", public
+		assert public["bearing"] == 12.5, public
+
+		assert self._audit_entries_for(photo_id) == [], "Owner self-edit must not be audited"
+
+	@pytest.mark.asyncio
+	async def test_owner_cannot_change_featured(self):
+		"""`featured` is a curation flag — an owner must not be able to self-promote."""
+		photo_id = await self._create_test_photo("owner_edit_featured.jpg")
 
 		response = requests.patch(
 			f"{API_URL}/photos/{photo_id}",
 			json={"title": "Should not stick", "featured": True},
 			headers=self.test_headers,
 		)
-		self.assert_forbidden(response, "Regular user must not be able to moderate-edit")
+		self.assert_forbidden(response, "Owner must not be able to set featured")
 
+		# The whole edit is rejected, so the title must not have landed either.
 		public = self._public_photo(photo_id)
 		assert public["title"] != "Should not stick", public
 		assert public["featured"] is False, public
+		assert self._audit_entries_for(photo_id) == [], "A denied edit must not be audited"
+
+	@pytest.mark.asyncio
+	async def test_owner_may_resubmit_unchanged_featured(self):
+		"""Sending featured at its current value is a no-op, so a full-form save works."""
+		photo_id = await self._create_test_photo("owner_edit_featured_noop.jpg")
+
+		response = requests.patch(
+			f"{API_URL}/photos/{photo_id}",
+			json={"title": "Full form save", "featured": False},
+			headers=self.test_headers,
+		)
+		self.assert_success(response, "Re-submitting the current featured value must be allowed")
+		assert response.json()["changed"] == ["title"], response.json()
+		assert self._public_photo(photo_id)["title"] == "Full form save"
+
+	@pytest.mark.asyncio
+	async def test_other_regular_user_gets_404(self):
+		"""A regular user who doesn't own the photo can't edit it, and isn't told it exists."""
+		photo_id = await self._create_test_photo("other_user_edit.jpg", "Original description")
+
+		other_headers = self.get_auth_headers(self.get_test_token("testuser"))
+		response = requests.patch(
+			f"{API_URL}/photos/{photo_id}",
+			json={"title": "Not my photo"},
+			headers=other_headers,
+		)
+		assert response.status_code == 404, f"Non-owner regular user should get 404, got {response.status_code}"
+
+		assert self._public_photo(photo_id)["title"] != "Not my photo"
 		assert self._audit_entries_for(photo_id) == [], "A denied edit must not be audited"
 
 	@pytest.mark.asyncio
