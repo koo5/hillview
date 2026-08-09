@@ -264,39 +264,43 @@ hub, off the UI thread, with the map as one more observer. Note this is
 also WHY the external service deliberately does not feed the Kalman
 filter — with a hub, that awkwardness disappears.
 
-**C3. Refiner/upload consistency probe — a real divergence window
-exists.** The user's question: can a photo be restamped after its upload
-starts, leaving device-photos and the server disagreeing? Analysis so
-far:
+**C3. Refiner/upload consistency — FIXED 2026-08-09.** The question was
+whether a photo can be restamped after its upload starts, leaving
+device-photos and the server disagreeing. It could, and the window was
+WIDER than first described: the drain snapshotted a row
+(`getNextPhotoForUpload`), then validated an auth token — possibly a
+network refresh — and hashed the file, and only THEN marked it
+`uploading`; and it uploaded the SNAPSHOT. So a refinement landing any
+time in that gap was written locally and never sent.
 
-- SAFE in the normal path. The drain's candidate queries skip held rows
-  (`uploadHoldUntil`), and the refining UPDATE re-checks
-  `uploadStatus = 'pending'`, so if the drain claimed the row first the
-  refinement matches zero rows and the at-the-time stamp stands
-  everywhere.
-- THE HOLE: the drain claims a row in two steps — `getNextPhotoForUpload`
-  (read) then `updateUploadStatus(…, "uploading")` (write). A refinement
-  landing between those two writes the row AFTER the drain snapshotted
-  it, so the upload sends at-the-time values while the local row says
-  refined. Device-photos then shows one thing and the server another —
-  exactly the user's scenario.
-- HOW IT GETS REACHED: the hold normally closes this window, but the
-  hold EXPIRES on a deadline (`UPLOAD_HOLD_MS` = 6 s) while the refiner
-  can still be running — device doze mid-`delay()`, a slow IO hop, a
-  frozen process. Then drain and refiner are live at the same time.
-- ALSO TO PROBE: `insertPhoto` is `OnConflictStrategy.REPLACE`, so any
-  re-ingest of the same id (`scanForNewPhotos`, duplicate capture paths)
-  silently wipes `stampRefinedAt`/`uploadHoldUntil` — or resets a
-  refined stamp to at-the-time values.
+The fix is two halves, and needs both:
 
-Candidate fixes to weigh next session: make the drain CLAIM atomically
-(`UPDATE … SET uploadStatus='uploading' WHERE id=? AND
-uploadStatus='pending'`, act on the row count) so read-then-write
-disappears; and/or record on the row which values were actually
-uploaded, so divergence is detectable rather than invisible. A
-metadata-only correction to the server is worth discussing separately —
-it is NOT a re-upload (the file never moves), so it may be compatible
-with the "no re-upload fallback, ever" rule.
+- **Claim atomically.** `claimForUpload(id, expectedStatus, now)` is a
+  compare-and-set on the status the row was selected under; 0 rows means
+  the claim was lost and the drain skips the photo. Deliberately not a
+  new STATUS (which was the first instinct): a status must be exited by
+  whoever set it, so a crash mid-refinement would strand the row and need
+  a sweeper. `uploadHoldUntil` stays a timestamp for the same reason —
+  time alone re-arms it.
+- **Re-read after claiming.** The upload is built from the post-claim
+  row, so a refinement that won the race IS uploaded. After the claim
+  nothing can change the stamp, because `applyRefinedStamp` only touches
+  rows still `pending`.
+
+Together the two orderings are both consistent: refine-then-claim
+uploads refined values; claim-then-refine leaves the at-the-time stamp
+in place everywhere. Asserted on a device by
+`UploadClaimRaceTest` (4 tests: the CAS, refinement blocked after a
+claim, refinement honoured before one, and a held row being invisible
+until its deadline).
+
+**Correction to the original note:** the `insertPhoto`-is-REPLACE hazard
+listed here is NOT reachable. `scanForNewPhotos` skips existing photos by
+path AND by hash before inserting, so it cannot wipe the refinement
+columns of a row it re-encounters. Known remaining nuance, accepted: a
+refinement still in flight when an upload FAILS is lost, since the row is
+then `failed` rather than `pending` — the failure mode is "keeps the
+at-the-time stamp", which is the designed worst case.
 
 **C4. Per-activity sensor/GPS rate defaults — LANDED 2026-08-09**, as
 predicted, the moment C1 gave rates an owner. `GeoConfig` is passed IN at

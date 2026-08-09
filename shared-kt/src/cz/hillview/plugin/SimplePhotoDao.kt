@@ -138,6 +138,26 @@ interface SimplePhotoDao {
     @Query("UPDATE photos SET uploadHoldUntil = 0 WHERE id = :photoId")
     fun clearUploadHold(photoId: String)
 
+    /**
+     * Take the row for upload, atomically — a compare-and-set on the status
+     * we selected it under. Returns rows updated: 0 means we lost it (the
+     * refiner or another pass moved it) and the caller must skip.
+     *
+     * This replaced an unconditional "set uploading", which made claiming a
+     * two-step read-then-write with a token refresh and a file hash in
+     * between. A stamp refinement landing in that gap was written to the row
+     * but missed by the upload, so device-photos and the server disagreed
+     * about where a photo was taken. Pairing this with a re-READ after the
+     * claim closes it from both sides: a refinement before the claim is
+     * seen, and one after is impossible, since applyRefinedStamp only
+     * touches rows that are still 'pending'.
+     */
+    @Query("""
+        UPDATE photos SET uploadStatus = 'uploading', uploadedAt = :now
+        WHERE id = :photoId AND uploadStatus = :expectedStatus AND deleted = 0
+    """)
+    fun claimForUpload(photoId: String, expectedStatus: String, now: Long): Int
+
     // The stamp refiner's write. Guarded on 'pending' so a refinement never
     // rewrites a row the drain already picked up — the uploaded metadata and
     // the local row must keep telling the same story; a photo the upload

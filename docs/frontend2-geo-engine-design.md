@@ -219,11 +219,11 @@ place a rate could even be set, and no single owner to apply it to. The
 GPS interval slider and the eco sub-flags are then values in that config,
 not new machinery.
 
-**What this does NOT fix: C3.** The refiner/upload claim race is a
-separate defect (the drain claims a row in two steps). But the engine
-does remove the ambiguity underneath it — with one writer, "the table
-holds the same stream the stamp came from" becomes structurally true
-rather than coincidentally true.
+**What this does NOT fix: C3** — fixed separately, 2026-08-09, by making
+the drain's claim atomic and re-reading after it (see the C3 entry in
+frontend2-status.md). The engine did remove the ambiguity underneath it:
+with one writer, "the table holds the same stream the stamp came from"
+is structurally true rather than coincidentally true.
 
 ## Open questions for the review session
 
