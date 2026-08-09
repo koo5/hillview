@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
 
@@ -8,7 +9,7 @@ test.describe('Account Page', () => {
 		await page.goto('/account');
 
 		const profileCard = page.getByTestId('profile-card');
-		await expect(profileCard).toBeVisible({ timeout: 11*10000 });
+		await expect(profileCard).toBeVisible({ timeout: T(10000) });
 
 		// Username should match the logged-in user
 		await expect(page.getByTestId('account-username')).toHaveText('test');
@@ -22,7 +23,7 @@ test.describe('Account Page', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto('/account');
-		await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: 11*10000 });
+		await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: T(10000) });
 
 		// Open the delete dialog
 		await page.getByTestId('account-delete-button').click();
@@ -40,7 +41,7 @@ test.describe('Account Page', () => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 
 		await page.goto('/account');
-		await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: 11*10000 });
+		await expect(page.getByTestId('profile-card')).toBeVisible({ timeout: T(10000) });
 
 		await page.getByTestId('account-delete-button').click();
 		await expect(page.getByTestId('delete-confirm-modal')).toBeVisible();
@@ -65,7 +66,7 @@ test.describe('Account Page', () => {
 			.poll(async () =>
 				(await errorMessage.isVisible().catch(() => false)) ||
 				!(await page.getByTestId('account-username').isVisible().catch(() => false)),
-			{ timeout: 11*10000 })
+			{ timeout: T(10000) })
 			.toBeTruthy();
 	});
 });

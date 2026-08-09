@@ -99,6 +99,11 @@ class Photo(Base):
 	place_slug: Mapped[Optional[str]] = mapped_column(Text, index=True)  # grouping key for place pages
 	place_parent_name: Mapped[Optional[str]] = mapped_column(Text)  # hub display e.g. "Praha"
 	place_parent_slug: Mapped[Optional[str]] = mapped_column(Text, index=True)  # hub grouping key e.g. "praha-cz"
+	# Not a privacy control, despite the name — is_listed would be honest: it only
+	# filters DB queries (e.g. the visibility clause in hillview_routes.py). Every
+	# derivative is written to the same unauthenticated pics pool regardless, so an
+	# is_public=False photo's bytes stay fetchable by anyone with the URL — making
+	# it real needs signed URLs or an auth check at the file layer.
 	is_public: Mapped[bool] = mapped_column(Boolean, default=True)
 
 	# Processing status and data
@@ -106,6 +111,7 @@ class Photo(Base):
 	processing_status: Mapped[Optional[str]] = mapped_column(String)
 
 	error: Mapped[Optional[str]] = mapped_column(Text)  # Detailed error message if any operation fails
+	retry_after_minutes: Mapped[Optional[int]] = mapped_column(Integer)  # Retry hint for a failed processing: None = permanent (don't retry), >0 = retry after N minutes
 	exif_data: Mapped[Optional[dict]] = mapped_column(JSON)
 	detected_objects: Mapped[Optional[dict]] = mapped_column(JSON)
 	sizes: Mapped[Optional[dict]] = mapped_column(JSON)
@@ -292,6 +298,100 @@ class FlaggedPhoto(Base):
 	)
 
 
+class PhotoModerationAudit(Base):
+	"""Audit trail of moderation actions taken by admins/moderators on photos
+	they do not own (currently: deletions and metadata edits).
+
+	Deliberately denormalized and free of FK cascade deletes: the actor's and
+	the owner's usernames/ids are snapshotted so the record survives later
+	deletion of either account, and ``extra_data`` snapshots a little about the
+	photo (filename, title) since the photo row itself may later be hard-deleted.
+	"""
+	__tablename__ = "photo_moderation_audit"
+
+	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+	action: Mapped[str] = mapped_column(String(32), index=True)  # 'delete' | 'edit'
+
+	# Actor: the admin/moderator who performed the action.
+	actor_user_id: Mapped[str] = mapped_column(String, index=True)  # no FK — keep audit if actor is deleted
+	actor_username: Mapped[Optional[str]] = mapped_column(String)  # denormalized snapshot
+	actor_role: Mapped[Optional[str]] = mapped_column(String)  # role value at time of action
+
+	# Target photo and its owner at the time of the action.
+	photo_source: Mapped[str] = mapped_column(String(20), default='hillview')
+	photo_id: Mapped[str] = mapped_column(String(255), index=True)
+	photo_owner_id: Mapped[Optional[str]] = mapped_column(String, index=True)  # no FK — keep audit if owner is deleted
+	photo_owner_username: Mapped[Optional[str]] = mapped_column(String)  # denormalized snapshot
+
+	reason: Mapped[Optional[str]] = mapped_column(Text)
+	ip_address: Mapped[Optional[str]] = mapped_column(String)
+	user_agent: Mapped[Optional[str]] = mapped_column(String)
+	extra_data: Mapped[Optional[dict]] = mapped_column(JSON)  # photo snapshot (filename, title, etc.)
+
+	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class AnnotationModeration(Base):
+	"""Record of a reactive moderation action (undo/revert) on an annotation chain.
+
+	Mirrors ``PhotoModerationAudit``: denormalized snapshots and no FK cascades, so
+	the record survives later removal of the moderator, the subject author, the
+	annotation rows, or the photo. ``reason`` (optional) is what gets surfaced to
+	the affected author via a ``Notification`` (linked by ``notification_id``).
+	"""
+	__tablename__ = "annotation_moderation"
+
+	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+	action: Mapped[str] = mapped_column(String(32), index=True)  # 'undo_create' | 'undo_update' | 'undo_delete'
+
+	# The annotation event that was undone, and the new event the undo produced.
+	target_event_id: Mapped[str] = mapped_column(String, index=True)  # no FK — keep record if the row is gone
+	result_event_id: Mapped[Optional[str]] = mapped_column(String)
+	photo_id: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+
+	# Moderator who performed the undo (denormalized snapshot).
+	moderator_user_id: Mapped[str] = mapped_column(String, index=True)
+	moderator_username: Mapped[Optional[str]] = mapped_column(String)
+	moderator_role: Mapped[Optional[str]] = mapped_column(String)
+
+	# Subject: the author whose work was reverted (denormalized snapshot).
+	subject_user_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+	subject_username: Mapped[Optional[str]] = mapped_column(String)
+
+	reason: Mapped[Optional[str]] = mapped_column(Text)
+	notification_id: Mapped[Optional[int]] = mapped_column(Integer)  # the Notification row sent to the subject
+
+	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class UserModeration(Base):
+	"""Audit trail of admin user-management actions (role changes, suspensions,
+	deletions), mirroring the other moderation-audit tables: denormalized and
+	FK-cascade-free so the record survives deletion of the actor or the target.
+	"""
+	__tablename__ = "user_moderation"
+
+	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+	action: Mapped[str] = mapped_column(String(32), index=True)  # 'role_change' | 'suspend' | 'reactivate' | 'delete'
+
+	# Actor (the admin performing the action) — denormalized snapshot.
+	actor_user_id: Mapped[str] = mapped_column(String, index=True)
+	actor_username: Mapped[Optional[str]] = mapped_column(String)
+	actor_role: Mapped[Optional[str]] = mapped_column(String)
+
+	# Subject (the user acted upon) — denormalized snapshot.
+	target_user_id: Mapped[str] = mapped_column(String, index=True)
+	target_username: Mapped[Optional[str]] = mapped_column(String)
+
+	old_role: Mapped[Optional[str]] = mapped_column(String)
+	new_role: Mapped[Optional[str]] = mapped_column(String)
+	old_active: Mapped[Optional[bool]] = mapped_column(Boolean)
+	new_active: Mapped[Optional[bool]] = mapped_column(Boolean)
+	reason: Mapped[Optional[str]] = mapped_column(Text)
+
+	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class UserPublicKey(Base):
 	__tablename__ = "user_public_keys"
 
@@ -363,6 +463,11 @@ class PhotoAnnotation(Base):
 	created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
 	event_type: Mapped[str] = mapped_column(String(16), default='created')
 
+	# Provenance + idempotency for annotations graduated from the enrichment
+	# workbench: the workbench-native annotation id this one was created from.
+	# NULL for ordinary user annotations. (See graduation create-annotation ops.)
+	source_annotation_id: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
+
 	# Relationships
 	photo: Mapped["Photo"] = relationship()
 	user: Mapped["User"] = relationship()
@@ -404,3 +509,32 @@ class Notification(Base):
 			name='notifications_user_or_key_check'
 		),
 	)
+
+
+class ShareLink(Base):
+	"""A short share link (/shared/{slug}) minted when a user clicks the share button.
+
+	The target is a relative map path (/?lat=...&photo=...) constructed server-side —
+	never a client-supplied URL — and is the row's identity: minting upserts on it,
+	so repeated shares of the same view return the same link. The public slug is
+	derived, not stored: "{id}-{title-slug}", with the title part recomputed from
+	the photo's current title at each mint (improved titles carry into new shares)
+	and ignored on resolution, which uses only the leading id (Stack Overflow
+	style; id-first survives tail truncation by messengers). Rows are kept
+	forever: a short link that dies after being posted somewhere is worse than
+	useless.
+	"""
+	__tablename__ = "share_links"
+
+	id: Mapped[int] = mapped_column(Integer, primary_key=True)
+	target: Mapped[str] = mapped_column(Text, unique=True)  # Relative path + query, e.g. /?lat=..&photo=..
+	photo_uid: Mapped[str] = mapped_column(String(200))  # Source-prefixed uid, e.g. hillview-<id>, mapillary-<id>
+	# Set only for hillview-source photos; links outlive photo deletion
+	photo_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("photos.id", ondelete="SET NULL"), index=True, nullable=True)
+	created_by: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)  # First minter, when logged in
+	visit_count: Mapped[int] = mapped_column(Integer, default=0, server_default=text('0'))
+	created_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+	# Relationships
+	photo: Mapped[Optional["Photo"]] = relationship()
+	creator: Mapped[Optional["User"]] = relationship()

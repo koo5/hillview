@@ -5,7 +5,7 @@ import uuid
 import logging
 import asyncio
 import requests
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, Union, Tuple
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict
 # Add common module path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import User, UserPublicKey, Photo
+from common.models import User, UserPublicKey, Photo, UserRole
 from common.utc import utcnow, format_utc, utc_from_timestamp, utc_plus_timedelta
 from photos import delete_all_user_photo_files
 from jwt_service import create_upload_authorization_token, REFRESH_TOKEN_EXPIRE_MINUTES
@@ -74,6 +74,23 @@ def consume_oauth_state(nonce: Optional[str]) -> Optional[Dict[str, Any]]:
 	if utcnow() > entry['expires_at']:
 		return None
 	return entry
+
+
+def parse_legacy_oauth_state(state: str) -> Tuple[str, str, Optional[str]]:
+	"""Parse the legacy stateless state format: provider:redirect_uri[:session_id].
+
+	The session id (when present) is always after the last colon and is UUID-shaped;
+	everything else after the first colon belongs to the redirect URI, which itself
+	contains colons (https://, cz.hillview://). Returns (provider, redirect_uri,
+	session_id). Caller must ensure state contains at least one colon.
+	"""
+	provider, remainder = state.split(":", 1)
+	if remainder and ":" in remainder:
+		# Split from the right; keep the last part only if it looks like a session UUID.
+		url_part, potential_session = remainder.rsplit(":", 1)
+		if len(potential_session) >= 30 and "-" in potential_session:
+			return provider, url_part, potential_session
+	return provider, remainder, None
 
 async def cleanup_expired_sessions():
     """Clean up expired OAuth sessions"""
@@ -676,25 +693,7 @@ async def oauth_callback(
 		polling_session_id = state_entry.get("session_id")
 	elif state and ":" in state:
 		# Legacy stateless format: provider:redirect_uri[:session_id]
-		provider, remainder = state.split(":", 1)
-
-		# Check if remainder has session ID (format: url:session_id)
-		# Session ID is always after the last colon and is a UUID format
-		if remainder and ":" in remainder:
-			# Split from the right to get the last part as potential session ID
-			url_part, potential_session = remainder.rsplit(":", 1)
-
-			# Check if the last part looks like a session ID (UUID format)
-			if len(potential_session) >= 30 and "-" in potential_session:
-				final_redirect_uri = url_part
-				polling_session_id = potential_session
-			else:
-				# Last part doesn't look like session ID, treat whole remainder as URL
-				final_redirect_uri = remainder
-				polling_session_id = None
-		else:
-			final_redirect_uri = remainder
-			polling_session_id = None
+		provider, final_redirect_uri, polling_session_id = parse_legacy_oauth_state(state)
 	else:
 		# Fallback to default if state is malformed
 		provider = "google"
@@ -1087,7 +1086,10 @@ async def oauth_login_internal(
 	# nonce (the web frontend does), it's authoritative — validate + consume it and
 	# take provider/redirect from it, never from the (spoofable) client body. The
 	# backend oauth-callback path already consumed the nonce, so it passes no state
-	# here and falls through to the body-provided provider.
+	# here and falls through to the body-provided provider. In legacy mode (strict
+	# state off) the web frontend still sends no provider, so recover it from the
+	# legacy provider:redirect_uri[:session_id] state — same parsing as the GET
+	# callback; without this, flag-off leaves provider None and web login 400s.
 	provider = oauth_data.provider
 	redirect_from_state: Optional[str] = None
 	if is_oauth_strict_state_enabled() and oauth_data.state:
@@ -1097,6 +1099,8 @@ async def oauth_login_internal(
 			raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
 		provider = state_entry["provider"]
 		redirect_from_state = state_entry["redirect_uri"]
+	elif provider is None and oauth_data.state and ":" in oauth_data.state:
+		provider, redirect_from_state, _ = parse_legacy_oauth_state(oauth_data.state)
 
 	log.info(f"oauth_login_internal - Provider: {provider}")
 
@@ -1217,6 +1221,18 @@ async def oauth_login_internal(
 			detail="OAuth provider did not return required email"
 		)
 
+	return await oauth_user_to_tokens(db, provider, oauth_id, email)
+
+
+async def oauth_user_to_tokens(db: AsyncSession, provider: str, oauth_id: str, email: str) -> dict:
+	"""Match-or-create the user for a VERIFIED OAuth identity and mint the
+	standard access+refresh pair (shared sid session family).
+
+	The shared tail of every OAuth-shaped login, however the identity was
+	proven: the browser authorization-code exchange above, or a natively
+	acquired Google ID token (/auth/google/native). Callers must have
+	verified the identity before handing over oauth_id/email.
+	"""
 	# Check if user exists
 	result = await db.execute(
 		select(User).where(
@@ -1281,6 +1297,100 @@ async def oauth_login_internal(
 			"role": user.role.value if user.role else "user"
 		}
 	}
+
+class GoogleIdTokenLogin(BaseModel):
+	id_token: str
+
+
+def verify_google_id_token(token: str) -> Dict[str, Any]:
+	"""Verify a Google ID token (signature, expiry, issuer) against OUR
+	client id and return its claims.
+
+	google-auth ships transitively with firebase-admin; imported lazily so
+	environments without it never pay the import — and unit tests patch
+	this seam rather than Google's JWKS. The audience is the same web
+	client id the browser flow uses: the app passes it as serverClientId
+	to Credential Manager, so a token minted for another app's audience
+	can never log into Hillview.
+	"""
+	from google.oauth2 import id_token as google_id_token
+	from google.auth.transport import requests as google_requests
+	return google_id_token.verify_oauth2_token(
+		token,
+		google_requests.Request(),
+		audience=OAUTH_PROVIDERS["google"]["client_id"],
+		clock_skew_in_seconds=10,
+	)
+
+
+@router.post("/auth/google/native")
+async def google_native_login(
+	payload: GoogleIdTokenLogin,
+	request: Request,
+	db: AsyncSession = Depends(get_db)
+):
+	"""Native Sign in with Google: the app hands over the ID token that
+	Credential Manager acquired on-device — no browser, no deep link, no
+	polling session. Downstream is identical to the browser flow: the same
+	match-or-create and the same sid-stamped token pair
+	(oauth_user_to_tokens).
+	"""
+	# Same budget as the OAuth callback: this is a login door.
+	if not is_rate_limiting_disabled():
+		identifier = auth_rate_limiter.get_identifier(request)
+		if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=30, window_seconds=300):
+			raise HTTPException(
+				status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+				detail="Too many login attempts.",
+				headers={"Retry-After": "300"}
+			)
+
+	if not OAUTH_PROVIDERS["google"]["client_id"]:
+		raise HTTPException(status_code=503, detail="Google login is not configured")
+
+	# Bounded like the OAuth code: a real ID token is a compact JWT; a
+	# hostile payload shouldn't reach the crypto layer at silly sizes.
+	if not payload.id_token or len(payload.id_token) > 4096:
+		raise HTTPException(status_code=400, detail="Invalid Google ID token")
+
+	try:
+		# google-auth's transport is blocking (JWKS fetch) — keep the event
+		# loop free; the certs are cached across calls by the transport.
+		claims = await asyncio.to_thread(verify_google_id_token, payload.id_token)
+	except Exception as e:
+		await security_audit.log_event(
+			db=db,
+			event_type="google_native_login_failed",
+			ip_address=get_client_ip(request),
+			user_agent=request.headers.get("user-agent"),
+			event_details={"error": str(e)},
+			severity="warning"
+		)
+		raise HTTPException(status_code=400, detail="Invalid Google ID token")
+
+	oauth_id = claims.get("sub")
+	email = claims.get("email")
+	if not oauth_id or not email:
+		raise HTTPException(status_code=400, detail="Google token missing required claims")
+	if claims.get("email_verified") is False:
+		# Unverified addresses must not capture the existing account that
+		# legitimately owns that email (oauth_user_to_tokens matches on it).
+		raise HTTPException(status_code=400, detail="Google account email is not verified")
+
+	result = await oauth_user_to_tokens(db, "google", oauth_id, email)
+
+	await security_audit.log_event(
+		db=db,
+		event_type="google_native_login_success",
+		user_identifier=result["user_info"].get("username"),
+		ip_address=get_client_ip(request),
+		user_agent=request.headers.get("user-agent"),
+		event_details={"provider": "google", "auth_method": "google_id_token"},
+		severity="info",
+		user_id=result["user_info"].get("user_id")
+	)
+	return result
+
 
 @router.get("/auth/me", response_model=UserOut)
 async def read_users_me(
@@ -1425,6 +1535,7 @@ class UploadAuthorizationRequest(BaseModel):
 	description: Optional[str] = None
 	keywords: Optional[list[str]] = None
 	is_public: bool = True
+	featured: bool = False  # admin-only; a non-admin sending true is rejected (see authorize_upload)
 	license: Optional[str] = None  # e.g. 'ccbysa4'
 	# Geolocation data from client (EXIF or device GPS)
 	latitude: Optional[float] = None
@@ -1463,7 +1574,7 @@ async def authorize_upload(
 
 		request_start_time = datetime.datetime.now()
 
-		log.info(f"Creating upload authorization for user {current_user.id}: {auth_request.filename}, {auth_request.file_size} bytes, MD5: {auth_request.file_md5}, lat/lon: {auth_request.latitude}/{auth_request.longitude}, bearing: {auth_request.compass_angle}, captured_at: {auth_request.captured_at}, version: {auth_request.version}, license: {auth_request.license}, key_id: {auth_request.client_key_id}")
+		log.info(f"Creating upload authorization for user {current_user.id}: {auth_request.filename}, {auth_request.file_size} bytes, MD5: {auth_request.file_md5}, lat/lon: {auth_request.latitude}/{auth_request.longitude}, bearing: {auth_request.compass_angle}, captured_at: {auth_request.captured_at}, version: {auth_request.version}, license: {auth_request.license}, featured: {auth_request.featured}, key_id: {auth_request.client_key_id}")
 
 		if auth_request.model_extra:
 			log.warning(f"authorize-upload request from user {current_user.id} contains unknown fields (ignored): {auth_request.model_extra}")
@@ -1491,6 +1602,19 @@ async def authorize_upload(
 			raise HTTPException(
 				status_code=status.HTTP_400_BAD_REQUEST,
 				detail=f"Unknown license identifier: {auth_request.license}"
+			)
+
+		# `featured` is admin-only: it promotes a photo into the map's featured
+		# set, so a non-admin must not be able to self-promote. current_user is
+		# the only real user identity in the whole upload flow (the worker's
+		# upload JWT carries no role), so this is the correct — and only — place
+		# to enforce it. Reject rather than silently drop: a `featured=true` is an
+		# explicit, deliberate request, and a silent no-op would be an invisible
+		# authz failure (see photo pipeline's fail-fast convention).
+		if auth_request.featured and current_user.role != UserRole.ADMIN:
+			raise HTTPException(
+				status_code=status.HTTP_403_FORBIDDEN,
+				detail="Featuring a photo requires an admin account"
 			)
 
 		# Validate MD5 hash format (32 hex characters)
@@ -1563,9 +1687,24 @@ async def authorize_upload(
 		user_public_key = result.scalars().first()
 
 		if not user_public_key:
+			# 409, not 400: the request is well-formed and the auth valid —
+			# the SERVER is missing state (this device key was never
+			# registered under this user: server-URL switch, DB reset, or
+			# account switch). The machine-readable error_code is what
+			# clients key their self-heal on; 401 would be wrong twice over
+			# (auth DID succeed, and clients answer 401s by burning a
+			# refresh-token rotation).
+			log.warning(
+				f"authorize-upload rejected: client key '{auth_request.client_key_id}' is not registered "
+				f"(or inactive) for user {current_user.id} — the client should (re-)register it via "
+				f"/auth/register-client-key"
+			)
 			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail=f"Client public key '{auth_request.client_key_id}' not found or inactive. Please ensure the key is registered and active."
+				status_code=status.HTTP_409_CONFLICT,
+				detail={
+					"error_code": "client_key_not_registered",
+					"message": f"Client public key '{auth_request.client_key_id}' not found or inactive. Please ensure the key is registered and active.",
+				}
 			)
 
 		# Create geometry point from latitude/longitude if available
@@ -1592,6 +1731,7 @@ async def authorize_upload(
 			description=auth_request.description,
 			keywords=auth_request.keywords,
 			is_public=auth_request.is_public,
+			featured=auth_request.featured,  # admin-gated above
 			owner_id=current_user.id,
 			processing_status="authorized",
 			client_public_key_id=user_public_key.key_id,

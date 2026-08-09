@@ -292,6 +292,8 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	private val photoUploadLogic: PhotoUploadLogic = PhotoUploadLogic(activity)
 	private val geoTrackingManager: GeoTrackingManager = GeoTrackingManager(activity)
 
+	private val clockVideoWriter: ClockVideoWriter = ClockVideoWriter(activity)
+
 	private val myDeviceOrientationSensor: MyDeviceOrientationSensor =
 		MyDeviceOrientationSensor(activity, ::triggerOrientationEvent)
 
@@ -1063,6 +1065,11 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 	fun clearAuthToken(invoke: Invoke) {
 		try {
 			Log.d(TAG, "🔐 Clearing auth token")
+			// Deliberately does NOT clear the session-expired flag: the JS
+			// lockstep-logout path funnels through here, and clearing would erase
+			// the persisted evidence before the reconciler surfaces it (e.g. when
+			// the process dies right after). The flag is consumed by the
+			// reconciler once surfaced, or superseded by the next login.
 			val success = authManager.clearAuthToken()
 
 			val result = JSObject()
@@ -1080,6 +1087,7 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 			invoke.resolve(error)
 		}
 	}
+
 
 	@Command
 	fun refreshAuthToken(invoke: Invoke) {
@@ -1535,38 +1543,24 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					// Hash is always provided by Rust (calculated from bytes in memory)
 					val fileHash = args.file_hash ?: throw Exception("File hash is required")
 
-					// Generate ID if not provided (using the hash from Rust)
-					val photoId = if (args.id.isNullOrEmpty()) {
-						PhotoUtils.generatePhotoId(fileHash)
-					} else {
-						args.id!!
-					}
-
-					Log.d(TAG, "📸 Creating PhotoEntity: id=$photoId, hash=$fileHash")
-
-					// Create PhotoEntity from args
-					val photoEntity = PhotoEntity(
-						id = photoId,
+					// Entity build + insert moved to the shared
+					// PhotoUploadLogic.registerCapturedPhoto (2026-08); this
+					// handler keeps parse/validate + the bridge response.
+					val photoId = photoUploadLogic.registerCapturedPhoto(
+						id = args.id,
 						filename = args.filename!!,
 						path = args.path!!,
 						latitude = args.latitude,
 						longitude = args.longitude,
-						altitude = args.altitude ?: 0.0,
-						bearing = args.bearing ?: 0.0,
+						altitude = args.altitude,
+						bearing = args.bearing,
 						capturedAt = args.captured_at,
 						accuracy = args.accuracy,
 						width = args.width,
 						height = args.height,
 						fileSize = args.file_size,
-						createdAt = System.currentTimeMillis(),
-						uploadStatus = "pending",
-						fileHash = fileHash  // Always use the calculated/provided hash
+						fileHash = fileHash,
 					)
-
-					// Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)
-					db.photoDao().insertPhoto(photoEntity)
-
-					Log.d(TAG, "📸 Photo added to photoDao: ${photoId}")
 
 					val result = JSObject()
 					result.put("success", true)
@@ -2253,20 +2247,66 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					}
 				}
 
-				"set_location_logging_mode" -> {
-					// "background" tags subsequent GPS rows so they don't win the
-					// photo-location pairing. Resolve explicitly: the frontend awaits
-					// this before writing the manual pan location, so the manual row
-					// is guaranteed to be the latest non-background entry.
-					val mode = params.getString("mode", "active") ?: "active"
-					geoTrackingManager.setBackgroundLogging(mode == "background")
-					invoke.resolve(JSObject())
-					return
+				// Which source is primary from now on. Replaces
+				// set_location_logging_mode, whose "background" mode said the same
+				// thing by renaming rows. No explicit resolve and nothing to await:
+				// an election that arrives with a row travels on that row instead
+				// (see storeLocationManual / storeOrientationManual), so there is no
+				// ordering window left to protect.
+				"set_elected_bearing_source" -> {
+					geoTrackingManager.setElectedBearingSource(params.getString("source", "")?.ifEmpty { null })
+				}
+
+				"set_elected_location_source" -> {
+					geoTrackingManager.setElectedLocationSource(params.getString("source", "")?.ifEmpty { null })
 				}
 
 				"geo_tracking_export" -> {
 					geoTrackingManager.dumpAndClear(forceDump = true)
 					Log.i(TAG, "🔧 Manual geo tracking export triggered")
+				}
+
+				"clock_video_begin" -> {
+					try {
+						val ext = params.getString("ext", "webm") ?: "webm"
+						val path = clockVideoWriter.begin(ext)
+						val result = JSObject()
+						result.put("path", path)
+						invoke.resolve(result)
+					} catch (e: Exception) {
+						resolveWithError(invoke, "🎬 Failed to begin clock video: ${e.message}", e)
+					}
+					return
+				}
+
+				"clock_video_chunk" -> {
+					try {
+						val data = params.getString("data")
+						if (data.isNullOrEmpty()) {
+							resolveWithError(invoke, "🎬 clock_video_chunk: missing data")
+							return
+						}
+						val written = clockVideoWriter.appendChunk(data)
+						val result = JSObject()
+						result.put("bytes_written", written)
+						invoke.resolve(result)
+					} catch (e: Exception) {
+						resolveWithError(invoke, "🎬 Failed to write clock video chunk: ${e.message}", e)
+					}
+					return
+				}
+
+				"clock_video_end" -> {
+					try {
+						val sidecar = params.getString("sidecar")
+						val path = clockVideoWriter.end(sidecar)
+						val result = JSObject()
+						result.put("path", path)
+						invoke.resolve(result)
+					} catch (e: Exception) {
+						resolveWithError(invoke, "🎬 Failed to finalize clock video: ${e.message}", e)
+					}
+					return
 				}
 
 				"geo_tracking_set_auto_export" -> {
@@ -2283,6 +2323,36 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					val enabled = prefs.getBoolean("auto_export", false)
 					val result = JSObject()
 					result.put("enabled", enabled)
+					invoke.resolve(result)
+					return
+				}
+
+				// Level-triggered session snapshot for the JS reconciler
+				// (AndroidTokenManager.reconcileSessionState): the WebView's auth
+				// store is a display cache of THIS state and must never outlive it.
+				// `expired: true` reports an involuntary session death persisted by
+				// AuthenticationManager.sessionExpired() — durable across process
+				// death, unlike the queued "auth-expired" message. Pass
+				// consume_expired=true to acknowledge the flag once the UI has
+				// surfaced it (so it isn't re-surfaced on every later reconcile).
+				"get_session_state" -> {
+					val consume = params.getBoolean("consume_expired", false)
+					val (token, expiresAt) = authManager.getTokenInfo()
+					val expiredInfo = authManager.getSessionExpiredInfo()
+
+					val result = JSObject()
+					result.put("has_access_token", token != null)
+					result.put("has_valid_access_token", authManager.hasValidToken())
+					result.put("has_refresh_token", authManager.getRefreshToken() != null)
+					result.put("expires_at", expiresAt)
+					result.put("expired", expiredInfo != null)
+					if (expiredInfo != null) {
+						result.put("expired_at", expiredInfo.first)
+						result.put("expired_reason", expiredInfo.second)
+						if (consume) {
+							authManager.clearSessionExpiredFlag()
+						}
+					}
 					invoke.resolve(result)
 					return
 				}
@@ -2327,8 +2397,27 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 					if (merged.autoUploadEnabled) {
 						photoUploadManager.scheduleUploadWorker(workManager, merged.autoUploadEnabled, merged.wifiOnly)
 						Log.i(TAG, "🔧 Settings saved, upload worker scheduled")
+						// A wifi_only flip must invalidate the queued one-time drains:
+						// their network constraint was baked in at enqueue time and KEEP
+						// holds the stale job forever — after switching wifi-only OFF, a
+						// drain enqueued with UNMETERED sits blocked on mobile data and
+						// also KEEP-blocks any fresh enqueue under the same name. (The
+						// restrictive direction is additionally enforced per photo in
+						// the drain loop.) Cancel and spawn a fresh drain so pending
+						// photos are re-evaluated under the new setting. Same when
+						// auto-upload itself just flipped on: photos captured while it
+						// was off would otherwise wait for the next capture or the
+						// periodic worker.
+						if (previous.wifiOnly != merged.wifiOnly || !previous.autoUploadEnabled) {
+							photoUploadManager.cancelQueuedUploads(workManager)
+							photoUploadManager.startAutomaticUpload("settings_changed")
+						}
 					} else {
 						workManager.cancelUniqueWork(PhotoUploadWorker.WORK_NAME)
+						// One-time drains + their retry chains survive the toggle
+						// otherwise and fire again hours later (e.g. when a stuck
+						// worker comes back) — see cancelQueuedUploads.
+						photoUploadManager.cancelQueuedUploads(workManager)
 						Log.i(TAG, "🔧 Settings saved, upload worker cancelled")
 					}
 				}

@@ -1,9 +1,22 @@
+import { get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import type { TokenManager, TokenData } from './tokenManager';
 import { TokenRefreshError } from './tokenManager';
 import { auth } from './authStore';
 import { logout, getAuthGeneration } from './auth.svelte';
 import { kotlinMessageQueue } from './KotlinMessageQueue';
+import { addAlert } from './alertSystem.svelte';
+
+/** Native session snapshot returned by the get_session_state cmd. */
+interface NativeSessionState {
+    has_access_token: boolean;
+    has_valid_access_token: boolean;
+    has_refresh_token: boolean;
+    expires_at: string | null;
+    expired: boolean;
+    expired_at?: number;
+    expired_reason?: string;
+}
 
 /**
  * Android Token Manager
@@ -13,9 +26,11 @@ import { kotlinMessageQueue } from './KotlinMessageQueue';
  */
 export class AndroidTokenManager implements TokenManager {
     private readonly LOG_PREFIX = '🢄🔐[ANDROID_TOKEN_MGR]';
+    private lastReconcileAt = 0;
 
     constructor() {
         this.setupSessionExpiryHandler();
+        this.setupSessionReconciler();
     }
 
     /**
@@ -51,12 +66,111 @@ export class AndroidTokenManager implements TokenManager {
                     return;
                 }
                 console.warn(`${this.LOG_PREFIX} 🔐➡️ No valid token; logging out JS in lockstep with native`);
+                // In-app explanation to pair with the system notification —
+                // the user shouldn't just find themselves on /login untold.
+                addAlert('Your session has expired — please log in again.', 'warning', {
+                    priority: 8,
+                    duration: 0,
+                    source: 'session_expired',
+                });
                 logout('Session expired (native)', { generation });
             } catch (error) {
                 console.error(`${this.LOG_PREFIX} 🔐➡️ Error handling 'auth-expired':`, error);
             }
         });
         console.log(`${this.LOG_PREFIX} 🔐➡️ 'auth-expired' message-queue handler registered`);
+    }
+
+    /**
+     * LEVEL-triggered reconciliation, complementing the EDGE-triggered queue
+     * message above. The queue message lives in plugin-instance memory: it is
+     * lost if the process dies (or the WebView isn't polling) between the
+     * native session death and delivery — historically leaving the JS auth
+     * store showing "authenticated" against a dead session forever, because
+     * token-less requests never trip http.ts's 401-logout path. So instead of
+     * relying on catching the event, periodically re-derive: ask native for
+     * its persisted session state and correct the JS store to match. Runs at
+     * startup (once the initial auth check settles), on every return to
+     * foreground, and after a forced refresh comes back empty (post-401).
+     */
+    private setupSessionReconciler(): void {
+        // Startup: wait for the auth store's initial check to settle so we
+        // reconcile against the real is_authenticated, not its boot default.
+        let startupDone = false;
+        const unsubscribe = auth.subscribe((s) => {
+            if (!s.checked || startupDone) return;
+            startupDone = true;
+            // Defer the unsubscribe: this callback can fire synchronously
+            // during subscribe(), before `unsubscribe` is assigned.
+            setTimeout(() => unsubscribe(), 0);
+            void this.reconcileSessionState('startup');
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                void this.reconcileSessionState('resume');
+            }
+        });
+    }
+
+    /** Fetch the native session snapshot (optionally acknowledging the expired flag). */
+    private async getNativeSessionState(consumeExpired: boolean): Promise<NativeSessionState> {
+        return await invoke('plugin:hillview|cmd', {
+            command: 'get_session_state',
+            params: { consume_expired: consumeExpired },
+        }) as NativeSessionState;
+    }
+
+    /**
+     * Reconcile the JS auth store against native session state:
+     *  - native says the session DIED involuntarily (persisted flag) → surface
+     *    it in-app and, if JS still thinks it's authenticated, log out (which
+     *    navigates to /login). The flag is consumed on read so it surfaces once.
+     *  - native has NO session at all while JS thinks it's authenticated
+     *    (event lost, or cleared by another context) → log out quietly.
+     * Guarded by the auth generation so a login that lands mid-reconcile is
+     * never torn down by a stale conclusion.
+     */
+    async reconcileSessionState(trigger: string): Promise<void> {
+        const now = Date.now();
+        if (now - this.lastReconcileAt < 5000) return;
+        this.lastReconcileAt = now;
+
+        // Snapshot BEFORE any await (same TOCTOU protection as the queue handler).
+        const generation = getAuthGeneration();
+        const jsAuthenticated = get(auth).is_authenticated;
+
+        try {
+            const state = await this.getNativeSessionState(true);
+
+            if (state.expired) {
+                const reason = state.expired_reason || 'unknown';
+                console.warn(`${this.LOG_PREFIX} 🔐⇄ Reconcile(${trigger}): native session expired (${reason}); JS authenticated=${jsAuthenticated}`);
+                // Surface when it's news: the UI still shows authenticated, or the
+                // app just started (the death happened in a previous process life —
+                // the user deserves to know why they're logged out). A mid-session
+                // resume-reconcile on an already-logged-out UI adds nothing.
+                if (jsAuthenticated || trigger === 'startup') {
+                    addAlert('Your session has expired — please log in again.', 'warning', {
+                        priority: 8,
+                        duration: 0, // persistent: expiry is actionable, don't let it slip by
+                        source: 'session_expired',
+                    });
+                }
+                if (jsAuthenticated) {
+                    await logout(`Session expired (native, reconciled on ${trigger}: ${reason})`, { generation });
+                }
+                return;
+            }
+
+            if (jsAuthenticated && !state.has_access_token && !state.has_refresh_token) {
+                console.warn(`${this.LOG_PREFIX} 🔐⇄ Reconcile(${trigger}): JS authenticated but native has no session; logging out`);
+                await logout(`Session absent (native, reconciled on ${trigger})`, { generation });
+            }
+        } catch (error) {
+            // Reconciliation is a safety net — never let it break the caller.
+            console.error(`${this.LOG_PREFIX} 🔐⇄ Reconcile(${trigger}) failed:`, error);
+        }
     }
 
     async getValidToken(force: boolean = false): Promise<string | null> {
@@ -73,6 +187,7 @@ export class AndroidTokenManager implements TokenManager {
 
             if (!result.success) {
                 console.log(`${this.LOG_PREFIX} Android reports no valid token: ${result.error}`);
+                if (force) void this.reconcileSessionState('post-401');
                 return null;
             }
 
@@ -82,9 +197,14 @@ export class AndroidTokenManager implements TokenManager {
             }
 
             console.log(`${this.LOG_PREFIX} No token available`);
+            // force=true means a SENT token was just rejected server-side; coming
+            // back empty after the forced refresh is exactly the moment the native
+            // session may have died — reconcile so the UI doesn't linger stale.
+            if (force) void this.reconcileSessionState('post-401');
             return null;
         } catch (err) {
             console.error(`${this.LOG_PREFIX} Failed to get valid token:`, err);
+            if (force) void this.reconcileSessionState('post-401');
             return null;
         }
     }

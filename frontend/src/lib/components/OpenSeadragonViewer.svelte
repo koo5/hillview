@@ -23,7 +23,7 @@
 	 * Background close: clicking/tapping the black area outside the image
 	 * closes the viewer (mirroring the original ZoomView behaviour).
 	 */
-	import { openExternalUrl } from '$lib/urlUtils';
+	import { openExternalUrl, constructMapUrl, externalBaseUrl } from '$lib/urlUtils';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { togglePhotoRating, fetchPhotoRating, ratingShortcutFor, type Rating } from '$lib/photoActions';
 	import type { PhotoData } from '$lib/sources';
@@ -43,10 +43,12 @@
 	} from '$lib/annotationApi';
 	import { Origin, UserSelectAction, type DrawingStyle } from '@annotorious/core';
 	import { fetchDetections, type DetectedObject } from '$lib/detectionApi';
-	import { showDetections } from '$lib/data.svelte.js';
+	import { showDetections, showPhotoInfoWindow } from '$lib/data.svelte.js';
+	import PhotoInfoWindow from './PhotoInfoWindow.svelte';
 	import type { ZoomViewData } from '$lib/zoomView.svelte';
 	import { zoomViewportBounds, type ZoomViewInitialBounds } from '$lib/zoomView.svelte';
 	import { parseAnnotationBody, type BodyItem } from '$lib/utils/annotationBody';
+	import { firstCoords, splitOnCoords } from '$lib/utils/coordParser';
 	import { requireAuth } from './signInModal.svelte';
 	import {
 		showDropdownMenu,
@@ -56,9 +58,10 @@
 		dropdownMenuState,
 		type DropdownMenuItem,
 	} from '$lib/components/dropdown-menu/dropdownMenu.svelte';
-	import { MoreVertical, Share } from 'lucide-svelte';
+	import { MapPin, MoreVertical, Share } from 'lucide-svelte';
 	import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 	import { myGoto } from '$lib/navigation.svelte';
+	import { buildTileSource } from '$zoomview/tileSource';
 
 	export let data: ZoomViewData;
 	export let onClose: () => void;
@@ -177,12 +180,12 @@
 	// the user confirms via the edit panel (Save) or discards (Cancel/Escape).
 	let pendingNewAnnotation: any = null;
 
-	// View-mode annotation context menu state
+	// View-mode annotation context menu state. The menu opens on the shape
+	// itself; menuAnchor is where it hangs from (bottom-centre of the shape).
 	let viewSelectedAnnotation: AnnotationData | null = null;
 	let viewSelectedGeometry: { x: number; y: number; w: number; h: number } | null = null;
-	let menuBtnX = 0;
-	let menuBtnY = 0;
-	let menuBtnEl: HTMLButtonElement | null = null;
+	let menuAnchorX = 0;
+	let menuAnchorY = 0;
 	let textModalContent: string | null = null;
 	let textModalOpenedAt = 0;
 
@@ -220,8 +223,8 @@
 		return count > 0 ? viewer.world.getItemAt(count - 1) : null;
 	}
 
-	/** Recompute the "..." button position from the annotation's image-space geometry. */
-	function updateMenuBtnPosition() {
+	/** Recompute the menu anchor from the annotation's image-space geometry. */
+	function updateMenuAnchor() {
 		if (!viewSelectedGeometry || !viewer?.viewport) return;
 		const item = getMainTiledImage();
 		if (!item) return;
@@ -230,8 +233,8 @@
 		const imgY = g.y + g.h; // bottom edge
 		const vpPt = item.imageToViewportCoordinates(imgX, imgY);
 		const scPt = viewer.viewport.viewportToViewerElementCoordinates(vpPt);
-		menuBtnX = scPt.x;
-		menuBtnY = scPt.y + 4; // slight offset below shape
+		menuAnchorX = scPt.x;
+		menuAnchorY = scPt.y + 4; // slight offset below shape
 	}
 
 	/** Clear view-mode selection state and close any open menu. */
@@ -240,6 +243,34 @@
 		viewSelectedGeometry = null;
 		textModalContent = null;
 		closeDropdownMenu();
+	}
+
+	/** Map URL for a coordinate pair from an annotation body (see
+	 *  $lib/utils/coordParser for the accepted formats). Absolute, because it is
+	 *  always opened outside this view. Fixed zoom rather than the current map
+	 *  zoom — the target is a landmark somewhere off in the distance, so what
+	 *  the user was looking at here says nothing about how close they want it. */
+	const COORDS_MAP_ZOOM = 16;
+	function coordsMapUrl(lat: number, lon: number): string {
+		return constructMapUrl({ lat, lon, zoom: COORDS_MAP_ZOOM, baseUrl: externalBaseUrl() });
+	}
+
+	/** Open a body coordinate on the map in a new tab (web) or the system
+	 *  browser (Tauri) — deliberately NOT an in-app route change: the zoomview
+	 *  is a modal over whatever the user was doing, and navigating away from it
+	 *  leaves them with no sane way back. */
+	function goToCoords(label: string, lat: number, lon: number) {
+		track('annotationCoords', {coords: label, photo: data.photo_id ?? ''});
+		closeDropdownMenu();
+		openExternalUrl(coordsMapUrl(lat, lon));
+	}
+
+	/** Coordinate link in the text modal. Modified clicks (ctrl/meta/shift,
+	 *  middle) fall through to the anchor so the browser opens them its own way. */
+	function handleCoordLinkClick(e: MouseEvent, label: string, lat: number, lon: number) {
+		if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+		e.preventDefault();
+		goToCoords(label, lat, lon);
 	}
 
 	/** Build dropdown menu items for the selected annotation. */
@@ -269,8 +300,24 @@
 			items.push({ type: 'divider' });
 		}
 
+		// Go-to-map item for a coordinate pair found in the body
+		const pushCoordsItem = (label: string, lat: number, lon: number, i: number) => {
+			items.push({
+				id: `annotation-menu-coords-${i}`,
+				label,
+				icon: MapPin,
+				url: coordsMapUrl(lat, lon),   // renders as <a> so ctrl/middle-click work
+				onclick: () => goToCoords(label, lat, lon),   // goToCoords tracks
+				testId: `annotation-menu-coords-${i}`,
+			});
+		};
+
 		for (let i = 0; i < bodyItems.length; i++) {
 			const item = bodyItems[i];
+			if (item.type === 'coords') {
+				pushCoordsItem(item.value, item.lat, item.lon, i);
+				continue;
+			}
 			if (item.type === 'url') {
 				items.push({
 					id: `annotation-menu-body-${i}`,
@@ -297,6 +344,11 @@
 					testId: `annotation-menu-body-${i}`,
 				});
 			}
+			// Coords embedded in a text/URL segment ("Je\u0161t\u011bd 50.732N, 15.008E",
+			// maps links) \u2014 parse_body extracts these from any segment, so give
+			// them a go-to-map item too.
+			const c = firstCoords(item.value);
+			if (c) pushCoordsItem(c.text, c.lat, c.lon, i);
 		}
 
 		return items;
@@ -330,13 +382,16 @@
 		});
 	}
 
-	/** Toggle the annotation context menu from the "..." button. */
-	function toggleAnnotationMenu() {
+	/** Open the context menu for the view-selected annotation, hanging from the
+	 *  bottom of its shape. Called straight from selection — clicking a shape
+	 *  shows the menu, there is no intermediate "..." button to hunt for. */
+	function openViewAnnotationMenu() {
 		track('annotationMenu');
-		if (!viewSelectedAnnotation || !menuBtnEl) return;
+		if (!viewSelectedAnnotation || !container) return;
 		const items = buildAnnotationMenuItems(viewSelectedAnnotation);
-		showDropdownMenu(items, menuBtnEl, {
-			placement: 'below-left',
+		const containerRect = container.getBoundingClientRect();
+		showDropdownMenuAt(items, containerRect.left + menuAnchorX, containerRect.top + menuAnchorY, {
+			anchor: 'top-left',
 			testId: 'annotation-context-menu',
 		});
 	}
@@ -445,15 +500,7 @@
 		const dims = getImageDims();
 		const w3cAnnotations = annotations
 			.filter((a) => a.target)
-			.map((a) => ({
-				'@context': 'http://www.w3.org/ns/anno.jsonld',
-				id: a.id,
-				type: 'Annotation',
-				body: a.body
-					? [{ type: 'TextualBody', value: a.body, purpose: 'commenting' }]
-					: [],
-				target: targetToPixels(a.target, dims.w, dims.h),
-			}));
+			.map((a) => toW3cAnnotation(a, dims.w, dims.h));
 		//console.log('[OSD] Syncing annotations to viewer:', w3cAnnotations.length, w3cAnnotations);
 		try {
 			annotator.setAnnotations(w3cAnnotations);
@@ -479,46 +526,8 @@
 	 * fetching them is wasteful (one HTTP request each for a tiny image that
 	 * OSD never even displays at normal zoom).
 	 */
-	function computeMinLevel(width: number, height: number, tileSize: number): number {
-		const maxDim = Math.max(width, height);
-		const maxLevel = Math.ceil(Math.log2(maxDim));
-		// Walk from the top level down; the first level where the image fits
-		// in a single tile is the last one we want.  Everything below is waste.
-		for (let level = maxLevel; level >= 0; level--) {
-			const levelDim = Math.ceil(maxDim / Math.pow(2, maxLevel - level));
-			if (levelDim <= tileSize) return level;
-		}
-		return 0;
-	}
-
-	function buildTileSource() {
-		const p = data.pyramid;
-		if (p && p.type === 'dzi') {
-			const minLevel = computeMinLevel(p.width, p.height, p.tile_size);
-			console.log('[OSD] Using DZI pyramid for tile source:', p, '| minLevel:', minLevel);
-			return {
-				Image: {
-					xmlns: 'http://schemas.microsoft.com/deepzoom/2008',
-					Url: p.tiles_url + '/',
-					Format: p.format,
-					Overlap: String(p.overlap),
-					TileSize: String(p.tile_size),
-					Size: {
-						Width: String(p.width),
-						Height: String(p.height),
-					},
-				},
-				minLevel,
-				// crossOriginPolicy: 'Anonymous', // only needed for WebGL; causes CORS cache poisoning with fallback images
-			};
-		}
-		// Fallback: single full-size image
-		console.warn('[OSD] No DZI pyramid available, falling back to single-image source: ', JSON.stringify(p));
-		return {
-			type: 'image',
-			url: data.url,
-		};
-	}
+	// Tile-source construction lives in $zoomview/tileSource (extracted for
+	// reuse by the enrichment workbench; unit-tested there).
 
 	// Pre-parsed annotation data for drawLabels — rebuilt only when annotations change
 	interface ParsedAnnotation {
@@ -582,7 +591,7 @@
 			drawLabelsRaf = requestAnimationFrame(() => {
 				drawLabelsRaf = 0;
 				drawLabelsNow();
-				if (viewSelectedAnnotation) updateMenuBtnPosition();
+				if (viewSelectedAnnotation) updateMenuAnchor();
 			});
 		}
 	}
@@ -656,7 +665,10 @@
 		LABEL_GAP,
 		type LabelInput,
 		type LabelDrawCmd
-	} from '$lib/utils/labelLayout';
+	} from '$zoomview/labelLayout';
+	import { paintLabels } from '$zoomview/labelPaint';
+	import { toW3cAnnotation } from '$zoomview/annotationTargets';
+	import { OSD_VIEWER_DEFAULTS, initialSourceFor, swapInMainSource } from '$zoomview/viewerInit';
 
 	const BASE_LABEL_FONT_SIZE = 12;
 	const LABEL_FONT_FAMILY = 'system-ui,sans-serif';
@@ -802,48 +814,16 @@
 		}
 		labelDrawCmds = cmds;
 
-		ctx.clearRect(0, 0, W, H);
-
-		// Pass 1: leader lines for every label, drawn first so that all label
-		// pills (pass 2) sit on top of them — otherwise a later annotation's
-		// yellow-black line would draw over an earlier annotation's pill.
-		for (const { cx, cy, edge, tx, ty, pillW, pillH } of cmds) {
-			const pillCx = tx + pillW / 2;
-			const pillCy = ty + pillH / 2;
-			const toX = edge === 'left' || edge === 'right' ? tx + (edge === 'left' ? 0 : pillW) : pillCx;
-			const toY = edge === 'top' || edge === 'bottom' ? ty + (edge === 'top' ? 0 : pillH) : pillCy;
-
-			ctx.beginPath();
-			ctx.moveTo(cx, cy);
-			ctx.strokeStyle = 'rgba(255,255,55,1)';
-			ctx.lineWidth = leaderWidth;
-			ctx.lineTo(toX, toY);
-			ctx.stroke();
-
-			ctx.beginPath();
-			ctx.moveTo(cx, cy);
-			ctx.setLineDash([leaderDash, leaderDash]);
-			ctx.lineTo(toX, toY);
-			ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-			ctx.lineWidth = leaderWidth;
-			ctx.stroke();
-			ctx.setLineDash([]);
-		}
-
-		// Pass 2: label pills, drawn on top of all leader lines.
-		ctx.font = labelFont;
-		for (const { label, tx, ty, pillW, pillH } of cmds) {
-			ctx.fillStyle = 'rgba(0,0,0,0.75)';
-			ctx.beginPath();
-			if (typeof (ctx as any).roundRect === 'function') {
-				(ctx as any).roundRect(tx, ty, pillW, pillH, pillRadius);
-			} else {
-				ctx.rect(tx, ty, pillW, pillH);
-			}
-			ctx.fill();
-			ctx.fillStyle = '#fff';
-			ctx.fillText(label, tx + labelPad, ty + pillH - textBaselineOffset);
-		}
+		// Painting lives in $zoomview/labelPaint (extracted for reuse by the
+		// enrichment workbench; op sequence pinned by unit tests there).
+		paintLabels(ctx, W, H, cmds, {
+			labelFont,
+			labelPad,
+			leaderWidth,
+			leaderDash,
+			pillRadius,
+			textBaselineOffset
+		});
 	}
 
 	onMount(async () => {
@@ -856,85 +836,28 @@
 
 		// If we have a fallback thumbnail (likely browser-cached), show it
 		// immediately while the main source (DZI or full-size) loads.
+		// Source selection + swap logic live in $zoomview/viewerInit
+		// (extracted for reuse by the enrichment workbench; behavior pinned
+		// by unit tests there).
 		console.log('[OSD] fallback_url:', JSON.stringify(data.fallback_url), 'main url:', JSON.stringify(data.url));
-		usingFallback = !!data.fallback_url;
-		const initialSource = usingFallback
-			? { type: 'image', url: data.fallback_url }
-			: buildTileSource();
+		const initial = initialSourceFor(data.fallback_url, data.pyramid, data.url);
+		usingFallback = initial.usingFallback;
 
-		const options = {
-			zoomPerScroll: 2.5,
+		viewer = new OpenSeadragon.Viewer({
+			...OSD_VIEWER_DEFAULTS,
 			element: container,
-			drawer: 'canvas' as const,
-			tileSources: initialSource,
-			// Disable default controls – we supply our own close button
-			showNavigationControl: false,
-			showNavigator: false,
-			animationTime: 0.3,
-			// Allow dragging even without a button press (touch-friendly)
-			gestureSettingsMouse: { clickToZoom: false, dblClickToZoom: true },
-			gestureSettingsTouch: { clickToZoom: false, dblClickToZoom: true },
-			immediateRender: false,
-			imageLoaderLimit: 1,
-			// Allow zooming well beyond native resolution (default is 1.1)
-			maxZoomPixelRatio: 4,
-			imageSmoothingEnabled: false,
-			placeholderFillStyle: '#009900'
-			// Note: crossOriginPolicy is set per-source (on DZI tile sources), NOT here.
-			// Setting it on the viewer would apply to fallback images too, which share
-			// URLs with regular <img> tags. If the browser cached a non-CORS response,
-			// loading with crossOrigin='anonymous' would fail (CORS cache poisoning).
+			tileSources: initial.source
 			//debugMode: true
-		}
-
-		viewer = new OpenSeadragon.Viewer(options);
+		});
 
 		viewer.addHandler('open', () => {
 			console.log('[OSD] open event fired, usingFallback:', usingFallback, 'itemCount:', viewer.world.getItemCount());
-			if (!usingFallback) {
-				// No fallback path — the real source loaded directly
-				isLoading = false;
-				applyInitialBounds();
-				return;
-			}
-			// Fallback thumbnail loaded (from browser cache) — dismiss spinner
+			// Real source loaded directly, or fallback thumbnail loaded (from
+			// browser cache) — either way, dismiss the spinner
 			isLoading = false;
 			applyInitialBounds();
-			console.log('[OSD] Fallback loaded, spinner dismissed. Adding main source...');
-
-			// Now add the real source on top — it renders over the fallback
-			// as tiles arrive, then we remove the fallback once fully loaded.
-			const mainSource = buildTileSource();
-			viewer.addTiledImage({
-				tileSource: mainSource,
-				success: (event: any) => {
-					const mainItem = event.item;
-					const removeFallback = () => {
-						const fallbackItem = viewer.world.getItemAt(0);
-						if (fallbackItem && fallbackItem !== mainItem && viewer.world.getItemCount() > 1) {
-							viewer.world.removeItem(fallbackItem);
-							console.log('[OSD] Fallback image removed');
-						}
-					};
-					// Listen on the TiledImage itself for fully-loaded-change,
-					// which fires reliably for DZI sources (unlike world metrics-change).
-					if (mainItem.getFullyLoaded()) {
-						removeFallback();
-					} else {
-						const onLoaded = (e: any) => {
-							if (!e.fullyLoaded) return;
-							mainItem.removeHandler('fully-loaded-change', onLoaded);
-							removeFallback();
-						};
-						mainItem.addHandler('fully-loaded-change', onLoaded);
-					}
-				},
-				error: (event: any) => {
-					// Main source failed — keep the fallback visible
-					console.warn('[OSD] Main tile source failed to load, keeping fallback');
-					throw new Error(`[OSD] addTiledImage error: ${event?.message || event?.source || JSON.stringify(event)}`);
-				},
-			});
+			if (!usingFallback) return;
+			swapInMainSource(viewer, buildTileSource(data.pyramid, data.url));
 		});
 
 		viewer.addHandler('open-failed', (event: any) => {
@@ -1081,6 +1004,13 @@
 		annotator.on('clickAnnotation', (annotation: any, originalEvent: PointerEvent) => {
 			console.log('[OSD] clickAnnotation event — uiId:', annotation.id, 'mode:', annotationMode);
 			track('annotationClick', {id: annotation.id});
+			// Re-clicking an already-selected shape fires no selectionChanged, so
+			// reopen the menu here — otherwise a shape whose menu was dismissed
+			// (Escape) would need a deselect round-trip before it responds again.
+			if (annotationMode !== 'edit' && viewSelectedAnnotation
+				&& uiToDb.get(annotation.id) === viewSelectedAnnotation.id) {
+				openViewAnnotationMenu();
+			}
 		});
 
 		// Open the edit panel when Annotorious actually selects an annotation,
@@ -1110,7 +1040,7 @@
 				originalW3cSnapshot = internal ? deepClone(internal) : null;
 				console.log('[OSD] selectionChanged — editing dbId:', dbId, 'body:', editBody);
 			} else if (selected.length > 0 && annotationMode !== 'edit') {
-				// View-mode selection: show the "..." context menu button
+				// View-mode selection: open the annotation's context menu
 				const annotation = selected[0];
 				const uiId = annotation.id;
 				const dbId = uiToDb.get(uiId);
@@ -1126,7 +1056,8 @@
 
 				viewSelectedAnnotation = match;
 				viewSelectedGeometry = { x: g.x, y: g.y, w: g.w, h: g.h };
-				updateMenuBtnPosition();
+				updateMenuAnchor();
+				openViewAnnotationMenu();
 				console.log('[OSD] selectionChanged — view-selected dbId:', dbId);
 			} else if (selected.length === 0 && editingAnnotation) {
 				saveEditBody();
@@ -1501,6 +1432,10 @@
 <svelte:window on:keydown={handleKeydown} />
 
 <div class="osd-overlay" data-testid="osd-viewer-overlay">
+	{#if $showPhotoInfoWindow}
+		<PhotoInfoWindow photo={$photoInFront} variant="zoom"/>
+	{/if}
+
 	<!-- Close button -->
 	<button class="close-btn" onclick={onClose} aria-label="Close zoom view" data-testid="osd-viewer-close">
 		<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -1603,19 +1538,6 @@
 		</div>
 	{/if}
 
-	<!-- View-mode annotation context menu button -->
-	{#if viewSelectedAnnotation}
-		<button
-			class="annotation-menu-btn"
-			style:left="{menuBtnX}px"
-			style:top="{menuBtnY}px"
-			bind:this={menuBtnEl}
-			data-testid="annotation-menu-btn"
-			onclick={toggleAnnotationMenu}
-			aria-label="Annotation menu"
-		>⋯</button>
-	{/if}
-
 	<!-- Clickable label pill overlays -->
 	{#each labelDrawCmds as cmd (cmd.id ?? cmd.label)}
 		<button
@@ -1637,7 +1559,16 @@
 			onclick={() => { if (Date.now() - textModalOpenedAt > 40) textModalContent = null; }}>
 			<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 			<div class="text-modal" onclick={(e) => e.stopPropagation()}>
-				<p class="text-modal-body">{textModalContent}</p>
+				<!-- runs rendered without stray template whitespace: the body is
+				     white-space: pre-wrap, so any newline here would be visible -->
+				<p class="text-modal-body">{#each splitOnCoords(textModalContent) as run}{#if run.type === 'coords'}<a
+							class="coord-link"
+							href={coordsMapUrl(run.lat, run.lon)}
+							target="_blank"
+							rel="noopener noreferrer"
+							data-testid="annotation-text-modal-coords"
+							onclick={(e) => handleCoordLinkClick(e, run.text, run.lat, run.lon)}
+						>{run.text}</a>{:else}{run.value}{/if}{/each}</p>
 				<button class="text-modal-close" onclick={() => textModalContent = null} data-testid="annotation-text-modal-close">Close</button>
 			</div>
 		</div>
@@ -1930,31 +1861,6 @@
 
 	.edit-body-btn.delete:hover { background: #c82333; }
 
-	.annotation-menu-btn {
-		position: absolute;
-		z-index: 10;
-		transform: translateX(-50%);
-		background: rgba(255,255,255,0.9);
-		border: none;
-		border-radius: 50%;
-		width: 32px;
-		height: 32px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		cursor: pointer;
-		font-size: 18px;
-		font-weight: bold;
-		color: #333;
-		box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-		line-height: 1;
-		padding: 0;
-	}
-
-	.annotation-menu-btn:hover {
-		background: rgba(255,255,255,1);
-	}
-
 	.text-modal-overlay {
 		position: absolute;
 		inset: 0;
@@ -1985,6 +1891,12 @@
 		margin: 0;
 		white-space: pre-wrap;
 		word-break: break-word;
+	}
+
+	.coord-link {
+		color: #7cc4ff;
+		text-decoration: underline;
+		cursor: pointer;
 	}
 
 	.text-modal-close {

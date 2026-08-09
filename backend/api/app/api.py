@@ -331,7 +331,7 @@ app.add_middleware(
 	CORSMiddleware,
 	allow_origins=get_cors_origins(),
 	allow_credentials=True,
-	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+	allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 	allow_headers=["Content-Type", "Authorization", "Accept"],
 )
 
@@ -387,6 +387,10 @@ import contact_routes
 
 app.include_router(contact_routes.router)
 
+import admin_routes
+
+app.include_router(admin_routes.router)
+
 import worker_routes
 
 app.include_router(worker_routes.router)
@@ -395,9 +399,17 @@ import annotation_routes
 
 app.include_router(annotation_routes.router)
 
+import graduation_routes
+
+app.include_router(graduation_routes.router)
+
 import featured_routes
 
 app.include_router(featured_routes.router)
+
+import share_routes
+
+app.include_router(share_routes.router)
 
 # Debug + internal-debug routers are pure debug tooling. Outside debug mode we
 # don't even register them: their routes then 404 at the routing layer (not just

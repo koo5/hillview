@@ -1,0 +1,185 @@
+name: hillview-enrich
+
+# Enrichment Workbench stack — independent of the main hillview compose project.
+# The api service additionally joins the main stack's external network
+# (hillview_network) to mirror-sync from the hillview Postgres at postgres:5432.
+# See README.md for the port map and smoke tests. Design: docs/enrichment-workbench.md.
+
+services:
+  workbench-db:
+    # deliberately NOT named "postgres" — the api container also sits on
+    # hillview_network where that name already resolves to hillview_postgres
+    image: postgis/postgis:15-3.5
+    container_name: enrich_workbench_db
+    restart: unless-stopped
+    mem_limit: 2g
+    environment:
+      POSTGRES_DB: ${WB_POSTGRES_DB:-enrich}
+      POSTGRES_USER: ${WB_POSTGRES_USER:-enrich}
+      POSTGRES_PASSWORD: ${WB_POSTGRES_PASSWORD:-enrich}
+    ports:
+      - "127.0.0.1:${WB_POSTGRES_HOST_PORT:-15432}:5432"
+    volumes:
+      - workbench_db_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WB_POSTGRES_USER:-enrich} -d ${WB_POSTGRES_DB:-enrich}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  oxigraph:
+    image: ghcr.io/oxigraph/oxigraph:0.5.0
+    container_name: enrich_oxigraph
+    restart: unless-stopped
+    mem_limit: 2g
+    command: serve --location /data --bind 0.0.0.0:7878
+    ports:
+      - "127.0.0.1:${OXIGRAPH_HOST_PORT:-7878}:7878"
+    volumes:
+      - oxigraph_data:/data
+
+  rabbitmq:
+    image: rabbitmq:3.13-alpine
+    container_name: enrich_rabbitmq
+    restart: unless-stopped
+    mem_limit: 768m
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-enrich}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-enrich}
+      # Consumer ack deadline, 12 h (default is 30 MINUTES). A reconstruction routinely
+      # runs longer than that — the first 28-frame dense walk took 32 min — and when the
+      # deadline passes RabbitMQ closes the channel, which (a) kills the worker on its ack
+      # and (b) REQUEUES the message, so a completed job re-runs forever. The actor's own
+      # time_limit is 6 h; this has to be at least as generous or it silently overrides it.
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: >-
+        -rabbit consumer_timeout ${RABBITMQ_CONSUMER_TIMEOUT_MS:-432000000}
+    ports:
+      # loopback-published so HOST-side matcher workers (scripts/enrich venv,
+      # torch+MASt3R) can connect — the untrusted-worker topology: workers talk
+      # only to the broker + HTTP callback, never the DBs.
+      - "127.0.0.1:${RABBITMQ_HOST_PORT:-5672}:5672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  api:
+    build:
+      context: ./api
+    container_name: enrich_api
+    restart: unless-stopped
+    mem_limit: 1500m
+    environment:
+      - WB_DB_URL=postgresql+asyncpg://${WB_POSTGRES_USER:-enrich}:${WB_POSTGRES_PASSWORD:-enrich}@workbench-db:5432/${WB_POSTGRES_DB:-enrich}
+      - HILLVIEW_DB_URL=${HILLVIEW_DB_URL:-postgresql+asyncpg://hillview:hillview@postgres:5432/hillview}
+      - OXIGRAPH_URL=http://oxigraph:7878
+      - ARTIFACTS_DIR=/artifacts
+      - ENRICH_ALLOW_RAW_UPDATE=${ENRICH_ALLOW_RAW_UPDATE:-0}
+      - SCHEMA_DIR=/app/schema
+      - NOMINATIM_URL=${NOMINATIM_URL:-https://nominatim.ueueeu.eu}
+      - GEOCODE_DELAY=${GEOCODE_DELAY:-0.7}
+      - RABBITMQ_URL=${RABBITMQ_USER:-enrich}:${RABBITMQ_PASS:-enrich}@rabbitmq:5672
+      - ENRICH_WORKER_TOKEN=${ENRICH_WORKER_TOKEN:-dev-worker-token}
+      # empty is fine — config.py falls back to its built-in allowlist
+      - ENRICH_CORS_ORIGINS=${ENRICH_CORS_ORIGINS:-}
+      # peaks endpoint: Overpass instance override + DSM for filling missing
+      # OSM ele tags (sampled from the read-only earth volume below)
+      - OVERPASS_URL=${OVERPASS_URL:-https://overpass-api.de/api/interpreter}
+      - PEAKS_DEM_PATH=${PEAKS_DEM_PATH:-/dem/glo30.vrt}
+      # archived reconstruct.py runs, for POST /api/recon/import (read-only)
+      - RECON_ARCHIVE_DIR=/recon-archive
+    ports:
+      - "127.0.0.1:${ENRICH_API_HOST_PORT:-8070}:8070"
+    volumes:
+      - enrich_artifacts:/artifacts
+      - ./db/init:/app/schema:ro
+      # live-reload dev loop: code mounted over the image copy
+      - ./api/app:/app/app
+      # DEM read-only for peaks ele fill (worker owns writes)
+      - terrain_dem:/dem:ro
+      # archived recon runs, read-only: the import endpoint copies each run's sparse
+      # layer into ARTIFACTS_DIR and never writes back here
+      - ../scripts/enrich/runs:/recon-archive:ro
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8070", "--reload"]
+    networks:
+      default: {}
+      hillview:
+        aliases: [enrich-api]
+    depends_on:
+      workbench-db:
+        condition: service_healthy
+      oxigraph:
+        condition: service_started
+
+  terrain-worker:
+    # containerized twin of terrain/run_worker.sh — same untrusted-worker
+    # topology (broker + HTTP callback, no DB creds). First start downloads
+    # the GLO-30 tiles for TERRAIN_AUTO_DEM_BBOX (~45 tiles / ~2 GB for the
+    # CZ default) into terrain_dem; later starts only HEAD-check them.
+    build:
+      context: ./terrain
+    container_name: enrich_terrain_worker
+    restart: unless-stopped
+    mem_limit: 4g
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_USER:-enrich}:${RABBITMQ_PASS:-enrich}@rabbitmq:5672
+      - TERRAIN_CALLBACK_URL=http://api:8070/api/terrain/result
+      - ENRICH_WORKER_TOKEN=${ENRICH_WORKER_TOKEN:-dev-worker-token}
+      - TERRAIN_AUTO_DEM_BBOX=${TERRAIN_AUTO_DEM_BBOX:-11.5,47.5,19.5,51.5}
+      # set these (plus a mount) to use fine ČÚZK mosaics instead of auto GLO-30
+      - TERRAIN_DSM_PATH=${TERRAIN_DSM_PATH:-}
+      - TERRAIN_DTM_PATH=${TERRAIN_DTM_PATH:-}
+      # empty + auto GLO-30 → entrypoint fills in the required Copernicus notice
+      - TERRAIN_ATTRIBUTION=${TERRAIN_ATTRIBUTION:-}
+      # named stacks for the per-render dsm_stack param: glo30 is wired by the
+      # entrypoint's auto path; cuzk either auto-builds for this bbox (LAZ →
+      # pdal → 10 m near ring; heavy first build, incremental after) or comes
+      # pre-built via TERRAIN_DSM_PATH_CUZK. Attribution defaults are set by
+      # the entrypoint (ČÚZK CC BY credit + the composite's Copernicus notice).
+      - TERRAIN_AUTO_CUZK_BBOX=${TERRAIN_AUTO_CUZK_BBOX:-}
+      - TERRAIN_DSM_PATH_CUZK=${TERRAIN_DSM_PATH_CUZK:-}
+      - TERRAIN_DTM_PATH_CUZK=${TERRAIN_DTM_PATH_CUZK:-}
+      - TERRAIN_ATTRIBUTION_CUZK=${TERRAIN_ATTRIBUTION_CUZK:-}
+      - TERRAIN_GEOID_OFFSET_M=${TERRAIN_GEOID_OFFSET_M:-44.5}
+      - TERRAIN_REQUIRED_GB=${TERRAIN_REQUIRED_GB:-2}
+    volumes:
+      - terrain_dem:/dem
+    depends_on:
+      rabbitmq:
+        condition: service_started
+      api:
+        condition: service_started
+
+  web:
+    build:
+      # repo root: the UI imports shared zoomview modules from
+      # frontend/src/lib/zoomview (see web/Dockerfile + its .dockerignore)
+      context: ..
+      dockerfile: enrich/web/Dockerfile
+    container_name: enrich_web
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      - PORT=8071
+    ports:
+      - "127.0.0.1:${ENRICH_WEB_HOST_PORT:-8071}:8071"
+
+networks:
+  hillview:
+    external: true
+    name: hillview_network
+
+volumes:
+  workbench_db_data: {}
+  oxigraph_data: {}
+  enrich_artifacts: {}
+  rabbitmq_data: {}
+  # DEM data — big (whole-republic ČÚZK prefetch is hundreds of GB),
+  # re-downloadable, useful outside the VM, so it lives on the libvirt 9p
+  # host share rather than in docker's dir. Created manually (the host path
+  # stays out of this file):
+  #   docker volume create --opt type=none --opt o=bind \
+  #       --opt device=/shared/earth earth
+  # (9p maps container-root writes to the share owner — fine here.)
+  terrain_dem:
+    external: true
+    name: earth

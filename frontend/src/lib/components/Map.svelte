@@ -2,12 +2,12 @@
 	import {onMount, onDestroy, tick} from 'svelte';
 	import {Polygon, LeafletMap, TileLayer, Marker, Circle, ScaleControl} from 'svelte-leafletjs';
 	import {LatLng} from 'leaflet';
-	import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Filter, Clock} from 'lucide-svelte';
+	import {RotateCcw, RotateCw, ArrowLeftCircle, ArrowRightCircle, LocateFixed, Pause, ArrowUp, ArrowDown, Layers, Eye, Map as MapIcon, Info, Filter, Clock, Leaf} from 'lucide-svelte';
 	import FiltersModal from './filters-modal/FiltersModal.svelte';
 	import { activeFilterCount, openFiltersModal, clearFilters } from './filters-modal/filtersStore';
 	import { longPress } from '$lib/actions/longPress';
 	import L from 'leaflet';
-import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from '$lib/timeline';
+import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, toggleTimeline } from '$lib/timeline';
 	import 'leaflet/dist/leaflet.css';
 	import 'leaflet-textpath';
 	import { getCurrentProviderConfig, setTileProvider, currentTileProvider } from '$lib/tileProviders';
@@ -47,28 +47,31 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 
 		mapReady,
 		setUrlRequestedPhoto,
-		setLocationLoggingMode,
+		setElectedLocationSource,
 	} from "$lib/mapState";
 	import { overrideFilters } from '$lib/components/filters-modal/filtersStore';
 	import {featuredPhotoData, maybeFetchFeaturedPhoto} from "$lib/featuredPhoto";
 	import {updateBearingWithPhoto, disableBearingTracking} from "$lib/bearingTracking";
-	import {adjustMountOffset} from "$lib/gpsOrientation.svelte";
+	import {adjustMountOffset, gpsOrientationEnabled} from "$lib/gpsOrientation.svelte";
 	import {getAngularDistance} from "$lib/utils/bearingUtils";
 	import {enableSourceForPhotoUid, sources} from "$lib/data.svelte.js";
 	import { simplePhotoWorker } from '$lib/simplePhotoWorker';
-	import { turn_to_photo_to, app, sourceLoadingStatus } from "$lib/data.svelte.js";
+	import { turn_to_photo_to, app, sourceLoadingStatus, powerSavingActive } from "$lib/data.svelte.js";
 	import { updateGpsLocation, setLocationTracking, setLocationError, gpsLocation, locationTracking, lastKnownGpsLocation, backgroundLocationTracking, setBackgroundLocationTracking } from "$lib/location.svelte.js";
 	import { isOnMapRoute, compassEnabled, disableCompass } from "$lib/compass.svelte.js";
 	import { optimizedMarkerSystem, setupMarkerClickDelegation } from '$lib/optimizedMarkers';
 	import '$lib/styles/optimizedMarkers.css';
 	import type { PhotoData } from '$lib/types/photoTypes';
 	import PhotoMarkerIcon from './PhotoMarkerIcon.svelte';
+	import { enqueueTerrainRender, selectedTerrainRender, terrainPick, terrainRenders, terrainWedge } from '$lib/terrain.svelte';
+	import { gridMetaOf, markerStateOf, wedgeArcLatLngs, type TerrainRender } from '$lib/terrainModel';
 
 	import {get} from "svelte/store";
 	import {stringifyCircularJSON} from "$lib/utils/json";
 	import {TAURI} from "$lib/tauri";
-	import {parsePhotoUid} from "$lib/urlUtilsServer";
-	import {pendingZoomView} from '$lib/zoomView.svelte';
+	import {parsePhotoUid, parsePhotoUidParts} from "$lib/urlUtilsServer";
+	import {pendingZoomView, pendingZoomViewError} from '$lib/zoomView.svelte';
+	import {http} from '$lib/http';
 	import {openExternalUrl} from "$lib/urlUtils";
 	import {lines, linesVisible} from "$lib/data.svelte.js";
 	import {bearingBetween, distanceBetween, destinationPoint} from "$lib/geo";
@@ -91,6 +94,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 	let map: any;
 	let timelineRoute: any = null; // Leaflet polyline of the active timeline route
 	let unsubTimelineCurrent: (() => void) | null = null;
+	let unsubTimelineRecenter: (() => void) | null = null;
 	let unsubTimelinePhotos: (() => void) | null = null;
 	let unsubTimelineActive: (() => void) | null = null;
 	// Throttle for timeline stepping: rapid prev/next (key autorepeat, mashing the
@@ -200,6 +204,11 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 	$: if (map && typeof window !== 'undefined') {
 		(window as any).leafletMap = map;
 
+		if (!terrainCreateHandlerSetup) {
+			map.on('contextmenu', handleTerrainCreate);
+			terrainCreateHandlerSetup = true;
+		}
+
 		// Set up marker click event delegation (once)
 		if (!markerClickDelegationSetup) {
 			const container = map.getContainer();
@@ -230,6 +239,47 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 				}
 				afterInit();
 			}, 200);
+		}
+	}
+
+	/** A URL ?photo= link can go stale two ways: the photo was deleted (the
+	 *  pending overlay would spin forever) or it was moved (its source will
+	 *  never stream it into the URL's map bounds). One probe of the public
+	 *  endpoint settles both: 404 → tell the pending overlay; 200 with
+	 *  coordinates away from the URL position → pan to the photo's real
+	 *  location, which re-runs the normal stream flow (moveend → spatial state
+	 *  → sources → hunter) and lets the zoomview open; the URL heals via the
+	 *  existing viewport sync. Hillview uids only — other sources have no
+	 *  public endpoint. Deliberately NOT completion-tracking of sources: the
+	 *  probe is one request and also covers photos outside the stale bounds. */
+	async function verifyUrlRequestedPhoto(photoUid: string, urlLat: number, urlLon: number) {
+		if (parsePhotoUidParts(photoUid)?.source !== 'hillview') return;
+		try {
+			const res = await http.get(`/photos/public/${encodeURIComponent(photoUid)}`);
+			if (res.status === 404) {
+				pendingZoomViewError.set('Photo not found — it may have been deleted.');
+				return;
+			}
+			if (!res.ok) return; // transient server trouble — leave the normal flow alone
+			const photo = await res.json();
+			if (photo?.latitude == null || photo?.longitude == null || !map) return;
+			const moved =
+				Math.abs(photo.latitude - urlLat) > 2e-5 || Math.abs(photo.longitude - urlLon) > 2e-5;
+			// Steer whenever the pending overlay is still open — the user is
+			// visibly waiting for exactly this photo, so the pan is always
+			// wanted. Without a pending view (plain ?photo=), fall back to a
+			// position check so we don't yank a user who already panned away.
+			// (Do NOT gate the pending case on position: the probe resolves
+			// mid initial-animation, when getCenter() is an intermediate value
+			// — comparing it against the URL position is a flake machine.)
+			const c = map.getCenter();
+			const stillAtUrlPos = Math.abs(c.lat - urlLat) < 1e-3 && Math.abs(c.lng - urlLon) < 1e-3;
+			if (moved && (get(pendingZoomView) !== null || stillAtUrlPos)) {
+				console.log('🢄URL photo has moved — panning to its current location', photo.latitude, photo.longitude);
+				map.setView([photo.latitude, photo.longitude], map.getZoom());
+			}
+		} catch {
+			// network error — the connectivity machinery handles messaging
 		}
 	}
 
@@ -307,6 +357,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		const photoUid = parsePhotoUid(photoParam);
 		if (photoUid) {
 			//console.log('🢄Photo parameter from URL:', photoUid);
+			pendingZoomViewError.set(null); // fresh open attempt
 			enableSourceForPhotoUid(photoUid);
 			picks.set(new Set([photoUid])); // ensure culling grid keeps this photo
 			// Switch to view mode when opening a specific photo
@@ -337,8 +388,20 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 				x1: parseFloat(x1),
 				y1: parseFloat(y1),
 				x2: parseFloat(x2),
-				y2: parseFloat(y2)
+				y2: parseFloat(y2),
+				// Bind the pending view to the requested photo so the open
+				// bridge can't hijack it for a nearby photo that streams in
+				// first (matters when the requested photo was deleted/moved)
+				photoUid: photoUid ?? undefined
 			});
+		}
+
+		// Fire-and-forget: settle whether the URL-requested photo can arrive at
+		// all (deleted → pending error, moved → corrective pan). Deliberately
+		// after the pendingZoomView.set above — the probe's pan decision reads
+		// that store, and a fast localhost response could otherwise beat it.
+		if (photoUid) {
+			void verifyUrlRequestedPhoto(photoUid, p.center.lat, p.center.lng);
 		}
 
 		setTimeout(() => {
@@ -434,6 +497,153 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		} else {
 			console.warn('🢄Map: optimizedMarkerSystem.updateMarkers returned undefined');
 		}
+	}
+
+	// ---- terrain mode markers (docs/terrain-mode.md) ----
+	// The map swaps photo markers for terrain RENDER markers: hollow/pulsing
+	// = queued, progress ring = rendering, solid = done, red = failed —
+	// in-progress renders are first-class citizens. Navigation is tapping
+	// markers (no next/prev: sparse viewpoints have no ordering); a tap
+	// recenters the map on the viewpoint, so the range circle's spatial
+	// selection — its unchanged job — picks the render up.
+	let terrainLayer: L.LayerGroup | null = null;
+
+	function clearTerrainMarkers() {
+		terrainLayer?.remove();
+		terrainLayer = null;
+	}
+
+	function updateTerrainMarkers(renders: TerrainRender[], selectedId: string | null) {
+		if (!map) return;
+		clearTerrainMarkers();
+		terrainLayer = L.layerGroup(
+			renders.map((r) => {
+				const state = markerStateOf(r);
+				const selected = r.id === selectedId ? ' terrain-marker--selected' : '';
+				const m = L.marker([r.lat, r.lon], {
+					icon: L.divIcon({
+						className: '',
+						html: `<div class="terrain-marker terrain-marker--${state}${selected}" data-testid="terrain-marker" data-state="${state}"></div>`,
+						iconSize: [22, 22],
+						iconAnchor: [11, 11]
+					})
+				});
+				m.on('click', () => {
+					programmaticMove = true;
+					map.flyTo(new LatLng(r.lat, r.lon), map.getZoom(), { duration: 0.25 });
+				});
+				return m;
+			})
+		).addTo(map);
+	}
+
+	// Pane-derived terrain geometry: the view wedge (rect → azimuth/FOV,
+	// strictly pane → map) and the click-ray — "click a mountain → geo
+	// coords AND a ray on the map: viewpoint → picked point with a distance
+	// label. This is the moment the feature explains itself."
+	let terrainGeomLayer: L.LayerGroup | null = null;
+	// dedicated SVG renderer for the pick ray's textpath label (created on
+	// first pick, kept for reuse — clearTerrainGeometry runs per update)
+	let terrainSvgRenderer: L.SVG | null = null;
+
+	function clearTerrainGeometry() {
+		terrainGeomLayer?.remove();
+		terrainGeomLayer = null;
+	}
+
+	function updateTerrainGeometry(
+		wedge: { lat: number; lon: number; azimuthDeg: number; fovDeg: number } | null,
+		pick: { lat: number; lon: number; distance_m: number } | null,
+		viewpoint: { lat: number; lon: number } | null
+	) {
+		if (!map) return;
+		clearTerrainGeometry();
+		const layers: L.Layer[] = [];
+		// v1.5: faint coverage circle — max_distance, "what this can see"
+		const coverage = viewpoint && sel_meta_max_distance();
+		if (viewpoint && coverage) {
+			layers.push(L.circle([viewpoint.lat, viewpoint.lon], {
+				radius: coverage, color: '#3a7d44', weight: 1, opacity: 0.35,
+				fillOpacity: 0.03, dashArray: '2, 8', interactive: false
+			}));
+		}
+		if (wedge) {
+			// scale with the range circle, like the photo bearing wedge does
+			const pts = wedgeArcLatLngs(wedge, wedge.azimuthDeg, wedge.fovDeg, get(spatialState).range * 1.3);
+			if (pts) {
+				layers.push(L.polygon(pts, {
+					color: '#3a7d44', weight: 2, opacity: 0.8,
+					fillColor: '#3a7d44', fillOpacity: 0.12, interactive: false
+				}));
+			}
+		}
+		if (pick && viewpoint) {
+			// setText (leaflet-textpath) only works on the SVG renderer — on the
+			// preferCanvas map a canvas-rendered path has no _path element and
+			// every redraw throws. Same dedicated-L.svg() pattern as the Lines
+			// feature (lineSvgRenderer).
+			if (!terrainSvgRenderer) {
+				terrainSvgRenderer = L.svg();
+				terrainSvgRenderer.addTo(map);
+			}
+			const ray = L.polyline(
+				[[viewpoint.lat, viewpoint.lon], [pick.lat, pick.lon]],
+				{ color: '#e2a04a', weight: 3, dashArray: '6, 6', interactive: false,
+				  renderer: terrainSvgRenderer }
+			);
+			(ray as any).setText(`${(pick.distance_m / 1000).toFixed(1)} km`, {
+				center: true,
+				offset: -5,
+				attributes: {
+					'font-size': '13px', fill: '#000000', 'font-family': 'sans-serif',
+					'paint-order': 'stroke', stroke: '#ffffff', 'stroke-width': '3px',
+					'stroke-linecap': 'round', 'stroke-linejoin': 'round'
+				}
+			});
+			layers.push(ray);
+			layers.push(L.marker([pick.lat, pick.lon], {
+				interactive: false,
+				icon: L.divIcon({
+					className: '',
+					html: '<div class="terrain-pick-dot" data-testid="terrain-pick-dot"></div>',
+					iconSize: [12, 12], iconAnchor: [6, 6]
+				})
+			}));
+		}
+		if (layers.length) terrainGeomLayer = L.layerGroup(layers).addTo(map);
+	}
+
+	// Creation: "long-press on empty map in terrain mode → drop viewpoint →
+	// enqueue." Leaflet's contextmenu covers both mobile long-press and
+	// desktop right-click. Rendering is real compute (login/rate-limit/
+	// dedupe policy is TBD server-side), so a one-tap confirm popup sits
+	// between the press and the queue.
+	let terrainCreateHandlerSetup = false;
+
+	function handleTerrainCreate(e: L.LeafletMouseEvent) {
+		if (get(app).activity !== 'terrain') return;
+		const { lat, lng } = e.latlng;
+		const el = document.createElement('div');
+		el.className = 'terrain-create-popup';
+		el.innerHTML = `<div class="coords">${lat.toFixed(5)}, ${lng.toFixed(5)}</div>`;
+		const btn = document.createElement('button');
+		btn.textContent = 'Render terrain view here';
+		btn.dataset.testid = 'terrain-create-confirm';
+		el.appendChild(btn);
+		const popup = L.popup({ closeButton: true, autoClose: true })
+			.setLatLng(e.latlng)
+			.setContent(el)
+			.openOn(map);
+		btn.addEventListener('click', async () => {
+			btn.disabled = true;
+			btn.textContent = 'enqueuing…';
+			try {
+				await enqueueTerrainRender(lat, lng);
+				map.closePopup(popup);
+			} catch (err) {
+				btn.textContent = err instanceof Error ? err.message : String(err);
+			}
+		});
 	}
 
 	// Calculate how many km are "visible" based on the current zoom/center
@@ -868,10 +1078,10 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 			// kept the 'user' consumer when entering background), so release it.
 			setBackgroundLocationTracking(false);
 			stopLocationTracking();
-			setLocationLoggingMode('active'); // next session logs GPS as foreground again
+			setElectedLocationSource('android'); // next session's fixes are the elected source again
 		} else {
 			// OFF → ACTIVE
-			setLocationLoggingMode('active');
+			setElectedLocationSource('android');
 			startLocationTracking();
 			setLocationTracking(true);
 		}
@@ -879,17 +1089,26 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 
 	// ACTIVE → BACKGROUND, triggered by a manual map pan. Deliberately does NOT
 	// call stopLocationTracking(): the GPS subscription stays up so pulses
-	// continue and fixes keep logging (now tagged background). The map stops
-	// following because locationTracking is false → handleGpsLocationUpdate
-	// early-returns. setLocationLoggingMode('background') is awaited by the
-	// subsequent manual 'map' location write in updateSpatialState, so the
-	// manual location wins the external-photo pairing's latest-non-bg lookup.
+	// continue and fixes keep logging — under their own name now, simply no
+	// longer the elected source. The map stops following because
+	// locationTracking is false → handleGpsLocationUpdate early-returns.
+	// Nothing needs awaiting: the manual 'map' row written by updateSpatialState
+	// carries the election itself, so it cannot be stamped with the era it ends.
 	function enterBackgroundTracking() {
 		setLocationTracking(false);
 		setBackgroundLocationTracking(true);
-		setLocationLoggingMode('background');
+		setElectedLocationSource('manual');
 	}
 
+
+	// Whether the map has been moved to a GPS fix during the current ACTIVE
+	// tracking run. Under power saving the map parks after that one initial
+	// sync. Reset on any tracking toggle, so pressing the track-location
+	// button while power saving still snaps the map to you once.
+	let gpsFollowSyncedOnce = false;
+	locationTracking.subscribe(() => {
+		gpsFollowSyncedOnce = false;
+	});
 
 	// Handle GPS location updates only (position/coordinates)
 	async function handleGpsLocationUpdate(position: GeolocationPosition) {
@@ -915,7 +1134,14 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		// Only ACTIVE tracking moves the map to follow GPS. In BACKGROUND the map
 		// stays parked at the user's manual pan; the fix is still recorded (table +
 		// alt_location) but must not yank the view.
-		if (map && get(locationTracking)) {
+		// Power saving behaves like BACKGROUND here after one initial sync: the
+		// first fix of a tracking run still moves the map (so entering capture
+		// doesn't leave it parked somewhere unrelated), then the marker keeps
+		// moving (via lastKnownGpsLocation) but the map stops chasing fixes — it
+		// catches up once per capture (CameraCapture pushes the live fix into
+		// spatialState).
+		if (map && get(locationTracking) && (!get(powerSavingActive) || !gpsFollowSyncedOnce)) {
+			gpsFollowSyncedOnce = true;
 			const latLng = new L.LatLng(latitude, longitude);
 
 			updateSpatialState({
@@ -1013,17 +1239,28 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		const container = map?.getContainer();
 		if (!container) return;
 
-		function applyBearing(cx: number, cy: number) {
+		function pointerBearing(cx: number, cy: number) {
 			const rect = container!.getBoundingClientRect();
 			const px = cx - rect.left;
 			const py = cy - rect.top;
 			const dx = px - centerX;
 			const dy = py - centerY;
-			const bearing = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
-			if ($bearingMode === 'car') {
+			return (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+		}
+
+		// Car mode rotates by the angle the pointer travels instead of jumping to
+		// the touch angle — the whole range circle is grabbable there
+		// (fullCircleHitArea), and a jump on first touch would swing the mount
+		// offset by however far from the arrow the grab happened to land.
+		let prevPointerBearing = pointerBearing(e.detail.clientX, e.detail.clientY);
+
+		function applyBearing(cx: number, cy: number) {
+			const bearing = pointerBearing(cx, cy);
+			if ($bearingMode === 'car' && $gpsOrientationEnabled) {
 				// Translate drag into a mount-offset change so Kotlin (Tauri) /
 				// the subsequent gps-kalman diffs (browser) stay consistent.
-				adjustMountOffset(getAngularDistance($bearingState.bearing, bearing));
+				adjustMountOffset(getAngularDistance(prevPointerBearing, bearing));
+				prevPointerBearing = bearing;
 			} else {
 				updateBearing(bearing, 'arrow_drag');
 			}
@@ -1170,11 +1407,19 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		// it if in-window, or goes stale → refresh button if not). Genuine cursor moves
 		// after mount still drive selection.
 		let timelineFollowReady = !new URLSearchParams(window.location.search).get('photo');
+		// The uid this subscription last routed through handleMarkerClick. A window
+		// reload with an unchanged cursor (e.g. the filters notification fired by
+		// clearFilters() on URL navigation) re-emits timelineCurrent with the same
+		// photo; re-asserting it would clobber whatever the user navigated to. Only
+		// a target with a *different* uid — a genuine cursor move — drives selection.
+		let timelineLastStepUid: string | null = null;
 		unsubTimelineCurrent = timelineCurrent.subscribe((target) => {
-			if (!timelineFollowReady) { timelineFollowReady = true; return; }
+			if (!timelineFollowReady) { timelineFollowReady = true; timelineLastStepUid = target?.uid ?? null; return; }
+			if (target && target.uid === timelineLastStepUid) return;
 			if (timelineStepTimer) clearTimeout(timelineStepTimer);
 			timelineStepTimer = null;
-			if (!target || !get(timelineActive)) return;
+			if (!target || !get(timelineActive)) { timelineLastStepUid = null; return; }
+			timelineLastStepUid = target.uid;
 			// Tag the walk's own selection so the timeline's cursor-follow can ignore it
 			// (and the in-range transients the map surfaces while flying to the target).
 			const elapsed = Date.now() - timelineStepFiredAt;
@@ -1188,6 +1433,18 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 					if (get(timelineActive)) handleMarkerClick(target, 'timeline_step');
 				}, TIMELINE_STEP_THROTTLE_MS - elapsed);
 			}
+		});
+		// Deliberate same-row click in the panel: re-center on the cursor photo. Its
+		// own channel because the same-uid dedupe above swallows the cursor emission
+		// such a click produces (jumpToIndex onto the current index bumps the counter).
+		let timelineRecenterSeen: number | null = null;
+		unsubTimelineRecenter = timelineRecenter.subscribe((n) => {
+			const first = timelineRecenterSeen === null;
+			timelineRecenterSeen = n;
+			if (first) return;
+			const target = get(timelineCurrent);
+			if (!target || !get(timelineActive)) return;
+			handleMarkerClick(target, 'timeline_step');
 		});
 		unsubTimelinePhotos = timelinePhotos.subscribe(() => redrawTimelineRoute());
 		unsubTimelineActive = timelineActive.subscribe(() => redrawTimelineRoute());
@@ -1302,9 +1559,10 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		isOnMapRoute.set(false);
 		// Tear down timeline route + subscriptions
 		unsubTimelineCurrent?.();
+		unsubTimelineRecenter?.();
 		unsubTimelinePhotos?.();
 		unsubTimelineActive?.();
-		unsubTimelineCurrent = unsubTimelinePhotos = unsubTimelineActive = null;
+		unsubTimelineCurrent = unsubTimelineRecenter = unsubTimelinePhotos = unsubTimelineActive = null;
 		if (timelineStepTimer) {
 			clearTimeout(timelineStepTimer);
 			timelineStepTimer = null;
@@ -1476,9 +1734,33 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 	}
 
 	// Reactive updates for spatial changes (photos from worker include filtered placeholders)
-	$: if ($visiblePhotos && map) {
+	$: if ($visiblePhotos && map && $app.activity !== 'terrain') {
 		//console.log(`🢄Map: Reactive update triggered - updating markers with ${$visiblePhotos.length} total photos`);
 		updateOptimizedMarkers($visiblePhotos);
+	}
+
+	// Terrain mode: swap photo markers for terrain render markers (and back)
+	$: if (map && $app.activity === 'terrain') {
+		updateOptimizedMarkers([]);
+		updateTerrainMarkers($terrainRenders, $selectedTerrainRender?.id ?? null);
+	} else if (map) {
+		clearTerrainMarkers();
+		updateOptimizedMarkers(get(visiblePhotos) ?? []);
+	}
+
+	function sel_meta_max_distance(): number | null {
+		const sel = get(selectedTerrainRender);
+		const m = sel ? gridMetaOf(sel) : null;
+		return typeof m?.max_distance_m === 'number' ? m.max_distance_m : null;
+	}
+
+	// Pane-derived wedge + click-ray (redrawn on range change so the wedge
+	// keeps hugging the circle; cleared with the mode)
+	$: if (map && $app.activity === 'terrain') {
+		void $spatialState.range;
+		updateTerrainGeometry($terrainWedge, $terrainPick, $selectedTerrainRender ?? null);
+	} else if (map) {
+		clearTerrainGeometry();
 	}
 
 	// Ultra-fast bearing color updates (no worker communication)
@@ -1786,6 +2068,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 
 		<div class="svg-overlay">
 
+			{#if $app.activity !== 'terrain'}
 			<BearingStateArrow
 				{width}
 				{height}
@@ -1794,8 +2077,10 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 				{arrowX}
 				{arrowY}
 				bearingDeg={Math.round($bearingState.bearing ?? 0)}
+				fullCircleHitArea={$bearingMode === 'car' && $gpsOrientationEnabled}
 				on:arrowdragstart={handleArrowDragStart}
 			/>
+			{/if}
 
 		</div>
 
@@ -1955,12 +2240,17 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 	<button
 		class={$locationTracking ? 'active' : ''}
 		on:click={(e) => handleButtonClick('location', e)}
-		title="Track my location"
+		title={$powerSavingActive ? 'Track my location (power saving: map catches up after each capture)' : 'Track my location'}
 		data-testid="track-location-btn"
 		class:flash={locationApiEventFlash}
 		class:background={$backgroundLocationTracking}
 	>
 		<LocationButtonInner />
+		{#if $powerSavingActive}
+			<span class="power-saving-badge" data-testid="location-power-saving-badge">
+				<Leaf size={12}/>
+			</span>
+		{/if}
 	</button>
 	<CompassButton />
 </div>
@@ -2188,6 +2478,25 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		justify-content: center;
 		transition: background-color 0.1s, border-color 0.1s, color 0.1s;
 		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		position: relative;
+	}
+
+	/* Power saving: little leaf on the location button — the map isn't following
+	   GPS, it catches up after each capture. */
+	.power-saving-badge {
+		position: absolute;
+		top: -6px;
+		right: -6px;
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		background: #2ea043;
+		color: white;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+		pointer-events: none;
 	}
 
 	.location-button-container button:hover {
@@ -2493,4 +2802,75 @@ import { timelineActive, timelinePhotos, timelineCurrent, toggleTimeline } from 
 		cursor: grab;
 	}
 
+
+	/* terrain render markers — states per docs/terrain-mode.md */
+	:global(.terrain-marker) {
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		box-sizing: border-box;
+		border: 3px solid #3a7d44;
+		background: transparent;
+	}
+	:global(.terrain-marker--queued) {
+		animation: terrain-pulse 1.6s ease-in-out infinite;
+	}
+	:global(.terrain-marker--rendering) {
+		border-top-color: transparent;
+		animation: terrain-spin 1s linear infinite;
+	}
+	:global(.terrain-marker--done) {
+		background: #3a7d44;
+		border-color: white;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+	}
+	:global(.terrain-marker--failed) {
+		background: #e24a4a;
+		border-color: white;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+	}
+	:global(.terrain-create-popup) {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		align-items: center;
+	}
+	:global(.terrain-create-popup .coords) {
+		font-size: 12px;
+		color: #666;
+		font-variant-numeric: tabular-nums;
+	}
+	:global(.terrain-create-popup button) {
+		background: #3a7d44;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		padding: 6px 10px;
+		cursor: pointer;
+		font-size: 13px;
+	}
+	:global(.terrain-create-popup button:disabled) {
+		opacity: 0.6;
+		cursor: default;
+	}
+	:global(.terrain-pick-dot) {
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		background: #e2a04a;
+		border: 2px solid white;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+		box-sizing: border-box;
+	}
+	:global(.terrain-marker--selected) {
+		outline: 3px solid #4a90e2;
+		outline-offset: 2px;
+	}
+	@keyframes terrain-pulse {
+		0%, 100% { transform: scale(1); opacity: 1; }
+		50% { transform: scale(0.75); opacity: 0.55; }
+	}
+	@keyframes terrain-spin {
+		to { transform: rotate(360deg); }
+	}
 </style>

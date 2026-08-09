@@ -99,9 +99,19 @@ RUN    sed -i "s/<policy domain=\"resource\" name=\"memory\" value=\"[^\"]*\"/<p
 
 RUN chmod a=rwx,o+t /tmp
 
-USER worker
+# busybox: the in-VM hard-exit tool. On x86 Firecracker only *reboot* exits the
+# VM (poweroff/halt/sysrq-o dead-spin it) — `busybox reboot -f` from a root
+# `fly ssh console` is the manual escape hatch for a sick-but-sshable machine.
+RUN apt-get update && apt-get install -y busybox && rm -rf /var/lib/apt/lists/*
+
 RUN chmod +x /app/worker/start*.sh
 
-CMD ["/app/worker/start.sh"]
+# Starts as root: boot.py binds the listen socket within ~50ms (health checks
+# and proxy wakes queue instead of getting connection-refused), sets the
+# guest-kernel panic sysctls (turning an eternal freeze into a 10s
+# self-reboot), then drops to the unprivileged 'worker' user before exec'ing
+# start.sh. The app itself never runs as root. Invoked via python3 so no
+# executable bit is needed (dev bind-mounts shadow image chmods).
+CMD ["python3", "/app/worker/boot.py"]
 
 #CMD ["/usr/bin/bash"]

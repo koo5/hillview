@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 
 test.describe('Activity Page', () => {
@@ -16,14 +17,14 @@ test.describe('Activity Page', () => {
 		await expect.poll(async () =>
 			(await page.getByTestId('activity-loading').isHidden()) &&
 			((await activityList.isVisible()) || (await emptyState.isVisible())),
-			{ timeout: 11*15000 }
+			{ timeout: T(15000) }
 		).toBe(true);
 		await expect(errorState).toBeHidden();
 	});
 
 	test('should show user groups when activity exists', async ({ page }) => {
 		await page.goto('/activity');
-		await expect(page.getByTestId('activity-loading')).toBeHidden({ timeout: 11*15000 });
+		await expect(page.getByTestId('activity-loading')).toBeHidden({ timeout: T(15000) });
 
 		const activityList = page.getByTestId('activity-list');
 		if (await activityList.isVisible().catch(() => false)) {
@@ -42,7 +43,7 @@ test.describe('Activity Page', () => {
 		// path to fresh photo pages — every card's headline is a real
 		// <a href="/photo/...">.
 		await page.goto('/activity');
-		await expect(page.getByTestId('activity-loading')).toBeHidden({ timeout: 11*15000 });
+		await expect(page.getByTestId('activity-loading')).toBeHidden({ timeout: T(15000) });
 
 		const activityList = page.getByTestId('activity-list');
 		if (await activityList.isVisible().catch(() => false)) {

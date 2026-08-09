@@ -9,6 +9,7 @@
 	import PhotoHead from '$lib/components/PhotoHead.svelte';
 	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 	import { app } from '$lib/data.svelte';
+	import { buildAnnotationSummary, type PhotoAnnotation } from '$lib/photoDisplay';
 
 	interface BestOfPhoto {
 		id: string;
@@ -27,6 +28,18 @@
 		owner_id: string;
 		score: number;
 		annotation_count: number;
+		annotations?: string[];
+	}
+
+	// One line naming what each panorama shows — this page is the index of
+	// views, so the labels are its real content (for readers and crawlers
+	// alike; the count alone carries none of it). Longer budget than the meta
+	// description: grid cards have the room.
+	function photoSummary(photo: BestOfPhoto): string {
+		const anns = (photo.annotations ?? []).map(
+			(body, i) => ({ id: String(i), body, owner_username: null, created_at: null }) as PhotoAnnotation
+		);
+		return buildAnnotationSummary(anns, 220);
 	}
 
 	export let data: { photos?: BestOfPhoto[]; has_more?: boolean; next_cursor?: string | null } | undefined = undefined;
@@ -94,7 +107,7 @@
 
 <PhotoHead
 	title="Best of - Hillview"
-	description="Annotated panoramas from places where cars can't go — the best photos on Hillview."
+	description="The best annotated panoramas on Hillview — hilltop views and vistas from places where cars can't go, labeled to help you name what you're looking at."
 	ogType="website"
 	ogImage={{ url: `${HILLVIEW_BASE_URL}/og-card.png`, width: 1200, height: 630 }}
 	canonicalUrl={`${HILLVIEW_BASE_URL}/bestof`}
@@ -133,6 +146,11 @@
 						variant="thumbnail"
 						preferTitle={true}
 					/>
+					{#if photoSummary(photo)}
+						<p class="annotation-summary" data-testid="bestof-annotation-summary">
+							{photoSummary(photo)}
+						</p>
+					{/if}
 					<div class="photo-score" data-testid="bestof-photo-stats">
 						{photo.annotation_count} annotation{photo.annotation_count === 1 ? '' : 's'}{#if $app.debug_enabled}
 							· Score: {photo.score}{/if}
@@ -201,6 +219,13 @@
 		border-radius: 8px;
 		overflow: hidden;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.annotation-summary {
+		margin: 0;
+		padding: 0.4rem 0.6rem 0;
+		font-size: 0.85rem;
+		color: #444;
 	}
 
 	.photo-score {

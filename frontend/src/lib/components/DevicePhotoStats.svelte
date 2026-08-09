@@ -3,7 +3,7 @@
 	import {browser} from '$app/environment';
 	import {photoStats, fetchPhotoStats, hasUploadsToRetry, formatStorageInfo, getPlatformName} from '$lib/photoStatsAdapter';
 	import {app} from "$lib/data.svelte";
-	import {Upload, Clock, AlertCircle, CheckCircle, Loader, Trash2, Info, HelpCircle, ChevronDown} from 'lucide-svelte';
+	import {Upload, Clock, AlertCircle, CheckCircle, Loader, Trash2, Info, HelpCircle, ChevronDown, Download} from 'lucide-svelte';
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import {BROWSER} from '$lib/tauri';
 	import {isBackgroundSyncSupported} from '$lib/browser/photoStorage';
@@ -191,7 +191,12 @@
 				</div>
 
 				<p class="info-note">
-					For best experience on mobile, use Chrome or Edge browser.
+					For best experience on mobile, use Chrome or Edge browser, or
+					<a class="app-download-link" href="/download" target="_blank" rel="noopener noreferrer" data-testid="sync-info-download-app">
+						<Download size={14}/>
+						get the Android app
+					</a>
+					for reliable background uploads.
 				</p>
 			</div>
 		{/if}
@@ -365,6 +370,15 @@
 		border-left: 3px solid #0284c7;
 		color: #0c4a6e;
 		font-size: 0.825rem;
+	}
+
+	.app-download-link {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		color: #0284c7;
+		font-weight: 600;
+		text-decoration: underline;
 	}
 
 	.upload-status-bar {

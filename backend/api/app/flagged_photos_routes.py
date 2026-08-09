@@ -4,20 +4,37 @@ from typing import Optional, Dict
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, or_
+from geoalchemy2.functions import ST_X, ST_Y
 from pydantic import BaseModel
 
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import FlaggedPhoto, User
+from common.models import FlaggedPhoto, Photo, User, UserRole
 from auth import get_current_active_user
 from rate_limiter import rate_limit_photo_operations
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/flagged", tags=["flagged"])
+
+
+def _flag_thumb_url(photo: Optional[Photo]) -> Optional[str]:
+	"""A small thumbnail URL for a joined hillview photo, mirroring the size
+	preference used by the /photos grid (PhotoItem.svelte). None for external
+	sources (no local row) or unprocessed photos."""
+	if photo is None or not isinstance(photo.sizes, dict):
+		return None
+	for key in ('320_crop', '320', '1200_crop', 'full'):
+		url = (photo.sizes.get(key) or {}).get('url')
+		if url:
+			return url
+	for v in photo.sizes.values():
+		if isinstance(v, dict) and v.get('url'):
+			return v['url']
+	return None
 
 # Request models
 class FlagPhotoRequest(BaseModel):
@@ -202,14 +219,16 @@ async def list_flagged_photos(
 async def list_all_flagged_photos(
 	request: Request,
 	photo_source: Optional[str] = None,
+	resolved: Optional[bool] = None,
 	limit: int = 50,
 	offset: int = 0,
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""List all flagged photos (admin/moderator only)."""
+	"""List all flagged photos (admin/moderator only). Optionally filter by
+	source and by resolved state (resolved=false → the open queue)."""
 	# Check if user has admin/moderator permissions
-	if current_user.role not in ['ADMIN', 'MODERATOR']:
+	if current_user.role not in (UserRole.ADMIN, UserRole.MODERATOR):
 		raise HTTPException(
 			status_code=status.HTTP_403_FORBIDDEN,
 			detail="Insufficient permissions. Admin or moderator access required."
@@ -218,7 +237,23 @@ async def list_all_flagged_photos(
 	await rate_limit_photo_operations(request, current_user.id)
 
 	try:
-		query = select(FlaggedPhoto)
+		# Outer-join the local photo (hillview only) for a thumbnail/title/coords
+		# and whether it's been deleted or gone; and the flagging user for their
+		# name. External sources (mapillary/panoramax) carry their coords/thumbnail
+		# in extra_data captured at flag time (no local row, no cache lookup).
+		query = (
+			select(
+				FlaggedPhoto, Photo, User.username.label('flagger'),
+				ST_Y(Photo.geometry).label('h_lat'),
+				ST_X(Photo.geometry).label('h_lon'),
+			)
+			.join(
+				Photo,
+				and_(FlaggedPhoto.photo_id == Photo.id, FlaggedPhoto.photo_source == 'hillview'),
+				isouter=True,
+			)
+			.join(User, FlaggedPhoto.flagging_user_id == User.id, isouter=True)
+		)
 
 		if photo_source:
 			if photo_source not in ['mapillary', 'hillview', 'panoramax']:
@@ -228,22 +263,63 @@ async def list_all_flagged_photos(
 				)
 			query = query.where(FlaggedPhoto.photo_source == photo_source)
 
+		if resolved is not None:
+			query = query.where(FlaggedPhoto.resolved.is_(resolved))
+			if resolved is False:
+				# The open (actionable) queue hides hillview flags whose photo is
+				# already gone (soft-deleted or the row no longer exists) — there's
+				# nothing to act on. They remain visible under "All".
+				query = query.where(
+					~and_(
+						FlaggedPhoto.photo_source == 'hillview',
+						or_(Photo.deleted.is_(True), Photo.id.is_(None)),
+					)
+				)
+
 		query = query.order_by(FlaggedPhoto.flagged_at.desc()).limit(limit).offset(offset)
 		result = await db.execute(query)
-		flagged_photos = result.scalars().all()
+		rows = result.all()
 
-		return [{
-			"id": photo.id,
-			"flagging_user_id": photo.flagging_user_id,
-			"photo_source": photo.photo_source,
-			"photo_id": photo.photo_id,
-			"flagged_at": photo.flagged_at,
-			"reason": photo.reason,
-			"extra_data": photo.extra_data,
-			"resolved": photo.resolved,
-			"resolved_at": photo.resolved_at,
-			"resolved_by": photo.resolved_by
-		} for photo in flagged_photos]
+		out = []
+		for flag, photo, flagger, h_lat, h_lon in rows:
+			if flag.photo_source == 'hillview':
+				thumb = _flag_thumb_url(photo)
+				title = photo.title if photo else None
+				deleted = bool(photo.deleted) if photo else False
+				missing = photo is None
+				lat, lon = h_lat, h_lon
+				bearing = photo.compass_angle if photo else None
+			else:
+				ed = flag.extra_data if isinstance(flag.extra_data, dict) else {}
+				thumb = ed.get('thumb_url')
+				title = None
+				deleted = False
+				missing = False
+				lat, lon = ed.get('lat'), ed.get('lon')
+				bearing = ed.get('bearing')
+
+			out.append({
+				"id": flag.id,
+				"flagging_user_id": flag.flagging_user_id,
+				"flagging_username": flagger,
+				"photo_source": flag.photo_source,
+				"photo_id": flag.photo_id,
+				"flagged_at": flag.flagged_at,
+				"reason": flag.reason,
+				"extra_data": flag.extra_data,
+				"resolved": flag.resolved,
+				"resolved_at": flag.resolved_at,
+				"resolved_by": flag.resolved_by,
+				# Photo context for the UI thumbnail + links.
+				"thumb_url": thumb,
+				"photo_title": title,
+				"photo_deleted": deleted,
+				"photo_missing": missing,
+				"photo_lat": lat,
+				"photo_lon": lon,
+				"photo_bearing": bearing,
+			})
+		return out
 
 	except HTTPException:
 		raise
@@ -263,7 +339,7 @@ async def resolve_flag(
 ):
 	"""Mark a flagged photo as resolved (admin/moderator only)."""
 	# Check if user has admin/moderator permissions
-	if current_user.role not in ['ADMIN', 'MODERATOR']:
+	if current_user.role not in (UserRole.ADMIN, UserRole.MODERATOR):
 		raise HTTPException(
 			status_code=status.HTTP_403_FORBIDDEN,
 			detail="Insufficient permissions. Admin or moderator access required."

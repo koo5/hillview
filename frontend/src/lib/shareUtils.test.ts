@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock the modules shareUtils depends on
 vi.mock('$lib/tauri', () => ({
 	TAURI: false,
+	BROWSER: true,
 }));
 
 vi.mock('$lib/urlUtils', () => ({
@@ -10,6 +11,20 @@ vi.mock('$lib/urlUtils', () => ({
 		(photo: any, bounds?: any) =>
 			`https://hillview.cz/?lat=${photo.coord?.lat || 0}&lon=${photo.coord?.lng || 0}&zoom=18${bounds ? `&x1=${bounds.x1}` : ''}`
 	),
+	extractCoordinates: vi.fn((photo: any) =>
+		photo?.coord ? { lat: photo.coord.lat, lon: photo.coord.lng, bearing: photo.bearing } : null
+	),
+	HILLVIEW_BASE_URL: 'https://hillview.cz',
+}));
+
+vi.mock('$lib/mapState', async () => {
+	const { writable } = await import('svelte/store');
+	return { spatialState: writable({ zoom: 18 }) };
+});
+
+// Default: minting fails, so sharePhoto falls back to the long constructShareUrl form
+vi.mock('$lib/http', () => ({
+	http: { post: vi.fn().mockRejectedValue(new Error('backend unavailable')) },
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -17,6 +32,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 import { sharePhoto } from './shareUtils';
+import { http } from '$lib/http';
 
 describe('shareUtils', () => {
 	let writeTextSpy: ReturnType<typeof vi.fn>;
@@ -58,6 +74,32 @@ describe('shareUtils', () => {
 			const result = await sharePhoto(photo);
 			expect(result.error).toBe(true);
 			expect(result.message).toBe('Failed to share photo');
+		});
+
+		it('uses the minted short link when the backend responds', async () => {
+			vi.mocked(http.post).mockResolvedValueOnce({
+				ok: true,
+				json: async () => ({ slug: '7-vysoky-kotel', target: '/?lat=50&lon=14&zoom=18&photo=hillview-123' }),
+			} as Response);
+			const photo = {
+				uid: 'hillview-123',
+				coord: { lat: 50.0, lng: 14.0 },
+			};
+			const result = await sharePhoto(photo);
+			expect(writeTextSpy).toHaveBeenCalledOnce();
+			expect(writeTextSpy.mock.calls[0][0]).toBe('https://hillview.cz/shared/7-vysoky-kotel');
+			expect(result.error).toBe(false);
+		});
+
+		it('falls back to the long URL when minting fails', async () => {
+			const photo = {
+				uid: 'hillview-123',
+				coord: { lat: 50.0, lng: 14.0 },
+			};
+			const result = await sharePhoto(photo);
+			expect(writeTextSpy).toHaveBeenCalledOnce();
+			expect(writeTextSpy.mock.calls[0][0]).toContain('?lat=50');
+			expect(result.error).toBe(false);
 		});
 
 		it('passes zoomViewBounds through to URL construction', async () => {

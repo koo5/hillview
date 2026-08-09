@@ -29,27 +29,20 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 <!--    <uses-permission android:name="android.permission.VIBRATE" />-->
 
-    <!-- WorkManager 2.9.x declares FOREGROUND_SERVICE itself; the DATA_SYNC
-         subtype permission (and a typed foregroundServiceType on the hosting
-         SystemForegroundService — see <service> override below) is only
-         bundled in 2.10+, which requires compileSdk 35. We declare both here
-         so PhotoUploadWorker's typed ForegroundInfo can start the foreground
-         upload notification on targetSdk 34+. Both are normal-protection,
-         auto-granted, not on Play's sensitive list.
-         Drop these when the project moves to compileSdk 35 + WorkManager 2.10+. -->
+    <!-- PhotoUploadWorker promotes to a dataSync foreground service via a
+         typed ForegroundInfo; on targetSdk 34+ the runtime refuses that
+         against a typeless service. Verified 2026-08 on WorkManager 2.10.5 +
+         compileSdk 36: contrary to the old "2.10 bundles these" note, the
+         merged manifest still contains NEITHER the DATA_SYNC subtype
+         permission NOR a typed SystemForegroundService — WorkManager leaves
+         the type declaration to the app (it can't know which subtype an app
+         uses). So both patches stay. Normal-protection, auto-granted. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-
     <application>
-        <!-- Add foregroundServiceType to WorkManager's SystemForegroundService.
-             WorkManager 2.9.x declares the <service> without any type; on
-             targetSdk 34+ the runtime refuses a typed ForegroundInfo against
-             a typeless service ("foregroundServiceType 0x1 is not a subset
-             of 0x0"). tools:node="merge" tells the manifest-merger to combine
-             this entry with WorkManager's upstream declaration, adding the
-             attribute without replacing anything else.
-             Drop this once on compileSdk 35 + WorkManager 2.10+. -->
+        <!-- tools:node="merge" combines this with WorkManager's own <service>
+             declaration, adding the type without replacing anything else. -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"

@@ -235,5 +235,46 @@ class TestAnonymizationOverride:
         assert AnonymizationOverride.from_json_string("{nope") is None
 
 
+class TestParseExifDatetime:
+    """Tests for parse_exif_datetime() — the captured_at parse.
+
+    The upload metadata's captured_at (ms-ISO UTC from the Android fast-write
+    path and the pics pipeline) lands in the same slot as embedded
+    DateTimeOriginal, so this one function decides whether sub-second
+    precision and UTC-ness survive.
+    """
+
+    def test_millisecond_iso_utc_parses_with_subseconds(self):
+        from photo_processor import parse_exif_datetime
+        dt = parse_exif_datetime("2026-08-09T11:10:07.996Z")
+        assert dt is not None
+        assert dt.microsecond == 996000
+        assert dt.utcoffset().total_seconds() == 0
+
+    def test_z_string_ignores_the_files_local_offset(self):
+        # metadata captured_at overwrites DateTimeOriginal, but the file's
+        # OffsetTimeOriginal (written by an EXIF-writing client, local time)
+        # survives — applying it to an already-UTC value shifted the instant
+        # by the timezone.
+        from photo_processor import parse_exif_datetime
+        dt = parse_exif_datetime("2026-08-09T11:10:07Z", "+02:00")
+        assert dt is not None
+        assert dt.hour == 11
+
+    def test_naive_wall_clock_still_converts_via_offset(self):
+        from photo_processor import parse_exif_datetime
+        dt = parse_exif_datetime("2026:08:09 13:10:07", "+02:00")
+        assert dt is not None
+        assert dt.hour == 11
+        assert dt.utcoffset().total_seconds() == 0
+
+    def test_standard_exif_without_offset_assumed_utc(self):
+        from photo_processor import parse_exif_datetime
+        dt = parse_exif_datetime("2026:08:09 11:10:07")
+        assert dt is not None
+        assert dt.hour == 11
+        assert dt.utcoffset().total_seconds() == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

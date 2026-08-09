@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
 
@@ -23,6 +24,20 @@ test.describe('Navigation Menu', () => {
 		await expect(page.getByTestId('nav-activity-link')).toBeVisible();
 		await expect(page.getByTestId('nav-users-link')).toBeVisible();
 		await expect(page.getByTestId('settings-menu-link')).toBeVisible();
+
+		// The Admin link is admin-only; an anonymous visitor must not see it.
+		await expect(page.getByTestId('nav-admin-link')).toHaveCount(0);
+	});
+
+	test('should not show Admin link for a regular user', async ({ page, testUsers }) => {
+		await loginAsTestUser(page, testUsers.passwords.test);
+
+		await page.goto('/bestof');
+
+		await openMenu(page);
+
+		await expect(page.getByTestId('nav-logout-button')).toBeVisible();
+		await expect(page.getByTestId('nav-admin-link')).toHaveCount(0);
 	});
 
 	test('should show login link when unauthenticated', async ({ page }) => {
@@ -51,7 +66,7 @@ test.describe('Navigation Menu', () => {
 		await openMenu(page);
 		await page.getByTestId('nav-activity-link').click();
 
-		await page.waitForURL('/activity', { timeout: 11*10000 });
+		await page.waitForURL('/activity', { timeout: T(10000) });
 	});
 
 	test('should navigate to bestof page from settings', async ({ page }) => {
@@ -60,7 +75,7 @@ test.describe('Navigation Menu', () => {
 		await openMenu(page);
 		await page.getByTestId('bestof-menu-link').click();
 
-		await page.waitForURL('/bestof', { timeout: 11*10000 });
+		await page.waitForURL('/bestof', { timeout: T(10000) });
 	});
 
 	test('should logout and redirect to login', async ({ page, testUsers }) => {
@@ -71,6 +86,6 @@ test.describe('Navigation Menu', () => {
 		await openMenu(page);
 		await page.getByTestId('nav-logout-button').click();
 
-		await page.waitForURL('/login', { timeout: 11*15000 });
+		await page.waitForURL('/login', { timeout: T(15000) });
 	});
 });

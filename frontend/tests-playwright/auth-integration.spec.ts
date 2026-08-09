@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
 
@@ -15,7 +16,7 @@ test.describe('Authentication Integration', () => {
     await page.getByTestId('login-submit-button').click();
 
     // Should stay on login page and show error
-    await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 11*10000 });
+    await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: T(10000) });
     await expect(page).toHaveURL('/login');
   });
 
@@ -27,7 +28,7 @@ test.describe('Authentication Integration', () => {
     await page.getByTestId('login-submit-button').click();
 
     // Should stay on login page and show error
-    await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: 11*10000 });
+    await expect(page.getByTestId('login-error-message')).toBeVisible({ timeout: T(10000) });
     await expect(page).toHaveURL('/login');
   });
 

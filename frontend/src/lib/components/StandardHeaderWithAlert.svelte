@@ -5,6 +5,7 @@
     import type { Alert } from '$lib/alertSystem.svelte.js';
 
     export let title: string;
+    export let titleTag: string = 'h1';
     export let showBackButton: boolean = true;
     export let showMenuButton: boolean = true;
     export let fallbackHref: string = '/';
@@ -16,6 +17,7 @@
 <div class="header-with-alert">
     <StandardHeader
         {title}
+        {titleTag}
         {showBackButton}
         {showMenuButton}
         onMenuClick={toggleNavigationMenu}

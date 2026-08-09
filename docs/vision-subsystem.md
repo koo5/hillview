@@ -253,13 +253,57 @@ Now several parallel lines of work — some blocked on data collection, some run
   hours. Forward passes cache per-machine. Result: **strided sampling fails** (`walk_sparse`, every
   ~8th frame → 81 m drift, cameras collapse) while **contiguous holds** (`walk_dense` → 2.9 m) — but
   *only at the drift-gate level*: on eyeballing, the contiguous walk didn't actually solve well, so
-  the GPS residual is a **drift gate, not a quality score** (need MASt3R's 2-D reprojection error
-  instead). Selector now filters `deleted`, selects by **capture-time window** (list-index selection
+  the GPS residual is a **drift gate, not a quality score** (resolved below — but *not* by MASt3R's
+  own printed loss). Selector now filters `deleted`, selects by **capture-time window** (list-index selection
   silently mixed months), and supports `--pairs swin|complete|bearing`, `--inject` (Doppelganger
   test), `--mask_solocator` (image-fixed overlay), and a three.js cloud viewer on :8765. Board test
   so far **inconclusive** (printed-panorama content fools depth). Headline next: the **Prosek Rocks
   vantage** GPS-cluster + the **walk→world** merge (stage 5 above). Full empirical log in
   `docs/reconstruction-field-notes.md`.
+- **M-recon structure metric ✅ (2026-07-28).** `scripts/enrich/recon_metrics.py` computes
+  **reprojection error in pixels**, per image pair, post hoc from a finished run's own cached
+  correspondences (`--self-test` validates it on a synthetic scene with known injected pose error;
+  `--compare` tabulates runs). It also computes epipolar distance as a cheap screen — but that is
+  **blind to error along its own epipolar lines** (a 2° rotation worth 14 px of reprojection measured
+  0.10 px), so it is never a quality score. Do **not** use MASt3R's printed `>> final loss` either:
+  it is a gamma-weighted objective in its own units and ranks the worst run on disk *best*.
+  Prerequisite found the hard way: `sparse_ga` optimizes principal points but `scene.npz` never saved
+  them, and putting pp at the image centre inflates the metric ~5×; reconstruct.py now saves full
+  `intrinsics`, and `recon_resolve.py` recovers them for older runs by re-solving from the intact
+  cache. Comparing two solves must be **gauge-invariant** — a reconstruction is only defined up to a
+  global similarity, and a raw-coordinate check falsely reported 140%-of-extent divergence where the
+  aligned answer was 0.67%. Findings over all 7 archived runs: **five are under 3 px median** (the
+  earlier "solved poorly" reading was the pp artifact), the GPS residual ranks them with Spearman
+  **0.07**, and the real defect is a **tail at 35–81× the median** — good cores, warped minorities.
+  The masking A/B is a **wash** (median favours unmasked by 12%, p90 and epipolar favour masked),
+  so the 3.4× harm the GPS residual claimed was indeed over-read. Board test reframed: board_sweep is
+  the *strongest* real solve (0.94 px median), so what is unproven is whether the printed board
+  separates in **depth** from the vista — a depth question, not a solve question.
+- **M-recon bench ✅ (2026-07-29).** Recon is now a workbench workstream: `/recon` lists runs
+  ranked by structure with the per-pair spread (the false-link view), track map, frames and
+  artifacts; `recon_runs` + `routers/recon.py` hold the job rows and serve the sparse layer;
+  `POST /api/recon/runs` selects a cluster from the live `photo_mirror` (PostGIS, capture-time
+  ordered) and enqueues it; `enrich/recon/worker.py` drives reconstruct.py as a **subprocess**
+  on its own queue and systemd unit, then computes the metrics before uploading. The archived
+  experiments were imported, so the bench opened with content. First bench run reproduced the
+  original 5-photo burst end to end in 229 s (11.0 px median structure vs a flattering 0.39 m
+  GPS residual) and independently fingered the same bad frame (`561ef3e1`) that carries
+  walk_dense's worst per-frame error — its worst pairs are wrong by 250 px over 4689
+  correspondences, which is the false-link signature rather than a thin-pair artifact.
+  Deferred on purpose: a 3-D point-cloud viewer, and RDF pose facts (the two-way-sync
+  machinery wants a rethink before new op types).
+- **M-recon Doppelganger control ✅ MEASURED (2026-07-29).** The claim this whole reconstruction
+  turn rests on — *a Doppelganger that fools pairwise matching cannot register into a globally
+  consistent solve* — is no longer an argument. `--inject` impostors are excluded from the GPS
+  alignment fit and scored against a baseline over **real-real pairs only** (so an impostor
+  cannot dilute its own baseline), with `no-matches` reported as its own outcome rather than
+  passing for a rejection. Run `doppelganger-board`: 8 real vista frames from the Prosek lookout
+  plus **`f05f60ee`**, the frontal shot of the printed information board — a flat panel ~1 m away
+  depicting the very vista behind it. Result: pairwise matching **was** fooled (1,012 confident
+  correspondences), the GPS gate **would not** have caught it (2.55 m residual — inside phone-GPS
+  noise, because the camera really was standing there), and global consistency **rejected it by
+  ×23 reprojection / ×57 epipolar** against the real frames' 10.9 px / 3.3 px. The false-link
+  fingerprint is visible per-pair: 8→6 wrong by 1,487 px over 349 correspondences.
 - **M2 — naming + DB-wide `bias-calib`. M3 — product UX. M4 — DUSt3R/VGGT backend + corpus scale.**
 
 ### Roadmap: from annotations to 3D

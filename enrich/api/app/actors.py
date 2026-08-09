@@ -1,0 +1,48 @@
+"""Remoulade wiring (API side = producer only). Cribbed from the accounts-assessor
+tasking.py, minus result/state backends: workers are UNTRUSTED in the topology sense —
+they consume from RabbitMQ and report back over HTTP with a token, never touching the
+DBs. The matcher worker (enrich/matcher/worker.py, host-side venv with torch+MASt3R)
+declares the same actor by name and executes it."""
+import os
+
+import remoulade
+from remoulade.brokers.rabbitmq import RabbitmqBroker
+
+_ready = False
+
+
+@remoulade.actor(queue_name="matching")
+def match_pair(payload: dict) -> None:
+    """Executed by the matcher worker; the API only .send()s it."""
+    raise NotImplementedError("producer-side stub")
+
+
+@remoulade.actor(queue_name="terrain")
+def render_panorama(payload: dict) -> None:
+    """Executed by the terrain worker; the API only .send()s it."""
+    raise NotImplementedError("producer-side stub")
+
+
+# Own queue, not `matching`: a walk-sized reconstruction runs 50 min - 1.3 h and is the
+# heaviest thing in the stack, so it needs its own consumer, its own memory ceiling, and a
+# time_limit the matching actor's 30 min would blow.
+@remoulade.actor(queue_name="recon", time_limit=6 * 60 * 60 * 1000, max_retries=0)
+def reconstruct_cluster(payload: dict) -> None:
+    """Executed by the recon worker (enrich/recon/worker.py); the API only .send()s it."""
+    raise NotImplementedError("producer-side stub")
+
+
+def init_broker() -> bool:
+    """Lazy: the API works fine without a broker (candidates/verdicts don't need it);
+    only enqueueing does."""
+    global _ready
+    if _ready:
+        return True
+    url = os.getenv("RABBITMQ_URL")
+    if not url:
+        return False
+    broker = RabbitmqBroker(url=f"amqp://{url}?timeout=15", confirm_delivery=True)
+    remoulade.set_broker(broker)
+    remoulade.declare_actors([match_pair, render_panorama, reconstruct_cluster])
+    _ready = True
+    return True

@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
@@ -41,7 +42,7 @@ test.describe('Bearing URL param ownership', () => {
     // Wait for photoInFront to become populated (main-photo visible) and for
     // the `update_url = true` timeout + debounced URL flush to run.
     const mainPhoto = page.locator('[data-testid="main-photo"]');
-    await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
+    await mainPhoto.waitFor({ state: 'visible', timeout: T(30000) });
     await page.waitForTimeout(1000);
 
     // Bearing URL param must still match what we passed in — NOT the photo's
@@ -64,7 +65,7 @@ test.describe('Bearing URL param ownership', () => {
     // images all tagged `main-photo` — any being visible is enough to confirm
     // photoInFront resolved.
     const mainPhoto = page.locator('[data-testid="main-photo"]').first();
-    await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
+    await mainPhoto.waitFor({ state: 'visible', timeout: T(30000) });
     await page.waitForTimeout(1000);
 
     const paramsBefore = getUrlParams(page.url());

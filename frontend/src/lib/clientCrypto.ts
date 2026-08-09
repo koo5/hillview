@@ -262,6 +262,38 @@ export class ClientCryptoManager {
     }
 
     /**
+     * Sign a short-TTL, stream-scoped credential for authenticating SSE streams,
+     * where EventSource can't send an Authorization header. Signs the canonical
+     * [key_id, "stream", exp] list — the exact shape the server reconstructs and
+     * verifies via verify_ecdsa_signature. Keeps the long-lived access token out of
+     * stream URLs (and thus out of access logs / history).
+     *
+     * @param ttlSeconds credential lifetime; server caps this (default 10 min)
+     * @returns { keyId, exp (unix seconds), signature (base64) }
+     */
+    async signStreamAuth(ttlSeconds: number = 600): Promise<{ keyId: string; exp: number; signature: string }> {
+        const keyPair = await this.getOrCreateKeyPair();
+        const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+
+        // Same canonical form as signUploadData / the server: compact JSON array,
+        // exp as a Number so it serializes unquoted (matches int on the server).
+        const message = JSON.stringify([keyPair.key_id, 'stream', exp], null, 0);
+        const messageBuffer = new TextEncoder().encode(message);
+
+        const signatureBuffer = await crypto.subtle.sign(
+            { name: 'ECDSA', hash: 'SHA-256' },
+            keyPair.private_key,
+            messageBuffer
+        );
+
+        return {
+            keyId: keyPair.key_id,
+            exp,
+            signature: this.bufferToBase64(signatureBuffer),
+        };
+    }
+
+    /**
      * Clear stored client keys (e.g., on logout)
      */
     async clearStoredKeys(): Promise<void> {

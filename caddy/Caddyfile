@@ -6,6 +6,19 @@
 	header Access-Control-Expose-Headers *
 	respond @preflight 204
 
+	# The only two variants nothing references: dzi (1024px tile fragments) and
+	# 640_llm (detection-masked render — black boxes over people/plates — made for
+	# LLM analysis, never shown; in image search it would misrepresent the photo).
+	# Everything else stays indexable ON PURPOSE: the display sizes back the
+	# /photo/ <img> and og:image, and the sitemap hands Google 3840_crop (falling
+	# back to full/4096/3072) as <image:image> — see img_pref in photo_routes.py.
+	# Noindexing those would contradict the sitemap and gut image search.
+	@noindex path /opt/dzi/* /opt/640_llm/*
+	header @noindex X-Robots-Tag "noindex"
+
 	root * /pics
-	file_server browse
+	# NOT `file_server browse`: this origin has no robots.txt and no auth, so a
+	# listing enumerates every user UUID and their every photo UUID. Googlebot
+	# walked it in 2026-07 and indexed 4675 of them.
+	file_server
 }

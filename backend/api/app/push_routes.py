@@ -243,17 +243,36 @@ async def unregister_push(
 	return PushRegistrationResponse(success=True, message="Push registration removed")
 
 
+def _notification_type_filters(type: Optional[str], exclude_type: Optional[str]) -> list:
+	"""Optional type inclusion/exclusion filters shared by the read endpoints.
+
+	Lets the notifications page keep the high-volume 'activity_broadcast' out of
+	the main stream and the unread badge, and fetch it separately (collapsed to
+	at most one)."""
+	filters = []
+	if type is not None:
+		filters.append(Notification.type == type)
+	if exclude_type is not None:
+		filters.append(Notification.type != exclude_type)
+	return filters
+
+
 @router.get("/notifications/recent", response_model=NotificationListResponse)
 async def get_recent_notifications(
 	limit: int = 20,
 	offset: int = 0,
+	type: Optional[str] = None,
+	exclude_type: Optional[str] = None,
 	current_user: User = Depends(get_current_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Get recent notifications for the current user."""
+	"""Get recent notifications for the current user, optionally filtered by type."""
+	type_filters = _notification_type_filters(type, exclude_type)
+
 	# Get notifications
 	notifications_query = select(Notification).where(
-		Notification.user_id == current_user.id
+		Notification.user_id == current_user.id,
+		*type_filters,
 	).order_by(desc(Notification.created_at)).limit(limit).offset(offset)
 
 	result = await db.execute(notifications_query)
@@ -261,17 +280,17 @@ async def get_recent_notifications(
 
 	# Get total count
 	total_query = select(func.count(Notification.id)).where(
-		Notification.user_id == current_user.id
+		Notification.user_id == current_user.id,
+		*type_filters,
 	)
 	total_result = await db.execute(total_query)
 	total_count = total_result.scalar()
 
 	# Get unread count
 	unread_query = select(func.count(Notification.id)).where(
-		and_(
-			Notification.user_id == current_user.id,
-			Notification.read_at.is_(None)
-		)
+		Notification.user_id == current_user.id,
+		Notification.read_at.is_(None),
+		*type_filters,
 	)
 	unread_result = await db.execute(unread_query)
 	unread_count = unread_result.scalar()
@@ -301,15 +320,17 @@ async def get_recent_notifications(
 
 @router.get("/notifications/unread-count", response_model=UnreadCountResponse)
 async def get_unread_count(
+	type: Optional[str] = None,
+	exclude_type: Optional[str] = None,
 	current_user: User = Depends(get_current_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Get unread notification count for the current user."""
+	"""Get unread notification count for the current user, optionally filtered by
+	type (the bell badge excludes 'activity_broadcast')."""
 	query = select(func.count(Notification.id)).where(
-		and_(
-			Notification.user_id == current_user.id,
-			Notification.read_at.is_(None)
-		)
+		Notification.user_id == current_user.id,
+		Notification.read_at.is_(None),
+		*_notification_type_filters(type, exclude_type),
 	)
 	result = await db.execute(query)
 	count = result.scalar()

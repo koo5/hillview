@@ -1,15 +1,31 @@
 <script lang="ts">
 import { onMount } from 'svelte';
-import { zoomViewData, pendingZoomView, type ZoomViewInitialBounds } from '$lib/zoomView.svelte';
+import { zoomViewData, pendingZoomView, pendingZoomViewError, type ZoomViewInitialBounds } from '$lib/zoomView.svelte';
 import '@annotorious/openseadragon/annotorious-openseadragon.css';
 
 let OpenSeadragonViewer: any = null;
 let Pannellum360Viewer: any = null;
 let initialBounds: ZoomViewInitialBounds | null = null;
 
-// Capture initial bounds from pending state when it first appears
-$: if ($pendingZoomView && !initialBounds) {
+// Capture initial bounds from the pending state. This component lives in
+// +layout, so the local capture is session-long state — two rules keep it
+// honest:
+//
+// Deliberately NOT guarded by `!initialBounds`: a browser Back closes the
+// overlay via +layout's beforeNavigate (pathname change), which never runs
+// closeZoomView — so the capture survives, and with the guard a subsequent
+// open with NEW bounds (a different annotation link) kept applying the stale
+// first value.
+$: if ($pendingZoomView) {
 	initialBounds = { ...$pendingZoomView };
+}
+// And drop the capture once the zoomview is fully closed (both stores null —
+// e.g. after that nav-close): otherwise the next open WITHOUT pending bounds
+// (double-click on the photo overlay) would apply the stale window to an
+// unrelated photo. Safe against the open sequence: pending is set before
+// data, and stays set while the viewer is open.
+$: if (!$pendingZoomView && !$zoomViewData) {
+	initialBounds = null;
 }
 
 onMount(async () => {
@@ -24,11 +40,13 @@ onMount(async () => {
 function closeZoomView() {
 	zoomViewData.set(null);
 	pendingZoomView.set(null);
+	pendingZoomViewError.set(null);
 	initialBounds = null;
 }
 
 function closePendingView() {
 	pendingZoomView.set(null);
+	pendingZoomViewError.set(null);
 	initialBounds = null;
 }
 
@@ -44,10 +62,18 @@ function handlePendingKeydown(e: KeyboardEvent) {
 		<button class="pending-close-btn" on:click={closePendingView} data-testid="zoom-view-pending-close" aria-label="Close">
 			&times;
 		</button>
-		<div class="pending-content">
-			<div class="spinner"></div>
-			<p>Loading photo...</p>
-		</div>
+		{#if $pendingZoomViewError}
+			<!-- The photo will never arrive (deleted / gone) — say so instead of
+			     spinning forever; see verifyUrlRequestedPhoto in Map.svelte -->
+			<div class="pending-content" data-testid="zoom-view-pending-error">
+				<p>{$pendingZoomViewError}</p>
+			</div>
+		{:else}
+			<div class="pending-content">
+				<div class="spinner"></div>
+				<p>Loading photo...</p>
+			</div>
+		{/if}
 	</div>
 {/if}
 

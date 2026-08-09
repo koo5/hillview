@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
-	import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical, Clock, Copyright, CreativeCommons } from 'lucide-svelte';
+	import { EyeOff, UserX, ThumbsUp, ThumbsDown, Share, Flag, MoreVertical, Clock, Copyright, CreativeCommons, Trash2 } from 'lucide-svelte';
 	import { auth } from '$lib/auth.svelte.js';
+	import DeletePhotoDialog from './DeletePhotoDialog.svelte';
+	import FlagReasonDialog from './FlagReasonDialog.svelte';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { track } from '$lib/analytics';
 	import { requireAuth } from './signInModal.svelte';
@@ -25,7 +27,6 @@
 		hidePhotoRequest,
 		togglePhotoRating,
 		fetchPhotoRating,
-		flagPhotoRequest,
 		unflagPhotoRequest,
 		fetchIsFlagged,
 		viewPhotoUserProfile,
@@ -72,6 +73,16 @@
 	// Expose show/hide dialog state to parent
 	export let showHideUserDialog = false;
 
+	// Admin/moderator photo deletion. The dialog is self-contained (rendered
+	// below) so this works in every place the menu is mounted.
+	let showDeletePhotoDialog = false;
+	// Flag-with-reason dialog (shared component, rendered below).
+	let showFlagDialog = false;
+	// role is exposed on the user profile via /auth/me (UserOut.role).
+	$: isModerator = ['admin', 'moderator'].includes(($auth.user?.role as string) ?? '');
+	// Deletion only applies to our own backend's photos.
+	$: canDeletePhoto = isModerator && !!photo && getPhotoSource(photo) === 'hillview';
+
 	// Menu state
 	let menuTriggerButton: HTMLButtonElement;
 	const MENU_TEST_ID = 'photo-actions-dropdown';
@@ -112,6 +123,15 @@
 		if (!requireAuthOrCloseMenu()) return;
 
 		showHideUserDialog = true;
+		closeMenu();
+	}
+
+	// Open the admin/moderator delete-photo confirmation dialog.
+	function showDeletePhotoDialogAction() {
+		if (!photo || !canDeletePhoto) return;
+		if (!requireAuthOrCloseMenu()) return;
+
+		showDeletePhotoDialog = true;
 		closeMenu();
 	}
 
@@ -204,25 +224,13 @@
 		handleRatingClick(rating);
 	}
 
-	async function flagPhoto() {
+	// Flagging opens the reason dialog (shared component); it performs the request
+	// and flips isFlagged via onFlagged.
+	function openFlagDialog() {
 		if (!photo || isFlagging) return;
 		if (!requireAuthOrCloseMenu()) return;
-
-		isFlagging = true;
-		flagMessage = '';
-		try {
-			const result = await flagPhotoRequest(photo);
-			flagMessage = result.message;
-			flagError = result.error;
-			if (result.success) isFlagged = true;
-			scheduleTimeout(() => {
-				flagMessage = '';
-				flagError = false;
-			}, result.error ? 5000 : 2000);
-		} finally {
-			isFlagging = false;
-			closeMenu();
-		}
+		showFlagDialog = true;
+		closeMenu();
 	}
 
 	async function unflagPhoto() {
@@ -246,10 +254,6 @@
 		}
 	}
 
-	function toggleFlag() {
-		if (isFlagged) unflagPhoto();
-		else flagPhoto();
-	}
 
 	async function viewUserProfile() {
 		if (!photo) return;
@@ -381,7 +385,7 @@
 			label: isFlagged ? 'Remove Flag' : 'Flag for Review',
 			icon: Flag,
 			disabled: isFlagging,
-			onclick: toggleFlag,
+			onclick: isFlagged ? unflagPhoto : openFlagDialog,
 			testId: 'menu-flag'
 		});
 		items.push({
@@ -409,6 +413,18 @@
 			onclick: () => handleRatingClick('thumbs_down'),
 			testId: 'menu-thumbs-down'
 		});
+
+		// Admin/moderator-only: delete this photo from the backend.
+		if (canDeletePhoto) {
+			items.push({ type: 'divider' });
+			items.push({
+				id: 'delete-photo',
+				label: 'Delete photo',
+				icon: Trash2,
+				onclick: showDeletePhotoDialogAction,
+				testId: 'menu-delete-photo'
+			});
+		}
 
 		return items;
 	}
@@ -486,6 +502,31 @@
 	</div>
 
 {/if}
+
+<DeletePhotoDialog
+	bind:show={showDeletePhotoDialog}
+	{photo}
+	onDeleted={() => {
+		hideMessage = 'Photo deleted';
+		hideError = false;
+		scheduleTimeout(() => {
+			hideMessage = '';
+		}, 2500);
+	}}
+/>
+
+<FlagReasonDialog
+	bind:show={showFlagDialog}
+	{photo}
+	onFlagged={(message) => {
+		isFlagged = true;
+		flagMessage = message;
+		flagError = false;
+		scheduleTimeout(() => {
+			flagMessage = '';
+		}, 2500);
+	}}
+/>
 
 <style>
 	.photo-actions-menu {

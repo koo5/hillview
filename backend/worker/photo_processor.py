@@ -2,6 +2,7 @@
 photo processing service
 """
 import asyncio
+import contextlib
 import os
 import pathlib
 import json
@@ -80,6 +81,32 @@ def _save_webp(rgb_array, output_path: str, quality: int, method: int) -> None:
 			f"WebP save failed for {w}x{h} at method={method}, quality={quality}: {msg}. "
 			f"Path: {output_path}"
 		) from e
+
+
+def _assert_output_base_owned(output_base: str, photo_id) -> None:
+	"""Guard against cross-job output roots (the 2026-08-03 clobber class).
+
+	Per-job work dirs are named ``{photo_id}-{suffix}`` and live under
+	``.../work/`` (see app.process). If ``output_base`` is such a dir, it must
+	be THIS job's: another photo's id there means per-job state leaked between
+	concurrent pool threads again (e.g. via an attribute on the shared
+	photo_processor singleton) — this job's files would land in a dir whose
+	owner rmtree's it on completion. The leak is deterministic on job overlap
+	(only the downstream ENOENT was intermittent), so failing loud here catches
+	the whole class at its first occurrence. Shared roots (KEEP_PICS_IN_WORKER
+	/ the default upload_dir) have no ``work/`` parent and are exempt — they
+	are shared by design.
+	"""
+	if not photo_id:
+		return
+	base = os.path.normpath(output_base)
+	if os.path.basename(os.path.dirname(base)) != 'work':
+		return
+	owner = os.path.basename(base).rsplit('-', 1)[0]  # strip the random hex suffix
+	if owner != str(photo_id):
+		raise RuntimeError(
+			f"output_base {output_base!r} is another job's work dir "
+			f"(this photo_id={photo_id}): per-job state leaked across pool threads")
 
 
 def create_center_crop(image, target_width: int, target_height: int):
@@ -241,7 +268,15 @@ def parse_exif_datetime(value, offset_value=None) -> Optional[datetime]:
 		"%Y-%m-%dT%H:%M:%S",      # ISO: 2024-01-15T10:30:45
 		"%Y-%m-%dT%H:%M:%S.%f",   # ISO with subseconds
 		"%Y-%m-%dT%H:%M:%SZ",     # ISO UTC
+		"%Y-%m-%dT%H:%M:%S.%fZ",  # ISO UTC with subseconds (upload metadata's ms-ISO shape)
 	]
+
+	# A trailing Z means the value declares itself UTC — it is not a naive
+	# wall-clock, so the file's OffsetTimeOriginal must NOT be applied to it.
+	# This matters since metadata captured_at overwrites DateTimeOriginal:
+	# an EXIF-writing client also stamps a local-time offset, and applying
+	# that offset to an already-UTC value shifted it by the timezone.
+	value_is_utc = value_str.endswith('Z')
 
 	for fmt in formats:
 		try:
@@ -257,7 +292,7 @@ def parse_exif_datetime(value, offset_value=None) -> Optional[datetime]:
 				return corrected_dt
 			# DateTimeOriginal is local wall-clock; convert to UTC using the EXIF
 			# offset when known, else assume it is already UTC.
-			offset = _parse_exif_offset(offset_value)
+			offset = _parse_exif_offset(offset_value) if not value_is_utc else None
 			if offset is not None:
 				return (dt - offset).replace(tzinfo=timezone.utc)
 			return dt.replace(tzinfo=timezone.utc)
@@ -495,17 +530,19 @@ class PhotoProcessor:
 
 
 	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None, quality: Optional[int] = None, fast: bool = False, encoding: Optional[str] = None,
-									 files_to_clean: Optional[List[str]] = None,
+									 output_base: Optional[str] = None,
 									 ) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
 		"""Create optimized versions with anonymization and unique IDs.
 
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
 		encoding: EXR pixel encoding ('srgb'/'linear') sourced from upload metadata;
 			passed to read_image so it need not read the embedded header tag.
+		output_base: per-job output root (see process_uploaded_photo).
 		"""
 
 		sizes_info = {}
-		output_base = self.upload_dir
+		output_base = output_base or self.upload_dir
+		_assert_output_base_owned(output_base, photo_id)
 		webp_quality_sizes = quality if quality is not None else WEBP_QUALITY_SIZES
 		webp_quality_dzi = quality if quality is not None else WEBP_QUALITY_DZI
 
@@ -518,7 +555,14 @@ class PhotoProcessor:
 			logger.info(f"Successfully imported anonymization module")
 
 		processing_state.set_phase("anonymizing")
-		async with throttle.rate_limit(PARALLEL_PROCESSING_START_DELAY, 1500):
+		# Admission gating (start stagger + RAM) moved to the parent process —
+		# app.wait_admission(), one global instance. This in-child rate_limit
+		# became per-process after the worker-pool split (3 independent stagger
+		# buckets), and its 1500 MB RAM wait livelocked: every slot waiting for
+		# RAM that only a running job could free (observed live 2026-07-13).
+		# The parent gate admits a job whenever nothing is running, so it can't
+		# deadlock. nullcontext keeps the block shape for a minimal diff.
+		async with contextlib.nullcontext():
 
 			if not anonymization_override:
 				image, detections = await self._anonymize_image(source_path, encoding=encoding)
@@ -610,7 +654,7 @@ class PhotoProcessor:
 				size_info.update({
 					'width': new_width,
 					'height': new_height,
-					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature, files_to_clean)
+					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
 				})
 				sizes_info[size] = size_info
 
@@ -618,8 +662,11 @@ class PhotoProcessor:
 		crop_variants = [
 			('320_crop', 320, 240),
 			('1200_crop', 1200, 630),
+			('3840_crop', 3840, 2016),  # large representative crop for image search (sitemap <image:loc>)
 		]  # (key, width, height)
 		for crop_key, crop_tw, crop_th in crop_variants:
+			if crop_th > height:
+				continue  # source too short — create_center_crop would upscale
 			if height > 0 and width / height > crop_tw / crop_th:
 				cropped = create_center_crop(image, crop_tw, crop_th)
 
@@ -642,7 +689,7 @@ class PhotoProcessor:
 					'path': crop_relative_path,
 					'width': crop_tw,
 					'height': crop_th,
-					'url': await self._get_size_url(crop_file_path, crop_relative_path, photo_id, client_signature, files_to_clean)
+					'url': await self._get_size_url(crop_file_path, crop_relative_path, photo_id, client_signature)
 				}
 
 		logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
@@ -683,7 +730,7 @@ class PhotoProcessor:
 			copy_exif_data(source_path, llm_output_path)
 			logger.info(f"Created 640_llm variant for {unique_id}: {llm_width}x{llm_height} at {llm_output_path}")
 
-			llm_url = await self._get_size_url(llm_output_path, llm_relative_path, photo_id, client_signature, files_to_clean)
+			llm_url = await self._get_size_url(llm_output_path, llm_relative_path, photo_id, client_signature)
 			sizes_info['640_llm'] = {
 				'path': llm_relative_path,
 				'width': llm_width,
@@ -697,7 +744,7 @@ class PhotoProcessor:
 			# Store metadata inline in sizes['full']['pyramid'] so the client can
 			# initialise OpenSeadragon without an extra round-trip for the .dzi file.
 			if 'full' in sizes_info:
-				pyramid = await self.generate_dzi_pyramid(image, unique_id, photo_id, client_signature, quality=quality, files_to_clean=files_to_clean)
+				pyramid = await self.generate_dzi_pyramid(image, unique_id, photo_id, client_signature, quality=quality, output_base=output_base)
 				if pyramid:
 					sizes_info['full']['pyramid'] = pyramid
 
@@ -708,11 +755,12 @@ class PhotoProcessor:
 	# Skip DZI pyramid generation for images where both dimensions are below this threshold
 	DZI_MIN_DIMENSION = 2048
 
-	async def generate_dzi_pyramid(self, image: np.ndarray, unique_id: str, photo_id: str = None, client_signature: str = None, quality: Optional[int] = None, files_to_clean: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+	async def generate_dzi_pyramid(self, image: np.ndarray, unique_id: str, photo_id: str = None, client_signature: str = None, quality: Optional[int] = None, output_base: Optional[str] = None) -> Optional[Dict[str, Any]]:
 		"""Generate a DZI (Deep Zoom Image) pyramid from an anonymized image.
 
 		Args:
 			image: Anonymized image as a numpy BGR array (already sRGB 8-bit).
+			output_base: per-job output root (see process_uploaded_photo).
 
 		Returns pyramid metadata dict for inline use by OpenSeadragon, or None if generation fails.
 		The metadata allows the client to open the deep-zoom viewer without a separate .dzi fetch.
@@ -727,7 +775,8 @@ class PhotoProcessor:
 			user_id_part = validate_user_id(user_id_part)
 			safe_photo_id = sanitize_filename(photo_id_part)
 
-			output_base = self.upload_dir
+			output_base = output_base or self.upload_dir
+			_assert_output_base_owned(output_base, photo_id)
 			dzi_dir = validate_file_path(os.path.join(output_base, 'opt', 'dzi', user_id_part), output_base)
 			os.makedirs(dzi_dir, exist_ok=True)
 
@@ -751,7 +800,7 @@ class PhotoProcessor:
 
 			# Upload the .dzi XML descriptor
 			dzi_relative = os.path.relpath(dzi_file, output_base)
-			dzi_url = await self._get_size_url(dzi_file, dzi_relative, photo_id, client_signature, files_to_clean)
+			dzi_url = await self._get_size_url(dzi_file, dzi_relative, photo_id, client_signature)
 
 			# The .dzi URL determines which pool this pyramid lives on. The tile
 			# base URL is derived from it by string surgery, so every tile must
@@ -778,7 +827,7 @@ class PhotoProcessor:
 						if not os.path.isfile(tile_path):
 							continue
 						tile_relative = os.path.relpath(tile_path, output_base)
-						tile_url = await self._get_size_url(tile_path, tile_relative, photo_id, client_signature, files_to_clean)
+						tile_url = await self._get_size_url(tile_path, tile_relative, photo_id, client_signature)
 						if tile_url != pool_base + tile_relative:
 							raise PoolMigrationError(f"DZI tile for {unique_id} landed on a different pool than its .dzi: {tile_url} (expected base {pool_base})")
 						tile_count += 1
@@ -880,12 +929,12 @@ class PhotoProcessor:
 			logger.error(f"Failed to upload {relative_path} to API server: {error_string}")
 			raise RuntimeError(f"Failed to upload {relative_path} to API server: {error_string}")
 
-	async def _get_size_url(self, file_path: str, relative_path: str, photo_id: str = None, client_signature: str = None, files_to_clean: Optional[List[str]] = None) -> str:
+	async def _get_size_url(self, file_path: str, relative_path: str, photo_id: str = None, client_signature: str = None) -> str:
 		"""Get URL for a size variant - CDN upload, API server upload, or local only.
 
 		In the CDN/API modes the shipped copy is the product and the local
-		file under opt/ is an intermediate: it gets appended to
-		``files_to_clean`` (when given) so the caller's finally removes it.
+		file under opt/ is an intermediate — the caller reclaims it by
+		rmtree'ing the whole per-job work dir (see worker_processing / app).
 		Without this, every processed photo permanently duplicated its full
 		variant set in the worker's uploads volume. KEEP_PICS_IN_WORKER mode
 		is the exception — there the local file IS the served copy.
@@ -906,13 +955,9 @@ class PhotoProcessor:
 			cdn_url = cdn_uploader._upload_file(file_path, relative_path)
 			if not cdn_url:
 				raise RuntimeError(f"Failed to upload {relative_path} to CDN")
-			if files_to_clean is not None:
-				files_to_clean.append(file_path)
 			return cdn_url
 		elif photo_id and client_signature:
 			url = await self._upload_file_to_api(file_path, relative_path, photo_id, client_signature)
-			if files_to_clean is not None:
-				files_to_clean.append(file_path)
 			return url
 		elif not photo_id:
 			logger.error(f"Cannot upload {relative_path}: photo_id is None")
@@ -952,7 +997,7 @@ class PhotoProcessor:
 		metadata: Optional[Dict[str, Any]] = None,
 		quality: Optional[int] = None,
 		fast: bool = False,
-		files_to_clean: Optional[List[str]] = None,
+		output_base: Optional[str] = None,
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results.
 
@@ -964,6 +1009,9 @@ class PhotoProcessor:
 			  per the stored blurred flags and persist verbatim (see
 			  AnonymizationOverride)
 		fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding, reduced size set.
+		output_base: This job's output root (its per-job work dir). Defaults to
+			self.upload_dir. Must be a parameter, not singleton state: concurrent
+			jobs run as threads sharing this PhotoProcessor instance.
 		"""
 
 		validate_user_id(str(user_id))
@@ -985,8 +1033,8 @@ class PhotoProcessor:
 		# We rename to a .tiff extension (rather than overwriting in place)
 		# because ImageMagick's identify picks the reader from the suffix —
 		# a TIFF-content file with a .CR2 suffix triggers the CR2/DNG coder
-		# and fails. The CR2 is left on disk for the caller to clean up;
-		# the TIFF is appended to files_to_clean so the caller cleans it too.
+		# and fails. Both the CR2 and the derived TIFF live under the job's
+		# work dir, so the caller reclaims them by rmtree'ing it.
 		if os.path.splitext(file_path)[1].lower() == '.cr2':
 			tiff_path = os.path.splitext(file_path)[0] + '.tiff'
 			with open(tiff_path, 'wb') as out:
@@ -1001,8 +1049,6 @@ class PhotoProcessor:
 					pass
 				err = dcraw_result.stderr.decode('utf-8', errors='replace').strip()[:500]
 				raise ValueError(f"dcraw CR2 conversion failed: {err or 'empty output'}")
-			if files_to_clean is not None:
-				files_to_clean.append(tiff_path)
 			# Carry EXIF/GPS/XMP/IPTC (incl. UserComment, DateTimeOriginal, Make,
 			# Model, LensModel, FocalLength, GPS*) from the CR2 onto the TIFF.
 			# Strip MakerNotes and embedded thumb/preview (they reference raw
@@ -1059,9 +1105,16 @@ class PhotoProcessor:
 			if metadata.get('orientation_code') and not exif_data['data'].get('Orientation'):
 				exif_data['data']['Orientation'] = metadata['orientation_code']
 
-			# Use capture time from metadata if not in EXIF
-			if metadata.get('captured_at') and not exif_data.get('data', {}).get('DateTimeOriginal'):
-				exif_data['data']['DateTimeOriginal'] = metadata['captured_at']
+			# Capture time: metadata WINS, same rule as geo above. The uploader
+			# sends the canonical instant (the app's shutter clock in ms-ISO
+			# UTC, or the pipeline's clock-drift-corrected value — the v2
+			# semantics), whereas embedded DateTimeOriginal is second-granular
+			# local wall-clock at best (CameraX writes it with no offset, and a
+			# fused stack embeds the anchor frame's UNcorrected time). This was
+			# fill-if-missing, which silently preferred the worse value
+			# whenever a file carried any EXIF at all.
+			if metadata.get('captured_at'):
+				exif_data.setdefault('data', {})['DateTimeOriginal'] = metadata['captured_at']
 
 			# Browser uploads carry no embedded EXIF, so synthesize the same
 			# UserComment provenance JSON that the Android (Rust) EXIF writer
@@ -1075,11 +1128,35 @@ class PhotoProcessor:
 			if not exif_data.setdefault('data', {}).get('UserComment'):
 				provenance = {
 					k: metadata[k]
-					for k in ('location_source', 'bearing_source', 'alt_location', 'v')
+					# location_age_ms and exposure (the exposure-rule story:
+					# mode/target/plan/metering) come from the Android
+					# fast-write path, which skips the on-device EXIF rewrite
+					# and carries the whole stamp here instead — the synthesized
+					# UserComment must say the same things the written one does.
+					for k in ('location_source', 'bearing_source', 'alt_location',
+							  'location_age_ms', 'exposure', 'refined', 'v')
 					if metadata.get(k) is not None
 				}
 				if provenance:
 					exif_data['data']['UserComment'] = json.dumps(provenance)
+
+			# Structured multi-frame source provenance from the pipeline. The
+			# --metadata blob carries the source frames' camera metadata as a whole
+			# nested object; its keys depend on the deliverable:
+			#   - EXR panos: a representative identity header (Make/Model/LensModel/…),
+			#     since the EXR embeds no EXIF, plus 'pano_frames' (array-of-arrays,
+			#     one entry per pano position, each the stack of that position's
+			#     frames);
+			#   - fused-stack singles: just 'stack_frames' (flat list of the bracket's
+			#     members) — the flattened TIFF already embeds the anchor frame's
+			#     identity, so only the per-frame detail is added.
+			# Merge into exif_data['data'] — the SAME place a single's embedded tags
+			# land — so a consumer reads camera fields at exif_data.data.* uniformly;
+			# pano_frames/stack_frames ride along in that dict for the per-frame
+			# detail. Metadata wins over any embedded tag, matching the
+			# geo/orientation convention above.
+			if metadata.get('exif'):
+				exif_data.setdefault('data', {}).update(metadata['exif'])
 
 		orientation = exif_data['data'].get('Orientation')
 
@@ -1131,7 +1208,7 @@ class PhotoProcessor:
 		# .exr.encoding sidecar value); read_image falls back to the embedded
 		# header tag when this is absent.
 		encoding = metadata.get('encoding') if metadata else None
-		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, files_to_clean=files_to_clean)
+		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base)
 
 		# Extract captured_at from EXIF DateTimeOriginal (with corruption fix)
 		raw_data = exif_data.get('data', {})

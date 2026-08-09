@@ -13,7 +13,7 @@
 	import SettingsSectionHeader from "$lib/components/SettingsSectionHeader.svelte";
 	import SettingsSectionDivider from "$lib/components/SettingsSectionDivider.svelte";
 	import {app} from "$lib/data.svelte";
-	import { QrCode } from "lucide-svelte";
+	import { QrCode, Video } from "lucide-svelte";
 
 	onMount(() => {
 		fetchAutoExportState();
@@ -125,6 +125,23 @@
 			<div class="link-text">
 				<span class="link-title">Timestamp QR Code</span>
 				<span class="link-description">Display live QR code for external camera time sync</span>
+			</div>
+			<ChevronRight size={16} />
+		</a>
+
+		<p>
+			Alternatively, film your camera's date/time settings screen. Each
+			recorded frame gets the phone's UTC time burned in as a QR code, so the
+			seconds flipping on the camera screen can be matched against real time by
+			<code>video_time_correction.py</code>. The video is saved into the
+			GeoTrackingDumps folder alongside the CSV exports.
+		</p>
+
+		<a href="/settings/advanced/clock-video" class="settings-navigation-link" data-testid="clock-video-link">
+			<Video size={18}/>
+			<div class="link-text">
+				<span class="link-title">Clock Calibration Video</span>
+				<span class="link-description">Record a timestamped video of your camera's clock screen</span>
 			</div>
 			<ChevronRight size={16} />
 		</a>

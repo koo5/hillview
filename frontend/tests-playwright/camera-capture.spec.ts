@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAsTestUser } from './helpers/testUsers';
 import { getPhotoCount, waitForPhotoCount, getLatestPhoto } from './helpers/indexedDbPhotos';
@@ -17,7 +18,7 @@ test.describe('Camera Capture', () => {
 	test('should capture two photos, save to IndexedDB, and show auto-upload prompt', async ({ page }) => {
 		// Wait for the camera button to appear (requires debug_enabled or TAURI)
 		const cameraButton = page.locator('[data-testid="camera-button"]');
-		await cameraButton.waitFor({ state: 'visible', timeout: 11*15000 });
+		await cameraButton.waitFor({ state: 'visible', timeout: T(15000) });
 
 		// Open camera (force: true because the button has a rotating CSS transform
 		// from device orientation that makes Playwright see it as "not stable")
@@ -25,8 +26,8 @@ test.describe('Camera Capture', () => {
 
 		// Wait for the capture button to become enabled (implies cameraReady && locationData)
 		const captureButton = page.locator('[data-testid="single-capture-button"]');
-		await captureButton.waitFor({ state: 'visible', timeout: 11*15000 });
-		await expect(captureButton).toBeEnabled({ timeout: 11*15000 });
+		await captureButton.waitFor({ state: 'visible', timeout: T(15000) });
+		await expect(captureButton).toBeEnabled({ timeout: T(15000) });
 
 		// Verify video has non-zero dimensions (fake device or synthetic fallback)
 		const videoDimensions = await page.evaluate(() => {

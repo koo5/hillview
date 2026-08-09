@@ -19,7 +19,7 @@ const doLog = false;
 
 // Draggable split store for gallery/map split percentage (0-100, percentage for photo panel)
 export let splitPercent = localStorageReadOnceSharedStore('splitPercent', 50);
-export type AppActivity = 'capture' | 'view' | 'lines';
+export type AppActivity = 'capture' | 'view' | 'lines' | 'terrain';
 
 export interface Line {
 	label: string;
@@ -387,8 +387,36 @@ export function closeDebug() {
 export let mockCamera = localStorageSharedStore('mockCamera', false);
 export let fakeCamera = localStorageSharedStore('fakeCamera', false);
 
+// Power-saving mode, toggled from the capture UI, persisted. When active, GPS
+// fixes move only the location marker (like background tracking) instead of the
+// map — the map catches up once per capture, which also stamps the capture with
+// the live GPS fix. Also lowers the camera preview frame rate and disables CSS
+// animations/transitions (body.power-saving in app.css).
+export let powerSaving = localStorageSharedStore('powerSaving', false);
+
+// Effects only apply while actually capturing — leaving the capture activity
+// restores normal behavior with the toggle still remembered for next time.
+export const powerSavingActive = derived(
+	[powerSaving, app],
+	([$powerSaving, $app]) => $powerSaving && $app.activity === 'capture'
+);
+
+// Stop CSS animations/transitions globally while power saving (rule in app.css).
+if (typeof document !== 'undefined') {
+	powerSavingActive.subscribe(active => document.body.classList.toggle('power-saving', active));
+}
+
 // Debug: render anonymization object detections (bounding boxes) in the zoom view
 export let showDetections = localStorageSharedStore('showDetections', false);
+
+// Metadata / EXIF info window, toggled with the 'i' key. A single flag drives two
+// overlays at once: one over the map pane and one in the corner of the zoom view.
+// Either window's 'x' button closes both. Persisted so the choice survives reloads.
+export let showPhotoInfoWindow = localStorageSharedStore('showPhotoInfoWindow', false);
+
+export function togglePhotoInfoWindow() {
+	showPhotoInfoWindow.update(v => !v);
+}
 
 export let maxPhotosInArea = localStorageReadOnceSharedStore('maxPhotosInArea', 100);
 

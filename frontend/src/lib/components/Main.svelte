@@ -11,7 +11,7 @@
 		Bug,
 		Maximize2,
 		Minimize2
-	} from 'lucide-svelte';
+	, Mountain} from 'lucide-svelte';
 	import {
 		app,
 		sources,
@@ -19,6 +19,8 @@
 		turn_to_photo_to,
 		splitPercent,
 		showCalibrationView,
+		showPhotoInfoWindow,
+		togglePhotoInfoWindow,
 		onAppActivityChange
 	} from "$lib/data.svelte.js";
 	import {resizableSplit} from '$lib/actions/resizableSplit';
@@ -36,13 +38,17 @@
 	import DebugOverlay from './DebugOverlay.svelte';
 	import CompassCalibration from './CompassCalibration.svelte';
 	import Lines from './Lines.svelte';
+	import TerrainPane from './TerrainPane.svelte';
+	import { terrainModeAvailable, terrainViewRect } from '$lib/terrain.svelte';
 import TimelinePanel from './TimelinePanel.svelte';
+	import PhotoInfoWindow from './PhotoInfoWindow.svelte';
 	import {
 		deviceOrientationExif, getCssRotationFromOrientation,
 		getRotationFromOrientation, getWebviewOrientation, relativeOrientationExif,
 		screenOrientationAngle
 	} from "$lib/deviceOrientationExif";
 	import AlertArea from './AlertArea.svelte';
+	import AdminBadge from '$lib/components/AdminBadge.svelte';
 	import { navigationMenuOpen, toggleNavigationMenu } from '$lib/navigationMenuStore';
 	import type {DevicePhotoMetadata} from '$lib/types/photoTypes';
 	import {enableBearingTracking, disableBearingTracking} from '$lib/bearingTracking';
@@ -59,24 +65,17 @@ import TimelinePanel from './TimelinePanel.svelte';
 	let containerElement: HTMLElement;
 	let screenAngleUnlisten: PluginListener | null = null;
 
-	async function handleNativeCapture() {
-		console.log('🢄[NATIVE CAMERA] Starting native camera capture');
-		try {
-			const result: any = await invoke('take_native_photo');
-			console.log('🢄[NATIVE CAMERA] Result:', JSON.stringify(result));
-			if (result.success) {
-				console.log('🢄[NATIVE CAMERA] Photo captured with id:', result.photo_id);
-			} else {
-				console.error('🢄[NATIVE CAMERA] Error:', result.error);
-			}
-		} catch (error) {
-			console.error('🢄[NATIVE CAMERA] Invoke error:', error);
-		}
-	}
 
 
 	$: showCameraView = $app.activity === 'capture';
 	$: showLinesEditor = $app.activity === 'lines';
+	$: showTerrainPane = $app.activity === 'terrain';
+
+	function toggleTerrain() {
+		const mode = showTerrainPane ? 'view' : 'terrain';
+		track(mode === 'terrain' ? 'activityTerrain' : 'activityView');
+		app.update(a => ({...a, activity: mode}));
+	}
 
 	function toggleLines() {
 		const mode = showLinesEditor ? 'view' : 'lines';
@@ -95,8 +94,20 @@ import TimelinePanel from './TimelinePanel.svelte';
 
 	// When update_url becomes true, flush current photo state that may have
 	// been missed (photoInFront can fire before update_url is enabled).
+	$: if (update_url && $app.activity !== 'terrain') {
+		updateUrlParams({ tx1: null, ty1: null, tx2: null, ty2: null });
+	}
+
 	$: if (update_url) {
 		flushPhotoToUrl(get(photoInFront));
+		// Reconcile zoom params too: the pending overlay can be dismissed (or its
+		// photo can fail to load) during the ~100ms window before update_url flips
+		// true, in which case the pendingZoomView subscription's clear is dropped
+		// and never retried, leaving stale x1..y2 in the URL. If no zoom view is
+		// pending or active now, clear them.
+		if (!get(pendingZoomView) && !get(zoomViewData)) {
+			updateUrlParams({ x1: null, y1: null, x2: null, y2: null });
+		}
 	}
 
 
@@ -145,6 +156,24 @@ import TimelinePanel from './TimelinePanel.svelte';
 			flushPhotoToUrl(photo);
 		});
 
+		// Sync the terrain viewport rect to its namespaced URL twin (tx1..ty2
+		// — the zoom view convention, kept unambiguous between modes). The
+		// store nulls on selection change and never fires outside terrain
+		// mode (the pane owns it), so null simply clears the params.
+		const unsubscribeTerrainRect = terrainViewRect.subscribe(rect => {
+			if (!update_url) return;
+			if (rect && get(app).activity === 'terrain') {
+				updateUrlParams({
+					tx1: rect.x1.toFixed(6),
+					ty1: rect.y1.toFixed(6),
+					tx2: rect.x2.toFixed(6),
+					ty2: rect.y2.toFixed(6),
+				});
+			} else {
+				updateUrlParams({ tx1: null, ty1: null, tx2: null, ty2: null });
+			}
+		});
+
 		// Sync zoom viewport bounds to URL params
 		const unsubscribeZoomBounds = zoomViewportBounds.subscribe(bounds => {
 			if (!update_url) return;
@@ -182,6 +211,11 @@ import TimelinePanel from './TimelinePanel.svelte';
 			([pending, photo]) => ({ pending, photo })
 		).subscribe(({ pending, photo }) => {
 			if (!pending || !photo) return;
+			// A uid-bound pending view (URL ?photo= flow) opens only for that
+			// photo — not for whatever streams in front first. Otherwise a
+			// deleted/moved photo's link would open a random nearby photo
+			// zoomed to alien bounds instead of reaching the not-found state.
+			if (pending.photoUid && photo.uid !== pending.photoUid) return;
 			const fullPhotoInfo = getFullPhotoInfo(photo);
 			zoomViewData.set({
 				fallback_url: '',
@@ -202,6 +236,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 		return () => {
 			unsubscribe1();
 			unsubscribeZoomBounds();
+			unsubscribeTerrainRect();
 			unsubscribeZoomClose();
 			unsubscribePendingClose();
 			unsubscribePendingZoom();
@@ -381,6 +416,11 @@ import TimelinePanel from './TimelinePanel.svelte';
 			e.preventDefault();
 			toggleSource('mapillary');
 		}
+		// Toggle the metadata / EXIF info window (map pane + zoom view corner)
+		else if (e.key === 'i') {
+			e.preventDefault();
+			togglePhotoInfoWindow();
+		}
 		// Timeline walk by capture time: ',' = older, '.' = newer, Esc closes.
 		else if (e.key === ',') {
 			e.preventDefault();
@@ -491,6 +531,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 	aria-expanded={$navigationMenuOpen}
 >
 	<Menu size={24}/>
+	<AdminBadge variant="corner" />
 </button>
 
 <button
@@ -519,6 +560,19 @@ import TimelinePanel from './TimelinePanel.svelte';
 		<circle cx="19" cy="5" r="3.5" fill="#4a90e2" stroke="white" stroke-width="1.5"/>
 	</svg>
 </button>
+
+{#if terrainModeAvailable}
+<button
+	class="terrain-button {showTerrainPane ? 'active' : ''}"
+	on:click={toggleTerrain}
+	on:keydown={(e) => e.key === 'Enter' && toggleTerrain()}
+	aria-label="{showTerrainPane ? 'Close terrain view' : 'Show terrain view'}"
+	title="{showTerrainPane ? 'Close terrain view' : 'Show terrain view'}"
+	data-testid="terrain-button"
+>
+	<Mountain size={24} />
+</button>
+{/if}
 
 
 <!--{#if BROWSER}
@@ -576,17 +630,6 @@ import TimelinePanel from './TimelinePanel.svelte';
 			</button>
 		{/if}
 
-		{#if TAURI && $app.debug}
-			<button
-				on:click={handleNativeCapture}
-				class="native-camera-toggle"
-				aria-label="Native camera capture"
-				title="Native camera capture (tauri-plugin-camera)"
-				data-testid="native-camera-btn"
-			>
-				📸
-			</button>
-		{/if}
 
 		{#if $showCalibrationView}
 			<CompassCalibration />
@@ -597,6 +640,8 @@ import TimelinePanel from './TimelinePanel.svelte';
 			/>
 		{:else if showLinesEditor}
 			<Lines />
+		{:else if showTerrainPane}
+			<TerrainPane />
 		{:else}
 			<PhotoGallery/>
 		{/if}
@@ -606,6 +651,9 @@ import TimelinePanel from './TimelinePanel.svelte';
 		{isPortrait ? `bottom: 0; left: 0; height: ${100 - $splitPercent}%; width: 100%;` : `right: 0; top: 0; width: ${100 - $splitPercent}%; height: 100%;`}
 	">
 		<Map bind:this={mapComponent} bind:update_url={update_url}/>
+		{#if $showPhotoInfoWindow}
+			<PhotoInfoWindow photo={$photoInFront} variant="map"/>
+		{/if}
 	</div>
 </div>
 {/if}
@@ -754,30 +802,7 @@ import TimelinePanel from './TimelinePanel.svelte';
 		transition: all 0.2s ease;
 	}
 
-	.native-camera-toggle {
-		position: absolute;
-		top: calc(0px + var(--safe-area-inset-top, 0px));
-		right: calc(50px + var(--safe-area-inset-right, 0px));
-		z-index: 30001;
-		background: orange;
-		border-radius: 50%;
-		width: 40px;
-		height: 40px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-		cursor: pointer;
-		border: none;
-		padding: 0;
-		font-size: 20px;
-		transition: all 0.2s ease;
-	}
 
-	.native-camera-toggle:active {
-		transform: scale(0.95);
-		background: darkorange;
-	}
 
 	.camera-button.active {
 		background: #4a90e2;
@@ -791,6 +816,35 @@ import TimelinePanel from './TimelinePanel.svelte';
 	.lines-button.active {
 		background: #4a90e2;
 		color: white;
+	}
+
+	.terrain-button {
+		position: absolute;
+		top: calc(0px + var(--safe-area-inset-top, 10px));
+		left: calc(150px + var(--safe-area-inset-left, 10px));
+		z-index: 30001;
+		background: white;
+		border-radius: 50%;
+		width: 40px;
+		height: 40px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+		cursor: pointer;
+		border: none;
+		padding: 0;
+		transition: all 0.2s ease;
+		color: #3a7d44;
+	}
+
+	.terrain-button.active {
+		background: #3a7d44;
+		color: white;
+	}
+
+	.terrain-button:hover {
+		transform: scale(1.05);
 	}
 
 	.lines-button:hover {

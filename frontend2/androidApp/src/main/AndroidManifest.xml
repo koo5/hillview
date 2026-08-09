@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Explicit even though some library manifests merge it in — the app's
+         own networking (auth, uploads) must not depend on a transitive
+         declaration. ACCESS_NETWORK_STATE backs the shared-kt drain's
+         metered/wifi-only checks (ConnectivityManager). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Upload notifications (shared-kt NotificationHelper / PhotoUploadWorker). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- PhotoUploadWorker promotes to a dataSync foreground service via a
+         typed ForegroundInfo; on targetSdk 34+ the runtime refuses that
+         against a typeless service. Same patches as the Tauri plugin
+         manifest (verified 2026-08 on WorkManager 2.10.5): WorkManager
+         declares NEITHER the DATA_SYNC subtype permission NOR a typed
+         SystemForegroundService — the app must. Normal-protection,
+         auto-granted. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- The external-camera mode's tracking service: records location and
+         heading while ANOTHER app (the system camera) owns the foreground,
+         which is exactly what the `location` foreground type exists for. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
+    <application
+        android:name=".HillviewApplication"
+        android:label="@string/app_name"
+        android:icon="@drawable/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- tools:node="merge" combines this with WorkManager's own <service>
+             declaration, adding the dataSync type without replacing
+             anything else. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
+        <service
+            android:name="cz.hillview.external.ExternalCameraService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
+    </application>
+
+</manifest>

@@ -38,6 +38,17 @@ def get_pics_dir() -> Path:
 	"""Get the pics directory path from environment."""
 	return Path(os.getenv("PICS_DIR", "/app/pics"))
 
+def get_graduation_incoming_dir() -> Path:
+	"""Directory the operator drops enrichment graduation packages into.
+	Under the mounted /app/data (host ./backend/data), so packages exported from
+	the enrichment workbench can be reviewed and applied via the admin UI."""
+	return Path(os.getenv("GRADUATION_INCOMING_DIR", "/app/data/graduation/incoming"))
+
+def get_graduation_applied_dir() -> Path:
+	"""Where a package file is moved once all its ops have been applied — a
+	simple filesystem ledger of what has been graduated."""
+	return Path(os.getenv("GRADUATION_APPLIED_DIR", "/app/data/graduation/applied"))
+
 def get_pics_url() -> str:
 	"""Get the pics URL prefix from environment."""
 	return os.getenv("PICS_URL", "")
@@ -143,6 +154,10 @@ class RateLimitConfig:
 	user_registration_max_requests: int
 	user_registration_window_hours: int
 
+	# Share link minting limits (per IP)
+	share_mint_max_requests: int
+	share_mint_window_hours: int
+
 	# Worker-to-API limits (per IP)
 	worker_upload_max_requests: int
 	worker_upload_window_hours: int
@@ -194,6 +209,10 @@ class RateLimitConfig:
 			user_registration_max_requests=int(os.getenv('RATE_LIMIT_USER_REGISTRATION', '30')),
 			user_registration_window_hours=int(os.getenv('RATE_LIMIT_USER_REGISTRATION_WINDOW', '1')),
 
+			# Share link minting
+			share_mint_max_requests=int(os.getenv('RATE_LIMIT_SHARE_MINT', '60')),
+			share_mint_window_hours=int(os.getenv('RATE_LIMIT_SHARE_MINT_WINDOW', '1')),
+
 			# Worker file upload
 			worker_upload_max_requests=int(os.getenv('RATE_LIMIT_WORKER_UPLOAD', '50000')),
 			worker_upload_window_hours=int(os.getenv('RATE_LIMIT_WORKER_UPLOAD_WINDOW', '1')),
@@ -229,6 +248,11 @@ class RateLimitConfig:
 			'public_read': {
 				'max_requests': self.public_read_max_requests,
 				'window_hours': self.public_read_window_hours,
+				'per_user': False  # Per IP
+			},
+			'share_mint': {
+				'max_requests': self.share_mint_max_requests,
+				'window_hours': self.share_mint_window_hours,
 				'per_user': False  # Per IP
 			},
 			'activity_recent': {

@@ -8,10 +8,16 @@
 	export let arrowX = width / 2;
 	export let arrowY = 0;
 	export let bearingDeg = 0;
+	// Car mode: the whole range circle doubles as a drag handle, not just the arrow tip
+	export let fullCircleHitArea = false;
 
 	// Hit area covers the outer third of the arrow
 	$: hitStartX = centerX + (arrowX - centerX) * 1.8 / 3;
 	$: hitStartY = centerY + (arrowY - centerY) * 1.8 / 3;
+
+	// Ring hit area radius — distance from center to the arrow tip (which sits on
+	// the range circle edge). NaN while the map is still measuring; guarded below.
+	$: hitRadius = Math.hypot(arrowX - centerX, arrowY - centerY);
 
 	const dispatch = createEventDispatcher();
 
@@ -69,6 +75,27 @@
 		on:pointerdown={handlePointerDown}
 		data-testid="bearing-arrow-hitarea"
 	/>
+	{#if fullCircleHitArea && hitRadius > 0}
+		<!-- Invisible ring along the range circle; pointer-events: stroke keeps
+		     the disc inside it free for map panning and marker taps -->
+		<circle
+			cx={centerX}
+			cy={centerY}
+			r={hitRadius}
+			fill="none"
+			stroke="transparent"
+			stroke-width="36"
+			style="pointer-events: stroke; cursor: grab;"
+			role="slider"
+			tabindex="-1"
+			aria-label="Bearing direction"
+			aria-valuemin={0}
+			aria-valuemax={360}
+			aria-valuenow={bearingDeg}
+			on:pointerdown={handlePointerDown}
+			data-testid="bearing-circle-hitarea"
+		/>
+	{/if}
 	<defs>
 		<marker
 		id="arrowhead"

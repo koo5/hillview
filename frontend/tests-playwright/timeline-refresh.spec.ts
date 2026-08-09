@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAs, logoutUser } from './helpers/testUsers';
 import { addCaptureInit, ensureAutoUpload, captureAt, waitUploadedAtCoord, openMap, clickMarker, openTimelineAnchoredOn } from './helpers/captureSeed';
@@ -88,12 +89,12 @@ test.describe('Timeline refresh + cursor-follow', () => {
 		// Anchor the walk on A1 (oldest of test's two photos → row 1 / 2).
 		await openTimelineAnchoredOn(page, idA1);
 		const status = page.getByTestId('timeline-status');
-		await expect(status).toHaveText('1 / 2', { timeout: 11 * 15000 });
+		await expect(status).toHaveText('1 / 2', { timeout: T(15000) });
 		await expect(page.getByTestId('timeline-refresh')).toHaveCount(0);
 
 		// Select the other in-window photo on the map → the cursor follows to it.
 		await clickMarker(page, idA2);
-		await expect(status).toHaveText('2 / 2', { timeout: 11 * 15000 });
+		await expect(status).toHaveText('2 / 2', { timeout: T(15000) });
 		// Still in-window → no refresh button.
 		await expect(page.getByTestId('timeline-refresh')).toHaveCount(0);
 	});
@@ -105,22 +106,22 @@ test.describe('Timeline refresh + cursor-follow', () => {
 
 		// Anchor on test's photo; the walk tracks only `test`.
 		await openTimelineAnchoredOn(page, idA1);
-		await expect(page.getByTestId('timeline-status')).toHaveText('1 / 2', { timeout: 11 * 15000 });
+		await expect(page.getByTestId('timeline-status')).toHaveText('1 / 2', { timeout: T(15000) });
 		await expect(page.getByTestId('timeline-user')).toHaveText('test');
 		await expect(page.getByTestId('timeline-refresh')).toHaveCount(0);
 
 		// Select testuser's photo — outside test's window → refresh button appears,
 		// and the cursor does NOT move (it isn't in the loaded walk).
 		await clickMarker(page, idB1);
-		await expect(page.getByTestId('timeline-refresh')).toBeVisible({ timeout: 11 * 15000 });
+		await expect(page.getByTestId('timeline-refresh')).toBeVisible({ timeout: T(15000) });
 		await expect(page.getByTestId('timeline-status')).toHaveText('1 / 2');
 
 		// Refresh re-anchors on the new owner (drop-merge branch): walk switches to
 		// testuser, the button clears, and the picked photo is now the in-window anchor.
 		await page.getByTestId('timeline-refresh').click();
-		await expect(page.getByTestId('timeline-refresh')).toHaveCount(0, { timeout: 11 * 15000 });
-		await expect(page.getByTestId('timeline-user')).toHaveText('testuser', { timeout: 11 * 15000 });
-		await expect(page.getByTestId('timeline-status')).toHaveText('1 / 1', { timeout: 11 * 15000 });
+		await expect(page.getByTestId('timeline-refresh')).toHaveCount(0, { timeout: T(15000) });
+		await expect(page.getByTestId('timeline-user')).toHaveText('testuser', { timeout: T(15000) });
+		await expect(page.getByTestId('timeline-status')).toHaveText('1 / 1', { timeout: T(15000) });
 	});
 
 	test('navigating to a photo from /activity wins over an open walk (not clobbered)', async ({ page, testUsers }) => {
@@ -131,22 +132,22 @@ test.describe('Timeline refresh + cursor-follow', () => {
 		// Open the walk anchored on test's A1 → cursor on the oldest of test's two photos.
 		await openTimelineAnchoredOn(page, idA1);
 		const status = page.getByTestId('timeline-status');
-		await expect(status).toHaveText('1 / 2', { timeout: 11 * 15000 });
+		await expect(status).toHaveText('1 / 2', { timeout: T(15000) });
 
 		// Leave the map for /activity via the in-app menu. This must be a client-side
 		// navigation (a full reload would drop the in-memory walk) so the walk stays open.
 		await page.getByTestId('hamburger-menu').click();
 		await page.getByTestId('nav-activity-link').click();
-		await expect(page).toHaveURL(/\/activity/, { timeout: 11 * 15000 });
+		await expect(page).toHaveURL(/\/activity/, { timeout: T(15000) });
 
 		// Click testuser's photo (B1) in the feed → client-side nav back to the map at
 		// ?photo=B1. B1 belongs to a user the walk doesn't track, so it's outside the
 		// loaded window — the regression made the walk re-assert its own cursor (A1) on
 		// remount and swallow this navigation.
 		const photoLink = page.locator(`a[href*="photo=hillview-${idB1}"]`).first();
-		await photoLink.waitFor({ state: 'visible', timeout: 11 * 15000 });
+		await photoLink.waitFor({ state: 'visible', timeout: T(15000) });
 		await photoLink.click();
-		await expect(page).toHaveURL(new RegExp(`photo=hillview-${idB1}`), { timeout: 11 * 15000 });
+		await expect(page).toHaveURL(new RegExp(`photo=hillview-${idB1}`), { timeout: T(15000) });
 
 		// The navigated-to photo must win: B1 becomes the selected/front photo, and
 		// because it's out of the walk's window the walk goes stale (refresh button) —
@@ -154,12 +155,63 @@ test.describe('Timeline refresh + cursor-follow', () => {
 		await page.waitForFunction(
 			(pid: string) => !!document.querySelector(`.marker-container[data-photo-id="${pid}"] .bearing-circle.selected`),
 			idB1,
-			{ timeout: 11 * 15000 },
+			{ timeout: T(15000) },
 		);
-		await expect(page.getByTestId('timeline-refresh')).toBeVisible({ timeout: 11 * 15000 });
+		await expect(page.getByTestId('timeline-refresh')).toBeVisible({ timeout: T(15000) });
 		await expect(page.locator(`.marker-container[data-photo-id="${idA1}"] .bearing-circle.selected`)).toHaveCount(0);
 		// The walk stays open and unmoved (cursor never left A1).
 		await expect(page.getByTestId('timeline-panel')).toBeVisible();
+		await expect(status).toHaveText('1 / 2');
+	});
+
+	test('clicking the active panel row re-centers the map on the cursor photo', async ({ page, testUsers }) => {
+		test.setTimeout(180_000);
+		await loginAs(page, 'test', testUsers.passwords.test);
+		await openMap(page, CENTER, [idA1, idA2, idB1]);
+
+		await openTimelineAnchoredOn(page, idA1);
+		const status = page.getByTestId('timeline-status');
+		await expect(status).toHaveText('1 / 2', { timeout: T(15000) });
+
+		// Drag the map well away from the cursor photo. The walk pins its photos, so
+		// the marker may stay loaded off-screen — the URL's lat/lon (synced on every
+		// move) is the reliable re-center observable, not marker presence.
+		const box = await page.locator('.leaflet-container').boundingBox();
+		if (!box) throw new Error('map container has no bounding box');
+		// Start each drag in the upper-left quadrant, away from the marker cluster at
+		// screen center, so the mousedown grabs the map pane and not a marker.
+		const cx = box.x + box.width * 0.2;
+		const cy = box.y + box.height * 0.25;
+		for (let i = 0; i < 3; i++) {
+			await page.mouse.move(cx, cy);
+			await page.mouse.down();
+			await page.mouse.move(cx + 300, cy + 200, { steps: 8 });
+			await page.mouse.up();
+		}
+		await page.waitForFunction(
+			(a1: { lat: number; lng: number }) => {
+				const q = new URLSearchParams(window.location.search);
+				const lat = parseFloat(q.get('lat') || '');
+				const lon = parseFloat(q.get('lon') || '');
+				return Math.abs(lat - a1.lat) > 0.002 || Math.abs(lon - a1.lng) > 0.002;
+			},
+			A1,
+			{ timeout: T(15000) },
+		);
+
+		// Click the active row (the photo the cursor already points at) — the map
+		// must fly back to it. The walk itself doesn't move.
+		await page.locator('[data-testid="timeline-row"].active').click();
+		await page.waitForFunction(
+			(a1: { lat: number; lng: number }) => {
+				const q = new URLSearchParams(window.location.search);
+				const lat = parseFloat(q.get('lat') || '');
+				const lon = parseFloat(q.get('lon') || '');
+				return Math.abs(lat - a1.lat) < 0.0005 && Math.abs(lon - a1.lng) < 0.0005;
+			},
+			A1,
+			{ timeout: T(15000) },
+		);
 		await expect(status).toHaveText('1 / 2');
 	});
 
@@ -172,14 +224,14 @@ test.describe('Timeline refresh + cursor-follow', () => {
 
 		await openTimelineAnchoredOn(page, idS1);
 		const status = page.getByTestId('timeline-status');
-		await expect(status).toHaveText('1 / 2', { timeout: 11 * 15000 });
+		await expect(status).toHaveText('1 / 2', { timeout: T(15000) });
 
 		// Step forward onto the out-of-range photo: the cursor must advance and STAY there
 		// (the map flies to it) rather than snapping back to S1.
 		await page.getByTestId('timeline-next').click();
-		await expect(status).toHaveText('2 / 2', { timeout: 11 * 15000 });
+		await expect(status).toHaveText('2 / 2', { timeout: T(15000) });
 		// And back.
 		await page.getByTestId('timeline-prev').click();
-		await expect(status).toHaveText('1 / 2', { timeout: 11 * 15000 });
+		await expect(status).toHaveText('1 / 2', { timeout: T(15000) });
 	});
 });

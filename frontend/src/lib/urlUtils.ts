@@ -19,7 +19,7 @@ export { HILLVIEW_BASE_URL };
  * @param photo Photo object in any supported format
  * @returns Object with lat, lon, and bearing or null if no valid coordinates found
  */
-function extractCoordinates(photo: any): { lat: number; lon: number; bearing?: number } | null {
+export function extractCoordinates(photo: any): { lat: number; lon: number; bearing?: number } | null {
     // PhotoData type (from map/gallery) - coordinates stored in coord.lat/lng
     if (photo?.coord?.lat !== undefined && photo?.coord?.lng !== undefined) {
         return {
@@ -94,6 +94,18 @@ export function constructMapUrl(options: {
     }
 
     return url;
+}
+
+/**
+ * Base URL for links that open OUTSIDE the current view — a new browser tab on
+ * web, the system browser from the Tauri app. Those need an absolute URL, and
+ * the Tauri app has no web origin of its own, so it points at the public site;
+ * on web we stay on whatever instance the user is actually on (dev server,
+ * staging, prod) rather than bouncing them to hillview.cz.
+ */
+export function externalBaseUrl(): string {
+    if (TAURI || typeof window === 'undefined') return HILLVIEW_BASE_URL;
+    return window.location.origin;
 }
 
 /**

@@ -276,7 +276,8 @@ class SecureUploadClient:
 										   is_public: bool = True, file_data: bytes = None,
 										   captured_at: str = None, version: int = None,
 										   license: str = 'ccbysa4+osm',
-										   title: str = None, keywords: list = None):
+										   title: str = None, keywords: list = None,
+										   featured: bool = False):
 		"""Request upload authorization with custom parameters.
 
 		Args:
@@ -314,6 +315,12 @@ class SecureUploadClient:
 			upload_request["title"] = title
 		if keywords is not None:
 			upload_request["keywords"] = keywords
+		# featured is admin-only server-side. Only send it when actually requested:
+		# omitting it on the false/default path keeps the request byte-identical to
+		# pre-feature clients (backwards compatibility — an older API server never
+		# sees an unknown field, and the schema default fills in False).
+		if featured:
+			upload_request["featured"] = True
 
 		# Only include captured_at if explicitly provided
 		if captured_at is not None:

@@ -47,6 +47,13 @@ def recreate_test_users():
 			print(f"   - {users_deleted} old users deleted")
 			print(f"   - {users_created} new users created")
 			print("Test user reset complete")
+			# Adopt whatever passwords the server actually set, so the suite can run
+			# against a server whose test-user passwords differ from our defaults.
+			# Lazy import avoids a cycle (auth_utils imports this module).
+			passwords = details.get("user_passwords")
+			if passwords:
+				from .auth_utils import update_test_credentials
+				update_test_credentials(passwords)
 			return result
 		else:
 			print(f"⚠️  Test user reset failed: {response.status_code} - {response.text}")

@@ -13,11 +13,11 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from common.utc import utcnow, utc_plus_timedelta, utc_from_timestamp
 from common.database import get_db
-from common.models import User, TokenBlacklist
+from common.models import User, TokenBlacklist, UserRole
 from jwt_service import (  # noqa: F401 - re-exported
 	validate_token, create_access_token, create_refresh_token, REFRESH_TOKEN_EXPIRE_MINUTES,
 )
@@ -164,10 +164,10 @@ class UserOut(BaseModel):
 	username: str
 	is_active: bool
 	is_test: bool
+	role: UserRole = UserRole.USER  # serialized to its value ('user' / 'admin' / 'moderator')
 	created_at: datetime
 
-	class Config:
-		from_attributes = True
+	model_config = ConfigDict(from_attributes=True, use_enum_values=True)
 
 # Password hashing functions are now imported from common.auth_utils
 
@@ -421,6 +421,18 @@ def clear_user_access_ttl(user_id: str) -> None:
 def get_user_access_ttl(user_id: str) -> Optional[float]:
 	return _access_ttl_override_seconds.get(str(user_id))
 
+
+def reset_debug_overrides() -> None:
+	"""Drop all in-memory debug auth overrides (force-logout flags + access-TTL
+	overrides). Called whenever test state is wiped (recreate-test-users /
+	clear-database) so a spec that set one and crashed before its own teardown
+	can't leak it into the next run. Force-logout normally self-heals on the
+	user's next login and access-TTL is normally cleared by its setter, but this
+	is the belt-and-suspenders reset — mirrors push_toggle.reset_to_default()."""
+	_force_logout_user_ids.clear()
+	_access_ttl_override_seconds.clear()
+
+
 async def blacklist_token(token: str, user_id: str, reason: str, db: AsyncSession) -> None:
 	"""Add a token to the blacklist."""
 	try:
@@ -502,13 +514,76 @@ async def get_current_user_optional(
 		logger.debug(f"get_current_user_optional: Error: {str(e)}")
 		return None
 
+# Stream credential: a client-signed, short-TTL, stream-scoped assertion used to
+# authenticate SSE streams, where EventSource (web) / the Android stream loader can't
+# send an Authorization header. The client signs the canonical list
+# [key_id, "stream", exp] with its registered ECDSA private key; we verify against the
+# stored public key (reusing verify_ecdsa_signature, which already handles both the web
+# P1363 and Android DER signature encodings). This keeps the long-lived access token
+# out of stream URLs — and thus out of access logs / browser history. See
+# docs/stream-auth-client-signed-credential-todo.md.
+STREAM_CREDENTIAL_MAX_TTL_SECONDS = 15 * 60  # reject exp further out than this
+
+
+async def verify_stream_credential(
+	key_id: Optional[str], exp: Optional[str], signature: Optional[str], db: AsyncSession
+) -> Optional[User]:
+	"""Verify a client-signed stream credential; return the owning active user, or None."""
+	from common.security_utils import verify_ecdsa_signature
+	from common.models import UserPublicKey
+
+	if not (key_id and exp and signature):
+		return None
+
+	# Parse + bound the expiry. Clients set exp = now + ~10 min; reject anything
+	# already past, or implausibly far in the future so a captured signature can't
+	# be treated as a long-lived credential.
+	try:
+		exp_int = int(exp)
+	except (TypeError, ValueError):
+		logger.info("Stream credential: non-integer exp")
+		return None
+	now = int(utcnow().timestamp())
+	if exp_int <= now:
+		logger.info("Stream credential expired")
+		return None
+	if exp_int > now + STREAM_CREDENTIAL_MAX_TTL_SECONDS:
+		logger.warning("Stream credential exp too far in the future; rejecting")
+		return None
+
+	# Look up the registered public key for this key_id.
+	result = await db.execute(
+		select(UserPublicKey).where(
+			UserPublicKey.key_id == key_id,
+			UserPublicKey.is_active.is_(True),
+		)
+	)
+	key = result.scalars().first()
+	if not key:
+		logger.info(f"Stream credential: no active key for key_id {key_id}")
+		return None
+
+	# Verify the signature over the canonical [key_id, "stream", exp] list.
+	if not verify_ecdsa_signature(signature, key.public_key_pem, [key_id, "stream", exp_int]):
+		logger.warning(f"Stream credential signature verification failed for key_id {key_id}")
+		return None
+
+	# Resolve owner and ensure active.
+	result = await db.execute(select(User).where(User.id == key.user_id))
+	user = result.scalars().first()
+	if user is None or not user.is_active:
+		return None
+	return user
+
+
 async def get_current_user_optional_with_query(
 	request: Request,
 	token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)),
 	db: AsyncSession = Depends(get_db)
 ) -> Optional[User]:
-	"""Get current user if authenticated, checking both header and query params.
-	Returns None if no token provided. Raises 401 if token provided but invalid."""
+	"""Get current user if authenticated, checking header, signed stream credential,
+	and (legacy) query token. Returns None if no credential provided. Raises 401 if a
+	credential is provided but invalid."""
 
 	credentials_exception = HTTPException(
 		status_code=status.HTTP_401_UNAUTHORIZED,
@@ -551,7 +626,24 @@ async def get_current_user_optional_with_query(
 			logger.warning(f"Token validation error: {str(e)}")
 			raise credentials_exception
 
-	# If no header token, try query parameter
+	# No header token: try a signed stream credential (preferred for SSE streams,
+	# which can't send an Authorization header). If any stream_* param is present we
+	# require it to verify — a present-but-invalid credential is a 401, matching the
+	# query-token contract; the client then retries with a freshly-signed credential.
+	if request:
+		stream_key_id = request.query_params.get('stream_key_id')
+		stream_exp = request.query_params.get('stream_exp')
+		stream_sig = request.query_params.get('stream_sig')
+		if stream_key_id or stream_exp or stream_sig:
+			user = await verify_stream_credential(stream_key_id, stream_exp, stream_sig, db)
+			if user:
+				return user
+			raise credentials_exception
+
+	# Legacy fallback: access token in the query string. Kept so old web/Android
+	# clients (which put the full access token in the stream URL) keep working until
+	# they age out; new clients use the signed stream credential above. Removing this
+	# branch later is the breaking change worth gating.
 	if request:
 		query_token = request.query_params.get('token')
 		if query_token:
@@ -700,14 +792,8 @@ async def recreate_test_users() -> dict:
 
 	async with SessionLocal() as db:
 
-		from common.models import UserRole
-
-		# Hardcoded test users with roles
-		test_user_data = [
-			("test", "StrongTestPassword123!", UserRole.USER),
-			("admin", "StrongAdminPassword123!", UserRole.ADMIN),
-			("testuser", "StrongTestUserPassword123!", UserRole.USER),
-		]
+		# Canonical test-user list, shared with the test suite (single source of truth).
+		from common.test_users import TEST_USER_ACCOUNTS as test_user_data
 
 		summary = {
 			"photos_deleted": 0,

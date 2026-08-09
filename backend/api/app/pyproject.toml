@@ -34,6 +34,9 @@ dependencies = [
 
     # IP geolocation (featured photo on first visit)
     "geoip2",
+
+    # RDF: parse the enrichment graduation package's TriG provenance appendix
+    "pyoxigraph",
 ]
 
 [project.optional-dependencies]

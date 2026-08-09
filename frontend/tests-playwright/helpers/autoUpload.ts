@@ -6,6 +6,7 @@
  *   prompt → /settings/upload → license checkbox → enable radio → done
  */
 
+import { T } from './timeouts';
 import type { Page } from '@playwright/test';
 
 /**
@@ -14,10 +15,10 @@ import type { Page } from '@playwright/test';
  */
 export async function clickConfigureAutoUpload(page: Page): Promise<void> {
 	const prompt = page.locator('[data-testid="auto-upload-prompt"]');
-	await prompt.waitFor({ state: 'visible', timeout: 11*15000 });
+	await prompt.waitFor({ state: 'visible', timeout: T(15000) });
 
 	await page.locator('[data-testid="configure-auto-upload"]').click();
-	await page.waitForURL('**/settings/upload', { timeout: 11*10000 });
+	await page.waitForURL('**/settings/upload', { timeout: T(10000) });
 }
 
 /**
@@ -26,7 +27,7 @@ export async function clickConfigureAutoUpload(page: Page): Promise<void> {
  */
 export async function enableAutoUpload(page: Page): Promise<void> {
 	const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
-	await licenseCheckbox.waitFor({ state: 'visible', timeout: 11*10000 });
+	await licenseCheckbox.waitFor({ state: 'visible', timeout: T(10000) });
 	if (!(await licenseCheckbox.isChecked())) {
 		await licenseCheckbox.check();
 	}
@@ -35,7 +36,7 @@ export async function enableAutoUpload(page: Page): Promise<void> {
 	await enabledRadio.check();
 
 	// Settings auto-save on radio change; wait for confirmation
-	await page.locator('[data-testid="alert-message"]').waitFor({ state: 'visible', timeout: 11*5000 });
+	await page.locator('[data-testid="alert-message"]').waitFor({ state: 'visible', timeout: T(5000) });
 }
 
 /**

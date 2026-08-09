@@ -1,7 +1,46 @@
 # Stream auth: replace `?token=<access_token>` with a client-signed credential — TODO
 
-Status: **planned, not implemented.** This is auth-review finding #5 (access tokens
-in query strings). Parked to keep momentum; pick up in a later session.
+Status: **backend DONE (2026-07-08); client wiring PENDING.** Auth-review finding #5.
+
+## Done (backend, verifiable + shipped behind legacy compat)
+
+- `auth.verify_stream_credential(key_id, exp, sig, db)` — looks up the active
+  `UserPublicKey` by `key_id`, checks `exp` (must be future and within
+  `STREAM_CREDENTIAL_MAX_TTL_SECONDS` = 15 min), verifies the signature over the
+  canonical `[key_id, "stream", exp]` list via the existing `verify_ecdsa_signature`
+  (handles web P1363 + Android DER), returns the owning active user.
+- `get_current_user_optional_with_query` gained a stream-credential branch:
+  header token → **signed stream credential** (`stream_key_id`/`stream_exp`/
+  `stream_sig`) → **legacy `?token=`** → anonymous. Present-but-invalid stream cred =
+  401 (client retries with a fresh one). Legacy `?token=` still accepted, so old
+  web/Android clients are unaffected — **additive, no flag**.
+- Test surface `GET /api/debug/whoami-query` (`@debug_only`) reflects the resolved
+  user for the optional-auth dependency.
+- Tests: `backend/tests/integration/test_stream_auth.py` (valid / expired / far-future /
+  forged / tampered-exp / unknown-key / legacy-token / header-token).
+- Web primitive in place but **not yet wired**: `clientCrypto.signStreamAuth(ttl)`
+  returns `{keyId, exp, signature}` signing the same canonical list.
+
+## Client wiring PENDING (unverifiable in this env — needs live map + device)
+
+The stream loader runs in a **web worker**, on both web AND Android (the worker's
+auth calls have a TAURI branch hitting the `plugin:hillview|...` commands). So wiring
+spans a worker bridge + Kotlin:
+
+1. **Worker bridge** (`webworkers/new.worker.ts`): add a `getStreamAuth()` alongside
+   `getValidToken()`. Web branch → ask main thread (which calls
+   `clientCrypto.signStreamAuth()`) via a new request-id-correlated message
+   (mirror `pendingTokenRequests`). TAURI branch → `invoke('plugin:hillview|sign_stream_auth')`.
+2. **StreamSourceLoader.ts:225-231**: replace `url.searchParams.set('token', authToken)`
+   with the three `stream_*` params from `getStreamAuth()`; re-sign on retry.
+3. **Android**: new plugin command `sign_stream_auth` in `ExamplePlugin.kt` →
+   `ClientCryptoManager.signStreamAuth(exp)` (sibling of `signUploadData`, using the
+   existing `signData` assembly so the canonical bytes match).
+4. Later cleanup (breaking, gate it): drop the legacy `?token=` branch once old
+   clients age out.
+
+--------------------------------------------------------------------------------
+Original plan notes below (kept for reference).
 
 ## Problem
 

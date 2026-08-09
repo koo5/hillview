@@ -38,6 +38,7 @@
 
 import os
 import sys
+import math
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -52,9 +53,9 @@ from geoalchemy2.functions import ST_Point, ST_X, ST_Y
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
-from push_notifications import send_activity_broadcast_notification
+from push_notifications import send_activity_broadcast_notification, create_notification_for_user
 from common.database import get_db
-from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation
+from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation, PhotoModerationAudit, UserRole
 from common.config import get_write_pool
 from common.utc import format_utc
 from auth import get_current_active_user, get_current_user_optional_with_query
@@ -64,7 +65,7 @@ from common.file_utils import (
 	get_file_size_from_upload
 )
 from common.security_utils import verify_ecdsa_signature
-from rate_limiter import rate_limit_photo_operations
+from rate_limiter import rate_limit_photo_operations, get_client_ip
 from photos import delete_photo_files
 
 logger = logging.getLogger()
@@ -139,6 +140,7 @@ class ProcessedPhotoData(BaseModel):
 	sizes: Optional[Dict[str, Any]] = None
 	detected_objects: Optional[Dict[str, Any]] = None
 	error: Optional[str] = None
+	retry_after_minutes: Optional[int] = None  # Retry hint for a failed processing: None = permanent, >0 = retry after N minutes
 	client_signature: Optional[str] = None  # Base64-encoded ECDSA signature from client
 	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
 	filename: Optional[str] = None  # Secure filename after processing
@@ -273,6 +275,7 @@ async def save_processed_photo(
 	photo.sizes = processed_data.sizes
 	photo.detected_objects = processed_data.detected_objects
 	photo.error = processed_data.error
+	photo.retry_after_minutes = processed_data.retry_after_minutes  # async clients read this from the status/list/get endpoints
 	photo.client_signature = processed_data.client_signature  # Store signature for audit trail
 	photo.processed_by_worker = processed_data.processed_by_worker  # Track which worker processed this
 	photo.processed_at = datetime.now(timezone.utc)  # When processing was completed
@@ -296,7 +299,6 @@ async def save_processed_photo(
 		await send_activity_broadcast_notification(db, photo.owner_id)
 	except Exception as e:
 		logger.warning(f"Failed to send activity broadcast notification for photo {photo_id}: {e}")
-	logger.warning(f"Failed to send activity broadcast notification for photo {photo_id}.")
 		# Don't re-raise - photo upload succeeded, notification is non-critical
 
 	return {
@@ -578,6 +580,7 @@ async def list_photos(
 				"captured_at": format_utc(photo.captured_at),
 				"processing_status": photo.processing_status,
 				"error": photo.error,
+				"retry_after_minutes": photo.retry_after_minutes,
 				"sizes": photo.sizes,
 				"owner_id": photo.owner_id,
 				"owner_username": current_user.username,
@@ -671,7 +674,7 @@ async def get_photos_status(
 			return {"photos": []}
 
 		result = await db.execute(
-			select(Photo.id, Photo.processing_status, Photo.error, Photo.deleted)
+			select(Photo.id, Photo.processing_status, Photo.error, Photo.retry_after_minutes, Photo.deleted)
 			.where(
 				Photo.owner_id == str(current_user.id),
 				Photo.id.in_(status_request.photo_ids)
@@ -685,6 +688,7 @@ async def get_photos_status(
 					"id": photo.id,
 					"processing_status": photo.processing_status,
 					"error": photo.error,
+					"retry_after_minutes": photo.retry_after_minutes,
 					"deleted": photo.deleted
 				}
 				for photo in photos
@@ -706,11 +710,13 @@ async def get_sitemap_photo_ids(
 ):
 	"""Public, completed photo identifiers for the XML sitemap (no auth — SEO).
 
-	Returns ``{"total", "photos": [{uid, lastmod}, ...]}`` for public,
-	non-deleted, completed hillview photos, newest first. Paginated so the
-	frontend sitemap can be a sitemap-index of fixed-size child pages and never
-	hit the 50k-URLs-per-file limit. ``limit=0`` yields just the total (cheap
-	count) for the index to compute its page count.
+	Returns ``{"total", "photos": [{uid, lastmod, img}, ...]}`` for public,
+	non-deleted, completed hillview photos, newest first. ``img`` is the
+	preferred rendition URL for the sitemap's ``<image:image>`` entry (may be
+	null). Paginated so the frontend sitemap can be a sitemap-index of
+	fixed-size child pages and never hit the 50k-URLs-per-file limit.
+	``limit=0`` yields just the total (cheap count) for the index to compute
+	its page count.
 
 	CURATED: only photos with something worth indexing are listed — featured,
 	or carrying a title/description/keywords, or with at least one annotation.
@@ -736,18 +742,89 @@ async def get_sitemap_photo_ids(
 	]
 	total = await db.scalar(select(func.count()).select_from(Photo).where(*conds))
 	rows = (await db.execute(
-		select(Photo.id, Photo.uploaded_at)
+		select(Photo.id, Photo.uploaded_at, Photo.sizes)
 		.where(*conds)
 		.order_by(Photo.uploaded_at.desc())
 		.offset(offset)
 		.limit(limit)
 	)).all()
+
+	# Rendition preference for <image:image> entries: the big image-search crop
+	# when the worker produced one (wide sources), else the largest flat size.
+	img_pref = ('3840_crop', 'full', '4096', '3072', '2048', '1200_crop')
+
+	def sitemap_img(sizes) -> Optional[str]:
+		if not isinstance(sizes, dict):
+			return None
+		for key in img_pref:
+			url = (sizes.get(key) or {}).get('url')
+			if url:
+				return url
+		return None
+
 	return {
 		"total": total or 0,
 		"photos": [
-			{"uid": f"hillview-{pid}", "lastmod": format_utc(ts) if ts else None}
-			for pid, ts in rows
+			{"uid": f"hillview-{pid}", "lastmod": format_utc(ts) if ts else None, "img": sitemap_img(sizes)}
+			for pid, ts, sizes in rows
 		],
+	}
+
+
+@router.get("/moderation-audit")
+async def list_moderation_audit(
+	request: Request,
+	limit: int = 50,
+	offset: int = 0,
+	current_user: User = Depends(get_current_active_user),
+	db: AsyncSession = Depends(get_db)
+):
+	"""List moderation-audit entries (admin/moderator only), newest first.
+
+	Records the moderation actions taken by admins/moderators on photos they did
+	not own (currently: deletions and metadata edits). See ``PhotoModerationAudit``
+	and the DELETE/PATCH handlers below.
+
+	NOTE: declared before ``/{photo_id}`` so FastAPI doesn't route this literal
+	path into the photo-detail handler.
+	"""
+	if current_user.role not in (UserRole.ADMIN, UserRole.MODERATOR):
+		raise HTTPException(
+			status_code=status.HTTP_403_FORBIDDEN,
+			detail="Admin or moderator access required"
+		)
+
+	await rate_limit_photo_operations(request, current_user.id)
+
+	limit = max(1, min(limit, 200))
+	offset = max(0, offset)
+
+	result = await db.execute(
+		select(PhotoModerationAudit)
+		.order_by(PhotoModerationAudit.created_at.desc())
+		.limit(limit)
+		.offset(offset)
+	)
+	rows = result.scalars().all()
+
+	return {
+		"entries": [
+			{
+				"id": r.id,
+				"action": r.action,
+				"actor_user_id": r.actor_user_id,
+				"actor_username": r.actor_username,
+				"actor_role": r.actor_role,
+				"photo_source": r.photo_source,
+				"photo_id": r.photo_id,
+				"photo_owner_id": r.photo_owner_id,
+				"photo_owner_username": r.photo_owner_username,
+				"reason": r.reason,
+				"extra_data": r.extra_data,
+				"created_at": format_utc(r.created_at),
+			}
+			for r in rows
+		]
 	}
 
 
@@ -808,6 +885,7 @@ async def get_photo(
 			"uploaded_at": format_utc(photo.uploaded_at),
 			"processing_status": photo.processing_status,
 			"error": photo.error,
+			"retry_after_minutes": photo.retry_after_minutes,
 			"exif_data": photo.exif_data,
 			"detected_objects": photo.detected_objects,
 			"sizes": photo.sizes,
@@ -872,24 +950,42 @@ async def get_photo_detections(
 async def delete_photo(
 	request: Request,
 	photo_id: str,
+	reason: Optional[str] = None,
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Delete a photo's files and mark it as deleted."""
+	"""Delete a photo's files and mark it as deleted.
+
+	Owners may delete their own photos. Admins and moderators may delete any
+	photo; when they delete a photo they do not own, a moderation-audit record is
+	written (see ``PhotoModerationAudit``). The optional ``reason`` query param is
+	recorded on that audit entry.
+	"""
 	# Apply photo operations rate limiting
 	await rate_limit_photo_operations(request, current_user.id)
 
 	try:
+		# Look up by id only — ownership is enforced below so admins/moderators
+		# can act on photos they don't own.
 		result = await db.execute(
 			select(Photo).where(
 				Photo.id == photo_id,
-				Photo.owner_id == str(current_user.id),
 				Photo.deleted == False
 			)
 		)
 		photo = result.scalars().first()
 
 		if not photo:
+			raise HTTPException(
+				status_code=status.HTTP_404_NOT_FOUND,
+				detail="Photo not found"
+			)
+
+		is_owner = photo.owner_id == str(current_user.id)
+		is_moderator = current_user.role in (UserRole.ADMIN, UserRole.MODERATOR)
+
+		if not is_owner and not is_moderator:
+			# Don't reveal the existence of photos the caller can't act on.
 			raise HTTPException(
 				status_code=status.HTTP_404_NOT_FOUND,
 				detail="Photo not found"
@@ -905,7 +1001,55 @@ async def delete_photo(
 
 		# Soft delete - mark as deleted, keep the row
 		photo.deleted = True
+
+		# When an admin/moderator deletes a photo they don't own, record a
+		# moderation-audit entry. Added to the session so it commits atomically
+		# with the soft delete below. The owner is notified (with the reason)
+		# after commit.
+		notify_owner_id = photo.owner_id if not is_owner else None
+		if not is_owner:
+			owner_username = await db.scalar(
+				select(User.username).where(User.id == photo.owner_id)
+			)
+			db.add(PhotoModerationAudit(
+				action="delete",
+				actor_user_id=str(current_user.id),
+				actor_username=current_user.username,
+				actor_role=current_user.role.value if current_user.role else None,
+				photo_source="hillview",
+				photo_id=photo.id,
+				photo_owner_id=photo.owner_id,
+				photo_owner_username=owner_username,
+				reason=reason,
+				ip_address=get_client_ip(request),
+				user_agent=request.headers.get("user-agent"),
+				extra_data={
+					"original_filename": photo.original_filename,
+					"title": photo.title,
+				},
+			))
+			logger.warning(
+				f"Moderation: {current_user.role.value} {current_user.username} "
+				f"({current_user.id}) deleted photo {photo.id} owned by "
+				f"{photo.owner_id} ({owner_username})"
+			)
+
 		await db.commit()
+
+		# Explain the removal to the owner when a moderator deleted their photo
+		# (best-effort; the delete is already durable). The photo is gone, so no
+		# deep link — this is purely informational, carrying the reason if given.
+		if notify_owner_id:
+			body = reason.strip() if reason and reason.strip() else "A moderator removed one of your photos."
+			try:
+				await create_notification_for_user(db, notify_owner_id, {
+					'type': 'photo_removed',
+					'title': 'Your photo was removed by a moderator',
+					'body': body,
+					'route': None,
+				})
+			except Exception as e:
+				logger.warning(f"photo-removal notify failed for {notify_owner_id}: {e}")
 
 		logger.info(f"Photo {photo_id} deleted by user {current_user.id}")
 
@@ -918,6 +1062,150 @@ async def delete_photo(
 		raise HTTPException(
 			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 			detail="Failed to delete photo"
+		)
+
+
+class PhotoEditRequest(BaseModel):
+	# None = leave unchanged. An empty/whitespace title or description clears
+	# the field (an owner retitling, or a moderator stripping abusive text).
+	title: Optional[str] = None
+	description: Optional[str] = None
+	featured: Optional[bool] = None  # moderator-only; see the gate below
+	bearing: Optional[float] = None  # degrees; normalized into [0, 360)
+	reason: Optional[str] = None
+
+
+@router.patch("/{photo_id}")
+async def edit_photo(
+	request: Request,
+	photo_id: str,
+	payload: PhotoEditRequest,
+	current_user: User = Depends(get_current_active_user),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Edit a photo's title, description, bearing, or featured flag.
+
+	Owners may edit their own photo's title/description/bearing; admins and
+	moderators may edit any photo. ``featured`` is a curation flag, so only
+	admins/moderators may *change* it (403) — an owner re-submitting the value
+	it already has is a no-op, which keeps a full-form save working for them.
+
+	Fields left null are unchanged; an empty/whitespace title or description
+	clears the field. When the actor doesn't own the photo, the change is
+	recorded in the moderation audit (see ``PhotoModerationAudit``) with the
+	old and new values snapshotted in ``extra_data['changes']``.
+	"""
+	await rate_limit_photo_operations(request, current_user.id)
+
+	try:
+		result = await db.execute(
+			select(Photo).where(
+				Photo.id == photo_id,
+				Photo.deleted == False
+			)
+		)
+		photo = result.scalars().first()
+
+		if not photo:
+			raise HTTPException(
+				status_code=status.HTTP_404_NOT_FOUND,
+				detail="Photo not found"
+			)
+
+		is_owner = photo.owner_id == str(current_user.id)
+		is_moderator = current_user.role in (UserRole.ADMIN, UserRole.MODERATOR)
+
+		if not is_owner and not is_moderator:
+			# Don't reveal the existence of photos the caller can't act on
+			# (same posture as the DELETE handler).
+			raise HTTPException(
+				status_code=status.HTTP_404_NOT_FOUND,
+				detail="Photo not found"
+			)
+
+		# Reject rather than silently drop: promoting your own photo into the
+		# map's featured set is exactly the request we must not honour quietly.
+		if (
+			payload.featured is not None
+			and payload.featured != bool(photo.featured)
+			and not is_moderator
+		):
+			raise HTTPException(
+				status_code=status.HTTP_403_FORBIDDEN,
+				detail="Only moderators can change the featured flag"
+			)
+
+		changes = {}
+		if payload.title is not None:
+			new_title = payload.title.strip() or None
+			if new_title != photo.title:
+				changes["title"] = {"old": photo.title, "new": new_title}
+				photo.title = new_title
+		if payload.description is not None:
+			new_description = payload.description.strip() or None
+			if new_description != photo.description:
+				changes["description"] = {"old": photo.description, "new": new_description}
+				photo.description = new_description
+		if payload.featured is not None and payload.featured != bool(photo.featured):
+			changes["featured"] = {"old": bool(photo.featured), "new": payload.featured}
+			photo.featured = payload.featured
+		if payload.bearing is not None:
+			if not math.isfinite(payload.bearing):
+				raise HTTPException(
+					status_code=status.HTTP_400_BAD_REQUEST,
+					detail="Bearing must be a finite number of degrees"
+				)
+			new_bearing = payload.bearing % 360
+			if new_bearing != photo.compass_angle:
+				changes["bearing"] = {"old": photo.compass_angle, "new": new_bearing}
+				photo.compass_angle = new_bearing
+
+		if changes:
+			if not is_owner:
+				owner_username = await db.scalar(
+					select(User.username).where(User.id == photo.owner_id)
+				)
+				db.add(PhotoModerationAudit(
+					action="edit",
+					actor_user_id=str(current_user.id),
+					actor_username=current_user.username,
+					actor_role=current_user.role.value if current_user.role else None,
+					photo_source="hillview",
+					photo_id=photo.id,
+					photo_owner_id=photo.owner_id,
+					photo_owner_username=owner_username,
+					reason=payload.reason.strip() if payload.reason and payload.reason.strip() else None,
+					ip_address=get_client_ip(request),
+					user_agent=request.headers.get("user-agent"),
+					extra_data={
+						"original_filename": photo.original_filename,
+						"title": photo.title,
+						"changes": changes,
+					},
+				))
+				logger.warning(
+					f"Moderation: {current_user.role.value} {current_user.username} "
+					f"({current_user.id}) edited photo {photo.id} owned by "
+					f"{photo.owner_id} ({owner_username}): {list(changes)}"
+				)
+			await db.commit()
+
+		return {
+			"id": photo.id,
+			"title": photo.title,
+			"description": photo.description,
+			"featured": bool(photo.featured),
+			"bearing": photo.compass_angle,
+			"changed": sorted(changes),
+		}
+
+	except HTTPException:
+		raise
+	except Exception as e:
+		logger.error(f"Error editing photo {photo_id}: {str(e)}")
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Failed to edit photo"
 		)
 
 
@@ -955,7 +1243,17 @@ async def get_photo_share_metadata(
 	photo_uid: str,
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Get photo metadata for social sharing (no authentication required for SEO/social sharing)."""
+	"""Get photo metadata for social sharing (no authentication required for SEO/social sharing).
+
+	DEPRECATED: superseded by GET /photos/public/{photo_uid}, which returns a
+	richer superset (title, keywords, sizes, owner, ratings) filtered the same way
+	(deleted == False; hidden-content filtering is a no-op for anonymous callers).
+	The frontend's OpenGraph paths — both the /photo/[uid] detail route and the map
+	homepage's ?photo= share cards — now consume /public via the shared
+	photoDisplay helpers, so nothing in the app calls this endpoint anymore; only
+	tests/integration/test_photo_sharing.py still exercises it. Retire this
+	endpoint (and its test) once no external consumer depends on it.
+	"""
 	try:
 		# Parse photo UID format: {source}-{id}
 		parts = photo_uid.split('-', 1)
@@ -1045,6 +1343,52 @@ async def get_photo_share_metadata(
 		)
 
 
+def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
+	"""Extract a small, display-friendly subset of camera/lens EXIF from the raw
+	exiftool dump stored in ``Photo.exif_data`` (worker writes the full tag set
+	under ``exif_data['data']`` via ``exiftool -json -n``).
+
+	Only camera settings are exposed (focal length, aperture, ISO, shutter,
+	exposure compensation, camera make/model, lens). Positional data
+	(GPS/altitude/bearing) is deliberately omitted here — it is already served
+	via the response's top-level latitude/longitude/bearing/altitude, and the raw
+	dump can carry more precise/sensitive location than we want to publish.
+
+	Returns ``None`` when there is no usable camera EXIF.
+	"""
+	if not isinstance(exif_data, dict):
+		return None
+	data = exif_data.get('data')
+	if not isinstance(data, dict):
+		return None
+
+	def num(key):
+		v = data.get(key)
+		return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+	def text(key):
+		v = data.get(key)
+		if v is None:
+			return None
+		s = str(v).strip()
+		return s or None
+
+	curated = {
+		'focal_length': num('FocalLength'),
+		'focal_length_35mm': num('FocalLengthIn35mmFormat'),
+		'f_number': num('FNumber'),
+		'iso': num('ISO'),
+		'exposure_time': num('ExposureTime'),
+		'exposure_compensation': num('ExposureCompensation'),
+		'make': text('Make'),
+		'model': text('Model'),
+		'lens': text('LensModel') or text('LensID') or text('LensInfo'),
+	}
+	# Drop absent tags; collapse to None when nothing useful survived.
+	curated = {k: v for k, v in curated.items() if v is not None}
+	return curated or None
+
+
 @router.get("/public/{photo_uid}")
 async def get_public_photo(
 	request: Request,
@@ -1129,12 +1473,14 @@ async def get_public_photo(
 			"place_name": photo.place_name,
 			"license": legal_rights_to_license(photo.legal_rights),
 			"is_public": photo.is_public,
+			"featured": bool(photo.featured),
 			"latitude": latitude,
 			"longitude": longitude,
 			"bearing": photo.compass_angle,
 			"altitude": photo.altitude,
 			"width": photo.width,
 			"height": photo.height,
+			"exif": _curate_exif(photo.exif_data),
 			"captured_at": format_utc(photo.captured_at),
 			"uploaded_at": format_utc(photo.uploaded_at),
 			"processing_status": photo.processing_status,

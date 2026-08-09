@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildPhotoImageJsonLd, pickOgImage, type PublicPhoto } from './photoDisplay';
+import { buildPhotoImageJsonLd, pickOgImage, type PublicPhoto, type PhotoAnnotation } from './photoDisplay';
 import { serializeJsonLd } from './jsonld';
+
+const ann = (body: string): PhotoAnnotation =>
+	({ id: 'a', body, owner_username: 'kolman.jindrich', created_at: '2026-06-03T00:00:00Z' }) as PhotoAnnotation;
 
 // A real /api/photos/public/<uid> payload (captured from a prod-data copy):
 // an all-rights-reserved panorama, no description, owned by 'test'.
@@ -121,6 +124,36 @@ describe('buildPhotoImageJsonLd', () => {
 		expect(ld.description).toBe('Panorama Prahy z Grébovky');
 	});
 
+	it('emits a copyright notice: taken-year + owner, "All rights reserved." for arr', () => {
+		// REAL_PHOTO is arr, captured 2026, owned by 'test'
+		expect(buildPhotoImageJsonLd(REAL_PHOTO)!.copyrightNotice).toBe(
+			'© 2026 test. All rights reserved.'
+		);
+	});
+
+	it('omits "All rights reserved." for a CC-licensed photo (copyright is not waived)', () => {
+		const ld = buildPhotoImageJsonLd({ ...REAL_PHOTO, license: 'ccbysa4+osm' })!;
+		expect(ld.copyrightNotice).toBe('© 2026 test');
+	});
+
+	it('falls back to the upload year when there is no taken date', () => {
+		const ld = buildPhotoImageJsonLd({ ...REAL_PHOTO, captured_at: null })!;
+		// uploaded_at is 2026-06-12
+		expect(ld.copyrightNotice).toBe('© 2026 test. All rights reserved.');
+	});
+
+	it('drops the year when neither date is known, keeping the holder', () => {
+		const ld = buildPhotoImageJsonLd({
+			...REAL_PHOTO, license: 'ccbysa4+osm', captured_at: null, uploaded_at: null
+		})!;
+		expect(ld.copyrightNotice).toBe('© test');
+	});
+
+	it('omits copyrightNotice entirely for an ownerless photo', () => {
+		const ld = buildPhotoImageJsonLd({ ...REAL_PHOTO, owner_username: null })!;
+		expect(ld.copyrightNotice).toBeUndefined();
+	});
+
 	it('emits keywords when present, omits them when empty', () => {
 		const withKw = buildPhotoImageJsonLd({
 			...REAL_PHOTO,
@@ -129,6 +162,26 @@ describe('buildPhotoImageJsonLd', () => {
 		expect(withKw.keywords).toEqual(['Gröbovka', 'Havlíčkovy sady']);
 		expect(buildPhotoImageJsonLd({ ...REAL_PHOTO, keywords: [] })!.keywords).toBeUndefined();
 		expect(buildPhotoImageJsonLd(REAL_PHOTO)!.keywords).toBeUndefined();
+	});
+
+	it('folds annotated landmark labels into keywords (deduped, placeholders/URLs dropped)', () => {
+		const ld = buildPhotoImageJsonLd(REAL_PHOTO, [
+			ann('Petřín'),
+			ann('petřín'),
+			ann('?'),
+			ann('Praha Bubny|https://cs.wikipedia.org/wiki/Praha-Bubny')
+		])!;
+		expect(ld.keywords).toEqual(['Petřín', 'Praha Bubny']);
+	});
+
+	it('merges curator keywords with annotation labels, deduped across both', () => {
+		const ld = buildPhotoImageJsonLd({ ...REAL_PHOTO, keywords: ['Praha'] }, [ann('praha'), ann('Petřín')])!;
+		expect(ld.keywords).toEqual(['Praha', 'Petřín']);
+	});
+
+	it('name falls back to the first annotation before the filename', () => {
+		const ld = buildPhotoImageJsonLd(REAL_PHOTO, [ann('Prosek Point')])!;
+		expect(ld.name).toBe('Prosek Point');
 	});
 });
 

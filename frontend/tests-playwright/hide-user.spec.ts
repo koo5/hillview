@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { recreateTestUsers, loginAs, loginAsTestUser, logoutUser } from './helpers/testUsers';
 
@@ -42,7 +43,7 @@ async function goToOtherUserProfile(page: any): Promise<string> {
 
 	// Find a user card that isn't the logged-in user ('test')
 	const otherCard = page.locator('[data-testid^="user-card-"]:not([data-testid="user-card-test"])');
-	await expect(otherCard.first()).toBeVisible({ timeout: 11*10000 });
+	await expect(otherCard.first()).toBeVisible({ timeout: T(10000) });
 	await otherCard.first().click();
 	await page.waitForURL(/\/users\/[^/]+$/);
 
@@ -69,7 +70,7 @@ test.describe('Hide User', () => {
 
 		// Navigate to own profile via users list
 		await page.goto('/users');
-		await expect(page.locator('.users-grid')).toBeVisible({ timeout: 11*10000 });
+		await expect(page.locator('.users-grid')).toBeVisible({ timeout: T(10000) });
 
 		const ownCard = page.locator('[data-testid="user-card-test"]');
 		if (await ownCard.count() > 0) {
@@ -82,7 +83,7 @@ test.describe('Hide User', () => {
 
 	test('user profile page hides button when not authenticated', async ({ page }) => {
 		await page.goto('/users');
-		await expect(page.locator('.users-grid')).toBeVisible({ timeout: 11*10000 });
+		await expect(page.locator('.users-grid')).toBeVisible({ timeout: T(10000) });
 
 		const userCards = page.locator('[data-testid^="user-card-"]');
 		if (await userCards.count() > 0) {
@@ -124,7 +125,7 @@ test.describe('Hide User', () => {
 		await page.locator('[data-testid="hide-user-confirm"]').click();
 
 		// Dialog should close
-		await expect(page.locator('[data-testid="hide-user-dialog"]')).not.toBeVisible({ timeout: 11*10000 });
+		await expect(page.locator('[data-testid="hide-user-dialog"]')).not.toBeVisible({ timeout: T(10000) });
 
 		// Verify via API
 		const token = await getUserToken('test', testUsers.passwords.test);
@@ -142,7 +143,7 @@ test.describe('Hide User', () => {
 		const targetUserId = await goToOtherUserProfile(page);
 		await page.locator('[data-testid="user-page-hide-user"]').click();
 		await page.locator('[data-testid="hide-user-confirm"]').click();
-		await expect(page.locator('[data-testid="hide-user-dialog"]')).not.toBeVisible({ timeout: 11*10000 });
+		await expect(page.locator('[data-testid="hide-user-dialog"]')).not.toBeVisible({ timeout: T(10000) });
 
 		// Navigate to /hidden and switch to users tab
 		await page.goto('/hidden');
@@ -150,7 +151,7 @@ test.describe('Hide User', () => {
 
 		// Verify the hidden user entry is listed
 		const hiddenUserItem = page.locator('[data-testid="hidden-user-item"]');
-		await expect(hiddenUserItem.first()).toBeVisible({ timeout: 11*10000 });
+		await expect(hiddenUserItem.first()).toBeVisible({ timeout: T(10000) });
 	});
 
 	test('unhide user from /hidden page', async ({ page, testUsers }) => {
@@ -162,7 +163,7 @@ test.describe('Hide User', () => {
 		// Get another user's ID
 		await page.goto('/users');
 		const otherCard = page.locator('[data-testid^="user-card-"]:not([data-testid="user-card-test"])');
-		await expect(otherCard.first()).toBeVisible({ timeout: 11*10000 });
+		await expect(otherCard.first()).toBeVisible({ timeout: T(10000) });
 		await otherCard.first().click();
 		await page.waitForURL(/\/users\/[^/]+$/);
 		const targetUserId = page.url().split('/users/')[1];
@@ -176,13 +177,13 @@ test.describe('Hide User', () => {
 
 		// Verify the hidden user is listed
 		const hiddenUserItem = page.locator('[data-testid="hidden-user-item"]');
-		await expect(hiddenUserItem.first()).toBeVisible({ timeout: 11*10000 });
+		await expect(hiddenUserItem.first()).toBeVisible({ timeout: T(10000) });
 
 		// Click unhide
 		await page.locator('[data-testid="unhide-user-button"]').first().click();
 
 		// Verify it's gone from the list
-		await expect(hiddenUserItem).not.toBeVisible({ timeout: 11*10000 });
+		await expect(hiddenUserItem).not.toBeVisible({ timeout: T(10000) });
 
 		// Verify via API
 		const hidden = await apiGetHiddenUsers(token);
@@ -242,7 +243,7 @@ function extractOwnerUsername(photoData: any): string | undefined {
 /** Read owner info from the currently displayed gallery photo. */
 async function getPhotoOwner(page: Page): Promise<{ photoId: string; ownerId: HillviewUserId; ownerUsername: string | undefined }> {
 	const mainPhoto = page.locator('[data-testid="main-photo"].front');
-	await mainPhoto.waitFor({ state: 'visible', timeout: 11*60000 });
+	await mainPhoto.waitFor({ state: 'visible', timeout: T(60000) });
 	const data = await mainPhoto.evaluate((el) => {
 		return JSON.parse(el.getAttribute('data-photo') || '{}');
 	});
@@ -279,7 +280,7 @@ async function navigateToPhotoByUser(page: Page, targetOwnerId: HillviewUserId, 
 async function assertPhotoVisibleButNotFromUser(page: Page, hiddenOwnerId: HillviewUserId) {
 	await page.waitForTimeout(3000);
 	const mainPhoto = page.locator('[data-testid="main-photo"]');
-	await mainPhoto.waitFor({ state: 'visible', timeout: 11*15000 });
+	await mainPhoto.waitFor({ state: 'visible', timeout: T(15000) });
 	const data = await mainPhoto.evaluate((el) => {
 		return JSON.parse(el.getAttribute('data-photo') || '{}');
 	});
@@ -304,7 +305,7 @@ const hideVariants: HideVariant[] = [
 			await expect(page.locator('[data-testid="hide-user-dialog"]')).toBeVisible();
 			await page.locator('[data-testid="hide-user-reason"]').fill('hiding via photo menu');
 			await page.locator('[data-testid="hide-user-confirm"]').click();
-			await expect(page.locator('[data-testid="hide-user-dialog"]')).not.toBeVisible({ timeout: 11*10000 });
+			await expect(page.locator('[data-testid="hide-user-dialog"]')).not.toBeVisible({ timeout: T(10000) });
 		},
 	},
 	{
@@ -315,7 +316,7 @@ const hideVariants: HideVariant[] = [
 			await expect(page.locator('[data-testid="hide-user-dialog"]')).toBeVisible();
 			await page.locator('[data-testid="hide-user-reason"]').fill('hiding via user page');
 			await page.locator('[data-testid="hide-user-confirm"]').click();
-			await expect(page.locator('[data-testid="hide-user-dialog"]')).not.toBeVisible({ timeout: 11*10000 });
+			await expect(page.locator('[data-testid="hide-user-dialog"]')).not.toBeVisible({ timeout: T(10000) });
 		},
 	},
 ];

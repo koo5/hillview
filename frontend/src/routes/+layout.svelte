@@ -16,7 +16,7 @@
 	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
 	import {clearAlerts} from "$lib/alertSystem.svelte";
 	import {checkAuth} from '$lib/auth.svelte';
-	import {zoomViewData} from '$lib/zoomView.svelte';
+	import {zoomViewData, pendingZoomView} from '$lib/zoomView.svelte';
 	import {getCurrent} from "@tauri-apps/plugin-deep-link";
 	import {navigateWithHistory} from "$lib/navigation.svelte";
 	import {kotlinMessageQueue} from '$lib/KotlinMessageQueue';
@@ -42,6 +42,16 @@
 		clearAlerts();
 		const currentPath = get(page).url.pathname;
 		const newPath = navigation.to?.url.pathname;
+		// The zoom view is a global fullscreen photo overlay (rendered in this
+		// layout, opened from the map or a photo page). It must not survive a route
+		// change — otherwise e.g. opening a zoomview share link and hitting Back
+		// leaves it stuck open over the new page. Close it whenever the pathname
+		// changes; the destination re-opens it from x1..y2 URL params if warranted
+		// (see Map.svelte). A same-route query change (map pan) is left alone.
+		if (newPath && newPath !== currentPath) {
+			zoomViewData.set(null);
+			pendingZoomView.set(null);
+		}
 		console.log(`🢄🧭 [NAV] beforeNavigate: Navigating from "${currentPath}" to "${newPath}" (type: ${navigation.type})`);
 	});
 

@@ -6,6 +6,7 @@ services:
     init: true
     image: postgis/postgis:15-3.5
     container_name: hillview_postgres
+    mem_limit: 4g
     restart: always
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
@@ -32,10 +33,15 @@ services:
       context: backend
       dockerfile: api/app/Dockerfile
     container_name: hillview_api
+    mem_limit: 3g
     ports:
       - "127.0.0.1:8055:8055"
     volumes:
       - pics:/app/pics
+      # GeoIP database dir for /api/featured/nearest — drop GeoLite2-City.mmdb here
+      # (see backend/CLAUDE.md "Featured Photo GeoLite2 Database Setup"). Optional;
+      # the endpoint falls back to the global best-annotated photo without it.
+      - ./backend/data:/app/data
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@${postgres:-postgres}:5432/${POSTGRES_DB:?POSTGRES_DB is required}
       #- REDIS_URL=redis://redis:6379/0
@@ -90,9 +96,12 @@ services:
     init: true
     restart: always
     build:
-      context: frontend
-      dockerfile: Dockerfile
+      # repo root: the web build imports shared/zoomview via the $zoomview
+      # alias (see frontend/Dockerfile + its Dockerfile.dockerignore allowlist)
+      context: .
+      dockerfile: frontend/Dockerfile
     container_name: hillview_frontend
+    mem_limit: 2g
     ports:
       - "127.0.0.1:3000:3000"
     environment:
@@ -139,6 +148,7 @@ services:
     image: ghcr.io/umami-software/umami@sha256:e3f80c0625aad7179b49da27d475357cabb1068b8cacd9a792cfd6966888b123
 #    image: ghcr.io/umami-software/umami:postgresql-latest
     container_name: hillview_umami
+    mem_limit: 1g
     restart: always
     ports:
       - "127.0.0.1:3344:3344"
@@ -153,9 +163,37 @@ services:
         condition: service_completed_successfully
 
 
+  analyzer:
+    # LLM photo analyzer (production component; previously a manually-run script).
+    # Opt-in via profile: docker compose --profile analyzer up -d --build analyzer
+    build:
+      context: .
+      dockerfile: scripts/analyzer/Dockerfile
+    container_name: hillview_analyzer
+    profiles: ["analyzer"]
+    restart: unless-stopped
+    # OOM guard: the analyzer is light (httpx + sqlalchemy, images stay remote),
+    # but a leak in a long-running LLM loop shouldn't be able to take the box
+    mem_limit: 1g
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - OPENROUTER_API_KEY_FILE=/run/secrets/openrouter_api_key
+      - ANALYZER_DATA_DIR=/data
+      - ANALYZER_FETCH_IMAGES=${ANALYZER_FETCH_IMAGES:-false}
+    command: ["python", "analyzer.py", "--verbose", "--model", "${ANALYZER_MODEL:-nvidia/nemotron-nano-12b-v2-vl:free}"]
+    volumes:
+      - analyzer_data:/data
+    secrets:
+      - openrouter_api_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
 volumes:
   postgres_data:
   uploads:
+  analyzer_data:
   # NB: the `pics` volume is intentionally NOT defined here. The api service
   # mounts it, so base alone is an invalid project ("undefined volume pics").
   # An environment overlay (docker-compose.dev.yml / .prod.yml) must define it,
@@ -169,6 +207,8 @@ secrets:
       file: ./secrets/FIREBASE_CONFIG.json
   firebase_credentials:
       file: ./secrets/firebase_credentials
+  openrouter_api_key:
+      file: ./scripts/analyzer/secrets/OPENROUTER_API_KEY
 
 
 networks:

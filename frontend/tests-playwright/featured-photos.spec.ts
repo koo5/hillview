@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { loginAsTestUser, logoutUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
@@ -9,6 +10,7 @@ const TEST_PHOTO_MAP_URL = '/?lat=50.1153&lon=14.4938&zoom=18';
 
 /** Set or unset the featured flag on a photo via the debug API. */
 async function setFeatured(photoId: string, featured: boolean): Promise<void> {
+	if (!photoId) throw new Error("photoId is empty — the serial 'setup:' test did not run; re-run the whole spec file");
 	const res = await fetch(
 		`${BACKEND_URL}/api/debug/set-featured?photo_id=${encodeURIComponent(photoId)}&featured=${featured}`,
 		{ method: 'POST' },
@@ -62,7 +64,7 @@ test.describe('Featured Photos', () => {
 		await goToMapWithMarkers(page);
 
 		const featuredCircle = page.locator(`[data-photo-id="${photoId1}"] .bearing-circle`);
-		await expect(featuredCircle).toBeVisible({ timeout: 11*10000 });
+		await expect(featuredCircle).toBeVisible({ timeout: T(10000) });
 
 		const bgColor = await featuredCircle.evaluate(
 			(el: HTMLElement) => el.style.backgroundColor,
@@ -77,7 +79,7 @@ test.describe('Featured Photos', () => {
 
 		// Non-featured marker should have .grayed class
 		const nonFeaturedCircle = page.locator(`[data-photo-id="${photoId2}"] .bearing-circle`);
-		await expect(nonFeaturedCircle).toBeVisible({ timeout: 11*10000 });
+		await expect(nonFeaturedCircle).toBeVisible({ timeout: T(10000) });
 		await expect(nonFeaturedCircle).toHaveClass(/grayed/);
 
 		// Featured marker should NOT have .grayed class
@@ -126,7 +128,7 @@ test.describe('Featured Photos', () => {
 
 		// Hunter mode should be off because the URL photo is featured
 		const hunterToggle = page.locator('[data-testid="hunter-mode-toggle"]');
-		await expect(hunterToggle).not.toHaveClass(/active/, { timeout: 11*15000 });
+		await expect(hunterToggle).not.toHaveClass(/active/, { timeout: T(15000) });
 	});
 
 	test('URL with non-featured photo auto-sets hunterMode on', async ({ page, testUsers }) => {
@@ -138,7 +140,7 @@ test.describe('Featured Photos', () => {
 
 		// Hunter mode should be on because the URL photo is not featured
 		const hunterToggle = page.locator('[data-testid="hunter-mode-toggle"]');
-		await expect(hunterToggle).toHaveClass(/active/, { timeout: 11*15000 });
+		await expect(hunterToggle).toHaveClass(/active/, { timeout: T(15000) });
 	});
 
 	test('unfeaturing all photos removes graying', async ({ page, testUsers }) => {

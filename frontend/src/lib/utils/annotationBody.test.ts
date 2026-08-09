@@ -86,4 +86,39 @@ describe('parseAnnotationBody', () => {
 		expect(items[0].type).toBe('url');
 		expect(items[1].type).toBe('url');
 	});
+
+	it('classifies a coordinate segment as coords', () => {
+		const items = parseAnnotationBody('Ještěd | highest point | 50.732N, 15.008E');
+		expect(items).toHaveLength(3);
+		expect(items[2]).toEqual({
+			type: 'coords',
+			value: '50.732N, 15.008E',
+			lat: 50.732,
+			lon: 15.008,
+		});
+	});
+
+	it('classifies a bare coordinate pair in the name slot as coords', () => {
+		const items = parseAnnotationBody('50.732N, 15.008E');
+		expect(items).toEqual([
+			{ type: 'coords', value: '50.732N, 15.008E', lat: 50.732, lon: 15.008 },
+		]);
+	});
+
+	it('keeps coords embedded after a name as text (name-slot rule)', () => {
+		const items = parseAnnotationBody('Ještěd 50.732N, 15.008E');
+		expect(items).toHaveLength(1);
+		expect(items[0].type).toBe('text');
+	});
+
+	it('parses decimal-comma coordinate segments', () => {
+		const items = parseAnnotationBody('RKS Liblice 2 - jih| 50,0620061, 14,8864855');
+		expect(items).toHaveLength(2);
+		expect(items[1]).toEqual({
+			type: 'coords',
+			value: '50,0620061, 14,8864855',
+			lat: 50.0620061,
+			lon: 14.8864855,
+		});
+	});
 });

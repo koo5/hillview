@@ -12,13 +12,13 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import Photo, PhotoRating, PhotoRatingType, User
+from common.models import Photo, PhotoAnnotation, PhotoRating, PhotoRatingType, User
 from hillview_routes import legal_rights_to_license
 from common.utc import format_utc
 from auth import get_current_user_optional_with_query
 from hidden_content_filters import apply_hidden_content_filters
 from rate_limiter import general_rate_limiter
-from annotation_routes import effective_annotation_count_subquery
+from annotation_routes import effective_annotation_count_subquery, effective_annotation_conditions
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +121,21 @@ async def get_best_photos(
 		if has_more:
 			photo_results = photo_results[:-1]
 
+		# Effective annotation bodies for this page of photos. The labels ARE
+		# the page's content — /bestof is the index of views, and each entry's
+		# summary line ("Chrám svaté Barbory, GASK, …") is what both readers
+		# and crawlers come for; a bare count carries none of it.
+		page_ids = [row[0].id for row in photo_results]
+		bodies_by_photo: dict = {}
+		if page_ids:
+			ann_result = await db.execute(
+				select(PhotoAnnotation.photo_id, PhotoAnnotation.body)
+				.where(and_(PhotoAnnotation.photo_id.in_(page_ids), effective_annotation_conditions()))
+				.order_by(PhotoAnnotation.created_at)
+			)
+			for pid, body in ann_result.all():
+				bodies_by_photo.setdefault(pid, []).append(body)
+
 		photos_data = []
 		next_cursor = None
 
@@ -144,6 +159,7 @@ async def get_best_photos(
 				"owner_id": photo.owner_id,
 				"score": score_int,
 				"annotation_count": int(annotation_count) if annotation_count else 0,
+				"annotations": bodies_by_photo.get(photo.id, []),
 				"license": legal_rights_to_license(photo.legal_rights)
 			})
 			next_cursor = f"{score_int}:{photo.id}"

@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import {
   createMockMapillaryData,
@@ -50,8 +51,8 @@ test.describe('Mapillary Marker Consistency', () => {
 
     // Navigate to the app
     await page.goto('/');
-    await page.waitForSelector('.leaflet-container', { timeout: 11*10000 });
-    await page.waitForSelector('.source-buttons-group', { timeout: 11*5000 });
+    await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
+    await page.waitForSelector('.source-buttons-group', { timeout: T(5000) });
   });
 
   test.afterEach(async ({ page }) => {
@@ -92,7 +93,7 @@ test.describe('Mapillary Marker Consistency', () => {
 
     // Wait for the full loading cycle: API request → stream → markers
     console.log('⏳ Waiting for Mapillary stream to complete...');
-    await expect(page.locator('.optimized-photo-marker:visible')).toHaveCount(15, { timeout: 11*20000 });
+    await expect(page.locator('.optimized-photo-marker:visible')).toHaveCount(15, { timeout: T(20000) });
 
     // Count visible markers
     const markerCount = await countVisibleMarkers(page);

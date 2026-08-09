@@ -1,7 +1,9 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
+import { BACKEND_URL } from './helpers/adminAuth';
 import { collectErrors } from './helpers/consoleLogging';
 
 type Page = import('@playwright/test').Page;
@@ -9,17 +11,17 @@ type Page = import('@playwright/test').Page;
 /** Open the OSD viewer by clicking the main photo. */
 async function openViewer(page: Page) {
   const mainPhoto = page.locator('[data-testid="main-photo"]');
-  await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
+  await mainPhoto.waitFor({ state: 'visible', timeout: T(30000) });
   await mainPhoto.click();
-  await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*15000 });
-  await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 11*15000 });
+  await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(15000) });
+  await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: T(15000) });
   await page.waitForTimeout(500);
 }
 
 /** Close the OSD viewer via the close button. */
 async function closeViewer(page: Page) {
   await page.click('[data-testid="osd-viewer-close"]');
-  await expect(page.locator('[data-testid="osd-viewer-overlay"]')).not.toBeVisible({ timeout: 11*5000 });
+  await expect(page.locator('[data-testid="osd-viewer-overlay"]')).not.toBeVisible({ timeout: T(5000) });
   await page.waitForTimeout(500);
 }
 
@@ -46,7 +48,7 @@ test.describe('Zoom View URL Parameters', () => {
 
       // Wait for photo to appear in gallery
       const mainPhoto = page.locator('[data-testid="main-photo"]');
-      await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
+      await mainPhoto.waitFor({ state: 'visible', timeout: T(30000) });
 
       // URL should NOT have zoom params before opening viewer
       const urlBefore = getUrlParams(page.url());
@@ -91,7 +93,7 @@ test.describe('Zoom View URL Parameters', () => {
       await ensureSourceEnabled(page, 'hillview', true);
 
       const mainPhoto = page.locator('[data-testid="main-photo"]');
-      await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
+      await mainPhoto.waitFor({ state: 'visible', timeout: T(30000) });
       await openViewer(page);
 
       // Wait for initial viewport bounds
@@ -133,7 +135,7 @@ test.describe('Zoom View URL Parameters', () => {
       await ensureSourceEnabled(page, 'hillview', true);
 
       const mainPhoto = page.locator('[data-testid="main-photo"]');
-      await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
+      await mainPhoto.waitFor({ state: 'visible', timeout: T(30000) });
       await openViewer(page);
 
       // Wait for params to appear
@@ -178,8 +180,8 @@ test.describe('Zoom View URL Parameters', () => {
       // It may be very brief if data loads fast, so check with a short timeout
       // or check that eventually either the pending overlay or the viewer is visible
       const eitherVisible = await Promise.race([
-        pendingOverlay.waitFor({ state: 'visible', timeout: 11*5000 }).then(() => 'pending'),
-        page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*15000 }).then(() => 'viewer'),
+        pendingOverlay.waitFor({ state: 'visible', timeout: T(5000) }).then(() => 'pending'),
+        page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(15000) }).then(() => 'viewer'),
       ]);
 
       expect(['pending', 'viewer']).toContain(eitherVisible);
@@ -195,13 +197,20 @@ test.describe('Zoom View URL Parameters', () => {
       const targetX2 = 0.6;
       const targetY2 = 0.6;
 
-      await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=${targetX1}&y1=${targetY1}&x2=${targetX2}&y2=${targetY2}`);
-      // Enable hillview source and wait for viewer to open
+      // Enable the hillview source on a plain map page BEFORE navigating with
+      // zoom params: that URL opens the fullscreen pending/OSD overlay, which
+      // covers the hunter-mode toggle — clicking it after that navigation races
+      // the overlay mount. Chromium tends to win that race; Firefox loses it and
+      // the click retries against the overlay until the test times out. Source
+      // state persists across navigations, so enabling first is equivalent.
+      await page.goto('/');
       await ensureSourceEnabled(page, 'hillview', true);
 
+      await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=${targetX1}&y1=${targetY1}&x2=${targetX2}&y2=${targetY2}`);
+
       // Wait for the OSD viewer to open (either from pending or directly)
-      await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: 11*30000 });
-      await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: 11*15000 });
+      await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(30000) });
+      await page.locator('.openseadragon-canvas').waitFor({ state: 'visible', timeout: T(15000) });
 
       // The OSD viewer fitBounds-animates to the requested region and writes the
       // settled viewport back to the URL as it goes, which can take longer than a
@@ -222,7 +231,7 @@ test.describe('Zoom View URL Parameters', () => {
           && y2 >= targetY2 - 0.05
           && (x2 - x1) < 1.0;
       }, {
-        timeout: 11*5000,
+        timeout: T(5000),
         message: 'URL x1/y1/x2/y2 should settle to contain the requested zoomed-in region',
       }).toBe(true);
 
@@ -245,25 +254,54 @@ test.describe('Zoom View URL Parameters', () => {
       expect(viewportWidth).toBeLessThan(1.0);
     });
 
+    test('should close the zoom view on client-side navigation to another route', async ({ page, testUsers }) => {
+      await loginAsTestUser(page, testUsers.passwords.test);
+      const photoId = await uploadPhoto(page, testPhotos[0]);
+
+      // Open the zoom view from URL params (source enabled first — see test above).
+      await page.goto('/');
+      await ensureSourceEnabled(page, 'hillview', true);
+      await page.goto(`/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=0.2&y1=0.2&x2=0.6&y2=0.6`);
+      await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(30000) });
+
+      // Trigger a SvelteKit *client-side* navigation (a full page.goto would reload
+      // and drop the overlay regardless — the bug was that a client-side nav, e.g.
+      // hitting Back, left the global overlay stuck open). Inject a top-most link so
+      // the click lands above the fullscreen overlay.
+      await page.evaluate(() => {
+        const a = document.createElement('a');
+        a.href = '/about';
+        a.setAttribute('data-testid', 'zoomnav-link');
+        a.style.cssText = 'position:fixed;top:0;left:0;z-index:2147483647;padding:24px;background:#fff;';
+        document.body.appendChild(a);
+      });
+      await page.getByTestId('zoomnav-link').click();
+      await page.waitForURL('**/about', { timeout: T(10000) });
+
+      // The global overlay must not persist across the route change.
+      await expect(page.locator('[data-testid="osd-viewer-overlay"]')).not.toBeVisible({ timeout: T(10000) });
+      await expect(page.locator('[data-testid="zoom-view-pending"]')).not.toBeVisible();
+    });
+
     test('should close pending overlay when close button is clicked', async ({ page, testUsers }) => {
       // Navigate with zoom params for a non-existent photo so pending stays visible
       await page.goto('/?lat=50.0755&lon=14.4378&zoom=18&photo=hillview-nonexistent-999&x1=0.1&y1=0.1&x2=0.9&y2=0.9');
       const pendingOverlay = page.locator('[data-testid="zoom-view-pending"]');
       // The pending overlay should appear (photo won't load)
-      await pendingOverlay.waitFor({ state: 'visible', timeout: 11*10000 });
+      await pendingOverlay.waitFor({ state: 'visible', timeout: T(10000) });
 
       // Click close button
       await page.click('[data-testid="zoom-view-pending-close"]');
 
       // Pending overlay should disappear
-      await expect(pendingOverlay).not.toBeVisible({ timeout: 11*5000 });
+      await expect(pendingOverlay).not.toBeVisible({ timeout: T(5000) });
 
       // Zoom params should be cleared from the URL. The write is debounced, so poll
       // for it rather than a fixed sleep (which races the update and flakes).
       await expect.poll(() => {
         const p = getUrlParams(page.url());
         return p.get('x1') ?? p.get('y1') ?? p.get('x2') ?? p.get('y2');
-      }, { timeout: 11*10000 }).toBeNull();
+      }, { timeout: T(10000) }).toBeNull();
     });
   });
 
@@ -305,7 +343,7 @@ test.describe('Zoom View URL Parameters', () => {
       await ensureSourceEnabled(page, 'hillview', true);
 
       const mainPhoto = page.locator('[data-testid="main-photo"]');
-      await mainPhoto.waitFor({ state: 'visible', timeout: 11*30000 });
+      await mainPhoto.waitFor({ state: 'visible', timeout: T(30000) });
       await openViewer(page);
 
       // Wait for all URL params to settle
@@ -348,6 +386,20 @@ test.describe('Zoom View URL Parameters', () => {
       return page.evaluate(() => (window as any).__lastClipboardText as string);
     }
 
+    /** Share mints a short /shared/{slug} link; resolve it via the backend and
+     * return the target map URL, which carries the actual map params. */
+    async function resolveShareTarget(clipboardText: string): Promise<URL> {
+      const urlMatch = clipboardText.match(/https?:\/\/\S+/);
+      expect(urlMatch, 'Share clipboard should contain a URL').toBeTruthy();
+      const shareUrl = new URL(urlMatch![0]);
+      expect(shareUrl.pathname, 'Share should mint a short /shared/{slug} link').toMatch(/^\/shared\/\d+/);
+      const slug = shareUrl.pathname.slice('/shared/'.length);
+      const res = await fetch(`${BACKEND_URL}/api/shared/${encodeURIComponent(slug)}`);
+      expect(res.ok, `Short share link should resolve, got ${res.status}`).toBe(true);
+      const { target } = await res.json();
+      return new URL(target, shareUrl.origin);
+    }
+
     test('share URL from zoom view should include x1/y1/x2/y2 params', async ({ page, testUsers }) => {
       await loginAsTestUser(page, testUsers.passwords.test);
       await uploadPhoto(page, testPhotos[0]);
@@ -365,12 +417,8 @@ test.describe('Zoom View URL Parameters', () => {
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
 
-      // Read share URL from intercepted clipboard
-      const clipboardText = await getLastClipboardText(page);
-      const urlMatch = clipboardText.match(/https?:\/\/\S+/);
-      expect(urlMatch, 'Share clipboard should contain a URL').toBeTruthy();
-
-      const shareUrl = new URL(urlMatch![0]);
+      // Read share URL from intercepted clipboard and resolve the short link
+      const shareUrl = await resolveShareTarget(await getLastClipboardText(page));
       const x1 = shareUrl.searchParams.get('x1');
       const y1 = shareUrl.searchParams.get('y1');
       const x2 = shareUrl.searchParams.get('x2');
@@ -404,8 +452,7 @@ test.describe('Zoom View URL Parameters', () => {
       await page.click('[data-testid="osd-display-menu-toggle"]');
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
-      const defaultClip = await getLastClipboardText(page);
-      const defaultUrl = new URL(defaultClip.match(/https?:\/\/\S+/)![0]);
+      const defaultUrl = await resolveShareTarget(await getLastClipboardText(page));
       const defaultWidth = parseFloat(defaultUrl.searchParams.get('x2')!) - parseFloat(defaultUrl.searchParams.get('x1')!);
 
       // Zoom in by double-clicking
@@ -422,8 +469,7 @@ test.describe('Zoom View URL Parameters', () => {
       await page.click('[data-testid="osd-display-menu-toggle"]');
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
-      const zoomedClip = await getLastClipboardText(page);
-      const zoomedUrl = new URL(zoomedClip.match(/https?:\/\/\S+/)![0]);
+      const zoomedUrl = await resolveShareTarget(await getLastClipboardText(page));
       const zoomedWidth = parseFloat(zoomedUrl.searchParams.get('x2')!) - parseFloat(zoomedUrl.searchParams.get('x1')!);
 
       // After zooming in, viewport width should be smaller
@@ -432,6 +478,35 @@ test.describe('Zoom View URL Parameters', () => {
   });
 
   test.describe('Error handling', () => {
+
+    test('should show not-found instead of an eternal spinner for a deleted photo', async ({ page }) => {
+      // Well-formed uid that exists nowhere — same shape as a deleted photo's
+      // stale share link. The public-endpoint probe 404s and the pending
+      // overlay must say so rather than spin forever.
+      await page.goto(
+        '/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-00000000-0000-0000-0000-000000000000&x1=0.2&y1=0.2&x2=0.6&y2=0.6'
+      );
+      await expect(page.getByTestId('zoom-view-pending-error')).toBeVisible({ timeout: T(15000) });
+
+      // The overlay still closes normally
+      await page.getByTestId('zoom-view-pending-close').click();
+      await expect(page.getByTestId('zoom-view-pending')).not.toBeVisible();
+    });
+
+    test('should pan to the photo\'s real location when the URL position is stale', async ({ page, testUsers }) => {
+      await loginAsTestUser(page, testUsers.passwords.test);
+      const photoId = await uploadPhoto(page, testPhotos[0]);
+
+      await page.goto('/');
+      await ensureSourceEnabled(page, 'hillview', true);
+
+      // ~5.5 km north of the photo's actual position — outside the streamed
+      // bounds, so without the probe's corrective pan the photo never arrives.
+      await page.goto(
+        `/?lat=50.1653&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=0.2&y1=0.2&x2=0.6&y2=0.6`
+      );
+      await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(30000) });
+    });
 
     test('should handle malformed zoom params gracefully', async ({ page }) => {
       const { errors } = collectErrors(page);

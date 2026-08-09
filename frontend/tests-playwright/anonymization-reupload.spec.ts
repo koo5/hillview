@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,9 +60,9 @@ test.describe('Anonymization re-upload (web)', () => {
 		}
 
 		const photosList = page.locator('[data-testid="photos-list"]');
-		await photosList.waitFor({ state: 'visible', timeout: 11 * 15000 });
+		await photosList.waitFor({ state: 'visible', timeout: T(15000) });
 		await expect(photosList.locator(`[data-photo-id="${serverPhotoId}"]`).first())
-			.toBeVisible({ timeout: 11 * 10000 });
+			.toBeVisible({ timeout: T(10000) });
 
 		// Only one photo on the server (users recreated per spec file),
 		// so there is exactly one menu button
@@ -75,18 +76,18 @@ test.describe('Anonymization re-upload (web)', () => {
 		// The modal must offer the options in the browser — this guards the
 		// regression where it showed "Not available in browser yet"
 		const modal = page.locator('[data-testid="anonymization-modal"]');
-		await modal.waitFor({ state: 'visible', timeout: 11 * 10000 });
+		await modal.waitFor({ state: 'visible', timeout: T(10000) });
 
 		const autoOption = page.locator('[data-testid="option-auto-anonymize"]');
 		const skipOption = page.locator('[data-testid="option-skip-anonymization"]');
-		await skipOption.waitFor({ state: 'visible', timeout: 11 * 15000 });
+		await skipOption.waitFor({ state: 'visible', timeout: T(15000) });
 		await expect(autoOption).toHaveClass(/selected/);
 
 		// Choose "No anonymization" — queues the photo for re-upload
 		await skipOption.click();
 		await expect(
 			page.locator('[data-testid^="alert-area-"]').filter({ hasText: 'queued for re-upload' })
-		).toBeVisible({ timeout: 11 * 5000 });
+		).toBeVisible({ timeout: T(5000) });
 
 		// The photo re-uploads with version 2 and the override attached,
 		// replacing the same server photo
@@ -98,8 +99,8 @@ test.describe('Anonymization re-upload (web)', () => {
 		// Reopen the modal — "No anonymization" is now the current state
 		await menuButton.click();
 		await anonymizationMenuItem.click();
-		await skipOption.waitFor({ state: 'visible', timeout: 11 * 15000 });
-		await expect(skipOption).toHaveClass(/selected/, { timeout: 11 * 10000 });
+		await skipOption.waitFor({ state: 'visible', timeout: T(15000) });
+		await expect(skipOption).toHaveClass(/selected/, { timeout: T(10000) });
 
 		// Switching back to auto-detect queues another re-upload (version 3)
 		await autoOption.click();

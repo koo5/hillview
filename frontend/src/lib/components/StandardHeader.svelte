@@ -4,8 +4,11 @@
     import { goto } from '$app/navigation';
     import AlertArea from './AlertArea.svelte';
 	import InsetGradients from "$lib/components/InsetGradients.svelte";
+	import AdminBadge from '$lib/components/AdminBadge.svelte';
 
     export let title: string;
+    // Pages that render their own content <h1> should pass 'div' so the page has a single h1
+    export let titleTag: string = 'h1';
     export let showBackButton: boolean = true;
     export let showMenuButton: boolean = true;
     export let onMenuClick: (() => void) | null = null;
@@ -41,6 +44,7 @@
                 data-testid="header-menu-button"
             >
                 <Menu size={24} />
+                <AdminBadge variant="corner" />
             </button>
         {/if}
 
@@ -58,7 +62,7 @@
     </div>
 
     <div class="header-center">
-        <h1 class="header-title">{title}</h1>
+        <svelte:element this={titleTag} class="header-title">{title}</svelte:element>
     </div>
 
     <div class="header-right">
@@ -115,6 +119,10 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    .menu-button {
+        position: relative;
     }
 
     .header-button {

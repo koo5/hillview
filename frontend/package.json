@@ -9,7 +9,7 @@
     "@sveltejs/kit": "^2.55.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
     "@tauri-apps/api": "^2.9.0",
-    "@tauri-apps/cli": "^2.6.2",
+    "@tauri-apps/cli": "^2.11.4",
     "@tauri-apps/plugin-deep-link": "^2.4.1",
     "@tauri-apps/plugin-fs": "^2.4.2",
     "@tauri-apps/plugin-geolocation": "^2.3.0",

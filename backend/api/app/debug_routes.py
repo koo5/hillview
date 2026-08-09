@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import push_toggle
+from auth import get_current_user_optional_with_query
 from common.database import get_db
 from debug_utils import debug_only, clear_system_tables, cleanup_upload_directories
 
@@ -22,6 +23,21 @@ async def debug_endpoint():
 	return {"status": "ok", "message": "API is working properly"}
 
 
+@router.get("/whoami-query")
+@debug_only
+async def whoami_query(current_user=Depends(get_current_user_optional_with_query)):
+	"""Reflect who the optional-auth resolver (header / signed stream credential /
+	legacy query token) identified. Test surface for stream-credential auth — the
+	SSE endpoints that use this dependency are awkward to assert against directly."""
+	if current_user is None:
+		return {"authenticated": False}
+	return {
+		"authenticated": True,
+		"user_id": current_user.id,
+		"username": current_user.username,
+	}
+
+
 @router.post("/recreate-test-users")
 @debug_only
 async def recreate_test_users():
@@ -35,6 +51,9 @@ async def recreate_test_users():
 	# choice into the next test run. Reset to the DEV_MODE-driven default
 	# (off in dev, on in prod) every time test state gets wiped.
 	push_toggle.reset_to_default()
+	# Same rationale for the in-memory auth debug overrides (short access-TTL /
+	# force-logout): drop them so a crashed spec can't leak state into the next.
+	auth.reset_debug_overrides()
 
 	return {"status": "success", "message": "Test users re-created", "details": result}
 
@@ -95,6 +114,8 @@ async def clear_database():
 	# Same reset rule as recreate-test-users — any test-only opt-in to
 	# real push gets cleared when test state is wiped.
 	push_toggle.reset_to_default()
+	# Likewise drop the in-memory auth debug overrides (access-TTL / force-logout).
+	auth.reset_debug_overrides()
 
 	log.info("Database cleared completely")
 	return {

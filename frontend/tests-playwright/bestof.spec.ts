@@ -1,3 +1,4 @@
+import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
 
 test.describe('Best Of Page', () => {
@@ -16,7 +17,7 @@ test.describe('Best Of Page', () => {
 		await expect.poll(async () =>
 			(await page.locator('.loading-container').isHidden()) &&
 			((await photoGrid.isVisible()) || (await emptyState.isVisible())),
-			{ timeout: 11*15000 }
+			{ timeout: T(15000) }
 		).toBe(true);
 
 		// Should not show an error
@@ -25,7 +26,7 @@ test.describe('Best Of Page', () => {
 
 	test('should show photo stats when photos exist', async ({ page }) => {
 		await page.goto('/bestof');
-		await expect(page.locator('.loading-container')).toBeHidden({ timeout: 11*15000 });
+		await expect(page.locator('.loading-container')).toBeHidden({ timeout: T(15000) });
 
 		const photoGrid = page.getByTestId('bestof-photo-grid');
 		if (await photoGrid.isVisible().catch(() => false)) {
@@ -45,7 +46,7 @@ test.describe('Best Of Page', () => {
 		// internal-link path for crawlers, so every card's headline is a real
 		// <a href="/photo/..."> (rendered server-side in the web build).
 		await page.goto('/bestof');
-		await expect(page.locator('.loading-container')).toBeHidden({ timeout: 11*15000 });
+		await expect(page.locator('.loading-container')).toBeHidden({ timeout: T(15000) });
 
 		const photoGrid = page.getByTestId('bestof-photo-grid');
 		if (await photoGrid.isVisible().catch(() => false)) {
