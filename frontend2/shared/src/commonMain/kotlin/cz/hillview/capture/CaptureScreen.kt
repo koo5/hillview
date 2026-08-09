@@ -72,6 +72,14 @@ internal val LightGlass = Color(0x33FFFFFF)
 internal const val INTERVAL_MAX_SEC = 15
 
 /**
+ * One stop above the fastest interval: VIDEO. Video is a modality of this
+ * pane — "almost just a 0-interval photo capture" — so it is chosen the
+ * same way a run is: hold the shutter, slide up the ladder, release. Past
+ * the top of the seconds is where "even less than zero interval" belongs.
+ */
+internal const val LADDER_VIDEO_STOP = INTERVAL_MAX_SEC + 1
+
+/**
  * Session totals for the corner indicator — the original's captureQueue
  * stats singleton lives for the webview session; a process-wide object is
  * the same lifetime here: it survives pane bounces and navigation and
@@ -782,7 +790,12 @@ fun CaptureScreen(
             Box(
                 Modifier
                     .onGloballyPositioned { clusterOrigin = it.positionInRoot() }
-                    .pointerInput(gateOpen, repeating) {
+                    // state.recording is a KEY, not just read inside: the
+                    // gesture lambda captures the state it was created with,
+                    // and pointerInput only restarts when a key changes — so
+                    // without this the handler kept a pre-recording snapshot
+                    // and a tap could never stop a recording (device-caught).
+                    .pointerInput(gateOpen, repeating, state.recording) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val circle = circleBounds ?: return@awaitEachGesture
@@ -790,6 +803,15 @@ fun CaptureScreen(
                                 return@awaitEachGesture
                             }
                             if (!gateOpen) return@awaitEachGesture
+                            if (state.recording) {
+                                // Recording behaves exactly like a run: any
+                                // completed press on the button ends it.
+                                val up = waitForUpOrCancellation() ?: return@awaitEachGesture
+                                if (circle.contains(clusterOrigin + up.position)) {
+                                    capture.stopVideo()
+                                }
+                                return@awaitEachGesture
+                            }
                             if (repeating) {
                                 // A running run: any completed press on the
                                 // button stops it (the original's
@@ -824,12 +846,19 @@ fun CaptureScreen(
                                     val zone = sliderZone
                                     if (overSlider && zone != null && zone.height > 0f) {
                                         intervalSec =
-                                            ((zone.bottom - pos.y) / zone.height * INTERVAL_MAX_SEC)
-                                                .roundToInt().coerceIn(0, INTERVAL_MAX_SEC)
+                                            ((zone.bottom - pos.y) / zone.height * LADDER_VIDEO_STOP)
+                                                .roundToInt().coerceIn(0, LADDER_VIDEO_STOP)
                                     }
                                     change.consume()
                                     if (event.changes.none { it.pressed }) {
-                                        if (overSlider && intervalSec > 0) repeating = true
+                                        // Released on the ladder: the top
+                                        // stop starts a recording, anything
+                                        // above "single" starts a run.
+                                        if (overSlider && intervalSec == LADDER_VIDEO_STOP) {
+                                            capture.startVideo()
+                                        } else if (overSlider && intervalSec > 0) {
+                                            repeating = true
+                                        }
                                         break
                                     }
                                 }
@@ -1013,9 +1042,13 @@ private fun IntervalSlider(
         modifier = Modifier.padding(end = 16.dp),
     ) {
         Text(
-            text = if (intervalSec == 0) "single" else "${intervalSec}s",
+            text = when (intervalSec) {
+                0 -> "single"
+                LADDER_VIDEO_STOP -> "VIDEO"
+                else -> "${intervalSec}s"
+            },
             style = MaterialTheme.typography.bodySmall,
-            color = Color.White,
+            color = if (intervalSec == LADDER_VIDEO_STOP) Color(0xFFFF5252) else Color.White,
             modifier = Modifier.testTag("capture-interval-value"),
         )
         Box(
@@ -1029,7 +1062,7 @@ private fun IntervalSlider(
             Slider(
                 value = intervalSec.toFloat(),
                 onValueChange = { onChange(it.roundToInt()) },
-                valueRange = 0f..INTERVAL_MAX_SEC.toFloat(),
+                valueRange = 0f..LADDER_VIDEO_STOP.toFloat(),
                 enabled = enabled,
                 modifier = Modifier
                     .requiredWidth(INTERVAL_TRACK_LENGTH)
