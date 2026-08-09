@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -99,6 +100,47 @@ class UploadClaimRaceTest {
         assertEquals(51.0, uploaded.latitude, 0.0001)
         assertEquals(200.0, uploaded.bearing, 0.0001)
         assertNotNull(uploaded.stampRefinedAt, "so the metadata says refined:true")
+    }
+
+    @Test
+    fun theHoldOutlastsAnyRefinementSoTheTwoDoNotRaceInPractice() {
+        // The primary mechanism is "don't select what is still due for
+        // restamping" — the claim CAS above is only the floor beneath it.
+        // That only holds if the deadline is nowhere near how long a
+        // refinement takes: it was BRACKET_TIMEOUT + 2 s once, which left
+        // ~1.5 s of headroom, and an ordinary GC pause turned the backstop
+        // into a live race. A deadline answers "the app died, how long
+        // before we give up on it", so it belongs in minutes.
+        val refinerWorstCase = StampRefiner.BRACKET_TIMEOUT_MS +
+            StampRefiner.COMPASS_HALF_WINDOW_MS + StampRefiner.COMPASS_SETTLE_MARGIN_MS
+        assertTrue(
+            StampRefiner.UPLOAD_HOLD_MS > refinerWorstCase * 5,
+            "hold ${StampRefiner.UPLOAD_HOLD_MS} ms must dwarf the refiner's " +
+                "$refinerWorstCase ms worst case, or a stall becomes a race",
+        )
+    }
+
+    @Test
+    fun appStartDropsHoldsLeftByAProcessThatIsGone() {
+        // …which is what lets the deadline be generous: a real crash
+        // recovers on the next launch instead of waiting the deadline out.
+        db.photoDao().insertPhoto(
+            PhotoEntity(
+                id = "stale", filename = "stale.jpg", path = "/tmp/stale.jpg",
+                latitude = 50.0, longitude = 14.0, capturedAt = 1_000L, accuracy = 5.0,
+                width = 4, height = 4, fileSize = 16, createdAt = 1_000L,
+                uploadStatus = "pending", uploadHoldUntil = Long.MAX_VALUE,
+            ),
+        )
+        val dao = db.photoDao()
+        assertEquals(null, dao.getNextPhotoForUpload(emptySet(), 0L, 0L, now = 5_000L))
+
+        assertEquals(1, dao.clearAllUploadHolds())
+
+        assertNotNull(
+            dao.getNextPhotoForUpload(emptySet(), 0L, 0L, now = 5_000L),
+            "a hold from a dead process must not outlive it",
+        )
     }
 
     @Test

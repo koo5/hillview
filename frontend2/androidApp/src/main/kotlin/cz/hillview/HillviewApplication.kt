@@ -43,6 +43,12 @@ class HillviewApplication : Application() {
             }
         }
 
+        // Same idea for the stamp refiner: a hold left by a process that is
+        // gone is a leftover, not a promise. Clearing them here is what lets
+        // the hold's own deadline be a generous crash backstop instead of a
+        // tight one that races the refiner.
+        cz.hillview.plugin.StampRefiner.clearStaleHolds(this)
+
         // Lockstep logout: whichever shared-kt AuthenticationManager instance
         // (upload worker, status sync, UI store) declares the session dead,
         // the Compose UI drops to LoggedOut immediately — the same wiring the

@@ -139,6 +139,16 @@ interface SimplePhotoDao {
     fun clearUploadHold(photoId: String)
 
     /**
+     * Every hold, dropped. Called at app start: a refiner that was mid-flight
+     * belonged to a process that no longer exists, so its hold is a leftover,
+     * not a promise. This is what lets the hold deadline be a generous crash
+     * backstop instead of a tight one — a real crash recovers on the next
+     * launch rather than by waiting the deadline out.
+     */
+    @Query("UPDATE photos SET uploadHoldUntil = 0 WHERE uploadHoldUntil > 0")
+    fun clearAllUploadHolds(): Int
+
+    /**
      * Take the row for upload, atomically — a compare-and-set on the status
      * we selected it under. Returns rows updated: 0 means we lost it (the
      * refiner or another pass moved it) and the caller must skip.

@@ -273,7 +273,23 @@ network refresh — and hashed the file, and only THEN marked it
 `uploading`; and it uploaded the SNAPSHOT. So a refinement landing any
 time in that gap was written locally and never sent.
 
-The fix is two halves, and needs both:
+**The primary mechanism was never the claim — it is "do not select a
+photo that is still due for restamping", and that already existed
+(`uploadHoldUntil`, filtered by both candidate queries). The race
+happened only because the deadline was mis-tuned:** `BRACKET_TIMEOUT +
+2 s`, about 1.5 s of headroom over the refiner's own worst case, so an
+ordinary GC pause or a dozing device expired the hold while the refiner
+was still working. A deadline is a CRASH BACKSTOP — it answers "the app
+died mid-refinement, how long before this photo may upload anyway" — so
+it is now 60 s, and app start drops holds left by a process that is gone
+(`clearAllUploadHolds`), which is what lets it be generous: a real crash
+recovers on the next launch instead of waiting it out. Costs nothing in
+latency, because the refiner clears its hold the instant it finishes and
+pokes the drain; uploads are driven by completion, never by expiry.
+
+Beneath that, the claim itself was still a read-then-write, so the fix
+has two more halves as the correctness floor for the crash-recovery
+instant:
 
 - **Claim atomically.** `claimForUpload(id, expectedStatus, now)` is a
   compare-and-set on the status the row was selected under; 0 rows means
