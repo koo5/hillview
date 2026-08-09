@@ -29,11 +29,19 @@ router = APIRouter(prefix="/api/annotations", tags=["annotations"])
 PLACEHOLDER_BODIES = ('', '?', 'oops')
 
 
-def effective_annotation_count_subquery():
-    """Return a subquery giving the count of effective annotations per photo.
+def effective_annotation_conditions():
+    """Filter selecting effective annotations: current, non-deleted, and
+    carrying real text (NULL, empty and placeholder bodies are excluded)."""
+    return and_(
+        PhotoAnnotation.is_current == True,
+        PhotoAnnotation.event_type != 'deleted',
+        func.lower(func.trim(func.coalesce(PhotoAnnotation.body, ''))).notin_(PLACEHOLDER_BODIES),
+    )
 
-    Effective = current, non-deleted, and carrying real text (NULL, empty and
-    placeholder bodies are excluded).
+
+def effective_annotation_count_subquery():
+    """Return a subquery giving the count of effective annotations per photo
+    (see effective_annotation_conditions).
 
     Columns: photo_id, annotation_count.
     """
@@ -42,13 +50,7 @@ def effective_annotation_count_subquery():
             PhotoAnnotation.photo_id,
             func.count(PhotoAnnotation.id).label('annotation_count')
         )
-        .where(
-            and_(
-                PhotoAnnotation.is_current == True,
-                PhotoAnnotation.event_type != 'deleted',
-                func.lower(func.trim(func.coalesce(PhotoAnnotation.body, ''))).notin_(PLACEHOLDER_BODIES),
-            )
-        )
+        .where(effective_annotation_conditions())
         .group_by(PhotoAnnotation.photo_id)
         .subquery('effective_annotations')
     )
