@@ -176,10 +176,12 @@ active/available for when the app is backgrounded"*: one engine, one
 state pair, a service that owns the process rather than a second copy of
 the data path.
 
-**C4 falls out.** Per-mode sensor/GPS rates become a property of the one
-engine (`engine.setProfile(External | Capture | Gallery)`) — which is why
-per-mode defaults were blocked on this: today there is no single place a
-rate could even be set.
+**C4 falls out.** Per-mode sensor/GPS rates become a `GeoConfig` passed
+at the call site that starts the engine for a mode (see choice A) — which
+is why per-mode defaults were blocked on this: today there is no single
+place a rate could even be set, and no single owner to apply it to. The
+GPS interval slider and the eco sub-flags are then values in that config,
+not new machinery.
 
 **What this does NOT fix: C3.** The refiner/upload claim race is a
 separate defect (the drain claims a row in two steps). But the engine
@@ -214,7 +216,7 @@ The questions above were mostly mine to answer, not the user's. Recorded
 here as concrete sketches so the decision is judged on what it LOOKS
 like, with the recommendation stated. Class names are the real ones.
 
-### A. Engine lifetime — recommend A2 (mode-driven profiles)
+### A. Engine lifetime and rates — recommend A2 (mode drives WHEN, caller supplies WHAT)
 
 **A1, ref-counted.** Each observer acquires; the engine stops when the
 last one releases.
@@ -233,35 +235,59 @@ Automatic, and wrong for this app: nothing can answer *"why is the GPS
 awake right now"* — the answer is a count. Battery behaviour becomes
 emergent, which is precisely what a power-sensitive app must not have.
 
-**A2, mode-driven.** The active mode sets a PROFILE; the engine holds
-exactly one.
+**A2, mode-driven, with the VALUES PASSED IN.** The user's correction,
+and it is the right one: *"if it was up to me, I'd be setting these
+values from wherever I'd be starting the engine."* The engine takes a
+config; it does not own an enum of baked-in numbers.
 
 ```kotlin
-enum class GeoProfile(val locationIntervalMs: Long, val sensorRateMs: Int, val sensors: Boolean) {
-    Off(0, 0, false),                  // gallery: neither
-    Capture(1_000, 10, true),          // optimize around the shutter
-    External(1_000, 10, true),         // continuous, never a gap
-    MapOnly(2_000, 50, true),          // follow-me / compass arrow
+data class GeoConfig(
+    val sensors: Boolean,
+    val sensorRateMs: Int,
+    val locationIntervalMs: Long,
+) {
+    companion object { val Off = GeoConfig(sensors = false, sensorRateMs = 0, locationIntervalMs = 0) }
 }
 
 class GeoEngine(context: Context) {
-    fun setProfile(profile: GeoProfile) { /* start/stop/retune the ONE pair */ }
+    /** Retunes the ONE sensor/location pair. Off stops them. */
+    fun configure(config: GeoConfig) { … }
 }
 
-// MainScreen, where the mode already lives (mapSettings.mainActivity):
-LaunchedEffect(activity, trackingWanted) {
-    engine.setProfile(when (activity) {
-        "external" -> GeoProfile.External
-        "capture"  -> GeoProfile.Capture
-        else       -> if (trackingWanted) GeoProfile.MapOnly else GeoProfile.Off
-    })
+// MainScreen, where the mode already lives (mapSettings.mainActivity).
+// The numbers are HERE, at the call site, not inside the engine:
+LaunchedEffect(activity, trackingWanted, mapSettings.gpsIntervalMs) {
+    engine.configure(
+        when (activity) {
+            // Continuous: never a gap while another camera app is in front.
+            "external" -> GeoConfig(sensors = true, sensorRateMs = 10,
+                                    locationIntervalMs = mapSettings.gpsIntervalMs)
+            // Optimize around the shutter (eco sub-flags land here).
+            "capture"  -> GeoConfig(sensors = true, sensorRateMs = 10,
+                                    locationIntervalMs = mapSettings.gpsIntervalMs)
+            else       -> if (trackingWanted) {
+                GeoConfig(sensors = true, sensorRateMs = 50, locationIntervalMs = 2_000)
+            } else GeoConfig.Off
+        }
+    )
 }
 ```
 
-This is what Tauri does (JS issues explicit `startSensor`/`stopSensor`),
-it matches the user's own framing — modes with different defaults — and
-**it is C4**: per-mode rates have a place to live the moment profiles
-exist. One line answers "why is the GPS awake": the profile.
+Two properties worth stating, because they are why this beats the enum:
+
+- **The engine owns no policy.** It is told what to run; it never decides.
+  Same rule as "publishes flows, owns no policy" above.
+- **A user-facing control feeds it directly.** The GPS interval slider
+  (item 0c) is `mapSettings.gpsIntervalMs` in the snippet above — already
+  wired, because the value arrives from the call site. With rates frozen
+  inside a `GeoProfile` enum, that slider would have needed the whole path
+  re-plumbed. The eco sub-flags (sleep the bearing sensors until near
+  capture time) are likewise just a different `GeoConfig` from the capture
+  branch, not a new mechanism.
+
+Defaults live next to their call sites (and, once the sliders exist, in
+`MapSettings` so they persist). **This is C4**: per-mode rates now have a
+place to live, and it is a place the user can reach.
 
 ### B. How a pane reads — recommend B2 (pure observer)
 
