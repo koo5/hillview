@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { auth } from '$lib/auth.svelte';
 	import { http, handleApiError } from '$lib/http';
+	import { createSsrBackedLoad } from '$lib/ssrBackedLoad';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { ACTIVITY_NOTIFICATION_REFRESH_EVENT } from '$lib/notificationRouteUtils';
 	import { constructPhotoMapUrl, constructUserProfileUrl } from '$lib/urlUtils';
@@ -88,18 +89,19 @@
 			void loadActivityData();
 		};
 		window.addEventListener(ACTIVITY_NOTIFICATION_REFRESH_EVENT, refreshActivity);
-		// The SSR batch is crawler-only: it ships the photo links in the initial
-		// HTML, but SSR fetches anonymously (auth tokens live in IndexedDB, which
-		// the server can't read). In a real browser, discard it and load the
-		// user's own hidden-content-filtered view. loadActivityData() flips the
-		// spinner on, so the stale anonymous list never becomes interactive or
-		// scrollable — no scroll jump, no Load-More race.
-		void loadActivityData();
 
 		return () => {
 			window.removeEventListener(ACTIVITY_NOTIFICATION_REFRESH_EVENT, refreshActivity);
 		};
 	});
+
+	// Who needs a fetch and who keeps the server-rendered batch — see
+	// createSsrBackedLoad. An anonymous visitor keeps it: refetching an
+	// identical list only flashes the spinner (and for crawlers, blocked from
+	// /api/ by robots.txt, it rendered an error page — Google read /bestof,
+	// which had the same shape, as a soft 404).
+	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void loadActivityData());
+	$: syncLoad($auth);
 
 	async function loadActivityData(cursor?: string) {
 		try {

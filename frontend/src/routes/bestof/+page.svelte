@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { auth } from '$lib/auth.svelte';
+	import { createSsrBackedLoad } from '$lib/ssrBackedLoad';
 	import { http, handleApiError } from '$lib/http';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
@@ -51,14 +52,11 @@
 	let hasMorePhotos = data?.has_more ?? false;
 	let nextCursor: string | null = data?.next_cursor ?? null;
 
-	onMount(async () => {
-		// The SSR batch is crawler-only: it ships the photo links in the initial
-		// HTML, but SSR fetches anonymously (auth tokens live in IndexedDB, which
-		// the server can't read). In a real browser, discard it and load the
-		// user's own hidden-content-filtered view. loadPhotos() flips the spinner
-		// on, so the stale anonymous list never becomes interactive.
-		await loadPhotos();
-	});
+	// Who needs a fetch and who keeps the server-rendered batch — see
+	// createSsrBackedLoad (an anonymous visitor keeps it; that is what stopped
+	// crawlers rendering this page as a soft 404).
+	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void loadPhotos());
+	$: syncLoad($auth);
 
 	async function loadPhotos(cursor?: string) {
 		try {
