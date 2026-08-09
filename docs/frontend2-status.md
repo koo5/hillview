@@ -208,7 +208,7 @@ These came out of the user's read of the refiner + external-camera work.
 They are ONE architectural problem seen from four sides, plus one queued
 default. Read them together; fixing the hub answers most of them.
 
-**C1. There is no sensor/geo hub — panes invent their own data paths.**
+**C1. No sensor/geo hub — FIXED 2026-08-09 (`GeoEngine`).**
 frontend2 now constructs **three** independent `EnhancedSensorService`
 instances (map `MapScreen.android.kt:785`, capture
 `PhotoCapture.android.kt:320`, external `ExternalCameraService.kt:94`)
@@ -245,7 +245,13 @@ wall, not a convention. In CMP the wall is gone and nothing stops a pane
 from constructing its own. **Port the constraints the original's
 structure enforced, not only the behaviour it produced.**
 
-**C2. Car-mode bearing is derived on the UI thread** (user: "slightly
+**C2. Car-mode bearing derived on the UI thread — FIXED 2026-08-09.**
+The composition moved into the engine, on its own HandlerThread; the map
+only observes `engine.carBearing`. Measured on the way: BOTH shared-kt
+services deliver on the main looper, in both apps — the original gets
+away with it only because its map draws in the WebView renderer process,
+so this now goes further than the original rather than copying it.
+Original wording: (user: "slightly
 nervous… that's a UI thread in what should be a stutter-less pipeline,
 held up by marker rendering and stuff"). Every canonical bearing write —
 `state.updateBearing(...)` — is inside `MapScreen.android.kt`, and the
@@ -292,10 +298,15 @@ metadata-only correction to the server is worth discussing separately —
 it is NOT a re-upload (the file never moves), so it may be compatible
 with the "no re-upload fallback, ever" rule.
 
-**C4. Per-activity sensor/GPS rate defaults** (the remaining half of 0c):
-external wants continuous, capture wants optimize-around-the-shutter,
-gallery wants neither. Pairs with the eco sub-flags, and lands naturally
-once C1 gives the rates one owner to live in.
+**C4. Per-activity sensor/GPS rate defaults — LANDED 2026-08-09**, as
+predicted, the moment C1 gave rates an owner. `GeoConfig` is passed IN at
+the call site (`GeoDefaults.kt`: capture/external at 33 Hz + 1 s fixes,
+map-only relaxed to 10 Hz + 2 s), never baked into the engine — the
+user's call, and it is what makes the GPS-interval slider and the eco
+sub-flags VALUES rather than new machinery. Device-verified: leaving the
+external activity drops the engine to Off, and a map-only view comes back
+at the relaxed rates. Remaining: the sliders themselves, and real-device
+tuning of the numbers.
 
 ## Remaining tasks
 

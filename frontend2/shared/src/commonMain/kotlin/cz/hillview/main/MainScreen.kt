@@ -77,6 +77,20 @@ fun MainScreen(
 
     LaunchedEffect(Unit) { sessionManager.restoreIfNeeded() }
 
+    // The ONE place that decides when position/heading hardware runs, and
+    // with what. The activity drives WHEN; the values are supplied here, so
+    // a GPS-interval slider becomes an argument rather than a re-plumbing.
+    // (Until that setting exists, the default cadence both apps have always
+    // used.) Panes below are pure observers of the resulting streams.
+    val bearingWanted by session.bearingTrackingWanted.collectAsState()
+    val locationTracking by session.locationTracking.collectAsState()
+    cz.hillview.geo.BindGeoToActivity(
+        activity = activity,
+        mapWantsTracking = bearingWanted ||
+            locationTracking != cz.hillview.map.LocationTracking.Off,
+        gpsIntervalMs = 1_000L,
+    )
+
     // The original's appOldActivity block: entering capture arms tracking
     // (both on a toggle AND on initial load of a persisted capture
     // activity); returning to view stands the bearing side down.

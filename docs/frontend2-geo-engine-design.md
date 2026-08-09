@@ -1,5 +1,14 @@
 # The single position/bearing stream — how Tauri does it, what frontend2 must do
 
+**STATUS: implemented 2026-08-09.** `cz.hillview.geo.GeoEngine` is the one
+owner; `MapStateHolder` is the funnel (election + row as side effects of the
+state write, via `TrackingSink`); map, capture and the external pane are
+observers; `BindGeoToActivity` in MainScreen is the single place that decides
+when hardware runs and with what. Device-verified: engine start/stop per
+activity with per-activity rates, one writer per table, elections flowing on
+a map pan, a capture stamped and refined. What follows is the design and its
+reasoning, kept because the reasoning is the valuable part.
+
 Design note for concern **C1/C2** in `frontend2-status.md`. Written after
 reading the original rather than reasoning from memory, because the port
 had drifted into three parallel data paths and the drift was invisible
@@ -59,6 +68,22 @@ Two things to notice. The table row and the JS event are **the same
 sample emitted together**, so they cannot describe different worlds. And
 the **car-mode Kalman bearing is derived right here**, in the plugin, on
 the location service's callback — *not* in the map component.
+
+**Correction to an earlier claim in this note (measured 2026-08-09):**
+the plugin's callbacks are NOT off the UI thread. `PreciseLocationService`
+hardcodes `Looper.getMainLooper()` and `EnhancedSensorService` calls
+`registerListener(this, sensor, SENSOR_DELAY)` with no handler — so in
+BOTH apps the geo callbacks land on the Android main thread. The user's
+worry is still exactly right, but the mechanism is the port, not the
+plugin: in Tauri the map's drawing happens in the WebView's renderer
+process, so however slow marker rendering gets it cannot hold up the
+native main looper; in frontend2 osmdroid and Compose draw on that very
+looper, so a heavy marker pass CAN delay a fix — and therefore delay the
+value a capture stamps. The engine must therefore do better than the
+original rather than merely copy it: it takes its own `HandlerThread`, so
+geo is independent of UI work in a way neither app manages today. The
+shared-kt services gain a caller-supplied looper/handler (defaulting to
+main, so the Tauri app is byte-for-byte unaffected).
 
 ### 2. One state pair, one write funnel
 
@@ -160,10 +185,12 @@ ExamplePlugin's hardware half.**
   `PreciseLocationService`. Starts/stops with the ACTIVITY (the app's own
   word: `mapSettings.mainActivity` — capture / external / view), not by
   whoever composed last.
-- Runs its callbacks off the UI thread, and does there exactly what the
-  plugin does: write the table at full rate, feed declination, derive the
-  Kalman car bearing, publish samples as flows. **This alone fixes C2** —
-  bearing derivation stops sharing a thread with marker rendering.
+- Runs its callbacks on its OWN `HandlerThread`, and does there exactly
+  what the plugin does: write the table at full rate, feed declination,
+  derive the Kalman car bearing, publish samples as flows. **This fixes
+  C2** — and note it goes further than the original, which delivers on
+  the main looper and gets away with it only because its map draws in
+  another process (see the correction above).
 - Publishes flows; owns no policy.
 
 **`MapStateHolder` becomes the single write funnel**, the analog of

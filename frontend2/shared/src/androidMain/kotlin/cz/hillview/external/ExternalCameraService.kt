@@ -12,9 +12,10 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.content.ContextCompat
-import cz.hillview.plugin.EnhancedSensorService
+import cz.hillview.geo.GeoConfig
+import cz.hillview.geo.GeoEngine
+import cz.hillview.geo.externalCameraConfig
 import cz.hillview.plugin.GeoTrackingManager
-import cz.hillview.plugin.PreciseLocationService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -69,8 +70,6 @@ class ExternalCameraService : Service() {
 		}
 	}
 
-	private var sensorService: EnhancedSensorService? = null
-	private var location: PreciseLocationService? = null
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
 	@Volatile private var lastFixLine: String = "no fix yet"
@@ -87,27 +86,28 @@ class ExternalCameraService : Service() {
 
 		startInForeground()
 
-		val geo = GeoTrackingManager.get(this)
-		geo.setElectedBearingSource("android")
-		geo.setElectedLocationSource("android")
-
-		sensorService = EnhancedSensorService(this) { data ->
-			geo.storeOrientationSensorData(data)
-			lastHeadingLine = "%.1f° (%s)".format(data.trueHeading, data.source)
-			publishStatus()
-		}.also { it.startSensor() }
-
-		location = PreciseLocationService(this, onLocationUpdate = { data ->
-			geo.storeLocationPreciseLocationData(data)
-			// Deliberately NOT feeding the Kalman heading filter here: car
-			// mode is the MAP's decision (its compass button), and its
-			// controller already feeds the filter from its own fix stream —
-			// a second feeder would double-pump the filter. The map UI stays
-			// in charge of modes and elections; this service only keeps the
-			// raw record running.
-			lastFixLine = "%.6f, %.6f ±%.0f m".format(data.latitude, data.longitude, data.accuracy)
-			publishStatus()
-		}).also { it.startLocationUpdates() }
+		// This service owns PROCESS LIFETIME, not data: it keeps the app
+		// alive with a notification while the system camera app is in front.
+		// The one GeoEngine owns the hardware and the table writes — the
+		// service just tells it what to run. (It used to construct its own
+		// sensor and location services, which is how this pane came to show
+		// a compass reading that was not the app's.)
+		val engine = GeoEngine.get(this)
+		engine.configure(externalCameraConfig())
+		scope.launch {
+			engine.orientation.collect { data ->
+				data ?: return@collect
+				lastHeadingLine = "%.1f° (%s)".format(data.trueHeading, data.source)
+				publishStatus()
+			}
+		}
+		scope.launch {
+			engine.location.collect { fix ->
+				fix ?: return@collect
+				lastFixLine = "%.6f, %.6f ±%.0f m".format(fix.latitude, fix.longitude, fix.accuracy)
+				publishStatus()
+			}
+		}
 
 		running.value = true
 		Log.i(TAG, "external-camera tracking started")
@@ -116,7 +116,7 @@ class ExternalCameraService : Service() {
 			while (isActive) {
 				delay(DUMP_INTERVAL_MS)
 				// Crash-safety on long sessions; respects the auto_export pref.
-				geo.dumpAndClear()
+				GeoTrackingManager.get(this@ExternalCameraService).dumpAndClear()
 			}
 		}
 		return START_STICKY
@@ -174,18 +174,14 @@ class ExternalCameraService : Service() {
 
 	override fun onDestroy() {
 		scope.cancel()
+		// Hand the hardware back. The pane that started this service is
+		// leaving too, and MainScreen will hand the engine whatever the next
+		// activity wants — Off if that is the gallery.
 		try {
-			sensorService?.stopSensor()
+			GeoEngine.get(this).configure(GeoConfig.Off)
 		} catch (e: Exception) {
-			Log.w(TAG, "sensor stop failed", e)
+			Log.w(TAG, "engine stop failed", e)
 		}
-		sensorService = null
-		try {
-			location?.stopLocationUpdates()
-		} catch (e: Exception) {
-			Log.w(TAG, "location stop failed", e)
-		}
-		location = null
 		// Session end = dump, same contract as the capture pane's release().
 		try {
 			GeoTrackingManager.get(this).dumpAndClear()

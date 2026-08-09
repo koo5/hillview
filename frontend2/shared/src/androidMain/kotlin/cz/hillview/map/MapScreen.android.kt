@@ -32,8 +32,14 @@ import androidx.core.content.ContextCompat
 import cz.hillview.plugin.EnhancedSensorService
 import cz.hillview.plugin.GeoTrackingManager
 import cz.hillview.settings.MapSettingsRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -716,12 +722,18 @@ private class AppliedCamera {
  * the Svelte app.
  */
 private class MapSensorController(private val context: Context) {
-    // The process-wide one: this pane publishes the election that the capture
-    // pane's writes have to be stamped with (see GeoTrackingManager.get).
+    // Mount offset and the heading-filter reset still go through the manager;
+    // the STREAMS come from the engine now.
     private val geoTracking by lazy { GeoTrackingManager.get(context) }
 
-    private var sensorService: EnhancedSensorService? = null
-    private var preciseLocation: cz.hillview.plugin.PreciseLocationService? = null
+    // This pane no longer opens hardware. It observes the ONE owner — see
+    // docs/frontend2-geo-engine-design.md; three owners is how the app ended
+    // up with a compass reading that was not the app's.
+    private val engine by lazy { cz.hillview.geo.GeoEngine.get(context) }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var compassJob: Job? = null
+    private var carJob: Job? = null
+    private var fixJob: Job? = null
 
     fun compassAvailable(): Boolean =
         (context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager)
@@ -775,31 +787,29 @@ private class MapSensorController(private val context: Context) {
     private var wantCar = false
     private var onFix: ((Double, Double) -> Unit)? = null
 
-    /** @return false when the sensor could not be started (reverts intent). */
+    /** @return false when the stream cannot be observed (reverts intent). */
     fun startBearing(mode: BearingMode, onHeading: (Float, Int?) -> Unit): Boolean {
         stopBearing()
         return when (mode) {
             BearingMode.Walking -> {
                 if (!compassAvailable()) return false
-                try {
-                    sensorService = EnhancedSensorService(context) { data ->
-                        onHeading(data.trueHeading, data.accuracyLevel)
-                    }.also { it.startSensor() }
-                    true
-                } catch (e: Exception) {
-                    sensorService = null
-                    false
+                compassJob = scope.launch {
+                    engine.orientation.collect { data ->
+                        data?.let { onHeading(it.trueHeading, it.accuracyLevel) }
+                    }
                 }
+                true
             }
             BearingMode.Car -> {
-                // The Tauri car flow, previously MISSING here entirely:
-                // every fix through the Kalman heading filter, composed
-                // with the mount offset (source "gps-kalman") — no compass
-                // involved. Rides the fix stream, starting it if follow-me
-                // has not.
-                if (!hasLocationPermission()) return false
-                geoTracking.resetHeadingFilter()
-                carHeading = onHeading
+                // The Tauri car flow. The COMPOSITION (fix → Kalman → mount
+                // offset) now happens in the engine, on its own thread —
+                // this pane only observes the result, so a heavy marker pass
+                // can no longer delay the value a capture stamps.
+                if (!engine.hasLocationPermission()) return false
+                engine.resetCarHeadingFilter()
+                carJob = scope.launch {
+                    engine.carBearing.collect { onHeading(it.toFloat(), null) }
+                }
                 wantCar = true
                 syncLocation()
                 true
@@ -808,8 +818,10 @@ private class MapSensorController(private val context: Context) {
     }
 
     fun stopBearing() {
-        sensorService?.stopSensor()
-        sensorService = null
+        compassJob?.cancel()
+        compassJob = null
+        carJob?.cancel()
+        carJob = null
         carHeading = null
         if (wantCar) {
             wantCar = false
@@ -823,32 +835,26 @@ private class MapSensorController(private val context: Context) {
         syncLocation()
     }
 
+    /**
+     * Follow-me's subscription to the engine's fix stream. The engine is not
+     * started or stopped here — the ACTIVITY decides that (MainScreen hands
+     * it a GeoConfig); this only says whether the map wants to hear about
+     * fixes. Declination, table rows and the Kalman composition all happen
+     * in the engine, once, for every consumer.
+     */
     private fun syncLocation() {
         val want = wantLocation || wantCar
         if (!want) {
-            preciseLocation?.stopLocationUpdates()
-            preciseLocation = null
+            fixJob?.cancel()
+            fixJob = null
             return
         }
-        if (preciseLocation != null || !hasLocationPermission()) return
-        // The shared-kt fused service — the SAME location path the Tauri app
-        // runs (PRIORITY_HIGH_ACCURACY, 1 s cadence). The previous raw
-        // GPS_PROVIDER wiring here pushed getLastKnownLocation with no
-        // freshness check, which centred the map kilometres away on
-        // wherever the phone last saw GPS; fused's own seed is its current
-        // best estimate, not an ancient satellite fix.
-        preciseLocation = cz.hillview.plugin.PreciseLocationService(
-            context,
-            onLocationUpdate = { data ->
-                sensorService?.updateLocation(data.latitude, data.longitude)
-                if (wantLocation) onFix?.invoke(data.latitude, data.longitude)
-                if (wantCar) {
-                    geoTracking.feedLocationForHeadingFilter(data)?.let { composed ->
-                        carHeading?.invoke(composed.toFloat(), null)
-                    }
-                }
-            },
-        ).also { it.startLocationUpdates() }
+        if (fixJob != null) return
+        fixJob = scope.launch {
+            engine.location.collect { fix ->
+                if (wantLocation && fix != null) onFix?.invoke(fix.latitude, fix.longitude)
+            }
+        }
     }
 
     /** Car mode: the drag moves the camera mount, not the heading. */
@@ -859,6 +865,7 @@ private class MapSensorController(private val context: Context) {
     fun release() {
         stopBearing()
         setLocationEnabled(false) { _, _ -> }
+        scope.cancel()
     }
 
     private fun hasLocationPermission() =

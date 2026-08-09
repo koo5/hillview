@@ -79,6 +79,11 @@ private class AuthManagerTokenStore(context: Context) : TokenStore {
 }
 
 actual fun platformModule(): Module = module {
+    // The funnel's persist boundary — elections and user-set rows into the
+    // shared tracking tables. See MapStateHolder's `sink` parameter.
+    single<cz.hillview.map.TrackingSink> {
+        cz.hillview.map.RoomTrackingSink(androidContext())
+    }
     // Native auth: Credential Manager + Sign in with Google, behind the
     // common CredentialGateway seam (config in NativeAuthConfig, set by
     // HillviewApplication from BuildConfig).
