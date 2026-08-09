@@ -501,9 +501,29 @@ Implementation, roughly in value order:
    GeoTrackingManager while capturing, stamp captures with
    SENSOR_TIMESTAMP, pair post-hoc with interpolation; fixes load/thermal
    staleness. Log fixes untagged; pairing consults the claim history.
-4. **PiP float mode** — map floats over the native camera app; research
-   says no FGS needed while PiP is visible. Needs an entry point, an
-   `isInPictureInPictureMode` guard on onPause, and releasing our camera.
+4. **PiP float mode — LANDED 2026-08-09.** The map floats in a PiP window
+   over the phone's camera app while the external-camera activity records
+   position and heading for stamping those photos afterwards. Entry point
+   is "Float over camera" in the external pane: it shrinks to PiP and then
+   launches the camera app, in that order, so the map is already floating
+   when it appears. Offering it ONLY there is what releases our camera —
+   that activity holds no stream, so the hand-over is a consequence of the
+   design rather than a step that can be forgotten (whoever is TOP evicts
+   lower camera clients).
+   The float window draws the map and NOTHING else: MainScreen returns a
+   bare MapScreen with `showControls = false`, since at PiP size the
+   overlay controls cover most of the window and cannot be hit anyway
+   (first build had them; the screenshot showed it immediately).
+   Two things the device taught: `onPause` must keep the activity
+   reference when `isInPictureInPictureMode` (PiP pauses while still
+   rendering, and float mode needs that reference); and external-camera
+   recording had to move OFF the pane's DisposableEffect onto the ACTIVITY
+   — float mode strips the pane out of composition, so a lifetime tied to
+   its visibility stopped recording at exactly the moment it mattered
+   most. Same rule as the geo engine: the activity decides, panes observe.
+   Verified: window `pinned` at 16:9, camera app on top, rows still
+   climbing (+56 bearings/+8 fixes in 12 s), and a clean round trip back
+   to fullscreen with recording never stopping.
 5. **Camera enumeration rows** in the 📷 menu (front/back/multi-lens);
    the menu structure left room.
 6. **Video recording mode** — extend the clockvideo CameraX stack; the
