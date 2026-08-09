@@ -117,6 +117,8 @@ data class QueueStats(
     val duplicate: Int = 0,
     val failed: Int = 0,
     val draining: Boolean = false,
+    /** Stamp refinements in flight (the corner indicator's ⟳). */
+    val refining: Int = 0,
     val lastError: String? = null,
 )
 

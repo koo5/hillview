@@ -61,7 +61,7 @@ interface SimplePhotoDao {
 
     @Query("""
         SELECT * FROM photos
-        WHERE deleted = 0
+        WHERE deleted = 0 AND uploadHoldUntil <= :now
         AND (id NOT IN (:seen) AND (
             uploadStatus IN ('pending', 'failed') OR
             (uploadStatus = 'uploading' AND lastUploadAttempt < :uploadingStaleThreshold) OR
@@ -82,7 +82,7 @@ interface SimplePhotoDao {
             END ASC
         LIMIT 1
     """)
-    fun getNextPhotoForUpload(seen: Set<String>, uploadingStaleThreshold: Long, processingStaleThreshold: Long): PhotoEntity?
+    fun getNextPhotoForUpload(seen: Set<String>, uploadingStaleThreshold: Long, processingStaleThreshold: Long, now: Long): PhotoEntity?
 
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'pending' AND deleted = 0")
     fun getPendingUploadCount(): Int
@@ -98,13 +98,13 @@ interface SimplePhotoDao {
     // loop-only and just shrink the numerator slightly.
     @Query("""
         SELECT * FROM photos
-        WHERE deleted = 0 AND (
+        WHERE deleted = 0 AND uploadHoldUntil <= :now AND (
             uploadStatus IN ('pending', 'failed') OR
             (uploadStatus = 'uploading' AND lastUploadAttempt < :uploadingStaleThreshold) OR
             (uploadStatus = 'processing' AND lastUploadAttempt < :processingStaleThreshold)
         )
     """)
-    fun getUploadableCandidates(uploadingStaleThreshold: Long, processingStaleThreshold: Long): List<PhotoEntity>
+    fun getUploadableCandidates(uploadingStaleThreshold: Long, processingStaleThreshold: Long, now: Long): List<PhotoEntity>
 
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'completed' AND deleted = 0")
     fun getCompletedUploadCount(): Int
@@ -132,6 +132,30 @@ interface SimplePhotoDao {
 
     @Query("UPDATE photos SET uploadStatus = :status, uploadedAt = :uploadedAt WHERE id = :photoId")
     fun updateUploadStatus(photoId: String, status: String, uploadedAt: Long)
+
+    // The refiner's hold released early (completion or defeat) — without
+    // this the row waits out its deadline before the drain may take it.
+    @Query("UPDATE photos SET uploadHoldUntil = 0 WHERE id = :photoId")
+    fun clearUploadHold(photoId: String)
+
+    // The stamp refiner's write. Guarded on 'pending' so a refinement never
+    // rewrites a row the drain already picked up — the uploaded metadata and
+    // the local row must keep telling the same story; a photo the upload
+    // won keeps its at-the-time stamp, by design. Returns rows updated
+    // (0 = lost the race or already gone).
+    @Query("""
+        UPDATE photos SET latitude = :latitude, longitude = :longitude,
+            altitude = :altitude, bearing = :bearing, stampRefinedAt = :refinedAt
+        WHERE id = :photoId AND uploadStatus = 'pending' AND deleted = 0
+    """)
+    fun applyRefinedStamp(
+        photoId: String,
+        latitude: Double,
+        longitude: Double,
+        altitude: Double,
+        bearing: Double,
+        refinedAt: Long,
+    ): Int
 
     @Query("UPDATE photos SET serverPhotoId = :serverPhotoId WHERE id = :photoId")
     fun updateServerPhotoId(photoId: String, serverPhotoId: String)

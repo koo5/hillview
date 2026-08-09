@@ -3,6 +3,7 @@ package cz.hillview.upload
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.util.Log
+import cz.hillview.capture.CaptureStatsLog
 import cz.hillview.plugin.PhotoDatabase
 import cz.hillview.plugin.PhotoUploadLogic
 import cz.hillview.plugin.PhotoUploadManager
@@ -32,6 +33,27 @@ class SharedStackUploadPipeline(
 
     private val uploadLogic by lazy { PhotoUploadLogic(context) }
 
+    // The stamp refiner: interpolates a fresh row's location/bearing once
+    // the bracketing tracking data lands, updates the row in place, and the
+    // upload metadata carries the refined values. The hook feeds its
+    // outcomes into the capture stats — where the "was it worth it" numbers
+    // (metres moved, degrees turned) accumulate per session.
+    private val refiner by lazy {
+        cz.hillview.plugin.StampRefiner.get(context).also { r ->
+            r.onResult = { result ->
+                val wall = System.currentTimeMillis()
+                CaptureStatsLog.increment("refine ${result.outcome}", wall)
+                CaptureStatsLog.record("refine wait", result.waitMs, wall)
+                result.movedMeters?.let {
+                    CaptureStatsLog.record("refine Δpos(cm)", (it * 100).toLong(), wall)
+                }
+                result.turnedDegrees?.let {
+                    CaptureStatsLog.record("refine Δbearing(0.1°)", (kotlin.math.abs(it) * 10).toLong(), wall)
+                }
+            }
+        }
+    }
+
     override suspend fun onPhotoCaptured(upload: PendingUpload) {
         try {
             withContext(Dispatchers.IO) {
@@ -45,7 +67,14 @@ class SharedStackUploadPipeline(
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
 
-                uploadLogic.registerCapturedPhoto(
+                // Refinement-eligible photos are ingested with the upload
+                // gate armed, so the expedited drain cannot outrun the
+                // interpolation (the refiner releases it the moment it is
+                // done, win or lose; the deadline frees it after a crash).
+                val eligible = cz.hillview.plugin.StampRefiner.isEligible(
+                    upload.locationSource, upload.bearingSource,
+                )
+                val photoId = uploadLogic.registerCapturedPhoto(
                     id = null,
                     filename = upload.filename,
                     path = upload.filePath,
@@ -65,7 +94,18 @@ class SharedStackUploadPipeline(
                     locationSource = upload.locationSource,
                     locationAgeMs = upload.locationAgeMs,
                     exposureJson = upload.exposureJson,
+                    uploadHoldUntil = if (eligible) {
+                        System.currentTimeMillis() + cz.hillview.plugin.StampRefiner.UPLOAD_HOLD_MS
+                    } else 0,
                 )
+                if (eligible) {
+                    refiner.refineAsync(
+                        photoId,
+                        upload.capturedAtMs ?: System.currentTimeMillis(),
+                        upload.locationSource,
+                        upload.bearingSource,
+                    )
+                }
                 PhotoUploadManager(context).startAutomaticUpload("capture")
             }
         } catch (e: Exception) {
@@ -108,6 +148,9 @@ class SharedStackUploadPipeline(
                     dao.getProcessingCount(),
                 done = dao.getCompletedUploadCount(),
                 failed = dao.getFailedUploadCount(),
+                // The stats poll (~2s) is this value's only reader cadence —
+                // coarse is fine for a progress twinkle.
+                refining = refiner.inFlight.value,
             )
         }
     }

@@ -657,7 +657,7 @@ fun CaptureScreen(
             // JPEG straight to the storage chain), so the 💾 slot only
             // shows while a save is in flight.
             val sessionTotal = CaptureSessionCounters.totalCaptured.value
-            if (state.capturing || sessionTotal > 0) {
+            if (state.capturing || sessionTotal > 0 || queueStats.refining > 0) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -668,6 +668,17 @@ fun CaptureScreen(
                 ) {
                     if (state.capturing) {
                         Text("💾 …", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    }
+                    // Stamp refinements in flight — the "anything's in
+                    // flight" twinkle the refiner design promised. Their
+                    // photos wait out the interpolation before uploading.
+                    if (queueStats.refining > 0) {
+                        Text(
+                            "⟳${queueStats.refining}",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("refine-indicator"),
+                        )
                     }
                     if (sessionTotal > 0) {
                         Text(

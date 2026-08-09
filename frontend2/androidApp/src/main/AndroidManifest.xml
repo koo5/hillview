@@ -26,6 +26,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!-- The external-camera mode's tracking service: records location and
+         heading while ANOTHER app (the system camera) owns the foreground,
+         which is exactly what the `location` foreground type exists for. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="false" />
@@ -53,6 +58,11 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <service
+            android:name="cz.hillview.external.ExternalCameraService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
     </application>
 
 </manifest>

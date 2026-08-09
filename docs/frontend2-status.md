@@ -316,6 +316,26 @@ Implementation, roughly in value order:
    was a witness to it. Guarded on a device since 2026-08-08
    (`GeoElectionBehaviourTest.aClaimStampsWhereTheMapIsNowNotWhereItWasClaimed`
    — claim, pan 0.05°, shoot, and the row must be the new centre).
+0f. **External camera mode — LANDED 2026-08-09.** A PANEL MODE beside
+   capture in the same slot (user's framing: "just another panel mode
+   next to capture mode… just no camera stream running"), reached from
+   the menu, `mainActivity = "external"`. Composing the pane starts an
+   `ExternalCameraService` — a `location`-typed FOREGROUND service, so
+   the record survives the system camera app taking the screen, which is
+   the entire point; leaving the mode stops it. Sensors + GPS write the
+   tracking tables continuously with "android" elected (starting the
+   mode IS that user act), CSVs auto-dump every 5 minutes for
+   crash-safety on long sessions plus one at stop. The pane shows the
+   live fix/heading and the growing row counts, and offers "Open camera
+   app" + "Export CSVs now". THE MAP STAYS IN CHARGE: elections (the
+   pill's manual claim), car mode and follow-me are the map's, unchanged
+   — which is why the service deliberately does NOT feed the Kalman
+   heading filter (the map's controller already does, from its own fix
+   stream; a second feeder would double-pump it). Emulator-verified:
+   foreground service `types=0x8` (LOCATION), live status line, counts
+   climbing, clean stop on leaving. STILL OPEN here: per-mode sensor/GPS
+   rate defaults (0c) — external wants continuous, capture wants
+   optimize-around-the-shutter, gallery wants neither.
 0c. **Eco/sensor design queue (user, 2026-08-08, not built)**: eco
    SUB-FLAGS to test variations — e.g. sleep the bearing sensors until
    around capture time in eco interval runs; a GPS interval slider

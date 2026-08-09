@@ -32,6 +32,26 @@ interface LocationDao {
     """)
     fun getLocationNearTimestamp(timestamp: Long): LocationEntity?
 
+    // The stamp refiner's bracket reads — per-source by design, see
+    // BearingDao.getBearingsInWindow.
+    @Query("""
+        SELECT * FROM locations
+        WHERE sourceId = :sourceId AND timestamp <= :timestamp
+        ORDER BY timestamp DESC LIMIT 1
+    """)
+    fun getLocationAtOrBefore(timestamp: Long, sourceId: Int): LocationEntity?
+
+    @Query("""
+        SELECT * FROM locations
+        WHERE sourceId = :sourceId AND timestamp > :timestamp
+        ORDER BY timestamp ASC LIMIT 1
+    """)
+    fun getLocationAfter(timestamp: Long, sourceId: Int): LocationEntity?
+
+    // The external-camera screen's live tally.
+    @Query("SELECT COUNT(*) FROM locations")
+    fun countLocations(): Int
+
     @Query("DELETE FROM locations WHERE timestamp < :timestamp")
     fun clearLocationsOlderThan(timestamp: Long)
 

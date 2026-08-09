@@ -24,6 +24,34 @@ interface BearingDao {
     """)
     fun getBearingNearTimestamp(timestamp: Long): BearingEntity?
 
+    // The stamp refiner's reads (StampRefiner): per-source, deliberately NOT
+    // election-filtered — the refiner already knows which stream stamped the
+    // photo and asks for that stream by name.
+    @Query("""
+        SELECT * FROM bearings
+        WHERE sourceId = :sourceId AND timestamp BETWEEN :from AND :to
+        ORDER BY timestamp ASC
+    """)
+    fun getBearingsInWindow(from: Long, to: Long, sourceId: Int): List<BearingEntity>
+
+    @Query("""
+        SELECT * FROM bearings
+        WHERE sourceId = :sourceId AND timestamp <= :timestamp
+        ORDER BY timestamp DESC LIMIT 1
+    """)
+    fun getBearingAtOrBefore(timestamp: Long, sourceId: Int): BearingEntity?
+
+    @Query("""
+        SELECT * FROM bearings
+        WHERE sourceId = :sourceId AND timestamp > :timestamp
+        ORDER BY timestamp ASC LIMIT 1
+    """)
+    fun getBearingAfter(timestamp: Long, sourceId: Int): BearingEntity?
+
+    // The external-camera screen's live tally.
+    @Query("SELECT COUNT(*) FROM bearings")
+    fun countBearings(): Int
+
     @Query("DELETE FROM bearings WHERE timestamp < :timestamp")
     fun clearBearingsOlderThan(timestamp: Long)
 

@@ -146,7 +146,8 @@ class PhotoUploadLogic(internal val context: Context) {
 				val nowSnap = System.currentTimeMillis()
 				val total = photoDao.getUploadableCandidates(
 					nowSnap - 1000 * 60 * 10,
-					nowSnap - 1000 * 60 * 60
+					nowSnap - 1000 * 60 * 60,
+					nowSnap
 				).count { isEligibleNow(it, triggerSource, nowSnap) }
 
 				var workerBusy = false
@@ -210,7 +211,7 @@ class PhotoUploadLogic(internal val context: Context) {
 						val now = System.currentTimeMillis()
 						val uploadingStaleThreshold = now - 1000 * 60 * 10  // 10 minutes
 						val processingStaleThreshold = now - 1000 * 60 * 60 // 1 hour
-						photo = photoDao.getNextPhotoForUpload(seen, uploadingStaleThreshold, processingStaleThreshold)
+						photo = photoDao.getNextPhotoForUpload(seen, uploadingStaleThreshold, processingStaleThreshold, now)
 					}
 
 					if (photo == null) {
@@ -748,6 +749,9 @@ class PhotoUploadLogic(internal val context: Context) {
 		photo.locationSource?.let { put("location_source", it) }
 		photo.bearingSource?.let { put("bearing_source", it) }
 		photo.locationAgeMs?.let { put("location_age_ms", it) }
+		// The stamp was interpolated after the fact (StampRefiner) — the
+		// lat/lon/bearing above are the refined values, not the live ones.
+		if (photo.stampRefinedAt != null) put("refined", true)
 		photo.exposureJson?.let {
 			try {
 				put("exposure", JSONObject(it))
@@ -1249,6 +1253,10 @@ class PhotoUploadLogic(internal val context: Context) {
         locationSource: String? = null,
         locationAgeMs: Long? = null,
         exposureJson: String? = null,
+        // The refiner's upload gate (PhotoEntity.uploadHoldUntil): non-zero
+        // keeps the drain off the row until then, so refinement wins the
+        // race against an expedited upload.
+        uploadHoldUntil: Long = 0,
     ): String {
         // Generate ID if not provided (using the hash from Rust)
         val photoId = if (id.isNullOrEmpty()) {
@@ -1280,6 +1288,7 @@ class PhotoUploadLogic(internal val context: Context) {
             locationSource = locationSource,
             locationAgeMs = locationAgeMs,
             exposureJson = exposureJson,
+            uploadHoldUntil = uploadHoldUntil,
         )
 
         // Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)

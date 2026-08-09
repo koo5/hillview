@@ -66,7 +66,23 @@ data class PhotoEntity(
     /** Age of the GPS fix at the shutter, ms. */
     val locationAgeMs: Long? = null,
     /** The exposure-rule story as a JSON object (see exposureProvenanceJson). */
-    val exposureJson: String? = null
+    val exposureJson: String? = null,
+
+    // The refiner's upload gate (v16): the drain skips this row until the
+    // deadline passes — set at ingest for refinement-eligible photos, cleared
+    // early by the refiner (success or defeat). A timestamp, not a status,
+    // so a crash mid-refine cannot strand the row: time alone re-arms it.
+    val uploadHoldUntil: Long = 0,
+
+    // When the stamp refiner (v16) replaced the at-the-time values with
+    // interpolated ones — location interpolated across the bracketing fixes,
+    // compass bearing recomputed as a CENTERED window over the ~10 Hz
+    // samples (zero phase lag, unlike the live causal value), car-mode
+    // bearing interpolated across the bracketing Kalman rows. Null = never
+    // refined: not eligible (manual position), no bracketing data in time,
+    // or the upload grabbed the row first — all of which deliberately keep
+    // the at-the-time stamp. Rides into the upload metadata as "refined".
+    val stampRefinedAt: Long? = null
 )
 
 enum class UploadStatus {

@@ -111,6 +111,10 @@ fun MainScreen(
         val photoPanel: @Composable () -> Unit = {
             when (activity) {
                 "capture" -> CaptureScreen(onOpenSettings = onOpenSettings)
+                // The external-camera mode: a peer of capture in the same
+                // panel slot (no camera stream; a foreground service keeps
+                // the record alive while the system camera owns the screen).
+                "external" -> cz.hillview.external.ExternalCameraPane()
                 else -> GalleryPlaceholder()
             }
         }
@@ -268,6 +272,10 @@ fun MainScreen(
                     MenuLink("Capture guide", "menu-capture-guide") {
                         menuOpen = false
                         onOpenCaptureGuide()
+                    }
+                    MenuLink("External camera", "menu-external-camera") {
+                        menuOpen = false
+                        settingsRepo.update { it.copy(mainActivity = "external") }
                     }
                     MenuLink("Clock video", "menu-clock-video") {
                         menuOpen = false

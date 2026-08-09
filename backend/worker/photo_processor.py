@@ -1106,7 +1106,7 @@ class PhotoProcessor:
 					# and carries the whole stamp here instead — the synthesized
 					# UserComment must say the same things the written one does.
 					for k in ('location_source', 'bearing_source', 'alt_location',
-							  'location_age_ms', 'exposure', 'v')
+							  'location_age_ms', 'exposure', 'refined', 'v')
 					if metadata.get(k) is not None
 				}
 				if provenance:
