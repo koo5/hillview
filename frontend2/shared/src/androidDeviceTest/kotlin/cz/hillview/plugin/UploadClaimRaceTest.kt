@@ -121,6 +121,58 @@ class UploadClaimRaceTest {
     }
 
     @Test
+    fun aFreshStartHandsBackPhotosStuckMidUpload() {
+        // Nothing from the previous process is running, so an upload that
+        // was in flight when it died is not in flight now. Without this the
+        // photo waits out a 10-minute stale threshold — a deadline that
+        // exists only for the case where we CANNOT tell, which at startup
+        // we can.
+        val dao = db.photoDao()
+        insertPending("crashed")
+        assertEquals(1, dao.claimForUpload("crashed", "pending", 1_000L))
+        assertEquals("uploading", dao.getPhotoById("crashed")?.uploadStatus)
+
+        // This process began after that attempt.
+        assertEquals(1, dao.reclaimAbandonedUploads(processStart = 5_000L))
+
+        assertEquals("pending", dao.getPhotoById("crashed")?.uploadStatus)
+    }
+
+    @Test
+    fun aFreshStartDoesNotStealAnUploadThisProcessAlreadyClaimed() {
+        // The reconcile runs on IO while the app is coming up; a drain from
+        // THIS process may already have claimed something, and the attempt
+        // timestamp is what keeps the two apart.
+        val dao = db.photoDao()
+        insertPending("live")
+        assertEquals(1, dao.claimForUpload("live", "pending", 7_000L))
+
+        assertEquals(
+            0, dao.reclaimAbandonedUploads(processStart = 5_000L),
+            "an attempt made after this process started is ours and must be left alone",
+        )
+        assertEquals("uploading", dao.getPhotoById("live")?.uploadStatus)
+    }
+
+    @Test
+    fun serverSideProcessingSurvivesAFreshStart() {
+        // `processing` is the SERVER's work, which really does outlive our
+        // process — resetting it would re-upload something already accepted.
+        db.photoDao().insertPhoto(
+            PhotoEntity(
+                id = "srv", filename = "srv.jpg", path = "/tmp/srv.jpg",
+                latitude = 50.0, longitude = 14.0, capturedAt = 1_000L, accuracy = 5.0,
+                width = 4, height = 4, fileSize = 16, createdAt = 1_000L,
+                uploadStatus = "processing", lastUploadAttempt = 1_000L,
+                serverPhotoId = "server-uuid",
+            ),
+        )
+
+        assertEquals(0, db.photoDao().reclaimAbandonedUploads(processStart = 5_000L))
+        assertEquals("processing", db.photoDao().getPhotoById("srv")?.uploadStatus)
+    }
+
+    @Test
     fun appStartDropsHoldsLeftByAProcessThatIsGone() {
         // …which is what lets the deadline be generous: a real crash
         // recovers on the next launch instead of waiting the deadline out.

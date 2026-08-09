@@ -162,11 +162,34 @@ interface SimplePhotoDao {
      * seen, and one after is impossible, since applyRefinedStamp only
      * touches rows that are still 'pending'.
      */
+    // lastUploadAttempt is stamped here because the claim IS the attempt.
+    // Without it a first-ever attempt kept lastUploadAttempt = 0, so the
+    // 10-minute stale-recovery window and the "did this attempt start before
+    // this process?" question both read a meaningless zero.
     @Query("""
-        UPDATE photos SET uploadStatus = 'uploading', uploadedAt = :now
+        UPDATE photos SET uploadStatus = 'uploading', uploadedAt = :now,
+            lastUploadAttempt = :now
         WHERE id = :photoId AND uploadStatus = :expectedStatus AND deleted = 0
     """)
     fun claimForUpload(photoId: String, expectedStatus: String, now: Long): Int
+
+    /**
+     * Photos left mid-upload by a process that is gone, handed back for
+     * another try. "Before this process started" is the whole test: an
+     * upload runs inside the app, so an attempt older than this launch
+     * cannot still be running.
+     *
+     * NOT applied to `processing` — that status describes work the SERVER is
+     * doing, which really does outlive our process; the status-sync worker
+     * reconciles it. Re-uploading is safe regardless: the backend dedups on
+     * file_md5 and the drain handles the duplicate response.
+     */
+    @Query("""
+        UPDATE photos SET uploadStatus = 'pending'
+        WHERE uploadStatus = 'uploading' AND lastUploadAttempt < :processStart
+        AND deleted = 0
+    """)
+    fun reclaimAbandonedUploads(processStart: Long): Int
 
     // The stamp refiner's write. Guarded on 'pending' so a refinement never
     // rewrites a row the drain already picked up — the uploaded metadata and

@@ -87,21 +87,8 @@ class StampRefiner private constructor(private val context: Context) {
 		 */
 		const val UPLOAD_HOLD_MS = 60_000L
 
-		/**
-		 * Drop holds left by a previous process — see
-		 * SimplePhotoDao.clearAllUploadHolds. Call once at app start.
-		 */
-		fun clearStaleHolds(context: Context) {
-			CoroutineScope(Dispatchers.IO).launch {
-				try {
-					val cleared = PhotoDatabase.getDatabase(context).photoDao()
-						.clearAllUploadHolds()
-					if (cleared > 0) Log.i(TAG, "cleared $cleared stale upload hold(s) from a previous run")
-				} catch (e: Exception) {
-					Log.w(TAG, "clearing stale holds failed (deadlines will free them)", e)
-				}
-			}
-		}
+		// Holds left by a dead process are released by StartupReconciler,
+		// alongside the other things a fresh start makes certain.
 
 		/** Whether [refineAsync] would do anything at all for these sources. */
 		fun isEligible(locationSource: String?, bearingSource: String?): Boolean =
