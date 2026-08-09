@@ -50,7 +50,25 @@ data class MapSettings(
     val mainActivity: String = "view",
     /** The Main page's split position (photo panel %, Tauri splitPercent). */
     val splitPercent: Float = 50f,
+    /**
+     * How often the fused provider is asked for a fix, milliseconds. Fed
+     * straight to the GeoEngine by BindGeoToActivity — one of the two knobs
+     * that decide what tracking costs in battery.
+     *
+     * It is also the RESOLUTION of everything downstream: a capture's stamp
+     * is only as fresh as the last fix, and the refiner interpolates between
+     * the two fixes bracketing the shutter, so widening this coarsens both.
+     * 1 s is what both apps have always used.
+     */
+    val gpsIntervalMs: Long = 1_000L,
 )
+
+/** The fix cadences the slider offers — 1 s (both apps' default) to 30 s. */
+val GPS_INTERVAL_CHOICES_MS: List<Long> =
+    listOf(1_000L, 2_000L, 5_000L, 10_000L, 30_000L)
+
+fun formatGpsInterval(ms: Long): String =
+    if (ms % 1000L == 0L) "${ms / 1000}s" else "${ms}ms"
 
 const val MIN_MAX_PHOTOS = 10
 const val MAX_MAX_PHOTOS = 1000

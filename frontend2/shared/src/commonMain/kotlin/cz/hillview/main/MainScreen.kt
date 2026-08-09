@@ -88,7 +88,7 @@ fun MainScreen(
         activity = activity,
         mapWantsTracking = bearingWanted ||
             locationTracking != cz.hillview.map.LocationTracking.Off,
-        gpsIntervalMs = 1_000L,
+        gpsIntervalMs = mapSettings.gpsIntervalMs,
     )
 
     // The original's appOldActivity block: entering capture arms tracking
@@ -220,6 +220,24 @@ fun MainScreen(
                     toggleCamera()
                 },
             )
+            // The external-camera activity is a PEER of capture, so it
+            // belongs beside it rather than buried in the menu (user-raised):
+            // it is a thing you switch INTO and out of, several times a
+            // session, and its state — recording or not — is worth seeing at
+            // a glance. Toggles back to the map, exactly like 📷.
+            FloatingControl(
+                label = "🛰",
+                tag = "external-camera-button",
+                active = activity == "external",
+                onClick = {
+                    menuOpen = false
+                    settingsRepo.update {
+                        it.copy(
+                            mainActivity = if (activity == "external") "view" else "external",
+                        )
+                    }
+                },
+            )
         }
 
         // The involuntary-death notice, persistent until addressed — the
@@ -287,10 +305,9 @@ fun MainScreen(
                         menuOpen = false
                         onOpenCaptureGuide()
                     }
-                    MenuLink("External camera", "menu-external-camera") {
-                        menuOpen = false
-                        settingsRepo.update { it.copy(mainActivity = "external") }
-                    }
+                    // (External camera moved OUT of the menu to a floating
+                    // 🛰 button beside 📷 — it is an activity you toggle,
+                    // not a page you visit.)
                     MenuLink("Clock video", "menu-clock-video") {
                         menuOpen = false
                         onOpenClockVideo()

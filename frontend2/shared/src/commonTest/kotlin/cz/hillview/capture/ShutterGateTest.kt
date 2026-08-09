@@ -360,16 +360,33 @@ class CameraOverlayRulesTest {
 class ResolutionLabelTest {
 
     @Test
-    fun theTauriTiersKeepTheirNames() {
-        assertEquals("4K (3840×2160)", resolutionLabel(CaptureResolution(3840, 2160)))
-        assertEquals("1440p (2560×1440)", resolutionLabel(CaptureResolution(2560, 1440)))
-        assertEquals("1080p (1920×1080)", resolutionLabel(CaptureResolution(1920, 1080)))
-        assertEquals("720p (1280×720)", resolutionLabel(CaptureResolution(1280, 720)))
+    fun everyRowUsesTheSameScale() {
+        // The list must be comparable DOWN THE COLUMN (user-raised). It used
+        // to name video tiers where a height happened to match one — "4K",
+        // "1080p" — and fall back to megapixels otherwise, so a real
+        // sensor's menu mixed two unrelated scales.
+        assertEquals("8.3 MP · 16:9 (3840×2160)", resolutionLabel(CaptureResolution(3840, 2160)))
+        assertEquals("3.7 MP · 16:9 (2560×1440)", resolutionLabel(CaptureResolution(2560, 1440)))
+        assertEquals("2.1 MP · 16:9 (1920×1080)", resolutionLabel(CaptureResolution(1920, 1080)))
+        assertEquals("12.0 MP · 4:3 (4000×3000)", resolutionLabel(CaptureResolution(4000, 3000)))
+        assertEquals("0.3 MP · 4:3 (640×480)", resolutionLabel(CaptureResolution(640, 480)))
     }
 
     @Test
-    fun realSensorSizesGetMegapixels() {
-        assertEquals("12.0 MP (4000×3000)", resolutionLabel(CaptureResolution(4000, 3000)))
-        assertEquals("0.3 MP (640×480)", resolutionLabel(CaptureResolution(640, 480)))
+    fun theRatioIsWhatSaysAChoiceCropsTheSensor() {
+        // 16:9 on a 4:3 sensor is a NARROWER picture, not merely a smaller
+        // one — the megapixel count alone hides that.
+        assertEquals("4:3", aspectRatioLabel(CaptureResolution(4032, 3024)))
+        assertEquals("16:9", aspectRatioLabel(CaptureResolution(1920, 1080)))
+        assertEquals("11:9", aspectRatioLabel(CaptureResolution(176, 144)))
+    }
+
+    @Test
+    fun anOddSizeSaysNothingRatherThanSomethingUseless() {
+        // A ratio that reduces to big terms is noise; the dimensions are
+        // right there in the label anyway.
+        assertEquals(null, aspectRatioLabel(CaptureResolution(4001, 3000)))
+        assertEquals("4001×3000", resolutionLabel(CaptureResolution(4001, 3000)).substringAfter("("). substringBefore(")"))
+        assertEquals(null, aspectRatioLabel(CaptureResolution(0, 0)))
     }
 }
