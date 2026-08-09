@@ -34,6 +34,7 @@ class PrefsUploadSettingsRepository(
                 if (prefs.contains("hide_from_gallery")) prefs.getBoolean("hide_from_gallery", false)
                 else defaults.hideFromGallery,
             autoUploadPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true),
+            writeExif = prefs.getBoolean("write_exif", false),
         ).also(::persist)
     )
     override val settings: StateFlow<UploadSettings> = _settings.asStateFlow()
@@ -55,6 +56,7 @@ class PrefsUploadSettingsRepository(
             .putString("preferred_storage", s.storage.key)
             .putBoolean("hide_from_gallery", s.hideFromGallery)
             .putBoolean("auto_upload_prompt_enabled", s.autoUploadPromptEnabled)
+            .putBoolean("write_exif", s.writeExif)
             .apply()
     }
 }

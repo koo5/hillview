@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [PhotoEntity::class, BearingEntity::class, LocationEntity::class, SourceEntity::class, EditEntity::class],
-    version = 14,
+    version = 15,
     // Schemas are exported per app (they compile these entities with different
     // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
     // docs/geo-election-test-todo.md item 6. Both agree on the identityHash;
@@ -258,6 +258,19 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_14_15 = object : Migration(14, 15) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// photos is DURABLE (unlike the tracking tables), so this is
+				// additive: the stamp-provenance columns the fast-write
+				// upload path sends in the worker `metadata` field. Old rows
+				// stay null and the worker falls back to their files' EXIF.
+				database.execSQL("ALTER TABLE photos ADD COLUMN bearingSource TEXT")
+				database.execSQL("ALTER TABLE photos ADD COLUMN locationSource TEXT")
+				database.execSQL("ALTER TABLE photos ADD COLUMN locationAgeMs INTEGER")
+				database.execSQL("ALTER TABLE photos ADD COLUMN exposureJson TEXT")
+			}
+		}
+
         fun getDatabase(context: Context): PhotoDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -265,7 +278,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                     PhotoDatabase::class.java,
                     "hillview_photos_database"
                 )
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
                     .build()
                 INSTANCE = instance
                 instance

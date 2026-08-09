@@ -537,7 +537,8 @@ class PhotoUploadLogic(internal val context: Context) {
 				signatureData.signature,
 				authResponse.worker_url,
 				photo.id,
-				photo.anonymizationOverride
+				photo.anonymizationOverride,
+				buildUploadMetadata(photo)
 			)
 
 			return@withContext if (uploadSuccess) authResponse.photo_id else null
@@ -722,6 +723,40 @@ class PhotoUploadLogic(internal val context: Context) {
 	 *   - "[]": skip anonymization
 	 *   - "[{...}]": manual blur rectangles
 	 */
+	/**
+	 * The worker `metadata` blob for a photo — the table row rendered in the
+	 * browser path's vocabulary (uploadProtocol.ts sends the same shape). The
+	 * worker gives these precedence over the file's embedded EXIF, so this is
+	 * what makes the photos TABLE the canonical stamp: the fast-write capture
+	 * path writes no EXIF at all, and a re-upload after a table-side
+	 * refinement carries the refined values with no file rewrite.
+	 *
+	 * Guards mirror the authorize-upload JSON: bearing 0.0 and altitude/
+	 * accuracy 0.0 are this table's "absent" sentinels (PhotoEntity predates
+	 * nullability here), and an omitted key falls back to EXIF worker-side —
+	 * so a sentinel must be OMITTED, never sent as a real 0.
+	 */
+	internal fun buildUploadMetadata(photo: PhotoEntity): String = JSONObject().apply {
+		put("latitude", photo.latitude)
+		put("longitude", photo.longitude)
+		if (photo.altitude > 0) put("altitude", photo.altitude)
+		if (photo.bearing != 0.0) put("bearing", photo.bearing)
+		if (photo.accuracy > 0) put("accuracy", photo.accuracy)
+		// Millisecond ISO — the whole reason the clock-calibration work can
+		// trust uploads: EXIF DateTimeOriginal is second-granular.
+		PhotoUtils.formatTimestampToIsoMillis(photo.capturedAt)?.let { put("captured_at", it) }
+		photo.locationSource?.let { put("location_source", it) }
+		photo.bearingSource?.let { put("bearing_source", it) }
+		photo.locationAgeMs?.let { put("location_age_ms", it) }
+		photo.exposureJson?.let {
+			try {
+				put("exposure", JSONObject(it))
+			} catch (e: Exception) {
+				Log.w(TAG, "exposureJson on ${photo.id} is not valid JSON, dropping: $it")
+			}
+		}
+	}.toString()
+
 	private suspend fun uploadToWorker(
 		fileBytes: ByteArray,
 		filename: String,
@@ -729,7 +764,8 @@ class PhotoUploadLogic(internal val context: Context) {
 		signature: String,
 		workerUrl: String,
 		photoId: String,
-		anonymizationOverride: String? = null
+		anonymizationOverride: String? = null,
+		metadata: String? = null
 	): Boolean {
 		// Pre-flight readiness check — /ready returns 503 only when the WHOLE
 		// fleet is saturated (a single busy machine's 503 carries fly-replay and
@@ -784,6 +820,17 @@ class PhotoUploadLogic(internal val context: Context) {
 		if (anonymizationOverride != null) {
 			multipartBuilder.addFormDataPart("anonymization_override", anonymizationOverride)
 			Log.d(TAG, "Including anonymization_override: $anonymizationOverride")
+		}
+
+		// The canonical stamp, from the photos table (the same form field the
+		// browser path uses, since it cannot write EXIF). The worker prefers
+		// it over whatever the file's EXIF says — which is what makes the
+		// fast-write path (no EXIF rewrite) a complete upload, and lets a
+		// table-side refinement of the row reach the server with no file
+		// rewrite. Fields the metadata omits still fall back to the EXIF.
+		if (metadata != null) {
+			multipartBuilder.addFormDataPart("metadata", metadata)
+			Log.d(TAG, "Including metadata: $metadata")
 		}
 
 		val requestBody = multipartBuilder.build()
@@ -1195,6 +1242,13 @@ class PhotoUploadLogic(internal val context: Context) {
         height: Int,
         fileSize: Long,
         fileHash: String,
+        // Stamp provenance (see PhotoEntity) — callers that don't know it
+        // (the Tauri plugin's addPhotoToDatabase) leave the defaults and the
+        // worker falls back to the file's EXIF.
+        bearingSource: String? = null,
+        locationSource: String? = null,
+        locationAgeMs: Long? = null,
+        exposureJson: String? = null,
     ): String {
         // Generate ID if not provided (using the hash from Rust)
         val photoId = if (id.isNullOrEmpty()) {
@@ -1221,7 +1275,11 @@ class PhotoUploadLogic(internal val context: Context) {
             fileSize = fileSize,
             createdAt = System.currentTimeMillis(),
             uploadStatus = "pending",
-            fileHash = fileHash  // Always use the calculated/provided hash
+            fileHash = fileHash,  // Always use the calculated/provided hash
+            bearingSource = bearingSource,
+            locationSource = locationSource,
+            locationAgeMs = locationAgeMs,
+            exposureJson = exposureJson,
         )
 
         // Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)

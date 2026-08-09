@@ -31,6 +31,17 @@ data class UploadSettings(
      * rapid-fire clicks".
      */
     val autoUploadPromptEnabled: Boolean = true,
+    /**
+     * OPT-IN full EXIF in the photo files (GPS, heading, provenance) — for
+     * using the files outside the hillview pipeline. OFF is the
+     * hillview-centered default: finalization is just the CameraX save
+     * (ExifInterface has no surgical patch, so writing EXIF means copying
+     * the whole 4–25 MB file per shot — the throughput ceiling the CMP
+     * rewrite exists to remove). The stamp is complete either way: it lives
+     * in the photos table and rides the upload's metadata field, which the
+     * server prefers over file EXIF.
+     */
+    val writeExif: Boolean = false,
 )
 
 /**

@@ -260,9 +260,34 @@ Implementation, roughly in value order:
      stamped until the worker reads the row.
    - A separate **"external camera" activity** (0c) covers the
      native-camera-app usecase the tracking tables were originally for.
-   Not built yet — the fast-write pipeline needs its own design pass
-   (photo-table columns vs SensorSnapshot, upload protocol carrying
-   metadata, the opt-in EXIF path) before code.
+   **The fast-write default LANDED 2026-08-09.** The channel already
+   existed: the worker's `/upload` takes a `metadata` form field that WINS
+   over embedded EXIF (built for browser captures, which cannot write
+   EXIF; the pics pipeline uses it too). What landed: photos table v15
+   gains bearingSource / locationSource / locationAgeMs / exposureJson
+   (ALTER TABLE, both apps' schemas re-exported, same identityHash);
+   capture threads them PendingUpload → registerCapturedPhoto → row;
+   PhotoUploadLogic.buildUploadMetadata renders every upload's row into
+   the metadata field (ms-ISO captured_at via the new
+   formatTimestampToIsoMillis — EXIF is second-granular); finalization
+   skips PhotoExifWriter unless the new "Write EXIF into photo files"
+   opt-in (settings-write-exif, default OFF) is set — the CameraX save IS
+   the final file, stats metric finalize(fast) vs finalize(exif+index).
+   Worker side: the synthesized UserComment now passes through
+   location_age_ms + exposure; captured_at flipped to metadata-WINS
+   (embedded DateTimeOriginal is second-granular local wall-clock — the
+   fill-if-missing rule silently preferred the worse value whenever a
+   file carried any EXIF); Z-suffixed values no longer get the file's
+   local offset applied (that shifted an already-UTC instant by the
+   timezone). Emulator-verified: fast file = CameraX tags only (no
+   GPS/UserComment, actual 1/500@ISO221 from the Floor rule), v14→v15
+   migration ran on a live DB, row carries the full provenance, drain
+   logs the complete metadata blob per photo — old rows degrade to
+   geo+captured_at with EXIF fallback. (Upload's last hop to the dev
+   worker blocked by the emulator not trusting dev4's Caddy CA; the
+   worker merge is unit-tested and is the browser path's production
+   code.) STILL OPEN from this block: the interpolation refiner itself,
+   and the in-flight progress indicator.
 0d. **Election follow-ups (small, 2026-08-08)**: `is_sensor_bearing_source`
    in src-tauri/src/device_photos.rs — FIXED. Was a substring sweep
    ("contains compass/rotation/gyro/sensor/tauri/...") from when source

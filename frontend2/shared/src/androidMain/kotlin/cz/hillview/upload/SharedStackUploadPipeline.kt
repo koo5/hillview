@@ -61,6 +61,10 @@ class SharedStackUploadPipeline(
                     height = bounds.outHeight.coerceAtLeast(0),
                     fileSize = bytes.size.toLong(),
                     fileHash = PhotoUtils.calculateHash(bytes),
+                    bearingSource = upload.bearingSource,
+                    locationSource = upload.locationSource,
+                    locationAgeMs = upload.locationAgeMs,
+                    exposureJson = upload.exposureJson,
                 )
                 PhotoUploadManager(context).startAutomaticUpload("capture")
             }

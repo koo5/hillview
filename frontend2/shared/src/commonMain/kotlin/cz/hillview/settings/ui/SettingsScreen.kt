@@ -280,6 +280,26 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(Modifier.weight(1f)) {
+                Text("Write EXIF into photo files", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "For using the files outside Hillview (GPS, heading, provenance " +
+                        "tags). Slower per shot — each photo is rewritten whole. " +
+                        "Uploads carry the full stamp either way.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = settings.writeExif,
+                onCheckedChange = { on -> repository.update { it.copy(writeExif = on) } },
+                modifier = Modifier.testTag("settings-write-exif"),
+            )
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.weight(1f)) {
                 Text("Landscape compass workaround", style = MaterialTheme.typography.bodyLarge)
                 Text(
                     "Negate the heading when face-down in landscape " +

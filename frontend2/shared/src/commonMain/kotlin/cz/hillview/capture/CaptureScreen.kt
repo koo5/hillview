@@ -255,6 +255,13 @@ fun CaptureScreen(
                 // everywhere in the pipeline (see SensorSnapshot).
                 bearing = photo.snapshot.trueBearingDeg?.toDouble(),
                 capturedAtMs = photo.snapshot.capturedAtMs,
+                // The provenance lives in the ROW from here on — in the
+                // fast-write default the file has no EXIF, so this is the
+                // stamp's only vehicle to the upload metadata.
+                bearingSource = photo.snapshot.bearingSource,
+                locationSource = photo.snapshot.locationSource,
+                locationAgeMs = photo.snapshot.locationAgeMs,
+                exposureJson = photo.snapshot.exposure?.let { exposureProvenanceJson(it) },
             )
         )
         // Under eco the map catches up here, once per capture — Tauri's

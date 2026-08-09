@@ -224,6 +224,44 @@ class PlanExposureTest {
 }
 
 /** The ⚡ button has to say which of the three rules is in force. */
+class ExposureProvenanceJsonTest {
+
+    @Test
+    fun theFullStampSerializesEveryField() {
+        // One serialization, two riders: the EXIF UserComment and the
+        // photos-table column the upload metadata is built from. The exact
+        // string is the contract — the worker parses it as JSON and the
+        // synthesized UserComment must match what the writer would produce.
+        val json = exposureProvenanceJson(
+            ExposureStamp(
+                rule = ExposureRule(ExposureMode.Floor, 2_000_000L, -1.0),
+                plan = ExposurePlan(1_958_333L, 50, ExposureOutcome.Faster),
+                meteredExposureNs = 10_000_000L,
+                meteredIso = 100,
+            ),
+        )
+        kotlin.test.assertEquals(
+            "{\"mode\":\"floor\",\"target_ns\":2000000,\"ev_bias\":-1.0," +
+                "\"applied_ns\":1958333,\"iso\":50,\"outcome\":\"faster\"," +
+                "\"metered_ns\":10000000,\"metered_iso\":100}",
+            json,
+        )
+    }
+
+    @Test
+    fun aStampWithoutMeteringOmitsTheMeteredKeys() {
+        val json = exposureProvenanceJson(
+            ExposureStamp(
+                rule = ExposureRule(ExposureMode.Pin, 500_000L),
+                plan = ExposurePlan(500_000L, 218, ExposureOutcome.OnTarget),
+            ),
+        )
+        kotlin.test.assertTrue("metered" !in json, json)
+        kotlin.test.assertTrue("\"mode\":\"pin\"" in json, json)
+        kotlin.test.assertTrue("\"outcome\":\"ontarget\"" in json, json)
+    }
+}
+
 class ExposureLabelTest {
 
     @Test

@@ -1075,6 +1075,7 @@ private class AndroidPhotoCapture(
             chain = PhotoStorage.chain(settings.storage),
             filename = filename,
             hideFromGallery = settings.hideFromGallery,
+            writeExif = settings.writeExif,
             snapshot = snapshot,
             watchdog = watchdog,
         )
@@ -1091,6 +1092,7 @@ private class AndroidPhotoCapture(
         chain: List<StorageMode>,
         filename: String,
         hideFromGallery: Boolean,
+        writeExif: Boolean,
         snapshot: SensorSnapshot,
         watchdog: Job,
     ) {
@@ -1104,7 +1106,7 @@ private class AndroidPhotoCapture(
         val prepared = PhotoStorage.outputOptions(context, mode, filename, hideFromGallery)
         if (prepared == null) {
             takePictureWithFallback(
-                capture, chain.drop(1), filename, hideFromGallery, snapshot, watchdog,
+                capture, chain.drop(1), filename, hideFromGallery, writeExif, snapshot, watchdog,
             )
             return
         }
@@ -1146,25 +1148,38 @@ private class AndroidPhotoCapture(
                                 uri != null -> uri.toString()
                                 else -> throw IOException("save reported neither file nor uri")
                             }
-                            if (file != null) {
-                                PhotoExifWriter.write(file, snapshot)
-                                // After the EXIF rewrite, so the indexed entry
-                                // has the final bytes.
-                                if (!hideFromGallery) PhotoStorage.indexInGallery(context, file)
-                            } else {
-                                PhotoExifWriter.write(context, uri!!, snapshot)
+                            // The fork the fast-write default is about. OFF
+                            // (default): the CameraX save IS the final file —
+                            // no whole-file EXIF copy per shot; the stamp
+                            // rides the photos table into the upload metadata,
+                            // which the server prefers over file EXIF anyway.
+                            // ON (opt-in, "use the files outside hillview"):
+                            // the full EXIF pass, 4-25 MB copied per shot on
+                            // a real sensor.
+                            if (writeExif) {
+                                if (file != null) {
+                                    PhotoExifWriter.write(file, snapshot)
+                                } else {
+                                    PhotoExifWriter.write(context, uri!!, snapshot)
+                                }
+                            }
+                            // After any EXIF rewrite, so the indexed entry
+                            // has the final bytes.
+                            if (file != null && !hideFromGallery) {
+                                PhotoStorage.indexInGallery(context, file)
                             }
                             // lastPhoto ONLY after the final bytes exist:
                             // the upload enqueue hashes the file it triggers
                             // on — publishing earlier would hash pre-EXIF
-                            // bytes.
+                            // bytes. (In the fast path the save already wrote
+                            // the final bytes.)
                             kotlinx.coroutines.withContext(Dispatchers.Main) {
                                 state = state.copy(
                                     lastPhoto = CapturedPhoto(locator, filename, snapshot),
                                 )
                             }
                             CaptureStatsLog.record(
-                                "finalize(exif+index)",
+                                if (writeExif) "finalize(exif+index)" else "finalize(fast)",
                                 SystemClock.elapsedRealtime() - finalizeStart,
                                 System.currentTimeMillis(),
                             )
@@ -1177,7 +1192,7 @@ private class AndroidPhotoCapture(
                             Log.e(TAG, "post-save handling failed", e)
                             kotlinx.coroutines.withContext(Dispatchers.Main) {
                                 state = state.copy(
-                                    errorMessage = "EXIF write failed: ${e.message}",
+                                    errorMessage = "photo finalize failed: ${e.message}",
                                 )
                             }
                         }
@@ -1189,7 +1204,7 @@ private class AndroidPhotoCapture(
                     Log.w(TAG, "save via ${mode.key} failed: ${exception.message}")
                     if (rest.isNotEmpty()) {
                         takePictureWithFallback(
-                            capture, rest, filename, hideFromGallery, snapshot, watchdog,
+                            capture, rest, filename, hideFromGallery, writeExif, snapshot, watchdog,
                         )
                         return
                     }

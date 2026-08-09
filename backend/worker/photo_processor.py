@@ -242,7 +242,15 @@ def parse_exif_datetime(value, offset_value=None) -> Optional[datetime]:
 		"%Y-%m-%dT%H:%M:%S",      # ISO: 2024-01-15T10:30:45
 		"%Y-%m-%dT%H:%M:%S.%f",   # ISO with subseconds
 		"%Y-%m-%dT%H:%M:%SZ",     # ISO UTC
+		"%Y-%m-%dT%H:%M:%S.%fZ",  # ISO UTC with subseconds (upload metadata's ms-ISO shape)
 	]
+
+	# A trailing Z means the value declares itself UTC — it is not a naive
+	# wall-clock, so the file's OffsetTimeOriginal must NOT be applied to it.
+	# This matters since metadata captured_at overwrites DateTimeOriginal:
+	# an EXIF-writing client also stamps a local-time offset, and applying
+	# that offset to an already-UTC value shifted it by the timezone.
+	value_is_utc = value_str.endswith('Z')
 
 	for fmt in formats:
 		try:
@@ -258,7 +266,7 @@ def parse_exif_datetime(value, offset_value=None) -> Optional[datetime]:
 				return corrected_dt
 			# DateTimeOriginal is local wall-clock; convert to UTC using the EXIF
 			# offset when known, else assume it is already UTC.
-			offset = _parse_exif_offset(offset_value)
+			offset = _parse_exif_offset(offset_value) if not value_is_utc else None
 			if offset is not None:
 				return (dt - offset).replace(tzinfo=timezone.utc)
 			return dt.replace(tzinfo=timezone.utc)
@@ -1069,9 +1077,16 @@ class PhotoProcessor:
 			if metadata.get('orientation_code') and not exif_data['data'].get('Orientation'):
 				exif_data['data']['Orientation'] = metadata['orientation_code']
 
-			# Use capture time from metadata if not in EXIF
-			if metadata.get('captured_at') and not exif_data.get('data', {}).get('DateTimeOriginal'):
-				exif_data['data']['DateTimeOriginal'] = metadata['captured_at']
+			# Capture time: metadata WINS, same rule as geo above. The uploader
+			# sends the canonical instant (the app's shutter clock in ms-ISO
+			# UTC, or the pipeline's clock-drift-corrected value — the v2
+			# semantics), whereas embedded DateTimeOriginal is second-granular
+			# local wall-clock at best (CameraX writes it with no offset, and a
+			# fused stack embeds the anchor frame's UNcorrected time). This was
+			# fill-if-missing, which silently preferred the worse value
+			# whenever a file carried any EXIF at all.
+			if metadata.get('captured_at'):
+				exif_data.setdefault('data', {})['DateTimeOriginal'] = metadata['captured_at']
 
 			# Browser uploads carry no embedded EXIF, so synthesize the same
 			# UserComment provenance JSON that the Android (Rust) EXIF writer
@@ -1085,7 +1100,13 @@ class PhotoProcessor:
 			if not exif_data.setdefault('data', {}).get('UserComment'):
 				provenance = {
 					k: metadata[k]
-					for k in ('location_source', 'bearing_source', 'alt_location', 'v')
+					# location_age_ms and exposure (the exposure-rule story:
+					# mode/target/plan/metering) come from the Android
+					# fast-write path, which skips the on-device EXIF rewrite
+					# and carries the whole stamp here instead — the synthesized
+					# UserComment must say the same things the written one does.
+					for k in ('location_source', 'bearing_source', 'alt_location',
+							  'location_age_ms', 'exposure', 'v')
 					if metadata.get(k) is not None
 				}
 				if provenance:

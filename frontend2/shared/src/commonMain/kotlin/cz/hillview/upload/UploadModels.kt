@@ -98,6 +98,13 @@ data class PendingUpload(
     val capturedAtIso: String? = null,
     /** Capture instant from the sensor snapshot — authoritative, unlike a file mtime. */
     val capturedAtMs: Long? = null,
+    // Stamp provenance, destined for the photos-table columns (v15) that the
+    // upload metadata blob is built from — the fast-write path's only record
+    // of these (the file carries no EXIF there).
+    val bearingSource: String? = null,
+    val locationSource: String? = null,
+    val locationAgeMs: Long? = null,
+    val exposureJson: String? = null,
     val state: UploadState = UploadState.Pending,
     val attempts: Int = 0,
     val lastError: String? = null,

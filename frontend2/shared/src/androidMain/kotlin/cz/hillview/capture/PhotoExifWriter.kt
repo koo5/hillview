@@ -81,20 +81,9 @@ object PhotoExifWriter {
                 // scaled from. CameraX stamps what the sensor actually DID
                 // into the standard ExposureTime/ISO tags, so this is the
                 // half the file cannot otherwise tell you. Absent when AE
-                // owned the shot.
-                exposure?.let { e ->
-                    val exposureFields = buildList {
-                        add("\"mode\":\"${e.rule.mode.name.lowercase()}\"")
-                        add("\"target_ns\":${e.rule.targetNs}")
-                        add("\"ev_bias\":${e.rule.evBias}")
-                        add("\"applied_ns\":${e.plan.exposureNs}")
-                        add("\"iso\":${e.plan.iso}")
-                        add("\"outcome\":\"${e.plan.outcome.name.lowercase()}\"")
-                        e.meteredExposureNs?.let { add("\"metered_ns\":$it") }
-                        e.meteredIso?.let { add("\"metered_iso\":$it") }
-                    }
-                    add("\"exposure\":${exposureFields.joinToString(",", prefix = "{", postfix = "}")}")
-                }
+                // owned the shot. Same serialization the photos table
+                // carries — one shape wherever the stamp travels.
+                exposure?.let { add("\"exposure\":${exposureProvenanceJson(it)}") }
             }
             exif.setAttribute(
                 ExifInterface.TAG_USER_COMMENT,

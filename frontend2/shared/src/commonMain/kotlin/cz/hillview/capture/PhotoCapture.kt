@@ -224,6 +224,27 @@ data class ExposureStamp(
 )
 
 /**
+ * The stamp as a JSON object — ONE serialization for its two riders: the
+ * EXIF UserComment provenance (PhotoExifWriter, the opt-in EXIF path) and
+ * the photos-table `exposureJson` column that the upload metadata carries
+ * (the fast-write default). Hand-built to match the writer's existing
+ * string style; readers ignore keys they don't know.
+ */
+fun exposureProvenanceJson(e: ExposureStamp): String {
+    val fields = buildList {
+        add("\"mode\":\"${e.rule.mode.name.lowercase()}\"")
+        add("\"target_ns\":${e.rule.targetNs}")
+        add("\"ev_bias\":${e.rule.evBias}")
+        add("\"applied_ns\":${e.plan.exposureNs}")
+        add("\"iso\":${e.plan.iso}")
+        add("\"outcome\":\"${e.plan.outcome.name.lowercase()}\"")
+        e.meteredExposureNs?.let { add("\"metered_ns\":$it") }
+        e.meteredIso?.let { add("\"metered_iso\":$it") }
+    }
+    return fields.joinToString(",", prefix = "{", postfix = "}")
+}
+
+/**
  * Shutter priority, done by hand because Camera2 has no such AE mode:
  * hold the exposure product (time x gain) the metering chose, and spend it
  * according to [rule].
