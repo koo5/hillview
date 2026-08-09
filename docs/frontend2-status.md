@@ -292,7 +292,7 @@ metadata-only correction to the server is worth discussing separately —
 it is NOT a re-upload (the file never moves), so it may be compatible
 with the "no re-upload fallback, ever" rule.
 
-**C4. Per-mode sensor/GPS rate defaults** (the remaining half of 0c):
+**C4. Per-activity sensor/GPS rate defaults** (the remaining half of 0c):
 external wants continuous, capture wants optimize-around-the-shutter,
 gallery wants neither. Pairs with the eco sub-flags, and lands naturally
 once C1 gives the rates one owner to live in.
@@ -411,8 +411,11 @@ Implementation, roughly in value order:
    was a witness to it. Guarded on a device since 2026-08-08
    (`GeoElectionBehaviourTest.aClaimStampsWhereTheMapIsNowNotWhereItWasClaimed`
    — claim, pan 0.05°, shoot, and the row must be the new centre).
-0f. **External camera mode — LANDED 2026-08-09.** A PANEL MODE beside
-   capture in the same slot (user's framing: "just another panel mode
+0f. **External camera activity — LANDED 2026-08-09.** A PANEL ACTIVITY
+   beside capture in the same slot (the app's word for a panel-level
+   concept, and the code's: `MapSettings.mainActivity`; "mode" is taken
+   several times over — BearingMode, StorageMode, eco mode, sensor
+   fusion MODE_*) (user's framing: "just another panel mode
    next to capture mode… just no camera stream running"), reached from
    the menu, `mainActivity = "external"`. Composing the pane starts an
    `ExternalCameraService` — a `location`-typed FOREGROUND service, so
@@ -428,7 +431,7 @@ Implementation, roughly in value order:
    heading filter (the map's controller already does, from its own fix
    stream; a second feeder would double-pump it). Emulator-verified:
    foreground service `types=0x8` (LOCATION), live status line, counts
-   climbing, clean stop on leaving. STILL OPEN here: per-mode sensor/GPS
+   climbing, clean stop on leaving. STILL OPEN here: per-activity sensor/GPS
    rate defaults (0c) — external wants continuous, capture wants
    optimize-around-the-shutter, gallery wants neither.
 0c. **Eco/sensor design queue (user, 2026-08-08, not built)**: eco
@@ -440,7 +443,7 @@ Implementation, roughly in value order:
    pairs with the PiP float-mode idea) — as opposed to the capture
    activity, which optimizes around capture moments, and the gallery
    activity (thought through later). 2026-08-09: the external-camera
-   activity SHIPPED as a panel mode (0f); the per-mode rate defaults are
+   activity SHIPPED as a panel mode (0f); the per-activity rate defaults are
    what remains of this item — tracked as C4, and blocked in practice on
    the sensor hub (C1), which is where rates would get one owner.
 

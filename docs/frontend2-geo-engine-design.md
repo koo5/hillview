@@ -15,6 +15,14 @@ The user's statement of the requirement:
 > user has one value pair to deal with. **maybe it's not as simple as I
 > make it sound.**
 
+**Terminology.** The panel-level concept is an **ACTIVITY** — the user's
+word, and the code's (`MapSettings.mainActivity`, values `capture` /
+`external` / `view`). This note said "mode" throughout its first draft;
+that was drift, and "mode" is already the most overloaded word in this
+codebase (`BearingMode` walking/car, `StorageMode`, eco mode, the sensor
+fusion `MODE_*` constants). Where "activity" could be confused with
+Android's `Activity` class, the Android one is named in full.
+
 It is not, quite — and the "not literally" is load-bearing. The original
 resolves it with **one value pair, two materializations, and an explicit
 rule for which one wins per source.** All three parts are needed.
@@ -149,8 +157,9 @@ number the app would stamp at that instant.
 ExamplePlugin's hardware half.**
 
 - Owns the single `EnhancedSensorService` and single
-  `PreciseLocationService`. Starts/stops by reference count or mode, not
-  by whoever composed last.
+  `PreciseLocationService`. Starts/stops with the ACTIVITY (the app's own
+  word: `mapSettings.mainActivity` — capture / external / view), not by
+  whoever composed last.
 - Runs its callbacks off the UI thread, and does there exactly what the
   plugin does: write the table at full rate, feed declination, derive the
   Kalman car bearing, publish samples as flows. **This alone fixes C2** —
@@ -168,7 +177,7 @@ sensor/location instances; the external pane displays the state instead
 of its own feed.
 
 **The foreground service hosts the engine instead of duplicating it.**
-External mode then means "keep the engine alive with a notification while
+The external-camera ACTIVITY then means "keep the engine alive with a notification while
 another app is in front" — a *lifetime* concern, not a data one. That is
 the correct reading of the user's *"nice if we can synchronize the UI
 with the live data, while also having the foreground service
@@ -176,9 +185,9 @@ active/available for when the app is backgrounded"*: one engine, one
 state pair, a service that owns the process rather than a second copy of
 the data path.
 
-**C4 falls out.** Per-mode sensor/GPS rates become a `GeoConfig` passed
-at the call site that starts the engine for a mode (see choice A) — which
-is why per-mode defaults were blocked on this: today there is no single
+**C4 falls out.** Per-activity sensor/GPS rates become a `GeoConfig`
+passed at the call site that starts the engine for that activity (see
+choice A) — which is why per-activity defaults were blocked on this: today there is no single
 place a rate could even be set, and no single owner to apply it to. The
 GPS interval slider and the eco sub-flags are then values in that config,
 not new machinery.
@@ -192,7 +201,7 @@ rather than coincidentally true.
 ## Open questions for the review session
 
 1. **Engine lifetime.** Ref-counted by observers, or explicitly driven by
-   the active mode? Tauri sidesteps this: JS issues explicit
+   the active activity? Tauri sidesteps this: JS issues explicit
    start/stopSensor commands. A ref count is more automatic but makes
    "who is keeping the GPS awake" harder to answer — which matters for a
    battery-sensitive app.
@@ -216,7 +225,7 @@ The questions above were mostly mine to answer, not the user's. Recorded
 here as concrete sketches so the decision is judged on what it LOOKS
 like, with the recommendation stated. Class names are the real ones.
 
-### A. Engine lifetime and rates — recommend A2 (mode drives WHEN, caller supplies WHAT)
+### A. Engine lifetime and rates — recommend A2 (the ACTIVITY drives WHEN, the caller supplies WHAT)
 
 **A1, ref-counted.** Each observer acquires; the engine stops when the
 last one releases.
@@ -235,7 +244,7 @@ Automatic, and wrong for this app: nothing can answer *"why is the GPS
 awake right now"* — the answer is a count. Battery behaviour becomes
 emergent, which is precisely what a power-sensitive app must not have.
 
-**A2, mode-driven, with the VALUES PASSED IN.** The user's correction,
+**A2, activity-driven, with the VALUES PASSED IN.** The user's correction,
 and it is the right one: *"if it was up to me, I'd be setting these
 values from wherever I'd be starting the engine."* The engine takes a
 config; it does not own an enum of baked-in numbers.
@@ -254,7 +263,7 @@ class GeoEngine(context: Context) {
     fun configure(config: GeoConfig) { … }
 }
 
-// MainScreen, where the mode already lives (mapSettings.mainActivity).
+// MainScreen, where the activity already lives (mapSettings.mainActivity).
 // The numbers are HERE, at the call site, not inside the engine:
 LaunchedEffect(activity, trackingWanted, mapSettings.gpsIntervalMs) {
     engine.configure(
@@ -286,7 +295,7 @@ Two properties worth stating, because they are why this beats the enum:
   branch, not a new mechanism.
 
 Defaults live next to their call sites (and, once the sliders exist, in
-`MapSettings` so they persist). **This is C4**: per-mode rates now have a
+`MapSettings` so they persist). **This is C4**: per-activity rates now have a
 place to live, and it is a place the user can reach.
 
 ### B. How a pane reads — recommend B2 (pure observer)
