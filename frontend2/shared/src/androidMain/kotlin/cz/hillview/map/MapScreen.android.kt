@@ -716,7 +716,9 @@ private class AppliedCamera {
  * the Svelte app.
  */
 private class MapSensorController(private val context: Context) {
-    private val geoTracking by lazy { GeoTrackingManager(context) }
+    // The process-wide one: this pane publishes the election that the capture
+    // pane's writes have to be stamped with (see GeoTrackingManager.get).
+    private val geoTracking by lazy { GeoTrackingManager.get(context) }
 
     private var sensorService: EnhancedSensorService? = null
     private var preciseLocation: cz.hillview.plugin.PreciseLocationService? = null

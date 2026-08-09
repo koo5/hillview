@@ -37,7 +37,7 @@ class HillviewApplication : Application() {
         // exports when auto_export is on; clears either way).
         appScope.launch {
             try {
-                cz.hillview.plugin.GeoTrackingManager(this@HillviewApplication).dumpAndClear()
+                cz.hillview.plugin.GeoTrackingManager.get(this@HillviewApplication).dumpAndClear()
             } catch (e: Exception) {
                 android.util.Log.w("HillviewApp", "start-time geo dump failed", e)
             }

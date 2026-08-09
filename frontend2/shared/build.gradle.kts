@@ -130,6 +130,32 @@ kotlin {
     }
 }
 
+// Room schema export. shared-kt's entities are compiled by BOTH apps, with
+// different Room versions (2.8.4 here, 2.6.1 in the Tauri plugin's kapt), so
+// each build gets its OWN directory — one shared directory would have the two
+// overwriting each other's JSON on every build. They agree on the identityHash
+// (the value Room checks at runtime); 2.6.1 just also writes the defaults that
+// 2.8.4 omits.
+//
+// KNOWN HOLE: a processor argument is an opaque string to Gradle, so the schema
+// directory is NOT a declared task output. It takes no part in up-to-date
+// checks or the build cache: delete the JSON and nothing notices it is gone,
+// and a build that finds KSP up-to-date leaves whatever is on disk. Treat the
+// files as "written when KSP last ran", not as a build guarantee — if an entity
+// change ever appears to produce no schema diff, force KSP (touch the entity,
+// or clean) before believing it.
+//
+// The fix, when it is worth it: the `androidx.room` Gradle plugin
+// (`room { schemaDirectory(...) }`), which registers the directory properly.
+// Not adopted yet — it needs a version-catalog entry and, the real unknown,
+// compatibility with AGP 9.3.1 + the KMP androidLibrary plugin, both new.
+ksp {
+    arg(
+        "room.schemaLocation",
+        rootDir.resolve("../shared-kt/schemas/frontend2").absolutePath,
+    )
+}
+
 dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
     // Room codegen for the android target only (the KMP-target-qualified KSP

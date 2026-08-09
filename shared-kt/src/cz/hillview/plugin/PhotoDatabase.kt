@@ -9,7 +9,17 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [PhotoEntity::class, BearingEntity::class, LocationEntity::class, SourceEntity::class, EditEntity::class],
     version = 14,
-    exportSchema = false
+    // Schemas are exported per app (they compile these entities with different
+    // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
+    // docs/geo-election-test-todo.md item 6. Both agree on the identityHash;
+    // the files differ only in how verbosely each Room version writes them.
+    //
+    // If you change an entity here, COMMIT THE REGENERATED JSON with it: the
+    // export is wired through a processor argument in each app's build file,
+    // which Gradle does not track as an output, so nothing enforces this and a
+    // stale schema file is silently possible. Both build files carry the long
+    // version of this warning.
+    exportSchema = true
 )
 abstract class PhotoDatabase : RoomDatabase() {
 

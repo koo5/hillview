@@ -59,6 +59,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.google.common.util.concurrent.ListenableFuture
 import cz.hillview.core.permissions.PermissionGatePane
 import cz.hillview.core.permissions.rememberPermissionsState
 import cz.hillview.plugin.DeviceOrientation
@@ -81,6 +82,16 @@ import java.io.IOException
 import kotlin.coroutines.resume
 
 private const val TAG = "PhotoCapture"
+
+// The metering window prepareExposure opens between interval shots. The
+// frame minimum is there so a single mid-convergence frame cannot be
+// mistaken for a reading; the timeouts are ceilings, not waits — a
+// converged AE returns immediately, and everything degrades to "use the
+// last reading" rather than to a stuck run.
+private const val REMETER_MIN_FRAMES = 3
+private const val REMETER_STREAM_TIMEOUT_MS = 2_000L
+private const val REMETER_SETTLE_TIMEOUT_MS = 900L
+private const val REMETER_APPLY_TIMEOUT_MS = 600L
 
 // Finalization (EXIF rewrite, gallery index) must survive the pane: a photo
 // taken a heartbeat before leaving capture still needs its final bytes —
@@ -143,7 +154,7 @@ private class AndroidPhotoCapture(
     // synthetic stream had nothing left to carry. It was also a derived row
     // sitting among observations, and it overloaded locations.bearing (the
     // GNSS course) with the composed stamp heading.
-    private val geoTracking by lazy { cz.hillview.plugin.GeoTrackingManager(context) }
+    private val geoTracking by lazy { cz.hillview.plugin.GeoTrackingManager.get(context) }
 
 
     // The shutter's voice: the stock click for a healthy capture, a double
@@ -220,13 +231,38 @@ private class AndroidPhotoCapture(
 
     /**
      * What auto-exposure last chose, harvested from preview capture
-     * results while AE runs. This is the metering a shutter pin scales
-     * from — see [shutterPriorityIso]. Not updated while pinned (the
-     * results would only echo our own values back).
+     * results while AE runs. This is the metering an exposure rule scales
+     * from — see [planExposure]. Not updated while a rule is applied (AE
+     * is off then, so the results would only echo our own values back),
+     * which is precisely why [prepareExposure] exists.
      */
     @Volatile private var meteredExposureNs: Long? = null
     @Volatile private var meteredIso: Int? = null
     @Volatile private var lastFrameLog = 0L
+
+    /**
+     * Whether the request we last applied leaves AE running — the harvest
+     * gate. Gating on "no rule is set" instead would shut the harvest out
+     * of the deliberate metering window [prepareExposure] opens.
+     */
+    @Volatile private var aeIsOn = true
+
+    /** Set while [prepareExposure] is deliberately holding AE on. */
+    @Volatile private var meteringWindow = false
+
+    /**
+     * A rule is in force but has never had a reading to scale from, so AE
+     * still owns the camera; the harvest applies the rule as soon as it
+     * has one. This replaced a fabricated "plausible daylight" starting
+     * point that was ~6 stops off and, in the capture-only eco band (no
+     * preview, hence no AE frames, ever), was not a fallback but the only
+     * path.
+     */
+    @Volatile private var awaitingMetering = false
+
+    /** Monotonic count of harvested frames — how the metering window waits. */
+    @Volatile private var meterFrames = 0
+    @Volatile private var meterConverged = false
 
     @Volatile private var lastLocation: Location? = null
     @Volatile override var manualLocation: ManualLocation? = null
@@ -470,7 +506,7 @@ private class AndroidPhotoCapture(
         )
 
         // Options chosen before (re)binding still apply.
-        if (shutterNs != null || ecoPreviewFps != null) applyRequestOptions()
+        if (exposureRule != null || ecoPreviewFps != null) applyRequestOptions()
         cameraBound = true
         // A rebind starts with the preview in the group — re-enter whatever
         // eco duty mode is chosen.
@@ -497,16 +533,31 @@ private class AndroidPhotoCapture(
                 ) {
                     val exp = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
                     val iso = result.get(CaptureResult.SENSOR_SENSITIVITY)
-                    // Ground truth for the pin (the emulator's JPEG EXIF is
-                    // canned, so this log is the only honest witness there).
+                    // Ground truth for the rule (the emulator's JPEG EXIF
+                    // is canned, so this log is the only honest witness
+                    // there).
                     val now = SystemClock.elapsedRealtime()
                     if (now - lastFrameLog > 2_000) {
                         lastFrameLog = now
-                        Log.d(TAG, "frame exposureNs=$exp iso=$iso pinned=$shutterNs")
+                        Log.d(TAG, "frame exposureNs=$exp iso=$iso rule=$exposureRule aeOn=$aeIsOn")
                     }
-                    if (shutterNs != null) return
+                    if (!aeIsOn) return
                     exp?.let { meteredExposureNs = it }
                     iso?.let { meteredIso = it }
+                    if (exp == null || iso == null) return
+                    meterFrames++
+                    val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
+                    // A HAL that reports no AE state at all leaves this
+                    // false and the window falls back to its timeout.
+                    meterConverged = aeState == CameraMetadata.CONTROL_AE_STATE_CONVERGED ||
+                        aeState == CameraMetadata.CONTROL_AE_STATE_FLASH_REQUIRED ||
+                        aeState == CameraMetadata.CONTROL_AE_STATE_LOCKED
+                    if (awaitingMetering) {
+                        awaitingMetering = false
+                        // State and the camera control are the main
+                        // thread's business; this is a camera thread.
+                        scope.launch { applyRequestOptions() }
+                    }
                 }
             },
         )
@@ -529,9 +580,9 @@ private class AndroidPhotoCapture(
         }
     }
 
-    override var shutterNs: Long? = null
+    override var exposureRule: ExposureRule? = null
         set(value) {
-            Log.d(TAG, "shutterNs <- $value")
+            Log.d(TAG, "exposureRule <- $value")
             field = value
             applyRequestOptions()
         }
@@ -591,9 +642,10 @@ private class AndroidPhotoCapture(
     //
     // At and below ECO_DUTY_BAND_MAX_FPS the Preview use case is unbound
     // between beats (AE ranges cover 7..30). ImageCapture stays bound
-    // throughout, so the shutter never waits. One caveat, deliberate:
-    // shutter-pin ISO scales from preview-frame metering, which goes
-    // stale while frozen.
+    // throughout, so the shutter never waits. The caveat this used to
+    // carry — exposure-rule ISO scales from preview-frame metering, which
+    // goes stale while frozen — is now [prepareExposure]'s business: it
+    // borrows the preview back for its window and returns it.
     //
     // The frozen frame is NOT free: unbinding blanks the TextureView
     // (emulator-verified — it does not hold its last frame), so the last
@@ -759,37 +811,34 @@ private class AndroidPhotoCapture(
      * independent features writing it separately would silently erase each
      * other.
      */
-    private fun applyRequestOptions() {
-        val cam = camera ?: return
+    private fun applyRequestOptions(): ListenableFuture<Void?>? {
+        val cam = camera ?: return null
         val builder = CaptureRequestOptions.Builder()
         var applied = "none"
 
-        val pinnedNs = shutterNs
-        if (pinnedNs != null && state.manualShutterSupported) {
-            val exposure = exposureRange
-                ?.let { pinnedNs.coerceIn(it.lower, it.upper) }
-                ?: pinnedNs
-            val iso = shutterPriorityIso(
-                // No metering yet (pin applied before the first preview
-                // frame): scale from a plausible daylight midpoint rather
-                // than refuse.
-                meteredExposureNs = meteredExposureNs ?: 10_000_000L,
-                meteredIso = meteredIso ?: 100,
-                pinnedExposureNs = exposure,
-                minIso = isoRange?.lower ?: 50,
-                maxIso = isoRange?.upper ?: 3200,
-            )
+        val rule = exposureRule?.takeIf { state.manualShutterSupported }
+        val metered = meteredExposureNs
+        val meteredGain = meteredIso
+        // A rule needs a reading to spend; without one AE keeps the camera
+        // (and the harvest hands it back the moment a frame lands).
+        awaitingMetering = rule != null && !meteringWindow &&
+            (metered == null || meteredGain == null)
+        if (rule != null && !meteringWindow && metered != null && meteredGain != null) {
+            val plan = planExposure(rule, metered, meteredGain, sensorCaps())
             builder
                 .setCaptureRequestOption(
                     CaptureRequest.CONTROL_AE_MODE,
                     CameraMetadata.CONTROL_AE_MODE_OFF,
                 )
-                .setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure)
-                .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, iso)
-            applied = "shutter=$exposure iso=$iso"
-            state = state.copy(shutterNs = exposure)
+                .setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, plan.exposureNs)
+                .setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, plan.iso)
+            applied = "${rule.mode}@${rule.targetNs} ${rule.evBias}EV metered=${metered}ns/" +
+                "$meteredGain -> ${plan.exposureNs}ns iso=${plan.iso} ${plan.outcome}"
+            aeIsOn = false
+            state = state.copy(exposureRule = rule, plan = plan)
         } else {
-            state = state.copy(shutterNs = null)
+            aeIsOn = true
+            state = state.copy(exposureRule = rule, plan = null)
         }
 
         if (focusInfinity && state.manualFocusSupported) {
@@ -818,12 +867,84 @@ private class AndroidPhotoCapture(
             applied += " +eco${capFps}fps"
         }
 
-        Camera2CameraControl.from(cam.cameraControl).setCaptureRequestOptions(
+        val future = Camera2CameraControl.from(cam.cameraControl).setCaptureRequestOptions(
             builder.build(),
-        ).addListener(
+        )
+        future.addListener(
             { Log.d(TAG, "request options applied: $applied") },
             ContextCompat.getMainExecutor(context),
         )
+        return future
+    }
+
+    /** The walls a plan clamps to; the fallbacks are a mid-range phone. */
+    private fun sensorCaps(): SensorExposureCaps = SensorExposureCaps(
+        minExposureNs = exposureRange?.lower ?: 100_000L,
+        maxExposureNs = exposureRange?.upper ?: 100_000_000L,
+        minIso = isoRange?.lower ?: 50,
+        maxIso = isoRange?.upper ?: 3200,
+    )
+
+    /**
+     * Give AE the camera back for a moment, take its reading, and put the
+     * rule back on top of it — see PhotoCapture.prepareExposure for why
+     * this has to exist at all.
+     *
+     * Everything here runs on the main dispatcher, as does the eco duty
+     * engine it borrows the preview from, so the two interleave at
+     * suspension points rather than racing; setPreviewBound is a no-op
+     * when the beat already has what we want.
+     */
+    override suspend fun prepareExposure() {
+        if (exposureRule == null || !state.manualShutterSupported) return
+        // Nothing to meter with, and every wait below would run its full
+        // timeout before finding that out — a dead camera must not slow
+        // the run's cadence down on top of taking no photos.
+        if (camera == null || !cameraBound) return
+        val startedAt = SystemClock.elapsedRealtime()
+        val hadPreview = previewBound
+        meterConverged = false
+        meteringWindow = true
+        try {
+            applyRequestOptions()
+            // AE only runs while frames flow, and in the eco bands the
+            // preview may be unbound between beats — borrow it.
+            if (!hadPreview) setPreviewBound(true)
+            waitForPreviewStreaming(REMETER_STREAM_TIMEOUT_MS)
+            awaitMeteredFrames(REMETER_MIN_FRAMES, REMETER_SETTLE_TIMEOUT_MS)
+        } finally {
+            meteringWindow = false
+        }
+        // Wait for the rule to be genuinely back in force: a still capture
+        // submitted before the manual request lands would be exposed by
+        // whatever AE was doing mid-window.
+        awaitAppliedRequestOptions(REMETER_APPLY_TIMEOUT_MS)
+        if (!hadPreview) setPreviewBound(false)
+        CaptureStatsLog.record(
+            "re-meter",
+            SystemClock.elapsedRealtime() - startedAt,
+            System.currentTimeMillis(),
+        )
+    }
+
+    /** Resolves on a converged reading, or when the window runs out. */
+    private suspend fun awaitMeteredFrames(minFrames: Int, timeoutMs: Long) {
+        val start = meterFrames
+        withTimeoutOrNull(timeoutMs) {
+            while (meterFrames - start < minFrames || !meterConverged) delay(20)
+        }
+    }
+
+    private suspend fun awaitAppliedRequestOptions(timeoutMs: Long) {
+        val future = applyRequestOptions() ?: return
+        withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine { cont ->
+                future.addListener(
+                    { if (cont.isActive) cont.resume(Unit) },
+                    ContextCompat.getMainExecutor(context),
+                )
+            }
+        }
     }
 
     private var gpsStarted = false
@@ -911,6 +1032,12 @@ private class AndroidPhotoCapture(
         }
 
         val capturedAtMs = System.currentTimeMillis()
+        // Tally the rule's outcome PER SHOT, not per application: which
+        // escape hatches a mode actually needed over a real drive is the
+        // only way to judge whether it is the right mode.
+        state.plan?.let {
+            CaptureStatsLog.increment("exposure ${it.outcome.name.lowercase()}", capturedAtMs)
+        }
         val filename = "hillview_photo_$capturedAtMs.jpg"
         // The pose at the shutter, not at whenever the last change event
         // fired: takePicture() reads targetRotation, so this is the last

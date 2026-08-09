@@ -31,6 +31,33 @@ data class OrientationSensorData(
 
 
 class GeoTrackingManager(private val context: Context) {
+	companion object {
+		@Volatile
+		private var INSTANCE: GeoTrackingManager? = null
+
+		/**
+		 * The one manager per process — use this, not the constructor.
+		 *
+		 * The election (like the mount offset and the heading filter state) is
+		 * a fact about the SESSION, not about an object: the user elects one
+		 * primary source, and every stream's rows have to be stamped with it.
+		 * frontend2 held two instances, the map pane's and the capture pane's,
+		 * so the pane that PUBLISHED the election and the pane that wrote the
+		 * fix rows disagreed — every fix taken while the map position was
+		 * elected went to disk with no election recorded at all, which is
+		 * precisely the row the two-step lookup has to be able to drop.
+		 * (Caught by GeoElectionBehaviourTest.theElectionReachesTheTables.)
+		 *
+		 * The application context, so an Activity-scoped caller cannot leak
+		 * one into a process-lived field.
+		 */
+		fun get(context: Context): GeoTrackingManager =
+			INSTANCE ?: synchronized(this) {
+				INSTANCE ?: GeoTrackingManager(context.applicationContext)
+					.also { INSTANCE = it }
+			}
+	}
+
 	private val database: PhotoDatabase = PhotoDatabase.getDatabase(context)
 
 	// Cache for source name -> source ID mapping to avoid frequent DB lookups
@@ -38,18 +65,10 @@ class GeoTrackingManager(private val context: Context) {
 
 	private val databaseStorageIntervalMs: Long = 10
 
-	// Storage gates, keyed by sourceId. These were a single field per table,
-	// which made every stream compete for one 10 ms slot — a 1 Hz gps-kalman
-	// bearing could lose it to the ~10 Hz sensor stream and be dropped before
-	// the row ever reached the database. Worse, the clock advanced on
-	// REJECTION as well as acceptance, so any stream arriving faster than the
-	// interval starved every writer indefinitely.
-	//
-	// Per-source, the gate is a floor against one runaway source rather than a
-	// coordination mechanism between them: the streams are already rate-limited
-	// upstream (EnhancedSensorService at 10 Hz, fixes at ~1 Hz).
-	private val lastOrientationStorageTime = ConcurrentHashMap<Int, Long>()
-	private val lastLocationStorageTime = ConcurrentHashMap<Int, Long>()
+	// Storage gates, keyed by sourceId — one per table. The rules they hold,
+	// and the two bugs the single shared gate had, are in SourceRateGate.
+	private val orientationGate = SourceRateGate(databaseStorageIntervalMs)
+	private val locationGate = SourceRateGate(databaseStorageIntervalMs)
 
 	// The elected (primary) source for each table, held as a NAME and resolved to
 	// an id at insert time, where sourceIdCache makes the lookup free.
@@ -124,26 +143,6 @@ class GeoTrackingManager(private val context: Context) {
 	// mount offset and writes the composed value under `gps-kalman`.
 	private val headingFilter = HeadingFilter()
 
-	/**
-	 * True when [sourceId] may store a row now, claiming its slot in the same
-	 * step. compute() is atomic per key, so two threads writing one source
-	 * can't both pass; and only an ACCEPTED sample moves that source's clock
-	 * forward, so a fast stream can no longer starve itself.
-	 */
-	private fun rateLimitStorage(gate: ConcurrentHashMap<Int, Long>, sourceId: Int): Boolean {
-		val currentTime = System.currentTimeMillis()
-		var ok = false
-		gate.compute(sourceId) { _, last ->
-			if (last == null || currentTime - last >= databaseStorageIntervalMs) {
-				ok = true
-				currentTime
-			} else {
-				last
-			}
-		}
-		return ok
-	}
-
 	internal suspend fun getOrCreateSourceId(sourceName: String): Int {
 		// Check cache first
 		sourceIdCache[sourceName]?.let { return it }
@@ -192,7 +191,7 @@ class GeoTrackingManager(private val context: Context) {
 	// back in.
 
 	internal fun storeBearingEntity(entity: BearingEntity) {
-		if (!rateLimitStorage(lastOrientationStorageTime, entity.sourceId)) {
+		if (!orientationGate.allow(entity.sourceId)) {
 			return
 		}
 		CoroutineScope(Dispatchers.IO).launch {
@@ -209,7 +208,7 @@ class GeoTrackingManager(private val context: Context) {
 
 
 	internal fun storeLocationEntity(entity: LocationEntity) {
-		if (!rateLimitStorage(lastLocationStorageTime, entity.sourceId)) {
+		if (!locationGate.allow(entity.sourceId)) {
 			return
 		}
 		CoroutineScope(Dispatchers.IO).launch {

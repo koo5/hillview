@@ -14,5 +14,5 @@ actual fun setGeoAutoExport(enabled: Boolean) {
 
 actual fun exportGeoTrackingNow() {
     val context = GlobalContext.get().get<Context>()
-    cz.hillview.plugin.GeoTrackingManager(context).dumpAndClear(forceDump = true)
+    cz.hillview.plugin.GeoTrackingManager.get(context).dumpAndClear(forceDump = true)
 }

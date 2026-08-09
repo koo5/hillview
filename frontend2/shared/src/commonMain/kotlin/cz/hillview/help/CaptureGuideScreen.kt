@@ -60,7 +60,11 @@ fun CaptureGuideScreen(onBack: () -> Unit) {
         Entry("Focus Auto / ∞", "∞ pins the lens at infinity — for landscapes and vistas. Any tap on the viewfinder returns to Auto.")
 
         Section("The ⚡ menu (bottom right)")
-        Entry("Shutter time", "Pin a fast shutter (1/125…1/2000) for crisp shots from a moving vehicle; ISO compensates automatically. Auto returns to normal exposure.")
+        Entry("Rule", "How hard the target time is defended. Pin = exactly that time (it WILL blow out in bright sun — the ISO floor runs out and a pinned shutter has nowhere left to give). Floor = that time or faster, which is the one to use outdoors. Sports = a floor that hands the shutter back, down to 1/125, rather than push ISO past 1600. Auto returns the camera to its own exposure.")
+        Entry("Target", "The shutter time the rule aims at (1/125…1/2000) — for crisp shots from a moving vehicle. ISO follows automatically.")
+        Entry("Bias", "Deliberate under/overexposure, in stops. This is the knob for shooting into the sun: metering exposes for the average, so a bright sky behind your subject blows out no matter which rule is set — pull -1 or -2.")
+        Entry("The grey line", "What the rule last actually resolved to: time, ISO, and whether it held the target, went faster, slowed down, or ran out of room.")
+        Entry("Interval runs", "Between repeat shots the camera is handed back to auto-exposure for a moment to take a fresh reading (the preview visibly jumps) — without it, a whole drive would be exposed for whatever the light was when you picked the rule.")
 
         Section("Location & the info panel")
         Entry("The panel (top left)", "Compass heading, position, altitude, accuracy — plus camera state and upload tallies. Tap its LEFT EDGE (the grip mark) to cycle the backdrop; taps on the rest pass through to focus.")

@@ -211,6 +211,12 @@ fun CaptureScreen(
     var repeating by rememberSaveable { mutableStateOf(false) }
     var runCount by remember { mutableStateOf(0) }
 
+    // The ⚡ menu edits a target and a bias whether or not a rule is in
+    // force, so switching back off Auto returns to what was last set up
+    // rather than to a default. 1/500 is the middle of the ladder.
+    var exposureTargetNs by rememberSaveable { mutableStateOf(2_000_000L) }
+    var exposureBias by rememberSaveable { mutableStateOf(0.0) }
+
     LaunchedEffect(repeating, intervalSec) {
         if (!repeating || intervalSec <= 0) {
             // The original zeroes its badge when the run stops.
@@ -219,6 +225,12 @@ fun CaptureScreen(
         }
         while (true) {
             if (!state.capturing) {
+                // Hand AE the camera back for a moment first: an exposure
+                // rule turns it off, and without this the whole run would
+                // be exposed for whatever the scene was when the rule was
+                // chosen. This is the one place we own the clock, so it is
+                // the one place it can be done — no-op under Auto.
+                capture.prepareExposure()
                 capture.capture()
                 runCount++
             }
@@ -533,8 +545,13 @@ fun CaptureScreen(
             // port's addition (the original has no manual exposure).
             // Collapsed behind a ⚡ button, expanding upward like the
             // camera selector; the open ladder used to sprawl across the
-            // pane (round-4 feedback). ISO follows the pin automatically
-            // (shutter priority), so this stays a one-axis control.
+            // pane (round-4 feedback).
+            //
+            // Three rows, not one, since a time on its own turned out not
+            // to be an instruction: how hard to DEFEND it decides whether
+            // the same 1/2000 is a crisp drive-by or three stops of blown
+            // sky (see ExposureMode). The rows stay open across taps —
+            // picking a rule is now a two- or three-tap act.
             if (state.manualShutterSupported) {
                 if (showShutterMenu) {
                     Column(
@@ -543,19 +560,77 @@ fun CaptureScreen(
                             .padding(4.dp)
                             .testTag("shutter-speed-menu"),
                     ) {
-                        ShutterChip("Auto", state.shutterNs == null, "capture-shutter-auto") {
-                            showShutterMenu = false
-                            capture.shutterNs = null
-                        }
-                        SHUTTER_CHOICES_NS.forEach { ns ->
+                        MenuLabel("Rule")
+                        Row {
                             ShutterChip(
-                                formatShutter(ns),
-                                state.shutterNs == ns,
-                                "capture-shutter-${1_000_000_000L / ns}",
-                            ) {
-                                showShutterMenu = false
-                                capture.shutterNs = ns
+                                "Auto",
+                                state.exposureRule == null,
+                                "capture-exposure-auto",
+                            ) { capture.exposureRule = null }
+                            EXPOSURE_MODES.forEach { mode ->
+                                ShutterChip(
+                                    exposureModeLabel(mode),
+                                    state.exposureRule?.mode == mode,
+                                    "capture-exposure-mode-${mode.name.lowercase()}",
+                                ) {
+                                    capture.exposureRule =
+                                        ExposureRule(mode, exposureTargetNs, exposureBias)
+                                }
                             }
+                        }
+
+                        MenuLabel("Target")
+                        Row {
+                            SHUTTER_CHOICES_NS.forEach { ns ->
+                                ShutterChip(
+                                    formatShutter(ns),
+                                    exposureTargetNs == ns,
+                                    "capture-shutter-${1_000_000_000L / ns}",
+                                ) {
+                                    exposureTargetNs = ns
+                                    // A bare time still means something on
+                                    // its own: the rule that survives sun.
+                                    capture.exposureRule =
+                                        state.exposureRule?.copy(targetNs = ns)
+                                            ?: ExposureRule(
+                                                ExposureMode.Floor, ns, exposureBias,
+                                            )
+                                }
+                            }
+                        }
+
+                        // The bias biases the METERING, so it needs a rule
+                        // of ours to ride on — under auto exposure the
+                        // camera's own AE owns that decision.
+                        state.exposureRule?.let { rule ->
+                            MenuLabel("Bias")
+                            Row {
+                                EV_BIAS_CHOICES.forEach { ev ->
+                                    ShutterChip(
+                                        formatEvBias(ev),
+                                        rule.evBias == ev,
+                                        "capture-exposure-ev-${evTag(ev)}",
+                                    ) {
+                                        exposureBias = ev
+                                        capture.exposureRule = rule.copy(evBias = ev)
+                                    }
+                                }
+                            }
+                        }
+
+                        // What the rule actually resolved to last time it
+                        // was applied — the only honest answer to "is this
+                        // mode working here?", live, in the field.
+                        state.plan?.let { plan ->
+                            Text(
+                                "${formatShutter(plan.exposureNs)} · ISO ${plan.iso} · " +
+                                    plan.outcome.name.lowercase(),
+                                color = Color(0x99FFFFFF),
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier
+                                    .padding(start = 8.dp, top = 2.dp, bottom = 2.dp)
+                                    .testTag("capture-exposure-plan"),
+                            )
                         }
                     }
                 }
@@ -565,10 +640,7 @@ fun CaptureScreen(
                         .background(LightGlass, RoundedCornerShape(20.dp))
                         .testTag("shutter-speed-button"),
                 ) {
-                    Text(
-                        "⚡ " + (state.shutterNs?.let { formatShutter(it) } ?: "Auto"),
-                        color = Color.White,
-                    )
+                    Text("⚡ " + exposureLabel(state.exposureRule), color = Color.White)
                 }
             }
 
@@ -983,6 +1055,23 @@ private fun GlassAction(text: String, tag: String, onClick: () -> Unit) {
             .background(DarkGlass, RoundedCornerShape(20.dp))
             .testTag(tag),
     ) { Text(text, color = Color.White) }
+}
+
+/** The dim section heading the 📷 and ⚡ menus divide their rows with. */
+@Composable
+private fun MenuLabel(text: String) {
+    Text(
+        text,
+        color = Color(0x99FFFFFF),
+        style = MaterialTheme.typography.labelSmall,
+        modifier = Modifier.padding(start = 8.dp, top = 4.dp),
+    )
+}
+
+/** A test tag that survives being a decimal: -0.5 → "m5", +1.0 → "p10". */
+private fun evTag(ev: Double): String {
+    val tenths = (ev * 10).roundToInt()
+    return if (tenths < 0) "m${-tenths}" else "p$tenths"
 }
 
 // Compact on purpose: Material's default button min-width would push the

@@ -2,7 +2,9 @@ package cz.hillview.capture
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
+import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import androidx.compose.ui.Modifier
 
 /**
@@ -79,8 +81,15 @@ data class CaptureState(
     val manualFocusSupported: Boolean = false,
     /** Focus pinned at infinity (the vista shot) — mirrored when applied. */
     val focusInfinity: Boolean = false,
-    /** The pinned shutter time, null = auto exposure. */
-    val shutterNs: Long? = null,
+    /** The exposure rule in force, null = auto exposure. */
+    val exposureRule: ExposureRule? = null,
+    /**
+     * The (time, gain) the rule last actually resolved to, and how. Null
+     * under auto exposure, or while a rule is waiting for its first
+     * metering. Diagnostics and the chip label — the plan is what the
+     * camera got, the rule is only what was asked for.
+     */
+    val plan: ExposurePlan? = null,
     val bearingDeg: Float? = null,
     val lastPhoto: CapturedPhoto? = null,
     val errorMessage: String? = null,
@@ -90,6 +99,9 @@ data class CaptureState(
  * The offered shutter times, in nanoseconds. Chosen for the app's actual
  * use case — killing motion blur when shooting from a moving vehicle —
  * so the ladder starts where handheld auto-exposure typically ends.
+ *
+ * A time here is the TARGET an [ExposureRule] aims at, not necessarily
+ * what the sensor ends up being given.
  */
 val SHUTTER_CHOICES_NS: List<Long> = listOf(
     8_000_000L, // 1/125
@@ -102,21 +114,195 @@ val SHUTTER_CHOICES_NS: List<Long> = listOf(
 fun formatShutter(ns: Long): String = "1/${(1_000_000_000.0 / ns).roundToInt()}"
 
 /**
- * Shutter priority, done by hand because Camera2 has no such AE mode: keep
- * the exposure product (time x gain) the metering chose, at the pinned
- * time. Pinning a faster shutter raises ISO to compensate; the range clamp
- * means very fast pins in dim light underexpose rather than fail — which
- * is the honest outcome.
+ * How hard a chosen shutter time is defended when the light disagrees.
+ *
+ * [Pin] was the only rule this app had, and it has a wall built into it:
+ * the aperture is fixed, so once ISO sits on the sensor's floor the
+ * shutter is the ONLY lever left — and Pin has nailed it down. Correct
+ * exposure at ISO 50 / f/1.8 in open sun is around 1/20000 s, so a 1/2000
+ * pin blows out by three stops or more no matter how good the metering is.
+ * [Floor] exists because of that; [Sports] because "never slower" is a
+ * miserable rule at dusk.
+ *
+ * The modes differ only in which direction they are allowed to give. The
+ * arithmetic is one function — [planExposure].
  */
-fun shutterPriorityIso(
+enum class ExposureMode {
+    /** Exactly this time, whatever it costs the highlights. */
+    Pin,
+
+    /** This time OR FASTER — the rule that survives full sun. */
+    Floor,
+
+    /** A floor that hands the shutter back before the gain gets silly. */
+    Sports,
+}
+
+/** Past this gain, [ExposureMode.Sports] would rather slow the shutter. */
+const val SPORTS_ISO_KNEE = 1600
+
+/** …and it will slow down this far to avoid that, but no further. */
+const val SPORTS_SLOWEST_NS = 8_000_000L // 1/125
+
+/**
+ * A shutter WINDOW with a target inside it, plus the gain the rule is
+ * willing to reach before it starts widening. Every mode is a tuple over
+ * these three, which is the point: a new idea is a row here, not a new
+ * code path.
+ */
+data class ExposureRule(
+    val mode: ExposureMode,
+    val targetNs: Long,
+    /** Stops of deliberate under/overexposure — the backlit knob. */
+    val evBias: Double = 0.0,
+) {
+    /** The fastest this rule may go; 0 = as fast as the sensor allows. */
+    val fastestNs: Long get() = if (mode == ExposureMode.Pin) targetNs else 0L
+
+    /** The slowest it may go before it gives up and underexposes instead. */
+    val slowestNs: Long get() =
+        if (mode == ExposureMode.Sports) maxOf(targetNs, SPORTS_SLOWEST_NS) else targetNs
+
+    /** The gain past which [ExposureMode.Sports] trades the shutter back. */
+    val isoKnee: Int get() = if (mode == ExposureMode.Sports) SPORTS_ISO_KNEE else Int.MAX_VALUE
+}
+
+/** What the sensor will actually accept — the walls every plan clamps to. */
+data class SensorExposureCaps(
+    val minExposureNs: Long,
+    val maxExposureNs: Long,
+    val minIso: Int,
+    val maxIso: Int,
+)
+
+/** Why a plan came out the way it did — the drive's post-mortem. */
+enum class ExposureOutcome {
+    /** The target held at a gain the sensor was happy to give. */
+    OnTarget,
+
+    /** Gain was on the floor, so the shutter went faster to save the highlights. */
+    Faster,
+
+    /** The shutter was handed back to keep gain under the knee. */
+    Slower,
+
+    /** Gain hit the ceiling: the frame comes out dark, honestly. */
+    Underexposed,
+
+    /** Even the fastest time the rule allows is too slow: it blows out. */
+    Overexposed,
+}
+
+/** A concrete (time, gain) pair to hand Camera2, and how it got there. */
+data class ExposurePlan(
+    val exposureNs: Long,
+    val iso: Int,
+    val outcome: ExposureOutcome,
+)
+
+/**
+ * Shutter priority, done by hand because Camera2 has no such AE mode:
+ * hold the exposure product (time x gain) the metering chose, and spend it
+ * according to [rule].
+ *
+ * Everything here scales from what AE last saw, so it is only ever as
+ * fresh as the metering handed in — see PhotoCapture.prepareExposure,
+ * which is what keeps that from being the moment the mode was chosen.
+ */
+fun planExposure(
+    rule: ExposureRule,
     meteredExposureNs: Long,
     meteredIso: Int,
-    pinnedExposureNs: Long,
-    minIso: Int,
-    maxIso: Int,
-): Int {
-    val ideal = meteredIso.toDouble() * meteredExposureNs.toDouble() / pinnedExposureNs.toDouble()
-    return ideal.roundToInt().coerceIn(minIso, maxIso)
+    caps: SensorExposureCaps,
+): ExposurePlan {
+    val product = meteredIso.toDouble() * meteredExposureNs.toDouble() * 2.0.pow(rule.evBias)
+    val target = rule.targetNs.coerceIn(caps.minExposureNs, caps.maxExposureNs)
+    val fastest = maxOf(rule.fastestNs, caps.minExposureNs).coerceAtMost(target)
+    val slowest = rule.slowestNs.coerceIn(target, caps.maxExposureNs)
+    val isoAtTarget = product / target
+
+    if (isoAtTarget < caps.minIso) {
+        // Gain is already on the floor, so the shutter is the only lever
+        // left. This is the branch a fixed-aperture phone lives or dies by
+        // in daylight, and the one Pin cannot take.
+        val wanted = product / caps.minIso
+        val time = wanted.roundToLong().coerceIn(fastest, target)
+        return ExposurePlan(
+            exposureNs = time,
+            iso = caps.minIso,
+            outcome = when {
+                wanted < fastest.toDouble() -> ExposureOutcome.Overexposed
+                time < target -> ExposureOutcome.Faster
+                else -> ExposureOutcome.OnTarget
+            },
+        )
+    }
+
+    if (isoAtTarget <= rule.isoKnee.toDouble()) {
+        val ideal = isoAtTarget.roundToInt()
+        return ExposurePlan(
+            exposureNs = target,
+            iso = ideal.coerceAtMost(caps.maxIso),
+            outcome = if (ideal > caps.maxIso) {
+                ExposureOutcome.Underexposed
+            } else {
+                ExposureOutcome.OnTarget
+            },
+        )
+    }
+
+    // Past the knee: give the shutter back rather than the gain, as far as
+    // the rule allows — then underexpose, which beats a smeared frame.
+    val time = (product / rule.isoKnee).roundToLong().coerceIn(target, slowest)
+    val ideal = (product / time).roundToInt()
+    return ExposurePlan(
+        exposureNs = time,
+        iso = ideal.coerceIn(caps.minIso, caps.maxIso),
+        outcome = when {
+            ideal > caps.maxIso -> ExposureOutcome.Underexposed
+            time > target -> ExposureOutcome.Slower
+            else -> ExposureOutcome.OnTarget
+        },
+    )
+}
+
+/**
+ * The bias ladder: the direct answer to a sun in frame, which no shutter
+ * rule can help with — shutter priority only ever reproduces the METERING's
+ * decision, and metering targets the average, so a backlit scene is
+ * supposed to blow out. Pulling a stop or two down is what a photographer
+ * does about it.
+ */
+val EV_BIAS_CHOICES: List<Double> = listOf(-2.0, -1.0, -0.5, 0.0, 0.5, 1.0)
+
+fun formatEvBias(ev: Double): String = when {
+    ev == 0.0 -> "0"
+    ev == -0.5 -> "-½"
+    ev == 0.5 -> "+½"
+    ev > 0 -> "+${ev.roundToInt()}"
+    else -> "${ev.roundToInt()}"
+}
+
+/** The ⚡ menu's rule row, in the order it reads: strictest first. */
+val EXPOSURE_MODES: List<ExposureMode> =
+    listOf(ExposureMode.Pin, ExposureMode.Floor, ExposureMode.Sports)
+
+fun exposureModeLabel(mode: ExposureMode): String = when (mode) {
+    ExposureMode.Pin -> "Pin"
+    ExposureMode.Floor -> "Floor"
+    ExposureMode.Sports -> "Sports"
+}
+
+/** What the ⚡ button says: the rule in one glance, bias included. */
+fun exposureLabel(rule: ExposureRule?): String {
+    if (rule == null) return "Auto"
+    val time = formatShutter(rule.targetNs)
+    val head = when (rule.mode) {
+        ExposureMode.Pin -> "=$time"
+        ExposureMode.Floor -> "≥$time"
+        ExposureMode.Sports -> "🏃$time"
+    }
+    return if (rule.evBias == 0.0) head else "$head ${formatEvBias(rule.evBias)}EV"
 }
 
 /**
@@ -233,11 +419,28 @@ interface PhotoCapture {
     var manualLocationElected: Boolean
 
     /**
-     * Pinned shutter time in nanoseconds, null = auto. Only honoured when
-     * [CaptureState.manualShutterSupported]; ISO follows via
-     * [shutterPriorityIso] so brightness tracks what the metering last saw.
+     * How the shutter is chosen, null = auto exposure. Only honoured when
+     * [CaptureState.manualShutterSupported]; ISO follows via [planExposure]
+     * so brightness tracks what the metering last saw.
      */
-    var shutterNs: Long?
+    var exposureRule: ExposureRule?
+
+    /**
+     * Re-meter before a shot: hand AE the camera back for a few frames,
+     * take its reading, and re-apply the rule against it.
+     *
+     * A rule turns AE OFF, which means the reading it scales from is
+     * frozen at whatever the scene was when the rule was chosen — pan from
+     * shade into sun and nothing recomputes. Interval capture is where
+     * that hurts (nobody is watching the preview to notice) and also where
+     * it is cheap to fix: we own the clock between shots, and a few
+     * hundred ms of AE inside a multi-second interval costs nothing but a
+     * visible pump in the preview.
+     *
+     * Suspends until the rule is back in force, so the shot that follows
+     * is taken under it. No-op under auto exposure.
+     */
+    suspend fun prepareExposure()
 
     /**
      * The map bearing state, pushed live by the capture screen — what a

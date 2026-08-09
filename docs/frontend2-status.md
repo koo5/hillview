@@ -104,6 +104,21 @@ upload trigger) still publishes only after the final bytes exist.
   default; stream-gated beats, fresh Preview per beat, bitmap-overlay
   freeze frames — see the contract's hard-won platform facts).
   Contract section: "Capture pane layout — the video IS the pane".
+- Exposure is a RULE, not a pinned time (⚡ menu, three rows: rule /
+  target / bias). A pinned shutter cannot survive open sun — the aperture
+  is fixed, so once ISO sits on the sensor floor a pinned time has nothing
+  left to give and blows out by 3+ stops. Modes are parameter tuples over
+  one function (planExposure, commonMain): Pin = the old exact behaviour,
+  Floor = that time or faster, Sports = a floor that hands the shutter
+  back to 1/125 before pushing gain past ISO 1600. EV bias is the answer
+  to a sun in frame (metering targets the average; no shutter rule helps).
+  Interval runs call prepareExposure() before each shot — AE gets the
+  camera back for a few frames, we take its reading and re-apply the rule
+  — because a rule turns AE OFF, which used to freeze the metering at
+  whichever scene the rule was chosen in. The plan's outcome (on target /
+  faster / slower / under / overexposed) is tallied per shot in the Stats
+  dialog: that tally is how "which mode is right" gets answered from a
+  real drive rather than from the couch.
 - /device-photos is ported (cards, status palette, global retry, menu
   entry); the anonymization menu is deferred.
 - Native auth is LIVE: backend POST /api/auth/google/native verifies a
@@ -143,6 +158,16 @@ upload trigger) still publishes only after the final bytes exist.
   MapSession owning both routes into it. pics consumes it via
   gps_log.find_effective_before. Full design + rationale:
   memory/geo-tracking-election.md.
+  Follow-up (2026-08-08, evening): `GeoTrackingManager` is now ONE
+  instance per process (`GeoTrackingManager.get(context)`, the
+  PhotoDatabase.getDatabase idiom). frontend2 had two — the map pane's,
+  which publishes the election, and the capture pane's, which writes the
+  fix rows — and the elected source is per-instance state, so every fix
+  taken while the map position was elected reached disk with NO election
+  recorded: precisely the row the two-step lookup has to drop. Found by
+  the new GeoElectionBehaviourTest, not by hand. The Tauri app was never
+  affected (ExamplePlugin holds exactly one). Test debt from the rework
+  and what is left of it: docs/geo-election-test-todo.md.
 - Server-URL discipline (the stranded-client-key incident, 2026-08-08):
   the SETTING and the RUNTIME URL are separate values; changing the
   setting shows a restart banner and "Restart now" performs a full
@@ -153,16 +178,21 @@ upload trigger) still publishes only after the final bytes exist.
   server-side warning log); the shared-kt authorize step self-heals it
   by re-registering and retrying once (prose-matched 400 fallback for
   old backends kept).
-- Tests: ~135 jvm + 160 android-host + 51 shared instrumented + 15 app
-  behaviour tests, all green. The behaviour layer covers map tracking
+- Tests: 142 jvm + 106 android-host + 129 shared instrumented (the
+  device tree carries commonTest along) + 18 app behaviour tests, all
+  green — measured 2026-08-08 after the election test debt was paid
+  down (docs/geo-election-test-todo.md). The behaviour layer covers map tracking
   (incl. the return-from-capture demote regression it caught), capture
   gating (mock-GPS determinism), storage shape per preference, upload
   coalescing (marker-log arithmetic, no foreground promotion), settings
   persistence (restart contract via prefs + fresh-repo + recreation),
   the offline upload queue (real login, radios off/on, WorkManager
   drain to the dev backend), and session-expiry reconcile (persisted
-  flag → startup reconciler). The two backend-needing tests SKIP when
-  the dev backend is down.
+  flag → startup reconciler), and the geo ELECTION end to end (claim →
+  pan → shoot stamps the new centre; the no-fix hatch does the same; the
+  election reaches the exported CSVs — which is how the two-instance
+  GeoTrackingManager bug was found). The two backend-needing tests SKIP
+  when the dev backend is down.
 
 ## Remaining tasks
 
@@ -226,9 +256,11 @@ Implementation, roughly in value order:
    (`web-absolute-compass-true`) used to match on "compass" and no longer
    does — its value never crossed the JS bridge, so the staleness the
    function corrects cannot apply and the frontend value is fresher.
-   STILL OPEN: CaptureScreen's `overridePosition` now also applies for
-   the no-fix hatch, not just the pill's claim, since both set the same
-   flag — consistent, but unverified on a device.
+   CaptureScreen's `overridePosition` now also applies for the no-fix
+   hatch, not just the pill's claim, since both set the same flag —
+   VERIFIED on a device 2026-08-08 (`GeoElectionBehaviourTest.
+   theNoFixHatchFollowsTheMapAsWell`: the hatch's own label follows the
+   map and the capture stamps that same position).
 0e. **Stamp position made live — FIXED 2026-08-08**: `capture.manualLocation`
    was read once, at the moment the map position was elected, so claiming
    at one place then panning to another and shooting stamped the FIRST
@@ -237,7 +269,9 @@ Implementation, roughly in value order:
    now collects `mapState.spatial`, the same shape as the stamp bearing,
    and the same as Tauri whose locationData is reactive on $spatialState.
    The freeze predates the election work; what the election work added
-   was a witness to it. Worth a phone-in-hand check: claim, pan, shoot.
+   was a witness to it. Guarded on a device since 2026-08-08
+   (`GeoElectionBehaviourTest.aClaimStampsWhereTheMapIsNowNotWhereItWasClaimed`
+   — claim, pan 0.05°, shoot, and the row must be the new centre).
 0c. **Eco/sensor design queue (user, 2026-08-08, not built)**: eco
    SUB-FLAGS to test variations — e.g. sleep the bearing sensors until
    around capture time in eco interval runs; a GPS interval slider

@@ -48,7 +48,24 @@ android {
 
 kapt {
     arguments {
-        arg("room.schemaLocation", "$projectDir/schemas")
+        // shared-kt's entities are compiled by BOTH apps — frontend2 runs Room
+        // 2.8.4 through KSP, this runs 2.6.1 through kapt — so each build owns
+        // its own schema directory next to the entities. One shared directory
+        // would have the two overwriting each other's JSON every build. The two
+        // agree on the identityHash (what Room verifies at runtime); 2.6.1 also
+        // writes the defaults 2.8.4 omits, so the FILES differ harmlessly.
+        //
+        // Two things not to be misled by:
+        //  - kapt prints "The following options were not recognized by any
+        //    processor: '[room.schemaLocation, kapt.kotlin.generated]'" on every
+        //    build. Room 2.6.1 reads the option without declaring it as
+        //    supported; the export works. That warning is not evidence.
+        //  - Gradle sees only an opaque string here, so the schema directory is
+        //    NOT a declared task output — no up-to-date checking, no build
+        //    cache, and a kapt-skipping build leaves stale files in place. See
+        //    the same note in frontend2/shared/build.gradle.kts for the proper
+        //    fix (the androidx.room Gradle plugin) and why it is not adopted.
+        arg("room.schemaLocation", "$projectDir/../../../shared-kt/schemas/tauri")
     }
     correctErrorTypes = true
 }

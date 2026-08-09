@@ -457,7 +457,9 @@ the two are meant to stay identical: together they say that a source we echo
 into the table is one whose frontend value Rust trusts, and a source Kotlin
 owns is one Rust looks up in the table instead. Change one, change the other.
 */
-function kotlinOwnsSource(source: string): boolean {
+// Exported for mapState.test.ts — it is half of the one-rule-two-languages
+// invariant above, and the test is where that invariant is written down.
+export function kotlinOwnsSource(source: string): boolean {
 	return source.startsWith('android') || source === 'gps-kalman';
 }
 

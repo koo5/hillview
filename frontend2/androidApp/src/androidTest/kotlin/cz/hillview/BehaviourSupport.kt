@@ -45,6 +45,51 @@ object Behaviour {
      * Returns the HTTP status, or -1 when unreachable — callers Assume on
      * it so backend-needing tests SKIP rather than fail when it is down.
      */
+    /** Where dumpAndClear writes the geo CSVs — same directory in both apps. */
+    fun geoDumpDir(): java.io.File =
+        java.io.File(context.getExternalFilesDir(null), "GeoTrackingDumps")
+
+    /** The newest dump of a kind ("locations" | "orientations"), or null. */
+    fun newestGeoDump(kind: String): java.io.File? =
+        geoDumpDir().listFiles { f -> f.name.startsWith("hillview_${kind}_") }
+            ?.maxByOrNull { it.lastModified() }
+
+    /**
+     * A dump read by HEADER NAME. The dumps have gained columns twice (detail,
+     * elected), so reading a column by position is a future false failure —
+     * this is the Kotlin twin of csvColumn() in the appium spec.
+     */
+    fun geoDumpRows(file: java.io.File): List<Map<String, String>> {
+        val lines = file.readLines().filter { it.isNotBlank() }
+        if (lines.isEmpty()) return emptyList()
+        val header = splitCsv(lines.first().removePrefix("#"))
+        return lines.drop(1).map { line -> header.zip(splitCsv(line)).toMap() }
+    }
+
+    /** Field splitter honouring the quoting escapeCsv() writes. */
+    private fun splitCsv(line: String): List<String> {
+        val out = mutableListOf<String>()
+        val cell = StringBuilder()
+        var quoted = false
+        var i = 0
+        while (i < line.length) {
+            val c = line[i]
+            when {
+                quoted && c == '"' && i + 1 < line.length && line[i + 1] == '"' -> {
+                    cell.append('"'); i++
+                }
+                c == '"' -> quoted = !quoted
+                c == ',' && !quoted -> {
+                    out.add(cell.toString()); cell.clear()
+                }
+                else -> cell.append(c)
+            }
+            i++
+        }
+        out.add(cell.toString())
+        return out
+    }
+
     fun post(url: String, jsonBody: String? = null): Int = try {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
