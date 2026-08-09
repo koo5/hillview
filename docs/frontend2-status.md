@@ -225,11 +225,25 @@ bearing is `MapStateHolder.bearing` (what capture stamps from via
 differ from the number the app would stamp at that instant. Two clocks,
 one of them decorative.
 
-Direction (to design, not yet built): ONE process-wide tracking engine
-owning sensors, GPS, the Kalman heading filter, the election, and the
-table writes; every pane becomes an observer of its flows. The external
-mode's foreground service then *hosts* that engine rather than
-duplicating it, and the capture/map panes stop starting hardware at all.
+**Designed 2026-08-09: `docs/frontend2-geo-engine-design.md`** — written
+after reading the original rather than from memory. Short version: the
+original is one value pair (`spatialState` + `bearingState`), ONE
+hardware owner fanning each sample out to both the table (full rate) and
+the state (UI rate) from a single callback, one write funnel
+(`updateBearing`/`updateSpatialState` = state + election + table echo in
+one call), and an explicit per-source rule for which materialization is
+authoritative (`kotlinOwnsSource` / `is_sensor_bearing_source`, declared
+one invariant). frontend2 has the state pair but neither the single owner
+nor the funnel. The fix is a process-wide `GeoEngine` owning the sensors
+off the UI thread, `MapStateHolder` as the single funnel, panes as pure
+observers, and the foreground service HOSTING the engine rather than
+duplicating it.
+
+Why it happened, worth keeping: in Tauri the plugin boundary did the
+architectural work — JS *cannot* open a sensor, so single ownership was a
+wall, not a convention. In CMP the wall is gone and nothing stops a pane
+from constructing its own. **Port the constraints the original's
+structure enforced, not only the behaviour it produced.**
 
 **C2. Car-mode bearing is derived on the UI thread** (user: "slightly
 nervous… that's a UI thread in what should be a stutter-less pipeline,
