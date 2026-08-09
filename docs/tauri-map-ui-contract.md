@@ -92,8 +92,18 @@ The richest control on the screen.
   the backend stream proxy, panoramax through the shared-kt
   PanoramaxPhotoLoader against api.panoramax.xyz (hidden-content list
   via our backend), device native. The tabs sit on the map's RIGHT EDGE
-  with vertical labels, as the original's hunter-panel-right. The
-  bearing-rose cluster divergence is SUPPRESSED for now
+  with vertical labels, as the original's hunter-panel-right. Sizing
+  (2026-08-09): the original caps the panel at `calc(100vh - 120px)` and
+  lets flexbox shrink the buttons (`min-height: 0`) with ellipsized
+  labels; the port's pane is a SPLIT-SHARE of the screen, so the tab
+  band reserves the corners it must not cover (location/compass row
+  above, hunter grid below — a fixed 420dp cap used to draw over the
+  compass button) and divides the rest among the tabs, which shrink and
+  ellipsize the same way (`verticalLabel()` measures with swapped
+  constraints, so the tab's height budget becomes the text's width
+  budget). Guarded by MapOverlayUiTest.
+  theSourceTabsShrinkIntoTheBandBetweenTheCornerControls on a 360dp pane.
+  The bearing-rose cluster divergence is SUPPRESSED for now
   (PhotoMarkerOverlay.rosesEnabled=false — the count bubble loses
   per-photo direction): markers draw solo with the original's 7px
   along-bearing pile nudge; revisited with the gallery work.

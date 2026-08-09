@@ -6,8 +6,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -40,6 +42,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import cz.hillview.settings.MAX_MAX_PHOTOS
 import cz.hillview.settings.MIN_MAX_PHOTOS
@@ -165,17 +169,34 @@ fun MapOverlayUi(
 
         // Right-edge source tabs — the original's hunter-panel-right:
         // vertical labels on white tabs down the map's right edge, only in
-        // hunter mode.
-        HunterPanel(
-            visible = hunterMode,
-            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 2.dp),
+        // hunter mode. The original bounds its panel (100vh - 120px) and
+        // lets flexbox shrink the buttons (min-height: 0) with ellipsized
+        // labels; here the pane is a SPLIT-SHARE of the screen — a fixed cap
+        // drew the tabs over the compass button — so the band reserves the
+        // corners it must not cover (the location/compass row above, the
+        // hunter grid below) and divides what is left among the tabs, which
+        // shrink the same way the original's do.
+        BoxWithConstraints(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .padding(top = 68.dp, bottom = 60.dp, end = 2.dp),
+            contentAlignment = Alignment.CenterEnd,
         ) {
-            Column(
-                modifier = Modifier.heightIn(max = 420.dp).padding(2.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                sources.forEach { source ->
-                    SourceButton(source, onClick = { onToggleSource(source.id) })
+            val perTab = ((maxHeight - 4.dp - 2.dp * (sources.size - 1)) /
+                sources.size.coerceAtLeast(1)).coerceAtLeast(24.dp)
+            HunterPanel(visible = hunterMode) {
+                Column(
+                    modifier = Modifier.padding(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    sources.forEach { source ->
+                        SourceButton(
+                            source,
+                            onClick = { onToggleSource(source.id) },
+                            modifier = Modifier.heightIn(max = perTab),
+                        )
+                    }
                 }
             }
         }
@@ -315,10 +336,22 @@ private fun HunterPanel(
 /**
  * The vertical-tab text swap (the original's `writing-mode: vertical-rl`):
  * report height×width, then rotate the drawing into the swapped bounds.
+ *
+ * The constraints are swapped BEFORE measuring, so the tab's height budget
+ * becomes the text's width budget — which is what lets maxLines=1 +
+ * Ellipsis truncate a long name when a tab runs short (the original's
+ * `text-overflow: ellipsis; max-height: 100%`) instead of overflowing it.
  */
 private fun Modifier.verticalLabel(): Modifier = this
     .layout { measurable, constraints ->
-        val placeable = measurable.measure(constraints)
+        val placeable = measurable.measure(
+            Constraints(
+                minWidth = constraints.minHeight,
+                maxWidth = constraints.maxHeight,
+                minHeight = constraints.minWidth,
+                maxHeight = constraints.maxWidth,
+            ),
+        )
         layout(placeable.height, placeable.width) {
             placeable.place(
                 x = -(placeable.width / 2 - placeable.height / 2),
@@ -348,7 +381,11 @@ private fun HunterToggle(active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SourceButton(source: MapSourceUi, onClick: () -> Unit) {
+private fun SourceButton(
+    source: MapSourceUi,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Surface(
         color = if (source.enabled) ACTIVE_BLUE else Color.White,
         border = androidx.compose.foundation.BorderStroke(
@@ -357,17 +394,20 @@ private fun SourceButton(source: MapSourceUi, onClick: () -> Unit) {
         ),
         shape = RoundedCornerShape(4.dp),
         onClick = onClick,
-        modifier = Modifier.testTag("source-toggle-${source.id}"),
+        modifier = modifier.testTag("source-toggle-${source.id}"),
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp),
+            // 0.3rem 0.2rem in the original — the roomier padding this had
+            // was eating into the label's budget once tabs began to shrink.
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
         ) {
             Text(
                 text = source.name,
                 color = if (source.enabled) Color.White else Color.Black,
                 style = MaterialTheme.typography.labelLarge,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.verticalLabel(),
             )
             if (source.enabled && source.loading) {
