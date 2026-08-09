@@ -25,6 +25,7 @@ dependencies = [
 
     # Push notifications
     "firebase-admin==7.1.0",
+    "pywebpush",
 
     # Config
     "pyyaml",
