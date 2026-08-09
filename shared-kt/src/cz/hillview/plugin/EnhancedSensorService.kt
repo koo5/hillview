@@ -98,6 +98,16 @@ private fun Float.format(digits: Int) = "%.${digits}f".format(this)
  */
 class EnhancedSensorService(
     private val context: Context,
+    // Where SensorManager delivers events. Null = the main looper, which is
+    // what registerListener(listener, sensor, delay) has always meant here,
+    // so existing callers are unchanged. frontend2's GeoEngine passes its own
+    // HandlerThread handler — at ~33 Hz these callbacks are the app's most
+    // frequent, and they must not share a queue with map drawing.
+    //
+    // Declared BEFORE onSensorUpdate deliberately: every existing call site
+    // passes the callback as a trailing lambda, which binds to the LAST
+    // parameter — putting this one last silently rebound them to the handler.
+    private val callbackHandler: android.os.Handler? = null,
     private val onSensorUpdate: (OrientationSensorData) -> Unit,
 ) : SensorEventListener {
     companion object {
@@ -319,6 +329,16 @@ class EnhancedSensorService(
         }
     }
 
+    /**
+     * The single registration point — every mode's registerListener call goes
+     * through here so [callbackHandler] cannot be forgotten by one branch.
+     * The four-arg overload with a null handler is documented as equivalent to
+     * the three-arg one (main looper), so the default path is unchanged.
+     */
+    private fun registerSensor(sensor: Sensor) {
+        sensorManager.registerListener(this, sensor, SENSOR_DELAY, callbackHandler)
+    }
+
     private fun startSensorInternal(mode: Int = MODE_UPRIGHT_ROTATION_VECTOR) {
         if (isRunning) {
             Log.w(TAG, "🔀 Sensor already running in mode: ${MODE_NAMES[currentMode]}, switching to ${MODE_NAMES[mode]}")
@@ -337,8 +357,8 @@ class EnhancedSensorService(
         }
 
 		Log.i(TAG, "🔍📡 TYPE_HEADING and TYPE_POSE_6DOF sensors if available: headingSensor: ${headingSensor != null}, poseSensor: ${poseSensor != null}")
-        /*headingSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }
-        poseSensor?.let { sensorManager.registerListener(this, it, SENSOR_DELAY) }*/
+        /*headingSensor?.let { registerSensor(it) }
+        poseSensor?.let { registerSensor(it) }*/
 		//isRunning = true
 
         currentMode = mode
@@ -350,7 +370,7 @@ class EnhancedSensorService(
             MODE_ROTATION_VECTOR -> {
                 rotationVectorSensor?.let {
                     Log.d(TAG, "🔍📡 Registering TYPE_ROTATION_VECTOR sensor")
-                    sensorManager.registerListener(this, it, SENSOR_DELAY)
+                    registerSensor(it)
                     isRunning = true
                     Log.i(TAG, "✅ Started TYPE_ROTATION_VECTOR successfully")
                 } ?: Log.e(TAG, "❌ TYPE_ROTATION_VECTOR sensor not available")
@@ -360,7 +380,7 @@ class EnhancedSensorService(
                 gameRotationVectorSensor?.let {
                     Log.d(TAG, "🔍📡 Registering TYPE_GAME_ROTATION_VECTOR sensor")
                     Log.d(TAG, "🔍📱 This mode is optimized for upright phone usage")
-                    sensorManager.registerListener(this, it, SENSOR_DELAY)
+                    registerSensor(it)
                     isRunning = true
                     Log.i(TAG, "✅ Started TYPE_GAME_ROTATION_VECTOR successfully")
                 } ?: run {
@@ -375,19 +395,19 @@ class EnhancedSensorService(
                 var sensorsRegistered = 0
 
                 accelerometerSensor?.let {
-                    sensorManager.registerListener(this, it, SENSOR_DELAY)
+                    registerSensor(it)
                     sensorsRegistered++
                     Log.d(TAG, "  ✓ Registered ACCELEROMETER")
                 } ?: Log.w(TAG, "  ❌ ACCELEROMETER not available")
 
                 gyroscopeSensor?.let {
-                    sensorManager.registerListener(this, it, SENSOR_DELAY)
+                    registerSensor(it)
                     sensorsRegistered++
                     Log.d(TAG, "  ✓ Registered GYROSCOPE")
                 } ?: Log.w(TAG, "  ❌ GYROSCOPE not available")
 
                 magnetometerSensor?.let {
-                    sensorManager.registerListener(this, it, SENSOR_DELAY)
+                    registerSensor(it)
                     sensorsRegistered++
                     Log.d(TAG, "  ✓ Registered MAGNETOMETER")
                 } ?: Log.w(TAG, "  ❌ MAGNETOMETER not available")
@@ -404,13 +424,13 @@ class EnhancedSensorService(
             MODE_COMPLEMENTARY_FILTER -> {
                 // Use accelerometer + magnetometer with complementary filter
                 accelerometerSensor?.let {
-                    sensorManager.registerListener(this, it, SENSOR_DELAY)
+                    registerSensor(it)
                 }
                 magnetometerSensor?.let {
-                    sensorManager.registerListener(this, it, SENSOR_DELAY)
+                    registerSensor(it)
                 }
                 gyroscopeSensor?.let {
-                    sensorManager.registerListener(this, it, SENSOR_DELAY)
+                    registerSensor(it)
                 }
                 isRunning = true
                 Log.i(TAG, "Started complementary filter")
@@ -418,13 +438,13 @@ class EnhancedSensorService(
             MODE_UPRIGHT_ROTATION_VECTOR -> {
                 // Use rotation vector but optimized for upright phone position
                 magnetometerSensor?.let {
-                    sensorManager.registerListener(this, it, SENSOR_DELAY)
+                    registerSensor(it)
                     Log.d(TAG, "  ✓ Registered MAGNETOMETER")
                 } ?: Log.w(TAG, "  ❌ MAGNETOMETER not available")
 
                 rotationVectorSensor?.let {
                     Log.d(TAG, "🔄 Registering TYPE_ROTATION_VECTOR sensor for UPRIGHT mode")
-                    sensorManager.registerListener(this, it, SENSOR_DELAY)
+                    registerSensor(it)
                     isRunning = true
                 } ?: run {
                     Log.e(TAG, "❌ TYPE_ROTATION_VECTOR not available")

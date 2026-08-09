@@ -60,11 +60,15 @@ expect fun rememberExternalCameraController(): ExternalCameraController
  * running exactly then, which is the whole point.
  */
 @Composable
-fun ExternalCameraPane() {
+fun ExternalCameraPane(
+    stateHolder: cz.hillview.map.MapStateHolder = org.koin.compose.koinInject(),
+) {
     val controller = rememberExternalCameraController()
     val running by controller.running.collectAsState()
     val status by controller.status.collectAsState()
     val notice by controller.notice.collectAsState()
+    val spatial by stateHolder.spatial.collectAsState()
+    val bearing by stateHolder.bearing.collectAsState()
     var counts by remember { mutableStateOf(0 to 0) }
 
     DisposableEffect(Unit) {
@@ -120,9 +124,21 @@ fun ExternalCameraPane() {
             )
         }
 
+        // THE APP'S value pair, not a feed of this pane's own — the whole
+        // point of the engine work. This is the same bearing a capture would
+        // stamp (car mode's mount offset included, a manual claim included)
+        // and the same position the map is showing.
+        Text(
+            "%.6f, %.6f · %.1f° (%s)".format(
+                spatial.latitude, spatial.longitude, bearing.bearing, bearing.source,
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.testTag("external-camera-stamp"),
+        )
+        // The raw fix underneath it, for accuracy and provenance.
         Text(
             status,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.testTag("external-camera-status"),
         )
 

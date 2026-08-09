@@ -364,21 +364,45 @@ fun nextOverlayOpacity(current: Int): Int {
 data class CaptureResolution(val width: Int, val height: Int)
 
 /**
- * The Tauri labels ("1080p (1920×1080)"), extended to whatever the sensor
- * reports: named tiers where they exist, plain dimensions elsewhere.
+ * One scale for every row: megapixels, aspect ratio, dimensions —
+ * "12.2 MP · 4:3 (4032×3024)".
+ *
+ * This used to name the video tiers (4K / 1440p / 1080p / 720p) where a
+ * height happened to match one and fall back to megapixels otherwise, so a
+ * real sensor's list mixed two unrelated scales and could not be compared
+ * down the column (user-raised). The Tauri original only ever offered four
+ * hardcoded sizes, where that never showed; enumerating what the sensor
+ * actually reports is what exposed it.
+ *
+ * Megapixels because these are STILL sizes — the video-line names are a
+ * different domain's vocabulary — and the ratio because it is the thing
+ * that silently crops the sensor: 16:9 on a 4:3 sensor is a narrower
+ * picture, not just a smaller one.
  */
 fun resolutionLabel(r: CaptureResolution): String {
-    val name = when (r.height) {
-        2160 -> "4K"
-        1440 -> "1440p"
-        1080 -> "1080p"
-        720 -> "720p"
-        else -> {
-            val mp = (r.width.toLong() * r.height / 1_000_000.0)
-            "${fmtDecimals(mp, 1)} MP"
-        }
+    val mp = r.width.toLong() * r.height / 1_000_000.0
+    val ratio = aspectRatioLabel(r)?.let { " · $it" } ?: ""
+    return "${fmtDecimals(mp, 1)} MP$ratio (${r.width}×${r.height})"
+}
+
+/**
+ * "4:3", "16:9" — the reduced ratio, when it reduces to terms small enough
+ * to read. An odd sensor size that reduces to something like 683:512 says
+ * nothing useful, so it says nothing at all.
+ */
+internal fun aspectRatioLabel(r: CaptureResolution): String? {
+    if (r.width <= 0 || r.height <= 0) return null
+    var a = r.width
+    var b = r.height
+    while (b != 0) {
+        val t = a % b
+        a = b
+        b = t
     }
-    return "$name (${r.width}×${r.height})"
+    if (a == 0) return null
+    val w = r.width / a
+    val h = r.height / a
+    return if (w <= 32 && h <= 32) "$w:$h" else null
 }
 
 /** What the shutter should sound like — the pocket has no screen. */

@@ -67,11 +67,28 @@ class StampRefiner private constructor(private val context: Context) {
 
 		/**
 		 * The upload gate an eligible photo is ingested with
-		 * (PhotoEntity.uploadHoldUntil = now + this): the drain must not
-		 * outrun the refinement it exists to carry. A ceiling — the refiner
-		 * releases the hold the moment it finishes, win or lose.
+		 * (PhotoEntity.uploadHoldUntil = now + this): the drain simply does
+		 * not select a photo that is still due for restamping. This is the
+		 * PRIMARY mechanism — not a race to be won.
+		 *
+		 * Which is why the number is nowhere near the refiner's runtime. It
+		 * was BRACKET_TIMEOUT + 2 s, i.e. ~1.5 s of headroom over the
+		 * refiner's own worst case, so an ordinary GC pause or a dozing
+		 * device expired the hold while the refiner was still working and the
+		 * two genuinely raced. A deadline is a CRASH BACKSTOP — its job is to
+		 * answer "the app died mid-refinement, how long before this photo may
+		 * upload anyway", and the honest answer is minutes, not seconds.
+		 *
+		 * Costing nothing: the refiner clears the hold the instant it
+		 * finishes (win or lose) and pokes the drain, so uploads are driven
+		 * by completion, never by this expiring. And [clearAllHolds] wipes
+		 * stale holds at app start, so an actual crash recovers immediately
+		 * rather than waiting this out.
 		 */
-		const val UPLOAD_HOLD_MS = BRACKET_TIMEOUT_MS + 2_000L
+		const val UPLOAD_HOLD_MS = 60_000L
+
+		// Holds left by a dead process are released by StartupReconciler,
+		// alongside the other things a fresh start makes certain.
 
 		/** Whether [refineAsync] would do anything at all for these sources. */
 		fun isEligible(locationSource: String?, bearingSource: String?): Boolean =

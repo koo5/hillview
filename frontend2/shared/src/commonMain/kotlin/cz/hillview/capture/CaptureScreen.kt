@@ -989,6 +989,18 @@ private fun EcoSlider(
  * [onTrackPositioned]'s reported track bounds (root coords, bottom = 0 s,
  * top = the max).
  */
+/**
+ * The ladder's length. Doubled from 140 dp (user-raised: "the scale is a
+ * bit hard to use") — 16 stops over 140 dp is ~9 dp each, well under a
+ * comfortable thumb increment, and this control is driven by a thumb
+ * sliding along it rather than by tapping a knob.
+ *
+ * ONE constant because the rotated-slider trick needs the box's height and
+ * the slider's required width to be the same number; two literals that must
+ * agree is a bug waiting for whoever changes one.
+ */
+private val INTERVAL_TRACK_LENGTH = 280.dp
+
 @Composable
 private fun IntervalSlider(
     intervalSec: Int,
@@ -1008,7 +1020,7 @@ private fun IntervalSlider(
         )
         Box(
             modifier = Modifier
-                .size(width = 48.dp, height = 140.dp)
+                .size(width = 48.dp, height = INTERVAL_TRACK_LENGTH)
                 .onGloballyPositioned { onTrackPositioned(it.boundsInRoot()) },
             contentAlignment = Alignment.Center,
         ) {
@@ -1020,7 +1032,7 @@ private fun IntervalSlider(
                 valueRange = 0f..INTERVAL_MAX_SEC.toFloat(),
                 enabled = enabled,
                 modifier = Modifier
-                    .requiredWidth(140.dp)
+                    .requiredWidth(INTERVAL_TRACK_LENGTH)
                     .rotate(-90f)
                     .testTag("capture-interval-slider"),
             )

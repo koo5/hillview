@@ -202,6 +202,132 @@ upload trigger) still publishes only after the final bytes exist.
   GeoTrackingManager bug was found). The two backend-needing tests SKIP
   when the dev backend is down.
 
+## Concerns raised 2026-08-09 (review before the next feature)
+
+These came out of the user's read of the refiner + external-camera work.
+They are ONE architectural problem seen from four sides, plus one queued
+default. Read them together; fixing the hub answers most of them.
+
+**C1. No sensor/geo hub — FIXED 2026-08-09 (`GeoEngine`).**
+frontend2 now constructs **three** independent `EnhancedSensorService`
+instances (map `MapScreen.android.kt:785`, capture
+`PhotoCapture.android.kt:320`, external `ExternalCameraService.kt:94`)
+and **three** `PreciseLocationService` instances (same three files). The
+Tauri app — the known-good semantics — has exactly ONE of each, in
+`ExamplePlugin`. This is the marker-source episode repeating: a parallel
+path built beside an existing one instead of on top of it.
+
+The user caught it from the outside, which is the tell: *"the external
+camera page shows some compass feed"*. It does — its OWN, formatted from
+its OWN sensor instance, not the app's canonical bearing. The canonical
+bearing is `MapStateHolder.bearing` (what capture stamps from via
+`stampBearing`), so the number on the external pane can legitimately
+differ from the number the app would stamp at that instant. Two clocks,
+one of them decorative.
+
+**Designed 2026-08-09: `docs/frontend2-geo-engine-design.md`** — written
+after reading the original rather than from memory. Short version: the
+original is one value pair (`spatialState` + `bearingState`), ONE
+hardware owner fanning each sample out to both the table (full rate) and
+the state (UI rate) from a single callback, one write funnel
+(`updateBearing`/`updateSpatialState` = state + election + table echo in
+one call), and an explicit per-source rule for which materialization is
+authoritative (`kotlinOwnsSource` / `is_sensor_bearing_source`, declared
+one invariant). frontend2 has the state pair but neither the single owner
+nor the funnel. The fix is a process-wide `GeoEngine` owning the sensors
+off the UI thread, `MapStateHolder` as the single funnel, panes as pure
+observers, and the foreground service HOSTING the engine rather than
+duplicating it.
+
+Why it happened, worth keeping: in Tauri the plugin boundary did the
+architectural work — JS *cannot* open a sensor, so single ownership was a
+wall, not a convention. In CMP the wall is gone and nothing stops a pane
+from constructing its own. **Port the constraints the original's
+structure enforced, not only the behaviour it produced.**
+
+**C2. Car-mode bearing derived on the UI thread — FIXED 2026-08-09.**
+The composition moved into the engine, on its own HandlerThread; the map
+only observes `engine.carBearing`. Measured on the way: BOTH shared-kt
+services deliver on the main looper, in both apps — the original gets
+away with it only because its map draws in the WebView renderer process,
+so this now goes further than the original rather than copying it.
+Original wording: (user: "slightly
+nervous… that's a UI thread in what should be a stutter-less pipeline,
+held up by marker rendering and stuff"). Every canonical bearing write —
+`state.updateBearing(...)` — is inside `MapScreen.android.kt`, and the
+car-mode composition (fix → `feedLocationForHeadingFilter` → mount
+offset → bearing state → capture stamp) rides the map component's
+callbacks. So marker rendering and map work sit on the same thread as
+the value photos are stamped with. It is correct today (verified
+end-to-end) but structurally wrong: bearing derivation belongs in the C1
+hub, off the UI thread, with the map as one more observer. Note this is
+also WHY the external service deliberately does not feed the Kalman
+filter — with a hub, that awkwardness disappears.
+
+**C3. Refiner/upload consistency — FIXED 2026-08-09.** The question was
+whether a photo can be restamped after its upload starts, leaving
+device-photos and the server disagreeing. It could, and the window was
+WIDER than first described: the drain snapshotted a row
+(`getNextPhotoForUpload`), then validated an auth token — possibly a
+network refresh — and hashed the file, and only THEN marked it
+`uploading`; and it uploaded the SNAPSHOT. So a refinement landing any
+time in that gap was written locally and never sent.
+
+**The primary mechanism was never the claim — it is "do not select a
+photo that is still due for restamping", and that already existed
+(`uploadHoldUntil`, filtered by both candidate queries). The race
+happened only because the deadline was mis-tuned:** `BRACKET_TIMEOUT +
+2 s`, about 1.5 s of headroom over the refiner's own worst case, so an
+ordinary GC pause or a dozing device expired the hold while the refiner
+was still working. A deadline is a CRASH BACKSTOP — it answers "the app
+died mid-refinement, how long before this photo may upload anyway" — so
+it is now 60 s, and app start drops holds left by a process that is gone
+(`clearAllUploadHolds`), which is what lets it be generous: a real crash
+recovers on the next launch instead of waiting it out. Costs nothing in
+latency, because the refiner clears its hold the instant it finishes and
+pokes the drain; uploads are driven by completion, never by expiry.
+
+Beneath that, the claim itself was still a read-then-write, so the fix
+has two more halves as the correctness floor for the crash-recovery
+instant:
+
+- **Claim atomically.** `claimForUpload(id, expectedStatus, now)` is a
+  compare-and-set on the status the row was selected under; 0 rows means
+  the claim was lost and the drain skips the photo. Deliberately not a
+  new STATUS (which was the first instinct): a status must be exited by
+  whoever set it, so a crash mid-refinement would strand the row and need
+  a sweeper. `uploadHoldUntil` stays a timestamp for the same reason —
+  time alone re-arms it.
+- **Re-read after claiming.** The upload is built from the post-claim
+  row, so a refinement that won the race IS uploaded. After the claim
+  nothing can change the stamp, because `applyRefinedStamp` only touches
+  rows still `pending`.
+
+Together the two orderings are both consistent: refine-then-claim
+uploads refined values; claim-then-refine leaves the at-the-time stamp
+in place everywhere. Asserted on a device by
+`UploadClaimRaceTest` (4 tests: the CAS, refinement blocked after a
+claim, refinement honoured before one, and a held row being invisible
+until its deadline).
+
+**Correction to the original note:** the `insertPhoto`-is-REPLACE hazard
+listed here is NOT reachable. `scanForNewPhotos` skips existing photos by
+path AND by hash before inserting, so it cannot wipe the refinement
+columns of a row it re-encounters. Known remaining nuance, accepted: a
+refinement still in flight when an upload FAILS is lost, since the row is
+then `failed` rather than `pending` — the failure mode is "keeps the
+at-the-time stamp", which is the designed worst case.
+
+**C4. Per-activity sensor/GPS rate defaults — LANDED 2026-08-09**, as
+predicted, the moment C1 gave rates an owner. `GeoConfig` is passed IN at
+the call site (`GeoDefaults.kt`: capture/external at 33 Hz + 1 s fixes,
+map-only relaxed to 10 Hz + 2 s), never baked into the engine — the
+user's call, and it is what makes the GPS-interval slider and the eco
+sub-flags VALUES rather than new machinery. Device-verified: leaving the
+external activity drops the engine to Off, and a map-only view comes back
+at the relaxed rates. Remaining: the sliders themselves, and real-device
+tuning of the numbers.
+
 ## Remaining tasks
 
 Implementation, roughly in value order:
@@ -316,8 +442,11 @@ Implementation, roughly in value order:
    was a witness to it. Guarded on a device since 2026-08-08
    (`GeoElectionBehaviourTest.aClaimStampsWhereTheMapIsNowNotWhereItWasClaimed`
    — claim, pan 0.05°, shoot, and the row must be the new centre).
-0f. **External camera mode — LANDED 2026-08-09.** A PANEL MODE beside
-   capture in the same slot (user's framing: "just another panel mode
+0f. **External camera activity — LANDED 2026-08-09.** A PANEL ACTIVITY
+   beside capture in the same slot (the app's word for a panel-level
+   concept, and the code's: `MapSettings.mainActivity`; "mode" is taken
+   several times over — BearingMode, StorageMode, eco mode, sensor
+   fusion MODE_*) (user's framing: "just another panel mode
    next to capture mode… just no camera stream running"), reached from
    the menu, `mainActivity = "external"`. Composing the pane starts an
    `ExternalCameraService` — a `location`-typed FOREGROUND service, so
@@ -333,7 +462,7 @@ Implementation, roughly in value order:
    heading filter (the map's controller already does, from its own fix
    stream; a second feeder would double-pump it). Emulator-verified:
    foreground service `types=0x8` (LOCATION), live status line, counts
-   climbing, clean stop on leaving. STILL OPEN here: per-mode sensor/GPS
+   climbing, clean stop on leaving. STILL OPEN here: per-activity sensor/GPS
    rate defaults (0c) — external wants continuous, capture wants
    optimize-around-the-shutter, gallery wants neither.
 0c. **Eco/sensor design queue (user, 2026-08-08, not built)**: eco
@@ -345,8 +474,9 @@ Implementation, roughly in value order:
    pairs with the PiP float-mode idea) — as opposed to the capture
    activity, which optimizes around capture moments, and the gallery
    activity (thought through later). 2026-08-09: the external-camera
-   activity is CONFIRMED roadmap ("what we'll definitely do"), alongside
-   the hillview-centered fast-write default in 0b.
+   activity SHIPPED as a panel mode (0f); the per-activity rate defaults are
+   what remains of this item — tracked as C4, and blocked in practice on
+   the sensor hub (C1), which is where rates would get one owner.
 
 1. **More Appium scenario ports** onto the new app-behaviour layer — the
    suites in `frontend/tests-appium/specs/` are the source; the testTag

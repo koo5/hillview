@@ -20,6 +20,8 @@ import org.koin.core.context.GlobalContext
 class HillviewApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Before anything of ours can claim a photo — see StartupReconciler.
+        val processStart = System.currentTimeMillis()
         // Build-configured photo folder (HILLVIEW_FOLDER / debug default) —
         // see androidApp/build.gradle.kts.
         cz.hillview.capture.PhotoStorage.folderBase = BuildConfig.HILLVIEW_FOLDER
@@ -42,6 +44,14 @@ class HillviewApplication : Application() {
                 android.util.Log.w("HillviewApp", "start-time geo dump failed", e)
             }
         }
+
+        // Starting anew means nothing from the previous process is running —
+        // no refinement will finish, no upload is in flight. Spend that
+        // certainty instead of waiting deadlines out: release refinement
+        // holds and hand back photos stuck mid-upload. processStart is
+        // captured at the top of onCreate, before anything of ours could
+        // have claimed a photo.
+        cz.hillview.plugin.StartupReconciler.run(this, processStart)
 
         // Lockstep logout: whichever shared-kt AuthenticationManager instance
         // (upload worker, status sync, UI store) declares the session dead,

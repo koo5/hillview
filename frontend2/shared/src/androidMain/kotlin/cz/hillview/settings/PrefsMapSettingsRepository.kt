@@ -36,6 +36,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             captureResolution = prefs.getString("capture_resolution", null),
             mainActivity = prefs.getString("main_activity", null) ?: "view",
             splitPercent = prefs.getFloat("split_percent", 50f),
+            gpsIntervalMs = prefs.getLong("gps_interval_ms", 1_000L),
         )
     )
     override val settings: StateFlow<MapSettings> = _settings.asStateFlow()
@@ -57,6 +58,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             )
             .putInt("camera_overlay_opacity", next.cameraOverlayOpacity.coerceIn(0, 5))
             .putString("capture_resolution", next.captureResolution)
+            .putLong("gps_interval_ms", next.gpsIntervalMs.coerceIn(250L, 60_000L))
             .putString("main_activity", next.mainActivity)
             .putFloat("split_percent", next.splitPercent.coerceIn(10f, 90f))
             .apply()

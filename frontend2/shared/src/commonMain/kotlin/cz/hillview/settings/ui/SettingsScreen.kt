@@ -27,6 +27,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import cz.hillview.core.permissions.rememberNotificationPermissionRequester
 import cz.hillview.settings.ALLOWED_LICENSES
+import cz.hillview.settings.GPS_INTERVAL_CHOICES_MS
+import cz.hillview.settings.formatGpsInterval
 import cz.hillview.settings.exportGeoTrackingNow
 import cz.hillview.settings.geoAutoExportEnabled
 import cz.hillview.settings.setGeoAutoExport
@@ -50,10 +52,12 @@ fun SettingsScreen(
     onOpenLogin: () -> Unit = {},
     repository: UploadSettingsRepository = koinInject(),
     compassRepository: CompassSettingsRepository = koinInject(),
+    mapRepository: cz.hillview.settings.MapSettingsRepository = koinInject(),
     sessionManager: cz.hillview.auth.SessionManager = koinInject(),
 ) {
     val settings by repository.settings.collectAsState()
     val compass by compassRepository.settings.collectAsState()
+    val mapSettings by mapRepository.settings.collectAsState()
     val sessionState by sessionManager.state.collectAsState()
     val requestNotifications = rememberNotificationPermissionRequester()
 
@@ -178,6 +182,44 @@ fun SettingsScreen(
                 },
                 modifier = Modifier.testTag("settings-geo-auto-export"),
             )
+        }
+
+        // How often the fused provider is asked for a fix. The value goes
+        // straight through BindGeoToActivity into the GeoEngine — one of the
+        // two knobs that decide what tracking costs — but it is also the
+        // RESOLUTION of every stamp downstream, so the trade is stated
+        // rather than left for the battery graph to reveal.
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("GPS fix interval", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "How often position is sampled. Longer saves power; it also " +
+                    "coarsens photo stamps, which are only as fresh as the " +
+                    "last fix (and are interpolated between fixes).",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                GPS_INTERVAL_CHOICES_MS.forEach { ms ->
+                    val selected = mapSettings.gpsIntervalMs == ms
+                    TextButton(
+                        onClick = { mapRepository.update { it.copy(gpsIntervalMs = ms) } },
+                        modifier = Modifier.testTag("settings-gps-interval-$ms"),
+                    ) {
+                        Text(
+                            formatGpsInterval(ms),
+                            color = if (selected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            style = if (selected) {
+                                MaterialTheme.typography.bodyLarge
+                            } else {
+                                MaterialTheme.typography.bodyMedium
+                            },
+                        )
+                    }
+                }
+            }
         }
 
         // Uploads are impossible logged out, and this section is where a

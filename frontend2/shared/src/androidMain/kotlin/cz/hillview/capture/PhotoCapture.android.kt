@@ -140,7 +140,9 @@ private class AndroidPhotoCapture(
 
     // The shared-kt fused service (PRIORITY_HIGH_ACCURACY) — the same
     // location path the Tauri app's capture geotag rides on.
-    private var preciseLocation: cz.hillview.plugin.PreciseLocationService? = null
+    // Subscriptions to the engine's streams (this pane owns no hardware).
+    private var locationJob: Job? = null
+    private var orientationJob: Job? = null
 
     // Geo tracking — the same tables and CSV dumps the Tauri app writes
     // (GeoTrackingManager, shared-kt): the raw feeds, fused fixes and
@@ -289,8 +291,8 @@ private class AndroidPhotoCapture(
         lastLocation = location
         val fixAgeMsAtArrival =
             (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000
-        // Declination (magnetic → true) needs coordinates.
-        sensorService.updateLocation(location.latitude, location.longitude)
+        // Declination (magnetic → true) is fed inside the engine now, once
+        // per fix, for whichever panes are observing.
         val age = SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos
         state = state.copy(
             hasFix = age < FIX_FRESH_MS * 1_000_000,
@@ -317,20 +319,26 @@ private class AndroidPhotoCapture(
     // Tauri app runs (upright-rotation-vector default mode, EMA smoothing,
     // GeomagneticField declination). Replaces the earlier ad-hoc
     // rotation-vector listener, which produced MAGNETIC azimuth only.
-    private val sensorService = EnhancedSensorService(context) { data ->
-        lastOrientation = data
-        // Raw orientation stream (the manager rate-limits storage).
-        geoTracking.storeOrientationSensorData(data)
-        // Throttled ~4 Hz. The displayed/stamped bearing comes from the
-        // map's bearing state now (stampBearing) — here only the
-        // magnetometer accuracy rides up, for the calibration button
-        // (found unwired: compassAccuracy was never set).
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastAzimuthPush > 250) {
-            lastAzimuthPush = now
-            state = state.copy(
-                compassAccuracy = data.accuracyLevel.takeIf { it >= 0 },
-            )
+    // This pane OBSERVES the one owner; it does not open sensors itself, and
+    // it no longer writes tracking rows — the engine already wrote them, at
+    // full rate, for every consumer. See docs/frontend2-geo-engine-design.md.
+    private val engine by lazy { cz.hillview.geo.GeoEngine.get(context) }
+
+    private fun observeOrientation() = scope.launch {
+        engine.orientation.collect { data ->
+            data ?: return@collect
+            lastOrientation = data
+            // Throttled ~4 Hz. The displayed/stamped bearing comes from the
+            // map's bearing state now (stampBearing) — here only the
+            // magnetometer accuracy rides up, for the calibration button
+            // (found unwired: compassAccuracy was never set).
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastAzimuthPush > 250) {
+                lastAzimuthPush = now
+                state = state.copy(
+                    compassAccuracy = data.accuracyLevel.takeIf { it >= 0 },
+                )
+            }
         }
     }
 
@@ -972,26 +980,19 @@ private class AndroidPhotoCapture(
     @SuppressLint("MissingPermission")
     fun startSensors() {
         if (hasLocationPermission() && !gpsStarted) {
-            try {
-                // Fused delivers its current best estimate immediately and
-                // precise fixes on a 1 s cadence; freshness is judged at
-                // capture time (FIX_FRESH_MS), so a stale seed can never
-                // geotag a photo.
-                preciseLocation = cz.hillview.plugin.PreciseLocationService(
-                    context,
-                    onLocationUpdate = { data ->
-                        // Raw fused stream, as the Tauri plugin logs it.
-                        geoTracking.storeLocationPreciseLocationData(data)
-                        onLocation(asLocation(data))
-                    },
-                ).also { it.startLocationUpdates() }
-                gpsStarted = true
-            } catch (e: Exception) {
-                Log.w(TAG, "location updates unavailable", e)
+            // Fused delivers its current best estimate immediately and
+            // precise fixes on a 1 s cadence; freshness is judged at
+            // capture time (FIX_FRESH_MS), so a stale seed can never
+            // geotag a photo. The stream is the ENGINE's — it publishes the
+            // platform Location itself, so elapsedRealtimeNanos (and with it
+            // the fix age this stamps) survives the hop.
+            locationJob = scope.launch {
+                engine.location.collect { fix -> fix?.let { onLocation(it) } }
             }
+            gpsStarted = true
         }
         if (!orientationStarted) {
-            sensorService.startSensor()
+            orientationJob = observeOrientation()
             // Separate listener from the heading engine's own, on purpose:
             // that one accepts FLAT_UP from ORIENTATION_UNKNOWN, which would
             // snap the EXIF orientation to portrait every time the phone
@@ -1275,13 +1276,14 @@ private class AndroidPhotoCapture(
     }
 
     fun release() {
-        try {
-            preciseLocation?.stopLocationUpdates()
-            preciseLocation = null
-        } catch (e: Exception) {
-            // ignore
-        }
-        sensorService.stopSensor()
+        // Unsubscribe only — the engine's lifetime belongs to the ACTIVITY
+        // (MainScreen hands it a GeoConfig), not to this pane.
+        locationJob?.cancel()
+        locationJob = null
+        orientationJob?.cancel()
+        orientationJob = null
+        gpsStarted = false
+        orientationStarted = false
         orientationSensor.setRunning(false)
         lifecycleOwner.lifecycle.removeObserver(orientationLifecycle)
         try {

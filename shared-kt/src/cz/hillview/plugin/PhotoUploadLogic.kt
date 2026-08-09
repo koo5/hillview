@@ -260,9 +260,29 @@ class PhotoUploadLogic(internal val context: Context) {
 						)
 
 						onProgress?.invoke("Uploading photo ${uploadedCount + 1} of ${maxOf(total, uploadedCount + 1)}...")
-						photoDao.updateUploadStatus(photo.id, "uploading", System.currentTimeMillis())
+						// Claim atomically, on the status we selected under.
+						// Losing means the row moved while we were validating
+						// (the stamp refiner, or another pass) — skip it and
+						// let the next trigger pick it up.
+						if (photoDao.claimForUpload(
+								photo.id, photo.uploadStatus, System.currentTimeMillis(),
+							) == 0
+						) {
+							Log.d(TAG, "Claim lost for ${photo.filename}, skipping this pass")
+							continue
+						}
 
-						val serverPhotoId = secureUploadPhoto(photo)
+						// Re-read AFTER the claim. `photo` above is a snapshot
+						// taken before the token check and the file hash, and
+						// a refinement can land in that window; from here on
+						// none can, because applyRefinedStamp only updates
+						// rows that are still 'pending'. So this row is the
+						// final word, and it is what gets uploaded — which is
+						// what keeps the server and device-photos agreeing.
+						// (`photo` stays the pre-claim snapshot: the restore
+						// paths below need the status/uploadedAt to put back.)
+						val claimed = photoDao.getPhotoById(photo.id) ?: photo
+						val serverPhotoId = secureUploadPhoto(claimed)
 
 						if (serverPhotoId != null) {
 							uploadedCount++

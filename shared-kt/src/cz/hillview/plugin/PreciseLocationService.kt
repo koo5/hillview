@@ -32,7 +32,15 @@ class PreciseLocationService(
     // Source-compatible for the Tauri plugin — an Activity IS a Context.
     private val context: Context,
     private val onLocationUpdate: (PreciseLocationData) -> Unit,
-    private val onLocationStopped: (() -> Unit)? = null
+    private val onLocationStopped: (() -> Unit)? = null,
+    // Where the fix callbacks are delivered. Defaults to the main looper,
+    // which is what both apps did unconditionally before this parameter
+    // existed — so callers that don't pass one are byte-for-byte unchanged.
+    // frontend2's GeoEngine passes its own HandlerThread looper: geo must not
+    // queue behind marker rendering, which in a CMP app draws on the main
+    // thread (the Tauri app's map draws in the WebView renderer process, so
+    // it never had this exposure).
+    private val callbackLooper: Looper = Looper.getMainLooper()
 ) {
 
     companion object {
@@ -245,7 +253,7 @@ class PreciseLocationService(
                 fusedLocationClient.requestLocationUpdates(
                     locationRequest,
                     callback,
-                    Looper.getMainLooper()
+                    callbackLooper
                 )
                 isRequestingUpdates = true
                 Log.i(TAG, "📍✅ START_INTERNAL: requestLocationUpdates() call completed successfully!")
