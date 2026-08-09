@@ -207,3 +207,138 @@ rather than coincidentally true.
    the sensors → map observes it (kills the UI-thread derivation) →
    capture observes it → external service hosts it, its own instances
    deleted last, since that pane is newest and least load-bearing.
+
+## The choices, in code
+
+The questions above were mostly mine to answer, not the user's. Recorded
+here as concrete sketches so the decision is judged on what it LOOKS
+like, with the recommendation stated. Class names are the real ones.
+
+### A. Engine lifetime — recommend A2 (mode-driven profiles)
+
+**A1, ref-counted.** Each observer acquires; the engine stops when the
+last one releases.
+
+```kotlin
+class GeoEngine {
+    private var holders = 0
+    fun acquire(): Handle { if (holders++ == 0) startHardware(); return Handle { release() } }
+    private fun release() { if (--holders == 0) stopHardware() }
+}
+// in a pane:
+DisposableEffect(Unit) { val h = engine.acquire(); onDispose { h.close() } }
+```
+
+Automatic, and wrong for this app: nothing can answer *"why is the GPS
+awake right now"* — the answer is a count. Battery behaviour becomes
+emergent, which is precisely what a power-sensitive app must not have.
+
+**A2, mode-driven.** The active mode sets a PROFILE; the engine holds
+exactly one.
+
+```kotlin
+enum class GeoProfile(val locationIntervalMs: Long, val sensorRateMs: Int, val sensors: Boolean) {
+    Off(0, 0, false),                  // gallery: neither
+    Capture(1_000, 10, true),          // optimize around the shutter
+    External(1_000, 10, true),         // continuous, never a gap
+    MapOnly(2_000, 50, true),          // follow-me / compass arrow
+}
+
+class GeoEngine(context: Context) {
+    fun setProfile(profile: GeoProfile) { /* start/stop/retune the ONE pair */ }
+}
+
+// MainScreen, where the mode already lives (mapSettings.mainActivity):
+LaunchedEffect(activity, trackingWanted) {
+    engine.setProfile(when (activity) {
+        "external" -> GeoProfile.External
+        "capture"  -> GeoProfile.Capture
+        else       -> if (trackingWanted) GeoProfile.MapOnly else GeoProfile.Off
+    })
+}
+```
+
+This is what Tauri does (JS issues explicit `startSensor`/`stopSensor`),
+it matches the user's own framing — modes with different defaults — and
+**it is C4**: per-mode rates have a place to live the moment profiles
+exist. One line answers "why is the GPS awake": the profile.
+
+### B. How a pane reads — recommend B2 (pure observer)
+
+**B1, today.** The pane owns hardware and its own copy of the truth:
+
+```kotlin
+private val sensorService = EnhancedSensorService(context) { data ->
+    lastOrientation = data
+    geoTracking.storeOrientationSensorData(data)   // ← a third writer
+}
+```
+
+**B2.** The pane observes; the engine already wrote the table:
+
+```kotlin
+LaunchedEffect(Unit) {
+    engine.orientation.collect { lastOrientation = it }
+}
+```
+
+The fix-age arithmetic must survive the hop — `locationAgeMs` is computed
+from `elapsedRealtimeNanos`, so the engine publishes the `Location`
+itself (or a sample carrying that nanos field), never a lat/lng pair.
+That is the one detail that makes B2 a real port instead of a rewrite.
+
+### C. The funnel's side effects — already commonMain, just incomplete
+
+`MapStateHolder.updateBearing()` in `MapState.kt` ALREADY has
+`mapState.ts`'s signature shape (source, photoUid, accuracyLevel,
+setTimestamp). It is the funnel; it simply does not yet do the two things
+the original does in the same call. They move in behind a seam, so the
+rules stay testable in `jvmTest` and desktop stays a no-op:
+
+```kotlin
+/** The persist boundary (Android: rows + election; desktop: nothing). */
+interface TrackingSink {
+    fun electBearingSource(source: String)
+    fun writeBearingRow(bearing: Double, source: String, detail: String, accuracyLevel: Int?, now: Long)
+}
+
+class MapStateHolder(private val sink: TrackingSink = NoopSink) {
+    fun updateBearing(bearing: Double, source: String = "map", /* … */ now: Long) {
+        _bearing.value = /* … as today … */
+        val table = toTableSource(source)                     // android | gps-kalman | manual
+        if (table.source != lastElected) {                    // push on change only
+            lastElected = table.source
+            sink.electBearingSource(table.source)
+        }
+        if (!engineOwnsSource(source)) {                      // == kotlinOwnsSource
+            sink.writeBearingRow(bearing, table.source, table.detail, accuracyLevel, now)
+        }
+    }
+}
+```
+
+`toTableSource` and `engineOwnsSource` are ports of the TS functions of
+those names — and `mapState.test.ts` already pins their semantics, so the
+Kotlin twins get the same tests.
+
+### D. Where the foreground service sits — recommend D2 (host, don't duplicate)
+
+**D1, today.** `ExternalCameraService` constructs its own sensor and
+location services — a data path.
+
+**D2.** The service owns *process lifetime*, the engine owns data:
+
+```kotlin
+class ExternalCameraService : Service() {
+    override fun onStartCommand(…): Int {
+        startForeground(NOTIFICATION_ID, notification, FOREGROUND_SERVICE_TYPE_LOCATION)
+        GeoEngine.get(this).setProfile(GeoProfile.External)   // no hardware here
+        return START_STICKY
+    }
+    override fun onDestroy() { GeoEngine.get(this).setProfile(GeoProfile.Off) }
+}
+```
+
+The pane then shows `engine`/`MapStateHolder` state like every other
+pane, and the "some compass feed" wart disappears by construction — there
+is no second feed left to show.
