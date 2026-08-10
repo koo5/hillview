@@ -3,7 +3,7 @@ import { test, expect } from './fixtures';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { recreateTestUsers, loginAsTestUser, logoutUser } from './helpers/testUsers';
-import { safeSetInputFiles } from './helpers/photoUpload';
+import { safeSetInputFiles, submitPhotoUpload } from './helpers/photoUpload';
 
 
 test.describe('Photo Upload Tests', () => {
@@ -43,7 +43,7 @@ test.describe('Photo Upload Tests', () => {
     await page.waitForFunction(() => {
       const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
       return input && !input.disabled;
-    }, { timeout: T(10000) });
+    }, undefined, { timeout: T(30000) });
 
     // Select a valid file - button should now be enabled (license + file)
     const photoPath = path.join(testAssetsDir, testPhotos[0]);
@@ -160,7 +160,7 @@ test.describe('Photo Upload Tests', () => {
     await page.waitForFunction(() => {
       const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
       return input && input.value === '';
-    }, { timeout: T(15000) });
+    }, undefined, { timeout: T(30000) });
 
     // Check activity log for batch upload messages (wait for it to appear)
     const activityLog = page.locator('.activity-log');
@@ -208,36 +208,9 @@ test.describe('Photo Upload Tests', () => {
 
       console.log(`Uploading photo ${i + 1}/${testPhotos.length}: ${photoName}`);
 
-      // Check the license checkbox if not already checked (file input is disabled until license is set)
-      const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
-      if (!await licenseCheckbox.isChecked()) {
-        await licenseCheckbox.check();
-      }
-
-      // Select file (must be after license check)
-      await safeSetInputFiles(page.locator('[data-testid="photo-file-input"]'), photoPath);
-
-      // Wait for upload button to be enabled (file selected + license checked)
-      await page.waitForFunction(() => {
-        const uploadButton = document.querySelector('[data-testid="upload-submit-button"]') as HTMLButtonElement;
-        return uploadButton && !uploadButton.disabled;
-      }, { timeout: T(5000) });
-
-      // Click upload button
-      await page.locator('[data-testid="upload-submit-button"]').click();
-
-      // Wait for upload to complete by checking for semantic upload success
-      await page.waitForFunction(() => {
-        const uploadSuccessEntry = document.querySelector('[data-testid="log-entry"][data-operation="upload"][data-outcome="success"]');
-        const batchCompleteEntry = document.querySelector('[data-testid="log-entry"][data-operation="batch_complete"]');
-        return uploadSuccessEntry || batchCompleteEntry;
-      }, { timeout: T(30000) });
-
-      // Wait for file input to be cleared (indicating upload completed)
-      await page.waitForFunction(() => {
-        const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
-        return input && input.value === '';
-      }, { timeout: T(5000) });
+      // Submit through the shared helper: it scopes its waits to this file, so
+      // the previous iteration's log entries can't satisfy them.
+      await submitPhotoUpload(page, photoPath);
 
       // Wait for photo count to increase (new photo added to list)
       const expectedPhotoCount = initialCount + i + 1;
