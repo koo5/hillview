@@ -205,6 +205,17 @@ async def main(opts):
     if opts.rederive:
         return await rederive(opts)
     placed = nocov = errors = 0
+    # Progress cadence follows the cost of a request. A summary every 25 rows is
+    # fine at sub-second delays, but a politeness-limited pass against a public
+    # instance spends minutes per row — 25 of them is hours of total silence, in
+    # which a working container is indistinguishable from a wedged one. Slow
+    # passes therefore narrate every row.
+    log_every = 1 if opts.delay >= 30 else 25
+    # Banner, so `docker logs` shows immediately which endpoint and which half of
+    # the work this container is doing — the two services differ only in env.
+    scope = 'previously unresolved (no coverage)' if opts.retry_no_place else 'not yet geocoded'
+    print(f"Pass: {scope}, filter={opts.filter}, geocoder={opts.geocoder_url}, "
+          f"delay={opts.delay}s", flush=True)
     # Keyset pagination by id. Lets us *not* write anything on a transport error
     # (so a transient 503 doesn't strand a photo — a later run retries it) while
     # still advancing past it; with a plain `WHERE geocode IS NULL` the unwritten
@@ -261,13 +272,13 @@ async def main(opts):
                     placed += 1
                     name, slug = derive_place(geo['address'])
                     pname, pslug = derive_parent(geo['address'])
-                    if opts.dry_run:
+                    if opts.dry_run or log_every == 1:
                         print(f"  {lat:.5f},{lon:.5f} -> {name!r} [{slug}] / {pname!r} [{pslug}]", flush=True)
-                    else:
+                    if not opts.dry_run:
                         await db.execute(update(Photo).where(Photo.id == pid).values(
                             geocode=geo, place_name=name, place_slug=slug,
                             place_parent_name=pname, place_parent_slug=pslug))
-                if (placed + nocov) % 25 == 0:
+                if (placed + nocov) % log_every == 0:
                     print(f"  ...{placed} placed, {nocov} no-coverage, {errors} errors", flush=True)
                 time.sleep(opts.delay)
             if not opts.dry_run:
