@@ -29,11 +29,13 @@
 		buildHeadTitle,
 		buildHeadDescription,
 		buildAnnotationSummary,
+		titleUsesPlace,
 		displayTitle,
 		type PublicPhoto,
 		type PhotoAnnotation
 	} from '$lib/photoDisplay';
 	import PhotoAnnotations from '$lib/components/PhotoAnnotations.svelte';
+	import PlaceAttribution from '$lib/components/PlaceAttribution.svelte';
 	import PhotoHead from '$lib/components/PhotoHead.svelte';
 	import JsonLd from '$lib/components/JsonLd.svelte';
 	import {
@@ -434,6 +436,13 @@
 						</span>
 					{/if}
 				</div>
+
+				<!-- Next to the data it credits, and above the annotation list, which
+				     can run to dozens of rows — a credit below that is out of sight.
+				     Only when the heading actually draws on the geocoded place. -->
+				{#if titleUsesPlace(photo, annotations)}
+					<PlaceAttribution label="Place name" />
+				{/if}
 			</div>
 
 			<!-- Rating buttons (same as PhotoActionsMenu) -->

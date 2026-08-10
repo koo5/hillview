@@ -12,6 +12,8 @@
 	import Spinner from '$lib/components/Spinner.svelte';
 	import LoadMoreButton from '$lib/components/LoadMoreButton.svelte';
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
+	import PlaceAttribution from '$lib/components/PlaceAttribution.svelte';
+	import { titleUsesPlace } from '$lib/photoDisplay';
 
 	interface ActivityPhoto {
 		id: string;
@@ -99,6 +101,12 @@
 			window.removeEventListener(ACTIVITY_NOTIFICATION_REFRESH_EVENT, refreshActivity);
 		};
 	});
+
+	// How many headings draw on the geocoded place, which decides both whether to
+	// credit OpenStreetMap and how to word it: a phone upload with a title of its
+	// own owes OSM nothing, so "Place names ©" would overclaim.
+	$: shownPhotos = activityData.flatMap((g) => g.photos ?? []);
+	$: placeTitledCount = shownPhotos.filter((p) => titleUsesPlace(p)).length;
 
 	// Who needs a fetch and who keeps the server-rendered batch — see
 	// createSsrBackedLoad. An anonymous visitor keeps it: refetching an
@@ -240,6 +248,15 @@
 				<p>Photos will appear here as they are uploaded to Hillview.</p>
 			</div>
 		{:else}
+			<!-- Above the list, not below it: this feed lazy-loads without end, so a
+			     credit at the bottom retreats every time the reader reaches it and is
+			     never seen. -->
+			{#if placeTitledCount}
+				<PlaceAttribution
+					label={placeTitledCount === shownPhotos.length ? 'Place names' : 'Some place names'}
+				/>
+			{/if}
+
 			<div class="activity-list" data-testid="activity-list">
 				{#each activityData as group, groupIndex}
 					<div class="day-group">
@@ -280,6 +297,7 @@
 				failedUserInitiated={loadMoreFailedUserInitiated}
 				onLoadMore={loadMorePhotos}
 			/>
+
 		{/if}
 </StandardBody>
 

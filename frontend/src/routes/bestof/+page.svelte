@@ -7,10 +7,11 @@
 	import Spinner from '$lib/components/Spinner.svelte';
 	import LoadMoreButton from '$lib/components/LoadMoreButton.svelte';
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
+	import PlaceAttribution from '$lib/components/PlaceAttribution.svelte';
 	import PhotoHead from '$lib/components/PhotoHead.svelte';
 	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 	import { app } from '$lib/data.svelte';
-	import { buildAnnotationSummary, type PhotoAnnotation } from '$lib/photoDisplay';
+	import { buildAnnotationSummary, titleUsesPlace, type PhotoAnnotation } from '$lib/photoDisplay';
 
 	interface BestOfPhoto {
 		id: string;
@@ -132,6 +133,11 @@
 	// The next page nobody has seen yet — exact, because the loader and this link
 	// count in the same units.
 	$: nextHref = `/bestof?page=${lastLoadedPage + 1}`;
+
+	// How many headings draw on the geocoded place, which decides both whether to
+	// credit OpenStreetMap and how to word it: most cards here carry a title of
+	// their own, so "Place names ©" would claim those came from OSM too.
+	$: placeTitledCount = photos.filter((p) => titleUsesPlace(p)).length;
 </script>
 
 <!-- Each page is its own canonical: they hold different photos, so pointing them
@@ -170,6 +176,14 @@
 			<p>Photos will appear here as they receive ratings and annotations.</p>
 		</div>
 	{:else}
+		<!-- Above the grid, not below it: this list lazy-loads, so a credit at the
+		     bottom retreats every time the reader reaches it and is never seen. -->
+		{#if placeTitledCount}
+			<PlaceAttribution
+				label={placeTitledCount === photos.length ? 'Place names' : 'Some place names'}
+			/>
+		{/if}
+
 		<div class="photo-grid" data-testid="bestof-photo-grid">
 			{#each photos as photo}
 				<div class="photo-card" data-testid="bestof-photo-card">
@@ -215,6 +229,7 @@
 				{/if}
 			</nav>
 		{/if}
+
 	{/if}
 </StandardBody>
 

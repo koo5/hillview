@@ -251,12 +251,40 @@ export function displayTitle(
 	// the annotated ones carry no title or description) they are joined rather
 	// than ranked: "Chrám svaté Barbory — Sedlec, Kutná Hora". Author-written text
 	// gets no such suffix; it is a caption already.
-	if (photo.title) return photo.title;
-	if (photo.description) return photo.description;
+	const { landmark, place, fallback } = titleParts(photo, annotations);
+	if (fallback !== undefined) return fallback;
+	if (landmark && place) return `${landmark} — ${place}`;
+	return landmark || place || 'Photo';
+}
+
+/**
+ * Whether the title shown for this photo draws on the reverse-geocoded place —
+ * i.e. whether displaying it obliges us to credit OpenStreetMap (ODbL). Derived
+ * from the same resolution displayTitle runs, so the two cannot disagree; a
+ * separate re-implementation of the precedence would answer "is a place_name
+ * stored" instead of "is one on screen", and those differ for every photo that
+ * has a title of its own.
+ */
+export function titleUsesPlace(
+	photo: Parameters<typeof displayTitle>[0],
+	annotations: PhotoAnnotation[] = []
+): boolean {
+	return !!titleParts(photo, annotations).place;
+}
+
+function titleParts(
+	photo: Parameters<typeof displayTitle>[0],
+	annotations: PhotoAnnotation[]
+): { landmark: string; place: string; fallback?: string } {
+	const none = { landmark: '', place: '' };
+	if (photo.title) return { ...none, fallback: photo.title };
+	if (photo.description) return { ...none, fallback: photo.description };
 	const landmark = firstAnnotationText(annotations);
 	const place = photo.place_name || '';
-	if (landmark && place) return `${landmark} — ${place}`;
-	return landmark || place || photo.original_filename || 'Photo';
+	if (!landmark && !place && photo.original_filename) {
+		return { ...none, fallback: photo.original_filename };
+	}
+	return { landmark, place };
 }
 
 export function parseAnnotationBody(body: string | null | undefined): AnnotationBodySegment[] {

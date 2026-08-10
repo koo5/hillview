@@ -4,6 +4,7 @@ import {
 	buildHeadTitle,
 	buildHeadDescription,
 	buildAnnotationSummary,
+	titleUsesPlace,
 	firstAnnotationText,
 	annotationKeywords,
 	dedupeCaseInsensitive,
@@ -142,6 +143,31 @@ describe('buildHeadDescription', () => {
 
 	it('has a generic fallback when nothing is known', () => {
 		expect(buildHeadDescription(photo({}))).toBe('Photo on Hillview');
+	});
+});
+
+describe('titleUsesPlace', () => {
+	// Drives the ODbL credit: it must answer "is a place name on screen", not
+	// "is one stored" — otherwise every photo with a title of its own would
+	// still claim to be displaying OpenStreetMap data.
+	it('is true only when the place actually reaches the title', () => {
+		const place = 'Sedlec, Kutná Hora';
+		expect(titleUsesPlace(photo({ place_name: place, original_filename: 'x.jpg' }))).toBe(true);
+		expect(titleUsesPlace(photo({ place_name: place, title: 'Havířská Bouda' }))).toBe(false);
+		expect(titleUsesPlace(photo({ place_name: place, description: 'Pohled na Kutnou Horu' }))).toBe(false);
+	});
+
+	it('stays true when the place is joined to a landmark', () => {
+		expect(
+			titleUsesPlace(photo({ place_name: 'Sedlec, Kutná Hora', original_filename: 'x.jpg' }), [
+				ann('Chrám svaté Barbory')
+			])
+		).toBe(true);
+	});
+
+	it('is false when there is no place at all', () => {
+		expect(titleUsesPlace(photo({ original_filename: 'x.jpg' }))).toBe(false);
+		expect(titleUsesPlace(photo({}), [ann('Petřín')])).toBe(false);
 	});
 });
 
