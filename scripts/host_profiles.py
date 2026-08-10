@@ -20,6 +20,18 @@ Keys are grouped below by which one dereferences them.
                    internal CA.
   internal         BACKEND_INTERNAL_URL (SSR -> api, inside the box)
                    Never rewritten: localhost is correct in every profile.
+
+Reachability and what serves the frontend are separate things, and a profile
+only fixes the first. `here-raw` reaches the dev server on :8212 and the built
+container on :3000 equally well — plain HTTP does not care which. So the profile
+does not pick one: it leaves FRONTEND_URL undeclared, Playwright spawns the dev
+server, and the container is a per-run override that already works:
+
+    FRONTEND_URL=http://localhost:3000 ./run_tests.sh
+
+An explicit env var beats the generated block, so that needs no support here.
+A Caddy profile is different only because its origin IS the profile — the vhost
+catch-all fronts :3000, so there is nothing left to choose.
 """
 
 # Values nobody has pinned down yet. set_host refuses to apply a profile that
@@ -43,7 +55,11 @@ PROFILES = {
 			"/app/pics2": "http://10.0.0.24:9999/pics2/",
 			"/app/pics": "http://10.0.0.24:9999/",
 		},
-		# None => no declaration => Playwright spawns `bun run dev` on :8212 itself.
+		# The origin Playwright targets. None => no declaration => it spawns
+		# `bun run dev` on :8212 itself. Plain HTTP reaches the built container
+		# on :3000 just as well; that is a per-run override, not a profile —
+		#   FRONTEND_URL=http://localhost:3000 ./run_tests.sh
+		# still wins over this block, so it needs no knob here.
 		"frontend_url": None,
 	},
 	"here-caddy": {
@@ -74,6 +90,7 @@ PROFILES = {
 			"/app/pics2": "https://hv.jj.internal/pics2/",
 			"/app/pics": "https://hv.jj.internal/pics/",
 		},
+		# Not a choice: the origin IS the profile, and its catch-all fronts :3000.
 		"frontend_url": "https://hv.jj.internal",
 	},
 
@@ -94,6 +111,11 @@ PROFILES = {
 			"/app/pics2": UNSET,
 			"/app/pics": UNSET,
 		},
+		# The origin Playwright targets. None => no declaration => it spawns
+		# `bun run dev` on :8212 itself. Plain HTTP reaches the built container
+		# on :3000 just as well; that is a per-run override, not a profile —
+		#   FRONTEND_URL=http://localhost:3000 ./run_tests.sh
+		# still wins over this block, so it needs no knob here.
 		"frontend_url": None,
 	},
 	"dev4-local": {
@@ -133,6 +155,7 @@ PROFILES = {
 			"/app/pics2": "https://hv.dev4.jj.internal/pics2/",
 			"/app/pics": "https://hv.dev4.jj.internal/pics/",
 		},
+		# Interactive testing only — never a Playwright target.
 		"frontend_url": None,
 	},
 }

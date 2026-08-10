@@ -220,6 +220,33 @@ def current():
 	return None
 
 
+def describe_current():
+	"""Say which profile is live and what Playwright will hit — and warn if that
+	origin carries the flake class.
+
+	Run as a preflight (see run_tests.sh) because the failure it predicts is
+	awful to diagnose from the inside: over HTTP/1.1 the ~6-connections-per-origin
+	cap lets SSE streams and lazy chunks starve asset fetches, which surfaces as
+	"Importing a module script failed", a page with no CSS, a login that never
+	navigates, or a 90s stalled-request timeout — none of which name their cause.
+	Better to say it up front than to let someone re-run three times and then go
+	hunting through a trace.
+	"""
+	name = current()
+	url = active_value(read(".env") or "", "FRONTEND_URL")
+	print(f"host profile: {name or 'unrecognised'}")
+	if url:
+		print(f"playwright targets: {url}")
+	else:
+		print("playwright targets: http://localhost:8212 (dev server it spawns itself)")
+
+	if not url or url.startswith("http://"):
+		print("  ! plain HTTP/1.1 origin — the connection-cap flake class is ACTIVE here")
+		print("    (stalled chunks / module-script errors, worst on WebKit + Firefox).")
+		print("    For a clean run:  ./scripts/set_host.py here-caddy")
+	return 0
+
+
 def main():
 	parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 	parser.add_argument("profile", nargs="?", help="profile to switch to")
@@ -238,8 +265,7 @@ def main():
 		return 0
 
 	if args.profile is None:
-		print(f"current profile: {current() or 'unrecognised'}")
-		return 0
+		return describe_current()
 
 	if args.profile not in PROFILES:
 		sys.exit(f"set_host: unknown profile {args.profile!r}\n"
