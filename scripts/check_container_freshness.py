@@ -172,10 +172,75 @@ def resolve_target():
 	return target, url
 
 
+def baked_backend(container):
+	"""The VITE_BACKEND compiled into the running frontend image, or None.
+
+	Distinct from staleness: an image can be newer than every source file and
+	still have been built for a DIFFERENT profile. VITE_* is baked at build
+	time, so switching profiles without rebuilding leaves the previous origin
+	in the bundle and the app quietly calls the wrong host — which looks like a
+	backend outage, not a build problem.
+	"""
+	out = _docker(
+		"exec", container, "sh", "-c",
+		r"""grep -rhoE 'https?://[a-zA-Z0-9.:_-]+/api' /app 2>/dev/null | sort -u""",
+	)
+	if not out:
+		return None
+	return {line.strip() for line in out.splitlines() if line.strip()}
+
+
+def check_baked_origin(container):
+	"""Warn when the image's baked backend is not the one this profile declares."""
+	want = None
+	env = os.path.join(REPO, "frontend/.env")
+	try:
+		with open(env) as handle:
+			for line in handle:
+				match = re.match(r"^\s*VITE_BACKEND=(.*)$", line)
+				if match:  # last active declaration wins
+					want = match.group(1).strip().strip("\"'")
+	except OSError:
+		return 0
+	if not want:
+		return 0
+
+	found = baked_backend(container)
+	if found is None:
+		print(f"origin: could not read {container}'s bundle — skipped")
+		return 0
+	if want in found:
+		print(f"origin: {container} bundle matches frontend/.env ({want})")
+		return 0
+
+	# A bundle legitimately contains many unrelated /api URLs (iiif.io,
+	# nodejs.org, docs links), so report only ones that are some profile's
+	# backend — those are what "built for the wrong profile" actually looks like.
+	try:
+		from host_profiles import PROFILES
+		others = {
+			p["frontend_env"]["VITE_BACKEND"]: name
+			for name, p in PROFILES.items()
+			if p.get("frontend_env", {}).get("VITE_BACKEND")
+		}
+	except ImportError:
+		others = {}
+	culprits = [f"{url} ({others[url]})" for url in sorted(found & set(others))]
+
+	print(f"\n⚠️  origin: frontend/.env says VITE_BACKEND={want}, but {container}'s "
+	      f"bundle carries {', '.join(culprits) if culprits else 'no known profile URL'}.")
+	print("    VITE_* is baked at build time, so this image was built for another")
+	print("    profile — the app will call the wrong host. Rebuild it:")
+	print("      docker compose -f docker-compose.yml -f docker-compose.dev.yml "
+	      "up -d --build frontend")
+	return 1
+
+
 def main():
 	ap = argparse.ArgumentParser(description=__doc__)
 	ap.add_argument("--strict", action="store_true",
-	                help="exit 1 if the targeted container is stale (default: warn only)")
+	                help="exit 1 if the targeted container is stale or built for "
+	                     "another profile (default: warn only)")
 	opts = ap.parse_args()
 
 	target, _url = resolve_target()
@@ -188,20 +253,26 @@ def main():
 		print(f"freshness: {container} not running — skipped")
 		return 0
 
+	# Both checks always run: an image can be perfectly fresh against the working
+	# tree and still have been built for a different profile, and vice versa.
+	problems = 0
+
 	stale = newer_files(target["sources"], built_at)
 	if not stale:
 		print(f"freshness: {container} image is up to date with the working tree")
-		return 0
+	else:
+		problems = 1
+		built_str = datetime.fromtimestamp(built_at, timezone.utc).isoformat(timespec="seconds")
+		print(f"\n⚠️  freshness: {container} image was built {built_str}, but "
+		      f"{len(stale)} source file(s) are newer — tests may run STALE code:")
+		for f in stale[:MAX_LISTED]:
+			print(f"      {f}")
+		if len(stale) > MAX_LISTED:
+			print(f"      ... and {len(stale) - MAX_LISTED} more")
 
-	built_str = datetime.fromtimestamp(built_at, timezone.utc).isoformat(timespec="seconds")
-	print(f"\n⚠️  freshness: {container} image was built {built_str}, but "
-	      f"{len(stale)} source file(s) are newer — tests may run STALE code:")
-	for f in stale[:MAX_LISTED]:
-		print(f"      {f}")
-	if len(stale) > MAX_LISTED:
-		print(f"      ... and {len(stale) - MAX_LISTED} more")
+	problems |= check_baked_origin(container)
 
-	return 1 if opts.strict else 0
+	return 1 if (problems and opts.strict) else 0
 
 
 if __name__ == "__main__":

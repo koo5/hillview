@@ -92,6 +92,9 @@ PROFILES = {
 		},
 		# Not a choice: the origin IS the profile, and its catch-all fronts :3000.
 		"frontend_url": "https://hv.jj.internal",
+		# jj's own Caddy serves this name and jj runs ygg, so jj can drive a
+		# browser against it — which is why jj needs no `local` profile.
+		"reachable_locally": True,
 	},
 
 	# ---- dev4 (the VM), at 192.168.122.64 --------------------------------
@@ -157,8 +160,39 @@ PROFILES = {
 		},
 		# Interactive testing only — never a Playwright target.
 		"frontend_url": None,
+		# Terminated on jj, and ygg does not run inside dev4, so dev4 cannot
+		# resolve this name at all. Only other devices can use it.
+		"reachable_locally": False,
 	},
 }
+
+
+# Picking a profile for a job needs no per-machine table — the name carries it.
+# Profiles are <machine>-<suffix>, and the suffixes have fixed meanings:
+#
+#   raw     every service on its own port over plain HTTP. What Android uses,
+#           being the only thing that will not trip over Caddy's internal CA.
+#   local   an h2 origin this machine serves and can reach itself.
+#   ygg     an h2 origin published over Yggdrasil. Whether the machine it serves
+#           can ALSO reach it varies, so the profile says so outright with
+#           `reachable_locally` rather than leaving it to be inferred.
+#
+# Driving a browser wants an h2 origin either way — plain HTTP/1.1 starves chunk
+# loads into the stalled-request flake class.
+WEB_SUFFIXES = ("local", "ygg")
+
+
+def profile_for(hostname, leg):
+	"""Profile this machine should use for the `web` or `android` leg, or None."""
+	if leg == "android":
+		name = f"{hostname}-raw"
+		return name if name in PROFILES else None
+	for suffix in WEB_SUFFIXES:
+		profile = PROFILES.get(f"{hostname}-{suffix}")
+		# raw/local are reachable by definition; only ygg ever says otherwise.
+		if profile and profile.get("reachable_locally", True):
+			return f"{hostname}-{suffix}"
+	return None
 
 
 def unset_keys(profile):

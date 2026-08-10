@@ -40,12 +40,13 @@ import argparse
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import urllib.error
 import urllib.request
 
-from host_profiles import PROFILES, unset_keys
+from host_profiles import PROFILES, profile_for, unset_keys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -256,6 +257,10 @@ def main():
 	parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
 	parser.add_argument("profile", nargs="?", help="profile to switch to")
 	parser.add_argument("--list", action="store_true", help="list profiles and exit")
+	parser.add_argument("--for", dest="leg", choices=("web", "android"),
+	                    help="switch to whichever profile THIS machine uses for "
+	                         "that leg, resolved from the hostname — so nobody "
+	                         "has to remember which profile a given box tests under")
 	parser.add_argument("--keep-db", action="store_true",
 	                    help="do not clear the dev database (keeps rows whose "
 	                         "photo URLs still point at the previous host)")
@@ -268,6 +273,21 @@ def main():
 			print(f"{name:<12} {profile['summary']}{flag}")
 			print(f"{'':<12} {profile['note']}")
 		return 0
+
+	if args.leg:
+		host = socket.gethostname()
+		resolved = profile_for(host, args.leg)
+		if resolved is None:
+			sys.exit(
+				f"set_host: no {args.leg} profile for host {host!r}.\n"
+				f"  Expected {host}-raw for android, or {host}-local / a locally "
+				f"reachable {host}-ygg for web.\n"
+				f"  see: ./scripts/set_host.py --list"
+			)
+		if args.profile and args.profile != resolved:
+			sys.exit(f"set_host: --for {args.leg} resolves to {resolved!r} on {host}, "
+			         f"which contradicts the {args.profile!r} you named")
+		args.profile = resolved
 
 	if args.profile is None:
 		return describe_current()
