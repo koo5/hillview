@@ -24,12 +24,30 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bestof", tags=["bestof"])
 
+# Size of a ?page=N slice. Deliberately owned here rather than by the caller:
+# the page size and the step between pages are the same number, and if the two
+# ever diverge the failure is silent — a step under the size repeats photos
+# across pages, a step over it leaves photos that NO page lists, unreachable by
+# any crawler. One constant, one expression (page_offset), no way to desync.
+BESTOF_PAGE_SIZE = 40
+
+
+def page_offset(page: Optional[int]) -> int:
+	"""Row offset of page N (1-based). Junk and out-of-range mean page 1."""
+	if not page or page < 1:
+		return 0
+	return (int(page) - 1) * BESTOF_PAGE_SIZE
+
 
 @router.get("/photos")
 async def get_best_photos(
 	request: Request,
 	limit: int = 20,
+	# Deprecated: /bestof pages by ?page= only — one coordinate system, which is
+	# also the one a crawler walks. Kept accepted so a deployed older frontend
+	# keeps working through a rollout; delete once none are left.
 	cursor: Optional[str] = None,
+	page: Optional[int] = None,
 	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
@@ -116,6 +134,17 @@ async def get_best_photos(
 					detail="Invalid cursor format"
 				)
 
+		# ?page= is the ENTRY POINT — the server-rendered, crawlable, shareable
+		# address of a position in the ranking, and it fixes its own batch size.
+		# The cursor is the CONTINUATION from wherever you entered: every response
+		# hands back a next_cursor, so the lazy-loader walks on from a paged batch
+		# exactly as it would from the first one. They never combine (a cursor
+		# already encodes a position), so cursor wins if both arrive.
+		paged = page is not None and not cursor
+		if paged:
+			limit = BESTOF_PAGE_SIZE
+			query = query.offset(page_offset(page))
+
 		query = query.limit(limit + 1)
 
 		# Apply hidden content filtering
@@ -182,7 +211,10 @@ async def get_best_photos(
 		return {
 			"photos": photos_data,
 			"has_more": has_more,
-			"next_cursor": next_cursor if has_more else None
+			"next_cursor": next_cursor if has_more else None,
+			# Echoed so a caller never has to know or derive the slice size.
+			"page": max(1, page) if paged else None,
+			"page_size": limit,
 		}
 
 	except HTTPException:

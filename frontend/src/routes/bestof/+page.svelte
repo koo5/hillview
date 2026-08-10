@@ -44,7 +44,15 @@
 		return buildAnnotationSummary(anns, 220);
 	}
 
-	export let data: { photos?: BestOfPhoto[]; has_more?: boolean; next_cursor?: string | null } | undefined = undefined;
+	export let data:
+		| { photos?: BestOfPhoto[]; has_more?: boolean; page?: number }
+		| undefined = undefined;
+
+	// Which page of the ranking was server-rendered. Only the web build paginates
+	// (it is the only one with a +page.server.ts); elsewhere this stays 1 and the
+	// prev/next links never appear, because there is no server to render them.
+	const pageNo = data?.page ?? 1;
+	const prevHref = pageNo > 2 ? `/bestof?page=${pageNo - 1}` : '/bestof';
 
 	let loading = !data?.photos;
 	let loadingMore = false;
@@ -53,7 +61,15 @@
 	let error = '';
 	let photos: BestOfPhoto[] = data?.photos ?? [];
 	let hasMorePhotos = data?.has_more ?? false;
-	let nextCursor: string | null = data?.next_cursor ?? null;
+	// Pages, not cursors: ONE coordinate system for this route. The lazy-loader
+	// walks the same ?page= sequence a crawler follows, so "what comes next" has
+	// a single answer and the Next link below can state it exactly — scrolling
+	// twice from page 3 makes it point at page 6, with no arithmetic over item
+	// counts. (A cursor would resist the list shifting mid-scroll, but this
+	// ranking moves slowly and deep pages cost ~20ms, so it bought nothing here
+	// and cost a second way of saying where you are. /activity keeps its cursor:
+	// there photos arrive at the head constantly, and there is no page paging.)
+	let lastLoadedPage = pageNo;
 
 	// Who needs a fetch and who keeps the server-rendered batch — see
 	// createSsrBackedLoad (an anonymous visitor keeps it; that is what stopped
@@ -61,9 +77,10 @@
 	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void loadPhotos());
 	$: syncLoad($auth);
 
-	async function loadPhotos(cursor?: string, userInitiated = false) {
+	/** `append` distinguishes a lazy-loaded continuation from the initial load. */
+	async function loadPhotos(page = pageNo, append = false, userInitiated = false) {
 		try {
-			if (cursor) {
+			if (append) {
 				loadingMore = true;
 				loadMoreFailed = false;
 				loadMoreFailedUserInitiated = false;
@@ -72,12 +89,9 @@
 			}
 			error = '';
 
-			const url = cursor
-				? `/bestof/photos?cursor=${encodeURIComponent(cursor)}`
-				: '/bestof/photos';
 			// A lazy-loaded next page is opportunistic: its failure is shown on the
 			// button, so it must not raise the global "Reconnecting…" episode.
-			const response = await http.get(url, cursor ? { quiet: true } : {});
+			const response = await http.get(`/bestof/photos?page=${page}`, append ? { quiet: true } : {});
 
 			if (!response.ok) {
 				throw new Error(`Failed to fetch best photos: ${response.status}`);
@@ -87,13 +101,8 @@
 			const newPhotos = data.photos || [];
 
 			hasMorePhotos = data.has_more || false;
-			nextCursor = data.next_cursor || null;
-
-			if (cursor) {
-				photos = [...photos, ...newPhotos];
-			} else {
-				photos = newPhotos;
-			}
+			lastLoadedPage = data.page ?? page;
+			photos = append ? [...photos, ...newPhotos] : newPhotos;
 		} catch (err) {
 			console.error('Error loading best-of data:', err);
 			// A failed load-more must not replace a page that is already showing a
@@ -102,7 +111,7 @@
 			// immediately and its request is refused by api.hillview.cz/robots.txt;
 			// taking over the page with an error is what Search Console read as a
 			// soft 404.
-			if (cursor) {
+			if (append) {
 				loadMoreFailed = true;
 				loadMoreFailedUserInitiated = userInitiated;
 			} else {
@@ -115,18 +124,25 @@
 	}
 
 	async function loadMorePhotos(userInitiated = false) {
-		if (nextCursor && !loadingMore) {
-			await loadPhotos(nextCursor, userInitiated);
+		if (hasMorePhotos && !loadingMore) {
+			await loadPhotos(lastLoadedPage + 1, true, userInitiated);
 		}
 	}
+
+	// The next page nobody has seen yet — exact, because the loader and this link
+	// count in the same units.
+	$: nextHref = `/bestof?page=${lastLoadedPage + 1}`;
 </script>
 
+<!-- Each page is its own canonical: they hold different photos, so pointing them
+     all at /bestof would tell search engines that pages 2+ are duplicates of
+     page 1 and drop them — the opposite of why they exist. -->
 <PhotoHead
-	title="Best of - Hillview"
+	title={pageNo > 1 ? `Best of, page ${pageNo} - Hillview` : 'Best of - Hillview'}
 	description="The best annotated panoramas on Hillview — hilltop views and vistas from places where cars can't go, labeled to help you name what you're looking at."
 	ogType="website"
 	ogImage={{ url: `${HILLVIEW_BASE_URL}/og-card.png`, width: 1200, height: 630 }}
-	canonicalUrl={`${HILLVIEW_BASE_URL}/bestof`}
+	canonicalUrl={pageNo > 1 ? `${HILLVIEW_BASE_URL}/bestof?page=${pageNo}` : `${HILLVIEW_BASE_URL}/bestof`}
 />
 
 <StandardHeaderWithAlert
@@ -182,6 +198,23 @@
 			failedUserInitiated={loadMoreFailedUserInitiated}
 			onLoadMore={loadMorePhotos}
 		/>
+
+		<!-- The crawl path, and the no-JS path. Real anchors, always in the DOM:
+		     Googlebot does not scroll a lazy-loading list to its end, so depth is
+		     only reachable by following links. The lazy-loader above usually gets
+		     there first for a human — these are the skeleton it is a shortcut for,
+		     and what the page degrades to when a load-more fails. -->
+		{#if data?.page !== undefined && (pageNo > 1 || hasMorePhotos)}
+			<nav class="pagination" data-testid="bestof-pagination">
+				{#if pageNo > 1}
+					<a href={prevHref} rel="prev" data-testid="bestof-prev-page">← Previous</a>
+				{/if}
+				<span class="page-no">Page {pageNo}</span>
+				{#if hasMorePhotos}
+					<a href={nextHref} rel="next" data-testid="bestof-next-page">Next →</a>
+				{/if}
+			</nav>
+		{/if}
 	{/if}
 </StandardBody>
 
@@ -237,6 +270,29 @@
 		border-radius: 8px;
 		overflow: hidden;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+	}
+
+	.pagination {
+		display: flex;
+		justify-content: center;
+		align-items: baseline;
+		gap: 1.5rem;
+		padding: 0.5rem 1rem 2rem;
+		font-size: 0.95rem;
+	}
+
+	.pagination a {
+		color: #1565c0;
+		text-decoration: none;
+		font-weight: 500;
+	}
+
+	.pagination a:hover {
+		text-decoration: underline;
+	}
+
+	.pagination .page-no {
+		color: #6c757d;
 	}
 
 	.annotation-summary {
