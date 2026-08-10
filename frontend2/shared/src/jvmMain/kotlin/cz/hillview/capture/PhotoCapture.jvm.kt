@@ -29,6 +29,10 @@ private class DesktopPhotoCapture : PhotoCapture {
 
     override fun capture() {}
 
+    override fun startVideo() {}
+
+    override fun stopVideo() {}
+
     @Composable
     override fun CameraPane(modifier: Modifier) {
         Box(

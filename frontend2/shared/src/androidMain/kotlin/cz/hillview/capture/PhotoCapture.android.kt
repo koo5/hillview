@@ -970,6 +970,170 @@ private class AndroidPhotoCapture(
         }
     }
 
+    // ---- Video modality -------------------------------------------------
+    // A recording binds Preview + VideoCapture INSTEAD of Preview +
+    // ImageCapture, rather than binding all three: three simultaneous use
+    // cases is a device-dependent capability, and video is a mode here, not
+    // something running alongside stills. Stopping rebinds the stills path.
+    private var videoCapture: androidx.camera.video.VideoCapture<androidx.camera.video.Recorder>? = null
+    private var activeRecording: androidx.camera.video.Recording? = null
+    private var frameLog: VideoFrameLog? = null
+    private var recordingFile: File? = null
+
+    @androidx.annotation.OptIn(androidx.camera.camera2.interop.ExperimentalCamera2Interop::class)
+    override fun startVideo() {
+        if (activeRecording != null) return
+        val provider = cameraProvider ?: return
+        val settings = uploadSettings.settings.value
+        val dir = when (settings.storage) {
+            StorageMode.PrivateFolder -> PhotoStorage.privateDir(context, settings.hideFromGallery)
+            else -> PhotoStorage.publicDir(settings.hideFromGallery)
+        }
+        if (!dir.exists() && !dir.mkdirs()) {
+            state = state.copy(errorMessage = "cannot create ${dir.name}")
+            return
+        }
+        val startedAt = System.currentTimeMillis()
+        val file = File(dir, "hillview_video_$startedAt.mp4")
+
+        val log = VideoFrameLog(
+            timestampSource = camera?.let {
+                Camera2CameraInfo.from(it.cameraInfo)
+                    .getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE)
+            },
+        )
+        val recorder = androidx.camera.video.Recorder.Builder()
+            .setQualitySelector(
+                androidx.camera.video.QualitySelector.from(
+                    androidx.camera.video.Quality.HIGHEST,
+                    androidx.camera.video.FallbackStrategy
+                        .lowerQualityOrHigherThan(androidx.camera.video.Quality.SD),
+                ),
+            )
+            .build()
+        val builder = androidx.camera.video.VideoCapture.Builder(recorder)
+        // The per-frame timestamps, straight off the capture session — no
+        // extra stream, and the same value every output buffer of that frame
+        // carries. See VideoFrameLog for why the mp4 cannot hold them.
+        Camera2Interop.Extender(builder).setSessionCaptureCallback(
+            object : android.hardware.camera2.CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
+                    session: android.hardware.camera2.CameraCaptureSession,
+                    request: android.hardware.camera2.CaptureRequest,
+                    result: android.hardware.camera2.TotalCaptureResult,
+                ) {
+                    log.onFrame(result)
+                }
+            },
+        )
+        val useCase = builder.build()
+
+        try {
+            provider.unbindAll()
+            val preview = buildPreviewUseCase()
+            previewUseCase = preview
+            val cam = provider.bindToLifecycle(
+                lifecycleOwner,
+                CameraSelector.DEFAULT_BACK_CAMERA,
+                UseCaseGroup.Builder().addUseCase(preview).addUseCase(useCase).build(),
+            )
+            camera = cam
+            previewBound = true
+            videoCapture = useCase
+            applyZoomAfterBind(cam)
+            // The exposure rule is a repeating-request option, so it should
+            // reach video too — the sidecar's per-frame exposure column is
+            // what actually answers that.
+            applyRequestOptions()
+        } catch (e: Exception) {
+            Log.e(TAG, "could not bind video", e)
+            state = state.copy(errorMessage = "video unavailable: ${e.message}")
+            rebindStills()
+            return
+        }
+
+        val pending = recorder
+            .prepareRecording(context, androidx.camera.video.FileOutputOptions.Builder(file).build())
+        activeRecording = pending.start(ContextCompat.getMainExecutor(context)) { event ->
+            when (event) {
+                is androidx.camera.video.VideoRecordEvent.Start -> {
+                    log.onRecordingStarted()
+                    state = state.copy(recording = true, recordingStartedAtMs = startedAt)
+                    Log.i(TAG, "recording -> ${file.absolutePath}")
+                }
+                is androidx.camera.video.VideoRecordEvent.Finalize -> onRecordingFinalized(event, file, log)
+                else -> Unit
+            }
+        }
+        frameLog = log
+        recordingFile = file
+    }
+
+    private fun onRecordingFinalized(
+        event: androidx.camera.video.VideoRecordEvent.Finalize,
+        file: File,
+        log: VideoFrameLog,
+    ) {
+        activeRecording = null
+        val failed = event.hasError()
+        if (failed) Log.e(TAG, "recording error ${event.error}", event.cause)
+        // The sidecar is written even for a failed stop: whatever bytes the
+        // file holds are still pairable, and the frame list is the only copy
+        // of those timestamps.
+        val sidecar = log.write(
+            file,
+            // Always writable, and the same shape as GeoTrackingDumps/ —
+            // the other place this app parks data destined for the pics
+            // pipeline.
+            fallbackDir = File(context.getExternalFilesDir(null), "VideoSidecars"),
+        )
+        Log.i(
+            TAG,
+            "recording finalized: ${file.length()} bytes, ${log.frameCount} frames, " +
+                log.exposureSummary(),
+        )
+        if (!hideFromGalleryPref()) PhotoStorage.indexInGallery(context, file)
+        state = state.copy(
+            recording = false,
+            recordingStartedAtMs = null,
+            lastVideoPath = file.absolutePath,
+            errorMessage = if (failed) "recording failed (${event.error})" else state.errorMessage,
+        )
+        CaptureStatsLog.increment(
+            if (failed) "video failed" else "video recorded",
+            System.currentTimeMillis(),
+        )
+        if (sidecar == null) Log.w(TAG, "no sidecar for ${file.name} — frames unpairable")
+        frameLog = null
+        recordingFile = null
+        rebindStills()
+    }
+
+    private fun hideFromGalleryPref(): Boolean = uploadSettings.settings.value.hideFromGallery
+
+    /**
+     * Put the stills use cases back after a recording. ensureCameraBound is
+     * guarded on [cameraBound], so the flag has to be dropped for it to do
+     * anything — video unbound everything it was tracking.
+     */
+    private fun rebindStills() {
+        videoCapture = null
+        cameraBound = false
+        previewBound = false
+        scope.launch {
+            try {
+                ensureCameraBound()
+            } catch (e: Exception) {
+                Log.e(TAG, "could not rebind stills after video", e)
+                state = state.copy(errorMessage = "camera restart failed: ${e.message}")
+            }
+        }
+    }
+
+    override fun stopVideo() {
+        activeRecording?.stop()
+    }
+
     private var gpsStarted = false
     private var orientationStarted = false
 
@@ -1341,13 +1505,22 @@ private class AndroidPhotoCapture(
                 AndroidView(
                     factory = { c ->
                         PreviewView(c).apply {
-                            // FILL (centre-crop): the capture pane is the
-                            // camera stream, edge to edge, whatever the
-                            // split ratio — FIT_CENTER letterboxed a small
-                            // rectangle in black (phone-in-hand feedback).
-                            // The captured photo keeps the full sensor
-                            // frame; only the preview crops.
-                            scaleType = PreviewView.ScaleType.FILL_CENTER
+                            // FIT (whole frame, letterboxed): the pane shows
+                            // everything the sensor sees, scaled down to
+                            // fit rather than cropped to fill.
+                            //
+                            // This REVERSES the round-4 choice of
+                            // FILL_CENTER (user, 2026-08-09: "the capture
+                            // panel should always contain the whole of the
+                            // video stream, not try to stretch its edges
+                            // beyond the borders"). The earlier complaint
+                            // was about the letterboxed rectangle being
+                            // small, which is a split-ratio problem, not a
+                            // scaling one — and cropping the preview means
+                            // framing a shot by a picture that is not the
+                            // picture you get, since the captured photo
+                            // keeps the full frame. Do not "fix" this back.
+                            scaleType = PreviewView.ScaleType.FIT_CENTER
                             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                             // The native touch grammar, by hand (a
                             // GestureDetector would fight the pinch): tap =
@@ -1431,12 +1604,13 @@ private class AndroidPhotoCapture(
 
                 // Deep-eco freeze frame: while the preview use case is
                 // unbound the TextureView is blank, so the last live frame
-                // stands in (same centre-crop as FILL_CENTER).
+                // stands in — scaled the same way the live preview is, or
+                // the picture would jump between beats.
                 frozenFrame?.let { frame ->
                     androidx.compose.foundation.Image(
                         bitmap = frame.asImageBitmap(),
                         contentDescription = null,
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                         modifier = Modifier
                             .fillMaxSize()
                             .clipToBounds()

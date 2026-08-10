@@ -71,10 +71,10 @@ fun ExternalCameraPane(
     val bearing by stateHolder.bearing.collectAsState()
     var counts by remember { mutableStateOf(0 to 0) }
 
-    DisposableEffect(Unit) {
-        controller.setRunning(true)
-        onDispose { controller.setRunning(false) }
-    }
+    // Recording is started and stopped by the ACTIVITY (MainScreen), not
+    // here: this pane is not composed in float mode — which is precisely
+    // when recording must keep going — so its composition is the wrong
+    // lifetime to hang it on. The pane only displays.
     LaunchedEffect(Unit) {
         while (true) {
             counts = controller.tableCounts()
@@ -156,6 +156,22 @@ fun ExternalCameraPane(
                 onClick = { controller.openSystemCamera() },
                 modifier = Modifier.testTag("external-open-camera"),
             ) { Text("Open camera app") }
+
+            // FLOAT MODE. Shrink to a PiP window first, THEN bring the
+            // camera app up, so the map is already floating when it appears.
+            // Safe to do from here specifically: this activity holds no
+            // camera, and a camera app that comes to the front would evict
+            // us anyway — being the pane without a stream is what makes the
+            // hand-over clean rather than a race.
+            if (cz.hillview.pip.pipSupported()) {
+                Button(
+                    onClick = {
+                        cz.hillview.pip.enterPipMode()
+                        cz.hillview.pip.launchSystemCamera()
+                    },
+                    modifier = Modifier.testTag("external-float-over-camera"),
+                ) { Text("Float over camera") }
+            }
 
             TextButton(
                 onClick = { exportGeoTrackingNow() },

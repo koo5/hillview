@@ -18,6 +18,7 @@ actual fun MapScreen(
     stateHolder: MapStateHolder,
     stateStore: MapStateStore,
     session: MapSession,
+    showControls: Boolean,
 ) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {

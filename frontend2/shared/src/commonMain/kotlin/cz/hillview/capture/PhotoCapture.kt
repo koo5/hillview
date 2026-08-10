@@ -103,6 +103,12 @@ data class CaptureState(
     val bearingDeg: Float? = null,
     val lastPhoto: CapturedPhoto? = null,
     val errorMessage: String? = null,
+    /** A video recording is in progress — the shutter stops it. */
+    val recording: Boolean = false,
+    /** Wall clock when recording began, for the elapsed readout. */
+    val recordingStartedAtMs: Long? = null,
+    /** Where the last recording landed, once it has been finalized. */
+    val lastVideoPath: String? = null,
 )
 
 /**
@@ -546,6 +552,24 @@ interface PhotoCapture {
     fun selectResolution(resolution: CaptureResolution?)
 
     fun capture()
+
+    /**
+     * Video is a MODALITY of this pane, not a separate screen — "almost
+     * just a 0-interval photo capture" (user, 2026-08-09). Chosen from the
+     * top of the shutter's interval ladder, so it rides the same one-finger
+     * grammar as starting a run.
+     *
+     * The mp4 streams straight into the photo folder, and a SIDECAR lands
+     * beside it carrying what the container cannot: a per-frame log of
+     * sensor timestamps, so a later consumer can pair frames to real time
+     * (MPEG4Writer rebases presentation timestamps to ~0, and CameraX
+     * rewrites the timebase before the encoder — see the per-frame metadata
+     * research in frontend2-capture-backlog.md).
+     */
+    fun startVideo()
+
+    /** Stop and finalize; the sidecar is written as the file closes. */
+    fun stopVideo()
 
     /** Camera preview + platform permission UI. */
     @Composable

@@ -147,6 +147,33 @@ drop needed.** For pairing video frames with GPS/compass samples:
 - No public `Recorder` per-frame API exists through 1.7.0-alpha02; the
   CameraX team's standing advice is the interop callback.
 
+## Video experiment — RESULTS (2026-08-09, on device)
+
+The recipe above was implemented and measured. Everything it predicted
+held, and two things it could not predict were settled:
+
+- **`SENSOR_INFO_TIMESTAMP_SOURCE = REALTIME`** on the test device, the
+  good branch: camera timestamps share `elapsedRealtimeNanos` with the
+  sensor stream, so frames pair with the bearings/locations tables by
+  nearest neighbour with NO offset arithmetic. The sidecar records the
+  source either way, so a consumer never has to assume.
+- **Shutter speed IS controllable in video**, through exactly the path
+  stills already use: the exposure rule's Camera2Interop repeating-request
+  options (AE_MODE_OFF + SENSOR_EXPOSURE_TIME + SENSOR_SENSITIVITY) apply
+  to the video session unchanged. Measured per frame in the sidecar: with
+  a Pin 1/500 rule, 95 frames at exactly `2000000 ns / ISO 210`; with AE,
+  the same scene ranged `4547640..15000000 ns`. So Pin/Floor/Sports and
+  the EV bias are video controls for free — nothing more to build.
+- **The sidecar cannot live next to the video in DCIM.** That folder is a
+  MEDIA collection and scoped storage permits only media types in it: the
+  .mp4 writes, a .csv beside it fails with EPERM (API 36). The writer
+  probes rather than predicts, and falls back to
+  `Android/data/<pkg>/files/VideoSidecars/`, naming the video in its
+  header so the pairing survives the split.
+- Per-frame capture results arrive through the interop callback exactly as
+  the research said, with no extra stream: 82–95 frames logged over ~8 s
+  recordings.
+
 ## The camera-control question (original framing)
 
 Users expect native-camera behaviours: tap to focus/expose, exposure

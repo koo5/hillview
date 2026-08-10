@@ -117,6 +117,38 @@ fun MainScreen(
         }
     }
 
+    // External-camera recording follows the ACTIVITY, not any pane's
+    // visibility — the same rule as the geo engine above, and for a reason
+    // the device demonstrated: float mode strips the UI down to the map, so
+    // a lifetime tied to the pane's composition stopped recording at exactly
+    // the moment recording mattered most. Kept above the PiP branch so it
+    // survives it.
+    val externalCamera = cz.hillview.external.rememberExternalCameraController()
+    LaunchedEffect(activity) {
+        externalCamera.setRunning(activity == "external")
+    }
+
+    // FLOAT MODE. A PiP window is a few centimetres of screen borrowed from
+    // whatever the user is really doing, so it shows the map and nothing
+    // else: no split, no floating buttons, no menu — none of which could be
+    // hit at that size anyway, and every one of which would steal space from
+    // the only thing worth floating. Tapping the window restores the app,
+    // which is the system's own gesture, so it needs no control of ours.
+    val inPip by cz.hillview.pip.PipState.inPip.collectAsState()
+    if (inPip) {
+        Box(Modifier.fillMaxSize().testTag("pip-map")) {
+            MapScreen(
+                settings = settingsRepo,
+                markerSource = koinInject(),
+                stateHolder = stateHolder,
+                stateStore = koinInject(),
+                session = session,
+                showControls = false,
+            )
+        }
+        return
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding()) {
         val portrait = maxHeight >= maxWidth
         val totalPx = if (portrait) constraints.maxHeight else constraints.maxWidth

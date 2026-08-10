@@ -55,6 +55,7 @@ actual fun MapScreen(
     stateHolder: MapStateHolder,
     stateStore: MapStateStore,
     session: MapSession,
+    showControls: Boolean,
 ) {
     val context = LocalContext.current
     val mapSettings by settings.settings.collectAsState()
@@ -462,7 +463,9 @@ actual fun MapScreen(
             )
         }
 
-        MapOverlayUi(
+        // Float mode draws the map and nothing else — at PiP size these
+        // controls cover most of the window and are far too small to hit.
+        if (showControls) MapOverlayUi(
             settings = mapSettings,
             hunterMode = hunterMode,
             sources = sourceDescriptors.map { d ->
