@@ -20,6 +20,7 @@ Exit code: 0 always, unless --strict is passed and the target is stale (then 1).
 """
 import argparse
 import os
+import re
 import subprocess
 import sys
 import urllib.parse
@@ -34,19 +35,30 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", ""}
 # Published port the suite may target -> the built container behind it and the
 # source paths (relative to repo root) baked into its image. The dev server
 # (:8212) is intentionally absent: it serves live source, nothing to rebuild.
-TARGETS = {
-	3000: {
-		"container": "hillview_frontend",
-		"sources": [
-			"frontend/src",
-			"frontend/static",
-			"frontend/package.json",
-			"frontend/bun.lock",
-			"frontend/Dockerfile",
-			"frontend/svelte.config.js",
-			"frontend/vite.config.ts",
-		],
-	},
+FRONTEND_TARGET = {
+	"container": "hillview_frontend",
+	"sources": [
+		"frontend/src",
+		"frontend/static",
+		"frontend/package.json",
+		"frontend/bun.lock",
+		"frontend/Dockerfile",
+		"frontend/svelte.config.js",
+		"frontend/vite.config.ts",
+	],
+}
+
+TARGETS = {3000: FRONTEND_TARGET}
+
+# Hosts whose origin is a Caddy vhost proxying into the built frontend container
+# rather than the dev server. Keyed by host because they answer on :443, which no
+# port rule can distinguish from any other https origin — and these are exactly
+# the profiles that serve compiled output, so skipping them would disable this
+# check precisely where it is needed. Keep in sync with scripts/host_profiles.py.
+CADDY_FRONTEND_HOSTS = {
+	"hv.jj.internal",
+	"hv.dev4.local",
+	"hv.dev4.jj.internal",
 }
 
 MAX_LISTED = 12
@@ -117,10 +129,36 @@ def newer_files(paths, built_at):
 	return sorted(stale)
 
 
+def frontend_url():
+	"""FRONTEND_URL from the environment, else scripts/set_host.py's block in .env.
+
+	Same resolution order as playwright.config.ts, so this check and the suite
+	can never disagree about which origin is being tested.
+	"""
+	if os.environ.get("FRONTEND_URL"):
+		return os.environ["FRONTEND_URL"]
+	value = None
+	try:
+		with open(os.path.join(REPO, ".env")) as handle:
+			for line in handle:
+				match = re.match(r"^\s*FRONTEND_URL=(.*)$", line)
+				if match:  # last active declaration wins
+					value = match.group(1).strip().strip("\"'")
+	except OSError:
+		return FRONTEND_URL_DEFAULT
+	return value or FRONTEND_URL_DEFAULT
+
+
 def resolve_target():
 	"""(target, url) for the container the suite hits, or (None, url) to skip."""
-	url = os.environ.get("FRONTEND_URL") or FRONTEND_URL_DEFAULT
+	url = frontend_url()
 	parsed = urllib.parse.urlparse(url)
+	if (parsed.hostname or "") in CADDY_FRONTEND_HOSTS:
+		# A Caddy vhost fronting the built frontend container. Whether that
+		# container is local is settled by looking it up rather than by the
+		# hostname — the dev4 vhosts are local when run ON dev4, remote here —
+		# and main() already skips cleanly when it isn't running.
+		return FRONTEND_TARGET, url
 	port = parsed.port or (443 if parsed.scheme == "https" else 80)
 	target = TARGETS.get(port)
 	if target is None:

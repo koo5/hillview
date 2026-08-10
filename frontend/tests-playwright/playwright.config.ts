@@ -1,9 +1,39 @@
 import { T } from './helpers/timeouts';
 import { defineConfig, devices } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
 import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Which origin the suite targets, from `scripts/set_host.py`'s managed block in
+ * the repo-root .env — so switching host profiles (raw <-> the Caddy h2 origin)
+ * needs no shell exports here. An explicit env var still wins, and an absent
+ * declaration leaves this undefined, which is what makes `webServer` below
+ * spawn the local dev server.
+ *
+ * Deliberately a 5-line reader rather than a dotenv dependency: one key, and
+ * tests-playwright is its own package whose tree we keep small.
+ */
+function resolveFrontendUrl(): string | undefined {
+  if (process.env.FRONTEND_URL) return process.env.FRONTEND_URL;
+  let text: string;
+  try {
+    text = fs.readFileSync(path.resolve(__dirname, '../../.env'), 'utf8');
+  } catch {
+    return undefined;
+  }
+  // Last active declaration wins, matching dotenv and compose interpolation.
+  let value: string | undefined;
+  for (const line of text.split('\n')) {
+    const match = /^\s*FRONTEND_URL=(.*)$/.exec(line);
+    if (match) value = match[1].trim().replace(/^["']|["']$/g, '');
+  }
+  return value || undefined;
+}
+
+const FRONTEND_URL = resolveFrontendUrl();
 
 /**
  * @see https://playwright.dev/docs/test-configuration
@@ -33,10 +63,10 @@ export default defineConfig({
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: process.env.FRONTEND_URL || 'http://localhost:8212',
+    baseURL: FRONTEND_URL || 'http://localhost:8212',
 
     /* Accept the self-signed cert when running against the Caddy HTTPS/HTTP-2
-       origin (FRONTEND_URL=https://hillview.dev4.local, `tls internal`). Harmless
+       origin (FRONTEND_URL=https://hv.dev4.local, `tls internal`). Harmless
        for http origins. Serving the whole stack behind one h2 origin removes the
        HTTP/1.1 connection-cap starvation (see Caddyfile). */
     ignoreHTTPSErrors: true,
@@ -128,7 +158,7 @@ export default defineConfig({
       // connection scheduling is why chromium rarely shows it.
       //
       // FIXED by the Caddy HTTPS/HTTP-2 origin: run with
-      //   FRONTEND_URL=https://hillview.dev4.local
+      //   FRONTEND_URL=https://hv.dev4.local
       // (single h2 origin fronting frontend + /api + /worker + /pics — no
       // connection cap, no CORS; see /home/koom/caddy/Caddyfile). Needs the
       // Caddy container up, the hostname in /etc/hosts, and the Caddy internal
@@ -166,7 +196,7 @@ export default defineConfig({
      does not honor `ignoreHTTPSErrors`, so against a self-signed https origin it
      fails the cert check, assumes the server is down, starts `vite dev`, and then
      times out waiting for a URL vite never serves. */
-  webServer: process.env.FRONTEND_URL ? undefined : {
+  webServer: FRONTEND_URL ? undefined : {
     command: 'bun run dev',
     cwd: path.resolve(__dirname, '..'),
     url: 'http://localhost:8212',

@@ -51,6 +51,19 @@ def _clean_admin(s):
     return _ADMIN_PREFIX.sub('', s).strip() if s else s
 
 
+def _human_duration(seconds):
+    """Rough "4d 2h" / "35m" — for ETAs where minutes of precision are noise."""
+    seconds = int(seconds)
+    if seconds < 90:
+        return f"{seconds}s"
+    minutes, hours = seconds // 60, seconds // 3600
+    if hours < 1:
+        return f"{minutes}m"
+    if hours < 48:
+        return f"{hours}h {minutes % 60}m"
+    return f"{hours // 24}d {hours % 24}h"
+
+
 def _is_admin_label(s):
     """Whether a Nominatim value names an administrative unit rather than a
     place. Czech data puts these in the same fields as real names — Prague's
@@ -221,27 +234,55 @@ async def main(opts):
     # still advancing past it; with a plain `WHERE geocode IS NULL` the unwritten
     # row would just be re-selected next batch and loop.
     cursor = ''
+    def scope_conds():
+        conds = [
+            Photo.is_public == True,
+            Photo.deleted == False,
+            Photo.processing_status == "completed",
+            Photo.geometry.isnot(None),
+            # Default: rows never tried. --retry-no-place takes the complement
+            # — rows a previous run DID resolve a response for but found no
+            # usable place in (the out-of-coverage marker written below), and
+            # only those. The two sets are disjoint on purpose: the retry pass
+            # is meant to run against a different, wider geocoder, and if it
+            # also swept up never-tried rows it would send the whole remaining
+            # backlog there instead of just the tail its instance is needed
+            # for. (Merely `place_slug IS NULL` is that superset.)
+            and_(Photo.geocode.isnot(None), Photo.place_slug.is_(None),
+                 # ...except points the retry pass already gave up on (see the
+                 # 'exhausted' marker below), or the set would never shrink.
+                 Photo.geocode['exhausted'].astext.is_(None))
+            if opts.retry_no_place else Photo.geocode.is_(None),
+        ]
+        if opts.filter == 'curated':
+            conds.append(_interesting())
+        return conds
+
     async with SessionLocal() as db:
+        # Size the work up front. One indexed count buys a denominator and an
+        # ETA, which is the difference between a log you can judge progress from
+        # and one that just proves the process is alive — this pass can run for
+        # days at a politeness-limited delay.
+        in_scope = (await db.execute(
+            select(func.count()).select_from(Photo).where(*scope_conds())
+        )).scalar() or 0
+        todo = min(in_scope, opts.limit) if opts.limit is not None else in_scope
+        print(f"  {todo} photo(s) in scope"
+              + (f", ~{_human_duration(todo * opts.delay)} at this delay" if todo and opts.delay else ""),
+              flush=True)
+
+        def _pos():
+            """"7/1057, ~3d 16h left" — position and remaining wall-clock, which
+            is what you actually want from a log line during a multi-day pass.
+            Called after the counters take this row in, so `done` already counts
+            it and must not be incremented again."""
+            done = placed + nocov
+            left = max(0, todo - done)
+            eta = f", ~{_human_duration(left * opts.delay)} left" if left and opts.delay else ""
+            return f"{done}/{todo}{eta}"
+
         while opts.limit is None or (placed + nocov) < opts.limit:
-            conds = [
-                Photo.is_public == True,
-                Photo.deleted == False,
-                Photo.processing_status == "completed",
-                Photo.geometry.isnot(None),
-                # Default: rows never tried. --retry-no-place takes the complement
-                # — rows a previous run DID resolve a response for but found no
-                # usable place in (the out-of-coverage marker written below), and
-                # only those. The two sets are disjoint on purpose: the retry pass
-                # is meant to run against a different, wider geocoder, and if it
-                # also swept up never-tried rows it would send the whole remaining
-                # backlog there instead of just the tail its instance is needed
-                # for. (Merely `place_slug IS NULL` is that superset.)
-                and_(Photo.geocode.isnot(None), Photo.place_slug.is_(None))
-                if opts.retry_no_place else Photo.geocode.is_(None),
-                Photo.id > cursor,
-            ]
-            if opts.filter == 'curated':
-                conds.append(_interesting())
+            conds = scope_conds() + [Photo.id > cursor]
             rows = (await db.execute(
                 select(Photo.id, ST_Y(Photo.geometry), ST_X(Photo.geometry))
                 .where(*conds).order_by(Photo.id).limit(200)
@@ -264,16 +305,37 @@ async def main(opts):
                 if geo is None:
                     # Clean response but no usable/near place: out of coverage. Mark
                     # so reruns skip it; revisit later via --retry-no-place + global.
+                    #
+                    # When the retry pass ITSELF comes up empty, record that this
+                    # point is exhausted. The wider geocoder was the escalation, so
+                    # there is nothing further to try — a point over open water, or
+                    # one whose nearest named thing is beyond --max-km. Without the
+                    # flag the row stays in the retry set and is re-queried on every
+                    # future pass, forever: a standing trickle of hopeless lookups
+                    # against a public endpoint, which is the "periodic requests"
+                    # pattern its usage policy asks us not to create.
                     nocov += 1
+                    marker = {'address': {}, 'display_name': None}
+                    if opts.retry_no_place:
+                        marker['exhausted'] = True
+                    if opts.dry_run or log_every == 1:
+                        # Say it out loud: this is the one outcome that changes
+                        # what future passes will do, and giving up on a point
+                        # permanently should be visible rather than inferred from
+                        # a counter. Coordinates so the verdict can be checked on
+                        # a map — a wrong one means --max-km is too tight.
+                        verdict = ('no place found — giving up (exhausted)'
+                                   if opts.retry_no_place else 'no coverage here — left for the global pass')
+                        print(f"  [{_pos()}] {lat:.5f},{lon:.5f} -> {verdict}", flush=True)
                     if not opts.dry_run:
                         await db.execute(update(Photo).where(Photo.id == pid)
-                            .values(geocode={'address': {}, 'display_name': None}))
+                            .values(geocode=marker))
                 else:
                     placed += 1
                     name, slug = derive_place(geo['address'])
                     pname, pslug = derive_parent(geo['address'])
                     if opts.dry_run or log_every == 1:
-                        print(f"  {lat:.5f},{lon:.5f} -> {name!r} [{slug}] / {pname!r} [{pslug}]", flush=True)
+                        print(f"  [{_pos()}] {lat:.5f},{lon:.5f} -> {name!r} [{slug}] / {pname!r} [{pslug}]", flush=True)
                     if not opts.dry_run:
                         await db.execute(update(Photo).where(Photo.id == pid).values(
                             geocode=geo, place_name=name, place_slug=slug,
