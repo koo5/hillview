@@ -60,6 +60,23 @@ describe('displayTitle', () => {
 
 	// An untitled photo takes its public title from the annotations, so a leading
 	// coordinate segment must not become the <h1>/og:title.
+	it('prefers the reverse-geocoded place over a camera filename', () => {
+		// On /bestof this string is also the anchor text of the link to the photo's
+		// page, so a filename there was describing that page as "036A8750.webp"
+		expect(displayTitle(photo({ place_name: 'Sedlec, Kutná Hora', original_filename: '036A8750.webp' })))
+			.toBe('Sedlec, Kutná Hora');
+		// a landmark and a place answer different questions, so they are joined
+		expect(
+			displayTitle(photo({ place_name: 'Sedlec, Kutná Hora', original_filename: 'x.jpg' }), [ann('Chrám svaté Barbory')])
+		).toBe('Chrám svaté Barbory — Sedlec, Kutná Hora');
+		// author-written text is a caption already and gets no place suffix
+		expect(
+			displayTitle(photo({ title: 'Havířská Bouda -> jih', place_name: 'Sedlec, Kutná Hora', original_filename: 'x.jpg' }))
+		).toBe('Havířská Bouda -> jih');
+		// and the filename remains the last resort before 'Photo'
+		expect(displayTitle(photo({ original_filename: 'x.jpg' }))).toBe('x.jpg');
+	});
+
 	it('skips a bare coordinate segment when borrowing a title from annotations', () => {
 		expect(displayTitle(photo({ original_filename: 'x.jpg' }), [ann('49.9561603N, 15.2874025E|Izomat')]))
 			.toBe('Izomat');

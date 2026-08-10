@@ -16,6 +16,9 @@
 	interface ActivityPhoto {
 		id: string;
 		original_filename: string;
+		title?: string;
+		description?: string;
+		place_name?: string | null;
 		uploaded_at: string;
 		captured_at?: string;
 		processing_status: string;
@@ -78,6 +81,8 @@
 
 	let loading = !data?.photos;
 	let loadingMore = false;
+	let loadMoreFailed = false;
+	let loadMoreFailedUserInitiated = false;
 	let error = '';
 	let activityData: ActivityGroup[] = data?.photos ? groupPhotos(data.photos) : [];
 	let totalPhotoCount = data?.photos?.length ?? 0;
@@ -103,10 +108,12 @@
 	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void loadActivityData());
 	$: syncLoad($auth);
 
-	async function loadActivityData(cursor?: string) {
+	async function loadActivityData(cursor?: string, userInitiated = false) {
 		try {
 			if (cursor) {
 				loadingMore = true;
+				loadMoreFailed = false;
+				loadMoreFailedUserInitiated = false;
 			} else {
 				loading = true;
 			}
@@ -115,7 +122,9 @@
 			const url = cursor
 				? `/activity/recent?cursor=${encodeURIComponent(cursor)}`
 				: '/activity/recent';
-			const response = await http.get(url);
+			// A lazy-loaded next page is opportunistic: its failure is local to the
+			// button, so it must not raise the global "Reconnecting…" episode.
+			const response = await http.get(url, cursor ? { quiet: true } : {});
 
 			if (!response.ok) {
 				throw new Error(`Failed to fetch activity data: ${response.status}`);
@@ -138,16 +147,27 @@
 
 		} catch (err) {
 			console.error('🢄Error loading activity data:', err);
-			error = handleApiError(err);
+			// A failed load-more must not replace a page that is already showing a
+			// good list — only a failed FIRST load has nothing to fall back to.
+			// Googlebot renders at a very tall viewport, so the lazy-load fires
+			// immediately and its request is refused by api.hillview.cz/robots.txt;
+			// taking over the page with an error is what Search Console read as a
+			// soft 404 on the identically shaped /bestof.
+			if (cursor) {
+				loadMoreFailed = true;
+				loadMoreFailedUserInitiated = userInitiated;
+			} else {
+				error = handleApiError(err);
+			}
 		} finally {
 			loading = false;
 			loadingMore = false;
 		}
 	}
 
-	async function loadMorePhotos() {
+	async function loadMorePhotos(userInitiated = false) {
 		if (nextCursor && !loadingMore) {
-			await loadActivityData(nextCursor);
+			await loadActivityData(nextCursor, userInitiated);
 		}
 	}
 
@@ -236,9 +256,13 @@
 
 								<div class="photo-grid">
 									{#each userPhotos as photo}
+										<!-- preferTitle: same headline rule as /bestof. This is a
+										     public, crawled page and the headline is the anchor
+										     text of the link to /photo/<uid>. -->
 										<PhotoItem
 											{photo}
 											variant="thumbnail"
+											preferTitle={true}
 											showDescription={false}
 										/>
 									{/each}
@@ -252,6 +276,8 @@
 			<LoadMoreButton
 				hasMore={hasMorePhotos && !loading}
 				loading={loadingMore}
+				failed={loadMoreFailed}
+				failedUserInitiated={loadMoreFailedUserInitiated}
 				onLoadMore={loadMorePhotos}
 			/>
 		{/if}

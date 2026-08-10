@@ -228,6 +228,7 @@ export function displayTitle(
 	photo: {
 		title?: string | null;
 		description?: string | null;
+		place_name?: string | null;
 		original_filename: string | null;
 	},
 	annotations: PhotoAnnotation[] = []
@@ -237,13 +238,25 @@ export function displayTitle(
 	// image's real caption when title + description are both empty, so prefer them
 	// before falling through to the filename. Grid callers pass no annotations and
 	// keep the old title/description/filename behaviour.
-	return (
-		photo.title ||
-		photo.description ||
-		firstAnnotationText(annotations) ||
-		photo.original_filename ||
-		'Photo'
-	);
+	//
+	// The reverse-geocoded place ("Sedlec, Kutná Hora") replaces the machine
+	// filename, which is worse than nothing here — on /bestof and /activity it is
+	// also the anchor text of the link to the photo's page, so it was telling
+	// search engines that page is about "hillview_photo_1786290382280.jpg".
+	// place_name is populated out-of-band by backfill_places.py (the `places`
+	// compose service).
+	//
+	// A landmark and a place answer different questions — what is in the frame
+	// vs where it was taken — so when only annotations caption the photo (half of
+	// the annotated ones carry no title or description) they are joined rather
+	// than ranked: "Chrám svaté Barbory — Sedlec, Kutná Hora". Author-written text
+	// gets no such suffix; it is a caption already.
+	if (photo.title) return photo.title;
+	if (photo.description) return photo.description;
+	const landmark = firstAnnotationText(annotations);
+	const place = photo.place_name || '';
+	if (landmark && place) return `${landmark} — ${place}`;
+	return landmark || place || photo.original_filename || 'Photo';
 }
 
 export function parseAnnotationBody(body: string | null | undefined): AnnotationBodySegment[] {

@@ -163,6 +163,37 @@ services:
         condition: service_completed_successfully
 
 
+  places:
+    # Reverse-geocodes photos so they have a human-readable place_name instead of
+    # a camera filename (which is what the /bestof and /photo/ headings — and the
+    # anchor text pointing at them — fall back to today). Reuses the api image:
+    # backfill_places.py lives in api/app and shares its deps, so no second build.
+    # Opt-in via profile: docker compose --profile places up -d places
+    #
+    # NOMINATIM_URL must point at the self-hosted instance — the public OSM one
+    # forbids bulk geocoding. Same variable name the enrichment workbench uses.
+    build:
+      context: backend
+      dockerfile: api/app/Dockerfile
+    container_name: hillview_places
+    profiles: ["places"]
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@${postgres:-postgres}:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      - NOMINATIM_URL=${NOMINATIM_URL:-https://nominatim.ueueeu.eu}
+      # One pass per hour: the backlog drains at --delay, then each pass is a
+      # cheap indexed query that finds only newly uploaded photos.
+      - BACKFILL_PLACES_INTERVAL=${BACKFILL_PLACES_INTERVAL:-3600}
+      # Interesting photos first — the scan is in upload order, and the headings
+      # that are actually read (and linked from) belong to the annotated/titled few.
+      - BACKFILL_PLACES_FILTER=${BACKFILL_PLACES_FILTER:-curated-first}
+    command: >
+      bash -c "cd /app/app && python3 backfill_places.py --delay $${GEOCODE_DELAY:-0.7}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   analyzer:
     # LLM photo analyzer (production component; previously a manually-run script).
     # Opt-in via profile: docker compose --profile analyzer up -d --build analyzer

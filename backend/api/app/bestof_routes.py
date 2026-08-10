@@ -63,12 +63,14 @@ async def get_best_photos(
 
 		annotation_count_expr = func.coalesce(annotation_sub.c.annotation_count, 0).label('annotation_count')
 
-		# Total score
-		score_expr = (
+		# Total score. Kept unlabelled too: a SELECT alias can't be referenced from
+		# WHERE, so the filter and the cursor comparison use the raw expression.
+		score_raw = (
 			func.coalesce(thumbs_up_sub.c.thumbs_up_count, 0)
 			+ func.coalesce(annotation_sub.c.annotation_count, 0)
 			+ resolution_bonus
-		).label('score')
+		)
+		score_expr = score_raw.label('score')
 
 		query = (
 			select(
@@ -83,6 +85,15 @@ async def get_best_photos(
 			.outerjoin(thumbs_up_sub, Photo.id == thumbs_up_sub.c.photo_id)
 			.outerjoin(annotation_sub, Photo.id == annotation_sub.c.photo_id)
 			.where(Photo.deleted == False)
+			# A photo earns its place here — one like, one annotation, or being a
+			# large panorama is enough, but zero is not. Without this the "best of"
+			# was the whole collection: on a 52k-photo dump 98% scored zero and
+			# sorted by nothing but id, so the ranking ran out of meaning after a
+			# few hundred rows and the tail was thin content (a camera filename and
+			# a thumbnail) that dilutes crawl budget. It also keeps the listing
+			# bounded — the page's own empty state already promises this reading:
+			# "Photos will appear here as they receive ratings and annotations".
+			.where(score_raw > 0)
 			.order_by(score_expr.desc(), Photo.id.desc())
 		)
 
@@ -94,8 +105,8 @@ async def get_best_photos(
 				cursor_id = parts[1]
 				query = query.where(
 					or_(
-						score_expr < cursor_score,
-						and_(score_expr == cursor_score, Photo.id < cursor_id)
+						score_raw < cursor_score,
+						and_(score_raw == cursor_score, Photo.id < cursor_id)
 					)
 				)
 			except (ValueError, IndexError) as e:
@@ -146,6 +157,10 @@ async def get_best_photos(
 				"original_filename": photo.original_filename,
 				"title": photo.title,
 				"description": photo.description,
+				# Reverse-geocoded label (backfill_places.py). displayTitle falls back
+				# to it so a card headline — which is also the anchor text of the link
+				# to /photo/<uid> — reads "Sedlec, Kutná Hora" and not a camera filename.
+				"place_name": photo.place_name,
 				"uploaded_at": format_utc(photo.uploaded_at),
 				"captured_at": format_utc(photo.captured_at),
 				"processing_status": photo.processing_status,

@@ -101,6 +101,12 @@ async def get_recent_activity(
 			activity_data.append({
 				"id": photo.id,
 				"original_filename": photo.original_filename,
+				# Caption fields, so the feed can show what a photo IS rather than the
+				# camera's filename — displayTitle picks the best available, ending at
+				# the reverse-geocoded place (backfill_places.py) before the filename.
+				"title": photo.title,
+				"description": photo.description,
+				"place_name": photo.place_name,
 				"uploaded_at": format_utc(photo.uploaded_at),
 				"captured_at": format_utc(photo.captured_at),
 				"processing_status": photo.processing_status,

@@ -16,6 +16,7 @@
 		id: string;
 		original_filename: string;
 		title?: string;
+		place_name?: string | null;
 		uploaded_at: string;
 		captured_at?: string;
 		processing_status: string;
@@ -47,6 +48,8 @@
 
 	let loading = !data?.photos;
 	let loadingMore = false;
+	let loadMoreFailed = false;
+	let loadMoreFailedUserInitiated = false;
 	let error = '';
 	let photos: BestOfPhoto[] = data?.photos ?? [];
 	let hasMorePhotos = data?.has_more ?? false;
@@ -58,10 +61,12 @@
 	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void loadPhotos());
 	$: syncLoad($auth);
 
-	async function loadPhotos(cursor?: string) {
+	async function loadPhotos(cursor?: string, userInitiated = false) {
 		try {
 			if (cursor) {
 				loadingMore = true;
+				loadMoreFailed = false;
+				loadMoreFailedUserInitiated = false;
 			} else {
 				loading = true;
 			}
@@ -70,7 +75,9 @@
 			const url = cursor
 				? `/bestof/photos?cursor=${encodeURIComponent(cursor)}`
 				: '/bestof/photos';
-			const response = await http.get(url);
+			// A lazy-loaded next page is opportunistic: its failure is shown on the
+			// button, so it must not raise the global "Reconnecting…" episode.
+			const response = await http.get(url, cursor ? { quiet: true } : {});
 
 			if (!response.ok) {
 				throw new Error(`Failed to fetch best photos: ${response.status}`);
@@ -89,16 +96,27 @@
 			}
 		} catch (err) {
 			console.error('Error loading best-of data:', err);
-			error = handleApiError(err);
+			// A failed load-more must not replace a page that is already showing a
+			// good grid — only a failed FIRST load has nothing to fall back to.
+			// Googlebot renders at a very tall viewport, so the lazy-load fires
+			// immediately and its request is refused by api.hillview.cz/robots.txt;
+			// taking over the page with an error is what Search Console read as a
+			// soft 404.
+			if (cursor) {
+				loadMoreFailed = true;
+				loadMoreFailedUserInitiated = userInitiated;
+			} else {
+				error = handleApiError(err);
+			}
 		} finally {
 			loading = false;
 			loadingMore = false;
 		}
 	}
 
-	async function loadMorePhotos() {
+	async function loadMorePhotos(userInitiated = false) {
 		if (nextCursor && !loadingMore) {
-			await loadPhotos(nextCursor);
+			await loadPhotos(nextCursor, userInitiated);
 		}
 	}
 </script>
@@ -160,6 +178,8 @@
 		<LoadMoreButton
 			hasMore={hasMorePhotos && !loading}
 			loading={loadingMore}
+			failed={loadMoreFailed}
+			failedUserInitiated={loadMoreFailedUserInitiated}
 			onLoadMore={loadMorePhotos}
 		/>
 	{/if}

@@ -245,10 +245,22 @@ async def main(opts):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--geocoder-url', default='https://nominatim.openstreetmap.org',
-                   help='Nominatim-compatible base URL (self-host for bulk!)')
-    p.add_argument('--filter', choices=['all', 'curated'], default='all',
-                   help="'curated' = only the interesting set (panos etc.) for validation")
+    # Defaults from the environment so the container needs no argv: NOMINATIM_URL
+    # is the same variable the enrichment workbench uses (enrich/api/app/geocode.py),
+    # so one setting points both at the self-hosted instance.
+    p.add_argument('--geocoder-url',
+                   default=os.getenv('NOMINATIM_URL', 'https://nominatim.openstreetmap.org'),
+                   help='Nominatim-compatible base URL (self-host for bulk!); '
+                        'defaults to $NOMINATIM_URL')
+    p.add_argument('--filter', choices=['all', 'curated', 'curated-first'],
+                   default=os.getenv('BACKFILL_PLACES_FILTER', 'all'),
+                   help="'curated' = only the interesting set (panos etc.) for "
+                        "validation; 'curated-first' = that set, then everything "
+                        "else. The main scan walks photos in id order, i.e. upload "
+                        "order, so without this the photos whose place_name is "
+                        "actually read (the /bestof and /activity headings) are "
+                        "scattered through a many-hour run. Defaults to "
+                        "$BACKFILL_PLACES_FILTER")
     p.add_argument('--limit', type=int, default=None, help='max photos this run')
     p.add_argument('--delay', type=float, default=1.1, help='seconds between requests')
     p.add_argument('--zoom', type=int, default=16, help='Nominatim zoom (granularity)')
@@ -262,4 +274,30 @@ if __name__ == '__main__':
     p.add_argument('--dry-run', action='store_true', help='print, do not write')
     p.add_argument('--rederive', action='store_true',
                    help='recompute place_name/place_slug from stored geocode (no network)')
-    asyncio.run(main(p.parse_args()))
+    p.add_argument('--loop-interval', type=float,
+                   default=float(os.getenv('BACKFILL_PLACES_INTERVAL', '0')),
+                   help='keep running: sleep this many seconds after each pass and '
+                        'start over (0 = single pass, the default). Photos keep '
+                        'arriving, so the containerised deployment loops; a pass '
+                        'with nothing left to do costs one indexed query. '
+                        'Defaults to $BACKFILL_PLACES_INTERVAL')
+    opts = p.parse_args()
+
+    async def run_forever():
+        # 'curated-first' is two ordinary passes: the interesting set drains first,
+        # so a fresh deployment gets readable headings within minutes instead of
+        # hours. Each pass is resumable on its own — correct across restarts.
+        passes = ['curated', 'all'] if opts.filter == 'curated-first' else [opts.filter]
+        while True:
+            for f in passes:
+                await main(argparse.Namespace(**{**vars(opts), 'filter': f}))
+            if not opts.loop_interval or opts.loop_interval <= 0:
+                return
+            # Transport errors leave their rows NULL, so the next pass retries them.
+            print(f"Sleeping {opts.loop_interval:.0f}s before the next pass.", flush=True)
+            await asyncio.sleep(opts.loop_interval)
+
+    # One event loop for the whole process: SessionLocal's pool binds to the loop
+    # that first used it, so a second asyncio.run() (a second pass, or the next
+    # interval) would fail with "attached to a different loop".
+    asyncio.run(run_forever())

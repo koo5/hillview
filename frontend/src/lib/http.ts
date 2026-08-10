@@ -11,6 +11,23 @@ export interface ApiError extends Error {
   code?: string;
 }
 
+export interface HttpOptions extends RequestInit {
+  /**
+   * Don't open a "Reconnecting…" connectivity episode if this request fails at
+   * the network level. For OPPORTUNISTIC requests only — ones the user is not
+   * waiting on, where a failure leaves a working page behind. A lazy-loaded
+   * next page is the case this exists for: the failure is local to one control,
+   * and declaring the whole app offline over it is wrong twice. For a user it
+   * over-reports (their page still works, and the caller shows the failure on
+   * the control itself); for Googlebot it never clears, because the episode
+   * only closes when a request reaches the server and every API request —
+   * including connectivity.ts's own /api/debug probe — is refused by
+   * api.hillview.cz/robots.txt. That left a permanent warning banner in the
+   * rendered page.
+   */
+  quiet?: boolean;
+}
+
 export class TokenExpiredError extends Error implements ApiError {
   status = 401;
   code = 'TOKEN_EXPIRED';
@@ -36,7 +53,8 @@ export class HttpClient {
     return this.tokenManager;
   }
 
-  private async makeRequest(url: string, options: RequestInit = {}): Promise<Response> {
+  private async makeRequest(url: string, options: HttpOptions = {}): Promise<Response> {
+    const { quiet, ...init } = options;
     const fullUrl = url.startsWith('http') ? url : `${this.baseURL}${url}`;
 
     // Snapshot the auth generation at request start. If a newer login replaces the
@@ -50,7 +68,7 @@ export class HttpClient {
 
       // Prepare headers
       const headers: Record<string, string> = {
-        ...(options.headers as Record<string, string> || {}),
+        ...(init.headers as Record<string, string> || {}),
       };
 
       if (token) {
@@ -58,7 +76,7 @@ export class HttpClient {
       }
 
       const response = await fetch(fullUrl, {
-        ...options,
+        ...init,
         headers,
       });
 
@@ -82,7 +100,7 @@ export class HttpClient {
             };
 
             return await fetch(fullUrl, {
-              ...options,
+              ...init,
               headers: retryHeaders,
             });
           }
@@ -118,7 +136,7 @@ export class HttpClient {
       // requests routinely fail for a few seconds while Android re-attaches
       // the network. Navigation aborts are not connectivity problems.
       const errorMessage = error instanceof Error ? error.message : 'Network error';
-      if ((error as { name?: string })?.name !== 'AbortError') {
+      if ((error as { name?: string })?.name !== 'AbortError' && !quiet) {
         reportConnectivityLoss();
       }
 
@@ -129,7 +147,7 @@ export class HttpClient {
     }
   }
 
-  async get(url: string, options: RequestInit = {}): Promise<Response> {
+  async get(url: string, options: HttpOptions = {}): Promise<Response> {
     return this.makeRequest(url, { ...options, method: 'GET' });
   }
 
