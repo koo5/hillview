@@ -22,7 +22,7 @@ Keys are grouped below by which one dereferences them.
                    Never rewritten: localhost is correct in every profile.
 
 Reachability and what serves the frontend are separate things, and a profile
-only fixes the first. `here-raw` reaches the dev server on :8212 and the built
+only fixes the first. `jj-raw` reaches the dev server on :8212 and the built
 container on :3000 equally well — plain HTTP does not care which. So the profile
 does not pick one: it leaves FRONTEND_URL undeclared, Playwright spawns the dev
 server, and the container is a per-run override that already works:
@@ -40,7 +40,7 @@ UNSET = "<fill-in>"
 
 PROFILES = {
 	# ---- this machine ---------------------------------------------------
-	"here-raw": {
+	"jj-raw": {
 		"summary": "every service on its own port, plain HTTP, LAN IP",
 		"note": "the only mode Android can use — it will not trust Caddy's internal CA",
 		"env": {
@@ -62,7 +62,7 @@ PROFILES = {
 		# still wins over this block, so it needs no knob here.
 		"frontend_url": None,
 	},
-	"here-caddy": {
+	"jj-ygg": {
 		"summary": "single HTTPS/HTTP-2 origin fronting frontend + /api + /pics + worker",
 		"note": "wanted for Playwright: h2 removes the ~6-connections-per-origin "
 		        "cap whose starvation causes the suite's stalled-request flakes",
@@ -94,22 +94,26 @@ PROFILES = {
 		"frontend_url": "https://hv.jj.internal",
 	},
 
-	# ---- dev4 (the VM) ---------------------------------------------------
-	# Same three-way split. The URLs below still need pinning against dev4's own
-	# Caddyfile and LAN address — they are UNSET rather than guessed.
+	# ---- dev4 (the VM), at 192.168.122.64 --------------------------------
+	# dev4 declares NO FILE_POOLS, so it runs the single-pool fallback from
+	# PICS_URL/PICS_DIR and writes to /app/pics. Hence one pool entry and no
+	# /pics2 anywhere — pics2 is this machine's multi-pool setup and does not
+	# transfer. set_host skips `pools` entirely while FILE_POOLS is absent, so
+	# the entry is only insurance for the day dev4 grows one.
 	"dev4-raw": {
 		"summary": "dev4, every service on its own port, plain HTTP",
 		"note": "Android against dev4",
 		"env": {
-			"WORKER_URL": UNSET,
-			"PICS_URL": UNSET,
+			"WORKER_URL": "http://192.168.122.64:8056",
+			# dev4's :9999 vhost roots its catch-all at /pics, so the bare
+			# server root IS the pics root — same shape as this machine's.
+			"PICS_URL": "http://192.168.122.64:9999/",
 		},
 		"frontend_env": {
-			"VITE_BACKEND": UNSET,
+			"VITE_BACKEND": "http://192.168.122.64:8055/api",
 		},
 		"pools": {
-			"/app/pics2": UNSET,
-			"/app/pics": UNSET,
+			"/app/pics": "http://192.168.122.64:9999/",
 		},
 		# The origin Playwright targets. None => no declaration => it spawns
 		# `bun run dev` on :8212 itself. Plain HTTP reaches the built container
@@ -120,39 +124,35 @@ PROFILES = {
 	},
 	"dev4-local": {
 		"summary": "dev4's own Caddy, single h2 origin, reachable on the LAN",
-		"note": "Playwright on dev4 — the origin playwright.config.ts already documents",
+		"note": "Playwright on dev4. NEEDS the hv. rename on dev4 first — its vhost "
+		        "is still named hillview.dev4.local, so these point at a name "
+		        "nothing answers until that lands.",
 		"env": {
-			"WORKER_URL": UNSET,
-			"PICS_URL": UNSET,
+			"WORKER_URL": "https://hv.dev4.local/worker",
+			"PICS_URL": "https://hv.dev4.local/pics/",
 		},
 		"frontend_env": {
 			"VITE_BACKEND": "https://hv.dev4.local/api",
+			"VITE_UMAMI_URL": "https://hv.dev4.local/umami",
 		},
 		"pools": {
-			"/app/pics2": UNSET,
-			"/app/pics": UNSET,
+			"/app/pics": "https://hv.dev4.local/pics/",
 		},
 		"frontend_url": "https://hv.dev4.local",
 	},
 	"dev4-ygg": {
 		"summary": "dev4 published over Yggdrasil, for interactive testing from another device",
 		"note": "NOT a Playwright target. ygg does not run inside dev4, so only the "
-		        "browser-facing keys carry the ygg host; a jj Caddy section proxies in. "
-		        "The worker needs a route too — the upload client reaches it directly.",
+		        "browser-facing keys carry the ygg host; a jj Caddy section proxies in.",
 		"env": {
-			# Intended value once dev4's jj section carries a worker route, by the
-			# same handle_path pattern as here-caddy (a browser on https cannot
-			# use a plain-http worker):
-			#   https://hv.dev4.jj.internal/worker
-			# Left UNSET until that route exists, so the guard keeps refusing.
-			"WORKER_URL": UNSET,
+			"WORKER_URL": "https://hv.dev4.jj.internal/worker",
 			"PICS_URL": "https://hv.dev4.jj.internal/pics/",
 		},
 		"frontend_env": {
 			"VITE_BACKEND": "https://hv.dev4.jj.internal/api",
+			"VITE_UMAMI_URL": "https://hv.dev4.jj.internal/umami",
 		},
 		"pools": {
-			"/app/pics2": "https://hv.dev4.jj.internal/pics2/",
 			"/app/pics": "https://hv.dev4.jj.internal/pics/",
 		},
 		# Interactive testing only — never a Playwright target.

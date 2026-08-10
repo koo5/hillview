@@ -6,10 +6,15 @@ docker compose at container start, Vite at dev-server start, Playwright at run
 start — so passing env vars per invocation is unworkable: you would have to
 remember the whole set, every time, for every tool. This owns the swap instead.
 
-    ./scripts/set_host.py                 show the current profile
-    ./scripts/set_host.py --list          show every profile
-    ./scripts/set_host.py here-caddy      switch
-    ./scripts/set_host.py here-caddy --keep-db    switch, keep existing photos
+    ./scripts/set_host.py                    show the current profile
+    ./scripts/set_host.py --list             show every profile
+    ./scripts/set_host.py jj-ygg             switch
+    ./scripts/set_host.py jj-ygg --keep-db   switch, keep existing photos
+
+Profiles are named <machine>-<how you reach it>: `raw` is every service on its
+own port over plain HTTP (the only thing Android can use), `ygg` is the single
+HTTPS/HTTP-2 origin published over Yggdrasil, `local` is a Caddy origin that is
+only reachable on the LAN. jj has no `local` — its Caddy name is an ygg name.
 
 Switching clears the dev database by default: a stored photo's URLs were built
 from the PICS_URL in force when it was written, so rows made under the previous
@@ -17,7 +22,7 @@ profile point at a host this one does not serve. Pass --keep-db to skip that.
 
 Rather than editing your declarations in place, it appends a delimited block:
 
-    # >>> set_host: here-caddy ...
+    # >>> set_host: jj-ygg ...
     WORKER_URL=...
     # <<< set_host
 
@@ -243,7 +248,7 @@ def describe_current():
 	if not url or url.startswith("http://"):
 		print("  ! plain HTTP/1.1 origin — the connection-cap flake class is ACTIVE here")
 		print("    (stalled chunks / module-script errors, worst on WebKit + Firefox).")
-		print("    For a clean run:  ./scripts/set_host.py here-caddy")
+		print("    For a clean run:  ./scripts/set_host.py jj-ygg")
 	return 0
 
 
