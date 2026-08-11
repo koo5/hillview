@@ -32,6 +32,37 @@ from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, ser
 from .test_utils import recreate_test_users
 
 
+# TLS verification is ON unless explicitly disabled, and that default matters:
+# this module is not test-only. backend/debug.sh -> utils.debug_utils is the
+# production hillview CLI, and an unconditional verify=False there would make it
+# silently accept ANY certificate — a real downgrade, on the upload path, in
+# prod. So the loosening is opt-in and lives behind one env var, set by the test
+# entry points only (see backend/tests/run_integration_tests.sh).
+INSECURE_TLS_ENV = "HILLVIEW_INSECURE_TLS"
+
+
+def tls_verify() -> bool:
+	"""False only when the caller has explicitly opted out of verification."""
+	return os.getenv(INSECURE_TLS_ENV, "").strip().lower() not in ("1", "true", "yes")
+
+
+def dev_origin_client(**kwargs) -> httpx.AsyncClient:
+	"""httpx client for URLs the APP advertises: the worker from authorize-upload,
+	a photo's size URLs from its record.
+
+	Following the advertised URL is the property under test — "the client uses
+	the URL it was given" — and the one that must survive the worker moving to
+	its own hostname, or becoming several for different task kinds. So when dev
+	serves that URL from a Caddy origin whose `tls internal` CA Python does not
+	trust, relax verification rather than routing around the URL, which would
+	delete the coverage. The browser suite relaxes the same check, via
+	`ignoreHTTPSErrors` in playwright.config.ts, against the same origin.
+
+	Verification still applies unless HILLVIEW_INSECURE_TLS is set — see above.
+	"""
+	return httpx.AsyncClient(verify=tls_verify(), **kwargs)
+
+
 class WorkerUnavailableError(Exception):
 	"""Raised when the worker server can't be reached at its advertised URL.
 
@@ -359,7 +390,7 @@ class SecureUploadClient:
 			timestamp
 		)
 
-		async with httpx.AsyncClient() as client:
+		async with dev_origin_client() as client:
 			# Handle both file paths and file data
 			if isinstance(file_input, bytes):
 				# File data provided directly
@@ -441,7 +472,7 @@ class SecureUploadClient:
 		worker_url = auth_data["worker_url"]
 
 		# Test with invalid token
-		async with httpx.AsyncClient() as client:
+		async with dev_origin_client() as client:
 			try:
 				fake_token = "invalid.jwt.token"
 				files = {'file': ('test.jpg', b'fake image', 'image/jpeg')}
@@ -474,7 +505,7 @@ class SecureUploadClient:
 		if worker_url is None:
 			worker_url = os.getenv("TEST_WORKER_URL", "http://localhost:8056")
 		try:
-			async with httpx.AsyncClient() as client:
+			async with dev_origin_client() as client:
 				response = await client.get(f"{worker_url}/health", timeout=100.0)
 				if response.status_code == 200:
 					print(f"✅ Worker server is healthy ({worker_url})")
