@@ -174,6 +174,40 @@ held, and two things it could not predict were settled:
   the research said, with no extra stream: 82–95 frames logged over ~8 s
   recordings.
 
+## Metering made continuous (2026-08-11)
+
+The exposure rules froze their metering: a rule turns AE off, and the
+plan was computed from the last reading AE produced, so a manual shot
+minutes later was exposed for the light the rule was CHOSEN in. Interval
+capture hid this by calling prepareExposure() before every shot — a
+window in which AE gets the camera back, converges, and is displaced
+again.
+
+Why the window cannot be chunked: AE is a damped feedback loop in the
+ISP, not a search. It measures the frame, corrects the exposure product,
+and settles over several frames (pipeline latency plus damping). Turning
+it off discards that convergence, so ten short windows cost more than one
+long one and none of them finish.
+
+But a MEASUREMENT needs one frame. We set the exposure, so brightness is
+proportional to scene × exposure × gain and a single frame solves for the
+scene: product_needed = product_used × (target_luma / measured_luma).
+SceneMeter does that from a small ImageAnalysis stream (640×480,
+keep-only-latest, ~3000 subsampled luma samples), damped half a stop per
+sample because preview luma is tone-mapped rather than linear.
+
+Consequences: manual capture is always freshly metered with NOTHING
+between the press and the shutter; the preview never pumps; and interval
+capture stops paying a metering window per shot — measured on the
+emulator as 8 captures with ZERO AE handovers, ~2.0 s cadence against a
+2 s interval, the plan tracking live (iso 131..134 at a held 1/500).
+Hardware that refuses the third use case falls back to the old AE-window
+path automatically.
+
+Open: TARGET_LUMA (110) is the one number that decides whether the app's
+idea of "correct exposure" matches the user's, and it wants tuning
+against real scenes rather than an emulator's static one.
+
 ## The camera-control question (original framing)
 
 Users expect native-camera behaviours: tap to focus/expose, exposure
