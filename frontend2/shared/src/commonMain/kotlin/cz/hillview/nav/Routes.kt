@@ -35,6 +35,10 @@ data object SettingsKey : NavKey
 @Serializable
 data object DevicePhotosKey : NavKey
 
+/** Why the uploader is or is not running (see UploadStatusScreen). */
+@Serializable
+data object UploadStatusKey : NavKey
+
 /** The capture-controls manual (gestures follow native conventions). */
 @Serializable
 data object CaptureGuideKey : NavKey

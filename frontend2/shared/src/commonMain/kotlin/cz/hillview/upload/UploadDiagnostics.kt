@@ -1,0 +1,46 @@
+package cz.hillview.upload
+
+/**
+ * Why the uploader is (or is not) doing anything right now.
+ *
+ * Deliberately a flat list of observations rather than a reasoning engine:
+ * everything here is a value something already knows — a preference, a queue
+ * count, a WorkManager WorkInfo, a ConnectivityManager capability — read and
+ * labelled. Nothing infers, so nothing can be subtly wrong about a state it
+ * has not been taught.
+ *
+ * The design rule if this grows: only add a row you can READ. The moment a
+ * row needs deducing from three other rows, show the three instead.
+ */
+data class UploadDiagnostics(
+    val rows: List<DiagRow>,
+    val takenAtMs: Long,
+) {
+    /**
+     * The first blocking row, which is the answer to "why is nothing
+     * happening" — or null when nothing is in the way.
+     */
+    val blocker: DiagRow? get() = rows.firstOrNull { it.verdict == DiagVerdict.Blocking }
+}
+
+enum class DiagVerdict {
+    /** A condition uploads need, and it holds. */
+    Ok,
+
+    /** A condition uploads need, and it does not hold. */
+    Blocking,
+
+    /** Context, neither good nor bad. */
+    Info,
+}
+
+data class DiagRow(
+    val label: String,
+    val value: String,
+    val verdict: DiagVerdict = DiagVerdict.Info,
+    /** Why this matters, when the label alone would not say. */
+    val note: String? = null,
+)
+
+/** Read the current picture. Cheap, but touches disk and WorkManager. */
+expect suspend fun collectUploadDiagnostics(): UploadDiagnostics

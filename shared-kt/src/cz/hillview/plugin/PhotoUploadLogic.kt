@@ -113,9 +113,28 @@ class PhotoUploadLogic(internal val context: Context) {
 	)
 
 
+	/**
+	 * A one-line record of the last drain, for the upload-status page. The
+	 * page is deliberately made of things something already knows, and
+	 * "when did a drain last run, and how did it end" was the one fact
+	 * nothing kept — WorkManager reports its own scheduling, not ours.
+	 */
+	private fun recordDrain(trigger: String, result: String) {
+		try {
+			prefs.edit()
+				.putLong("last_drain_at", System.currentTimeMillis())
+				.putString("last_drain_trigger", trigger)
+				.putString("last_drain_result", result)
+				.apply()
+		} catch (e: Exception) {
+			Log.w(TAG, "could not record the drain outcome", e)
+		}
+	}
+
 	suspend fun doWorkInternal(triggerSource: String, photoId: String?, onProgress: ((String) -> Unit)? = null, onBeforePhoto: (suspend () -> Unit)? = null): androidx.work.ListenableWorker.Result {
 		workerMutex.withLock {
 
+			recordDrain(triggerSource, "started")
 			try {
 
 				Log.d(
@@ -368,15 +387,18 @@ class PhotoUploadLogic(internal val context: Context) {
 
 				if (workerBusy) {
 					Log.d(TAG, "Worker busy — letting WorkManager reschedule the drain")
+					recordDrain(triggerSource, "worker busy, will retry")
 					return ListenableWorker.Result.retry()
 				}
 
 				if (networkDeferred) {
 					Log.d(TAG, "Metered network with wifi-only — letting WorkManager reschedule the drain")
+					recordDrain(triggerSource, "deferred: metered network, Wi-Fi only is on")
 					return ListenableWorker.Result.retry()
 				}
 
 				Log.d(TAG, "Photo upload worker completed successfully")
+				recordDrain(triggerSource, "completed, $uploadedCount uploaded")
 				return ListenableWorker.Result.success()
 
 			} catch (e: CancellationException) {
@@ -386,6 +408,7 @@ class PhotoUploadLogic(internal val context: Context) {
 				throw e
 			} catch (e: Exception) {
 				Log.e(TAG, "Photo upload worker failed", e)
+				recordDrain(triggerSource, "failed: ${e.message ?: e::class.simpleName}")
 				return ListenableWorker.Result.retry()
 			}
 		}
