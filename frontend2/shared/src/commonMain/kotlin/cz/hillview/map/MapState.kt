@@ -51,12 +51,27 @@ enum class LocationTracking { Off, Active, Background }
 class MapStateHolder(
     initialSpatial: SpatialState = SpatialState(),
     initialBearing: BearingState = BearingState(),
+    /**
+     * The persist boundary. These two update functions are the app's single
+     * write funnel for position and heading — the analog of
+     * `updateSpatialState`/`updateBearing` in the original's mapState.ts,
+     * which do three jobs in ONE call: update the state, push the election,
+     * and write the tracking-table row. Because the row write is a side
+     * effect of the state write, a user-set value cannot end up meaning one
+     * thing in the state and another in the table.
+     */
+    private val sink: TrackingSink = TrackingSink.Noop,
 ) {
     private val _spatial = MutableStateFlow(initialSpatial)
     val spatial: StateFlow<SpatialState> = _spatial.asStateFlow()
 
     private val _bearing = MutableStateFlow(initialBearing)
     val bearing: StateFlow<BearingState> = _bearing.asStateFlow()
+
+    // The last election handed to the sink, so we push on CHANGE only: these
+    // funnels run at sensor rate, the election does not.
+    private var lastElectedBearing: String? = null
+    private var lastElectedLocation: String? = null
 
     /**
      * Dedups ignoring [SpatialState.ts] — this is the terminal break of the
@@ -79,6 +94,17 @@ class MapStateHolder(
         )
         if (candidate.copy(ts = null) == old.copy(ts = null)) return false
         _spatial.value = candidate.copy(ts = if (setTimestamp) now else old.ts)
+        // A fix moving the map is the ENGINE's stream, already recorded at
+        // full rate; anything else is the user placing themselves, and that
+        // pan IS the act of electing the map position — so the row carries
+        // its own election and cannot be stamped with the era it ends.
+        if (source != "gps") {
+            val table = toTableSource(source)
+            elect(table.source, bearing = false)
+            sink.writeLocationRow(latitude, longitude, table.source, table.detail, now)
+        } else {
+            elect("android", bearing = false)
+        }
         return true
     }
 
@@ -103,6 +129,29 @@ class MapStateHolder(
             accuracyLevel = accuracyLevel,
             ts = if (setTimestamp) now else old.ts,
         )
+        // "Whoever wrote the bearing last IS the elected source" — the
+        // original's rule, and it gives "not elected while still starting up"
+        // for free: a stream that has produced no reading has not called this.
+        val table = toTableSource(source)
+        elect(table.source, bearing = true)
+        // …but only echo what the engine does not already record itself.
+        if (!engineOwnsSource(source)) {
+            sink.writeBearingRow(
+                normalizeBearing(bearing), table.source, table.detail, accuracyLevel, now,
+            )
+        }
+    }
+
+    private fun elect(source: String, bearing: Boolean) {
+        if (bearing) {
+            if (source == lastElectedBearing) return
+            lastElectedBearing = source
+            sink.electBearingSource(source)
+        } else {
+            if (source == lastElectedLocation) return
+            lastElectedLocation = source
+            sink.electLocationSource(source)
+        }
     }
 
     /** Preserves source, photoUid and accuracy unless overridden. */

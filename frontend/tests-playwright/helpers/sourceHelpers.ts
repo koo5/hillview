@@ -126,7 +126,7 @@ export async function waitForSourceDataLoad(page: Page, timeoutMs: number = 1500
         // Wait for photo markers to appear on the map (set by the photo worker)
         await page.waitForFunction(() => {
             return document.querySelectorAll('.leaflet-marker-icon').length > 0;
-        }, { timeout: T(timeoutMs) });
+        }, undefined, { timeout: T(timeoutMs) });
 
         console.log('🗺️ Source data loading complete');
     } catch (error) {

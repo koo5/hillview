@@ -33,7 +33,21 @@ val appModule = module {
     // One per process: tracking has to survive moving between the map and
     // capture, which is a different lifetime from either screen.
     single { cz.hillview.map.MapSession() }
-    viewModel { LoginViewModel(get()) }
+    // The live map camera/bearing state — ONE holder, shared by the map
+    // pane and the capture pane (follow-me, the manual-position claim),
+    // restored from the persisted store at first use. The Tauri app has the
+    // same shape: one spatialState store, everything reads and writes it.
+    // The sink is the funnel's persist boundary: the election and the
+    // tracking row for user-set values are side effects of the state write,
+    // so they cannot drift apart. Android binds RoomTrackingSink in its
+    // platform module; desktop keeps the no-op default.
+    single {
+        val sink = getOrNull<cz.hillview.map.TrackingSink>() ?: cz.hillview.map.TrackingSink.Noop
+        get<cz.hillview.map.MapStateStore>().load()
+            ?.let { (spatial, bearing) -> cz.hillview.map.MapStateHolder(spatial, bearing, sink) }
+            ?: cz.hillview.map.MapStateHolder(sink = sink)
+    }
+    viewModel { LoginViewModel(get(), get()) }
 }
 
 fun initKoin(config: KoinAppDeclaration? = null) {

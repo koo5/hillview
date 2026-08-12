@@ -4,6 +4,7 @@ import {
 	buildHeadTitle,
 	buildHeadDescription,
 	buildAnnotationSummary,
+	titleUsesPlace,
 	firstAnnotationText,
 	annotationKeywords,
 	dedupeCaseInsensitive,
@@ -60,6 +61,23 @@ describe('displayTitle', () => {
 
 	// An untitled photo takes its public title from the annotations, so a leading
 	// coordinate segment must not become the <h1>/og:title.
+	it('prefers the reverse-geocoded place over a camera filename', () => {
+		// On /bestof this string is also the anchor text of the link to the photo's
+		// page, so a filename there was describing that page as "036A8750.webp"
+		expect(displayTitle(photo({ place_name: 'Sedlec, Kutná Hora', original_filename: '036A8750.webp' })))
+			.toBe('Sedlec, Kutná Hora');
+		// a landmark and a place answer different questions, so they are joined
+		expect(
+			displayTitle(photo({ place_name: 'Sedlec, Kutná Hora', original_filename: 'x.jpg' }), [ann('Chrám svaté Barbory')])
+		).toBe('Chrám svaté Barbory — Sedlec, Kutná Hora');
+		// author-written text is a caption already and gets no place suffix
+		expect(
+			displayTitle(photo({ title: 'Havířská Bouda -> jih', place_name: 'Sedlec, Kutná Hora', original_filename: 'x.jpg' }))
+		).toBe('Havířská Bouda -> jih');
+		// and the filename remains the last resort before 'Photo'
+		expect(displayTitle(photo({ original_filename: 'x.jpg' }))).toBe('x.jpg');
+	});
+
 	it('skips a bare coordinate segment when borrowing a title from annotations', () => {
 		expect(displayTitle(photo({ original_filename: 'x.jpg' }), [ann('49.9561603N, 15.2874025E|Izomat')]))
 			.toBe('Izomat');
@@ -125,6 +143,31 @@ describe('buildHeadDescription', () => {
 
 	it('has a generic fallback when nothing is known', () => {
 		expect(buildHeadDescription(photo({}))).toBe('Photo on Hillview');
+	});
+});
+
+describe('titleUsesPlace', () => {
+	// Drives the ODbL credit: it must answer "is a place name on screen", not
+	// "is one stored" — otherwise every photo with a title of its own would
+	// still claim to be displaying OpenStreetMap data.
+	it('is true only when the place actually reaches the title', () => {
+		const place = 'Sedlec, Kutná Hora';
+		expect(titleUsesPlace(photo({ place_name: place, original_filename: 'x.jpg' }))).toBe(true);
+		expect(titleUsesPlace(photo({ place_name: place, title: 'Havířská Bouda' }))).toBe(false);
+		expect(titleUsesPlace(photo({ place_name: place, description: 'Pohled na Kutnou Horu' }))).toBe(false);
+	});
+
+	it('stays true when the place is joined to a landmark', () => {
+		expect(
+			titleUsesPlace(photo({ place_name: 'Sedlec, Kutná Hora', original_filename: 'x.jpg' }), [
+				ann('Chrám svaté Barbory')
+			])
+		).toBe(true);
+	});
+
+	it('is false when there is no place at all', () => {
+		expect(titleUsesPlace(photo({ original_filename: 'x.jpg' }))).toBe(false);
+		expect(titleUsesPlace(photo({}), [ann('Petřín')])).toBe(false);
 	});
 });
 

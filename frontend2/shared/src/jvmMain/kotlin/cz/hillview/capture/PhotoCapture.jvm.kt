@@ -17,8 +17,21 @@ private class DesktopPhotoCapture : PhotoCapture {
     )
 
     override var manualLocation: ManualLocation? = null
+    override var manualLocationElected: Boolean = false
+    override var exposureRule: ExposureRule? = null
+    override var ecoPreviewFps: Float? = null
+    override var focusInfinity: Boolean = false
+    override var stampBearing: StampBearing? = null
+
+    override fun selectResolution(resolution: CaptureResolution?) {}
+
+    override suspend fun prepareExposure() {}
 
     override fun capture() {}
+
+    override fun startVideo() {}
+
+    override fun stopVideo() {}
 
     @Composable
     override fun CameraPane(modifier: Modifier) {

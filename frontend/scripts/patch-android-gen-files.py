@@ -10,6 +10,7 @@ Usage: python3 scripts/patch-android-gen-files.py
 """
 
 import os
+import subprocess
 import sys
 import xml.etree.ElementTree as ET
 import xml.dom.minidom as minidom
@@ -27,7 +28,6 @@ class AndroidConfigurer:
 		self.root_build_gradle_file = self.android_root / "build.gradle.kts"
 		self.buildsrc_build_gradle_file = self.android_root / "buildSrc" / "build.gradle.kts"
 		self.gradle_properties_file = self.android_root / "gradle.properties"
-		self.plugin_build_gradle_file = project_root / "tauri-plugin-hillview" / "android" / "build.gradle.kts"
 		self.colors_file = self.android_root / "app" / "src" / "main" / "res" / "values" / "colors.xml"
 		self.gitignore_file = project_root / ".gitignore"
 
@@ -38,11 +38,27 @@ class AndroidConfigurer:
 		# Must be r28+; must exist under $ANDROID_HOME/ndk/.
 		self.ndk_version = "29.0.13113456"
 
+		# Any Android target emits the same gradle glue (the generated file lists
+		# projectDirs, not ABIs), so this only decides which target's metadata
+		# cargo warms up. aarch64 is what real devices build.
+		self.bootstrap_target = "aarch64-linux-android"
+
 		# Keep dev-tree targetSdk aligned with the release tree. Tauri's
 		# generated app build.gradle.kts defaults to whatever AGP ships,
-		# which has drifted behind the release worktree. Bump this when
-		# release bumps (grep for `targetSdk =` in the sibling worktree).
-		self.target_sdk = 35
+		# which used to drift behind the release worktree -- as of CLI
+		# 2.11.4 the template ships 36 itself, so this pin now mostly guards
+		# against a CLI downgrade. 36 matches frontend2 and the Play Store
+		# target-API requirement.
+		self.target_sdk = 36
+
+		# compileSdk is likewise generated from AGP's default (34 with AGP
+		# 8.5.1) and must be pinned here, or the app module silently lags
+		# behind tauri-plugin-hillview/android/build.gradle.kts. AAR metadata
+		# checks are unforgiving about this: androidx.work 2.10.5 (pulled in
+		# by the plugin) requires every consumer to compile against 35+, so a
+		# stale app module fails :app:checkUniversalDebugAarMetadata. Keep in
+		# lockstep with the plugin's `compileSdk`.
+		self.compile_sdk = 36
 
 		# Google Services configuration paths
 		self.google_services_target = self.android_root / "app" / "google-services.json"
@@ -539,9 +555,14 @@ class AndroidConfigurer:
 		if not self._fix_app_build_gradle():
 			success = False
 
-		# Fix plugin build.gradle.kts
-		if not self._fix_plugin_build_gradle():
-			success = False
+		# tauri-plugin-hillview/android/build.gradle.kts deliberately gets no
+		# patching here. It is a checked-in, hand-maintained source file -- the
+		# tauri plugin scaffold it grew out of is never re-run, and nothing else
+		# regenerates it (tauri-plugin's build.rs only copies .tauri/tauri-api).
+		# This used to rewrite it anyway, which reverted the kapt schemaLocation
+		# and dropped its comments on every debug-init.sh. Version pins that must
+		# agree between it and the app module (Kotlin 2.0.20, jvmTarget 1.8) are
+		# now stated in that file only; a disagreement fails gradle loudly.
 
 		return success
 
@@ -762,11 +783,8 @@ if (file("google-services.json").exists()) {
 			self.log(f"Error fixing app build.gradle.kts: {e}", "ERROR")
 			return False
 
-	def _set_target_sdk(self) -> bool:
-		"""Rewrite `targetSdk = N` in the generated app build.gradle.kts to
-		match the release tree (self.target_sdk). Tauri's generator sets
-		this from AGP's default, which has lagged behind the release config.
-		"""
+	def _set_sdk_level(self, field: str, level: int) -> bool:
+		"""Rewrite `<field> = N` in the generated app build.gradle.kts."""
 		if not self.build_gradle_file.exists():
 			self.log(f"App build.gradle.kts not found at {self.build_gradle_file}", "ERROR")
 			return False
@@ -775,27 +793,42 @@ if (file("google-services.json").exists()) {
 			content = self.build_gradle_file.read_text()
 			original = content
 
-			pattern = r'(targetSdk\s*=\s*)\d+'
+			pattern = rf'({field}\s*=\s*)\d+'
 			match = re.search(pattern, content)
 			if not match:
-				self.log("targetSdk assignment not found in app build.gradle.kts", "WARNING")
+				self.log(f"{field} assignment not found in app build.gradle.kts", "WARNING")
 				return True
 
 			current = int(re.search(r'\d+', match.group(0)).group(0))
-			if current == self.target_sdk:
-				self.log(f"targetSdk already = {self.target_sdk}", "SUCCESS")
+			if current == level:
+				self.log(f"{field} already = {level}", "SUCCESS")
 				return True
 
-			content = re.sub(pattern, rf'\g<1>{self.target_sdk}', content, count=1)
+			content = re.sub(pattern, rf'\g<1>{level}', content, count=1)
 			if content != original:
 				self.build_gradle_file.write_text(content)
-				self.log(f"Bumped targetSdk {current} → {self.target_sdk}", "SUCCESS")
+				self.log(f"Bumped {field} {current} → {level}", "SUCCESS")
 
 			return True
 
 		except Exception as e:
-			self.log(f"Error setting targetSdk: {e}", "ERROR")
+			self.log(f"Error setting {field}: {e}", "ERROR")
 			return False
+
+	def _set_target_sdk(self) -> bool:
+		"""Rewrite `targetSdk = N` in the generated app build.gradle.kts to
+		match the release tree (self.target_sdk). Tauri's generator sets
+		this from AGP's default, which has lagged behind the release config.
+		"""
+		return self._set_sdk_level("targetSdk", self.target_sdk)
+
+	def _set_compile_sdk(self) -> bool:
+		"""Rewrite `compileSdk = N` in the generated app build.gradle.kts to
+		match the plugin module (self.compile_sdk). Same drift story as
+		targetSdk, but this one breaks the build outright rather than just
+		the runtime behaviour opt-in — see the field's comment.
+		"""
+		return self._set_sdk_level("compileSdk", self.compile_sdk)
 
 	def _patch_16kb_alignment(self) -> bool:
 		"""Pin NDK and disable legacy jniLibs packaging for 16 KB ELF page alignment.
@@ -844,109 +877,6 @@ if (file("google-services.json").exists()) {
 			self.log(f"Error patching 16KB alignment: {e}", "ERROR")
 			return False
 
-	def _fix_plugin_build_gradle(self) -> bool:
-		"""Fix plugin build.gradle.kts for Kotlin 2.x compatibility and add Firebase dependencies"""
-		if not self.plugin_build_gradle_file.exists():
-			self.log(f"Plugin build.gradle.kts not found at {self.plugin_build_gradle_file}", "WARNING")
-			return True
-
-		try:
-			content = self.plugin_build_gradle_file.read_text()
-			original_content = content
-
-			# Update Kotlin serialization plugin version
-			serialization_pattern = r'id\("org\.jetbrains\.kotlin\.plugin\.serialization"\) version "[\d\.]+"\)?'
-			new_serialization = 'id("org.jetbrains.kotlin.plugin.serialization") version "2.0.20"'
-
-			if re.search(serialization_pattern, content):
-				content = re.sub(serialization_pattern, new_serialization, content)
-				self.log("Updated Kotlin serialization plugin to 2.0.20", "SUCCESS")
-
-			# Remove Google Services plugin if present (it should only be in root build.gradle.kts)
-			if 'id("com.google.gms.google-services")' in content:
-				# Remove the Google Services plugin line
-				google_services_pattern = r'\s*id\("com\.google\.gms\.google-services"\)[^\n]*\n?'
-				content = re.sub(google_services_pattern, '', content)
-				self.log("Removed Google Services plugin from plugin build.gradle.kts (should only be in root)", "SUCCESS")
-			else:
-				self.log("Google Services plugin correctly not present in plugin build.gradle.kts", "SUCCESS")
-
-			# Add Firebase dependencies (using stable versions that resolve correctly)
-			firebase_deps = [
-				'implementation(platform("com.google.firebase:firebase-bom:32.7.0"))',
-				'implementation("com.google.firebase:firebase-messaging-ktx")'
-			]
-
-			firebase_missing = []
-			for dep in firebase_deps:
-				if dep not in content:
-					firebase_missing.append(dep)
-
-			if firebase_missing:
-				# Find the position after UnifiedPush dependency to add Firebase deps
-				unifiedpush_pattern = r'(implementation\("org\.unifiedpush\.android:connector:[^"]+"\))'
-				if re.search(unifiedpush_pattern, content):
-					firebase_block = '\n\n    // Firebase Cloud Messaging for direct FCM support\n    ' + '\n    '.join(firebase_missing)
-					replacement = r'\1' + firebase_block
-					content = re.sub(unifiedpush_pattern, replacement, content)
-					self.log(f"Added Firebase dependencies: {len(firebase_missing)} items", "SUCCESS")
-				else:
-					self.log("Could not find position to add Firebase dependencies", "WARNING")
-			else:
-				self.log("All Firebase dependencies already present", "SUCCESS")
-
-			# Update forced Kotlin versions
-			for version in ["1.9.25", "2.0.21", "2.2.0"]:
-				content = content.replace(f'kotlin-stdlib:{version}"', 'kotlin-stdlib:2.0.20"')
-				content = content.replace(f'kotlin-stdlib-jdk8:{version}"', 'kotlin-stdlib-jdk8:2.0.20"')
-				content = content.replace(f'kotlin-stdlib-jdk7:{version}"', 'kotlin-stdlib-jdk7:2.0.20"')
-				content = content.replace(f'kotlin-reflect:{version}"', 'kotlin-reflect:2.0.20"')
-
-			# Fix KAPT arguments block for Kotlin 2.x compatibility
-			kapt_block_pattern = r'kapt\s*\{[^}]*arguments\s*\{[^}]*\}[^}]*correctErrorTypes\s*=\s*true[^}]*\}'
-			kapt_new_block = '''kapt {
-    arguments {
-        arg("room.schemaLocation", "$projectDir/schemas")
-    }
-    correctErrorTypes = true
-}'''
-
-			if re.search(kapt_block_pattern, content, re.DOTALL):
-				content = re.sub(kapt_block_pattern, kapt_new_block, content, flags=re.DOTALL)
-				self.log("Fixed KAPT arguments block for Kotlin 2.x", "SUCCESS")
-
-			# Ensure kotlinOptions.jvmTarget is set correctly
-			if "kotlinOptions" not in content:
-				# Add kotlinOptions block after compileOptions
-				compile_options_pattern = r'(compileOptions\s*\{[^}]*\}\s*)'
-				kotlin_options_block = '''    kotlinOptions {
-        jvmTarget = "1.8"
-    }
-'''
-				if re.search(compile_options_pattern, content, re.DOTALL):
-					replacement = r'\1' + kotlin_options_block
-					content = re.sub(compile_options_pattern, replacement, content, flags=re.DOTALL)
-					self.log("Added kotlinOptions with jvmTarget 1.8", "SUCCESS")
-			else:
-				# Update existing kotlinOptions to ensure jvmTarget is 1.8
-				kotlin_options_pattern = r'kotlinOptions\s*\{[^}]*\}'
-				kotlin_options_replacement = '''kotlinOptions {
-        jvmTarget = "1.8"
-    }'''
-				if re.search(kotlin_options_pattern, content, re.DOTALL):
-					content = re.sub(kotlin_options_pattern, kotlin_options_replacement, content, flags=re.DOTALL)
-					self.log("Fixed kotlinOptions jvmTarget to 1.8", "SUCCESS")
-
-			if content != original_content:
-				self.plugin_build_gradle_file.write_text(content)
-				self.log("Updated plugin with Kotlin 2.0.20 and Firebase dependencies", "SUCCESS")
-
-			return True
-
-		except Exception as e:
-			self.log(f"Error fixing plugin build.gradle.kts: {e}", "ERROR")
-			return False
-
 	def copy_google_services_json(self) -> bool:
 		"""Copy google-services.json from source directory based on DEV_MODE"""
 		self.log("Copying google-services.json...")
@@ -979,6 +909,79 @@ if (file("google-services.json").exists()) {
 			self.log(f"Error copying google-services.json: {e}", "ERROR")
 			return False
 
+	def bootstrap_gradle_glue(self) -> bool:
+		"""Generate the two tauri-owned gradle files by running one Android cargo check.
+
+		gen/android/settings.gradle ends with `apply from: 'tauri.settings.gradle'`
+		and gen/android/app/build.gradle.kts with `apply(from = "tauri.build.gradle.kts")`,
+		but NEITHER of those files comes from `tauri android init` -- tauri-build
+		writes them from build.rs while the app crate is compiled for an Android
+		target (tauri-build/src/mobile.rs::generate_gradle_files). They are what
+		declares the :tauri-android and :tauri-plugin-* subprojects, so until they
+		exist gradle cannot even configure the project: every task, including
+		`bun run test:plugin-unit`, dies with
+
+		    Could not read script '.../gen/android/tauri.settings.gradle'
+
+		scripts/android/cleanup.sh wipes src-tauri/gen at the start of every init,
+		so this has to be redone here -- otherwise the first `dev.sh` after an init
+		deadlocks, its check:quick gate needing the very build it gates.
+
+		`cargo check` is enough (build scripts run, nothing links) and is seconds
+		warm, because cleanup.sh leaves src-tauri/target alone.
+		"""
+		crate_dir = self.project_root / "src-tauri"
+		build_rs = crate_dir / "build.rs"
+		glue = [
+			self.android_root / "tauri.settings.gradle",
+			self.android_root / "app" / "tauri.build.gradle.kts",
+		]
+
+		env = dict(os.environ)
+		env["TAURI_ANDROID_PROJECT_PATH"] = str(self.android_root)
+
+		cmd = ["cargo", "check", "--lib", "--target", self.bootstrap_target]
+
+		def check() -> Optional[int]:
+			"""Run the cargo check; None means cargo itself is missing."""
+			try:
+				return subprocess.run(cmd, cwd=crate_dir, env=env).returncode
+			except FileNotFoundError:
+				return None
+
+		self.log(f"Running `{' '.join(cmd)}` to emit the gradle glue...", "INFO")
+		code = check()
+
+		if code is None:
+			self.log("cargo not found on PATH - cannot generate the gradle glue", "ERROR")
+			return False
+		if code != 0:
+			self.log(f"cargo check for {self.bootstrap_target} failed (exit {code})", "ERROR")
+			self.log(f"Is the rust target installed? `rustup target add {self.bootstrap_target}`", "WARNING")
+			return False
+
+		# cleanup.sh wipes src-tauri/gen but leaves src-tauri/target, so cargo can
+		# find the build script fresh and skip it -- and tauri-build declares no
+		# `rerun-if-env-changed=TAURI_ANDROID_PROJECT_PATH`, so nothing invalidates
+		# it on our behalf. Touching build.rs is the documented way to force one.
+		if any(not p.exists() for p in glue) and build_rs.exists():
+			self.log("Build script was cached; touching build.rs to force a re-run", "INFO")
+			build_rs.touch()
+			code = check()
+			if code != 0:
+				self.log(f"cargo check for {self.bootstrap_target} failed (exit {code})", "ERROR")
+				return False
+
+		missing = [p for p in glue if not p.exists()]
+		if missing:
+			self.log("cargo check succeeded but tauri-build wrote nothing:", "ERROR")
+			for p in missing:
+				self.log(f"  missing {p}", "ERROR")
+			return False
+
+		self.log("Generated tauri.settings.gradle and app/tauri.build.gradle.kts", "SUCCESS")
+		return True
+
 	def run(self) -> bool:
 
 		"""Run all configuration steps"""
@@ -988,10 +991,12 @@ if (file("google-services.json").exists()) {
 			return False
 
 		steps = [
+			("Bootstrap tauri gradle glue", self.bootstrap_gradle_glue),
 			("Fix AndroidManifest.xml", self.fix_android_manifest),
 			("Configure build.gradle.kts", self.configure_build_gradle),
 			("Patch colors.xml", self.patch_colors_xml),
 			("Fix Kotlin versions", self.fix_kotlin_versions),
+			("Set compileSdk", self._set_compile_sdk),
 			("Set targetSdk", self._set_target_sdk),
 			("Patch 16KB page alignment", self._patch_16kb_alignment),
 			("Copy google-services.json", self.copy_google_services_json),

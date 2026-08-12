@@ -18,7 +18,7 @@ const watchShared: Plugin = {
 export default defineConfig({
 	plugins: [sentrySvelteKit(), sveltekit(), watchShared],
 	server: {
-		allowedHosts: ["dev.hillview.cz","jj.hillview.cz","hillview.dev4.local"],
+		allowedHosts: ["dev.hillview.cz","jj.hillview.cz","hv.dev4.local","hv.jj.internal","hv.dev4.jj.internal"],
 		host: true,
 		// $zoomview resolves outside the project root; allow ONLY ../shared —
 		// never '..' (the repo root holds secrets/, and this dev server binds

@@ -24,7 +24,51 @@ data class MapSettings(
      * disables it until a filter is active, per the contract.
      */
     val showUnanalyzed: Boolean = true,
+    /**
+     * The eco toggle (the Leaf on the capture screen). Persisted like the
+     * Tauri `powerSaving` localStorage flag; its *effects* apply only while
+     * capturing — leaving capture restores normal behaviour with the
+     * toggle remembered.
+     */
+    val powerSavingPref: Boolean = false,
+    // The eco intensity the Leaf's long-press slider picks: 0 = the
+    // preview refreshes only on capture, 0.1..30 = an fps cap (duty-cycled
+    // below ECO_DUTY_MAX_FPS), 30 = the untouched default. Applied only
+    // while powerSavingPref is on. 15 = the pre-slider eco behaviour.
+    val ecoFps: Float = 15f,
+    // Per-source toggle overrides (the original's persisted sourceStates):
+    // absent = the source's own default (hillview/device on).
+    val sourceStates: Map<String, Boolean> = emptyMap(),
+    /** CameraOverlay backdrop level 0-5 (Tauri cameraOverlayOpacity). */
+    val cameraOverlayOpacity: Int = 3,
+    /** Pinned still size as "WxH"; null = auto (Tauri selectedResolution). */
+    val captureResolution: String? = null,
+    /**
+     * The Main page's activity — "view" or "capture" — persisted so the
+     * mode survives restarts, as the Tauri appSettings.activity does.
+     */
+    val mainActivity: String = "view",
+    /** The Main page's split position (photo panel %, Tauri splitPercent). */
+    val splitPercent: Float = 50f,
+    /**
+     * How often the fused provider is asked for a fix, milliseconds. Fed
+     * straight to the GeoEngine by BindGeoToActivity — one of the two knobs
+     * that decide what tracking costs in battery.
+     *
+     * It is also the RESOLUTION of everything downstream: a capture's stamp
+     * is only as fresh as the last fix, and the refiner interpolates between
+     * the two fixes bracketing the shutter, so widening this coarsens both.
+     * 1 s is what both apps have always used.
+     */
+    val gpsIntervalMs: Long = 1_000L,
 )
+
+/** The fix cadences the slider offers — 1 s (both apps' default) to 30 s. */
+val GPS_INTERVAL_CHOICES_MS: List<Long> =
+    listOf(1_000L, 2_000L, 5_000L, 10_000L, 30_000L)
+
+fun formatGpsInterval(ms: Long): String =
+    if (ms % 1000L == 0L) "${ms / 1000}s" else "${ms}ms"
 
 const val MIN_MAX_PHOTOS = 10
 const val MAX_MAX_PHOTOS = 1000

@@ -29,11 +29,13 @@
 		buildHeadTitle,
 		buildHeadDescription,
 		buildAnnotationSummary,
+		titleUsesPlace,
 		displayTitle,
 		type PublicPhoto,
 		type PhotoAnnotation
 	} from '$lib/photoDisplay';
 	import PhotoAnnotations from '$lib/components/PhotoAnnotations.svelte';
+	import PlaceAttribution from '$lib/components/PlaceAttribution.svelte';
 	import PhotoHead from '$lib/components/PhotoHead.svelte';
 	import JsonLd from '$lib/components/JsonLd.svelte';
 	import {
@@ -246,38 +248,43 @@
 		}
 	}
 
-	// --- Moderator metadata edit form (featured/title/description/bearing) ---
-	// Synced from the photo only when a different photo loads (guarded by uid),
-	// so in-progress edits survive the reassignments rating clicks make.
-	let modEditUid = '';
-	let modTitle = '';
-	let modDescription = '';
-	let modBearing: number | null = null;
-	let modFeatured = false;
-	let isSavingModEdit = false;
+	// --- Metadata edit form (title/description/bearing, plus mod-only featured) ---
+	// Owners edit their own photo; moderators edit any. Synced from the photo only
+	// when a different photo loads (guarded by uid), so in-progress edits survive
+	// the reassignments rating clicks make.
+	let editUid = '';
+	let editTitle = '';
+	let editDescription = '';
+	let editBearing: number | null = null;
+	let editFeatured = false;
+	let isSavingEdit = false;
 
-	$: if (photo && photo.uid !== modEditUid) {
-		modEditUid = photo.uid;
-		syncModEditForm(photo);
+	$: canEditPhoto = !!photo && photo.source === 'hillview' && (photo.is_own_photo || $isModerator);
+
+	$: if (photo && photo.uid !== editUid) {
+		editUid = photo.uid;
+		syncEditForm(photo);
 	}
 
-	function syncModEditForm(p: PublicPhoto) {
-		modTitle = p.title ?? '';
-		modDescription = p.description ?? '';
-		modBearing = p.bearing;
-		modFeatured = p.featured ?? false;
+	function syncEditForm(p: PublicPhoto) {
+		editTitle = p.title ?? '';
+		editDescription = p.description ?? '';
+		editBearing = p.bearing;
+		editFeatured = p.featured ?? false;
 	}
 
-	async function saveModeratorEdit() {
-		if (!photo || isSavingModEdit) return;
+	async function saveEdit() {
+		if (!photo || isSavingEdit) return;
 
-		isSavingModEdit = true;
+		isSavingEdit = true;
 		try {
+			// featured is moderator-only; sending it as a plain owner would be
+			// rejected the moment it differs from what's stored.
 			const response = await http.patch(`/photos/${photo.id}`, {
-				title: modTitle,
-				description: modDescription,
-				featured: modFeatured,
-				bearing: modBearing
+				title: editTitle,
+				description: editDescription,
+				bearing: editBearing,
+				...($isModerator ? { featured: editFeatured } : {})
 			});
 			if (!response.ok) {
 				const errorText = await response.text();
@@ -291,17 +298,17 @@
 				featured: updated.featured,
 				bearing: updated.bearing
 			};
-			syncModEditForm(photo);
+			syncEditForm(photo);
 			setStatus(
 				updated.changed.length ? `Saved: ${updated.changed.join(', ')}` : 'No changes to save',
 				false,
 				3000
 			);
 		} catch (err) {
-			console.error('🢄 Error saving moderator edit:', err);
+			console.error('🢄 Error saving photo edit:', err);
 			setStatus(`Save failed: ${handleApiError(err)}`, true, 5000);
 		} finally {
-			isSavingModEdit = false;
+			isSavingEdit = false;
 		}
 	}
 
@@ -429,6 +436,13 @@
 						</span>
 					{/if}
 				</div>
+
+				<!-- Next to the data it credits, and above the annotation list, which
+				     can run to dozens of rows — a credit below that is out of sight.
+				     Only when the heading actually draws on the geocoded place. -->
+				{#if titleUsesPlace(photo, annotations)}
+					<PlaceAttribution label="Place name" />
+				{/if}
 			</div>
 
 			<!-- Rating buttons (same as PhotoActionsMenu) -->
@@ -525,53 +539,60 @@
 				</div>
 			{/if}
 
-			<!-- Moderator-only metadata edit form with an explicit save. Hillview
-			     photos only — external sources can't be edited. -->
-			{#if $isModerator && photo.source === 'hillview'}
-				<div class="moderator-edit" data-testid="photo-moderator-edit">
-					<h3 class="moderator-edit-heading"><Pencil size={14} /> Moderation</h3>
-					<label class="mod-field">
+			<!-- Metadata edit form with an explicit save: owners edit their own
+			     photo, moderators any. Featured is a curation flag, so only
+			     moderators see it. Hillview photos only — external sources
+			     can't be edited. -->
+			{#if canEditPhoto}
+				<div class="photo-edit" data-testid="photo-edit-form">
+					<h3 class="photo-edit-heading">
+						<Pencil size={14} />
+						{photo.is_own_photo ? 'Edit details' : 'Edit details (moderator)'}
+					</h3>
+					<label class="edit-field">
 						<span>Title</span>
 						<input
 							type="text"
-							bind:value={modTitle}
-							data-testid="photo-moderator-title-input"
+							bind:value={editTitle}
+							data-testid="photo-edit-title-input"
 						/>
 					</label>
-					<label class="mod-field">
+					<label class="edit-field">
 						<span>Description</span>
 						<textarea
 							rows="3"
-							bind:value={modDescription}
-							data-testid="photo-moderator-description-input"
+							bind:value={editDescription}
+							data-testid="photo-edit-description-input"
 						></textarea>
 					</label>
-					<div class="mod-field-row">
-						<label class="mod-field bearing">
+					<div class="edit-field-row">
+						<label class="edit-field bearing">
 							<span>Bearing°</span>
 							<input
 								type="number"
 								step="any"
 								placeholder="unchanged"
-								bind:value={modBearing}
-								data-testid="photo-moderator-bearing-input"
+								bind:value={editBearing}
+								data-testid="photo-edit-bearing-input"
 							/>
 						</label>
-						<label class="mod-checkbox">
-							<input
-								type="checkbox"
-								bind:checked={modFeatured}
-								data-testid="photo-moderator-featured-checkbox"
-							/>
-							<span>Featured</span>
-						</label>
+						{#if $isModerator}
+							<label class="edit-checkbox">
+								<input
+									type="checkbox"
+									bind:checked={editFeatured}
+									data-testid="photo-edit-featured-checkbox"
+								/>
+								<span>Featured</span>
+							</label>
+						{/if}
 						<button
 							class="action-button save"
-							on:click={saveModeratorEdit}
-							disabled={isSavingModEdit}
-							data-testid="photo-moderator-save-button"
+							on:click={saveEdit}
+							disabled={isSavingEdit}
+							data-testid="photo-edit-save-button"
 						>
-							{isSavingModEdit ? 'Saving…' : 'Save'}
+							{isSavingEdit ? 'Saving…' : 'Save'}
 						</button>
 					</div>
 				</div>
@@ -766,13 +787,13 @@
 		border-color: #fde68a;
 	}
 
-	.moderator-edit {
+	.photo-edit {
 		margin-top: 16px;
 		padding-top: 16px;
 		border-top: 1px solid #eee;
 	}
 
-	.moderator-edit-heading {
+	.photo-edit-heading {
 		display: flex;
 		align-items: center;
 		gap: 6px;
@@ -782,7 +803,7 @@
 		color: #4f46e5;
 	}
 
-	.mod-field {
+	.edit-field {
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
@@ -791,8 +812,8 @@
 		color: #555;
 	}
 
-	.mod-field input,
-	.mod-field textarea {
+	.edit-field input,
+	.edit-field textarea {
 		padding: 6px 8px;
 		border: 1px solid #d1d5db;
 		border-radius: 4px;
@@ -801,22 +822,22 @@
 		color: #1f2937;
 	}
 
-	.mod-field-row {
+	.edit-field-row {
 		display: flex;
 		gap: 16px;
 		align-items: center;
 		flex-wrap: wrap;
 	}
 
-	.mod-field-row .mod-field {
+	.edit-field-row .edit-field {
 		margin-bottom: 0;
 	}
 
-	.mod-field.bearing input {
+	.edit-field.bearing input {
 		width: 110px;
 	}
 
-	.mod-checkbox {
+	.edit-checkbox {
 		display: flex;
 		align-items: center;
 		gap: 6px;

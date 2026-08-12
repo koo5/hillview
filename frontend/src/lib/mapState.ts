@@ -366,20 +366,19 @@ function calculateAbsBearingDiff(bearing1: number, bearing2: number): number {
 }
 
 
-// Tracks the in-flight transition that tells Kotlin whether GPS rows are logged
-// as foreground ("gps") or background ("gps-background"). On the ACTIVE→BACKGROUND
-// pan we must guarantee Kotlin has stopped writing foreground GPS rows BEFORE the
-// manual 'map' location is written — otherwise a late foreground GPS row could beat
-// the manual location in the external-photo "latest non-bg entry wins" pairing.
-// Every 'map' table write below awaits this, so it holds even across rapid pans.
-let pendingLoggingSwitch: Promise<void> = Promise.resolve();
-
-export function setLocationLoggingMode(mode: 'active' | 'background'): Promise<void> {
-	if (!TAURI) return pendingLoggingSwitch;
-	pendingLoggingSwitch = invoke('plugin:hillview|cmd', {command: 'set_location_logging_mode', params: {mode}})
-		.then(() => {})
-		.catch(e => { console.error('Error invoking set_location_logging_mode in Tauri:', e); });
-	return pendingLoggingSwitch;
+// Tell Kotlin which source is primary for locations from now on. Panning the map
+// away elects 'manual' — GPS keeps recording, it just is not what the app is
+// using — and returning to follow-me elects 'android' again.
+//
+// This replaces setLocationLoggingMode, which said the same thing by renaming
+// rows to "gps-background", and with it goes the pendingLoggingSwitch promise
+// that had to sequence the rename against the manual row it was racing. There
+// is no race left to lose: the manual pan row carries its own election (see
+// updateSpatialState), so it cannot be stamped with the era it ends.
+export function setElectedLocationSource(source: 'android' | 'manual'): void {
+	if (!TAURI) return;
+	invoke('plugin:hillview|cmd', {command: 'set_elected_location_source', params: {source}})
+		.catch(e => { console.error('Error invoking set_elected_location_source in Tauri:', e); });
 }
 
 // Update functions with selective reactivity
@@ -400,15 +399,18 @@ export async function updateSpatialState(updates: Partial<SpatialState>, source:
 		const state = get(spatialState);
 		try
 		{
-			// Ordering guarantee: if an ACTIVE→BACKGROUND logging switch is in
-			// flight, let it land first so this manual location is the latest
-			// non-background row. Resolved (no-op) outside that transition.
-			await pendingLoggingSwitch;
+			// A manual pan IS the act of electing the map position, so the row
+			// carries the election with it. Kotlin applies it before inserting,
+			// which is what removed the old ordering hazard: this row can no
+			// longer be stamped with the era it is ending.
+			const table = toTableSource('map');
 			await invoke('plugin:hillview|cmd', {command: 'update_location', params: {
 				timestamp: Date.now(),
 				latitude: state.center.lat,
 				longitude: state.center.lng,
-				source: 'map'
+				source: table.source,
+				detail: table.detail,
+				elected: table.source
 			}});
 		}
 		catch (e)
@@ -417,6 +419,58 @@ export async function updateSpatialState(updates: Partial<SpatialState>, source:
 		}
 	}
 }
+
+/*
+The tracking tables speak a deliberately coarse vocabulary: `source` is the
+elect-able identity (android | gps-kalman | manual) and `detail` is provenance
+within it. The app's own bearing sources are finer — map, arrow_drag, url,
+featured, photo_navigation — and they stay that way in bearingState, which
+drives the UI and the EXIF bearing_source. They collapse to 'manual' only
+here, at the boundary where a row is persisted, so that "re-query for the
+elected source" stays a plain equality rather than a lookup table.
+
+Every source reaches this function, including the ones Kotlin owns: it answers
+"which source is elected" as well as "how is this row labelled", and car mode
+electing gps-kalman is exactly the case that matters. Only the ROW WRITE is
+gated, by kotlinOwnsSource above.
+
+The web DeviceOrientation fallback DOES reach here (startCompassInternal drops
+to it when the native sensor won't start, and WEB_DEVICE_ORIENTATION mode picks
+it outright). It is still the phone's compass — the user elects "walking
+compass", not an API — so it elects as `android`, with the API that produced it
+kept as detail. The '-compass-' test mirrors how currentCompassHeading builds
+these names in compass.svelte.ts; the two must move together.
+*/
+/*
+Sources Kotlin writes to the tracking tables itself, so echoing them from here
+would file a SECOND row for the same sample.
+
+android*: the native sensor stream. gps-kalman: the composed car-mode heading,
+written by feedLocationForHeadingFilter against the fix's own location.time —
+whereas an echo from here is stamped Date.now() at event-delivery, so the two
+land at different milliseconds and the composite key faithfully keeps both
+instead of collapsing them. The frontend still owns the VALUE (it drives the
+arrow and the stamp); it just isn't the one recording it.
+
+Mirrored by is_sensor_bearing_source() in src-tauri/src/device_photos.rs, and
+the two are meant to stay identical: together they say that a source we echo
+into the table is one whose frontend value Rust trusts, and a source Kotlin
+owns is one Rust looks up in the table instead. Change one, change the other.
+*/
+// Exported for mapState.test.ts — it is half of the one-rule-two-languages
+// invariant above, and the test is where that invariant is written down.
+export function kotlinOwnsSource(source: string): boolean {
+	return source.startsWith('android') || source === 'gps-kalman';
+}
+
+export function toTableSource(source: string): {source: string; detail: string} {
+	if (source === 'gps-kalman') return {source: 'gps-kalman', detail: ''};
+	if (source.includes('-compass-')) return {source: 'android', detail: source};
+	return {source: 'manual', detail: source};
+}
+
+// The elected bearing source last handed to Kotlin, so we only push on change.
+let lastElectedBearingSource: string | null = null;
 
 export function updateBearing(bearing: number, source: string = 'map', photoUid?: string, accuracy_level?: number | null, setTimestamp: boolean = true) {
 	//console.log('🢄📍 updateBearing called:', bearing, source, accuracy_level);
@@ -428,11 +482,26 @@ export function updateBearing(bearing: number, source: string = 'map', photoUid?
 		accuracy_level,
 		ts: setTimestamp ? Date.now() : state.ts,
 	}));
-	if (!source.startsWith('android') && TAURI) {
+	const table = toTableSource(source);
+	// Whoever wrote the bearing last IS the elected source — that is what
+	// bearingState.source has always meant here, and it gives the "not elected
+	// while still starting up" rule for free: a stream that has produced no
+	// reading has not called this function, so it cannot have been elected.
+	// Pushed on change only; this runs at sensor rate, the election does not.
+	if (table.source !== lastElectedBearingSource) {
+		lastElectedBearingSource = table.source;
+		if (TAURI) {
+			invoke('plugin:hillview|cmd', {command: 'set_elected_bearing_source', params: {source: table.source}})
+				.catch(err => console.error('🢄📍 Failed to set elected bearing source:', err));
+		}
+	}
+	if (!kotlinOwnsSource(source) && TAURI) {
 		invoke('plugin:hillview|cmd', {command: 'update_orientation', params: {
 			timestamp: Date.now(),
 			trueHeading: bearing,
-			source: source,
+			source: table.source,
+			detail: table.detail,
+			elected: table.source,
 			accuracyLevel: accuracy_level
 		}}).catch(err => console.error('🢄📍 Failed to update orientation:', err));
 	}

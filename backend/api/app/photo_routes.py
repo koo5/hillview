@@ -1065,38 +1065,36 @@ async def delete_photo(
 		)
 
 
-class PhotoModerationEditRequest(BaseModel):
+class PhotoEditRequest(BaseModel):
 	# None = leave unchanged. An empty/whitespace title or description clears
-	# the field (moderators may need to strip an offensive title).
+	# the field (an owner retitling, or a moderator stripping abusive text).
 	title: Optional[str] = None
 	description: Optional[str] = None
-	featured: Optional[bool] = None
+	featured: Optional[bool] = None  # moderator-only; see the gate below
 	bearing: Optional[float] = None  # degrees; normalized into [0, 360)
 	reason: Optional[str] = None
 
 
 @router.patch("/{photo_id}")
-async def moderator_edit_photo(
+async def edit_photo(
 	request: Request,
 	photo_id: str,
-	payload: PhotoModerationEditRequest,
+	payload: PhotoEditRequest,
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Edit a photo's title, description, bearing, or featured flag
-	(admin/moderator only).
+	"""Edit a photo's title, description, bearing, or featured flag.
+
+	Owners may edit their own photo's title/description/bearing; admins and
+	moderators may edit any photo. ``featured`` is a curation flag, so only
+	admins/moderators may *change* it (403) — an owner re-submitting the value
+	it already has is a no-op, which keeps a full-form save working for them.
 
 	Fields left null are unchanged; an empty/whitespace title or description
 	clears the field. When the actor doesn't own the photo, the change is
 	recorded in the moderation audit (see ``PhotoModerationAudit``) with the
 	old and new values snapshotted in ``extra_data['changes']``.
 	"""
-	if current_user.role not in (UserRole.ADMIN, UserRole.MODERATOR):
-		raise HTTPException(
-			status_code=status.HTTP_403_FORBIDDEN,
-			detail="Admin or moderator access required"
-		)
-
 	await rate_limit_photo_operations(request, current_user.id)
 
 	try:
@@ -1112,6 +1110,29 @@ async def moderator_edit_photo(
 			raise HTTPException(
 				status_code=status.HTTP_404_NOT_FOUND,
 				detail="Photo not found"
+			)
+
+		is_owner = photo.owner_id == str(current_user.id)
+		is_moderator = current_user.role in (UserRole.ADMIN, UserRole.MODERATOR)
+
+		if not is_owner and not is_moderator:
+			# Don't reveal the existence of photos the caller can't act on
+			# (same posture as the DELETE handler).
+			raise HTTPException(
+				status_code=status.HTTP_404_NOT_FOUND,
+				detail="Photo not found"
+			)
+
+		# Reject rather than silently drop: promoting your own photo into the
+		# map's featured set is exactly the request we must not honour quietly.
+		if (
+			payload.featured is not None
+			and payload.featured != bool(photo.featured)
+			and not is_moderator
+		):
+			raise HTTPException(
+				status_code=status.HTTP_403_FORBIDDEN,
+				detail="Only moderators can change the featured flag"
 			)
 
 		changes = {}
@@ -1140,7 +1161,6 @@ async def moderator_edit_photo(
 				photo.compass_angle = new_bearing
 
 		if changes:
-			is_owner = photo.owner_id == str(current_user.id)
 			if not is_owner:
 				owner_username = await db.scalar(
 					select(User.username).where(User.id == photo.owner_id)

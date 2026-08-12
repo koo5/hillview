@@ -163,6 +163,74 @@ services:
         condition: service_completed_successfully
 
 
+  places:
+    # Reverse-geocodes photos so they have a human-readable place_name instead of
+    # a camera filename (which is what the /bestof and /photo/ headings — and the
+    # anchor text pointing at them — fall back to today). Reuses the api image:
+    # backfill_places.py lives in api/app and shares its deps, so no second build.
+    # Opt-in via profile: docker compose --profile places up -d places
+    #
+    # NOMINATIM_URL must point at the self-hosted instance — the public OSM one
+    # forbids bulk geocoding. Same variable name the enrichment workbench uses.
+    build:
+      context: backend
+      dockerfile: api/app/Dockerfile
+    container_name: hillview_places
+    profiles: ["places"]
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@${postgres:-postgres}:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      - NOMINATIM_URL=${NOMINATIM_URL:-https://nominatim.ueueeu.eu}
+      # One pass per hour: the backlog drains at --delay, then each pass is a
+      # cheap indexed query that finds only newly uploaded photos.
+      - BACKFILL_PLACES_INTERVAL=${BACKFILL_PLACES_INTERVAL:-3600}
+      # Interesting photos first — the scan is in upload order, and the headings
+      # that are actually read (and linked from) belong to the annotated/titled few.
+      - BACKFILL_PLACES_FILTER=${BACKFILL_PLACES_FILTER:-curated-first}
+    command: >
+      bash -c "cd /app/app && python3 backfill_places.py --delay $${GEOCODE_DELAY:-0.7}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  places-global:
+    # Mops up what the self-hosted instance cannot answer: photos outside its
+    # extract, which the max-km guard in reverse_geocode leaves marked as
+    # out-of-coverage. BACKFILL_PLACES_RETRY_NO_PLACE makes this pass take those
+    # rows and ONLY those — never-tried photos stay with the `places` service, so
+    # the Czech backlog is never sent to a public endpoint.
+    #
+    # Runs against the public OSM Nominatim by default, whose usage policy binds
+    # us on several axes at once. Because this loops (i.e. "run at regular
+    # intervals") the policy's stricter branch applies: at most 4 requests per
+    # minute, a single thread, and one machine — so run exactly one replica of
+    # this service, never several. It also wants an identifying User-Agent
+    # (backfill_places.py sends one) and results cached rather than re-queried
+    # (a resolved row is written once and skipped forever after). The default
+    # delay below is 300s, an order of magnitude under the 15s the 4/min rule
+    # permits, because the work is a bounded tail of a few hundred photos with
+    # nobody waiting on it.
+    build:
+      context: backend
+      dockerfile: api/app/Dockerfile
+    container_name: hillview_places_global
+    profiles: ["places"]
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@${postgres:-postgres}:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      - NOMINATIM_URL=${NOMINATIM_GLOBAL_URL:-https://nominatim.openstreetmap.org}
+      - BACKFILL_PLACES_RETRY_NO_PLACE=true
+      # Once a day: the set is bounded and shrinks to nothing, so a frequent
+      # loop would only re-ask for rows that are genuinely unresolvable.
+      - BACKFILL_PLACES_INTERVAL=${BACKFILL_PLACES_GLOBAL_INTERVAL:-86400}
+    command: >
+      bash -c "cd /app/app && python3 backfill_places.py --delay $${GEOCODE_GLOBAL_DELAY:-300}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   analyzer:
     # LLM photo analyzer (production component; previously a manually-run script).
     # Opt-in via profile: docker compose --profile analyzer up -d --build analyzer

@@ -479,6 +479,13 @@ test.describe('Zoom View URL Parameters', () => {
 
   test.describe('Error handling', () => {
 
+    // Same clean slate as the describes above: the stale-position test uploads
+    // the same photo they do, and a re-upload of an identical file by the same
+    // user is rejected by the backend's per-user MD5 duplicate check.
+    test.beforeEach(async ({ testUsers }) => {
+      await recreateTestUsers();
+    });
+
     test('should show not-found instead of an eternal spinner for a deleted photo', async ({ page }) => {
       // Well-formed uid that exists nowhere — same shape as a deleted photo's
       // stale share link. The public-endpoint probe 404s and the pending

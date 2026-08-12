@@ -6,8 +6,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -33,12 +35,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import cz.hillview.settings.MAX_MAX_PHOTOS
 import cz.hillview.settings.MIN_MAX_PHOTOS
@@ -68,7 +73,6 @@ data class MapSourceUi(
  */
 @Composable
 fun MapOverlayUi(
-    onBack: () -> Unit,
     settings: MapSettings,
     hunterMode: Boolean,
     sources: List<MapSourceUi>,
@@ -86,11 +90,15 @@ fun MapOverlayUi(
     onToggleSource: (String) -> Unit,
     onOpenFilters: () -> Unit,
     onToggleOverrideFilters: () -> Unit,
-    onOpenTileProviders: () -> Unit,
+    currentTileProvider: String,
+    onPickTileProvider: (String) -> Unit,
     onToggleLocation: () -> Unit,
     onToggleTracking: () -> Unit,
     onSelectBearingMode: (BearingMode) -> Unit,
     onZoom: (Double) -> Unit,
+    positionPrompt: Boolean = false,
+    onClaimManualPosition: () -> Unit = {},
+    onRevertToGps: () -> Unit = {},
     mapOrientation: Double = 0.0,
     onResetNorth: () -> Unit = {},
 ) {
@@ -109,11 +117,8 @@ fun MapOverlayUi(
                     modifier = Modifier.size(44.dp).testTag("zoom-out-btn"),
                 ) { Text("−", style = MaterialTheme.typography.titleLarge) }
             }
-            ControlSurface(Modifier.padding(top = 8.dp)) {
-                TextButton(onClick = onBack, modifier = Modifier.testTag("map-back")) {
-                    Text("< Back")
-                }
-            }
+            // (The interim "< Back" button is gone: the map is a pane of the
+            // Main page now, not a destination — the original never had one.)
 
             // A turned map needs a way back, or the gesture is a trap: the
             // original never rotates, so it never had to answer this. The
@@ -162,23 +167,46 @@ fun MapOverlayUi(
             )
         }
 
-        // Bottom-right hunter grid: the toggle owns the corner, the source
-        // panel grows up from it, the button panel grows left.
+        // Right-edge source tabs — the original's hunter-panel-right:
+        // vertical labels on white tabs down the map's right edge, only in
+        // hunter mode. The original bounds its panel (100vh - 120px) and
+        // lets flexbox shrink the buttons (min-height: 0) with ellipsized
+        // labels; here the pane is a SPLIT-SHARE of the screen — a fixed cap
+        // drew the tabs over the compass button — so the band reserves the
+        // corners it must not cover (the location/compass row above, the
+        // hunter grid below) and divides what is left among the tabs, which
+        // shrink the same way the original's do.
+        BoxWithConstraints(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .padding(top = 68.dp, bottom = 60.dp, end = 2.dp),
+            contentAlignment = Alignment.CenterEnd,
+        ) {
+            val perTab = ((maxHeight - 4.dp - 2.dp * (sources.size - 1)) /
+                sources.size.coerceAtLeast(1)).coerceAtLeast(24.dp)
+            HunterPanel(visible = hunterMode) {
+                Column(
+                    modifier = Modifier.padding(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    sources.forEach { source ->
+                        SourceButton(
+                            source,
+                            onClick = { onToggleSource(source.id) },
+                            modifier = Modifier.heightIn(max = perTab),
+                        )
+                    }
+                }
+            }
+        }
+
+        // Bottom-right hunter grid: the toggle owns the corner, the button
+        // panel grows left.
         Column(
             modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 4.dp, end = 6.dp),
             horizontalAlignment = Alignment.End,
         ) {
-            HunterPanel(visible = hunterMode) {
-                Column(
-                    modifier = Modifier.heightIn(max = 320.dp).padding(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    sources.forEach { source ->
-                        SourceButton(source, onClick = { onToggleSource(source.id) })
-                    }
-                }
-            }
-
             Row(verticalAlignment = Alignment.Bottom) {
                 HunterPanel(visible = hunterMode) {
                     Row(
@@ -192,14 +220,71 @@ fun MapOverlayUi(
                             onLongPress = onToggleOverrideFilters,
                         )
                         PanelSeparator()
-                        TextButton(
-                            onClick = onOpenTileProviders,
-                            modifier = Modifier.testTag("tile-provider-button"),
-                        ) { Text("Map ▾") }
+                        Box {
+                            var tileMenuOpen by remember { mutableStateOf(false) }
+                            TextButton(
+                                onClick = { tileMenuOpen = true },
+                                modifier = Modifier.testTag("tile-provider-button"),
+                            ) { Text("Map ▾") }
+                            // A native anchored popup (closes on click-away,
+                            // scrolls when the list outgrows the screen) —
+                            // the AlertDialog it replaces was neither.
+                            androidx.compose.material3.DropdownMenu(
+                                expanded = tileMenuOpen,
+                                onDismissRequest = { tileMenuOpen = false },
+                                modifier = Modifier.testTag("tile-provider-menu"),
+                            ) {
+                                TILE_PROVIDERS.filterNot { it.devOnly }.forEach { provider ->
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (provider.key == currentTileProvider) {
+                                                    "✓ ${provider.displayName}"
+                                                } else {
+                                                    provider.displayName
+                                                },
+                                            )
+                                        },
+                                        onClick = {
+                                            tileMenuOpen = false
+                                            onPickTileProvider(provider.key)
+                                        },
+                                        modifier = Modifier
+                                            .testTag("tile-provider-option-${provider.key}"),
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
                 HunterToggle(active = hunterMode, onClick = onToggleHunterMode)
+            }
+        }
+
+        // The exploration pill (user-raised, refined): panning is free and
+        // changes nothing — this two-sided control is the only way the map
+        // position becomes the capture position, and its other side snaps
+        // you back to the fix. Deliberately small: it must not obscure the
+        // map it is asking about.
+        if (positionPrompt) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 76.dp)
+                    .background(PANEL_WHITE, RoundedCornerShape(20.dp))
+                    .testTag("map-position-prompt"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = onClaimManualPosition,
+                    modifier = Modifier.testTag("accept-manual-position"),
+                ) { Text("Capture here") }
+                PanelSeparator()
+                TextButton(
+                    onClick = onRevertToGps,
+                    modifier = Modifier.testTag("revert-to-gps"),
+                ) { Text("⟲ GPS") }
             }
         }
 
@@ -231,11 +316,15 @@ private fun ControlSurface(
 
 /** Panels fade rather than disappear, as in the CSS (opacity + no hit test). */
 @Composable
-private fun HunterPanel(visible: Boolean, content: @Composable () -> Unit) {
+private fun HunterPanel(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
     val alpha by animateFloatAsState(if (visible) 1f else 0f, label = "hunter-panel")
     if (alpha == 0f) return
     Surface(
-        modifier = Modifier.alpha(alpha).padding(bottom = 2.dp),
+        modifier = modifier.alpha(alpha).padding(bottom = 2.dp),
         color = PANEL_WHITE,
         shape = RoundedCornerShape(8.dp),
         shadowElevation = 2.dp,
@@ -243,6 +332,34 @@ private fun HunterPanel(visible: Boolean, content: @Composable () -> Unit) {
         content()
     }
 }
+
+/**
+ * The vertical-tab text swap (the original's `writing-mode: vertical-rl`):
+ * report height×width, then rotate the drawing into the swapped bounds.
+ *
+ * The constraints are swapped BEFORE measuring, so the tab's height budget
+ * becomes the text's width budget — which is what lets maxLines=1 +
+ * Ellipsis truncate a long name when a tab runs short (the original's
+ * `text-overflow: ellipsis; max-height: 100%`) instead of overflowing it.
+ */
+private fun Modifier.verticalLabel(): Modifier = this
+    .layout { measurable, constraints ->
+        val placeable = measurable.measure(
+            Constraints(
+                minWidth = constraints.minHeight,
+                maxWidth = constraints.maxHeight,
+                minHeight = constraints.minWidth,
+                maxHeight = constraints.maxWidth,
+            ),
+        )
+        layout(placeable.height, placeable.width) {
+            placeable.place(
+                x = -(placeable.width / 2 - placeable.height / 2),
+                y = -(placeable.height / 2 - placeable.width / 2),
+            )
+        }
+    }
+    .rotate(90f)
 
 @Composable
 private fun HunterToggle(active: Boolean, onClick: () -> Unit) {
@@ -264,7 +381,11 @@ private fun HunterToggle(active: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SourceButton(source: MapSourceUi, onClick: () -> Unit) {
+private fun SourceButton(
+    source: MapSourceUi,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Surface(
         color = if (source.enabled) ACTIVE_BLUE else Color.White,
         border = androidx.compose.foundation.BorderStroke(
@@ -272,16 +393,23 @@ private fun SourceButton(source: MapSourceUi, onClick: () -> Unit) {
             if (source.enabled) ACTIVE_BLUE_BORDER else Color(0xFFCCCCCC),
         ),
         shape = RoundedCornerShape(4.dp),
-        modifier = Modifier.testTag("source-toggle-${source.id}"),
+        onClick = onClick,
+        modifier = modifier.testTag("source-toggle-${source.id}"),
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            TextButton(onClick = onClick) {
-                Text(
-                    text = source.name,
-                    color = if (source.enabled) Color.White else Color.Black,
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            }
+        Box(
+            contentAlignment = Alignment.Center,
+            // 0.3rem 0.2rem in the original — the roomier padding this had
+            // was eating into the label's budget once tabs began to shrink.
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 5.dp),
+        ) {
+            Text(
+                text = source.name,
+                color = if (source.enabled) Color.White else Color.Black,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.verticalLabel(),
+            )
             if (source.enabled && source.loading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(20.dp),
@@ -459,31 +587,25 @@ private fun CompassButton(
             }
         }
 
-        if (menuOpen) {
-            AlertDialog(
-                onDismissRequest = { menuOpen = false },
-                confirmButton = {
-                    TextButton(onClick = { menuOpen = false }) { Text("Close") }
-                },
-                title = { Text("Bearing mode") },
-                text = {
-                    Column {
-                        ModeRow(
-                            title = "Walking Mode",
-                            subtitle = "Compass bearing",
-                            selected = bearingMode == BearingMode.Walking,
-                            testTag = "walking-mode-option",
-                        ) { onSelectMode(BearingMode.Walking); menuOpen = false }
-                        ModeRow(
-                            title = "Car Mode",
-                            subtitle = "GPS bearing",
-                            selected = bearingMode == BearingMode.Car,
-                            testTag = "car-mode-option",
-                        ) { onSelectMode(BearingMode.Car); menuOpen = false }
-                    }
-                },
-                modifier = Modifier.testTag("compass-mode-menu"),
-            )
+        // Anchored dropdown, as the original's CompassModeMenu portal under
+        // the button — instant, no dialog-window animation.
+        androidx.compose.material3.DropdownMenu(
+            expanded = menuOpen,
+            onDismissRequest = { menuOpen = false },
+            modifier = Modifier.testTag("compass-mode-menu"),
+        ) {
+            ModeRow(
+                title = "Walking Mode",
+                subtitle = "Compass bearing",
+                selected = bearingMode == BearingMode.Walking,
+                testTag = "walking-mode-option",
+            ) { onSelectMode(BearingMode.Walking); menuOpen = false }
+            ModeRow(
+                title = "Car Mode",
+                subtitle = "GPS bearing",
+                selected = bearingMode == BearingMode.Car,
+                testTag = "car-mode-option",
+            ) { onSelectMode(BearingMode.Car); menuOpen = false }
         }
     }
 }
@@ -534,7 +656,10 @@ fun FiltersDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+        confirmButton = {
+            cz.hillview.core.ui.InstantDialogWindow()
+            TextButton(onClick = onDismiss) { Text("Done") }
+        },
         dismissButton = {
             TextButton(
                 onClick = onClearFilters,
@@ -585,47 +710,11 @@ fun FiltersDialog(
                     )
                 }
                 Text(
-                    "The analysis filters (time of day, scenic score, features…) " +
-                        "need the backend photo query, which this screen does not use yet.",
+                    "The analysis filter controls (time of day, scenic score, " +
+                        "features…) are still to come; the backend already flags " +
+                        "non-matching photos and the map washes them out.",
                     style = MaterialTheme.typography.bodySmall,
                 )
-            }
-        },
-    )
-}
-
-@Composable
-fun TileProviderDialog(
-    currentKey: String,
-    onPick: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-        title = { Text("Map provider") },
-        text = {
-            Column {
-                TILE_PROVIDERS.filterNot { it.devOnly }.forEach { provider ->
-                    Surface(
-                        color = if (provider.key == currentKey) {
-                            ACTIVE_BLUE.copy(alpha = 0.15f)
-                        } else {
-                            Color.Transparent
-                        },
-                        shape = RoundedCornerShape(4.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("tile-provider-option-${provider.key}"),
-                    ) {
-                        TextButton(
-                            onClick = { onPick(provider.key); onDismiss() },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(provider.displayName, Modifier.fillMaxWidth())
-                        }
-                    }
-                }
             }
         },
     )

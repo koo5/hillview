@@ -47,7 +47,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 
 		mapReady,
 		setUrlRequestedPhoto,
-		setLocationLoggingMode,
+		setElectedLocationSource,
 	} from "$lib/mapState";
 	import { overrideFilters } from '$lib/components/filters-modal/filtersStore';
 	import {featuredPhotoData, maybeFetchFeaturedPhoto} from "$lib/featuredPhoto";
@@ -1078,10 +1078,10 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 			// kept the 'user' consumer when entering background), so release it.
 			setBackgroundLocationTracking(false);
 			stopLocationTracking();
-			setLocationLoggingMode('active'); // next session logs GPS as foreground again
+			setElectedLocationSource('android'); // next session's fixes are the elected source again
 		} else {
 			// OFF → ACTIVE
-			setLocationLoggingMode('active');
+			setElectedLocationSource('android');
 			startLocationTracking();
 			setLocationTracking(true);
 		}
@@ -1089,15 +1089,15 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 
 	// ACTIVE → BACKGROUND, triggered by a manual map pan. Deliberately does NOT
 	// call stopLocationTracking(): the GPS subscription stays up so pulses
-	// continue and fixes keep logging (now tagged background). The map stops
-	// following because locationTracking is false → handleGpsLocationUpdate
-	// early-returns. setLocationLoggingMode('background') is awaited by the
-	// subsequent manual 'map' location write in updateSpatialState, so the
-	// manual location wins the external-photo pairing's latest-non-bg lookup.
+	// continue and fixes keep logging — under their own name now, simply no
+	// longer the elected source. The map stops following because
+	// locationTracking is false → handleGpsLocationUpdate early-returns.
+	// Nothing needs awaiting: the manual 'map' row written by updateSpatialState
+	// carries the election itself, so it cannot be stamped with the era it ends.
 	function enterBackgroundTracking() {
 		setLocationTracking(false);
 		setBackgroundLocationTracking(true);
-		setLocationLoggingMode('background');
+		setElectedLocationSource('manual');
 	}
 
 

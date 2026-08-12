@@ -23,6 +23,9 @@ import kotlinx.serialization.Serializable
 @Serializable
 private data class RefreshTokenRequest(@SerialName("refresh_token") val refreshToken: String)
 
+@Serializable
+private data class GoogleIdTokenRequest(@SerialName("id_token") val idToken: String)
+
 class AuthApi(
     private val http: HttpClient,
     private val config: BackendConfig,
@@ -45,6 +48,28 @@ class AuthApi(
             response.status.isDefinitiveAuthFailure() ->
                 throw InvalidCredentialsException("login rejected: ${response.status} ${response.safeBody()}")
             else -> throw TransientBackendException("login failed: ${response.status}")
+        }
+    }
+
+    /**
+     * Native Sign in with Google: exchange the device-acquired ID token
+     * for our own token pair (backend /auth/google/native — it verifies
+     * the token against Google's JWKS and our client id).
+     */
+    suspend fun googleNative(idToken: String): Token {
+        val response = wrapIo {
+            http.post(url("/auth/google/native")) {
+                contentType(ContentType.Application.Json)
+                setBody(GoogleIdTokenRequest(idToken))
+            }
+        }
+        return when {
+            response.status.isSuccess() -> response.body()
+            response.status.isDefinitiveAuthFailure() ->
+                throw InvalidCredentialsException(
+                    "google login rejected: ${response.status} ${response.safeBody()}"
+                )
+            else -> throw TransientBackendException("google login failed: ${response.status}")
         }
     }
 

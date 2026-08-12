@@ -61,7 +61,7 @@ interface SimplePhotoDao {
 
     @Query("""
         SELECT * FROM photos
-        WHERE deleted = 0
+        WHERE deleted = 0 AND uploadHoldUntil <= :now
         AND (id NOT IN (:seen) AND (
             uploadStatus IN ('pending', 'failed') OR
             (uploadStatus = 'uploading' AND lastUploadAttempt < :uploadingStaleThreshold) OR
@@ -82,7 +82,7 @@ interface SimplePhotoDao {
             END ASC
         LIMIT 1
     """)
-    fun getNextPhotoForUpload(seen: Set<String>, uploadingStaleThreshold: Long, processingStaleThreshold: Long): PhotoEntity?
+    fun getNextPhotoForUpload(seen: Set<String>, uploadingStaleThreshold: Long, processingStaleThreshold: Long, now: Long): PhotoEntity?
 
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'pending' AND deleted = 0")
     fun getPendingUploadCount(): Int
@@ -98,13 +98,13 @@ interface SimplePhotoDao {
     // loop-only and just shrink the numerator slightly.
     @Query("""
         SELECT * FROM photos
-        WHERE deleted = 0 AND (
+        WHERE deleted = 0 AND uploadHoldUntil <= :now AND (
             uploadStatus IN ('pending', 'failed') OR
             (uploadStatus = 'uploading' AND lastUploadAttempt < :uploadingStaleThreshold) OR
             (uploadStatus = 'processing' AND lastUploadAttempt < :processingStaleThreshold)
         )
     """)
-    fun getUploadableCandidates(uploadingStaleThreshold: Long, processingStaleThreshold: Long): List<PhotoEntity>
+    fun getUploadableCandidates(uploadingStaleThreshold: Long, processingStaleThreshold: Long, now: Long): List<PhotoEntity>
 
     @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = 'completed' AND deleted = 0")
     fun getCompletedUploadCount(): Int
@@ -132,6 +132,83 @@ interface SimplePhotoDao {
 
     @Query("UPDATE photos SET uploadStatus = :status, uploadedAt = :uploadedAt WHERE id = :photoId")
     fun updateUploadStatus(photoId: String, status: String, uploadedAt: Long)
+
+    // The refiner's hold released early (completion or defeat) — without
+    // this the row waits out its deadline before the drain may take it.
+    @Query("UPDATE photos SET uploadHoldUntil = 0 WHERE id = :photoId")
+    fun clearUploadHold(photoId: String)
+
+    /**
+     * Every hold, dropped. Called at app start: a refiner that was mid-flight
+     * belonged to a process that no longer exists, so its hold is a leftover,
+     * not a promise. This is what lets the hold deadline be a generous crash
+     * backstop instead of a tight one — a real crash recovers on the next
+     * launch rather than by waiting the deadline out.
+     */
+    @Query("UPDATE photos SET uploadHoldUntil = 0 WHERE uploadHoldUntil > 0")
+    fun clearAllUploadHolds(): Int
+
+    /**
+     * Take the row for upload, atomically — a compare-and-set on the status
+     * we selected it under. Returns rows updated: 0 means we lost it (the
+     * refiner or another pass moved it) and the caller must skip.
+     *
+     * This replaced an unconditional "set uploading", which made claiming a
+     * two-step read-then-write with a token refresh and a file hash in
+     * between. A stamp refinement landing in that gap was written to the row
+     * but missed by the upload, so device-photos and the server disagreed
+     * about where a photo was taken. Pairing this with a re-READ after the
+     * claim closes it from both sides: a refinement before the claim is
+     * seen, and one after is impossible, since applyRefinedStamp only
+     * touches rows that are still 'pending'.
+     */
+    // lastUploadAttempt is stamped here because the claim IS the attempt.
+    // Without it a first-ever attempt kept lastUploadAttempt = 0, so the
+    // 10-minute stale-recovery window and the "did this attempt start before
+    // this process?" question both read a meaningless zero.
+    @Query("""
+        UPDATE photos SET uploadStatus = 'uploading', uploadedAt = :now,
+            lastUploadAttempt = :now
+        WHERE id = :photoId AND uploadStatus = :expectedStatus AND deleted = 0
+    """)
+    fun claimForUpload(photoId: String, expectedStatus: String, now: Long): Int
+
+    /**
+     * Photos left mid-upload by a process that is gone, handed back for
+     * another try. "Before this process started" is the whole test: an
+     * upload runs inside the app, so an attempt older than this launch
+     * cannot still be running.
+     *
+     * NOT applied to `processing` — that status describes work the SERVER is
+     * doing, which really does outlive our process; the status-sync worker
+     * reconciles it. Re-uploading is safe regardless: the backend dedups on
+     * file_md5 and the drain handles the duplicate response.
+     */
+    @Query("""
+        UPDATE photos SET uploadStatus = 'pending'
+        WHERE uploadStatus = 'uploading' AND lastUploadAttempt < :processStart
+        AND deleted = 0
+    """)
+    fun reclaimAbandonedUploads(processStart: Long): Int
+
+    // The stamp refiner's write. Guarded on 'pending' so a refinement never
+    // rewrites a row the drain already picked up — the uploaded metadata and
+    // the local row must keep telling the same story; a photo the upload
+    // won keeps its at-the-time stamp, by design. Returns rows updated
+    // (0 = lost the race or already gone).
+    @Query("""
+        UPDATE photos SET latitude = :latitude, longitude = :longitude,
+            altitude = :altitude, bearing = :bearing, stampRefinedAt = :refinedAt
+        WHERE id = :photoId AND uploadStatus = 'pending' AND deleted = 0
+    """)
+    fun applyRefinedStamp(
+        photoId: String,
+        latitude: Double,
+        longitude: Double,
+        altitude: Double,
+        bearing: Double,
+        refinedAt: Long,
+    ): Int
 
     @Query("UPDATE photos SET serverPhotoId = :serverPhotoId WHERE id = :photoId")
     fun updateServerPhotoId(photoId: String, serverPhotoId: String)

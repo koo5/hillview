@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { auth } from '$lib/auth.svelte';
 	import { http, handleApiError } from '$lib/http';
+	import { createSsrBackedLoad } from '$lib/ssrBackedLoad';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { ACTIVITY_NOTIFICATION_REFRESH_EVENT } from '$lib/notificationRouteUtils';
 	import { constructPhotoMapUrl, constructUserProfileUrl } from '$lib/urlUtils';
@@ -11,10 +12,15 @@
 	import Spinner from '$lib/components/Spinner.svelte';
 	import LoadMoreButton from '$lib/components/LoadMoreButton.svelte';
 	import PhotoItem from '$lib/components/PhotoItem.svelte';
+	import PlaceAttribution from '$lib/components/PlaceAttribution.svelte';
+	import { titleUsesPlace } from '$lib/photoDisplay';
 
 	interface ActivityPhoto {
 		id: string;
 		original_filename: string;
+		title?: string;
+		description?: string;
+		place_name?: string | null;
 		uploaded_at: string;
 		captured_at?: string;
 		processing_status: string;
@@ -77,6 +83,8 @@
 
 	let loading = !data?.photos;
 	let loadingMore = false;
+	let loadMoreFailed = false;
+	let loadMoreFailedUserInitiated = false;
 	let error = '';
 	let activityData: ActivityGroup[] = data?.photos ? groupPhotos(data.photos) : [];
 	let totalPhotoCount = data?.photos?.length ?? 0;
@@ -88,23 +96,32 @@
 			void loadActivityData();
 		};
 		window.addEventListener(ACTIVITY_NOTIFICATION_REFRESH_EVENT, refreshActivity);
-		// The SSR batch is crawler-only: it ships the photo links in the initial
-		// HTML, but SSR fetches anonymously (auth tokens live in IndexedDB, which
-		// the server can't read). In a real browser, discard it and load the
-		// user's own hidden-content-filtered view. loadActivityData() flips the
-		// spinner on, so the stale anonymous list never becomes interactive or
-		// scrollable — no scroll jump, no Load-More race.
-		void loadActivityData();
 
 		return () => {
 			window.removeEventListener(ACTIVITY_NOTIFICATION_REFRESH_EVENT, refreshActivity);
 		};
 	});
 
-	async function loadActivityData(cursor?: string) {
+	// How many headings draw on the geocoded place, which decides both whether to
+	// credit OpenStreetMap and how to word it: a phone upload with a title of its
+	// own owes OSM nothing, so "Place names ©" would overclaim.
+	$: shownPhotos = activityData.flatMap((g) => g.photos ?? []);
+	$: placeTitledCount = shownPhotos.filter((p) => titleUsesPlace(p)).length;
+
+	// Who needs a fetch and who keeps the server-rendered batch — see
+	// createSsrBackedLoad. An anonymous visitor keeps it: refetching an
+	// identical list only flashes the spinner (and for crawlers, blocked from
+	// /api/ by robots.txt, it rendered an error page — Google read /bestof,
+	// which had the same shape, as a soft 404).
+	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void loadActivityData());
+	$: syncLoad($auth);
+
+	async function loadActivityData(cursor?: string, userInitiated = false) {
 		try {
 			if (cursor) {
 				loadingMore = true;
+				loadMoreFailed = false;
+				loadMoreFailedUserInitiated = false;
 			} else {
 				loading = true;
 			}
@@ -113,7 +130,9 @@
 			const url = cursor
 				? `/activity/recent?cursor=${encodeURIComponent(cursor)}`
 				: '/activity/recent';
-			const response = await http.get(url);
+			// A lazy-loaded next page is opportunistic: its failure is local to the
+			// button, so it must not raise the global "Reconnecting…" episode.
+			const response = await http.get(url, cursor ? { quiet: true } : {});
 
 			if (!response.ok) {
 				throw new Error(`Failed to fetch activity data: ${response.status}`);
@@ -136,16 +155,27 @@
 
 		} catch (err) {
 			console.error('🢄Error loading activity data:', err);
-			error = handleApiError(err);
+			// A failed load-more must not replace a page that is already showing a
+			// good list — only a failed FIRST load has nothing to fall back to.
+			// Googlebot renders at a very tall viewport, so the lazy-load fires
+			// immediately and its request is refused by api.hillview.cz/robots.txt;
+			// taking over the page with an error is what Search Console read as a
+			// soft 404 on the identically shaped /bestof.
+			if (cursor) {
+				loadMoreFailed = true;
+				loadMoreFailedUserInitiated = userInitiated;
+			} else {
+				error = handleApiError(err);
+			}
 		} finally {
 			loading = false;
 			loadingMore = false;
 		}
 	}
 
-	async function loadMorePhotos() {
+	async function loadMorePhotos(userInitiated = false) {
 		if (nextCursor && !loadingMore) {
-			await loadActivityData(nextCursor);
+			await loadActivityData(nextCursor, userInitiated);
 		}
 	}
 
@@ -218,6 +248,15 @@
 				<p>Photos will appear here as they are uploaded to Hillview.</p>
 			</div>
 		{:else}
+			<!-- Above the list, not below it: this feed lazy-loads without end, so a
+			     credit at the bottom retreats every time the reader reaches it and is
+			     never seen. -->
+			{#if placeTitledCount}
+				<PlaceAttribution
+					label={placeTitledCount === shownPhotos.length ? 'Place names' : 'Some place names'}
+				/>
+			{/if}
+
 			<div class="activity-list" data-testid="activity-list">
 				{#each activityData as group, groupIndex}
 					<div class="day-group">
@@ -234,9 +273,13 @@
 
 								<div class="photo-grid">
 									{#each userPhotos as photo}
+										<!-- preferTitle: same headline rule as /bestof. This is a
+										     public, crawled page and the headline is the anchor
+										     text of the link to /photo/<uid>. -->
 										<PhotoItem
 											{photo}
 											variant="thumbnail"
+											preferTitle={true}
 											showDescription={false}
 										/>
 									{/each}
@@ -250,8 +293,11 @@
 			<LoadMoreButton
 				hasMore={hasMorePhotos && !loading}
 				loading={loadingMore}
+				failed={loadMoreFailed}
+				failedUserInitiated={loadMoreFailedUserInitiated}
 				onLoadMore={loadMorePhotos}
 			/>
+
 		{/if}
 </StandardBody>
 

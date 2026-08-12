@@ -84,6 +84,20 @@ class SessionManager(
      */
     suspend fun login(username: String, password: String) {
         val token = api.token(username, password)
+        finishLogin(token, usernameHint = username)
+    }
+
+    /**
+     * Native Sign in with Google: the device-acquired ID token buys the
+     * same sid-stamped session pair as a password login. No username hint
+     * exists up front — the profile fetch below supplies it.
+     */
+    suspend fun loginWithGoogle(idToken: String) {
+        val token = api.googleNative(idToken)
+        finishLogin(token, usernameHint = null)
+    }
+
+    private suspend fun finishLogin(token: Token, usernameHint: String?) {
         _sessionExpiredNotice.value = null // superseded by the new session
         store.acknowledgeSessionExpired()
         val stored = StoredTokens(
@@ -91,11 +105,11 @@ class SessionManager(
             refreshToken = token.refreshToken,
             expiresAt = token.expiresAt,
             refreshTokenExpiresAt = token.refreshTokenExpiresAt,
-            username = username,
+            username = usernameHint,
         )
         tokens = stored
         store.save(stored)
-        _state.value = SessionState.LoggedIn(username)
+        _state.value = SessionState.LoggedIn(usernameHint)
         // Best-effort profile fetch; the session is valid regardless.
         try {
             val user = api.me(token.accessToken)
@@ -104,7 +118,7 @@ class SessionManager(
             store.save(enriched)
             _state.value = SessionState.LoggedIn(user.username)
         } catch (e: Exception) {
-            // ignore — username from the form is good enough
+            // ignore — the hint (or none, for Google) is good enough
         }
     }
 

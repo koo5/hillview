@@ -22,6 +22,12 @@ object PhotoUtils {
         }
     }
 
+    val isoMillisDateFormat: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+    }
+
     // Common EXIF date formats - thread-local for safety
     val exifDateFormats: ThreadLocal<List<SimpleDateFormat>> = ThreadLocal.withInitial {
         listOf(
@@ -111,6 +117,21 @@ object PhotoUtils {
             isoDateFormat.get()?.format(date)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to format timestamp $timestamp to ISO format", e)
+            null
+        }
+    }
+
+    /**
+     * Millisecond-precision ISO 8601 UTC (e.g. "2023-12-01T15:30:45.123Z").
+     * Used by the upload metadata blob: EXIF DateTimeOriginal is second-
+     * granular, and the sub-second part is what the clock-calibration work
+     * runs on. The worker parses this shape explicitly.
+     */
+    fun formatTimestampToIsoMillis(timestamp: Long): String? {
+        return try {
+            isoMillisDateFormat.get()?.format(Date(timestamp))
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to format timestamp $timestamp to ISO-millis format", e)
             null
         }
     }

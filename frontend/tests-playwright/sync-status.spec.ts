@@ -93,7 +93,7 @@ test.describe('Sync Status Reporting', () => {
 			}
 			w.__syncIdleSince = w.__syncIdleSince || Date.now();
 			return Date.now() - w.__syncIdleSince >= 1000;
-		}, { timeout: T(15000), polling: 100 });
+		}, undefined, { timeout: T(15000), polling: 100 });
 	});
 
 	test('fgSyncStatus reports correct phases and counts after upload', async ({ page }) => {

@@ -1,6 +1,6 @@
 import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
-import { loginAsTestUser } from './helpers/testUsers';
+import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { createMockMapillaryData, setupMockMapillaryData, clearMockMapillaryData } from './helpers/mapillaryMocks';
 import { configureSources } from './helpers/sourceHelpers';
@@ -25,12 +25,19 @@ async function openGalleryPhotoMenu(page: any) {
 	await menuTrigger.first().waitFor({ state: 'visible', timeout: T(15000) });
 	// The map writes the selected front photo into the URL (debounced). Wait for
 	// that so callers reading page.url() get the settled URL, not the pre-write '/'.
-	await page.waitForFunction(() => location.search.includes('photo='), { timeout: T(10000) });
+	await page.waitForFunction(() => location.search.includes('photo='), undefined, { timeout: T(30000) });
 	await menuTrigger.first().click();
 	await page.locator('[data-testid="photo-actions-dropdown"]').waitFor({ state: 'visible', timeout: T(5000) });
 }
 
 test.describe('Photo actions menu — link semantics', () => {
+	// Every test below uploads the SAME test photo. The backend rejects a
+	// re-upload of an identical file by the same user (per-user MD5 check), so
+	// without a clean user per test the second test onward never gets a photo.
+	test.beforeEach(async ({ testUsers }) => {
+		await recreateTestUsers();
+	});
+
 	test('Hillview photo: url menu items render as <a> with correct href', async ({ page, testUsers }) => {
 		await loginAsTestUser(page, testUsers.passwords.test);
 		await uploadPhoto(page, testPhotos[0]);

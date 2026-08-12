@@ -10,9 +10,17 @@ import cz.hillview.settings.MapSettingsRepository
  */
 @Composable
 expect fun MapScreen(
-    onBack: () -> Unit,
     settings: MapSettingsRepository,
     markerSource: PhotoMarkerSource,
+    /** The process-wide camera/bearing state (Koin) — shared with capture. */
+    stateHolder: MapStateHolder,
     stateStore: MapStateStore,
     session: MapSession,
+    /**
+     * Draw the map's own controls (zoom, compass, hunter panels). False in
+     * float mode: a PiP window is a few centimetres, where those controls
+     * cover most of the map and are too small to hit anyway — see
+     * cz.hillview.pip.
+     */
+    showControls: Boolean = true,
 )

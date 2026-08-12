@@ -26,6 +26,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!-- The external-camera mode's tracking service: records location and
+         heading while ANOTHER app (the system camera) owns the foreground,
+         which is exactly what the `location` foreground type exists for. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="false" />
@@ -36,10 +41,17 @@
         android:icon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <!-- Float mode: the map in a PiP window over the phone's camera app
+             (see cz.hillview.pip). resizeableActivity is required for PiP to
+             be offered at all; smallestScreenSize joins the configChanges
+             list because the PiP window is a size change the activity must
+             ride out rather than be recreated by. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection">
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -53,6 +65,11 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <service
+            android:name="cz.hillview.external.ExternalCameraService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
     </application>
 
 </manifest>

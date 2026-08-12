@@ -121,9 +121,12 @@ class MapGestureTest {
     @Test
     fun theBearingArrowStillClaimsItsOwnGrabZone() {
         val view = mapView()
-        val overlay = BearingArrowOverlay().apply { tipRadiusPx = 240f }
+        // Arrow pointing straight up, so "up from the centre" IS the arrow.
+        val overlay = BearingArrowOverlay().apply {
+            tipRadiusPx = 240f
+            bearingDeg = 0.0
+        }
         val down = SystemClock.uptimeMillis()
-        // Straight up from the centre by the tip radius: on the arrow.
         val onTip = MotionEvent.obtain(
             down, down, MotionEvent.ACTION_DOWN,
             view.width / 2f, view.height / 2f - 240f, 0,
@@ -132,6 +135,28 @@ class MapGestureTest {
         assertTrue(
             overlay.onTouchEvent(onTip, view),
             "a touch on the arrow tip has to be the arrow's, or it cannot be dragged",
+        )
+    }
+
+    @Test
+    fun theRingAwayFromTheArrowBelongsToTheMap() {
+        val view = mapView()
+        // Arrow points up; the touch lands on the ring but 90° away — a pan
+        // starting there must NOT be eaten as a bearing drag (phone-in-hand
+        // regression: the whole circle grabbed outside car mode).
+        val overlay = BearingArrowOverlay().apply {
+            tipRadiusPx = 240f
+            bearingDeg = 0.0
+        }
+        val down = SystemClock.uptimeMillis()
+        val onRingEast = MotionEvent.obtain(
+            down, down, MotionEvent.ACTION_DOWN,
+            view.width / 2f + 240f, view.height / 2f, 0,
+        )
+
+        assertTrue(
+            !overlay.onTouchEvent(onRingEast, view),
+            "off-arrow touches must fall through to the map",
         )
     }
 }

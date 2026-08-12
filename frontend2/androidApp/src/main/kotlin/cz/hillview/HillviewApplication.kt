@@ -20,11 +20,38 @@ import org.koin.core.context.GlobalContext
 class HillviewApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Before anything of ours can claim a photo — see StartupReconciler.
+        val processStart = System.currentTimeMillis()
+        // Build-configured photo folder (HILLVIEW_FOLDER / debug default) —
+        // see androidApp/build.gradle.kts.
+        cz.hillview.capture.PhotoStorage.folderBase = BuildConfig.HILLVIEW_FOLDER
+        // Native Sign in with Google — empty keeps the button hidden.
+        cz.hillview.auth.NativeAuthConfig.googleServerClientId =
+            BuildConfig.HILLVIEW_GOOGLE_CLIENT_ID
         // The UploadSettingsRepository (createdAtStart) materializes the
         // upload-settings prefs the shared-kt stack reads.
         initKoin {
             androidContext(this@HillviewApplication)
         }
+
+        // App-start geo dump, as the Tauri plugin's init does — a crash or
+        // swipe-away skips the session-end dump; this catches up (only
+        // exports when auto_export is on; clears either way).
+        appScope.launch {
+            try {
+                cz.hillview.plugin.GeoTrackingManager.get(this@HillviewApplication).dumpAndClear()
+            } catch (e: Exception) {
+                android.util.Log.w("HillviewApp", "start-time geo dump failed", e)
+            }
+        }
+
+        // Starting anew means nothing from the previous process is running —
+        // no refinement will finish, no upload is in flight. Spend that
+        // certainty instead of waiting deadlines out: release refinement
+        // holds and hand back photos stuck mid-upload. processStart is
+        // captured at the top of onCreate, before anything of ours could
+        // have claimed a photo.
+        cz.hillview.plugin.StartupReconciler.run(this, processStart)
 
         // Lockstep logout: whichever shared-kt AuthenticationManager instance
         // (upload worker, status sync, UI store) declares the session dead,

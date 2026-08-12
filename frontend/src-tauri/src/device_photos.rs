@@ -621,25 +621,42 @@ async fn determine_final_bearing(
 	final_bearing
 }
 
-/// Helper function to determine if a bearing source is produced Kotlin-side
-/// at high frequency — in that case the DB is the authoritative time-indexed
-/// source and the frontend value is likely stale by the JS-bridge latency.
-/// Sources we own: compass/sensor fusion (walking mode) and gps-kalman (car
-/// mode, since the filter was ported to Kotlin).
+/// Whether a bearing source is one Kotlin records itself, at sensor rate —
+/// in that case the tracking table is the authoritative time-indexed record
+/// and the value that came up through the JS bridge is likely stale.
+/// Everything else is a bearing the user set, where the frontend value IS
+/// the answer and there is nothing Kotlin-side to look up.
+///
+/// This is the same rule as `kotlinOwnsSource()` in the frontend's
+/// mapState.ts, and the two are meant to stay identical, because together
+/// they form one invariant: a source the frontend ECHOES into the table is a
+/// source whose frontend value we trust here, and a source Kotlin owns is one
+/// we look up. Keep them in step.
+///
+/// It used to be a substring sweep — "sensor", "compass", "gyro",
+/// "magnetometer", "rotation", "magnetic", "enhanced", "tauri" — from when
+/// the source vocabulary was long, ad-hoc strings like
+/// `android UPRIGHT_ROTATION_VECTOR (EMA smoothed)-compass-true`. The
+/// vocabulary is small and deliberate now, so guessing at it is no longer
+/// necessary and was a standing hazard: any future source name containing one
+/// of those words would have been silently swept in.
+///
+/// One deliberate behaviour change came with the narrowing. The web
+/// DeviceOrientation fallback (`web-absolute-compass-true`, used when the
+/// native sensor won't start) matched the old "compass" test and no longer
+/// matches. That is correct: its value never crossed the JS bridge, so the
+/// staleness this function exists to correct cannot apply to it, and the
+/// frontend value is the fresher of the two.
 #[cfg(any(target_os = "android", test))]
 #[allow(dead_code)] // unused on non-android non-test builds
 fn is_sensor_bearing_source(bearing_source: &str) -> bool {
 	let source_lower = bearing_source.to_lowercase();
 
-	source_lower.contains("sensor")
-		|| source_lower.contains("compass")
-		|| source_lower.contains("tauri")
-		|| source_lower.contains("gyro")
-		|| source_lower.contains("magnetometer")
-		|| source_lower.contains("rotation")
-		|| source_lower.contains("magnetic")
-		|| source_lower.contains("enhanced")
-		|| source_lower.contains("gps-kalman")
+	// The native orientation stream (EnhancedSensorService, source "android",
+	// which the compass store suffixes into e.g. "android-compass-true") and
+	// the car-mode Kalman heading, whose filter lives in Kotlin and whose rows
+	// are written against each fix's own location.time.
+	source_lower.starts_with("android") || source_lower == "gps-kalman"
 }
 
 #[cfg(test)]
@@ -648,26 +665,51 @@ mod tests {
 
 	#[test]
 	fn matches_kotlin_owned_sources() {
-		assert!(is_sensor_bearing_source("tauri-compass-true"));
-		assert!(is_sensor_bearing_source("enhanced-sensor"));
-		assert!(is_sensor_bearing_source("magnetometer"));
-		assert!(is_sensor_bearing_source("rotation-vector"));
-		assert!(is_sensor_bearing_source("gyro-fusion"));
+		// What bearingState actually carries: the compass store suffixes the
+		// native source ("android") into these.
+		assert!(is_sensor_bearing_source("android-compass-true"));
+		assert!(is_sensor_bearing_source("android-compass-magnetic"));
+		assert!(is_sensor_bearing_source("android"));
+		// Car mode — filter ported to Kotlin, rows written per fix.
 		assert!(is_sensor_bearing_source("gps-kalman"));
 	}
 
 	#[test]
 	fn is_case_insensitive() {
 		assert!(is_sensor_bearing_source("GPS-KALMAN"));
-		assert!(is_sensor_bearing_source("Tauri-Compass"));
+		assert!(is_sensor_bearing_source("Android-Compass-True"));
 	}
 
 	#[test]
-	fn rejects_unrelated_sources() {
+	fn rejects_user_set_bearings() {
+		// Every one of these is a bearing the user placed; the frontend value
+		// is the answer and there is no Kotlin-side history to consult.
 		assert!(!is_sensor_bearing_source("manual"));
-		assert!(!is_sensor_bearing_source("photo"));
+		assert!(!is_sensor_bearing_source("map"));
+		assert!(!is_sensor_bearing_source("photo_navigation"));
+		assert!(!is_sensor_bearing_source("featured"));
 		assert!(!is_sensor_bearing_source("url"));
 		assert!(!is_sensor_bearing_source("arrow_drag"));
 		assert!(!is_sensor_bearing_source(""));
+	}
+
+	#[test]
+	fn web_device_orientation_fallback_is_frontend_authoritative() {
+		// Deliberate change from the old substring sweep, which caught this on
+		// "compass". The web fallback's value never crossed the JS bridge, so
+		// the staleness this function corrects cannot apply, and the frontend
+		// value is the fresher one.
+		assert!(!is_sensor_bearing_source("web-absolute-compass-true"));
+		assert!(!is_sensor_bearing_source("web-magnetic-compass-magnetic"));
+	}
+
+	#[test]
+	fn does_not_sweep_in_names_that_merely_mention_sensors() {
+		// The old version matched any source containing "sensor", "rotation",
+		// "magnetic", "gyro", "enhanced" or "tauri" — so a future name like
+		// these would have been silently treated as Kotlin-owned.
+		assert!(!is_sensor_bearing_source("manual-rotation-handle"));
+		assert!(!is_sensor_bearing_source("enhanced-photo-pick"));
+		assert!(!is_sensor_bearing_source("tauri-url"));
 	}
 }

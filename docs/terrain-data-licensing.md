@@ -105,6 +105,23 @@ the attribution line whenever peak candidates are loaded. This is separate
 from (and additional to) the Leaflet map-tile attribution — the panorama
 viewer is not the map, so it can't borrow the map's credit line.
 
+## OSM place names (Nominatim reverse geocoding)
+
+Source: `backend/api/app/backfill_places.py` against a self-hosted
+Nominatim (`NOMINATIM_URL`), stored as `photos.place_name` / `place_slug` /
+`geocode`. Licence: **ODbL** — every Nominatim response says so itself
+(`"licence": "Data © OpenStreetMap contributors, ODbL 1.0"`). Display
+"© OpenStreetMap contributors" wherever those names are shown.
+
+Where they surface: `/photo/<uid>` (heading, `og:title`, details row) and the
+card headings on `/bestof` and `/activity`, because `displayTitle()` falls back
+to the place when a photo has no title, description or annotation.
+
+Discharged: `PlaceAttribution.svelte`, rendered on those three routes and only
+when a place name is actually on screen. Separate from the Leaflet map-tile
+credit for the same reason the peaks credit is — none of those pages is the
+map, so there is no credit line to borrow.
+
 ## Checklist
 
 | obligation | where it must appear | status |
@@ -114,6 +131,7 @@ viewer is not the map, so it can't borrow the map's credit line.
 | GLO-30 6(e) pass-through | API/download terms | TODO if artifacts become redistributable |
 | ČÚZK CC BY credit | `TERRAIN_ATTRIBUTION` of ČÚZK-fed workers | TODO when those mosaics exist (+ re-verify terms) |
 | OSM ODbL peaks credit | next to peak labels | **done** (frontend pane) |
+| OSM ODbL place-name credit | pages showing `place_name` (`/photo/`, `/bestof`, `/activity`) | **done** (`PlaceAttribution.svelte`) |
 | bench (enrich/web) attribution display | bench terrain page | open — loopback-only today, so no public communication happens there |
 
 Related: `enrich/terrain/README.md` § Licensing / attribution (summary),

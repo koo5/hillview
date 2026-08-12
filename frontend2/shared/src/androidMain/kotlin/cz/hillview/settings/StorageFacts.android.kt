@@ -20,6 +20,9 @@ import android.os.Build
  * A hidden ".Hillview" is skipped by the media scanner, which is the point
  * of that switch.
  */
+actual fun storageFolderName(hideFromGallery: Boolean): String =
+    cz.hillview.capture.PhotoStorage.folderName(hideFromGallery)
+
 actual fun storageFacts(mode: StorageMode, hideFromGallery: Boolean): StorageFacts {
     val sdk = Build.VERSION.SDK_INT
     return when (mode) {
@@ -66,8 +69,8 @@ actual fun storageFacts(mode: StorageMode, hideFromGallery: Boolean): StorageFac
                 "Not available on this Android version."
             } else if (hideFromGallery) {
                 "Handed to the system media database, which does not accept a " +
-                    "hidden folder — these photos stay visible. Use DCIM/.Hillview " +
-                    "to hide them."
+                    "hidden folder — these photos stay visible. Use " +
+                    "DCIM/${cz.hillview.capture.PhotoStorage.folderName(true)} to hide them."
             } else {
                 "Handed to the system media database — the option that works " +
                     "when writing the file directly does not."
