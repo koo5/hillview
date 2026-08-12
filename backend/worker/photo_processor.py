@@ -229,6 +229,34 @@ def _parse_exif_offset(offset_value) -> Optional[timedelta]:
 	return timedelta(minutes=sign * (int(m.group(2)) * 60 + int(m.group(3))))
 
 
+PROVENANCE_KEYS = (
+	'location_source', 'bearing_source', 'alt_location',
+	# From the Android fast-write path, which skips the on-device EXIF
+	# rewrite and carries the whole stamp in the upload metadata instead —
+	# so the synthesized UserComment must say what a written one would.
+	'location_age_ms', 'exposure', 'refined',
+	'v',
+)
+
+
+def synthesize_provenance(metadata: Optional[dict]) -> Optional[str]:
+	"""The UserComment an uploader could not write into the file itself.
+
+	Browser captures cannot write EXIF at all, and the Android fast-write
+	path deliberately does not (the rewrite is the throughput cost it
+	exists to avoid), so for both the upload metadata is the only carrier.
+	Extracted from process() to be testable: which keys survive this hop is
+	a contract with the pics pipeline, not an implementation detail.
+
+	Returns None when there is nothing to say, so the caller leaves any
+	genuinely embedded UserComment alone.
+	"""
+	if not metadata:
+		return None
+	provenance = {k: metadata[k] for k in PROVENANCE_KEYS if metadata.get(k) is not None}
+	return json.dumps(provenance) if provenance else None
+
+
 def parse_exif_datetime(value, offset_value=None) -> Optional[datetime]:
 	"""Parse EXIF datetime value and fix corrupted timestamps.
 
@@ -1126,19 +1154,9 @@ class PhotoProcessor:
 			# for it. Guarded so a real embedded UserComment (Android, or a webp's
 			# geo.xmp-stamped one) is never clobbered.
 			if not exif_data.setdefault('data', {}).get('UserComment'):
-				provenance = {
-					k: metadata[k]
-					# location_age_ms and exposure (the exposure-rule story:
-					# mode/target/plan/metering) come from the Android
-					# fast-write path, which skips the on-device EXIF rewrite
-					# and carries the whole stamp here instead — the synthesized
-					# UserComment must say the same things the written one does.
-					for k in ('location_source', 'bearing_source', 'alt_location',
-							  'location_age_ms', 'exposure', 'refined', 'v')
-					if metadata.get(k) is not None
-				}
-				if provenance:
-					exif_data['data']['UserComment'] = json.dumps(provenance)
+				synthesized = synthesize_provenance(metadata)
+				if synthesized:
+					exif_data['data']['UserComment'] = synthesized
 
 			# Structured multi-frame source provenance from the pipeline. The
 			# --metadata blob carries the source frames' camera metadata as a whole

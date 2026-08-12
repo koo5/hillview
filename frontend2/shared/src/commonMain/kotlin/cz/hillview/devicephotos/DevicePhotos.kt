@@ -92,7 +92,10 @@ fun uploadStatusLabel(status: String): String = when (status) {
     "pending" -> "upload Pending"
     "uploading" -> "Uploading"
     "failed" -> "upload Failed"
-    "processing" -> "Processing"
+    // "processing" deliberately falls through to the raw status, as in the
+    // original — its wording is ported, quirks and all, and a lone
+    // capitalisation here would be an undeclared divergence. (Reverted once
+    // already, caught by DevicePhotosRulesTest.)
     else -> status
 }
 
