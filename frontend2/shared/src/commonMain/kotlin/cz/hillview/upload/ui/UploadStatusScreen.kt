@@ -59,10 +59,16 @@ fun UploadStatusScreen(onBack: () -> Unit) {
         }
     }
 
+    // The actions are ABOVE the report and outside its scroll, and the
+    // report scrolls on its own. Rows appear and disappear as the app
+    // learns things (a token row, a work entry, a free-space warning), so
+    // anything below them is a moving target — during testing "Upload now"
+    // shifted three times and I hit the wrong control each time. A button
+    // whose position depends on variable content is a trap, and worse in a
+    // field than at a desk.
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .padding(16.dp)
             .testTag("upload-status-screen"),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -96,17 +102,6 @@ fun UploadStatusScreen(onBack: () -> Unit) {
             modifier = Modifier.testTag("upload-status-headline"),
         )
 
-        diag.rows.forEach { row -> DiagRowView(row) }
-
-        // The last line of the report is what happened when you pushed.
-        actionResult?.let {
-            Text(
-                it,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.testTag("upload-status-action-result"),
-            )
-        }
-
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             // Tauri parity: its manual-upload button triggers `retry_button`,
             // which is the one trigger that bypasses the Wi-Fi-only rule.
@@ -137,6 +132,24 @@ fun UploadStatusScreen(onBack: () -> Unit) {
                 onClick = { refreshes++ },
                 modifier = Modifier.testTag("upload-status-refresh"),
             ) { Text("Refresh") }
+        }
+
+        // Below the buttons, so a result appearing cannot push them.
+        actionResult?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.testTag("upload-status-action-result"),
+            )
+        }
+
+        Column(
+            Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            diag.rows.forEach { row -> DiagRowView(row) }
         }
     }
 }
