@@ -53,6 +53,18 @@ interface SimplePhotoDao {
     @Query("SELECT * FROM photos WHERE uploadStatus = :status AND deleted = 0 ORDER BY createdAt ASC")
     fun getPhotosByUploadStatus(status: String): List<PhotoEntity>
 
+    // Windowed by status, for the device-photos list: with tens of thousands
+    // of rows the screen must never hold more than a page, and filtering is
+    // how anyone actually navigates that many.
+    @Query("""
+        SELECT * FROM photos WHERE uploadStatus = :status AND deleted = 0
+        ORDER BY createdAt DESC LIMIT :limit OFFSET :offset
+    """)
+    fun getPhotosByStatusPaginated(status: String, limit: Int, offset: Int): List<PhotoEntity>
+
+    @Query("SELECT COUNT(*) FROM photos WHERE uploadStatus = :status AND deleted = 0")
+    fun countByUploadStatus(status: String): Int
+
     @Query("SELECT * FROM photos WHERE uploadStatus = 'pending' AND deleted = 0 ORDER BY createdAt ASC")
     fun getPendingUploads(): List<PhotoEntity>
 

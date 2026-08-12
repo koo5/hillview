@@ -27,10 +27,13 @@ import kotlinx.coroutines.withContext
  */
 class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
 
-    override suspend fun page(page: Int, pageSize: Int): DevicePhotosPage =
+    override suspend fun page(page: Int, pageSize: Int, filter: PhotoFilter): DevicePhotosPage =
         withContext(Dispatchers.IO) {
             val dao = PhotoDatabase.getDatabase(context).photoDao()
-            val photos = dao.getPhotosPaginated(pageSize, (page - 1) * pageSize).map {
+            val offset = (page - 1) * pageSize
+            val rows = filter.status?.let { dao.getPhotosByStatusPaginated(it, pageSize, offset) }
+                ?: dao.getPhotosPaginated(pageSize, offset)
+            val photos = rows.map {
                 DevicePhotoCard(
                     id = it.id,
                     filename = it.filename,
@@ -45,9 +48,19 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
                     height = it.height,
                     uploadStatus = it.uploadStatus,
                     retryCount = it.retryCount,
+                    lastAttemptAtMs = it.lastUploadAttempt.takeIf { t -> t > 0 },
+                    uploadError = it.uploadError.takeIf { e -> e.isNotBlank() },
+                    // One stat() per visible row: rows outlive their bytes,
+                    // and such a row can never upload no matter how often it
+                    // is retried, so it is worth saying so on the card.
+                    fileMissing = !locatorExists(context, it.path),
                 )
             }
-            val total = dao.getTotalPhotoCount()
+            val total = if (filter.status == null) {
+                dao.getTotalPhotoCount()
+            } else {
+                dao.countByUploadStatus(filter.status)
+            }
             DevicePhotosPage(
                 photos = photos,
                 totalCount = total,
@@ -61,11 +74,51 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
             )
         }
 
+    override suspend fun counts(): Map<PhotoFilter, Int> = withContext(Dispatchers.IO) {
+        val dao = PhotoDatabase.getDatabase(context).photoDao()
+        PhotoFilter.entries.associateWith { filter ->
+            filter.status?.let { dao.countByUploadStatus(it) } ?: dao.getTotalPhotoCount()
+        }
+    }
+
+    override suspend fun delete(id: String, alsoFile: Boolean) = withContext(Dispatchers.IO) {
+        val dao = PhotoDatabase.getDatabase(context).photoDao()
+        if (alsoFile) {
+            dao.getPhotoById(id)?.let { row ->
+                try {
+                    if (row.path.startsWith("content:")) {
+                        context.contentResolver.delete(android.net.Uri.parse(row.path), null, null)
+                    } else {
+                        java.io.File(row.path).delete()
+                    }
+                } catch (e: Exception) {
+                    // The row goes regardless: a file we cannot delete is
+                    // exactly as unwanted as one we can.
+                    android.util.Log.w("DevicePhotos", "could not delete ${row.path}", e)
+                }
+            }
+        }
+        dao.deletePhoto(id)
+    }
+
     override suspend fun retryUploads() {
         withContext(Dispatchers.IO) {
             PhotoUploadManager(context).startAutomaticUpload("retry_button")
         }
     }
+}
+
+/** Does the locator still resolve to bytes? Path or content:// alike. */
+private fun locatorExists(context: Context, locator: String): Boolean = try {
+    if (locator.startsWith("content:")) {
+        context.contentResolver.openAssetFileDescriptor(
+            android.net.Uri.parse(locator), "r",
+        )?.use { true } ?: false
+    } else {
+        java.io.File(locator).exists()
+    }
+} catch (e: Exception) {
+    false
 }
 
 @Composable

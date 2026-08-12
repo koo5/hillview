@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,6 +56,8 @@ fun DevicePhotosScreen(
     val sessionState by sessionManager.state.collectAsState()
     val scope = rememberCoroutineScope()
 
+    var filter by remember { mutableStateOf(PhotoFilter.All) }
+    var filterCounts by remember { mutableStateOf<Map<PhotoFilter, Int>>(emptyMap()) }
     var cards by remember { mutableStateOf<List<DevicePhotoCard>>(emptyList()) }
     var counts by remember { mutableStateOf(StatusCounts(0, 0, 0)) }
     var totalCount by remember { mutableStateOf(0) }
@@ -63,7 +67,8 @@ fun DevicePhotosScreen(
     var loadingMore by remember { mutableStateOf(false) }
 
     suspend fun load(target: Int, append: Boolean) {
-        val result = browser.page(target, PAGE_SIZE)
+        val result = browser.page(target, PAGE_SIZE, filter)
+        filterCounts = browser.counts()
         cards = if (append) cards + result.photos else result.photos
         counts = result.counts
         totalCount = result.totalCount
@@ -108,6 +113,41 @@ fun DevicePhotosScreen(
             modifier = Modifier.padding(horizontal = 16.dp).testTag("device-photo-stats"),
         )
 
+        // The filter IS the navigation. At ten thousand rows nobody scrolls
+        // to find anything — the questions are "what is stuck", "what
+        // failed", "what can I delete", and each is a subset with a count.
+        // Page numbers would answer a question ("take me to row 4,000") that
+        // nobody asks, and the answer would move under them as uploads land.
+        Row(
+            Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            PhotoFilter.entries.forEach { option ->
+                val n = filterCounts[option]
+                TextButton(
+                    onClick = {
+                        if (option != filter) {
+                            filter = option
+                            loading = true
+                            scope.launch { load(1, append = false) }
+                        }
+                    },
+                    modifier = Modifier.testTag("filter-${option.name.lowercase()}"),
+                ) {
+                    Text(
+                        text = if (n != null) "${option.label} $n" else option.label,
+                        color = if (option == filter) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+            }
+        }
+
         when {
             loading && cards.isEmpty() -> Box(
                 Modifier.fillMaxSize().testTag("loading-container"),
@@ -136,6 +176,12 @@ fun DevicePhotosScreen(
                         retryOffered = uploadSettings.autoUploadEnabled &&
                             sessionState is SessionState.LoggedIn,
                         onRetry = { scope.launch { browser.retryUploads(); load(1, false) } },
+                        onDelete = { alsoFile ->
+                            scope.launch {
+                                browser.delete(card.id, alsoFile)
+                                load(1, append = false)
+                            }
+                        },
                     )
                 }
                 if (hasMore) {
@@ -162,7 +208,9 @@ private fun PhotoCard(
     card: DevicePhotoCard,
     retryOffered: Boolean,
     onRetry: () -> Unit,
+    onDelete: (alsoFile: Boolean) -> Unit = {},
 ) {
+    var confirmingDelete by remember { mutableStateOf(false) }
     Surface(
         tonalElevation = 2.dp,
         shape = RoundedCornerShape(8.dp),
@@ -214,6 +262,52 @@ private fun PhotoCard(
                 modifier = Modifier.padding(top = 4.dp),
             )
             if (card.uploadStatus != "completed") {
+                // Why this row is where it is — shown by default, because
+                // a status alone never explains a stuck photo.
+                card.lastAttemptAtMs?.let {
+                    Detail(
+                        "Last attempt",
+                        "${formatLocalDate(it)} ${formatLocalTime(it)}" +
+                            if (card.retryCount > 0) " · ${card.retryCount} retries" else "",
+                    )
+                }
+                card.uploadError?.let { Detail("Error", it) }
+                if (card.fileMissing) {
+                    Text(
+                        "File is gone — this row can never upload. Delete it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("file-missing"),
+                    )
+                }
+
+                // Two deletes, because they are different acts: a row whose
+                // file is already gone only needs forgetting, while a photo
+                // you do not want uploaded needs the bytes gone too. Neither
+                // touches the server.
+                if (confirmingDelete) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(
+                            onClick = { confirmingDelete = false; onDelete(false) },
+                            modifier = Modifier.testTag("delete-row-only"),
+                        ) { Text("Forget row") }
+                        if (!card.fileMissing) {
+                            TextButton(
+                                onClick = { confirmingDelete = false; onDelete(true) },
+                                modifier = Modifier.testTag("delete-with-file"),
+                            ) {
+                                Text("Delete file too", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") }
+                    }
+                } else {
+                    TextButton(
+                        onClick = { confirmingDelete = true },
+                        modifier = Modifier.testTag("delete-photo-button"),
+                    ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                }
+
                 if (retryOffered) {
                     TextButton(
                         onClick = onRetry,
