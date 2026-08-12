@@ -42,6 +42,12 @@ class SharedStackUploadPipeline(
         cz.hillview.plugin.StampRefiner.get(context).also { r ->
             r.onResult = { result ->
                 val wall = System.currentTimeMillis()
+                cz.hillview.plugin.EventLog.record(
+                    "refine",
+                    "${result.outcome} after ${result.waitMs}ms" +
+                        (result.movedMeters?.let { " · moved %.2fm".format(it) } ?: "") +
+                        (result.turnedDegrees?.let { " · turned %.1f°".format(it) } ?: ""),
+                )
                 CaptureStatsLog.increment("refine ${result.outcome}", wall)
                 CaptureStatsLog.record("refine wait", result.waitMs, wall)
                 result.movedMeters?.let {

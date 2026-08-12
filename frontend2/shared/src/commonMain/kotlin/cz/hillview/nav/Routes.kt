@@ -35,6 +35,10 @@ data object SettingsKey : NavKey
 @Serializable
 data object DevicePhotosKey : NavKey
 
+/** The app's own recent events (see EventLogScreen). */
+@Serializable
+data object EventLogKey : NavKey
+
 /** Why the uploader is or is not running (see UploadStatusScreen). */
 @Serializable
 data object UploadStatusKey : NavKey

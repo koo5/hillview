@@ -63,6 +63,7 @@ fun MainScreen(
     onOpenDevicePhotos: () -> Unit,
     onOpenCaptureGuide: () -> Unit = {},
     onOpenUploadStatus: () -> Unit = {},
+    onOpenEventLog: () -> Unit = {},
     settingsRepo: MapSettingsRepository = koinInject(),
     session: MapSession = koinInject(),
     sessionManager: SessionManager = koinInject(),
@@ -337,6 +338,10 @@ fun MainScreen(
                     MenuLink("Uploads", "menu-upload-status") {
                         menuOpen = false
                         onOpenUploadStatus()
+                    }
+                    MenuLink("Event log", "menu-event-log") {
+                        menuOpen = false
+                        onOpenEventLog()
                     }
                     MenuLink("Capture guide", "menu-capture-guide") {
                         menuOpen = false

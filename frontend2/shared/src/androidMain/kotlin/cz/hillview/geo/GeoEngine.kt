@@ -135,6 +135,11 @@ class GeoEngine private constructor(private val context: Context) {
     private fun applyConfig(config: GeoConfig) {
         if (config == active) return
         Log.i(TAG, "configure $active -> $config")
+        cz.hillview.plugin.EventLog.record(
+            "geo",
+            "engine -> " + if (!config.sensors && config.locationIntervalMs == 0L) "off" else
+                "sensors ${config.sensorDelayUs / 1000}ms, fixes ${config.locationIntervalMs}ms",
+        )
 
         // Sensors.
         if (config.sensors && !active.sensors) {

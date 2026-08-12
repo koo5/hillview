@@ -1195,6 +1195,11 @@ private class AndroidPhotoCapture(
             "recording finalized: ${file.length()} bytes, ${log.frameCount} frames, " +
                 log.exposureSummary(),
         )
+        cz.hillview.plugin.EventLog.record(
+            "video",
+            "${file.name}: ${file.length() / 1024}KB, ${log.frameCount} frames, " +
+                log.exposureSummary(),
+        )
         if (!hideFromGalleryPref()) PhotoStorage.indexInGallery(context, file)
         state = state.copy(
             recording = false,
@@ -1455,6 +1460,14 @@ private class AndroidPhotoCapture(
                                 TAG,
                                 "captured $filename via ${mode.key} -> $locator " +
                                     "(device pose ${snapshot.deviceRotationDeg}°)",
+                            )
+                            cz.hillview.plugin.EventLog.record(
+                                "capture",
+                                "$filename (${mode.key}, " +
+                                    (snapshot.locationSource ?: "no position") + ", " +
+                                    (snapshot.exposure?.let {
+                                        "${formatShutter(it.plan.exposureNs)} iso${it.plan.iso}"
+                                    } ?: "auto exposure") + ")",
                             )
                         } catch (e: Exception) {
                             Log.e(TAG, "post-save handling failed", e)

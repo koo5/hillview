@@ -120,6 +120,7 @@ class PhotoUploadLogic(internal val context: Context) {
 	 * nothing kept — WorkManager reports its own scheduling, not ours.
 	 */
 	private fun recordDrain(trigger: String, result: String) {
+		EventLog.record("upload", "drain [$trigger] $result")
 		try {
 			prefs.edit()
 				.putLong("last_drain_at", System.currentTimeMillis())
@@ -304,6 +305,7 @@ class PhotoUploadLogic(internal val context: Context) {
 						val serverPhotoId = secureUploadPhoto(claimed)
 
 						if (serverPhotoId != null) {
+							EventLog.record("upload", "✓ ${photo.filename} -> server $serverPhotoId")
 							uploadedCount++
 							Log.d(
 								TAG,
@@ -326,6 +328,7 @@ class PhotoUploadLogic(internal val context: Context) {
 								TAG,
 								"❌ Failed to $action ${photo.filename}"
 							)
+							EventLog.record("upload", "✗ ${photo.filename}: $action failed")
 							photoDao.updateUploadFailure(
 								photo.id,
 								"failed",
@@ -362,6 +365,10 @@ class PhotoUploadLogic(internal val context: Context) {
 							TAG,
 							"💥 Error during upload for ${photo.filename}",
 							e
+						)
+						EventLog.record(
+							"upload",
+							"✗ ${photo.filename}: ${e::class.simpleName}: ${e.message}",
 						)
 						photoDao.updateUploadFailure(
 							photo.id,

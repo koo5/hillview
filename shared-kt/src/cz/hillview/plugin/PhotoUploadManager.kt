@@ -37,6 +37,7 @@ class PhotoUploadManager(private val context: Context) {
         val prefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("auto_upload_enabled", false)) {
             Log.d(TAG, "🢄📤 auto_upload_enabled === false")
+            EventLog.record("upload", "trigger '$triggerSource' ignored: auto-upload is off")
             return
         }
         // Manual retry button bypasses the wifi-only constraint.
@@ -92,6 +93,12 @@ class PhotoUploadManager(private val context: Context) {
         }
 
         Log.d(TAG, "🢄📤 enqueue $uniqueName wifiOnly=$wifiOnly expedited=$expedited delayMs=$delayMs trigger=$triggerSource")
+        EventLog.record(
+            "upload",
+            "enqueued $uniqueName (trigger $triggerSource, " +
+                (if (wifiOnly) "needs unmetered" else "any network") +
+                (if (expedited) ", expedited" else ", in ${delayMs / 1000}s") + ")",
+        )
         WorkManager.getInstance(context).enqueueUniqueWork(uniqueName, ExistingWorkPolicy.KEEP, builder.build())
     }
 
