@@ -92,6 +92,41 @@ actual suspend fun collectUploadDiagnostics(): UploadDiagnostics = withContext(D
         } else null,
     )
 
+    // Token life: an expired session is a silent blocker, and "signed in"
+    // above only says a session EXISTS.
+    val auth = context.getSharedPreferences("hillview_auth", Context.MODE_PRIVATE)
+    auth.getString("expires_at", null)?.let { iso ->
+        val until = runCatching {
+            java.time.Instant.parse(iso).toEpochMilli() - System.currentTimeMillis()
+        }.getOrNull()
+        rows += DiagRow(
+            "Access token",
+            when {
+                until == null -> iso
+                until > 0 -> "valid for ${until / 60_000} min"
+                else -> "EXPIRED ${-until / 60_000} min ago (refresh on next use)"
+            },
+            if (until != null && until <= 0) DiagVerdict.Info else DiagVerdict.Ok,
+        )
+    }
+
+    // Free space on the volume captures land on: a full disk stops the
+    // shutter, and nothing else in the app would say why.
+    runCatching {
+        val dir = cz.hillview.capture.PhotoStorage.publicDir(
+            prefs.getBoolean("hide_from_gallery", false),
+        )
+        val stat = android.os.StatFs(
+            (if (dir.exists()) dir else android.os.Environment.getExternalStorageDirectory()).path,
+        )
+        val freeMb = stat.availableBytes / (1024 * 1024)
+        rows += DiagRow(
+            "Free space", "$freeMb MB",
+            if (freeMb < 200) DiagVerdict.Blocking else DiagVerdict.Ok,
+            note = if (freeMb < 200) "Captures will start failing." else null,
+        )
+    }
+
     // ---- the queue ------------------------------------------------------
     val dao = PhotoDatabase.getDatabase(context).photoDao()
     val pending = dao.getPendingUploadCount()
@@ -177,4 +212,39 @@ private fun stopReasonName(reason: Int): String = when (reason) {
     WorkInfo.STOP_REASON_CANCELLED_BY_APP -> "cancelled by the app"
     WorkInfo.STOP_REASON_USER -> "stopped by the user"
     else -> "reason $reason"
+}
+
+actual suspend fun triggerUploadNow(): String = withContext(Dispatchers.IO) {
+    val context: Context = GlobalContext.get().get()
+    val prefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+    if (!prefs.getBoolean("auto_upload_enabled", false)) {
+        // The shared drain gates on this too, so a button that appeared to
+        // work would be lying.
+        return@withContext "Auto-upload is off — turn it on in Settings first."
+    }
+    cz.hillview.plugin.PhotoUploadManager(context).startAutomaticUpload("retry_button")
+    "Drain requested (ignores the Wi-Fi-only rule). Watch the queue below."
+}
+
+actual suspend fun pingBackend(): String = withContext(Dispatchers.IO) {
+    val context: Context = GlobalContext.get().get()
+    val prefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
+    val base = prefs.getString("server_url", null)
+        ?: return@withContext "No server configured."
+    val started = System.currentTimeMillis()
+    try {
+        val conn = java.net.URI("$base/debug").toURL().openConnection()
+            as java.net.HttpURLConnection
+        conn.connectTimeout = 5_000
+        conn.readTimeout = 5_000
+        val code = conn.responseCode
+        val ms = System.currentTimeMillis() - started
+        conn.disconnect()
+        if (code == 200) "Reachable — HTTP $code in ${ms}ms" else "Answered HTTP $code in ${ms}ms"
+    } catch (e: Exception) {
+        // The message IS the diagnosis here: unknown host, timeout, refused
+        // and certificate failures each mean something different.
+        "Unreachable after ${System.currentTimeMillis() - started}ms — " +
+            "${e::class.simpleName}: ${e.message}"
+    }
 }

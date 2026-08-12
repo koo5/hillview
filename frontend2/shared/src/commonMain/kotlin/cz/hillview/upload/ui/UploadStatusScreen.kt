@@ -27,6 +27,9 @@ import cz.hillview.upload.DiagRow
 import cz.hillview.upload.DiagVerdict
 import cz.hillview.upload.UploadDiagnostics
 import cz.hillview.upload.collectUploadDiagnostics
+import cz.hillview.upload.pingBackend
+import cz.hillview.upload.triggerUploadNow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
 /**
@@ -43,6 +46,8 @@ import kotlinx.coroutines.delay
 fun UploadStatusScreen(onBack: () -> Unit) {
     var diagnostics by remember { mutableStateOf<UploadDiagnostics?>(null) }
     var refreshes by remember { mutableStateOf(0) }
+    var actionResult by remember { mutableStateOf<String?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(refreshes) {
         // Re-read on a slow tick as well as on demand: the interesting
@@ -93,10 +98,46 @@ fun UploadStatusScreen(onBack: () -> Unit) {
 
         diag.rows.forEach { row -> DiagRowView(row) }
 
-        TextButton(
-            onClick = { refreshes++ },
-            modifier = Modifier.testTag("upload-status-refresh"),
-        ) { Text("Refresh now") }
+        // The last line of the report is what happened when you pushed.
+        actionResult?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.testTag("upload-status-action-result"),
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            // Tauri parity: its manual-upload button triggers `retry_button`,
+            // which is the one trigger that bypasses the Wi-Fi-only rule.
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        actionResult = "working…"
+                        actionResult = triggerUploadNow()
+                        diagnostics = collectUploadDiagnostics()
+                    }
+                },
+                modifier = Modifier.testTag("upload-now-button"),
+            ) { Text("Upload now") }
+
+            // Answers the question a stalled queue cannot answer about
+            // itself: can this phone reach the server at all?
+            TextButton(
+                onClick = {
+                    scope.launch {
+                        actionResult = "pinging…"
+                        actionResult = pingBackend()
+                    }
+                },
+                modifier = Modifier.testTag("ping-backend-button"),
+            ) { Text("Test server") }
+
+            TextButton(
+                onClick = { refreshes++ },
+                modifier = Modifier.testTag("upload-status-refresh"),
+            ) { Text("Refresh") }
+        }
     }
 }
 

@@ -16,3 +16,7 @@ actual suspend fun collectUploadDiagnostics(): UploadDiagnostics = UploadDiagnos
     ),
     takenAtMs = System.currentTimeMillis(),
 )
+
+actual suspend fun triggerUploadNow(): String = "Not on this platform."
+
+actual suspend fun pingBackend(): String = "Not on this platform."
