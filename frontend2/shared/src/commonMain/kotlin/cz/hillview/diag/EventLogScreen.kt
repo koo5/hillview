@@ -73,7 +73,15 @@ fun EventLogScreen(onBack: () -> Unit) {
             Modifier.horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            val categories = remember(events) { events.map { it.category }.distinct().sorted() }
+            // FIXED order, not alphabetical-as-discovered: sorting means a
+            // newly-seen category inserts in the middle and shifts every
+            // chip after it, under a thumb that was aiming at one of them.
+            // Known categories hold their slots; anything new appends.
+            val categories = remember(events) {
+                val seen = events.map { it.category }.distinct()
+                KNOWN_EVENT_CATEGORIES.filter { it in seen } +
+                    seen.filterNot { it in KNOWN_EVENT_CATEGORIES }.sorted()
+            }
             TextButton(onClick = { category = null }) {
                 Text(
                     "all ${events.size}",
@@ -140,6 +148,13 @@ fun EventLogScreen(onBack: () -> Unit) {
         }
     }
 }
+
+/**
+ * The categories this app writes, in the order the chips show them —
+ * roughly the order a photo's life happens in. Fixed so the chips do not
+ * reshuffle as new kinds of event appear during a session.
+ */
+private val KNOWN_EVENT_CATEGORIES = listOf("capture", "video", "refine", "upload", "geo")
 
 /** One line of the app's own history. */
 data class LoggedEvent(val atMs: Long, val category: String, val message: String)

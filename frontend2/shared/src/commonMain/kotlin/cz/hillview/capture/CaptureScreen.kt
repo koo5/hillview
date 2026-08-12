@@ -642,39 +642,47 @@ fun CaptureScreen(
                             }
                         }
 
-                        // The bias biases the METERING, so it needs a rule
-                        // of ours to ride on — under auto exposure the
-                        // camera's own AE owns that decision.
-                        state.exposureRule?.let { rule ->
-                            MenuLabel("Bias")
-                            Row {
-                                EV_BIAS_CHOICES.forEach { ev ->
-                                    ShutterChip(
-                                        formatEvBias(ev),
-                                        rule.evBias == ev,
-                                        "capture-exposure-ev-${evTag(ev)}",
-                                    ) {
-                                        exposureBias = ev
-                                        capture.exposureRule = rule.copy(evBias = ev)
-                                    }
+                        // The bias biases the METERING, so it needs a rule of
+                        // ours to ride on — under auto exposure the camera's
+                        // own AE owns that decision. Shown ALWAYS, disabled
+                        // under Auto, rather than appearing when a rule is
+                        // picked: this menu is anchored at its bottom, so a
+                        // row materialising here shoves the Rule and Target
+                        // chips upward — and the tap after choosing a rule is
+                        // usually a target, aimed at where the chip WAS.
+                        MenuLabel("Bias")
+                        Row {
+                            EV_BIAS_CHOICES.forEach { ev ->
+                                ShutterChip(
+                                    formatEvBias(ev),
+                                    state.exposureRule?.evBias == ev,
+                                    "capture-exposure-ev-${evTag(ev)}",
+                                ) {
+                                    exposureBias = ev
+                                    // Under Auto this arms the bias for the
+                                    // rule you pick next, rather than doing
+                                    // nothing and looking broken.
+                                    capture.exposureRule = state.exposureRule?.copy(evBias = ev)
                                 }
                             }
                         }
 
                         // What the rule actually resolved to last time it
                         // was applied — the only honest answer to "is this
-                        // mode working here?", live, in the field.
-                        state.plan?.let { plan ->
-                            Text(
+                        // mode working here?", live, in the field. Always
+                        // occupies its line, for the same reason as the bias
+                        // row: a line that appears moves everything above it.
+                        Text(
+                            state.plan?.let { plan ->
                                 "${formatShutter(plan.exposureNs)} · ISO ${plan.iso} · " +
-                                    plan.outcome.name.lowercase(),
-                                color = Color(0x99FFFFFF),
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier
-                                    .padding(start = 8.dp, top = 2.dp, bottom = 2.dp)
-                                    .testTag("capture-exposure-plan"),
-                            )
-                        }
+                                    plan.outcome.name.lowercase()
+                            } ?: "auto exposure",
+                            color = Color(0x99FFFFFF),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier
+                                .padding(start = 8.dp, top = 2.dp, bottom = 2.dp)
+                                .testTag("capture-exposure-plan"),
+                        )
                     }
                 }
                 TextButton(

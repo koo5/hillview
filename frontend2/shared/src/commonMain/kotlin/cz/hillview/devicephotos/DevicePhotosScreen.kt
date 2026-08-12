@@ -211,6 +211,47 @@ private fun PhotoCard(
     onDelete: (alsoFile: Boolean) -> Unit = {},
 ) {
     var confirmingDelete by remember { mutableStateOf(false) }
+
+    if (confirmingDelete) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirmingDelete = false },
+            title = { Text("Delete ${card.filename}?") },
+            text = {
+                Text(
+                    if (card.fileMissing) {
+                        "The file is already gone, so only the database row is left " +
+                            "to remove. It can never upload."
+                    } else {
+                        "\"Forget row\" removes it from this list and the upload " +
+                            "queue but leaves the file on the device. \"Delete file " +
+                            "too\" also removes the bytes. Neither touches anything " +
+                            "already uploaded to the server."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { confirmingDelete = false; onDelete(false) },
+                    modifier = Modifier.testTag("delete-row-only"),
+                ) { Text("Forget row") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = { confirmingDelete = false },
+                    ) { Text("Cancel") }
+                    if (!card.fileMissing) {
+                        TextButton(
+                            onClick = { confirmingDelete = false; onDelete(true) },
+                            modifier = Modifier.testTag("delete-with-file"),
+                        ) {
+                            Text("Delete file too", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            },
+        )
+    }
     Surface(
         tonalElevation = 2.dp,
         shape = RoundedCornerShape(8.dp),
@@ -281,33 +322,6 @@ private fun PhotoCard(
                     )
                 }
 
-                // Two deletes, because they are different acts: a row whose
-                // file is already gone only needs forgetting, while a photo
-                // you do not want uploaded needs the bytes gone too. Neither
-                // touches the server.
-                if (confirmingDelete) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(
-                            onClick = { confirmingDelete = false; onDelete(false) },
-                            modifier = Modifier.testTag("delete-row-only"),
-                        ) { Text("Forget row") }
-                        if (!card.fileMissing) {
-                            TextButton(
-                                onClick = { confirmingDelete = false; onDelete(true) },
-                                modifier = Modifier.testTag("delete-with-file"),
-                            ) {
-                                Text("Delete file too", color = MaterialTheme.colorScheme.error)
-                            }
-                        }
-                        TextButton(onClick = { confirmingDelete = false }) { Text("Cancel") }
-                    }
-                } else {
-                    TextButton(
-                        onClick = { confirmingDelete = true },
-                        modifier = Modifier.testTag("delete-photo-button"),
-                    ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-                }
-
                 if (retryOffered) {
                     TextButton(
                         onClick = onRetry,
@@ -321,6 +335,21 @@ private fun PhotoCard(
                     )
                 }
             }
+
+            // OUTSIDE the not-completed gate: a photo that uploaded fine is
+            // still one you may want off the phone, and an orphaned row can
+            // be in any state. Delete was unreachable for exactly the rows a
+            // cleanup is aimed at.
+            //
+            // Confirmation is a DIALOG, not an inline expansion: growing the
+            // card in place shoves every card below it down, so a second
+            // delete aimed at the same spot lands on a different photo. For
+            // a destructive action that is unacceptable — and the dialog has
+            // room to say what the two deletes differ on.
+            TextButton(
+                onClick = { confirmingDelete = true },
+                modifier = Modifier.testTag("delete-photo-button"),
+            ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
         }
     }
 }
