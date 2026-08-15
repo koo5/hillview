@@ -38,6 +38,69 @@ catch-all fronts :3000, so there is nothing left to choose.
 # still contains one, rather than writing a plausible-looking wrong URL.
 UNSET = "<fill-in>"
 
+def vm_profiles(machine, ip, ygg_reachable_locally=False):
+	"""The standard three profiles for one of the dev VMs.
+
+	The VMs are clones of each other, so everything except the name and the
+	address is identical: same ports (api 8055, worker 8056, frontend 3000,
+	umami 3344, pics file-server 9999), same Caddy path shapes, and a single
+	files-pool at /app/pics because none of them declares FILE_POOLS.
+
+	Written out per machine, that is three near-identical blocks each time a VM
+	is cloned. Generated instead, adding a box is one line — and the shapes
+	cannot drift apart by accident, which is how dev4's `local` vhost ended up
+	without the /umami route its ygg vhost had.
+
+	jj is deliberately NOT built from this: it has no `local` profile at all, it
+	is on a different network, and it carries a real multi-pool FILE_POOLS with
+	a second pics2 pool. Forcing it through the template would mean parameters
+	that only ever take one value.
+	"""
+	local, ygg = f"hv.{machine}.local", f"hv.{machine}.jj.internal"
+
+	def caddy(host, frontend_url, **extra):
+		return {
+			"env": {
+				"WORKER_URL": f"https://{host}/worker",
+				"PICS_URL": f"https://{host}/pics/",
+			},
+			"frontend_env": {
+				"VITE_BACKEND": f"https://{host}/api",
+				"VITE_UMAMI_URL": f"https://{host}/umami",
+			},
+			"pools": {"/app/pics": f"https://{host}/pics/"},
+			"frontend_url": frontend_url,
+			**extra,
+		}
+
+	return {
+		f"{machine}-raw": {
+			"summary": f"{machine}, every service on its own port, plain HTTP",
+			"note": f"Android against {machine}",
+			"env": {
+				"WORKER_URL": f"http://{ip}:8056",
+				# The :9999 vhost roots its catch-all at /pics, so the server
+				# root IS the pics root.
+				"PICS_URL": f"http://{ip}:9999/",
+			},
+			"frontend_env": {"VITE_BACKEND": f"http://{ip}:8055/api"},
+			"pools": {"/app/pics": f"http://{ip}:9999/"},
+			"frontend_url": None,
+		},
+		f"{machine}-local": dict(
+			summary=f"{machine}'s own Caddy, single h2 origin, reachable on the LAN",
+			note=f"Playwright on {machine}",
+			**caddy(local, f"https://{local}"),
+		),
+		f"{machine}-ygg": dict(
+			summary=f"{machine} published over Yggdrasil, for interactive testing from another device",
+			note="Terminated on jj, which proxies in. "
+			     + ("This box resolves the name to itself, so it works locally too."
+			        if ygg_reachable_locally else
+			        "ygg does not run inside this box, so only other devices can use it."),
+			**caddy(ygg, None, reachable_locally=ygg_reachable_locally),
+		),
+	}
 PROFILES = {
 	# ---- this machine ---------------------------------------------------
 	"jj-raw": {
@@ -46,6 +109,10 @@ PROFILES = {
 		"env": {
 			"WORKER_URL": "http://10.0.0.24:8056",
 			"PICS_URL": "http://10.0.0.24:9999/",
+			# Base URL for artifacts kept in the worker's own uploads volume
+			# (per-photo keep_pics_in_worker uploads; the toggle itself is
+			# ALLOW_KEEP_PICS_IN_WORKER, deliberately NOT profile-managed).
+			"WORKER_PICS_URL": "http://10.0.0.24:9999/wpics/",
 		},
 		"frontend_env": {
 			"VITE_BACKEND": "http://10.0.0.24:8055/api",
@@ -54,6 +121,9 @@ PROFILES = {
 		"pools": {
 			"/app/pics2": "http://10.0.0.24:9999/pics2/",
 			"/app/pics": "http://10.0.0.24:9999/",
+			# The worker's uploads volume, mounted into the api container at
+			# /app/wuploads so deleting a kept photo can remove its files.
+			"/app/wuploads": "http://10.0.0.24:9999/wpics/",
 		},
 		# The origin Playwright targets. None => no declaration => it spawns
 		# `bun run dev` on :8212 itself. Plain HTTP reaches the built container
@@ -75,6 +145,10 @@ PROFILES = {
 			# No trailing slash: the client builds `${WORKER_URL}/upload_async`.
 			"WORKER_URL": "https://hv.jj.internal/worker",
 			"PICS_URL": "https://hv.jj.internal/pics/",
+			# Base URL for artifacts kept in the worker's own uploads volume
+			# (per-photo keep_pics_in_worker uploads; the toggle itself is
+			# ALLOW_KEEP_PICS_IN_WORKER, deliberately NOT profile-managed).
+			"WORKER_PICS_URL": "https://hv.jj.internal/wpics/",
 		},
 		"frontend_env": {
 			"VITE_BACKEND": "https://hv.jj.internal/api",
@@ -89,6 +163,9 @@ PROFILES = {
 		"pools": {
 			"/app/pics2": "https://hv.jj.internal/pics2/",
 			"/app/pics": "https://hv.jj.internal/pics/",
+			# The worker's uploads volume, mounted into the api container at
+			# /app/wuploads so deleting a kept photo can remove its files.
+			"/app/wuploads": "https://hv.jj.internal/wpics/",
 		},
 		# Not a choice: the origin IS the profile, and its catch-all fronts :3000.
 		"frontend_url": "https://hv.jj.internal",
@@ -97,73 +174,17 @@ PROFILES = {
 		"reachable_locally": True,
 	},
 
-	# ---- dev4 (the VM), at 192.168.122.64 --------------------------------
-	# dev4 declares NO FILE_POOLS, so it runs the single-pool fallback from
-	# PICS_URL/PICS_DIR and writes to /app/pics. Hence one pool entry and no
-	# /pics2 anywhere — pics2 is this machine's multi-pool setup and does not
-	# transfer. set_host skips `pools` entirely while FILE_POOLS is absent, so
-	# the entry is only insurance for the day dev4 grows one.
-	"dev4-raw": {
-		"summary": "dev4, every service on its own port, plain HTTP",
-		"note": "Android against dev4",
-		"env": {
-			"WORKER_URL": "http://192.168.122.64:8056",
-			# dev4's :9999 vhost roots its catch-all at /pics, so the bare
-			# server root IS the pics root — same shape as this machine's.
-			"PICS_URL": "http://192.168.122.64:9999/",
-		},
-		"frontend_env": {
-			"VITE_BACKEND": "http://192.168.122.64:8055/api",
-		},
-		"pools": {
-			"/app/pics": "http://192.168.122.64:9999/",
-		},
-		# The origin Playwright targets. None => no declaration => it spawns
-		# `bun run dev` on :8212 itself. Plain HTTP reaches the built container
-		# on :3000 just as well; that is a per-run override, not a profile —
-		#   FRONTEND_URL=http://localhost:3000 ./run_tests.sh
-		# still wins over this block, so it needs no knob here.
-		"frontend_url": None,
-	},
-	"dev4-local": {
-		"summary": "dev4's own Caddy, single h2 origin, reachable on the LAN",
-		"note": "Playwright on dev4. NEEDS the hv. rename on dev4 first — its vhost "
-		        "is still named hillview.dev4.local, so these point at a name "
-		        "nothing answers until that lands.",
-		"env": {
-			"WORKER_URL": "https://hv.dev4.local/worker",
-			"PICS_URL": "https://hv.dev4.local/pics/",
-		},
-		"frontend_env": {
-			"VITE_BACKEND": "https://hv.dev4.local/api",
-			"VITE_UMAMI_URL": "https://hv.dev4.local/umami",
-		},
-		"pools": {
-			"/app/pics": "https://hv.dev4.local/pics/",
-		},
-		"frontend_url": "https://hv.dev4.local",
-	},
-	"dev4-ygg": {
-		"summary": "dev4 published over Yggdrasil, for interactive testing from another device",
-		"note": "NOT a Playwright target. ygg does not run inside dev4, so only the "
-		        "browser-facing keys carry the ygg host; a jj Caddy section proxies in.",
-		"env": {
-			"WORKER_URL": "https://hv.dev4.jj.internal/worker",
-			"PICS_URL": "https://hv.dev4.jj.internal/pics/",
-		},
-		"frontend_env": {
-			"VITE_BACKEND": "https://hv.dev4.jj.internal/api",
-			"VITE_UMAMI_URL": "https://hv.dev4.jj.internal/umami",
-		},
-		"pools": {
-			"/app/pics": "https://hv.dev4.jj.internal/pics/",
-		},
-		# Interactive testing only — never a Playwright target.
-		"frontend_url": None,
-		# Terminated on jj, and ygg does not run inside dev4, so dev4 cannot
-		# resolve this name at all. Only other devices can use it.
-		"reachable_locally": False,
-	},
+	# ---- the dev VMs -----------------------------------------------------
+	# Clones of one another, so they are generated rather than written out; see
+	# vm_profiles above for what is shared and why jj is not included.
+	#
+	# dev4-3 arrived as a clone still calling itself `dev4`, which would have
+	# made profile_for() hand it dev4's profiles and aim it at the wrong box.
+	# Its hostname is now set persistently (cloud-init's preserve_hostname had
+	# to be turned on, or it reverted every boot), and its own names resolve to
+	# itself rather than to dev4.
+	**vm_profiles("dev4", "192.168.122.64"),
+	**vm_profiles("dev4-3", "192.168.122.31", ygg_reachable_locally=True),
 }
 
 
