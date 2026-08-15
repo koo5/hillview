@@ -33,11 +33,32 @@
 		current_rect: string | null;
 		proposed_rect: string;
 	}
+	interface OverlayFitSummary {
+		projection: string;
+		centre_bearing: number;
+		fov_deg: number;
+		horizon_pct: number;
+		v_scale: number;
+		roll_deg: number;
+		warp: number[];
+		visibility_km?: number | null;
+	}
+	interface OverlayItem {
+		photo_id: string;
+		photo_title: string | null;
+		sizes: Record<string, { url?: string }> | null;
+		fit: OverlayFitSummary;
+		decided_at: string | null;
+		fact: string;
+		has_current: boolean;
+	}
 	interface Suggestions {
 		suggestions: Suggestion[];
 		landed: Suggestion[];
 		creates: Suggestion[];
 		target_changes: TargetChange[];
+		overlays: OverlayItem[];
+		overlays_landed: OverlayItem[];
 	}
 
 	let data = $state<Suggestions | null>(null);
@@ -60,18 +81,33 @@
 		format_version: number;
 		created_at: string;
 		run_id: string;
-		counts: { ops: number; facts: number };
+		counts: { ops: number; facts: number; blobs?: number; blob_bytes?: number };
 		ops: unknown[];
 		provenance_trig: string;
+		/** overlays the review page offered but that could not be baked */
+		skipped?: { photo_id: string; photo_title: string | null; error: string }[];
 	}
 	let exporting = $state(false);
 	let exportMsg = $state<string | null>(null);
+	let exportSkipped = $state<{ photo_id: string; photo_title: string | null; error: string }[]>(
+		[]
+	);
+
+	/** everything the export would carry — annotations plus overlays */
+	const pendingCount = $derived(
+		data
+			? data.suggestions.length +
+					data.creates.length +
+					data.target_changes.length +
+					data.overlays.length
+			: 0
+	);
 
 	async function exportPackage() {
-		if (!data || (!data.suggestions.length && !data.creates.length && !data.target_changes.length))
-			return;
+		if (!data || !pendingCount) return;
 		exporting = true;
 		exportMsg = null;
+		exportSkipped = [];
 		try {
 			// empty body = all pending; the /graduation review IS the selection
 			const pkg = await api.post<Package>('/graduation/export', {});
@@ -83,7 +119,13 @@
 			a.download = `${pkg.package}-${stamp}.json`;
 			a.click();
 			URL.revokeObjectURL(a.href);
-			exportMsg = `⬇ ${pkg.counts.ops} ops · ${pkg.counts.facts} provenance facts · run ${pkg.run_id.slice(0, 8)} — drop this file into Hillview's admin to apply`;
+			const blobNote = pkg.counts.blobs
+				? ` · ${pkg.counts.blobs} depth buffer(s), ${Math.round((pkg.counts.blob_bytes ?? 0) / 1024)} KB`
+				: '';
+			exportMsg = `⬇ ${pkg.counts.ops} ops · ${pkg.counts.facts} provenance facts${blobNote} · run ${pkg.run_id.slice(0, 8)} — drop this file into Hillview's admin to apply`;
+			// a short package must say so — the operator picked from a list
+			// that promised more than the file contains
+			exportSkipped = pkg.skipped ?? [];
 		} catch (e) {
 			exportMsg = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
 		} finally {
@@ -127,6 +169,14 @@
 			</dd>
 			<dt>rect changes</dt>
 			<dd>reshaped rectangles for existing annotations (struck-through = current rect)</dd>
+			<dt>terrain overlays</dt>
+			<dd>
+				photos whose terrain overlay fit was approved on the overlay bench. The op carries
+				a <b>baked</b> overlay — horizon elevation angle per azimuth + visible peak labels
+				+ the DEM licence notice — so Hillview draws it with no depth buffer and no
+				terrain worker. Landing compares the <b>fit alone</b>, so re-rendering the photo
+				or nudging the horizon in Hillview never re-offers a settled overlay
+			</dd>
 		</dl>
 		<h4>export package</h4>
 		<p>
@@ -154,19 +204,29 @@
 
 {#if data}
 	<div class="row" style="align-items:center; gap:12px">
-		<h2 style="margin:0">
-			Pending — {data.suggestions.length + data.creates.length + data.target_changes.length}
-		</h2>
-		{#if data.suggestions.length || data.creates.length || data.target_changes.length}
+		<h2 style="margin:0">Pending — {pendingCount}</h2>
+		{#if pendingCount}
 			<button class="primary" disabled={exporting} onclick={exportPackage}>
-				{exporting
-					? 'building…'
-					: `⬇ export package (${data.suggestions.length + data.creates.length + data.target_changes.length})`}
+				{exporting ? 'building…' : `⬇ export package (${pendingCount})`}
 			</button>
 		{/if}
 	</div>
 	{#if exportMsg}
 		<div class="muted" style="font-size:12px; margin:6px 0">{exportMsg}</div>
+	{/if}
+	{#if exportSkipped.length}
+		<div class="card" style="border-color:var(--bad); font-size:12px; margin:6px 0">
+			<b>{exportSkipped.length} overlay(s) left OUT of the package</b> — the export could not
+			resolve them, so what you downloaded is short of the list above:
+			<ul style="margin:4px 0 0 0; padding-left:18px">
+				{#each exportSkipped as s (s.photo_id)}
+					<li>
+						<a href="/terrain/overlay?photo={s.photo_id}" class="mono">{s.photo_id.slice(0, 8)}</a>
+						{#if s.photo_title}<span class="muted"> {s.photo_title}</span>{/if} — {s.error}
+					</li>
+				{/each}
+			</ul>
+		</div>
 	{/if}
 	{#if data.suggestions.length}
 		<table>
@@ -279,6 +339,81 @@
 							<div class="muted" style="text-decoration:line-through">{t.current_rect ?? '—'}</div>
 							<div style="color:var(--ok)">{t.proposed_rect}</div>
 							<span class="pill" style="font-size:10px">reshape</span>
+						</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	{/if}
+
+	{#if data.overlays.length}
+		<h2 style="margin-top:18px">Terrain overlays to graduate — {data.overlays.length}</h2>
+		<p class="muted" style="font-size:12px">
+			photos with an <b>approved</b> terrain overlay fit (the “graduate” toggle on the
+			overlay bench). The package carries a <i>baked</i> overlay — the fitted horizon
+			resolved to an elevation angle per azimuth, plus the peak labels that were visible —
+			so Hillview draws it without a depth buffer. Exporting re-reads the render, which
+			takes a moment per photo.
+		</p>
+		<table>
+			<thead>
+				<tr><th>pano</th><th>photo</th><th>curated</th><th>fit</th><th>state</th></tr>
+			</thead>
+			<tbody>
+				{#each data.overlays as o (o.photo_id)}
+					<tr>
+						<td style="width:76px">
+							<a href="/photos/{o.photo_id}"><PhotoThumb sizes={o.sizes} size={70} /></a>
+						</td>
+						<td style="white-space:nowrap">
+							<a href="/terrain/overlay?photo={o.photo_id}" class="mono" style="font-size:12px">
+								{o.photo_id.slice(0, 8)}
+							</a>
+							{#if o.photo_title}
+								<div class="muted" style="font-size:10px; max-width:180px; overflow:hidden; text-overflow:ellipsis">
+									{o.photo_title}
+								</div>
+							{/if}
+						</td>
+						<td class="muted" style="white-space:nowrap; font-size:11px" title={o.decided_at ?? ''}>
+							{ago(o.decided_at)}
+						</td>
+						<td class="mono" style="font-size:11px">
+							{o.fit.projection} · {o.fit.fov_deg}° fov · bearing {o.fit.centre_bearing}° ·
+							horizon {o.fit.horizon_pct}%
+							{#if o.fit.visibility_km}· fog {o.fit.visibility_km} km{/if}
+						</td>
+						<td>
+							<span class="pill" style="font-size:10px">
+								{o.has_current ? 'update' : 'new'}
+							</span>
+						</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	{/if}
+
+	{#if data.overlays_landed.length}
+		<h2 style="margin-top:18px">Terrain overlays already reflected — {data.overlays_landed.length}</h2>
+		<p class="muted" style="font-size:12px">
+			the approved fit matches the one Hillview holds (compared by fit alone — a
+			re-render or a local horizon nudge there does not un-land an overlay)
+		</p>
+		<table>
+			<tbody>
+				{#each data.overlays_landed as o (o.photo_id)}
+					<tr>
+						<td style="width:56px">
+							<a href="/photos/{o.photo_id}"><PhotoThumb sizes={o.sizes} size={46} /></a>
+						</td>
+						<td>
+							<a href="/terrain/overlay?photo={o.photo_id}" class="mono" style="font-size:11px">
+								{o.photo_id.slice(0, 8)}
+							</a>
+						</td>
+						<td class="mono muted" style="font-size:11px">
+							{o.fit.projection} · {o.fit.fov_deg}° · horizon {o.fit.horizon_pct}%
 						</td>
 					</tr>
 				{/each}

@@ -54,7 +54,11 @@ PHOTO_PLAIN = [
     # Recon uses it to decide whether one focal is physically shared across a cluster.
     "client_public_key_id",
 ]
-PHOTO_JSON = ["geocode", "sizes", "exif_data", "analysis", "detected_objects"]
+PHOTO_JSON = ["geocode", "sizes", "exif_data", "analysis", "detected_objects",
+              # graduated terrain overlays come BACK through the mirror: that
+              # round trip is how the graduation view knows an overlay landed
+              # (there is no ack channel — see 010_photo_terrain_overlay)
+              "terrain_overlay"]
 
 ANN_PLAIN = [
     "id", "photo_id", "user_id", "body",

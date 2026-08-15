@@ -7,6 +7,10 @@ projection of the approved facts ("Name | context | wiki | lat N, lon E"), built
 to round-trip through parse_body — the export package (.trig + ops manifest) and
 the Hillview-side applier are the next milestones.
 """
+import base64
+import gzip
+import hashlib
+import json
 import re
 from datetime import datetime, timezone
 
@@ -23,6 +27,10 @@ router = APIRouter()
 
 PACKAGE_NAME = "hillview-enrichment"
 PACKAGE_FORMAT = 1
+
+# ODbL credit for the label pool; separate from the render's DEM notice so
+# hiding labels in the viewer hides exactly the credit they required
+OSM_ATTRIBUTION = "peaks © OpenStreetMap contributors"
 
 WIKI_URL_RE = re.compile(r"^https?://\w{2,3}\.(?:m\.)?wikipedia\.org/wiki/")
 
@@ -268,6 +276,166 @@ SELECT ?s ?v ?f ?decidedAt WHERE {{
     return out
 
 
+# ---------------------------------------------------------------------------
+# terrain overlays: an approved hv:terrainOverlayFit graduates as a BAKED
+# document (fit + skyline + labels + attribution) — see overlay_export.py and
+# docs/terrain-overlay-graduation.md. Landing is observed the same way as
+# everything else here: the mirrored photo carries the overlay back, and we
+# compare its `fit` against the approved one.
+# ---------------------------------------------------------------------------
+
+async def _approved_overlay_fits() -> dict[str, dict]:
+    """photo_id → {fit, fact, decided_at} for approved overlay fits. The
+    graduate endpoint keeps at most one approved fit per photo; if a stale
+    duplicate ever survives, the newest decision wins so the export stays
+    deterministic rather than picking arbitrarily."""
+    photo_prefix = graph.photo_iri("")
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?s ?v ?f ?decidedAt WHERE {{
+  GRAPH ?f {{ ?s hv:terrainOverlayFit ?v }}
+  GRAPH <{graph.GRAPH_CURATION}> {{
+    ?f hv:status hv:approved .
+    OPTIONAL {{ ?f hv:decidedAt ?decidedAt }}
+  }}
+}}""")
+    out: dict[str, dict] = {}
+    for b in res["results"]["bindings"]:
+        s = b["s"]["value"]
+        if not s.startswith(photo_prefix):
+            continue
+        pid = s[len(photo_prefix):]
+        decided = b.get("decidedAt", {}).get("value", "")
+        try:
+            fit = json.loads(b["v"]["value"])
+        except ValueError:
+            continue
+        prev = out.get(pid)
+        if prev is None or decided > prev["decided_at"]:
+            out[pid] = {"fit": fit, "fact": b["f"]["value"], "decided_at": decided}
+    return out
+
+
+def _canonical_fit(fit: dict | None) -> str | None:
+    """The comparison key for landing. Byte-identical canonicalization on both
+    sides of the trip — the exporter embeds the fit verbatim and hillview
+    stores it verbatim, so this only has to agree with itself."""
+    if not fit:
+        return None
+    return json.dumps(fit, sort_keys=True, separators=(",", ":"))
+
+
+async def _overlay_ops() -> tuple[list[dict], list[dict]]:
+    """→ (pending, landed) overlay items, unbaked.
+
+    Baking an item — reading its depth artifact, resolving the skyline,
+    fetching an Overpass label pool — costs real work, so it happens only in
+    the export, over the narrowed selection. This view just reports what
+    WOULD be exported."""
+    approved = await _approved_overlay_fits()
+    if not approved:
+        return [], []
+    async with wb_engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT p.id, p.title, p.sizes, p.terrain_overlay "
+            "FROM photo_mirror p WHERE p.id = ANY(:ids) "
+            "AND p.missing_since IS NULL"),
+            {"ids": list(approved)})).all()
+    pending, landed = [], []
+    for r in rows:
+        a = approved[r.id]
+        current = r.terrain_overlay or None
+        if isinstance(current, str):          # jsonb arrives as text via ::text
+            try:
+                current = json.loads(current)
+            except ValueError:
+                current = None
+        current_fit = _canonical_fit(current.get("fit") if current else None)
+        item = {"photo_id": r.id, "photo_title": r.title, "sizes": r.sizes,
+                "fit": a["fit"], "decided_at": a["decided_at"] or None,
+                "fact": a["fact"], "fact_iris": [a["fact"]],
+                # what hillview holds today: the apply precondition, and the
+                # reason an item shows as pending rather than landed
+                "current_fit": current_fit,
+                "has_current": current is not None}
+        if current_fit == _canonical_fit(a["fit"]):
+            landed.append(item)
+            continue
+        pending.append(item)
+    for lst in (pending, landed):
+        lst.sort(key=lambda i: (i["decided_at"] or "", i["photo_id"]), reverse=True)
+    return pending, landed
+
+
+async def _bake_overlay(photo_id: str, fit: dict) -> tuple[dict, tuple[str, bytes] | None]:
+    """Resolve the approved fit against its render.
+
+    → (overlay document, (blob_sha256, gzipped depth bytes) | None). The depth
+    buffer is what makes "click anywhere in the photo, get the coordinates"
+    work on the hillview side; it rides the package as a content-addressed
+    blob rather than inline, so two photos fitted against the same render
+    share one copy and a re-export of an unchanged overlay is a no-op.
+    """
+    from .. import overlay_export
+    from .terrain import _artifact_abspath, peaks as peaks_endpoint
+
+    async with wb_engine.connect() as conn:
+        # the render the fit was made against, when the run recorded one;
+        # otherwise the newest finished render for this photo
+        row = (await conn.execute(text("""
+            SELECT tr.id, tr.meta, tr.depth_path FROM terrain_renders tr
+            WHERE tr.photo_id = :pid AND tr.status = 'done'
+              AND tr.depth_path IS NOT NULL AND tr.meta ? 'width'
+            ORDER BY tr.id = COALESCE((
+                SELECT (r.params->>'render_id')::uuid FROM runs r
+                WHERE r.kind = 'overlay_fit'
+                  AND r.params->>'photo_id' = :pid
+                  AND r.params->'fit' = CAST(:fit AS jsonb)
+                ORDER BY r.started_at DESC LIMIT 1), tr.id) DESC,
+                tr.finished_at DESC
+            LIMIT 1"""),
+            {"pid": photo_id, "fit": json.dumps(fit)})).first()
+    if not row:
+        raise ValueError("no finished render with depth for this photo")
+    meta = row.meta or {}
+    path = _artifact_abspath(row.depth_path)
+    with open(path, "rb") as f:
+        depth = f.read()
+    # the worker maintains a pre-compressed sibling (uint16 depth shrinks ~60:1);
+    # reuse it rather than re-compressing, and fall back if it is missing
+    try:
+        with open(path + ".gz", "rb") as f:
+            depth_gz = f.read()
+    except OSError:
+        depth_gz = gzip.compress(depth, compresslevel=6)
+    blob_hash = hashlib.sha256(depth_gz).hexdigest()
+
+    # labels: the same Overpass pool the bench used, filtered to what this
+    # render can actually see. A label failure degrades to no labels rather
+    # than sinking the overlay — the horizon is the payload.
+    peaks: list[dict] = []
+    label_attribution = None
+    try:
+        radius = float(meta.get("max_distance_m") or 100_000.0)
+        pool = await peaks_endpoint(lat=float(meta["lat"]), lon=float(meta["lon"]),
+                                    radius_m=radius)
+        peaks = pool.get("peaks", [])
+        label_attribution = OSM_ATTRIBUTION
+    except Exception as e:  # noqa: BLE001
+        print(f"overlay export: peaks unavailable for {photo_id}: {e}", flush=True)
+
+    doc = overlay_export.build_overlay(
+        fit=fit, meta=meta, depth=depth, peaks=peaks,
+        render_id=str(row.id),
+        # the DEM licence notice the WORKER stamped into this render: an
+        # overlay keeps the notice that was true when its render was made
+        attribution=meta.get("attribution") or "",
+        label_attribution=label_attribution,
+        depth_gz_bytes=len(depth_gz),
+        exported_at=datetime.now(timezone.utc).isoformat())
+    doc["depth"]["blob"] = blob_hash      # resolved to a URL on apply
+    return doc, (blob_hash, depth_gz)
+
+
 def _public(item: dict) -> dict:
     """Drop internal-only fields (fact_iris) from a suggestion for the GET view."""
     return {k: v for k, v in item.items() if k != "fact_iris"}
@@ -278,10 +446,13 @@ async def suggestions():
     pending, landed = await _compute_suggestions()
     creates = await _native_create_ops()
     targets = await _target_ops()
+    overlays, overlays_landed = await _overlay_ops()
     return {"suggestions": [_public(i) for i in pending],
             "landed": [_public(i) for i in landed],
             "creates": [_public(i) for i in creates],
-            "target_changes": [_public(i) for i in targets]}
+            "target_changes": [_public(i) for i in targets],
+            "overlays": [_public(i) for i in overlays],
+            "overlays_landed": [_public(i) for i in overlays_landed]}
 
 
 def _nt_term(b: dict) -> str:
@@ -334,6 +505,8 @@ async def _trig_appendix(fact_iris: list[str]) -> str:
 class ExportRequest(BaseModel):
     # None = every pending suggestion; otherwise the chosen subset
     annotation_ids: list[str] | None = None
+    # None = every pending overlay; [] = none of them
+    photo_ids: list[str] | None = None
     note: str | None = None
 
 
@@ -351,7 +524,33 @@ async def export(req: ExportRequest):
         pending = [i for i in pending if i["annotation_id"] in wanted]
         creates = [i for i in creates if i["annotation_id"] in wanted]
         targets = [i for i in targets if i["annotation_id"] in wanted]
-    if not pending and not creates and not targets:
+    # overlays are selected by PHOTO, not annotation — baking is the expensive
+    # step, so narrow the set before doing it
+    overlay_scope = None if req.photo_ids is None else set(req.photo_ids)
+    overlays: list[dict] = []
+    skipped: list[dict] = []
+    if overlay_scope != set():
+        overlays, _ = await _overlay_ops()
+        if overlay_scope is not None:
+            overlays = [i for i in overlays if i["photo_id"] in overlay_scope]
+        for i in overlays:
+            try:
+                i["overlay"], i["blob"] = await _bake_overlay(i["photo_id"], i["fit"])
+            except Exception as e:  # noqa: BLE001
+                i["error"] = f"{type(e).__name__}: {e}"
+        # a photo whose render or depth artifact has gone missing, or whose
+        # render carries no licence notice, can't be baked
+        skipped = [{"photo_id": i["photo_id"], "photo_title": i.get("photo_title"),
+                    "error": i["error"]} for i in overlays if "overlay" not in i]
+        overlays = [i for i in overlays if "overlay" in i]
+        for i in skipped:
+            print(f"overlay export: skipped {i['photo_id']}: {i['error']}", flush=True)
+    if not pending and not creates and not targets and not overlays:
+        # a bare "nothing to export" would be a lie when the work list was
+        # non-empty and every item failed to bake — say which, and why
+        if skipped:
+            raise HTTPException(422, "no overlay could be baked: " + "; ".join(
+                f"{s['photo_id'][:8]}: {s['error']}" for s in skipped))
         raise HTTPException(422, "nothing to export (no pending suggestions in scope)")
 
     ops, all_facts = [], []
@@ -398,27 +597,65 @@ async def export(req: ExportRequest):
             "facts": [i["fact"]],
         })
         all_facts += i["fact_iris"]
+    blobs: dict[str, dict] = {}
+    for i in overlays:
+        ov = i["overlay"]
+        n_labels = len(ov.get("labels") or [])
+        n_pts = sum(1 for v in ov["skyline"]["elev_deg"] if v is not None)
+        if i.get("blob"):
+            h, data = i["blob"]
+            # content-addressed: photos sharing a render share one copy
+            blobs.setdefault(h, {"encoding": "gzip+base64", "bytes": len(data),
+                                 "data": base64.b64encode(data).decode("ascii")})
+        ops.append({
+            "op": "set_terrain_overlay",
+            "photo_id": i["photo_id"],
+            # precondition: the fit hillview currently holds (None = no overlay
+            # yet). A concurrent overlay from elsewhere → skip, never clobber
+            "precondition": {"fit": i["current_fit"]},
+            "overlay": ov,
+            "summary": (f'terrain overlay: horizon {n_pts} pts, {n_labels} labels'
+                        f' ({ov["fit"]["projection"]}, fov {ov["fit"]["fov_deg"]}°)'),
+            "facts": [i["fact"]],
+        })
+        all_facts += i["fact_iris"]
     # dedupe fact IRIs, preserve first-seen order
     seen: set[str] = set()
     uniq = [f for f in all_facts if not (f in seen or seen.add(f))]
 
     run_id = await create_run(
         kind="export",
-        params={"annotation_ids": [i["annotation_id"] for i in pending]},
+        params={"annotation_ids": [i["annotation_id"] for i in pending],
+                "photo_ids": [i["photo_id"] for i in overlays]},
         note=req.note)
     try:
         trig = await _trig_appendix(uniq)
-        await finish_run(run_id, stats={"ops": len(ops), "facts": len(uniq)})
-        return {
+        blob_bytes = sum(b["bytes"] for b in blobs.values())
+        await finish_run(run_id, stats={"ops": len(ops), "facts": len(uniq),
+                                        "blobs": len(blobs),
+                                        "blob_bytes": blob_bytes})
+        pkg = {
             "package": PACKAGE_NAME,
             "format_version": PACKAGE_FORMAT,
             "source": f"{graph.BASE} enrichment-workbench",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "run_id": str(run_id),
-            "counts": {"ops": len(ops), "facts": len(uniq)},
+            "counts": {"ops": len(ops), "facts": len(uniq),
+                       "blobs": len(blobs), "blob_bytes": blob_bytes},
             "ops": ops,
             "provenance_trig": trig,
         }
+        if blobs:
+            # binary side-carriage, keyed by sha256 of the stored bytes. Kept
+            # out of the ops so the manifest stays readable (and diffable) —
+            # an op references its blob by hash, the applier files the bytes
+            # into a storage pool and rewrites the reference to a URL.
+            pkg["blobs"] = blobs
+        if skipped:
+            # the package is SHORT of what the review page offered; saying so
+            # here is the only way the operator finds out
+            pkg["skipped"] = skipped
+        return pkg
     except Exception as e:
         await fail_run(run_id, f"{type(e).__name__}: {e}")
         raise HTTPException(500, f"export failed: {e}")

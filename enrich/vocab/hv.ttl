@@ -55,6 +55,17 @@ hv:calibratedBearing rdfs:comment "Fitted bearing of the pano centre (deg; Theil
 hv:calibratedFov     rdfs:comment "Fitted horizontal field of view (deg across full width)." .
 hv:calibrationRms    rdfs:comment "RMS residual of the calibration fit (deg)." .
 
+# terrain overlay (subject = pano photo). ONE canonical-JSON literal holding the whole
+# manual pano↔render alignment — projection, absolute centre bearing, fov, horizon %,
+# vertical scale, roll, piecewise warp (degrees), visibility cutoff (km). Kept as one
+# literal rather than a predicate per knob because the knobs are only meaningful
+# together: half a fit draws a wrong horizon, and content-addressing a whole fit makes
+# re-saving the same alignment idempotent. Which render it was fitted against is
+# provenance and lives in the run params. Approving one is what graduates the overlay
+# into Hillview (docs/terrain-overlay-graduation.md).
+hv:terrainOverlayFit   rdfs:comment "Manual pano↔terrain-render alignment as a canonical-JSON literal (projection, centre_bearing, fov_deg, horizon_pct, v_scale, roll_deg, warp[], visibility_km). Approve to graduate." .
+hv:terrainOverlayDraft rdfs:comment "In-progress alignment, auto-saved. Same JSON plus saved_at; lives in the MUTABLE per-photo graph …/id/graph/draft/overlay/{photo_id}, NOT a content-addressed fact — never queried as one." .
+
 # proto-annotations (reverse workflow: known POI placed onto a pano by inverting the
 # calibration fit — no human-drawn rect yet). Subject IRIs are minted under
 # /id/proto-annotation/{sha256(photo_id|wiki_url)[:16]} so re-placing the same POI on

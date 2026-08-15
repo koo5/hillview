@@ -26,6 +26,16 @@
 		type Peak,
 		type PeakMark
 	} from '$terrain/peakLabels';
+	// the fit's geometry is SHARED with the main app's zoom view, so a
+	// graduated overlay draws exactly where it was fitted here
+	import {
+		createOverlayProjector,
+		resampleWarp,
+		skylineFromDepth,
+		warpAt as warpAtShared,
+		wrapDelta,
+		type OverlayFit
+	} from '$terrain/overlayFit';
 
 	interface PhotoInfo {
 		id: string;
@@ -57,6 +67,13 @@
 	let status = $state('');
 	let saving = $state(false);
 	let saveMsg = $state('');
+	// graduation: approving the saved fit fact is what publishes this overlay
+	// to the main app (docs/terrain-overlay-graduation.md). No separate flag —
+	// the export derives its work list from approved facts.
+	let fitFact = $state<string | null>(null);
+	let fitApproved = $state(false);
+	let gradBusy = $state(false);
+	let gradMsg = $state('');
 	let draftState = $state('');
 	let suppressDraft = true; // no autosave until a photo's state is restored
 	let draftTimer: ReturnType<typeof setTimeout> | undefined;
@@ -131,20 +148,8 @@
 		}
 	}
 
-	/** saved manual alignment (hv:terrainOverlayFit fact via the API) */
-	interface OverlayFit {
-		projection: string;
-		centre_bearing: number;
-		fov_deg: number;
-		horizon_pct: number;
-		v_scale: number;
-		roll_deg: number;
-		warp: number[];
-		/** atmospheric visibility that day, km; null/absent = full */
-		visibility_km?: number | null;
-		/** client wall-clock of the change (epoch ms) — drafts/live only */
-		saved_at?: number;
-	}
+	// OverlayFit (the saved manual alignment, hv:terrainOverlayFit) is defined
+	// in $terrain/overlayFit — the main app reads the same shape.
 
 	// manual alignment: bearing trim + fov (horizontal, for uncalibrated
 	// panos), horizon position + vertical scale (always manual)
@@ -240,11 +245,15 @@
 				savedVisKm = applyFitState(f);
 			};
 			try {
-				const sf = await api.get<{ fit: OverlayFit | null }>(
-					`/terrain/overlay-fit?photo_id=${photoId}`
-				);
+				const sf = await api.get<{
+					fit: OverlayFit | null;
+					fact?: string;
+					approved?: boolean;
+				}>(`/terrain/overlay-fit?photo_id=${photoId}`);
 				if (sf.fit) {
 					applyFit(sf.fit);
+					fitFact = sf.fact ?? null;
+					fitApproved = !!sf.approved;
 					saveMsg = 'restored saved fit';
 				}
 			} catch {
@@ -372,42 +381,12 @@
 		const key = `${render?.id}:${cutoffM ?? 'full'}`;
 		const hit = skyCaches.get(key);
 		if (hit) return hit;
-		const step = (meta.elev_max_deg - meta.elev_min_deg) / meta.height;
-		const out: (number | null)[] = new Array(meta.width).fill(null);
-		const maxQ = cutoffM === null ? 0xffff : Math.floor(cutoffM / meta.depth_scale_m);
-		for (let c = 0; c < meta.width; c++) {
-			// top-down to the first terrain pixel (rows above are sky = 0)
-			let r0 = -1;
-			for (let r = 0; r < meta.height; r++) {
-				if (d[r * meta.width + c] !== 0) {
-					r0 = r;
-					break;
-				}
-			}
-			if (r0 < 0) continue;
-			// below r0 depth is non-increasing (a lower ray hits terrain at or
-			// before a higher one), so the fog crossing binary-searches; near-
-			// clip sky (0) at the bottom passes the predicate and is rejected
-			// after the search
-			let lo = r0;
-			if (d[r0 * meta.width + c] > maxQ) {
-				let hi = meta.height;
-				while (lo < hi) {
-					const mid = (lo + hi) >> 1;
-					if (d[mid * meta.width + c] <= maxQ) hi = mid;
-					else lo = mid + 1;
-				}
-			}
-			if (lo >= meta.height || d[lo * meta.width + c] === 0) continue;
-			out[c] = meta.elev_max_deg - (lo + 0.5) * step;
-		}
+		const out = skylineFromDepth(meta, d, cutoffM);
 		// scrubbing the fog slider caches one array per stop — cap the map
 		if (skyCaches.size >= 8) skyCaches.delete(skyCaches.keys().next().value!);
 		skyCaches.set(key, out);
 		return out;
 	}
-
-	const wrapDelta = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
 
 	/** apply a fit/draft/live snapshot to the alignment knobs; returns its
 	 * visibility_km (null = full) for the caller to apply once the render's
@@ -458,16 +437,9 @@
 
 	function fitPayload() {
 		return {
+			...liveFit(),
 			photo_id: photo!.id,
 			render_id: render?.id ?? null,
-			projection: proj,
-			centre_bearing: (photo!.pie?.bearing ?? 0) + bearingOffset,
-			fov_deg: fovDeg,
-			horizon_pct: horizonPct,
-			v_scale: vScale,
-			roll_deg: rollDeg,
-			warp: [...warp],
-			visibility_km: visCutoffM === null ? null : +(visCutoffM / 1000).toFixed(1),
 			saved_at: Date.now()
 		};
 	}
@@ -477,8 +449,21 @@
 		saving = true;
 		saveMsg = '';
 		try {
-			const r = await api.post<{ run_id: string }>('/terrain/overlay-fit', fitPayload());
+			const r = await api.post<{ run_id: string; fact: string }>(
+				'/terrain/overlay-fit',
+				fitPayload()
+			);
 			saveMsg = `saved ✓ run ${r.run_id.slice(0, 8)}`;
+			// fits are content-addressed, so re-saving an alignment that was
+			// already graduated lands on the SAME fact and keeps its approval;
+			// a genuinely new alignment starts unapproved and has to be
+			// graduated deliberately
+			const wasFact = fitFact;
+			fitFact = r.fact;
+			if (wasFact !== r.fact) {
+				fitApproved = false;
+				gradMsg = '';
+			}
 			// the fact now carries this state — draft and live key are redundant
 			draftState = '';
 			api.del(`/terrain/overlay-draft?photo_id=${photo.id}`).catch(() => {});
@@ -496,31 +481,52 @@
 		}
 	}
 
-	/** warp offset (degrees, + = up) at horizontal fraction 0..1 */
-	function warpAt(frac: number): number {
-		const n = warp.length;
-		const pos = Math.min(1, Math.max(0, frac)) * (n - 1);
-		const i0 = Math.floor(pos);
-		const i1 = Math.min(n - 1, i0 + 1);
-		return warp[i0] + (warp[i1] - warp[i0]) * (pos - i0);
+	/** publish (or unpublish) the saved fit: approving the fact is what puts
+	 * this overlay in the graduation export's work list */
+	async function toggleGraduate() {
+		if (!photo || !fitFact) return;
+		const want = !fitApproved;
+		gradBusy = true;
+		gradMsg = '';
+		try {
+			await api.post('/terrain/overlay-fit/graduate', {
+				photo_id: photo.id,
+				fact: fitFact,
+				graduate: want
+			});
+			fitApproved = want;
+			gradMsg = want ? 'queued for graduation' : 'withdrawn';
+			dlog(`graduate=${want} fact=${fitFact.slice(-16)}`);
+		} catch (e) {
+			gradMsg = e instanceof ApiError ? `failed: ${e.status} ${e.message}` : 'failed';
+		} finally {
+			gradBusy = false;
+		}
 	}
 
-	/** change control-point count, preserving the current warp shape */
-	function resampleWarp(old: number[], n: number): number[] {
-		n = Math.min(9, Math.max(2, n));
-		if (old.length === n) return old.slice();
-		const out: number[] = [];
-		for (let i = 0; i < n; i++) {
-			const pos = (i / (n - 1)) * (old.length - 1);
-			const i0 = Math.floor(pos);
-			const i1 = Math.min(old.length - 1, i0 + 1);
-			out.push(old[i0] + (old[i1] - old[i0]) * (pos - i0));
-		}
-		return out;
+	/** warp offset (degrees, + = up) at horizontal fraction 0..1 */
+	const warpAt = (frac: number) => warpAtShared(warp, frac);
+
+	/** the live alignment as an OverlayFit — the shared projector's input, and
+	 * the exact shape that gets saved, drafted and eventually graduated */
+	function liveFit(): OverlayFit {
+		return {
+			projection: proj,
+			centre_bearing: (photo?.pie?.bearing ?? 0) + bearingOffset,
+			fov_deg: fovDeg,
+			horizon_pct: horizonPct,
+			v_scale: vScale,
+			roll_deg: rollDeg,
+			warp: [...warp],
+			visibility_km: visCutoffM === null ? null : +(visCutoffM / 1000).toFixed(1)
+		};
 	}
+
+	/** the fit's geometry over the contain-fitted base box */
+	const baseProjector = () => createOverlayProjector(liveFit(), baseW, baseH);
 
 	function pxPerDegBase(): number {
-		return (baseW / fovDeg) * vScale;
+		return baseProjector().pxPerDeg;
 	}
 
 	function resetView() {
@@ -575,18 +581,15 @@
 	}
 
 	/** base-space position of warp handle i on the (warped) horizon line */
-	function handleBase(i: number): { x: number; y: number } {
-		const W = baseW;
-		const H = baseH;
-		const xb = (i / (warp.length - 1)) * W;
-		const rollK = Math.tan((rollDeg * Math.PI) / 180);
-		const yb = (horizonPct / 100) * H + (xb - W / 2) * rollK - warpAt(xb / W) * pxPerDegBase();
-		return { x: xb, y: yb };
+	function handleBase(i: number, proj = baseProjector()): { x: number; y: number } {
+		const xb = (i / (warp.length - 1)) * baseW;
+		return { x: xb, y: proj.horizonY(xb) };
 	}
 
 	function hitHandle(p: { x: number; y: number }): number | null {
+		const proj = baseProjector();
 		for (let i = 0; i < warp.length; i++) {
-			const h = handleBase(i);
+			const h = handleBase(i, proj);
 			if (Math.hypot(h.x * z + tx - p.x, h.y * z + ty - p.y) <= HANDLE_HIT) return i;
 		}
 		return null;
@@ -661,36 +664,14 @@
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, sw, sh);
 
+		// the fit's geometry, shared with the main app's zoom view: (azimuth
+		// delta, elevation)° → a point in base space. All three projections
+		// share px/deg = W/fov at the centre of the horizon, so switching
+		// projections keeps the rough fit.
 		const centre = (photo.pie?.bearing ?? 0) + bearingOffset;
-		const horizonY = (horizonPct / 100) * H;
-		const pxPerDeg = (W / fovDeg) * vScale; // equirect square-pixel guess × trim
-		const rollK = Math.tan((rollDeg * Math.PI) / 180);
-		// warped+rolled horizon in base space, then base → screen
-		const hyBase = (x: number) => horizonY + (x - W / 2) * rollK - warpAt(x / W) * pxPerDeg;
-		// projection: (azimuth delta, elevation)° → base x + px displacement
-		// above the horizon. All three share px/deg = W/fov at the centre of
-		// the horizon, so switching projections keeps the rough fit.
-		const fovRad = (Math.min(fovDeg, 358) * Math.PI) / 180;
-		const fCyl = (W / fovRad) * vScale;
-		const fRectH = W / 2 / Math.tan(Math.min(fovRad, (178 * Math.PI) / 180) / 2);
-		const project = (deltaDeg: number, elevDeg: number): { xb: number; dy: number } | null => {
-			const a = (deltaDeg * Math.PI) / 180;
-			const e = (elevDeg * Math.PI) / 180;
-			switch (proj) {
-				case 'equirect':
-					if (Math.abs(deltaDeg) > fovDeg / 2 + 2) return null;
-					return { xb: W * (0.5 + deltaDeg / fovDeg), dy: elevDeg * pxPerDeg };
-				case 'cylindrical':
-					if (Math.abs(deltaDeg) > fovDeg / 2 + 2) return null;
-					return { xb: W * (0.5 + deltaDeg / fovDeg), dy: fCyl * Math.tan(e) };
-				case 'rectilinear': {
-					if (Math.abs(deltaDeg) >= 89) return null;
-					const xb = W / 2 + fRectH * Math.tan(a);
-					if (xb < -0.1 * W || xb > 1.1 * W) return null;
-					return { xb, dy: (fRectH * vScale * Math.tan(e)) / Math.cos(a) };
-				}
-			}
-		};
+		const projector = createOverlayProjector(liveFit(), W, H);
+		const hyBase = projector.horizonY;
+		const project = projector.project;
 		const toX = (x: number) => x * z + tx;
 		const toY = (y: number) => y * z + ty;
 
@@ -743,9 +724,8 @@
 						pen = false;
 						continue;
 					}
-					const yb = hyBase(pt.xb) - pt.dy;
-					if (pen) ctx.lineTo(toX(pt.xb), toY(yb));
-					else ctx.moveTo(toX(pt.xb), toY(yb));
+					if (pen) ctx.lineTo(toX(pt.x), toY(pt.y));
+					else ctx.moveTo(toX(pt.x), toY(pt.y));
 					pen = true;
 				}
 				ctx.stroke();
@@ -767,8 +747,8 @@
 					meta.elev_max_deg - m.v * (meta.elev_max_deg - meta.elev_min_deg);
 				const pt = project(delta, elev);
 				if (!pt) continue;
-				const xb = pt.xb;
-				const yb = hyBase(xb) - pt.dy;
+				const xb = pt.x;
+				const yb = pt.y;
 				const km = m.distance_m / 1000;
 				const label = `${m.name} · ${km >= 10 ? Math.round(km) : km.toFixed(1)} km`;
 				inputs.push({
@@ -1054,6 +1034,23 @@
 			<button onclick={saveFit} disabled={saving || !photo}>save fit</button>
 			{#if saveMsg}<span class="info">{saveMsg}</span>{/if}
 			{#if draftState}<span class="info">{draftState}</span>{/if}
+		</span>
+		<span class="group">
+			<label
+				title={fitFact
+					? 'approve this fit so the graduation export carries the overlay into Hillview'
+					: 'save the fit first — graduation publishes a saved fit'}
+			>
+				<input
+					type="checkbox"
+					data-testid="overlay-graduate"
+					checked={fitApproved}
+					disabled={gradBusy || !fitFact}
+					onchange={toggleGraduate}
+				/>
+				graduate
+			</label>
+			{#if gradMsg}<span class="info">{gradMsg}</span>{/if}
 		</span>
 	</section>
 

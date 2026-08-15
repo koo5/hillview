@@ -116,6 +116,11 @@ class Photo(Base):
 	detected_objects: Mapped[Optional[dict]] = mapped_column(JSON)
 	sizes: Mapped[Optional[dict]] = mapped_column(JSON)
 	analysis: Mapped[Optional[dict]] = mapped_column(JSONB)  # AI-generated photo analysis (indexed)
+	# Terrain overlay graduated from the enrichment workbench: fitted horizon
+	# line + visible peak labels, baked to vectors (no depth buffer). Tens of
+	# KB — served only by GET /photos/{id}/terrain-overlay, never inlined.
+	# See docs/terrain-overlay-graduation.md.
+	terrain_overlay: Mapped[Optional[dict]] = mapped_column(JSONB)
 
 	# Client signature fields for secure uploads
 	client_signature: Mapped[Optional[str]] = mapped_column(Text)  # Base64-encoded ECDSA signature from client

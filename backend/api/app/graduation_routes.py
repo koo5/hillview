@@ -110,6 +110,33 @@ async def preview_package(filename: str,
             ops_out.append(item)
             continue
 
+        if kind == "set_terrain_overlay":
+            # a whole-photo op: the graduated horizon + labels, keyed by photo
+            photo = await db.get(Photo, op.get("photo_id"))
+            overlay = op.get("overlay") or {}
+            proposed_fit = graduation.canonical_fit(overlay.get("fit"))
+            current = photo.terrain_overlay if photo else None
+            current_fit = graduation.canonical_fit((current or {}).get("fit"))
+            precondition_fit = (op.get("precondition") or {}).get("fit")
+            ops_out.append({
+                "op": kind,
+                # no annotation is involved; the photo id IS the selection key
+                "annotation_id": None,
+                "photo_id": op.get("photo_id"),
+                "precondition_body": None,
+                "current_body": None,
+                "suggested_body": None,
+                "summary": op.get("summary"),
+                "status": graduation.classify_overlay(
+                    precondition_fit, current_fit, proposed_fit, photo is not None,
+                    graduation.overlay_payload_equal(current, overlay)),
+                "photo": graduation.photo_osd(photo) if photo else None,
+                "overlay": graduation.overlay_stats(overlay),
+                "current_overlay": graduation.overlay_stats(current),
+                "facts": [{"iri": f, **prov.get(f, {})} for f in op.get("facts", [])],
+            })
+            continue
+
         if kind == "set_annotation_target":
             # reshape a mirrored annotation; compare by canonical rect
             head, found = await _resolve_head(db, ann_id)
@@ -190,6 +217,9 @@ async def preview_package(filename: str,
 
 class ApplyRequest(BaseModel):
     annotation_ids: list[str]  # the op annotation_ids the operator chose to apply
+    # terrain-overlay ops belong to a photo, not an annotation, so they are
+    # selected by photo id instead
+    photo_ids: list[str] = []
 
 
 @router.post("/packages/{filename}/apply")
@@ -204,9 +234,55 @@ async def apply_package(filename: str, req: ApplyRequest,
         raise HTTPException(422, f"invalid package: {e}")
 
     wanted = set(req.annotation_ids)
+    wanted_photos = set(req.photo_ids)
     results = []
     for op in pkg.get("ops", []):
         ann_id = op.get("annotation_id")
+
+        if op.get("op") == "set_terrain_overlay":
+            photo_id = op.get("photo_id")
+            if photo_id not in wanted_photos:
+                continue
+            photo = await db.get(Photo, photo_id)
+            if photo is None:
+                results.append({"photo_id": photo_id, "annotation_id": None,
+                                "applied": False, "reason": "missing"})
+                continue
+            overlay = op.get("overlay") or {}
+            current_fit = graduation.canonical_fit((photo.terrain_overlay or {}).get("fit"))
+            # "already applied" is about the whole document, not just the
+            # alignment: a re-render keeps the fit but improves the skyline,
+            # and that improvement has to be publishable
+            if graduation.overlay_payload_equal(photo.terrain_overlay, overlay):
+                results.append({"photo_id": photo_id, "annotation_id": None,
+                                "applied": False, "reason": "already_applied"})
+                continue
+            was_conflict = (op.get("precondition") or {}).get("fit") != current_fit
+            # the depth buffer rides the package as a blob; file it into the
+            # storage pool and turn the reference into a URL. Without it the
+            # overlay still draws (the skyline is baked) but loses
+            # click-anywhere — so a blob failure is reported, not swallowed.
+            try:
+                overlay = graduation.resolve_overlay_blobs(pkg, overlay)
+            except (KeyError, ValueError, OSError, RuntimeError) as e:
+                logger.warning("graduation: depth blob for %s: %s", photo_id, e)
+                results.append({"photo_id": photo_id, "annotation_id": None,
+                                "applied": False, "reason": "blob_failed",
+                                "error": str(e)[:200]})
+                continue
+            # carry a local fine-tune across the update: user_adjust is
+            # hillview's own and is deliberately outside the graduated fit, so
+            # re-graduating an improved alignment must not silently discard it
+            adjust = (photo.terrain_overlay or {}).get("user_adjust")
+            if adjust:
+                overlay = {**overlay, "user_adjust": adjust}
+            photo.terrain_overlay = overlay
+            results.append({"photo_id": photo_id, "annotation_id": None,
+                            "applied": True, "was_conflict": was_conflict,
+                            "kept_user_adjust": bool(adjust),
+                            "depth": bool(overlay.get("depth"))})
+            continue
+
         if ann_id not in wanted:
             continue
         suggested = op.get("body")
@@ -300,6 +376,13 @@ async def apply_package(filename: str, req: ApplyRequest,
     # archive the file once every op in it is reflected in hillview
     all_done = True
     for op in pkg.get("ops", []):
+        if op.get("op") == "set_terrain_overlay":
+            photo = await db.get(Photo, op.get("photo_id"))
+            if not (photo and graduation.overlay_payload_equal(
+                    photo.terrain_overlay, op.get("overlay"))):
+                all_done = False
+                break
+            continue
         if op.get("op") == "create_annotation":
             if await _find_by_source(db, _op_source(op)) is None:
                 all_done = False

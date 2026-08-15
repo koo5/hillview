@@ -92,7 +92,20 @@ export function colForAzimuth(meta: TerrainMeta, azimuthDeg: number): number | n
  * cells, and depth is quantized — 6% plus a couple of quanta absorbs all
  * three. Callers may pass their own (the pane exposes it as a slider:
  * looser → more labels, at the cost of occasionally labeling a peak whose
- * summit is actually just hidden behind a similar-depth ridge). */
+ * summit is actually just hidden behind a similar-depth ridge).
+ *
+ * This value also BOUNDS THE OCCLUSION TEST, which is not obvious: the
+ * "peak is hidden" stop below triggers on `d < distanceM - tol`, so
+ * widening the tolerance widens the window in which occluded terrain still
+ * counts as a match. Measured on a 93.8°/106 km render (667 labels): at
+ * 0.06 no occluded peak got through, while at the pane slider's 0.25
+ * maximum 75 % of labels pinned to the first terrain row without the test
+ * ever running and 269 anchored to terrain more than 5 % off their own
+ * distance — worst case a valley town labelled on a skyline 10 km behind
+ * it. Past roughly 0.1 this stops being a sensitivity knob and becomes a
+ * different question ("this place is in that direction" rather than "this
+ * summit is what you see"), which deserves its own mode.
+ * See docs/terrain-overlay-graduation.md § The label pool. */
 export const PEAK_DEPTH_REL_TOL = 0.06;
 export const PEAK_MIN_DISTANCE_M = 500;
 

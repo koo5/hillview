@@ -689,8 +689,67 @@ SELECT ?f ?v ?run ?status WHERE {{
         fit = json.loads(best["value"])
     except ValueError:
         return {"fit": None}
-    return {"fit": fit, "run_id": best["run"].rsplit("/", 1)[-1] or None,
+    # `fact` is what the bench curates: approving THIS fit is what marks the
+    # overlay for graduation (docs/terrain-overlay-graduation.md — approval is
+    # the selection, there is no separate marked-for-export flag)
+    return {"fit": fit, "fact": best["fact"],
+            "run_id": best["run"].rsplit("/", 1)[-1] or None,
             "approved": best["approved"]}
+
+
+class OverlayGraduateRequest(BaseModel):
+    photo_id: str
+    fact: str
+    graduate: bool
+    note: str | None = None
+
+
+@router.post("/terrain/overlay-fit/graduate")
+async def graduate_overlay_fit(req: OverlayGraduateRequest):
+    """Mark (or unmark) a saved fit for graduation into the main app.
+
+    Graduation has no flag of its own — approving the fit fact IS the
+    selection, the same way the /graduation review is the selection for
+    annotation ops. What this adds over a plain POST /facts/curate is the
+    ONE-APPROVED-FIT-PER-PHOTO invariant: approving a re-fit demotes the
+    previous one to proposed, so the exporter never has to choose between
+    two approved alignments of the same photo. Un-graduating clears the
+    decision (proposed), which is NOT the same as rejecting — a rejected
+    fit is a bad fit, an unapproved one is merely not published yet.
+    """
+    import datetime
+
+    from .. import facts, graph
+    if not req.fact.startswith(graph.BASE + "/id/fact/"):
+        raise HTTPException(422, f"not a fact-graph IRI: {req.fact}")
+    ph = graph.photo_iri(req.photo_id)
+    # the fact must really be an overlay fit ABOUT this photo: curation is
+    # keyed only by graph IRI, so an unchecked id would happily approve
+    # something else entirely
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?f ?status WHERE {{
+  GRAPH ?f {{ <{ph}> hv:terrainOverlayFit ?v }}
+  OPTIONAL {{ GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status ?status }} }}
+}}""")
+    known = {b["f"]["value"]: b.get("status", {}).get("value", "")
+             for b in res["results"]["bindings"]}
+    if req.fact not in known:
+        raise HTTPException(404, "no such overlay fit for this photo")
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    if req.graduate:
+        await graph.store.update(facts.curate_update(
+            req.fact, "approved", decided_at_iso=now, note=req.note))
+        # demote only the previously APPROVED siblings — a rejected fit is a
+        # judgement about that alignment and must survive untouched
+        for other, status in known.items():
+            if other != req.fact and status.endswith("approved"):
+                await graph.store.update(facts.curate_update(
+                    other, "proposed", decided_at_iso=now,
+                    note="superseded by a newer graduated fit"))
+    else:
+        await graph.store.update(facts.curate_update(
+            req.fact, "proposed", decided_at_iso=now, note=req.note))
+    return {"fact": req.fact, "graduated": req.graduate, "decided_at": now}
 
 
 # ---------------------------------------------------------------------------

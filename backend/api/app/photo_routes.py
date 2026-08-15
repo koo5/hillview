@@ -946,6 +946,53 @@ async def get_photo_detections(
 	}
 
 
+@router.get("/{photo_id}/terrain-overlay")
+async def get_photo_terrain_overlay(
+	photo_id: str,
+	current_user: Optional[User] = Depends(get_current_user_optional_with_query),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Return the graduated terrain overlay (horizon line + peak labels) for a photo.
+
+	Opt-in and column-scoped — the document is tens of KB, so it is never
+	inlined into a photo response; the zoom view fetches it only when the
+	overlay layer is switched on. Accessible for public photos and for the
+	owner's own photos, like /detections.
+
+	The response carries the DEM/label attribution verbatim from the document:
+	displaying it is a licence obligation, not decoration
+	(docs/terrain-data-licensing.md).
+	"""
+	result = await db.execute(
+		select(Photo.terrain_overlay, Photo.is_public, Photo.owner_id, Photo.width, Photo.height).where(
+			Photo.id == photo_id,
+			Photo.deleted == False
+		)
+	)
+	row = result.first()
+
+	if not row:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail="Photo not found"
+		)
+
+	terrain_overlay, is_public, owner_id, width, height = row
+	is_owner = current_user is not None and owner_id == str(current_user.id)
+	if not is_public and not is_owner:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail="Photo not found"
+		)
+
+	return {
+		"photo_id": photo_id,
+		"terrain_overlay": terrain_overlay,
+		"width": width,
+		"height": height
+	}
+
+
 @router.delete("/{photo_id}")
 async def delete_photo(
 	request: Request,

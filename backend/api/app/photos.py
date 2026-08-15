@@ -86,6 +86,18 @@ async def delete_photo_files(photo) -> bool:
 	Each size variant's pool is resolved independently from its stored URL via
 	the FILE_POOLS registry, so a photo's sizes may live on different pools.
 
+	Note: a graduated terrain overlay's depth buffer
+	(terrain/<sha256>.depth.bin.gz, referenced from photo.terrain_overlay) is
+	deliberately NOT deleted here. Those blobs are content-addressed and
+	therefore SHARED — two photos fitted against the same terrain render point
+	at one file — so per-photo deletion cannot know whether it is the last
+	reference without a query this function has no session for. Reclaiming
+	them safely means an offline sweep: list terrain/*.depth.bin.gz, subtract
+	every URL still referenced by a non-deleted photo, delete the remainder.
+	At ~117 KB per render the leak is small and bounded by the number of
+	curated overlays; a wrong guess here would break click-anywhere on a photo
+	that is still live.
+
 	Args:
 		photo: Photo model instance with sizes data
 

@@ -43,7 +43,21 @@
 	} from '$lib/annotationApi';
 	import { Origin, UserSelectAction, type DrawingStyle } from '@annotorious/core';
 	import { fetchDetections, type DetectedObject } from '$lib/detectionApi';
-	import { showDetections, showPhotoInfoWindow } from '$lib/data.svelte.js';
+	import { showDetections, showPhotoInfoWindow, showTerrainOverlay } from '$lib/data.svelte.js';
+	import {
+		createOverlayProjector,
+		effectiveFit,
+		pickFromOverlay,
+		skylinePolylines,
+		type TerrainOverlay
+	} from '$terrain/overlayFit';
+	import { layoutSkyLabels, PLACE_KINDS } from '$terrain/peakLabels';
+	import {
+		fetchTerrainOverlay,
+		loadOverlayDepth,
+		overlayDepthReady,
+		releaseOverlayDepth
+	} from '$lib/terrainOverlayApi';
 	import PhotoInfoWindow from './PhotoInfoWindow.svelte';
 	import type { ZoomViewData } from '$lib/zoomView.svelte';
 	import { zoomViewportBounds, type ZoomViewInitialBounds } from '$lib/zoomView.svelte';
@@ -400,6 +414,61 @@
 	let labelCanvas: HTMLCanvasElement | null = null;
 	let resizeObserver: ResizeObserver | null = null;
 
+	// ---- graduated terrain overlay (horizon line + peak labels) ----
+	// The document is a few KB and draws everything. Its depth buffer is a few
+	// hundred KB and is ONLY needed to answer "what is that?" for an arbitrary
+	// pixel, so it loads on the first click, not with the overlay.
+	let terrainOverlay: TerrainOverlay | null = null;
+	let terrainCanvas: HTMLCanvasElement | null = null;
+	let terrainFetchedFor: string | null = null;
+	let terrainPick: {
+		lat: number;
+		lon: number;
+		distance_m: number;
+		imgX: number;
+		imgY: number;
+	} | null = null;
+	let terrainPickBusy = false;
+
+	/**
+	 * Load the overlay for the current photo, clearing the previous photo's
+	 * first. Both halves live here rather than in separate reactive blocks:
+	 * split across two, whichever Svelte happened to run first would decide
+	 * whether the old horizon got cleared at all.
+	 */
+	async function loadTerrainOverlay() {
+		const photoId = data.photo_id;
+		if (!photoId || terrainFetchedFor === photoId) return;
+		terrainFetchedFor = photoId;
+		terrainOverlay = null;
+		terrainPick = null;
+		releaseOverlayDepth();
+		scheduleDrawTerrain();
+		try {
+			const res = await fetchTerrainOverlay(photoId);
+			// a slow response for a photo the user already left must not paint
+			// its horizon over the next one
+			if (terrainFetchedFor !== photoId) return;
+			terrainOverlay = res.terrain_overlay;
+			scheduleDrawTerrain();
+		} catch (e) {
+			console.warn('[OSD] Could not load terrain overlay:', e);
+			if (terrainFetchedFor === photoId) terrainOverlay = null;
+		}
+	}
+
+	// Probed for every photo, not gated on the toggle: the response is a few
+	// KB (and `null` for the majority of photos), and it is what decides
+	// whether the display menu offers the overlay at all — gating the fetch on
+	// the toggle would make the toggle undiscoverable.
+	$: if (data.photo_id) {
+		loadTerrainOverlay();
+	}
+	$: {
+		void $showTerrainOverlay;
+		scheduleDrawTerrain();
+	}
+
 	async function loadAnnotations() {
 		if (!data.photo_id) return;
 		//console.log('[OSD] Loading annotations for photo:', data.photo_id);
@@ -753,6 +822,17 @@
 			items.push({ type: 'divider' });
 		}
 		items.push({ type: 'custom', id: 'annotation-scale', render: scaleSnippet });
+		// only offered where there is something to show: most photos have no
+		// graduated overlay, and a dead toggle is worse than no toggle
+		if (terrainOverlay) {
+			items.push({ type: 'divider' });
+			items.push({
+				id: 'terrain-overlay',
+				label: $showTerrainOverlay ? 'Hide terrain horizon' : 'Show terrain horizon',
+				testId: 'osd-terrain-toggle',
+				onclick: () => showTerrainOverlay.update((v) => !v),
+			});
+		}
 		return items;
 	}
 
@@ -824,6 +904,193 @@
 			pillRadius,
 			textBaselineOffset
 		});
+	}
+
+	let drawTerrainRaf = 0;
+
+	function scheduleDrawTerrain() {
+		if (!drawTerrainRaf) {
+			drawTerrainRaf = requestAnimationFrame(() => {
+				drawTerrainRaf = 0;
+				drawTerrainNow();
+			});
+		}
+	}
+
+	/**
+	 * The image→screen mapping as a plain affine, sampled from OSD once per
+	 * frame instead of per point: converting 4000 skyline vertices through
+	 * imageToViewportCoordinates every frame would be the whole frame budget.
+	 * Three probes capture translation, scale AND rotation exactly, because
+	 * the underlying transform is affine.
+	 */
+	function imageToScreenAffine(item: any) {
+		const conv = (x: number, y: number) =>
+			viewer.viewport.viewportToViewerElementCoordinates(
+				item.imageToViewportCoordinates(x, y)
+			);
+		const o = conv(0, 0);
+		const ex = conv(1, 0);
+		const ey = conv(0, 1);
+		return {
+			x: (ix: number, iy: number) => o.x + ix * (ex.x - o.x) + iy * (ey.x - o.x),
+			y: (ix: number, iy: number) => o.y + ix * (ex.y - o.y) + iy * (ey.y - o.y)
+		};
+	}
+
+	function drawTerrainNow() {
+		if (!terrainCanvas) return;
+		const ctx = terrainCanvas.getContext('2d');
+		if (!ctx) return;
+		const W = terrainCanvas.width;
+		const H = terrainCanvas.height;
+		ctx.clearRect(0, 0, W, H);
+		if (!$showTerrainOverlay || !terrainOverlay || !viewer?.viewport) return;
+		const item = getMainTiledImage();
+		if (!item) return;
+		const size = item.getContentSize();
+		if (!size?.x || !size?.y) return;
+
+		const fit = effectiveFit(terrainOverlay);
+		// the fit is scale-invariant, so the image's own pixel space is as
+		// valid a box as the bench's contain-fitted one — same curve either way
+		const proj = createOverlayProjector(fit, size.x, size.y);
+		const to = imageToScreenAffine(item);
+
+		// horizon: stroked as separate runs so sky gaps break the line instead
+		// of being bridged by a false chord
+		const runs = skylinePolylines(terrainOverlay.skyline, proj, fit);
+		for (const [width, color] of [
+			[4, 'rgba(0,0,0,0.55)'],
+			[1.8, 'rgba(255,220,50,0.95)']
+		] as [number, string][]) {
+			ctx.lineWidth = width;
+			ctx.strokeStyle = color;
+			ctx.beginPath();
+			for (const run of runs) {
+				let pen = false;
+				for (const p of run) {
+					const sx = to.x(p.x, p.y);
+					const sy = to.y(p.x, p.y);
+					// cull generously: a vertex just off-canvas still anchors
+					// the segment that crosses it
+					if (sx < -W || sx > 2 * W || sy < -H || sy > 2 * H) {
+						pen = false;
+						continue;
+					}
+					if (pen) ctx.lineTo(sx, sy);
+					else ctx.moveTo(sx, sy);
+					pen = true;
+				}
+			}
+			ctx.stroke();
+		}
+
+		// peak labels: sky-anchored pills above their summits, laid out in
+		// screen space by the same layouter the bench and terrain viewer use
+		ctx.font = '11px system-ui, sans-serif';
+		const inputs: { label: string; cx: number; cy: number; pillW: number; id?: string }[] = [];
+		for (const m of terrainOverlay.labels ?? []) {
+			const pt = proj.projectAzimuth(m.azimuth_deg, m.elev_deg);
+			if (!pt) continue;
+			const cx = to.x(pt.x, pt.y);
+			const cy = to.y(pt.x, pt.y);
+			if (cx < 0 || cx > W || cy < 0 || cy > H) continue;
+			const km = m.distance_m / 1000;
+			const label = `${m.name} · ${km >= 10 ? Math.round(km) : km.toFixed(1)} km`;
+			inputs.push({
+				label,
+				cx,
+				cy,
+				pillW: Math.ceil(ctx.measureText(label).width) + 12,
+				id: m.kind
+			});
+		}
+		ctx.textBaseline = 'middle';
+		for (const l of layoutSkyLabels(inputs, W, H, { pillH: 18, leader: 14 })) {
+			const isPlace = !!l.id && PLACE_KINDS.has(l.id);
+			ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+			ctx.lineWidth = 1;
+			ctx.beginPath();
+			ctx.moveTo(l.cx, l.ty + l.pillH);
+			ctx.lineTo(l.cx, l.cy - 3);
+			ctx.stroke();
+			ctx.beginPath();
+			ctx.arc(l.cx, l.cy, 2.2, 0, Math.PI * 2);
+			ctx.fillStyle = isPlace ? 'rgba(143,180,217,0.95)' : 'rgba(255,220,50,0.95)';
+			ctx.fill();
+			ctx.beginPath();
+			ctx.roundRect(l.tx, l.ty, l.pillW, l.pillH, 4);
+			ctx.fillStyle = isPlace ? 'rgba(20,44,74,0.68)' : 'rgba(0,0,0,0.62)';
+			ctx.fill();
+			ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+			ctx.stroke();
+			ctx.fillStyle = '#fff';
+			ctx.fillText(l.label, l.tx + 6, l.ty + l.pillH / 2 + 0.5);
+		}
+
+		// the answer to the last click: a marker where the user asked, with
+		// its coordinates
+		if (terrainPick) {
+			const sx = to.x(terrainPick.imgX, terrainPick.imgY);
+			const sy = to.y(terrainPick.imgX, terrainPick.imgY);
+			ctx.beginPath();
+			ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+			ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+			ctx.lineWidth = 3;
+			ctx.stroke();
+			ctx.strokeStyle = 'rgba(120,220,255,0.98)';
+			ctx.lineWidth = 1.6;
+			ctx.stroke();
+			const km = terrainPick.distance_m / 1000;
+			const text =
+				`${terrainPick.lat.toFixed(5)}, ${terrainPick.lon.toFixed(5)} · ` +
+				`${km >= 10 ? Math.round(km) : km.toFixed(1)} km`;
+			const tw = ctx.measureText(text).width;
+			ctx.fillStyle = 'rgba(10,26,44,0.82)';
+			ctx.beginPath();
+			ctx.roundRect(sx - tw / 2 - 6, sy + 10, tw + 12, 18, 4);
+			ctx.fill();
+			ctx.strokeStyle = 'rgba(120,220,255,0.55)';
+			ctx.lineWidth = 1;
+			ctx.stroke();
+			ctx.fillStyle = '#fff';
+			ctx.fillText(text, sx - tw / 2, sy + 19.5);
+		}
+	}
+
+	/**
+	 * Click-anywhere → coordinates. The depth buffer is fetched here, on the
+	 * first ask, because it is two orders of magnitude heavier than everything
+	 * else the overlay needs and most viewers never click at all.
+	 */
+	async function pickTerrainAt(imgX: number, imgY: number) {
+		const ref = terrainOverlay?.depth;
+		if (!terrainOverlay || !ref || terrainPickBusy) return;
+		const item = getMainTiledImage();
+		const size = item?.getContentSize();
+		if (!size?.x || !size?.y) return;
+		terrainPickBusy = !overlayDepthReady(ref.url);
+		scheduleDrawTerrain();
+		try {
+			const depth = await loadOverlayDepth(ref.url, ref.width * ref.height);
+			const pick = pickFromOverlay(terrainOverlay, depth, imgX, imgY, size.x, size.y);
+			terrainPick = pick
+				? {
+						lat: pick.lat,
+						lon: pick.lon,
+						distance_m: pick.distance_m,
+						imgX,
+						imgY
+					}
+				: null;
+		} catch (e) {
+			console.warn('[OSD] terrain pick failed:', e);
+			terrainPick = null;
+		} finally {
+			terrainPickBusy = false;
+			scheduleDrawTerrain();
+		}
 	}
 
 	onMount(async () => {
@@ -1073,16 +1340,31 @@
 		labelCanvas.dataset.testid = 'osd-label-canvas';
 		container.appendChild(labelCanvas);
 
+		// Terrain overlay sits UNDER the annotation labels (z-index 1 vs 2):
+		// annotations are the user's own content and must stay readable over
+		// a horizon line that spans the whole frame.
+		terrainCanvas = document.createElement('canvas');
+		terrainCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:1';
+		terrainCanvas.dataset.testid = 'osd-terrain-canvas';
+		container.appendChild(terrainCanvas);
+
 		resizeObserver = new ResizeObserver(() => {
 			if (!labelCanvas) return;
 			labelCanvas.width  = container.offsetWidth;
 			labelCanvas.height = container.offsetHeight;
+			if (terrainCanvas) {
+				terrainCanvas.width  = container.offsetWidth;
+				terrainCanvas.height = container.offsetHeight;
+			}
 			scheduleDrawLabels();
+			scheduleDrawTerrain();
 		});
 		resizeObserver.observe(container);
 
 		viewer.addHandler('viewport-change', scheduleDrawLabels);
 		viewer.addHandler('update-viewport',  scheduleDrawLabels);
+		viewer.addHandler('viewport-change', scheduleDrawTerrain);
+		viewer.addHandler('update-viewport',  scheduleDrawTerrain);
 		viewer.addHandler('viewport-change', emitViewportBounds);
 		viewer.addHandler('update-viewport',  emitViewportBounds);
 
@@ -1111,6 +1393,22 @@
 			if (!item) { onClose(); return; }
 			const imgBounds = item.getBounds(); // viewport coordinates
 			const scrBounds = viewer.viewport.viewportToViewerElementRectangle(imgBounds);
+
+			// Terrain overlay on: a tap ON the photo asks "what am I looking
+			// at?" instead of doing nothing. Taps outside the image still fall
+			// through to the close-on-background behaviour below.
+			if ($showTerrainOverlay && terrainOverlay?.depth) {
+				const inside =
+					pt.x >= scrBounds.x && pt.x <= scrBounds.x + scrBounds.width &&
+					pt.y >= scrBounds.y && pt.y <= scrBounds.y + scrBounds.height;
+				if (inside) {
+					event.preventDefaultAction = true;
+					const vpPt = viewer.viewport.viewerElementToViewportCoordinates(pt);
+					const imgPt = item.viewportToImageCoordinates(vpPt);
+					pickTerrainAt(imgPt.x, imgPt.y);
+					return;
+				}
+			}
 
 			// Expand the interaction zone around the image to at least 50% of
 			// the container in each dimension.  Taps inside this zone do NOT
@@ -1175,12 +1473,18 @@
 		resizeObserver?.disconnect();
 		viewer?.removeHandler('viewport-change', scheduleDrawLabels);
 		viewer?.removeHandler('update-viewport',  scheduleDrawLabels);
+		viewer?.removeHandler('viewport-change', scheduleDrawTerrain);
+		viewer?.removeHandler('update-viewport',  scheduleDrawTerrain);
 		viewer?.removeHandler('viewport-change', emitViewportBounds);
 		viewer?.removeHandler('update-viewport',  emitViewportBounds);
 		if (viewportBoundsTimeout) { clearTimeout(viewportBoundsTimeout); viewportBoundsTimeout = null; }
 		if (ratingMessageTimeout) { clearTimeout(ratingMessageTimeout); ratingMessageTimeout = null; }
 		zoomViewportBounds.set(null);
 		if (drawLabelsRaf) { cancelAnimationFrame(drawLabelsRaf); drawLabelsRaf = 0; }
+		if (drawTerrainRaf) { cancelAnimationFrame(drawTerrainRaf); drawTerrainRaf = 0; }
+		// the decoded depth buffer is megabytes — don't hold it once the zoom
+		// view is gone
+		releaseOverlayDepth();
 		annotator?.destroy?.();
 		viewer?.destroy?.();
 	});
@@ -1434,6 +1738,24 @@
 <div class="osd-overlay" data-testid="osd-viewer-overlay">
 	{#if $showPhotoInfoWindow}
 		<PhotoInfoWindow photo={$photoInFront} variant="zoom"/>
+	{/if}
+
+	<!--
+		Terrain data attribution. Displaying it is a LICENCE OBLIGATION, not
+		decoration (docs/terrain-data-licensing.md): the DEM notice rides in
+		each overlay because a render made from other sources carries a
+		different one. Shown whenever the overlay is drawn, and the OSM credit
+		only while its labels are on screen.
+	-->
+	{#if $showTerrainOverlay && terrainOverlay?.attribution}
+		<div class="terrain-attribution" data-testid="osd-terrain-attribution">
+			{terrainOverlay.attribution}{#if terrainOverlay.label_attribution && terrainOverlay.labels?.length}
+				· {terrainOverlay.label_attribution}{/if}
+		</div>
+	{/if}
+
+	{#if $showTerrainOverlay && terrainPickBusy}
+		<div class="terrain-busy" data-testid="osd-terrain-busy">reading terrain…</div>
 	{/if}
 
 	<!-- Close button -->
@@ -1912,6 +2234,36 @@
 
 	.text-modal-close:hover {
 		background: rgba(255,255,255,0.25);
+	}
+
+	/* Terrain data credits — a licence obligation, so it must stay legible
+	   over any photo and must not be clipped away on narrow screens. */
+	.terrain-attribution {
+		position: absolute;
+		left: 8px;
+		right: 8px;
+		bottom: 6px;
+		z-index: 4;
+		pointer-events: none;
+		font-size: 10px;
+		line-height: 1.3;
+		color: rgba(255, 255, 255, 0.82);
+		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+		text-align: center;
+	}
+
+	.terrain-busy {
+		position: absolute;
+		left: 50%;
+		top: 12px;
+		transform: translateX(-50%);
+		z-index: 4;
+		pointer-events: none;
+		font-size: 11px;
+		padding: 3px 10px;
+		border-radius: 10px;
+		color: #fff;
+		background: rgba(10, 26, 44, 0.82);
 	}
 
 	.label-click-target {

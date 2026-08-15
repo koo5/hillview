@@ -33,6 +33,7 @@ photo_mirror = sa.Table(
     sa.Column("exif_data", JSONB),
     sa.Column("analysis", JSONB),
     sa.Column("detected_objects", JSONB),
+    sa.Column("terrain_overlay", JSONB),           # see 010_photo_terrain_overlay
     sa.Column("processing_status", sa.Text),
     sa.Column("is_public", sa.Boolean),
     sa.Column("deleted", sa.Boolean, nullable=False, server_default=sa.false()),

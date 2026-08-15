@@ -40,9 +40,26 @@
 		height: number | null;
 	}
 	type OpStatus = 'clean' | 'conflict' | 'already_applied' | 'missing' | 'deleted' | 'new';
+	/** Terrain-overlay ops summarize their document rather than carrying it
+	 * (it is tens of KB of coordinates); this is what the reviewer sees. */
+	interface OverlayStats {
+		points?: number;
+		samples?: number;
+		labels?: number;
+		projection?: string;
+		fov_deg?: number;
+		centre_bearing?: number;
+		visibility_km?: number | null;
+		render_id?: string;
+		depth_bytes?: number | null;
+		depth_grid?: string | null;
+		attribution?: string;
+		label_attribution?: string;
+	}
 	interface Op {
-		op?: string; // 'set_annotation_body' | 'create_annotation'
-		annotation_id: string;
+		op?: string; // 'set_annotation_body' | 'create_annotation' | 'set_annotation_target' | 'set_terrain_overlay'
+		/** null for whole-photo ops (terrain overlays), which have no annotation */
+		annotation_id: string | null;
 		current_annotation_id: string | null;
 		photo_id: string;
 		precondition_body: string | null;
@@ -54,7 +71,15 @@
 		current_target?: Record<string, unknown> | null; // set_annotation_target: the old rect
 		photo: PhotoSrc | null;
 		facts: Fact[];
+		overlay?: OverlayStats;          // set_terrain_overlay: what would be stored
+		current_overlay?: OverlayStats;  // …and what is stored today
 	}
+
+	/** Stable per-op selection key. Terrain-overlay ops belong to a PHOTO, not
+	 * an annotation, so keying everything on annotation_id would collapse
+	 * every overlay in a package onto one shared checkbox. */
+	const opKey = (o: Op) =>
+		o.op === 'set_terrain_overlay' ? `overlay:${o.photo_id}` : (o.annotation_id ?? '');
 	interface Preview {
 		filename: string;
 		source?: string;
@@ -126,7 +151,7 @@
 			preview = await res.json();
 			// default-select every applicable op; the operator unticks what they skip
 			selected = {};
-			for (const o of preview?.ops ?? []) selected[o.annotation_id] = applicable(o);
+			for (const o of preview?.ops ?? []) selected[opKey(o)] = applicable(o);
 		} catch {
 			previewError = 'Network error loading package.';
 		} finally {
@@ -136,7 +161,7 @@
 
 	$: focusOp = preview?.ops[focusIdx] ?? null;
 	$: selectedCount = preview
-		? preview.ops.filter((o) => applicable(o) && selected[o.annotation_id]).length
+		? preview.ops.filter((o) => applicable(o) && selected[opKey(o)]).length
 		: 0;
 
 	function rectFrom(
@@ -152,10 +177,12 @@
 	// the rects to show for the focused op. For a reshape, show BOTH the current
 	// rect (amber 'other') and the proposed rect (blue 'current'); otherwise one.
 	function opRects(o: Op): OsdRect[] {
+		// a terrain overlay covers the whole photo — there is no rect to outline
+		if (o.op === 'set_terrain_overlay') return [];
 		const label = (o.suggested_body || '').split('|')[0].trim() || undefined;
-		const proposed = rectFrom(o.target, o.annotation_id, 'current', label);
+		const proposed = rectFrom(o.target, o.annotation_id ?? '', 'current', label);
 		if (o.op === 'set_annotation_target') {
-			const cur = rectFrom(o.current_target ?? null, o.annotation_id + ':old', 'other', 'current');
+			const cur = rectFrom(o.current_target ?? null, (o.annotation_id ?? '') + ':old', 'other', 'current');
 			return [cur, proposed].filter(Boolean) as OsdRect[];
 		}
 		return proposed ? [proposed] : [];
@@ -163,14 +190,30 @@
 
 	async function applySelected() {
 		if (!preview || selectedCount === 0) return;
-		const ids = preview.ops
-			.filter((o) => applicable(o) && selected[o.annotation_id])
-			.map((o) => o.annotation_id);
+		const chosen = preview.ops.filter((o) => applicable(o) && selected[opKey(o)]);
+		// the two op families are selected separately server-side: annotation
+		// ops by annotation id, whole-photo overlay ops by photo id
+		const ids = chosen
+			.filter((o) => o.op !== 'set_terrain_overlay')
+			.map((o) => o.annotation_id)
+			.filter((id): id is string => !!id);
+		const photoIds = chosen
+			.filter((o) => o.op === 'set_terrain_overlay')
+			.map((o) => o.photo_id);
 		const conflicts = preview.ops.filter(
-			(o) => o.status === 'conflict' && selected[o.annotation_id]
+			(o) => o.status === 'conflict' && selected[opKey(o)]
 		).length;
+		const what = [
+			ids.length ? `${ids.length} annotation edit(s)` : '',
+			photoIds.length ? `${photoIds.length} terrain overlay(s)` : ''
+		]
+			.filter(Boolean)
+			.join(' and ');
 		const msg =
-			`Apply ${ids.length} annotation edit(s) as admin?` +
+			`Apply ${what} as admin?` +
+			(photoIds.length
+				? '\n\nTerrain overlays publish third-party elevation data — their attribution notices will be shown to visitors.'
+				: '') +
 			(conflicts ? `\n\n${conflicts} of them changed in Hillview since export — applying will supersede the current version.` : '');
 		if (!confirm(msg)) return;
 		applyBusy = true;
@@ -178,7 +221,7 @@
 		try {
 			const res = await http.post(
 				`/admin/graduation/packages/${encodeURIComponent(preview.filename)}/apply`,
-				{ annotation_ids: ids }
+				{ annotation_ids: ids, photo_ids: photoIds }
 			);
 			if (!res.ok) {
 				applyMsg = `Apply failed (${res.status})`;
@@ -284,7 +327,7 @@
 							<div class="op-grid">
 								<!-- op list (select + status) -->
 								<div class="op-list">
-									{#each preview.ops as o, i (o.annotation_id)}
+									{#each preview.ops as o, i (opKey(o))}
 										<div
 											class="op-row"
 											class:active={i === focusIdx}
@@ -293,12 +336,12 @@
 											<input
 												type="checkbox"
 												disabled={!applicable(o)}
-												bind:checked={selected[o.annotation_id]}
+												bind:checked={selected[opKey(o)]}
 												title="apply this edit"
 											/>
 											<button class="op-pick" on:click={() => (focusIdx = i)}>
 												<span class="badge badge-{o.status}">{STATUS_LABEL[o.status]}</span>
-												<span class="op-body">{o.suggested_body}</span>
+												<span class="op-body">{o.suggested_body || o.summary}</span>
 											</button>
 										</div>
 									{/each}
@@ -308,13 +351,13 @@
 								{#if focusOp}
 									<div class="op-detail">
 										<div class="muted small mono">
-											annotation {focusOp.annotation_id.slice(0, 8)} · photo
+											{#if focusOp.annotation_id}annotation {focusOp.annotation_id.slice(0, 8)} · {/if}photo
 											<a href="/photo/hillview-{focusOp.photo_id}" target="_blank" rel="noreferrer"
 												>{focusOp.photo_id.slice(0, 8)} ↗</a
 											>
 										</div>
 
-										{#key focusOp.annotation_id}
+										{#key opKey(focusOp)}
 											{#if focusOp.photo && focusOp.photo.width && focusOp.photo.height && (focusOp.photo.url || focusOp.photo.fallback_url)}
 												<OsdViewer
 													pyramid={focusOp.photo.pyramid as never}
@@ -354,9 +397,58 @@
 												Applying supersedes the annotation with the new shape (its text is unchanged).
 											</div>
 										{/if}
+										{#if focusOp.op === 'set_terrain_overlay' && focusOp.overlay}
+											<div class="create-note">
+												<b>Terrain overlay</b> — a horizon line fitted to this photo in the
+												workbench, plus the peaks visible from it. Applying stores it on the photo;
+												the zoom view can then draw the horizon and answer “what am I looking at?”
+												for any point in the picture.
+												<dl class="overlay-facts">
+													<dt>horizon</dt>
+													<dd>
+														{focusOp.overlay.points} points of {focusOp.overlay.samples} ·
+														{focusOp.overlay.projection} · {focusOp.overlay.fov_deg}° fov ·
+														bearing {focusOp.overlay.centre_bearing}°{#if focusOp.overlay.visibility_km}
+															· visibility {focusOp.overlay.visibility_km} km{/if}
+													</dd>
+													<dt>labels</dt>
+													<dd>{focusOp.overlay.labels} peaks / places</dd>
+													{#if focusOp.overlay.depth_bytes}
+														<dt>depth</dt>
+														<dd>
+															{focusOp.overlay.depth_grid} · {Math.round(
+																focusOp.overlay.depth_bytes / 1024
+															)} KB — stored alongside the photos, fetched only when a visitor
+															clicks
+														</dd>
+													{/if}
+													{#if focusOp.current_overlay?.points}
+														<dt>replaces</dt>
+														<dd>
+															an overlay with {focusOp.current_overlay.points} points and
+															{focusOp.current_overlay.labels} labels
+														</dd>
+													{/if}
+													{#if focusOp.overlay.attribution}
+														<dt>attribution</dt>
+														<dd class="attrib">
+															{focusOp.overlay.attribution}{#if focusOp.overlay.label_attribution}
+																· {focusOp.overlay.label_attribution}{/if}
+															<div class="muted small">
+																Required by the elevation-data licences — shown to visitors under
+																the photo.
+															</div>
+														</dd>
+													{/if}
+												</dl>
+											</div>
+										{/if}
 
 										<div class="bodies">
-											{#if focusOp.op === 'set_annotation_target'}
+											{#if focusOp.op === 'set_terrain_overlay'}
+												<!-- no bodies: an overlay changes no annotation text.
+													 Its own summary is in the note above. -->
+											{:else if focusOp.op === 'set_annotation_target'}
 												<div class="body-row">
 													<span class="body-tag">text (unchanged)</span>
 													<code>{focusOp.current_body ?? '(none)'}</code>
@@ -635,6 +727,22 @@
 		padding: 8px 10px;
 		font-size: 0.8rem;
 		margin-top: 10px;
+	}
+	.overlay-facts {
+		display: grid;
+		grid-template-columns: max-content 1fr;
+		gap: 2px 10px;
+		margin: 8px 0 0 0;
+	}
+	.overlay-facts dt {
+		font-weight: 600;
+		opacity: 0.75;
+	}
+	.overlay-facts dd {
+		margin: 0;
+	}
+	.overlay-facts .attrib {
+		font-style: italic;
 	}
 	.bodies {
 		margin-top: 12px;

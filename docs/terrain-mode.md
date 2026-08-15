@@ -172,3 +172,22 @@ moved substantially (full details: `enrich/terrain/README.md`):
   vertical calibration is the natural next step).
 - Licensing: attribution rides each render's meta per stack; see
   `docs/terrain-data-licensing.md`.
+
+## Update 2026-08-07 — overlay graduation built and verified
+
+The per-photo overlay (fitted horizon + labels) now graduates end to end,
+and it **discharges the open "artifact graduation" item above**: the
+overlay carries a baked skyline (draws instantly, ~4 KB gz) AND the
+render's depth buffer, filed into the write pool as
+`terrain/<sha256>.depth.bin.gz` and referenced from the document — so
+zoomview answers "what am I looking at?" for any pixel, not just the
+horizon line. Channel is the existing `hillview-enrichment` package (new
+`set_terrain_overlay` op + a base64 `blobs` map) into a new
+`photos.terrain_overlay` JSONB column; landing is observed through the
+photo mirror. Verified live on photo 17eaaceb: click-back accurate to
+40–187 m at 52–80 km.
+
+Open thread is the label pool rather than the mechanism — the peak-match
+tolerance at its ±25% maximum silently disables the occlusion test that
+`PEAK_DEPTH_REL_TOL` exists to bound. Design record and measurements:
+`docs/terrain-overlay-graduation.md`.
