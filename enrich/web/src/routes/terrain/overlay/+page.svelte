@@ -9,29 +9,39 @@
 	// a vertical calibration — saving it is the obvious next step once this
 	// UX proves out.
 	//
-	// The vertical fit is a piecewise-linear warp: N handles ride the dashed
-	// horizon line, each dragging its neighborhood up/down (offsets stored in
-	// DEGREES so they survive zoom/rescale). Two handles = plain roll+offset;
-	// more handles absorb per-seam pano stitching wobble. A global roll
-	// slider (shear approximation) sits on top for fine trim.
+	// The fit is a piecewise-linear warp: N handles ride the dashed horizon
+	// line, each dragging its neighborhood up/down (`warp`) AND sideways
+	// (`hwarp`, azimuth offset — Shift-drag locks to vertical); both stored
+	// in DEGREES so they survive zoom/rescale. Two handles = plain
+	// roll+offset; more handles absorb per-seam pano stitching wobble, and
+	// the sideways axis is what a stitched pano's local stretch needs — a
+	// vertical warp alone can put the curve on the ridge at the handle while
+	// the peaks left and right of it stay displaced. A global roll slider
+	// (shear approximation) sits on top for fine trim.
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import { apiBase } from '$lib/config';
 	import { azimuthForColumn, type TerrainMeta } from '$terrain/depthPanoViewer';
 	import {
+		hitSkyLabel,
+		labelEvidence,
+		labelText,
 		layoutSkyLabels,
 		PLACE_KINDS,
 		projectPeaks,
 		type Peak,
-		type PeakMark
+		type PeakMark,
+		type SkyLabel
 	} from '$terrain/peakLabels';
+	import { paintSkyPills } from '$terrain/labelPills';
 	// the fit's geometry is SHARED with the main app's zoom view, so a
 	// graduated overlay draws exactly where it was fitted here
 	import {
 		createOverlayProjector,
 		resampleWarp,
 		skylineFromDepth,
+		resampleSteps,
 		warpAt as warpAtShared,
 		wrapDelta,
 		type OverlayFit
@@ -170,6 +180,9 @@
 	let showPlaces = $state(true);
 	let peaks: Peak[] = [];
 	let marks = $state<PeakMark[]>([]);
+	// pills currently on screen (for tap → evidence) and the last tapped one
+	let placedPills: (SkyLabel & { kind?: string; cls?: PeakMark['class']; mark: PeakMark })[] = [];
+	let labelInfo = $state<PeakMark | null>(null);
 	// fog: visibility cutoff for the skyline (log10 metres on the slider;
 	// at the top end = the render's full max_distance = no cutoff)
 	let visLog = $state(6);
@@ -185,6 +198,102 @@
 	// last = right edge), linearly interpolated between; always reassigned
 	// (never mutated in place) so the redraw effect tracks it by reference
 	let warp = $state<number[]>([0, 0]);
+	// horizontal (azimuth) shift per SEGMENT, degrees (hwarp[k] = the panel
+	// starting at handle k; last entry unused): dragging a handle sideways
+	// says "the terrain the model draws here actually sits THERE" and moves
+	// that panel and every panel to its right rigidly (Alt: this panel only)
+	// — a stitched pano's seams are steps, which the vertical warp cannot
+	// absorb. Kept the same length as `warp`.
+	let hwarp = $state<number[]>([0, 0]);
+	const MAX_SEGMENTS = 48;
+	function setSegments(n: number) {
+		const handles = Math.max(2, Math.min(MAX_SEGMENTS + 1, Math.round(n) + 1));
+		if (handles === warp.length) return;
+		hwarp = resampleSteps(hwarp, handles);
+		warp = resampleWarp(warp, handles);
+	}
+
+	// ---- explicit save / revert / undo: what is SAVED (the fact), whether
+	// the live alignment differs from it, and a history of settled states.
+	// The auto-draft keeps running underneath (it is what lets two windows
+	// share the working state) — but it is no longer the only state you can
+	// see, and a stray drag is one Ctrl+Z away.
+	let savedFit = $state<OverlayFit | null>(null);
+	const dirty = $derived.by(() => {
+		void proj; void bearingOffset; void fovDeg; void horizonPct; void vScale; void rollDeg; void warp; void hwarp; void visLog;
+		if (!photo) return false;
+		const live = bareOf(liveFit() as unknown as Record<string, unknown>);
+		return live !== (savedFit ? bareOf(savedFit as unknown as Record<string, unknown>) : '');
+	});
+	let history = $state<string[]>([]);
+	let histIdx = $state(-1);
+	let skipHistory = false; // set while applying a snapshot, so it isn't re-pushed
+	let histTimer: ReturnType<typeof setTimeout> | undefined;
+	/** one history entry per SETTLED change: a drag's stream of moves or a
+	 * slider's run of inputs coalesce into the state 500 ms after the last */
+	function scheduleHistory() {
+		clearTimeout(histTimer);
+		histTimer = setTimeout(() => {
+			if (!skipHistory) pushHistory(JSON.stringify(liveFit()));
+		}, 500);
+	}
+	/** history starts at the state a load landed on, so the first Ctrl+Z
+	 * after the first change goes back to it */
+	function seedHistory() {
+		history = [JSON.stringify(liveFit())];
+		histIdx = 0;
+	}
+	function pushHistory(snapshot: string) {
+		if (skipHistory) return;
+		if (histIdx >= 0 && history[histIdx] === snapshot) return;
+		const next = history.slice(0, histIdx + 1);
+		next.push(snapshot);
+		if (next.length > 100) next.shift();
+		history = next;
+		histIdx = next.length - 1;
+	}
+	function applySnapshot(raw: string) {
+		clearTimeout(histTimer); // a pending push would re-record the state we are leaving
+		skipHistory = true;
+		try {
+			applyRemoteFit(JSON.parse(raw) as OverlayFit);
+		} finally {
+			// the autosave effect runs after this tick; release the guard then
+			setTimeout(() => (skipHistory = false), 0);
+		}
+	}
+	function undo() {
+		if (histIdx <= 0) return;
+		histIdx -= 1;
+		applySnapshot(history[histIdx]);
+	}
+	function redo() {
+		if (histIdx >= history.length - 1) return;
+		histIdx += 1;
+		applySnapshot(history[histIdx]);
+	}
+	/** back to the last SAVED fit: the draft and this tab's live key go
+	 * with it (undoable like any other change) */
+	function revertToSaved() {
+		if (!photo || !savedFit) return;
+		applyRemoteFit(savedFit);
+		api.del(`/terrain/overlay-draft?photo_id=${photo.id}`).catch(() => {});
+		try {
+			localStorage.removeItem(liveKey(photo.id));
+		} catch {
+			/* fine */
+		}
+		lastSync = '';
+		draftState = '';
+		saveMsg = 'reverted to the saved fit';
+	}
+	/** apply a fit to the knobs the way a remote/live snapshot is applied
+	 * (fog included), without touching sync bookkeeping */
+	function applyRemoteFit(f: OverlayFit) {
+		const vk = applyFitState(f);
+		if (vk === null) visLog = visLogMax;
+		else setFogKm(vk);
+	}
 
 	// view transform: screen = base * z + (tx, ty). Base = the image
 	// contain-fitted into the fixed-height stage at zoom 1 (baseW × baseH
@@ -224,6 +333,9 @@
 		saveMsg = '';
 		draftState = '';
 		suppressDraft = true;
+		savedFit = null;
+		history = [];
+		histIdx = -1;
 		resetView();
 		warp = warp.map(() => 0);
 		rollDeg = 0;
@@ -252,6 +364,7 @@
 				}>(`/terrain/overlay-fit?photo_id=${photoId}`);
 				if (sf.fit) {
 					applyFit(sf.fit);
+					savedFit = sf.fit;
 					fitFact = sf.fact ?? null;
 					fitApproved = !!sf.approved;
 					saveMsg = 'restored saved fit';
@@ -285,9 +398,16 @@
 				applyFit(restored.f);
 				lastSync = bareOf(restored.f as unknown as Record<string, unknown>);
 				lastTs = restored.f.saved_at ?? 0;
-				saveMsg = `restored ${restored.src}`;
+				const differs =
+					!savedFit ||
+					bareOf(restored.f as unknown as Record<string, unknown>) !==
+						bareOf(savedFit as unknown as Record<string, unknown>);
+				saveMsg = differs
+					? `restored ${restored.src} — unsaved changes since the last save (revert to drop them)`
+					: `restored ${restored.src} (same as the saved fit)`;
 				dlog(`restored ${restored.src} (saved_at=${restored.f.saved_at ?? 'none'})`);
 			}
+
 			status = 'loading render…';
 			const rs = await api.get<{ renders: RenderRow[] }>(
 				`/terrain/renders?photo_id=${photoId}`
@@ -299,6 +419,7 @@
 				status = '';
 				err = 'no finished render for this photo — enqueue one on the terrain bench first';
 				suppressDraft = false; // controls still usable; keep drafting
+				seedHistory();
 				return;
 			}
 			render = done;
@@ -319,6 +440,7 @@
 			// take minutes; sitting at "loading peaks" used to silently
 			// disable all persistence)
 			suppressDraft = false;
+			seedHistory();
 			requestAnimationFrame(draw);
 			status = 'loading peak labels… (fitting already works)';
 			// label candidates arrive CHUNKED, nearest tiles first: small
@@ -399,6 +521,7 @@
 		vScale = f.v_scale;
 		rollDeg = f.roll_deg;
 		if (f.warp?.length >= 2) warp = f.warp.slice();
+		hwarp = f.hwarp && f.hwarp.length === warp.length ? f.hwarp.slice() : warp.map(() => 0);
 		return f.visibility_km ?? null;
 	}
 
@@ -417,6 +540,7 @@
 		vScale = 1;
 		rollDeg = 0;
 		warp = warp.map(() => 0);
+		hwarp = warp.map(() => 0);
 		visLog = visLogMax;
 	}
 
@@ -454,6 +578,7 @@
 				fitPayload()
 			);
 			saveMsg = `saved ✓ run ${r.run_id.slice(0, 8)}`;
+			savedFit = liveFit();
 			// fits are content-addressed, so re-saving an alignment that was
 			// already graduated lands on the SAME fact and keeps its approval;
 			// a genuinely new alignment starts unapproved and has to be
@@ -518,6 +643,8 @@
 			v_scale: vScale,
 			roll_deg: rollDeg,
 			warp: [...warp],
+			// only when it does something — an untouched fit keeps its shape
+			...(hwarp.some((v) => v !== 0) ? { hwarp: [...hwarp] } : {}),
 			visibility_km: visCutoffM === null ? null : +(visCutoffM / 1000).toFixed(1)
 		};
 	}
@@ -580,9 +707,13 @@
 		return { x: e.clientX - r.left, y: e.clientY - r.top };
 	}
 
-	/** base-space position of warp handle i on the (warped) horizon line */
+	/** base-space position of warp handle i on the (warped) horizon line —
+	 * drawn where the knot's ideal azimuth now sits, so a sideways drag moves
+	 * the handle with the content it re-aligned */
 	function handleBase(i: number, proj = baseProjector()): { x: number; y: number } {
-		const xb = (i / (warp.length - 1)) * baseW;
+		const xk = (i / (warp.length - 1)) * baseW;
+		const shift = hwarp[Math.min(i, hwarp.length - 2)] ?? 0;
+		const xb = xk - shift * pxPerDegBase();
 		return { x: xb, y: proj.horizonY(xb) };
 	}
 
@@ -600,6 +731,13 @@
 		const p = stagePos(e);
 		pointers.set(e.pointerId, p);
 		if (pointers.size === 1) {
+			// a tap on a label pill reveals what the label is claiming
+			const pill = hitSkyLabel(placedPills, p.x, p.y);
+			if (pill) {
+				labelInfo = pill.mark;
+				drag = null;
+				return;
+			}
 			const hi = hitHandle(p);
 			drag = hi !== null ? { kind: 'handle', idx: hi } : { kind: 'pan' };
 		} else {
@@ -625,9 +763,20 @@
 		} else if (drag?.kind === 'handle') {
 			const ppd = pxPerDegBase();
 			if (ppd > 0) {
-				const dDeg = (p.y - prev.y) / z / ppd;
 				const idx = drag.idx;
+				const dDeg = (p.y - prev.y) / z / ppd;
 				warp = warp.map((v, i) => (i === idx ? v - dDeg : v));
+				// sideways: content dragged right ⇒ the pano shows a LOWER
+				// azimuth here than the model thought ⇒ negative offset — for
+				// this handle's panel and every panel to its right (a stitched
+				// pano's error accumulates seam by seam); Alt = this panel
+				// only; Shift = vertical only. The last handle has no panel.
+				if (!e.shiftKey && idx < hwarp.length - 1) {
+					const dxDeg = (p.x - prev.x) / z / ppd;
+					hwarp = hwarp.map((v, i) =>
+						(e.altKey ? i === idx : i >= idx && i < hwarp.length - 1) ? v - dxDeg : v
+					);
+				}
 			}
 		} else if (drag?.kind === 'pan') {
 			tx += p.x - prev.x;
@@ -738,7 +887,10 @@
 		// per-neighborhood thinning keeps the best name per column
 		if (showLabels && marks.length) {
 			ctx.font = '11px system-ui, sans-serif';
-			const inputs: { label: string; cx: number; cy: number; pillW: number; id?: string }[] = [];
+			const inputs: {
+				label: string; cx: number; cy: number; pillW: number;
+				kind?: string; cls?: PeakMark['class']; mark: PeakMark;
+			}[] = [];
 			for (const m of marks) {
 				if (!showPlaces && m.kind && PLACE_KINDS.has(m.kind)) continue;
 				if (visCutoffM !== null && m.distance_m > visCutoffM) continue;
@@ -749,39 +901,24 @@
 				if (!pt) continue;
 				const xb = pt.x;
 				const yb = pt.y;
-				const km = m.distance_m / 1000;
-				const label = `${m.name} · ${km >= 10 ? Math.round(km) : km.toFixed(1)} km`;
+				// what the label CLAIMS decides its text: summit → name + OSM
+				// elevation, mass → name, direction → name, dim
+				const label = labelText(m, { km: true });
 				inputs.push({
 					label,
 					cx: toX(xb),
 					cy: toY(yb),
 					pillW: Math.ceil(ctx.measureText(label).width) + 12,
-					id: m.kind
+					kind: m.kind,
+					cls: m.class,
+					mark: m
 				});
 			}
 			ctx.textBaseline = 'middle';
-			for (const l of layoutSkyLabels(inputs, sw, sh, { pillH: 18, leader: 14 })) {
-				// settlements tinted blue vs terrain features' yellow/black
-				const isPlace = !!l.id && PLACE_KINDS.has(l.id);
-				ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-				ctx.lineWidth = 1;
-				ctx.beginPath();
-				ctx.moveTo(l.cx, l.ty + l.pillH);
-				ctx.lineTo(l.cx, l.cy - 3);
-				ctx.stroke();
-				ctx.beginPath();
-				ctx.arc(l.cx, l.cy, 2.2, 0, Math.PI * 2);
-				ctx.fillStyle = isPlace ? 'rgba(143,180,217,0.95)' : 'rgba(255,220,50,0.95)';
-				ctx.fill();
-				ctx.beginPath();
-				ctx.roundRect(l.tx, l.ty, l.pillW, l.pillH, 4);
-				ctx.fillStyle = isPlace ? 'rgba(20,44,74,0.68)' : 'rgba(0,0,0,0.62)';
-				ctx.fill();
-				ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-				ctx.stroke();
-				ctx.fillStyle = '#fff';
-				ctx.fillText(l.label, l.tx + 6, l.ty + l.pillH / 2 + 0.5);
-			}
+			placedPills = layoutSkyLabels(inputs, sw, sh, { pillH: 18, leader: 14 });
+			paintSkyPills(ctx, placedPills);
+		} else {
+			placedPills = [];
 		}
 
 		// warp handles (constant screen size)
@@ -812,6 +949,7 @@
 		void vScale;
 		void rollDeg;
 		void warp;
+		void hwarp;
 		void showCurve;
 		void showLabels;
 		void showPlaces;
@@ -836,6 +974,7 @@
 		void vScale;
 		void rollDeg;
 		void warp;
+		void hwarp;
 		void visLog;
 		if (!photo || suppressDraft) {
 			if (photo && suppressDraft)
@@ -844,6 +983,7 @@
 		}
 		const payload = fitPayload();
 		const bare = bareOf(payload);
+		scheduleHistory();
 		// identical alignment to one just received from another window → the
 		// writer already persisted it; rewriting would ping-pong events
 		if (bare === lastSync) return;
@@ -941,7 +1081,23 @@
 			window.removeEventListener('pagehide', onHide);
 		};
 	});
+	// keyboard: undo/redo like any editor — but not while typing in a field
+	function onKey(e: KeyboardEvent) {
+		const t = e.target as HTMLElement | null;
+		if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+		if (!(e.ctrlKey || e.metaKey)) return;
+		if (e.key === 'z' || e.key === 'Z') {
+			e.preventDefault();
+			if (e.shiftKey) redo();
+			else undo();
+		} else if (e.key === 'y' || e.key === 'Y') {
+			e.preventDefault();
+			redo();
+		}
+	}
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <h1 style="font-size:16px">Terrain ⧉ pano overlay <small style="opacity:.6">(experiment)</small></h1>
 
@@ -957,6 +1113,12 @@
 		</span>
 	{/if}
 	{#if status}<span class="info">{status}</span>{/if}
+	{#if labelInfo}
+		<span class="info" data-testid="overlay-label-evidence" title="tap a label to see what it claims">
+			<b>{labelInfo.name}</b> · {labelInfo.class} — {labelEvidence(labelInfo)}
+			<button class="linkish" onclick={() => (labelInfo = null)} aria-label="dismiss">×</button>
+		</span>
+	{/if}
 	{#if err}<span class="err">{err}</span>{/if}
 </section>
 
@@ -984,8 +1146,8 @@
 		</label>
 		<label>
 			fov
-			<input class="num" type="number" min="5" max="360" step="0.1" bind:value={fovDeg} />°
-			<input type="range" min="20" max="360" step="0.1" bind:value={fovDeg} />
+			<input class="num" type="number" min="5" max="400" step="0.1" bind:value={fovDeg} title="horizontal field of view; a stitched pano may exceed 360° by its closing overlap" />°
+			<input type="range" min="20" max="400" step="0.1" bind:value={fovDeg} />
 		</label>
 		<label>
 			horizon
@@ -1015,11 +1177,21 @@
 			/>km
 			<input type="range" min="3" max={visLogMax} step="0.01" bind:value={visLog} />
 		</label>
-		<span class="group">
-			segments <span class="val">{warp.length - 1}</span>
-			<button onclick={() => (warp = resampleWarp(warp, warp.length + 1))} disabled={warp.length >= 9}>+</button>
-			<button onclick={() => (warp = resampleWarp(warp, warp.length - 1))} disabled={warp.length <= 2}>−</button>
-			<button onclick={() => { warp = warp.map(() => 0); rollDeg = 0; }} title="zero all handle offsets and roll">level</button>
+		<span class="group" title="drag a handle up/down to lift the horizon there; sideways to SHIFT its panel and every panel to its right rigidly (a stitched pano's seams are steps) — Alt-drag: this panel only, Shift-drag: vertical only; offsets are stored in degrees">
+			segments
+			<input
+				class="num"
+				type="number"
+				min="1"
+				max={MAX_SEGMENTS}
+				step="1"
+				value={warp.length - 1}
+				data-testid="overlay-segments"
+				onchange={(e) => setSegments(e.currentTarget.valueAsNumber)}
+			/>
+			<button onclick={() => setSegments(warp.length)} disabled={warp.length >= MAX_SEGMENTS + 1}>+</button>
+			<button onclick={() => setSegments(warp.length - 2)} disabled={warp.length <= 2}>−</button>
+			<button onclick={() => { warp = warp.map(() => 0); hwarp = hwarp.map(() => 0); rollDeg = 0; }} title="zero all handle offsets (vertical and sideways) and roll">level</button>
 		</span>
 		<span class="group">
 			zoom <span class="val">×{z.toFixed(2)}</span>
@@ -1031,7 +1203,18 @@
 				disabled={!photo}
 				title="reset all alignment to the calibration-derived defaults and discard the draft"
 			>defaults</button>
-			<button onclick={saveFit} disabled={saving || !photo}>save fit</button>
+			<button onclick={undo} disabled={histIdx <= 0} title="undo (Ctrl+Z)">↶</button>
+			<button onclick={redo} disabled={histIdx >= history.length - 1} title="redo (Ctrl+Shift+Z)">↷</button>
+			<button
+				onclick={revertToSaved}
+				disabled={!photo || !savedFit || !dirty}
+				data-testid="overlay-revert"
+				title="back to the last saved fit — drops the draft and this tab's live state (undoable)"
+			>revert</button>
+			<button onclick={saveFit} disabled={saving || !photo || (!dirty && !!fitFact)} data-testid="overlay-save">save fit</button>
+			<span class="info state" class:dirty data-testid="overlay-fit-state">
+				{#if !photo}—{:else if !savedFit}never saved{:else if dirty}unsaved changes{:else}saved ✓{/if}
+			</span>
 			{#if saveMsg}<span class="info">{saveMsg}</span>{/if}
 			{#if draftState}<span class="info">{draftState}</span>{/if}
 		</span>
@@ -1098,6 +1281,9 @@
 <style>
 	.pick { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
 	.info { font-size: 12px; opacity: 0.7; }
+	.info.state { opacity: 0.9; }
+	.info.state.dirty { color: #f2d55c; }
+	.linkish { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 4px; font: inherit; }
 	.err { color: #d33; font-size: 12px; }
 	.controls {
 		display: flex;

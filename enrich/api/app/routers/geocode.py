@@ -341,8 +341,8 @@ async def attach_wikipedia(ann_id: str, req: WikipediaRequest):
     the body's wiki segment. The page title is minted as a PROPOSED labelText
     (feeds geocode queries; adopt via the label verb to make it THE name), and
     if the page has coordinates, an anchorCandidate (+coords metadata) is minted
-    as PROPOSED alongside — adopt it in the Anchor section if it should become
-    the anchor; an existing pin stays authoritative."""
+    as PROPOSED alongside — approve it in the Anchor section's candidates table
+    if it should become the anchor (that supersedes the current one)."""
     from datetime import datetime, timezone
     try:
         lang, raw_title, wiki_url, label = geocode.parse_wikipedia_url(req.url)
@@ -387,10 +387,46 @@ async def attach_wikipedia(ann_id: str, req: WikipediaRequest):
         raise HTTPException(500, f"wikipedia attach failed: {e}")
 
 
+async def supersede_other_anchors(ann_iri: str, keep_fact: str, keep_cand: str,
+                                  now_iso: str) -> list[str]:
+    """ONE anchor per annotation: demote every OTHER approved anchorCandidate
+    fact of the annotation to rejected, noted as superseded — the labelText
+    precedent (annotations.set_label). Curation status is per fact, so nothing
+    in the store forbids two approved anchors; without this, every consumer
+    resolved the ambiguity its own way (calibration/matching: nearest approved;
+    graduation: SPARQL binding order). → the demoted fact IRIs."""
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?f WHERE {{
+  GRAPH ?f {{ <{ann_iri}> hv:anchorCandidate ?cand }}
+  GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status hv:approved }}
+}}""")
+    prior = [b["f"]["value"] for b in res["results"]["bindings"]
+             if b["f"]["value"] != keep_fact]
+    for f in prior:
+        await graph.store.update(facts.curate_update(
+            f, "rejected", now_iso, note=f"superseded by anchor → {keep_cand}"))
+    return prior
+
+
+async def supersede_if_anchor(fact_iri: str, now_iso: str) -> list[str]:
+    """If `fact_iri` is an anchorCandidate fact (just approved via the generic
+    /facts/curate), enforce one-anchor-per-annotation around it. → demoted
+    fact IRIs ([] for any other kind of fact)."""
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?ann ?cand WHERE {{ GRAPH <{fact_iri}> {{ ?ann hv:anchorCandidate ?cand }} }}""")
+    b = res["results"]["bindings"]
+    if not b:
+        return []
+    return await supersede_other_anchors(b[0]["ann"]["value"], fact_iri,
+                                         b[0]["cand"]["value"], now_iso)
+
+
 @router.post("/annotations/{ann_id}/anchor")
 async def pin_anchor(ann_id: str, req: AnchorRequest):
     """Mint an anchorCandidate fact (geo: point or a suggested OSM object) and
-    approve it — the entry-UX gesture 'THIS is what I marked', as one act."""
+    approve it — the entry-UX gesture 'THIS is what I marked', as one act.
+    Any previously approved anchor of the annotation is superseded (rejected,
+    noted): one anchor per annotation."""
     from datetime import datetime, timezone
     if bool(req.point) == bool(req.candidate):
         raise HTTPException(422, "pass exactly one of point / candidate")
@@ -421,14 +457,18 @@ async def pin_anchor(ann_id: str, req: AnchorRequest):
         anchor_fact = graph.fact_iri(facts.fact_hash(
             facts.iri(graph.annotation_iri(ann_id)),
             facts._p("anchorCandidate"), facts.iri(cand_uri)))
+        now = datetime.now(timezone.utc).isoformat()
         await graph.store.update(facts.curate_update(
-            anchor_fact, "approved",
-            datetime.now(timezone.utc).isoformat(), note=req.note))
+            anchor_fact, "approved", now, note=req.note))
+        superseded = await supersede_other_anchors(
+            graph.annotation_iri(ann_id), anchor_fact, cand_uri, now)
         await finish_run(run_id, stats={"facts": payload["n_facts"],
-                                        "candidate": cand_uri},
+                                        "candidate": cand_uri,
+                                        "superseded": len(superseded)},
                          graph_iri=graph.run_iri(run_id))
         return {"run_id": str(run_id), "candidate": cand_uri,
-                "fact": anchor_fact, "status": "approved"}
+                "fact": anchor_fact, "status": "approved",
+                "superseded": superseded}
     except Exception as e:
         await fail_run(run_id, f"{type(e).__name__}: {e}")
         raise HTTPException(500, f"anchor pin failed: {e}")

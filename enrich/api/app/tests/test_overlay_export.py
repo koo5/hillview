@@ -276,3 +276,134 @@ def test_bakes_with_a_real_notice():
                         render_id="r-1",
                         attribution="© ČÚZK · produced using Copernicus WorldDEM-30")
     assert "ČÚZK" in doc["attribution"]
+
+
+# --- label classes + evidence ---------------------------------------------
+
+# the same grid with an eye height, so the height band can be tested. Row 2
+# (centre +1.0°) at 20 km corresponds to ele ≈ 676 m for eye 300 m, k 0.13.
+META_EYE = {**META, "eye_elevation_m": 300.0, "refraction_k": 0.13}
+
+
+def test_summit_needs_the_tight_window_and_the_height_band():
+    q = depth_buf({1: {"skyTop": 2, "depths": [20000]}})
+    agrees = peak_at(1.5, 20000, "Vrch", ele=676)
+    (m,) = project_labels(META_EYE, q, [agrees], None)
+    assert m["class"] == "summit"
+    assert abs(m["dh_m"]) < 15                    # metres, ~row centre
+    assert m["seen_m"] == 20000 and m["col_offset"] == 0
+    # ele says the summit is 1.3 km higher than the rendered top edge: the
+    # pixel is a different landform, so the peak is not shown at all
+    disagrees = peak_at(1.5, 20000, "Vrch", ele=2000)
+    assert project_labels(META_EYE, q, [disagrees], None) == []
+
+
+def test_wide_window_only_is_mass_and_carries_what_was_seen():
+    # terrain at 21 km: outside 300 m + 3 % (900 m), inside 8 m + 6 % (1208 m)
+    q = depth_buf({1: {"skyTop": 2, "depths": [21000]}})
+    (m,) = project_labels(META_EYE, q, [peak_at(1.5, 20000, "Vrch", ele=676)], None)
+    assert m["class"] == "mass"
+    assert m["seen_m"] == 21000 and m["distance_m"] == 20000
+    # …but mass needs the height band too: a hill 1.3 km lower than the
+    # terrain seen near it is a different landform, not its mass
+    assert project_labels(META_EYE, q, [peak_at(1.5, 20000, "Vrch", ele=-700)], None) == []
+
+
+def test_a_summit_outranks_a_mass_claim_of_equal_priority():
+    """Two untagged peaks: a nearer hill whose distance only wide-matches
+    (mass) and a farther one confirmed as a summit — the summit sorts first,
+    so a first-come layouter cannot let the foreground hill thin it out."""
+    q = depth_buf({1: {"skyTop": 2, "depths": [21000]},
+                   2: {"skyTop": 2, "depths": [21000]}})
+    near_mass = peak_at(1.5, 20000, "Kopec", ele=676)          # wide only → mass
+    far_summit = peak_at(2.5, 21000, "Vrch", ele=676 + 60)     # tight → summit
+    got = project_labels(META_EYE, q, [near_mass, far_summit], None)
+    assert [(m["name"], m["class"]) for m in got] == [("Vrch", "summit"), ("Kopec", "mass")]
+
+
+def test_a_tight_row_below_a_wide_row_wins():
+    # skyline at 21 km (wide only), the summit's own edge two rows down
+    q = depth_buf({1: {"skyTop": 1, "depths": [21000, 21000, 20000]}})
+    # ele ≈ −22 m puts the summit's angle at row 3 (−1.0°) for eye 300 m
+    (m,) = project_labels(META_EYE, q, [peak_at(1.5, 20000, "Vrch", ele=-22)], None)
+    assert m["seen_m"] == 20000                   # not the 21 km skyline
+    assert m["elev_deg"] == 6.0 - 3.5 * 2         # row 3
+    assert m["class"] == "summit"
+
+
+def test_without_an_eye_height_tight_alone_makes_a_summit():
+    q = depth_buf({1: {"skyTop": 2, "depths": [20000]}})
+    (m,) = project_labels(META, q, [peak_at(1.5, 20000, "Vrch", ele=2000)], None)
+    assert m["class"] == "summit" and m["dh_m"] is None
+
+
+def test_hidden_notable_settlement_becomes_direction_at_the_occluder():
+    # a 5 km ridge from row 2 hides the town at 20 km; population 40k → 324 ≥ 240
+    q = depth_buf({1: {"skyTop": 2, "depths": [5000]}})
+    town = peak_at(1.5, 20000, "Town", kind="town", population=40_000)
+    (m,) = project_labels(META_EYE, q, [town], None)
+    assert m["class"] == "direction"
+    assert m["seen_m"] == 5000                    # the terrain that hides it
+    assert m["elev_deg"] == 1.0                   # its top edge, row 2
+    # a small village is simply dropped
+    assert project_labels(META_EYE, q, [peak_at(1.5, 20000, "Ves", kind="village", population=300)], None) == []
+    # a hidden PEAK is not direction material, however prominent
+    assert project_labels(META_EYE, q, [peak_at(1.5, 20000, "Big", prominence=900)], None) == []
+    # and a notable town beyond 100 km is not a direction hint either
+    far = {**META_EYE, "max_distance_m": 200_000.0}
+    q2 = depth_buf({1: {"skyTop": 2, "depths": [5000]}})
+    assert project_labels(far, q2, [peak_at(1.5, 150_000, "City", kind="city", population=500_000)], None) == []
+
+
+def test_a_settlement_is_seen_or_a_direction_hint_never_mass():
+    """A hit at a town's distance but not its height is the hill behind the
+    town, not the town: no "mass" for settlements."""
+    q = depth_buf({1: {"skyTop": 2, "depths": [21000]}})
+    town = peak_at(1.5, 20000, "Town", kind="town", population=40_000, ele=200)
+    (m,) = project_labels(META_EYE, q, [town], None)
+    assert m["class"] == "direction" and m["seen_m"] == 21000
+    village = peak_at(1.5, 20000, "Ves", kind="village", population=300, ele=200)
+    assert project_labels(META_EYE, q, [village], None) == []
+    # tight distance but 1.3 km too low: still not the town
+    q2 = depth_buf({1: {"skyTop": 2, "depths": [20000]}})
+    town2 = peak_at(1.5, 20000, "Town", kind="town", population=40_000, ele=2000)
+    (m,) = project_labels(META_EYE, q2, [town2], None)
+    assert m["class"] == "direction"
+    # the town itself, at its own height: seen
+    (m,) = project_labels(META_EYE, q2, [peak_at(1.5, 20000, "Town", kind="town", population=40_000, ele=676)], None)
+    assert m["class"] == "summit"
+
+
+def test_no_direction_label_on_foreground_clutter():
+    # a tree 100 m away fills the column: nothing is "behind" it usefully
+    q = depth_buf({1: {"skyTop": 0, "depths": [100]}})
+    assert project_labels(META_EYE, q, [peak_at(1.5, 20000, "City", kind="city", population=500_000)], None) == []
+
+
+def test_direction_labels_sort_after_every_visible_one():
+    # columns 0-2 hidden by a 5 km ridge (so the ±1 neighbourhood cannot
+    # rescue Big), column 3 sees 20 km terrain
+    q = depth_buf({0: {"skyTop": 2, "depths": [5000]},
+                   1: {"skyTop": 2, "depths": [5000]},
+                   2: {"skyTop": 2, "depths": [5000]},
+                   3: {"skyTop": 2, "depths": [20000]}})
+    hidden_city = peak_at(1.5, 20000, "City", kind="city", population=500_000)
+    visible_small = peak_at(3.5, 20000, "Small", prominence=10, ele=676)
+    got = project_labels(META_EYE, q, [hidden_city, visible_small], None)
+    assert [(m["name"], m["class"]) for m in got] == [("Small", "summit"), ("City", "direction")]
+
+
+def test_azimuth_neighbourhood_rescues_a_node_one_column_off():
+    # own column (1) hidden by a 5 km ridge, column 2 sees 20 km terrain
+    q = depth_buf({1: {"skyTop": 2, "depths": [5000]},
+                   2: {"skyTop": 2, "depths": [20000]}})
+    (m,) = project_labels(META_EYE, q, [peak_at(1.5, 20000, "Edge", ele=676)], None)
+    assert m["col_offset"] == 1 and m["class"] == "summit"
+
+
+def test_one_label_per_depth_pixel_keeps_the_higher_priority():
+    q = depth_buf({1: {"skyTop": 2, "depths": [20000]}})
+    a = peak_at(1.5, 20000, "Turm A", ele=676)
+    b = peak_at(1.5, 20000, "Turm B", ele=676, prominence=40)
+    got = project_labels(META_EYE, q, [a, b], None)
+    assert [m["name"] for m in got] == ["Turm B"]

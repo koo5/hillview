@@ -4,6 +4,7 @@
 	import { localStorageSharedStore } from '$lib/svelte-shared-store';
 	import type { AnnotationList, AnnotationRow, CandidatesResponse } from '$lib/types';
 	import CandidateMap from '$lib/components/CandidateMap.svelte';
+	import CandidateTable from '$lib/components/CandidateTable.svelte';
 	import Help from '$lib/components/Help.svelte';
 	import PhotoThumb from '$lib/components/PhotoThumb.svelte';
 
@@ -36,8 +37,8 @@
 		cands = await api.get<CandidatesResponse>(`/annotations/${a.id}/candidates`);
 	}
 
-	async function curate(fact: string, decision: 'approved' | 'rejected' | 'proposed') {
-		await api.post('/facts/curate', { fact, decision });
+	// after a ✓/✗/↺ in the table (it posts /facts/curate itself)
+	async function reloadCands() {
 		if (sel) cands = await api.get<CandidatesResponse>(`/annotations/${sel.id}/candidates`);
 	}
 
@@ -93,7 +94,7 @@
 			<dt>type</dt>
 			<dd>OSM object type (node/way/relation kind)</dd>
 			<dt>✓ / ✗</dt>
-			<dd>approve (= make it the anchor) / reject the candidate fact</dd>
+			<dd>approve (= make it the anchor — one per annotation, a previously approved one is demoted to rejected, noted "superseded") / reject the candidate fact</dd>
 		</dl>
 		<h4>map</h4>
 		<p>
@@ -174,50 +175,14 @@
 				selected={selCand}
 				onselect={(c) => (selCand = c)}
 			/>
-			<table style="margin-top:10px">
-				<thead><tr><th></th><th>candidate</th><th>km</th><th>Δ°</th><th>type</th><th></th></tr></thead>
-				<tbody>
-					{#each cands.candidates as c (c.candidate)}
-						<tr
-							style="cursor:pointer; {selCand === c.candidate ? 'background:var(--panel2)' : ''}"
-							onclick={() => (selCand = c.candidate)}
-						>
-							<td>
-								<span
-									class="pill {c.status === 'approved' ? 'ok' : c.status === 'rejected' ? 'bad' : ''}"
-									>{c.status[0]}</span
-								>
-							</td>
-							<td style="max-width:340px">
-								<a href={c.candidate} target="_blank" rel="noreferrer" style="font-size:12px">
-									{c.displayName ?? c.candidate.replace('https://', '')}
-								</a>
-							</td>
-							<td class="mono">{c.km ?? ''}</td>
-							<td
-								class="mono"
-								style={Math.abs(c.bearing_offset ?? 0) > 60 ? 'color:var(--warn)' : ''}
-							>
-								{c.bearing_offset ?? ''}
-							</td>
-							<td class="muted" style="font-size:11px">{c.osmType ?? 'wiki'}</td>
-							<td style="white-space:nowrap">
-								{#if c.status !== 'approved'}
-									<button title="approve = the anchor" onclick={(e) => { e.stopPropagation(); curate(c.fact, 'approved'); }}>✓</button>
-								{/if}
-								{#if c.status !== 'rejected'}
-									<button title="reject" onclick={(e) => { e.stopPropagation(); curate(c.fact, 'rejected'); }}>✗</button>
-								{/if}
-								{#if c.status !== 'proposed'}
-									<button title="reset" onclick={(e) => { e.stopPropagation(); curate(c.fact, 'proposed'); }}>↺</button>
-								{/if}
-							</td>
-						</tr>
-					{:else}
-						<tr><td colspan="6" class="muted">no candidates — run geocode, or the label found nothing</td></tr>
-					{/each}
-				</tbody>
-			</table>
+			<div style="margin-top:10px">
+				<CandidateTable
+					candidates={cands.candidates}
+					selected={selCand}
+					onselect={(c) => (selCand = c)}
+					onchange={reloadCands}
+				/>
+			</div>
 		{:else}
 			<p class="muted">← pick an annotation</p>
 		{/if}

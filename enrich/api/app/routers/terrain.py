@@ -598,6 +598,11 @@ class OverlayFitRequest(BaseModel):
     v_scale: float                   # vertical trim × the square-pixel guess
     roll_deg: float
     warp: list[float] = []           # per-handle offsets, degrees, left→right
+    # horizontal (azimuth) warp on the same handles, degrees: absorbs the
+    # local stretch a stitched pano carries between seams. Optional; a fit
+    # without one (or all zeros) is serialised WITHOUT the key, so fits saved
+    # before the field existed keep their canonical JSON (= stay "landed")
+    hwarp: list[float] | None = None
     # atmospheric visibility read off the photo (fog slider), km; null = full
     visibility_km: float | None = None
     # client wall-clock (epoch ms) of the change — DRAFTS ONLY, so a browser
@@ -617,6 +622,8 @@ def _overlay_fit_json(req: OverlayFitRequest, with_ts: bool = False) -> str:
            "warp": [round(w, 4) for w in req.warp],
            "visibility_km": (round(req.visibility_km, 1)
                              if req.visibility_km is not None else None)}
+    if req.hwarp and any(abs(w) > 0 for w in req.hwarp):
+        fit["hwarp"] = [round(w, 4) for w in req.hwarp]
     if with_ts and req.saved_at is not None:
         fit["saved_at"] = round(req.saved_at)
     return json.dumps(fit, sort_keys=True, separators=(",", ":"))

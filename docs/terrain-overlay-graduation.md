@@ -312,72 +312,251 @@ was restored from `/shared/photos_5.csv`.
 
 ## The label pool: what it contains, and the tolerance question
 
-Measured on the same render — 667 labels over a 93.8° / 106 km view:
+Measured on render 252a7ea8 (photo 17eaaceb, Ďáblice → north): 4152 × 690,
+0.025° per column AND per row, max distance 200 km; candidate pool
+`/terrain/peaks` r = 200 km = 41 461 features, of which 8 459 fall inside
+the sweep and the distance gates. Probes: `oneoff/scripts/2026-08-16_08*`.
 
-* **Occlusion is sound at the default ±6%.** Of the 242 labels anchored
-  below the skyline, *all 242* are genuinely nearer than the ridge at their
-  column — real foreground hills in front of a distant horizon. Zero
-  occluded summits slipped through.
-* **What enforces that is the monotonicity stop, not the tolerance.** Below
-  the skyline a column's depth is non-increasing (a lower ray hits terrain
-  at or before a higher one), so `if d < distance - tol: break` means "we
-  have met terrain nearer than the peak; everything below is nearer still;
-  the peak is hidden". It fires before a loose tolerance can rescue an
-  occluded peak.
-* **But the stop's threshold IS `distance - tol`, so widening the tolerance
-  disables it.** At the pane slider's max (±25%):
+### How the scan decides visibility — and where the tolerance enters
 
-  | | ±6% | ±25% |
-  |---|---|---|
-  | pinned to the first terrain row (never occlusion-tested) | 57% | 75% |
-  | anchored to terrain >5% off the peak's own distance | 104 | 269 |
-  | worst anchoring error | 6% | 25% (15 km) |
+`projectPeak` (peakLabels.ts) / `project_labels` (overlay_export.py) walk
+the peak's column top-down. Below the skyline a column's depth is
+non-increasing (a lower ray hits terrain at or before a higher one), so
+each row is one of three cases against the peak's distance D:
 
-  Slánský kopec (38.2 km) lands on terrain at 47.7 km; Litoměřice, a town
-  in the Elbe valley at 50.1 km, is pinned to a skyline 10 km behind it.
-  301 features appear at ±25% that ±1% rejects.
+    |d − D| ≤ tol   → MATCH: label here (the rendered summit edge)
+    d > D + tol     → farther terrain: the ray passes over the peak, keep going
+    d < D − tol     → nearer terrain: everything below is nearer still → HIDDEN
 
-  **This is a semantic slide, not a sensitivity knob.** ±1% answers "this
-  summit is the thing you see there"; ±25% approximates "this named place
-  lies in that direction" — a vista-board reading, which is legitimate and
-  looks tidier (azimuth stays exact, labels line up along the horizon) but
-  is no longer a visibility claim. The graduated overlay publishes it to
-  visitors as fact, so the two should be separate modes rather than ends of
-  one slider.
-* **Resolution crowding is real.** 71 grid columns carry more than one
-  labelled peak (157 peaks total). Column 2989 (az 13.24°) holds **ten**
-  Elbe Sandstone climbing towers at 79–81 km — Emporturm, Falkenturm,
-  Oertelwand, … — none with a prominence tag, so the priority sort falls
-  through to nearest-first and picks one arbitrarily. Their centres span
-  0.023°, *less than one render column*; each spire is itself wider than
-  that spacing (a 40 m tower at 80.6 km subtends 0.028°), so they overlap
-  into one silhouette. On this photo (830 px/°) the whole cluster is 19 px
-  against a 21-px render column; at a hypothetical 200 000 px / 90° it
-  would be ~51 px of centres inside a 56-px column. The render is not
-  meaningfully under-resolving — the ten OSM points are sub-feature detail
-  on one massif.
-* **The pool is mostly minor features**: only 10% carry a prominence tag,
-  and among those the median prominence is 62 m.
-* **Inconsistency to resolve**: the tolerance slider lives on the terrain
-  *pane* and viewer. The overlay fitting bench calls `projectPeaks` with no
-  tolerance argument and the export hardcodes the same default — both are
-  pinned at 6%. So the setting a curator tunes is not the setting that
-  graduates.
+The occlusion decision is the third line. It is correct — but its threshold
+is `D − tol`, the same `tol` as the match, so **the tolerance is not a
+sensitivity knob on the match; it is the width of the depth window in
+which occluded terrain still counts as the peak.** (Since 2026-08-16 the
+scan carries a second, tight window and returns a class — "The label
+model" below; everything in this subsection is about the wide window,
+which is unchanged.) Own-column verdicts on the 8 459 candidates:
+
+| verdict | ±6% | ±25% |
+|---|---|---|
+| match | 667 | 1 716 |
+| bracket (profile jumps from > D+tol to < D−tol: a ridge in front) | 363 | 99 |
+| beyond (skyline itself nearer than D−tol: peak below the horizon line) | 7 429 | 6 644 |
+
+±25% admits **1 049** features ±6% rejects: 785 of them are *behind the
+skyline* in their own column, 264 are bracketed by a depth jump whose gap
+is median 16–19% of D — ridges, not quantisation. (Last night's "667 vs
+667" table re-anchored the 667 baked labels at ±25%; it measured where
+they pin, not what the pool admits. Both are true; this one matters.)
+
+**Angular second opinion.** The depth margin can't tell "hidden by a hair"
+from "hidden by a mountain", so each rejection was re-checked from the
+peak's own `ele` (eye 329 m, k = 0.13): θ_peak vs the skyline angle in its
+column. Of the 7 429 "beyond": 98.2% sit more than 2 rows (0.05°) below
+the ridge; 72 are marginal (|Δ| ≤ 1 row); **7** have an `ele` that says
+they should poke over (Klíč, Strážný vrch, Zlatý vrch, Javor …, all
+Δ +1.1–1.9 rows) — DSM canopy or OSM/DEM disagreement, the honest
+"maybe". Of the 363 bracketed: none. So **±6% own-column is essentially
+the correct visibility test at this render's resolution.** Loosening it
+finds hidden features, not missed ones.
+
+**Why ±25% nevertheless *looks* better**: what it adds first, in priority
+order, is Liberec (81 km, behind a ridge at 74), Ústí nad Labem (66 km,
+Elbe valley, ridge at 56), Teplice, Děčín, Česká Lípa, Kralupy — famous
+places that are geographically in valleys and basins and genuinely not
+visible from Ďáblice. On a 1600 px screen ±25% swaps 15 of the 27 displayed
+names for those. The azimuth stays exact, the labels line up on the horizon:
+a vista board. That is a legitimate reading ("this named place lies in
+that direction") but it is not a visibility claim, and the graduated
+overlay publishes labels to visitors as "this is what you see". If it is
+wanted, it is a **separate label class** (e.g. `visible: false`, drawn
+distinctly), never a cranked tolerance.
+
+**What ±6% does miss — a spatial, not depth, error.** A ±1-column
+neighbourhood search at ±6% recovers 22 features (13 beyond, 9 bracket);
+±2 columns ≈ 40. These are summits whose OSM node sits one column (26–35 m
+at 60–80 km) off the DEM summit or on the edge of a ridge dip — Strážný
+vrch is both in this list and in the seven the `ele` check flags, which
+cross-validates it. A small azimuth neighbourhood (±1–2 columns, or ±50 m,
+whichever is wider) is the honest widening; the match tolerance itself
+should stay where it is (matched |d − D|/D: median 2.2%, p90 5.4% — 6%
+is the right size for 0.025° rows plus node wobble).
+
+**Adjacent-row depth steps** on continuous terrain are median 0.5–1.5%,
+p75 1–6% (grazing plains at 40–60 km reach 5–7%) — which is what the 6%
+absorbs. Finer elevation rows in the render (0.025° here; the 4000-row
+cap is far off) would shrink both the bracket ambiguity and the needed
+tolerance; that is a renderer knob, separate from the label code.
+
+### Percent or metres? — measured, then both
+
+Residuals `|d_row − D|` of the 667 real matches grow with distance in km
+(median 0.22 km at 5 km → 2.37 km at 90 km) but the *near-field* residual is
+4.4 % — 220 m at 5 km — which is not sampling, it is the OSM node versus the
+rendered summit edge: an absolute, summit-sized error. The renderer's own
+depth precision IS relative (`renderer.py:264`: the march steps 0.005·d,
+"constant RELATIVE depth error out far"). So the window is affine, and the
+coefficients mean two things: **absolute = summit/node scale (~300 m),
+relative = the march (~3 %)** for "this pixel is the summit"; and the wider
+8 m + 6 % for "terrain at about its distance". Beyond ~40 km a 3–5 km
+residual is a shoulder of the same massif (Smědavská hora seen at 91.7 km,
+node at 95.7): the honest thing is to say *mass*, not to pick a coefficient
+that decides it either way.
+
+### The label model (built 2026-08-16)
+
+Every label now carries a **class** derived from **evidence**, and the
+evidence travels with it so any GUI can reveal how much a label claims
+(`shared/terrain/peakLabels.ts` ⇄ `enrich/api/app/overlay_export.py`,
+mirrored by hand; constants documented at `PEAK_DEPTH_REL_TOL`):
+
+| class | evidence | text | painted |
+|---|---|---|---|
+| **summit** | tight window `300 m + 3 %·D` ∧ height band `100 m + ½ row` (POI's own elevation angle vs the anchor row, in METRES — the 30 m DEM renders sharp cones 60–85 m low, DSM canopy renders forested tops ~25 m high) | name + elevation (OSM only; a DEM-filled `ele` is not the summit's) | full |
+| **mass** | wide window `8 m + 6 %·D` ∧ the same height band (measured 2026-08-16 evening: without the band the median mass label sat on terrain **139 m higher** than the named hill — a different landform; Jelení vrch, 324 m, 2 km in front of Malý Bezděz, was labelling Malý Bezděz's flank and, ranking nearer-first, thinning the real summit out) | name | full |
+| **direction** | a **settlement** hidden in the own column and its ±1–3 neighbours (±50 m), priority ≥ 240 (a town of 5 000), ≤ 100 km, occluder ≥ 1 km away — peaks are never direction material: a hidden summit is simply not in the picture | name | dim, dashed leader that stops 8 px above the ridge line (the anchor is what hides the place; the line must not touch it), no anchor dot |
+
+Settlements are binary — *seen* (tight ∧ height: the DSM renders their
+roofs) or direction material; a hit at a town's distance but a different
+height is the hill behind the town (Litoměřice +2.6 km/−7 rows, Litvínov
++4.3 km/−10 rows both moved from "labelled" to *direction*). Per label:
+`class`, `seen_m` (depth at the anchor), `dh_m` (metres by which the POI's
+elevation angle sits above the anchor row; + = ele says higher), `col_offset`
+(azimuth-neighbourhood column used), `ele_estimated`. `labelText()` and
+`labelEvidence()` render these; the pane's picked chip, the bench's status
+line and the zoom view's tap-on-a-pill box all show the evidence sentence.
+
+Also built: **one label per depth pixel** (visible classes first, then
+priority) and the **azimuth neighbourhood**; direction labels are sorted
+after every visible one so a first-come layouter never lets a hidden town
+displace a visible summit. The pane's slider is capped at 0.10 and relabelled
+"window" (it drives the wide window's relative term). Painting is shared:
+`shared/terrain/labelPills.ts` for bench + zoom view, `dim` on
+`LabelDrawCmd` for the pane's painter.
+
+On 252a7ea8: **557 labels = 482 summit / 59 mass / 16 direction** (was 667
+undifferentiated, then 658 before the height band applied to mass); 39
+columns had carried more than one label per pixel; Emporturm is *hidden*
+(`dh_m` −218: the pixel is the plateau rim 218 m above the tower, which
+stands behind it — a different landform, not its mass); Milešovka, Ještěd,
+Říp, Sedlo, Bezděz, Malý Bezděz *summit*; Strážný vrch *summit* via the +2
+column; Smědavská hora *mass* (dh +23, seen 4 km in front). Sort order among
+equal priority: summit before mass, then nearest.
+
+### Explaining the pool (built 2026-08-16)
+
+`explainPeak` / `explainPeaks` (peakLabels.ts) give EVERY candidate a
+verdict and a one-sentence reason — the three label classes plus `hidden`,
+`not-notable` (hidden and under the direction threshold), `too-close`,
+`out-of-range` (render range or the kind's cap), `outside-sweep`,
+`no-terrain` — and `projectPeak` is now just their labelled subset. The
+terrain pane's **pool** panel lists the whole candidate set that way
+(labelled first in emission order, pixel-losers marked, then the rest by
+priority), with a name filter, per-verdict counts, and a "now" column
+telling whether a label's slat is on screen at this zoom, thinned by a
+neighbour, or beyond the fog; clicking a row centres the view on it. It is
+the answer to "why does this POI make it and that one not" — e.g. Malý
+Bezděz is a summit label that is merely thinned at overview zoom (0.5°
+from Bezděz, no prominence tag so placed after it), and Bělá pod Bezdězem
+misses the direction threshold by two priority points.
+
+Fog on the pane is now also the label cutoff (it was only the GL haze
+uniform, while the bench's fog is the model's `visibility_km` — same word,
+two meanings; the pane's labels beyond the visibility distance now drop
+out with the haze).
+
+### Where the tolerance is set
+
+* Terrain **pane** (`/terrain`, TerrainViewer): slider 0.01–0.10, default
+  0.06, UI state only — the WIDE window's relative term (the `?` next to it
+  explains). Above ~0.10 it was a different question, now answered by the
+  direction class. The TIGHT window's 3 % and the height band are constants
+  everywhere; both windows are always in effect: wide decides *whether* a
+  POI is labelled, tight ∧ height decides whether it is a *summit*.
+* Overlay **bench** and **export**: the constants above, no slider.
+* Visibility cutoff (`visibility_km`) is the one editorial tolerance-like
+  setting and lives in the fit.
+
+### Density and sorting
+
+* **Display density — slats (built 2026-08-16).** `layoutSkyLabels` now
+  lays each label as a slat rising from just above its summit at
+  `angleDeg` (default 45°, `SKY_LABEL_ANGLE_DEG`): parallel slats tile like
+  the slats of a blind and never collide however long the names are, so
+  the only constraint is anchor spacing Δx·sin θ ≥ pillH + gap, there is no
+  stacking, and left-to-right reading order is azimuth order (the vista
+  board property). One same-orientation-rectangle overlap test covers every
+  angle; 0° is a horizontal *non-stacking* layout. Measured on the
+  graduated Ďáblice document at 1600 / 3200 / 6400 px: horizontal +
+  stacking (the old layouter) 27 / 56 / 97; **45° slats 36 / 72 / 130
+  (+33 %)**; 60° slats 43 / 87 / 154 (+59 %); 0° non-stacking 9 / 25 / 54.
+  Less than the 2× the geometry allows, because real anchors cluster and
+  sit at different heights. `hitSkyLabel` inverse-rotates the tap; one
+  painter (`shared/terrain/labelPills.ts`) now serves the pane, the bench
+  and the zoom view — the pane no longer uses the zoomview annotation
+  painter, and `minGapX` is an optional extra floor (default 0).
+* The pane hands only the first 150 marks to the layouter; bench and zoom
+  view hand all — same render, different names at the same zoom. Not yet
+  reconciled.
+* **Sorting is the weak spot.** Prominence covers 288 of 41 461 pool
+  features (1.4 %); among the rest, nearest-first is arbitrary (a landfill
+  tagged `natural=peak` at 1.7 km outranks Radobýl). Measured alternatives:
+  `ele` desc → the top 30 are all Jizerské hory tops (bad); **skyline
+  salience** (label row − median skyline over ±0.5°) → Milešovka / Sedlo /
+  Bezděz +4 rows, the tower cluster +0.5, but Říp and Ještěd 0 (Říp is wider
+  than the window at 30 km; Ještěd sits on a high ridge) — window-dependent,
+  usable as a bonus, not a rank. Better signals live outside the depth
+  buffer: computed prominence / relief from the DEM at pool-build time, or
+  OSM `wikidata` presence (Overpass returns it; `/terrain/peaks` drops it).
+* **Distance-gate untagged peaks** — a 62 m bump at 80 km is not a landmark;
+  `PLACE_MAX_DIST_M` is the precedent.
+
+### Horizontal shift per segment (built 2026-08-16 evening)
+
+The fit gained `hwarp?: number[]` — an azimuth SHIFT in degrees per
+segment, on the same knots as `warp`: `hwarp[k]` moves the whole panel
+that starts at handle k (the last entry has no panel). Piecewise
+CONSTANT, deliberately not interpolated: a stitching seam is a step and a
+mis-stitched panel is shifted whole, not stretched — a vertical warp alone
+could lift the curve onto the ridge at a handle while the peaks left and
+right of it stayed displaced sideways. Projector: `unproject` adds the
+segment's shift to the ideal azimuth; `project` finds the first segment
+(left→right) in which x = xIdeal(delta − shift_k) actually falls — an
+azimuth in a seam GAP does not project (the pano really does not show it),
+one in an overlap shows once. Round-trips to 1e-6° in all three
+projections. Bench: dragging a handle sideways shifts its panel AND every
+panel to its right (a stitched pano's error accumulates seam by seam);
+Alt-drag = this panel only, Shift-drag = vertical only; handles are drawn
+where their panel's content now sits; the segment count is a number input
+(1–48, `+`/`−`), `level` zeroes both arrays. Serialised ONLY when non-zero
+(bench payload and `_overlay_fit_json`), so every fit saved before the
+field existed keeps its canonical JSON and stays "landed". Hillview stores
+the fit verbatim and the zoom view's projector applies it — no backend
+change.
+
+### Save / revert / undo (built 2026-08-16 evening)
+
+The bench keeps the last SAVED fit in memory and shows the state
+explicitly — `never saved` / `unsaved changes` / `saved ✓` — with
+**revert** (back to the saved fit; drops the server draft and this tab's
+live key; undoable), **undo/redo** (↶ ↷, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y;
+one entry per settled change — a drag's stream of moves or a slider's run
+coalesces 500 ms after the last), and `save fit` enabled only when there
+is something to save. On load it says plainly when the restored draft
+differs from the save ("restored draft — unsaved changes since the last
+save (revert to drop them)"). The auto-draft keeps running underneath — it
+is what lets two windows share the working state — but it is no longer
+the only state you can see, and a stray drag is one Ctrl+Z away.
 
 ## Open questions
 
-- **Tolerance semantics** (the live one): keep graduation at ±6% as a
-  visibility claim, and if the vista-board reading is wanted, add it as an
-  explicit azimuth-only mode rather than a cranked tolerance. Needs bench
-  time to decide what "better" means.
-- **Capture the tolerance in the fit** so the export reproduces what the
-  curator approved, instead of both sides silently defaulting.
-- **Per-column label cap** — keep the highest-priority label per grid
-  column. If the render cannot separate them, emitting ten labels claims a
-  resolution that does not exist. (~86 labels here; a legibility and
-  honesty fix, not a size one.)
-- **Distance-gate unprominent peaks** — a 62 m bump at 80 km is not a
-  landmark; `PLACE_MAX_DIST_M` is the existing precedent for settlements.
+- **Thresholds on a second render** — 300 m / 3 % / 100 m / ±50 m / 240 /
+  100 km were set on one Ďáblice render; a Prosek or Krkonoše render may
+  move them. The evidence fields make that a query, not a re-bake.
+- Reconciling the pane's 150-cap with bench/zoom view (which hand every label to the layouter); whether 60° should be the default (reads a little worse, +60 % vs +33 %).
+- **Ranking signal for the untagged 98.6%**: DEM relief at pool time vs
+  wikidata presence vs skyline salience — its own small project.
+- **Row resolution**: whether photo-wedge renders should use a finer
+  elevation step than the azimuth step.
 - Payload size is explicitly NOT a concern (tens of KB); do not trade
   correctness for it.
 - Whether `user_adjust` ever flows back into the bench as a draft

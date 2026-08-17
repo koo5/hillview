@@ -4,6 +4,7 @@
 	import type { AnnotationRow, Candidate, CandidatesResponse } from '$lib/types';
 	import type { DziPyramid } from '$zoomview/tileSource';
 	import CandidateMap from '$lib/components/CandidateMap.svelte';
+	import CandidateTable from '$lib/components/CandidateTable.svelte';
 	import FactChip from '$lib/components/FactChip.svelte';
 	import Help from '$lib/components/Help.svelte';
 	import OsdViewer, { type OsdRect } from '$lib/components/OsdViewer.svelte';
@@ -44,7 +45,20 @@
 	// them (those facts' subject is the candidate URI, not the annotation)
 	const isAboutAnn = (f: { subject?: string }) =>
 		f.subject == null || f.subject.endsWith(`/annotation/${ann?.id}`);
-	const candidateFacts = $derived((ann?.facts ?? []).filter((f) => f.predicate === 'anchorCandidate'));
+	// anchor-candidate chips: approved first, then nearest first (km from the
+	// /candidates read-back, keyed by candidate URI; unknown km last) — the
+	// graph returns facts in arbitrary order, which used to bury a freshly
+	// minted 2 km wiki candidate under a page of 200 km namesakes
+	const STATUS_RANK: Record<string, number> = { approved: 0, proposed: 1, rejected: 2 };
+	const candidateFacts = $derived(
+		(ann?.facts ?? [])
+			.filter((f) => f.predicate === 'anchorCandidate')
+			.sort(
+				(a, b) =>
+					(STATUS_RANK[a.status] ?? 1) - (STATUS_RANK[b.status] ?? 1) ||
+					(candByUri.get(a.value)?.km ?? Infinity) - (candByUri.get(b.value)?.km ?? Infinity)
+			)
+	);
 	const candidateSet = $derived(new Set(candidateFacts.map((f) => f.value)));
 	const verdictFacts = $derived((ann?.facts ?? []).filter((f) => f.predicate === 'depictedIn'));
 	// compact = verdict language ("✗ not depicted in …"); raw = the underlying
@@ -83,6 +97,7 @@
 	const metadataFor = (uri: string) => (ann?.facts ?? []).filter((f) => f.subject === uri);
 
 	let cand = $state<CandidatesResponse | null>(null);
+	const candByUri = $derived(new Map((cand?.candidates ?? []).map((c) => [c.candidate, c])));
 	let sugg = $state<SuggestResponse | null>(null);
 	let sq = $state('');
 	let suggesting = $state(false);
@@ -311,13 +326,17 @@
 		wikiMsg = null;
 		proposedLabel = null;
 		try {
-			const r = await api.post<{ label: string; coords: { lat: number; lon: number } | null }>(
-				`/annotations/${ann.id}/wikipedia`,
-				{ url: wq.trim() }
-			);
+			const r = await api.post<{
+				run_id: string;
+				// canonical page URL == the minted anchorCandidate URI
+				url: string;
+				label: string;
+				fact: string;
+				coords: { lat: number; lon: number } | null;
+			}>(`/annotations/${ann.id}/wikipedia`, { url: wq.trim() });
 			const coordsMsg = r.coords
-				? ` · coords ${r.coords.lat.toFixed(5)}, ${r.coords.lon.toFixed(5)} minted as a proposed candidate below`
-				: ' (the page has no coordinates)';
+				? ` · coords ${r.coords.lat.toFixed(5)}, ${r.coords.lon.toFixed(5)} minted as a proposed candidate — highlighted in the candidates table below; ✓ it to make it the anchor`
+				: ' (the page has no coordinates — no candidate minted)';
 			wikiMsg = `📖 ${r.label} attached${coordsMsg}`;
 			// the page title is proposed as the label; offer adopt unless it's
 			// already the approved name
@@ -327,6 +346,8 @@
 			proposedLabel = r.label !== approved ? r.label : null;
 			wq = '';
 			await load();
+			// select the fresh candidate: its table row + map marker light up
+			if (r.coords) selCand = r.url;
 		} catch (e) {
 			wikiMsg = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
 		} finally {
@@ -377,8 +398,9 @@
 				</dd>
 				<dt>Anchor</dt>
 				<dd>
-					the approved real-world location; pick a candidate below or click the map to
-					pin an exact point (ideally along the sight-ray)
+					the approved real-world location; the candidates table lists every persisted
+					candidate nearest-first (✓ one to anchor), suggest queries Nominatim, or click
+					the map to pin an exact point (ideally along the sight-ray)
 				</dd>
 				<dt>POI / triangulation</dt>
 				<dd>
@@ -400,7 +422,8 @@
 				<dt>📖 attach</dt>
 				<dd>
 					(in the Anchor section) attach a Wikipedia page — fetches its coordinates as
-					a candidate and offers its title as the name
+					a candidate (lands highlighted in the candidates table) and offers its title
+					as the name
 				</dd>
 			</dl>
 		</Help>
@@ -513,7 +536,9 @@
 					</p>
 					<p style="margin-bottom:0">
 						Approving one <span class="mono">anchorCandidate</span> designates it as THE
-						real-world anchor — the same act as picking it on the
+						real-world anchor — one per annotation: a previously approved one is demoted
+						to rejected, noted "superseded" (same as label edits) — the same act as
+						picking it on the
 						<a href="/geocode">geocode bench's map</a> (two views of the same facts).
 						Every fact links to the run that produced it — see <a href="/runs">runs</a>.
 					</p>
@@ -522,7 +547,7 @@
 			{#if parseFacts.length}
 				<h3 class="muted" style="font-size:11px; text-transform:uppercase; margin:10px 0 2px">parsed from body</h3>
 				{#each parseFacts as f (f.fact)}
-					<div style="margin:6px 0"><FactChip fact={f} interactive onchange={() => {}} /></div>
+					<div style="margin:6px 0"><FactChip fact={f} interactive onchange={load} /></div>
 				{/each}
 			{/if}
 			{#if candidateFacts.length}
@@ -530,10 +555,10 @@
 					anchor candidates ({candidateFacts.length}) — approve one to set the anchor
 				</h3>
 				{#each candidateFacts as c (c.fact)}
-					<div style="margin:8px 0 2px"><FactChip fact={c} interactive onchange={() => {}} /></div>
+					<div style="margin:8px 0 2px"><FactChip fact={c} interactive onchange={load} /></div>
 					<div style="margin-left:22px">
 						{#each metadataFor(c.value) as f (f.fact)}
-							<FactChip fact={f} interactive onchange={() => {}} />
+							<FactChip fact={f} interactive onchange={load} />
 						{/each}
 					</div>
 				{/each}
@@ -548,14 +573,14 @@
 				</h3>
 				{#each verdictFacts as f (f.fact)}
 					<div style="margin:6px 0">
-						<FactChip fact={f} interactive verdict={!verdictsRaw} onchange={() => {}} />
+						<FactChip fact={f} interactive verdict={!verdictsRaw} onchange={load} />
 					</div>
 				{/each}
 			{/if}
 			{#if otherFacts.length}
 				<h3 class="muted" style="font-size:11px; text-transform:uppercase; margin:12px 0 2px">other</h3>
 				{#each otherFacts as f (f.fact)}
-					<div style="margin:6px 0"><FactChip fact={f} interactive onchange={() => {}} /></div>
+					<div style="margin:6px 0"><FactChip fact={f} interactive onchange={load} /></div>
 				{/each}
 			{/if}
 			{#if !ann.facts.length}
@@ -607,13 +632,28 @@
 					{/if}
 				</div>
 			{/if}
+			<!-- the persisted anchorCandidate facts (geocode runs, 📖 attach, ⚓ set,
+			     pins) — nearest first; the suggestions table below is transient
+			     Nominatim output and never contains a wikipedia candidate -->
+			{#if cand}
+				<h3 class="muted" style="font-size:11px; text-transform:uppercase; margin:12px 0 2px">
+					candidates ({cand.candidates.length}) — ✓ approve = set the anchor
+				</h3>
+				<CandidateTable
+					candidates={cand.candidates}
+					selected={selCand}
+					onselect={(c) => (selCand = c)}
+					onchange={load}
+					emptyText="none yet — ⚓ set a suggestion, 📖 attach a wikipedia page with coordinates, or pin on the map"
+				/>
+			{/if}
 			{#if sugg}
 				<table style="margin-top:8px">
 					<thead><tr><th>score</th><th>hit</th><th>km</th><th>Δ°</th><th>Δx</th><th></th></tr></thead>
 					<tbody>
 						{#each sugg.suggestions as s (s.candidate)}
 							<tr
-								style={selCand === s.candidate ? 'background:var(--panel2)' : ''}
+								class:sel={selCand === s.candidate}
 								onmouseenter={() => (selCand = s.candidate)}
 							>
 								<td class="mono" style={s.in_view === false ? 'color:var(--muted)' : ''}>{s.score.toFixed(2)}</td>
@@ -761,3 +801,13 @@
 		</p>
 	{/if}
 {/if}
+
+<style>
+	/* selected suggestion — same accent bar as CandidateTable's selected row */
+	tr.sel {
+		background: var(--panel2);
+	}
+	tr.sel td:first-child {
+		box-shadow: inset 3px 0 0 var(--accent);
+	}
+</style>

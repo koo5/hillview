@@ -48,6 +48,12 @@ export interface TerrainMeta {
 	depth_scale_m: number;
 	/** the render's marched range — "what this can see" (coverage circle) */
 	max_distance_m?: number;
+	/** eye height above the ellipsoid/geoid the renderer used, metres — lets
+	 * the label classifier check a POI's own elevation angle against its
+	 * anchor row (peakLabels.projectPeak); absent ⇒ that check is skipped */
+	eye_elevation_m?: number;
+	/** atmospheric refraction coefficient the renderer used (default 0.13) */
+	refraction_k?: number;
 }
 
 export interface TerrainPick {
@@ -59,6 +65,8 @@ export interface TerrainPick {
 	row: number;
 	/** set when the pick came from tapping a label: the feature's name */
 	label?: string;
+	/** and what that label claims (peakLabels.labelEvidence) */
+	evidence?: string;
 }
 
 export interface FogParams {

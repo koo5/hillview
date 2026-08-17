@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
 	createOverlayProjector,
 	effectiveFit,
+	hstepAt,
 	pickFromOverlay,
+	resampleSteps,
 	resampleWarp,
 	skylineFromDepth,
 	skylinePolylines,
@@ -275,6 +277,76 @@ describe('unproject', () => {
 			}
 		});
 	}
+
+	for (const projection of cases) {
+		it(`round-trips project() under segment shifts for ${projection}`, () => {
+			// a stitched pano: three panels, the middle one shifted 0.4° left
+			// and the right one 0.25° right of the ideal projection — the
+			// click-back must still land on the azimuth a point was projected
+			// from (points that fall into a seam gap simply do not project)
+			const fit = { ...baseFit, projection, warp: [0.5, 0, -0.3, 0], hwarp: [0, 0.4, -0.25, 0], roll_deg: 1 };
+			const p = createOverlayProjector(fit, 1600, 900);
+			let seen = 0;
+			for (const az of [150, 160, 175, 180, 190, 205, 215]) {
+				for (const elev of [-3, 0, 2.5, 7]) {
+					const pt = p.projectAzimuth(az, elev);
+					if (!pt) continue;
+					seen++;
+					const ray = p.unproject(pt.x, pt.y);
+					expect(ray.azimuth_deg).toBeCloseTo(az, 6);
+					expect(ray.elev_deg).toBeCloseTo(elev, 6);
+				}
+			}
+			expect(seen).toBeGreaterThan(20);
+		});
+	}
+
+	it('segment shifts are rigid steps: a whole panel moves, nothing stretches', () => {
+		// two segments (3 handles): the right half shifted +0.5° (its content
+		// sits 0.5° left of ideal); the left half untouched
+		const p0 = createOverlayProjector(baseFit, 1800, 900); // 90° → 20 px/°
+		const p1 = createOverlayProjector({ ...baseFit, hwarp: [0, 0.5, 0] }, 1800, 900);
+		for (const az of [200, 210, 220]) // right half, well clear of the seam
+			expect(p1.projectAzimuth(az, 0)!.x).toBeCloseTo(p0.projectAzimuth(az, 0)!.x - 10, 6);
+		for (const az of [140, 150, 170]) // left half: identical
+			expect(p1.projectAzimuth(az, 0)!.x).toBeCloseTo(p0.projectAzimuth(az, 0)!.x, 9);
+		// an azimuth that now falls into the seam gap is not shown at all: the
+		// right panel starts at ideal 180°+0.5°, the left one ends at 180°
+		expect(p1.projectAzimuth(180.2, 0)).toBeNull();
+		// an all-zero hwarp is exactly no shift
+		const pz = createOverlayProjector({ ...baseFit, hwarp: [0, 0, 0] }, 1800, 900);
+		expect(pz.projectAzimuth(150, 2)!.x).toBeCloseTo(p0.projectAzimuth(150, 2)!.x, 9);
+	});
+
+	it('hstepAt / resampleSteps keep steps as steps', () => {
+		expect(hstepAt([0, 0.5, 0], 0.25)).toBe(0);
+		expect(hstepAt([0, 0.5, 0], 0.75)).toBe(0.5);
+		expect(hstepAt([0, 0.5, 0], 1)).toBe(0.5); // clamps into the last segment
+		// 2 segments → 4 segments: each new segment takes the old segment its midpoint is in
+		expect(resampleSteps([0, 0.5, 0], 5)).toEqual([0, 0, 0.5, 0.5, 0]);
+		// 4 → 2 keeps the value at each new midpoint
+		expect(resampleSteps([0.1, 0.2, 0.3, 0.4, 0], 3)).toEqual([0.2, 0.4, 0]); // midpoints 0.25 / 0.75 fall in old segments 1 / 3
+	});
+
+	it('a pano over 360° (closing overlap) still projects and round-trips', () => {
+		for (const projection of ['equirect', 'cylindrical'] as const) {
+			const fit = { ...baseFit, projection, fov_deg: 365, centre_bearing: 0 };
+			const p = createOverlayProjector(fit, 3650, 400); // 10 px/°
+			// content 182° right of centre also appears 178° LEFT of it; the
+			// projector draws the copy nearer the centre — the left one
+			expect(p.projectAzimuth(182, 0)!.x).toBeCloseTo(3650 * (0.5 - 178 / 365), 6);
+			// the duplicated strip at the right edge unprojects to the right azimuth
+			expect(p.unproject(3650 * (0.5 + 181 / 365), 200).azimuth_deg).toBeCloseTo(181, 6);
+			for (const az of [10, 90, 179, 200, 350])
+				for (const elev of [-2, 0, 3]) {
+					const pt = p.projectAzimuth(az, elev);
+					if (!pt) continue;
+					const ray = p.unproject(pt.x, pt.y);
+					expect(ray.azimuth_deg).toBeCloseTo(az, 6);
+					expect(ray.elev_deg).toBeCloseTo(elev, 6);
+				}
+		}
+	});
 
 	it('reads the horizon line as elevation zero', () => {
 		const fit = { ...baseFit, warp: [1, -1], roll_deg: 3 };

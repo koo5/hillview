@@ -49,9 +49,18 @@
 		effectiveFit,
 		pickFromOverlay,
 		skylinePolylines,
+		type OverlayLabel,
 		type TerrainOverlay
 	} from '$terrain/overlayFit';
-	import { layoutSkyLabels, PLACE_KINDS } from '$terrain/peakLabels';
+	import {
+		hitSkyLabel,
+		labelEvidence,
+		labelText,
+		layoutSkyLabels,
+		type LabelClass,
+		type SkyLabel
+	} from '$terrain/peakLabels';
+	import { paintSkyPills } from '$terrain/labelPills';
 	import {
 		fetchTerrainOverlay,
 		loadOverlayDepth,
@@ -429,6 +438,9 @@
 		imgY: number;
 	} | null = null;
 	let terrainPickBusy = false;
+	// label pills currently on screen (for tap → evidence) and the tapped one
+	let terrainPills: (SkyLabel & { kind?: string; cls?: LabelClass; facts: OverlayLabel })[] = [];
+	let terrainLabelInfo: { name: string; cls: LabelClass; evidence: string; x: number; y: number } | null = null;
 
 	/**
 	 * Load the overlay for the current photo, clearing the previous photo's
@@ -442,6 +454,7 @@
 		terrainFetchedFor = photoId;
 		terrainOverlay = null;
 		terrainPick = null;
+		terrainLabelInfo = null;
 		releaseOverlayDepth();
 		scheduleDrawTerrain();
 		try {
@@ -987,47 +1000,35 @@
 		}
 
 		// peak labels: sky-anchored pills above their summits, laid out in
-		// screen space by the same layouter the bench and terrain viewer use
+		// screen space by the same layouter the bench and terrain viewer use;
+		// what a label CLAIMS decides its text (summit → name + OSM elevation,
+		// mass → name, direction → name, painted dim). Tap a pill for the
+		// evidence behind it.
 		ctx.font = '11px system-ui, sans-serif';
-		const inputs: { label: string; cx: number; cy: number; pillW: number; id?: string }[] = [];
+		const inputs: {
+			label: string; cx: number; cy: number; pillW: number;
+			kind?: string; cls?: LabelClass; facts: OverlayLabel;
+		}[] = [];
 		for (const m of terrainOverlay.labels ?? []) {
 			const pt = proj.projectAzimuth(m.azimuth_deg, m.elev_deg);
 			if (!pt) continue;
 			const cx = to.x(pt.x, pt.y);
 			const cy = to.y(pt.x, pt.y);
 			if (cx < 0 || cx > W || cy < 0 || cy > H) continue;
-			const km = m.distance_m / 1000;
-			const label = `${m.name} · ${km >= 10 ? Math.round(km) : km.toFixed(1)} km`;
+			const label = labelText(m, { km: true });
 			inputs.push({
 				label,
 				cx,
 				cy,
 				pillW: Math.ceil(ctx.measureText(label).width) + 12,
-				id: m.kind
+				kind: m.kind,
+				cls: m.class ?? 'mass',
+				facts: m
 			});
 		}
 		ctx.textBaseline = 'middle';
-		for (const l of layoutSkyLabels(inputs, W, H, { pillH: 18, leader: 14 })) {
-			const isPlace = !!l.id && PLACE_KINDS.has(l.id);
-			ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-			ctx.lineWidth = 1;
-			ctx.beginPath();
-			ctx.moveTo(l.cx, l.ty + l.pillH);
-			ctx.lineTo(l.cx, l.cy - 3);
-			ctx.stroke();
-			ctx.beginPath();
-			ctx.arc(l.cx, l.cy, 2.2, 0, Math.PI * 2);
-			ctx.fillStyle = isPlace ? 'rgba(143,180,217,0.95)' : 'rgba(255,220,50,0.95)';
-			ctx.fill();
-			ctx.beginPath();
-			ctx.roundRect(l.tx, l.ty, l.pillW, l.pillH, 4);
-			ctx.fillStyle = isPlace ? 'rgba(20,44,74,0.68)' : 'rgba(0,0,0,0.62)';
-			ctx.fill();
-			ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-			ctx.stroke();
-			ctx.fillStyle = '#fff';
-			ctx.fillText(l.label, l.tx + 6, l.ty + l.pillH / 2 + 0.5);
-		}
+		terrainPills = layoutSkyLabels(inputs, W, H, { pillH: 18, leader: 14 });
+		paintSkyPills(ctx, terrainPills);
 
 		// the answer to the last click: a marker where the user asked, with
 		// its coordinates
@@ -1397,6 +1398,22 @@
 			// Terrain overlay on: a tap ON the photo asks "what am I looking
 			// at?" instead of doing nothing. Taps outside the image still fall
 			// through to the close-on-background behaviour below.
+			if ($showTerrainOverlay && terrainOverlay) {
+				// a tap on a label pill reveals what the label is claiming
+				const pill = hitSkyLabel(terrainPills, pt.x, pt.y, 4);
+				if (pill) {
+					event.preventDefaultAction = true;
+					terrainLabelInfo = {
+						name: pill.facts.name,
+						cls: pill.facts.class ?? 'mass',
+						evidence: labelEvidence(pill.facts),
+						x: pill.ox,
+						y: pill.oy + 4
+					};
+					return;
+				}
+				terrainLabelInfo = null;
+			}
 			if ($showTerrainOverlay && terrainOverlay?.depth) {
 				const inside =
 					pt.x >= scrBounds.x && pt.x <= scrBounds.x + scrBounds.width &&
@@ -1756,6 +1773,12 @@
 
 	{#if $showTerrainOverlay && terrainPickBusy}
 		<div class="terrain-busy" data-testid="osd-terrain-busy">reading terrain…</div>
+	{/if}
+
+	{#if $showTerrainOverlay && terrainLabelInfo}
+		<div class="terrain-label-info" style="left:{terrainLabelInfo.x}px; top:{terrainLabelInfo.y}px" data-testid="osd-terrain-label-info">
+			<b>{terrainLabelInfo.name}</b> · {terrainLabelInfo.cls}<br />{terrainLabelInfo.evidence}
+		</div>
 	{/if}
 
 	<!-- Close button -->
@@ -2250,6 +2273,20 @@
 		color: rgba(255, 255, 255, 0.82);
 		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 		text-align: center;
+	}
+
+	.terrain-label-info {
+		position: absolute;
+		z-index: 4;
+		pointer-events: none;
+		max-width: min(320px, 80vw);
+		font-size: 11px;
+		line-height: 1.35;
+		padding: 5px 8px;
+		border-radius: 6px;
+		color: #fff;
+		background: rgba(10, 26, 44, 0.9);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 	}
 
 	.terrain-busy {

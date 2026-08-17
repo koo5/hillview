@@ -29,11 +29,54 @@ OVERLAY_FORMAT = 1
 
 # mirrors peakLabels.ts — kept in sync by hand, small and stable
 R_EARTH_M = 6_371_000.0
-PEAK_DEPTH_REL_TOL = 0.06
+DEFAULT_REFRACTION_K = 0.13
 PEAK_MIN_DISTANCE_M = 500.0
 PLACE_KINDS = {"city", "town", "village", "suburb", "quarter"}
 PLACE_MAX_DIST_M = {"town": 80_000.0, "village": 30_000.0,
                     "suburb": 20_000.0, "quarter": 15_000.0}
+
+# The visibility test and its evidence — every constant means one physical
+# thing (measured on render 252a7ea8, docs/terrain-overlay-graduation.md
+# § The label pool):
+#
+# * WIDE depth window  8 m + 6 %·D — "the column sees terrain at about the
+#   POI's distance". 6 % is the render's own depth precision: the horizon
+#   march steps 0.5 %·d and one 0.025° row moves the ground hit-point by
+#   kilometres at grazing angles. Occlusion-safe: 98 % of what it rejects is
+#   >2 rows below the ridge by the POI's own elevation. Class MASS.
+# * TIGHT depth window 300 m + 3 %·D — "the top edge of the terrain at the
+#   POI's distance is the summit itself". 300 m is the OSM-node-vs-rendered-
+#   summit-edge scale (near-field residual median 220 m); 3 % the march.
+# * HEIGHT band 100 m + ½ row — the POI's elevation angle from its `ele`
+#   agrees with the anchor row. In METRES, not rows: the 30 m DEM renders
+#   sharp cones 60–85 m low (Milešovka, Ještěd) and DSM canopy renders
+#   forested tops ~25 m high; both are absolute. EVERY label must pass it —
+#   measured: without it, the median "mass" label sat on terrain 139 m
+#   HIGHER than the named hill, i.e. on a different landform (a 324 m hill
+#   2 km in front of Malý Bezděz claiming Malý Bezděz's flank). Tight ∧
+#   height ⇒ SUMMIT; wide-only ∧ height ⇒ MASS; height off ⇒ hidden.
+# * AZIMUTH neighbourhood ±50 m, at least 1 and at most 3 columns — the
+#   OSM node sits a column off the DEM summit or on a ridge edge (Strážný
+#   vrch); own column first, nearest neighbour wins.
+# * DIRECTION — a SETTLEMENT hidden everywhere in the neighbourhood, but
+#   notable (priority ≥ 240 ≈ a town of 5 000) and within 100 km: "it lies
+#   in that direction, behind this". Anchored at the top edge of the
+#   terrain that hides it (≥ 1 km away — a column filled by a foreground
+#   tree gets no direction label). Never a visibility claim. Peaks are not
+#   direction material: a hidden summit is simply not in the picture.
+# * Settlements are binary: the place is SEEN (tight ∧ height — the DSM
+#   renders its roofs) or it is direction material; a hit at its distance
+#   but a different height is the hill behind the town, not the town.
+PEAK_DEPTH_REL_TOL = 0.06          # wide window, relative term
+PEAK_DEPTH_ABS_M = 8.0             # wide window, absolute term (2 depth quanta)
+SUMMIT_DEPTH_REL = 0.03
+SUMMIT_DEPTH_ABS_M = 300.0
+SUMMIT_HEIGHT_ABS_M = 100.0
+AZIMUTH_WINDOW_M = 50.0
+AZIMUTH_MAX_COLS = 3
+DIRECTION_MIN_PRIORITY = 240.0
+DIRECTION_MAX_DIST_M = 100_000.0
+DIRECTION_MIN_OCCLUDER_M = 1_000.0   # not "behind" a tree in the foreground
 
 
 def az_step_of(meta: dict) -> float:
@@ -124,29 +167,92 @@ def skyline_from_depth(meta: dict, q: np.ndarray, cutoff_m: float | None
     return elev, dist
 
 
+def label_priority(p: dict) -> float:
+    """Unified priority: prominence for terrain features, log-population
+    (mapped into prominence-like metres) for settlements — 1k ≈ 180,
+    100k ≈ 360, 1M ≈ 450. Mirrors peakLabels.labelPriority."""
+    if p.get("kind") in PLACE_KINDS:
+        pop = p.get("population") or 0
+        return max(0.0, 90 * math.log10(pop / 10)) if pop > 0 else 0.0
+    return float(p.get("prominence") or 0)
+
+
+def elevation_angle_deg(ele_m: float, eye_m: float, distance_m: float,
+                        refraction_k: float = DEFAULT_REFRACTION_K) -> float:
+    """The renderer's own formula (renderer.py): atan((h − eye)/d − d/(2R'))
+    with R' = R/(1 − k)."""
+    drop = distance_m * (1.0 - refraction_k) / (2.0 * R_EARTH_M)
+    return math.degrees(math.atan((ele_m - eye_m) / distance_m - drop))
+
+
+def _scan_column(column: np.ndarray, scale: float, D: float,
+                 wide: float, tight: float):
+    """Walk one column top-down. Depth is non-increasing below the skyline.
+    Returns (verdict, row, depth_m):
+      ("tight", r, d)  first row within the tight window (summit candidate)
+      ("wide",  r, d)  no tight row, but a row within the wide window (mass)
+      ("hidden", r, d) the profile passed D − wide without a hit; r/d is the
+                       top edge of the terrain that hides the POI
+      ("none", None, None) column is all sky
+    """
+    first_wide = None
+    for row in range(column.shape[0]):
+        qv = int(column[row])
+        if qv == 0:
+            continue                          # sky above the skyline
+        d = qv * scale
+        if abs(d - D) <= tight:
+            return ("tight", row, d)
+        if first_wide is None and abs(d - D) <= wide:
+            first_wide = (row, d)
+        if d < D - wide:
+            if first_wide is not None:
+                return ("wide", first_wide[0], first_wide[1])
+            return ("hidden", row, d)
+    if first_wide is not None:
+        return ("wide", first_wide[0], first_wide[1])
+    return ("none", None, None)
+
+
 def project_labels(meta: dict, q: np.ndarray, peaks: list[dict],
                    cutoff_m: float | None,
                    rel_tol: float = PEAK_DEPTH_REL_TOL) -> list[dict]:
-    """Label candidates that are actually VISIBLE in this render, with the
-    elevation angle to anchor them at.
+    """Label candidates with their visibility CLASS and the EVIDENCE for it.
 
-    Same rule as the viewer: scan the peak's column for the topmost pixel
-    whose depth matches the peak's distance — the rendered summit edge. The
-    column gets nearer as it descends, so once terrain is closer than the
-    peak (beyond tolerance) the peak is occluded and the scan stops.
+    Per POI: bearing → column (own first, then ±1..n neighbours within
+    AZIMUTH_WINDOW_M); walk the column top-down and classify (see the
+    constants above):
+
+      summit    tight depth window ∧ height band   → name + elevation
+      mass      wide depth window ∧ height band    → name ("mass that belongs
+                to it": a shoulder of the same massif). Height off ⇒ the
+                pixel is a different landform and the POI is not shown;
+                settlements are seen (tight ∧ height) or direction material
+      direction a hidden SETTLEMENT, priority ≥ DIRECTION_MIN_PRIORITY,
+                ≤ 100 km → dim, anchored at the top edge of what hides it
+
+    Each label carries `seen_m` (depth at the anchor row), `dh_m` (metres by
+    which the POI's own elevation angle sits above the anchor row's angle;
+    None without an elevation) and `col_offset`, so a GUI can reveal exactly
+    how much the label is claiming. One label per depth pixel (column, row)
+    among summit+mass; direction labels sorted after all visible ones so a
+    first-come layouter never lets them displace a visible label.
     """
     h, w = int(meta["height"]), int(meta["width"])
     scale = float(meta["depth_scale_m"])
     elev_max, elev_min = float(meta["elev_max_deg"]), float(meta["elev_min_deg"])
     step = (elev_max - elev_min) / h
+    step_az = az_step_of(meta)
     max_distance_m = meta.get("max_distance_m")
+    eye = meta.get("eye_elevation_m")
+    k = float(meta.get("refraction_k", DEFAULT_REFRACTION_K))
+    lat0, lon0 = float(meta["lat"]), float(meta["lon"])
     out: list[dict] = []
     for p in peaks:
         name = p.get("name")
         if not name:
             continue
-        bearing, distance = bearing_distance(
-            float(meta["lat"]), float(meta["lon"]), p["lat"], p["lon"])
+        bearing, distance = bearing_distance(lat0, lon0, p["lat"], p["lon"])
         if distance < PEAK_MIN_DISTANCE_M:
             continue
         if max_distance_m is not None and distance > float(max_distance_m):
@@ -158,43 +264,103 @@ def project_labels(meta: dict, q: np.ndarray, peaks: list[dict],
         cap = PLACE_MAX_DIST_M.get(kind) if kind else None
         if cap is not None and distance > cap:
             continue
-        col = col_for_azimuth(meta, bearing)
-        if col is None:
+        col0 = col_for_azimuth(meta, bearing)
+        if col0 is None:
             continue
-        tol = distance * rel_tol + 2 * scale
-        column = q[:, col]
-        for row in range(h):
-            qv = int(column[row])
-            if qv == 0:
-                continue                      # sky above the skyline
-            d = qv * scale
-            if abs(d - distance) <= tol:
-                out.append({
-                    "name": name,
-                    "lat": round(float(p["lat"]), 6),
-                    "lon": round(float(p["lon"]), 6),
-                    "elev_deg": round(elev_max - (row + 0.5) * step, 4),
-                    "azimuth_deg": round(bearing, 3),
-                    "distance_m": round(distance),
-                    "ele": p.get("ele"),
-                    "kind": kind,
-                    "prominence": p.get("prominence"),
-                    "population": p.get("population"),
-                })
+        wide = distance * rel_tol + PEAK_DEPTH_ABS_M
+        tight = distance * SUMMIT_DEPTH_REL + SUMMIT_DEPTH_ABS_M
+        col_w = distance * math.radians(step_az) if step_az > 0 else 1.0
+        n = min(AZIMUTH_MAX_COLS, max(1, round(AZIMUTH_WINDOW_M / col_w)))
+        offsets = [0] + [s * i for i in range(1, n + 1) for s in (1, -1)]
+        best = None                       # (verdict, row, depth, offset)
+        own = None
+        for dc in offsets:
+            c = col0 + dc
+            if not (0 <= c < w):
+                continue
+            v = _scan_column(q[:, c], scale, distance, wide, tight)
+            if dc == 0:
+                own = v
+            if v[0] == "tight":
+                best = (*v, dc)
                 break
-            if d < distance - tol:
-                break                         # nearer terrain: occluded
+            if v[0] == "wide" and best is None:
+                best = (*v, dc)
+        is_place = kind in PLACE_KINDS
+        ele = p.get("ele")
+        prio = label_priority(p)
+        cls = None
+        if best is not None:
+            verdict, row, seen, dc = best
+            row_angle = elev_max - (row + 0.5) * step
+            dh = None
+            if ele is not None and eye is not None:
+                dtheta = elevation_angle_deg(float(ele), float(eye), distance, k) - row_angle
+                dh = math.radians(dtheta) * distance
+            band = SUMMIT_HEIGHT_ABS_M + 0.5 * math.radians(step) * distance
+            height_ok = dh is None or abs(dh) <= band
+            if verdict == "tight" and height_ok:
+                cls = "summit"
+            elif not is_place and height_ok:
+                cls = "mass"
+        if cls is None:
+            # a settlement that is hidden — or whose column sees terrain near
+            # it but not the place: "it lies in that direction, behind this".
+            # Anchor at the top edge of what the column saw.
+            if not (is_place and prio >= DIRECTION_MIN_PRIORITY
+                    and distance <= DIRECTION_MAX_DIST_M):
+                continue
+            if best is not None:
+                _, row, seen, dc = best           # place, near-miss
+            elif own is not None and own[0] == "hidden":
+                _, row, seen = own
+                dc = 0
+            else:
+                continue                          # all-sky column
+            if seen < DIRECTION_MIN_OCCLUDER_M:
+                continue                          # foreground clutter
+            row_angle = elev_max - (row + 0.5) * step
+            dh, cls = None, "direction"
+        out.append({
+            "name": name,
+            "lat": round(float(p["lat"]), 6),
+            "lon": round(float(p["lon"]), 6),
+            "elev_deg": round(row_angle, 4),
+            "azimuth_deg": round(bearing, 3),
+            "distance_m": round(distance),
+            "ele": ele,
+            "kind": kind,
+            "prominence": p.get("prominence"),
+            "population": p.get("population"),
+            "class": cls,
+            "seen_m": round(seen),
+            "dh_m": None if dh is None else round(dh),
+            "col_offset": dc,
+            **({"ele_estimated": True} if p.get("ele_estimated") else {}),
+            "_pix": (col0 + dc, row),
+        })
     # priority order (prominence for terrain, log-population for settlements),
     # nearest first among equals — the drawing side thins by neighborhood and
-    # keeps whatever comes first, so the order IS the editorial decision
-    def priority(m: dict) -> float:
-        if m.get("kind") in PLACE_KINDS:
-            pop = m.get("population") or 0
-            return max(0.0, 90 * math.log10(pop / 10)) if pop > 0 else 0.0
-        return float(m.get("prominence") or 0)
-
-    out.sort(key=lambda m: (-priority(m), m["distance_m"]))
-    return out
+    # keeps whatever comes first, so the order IS the editorial decision.
+    # Direction labels go after every visible one.
+    # …and among equals a confirmed SUMMIT before a mass claim (measured: two
+    # foreground hills' mass claims used to outrank the real summit behind
+    # them and thin it out of the layout), then nearest first.
+    out.sort(key=lambda m: (m["class"] == "direction", -label_priority(m),
+                            m["class"] == "mass", m["distance_m"]))
+    # one label per depth pixel: if the render cannot separate two POIs, the
+    # export must not pretend to. Visible classes are already ahead of
+    # direction in the order, so a hidden town never keeps a pixel from a
+    # visible summit.
+    seen_pix: set = set()
+    kept: list[dict] = []
+    for m in out:
+        pix = m.pop("_pix")
+        if pix in seen_pix:
+            continue
+        seen_pix.add(pix)
+        kept.append(m)
+    return kept
 
 
 def _jsonable(v):

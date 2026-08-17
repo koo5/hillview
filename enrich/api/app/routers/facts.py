@@ -1,12 +1,15 @@
 """POST /api/facts/curate — record a curation decision about a fact-graph URI.
 Plain DELETE/INSERT on the curation graph; keyed to the content-addressed fact IRI,
-so decisions survive re-parses by construction."""
+so decisions survive re-parses by construction. One exception to "plain": approving
+an anchorCandidate supersedes the annotation's other approved anchors (one anchor
+per annotation — see geocode.supersede_other_anchors)."""
 import datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import facts, graph
+from .geocode import supersede_if_anchor
 
 router = APIRouter()
 
@@ -26,4 +29,7 @@ async def curate(req: CurateRequest):
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
     await graph.store.update(
         facts.curate_update(req.fact, req.decision, decided_at_iso=now, note=req.note))
-    return {"fact": req.fact, "decision": req.decision, "decided_at": now}
+    superseded = (await supersede_if_anchor(req.fact, now)
+                  if req.decision == "approved" else [])
+    return {"fact": req.fact, "decision": req.decision, "decided_at": now,
+            "superseded": superseded}

@@ -22,7 +22,7 @@
  * never needs the terrain worker.
  */
 import { pickFromDepthOrHorizon, type TerrainPick } from './depthPanoViewer';
-import { colForAzimuth } from './peakLabels';
+import { colForAzimuth, type LabelClass } from './peakLabels';
 
 /** Manual pano↔render alignment (the hv:terrainOverlayFit fact, canonical
  * JSON). Pure image-intrinsic geometry — which render it was fitted against
@@ -45,6 +45,16 @@ export interface OverlayFit {
 	 * left→right, index 0 = left edge. 2 handles = plain roll+offset; more
 	 * absorb per-seam pano stitching wobble. */
 	warp: number[];
+	/** HORIZONTAL (azimuth) shift per SEGMENT, on the same knots as `warp`:
+	 * `hwarp[k]` is the azimuth offset in DEGREES of the whole segment that
+	 * starts at handle k (image x in [k, k+1)/(n−1) of the width) — the pano
+	 * shows an azimuth this much HIGHER there than the ideal projection says
+	 * (positive = the content sits left of where the model expects it).
+	 * Piecewise CONSTANT, not interpolated: a stitching seam is a step, and a
+	 * mis-stitched panel is shifted whole, not stretched. Same length as
+	 * `warp`; the last entry has no segment and is ignored. Absent (or all
+	 * zero) = none. */
+	hwarp?: number[];
 	/** atmospheric visibility read off the photo, km; null/absent = full
 	 * render range. A hard distance cutoff, not a shading term. */
 	visibility_km?: number | null;
@@ -67,6 +77,25 @@ export function warpAt(warp: number[], frac: number): number {
 	const i0 = Math.floor(pos);
 	const i1 = Math.min(n - 1, i0 + 1);
 	return warp[i0] + (warp[i1] - warp[i0]) * (pos - i0);
+}
+
+/** Segment shift at horizontal fraction 0..1: `hwarp[k]` for the segment
+ * that contains it (piecewise constant, a step at each knot). */
+export function hstepAt(hwarp: number[], frac: number): number {
+	const n = hwarp.length;
+	if (n < 2) return n === 1 ? hwarp[0] : 0;
+	const k = Math.min(n - 2, Math.max(0, Math.floor(frac * (n - 1))));
+	return hwarp[k];
+}
+
+/** Change segment count for a piecewise-constant shift array, keeping each
+ * new segment the shift of the old segment its midpoint falls in. */
+export function resampleSteps(old: number[], n: number): number[] {
+	if (n < 2) return [0, 0];
+	if (old.length < 2) return new Array(n).fill(0);
+	const out = new Array(n).fill(0);
+	for (let k = 0; k < n - 1; k++) out[k] = hstepAt(old, (k + 0.5) / (n - 1));
+	return out;
 }
 
 /** Change control-point count, preserving the current warp shape. */
@@ -131,61 +160,73 @@ export function createOverlayProjector(fit: OverlayFit, W: number, H: number): O
 	const pxPerDeg = (W / fovDeg) * fit.v_scale; // equirect square-pixel guess × trim
 	const rollK = Math.tan((fit.roll_deg * Math.PI) / 180);
 	const warp = fit.warp?.length >= 2 ? fit.warp : [0, 0];
+	// horizontal shift: azimuth offset (degrees) of the segment image x is in
+	const hwarp = fit.hwarp && fit.hwarp.length >= 2 && fit.hwarp.some((v) => v !== 0) ? fit.hwarp : null;
+	const hshift = (x: number) => (hwarp ? hstepAt(hwarp, x / W) : 0);
 
 	const hy = (x: number) => horizonY + (x - W / 2) * rollK - warpAt(warp, x / W) * pxPerDeg;
 
-	const fovRad = (Math.min(fovDeg, 358) * Math.PI) / 180;
+	// a stitched pano may exceed 360° by its closing overlap: the cylinder's
+	// px-per-radian is simply W over the full sweep (no clamp — that would
+	// mis-scale the vertical); only the rectilinear tan needs its guard
+	const fovRad = (fovDeg * Math.PI) / 180;
 	const fCyl = (W / fovRad) * fit.v_scale;
 	const fRectH = W / 2 / Math.tan(Math.min(fovRad, (178 * Math.PI) / 180) / 2);
+	const rect = fit.projection === 'rectilinear';
+	const cyl = fit.projection === 'cylindrical';
 
-	const projectRaw = (deltaDeg: number, elevDeg: number): { xb: number; dy: number } | null => {
-		const a = (deltaDeg * Math.PI) / 180;
+	// the IDEAL projection's azimuth↔x, per projection (no warp)
+	const xIdeal = (deltaDeg: number): number =>
+		rect ? W / 2 + fRectH * Math.tan((deltaDeg * Math.PI) / 180) : W * (0.5 + deltaDeg / fovDeg);
+	const deltaIdeal = (x: number): number =>
+		rect ? (Math.atan((x - W / 2) / fRectH) * 180) / Math.PI : (x / W - 0.5) * fovDeg;
+	// vertical scale is the ideal geometry's at that x (rectilinear stretches
+	// off-axis by 1/cos of the ideal angle there)
+	const dyAt = (x: number, elevDeg: number): number => {
 		const e = (elevDeg * Math.PI) / 180;
-		switch (fit.projection) {
-			case 'cylindrical':
-				if (Math.abs(deltaDeg) > fovDeg / 2 + 2) return null;
-				return { xb: W * (0.5 + deltaDeg / fovDeg), dy: fCyl * Math.tan(e) };
-			case 'rectilinear': {
-				if (Math.abs(deltaDeg) >= 89) return null;
-				const xb = W / 2 + fRectH * Math.tan(a);
-				if (xb < -0.1 * W || xb > 1.1 * W) return null;
-				return { xb, dy: (fRectH * fit.v_scale * Math.tan(e)) / Math.cos(a) };
-			}
-			default: // equirect
-				if (Math.abs(deltaDeg) > fovDeg / 2 + 2) return null;
-				return { xb: W * (0.5 + deltaDeg / fovDeg), dy: elevDeg * pxPerDeg };
+		if (cyl) return fCyl * Math.tan(e);
+		if (rect) return (fRectH * fit.v_scale * Math.tan(e)) / Math.cos(Math.atan((x - W / 2) / fRectH));
+		return elevDeg * pxPerDeg;
+	};
+
+	/** image x where azimuth delta appears: without a shift, the ideal x;
+	 * with one, the first segment (left→right) in which x = xIdeal(delta −
+	 * shift_k) actually falls. Segments are steps, so an azimuth can fall in
+	 * a seam GAP (nowhere: null — the pano really does not show it) or in an
+	 * OVERLAP (twice: the left one wins). The outer segments extend beyond
+	 * the frame so points just outside it still project, as before. */
+	const xOf = (deltaDeg: number): number | null => {
+		if (!hwarp) return xIdeal(deltaDeg);
+		const n = hwarp.length;
+		for (let k = 0; k < n - 1; k++) {
+			const x = xIdeal(deltaDeg - hwarp[k]);
+			const lo = k === 0 ? -Infinity : (k / (n - 1)) * W;
+			const hi = k === n - 2 ? Infinity : ((k + 1) / (n - 1)) * W;
+			if (x >= lo && x < hi) return x;
 		}
+		return null;
 	};
 
 	const project = (deltaDeg: number, elevDeg: number): OverlayPoint | null => {
-		const pt = projectRaw(deltaDeg, elevDeg);
-		if (!pt) return null;
-		return { x: pt.xb, y: hy(pt.xb) - pt.dy };
+		if (rect ? Math.abs(deltaDeg) >= 89 : Math.abs(deltaDeg) > fovDeg / 2 + 2) return null;
+		const x = xOf(deltaDeg);
+		if (x === null) return null;
+		if (rect && (x < -0.1 * W || x > 1.1 * W)) return null;
+		return { x, y: hy(x) - dyAt(x, elevDeg) };
 	};
 
-	// the inverse of projectRaw, term for term: solve x for the azimuth delta,
-	// then the vertical displacement from the (warped, rolled) horizon for the
-	// elevation angle. Analytic in all three projections, no search.
+	// the inverse, term for term: the ideal azimuth at x plus the horizontal
+	// warp there, then the vertical displacement from the (warped, rolled)
+	// horizon for the elevation angle. Analytic in all three projections.
 	const unproject = (x: number, y: number): OverlayRay => {
 		const dy = hy(x) - y;
-		let deltaDeg: number;
+		const deltaDeg = deltaIdeal(x) + hshift(x);
 		let elevDeg: number;
-		switch (fit.projection) {
-			case 'cylindrical':
-				deltaDeg = (x / W - 0.5) * fovDeg;
-				elevDeg = (Math.atan(dy / fCyl) * 180) / Math.PI;
-				break;
-			case 'rectilinear': {
-				const a = Math.atan((x - W / 2) / fRectH);
-				deltaDeg = (a * 180) / Math.PI;
-				elevDeg =
-					(Math.atan((dy * Math.cos(a)) / (fRectH * fit.v_scale)) * 180) / Math.PI;
-				break;
-			}
-			default: // equirect
-				deltaDeg = (x / W - 0.5) * fovDeg;
-				elevDeg = dy / pxPerDeg;
-		}
+		if (cyl) elevDeg = (Math.atan(dy / fCyl) * 180) / Math.PI;
+		else if (rect) {
+			const a = Math.atan((x - W / 2) / fRectH);
+			elevDeg = (Math.atan((dy * Math.cos(a)) / (fRectH * fit.v_scale)) * 180) / Math.PI;
+		} else elevDeg = dy / pxPerDeg;
 		return {
 			azimuth_deg: (((fit.centre_bearing + deltaDeg) % 360) + 360) % 360,
 			elev_deg: elevDeg
@@ -289,10 +330,19 @@ export interface OverlayLabel {
 	distance_m: number;
 	/** summit altitude in metres, when the source knows it */
 	ele?: number | null;
+	/** true when ele was DEM-filled (no OSM tag) — never printed as the summit's */
+	ele_estimated?: boolean;
 	/** peak | tower | mast | city | town | village | suburb | quarter */
 	kind?: string;
 	prominence?: number | null;
 	population?: number | null;
+	/** what the label claims (peakLabels.LabelClass); documents baked before
+	 * classes carry none — treat as 'mass' */
+	class?: LabelClass;
+	/** evidence — see peakLabels.PeakMark */
+	seen_m?: number;
+	dh_m?: number | null;
+	col_offset?: number;
 }
 
 /** Provenance of the render the overlay was fitted against. */
