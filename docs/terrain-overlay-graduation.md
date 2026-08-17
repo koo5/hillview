@@ -533,6 +533,49 @@ field existed keeps its canonical JSON and stays "landed". Hillview stores
 the fit verbatim and the zoom view's projector applies it — no backend
 change.
 
+### The stitch model: seams, per-panel shift AND scale (built 2026-08-17)
+
+Havránka (f4b4d58c) made the limitation concrete: its last right frames
+were rendered ~21 % smaller (a wrong focal length in the stitch), which no
+combination of vertical warp and rigid shift can express — the curve could
+sit on the ridge at a handle while the peaks either side stayed off. So the
+fit's horizontal model became a proper stitch model:
+
+* `knots?: number[]` — handle positions as width fractions (default equal
+  spacing). Put them ON THE SEAMS: on the bench, double-click the pano to
+  add a seam where the picture has one, double-click a handle to remove it;
+  the "segments" number re-spaces them equally.
+* `hwarp[k]` — the panel's azimuth SHIFT (as before, per panel k between
+  knots k and k+1).
+* `hscale[k]` — the panel's SCALE about its centre, in BOTH axes (the
+  vertical px/deg of that panel scales with it). Ctrl-drag a handle to pull
+  the panel's edge in/out, or type it in the panel editor that appears when
+  a handle is clicked (shift °, scale). All three serialised only when
+  non-neutral, so old fits keep their canonical JSON.
+
+Projector: panel k renders true azimuth δ at the ideal x of
+c_k + (δ − shift_k − c_k)·scale_k (c_k = the panel centre's ideal azimuth);
+`unproject` inverts per panel; an azimuth in a seam gap does not project,
+one in an overlap shows once. Round-trips to 1e-6° in all three projections
+under a full model. `warpAt`/`hstepAt` take the knots; the pane, bench and
+zoom view all read the same fit.
+
+**The calibration bench speaks the same law.** New model `piecewise —
+stitched`: the linear Theil-Sen law PLUS, per panel between the typed seams
+(or "from overlay": the seams placed on the overlay bench), a robust
+residual fit r = shift + d·(x − centre) → `hwarp = shift`, `hscale =
+b/(b + d)`; server (`calibrate.fit_piecewise`, authority on accept) and TS
+(`theilsen.fitPiecewise`) mirror; accept writes `hv:calibratedStitch`
+({knots, hwarp, hscale} as one JSON literal) next to bearing/fov/rms, the
+pie carries it as `pie.stitch`, and the overlay bench seeds its handles
+from it on "defaults". Measured on Havránka's 46 anchors: linear RMS 2.4°;
+piecewise with seams 0.5/0.75/0.9 → RMS 0.9°, panel [0.75–0.9) = +4.2° /
+×0.788 — the compressed frames, quantified from the anchors alone. (The
+`/shared/pano.pto` the photo was thought to come from is a pre-optimisation
+snapshot — its parameters put three frames 45° off their neighbours and
+leave a 2 300 px median control-point error — so seams come from the
+picture, not from that file.)
+
 ### Save / revert / undo (built 2026-08-16 evening)
 
 The bench keeps the last SAVED fit in memory and shows the state

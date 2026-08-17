@@ -56,7 +56,7 @@ async def _calibration_for(photo_id: str) -> dict | None:
 SELECT ?p ?v ?run ?status WHERE {{
   GRAPH ?f {{ <{graph.photo_iri(photo_id)}> ?p ?v }}
   VALUES ?p {{ hv:calibratedBearing hv:calibratedFov hv:calibrationRms
-               hv:calibratedProjection hv:calibratedX0 }}
+               hv:calibratedProjection hv:calibratedX0 hv:calibratedStitch }}
   OPTIONAL {{ GRAPH <{graph.GRAPH_META}> {{ ?f prov:wasGeneratedBy ?run }} }}
   OPTIONAL {{ GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status ?status }} }}
 }}""")

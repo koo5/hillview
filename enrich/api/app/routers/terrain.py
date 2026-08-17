@@ -603,6 +603,11 @@ class OverlayFitRequest(BaseModel):
     # without one (or all zeros) is serialised WITHOUT the key, so fits saved
     # before the field existed keep their canonical JSON (= stay "landed")
     hwarp: list[float] | None = None
+    # per-panel SCALE (about the panel's centre, both axes — a frame stitched
+    # at the wrong focal length) and the handle positions as width fractions
+    # (seams placed by hand). Both optional; serialised only when non-neutral
+    hscale: list[float] | None = None
+    knots: list[float] | None = None
     # atmospheric visibility read off the photo (fog slider), km; null = full
     visibility_km: float | None = None
     # client wall-clock (epoch ms) of the change — DRAFTS ONLY, so a browser
@@ -624,6 +629,12 @@ def _overlay_fit_json(req: OverlayFitRequest, with_ts: bool = False) -> str:
                              if req.visibility_km is not None else None)}
     if req.hwarp and any(abs(w) > 0 for w in req.hwarp):
         fit["hwarp"] = [round(w, 4) for w in req.hwarp]
+    if req.hscale and any(abs(v - 1.0) > 1e-9 for v in req.hscale[:-1]):
+        fit["hscale"] = [round(v, 5) for v in req.hscale]
+    if req.knots and len(req.knots) >= 2:
+        n = len(req.knots)
+        if any(abs(k - i / (n - 1)) > 1e-6 for i, k in enumerate(req.knots)):
+            fit["knots"] = [round(k, 5) for k in req.knots]
     if with_ts and req.saved_at is not None:
         fit["saved_at"] = round(req.saved_at)
     return json.dumps(fit, sort_keys=True, separators=(",", ":"))

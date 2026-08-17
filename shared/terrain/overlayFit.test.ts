@@ -3,6 +3,9 @@ import {
 	createOverlayProjector,
 	effectiveFit,
 	hstepAt,
+	knotsOf,
+	segmentAt,
+	uniformKnots,
 	pickFromOverlay,
 	resampleSteps,
 	resampleWarp,
@@ -347,6 +350,70 @@ describe('unproject', () => {
 				}
 		}
 	});
+
+	it('knots can sit anywhere: seams at 30 % and 90 % define the panels', () => {
+		const knots = [0, 0.3, 0.9, 1];
+		expect(segmentAt(knots, 0.1)).toBe(0);
+		expect(segmentAt(knots, 0.3)).toBe(1);
+		expect(segmentAt(knots, 0.95)).toBe(2);
+		expect(knotsOf({ warp: [0, 0, 0, 0], knots })).toEqual(knots);
+		expect(knotsOf({ warp: [0, 0, 0] })).toEqual(uniformKnots(3));
+		expect(knotsOf({ warp: [0, 0, 0], knots: [0, 0.9, 0.3] })).toEqual(uniformKnots(3)); // not ascending → ignored
+		// a shift on the middle panel only moves x in [0.3, 0.9) of the width
+		const p0 = createOverlayProjector(baseFit, 2000, 900); // 90° → 22.2 px/°
+		const p1 = createOverlayProjector({ ...baseFit, warp: [0, 0, 0, 0], knots, hwarp: [0, 0.45, 0, 0] }, 2000, 900);
+		expect(p1.projectAzimuth(150, 0)!.x).toBeCloseTo(p0.projectAzimuth(150, 0)!.x, 9); // 16 % → panel 0
+		expect(p1.projectAzimuth(200, 0)!.x).toBeCloseTo(p0.projectAzimuth(200, 0)!.x - 10, 6); // 72 % → panel 1, 0.45° left
+		expect(p1.projectAzimuth(222, 0)!.x).toBeCloseTo(p0.projectAzimuth(222, 0)!.x, 9); // 97 % → panel 2
+		// the vertical warp interpolates between the SAME knots
+		expect(warpAt([0, 1, 1, 0], 0.15, knots)).toBeCloseTo(0.5, 9); // halfway across panel 0
+		expect(warpAt([0, 1, 1, 0], 0.6, knots)).toBeCloseTo(1, 9);
+	});
+
+	it('a panel stitched at the wrong focal length: scale about its centre, both axes', () => {
+		// right half rendered 4 % too small (a longer focal length than assumed)
+		const p0 = createOverlayProjector(baseFit, 2000, 900);
+		const p1 = createOverlayProjector({ ...baseFit, warp: [0, 0, 0], hscale: [1, 0.96, 1] }, 2000, 900);
+		// the panel's centre (azimuth 202.5°, x = 1500) does not move…
+		expect(p1.projectAzimuth(202.5, 0)!.x).toBeCloseTo(1500, 6);
+		// …content 15° right of it moves 4 % of its offset toward the centre
+		const x0 = p0.projectAzimuth(217.5, 0)!.x; // 1833.3
+		expect(p1.projectAzimuth(217.5, 0)!.x).toBeCloseTo(1500 + (x0 - 1500) * 0.96, 6);
+		// …and elevation is drawn 4 % shorter there
+		const y0 = p0.projectAzimuth(210, 3)!.y, h0 = p0.horizonY(p0.projectAzimuth(210, 3)!.x);
+		const pt = p1.projectAzimuth(210, 3)!;
+		expect(h0 - y0).toBeCloseTo(3 * (2000 / 90), 6);
+		expect(p1.horizonY(pt.x) - pt.y).toBeCloseTo(3 * (2000 / 90) * 0.96, 6);
+		// the left half is untouched
+		expect(p1.projectAzimuth(150, 2)!.x).toBeCloseTo(p0.projectAzimuth(150, 2)!.x, 9);
+		expect(p1.projectAzimuth(150, 2)!.y).toBeCloseTo(p0.projectAzimuth(150, 2)!.y, 9);
+	});
+
+	for (const projection of cases) {
+		it(`round-trips project() under a full stitch model for ${projection}`, () => {
+			const fit = {
+				...baseFit,
+				projection,
+				warp: [0.3, 0, -0.2, 0.1],
+				knots: [0, 0.35, 0.8, 1],
+				hwarp: [0, 0.4, -0.3, 0],
+				hscale: [1, 0.95, 1.05, 1],
+				roll_deg: 1
+			};
+			const p = createOverlayProjector(fit, 1600, 900);
+			let seen = 0;
+			for (const az of [145, 160, 175, 185, 200, 210, 220])
+				for (const elev of [-3, 0, 2.5, 7]) {
+					const pt = p.projectAzimuth(az, elev);
+					if (!pt) continue;
+					seen++;
+					const ray = p.unproject(pt.x, pt.y);
+					expect(ray.azimuth_deg).toBeCloseTo(az, 6);
+					expect(ray.elev_deg).toBeCloseTo(elev, 6);
+				}
+			expect(seen).toBeGreaterThan(18);
+		});
+	}
 
 	it('reads the horizon line as elevation zero', () => {
 		const fit = { ...baseFit, warp: [1, -1], roll_deg: 3 };

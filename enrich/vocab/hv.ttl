@@ -54,6 +54,7 @@ hv:depictedIn rdfs:comment "The annotation's feature is visible in this photo. C
 hv:calibratedBearing rdfs:comment "Fitted bearing of the pano centre (deg; Theil-Sen over anchor azimuths vs rect-x)." .
 hv:calibratedFov     rdfs:comment "Fitted horizontal field of view (deg across full width)." .
 hv:calibrationRms    rdfs:comment "RMS residual of the calibration fit (deg)." .
+hv:calibratedStitch  rdfs:comment "Piecewise stitch model on top of the linear law, JSON {knots, hwarp, hscale}: seam positions (width fractions) and per-panel azimuth shift (deg) / scale (about the panel centre, both axes) — the overlay bench's handle model, verbatim. Emitted by the piecewise calibration model for panos whose frames were stitched at inconsistent scale/position." .
 
 # terrain overlay (subject = pano photo). ONE canonical-JSON literal holding the whole
 # manual pano↔render alignment — projection, absolute centre bearing, fov, horizon %,

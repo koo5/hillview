@@ -45,16 +45,26 @@ export interface OverlayFit {
 	 * left→right, index 0 = left edge. 2 handles = plain roll+offset; more
 	 * absorb per-seam pano stitching wobble. */
 	warp: number[];
-	/** HORIZONTAL (azimuth) shift per SEGMENT, on the same knots as `warp`:
-	 * `hwarp[k]` is the azimuth offset in DEGREES of the whole segment that
-	 * starts at handle k (image x in [k, k+1)/(n−1) of the width) — the pano
+	/** Handle positions as fractions of the width, ascending, one per `warp`
+	 * entry (default: equally spaced). Put them ON THE SEAMS of a stitched
+	 * pano: every per-segment quantity below refers to the panel between two
+	 * consecutive knots. Absent = equal spacing. */
+	knots?: number[];
+	/** HORIZONTAL (azimuth) shift per SEGMENT: `hwarp[k]` is the azimuth
+	 * offset in DEGREES of the whole panel between knots k and k+1 — the pano
 	 * shows an azimuth this much HIGHER there than the ideal projection says
 	 * (positive = the content sits left of where the model expects it).
-	 * Piecewise CONSTANT, not interpolated: a stitching seam is a step, and a
+	 * Piecewise CONSTANT, not interpolated: a stitching seam is a step and a
 	 * mis-stitched panel is shifted whole, not stretched. Same length as
 	 * `warp`; the last entry has no segment and is ignored. Absent (or all
 	 * zero) = none. */
 	hwarp?: number[];
+	/** SCALE per SEGMENT: `hscale[k]` > 1 means the panel between knots k
+	 * and k+1 was rendered that much LARGER than the ideal projection (a
+	 * frame stitched with a wrong focal length), about the panel's centre,
+	 * in BOTH axes — the vertical px/deg of that panel scales with it. Same
+	 * length as `warp`; last entry ignored. Absent (or all 1) = none. */
+	hscale?: number[];
 	/** atmospheric visibility read off the photo, km; null/absent = full
 	 * render range. A hard distance cutoff, not a shading term. */
 	visibility_km?: number | null;
@@ -68,33 +78,64 @@ export function wrapDelta(d: number): number {
 	return ((((d + 180) % 360) + 360) % 360) - 180;
 }
 
-/** Warp offset (degrees, + = up) at horizontal fraction 0..1. */
-export function warpAt(warp: number[], frac: number): number {
+/** Equally spaced knots for n handles. */
+export function uniformKnots(n: number): number[] {
+	if (n < 2) return [0, 1];
+	return Array.from({ length: n }, (_, i) => i / (n - 1));
+}
+
+/** The knots a fit uses: its own when valid (n ascending fractions), else
+ * equal spacing. */
+export function knotsOf(fit: { warp: number[]; knots?: number[] }): number[] {
+	const n = Math.max(2, fit.warp?.length ?? 2);
+	const k = fit.knots;
+	if (k && k.length === n && k.every((v, i) => (i === 0 || v >= k[i - 1]) && v >= 0 && v <= 1))
+		return k;
+	return uniformKnots(n);
+}
+
+/** Index of the segment (0..n−2) containing horizontal fraction `frac`;
+ * the outer segments extend beyond the frame. */
+export function segmentAt(knots: number[], frac: number): number {
+	const n = knots.length;
+	if (n < 2) return 0;
+	let k = 0;
+	while (k < n - 2 && frac >= knots[k + 1]) k++;
+	return k;
+}
+
+/** Warp offset (degrees, + = up) at horizontal fraction 0..1 — piecewise
+ * linear between the knots (equal spacing when none are given). */
+export function warpAt(warp: number[], frac: number, knots?: number[]): number {
 	const n = warp.length;
 	if (!n) return 0;
 	if (n === 1) return warp[0];
-	const pos = Math.min(1, Math.max(0, frac)) * (n - 1);
-	const i0 = Math.floor(pos);
-	const i1 = Math.min(n - 1, i0 + 1);
-	return warp[i0] + (warp[i1] - warp[i0]) * (pos - i0);
+	const kn = knots && knots.length === n ? knots : uniformKnots(n);
+	const f = Math.min(1, Math.max(0, frac));
+	const k = segmentAt(kn, f);
+	const span = kn[k + 1] - kn[k];
+	const t = span > 0 ? Math.min(1, Math.max(0, (f - kn[k]) / span)) : 0;
+	return warp[k] + (warp[k + 1] - warp[k]) * t;
 }
 
 /** Segment shift at horizontal fraction 0..1: `hwarp[k]` for the segment
  * that contains it (piecewise constant, a step at each knot). */
-export function hstepAt(hwarp: number[], frac: number): number {
+export function hstepAt(hwarp: number[], frac: number, knots?: number[]): number {
 	const n = hwarp.length;
 	if (n < 2) return n === 1 ? hwarp[0] : 0;
-	const k = Math.min(n - 2, Math.max(0, Math.floor(frac * (n - 1))));
-	return hwarp[k];
+	const kn = knots && knots.length === n ? knots : uniformKnots(n);
+	return hwarp[segmentAt(kn, frac)];
 }
 
-/** Change segment count for a piecewise-constant shift array, keeping each
- * new segment the shift of the old segment its midpoint falls in. */
-export function resampleSteps(old: number[], n: number): number[] {
-	if (n < 2) return [0, 0];
-	if (old.length < 2) return new Array(n).fill(0);
-	const out = new Array(n).fill(0);
-	for (let k = 0; k < n - 1; k++) out[k] = hstepAt(old, (k + 0.5) / (n - 1));
+/** Change segment count for a piecewise-constant per-segment array (shift
+ * or scale), keeping each new segment the value of the old segment its
+ * midpoint falls in. `fill` is the neutral value (0 for shifts, 1 for
+ * scales). */
+export function resampleSteps(old: number[], n: number, fill = 0, oldKnots?: number[]): number[] {
+	if (n < 2) return [fill, fill];
+	if (old.length < 2) return new Array(n).fill(fill);
+	const out = new Array(n).fill(fill);
+	for (let k = 0; k < n - 1; k++) out[k] = hstepAt(old, (k + 0.5) / (n - 1), oldKnots);
 	return out;
 }
 
@@ -159,12 +200,25 @@ export function createOverlayProjector(fit: OverlayFit, W: number, H: number): O
 	const horizonY = (fit.horizon_pct / 100) * H;
 	const pxPerDeg = (W / fovDeg) * fit.v_scale; // equirect square-pixel guess × trim
 	const rollK = Math.tan((fit.roll_deg * Math.PI) / 180);
-	const warp = fit.warp?.length >= 2 ? fit.warp : [0, 0];
-	// horizontal shift: azimuth offset (degrees) of the segment image x is in
-	const hwarp = fit.hwarp && fit.hwarp.length >= 2 && fit.hwarp.some((v) => v !== 0) ? fit.hwarp : null;
-	const hshift = (x: number) => (hwarp ? hstepAt(hwarp, x / W) : 0);
+	// the handle count is the longest of the per-handle arrays (they should
+	// agree; a shorter one is padded with its neutral value so a fit that
+	// carries, say, more shift entries than warp entries still applies)
+	const n = Math.max(2, fit.warp?.length ?? 0, fit.hwarp?.length ?? 0, fit.hscale?.length ?? 0, fit.knots?.length ?? 0);
+	const pad = (a: number[] | undefined, fill: number) =>
+		Array.from({ length: n }, (_, i) => (a && i < a.length ? a[i] : fill));
+	const warp = pad(fit.warp?.length ? fit.warp : [0, 0], 0);
+	const knots = knotsOf({ warp, knots: fit.knots });
+	// per-segment stitch model: shift (degrees) and scale (about the panel's
+	// centre, both axes) of the panel between knots k and k+1
+	const shifts = pad(fit.hwarp, 0);
+	const scales = pad(fit.hscale, 1);
+	const stitched = shifts.some((v) => v !== 0) || scales.some((v, i) => i < n - 1 && v !== 1);
+	const segAt = (x: number) => segmentAt(knots, x / W);
+	const segCentre = (k: number) => ((knots[k] + knots[k + 1]) / 2) * W;
+	const scaleAt = (x: number) => (stitched ? scales[segAt(x)] : 1);
 
-	const hy = (x: number) => horizonY + (x - W / 2) * rollK - warpAt(warp, x / W) * pxPerDeg;
+	const hy = (x: number) =>
+		horizonY + (x - W / 2) * rollK - warpAt(warp, x / W, knots) * pxPerDeg * scaleAt(x);
 
 	// a stitched pano may exceed 360° by its closing overlap: the cylinder's
 	// px-per-radian is simply W over the full sweep (no clamp — that would
@@ -181,27 +235,39 @@ export function createOverlayProjector(fit: OverlayFit, W: number, H: number): O
 	const deltaIdeal = (x: number): number =>
 		rect ? (Math.atan((x - W / 2) / fRectH) * 180) / Math.PI : (x / W - 0.5) * fovDeg;
 	// vertical scale is the ideal geometry's at that x (rectilinear stretches
-	// off-axis by 1/cos of the ideal angle there)
+	// off-axis by 1/cos of the ideal angle there), times the panel's scale
 	const dyAt = (x: number, elevDeg: number): number => {
 		const e = (elevDeg * Math.PI) / 180;
-		if (cyl) return fCyl * Math.tan(e);
-		if (rect) return (fRectH * fit.v_scale * Math.tan(e)) / Math.cos(Math.atan((x - W / 2) / fRectH));
-		return elevDeg * pxPerDeg;
+		const sc = scaleAt(x);
+		if (cyl) return fCyl * Math.tan(e) * sc;
+		if (rect) return ((fRectH * fit.v_scale * Math.tan(e)) / Math.cos(Math.atan((x - W / 2) / fRectH))) * sc;
+		return elevDeg * pxPerDeg * sc;
 	};
 
-	/** image x where azimuth delta appears: without a shift, the ideal x;
-	 * with one, the first segment (left→right) in which x = xIdeal(delta −
-	 * shift_k) actually falls. Segments are steps, so an azimuth can fall in
-	 * a seam GAP (nowhere: null — the pano really does not show it) or in an
-	 * OVERLAP (twice: the left one wins). The outer segments extend beyond
-	 * the frame so points just outside it still project, as before. */
+	// panel k renders true azimuth `delta` at the ideal x of the azimuth
+	// c_k + (delta − shift_k − c_k)·scale_k, where c_k is the ideal azimuth of
+	// the panel's centre: scaled about its centre, then shifted whole
+	const panelDelta = (k: number, deltaDeg: number): number => {
+		const c = deltaIdeal(segCentre(k));
+		return c + (deltaDeg - shifts[k] - c) * scales[k];
+	};
+	const trueDelta = (k: number, x: number): number => {
+		const c = deltaIdeal(segCentre(k));
+		return c + (deltaIdeal(x) - c) / scales[k] + shifts[k];
+	};
+
+	/** image x where azimuth delta appears: without a stitch model, the ideal
+	 * x; with one, the first panel (left→right) in which the panel's mapping
+	 * puts it. Panels are rigid pieces, so an azimuth can fall in a seam GAP
+	 * (nowhere: null — the pano really does not show it) or in an OVERLAP
+	 * (twice: the left one wins). The outer panels extend beyond the frame so
+	 * points just outside it still project, as before. */
 	const xOf = (deltaDeg: number): number | null => {
-		if (!hwarp) return xIdeal(deltaDeg);
-		const n = hwarp.length;
+		if (!stitched) return xIdeal(deltaDeg);
 		for (let k = 0; k < n - 1; k++) {
-			const x = xIdeal(deltaDeg - hwarp[k]);
-			const lo = k === 0 ? -Infinity : (k / (n - 1)) * W;
-			const hi = k === n - 2 ? Infinity : ((k + 1) / (n - 1)) * W;
+			const x = xIdeal(panelDelta(k, deltaDeg));
+			const lo = k === 0 ? -Infinity : knots[k] * W;
+			const hi = k === n - 2 ? Infinity : knots[k + 1] * W;
 			if (x >= lo && x < hi) return x;
 		}
 		return null;
@@ -220,13 +286,14 @@ export function createOverlayProjector(fit: OverlayFit, W: number, H: number): O
 	// horizon for the elevation angle. Analytic in all three projections.
 	const unproject = (x: number, y: number): OverlayRay => {
 		const dy = hy(x) - y;
-		const deltaDeg = deltaIdeal(x) + hshift(x);
+		const deltaDeg = stitched ? trueDelta(segAt(x), x) : deltaIdeal(x);
+		const sc = scaleAt(x);
 		let elevDeg: number;
-		if (cyl) elevDeg = (Math.atan(dy / fCyl) * 180) / Math.PI;
+		if (cyl) elevDeg = (Math.atan(dy / (fCyl * sc)) * 180) / Math.PI;
 		else if (rect) {
 			const a = Math.atan((x - W / 2) / fRectH);
-			elevDeg = (Math.atan((dy * Math.cos(a)) / (fRectH * fit.v_scale)) * 180) / Math.PI;
-		} else elevDeg = dy / pxPerDeg;
+			elevDeg = (Math.atan((dy * Math.cos(a)) / (fRectH * fit.v_scale * sc)) * 180) / Math.PI;
+		} else elevDeg = dy / (pxPerDeg * sc);
 		return {
 			azimuth_deg: (((fit.centre_bearing + deltaDeg) % 360) + 360) % 360,
 			elev_deg: elevDeg

@@ -94,7 +94,7 @@ export interface CandidatePhoto {
 	lon: number | null;
 	bearing: number | null;
 	// the origin photo's own view pie (calibrated FOV when available)
-	pie?: { bearing: number; half: number; radius_m: number; calibrated?: boolean } | null;
+	pie?: { bearing: number; half: number; radius_m: number; calibrated?: boolean; projection?: string; x0?: number; stitch?: { knots: number[]; hwarp: number[]; hscale: number[] } } | null;
 }
 
 export interface CandidatesResponse {

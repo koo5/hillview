@@ -173,6 +173,24 @@ moved substantially (full details: `enrich/terrain/README.md`):
 - Licensing: attribution rides each render's meta per stack; see
   `docs/terrain-data-licensing.md`.
 
+## Update 2026-08-17 — overlay bench renders the pano through OpenSeadragon
+
+`/terrain/overlay` no longer shows the pano as one `<img src=sizes.full>`:
+the worker caps `full` at 8192 px wide (`photo_processor.py`), so a
+77 908 × 4 111 pano was being fitted on an 8192 × 432 downsample — every
+zoom past ×1 was blur. The stage now hosts an OSD viewer on the photo's
+DZI pyramid (`sizes.full.pyramid`, same `$zoomview` glue as the main app;
+single-image source when a photo has no pyramid), and the overlay canvas
+keeps drawing in its base space by mirroring the OSD viewport into
+(z, tx, ty) each frame. OSD owns pan/wheel/pinch (edge-clamped, no
+zoom-out past the fit, wheel ×1.2 per notch, keyboard nav off); a press
+on a warp handle or label pill takes the gesture over via
+`preventDefaultAction` on `canvas-drag`, double-click is still seam
+add/remove. Verified headless (probes in `oneoff/scripts/2026-08-17_*`):
+tiles up to level 15 at ×8.9, zero hits on the 8192-px file, handle drag
+= 3.23° for 40 px at fov 93.8 (px/deg check), pans leave the fit alone,
+Ctrl+Z still reaches the window handler.
+
 ## Update 2026-08-07 — overlay graduation built and verified
 
 The per-photo overlay (fitted horizon + labels) now graduates end to end,

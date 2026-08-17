@@ -35,6 +35,11 @@
 		type SkyLabel
 	} from '$terrain/peakLabels';
 	import { paintSkyPills } from '$terrain/labelPills';
+	// the pano layer is an OpenSeadragon viewer over the photo's DZI pyramid:
+	// sizes.full is capped at 8192 px wide by the worker, the pyramid has
+	// every pixel — same tile-source glue as the main app's zoom view
+	import { buildTileSource, type DziPyramid } from '$zoomview/tileSource';
+	import { OSD_VIEWER_DEFAULTS } from '$zoomview/viewerInit';
 	// the fit's geometry is SHARED with the main app's zoom view, so a
 	// graduated overlay draws exactly where it was fitted here
 	import {
@@ -42,6 +47,7 @@
 		resampleWarp,
 		skylineFromDepth,
 		resampleSteps,
+		uniformKnots,
 		warpAt as warpAtShared,
 		wrapDelta,
 		type OverlayFit
@@ -50,7 +56,7 @@
 	interface PhotoInfo {
 		id: string;
 		title: string | null;
-		sizes: Record<string, { url?: string }> | null;
+		sizes: Record<string, { url?: string; pyramid?: DziPyramid }> | null;
 		width: number | null;
 		height: number | null;
 		pie: {
@@ -60,6 +66,9 @@
 			/** from calibratedProjection/calibratedX0 facts, when accepted */
 			projection?: string;
 			x0?: number;
+			/** from a piecewise (stitched) calibration: seams + per-panel
+			 * shift/scale, the handle model verbatim */
+			stitch?: { knots: number[]; hwarp: number[]; hscale: number[] };
 		} | null;
 	}
 	interface RenderRow {
@@ -205,13 +214,58 @@
 	// — a stitched pano's seams are steps, which the vertical warp cannot
 	// absorb. Kept the same length as `warp`.
 	let hwarp = $state<number[]>([0, 0]);
+	// per-panel SCALE (about the panel's centre, both axes) — a frame stitched
+	// at the wrong focal length: Ctrl-drag a handle sideways to pull the
+	// panel's edge in/out, or type it in the panel editor
+	let hscale = $state<number[]>([1, 1]);
+	// handle positions (fractions of the width). Equally spaced by default;
+	// double-click the pano to put a seam exactly where the stitch has one,
+	// double-click a handle to remove it
+	let knots = $state<number[]>([0, 1]);
+	const isUniform = (k: number[]) => k.every((v, i) => Math.abs(v - i / (k.length - 1)) < 1e-6);
+	// the panel whose numbers the inline editor shows (set by clicking a handle)
+	let selectedSeg = $state<number | null>(null);
 	const MAX_SEGMENTS = 48;
+	/** equal spacing with n segments — resamples every per-handle array */
 	function setSegments(n: number) {
 		const handles = Math.max(2, Math.min(MAX_SEGMENTS + 1, Math.round(n) + 1));
-		if (handles === warp.length) return;
-		hwarp = resampleSteps(hwarp, handles);
-		warp = resampleWarp(warp, handles);
+		if (handles === warp.length && isUniform(knots)) return;
+		const oldKnots = knots;
+		const nk = uniformKnots(handles);
+		warp = nk.map((f) => warpAtShared(warp, f, oldKnots));
+		hwarp = resampleSteps(hwarp, handles, 0, oldKnots);
+		hscale = resampleSteps(hscale, handles, 1, oldKnots);
+		knots = nk;
+		selectedSeg = null;
 	}
+	/** put a seam at horizontal fraction f: the panel it splits keeps its
+	 * shift/scale on both sides, the vertical warp is interpolated there */
+	function insertKnot(f: number) {
+		f = Math.min(0.999, Math.max(0.001, f));
+		if (knots.length >= MAX_SEGMENTS + 1) return;
+		let k = 0;
+		while (k < knots.length - 1 && f >= knots[k + 1]) k++;
+		if (Math.abs(f - knots[k]) < 0.002 || Math.abs(f - knots[k + 1]) < 0.002) return; // on a knot already
+		const w = warpAtShared(warp, f, knots);
+		knots = [...knots.slice(0, k + 1), f, ...knots.slice(k + 1)];
+		warp = [...warp.slice(0, k + 1), w, ...warp.slice(k + 1)];
+		hwarp = [...hwarp.slice(0, k + 1), hwarp[k], ...hwarp.slice(k + 1)];
+		hscale = [...hscale.slice(0, k + 1), hscale[k], ...hscale.slice(k + 1)];
+		selectedSeg = k + 1;
+	}
+	/** remove an interior handle: the two panels merge, the left one's
+	 * shift/scale win */
+	function removeKnot(i: number) {
+		if (i <= 0 || i >= knots.length - 1) return;
+		knots = knots.filter((_, j) => j !== i);
+		warp = warp.filter((_, j) => j !== i);
+		hwarp = hwarp.filter((_, j) => j !== i);
+		hscale = hscale.filter((_, j) => j !== i);
+		selectedSeg = null;
+	}
+	/** the panel a handle acts on: the one to its right, or for the last
+	 * handle the one to its left */
+	const panelOf = (i: number) => Math.min(i, warp.length - 2);
 
 	// ---- explicit save / revert / undo: what is SAVED (the fact), whether
 	// the live alignment differs from it, and a history of settled states.
@@ -298,15 +352,21 @@
 	// view transform: screen = base * z + (tx, ty). Base = the image
 	// contain-fitted into the fixed-height stage at zoom 1 (baseW × baseH
 	// CSS px, centered by the clamp), so a wide pano gets vertical room to
-	// zoom into instead of staying a fit-to-width noodle.
+	// zoom into instead of staying a fit-to-width noodle. OpenSeadragon owns
+	// the pan/zoom; (z, tx, ty) mirror its viewport (syncView) so the overlay
+	// canvas and every hit-test keep working in base space unchanged.
 	let z = $state(1);
 	let tx = $state(0);
 	let ty = $state(0);
 	let baseW = $state(0);
 	let baseH = $state(0);
-	let naturalW = $state(0); // image native px — crisp rendering past 1:1
+	let naturalW = $state(0); // image native px (the pyramid's true size)
+	let naturalH = $state(0);
 
-	let img: HTMLImageElement;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let viewer: any = null; // OpenSeadragon.Viewer, alive while the stage is
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let OSD: any = null;
 	let overlay: HTMLCanvasElement;
 	let stageEl: HTMLDivElement;
 
@@ -321,6 +381,12 @@
 			if (u) return u;
 		}
 		return null;
+	});
+	/** the DZI pyramid (worker skips it below 2048 px; older photos may lack
+	 * one) — without it the viewer opens imgUrl as a single image */
+	const pyramid = $derived.by((): DziPyramid | null => {
+		const p = photo?.sizes?.full?.pyramid;
+		return p && p.type === 'dzi' ? p : null;
 	});
 
 	async function load() {
@@ -522,6 +588,9 @@
 		rollDeg = f.roll_deg;
 		if (f.warp?.length >= 2) warp = f.warp.slice();
 		hwarp = f.hwarp && f.hwarp.length === warp.length ? f.hwarp.slice() : warp.map(() => 0);
+		hscale = f.hscale && f.hscale.length === warp.length ? f.hscale.slice() : warp.map(() => 1);
+		knots = f.knots && f.knots.length === warp.length ? f.knots.slice() : uniformKnots(warp.length);
+		selectedSeg = null;
 		return f.visibility_km ?? null;
 	}
 
@@ -539,8 +608,19 @@
 		horizonPct = 50;
 		vScale = 1;
 		rollDeg = 0;
-		warp = warp.map(() => 0);
-		hwarp = warp.map(() => 0);
+		// a piecewise calibration seeds the seams and per-panel shift/scale;
+		// otherwise a neutral equally-spaced warp
+		const st = photo?.pie?.stitch;
+		if (st && st.knots?.length >= 2 && st.hwarp?.length === st.knots.length && st.hscale?.length === st.knots.length) {
+			knots = st.knots.slice();
+			warp = st.knots.map(() => 0);
+			hwarp = st.hwarp.slice();
+			hscale = st.hscale.slice();
+		} else {
+			warp = warp.map(() => 0);
+			hwarp = warp.map(() => 0);
+			hscale = warp.map(() => 1);
+		}
 		visLog = visLogMax;
 	}
 
@@ -630,7 +710,7 @@
 	}
 
 	/** warp offset (degrees, + = up) at horizontal fraction 0..1 */
-	const warpAt = (frac: number) => warpAtShared(warp, frac);
+	const warpAt = (frac: number) => warpAtShared(warp, frac, knots);
 
 	/** the live alignment as an OverlayFit — the shared projector's input, and
 	 * the exact shape that gets saved, drafted and eventually graduated */
@@ -643,8 +723,10 @@
 			v_scale: vScale,
 			roll_deg: rollDeg,
 			warp: [...warp],
-			// only when it does something — an untouched fit keeps its shape
+			// only when they do something — an untouched fit keeps its shape
 			...(hwarp.some((v) => v !== 0) ? { hwarp: [...hwarp] } : {}),
+			...(hscale.some((v, i) => i < hscale.length - 1 && v !== 1) ? { hscale: [...hscale] } : {}),
+			...(!isUniform(knots) ? { knots: [...knots] } : {}),
 			visibility_km: visCutoffM === null ? null : +(visCutoffM / 1000).toFixed(1)
 		};
 	}
@@ -657,63 +739,67 @@
 	}
 
 	function resetView() {
-		z = 1;
-		tx = 0;
-		ty = 0;
-		if (stageEl) clampPan();
+		if (viewer?.viewport) viewer.viewport.goHome(true);
+		else {
+			z = 1;
+			tx = 0;
+			ty = 0;
+		}
+	}
+
+	/** double-click: on a handle → remove that seam; elsewhere on the pano →
+	 * put a seam there (the panel it splits keeps its numbers on both
+	 * sides). Zoom reset moved to the "reset" button. */
+	function onStageDblClick(p: { x: number; y: number }) {
+		if (!photo) return;
+		const hi = hitHandle(p);
+		if (hi !== null) {
+			removeKnot(hi);
+			return;
+		}
+		const xb = (p.x - tx) / z; // base-space x
+		if (xb < 0 || xb > baseW) return;
+		insertKnot(xb / baseW);
 	}
 
 	/** contain-fit the image into the stage box → base dimensions */
 	function fit() {
-		if (!stageEl || !img?.naturalWidth || !img.naturalHeight) return;
-		const a = img.naturalWidth / img.naturalHeight;
-		naturalW = img.naturalWidth;
+		if (!stageEl || !naturalW || !naturalH) return;
+		const a = naturalW / naturalH;
 		baseW = Math.min(stageEl.clientWidth, stageEl.clientHeight * a);
 		baseH = baseW / a;
-		clampPan();
+		// zoom cap relative to the image's NATIVE pixels: allow up to ~8×
+		// beyond 1:1 (over-zoom is genuinely useful when nudging the curve by
+		// 0.01°), with ×16 over the fit as the floor for small images
+		if (viewer?.viewport) viewer.viewport.maxZoomPixelRatio = Math.max(8, (16 * baseW) / naturalW);
+		syncView();
 	}
 
-	/** clamp one axis: center when it fits, edge-clamp when it overflows */
-	function clampAxis(t: number, extent: number, avail: number): number {
-		if (extent <= avail) return (avail - extent) / 2;
-		return Math.min(0, Math.max(avail - extent, t));
+	/** mirror OSD's viewport into the (z, tx, ty) view transform the overlay
+	 * draws with — viewport x ≡ image width, so the screen span of [0, 1] is
+	 * the displayed image width. Runs per animated frame (viewport-change). */
+	function syncView() {
+		if (!viewer?.viewport || !OSD || !(baseW > 0)) return;
+		const vp = viewer.viewport;
+		const p0 = vp.viewportToViewerElementCoordinates(new OSD.Point(0, 0));
+		const p1 = vp.viewportToViewerElementCoordinates(new OSD.Point(1, 0));
+		const w = p1.x - p0.x;
+		if (!(w > 0)) return;
+		z = w / baseW;
+		tx = p0.x;
+		ty = p0.y;
 	}
 
-	function clampPan() {
-		tx = clampAxis(tx, baseW * z, stageEl?.clientWidth ?? 0);
-		ty = clampAxis(ty, baseH * z, stageEl?.clientHeight ?? 0);
-	}
-
-	function zoomAt(px: number, py: number, factor: number) {
-		// cap relative to the image's NATIVE pixels: allow up to ~8× beyond
-		// 1:1 (over-zoom is genuinely useful when nudging the curve by 0.01°),
-		// with ×16 as the floor for small images
-		const native = baseW > 0 && img?.naturalWidth ? img.naturalWidth / baseW : 1;
-		const zMax = Math.max(16, native * 8);
-		const z2 = Math.min(zMax, Math.max(1, z * factor));
-		const f = z2 / z;
-		tx = px - (px - tx) * f;
-		ty = py - (py - ty) * f;
-		z = z2;
-		clampPan();
-	}
-
-	// --- stage interactions: pan / wheel-zoom / pinch / handle drag ---
-	const pointers = new Map<number, { x: number; y: number }>();
-	let drag: { kind: 'pan' } | { kind: 'handle'; idx: number } | null = null;
-
-	function stagePos(e: PointerEvent | WheelEvent) {
-		const r = stageEl.getBoundingClientRect();
-		return { x: e.clientX - r.left, y: e.clientY - r.top };
-	}
+	// --- stage interactions: OSD owns pan / wheel-zoom / pinch (edge-clamped,
+	// no zoom-out past the fit); a press on a handle or a label pill takes the
+	// gesture over via preventDefaultAction on the drag events ---
+	let press: { kind: 'handle'; idx: number } | { kind: 'pill' } | null = null;
 
 	/** base-space position of warp handle i on the (warped) horizon line —
 	 * drawn where the knot's ideal azimuth now sits, so a sideways drag moves
 	 * the handle with the content it re-aligned */
 	function handleBase(i: number, proj = baseProjector()): { x: number; y: number } {
-		const xk = (i / (warp.length - 1)) * baseW;
-		const shift = hwarp[Math.min(i, hwarp.length - 2)] ?? 0;
-		const xb = xk - shift * pxPerDegBase();
+		const xb = (knots[i] ?? i / (warp.length - 1)) * baseW; // the seam itself
 		return { x: xb, y: proj.horizonY(xb) };
 	}
 
@@ -726,75 +812,71 @@
 		return null;
 	}
 
-	function onPointerDown(e: PointerEvent) {
-		stageEl.setPointerCapture(e.pointerId);
-		const p = stagePos(e);
-		pointers.set(e.pointerId, p);
-		if (pointers.size === 1) {
-			// a tap on a label pill reveals what the label is claiming
-			const pill = hitSkyLabel(placedPills, p.x, p.y);
-			if (pill) {
-				labelInfo = pill.mark;
-				drag = null;
-				return;
+	// OSD canvas-* event shapes (position/delta are px relative to the viewer
+	// element, which fills the stage — same frame as the overlay canvas)
+	type OsdPt = { x: number; y: number };
+	type OsdPress = { position: OsdPt };
+	type OsdDrag = {
+		delta: OsdPt;
+		originalEvent: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean };
+		preventDefaultAction: boolean;
+	};
+
+	function onCanvasPress(e: OsdPress) {
+		const p = e.position;
+		// a tap on a label pill reveals what the label is claiming
+		const pill = hitSkyLabel(placedPills, p.x, p.y);
+		if (pill) {
+			labelInfo = pill.mark;
+			press = { kind: 'pill' };
+			return;
+		}
+		const hi = hitHandle(p);
+		if (hi !== null) selectedSeg = panelOf(hi);
+		press = hi !== null ? { kind: 'handle', idx: hi } : null;
+	}
+
+	function onCanvasDrag(e: OsdDrag) {
+		if (!press) return; // plain drag → OSD pans
+		e.preventDefaultAction = true;
+		if (press.kind !== 'handle') return;
+		const ppd = pxPerDegBase();
+		if (ppd <= 0) return;
+		const mods = e.originalEvent ?? {};
+		const dx = e.delta.x;
+		const dy = e.delta.y;
+		const idx = press.idx;
+		const seg = panelOf(idx);
+		const sc = hscale[seg] || 1;
+		const dDeg = dy / z / (ppd * sc);
+		warp = warp.map((v, i) => (i === idx ? v - dDeg : v));
+		if (mods.ctrlKey || mods.metaKey) {
+			// Ctrl: SCALE the panel about its centre — pull its edge at
+			// the handle in (drag toward the centre) or out; the content
+			// at the handle follows the pointer
+			const half = ((knots[seg + 1] - knots[seg]) / 2) * baseW;
+			if (half > 1) {
+				const dxb = dx / z;
+				const towardCentre = idx <= seg ? dxb : -dxb; // left edge: right = in
+				const f = Math.max(0.5, Math.min(2, 1 - towardCentre / half));
+				hscale = hscale.map((v, i) => (i === seg ? +(v * f).toFixed(5) : v));
 			}
-			const hi = hitHandle(p);
-			drag = hi !== null ? { kind: 'handle', idx: hi } : { kind: 'pan' };
-		} else {
-			drag = null; // second finger cancels handle/pan → pinch
+		} else if (!mods.shiftKey) {
+			// sideways: content dragged right ⇒ the pano shows a LOWER
+			// azimuth here than the model thought ⇒ negative offset — for
+			// this handle's panel and every panel to its right (a stitched
+			// pano's error accumulates seam by seam); Alt = this panel
+			// only; Shift = vertical only.
+			const dxDeg = dx / z / ppd;
+			hwarp = hwarp.map((v, i) =>
+				(mods.altKey ? i === seg : i >= seg && i < hwarp.length - 1) ? v - dxDeg : v
+			);
 		}
 	}
 
-	function onPointerMove(e: PointerEvent) {
-		const prev = pointers.get(e.pointerId);
-		if (!prev) return;
-		const p = stagePos(e);
-		if (pointers.size === 2) {
-			let other: { x: number; y: number } | null = null;
-			for (const [id, q] of pointers) if (id !== e.pointerId) other = q;
-			if (other) {
-				const d0 = Math.hypot(prev.x - other.x, prev.y - other.y);
-				const d1 = Math.hypot(p.x - other.x, p.y - other.y);
-				if (d0 > 0) zoomAt((p.x + other.x) / 2, (p.y + other.y) / 2, d1 / d0);
-				tx += (p.x - prev.x) / 2;
-				ty += (p.y - prev.y) / 2;
-				clampPan();
-			}
-		} else if (drag?.kind === 'handle') {
-			const ppd = pxPerDegBase();
-			if (ppd > 0) {
-				const idx = drag.idx;
-				const dDeg = (p.y - prev.y) / z / ppd;
-				warp = warp.map((v, i) => (i === idx ? v - dDeg : v));
-				// sideways: content dragged right ⇒ the pano shows a LOWER
-				// azimuth here than the model thought ⇒ negative offset — for
-				// this handle's panel and every panel to its right (a stitched
-				// pano's error accumulates seam by seam); Alt = this panel
-				// only; Shift = vertical only. The last handle has no panel.
-				if (!e.shiftKey && idx < hwarp.length - 1) {
-					const dxDeg = (p.x - prev.x) / z / ppd;
-					hwarp = hwarp.map((v, i) =>
-						(e.altKey ? i === idx : i >= idx && i < hwarp.length - 1) ? v - dxDeg : v
-					);
-				}
-			}
-		} else if (drag?.kind === 'pan') {
-			tx += p.x - prev.x;
-			ty += p.y - prev.y;
-			clampPan();
-		}
-		pointers.set(e.pointerId, p);
-	}
-
-	function onPointerUp(e: PointerEvent) {
-		pointers.delete(e.pointerId);
-		drag = pointers.size === 1 ? { kind: 'pan' } : null;
-	}
-
-	function onWheel(e: WheelEvent) {
-		e.preventDefault();
-		const p = stagePos(e);
-		zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.0018));
+	/** release / drag-end / a second finger (pinch) all end a handle drag */
+	function onCanvasRelease() {
+		press = null;
 	}
 
 	function draw() {
@@ -831,7 +913,7 @@
 		ctx.lineWidth = 1;
 		ctx.beginPath();
 		for (let i = 0; i < warp.length; i++) {
-			const xb = (i / (warp.length - 1)) * W;
+			const xb = (knots[i] ?? i / (warp.length - 1)) * W;
 			if (i) ctx.lineTo(toX(xb), toY(hyBase(xb)));
 			else ctx.moveTo(toX(xb), toY(hyBase(xb)));
 		}
@@ -937,6 +1019,25 @@
 			ctx.arc(hx, hy, 1.6, 0, Math.PI * 2);
 			ctx.fillStyle = 'rgba(255,220,50,0.95)';
 			ctx.fill();
+			// the panel to the right: its numbers, when it has any; the
+			// selected panel's handle is ringed
+			const seg = panelOf(i);
+			if (i < warp.length - 1 && (hwarp[seg] !== 0 || hscale[seg] !== 1)) {
+				ctx.font = '10px ui-monospace, monospace';
+				ctx.textAlign = 'left';
+				ctx.fillStyle = 'rgba(255,255,255,0.85)';
+				const parts = [];
+				if (hwarp[seg] !== 0) parts.push(`${hwarp[seg] > 0 ? '+' : ''}${hwarp[seg].toFixed(2)}°`);
+				if (hscale[seg] !== 1) parts.push(`×${hscale[seg].toFixed(3)}`);
+				ctx.fillText(parts.join(' '), hx + HANDLE_R + 3, hy + HANDLE_R + 10);
+			}
+			if (selectedSeg !== null && i === selectedSeg) {
+				ctx.beginPath();
+				ctx.arc(hx, hy, HANDLE_R + 3, 0, Math.PI * 2);
+				ctx.strokeStyle = 'rgba(255,220,50,0.9)';
+				ctx.lineWidth = 1;
+				ctx.stroke();
+			}
 		}
 	}
 
@@ -950,6 +1051,9 @@
 		void rollDeg;
 		void warp;
 		void hwarp;
+		void hscale;
+		void knots;
+		void selectedSeg;
 		void showCurve;
 		void showLabels;
 		void showPlaces;
@@ -975,6 +1079,9 @@
 		void rollDeg;
 		void warp;
 		void hwarp;
+		void hscale;
+		void knots;
+		void selectedSeg;
 		void visLog;
 		if (!photo || suppressDraft) {
 			if (photo && suppressDraft)
@@ -1008,9 +1115,7 @@
 
 	// action on the stage div: it lives behind {#if imgUrl}, so it doesn't
 	// exist yet at onMount — wire listeners when the element itself appears.
-	// Wheel must be a manual non-passive listener to preventDefault scroll.
 	function stageSetup(node: HTMLElement) {
-		node.addEventListener('wheel', onWheel, { passive: false });
 		const ro = new ResizeObserver(() => {
 			fit();
 			draw();
@@ -1018,8 +1123,82 @@
 		ro.observe(node);
 		return {
 			destroy: () => {
-				node.removeEventListener('wheel', onWheel);
 				ro.disconnect();
+			}
+		};
+	}
+
+	/** the pano layer: an OpenSeadragon viewer on the host div, opened on the
+	 * DZI pyramid (single full image when there is none). Also an action —
+	 * the host appears/disappears with {#if imgUrl}, and load() nulls the
+	 * photo first, so a photo switch is always destroy → fresh viewer. */
+	function osdSetup(node: HTMLElement) {
+		let destroyed = false;
+		let fellBack = false;
+		const url = imgUrl!;
+		const pyr = pyramid;
+		const source = pyr ? buildTileSource(pyr, url) : { type: 'image', url };
+		dlog(pyr ? `osd: dzi ${pyr.width}x${pyr.height} tile ${pyr.tile_size}` : `osd: single image ${url}`);
+		import('openseadragon').then((mod) => {
+			if (destroyed) return;
+			OSD = mod.default;
+			viewer = new OSD.Viewer({
+				...OSD_VIEWER_DEFAULTS,
+				element: node,
+				tileSources: source,
+				// bench overrides: fine wheel steps (this is a 0.01° tool);
+				// double-click is seam add/remove, not zoom; no touch flick;
+				// edge-clamped pans and no zoom-out past the fit (the old
+				// clampPan); no keyboard nav — r rotates and f flips, which
+				// would break the affine view mirror (ctrl+z still bubbles to
+				// the window handler)
+				zoomPerScroll: 1.2,
+				gestureSettingsMouse: { clickToZoom: false, dblClickToZoom: false, dblClickDragToZoom: false },
+				gestureSettingsTouch: {
+					clickToZoom: false,
+					dblClickToZoom: false,
+					dblClickDragToZoom: false,
+					flickEnabled: false
+				},
+				constrainDuringPan: true,
+				visibilityRatio: 1,
+				minZoomImageRatio: 1,
+				maxZoomPixelRatio: 8,
+				keyboardNavEnabled: false,
+				imageLoaderLimit: 4
+			});
+			viewer.addHandler('open', () => {
+				const size = viewer.world.getItemAt(0)?.getContentSize?.();
+				if (size) {
+					naturalW = size.x;
+					naturalH = size.y;
+				}
+				dlog(`osd open ${naturalW}x${naturalH}`);
+				fit();
+				draw();
+			});
+			viewer.addHandler('open-failed', (e: { message?: string }) => {
+				dlog(`osd open FAILED: ${e?.message ?? '?'}`);
+				if (pyr && !fellBack) {
+					fellBack = true;
+					dlog('osd: falling back to the single image');
+					viewer.open({ type: 'image', url });
+				}
+			});
+			viewer.addHandler('viewport-change', syncView);
+			viewer.addHandler('animation-finish', syncView);
+			viewer.addHandler('canvas-press', onCanvasPress);
+			viewer.addHandler('canvas-drag', onCanvasDrag);
+			viewer.addHandler('canvas-drag-end', onCanvasRelease);
+			viewer.addHandler('canvas-release', onCanvasRelease);
+			viewer.addHandler('canvas-pinch', onCanvasRelease);
+			viewer.addHandler('canvas-double-click', (e: OsdPress) => onStageDblClick(e.position));
+		});
+		return {
+			destroy: () => {
+				destroyed = true;
+				viewer?.destroy();
+				viewer = null;
 			}
 		};
 	}
@@ -1177,7 +1356,7 @@
 			/>km
 			<input type="range" min="3" max={visLogMax} step="0.01" bind:value={visLog} />
 		</label>
-		<span class="group" title="drag a handle up/down to lift the horizon there; sideways to SHIFT its panel and every panel to its right rigidly (a stitched pano's seams are steps) — Alt-drag: this panel only, Shift-drag: vertical only; offsets are stored in degrees">
+		<span class="group" title="handles sit on seams. Drag up/down: lift the horizon there. Sideways: SHIFT the panel to the right of the handle and every panel beyond it (a stitched pano's error accumulates seam by seam) — Alt: this panel only, Shift: vertical only. Ctrl-drag: SCALE that panel about its centre (both axes — a frame stitched at the wrong focal length). Double-click the pano to add a seam where the stitch has one, double-click a handle to remove it; click a handle to edit its panel's numbers.">
 			segments
 			<input
 				class="num"
@@ -1191,7 +1370,17 @@
 			/>
 			<button onclick={() => setSegments(warp.length)} disabled={warp.length >= MAX_SEGMENTS + 1}>+</button>
 			<button onclick={() => setSegments(warp.length - 2)} disabled={warp.length <= 2}>−</button>
-			<button onclick={() => { warp = warp.map(() => 0); hwarp = hwarp.map(() => 0); rollDeg = 0; }} title="zero all handle offsets (vertical and sideways) and roll">level</button>
+			<button onclick={() => { warp = warp.map(() => 0); hwarp = hwarp.map(() => 0); hscale = hscale.map(() => 1); rollDeg = 0; }} title="zero all handle offsets (vertical and sideways), reset panel scales and roll — seams stay">level</button>
+			{#if !isUniform(knots)}<span class="info" title="seams are where you put them (double-click the pano to add, a handle to remove); the number field re-spaces them equally">seams placed</span>{/if}
+			{#if selectedSeg !== null && selectedSeg < warp.length - 1}
+				<span class="panel-editor" title="the panel to the right of the clicked handle: sideways shift in degrees and scale about its centre (both axes)">
+					panel {selectedSeg + 1}
+					shift <input class="num" type="number" step="0.01" value={hwarp[selectedSeg]} data-testid="overlay-panel-shift"
+						onchange={(e) => { const v = e.currentTarget.valueAsNumber; if (Number.isFinite(v)) hwarp = hwarp.map((h, i) => (i === selectedSeg ? v : h)); }} />°
+					scale <input class="num" type="number" step="0.001" min="0.5" max="2" value={hscale[selectedSeg]} data-testid="overlay-panel-scale"
+						onchange={(e) => { const v = e.currentTarget.valueAsNumber; if (Number.isFinite(v) && v > 0) hscale = hscale.map((h, i) => (i === selectedSeg ? v : h)); }} />
+				</span>
+			{/if}
 		</span>
 		<span class="group">
 			zoom <span class="val">×{z.toFixed(2)}</span>
@@ -1237,38 +1426,16 @@
 		</span>
 	</section>
 
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="stage"
-		bind:this={stageEl}
-		use:stageSetup
-		onpointerdown={onPointerDown}
-		onpointermove={onPointerMove}
-		onpointerup={onPointerUp}
-		onpointercancel={onPointerUp}
-		ondblclick={resetView}
-	>
-		<img
-			bind:this={img}
-			src={imgUrl}
-			alt={photo?.title ?? 'pano'}
-			draggable="false"
-			class:pixelated={naturalW > 0 && z * baseW > naturalW}
-			style="width: {baseW}px; transform: translate({tx}px, {ty}px) scale({z})"
-			onload={() => {
-				dlog(`img loaded ${img.naturalWidth}x${img.naturalHeight}`);
-				fit();
-				draw();
-			}}
-			onerror={() => dlog(`img FAILED: ${imgUrl}`)}
-		/>
+	<div class="stage" bind:this={stageEl} use:stageSetup>
+		<div class="osd" use:osdSetup data-testid="overlay-osd"></div>
 		<canvas bind:this={overlay}></canvas>
 	</div>
 	<p class="hint">
 		<b>proj</b> must match the pano's stitch output projection — read the .pto p-line's f-value
 		(f0 rectilinear / f1 cylindrical / f2 equirect); it varies per pano, see
 		docs/pano-source-archaeology.md. Wrong projection = unfittable by design.
-		<b>wheel / pinch</b> zooms about the cursor, <b>drag</b> pans, <b>double-click</b> resets.
+		<b>wheel / pinch</b> zooms about the cursor (into the full-resolution pyramid), <b>drag</b> pans,
+		<b>double-click</b> adds/removes a seam, <b>reset</b> refits.
 		The dashed line is the horizon reference — drag its <b>round handles</b> up/down to bend the
 		fit locally (offsets interpolate between handles; <b>segments ±</b> adds or removes them —
 		with just two, dragging the ends IS a roll). The <b>roll</b> slider tilts globally on top.
@@ -1282,6 +1449,8 @@
 	.pick { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
 	.info { font-size: 12px; opacity: 0.7; }
 	.info.state { opacity: 0.9; }
+	.panel-editor { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; margin-left: 6px; }
+	.panel-editor .num { width: 5.5em; }
 	.info.state.dirty { color: #f2d55c; }
 	.linkish { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 4px; font: inherit; }
 	.err { color: #d33; font-size: 12px; }
@@ -1324,20 +1493,9 @@
 		user-select: none;
 	}
 	.stage:active { cursor: grabbing; }
-	.stage img {
-		position: absolute;
-		top: 0;
-		left: 0;
-		display: block;
-		max-width: none;
-		height: auto;
-		transform-origin: 0 0;
-		will-change: transform;
-	}
-	/* past 1:1 native pixels, smoothing turns detail to mush — go crisp */
-	.stage img.pixelated {
-		image-rendering: pixelated;
-	}
+	/* the OSD host fills the stage; the overlay canvas sits above it and never
+	 * takes pointer events — OSD's canvas-* events drive handle drags */
+	.stage .osd { position: absolute; inset: 0; }
 	.stage canvas { position: absolute; inset: 0; pointer-events: none; }
 	.hint { font-size: 12px; opacity: 0.6; max-width: 60rem; }
 </style>
