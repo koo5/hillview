@@ -179,6 +179,42 @@ def _override_blur_free(override: Optional["AnonymizationOverride"]) -> Optional
 	return not any(None not in (r.get('x'), r.get('y'), r.get('width'), r.get('height')) for r in override.rectangles)
 
 
+class _timed:
+	"""Log wall + process-CPU seconds for a processing step, so real pano
+	runs tell us where the time goes before we tune anything (encode effort,
+	tile size, transfer parallelism...). CPU is process-wide (all vips /
+	libwebp threads), so wall << cpu means the step parallelized.
+
+	Use as a context manager, or ``t = _timed(...); ...; t.done()`` around
+	blocks that are awkward to indent (loops with awaits)."""
+
+	def __init__(self, label: str, unique_id: str = ''):
+		import time
+		self._time = time
+		self.label, self.unique_id = label, unique_id
+		self.t0, self.c0 = time.monotonic(), time.process_time()
+
+	def done(self, extra: str = '') -> None:
+		# process_time is process-wide and the pool is one process x N threads
+		# (vips/libwebp on their own thread pools, so per-thread CPU would
+		# undercount instead): with other jobs in flight their CPU lands in
+		# this number too. Log how many were active so such samples are
+		# recognizable — 'concurrent 1' means the cpu figure is clean.
+		try:
+			concurrent = len(processing_state.get_active_list())
+		except Exception:
+			concurrent = -1
+		logger.info(f"[timing] {self.label} for {self.unique_id}: wall {self._time.monotonic() - self.t0:.1f}s, "
+		            f"cpu {self._time.process_time() - self.c0:.1f}s (concurrent {concurrent})"
+		            f"{(' ' + extra) if extra else ''}")
+
+	def __enter__(self):
+		return self
+
+	def __exit__(self, *exc):
+		self.done()
+
+
 def _validate_input_path(filepath: str) -> str:
 	"""Validate an input image path for external-tool use: under /app (the
 	uploaded copy in the work dir), or under EXTERNAL_DATA_DIR (no-upload
@@ -726,7 +762,8 @@ class PhotoProcessor:
 					logger.info(f"Applying precomputed detections for {unique_id}: "
 								f"blurring {len(to_blur)}/{len(objects)} objects")
 					if pyr is None:
-						image = read_image(source_path, encoding=encoding)
+						with _timed('decode', unique_id):
+							image = read_image(source_path, encoding=encoding)
 					if to_blur:
 						processing_state.set_phase("anonymizing")
 						from blur import apply_blur
@@ -734,12 +771,14 @@ class PhotoProcessor:
 				elif anonymization_override.skip_anonymization:
 					logger.info(f"Skipping anonymization for {unique_id} due to override")
 					if pyr is None:
-						image = read_image(source_path, encoding=encoding)
+						with _timed('decode', unique_id):
+							image = read_image(source_path, encoding=encoding)
 					detections = {"objects": [], "manual": True}
 				else:
 					logger.info(f"Applying manual anonymization for {unique_id} with rectangles: {anonymization_override.rectangles}")
 					if pyr is None:
-						image = read_image(source_path, encoding=encoding)
+						with _timed('decode', unique_id):
+							image = read_image(source_path, encoding=encoding)
 					detections = {"objects": [], "manual": True}
 					for rect in anonymization_override.rectangles:
 						x = rect.get('x')
@@ -797,6 +836,7 @@ class PhotoProcessor:
 				size_variants = ['full', 320, 640, 1200, 2048, 3072, 4096]
 
 			processing_state.set_phase("encode_sizes")
+			t_sizes = _timed(f"size variants {size_variants} (source: {type(src).__name__})", unique_id)
 			for size in size_variants:
 
 				# skip if size is larger than original width
@@ -841,8 +881,10 @@ class PhotoProcessor:
 					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
 				})
 				sizes_info[size] = size_info
+			t_sizes.done()
 
 		# Create cropped thumbnail variants for images wider than the target aspect ratio
+		t_crops = _timed("crop variants", unique_id)
 		crop_variants = [
 			('320_crop', 320, 240),
 			('1200_crop', 1200, 630),
@@ -876,9 +918,11 @@ class PhotoProcessor:
 					'url': await self._get_size_url(crop_file_path, crop_relative_path, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
 				}
 
+		t_crops.done()
 		logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
 
 		if not fast:
+			t_llm = _timed("640_llm variant", unique_id)
 			# Create 640_llm variant (black fill over detections, no colors/stick figures, for LLM analysis)
 			# Use original size if image is smaller than LLM_VARIANT_SIZE
 			llm_image = src.fresh_for_width(LLM_VARIANT_SIZE)
@@ -923,6 +967,7 @@ class PhotoProcessor:
 				'height': llm_height,
 				'url': llm_url
 			}
+			t_llm.done()
 
 		if 'full' in sizes_info:
 			# Deep-zoom pyramid. Metadata is stored inline in
@@ -982,7 +1027,10 @@ class PhotoProcessor:
 		match the processed image: that is not policy but a wrong pyramid for
 		this file (a pipeline association bug worth surfacing, not hiding).
 		"""
-		import xml.etree.ElementTree as ET
+		# defusedxml: same ElementTree API, with entity expansion (billion
+		# laughs) and external-entity resolution refused — the descriptor is
+		# client-named input even though it lives on an operator archive.
+		import defusedxml.ElementTree as ET
 		ns = '{http://schemas.microsoft.com/deepzoom/2008}'
 		root = ET.parse(dzi_path).getroot()
 		size = root.find(f'{ns}Size')
@@ -1010,6 +1058,13 @@ class PhotoProcessor:
 			'q': quality if quality is not None else WEBP_QUALITY_DZI, 'effort': DZI_WEBP_EFFORT,
 		}
 		usable, reason = external_pyramid_usable(keep_pics_in_worker, blur_applied, dzi, required)
+		if usable and keep_pics_in_worker:
+			# Dev path serves in place, which needs a URL for the root the
+			# pyramid lives under (LOCAL_PHOTO_URLS). An unmapped root (e.g. the
+			# tiff spill) is a decline, not a mid-job RuntimeError.
+			from local_photos import url_for, root_name_of
+			if url_for(dzi_path) is None:
+				usable, reason = False, f"root {root_name_of(dzi_path)!r} has no LOCAL_PHOTO_URLS entry to serve it in place"
 		logger.info(f"External pyramid for {unique_id}: {dzi_path} ({dzi['width']}x{dzi['height']}, "
 		            f"tile {dzi['tile_size']}, {dzi['format']}, params={dzi['params']}) — "
 		            f"{'USING' if usable else 'declined'}: {reason}")
@@ -1074,7 +1129,8 @@ class PhotoProcessor:
 			rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 			img = pyvips.Image.new_from_memory(rgb.data, w, h, 3, 'uchar')
 			webp_quality_dzi = quality if quality is not None else WEBP_QUALITY_DZI
-			img.dzsave(dzi_output_base, tile_size=tile_size, overlap=overlap, suffix=f'.{DZI_FORMAT}[Q={webp_quality_dzi},effort={DZI_WEBP_EFFORT}]')
+			with _timed(f'dzsave {w}x{h} tile {tile_size} Q{webp_quality_dzi} effort {DZI_WEBP_EFFORT}', unique_id):
+				img.dzsave(dzi_output_base, tile_size=tile_size, overlap=overlap, suffix=f'.{DZI_FORMAT}[Q={webp_quality_dzi},effort={DZI_WEBP_EFFORT}]')
 			logger.info(f"DZI generated for {unique_id}")
 			meta = {'tile_size': tile_size, 'overlap': overlap, 'format': DZI_FORMAT, 'width': w, 'height': h}
 			return dzi_file, tiles_dir, meta
@@ -1106,6 +1162,7 @@ class PhotoProcessor:
 			safe_photo_id = sanitize_filename(photo_id_part)
 			rel_dir = os.path.join('opt', 'dzi', user_id_part)
 			logger.info(f"Uploading DZI files for {unique_id} from {tiles_dir}")
+			t_ship = _timed(f"pyramid ship ({'promote in place' if keep_pics_in_worker else 'transfer to pool'})", unique_id)
 
 			# Upload the .dzi XML descriptor
 			dzi_relative = os.path.join(rel_dir, f"{safe_photo_id}.dzi")
@@ -1141,6 +1198,7 @@ class PhotoProcessor:
 							raise PoolMigrationError(f"DZI tile for {unique_id} landed on a different pool than its .dzi: {tile_url} (expected base {pool_base})")
 						tile_count += 1
 				logger.info(f"Uploaded {tile_count} DZI tiles for {unique_id}")
+				t_ship.done(f"({tile_count} tiles)")
 
 			return {
 				'type': 'dzi',

@@ -102,6 +102,19 @@ def resolve_local_photo_path(host_path: str) -> Tuple[str, str]:
 			raise LocalPhotoPathError(f"path {path!r} is not a regular file")
 		if not os.access(cpath, os.R_OK):
 			raise LocalPhotoPathError(f"path {path!r} is not readable by the worker")
+		# Belt and braces for the one thing the hop walk does not cover:
+		# INTERMEDIATE directory symlinks. The walk re-maps only the final
+		# component; a directory link inside the archive whose target happens
+		# to exist in CONTAINER space (``-> /app``, ``-> /``) would be followed
+		# by the kernel on open. Resolving in container space must therefore
+		# still land under EXTERNAL_DATA_DIR. (Host-absolute directory links
+		# into another root — ``-> /var/data/tiff/...`` — dangle in the
+		# container and were already rejected above as non-existent; that
+		# layout is unsupported by design, only final-component links are.)
+		real = os.path.realpath(cpath)
+		if not _under(real, EXTERNAL_DATA_DIR):
+			raise LocalPhotoPathError(
+				f"path {path!r} resolves outside {EXTERNAL_DATA_DIR} in the container ({real!r}) — a directory symlink escapes the mounted roots")
 		return name, cpath
 	raise LocalPhotoPathError(f"too many symlink hops resolving {host_path!r} (limit {MAX_SYMLINK_HOPS})")
 

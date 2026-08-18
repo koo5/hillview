@@ -34,6 +34,10 @@ dependencies = [
     # Pinned to a minimum with recent CVE fixes — bump when auditing
     # dependencies. Last verified working: 3.4.10.
     "OpenEXR>=3.4",
+    # Parse client-offered DZI descriptors (external pyramids) with entity
+    # expansion / external-entity resolution disabled: the .dzi comes from an
+    # operator archive, but it is still input named by the upload client.
+    "defusedxml",
 
     # ML / anonymization (CPU-only) - uses pytorch-cpu index
     "torch",
