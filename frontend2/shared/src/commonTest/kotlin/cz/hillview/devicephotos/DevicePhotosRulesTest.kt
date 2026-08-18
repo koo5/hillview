@@ -3,6 +3,8 @@ package cz.hillview.devicephotos
 import androidx.compose.ui.graphics.Color
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class DevicePhotosRulesTest {
 
@@ -24,6 +26,18 @@ class DevicePhotosRulesTest {
         assertEquals("Uploading", uploadStatusLabel("uploading"))
         assertEquals("upload Failed", uploadStatusLabel("failed"))
         assertEquals("processing", uploadStatusLabel("processing"))
+    }
+
+    @Test
+    fun licenceIsEditableOnlyWhileThePhotoIsStillOurs() {
+        // Ours to change: nothing has left the device yet.
+        assertTrue(licenseEditable("pending"))
+        assertTrue(licenseEditable("failed"))
+        // Gone or going: the server has (or is taking) its own copy, and
+        // there is no endpoint to amend it afterwards.
+        assertFalse(licenseEditable("uploading"))
+        assertFalse(licenseEditable("processing"))
+        assertFalse(licenseEditable("completed"))
     }
 
     @Test

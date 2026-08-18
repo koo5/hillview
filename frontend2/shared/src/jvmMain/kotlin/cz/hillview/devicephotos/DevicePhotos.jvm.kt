@@ -14,6 +14,8 @@ class EmptyDevicePhotoBrowser : DevicePhotoBrowser {
     override suspend fun delete(id: String, alsoFile: Boolean) {}
 
     override suspend fun retryUploads() {}
+
+    override suspend fun changeLicense(id: String, license: String) {}
 }
 
 @Composable

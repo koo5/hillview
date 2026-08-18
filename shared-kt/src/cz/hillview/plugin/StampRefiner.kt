@@ -139,10 +139,11 @@ class StampRefiner private constructor(private val context: Context) {
 
 		scope.launch {
 			inFlight.value = inFlight.value + 1
-			val startedAt = System.currentTimeMillis()
+			// A measured DURATION, so monotonic — it is only ever subtracted.
+			val startedAt = android.os.SystemClock.elapsedRealtime()
 			try {
 				val result = refine(photoId, capturedAtMs, wantLocation, wantCompass, wantKalman)
-				onResult?.invoke(result.copy(waitMs = System.currentTimeMillis() - startedAt))
+				onResult?.invoke(result.copy(waitMs = android.os.SystemClock.elapsedRealtime() - startedAt))
 			} catch (e: Exception) {
 				Log.e(TAG, "refinement of $photoId failed", e)
 			} finally {
@@ -251,11 +252,16 @@ class StampRefiner private constructor(private val context: Context) {
 		return RefineResult(photoId, "applied", 0, moved, turned)
 	}
 
+	// MONOTONIC deadline: a wall-clock one can be pushed further away by a
+	// backward time step, and this loop holds the photo's uploadHoldUntil while
+	// it spins. Note the CONTRAST with the window arithmetic in refine(), which
+	// stays on the wall clock on purpose — there the reference point is the
+	// photo's capture time, a wall-clock instant.
 	private suspend fun <T> awaitRow(t: Long, query: () -> T?): T? {
-		val deadline = System.currentTimeMillis() + BRACKET_TIMEOUT_MS
+		val deadline = android.os.SystemClock.elapsedRealtime() + BRACKET_TIMEOUT_MS
 		while (true) {
 			query()?.let { return it }
-			if (System.currentTimeMillis() >= deadline) return null
+			if (android.os.SystemClock.elapsedRealtime() >= deadline) return null
 			delay(BRACKET_POLL_MS)
 		}
 	}

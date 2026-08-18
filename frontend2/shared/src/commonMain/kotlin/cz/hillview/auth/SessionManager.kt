@@ -110,6 +110,11 @@ class SessionManager(
         tokens = stored
         store.save(stored)
         _state.value = SessionState.LoggedIn(usernameHint)
+        // A signed-out drain stops without asking WorkManager to retry — there
+        // is no point backing off against a condition only this moment can
+        // change. So this moment is what re-parks the job for whatever was
+        // queued while nobody was signed in.
+        cz.hillview.upload.reconcileUploadSchedule("login")
         // Best-effort profile fetch; the session is valid regardless.
         try {
             val user = api.me(token.accessToken)

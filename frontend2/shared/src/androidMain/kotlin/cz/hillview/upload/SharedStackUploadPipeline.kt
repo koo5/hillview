@@ -100,6 +100,7 @@ class SharedStackUploadPipeline(
                     locationSource = upload.locationSource,
                     locationAgeMs = upload.locationAgeMs,
                     exposureJson = upload.exposureJson,
+                    license = upload.license,
                     uploadHoldUntil = if (eligible) {
                         System.currentTimeMillis() + cz.hillview.plugin.StampRefiner.UPLOAD_HOLD_MS
                     } else 0,

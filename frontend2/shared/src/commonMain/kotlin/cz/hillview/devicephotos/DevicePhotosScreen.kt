@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import cz.hillview.auth.SessionManager
 import cz.hillview.auth.SessionState
+import cz.hillview.settings.ALLOWED_LICENSES
 import cz.hillview.settings.UploadSettingsRepository
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -182,6 +183,19 @@ fun DevicePhotosScreen(
                                 load(1, append = false)
                             }
                         },
+                        globalLicense = uploadSettings.license,
+                        onChangeLicense = { license ->
+                            scope.launch {
+                                browser.changeLicense(card.id, license)
+                                // Patch the one row rather than reloading:
+                                // a reload snaps a long list back to page 1,
+                                // which is a rude answer to editing a photo
+                                // you scrolled to.
+                                cards = cards.map {
+                                    if (it.id == card.id) it.copy(license = license) else it
+                                }
+                            }
+                        },
                     )
                 }
                 if (hasMore) {
@@ -209,8 +223,43 @@ private fun PhotoCard(
     retryOffered: Boolean,
     onRetry: () -> Unit,
     onDelete: (alsoFile: Boolean) -> Unit = {},
+    /** What a row with no licence of its own would go out under. */
+    globalLicense: String? = null,
+    onChangeLicense: (String) -> Unit = {},
 ) {
     var confirmingDelete by remember { mutableStateOf(false) }
+    var editingLicense by remember { mutableStateOf(false) }
+
+    if (editingLicense) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { editingLicense = false },
+            title = { Text("License for this photo") },
+            text = {
+                Column {
+                    Text(
+                        "Set when the photo was taken, and only changeable " +
+                            "until it goes out — afterwards the server has " +
+                            "its own copy.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    ALLOWED_LICENSES.forEach { option ->
+                        TextButton(
+                            onClick = { editingLicense = false; onChangeLicense(option) },
+                            modifier = Modifier.testTag("license-option-$option"),
+                        ) {
+                            Text(
+                                if (option == (card.license ?: globalLicense)) "● $option"
+                                else "○ $option",
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { editingLicense = false }) { Text("Cancel") }
+            },
+        )
+    }
 
     if (confirmingDelete) {
         androidx.compose.material3.AlertDialog(
@@ -294,6 +343,13 @@ private fun PhotoCard(
                     card.bearingDeg?.let { Detail("Bearing", "${fmt1(it)}°") }
                     Detail("Dimensions", "${card.width} × ${card.height}")
                     if (card.retryCount > 0) Detail("Retries", card.retryCount.toString())
+                    // The licence THIS photo carries. Rows from before it
+                    // was per-photo say so rather than pretending: they go
+                    // out under whatever the setting says at upload time.
+                    Detail(
+                        "License",
+                        card.license ?: (globalLicense?.let { "$it (global)" } ?: "not set"),
+                    )
                 }
             }
             Text(
@@ -346,10 +402,22 @@ private fun PhotoCard(
             // delete aimed at the same spot lands on a different photo. For
             // a destructive action that is unacceptable — and the dialog has
             // room to say what the two deletes differ on.
-            TextButton(
-                onClick = { confirmingDelete = true },
-                modifier = Modifier.testTag("delete-photo-button"),
-            ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            Row {
+                TextButton(
+                    onClick = { confirmingDelete = true },
+                    modifier = Modifier.testTag("delete-photo-button"),
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+
+                // Always drawn, disabled once the photo is out of our hands,
+                // rather than appearing and disappearing with the status: a
+                // row whose upload starts while you are looking at it would
+                // otherwise pull Delete sideways under your thumb.
+                TextButton(
+                    onClick = { editingLicense = true },
+                    enabled = licenseEditable(card.uploadStatus),
+                    modifier = Modifier.testTag("change-license-button"),
+                ) { Text("Change license") }
+            }
         }
     }
 }

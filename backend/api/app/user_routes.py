@@ -1518,8 +1518,9 @@ async def register_client_public_key(
 			detail="Failed to register client public key"
 		)
 
-# Upload authorization for secure uploads
-ALLOWED_LICENSES = {'ccbysa4+osm', 'full1'}
+# Upload authorization for secure uploads. The vocabulary is defined once, in
+# hillview_routes, alongside the mapping that turns it into a public name.
+from hillview_routes import ALLOWED_LICENSES
 
 class UploadAuthorizationRequest(BaseModel):
 	# Tolerate unknown fields but log them (see authorize_upload) — catches

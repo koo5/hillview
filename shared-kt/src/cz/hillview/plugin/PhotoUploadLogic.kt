@@ -172,6 +172,9 @@ class PhotoUploadLogic(internal val context: Context) {
 
 				var workerBusy = false
 				var networkDeferred = false
+				// Set when the loop stops because a precondition went away
+				// rather than because the work is done — see the return below.
+				var stoppedByGate: String? = null
 				while (true) {
 					// Stop promptly when WorkManager cancels this run (e.g. the
 					// wifi-only constraint stopped holding mid-drain) — everything
@@ -192,6 +195,7 @@ class PhotoUploadLogic(internal val context: Context) {
 							TAG,
 							"Auto upload disabled, stopping upload work"
 						)
+						stoppedByGate = "auto-upload is off"
 						break
 					}
 
@@ -264,6 +268,7 @@ class PhotoUploadLogic(internal val context: Context) {
 							TAG,
 							"🔐 No valid auth token available, stopping upload work"
 						)
+						stoppedByGate = "not signed in"
 						break
 					}
 
@@ -401,6 +406,30 @@ class PhotoUploadLogic(internal val context: Context) {
 				if (networkDeferred) {
 					Log.d(TAG, "Metered network with wifi-only — letting WorkManager reschedule the drain")
 					recordDrain(triggerSource, "deferred: metered network, Wi-Fi only is on")
+					return ListenableWorker.Result.retry()
+				}
+
+				// A pass that stopped because the GATE closed under it (signed
+				// out, auto-upload switched off mid-drain) is finished, not
+				// deferred: retrying would spin against a condition only a user
+				// action can change, and that action reconciles the schedule
+				// itself. Anything else that leaves work behind is deferred.
+				if (stoppedByGate != null) {
+					recordDrain(triggerSource, "stopped: $stoppedByGate")
+					return ListenableWorker.Result.success()
+				}
+
+				// The hole this closes: a pass that marked every photo failed
+				// used to report success, so WorkManager dropped the job and
+				// NOTHING was left waiting on the network constraint. The queue
+				// then sat unattended until the next capture — which is exactly
+				// what made "Wi-Fi came back and nothing happened" possible.
+				// Reporting the truth (work remains) keeps the job alive, backing
+				// off, and still constraint-tracked: it IS the standing job.
+				val leftover = photoDao.getPendingUploadCount() + photoDao.getFailedUploadCount()
+				if (leftover > 0) {
+					Log.d(TAG, "Drain finished with $leftover still queued — deferring to WorkManager")
+					recordDrain(triggerSource, "completed, $uploadedCount uploaded, $leftover still queued")
 					return ListenableWorker.Result.retry()
 				}
 
@@ -639,7 +668,11 @@ class PhotoUploadLogic(internal val context: Context) {
 		val keyInfo = clientCrypto.getPublicKeyInfo()
 			?: throw Exception("Failed to get client key info - ensure crypto keys are available")
 
-		val license = prefs.getString("auto_upload_license", null)
+		// The PHOTO's licence, which was snapshotted at capture. The global
+		// setting is only the fallback, for rows captured before licences
+		// were per-photo — otherwise changing the setting would retroactively
+		// relicense everything still queued.
+		val license = photo.license ?: prefs.getString("auto_upload_license", null)
 		if (license == null) {
 			Log.d(TAG, "No upload license configured, skipping upload")
 			throw Exception("No upload license configured")
@@ -1303,6 +1336,8 @@ class PhotoUploadLogic(internal val context: Context) {
         locationSource: String? = null,
         locationAgeMs: Long? = null,
         exposureJson: String? = null,
+        /** The licence in force at capture — see PhotoEntity.license. */
+        license: String? = null,
         // The refiner's upload gate (PhotoEntity.uploadHoldUntil): non-zero
         // keeps the drain off the row until then, so refinement wins the
         // race against an expedited upload.
@@ -1338,6 +1373,7 @@ class PhotoUploadLogic(internal val context: Context) {
             locationSource = locationSource,
             locationAgeMs = locationAgeMs,
             exposureJson = exposureJson,
+            license = license,
             uploadHoldUntil = uploadHoldUntil,
         )
 

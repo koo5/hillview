@@ -62,3 +62,13 @@ expect suspend fun triggerUploadNow(): String
  * one most likely to be about the phone's network rather than the app.
  */
 expect suspend fun pingBackend(): String
+
+/**
+ * Tell the upload scheduler that something changed which could alter what the
+ * schedule should be — see shared-kt's UploadScheduler.kt. Callers never decide
+ * whether anything is enqueued; they only report that the world moved.
+ *
+ * Exists here because the events that matter (a session starting) live in
+ * common code while the scheduler is Android-only.
+ */
+expect fun reconcileUploadSchedule(reason: String)

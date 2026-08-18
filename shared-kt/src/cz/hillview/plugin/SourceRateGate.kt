@@ -1,5 +1,6 @@
 package cz.hillview.plugin
 
+import android.os.SystemClock
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -18,11 +19,14 @@ import java.util.concurrent.ConcurrentHashMap
  * upstream (EnhancedSensorService at 10 Hz, fixes at ~1 Hz).
  *
  * [clock] is injectable only so the rules above can be asserted without
- * sleeping — production always runs on the wall clock.
+ * sleeping — production runs on the MONOTONIC clock. It used to run on the
+ * wall clock, which meant a backward step (an NTP correction after a doze)
+ * stalled every source's writes for the length of the jump: the tracking
+ * tables simply stopped filling, with the sensors running normally.
  */
 internal class SourceRateGate(
     private val intervalMs: Long,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = SystemClock::elapsedRealtime,
 ) {
     private val lastAccepted = ConcurrentHashMap<Int, Long>()
 

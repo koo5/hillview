@@ -82,7 +82,23 @@ data class PhotoEntity(
     // refined: not eligible (manual position), no bracketing data in time,
     // or the upload grabbed the row first — all of which deliberately keep
     // the at-the-time stamp. Rides into the upload metadata as "refined".
-    val stampRefinedAt: Long? = null
+    val stampRefinedAt: Long? = null,
+
+    /**
+     * The licence THIS photo is offered under (v17), snapshotted from the
+     * global setting at capture.
+     *
+     * A licence is a statement about a particular photo, made when it was
+     * taken — not a property of the app's current configuration. Reading the
+     * global setting at UPLOAD time meant a photo shot under one licence and
+     * uploaded after the user changed the setting went out under the new
+     * one, silently, which is the wrong answer and an unpleasant one to
+     * discover later.
+     *
+     * Null on rows captured before this existed; the upload falls back to
+     * the global setting for those, so they stay uploadable.
+     */
+    val license: String? = null
 )
 
 enum class UploadStatus {

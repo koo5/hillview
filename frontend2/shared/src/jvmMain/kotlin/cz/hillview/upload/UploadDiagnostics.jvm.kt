@@ -20,3 +20,6 @@ actual suspend fun collectUploadDiagnostics(): UploadDiagnostics = UploadDiagnos
 actual suspend fun triggerUploadNow(): String = "Not on this platform."
 
 actual suspend fun pingBackend(): String = "Not on this platform."
+
+/** Desktop has no upload scheduler to reconcile — there is no capture either. */
+actual fun reconcileUploadSchedule(reason: String) {}

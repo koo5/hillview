@@ -111,6 +111,42 @@ test.describe('Photo Detail Page', () => {
 		await expect(flagButton).toContainText('Flag');
 	});
 
+	test('shows the licence, and the trail once it has been changed', async ({ page, testUsers }) => {
+		const uid = requirePhotoUid();
+
+		// Before any change: the licence stands alone, with nothing to disclose.
+		await page.goto(`/photo/${uid}`);
+		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: T(10000) });
+		await expect(page.getByTestId('photo-detail-license')).toBeVisible();
+		await expect(page.getByTestId('photo-detail-license-history-toggle')).toHaveCount(0);
+
+		// Relicense it as its owner, through the edit form — the case the
+		// history exists for. Note the two vocabularies: the form offers grant
+		// identifiers while the line above reads back a public name.
+		await loginAsTestUser(page, testUsers.passwords.test);
+		await page.goto(`/photo/${uid}`);
+		await expect(page.getByTestId('photo-edit-form')).toBeVisible({ timeout: T(10000) });
+		await page.getByTestId('photo-edit-license-select').selectOption('full1');
+		await page.getByTestId('photo-edit-save-button').click();
+
+		await page.goto(`/photo/${uid}`);
+		await expect(page.getByTestId('photo-detail-license')).toHaveText('All rights reserved', {
+			timeout: T(10000)
+		});
+
+		// Collapsed by default; the trail is a click away.
+		const toggle = page.getByTestId('photo-detail-license-history-toggle');
+		await expect(toggle).toContainText('changed (1)');
+		await expect(page.getByTestId('photo-detail-license-history')).toHaveCount(0);
+
+		await toggle.click();
+		const history = page.getByTestId('photo-detail-license-history');
+		await expect(history).toBeVisible();
+		await expect(history).toContainText('CC BY-SA 4.0 + OSM mapping grant');
+		await expect(history).toContainText('All rights reserved');
+		await expect(history).toContainText('by the owner');
+	});
+
 	test('should navigate to user profile when owner link is clicked', async ({ page }) => {
 		await page.goto(`/photo/${requirePhotoUid()}`);
 		await expect(page.getByTestId('photo-detail')).toBeVisible({ timeout: T(10000) });

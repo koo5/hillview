@@ -32,6 +32,12 @@ data class DevicePhotoCard(
      * never upload — it is the main thing worth deleting in bulk.
      */
     val fileMissing: Boolean = false,
+    /**
+     * The licence THIS photo goes out under, snapshotted at capture. Null on
+     * rows taken before licences were per-photo; those still upload under the
+     * global setting, which is what the card says.
+     */
+    val license: String? = null,
 )
 
 /**
@@ -78,7 +84,22 @@ interface DevicePhotoBrowser {
      * bypasses the wifi-only constraint.
      */
     suspend fun retryUploads()
+
+    /**
+     * Relicense a single photo. A DIVERGENCE from the original, where the
+     * licence is one global setting read at upload time: here it is a
+     * property of the photo, fixed when the shutter fired, so a setting
+     * change cannot silently relicense a queue.
+     *
+     * Only offered while the row has not gone out — once the server has it,
+     * its copy is the one that counts and there is no endpoint to amend it.
+     */
+    suspend fun changeLicense(id: String, license: String)
 }
+
+/** A row whose licence is still ours to change (not yet on the server). */
+fun licenseEditable(status: String): Boolean =
+    status == "pending" || status == "failed"
 
 /** The thumbnail: decoded from the locator on Android, a placeholder elsewhere. */
 @Composable

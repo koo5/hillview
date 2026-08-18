@@ -298,6 +298,8 @@ fun CaptureScreen(
                 locationSource = photo.snapshot.locationSource,
                 locationAgeMs = photo.snapshot.locationAgeMs,
                 exposureJson = photo.snapshot.exposure?.let { exposureProvenanceJson(it) },
+                // Snapshot, not a live read — see PendingUpload.license.
+                license = uploadSettings.license,
             )
         )
         // Under eco the map catches up here, once per capture — Tauri's

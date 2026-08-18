@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import cz.hillview.plugin.EventLog
 import cz.hillview.plugin.PhotoDatabase
 import cz.hillview.plugin.PhotoUploadManager
 import cz.hillview.plugin.PhotoUtils
@@ -54,6 +55,7 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
                     // and such a row can never upload no matter how often it
                     // is retried, so it is worth saying so on the card.
                     fileMissing = !locatorExists(context, it.path),
+                    license = it.license,
                 )
             }
             val total = if (filter.status == null) {
@@ -105,6 +107,11 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
         withContext(Dispatchers.IO) {
             PhotoUploadManager(context).startAutomaticUpload("retry_button")
         }
+    }
+
+    override suspend fun changeLicense(id: String, license: String) = withContext(Dispatchers.IO) {
+        PhotoDatabase.getDatabase(context).photoDao().updateLicense(id, license)
+        EventLog.record("upload", "license set to $license for $id")
     }
 }
 

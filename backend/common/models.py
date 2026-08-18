@@ -336,6 +336,52 @@ class PhotoModerationAudit(Base):
 	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class PhotoLicenseHistory(Base):
+	"""Every change to a photo's licence, whoever made it.
+
+	Separate from ``PhotoModerationAudit`` on purpose. That table answers "what
+	did a moderator do to someone else's photo", and relicensing is normally
+	the OWNER's own act — putting those rows there would bury the moderation
+	view under routine edits. This table answers a different question, one
+	nothing else can: *under which licence was this photo offered, and when*.
+	Someone who took a copy under CC-BY-SA relies on it having been offered
+	that way at that moment; a silent later switch to something stricter must
+	not be able to erase that. So the record is append-only and kept even when
+	the actor is a moderator (whose action ALSO lands in the moderation audit).
+
+	Denormalized and FK-free for the same reason as the moderation audit: it
+	must outlive the photo row and both accounts.
+
+	The ORIGINAL grant is not a row here — it is the licence chosen at upload
+	(``Photo.legal_rights`` as of ``Photo.uploaded_at``); the first change
+	snapshots it in ``old_license``.
+	"""
+	__tablename__ = "photo_license_history"
+
+	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+
+	photo_id: Mapped[str] = mapped_column(String(255), index=True)  # no FK — survives photo deletion
+	photo_owner_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+	photo_owner_username: Mapped[Optional[str]] = mapped_column(String)
+
+	# Both sides of the change: null old_license = the photo carried none.
+	old_license: Mapped[Optional[str]] = mapped_column(String)
+	new_license: Mapped[Optional[str]] = mapped_column(String)
+
+	actor_user_id: Mapped[str] = mapped_column(String, index=True)
+	actor_username: Mapped[Optional[str]] = mapped_column(String)
+	actor_role: Mapped[Optional[str]] = mapped_column(String)
+	# Whether the actor was the owner AT THE TIME — ownership can change, and
+	# "did the rights-holder do this themselves?" is the question that matters.
+	actor_was_owner: Mapped[bool] = mapped_column(Boolean, default=False)
+
+	reason: Mapped[Optional[str]] = mapped_column(Text)
+	ip_address: Mapped[Optional[str]] = mapped_column(String)
+	user_agent: Mapped[Optional[str]] = mapped_column(String)
+
+	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class AnnotationModeration(Base):
 	"""Record of a reactive moderation action (undo/revert) on an annotation chain.
 

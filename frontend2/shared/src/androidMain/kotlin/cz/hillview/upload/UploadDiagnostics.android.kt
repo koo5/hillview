@@ -7,6 +7,11 @@ import android.os.Build
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import cz.hillview.plugin.PhotoDatabase
+import cz.hillview.plugin.PhotoUploadManager
+import cz.hillview.plugin.ScheduleAction
+import cz.hillview.plugin.UploadGate
+import cz.hillview.plugin.UploadQueueSnapshot
+import cz.hillview.plugin.decideUploadSchedule
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.koin.core.context.GlobalContext
@@ -140,6 +145,49 @@ actual suspend fun collectUploadDiagnostics(): UploadDiagnostics = withContext(D
         note = if (pending == 0 && failed == 0) "Nothing waiting to go." else null,
     )
 
+    // ---- the invariant, checked ----------------------------------------
+    // Not a WorkManager fact but a JUDGEMENT: the same decision the reconciler
+    // makes, compared against what is actually scheduled. This is the row that
+    // can say "photos are waiting and NOTHING is scheduled" — which the raw
+    // states below cannot, because a finished job reads as a tidy "succeeded"
+    // whether or not it left the queue unattended.
+    val scheduled = runCatching { PhotoUploadManager(context).scheduledWork() }.getOrNull()
+    if (scheduled != null) {
+        val decision = decideUploadSchedule(
+            gate = UploadGate(
+                autoUploadEnabled = autoUpload,
+                hasLicense = licence != null,
+                wifiOnly = wifiOnly,
+            ),
+            queue = UploadQueueSnapshot(waiting = pending + failed),
+            existing = scheduled,
+            leadingEdge = true,
+            bypassWifiOnly = false,
+        )
+        rows += when (decision) {
+            is ScheduleAction.Leave -> DiagRow(
+                "Schedule", "matches — ${decision.why}", DiagVerdict.Ok,
+            )
+            is ScheduleAction.CancelAll -> if (scheduled.exists) {
+                DiagRow(
+                    "Schedule", "stale job queued — ${decision.why}", DiagVerdict.Info,
+                    note = "It will be dropped at the next reconcile.",
+                )
+            } else {
+                DiagRow("Schedule", "nothing scheduled — ${decision.why}", DiagVerdict.Ok)
+            }
+            // Reaching this means the reconciler has not run (or failed) since
+            // whatever made the queue non-empty: uploads will NOT resume on
+            // their own when the network comes back.
+            is ScheduleAction.Ensure -> DiagRow(
+                "Schedule", "MISSING — ${decision.why}", DiagVerdict.Blocking,
+                note = "Nothing is waiting on the network, so a connection " +
+                    "returning will not start an upload. Use Upload now, and " +
+                    "report this — the schedule should never need a human.",
+            )
+        }
+    }
+
     // ---- what WorkManager itself says ----------------------------------
     // State, next run and stop reason are WorkInfo fields: the scheduler is
     // asked rather than modelled.
@@ -246,5 +294,25 @@ actual suspend fun pingBackend(): String = withContext(Dispatchers.IO) {
         // and certificate failures each mean something different.
         "Unreachable after ${System.currentTimeMillis() - started}ms — " +
             "${e::class.simpleName}: ${e.message}"
+    }
+}
+
+actual fun reconcileUploadSchedule(reason: String) {
+    // Best-effort by construction. This is a side effect of events that matter
+    // for their own reasons — a login must not fail because the upload schedule
+    // could not be reconciled, and the backstop sweep exists precisely so a
+    // missed reconcile costs latency rather than correctness. (Host tests
+    // exercise SessionManager with no Koin container at all, which is how this
+    // was found.)
+    try {
+        val context: Context = GlobalContext.get().get()
+        PhotoUploadManager(context).reconcile(reason)
+    } catch (e: Throwable) {
+        // The log is guarded too: android.util.Log is not mocked on the host,
+        // so an unguarded warning would turn "reconcile unavailable" back into
+        // the failed login this whole block exists to prevent.
+        runCatching {
+            android.util.Log.w("UploadDiagnostics", "reconcile [$reason] skipped: ${e.message}")
+        }
     }
 }

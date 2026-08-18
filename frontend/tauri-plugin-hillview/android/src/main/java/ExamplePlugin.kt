@@ -2392,34 +2392,19 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 						.putBoolean("landscape_armor22_workaround", merged.landscapeArmor22)
 						.apply()
 
-					// Schedule or cancel the upload worker based on enabled state
-					val workManager = WorkManager.getInstance(activity)
-					if (merged.autoUploadEnabled) {
-						photoUploadManager.scheduleUploadWorker(workManager, merged.autoUploadEnabled, merged.wifiOnly)
-						Log.i(TAG, "🔧 Settings saved, upload worker scheduled")
-						// A wifi_only flip must invalidate the queued one-time drains:
-						// their network constraint was baked in at enqueue time and KEEP
-						// holds the stale job forever — after switching wifi-only OFF, a
-						// drain enqueued with UNMETERED sits blocked on mobile data and
-						// also KEEP-blocks any fresh enqueue under the same name. (The
-						// restrictive direction is additionally enforced per photo in
-						// the drain loop.) Cancel and spawn a fresh drain so pending
-						// photos are re-evaluated under the new setting. Same when
-						// auto-upload itself just flipped on: photos captured while it
-						// was off would otherwise wait for the next capture or the
-						// periodic worker.
-						if (previous.wifiOnly != merged.wifiOnly || !previous.autoUploadEnabled) {
-							photoUploadManager.cancelQueuedUploads(workManager)
-							photoUploadManager.startAutomaticUpload("settings_changed")
-						}
-					} else {
-						workManager.cancelUniqueWork(PhotoUploadWorker.WORK_NAME)
-						// One-time drains + their retry chains survive the toggle
-						// otherwise and fire again hours later (e.g. when a stuck
-						// worker comes back) — see cancelQueuedUploads.
-						photoUploadManager.cancelQueuedUploads(workManager)
-						Log.i(TAG, "🔧 Settings saved, upload worker cancelled")
-					}
+					// The settings just changed what the schedule SHOULD be, so
+					// say so and let the reconciler work out the rest — it
+					// cancels a stale-constraint job before enqueueing (a
+					// wifi_only flip used to leave one sitting there under KEEP,
+					// swallowing every later enqueue), picks up photos captured
+					// while auto-upload was off, and drops everything including
+					// the periodic backstop when the gate shuts.
+					//
+					// This handler used to make those decisions itself, which is
+					// how the app ended up with two disagreeing schedulers. See
+					// UploadScheduler.kt.
+					photoUploadManager.reconcile("settings_changed")
+					Log.i(TAG, "🔧 Settings saved, upload schedule reconciled")
 				}
 
 				"device_photos_stats" -> {
