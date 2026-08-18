@@ -113,6 +113,11 @@ PROFILES = {
 			# (per-photo keep_pics_in_worker uploads; the toggle itself is
 			# ALLOW_KEEP_PICS_IN_WORKER, deliberately NOT profile-managed).
 			"WORKER_PICS_URL": "http://10.0.0.24:9999/wpics/",
+			# name=url map for photo trees the worker may serve IN PLACE (external
+			# pyramids offered via --pyramid; dev-only, Caddy mounts the archive
+			# read-only at /apics). Names are the LOCAL_PHOTO_ROOTS root names
+			# from .env (mounted at /external-data/<name> in the worker).
+			"LOCAL_PHOTO_URLS": "autocopy=http://10.0.0.24:9999/apics/",
 		},
 		"frontend_env": {
 			"VITE_BACKEND": "http://10.0.0.24:8055/api",
@@ -149,6 +154,11 @@ PROFILES = {
 			# (per-photo keep_pics_in_worker uploads; the toggle itself is
 			# ALLOW_KEEP_PICS_IN_WORKER, deliberately NOT profile-managed).
 			"WORKER_PICS_URL": "https://hv.jj.internal/wpics/",
+			# name=url map for photo trees the worker may serve IN PLACE (external
+			# pyramids offered via --pyramid; dev-only, Caddy mounts the archive
+			# read-only at /apics). Names are the LOCAL_PHOTO_ROOTS root names
+			# from .env (mounted at /external-data/<name> in the worker).
+			"LOCAL_PHOTO_URLS": "autocopy=https://hv.jj.internal/apics/",
 		},
 		"frontend_env": {
 			"VITE_BACKEND": "https://hv.jj.internal/api",
@@ -185,6 +195,7 @@ PROFILES = {
 	# itself rather than to dev4.
 	**vm_profiles("dev4", "192.168.122.64"),
 	**vm_profiles("dev4-3", "192.168.122.31", ygg_reachable_locally=True),
+	**vm_profiles("dev4-2", "192.168.122.37", ygg_reachable_locally=True),
 }
 
 

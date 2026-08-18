@@ -347,6 +347,10 @@ class UploadParams:
 	quality: int = None              # worker WebP quality (1-100)
 	fast: bool = False               # worker fast path
 	metadata: str = None             # worker BrowserMetadata JSON (EXR geo etc.)
+	keep_pics_in_worker: bool = False  # worker; serve artifacts from its own volume (needs ALLOW_KEEP_PICS_IN_WORKER)
+	no_upload: bool = False          # worker reads the file from its own mounts (needs LOCAL_PHOTO_ROOTS); no body transfer
+	fast_md5: bool = False           # authorize-upload identity from first MiB + size, not the whole file
+	pyramid: str = None              # OFFER this externally rendered <prefix>.dzi to the worker (single-file uploads; worker decides whether to use it)
 
 
 async def _parallel_upload(items, parallel, get_image_data, token_or_manager, format_success, timeout=60, get_captured_at=None, params=None):
@@ -355,7 +359,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 	Args:
 		items: List of (index, filename, description, extra_data) tuples
 		parallel: Number of concurrent uploads
-		get_image_data: Callable(extra_data) -> (bytes, lat, lon)
+		get_image_data: Callable(extra_data) -> (bytes or file path, lat, lon)
 		token_or_manager: Auth token string or TokenManager instance
 		format_success: Callable(index, total, filename, photo_data, extra_data) -> str
 		timeout: Processing timeout per photo
@@ -431,12 +435,16 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				authorize_kwargs = {}
 				if params.license is not None:
 					authorize_kwargs["license"] = params.license
+				# image_data is bytes (generated test images) or a file path
+				# (upload_files); paths are hashed and streamed from disk.
+				file_size = os.path.getsize(image_data) if isinstance(image_data, str) else len(image_data)
 				auth_data = await upload_client.authorize_upload_with_params(
-					token, filename, len(image_data), lat, lon,
+					token, filename, file_size, lat, lon,
 					description, is_public=True, file_data=image_data,
 					captured_at=captured_at, version=params.version,
 					title=params.title, keywords=params.keywords,
 					featured=params.featured,
+					fast_md5=params.fast_md5,
 					**authorize_kwargs,
 				)
 
@@ -452,7 +460,7 @@ async def _parallel_upload(items, parallel, get_image_data, token_or_manager, fo
 				if worker_url_override:
 					auth_data["worker_url"] = worker_url_override
 
-				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename, anonymization_override=params.anonymization_override, quality=params.quality, fast=params.fast, metadata=params.metadata)
+				result = await upload_client.upload_to_worker(image_data, auth_data, client_keys, filename, anonymization_override=params.anonymization_override, quality=params.quality, fast=params.fast, metadata=params.metadata, keep_pics_in_worker=params.keep_pics_in_worker, no_upload=params.no_upload, local_pyramid_path=params.pyramid)
 				photo_id = result.get('photo_id', auth_data.get('photo_id'))
 				worker_warnings = result.get('warnings') or []
 
@@ -694,7 +702,7 @@ def upload_random_photos(count: int = 10, parallel: int = 1, user: str = None, p
 		_maybe_traceback()
 
 
-def upload_files(files: list, license: str, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None, manifest_path: str = None, title: str = None, keywords: list = None, anonymization_override: str = None, featured: bool = False):
+def upload_files(files: list, license: str, parallel: int = 1, user: str = None, password: str = None, skip_anonymization: bool = False, version: int = None, description: str = None, quality: int = None, fast: bool = False, metadata: str = None, manifest_path: str = None, title: str = None, keywords: list = None, anonymization_override: str = None, featured: bool = False, keep_pics_in_worker: bool = False, no_upload: bool = False, fast_md5: bool = False, pyramid: str = None):
 	"""Upload files from command line paths.
 
 	metadata: JSON string matching the worker's BrowserMetadata schema
@@ -762,8 +770,15 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 		items = [(i, os.path.basename(f), description, f) for i, f in enumerate(files)]
 
 		def read_file(filepath):
-			with open(filepath, 'rb') as f:
-				return f.read(), meta_lat, meta_lon
+			# Return the path, not the bytes: authorize-upload hashes a path in
+			# chunks and upload_to_worker streams it from disk, so a multi-GB
+			# pano never has to fit in RAM or in a single TLS write (the
+			# "SSLError: [BUF] malloc failure" on big EXRs). The open() probe
+			# preserves upload_one's FileNotFoundError→skipped behavior for
+			# files that vanished since the batch was listed.
+			with open(filepath, 'rb'):
+				pass
+			return filepath, meta_lat, meta_lon
 
 		def format_success(i, total, filename, photo_data, extra):
 			lat = photo_data.get('latitude')
@@ -782,6 +797,8 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 			license=license, version=version, title=title, keywords=keywords,
 			featured=featured,
 			anonymization_override=anon_override, quality=quality, fast=fast, metadata=metadata,
+			keep_pics_in_worker=keep_pics_in_worker,
+			no_upload=no_upload, fast_md5=fast_md5, pyramid=pyramid,
 		)
 		per_item = await _parallel_upload(items, parallel, read_file, token_manager, format_success, timeout=60, params=params)
 
@@ -1090,6 +1107,28 @@ def main():
 			     "would read it as an empty rectangle list and SKIP anonymization")
 		parser.add_argument("--fast", action="store_true",
 			help="skip pyramid / 640_llm / EXIF copy; fast WebP encode")
+		parser.add_argument("--keep-pics-in-worker", action="store_true",
+			help="serve the processed artifacts straight from the worker's own "
+			     "uploads volume instead of shipping them to the API's storage "
+			     "pool. The worker rejects this with 400 unless it runs with "
+			     "ALLOW_KEEP_PICS_IN_WORKER=true")
+		parser.add_argument("--no-upload", action="store_true",
+			help="send the worker only the file's PATH — no body transfer. The "
+			     "file must be visible to the worker under its LOCAL_PHOTO_ROOTS "
+			     "read-only mounts (symlinks are walked and validated worker-side); "
+			     "rejected with 400 otherwise")
+		parser.add_argument("--pyramid", metavar="PREFIX.dzi",
+			help="OFFER an externally rendered DZI pyramid (e.g. the pano pipeline's "
+			     "phase_13 <prefix>.dzi, tiles in <prefix>_files/ beside it) to the "
+			     "worker. The worker decides whether to use it (anonymization, "
+			     "dev-vs-prod, parameter policy) and silently declines otherwise. "
+			     "Single-file uploads only; needs LOCAL_PHOTO_ROOTS on the worker")
+		parser.add_argument("--fast-md5", action="store_true",
+			help="hash only the first MiB + file size for the authorize-upload "
+			     "dedup identity, instead of reading the whole file. Distinct "
+			     "files sharing their first MiB AND size would collide, and a "
+			     "file's fast id differs from its full-hash id (switching the "
+			     "flag between runs re-uploads instead of deduping)")
 		parser.add_argument("--version", type=int,
 			help="authorize-upload version; >1 allows re-uploading completed photos")
 		parser.add_argument("--title", help="concise photo title (headline)")
@@ -1129,6 +1168,14 @@ def main():
 		if opts.worker_url is not None:
 			os.environ["WORKER_URL"] = opts.worker_url
 
+		if opts.pyramid:
+			if len(opts.files) != 1:
+				parser.error("--pyramid applies to exactly one file (a pyramid belongs to one photo)")
+			if not os.path.isfile(opts.pyramid) or not opts.pyramid.lower().endswith('.dzi'):
+				parser.error(f"--pyramid must be an existing <prefix>.dzi descriptor: {opts.pyramid}")
+			if not os.path.isdir(opts.pyramid[:-len('.dzi')] + '_files'):
+				parser.error(f"--pyramid: tile tree missing next to descriptor: {opts.pyramid[:-len('.dzi')]}_files")
+
 		# shared: uploads are additive — overlap freely, exclude test runs.
 		with backend_test_lock(shared=True):
 			upload_files(opts.files, opts.license, opts.parallel, opts.user, opts.password,
@@ -1137,7 +1184,10 @@ def main():
 				metadata=opts.metadata, manifest_path=opts.manifest,
 				title=opts.title, keywords=opts.keywords,
 				anonymization_override=opts.anonymization_override,
-				featured=opts.featured)
+				featured=opts.featured,
+				keep_pics_in_worker=opts.keep_pics_in_worker,
+				no_upload=opts.no_upload, fast_md5=opts.fast_md5,
+				pyramid=os.path.abspath(opts.pyramid) if opts.pyramid else None)
 	elif command == "dump-photos":
 		import argparse
 		parser = argparse.ArgumentParser(

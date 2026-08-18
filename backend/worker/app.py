@@ -85,10 +85,13 @@ from jwt_service import validate_upload_authorization_token, sign_processing_res
 from exceptions import PhotoDeletedException
 import worker_processing
 
+# NB: common.file_utils also has cleanup_file_on_error — deliberately NOT
+# imported. It unlinks its argument, and this module's file_path may be a
+# read-only local_photo_path source the worker must never delete; job cleanup
+# is the work-dir rmtree in process() only.
 from common.file_utils import (
 	validate_and_prepare_photo_file,
 	verify_saved_file_content,
-	cleanup_file_on_error,
 	get_file_size_from_upload
 )
 from common.security_utils import (
@@ -229,10 +232,31 @@ security = HTTPBearer()
 UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "/app/uploads/"))
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-# Dev-only: when set, the worker serves processed files straight from its own
-# volume (the local opt/ file IS the served copy), so per-job work dirs and
-# cleanup are disabled — see process(). Prod ships to the pool and cleans up.
-KEEP_PICS_IN_WORKER = os.getenv("KEEP_PICS_IN_WORKER", "false").lower() in ("true", "1", "yes")
+# When set, this worker ALLOWS keep-pics-in-worker uploads: a photo whose
+# upload carries the keep_pics_in_worker form field gets its finished artifacts
+# promoted out of the per-job work dir into this worker's own uploads volume
+# and served from there at WORKER_PICS_URL, instead of shipped to the API's
+# storage pool — see photo_processor._get_size_url. The env var only permits;
+# activation is per photo via the form field, and requesting it on a worker
+# that doesn't allow it is a hard 400 (never a silent fall-back to shipping,
+# which would store the photo somewhere the caller didn't ask for).
+ALLOW_KEEP_PICS_IN_WORKER = os.getenv("ALLOW_KEEP_PICS_IN_WORKER", "false").lower() in ("true", "1", "yes")
+
+# No-upload ingestion (dev): client-named photo trees, bind-mounted READ-ONLY
+# under the generic /external-data/<name> prefix — see local_photos.py for the
+# host→container mapping and why it makes hijack attempts impossible by
+# construction. LOCAL_PHOTO_ROOTS doubles as the feature gate: unset means a
+# local_photo_path request is a hard 400 (an external-pyramid OFFER is merely
+# declined — see _check_local_pyramid).
+import local_photos
+
+
+def _resolve_local_photo_path(local_photo_path: str) -> str:
+	"""Client HOST path → container path of a readable file, or 400 naming why."""
+	try:
+		return local_photos.resolve_local_photo_path(local_photo_path)[1]
+	except local_photos.LocalPhotoPathError as e:
+		raise HTTPException(status_code=400, detail=f"local_photo_path: {e}")
 
 # Development deployment gate (dev/aux), matching the backend's canonical DEV_MODE
 # convention (see common.debug_faults). In DEV_MODE, resource-wait / worker-died
@@ -247,9 +271,10 @@ def _sweep_stale_work_dirs():
 	suspended/redeployed by Fly) before ``process()``'s finally could rmtree
 	them. Safe at startup: no job is in flight yet, so every ``{UPLOAD_DIR}/work``
 	entry is an orphan. This is the parent-crash counterpart to the per-job
-	rmtree (which only covers a subprocess death, not a whole-worker death)."""
-	if KEEP_PICS_IN_WORKER:
-		return
+	rmtree (which only covers a subprocess death, not a whole-worker death).
+	Safe for keep-pics-in-worker photos too: their artifacts are promoted OUT
+	of the work dir (into UPLOAD_DIR/opt/) as each URL is built, so nothing
+	served ever lives under work/."""
 	work_root = UPLOAD_DIR / "work"
 	if not work_root.is_dir():
 		return
@@ -1096,60 +1121,132 @@ def validate_upload_parameters(upload_auth: dict, file) -> (str, str):
 			detail=f"Invalid upload parameters: {str(e)}"
 		)
 
-	logger.info(f"receive photo {photo_id}, user {user_id}, key {client_key_id}: {file.filename} ...")
+	logger.info(f"receive photo {photo_id}, user {user_id}, key {client_key_id}: {file.filename if file else '<local_photo_path>'} ...")
 	return photo_id, user_id
+
+
+def _check_keep_pics_allowed(keep_pics_in_worker: Optional[bool]) -> bool:
+	"""Gate the per-photo keep_pics_in_worker request on the env allowance.
+
+	Raised here in the request handler (not in process()) so /upload_async
+	clients get a real 400 too — once the background task is accepted, the
+	only channel left is the processed-result callback. A refused request is
+	deliberate: silently falling back to shipping would store the photo
+	somewhere the caller didn't ask for.
+	"""
+	if keep_pics_in_worker and not ALLOW_KEEP_PICS_IN_WORKER:
+		raise HTTPException(
+			status_code=400,
+			detail="keep_pics_in_worker requested but this worker does not allow it (ALLOW_KEEP_PICS_IN_WORKER is off)",
+		)
+	return bool(keep_pics_in_worker)
+
+
+def _check_upload_source(file, local_photo_path: Optional[str]) -> Optional[str]:
+	"""Enforce exactly one upload source and resolve the local path if given.
+
+	Runs in the request handlers (like _check_keep_pics_allowed) so both
+	endpoints hand back a real 400 before any work is accepted.
+	"""
+	if (file is None) == (local_photo_path is None):
+		raise HTTPException(
+			status_code=400,
+			detail="provide exactly one of: a file part, or local_photo_path",
+		)
+	return _resolve_local_photo_path(local_photo_path) if local_photo_path else None
+
+
+def _check_local_pyramid(local_pyramid_path: Optional[str]) -> Optional[str]:
+	"""Resolve a client-provided external DZI pyramid (`<prefix>.dzi` with its
+	`<prefix>_files/` tree beside it), e.g. the pano pipeline's phase_13 output.
+
+	Same LOCAL_PHOTO_ROOTS gate + symlink walk as local_photo_path — but a
+	pyramid is an OFFER, so unlike local_photo_path (the only source of the
+	photo's bytes, hence a hard 400) an offer this worker cannot take — no
+	LOCAL_PHOTO_ROOTS here (prod), path outside them, tree not mounted — is
+	simply DECLINED (logged, returns None) and the upload proceeds as if none
+	was made. The pipeline offers unconditionally; it must never need to know
+	which worker it is talking to. Only the shape is checked here; whether an
+	accepted offer may actually be USED is decided at processing time by
+	photo_processor.external_pyramid_usable (after anonymization has resolved).
+	"""
+	if not local_pyramid_path:
+		return None
+	try:
+		dzi = _resolve_local_photo_path(local_pyramid_path)
+		if not dzi.lower().endswith('.dzi'):
+			raise HTTPException(status_code=400, detail=f"local_pyramid_path must point at a .dzi descriptor: {dzi!r}")
+		files_dir = dzi[:-len('.dzi')] + '_files'
+		if not os.path.isdir(files_dir):
+			raise HTTPException(status_code=400, detail=f"pyramid tile tree missing next to descriptor: {files_dir!r}")
+	except HTTPException as e:
+		logger.warning(f"External pyramid offer declined at request time: {e.detail}")
+		return None
+	return dzi
 
 
 @app.post("/upload", response_model=ProcessPhotoResponse)
 async def upload_sync(
-	file: UploadFile = File(...),
+	file: Optional[UploadFile] = File(None),
 	client_signature: str = Form(...),
 	anonymization_override: Optional[str] = Form(None),  # JSON: null=auto, "[]"=none, "[{...}]"=specific
 	metadata: Optional[str] = Form(None),  # JSON: metadata when EXIF can't be written (e.g., browser capture)
 	quality: Optional[int] = Form(None),  # WebP quality (1-100). None=use default (97).
 	fast: Optional[bool] = Form(None),  # Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding
+	keep_pics_in_worker: Optional[bool] = Form(None),  # Serve artifacts from this worker's own volume (needs ALLOW_KEEP_PICS_IN_WORKER)
+	local_photo_path: Optional[str] = Form(None),  # Read the photo from this worker-local path instead of a body (needs LOCAL_PHOTO_ROOTS)
+	local_pyramid_path: Optional[str] = Form(None),  # Externally rendered DZI (<prefix>.dzi) the worker MAY reuse (needs LOCAL_PHOTO_ROOTS; see external_pyramid_usable)
 	upload_auth: dict = Depends(get_upload_authorization),
 	response: Response = None
 ):
 	response.headers["Connection"] = "close"
+	keep_pics = _check_keep_pics_allowed(keep_pics_in_worker)
+	local_src = _check_upload_source(file, local_photo_path)
+	local_pyr = _check_local_pyramid(local_pyramid_path)
 	photo_id, user_id = validate_upload_parameters(upload_auth, file)
-	return await upload(file, client_signature, photo_id, user_id, anonymization_override=anonymization_override, metadata=metadata, quality=quality, fast=bool(fast))
+	return await upload(file, client_signature, photo_id, user_id, anonymization_override=anonymization_override, metadata=metadata, quality=quality, fast=bool(fast), keep_pics_in_worker=keep_pics, local_photo_path=local_src, upload_auth=upload_auth, local_pyramid_path=local_pyr)
 
 
 @app.post("/upload_async")
 async def upload_async(
-	file: UploadFile = File(...),
+	file: Optional[UploadFile] = File(None),
 	client_signature: str = Form(...),
 	anonymization_override: Optional[str] = Form(None),  # JSON: null=auto, "[]"=none, "[{...}]"=specific
 	metadata: Optional[str] = Form(None),  # JSON: metadata when EXIF can't be written (e.g., browser capture)
 	quality: Optional[int] = Form(None),  # WebP quality (1-100). None=use default (97).
 	fast: Optional[bool] = Form(None),  # Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding
+	keep_pics_in_worker: Optional[bool] = Form(None),  # Serve artifacts from this worker's own volume (needs ALLOW_KEEP_PICS_IN_WORKER)
+	local_photo_path: Optional[str] = Form(None),  # Read the photo from this worker-local path instead of a body (needs LOCAL_PHOTO_ROOTS)
+	local_pyramid_path: Optional[str] = Form(None),  # Externally rendered DZI (<prefix>.dzi) the worker MAY reuse (needs LOCAL_PHOTO_ROOTS; see external_pyramid_usable)
 	upload_auth: dict = Depends(get_upload_authorization),
 	background_tasks: BackgroundTasks = None,
 	response: Response = None
 ):
 	global task_id_counter
 	response.headers["Connection"] = "close"
+	keep_pics = _check_keep_pics_allowed(keep_pics_in_worker)
+	local_src = _check_upload_source(file, local_photo_path)
+	local_pyr = _check_local_pyramid(local_pyramid_path)
 	photo_id, user_id = validate_upload_parameters(upload_auth, file)
 	with pending_background_tasks_mutex:
 		task_id = f"{task_id_counter}_{time.time()}"
 		task_id_counter += 1
 		pending_background_tasks.add(task_id)
-	background_tasks.add_task(upload, file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata, quality, bool(fast))
+	background_tasks.add_task(upload, file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata, quality, bool(fast), keep_pics, local_src, upload_auth, local_pyr)
 
 	return {'success': True}
 
 
-async def upload(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None, fast: bool = False):
+async def upload(file: Optional[UploadFile], client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None, fast: bool = False, keep_pics_in_worker: bool = False, local_photo_path: Optional[str] = None, upload_auth: dict = None, local_pyramid_path: Optional[str] = None):
 
 	with task_context(photo_id=photo_id, task_id=task_id):
-		return await _upload_inner(file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata, quality, fast)
+		return await _upload_inner(file, client_signature, photo_id, user_id, task_id, anonymization_override, metadata, quality, fast, keep_pics_in_worker, local_photo_path, upload_auth, local_pyramid_path)
 
 
-async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None, fast: bool = False):
+async def _upload_inner(file: Optional[UploadFile], client_signature: str, photo_id: str, user_id: str, task_id = None, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None, fast: bool = False, keep_pics_in_worker: bool = False, local_photo_path: Optional[str] = None, upload_auth: dict = None, local_pyramid_path: Optional[str] = None):
 
 	try:
-		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id, anonymization_override, metadata, quality, fast)
+		file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename = await process(file, client_signature, photo_id, user_id, anonymization_override, metadata, quality, fast, keep_pics_in_worker, local_photo_path, upload_auth, local_pyramid_path)
 
 		# DEV_MODE-only speculative-handling notes from blur._dev_only,
 		# stuffed into processing_result by run_photo_processing_sync.
@@ -1282,7 +1379,7 @@ async def _upload_inner(file: UploadFile, client_signature: str, photo_id: str, 
 	)
 
 
-async def process(file: UploadFile, client_signature: str, photo_id: str, user_id: str, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None, fast: bool = False):
+async def process(file: Optional[UploadFile], client_signature: str, photo_id: str, user_id: str, anonymization_override: Optional[str] = None, metadata: Optional[str] = None, quality: Optional[int] = None, fast: bool = False, keep_pics_in_worker: bool = False, local_photo_path: Optional[str] = None, upload_auth: dict = None, local_pyramid_path: Optional[str] = None):
 
 	file_path = None
 	error_message = None
@@ -1294,29 +1391,62 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 	# size variants + the DZI tile tree) lands under it, so cleanup is a single
 	# rmtree in the finally, whatever the outcome. The random suffix isolates two
 	# concurrent jobs for the same photo_id (they'd otherwise collide on the same
-	# opt/.../{photo_id} paths). In KEEP_PICS_IN_WORKER (dev) the local files ARE
-	# the served copies, so we don't nest under a work dir and we don't delete.
-	work_dir = UPLOAD_DIR if KEEP_PICS_IN_WORKER else (UPLOAD_DIR / "work" / f"{photo_id}-{uuid4().hex[:12]}")
+	# opt/.../{photo_id} paths). keep_pics_in_worker photos use it too: their
+	# finished artifacts are promoted out (into UPLOAD_DIR/opt/, atomically, as
+	# each URL is built — see photo_processor._get_size_url), so the rmtree
+	# below only ever reclaims the original + unpromoted intermediates.
+	work_dir = UPLOAD_DIR / "work" / f"{photo_id}-{uuid4().hex[:12]}"
 
-	safe_filename = sanitize_filename(file.filename)
+	# No-upload mode: the source filename comes from the upload JWT's
+	# original_filename claim — the authenticated value the client signature is
+	# bound to — not from the client-supplied path's basename (kept only as a
+	# fallback for tokens minted before the claim existed).
+	claims = upload_auth or {}
+	if local_photo_path is not None:
+		src_name = claims.get("original_filename") or os.path.basename(local_photo_path)
+	else:
+		src_name = file.filename
+	safe_filename = sanitize_filename(src_name)
 
 	try:
 
 		# Get file size and validate file
-		file_size = get_file_size_from_upload(file.file)
+		if local_photo_path is not None:
+			file_size = os.path.getsize(local_photo_path)
+			authorized_size = claims.get("file_size")
+			if authorized_size is not None and int(authorized_size) != file_size:
+				# The MD5 recorded at authorize time identifies different bytes
+				# than what we'd process — refuse rather than store a photo
+				# under a wrong dedup identity.
+				raise ValueError(
+					f"local photo is {file_size} bytes but upload was authorized "
+					f"for {authorized_size} — file changed since authorization")
+			content_type = claims.get("content_type")
+		else:
+			file_size = get_file_size_from_upload(file.file)
+			content_type = file.content_type
 		work_dir.mkdir(parents=True, exist_ok=True)
 		safe_filename, secure_filename, file_path = validate_and_prepare_photo_file(
-			filename=file.filename,
+			filename=src_name,
 			file_size=file_size,
-			content_type=file.content_type,
+			content_type=content_type,
 			user_id=user_id,
 			upload_base_dir=str(work_dir)
 		)
 
-		# Save uploaded file
-		async with aiofiles.open(file_path, 'wb') as f:
-			content = await file.read()
-			await f.write(content)
+		if local_photo_path is not None:
+			# Process the (read-only) local file in place — no body, no copy.
+			# The work dir still receives every output and the CR2-derived
+			# TIFF; only the input stays outside it, so the finally-rmtree
+			# can never touch it.
+			file_path = local_photo_path
+		else:
+			# Save uploaded file. Chunked: the body is already spooled to disk by
+			# the multipart parser, and a whole-body read() would materialize all
+			# of it in RAM just to copy it — a multi-GB pano OOMs the container.
+			async with aiofiles.open(file_path, 'wb') as f:
+				while chunk := await file.read(8 * 1024 * 1024):
+					await f.write(chunk)
 
 		# Verify file content
 		if not verify_saved_file_content(str(file_path), "image"):
@@ -1370,6 +1500,8 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 					"quality": quality,
 					"fast": fast,
 					"output_base": str(work_dir),
+					"keep_pics_in_worker": keep_pics_in_worker,
+					"local_pyramid_path": local_pyramid_path,
 				},
 				timeout=PROCESSING_TIMEOUT_SECONDS,
 			)
@@ -1448,9 +1580,10 @@ async def process(file: UploadFile, client_signature: str, photo_id: str, user_i
 	finally:
 		# One-shot cleanup: this job's whole output tree (original + variants +
 		# DZI tiles) lives under work_dir, so this reclaims it on every outcome —
-		# success, error, WorkerDied, or timeout. KEEP_PICS_IN_WORKER (dev) keeps
-		# everything: work_dir IS UPLOAD_DIR and those files are the served copies.
-		if not KEEP_PICS_IN_WORKER:
-			shutil.rmtree(work_dir, ignore_errors=True)
+		# success, error, WorkerDied, or timeout. Unconditional even for
+		# keep_pics_in_worker photos: their served artifacts were already
+		# promoted out of work_dir (see photo_processor._get_size_url), so this
+		# only reclaims the uploaded original + unpromoted intermediates.
+		shutil.rmtree(work_dir, ignore_errors=True)
 
 	return file_path, processing_status, error_message, retry_after_minutes, processing_result, secure_filename
