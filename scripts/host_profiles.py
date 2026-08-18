@@ -113,10 +113,11 @@ PROFILES = {
 			# (per-photo keep_pics_in_worker uploads; the toggle itself is
 			# ALLOW_KEEP_PICS_IN_WORKER, deliberately NOT profile-managed).
 			"WORKER_PICS_URL": "http://10.0.0.24:9999/wpics/",
-			# root=url map for photo trees the worker may serve IN PLACE (external
+			# name=url map for photo trees the worker may serve IN PLACE (external
 			# pyramids offered via --pyramid; dev-only, Caddy mounts the archive
-			# read-only at /apics). Roots come from LOCAL_PHOTO_ROOTS in .env.
-			"LOCAL_PHOTO_URLS": "/home/koom/autocopy=http://10.0.0.24:9999/apics/",
+			# read-only at /apics). Names are the LOCAL_PHOTO_ROOTS root names
+			# from .env (mounted at /external-data/<name> in the worker).
+			"LOCAL_PHOTO_URLS": "autocopy=http://10.0.0.24:9999/apics/",
 		},
 		"frontend_env": {
 			"VITE_BACKEND": "http://10.0.0.24:8055/api",
@@ -153,10 +154,11 @@ PROFILES = {
 			# (per-photo keep_pics_in_worker uploads; the toggle itself is
 			# ALLOW_KEEP_PICS_IN_WORKER, deliberately NOT profile-managed).
 			"WORKER_PICS_URL": "https://hv.jj.internal/wpics/",
-			# root=url map for photo trees the worker may serve IN PLACE (external
+			# name=url map for photo trees the worker may serve IN PLACE (external
 			# pyramids offered via --pyramid; dev-only, Caddy mounts the archive
-			# read-only at /apics). Roots come from LOCAL_PHOTO_ROOTS in .env.
-			"LOCAL_PHOTO_URLS": "/home/koom/autocopy=https://hv.jj.internal/apics/",
+			# read-only at /apics). Names are the LOCAL_PHOTO_ROOTS root names
+			# from .env (mounted at /external-data/<name> in the worker).
+			"LOCAL_PHOTO_URLS": "autocopy=https://hv.jj.internal/apics/",
 		},
 		"frontend_env": {
 			"VITE_BACKEND": "https://hv.jj.internal/api",

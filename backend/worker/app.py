@@ -242,59 +242,21 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 # which would store the photo somewhere the caller didn't ask for).
 ALLOW_KEEP_PICS_IN_WORKER = os.getenv("ALLOW_KEEP_PICS_IN_WORKER", "false").lower() in ("true", "1", "yes")
 
-# No-upload ingestion (dev): trees the worker may read photos from directly,
-# colon-separated absolute dirs, bind-mounted read-only at their host paths.
-# Doubles as the feature gate — unset means a local_photo_path request is a
-# hard 400 — and as the allowlist for _resolve_local_photo_path below.
-LOCAL_PHOTO_ROOTS = [r for r in os.getenv("LOCAL_PHOTO_ROOTS", "").split(":") if r]
+# No-upload ingestion (dev): client-named photo trees, bind-mounted READ-ONLY
+# under the generic /external-data/<name> prefix — see local_photos.py for the
+# host→container mapping and why it makes hijack attempts impossible by
+# construction. LOCAL_PHOTO_ROOTS doubles as the feature gate: unset means a
+# local_photo_path request is a hard 400 (an external-pyramid OFFER is merely
+# declined — see _check_local_pyramid).
+import local_photos
 
 
 def _resolve_local_photo_path(local_photo_path: str) -> str:
-	"""Resolve and validate a client-supplied local photo path.
-
-	Walks symlinks manually (bounded hops) instead of trusting realpath: every
-	hop — the path itself and each link target — must stay inside
-	LOCAL_PHOTO_ROOTS and must exist in the container, so "target outside the
-	photo roots" and "target's tree not mounted here" each fail with a 400
-	naming the offending hop rather than a generic error. Directory symlinks
-	along the way are not walked (the roots are operator-mounted trees and the
-	uploader is authenticated; this is a dev feature, not a sandbox).
-	"""
-	if not LOCAL_PHOTO_ROOTS:
-		raise HTTPException(
-			status_code=400,
-			detail="local_photo_path requested but this worker has no LOCAL_PHOTO_ROOTS configured",
-		)
-	path = local_photo_path
-	for _hop in range(3):  # the path itself + up to 2 symlink hops
-		if not os.path.isabs(path):
-			raise HTTPException(status_code=400, detail=f"local_photo_path must be absolute: {path!r}")
-		path = os.path.normpath(path)
-		if not any(path == root or path.startswith(root.rstrip('/') + '/') for root in LOCAL_PHOTO_ROOTS):
-			raise HTTPException(
-				status_code=400,
-				detail=f"path {path!r} is outside LOCAL_PHOTO_ROOTS {LOCAL_PHOTO_ROOTS}",
-			)
-		if os.path.islink(path):
-			target = os.readlink(path)
-			if not os.path.isabs(target):
-				target = os.path.join(os.path.dirname(path), target)
-			path = target
-			continue
-		if not os.path.exists(path):
-			raise HTTPException(
-				status_code=400,
-				detail=f"path {path!r} does not exist in the worker container (is its tree mounted?)",
-			)
-		if not os.path.isfile(path):
-			raise HTTPException(status_code=400, detail=f"path {path!r} is not a regular file")
-		if not os.access(path, os.R_OK):
-			raise HTTPException(status_code=400, detail=f"path {path!r} is not readable by the worker")
-		return path
-	raise HTTPException(
-		status_code=400,
-		detail=f"too many symlink hops resolving {local_photo_path!r} (limit 2)",
-	)
+	"""Client HOST path → container path of a readable file, or 400 naming why."""
+	try:
+		return local_photos.resolve_local_photo_path(local_photo_path)[1]
+	except local_photos.LocalPhotoPathError as e:
+		raise HTTPException(status_code=400, detail=f"local_photo_path: {e}")
 
 # Development deployment gate (dev/aux), matching the backend's canonical DEV_MODE
 # convention (see common.debug_faults). In DEV_MODE, resource-wait / worker-died

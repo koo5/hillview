@@ -180,21 +180,20 @@ def _override_blur_free(override: Optional["AnonymizationOverride"]) -> Optional
 
 
 def _validate_input_path(filepath: str) -> str:
-	"""Validate an input image path for external-tool use: under /app, or under
-	one of the LOCAL_PHOTO_ROOTS trees (no-upload ingestion, mounted read-only).
+	"""Validate an input image path for external-tool use: under /app (the
+	uploaded copy in the work dir), or under EXTERNAL_DATA_DIR (no-upload
+	ingestion — client-named trees bind-mounted read-only, see local_photos).
 
-	Env read at call time (like _get_size_url) so the pool subprocess needs no
-	extra plumbing. With the env unset this is exactly the old
-	validate_file_path(filepath, "/app") — prod behavior unchanged.
+	The external case is a lexical prefix check, deliberately NOT realpath: the
+	path was already resolved hop-by-hop by local_photos.resolve_local_photo_path
+	(the only way one is ever produced), and realpath would follow the archive's
+	absolute HOST-path symlinks, which do not exist in container space.
 	"""
-	bases = ["/app"] + [r for r in os.getenv("LOCAL_PHOTO_ROOTS", "").split(":") if r]
-	last_err = SecurityValidationError(f"no valid base for {filepath}")
-	for base in bases:
-		try:
-			return validate_file_path(filepath, base)
-		except SecurityValidationError as e:
-			last_err = e
-	raise last_err
+	from local_photos import EXTERNAL_DATA_DIR
+	norm = os.path.normpath(filepath)
+	if norm.startswith(EXTERNAL_DATA_DIR + '/'):
+		return norm
+	return validate_file_path(filepath, "/app")
 
 
 def create_center_crop(image, target_width: int, target_height: int):
@@ -941,13 +940,23 @@ class PhotoProcessor:
 			# its OWN pyramid, never whether an offered one is used.
 			#
 			# The decision itself was taken above (before the variants, so they
-			# could derive from the chosen pyramid); here we only publish it: an
-			# accepted external pyramid is served in place, an own pyramid is
+			# could derive from the chosen pyramid); here we only publish it.
+			# An accepted external pyramid: dev path (served from this worker)
+			# → in place from its archive mount; prod path → TRANSFERRED to the
+			# pool tile by tile, exactly like an own pyramid — that transfer is
+			# the whole worker cost of a prod pano upload. An own pyramid was
 			# rendered already and gets shipped now.
-			pyramid = ext_pyramid
-			if pyramid is None and own_dzi is not None:
+			pyramid = None
+			if ext_pyramid is not None:
 				processing_state.set_phase("dzi_pyramid")
-				pyramid = await self._ship_own_pyramid(*own_dzi, unique_id, photo_id, client_signature, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker)
+				if keep_pics_in_worker:
+					pyramid = self._external_pyramid_in_place(local_pyramid_path, ext_pyramid)
+				else:
+					pyramid = await self._ship_pyramid(local_pyramid_path, local_pyramid_path[:-len('.dzi')] + '_files', ext_pyramid,
+					                                   unique_id, photo_id, client_signature, keep_pics_in_worker=False)
+			elif own_dzi is not None:
+				processing_state.set_phase("dzi_pyramid")
+				pyramid = await self._ship_pyramid(*own_dzi, unique_id, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
 			if pyramid:
 				sizes_info['full']['pyramid'] = pyramid
 
@@ -960,8 +969,11 @@ class PhotoProcessor:
 
 	def _external_pyramid(self, dzi_path: str, width: int, height: int, blur_applied: bool,
 	                      keep_pics_in_worker: bool, quality: Optional[int], unique_id: str) -> Optional[Dict[str, Any]]:
-		"""Validate a client-provided DZI pyramid and, if policy allows, return the
-		pyramid metadata dict pointing at it (served in place — never copied).
+		"""Validate a client-provided DZI pyramid and, if policy allows, return its
+		parsed descriptor (tile_size/overlap/format/width/height/params) — the
+		ACCEPTANCE. How it is then published is the caller's call: served in
+		place on the dev path (_external_pyramid_in_place), transferred to the
+		pool on the prod path (_ship_pyramid).
 
 		The descriptor is XML: parsed with xml.etree, not regex. Whether the
 		pyramid may be USED is external_pyramid_usable's call; on "no" we log
@@ -1003,18 +1015,18 @@ class PhotoProcessor:
 		            f"{'USING' if usable else 'declined'}: {reason}")
 		if not usable:
 			return None
+		return dzi
 
-		# Serve in place: map the archive root the pyramid lives under to the
-		# URL Caddy serves that root at (LOCAL_PHOTO_URLS, "root=url;root=url").
-		url_map = dict(
-			pair.split('=', 1) for pair in os.getenv('LOCAL_PHOTO_URLS', '').split(';') if '=' in pair)
-		base_root = next((r for r in sorted(url_map, key=len, reverse=True)
-		                  if dzi_path == r or dzi_path.startswith(r.rstrip('/') + '/')), None)
-		if base_root is None:
+	def _external_pyramid_in_place(self, dzi_path: str, dzi: Dict[str, Any]) -> Dict[str, Any]:
+		"""Pyramid metadata dict for an accepted external pyramid served IN
+		PLACE (dev keep mode only): map the archive root it lives under to the
+		URL Caddy serves that root at (LOCAL_PHOTO_URLS, "name=url;name=url" —
+		see local_photos). The prod path never comes here — it transfers via
+		_ship_pyramid."""
+		from local_photos import url_for
+		dzi_url = url_for(dzi_path)
+		if dzi_url is None:
 			raise RuntimeError(f"external pyramid {dzi_path} is usable but no LOCAL_PHOTO_URLS entry serves its root")
-		url_base = url_map[base_root].rstrip('/') + '/'
-		rel = os.path.relpath(dzi_path, base_root)
-		dzi_url = url_base + rel
 		return {
 			'type': 'dzi',
 			'dzi_url': dzi_url,
@@ -1031,7 +1043,7 @@ class PhotoProcessor:
 		"""dzsave a DZI (Deep Zoom Image) pyramid from an anonymized image into
 		the job's work dir. Returns (dzi_file, tiles_dir, meta) — the tiles are
 		NOT shipped yet: the caller derives the size variants from this pyramid
-		first (see PyramidSource) and ships with _ship_own_pyramid afterwards.
+		first (see PyramidSource) and ships with _ship_pyramid afterwards.
 
 		Args:
 			image: Anonymized image as a numpy BGR array (already sRGB 8-bit).
@@ -1073,18 +1085,30 @@ class PhotoProcessor:
 			logger.error(f"DZI pyramid generation failed for {unique_id}: {e}", exc_info=True)
 			raise
 
-	async def _ship_own_pyramid(self, dzi_file: str, tiles_dir: str, meta: Dict[str, Any], unique_id: str, photo_id: str = None, client_signature: str = None, output_base: Optional[str] = None, keep_pics_in_worker: bool = False) -> Optional[Dict[str, Any]]:
-		"""Ship a pyramid rendered by _render_own_pyramid (descriptor + every
-		tile, through _get_size_url like any other artifact) and return the
-		pyramid metadata dict for inline use by OpenSeadragon — it lets the
-		client open the deep-zoom viewer without a separate .dzi fetch."""
+	async def _ship_pyramid(self, dzi_file: str, tiles_dir: str, meta: Dict[str, Any], unique_id: str, photo_id: str = None, client_signature: str = None, keep_pics_in_worker: bool = False) -> Optional[Dict[str, Any]]:
+		"""Ship a DZI pyramid (descriptor + every tile, through _get_size_url
+		like any other artifact) and return the pyramid metadata dict for inline
+		use by OpenSeadragon — it lets the client open the deep-zoom viewer
+		without a separate .dzi fetch.
+
+		Works for a pyramid rendered here (_render_own_pyramid, in the work
+		dir) AND for an accepted external one living on a read-only archive
+		mount: destinations are derived from ``unique_id`` — always
+		``opt/dzi/{user}/{photo_id}.dzi`` + ``{photo_id}_files/…`` — not from
+		where the source files sit, and in ship mode _get_size_url only READS
+		the source (API POST / CDN put). This is the "transfer" half of the
+		prod pano path: resize from the pyramid, then transfer the pyramid.
+		"""
 		try:
-			output_base = output_base or self.upload_dir
 			tile_size, overlap, w, h = meta['tile_size'], meta['overlap'], meta['width'], meta['height']
-			logger.info(f"Uploading DZI files for {unique_id}")
+			user_id_part, photo_id_part = unique_id.split('/', 1)
+			user_id_part = validate_user_id(user_id_part)
+			safe_photo_id = sanitize_filename(photo_id_part)
+			rel_dir = os.path.join('opt', 'dzi', user_id_part)
+			logger.info(f"Uploading DZI files for {unique_id} from {tiles_dir}")
 
 			# Upload the .dzi XML descriptor
-			dzi_relative = os.path.relpath(dzi_file, output_base)
+			dzi_relative = os.path.join(rel_dir, f"{safe_photo_id}.dzi")
 			dzi_url = await self._get_size_url(dzi_file, dzi_relative, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
 
 			# The .dzi URL determines which pool this pyramid lives on. The tile
@@ -1111,7 +1135,7 @@ class PhotoProcessor:
 						tile_path = os.path.join(level_path, tile_name)
 						if not os.path.isfile(tile_path):
 							continue
-						tile_relative = os.path.relpath(tile_path, output_base)
+						tile_relative = os.path.join(rel_dir, f"{safe_photo_id}_files", level_name, tile_name)
 						tile_url = await self._get_size_url(tile_path, tile_relative, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
 						if tile_url != pool_base + tile_relative:
 							raise PoolMigrationError(f"DZI tile for {unique_id} landed on a different pool than its .dzi: {tile_url} (expected base {pool_base})")

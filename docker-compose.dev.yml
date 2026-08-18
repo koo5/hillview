@@ -68,17 +68,18 @@ services:
       - ./backend/worker:/app/worker
       - ./backend/common:/app/common
       - uploads:/app/uploads
-      # No-upload ingestion trees (LOCAL_PHOTO_ROOTS): mounted READ-ONLY at
-      # their host paths, so absolute symlink targets keep meaning and the
-      # kernel enforces that the worker can never write to or delete a source.
+      # No-upload ingestion trees (LOCAL_PHOTO_ROOTS "name=hostpath;…"):
+      # mounted READ-ONLY under the generic /external-data/<name> — the kernel
+      # enforces that the worker can never write to or delete a source, and
+      # the worker translates client-named HOST paths (incl. the archive's
+      # absolute symlink targets) itself, so it can only ever reach files
+      # under /external-data (backend/worker/local_photos.py).
       # NB: dockerd is snap-confined (Ubuntu Core) and can only bind sources
       # under /home — a /var/data/tiff source fails with "mkdir /var/data:
-      # read-only file system". The tiff spill tree rides the host's existing
-      # fstab bind (/var/data/tiff → /home/koom/tiff, nofail): SOURCE under
-      # /home, container TARGET at the canonical /var/data/tiff, which is the
-      # only spelling symlinks ever use.
-      - /home/koom/autocopy:/home/koom/autocopy:ro
-      - /home/koom/tiff:/var/data/tiff:ro
+      # read-only file system"; the tiff spill tree rides the host's existing
+      # fstab bind (/var/data/tiff → /home/koom/tiff, nofail).
+      - /home/koom/autocopy:/external-data/autocopy:ro
+      - /home/koom/tiff:/external-data/tiff:ro
     environment:
       #- MAGICK_TEMPORARY_PATH=/app/worker/tmp/
       - UPLOAD_DIR=/app/uploads
@@ -98,10 +99,15 @@ services:
       # RAM instead of a /tmp/vips-*.v temp file; bigger rasters still spill
       # to disc gracefully. Sized with mem_limit in mind.
       - VIPS_DISC_THRESHOLD=${VIPS_DISC_THRESHOLD:-}
+      # Worker tunables — the ONE source is the root .env, passed through here
+      # (worker/.env holds only the worker's secrets; app.py's load_dotenv of
+      # it never overrides these).
       - MAX_FILE_SIZE=${MAX_FILE_SIZE:-157286400}
       - MAX_IMAGE_WIDTH=${MAX_IMAGE_WIDTH:-32192}
       - MAX_IMAGE_HEIGHT=${MAX_IMAGE_HEIGHT:-32192}
       - MAX_IMAGE_PIXELS=${MAX_IMAGE_PIXELS:-167108864}
+      - PARALLEL_PROCESSING_CONCURRENCY=${PARALLEL_PROCESSING_CONCURRENCY:-20}
+      - PARALLEL_PROCESSING_START_DELAY=${PARALLEL_PROCESSING_START_DELAY:-0.1}
       - WORKER_PORT=${WORKER_PORT:-8056}
       - WORKER_HOST=0.0.0.0 # not used
       - API_URL=${API_URL:-http://localhost:8055/api}
