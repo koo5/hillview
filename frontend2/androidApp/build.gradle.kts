@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 // AGP 9 has built-in Kotlin support — org.jetbrains.kotlin.android must NOT be
 // applied here anymore, only the Compose compiler plugin.
@@ -73,14 +74,50 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    // Signing with OUR key rather than the SDK's universal debug key.
+    //
+    // Every machine's ~/.android/debug.keystore holds the same
+    // `CN=Android Debug` certificate, so a debug-signed build carries an
+    // identity shared with every test APK and malware sample ever scanned —
+    // no reputation of its own, which is the profile a sideload scanner
+    // treats with suspicion.
+    //
+    // Deliberately NOT ~/secrets/keystore.properties, which is what
+    // frontend/scripts/patch-android-gen-files.py reads for the TAURI app's
+    // release signing: Play App Signing binds the first upload key, so a
+    // provisional key must not be able to become that by accident.
+    //
+    // Absent the file the build still works, falling back to the debug key —
+    // a checkout without the secret must not be unbuildable.
+    val keystoreProps = Properties().apply {
+        val f = File(System.getProperty("user.home"), "secrets/frontend2-keystore.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    val haveKeystore = keystoreProps.getProperty("storeFile")?.let { File(it).exists() } == true
+
+    signingConfigs {
+        create("hillview") {
+            if (haveKeystore) {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("password")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("password")
+            }
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             // Coexist with the installed production (Tauri) cz.hillview app.
             applicationIdSuffix = ".debug"
             resValue("string", "app_name", "Hillview Dev")
+            // Signed with our key too, not just release: the debug build is
+            // the one that actually gets sideloaded onto phones.
+            if (haveKeystore) signingConfig = signingConfigs.getByName("hillview")
         }
         getByName("release") {
             isMinifyEnabled = false
+            if (haveKeystore) signingConfig = signingConfigs.getByName("hillview")
         }
     }
     compileOptions {
