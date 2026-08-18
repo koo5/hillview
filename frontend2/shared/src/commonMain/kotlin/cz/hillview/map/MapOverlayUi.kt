@@ -55,6 +55,21 @@ private val ACTIVE_BLUE = Color(0xFF4285F4)
 private val ACTIVE_BLUE_BORDER = Color(0xFF3367D6)
 private val PANEL_WHITE = Color(0xE6FFFFFF)
 
+/**
+ * The ink for [PANEL_WHITE] panels, stated rather than inherited.
+ *
+ * These panels are deliberately WHITE in both app themes — they float over
+ * map tiles whose brightness is the tile provider's choice, not ours, so they
+ * carry their own contrast with them. But Material's contentColorFor() only
+ * knows colours that are in the scheme, and this one is not, so a Surface
+ * painted with it leaves LocalContentColor untouched: the text inside took
+ * whatever the app theme handed down. That was invisibly fine while the
+ * ambient content colour was Material's black default, and became light-grey
+ * -on-white the moment the app got a real dark theme. Panels that pick their
+ * own background have to pick their own foreground too.
+ */
+private val PANEL_INK = Color(0xFF202124)
+
 /** What the compass button shows — intent and reality are separate. */
 enum class TrackingPhase { Inactive, Starting, Active, Error }
 
@@ -276,6 +291,9 @@ fun MapOverlayUi(
                     .testTag("map-position-prompt"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // A Box background paints pixels without touching the theme,
+                // so this subtree is told it is a light panel by hand.
+                cz.hillview.core.theme.LightPanelTheme {
                 TextButton(
                     onClick = onClaimManualPosition,
                     modifier = Modifier.testTag("accept-manual-position"),
@@ -285,16 +303,24 @@ fun MapOverlayUi(
                     onClick = onRevertToGps,
                     modifier = Modifier.testTag("revert-to-gps"),
                 ) { Text("⟲ GPS") }
+                }
             }
         }
 
+        // On BARE TILES, unlike everything else here, so it cannot assume a
+        // background: the dark tile providers (CartoDB Dark) turned this into
+        // black-on-black. Same white pill as the controls, which is legible
+        // over any tiles the provider serves — including the bright and dark
+        // patches within one map.
         Text(
             text = "$markerCount photos",
             style = MaterialTheme.typography.bodySmall,
-            color = Color.Black.copy(alpha = 0.7f),
+            color = PANEL_INK,
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(8.dp)
+                .background(PANEL_WHITE, RoundedCornerShape(4.dp))
+                .padding(horizontal = 6.dp, vertical = 2.dp)
                 .testTag("map-status"),
         )
     }
@@ -308,9 +334,10 @@ private fun ControlSurface(
     Surface(
         modifier = modifier,
         color = PANEL_WHITE,
+        contentColor = PANEL_INK,
         shape = RoundedCornerShape(4.dp),
         shadowElevation = 2.dp,
-        content = { content() },
+        content = { cz.hillview.core.theme.LightPanelTheme { content() } },
     )
 }
 
@@ -326,10 +353,11 @@ private fun HunterPanel(
     Surface(
         modifier = modifier.alpha(alpha).padding(bottom = 2.dp),
         color = PANEL_WHITE,
+        contentColor = PANEL_INK,
         shape = RoundedCornerShape(8.dp),
         shadowElevation = 2.dp,
     ) {
-        content()
+        cz.hillview.core.theme.LightPanelTheme { content() }
     }
 }
 
@@ -365,10 +393,12 @@ private fun Modifier.verticalLabel(): Modifier = this
 private fun HunterToggle(active: Boolean, onClick: () -> Unit) {
     Surface(
         color = PANEL_WHITE,
+        contentColor = PANEL_INK,
         shape = RoundedCornerShape(topStart = 4.dp, bottomEnd = 8.dp),
         shadowElevation = if (active) 0.dp else 2.dp,
         modifier = Modifier.testTag("hunter-mode-toggle"),
     ) {
+        cz.hillview.core.theme.LightPanelTheme {
         TextButton(onClick = onClick) {
             // The bow icon is inlined lucide art in the original; a caret
             // pair plus a bow glyph reads the same at this size.
@@ -376,6 +406,7 @@ private fun HunterToggle(active: Boolean, onClick: () -> Unit) {
                 text = if (active) "⌄ 🏹" else "⌃ 🏹",
                 color = if (active) ACTIVE_BLUE else Color.Black.copy(alpha = 0.6f),
             )
+        }
         }
     }
 }

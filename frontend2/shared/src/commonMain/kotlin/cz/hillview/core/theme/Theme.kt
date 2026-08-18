@@ -35,6 +35,22 @@ private val LightColors = lightColorScheme(
     onPrimaryContainer = Color(0xFF1B5E20),
 )
 
+/**
+ * For subtrees that are LIGHT whatever the app theme is — the map's floating
+ * control panels, which sit over tiles whose brightness the tile PROVIDER
+ * chooses, so they carry their own contrast rather than following ours.
+ *
+ * A content colour alone is not enough: a TextButton takes its ink from
+ * colorScheme.primary, and the dark theme's primary is a pale green tuned for
+ * a black background — legible there, washed out on a white panel. Handing
+ * the subtree the light scheme fixes every component at once instead of
+ * per-widget colour overrides.
+ */
+@Composable
+fun LightPanelTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = LightColors, content = content)
+}
+
 @Composable
 fun HillviewTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
