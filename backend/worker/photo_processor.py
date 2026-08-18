@@ -40,12 +40,19 @@ WEBP_QUALITY_SIZES = 97
 WEBP_QUALITY_DZI = 97
 NORMAL_WEBP_METHOD = 6
 # The worker's own DZI pyramid parameters — also the bar an external pyramid
-# must meet on the prod path (see external_pyramid_usable). DZI_WEBP_EFFORT is
-# libvips' webpsave default; stated explicitly so the attestation is exact.
+# must meet on the prod path (see external_pyramid_usable), so they are kept
+# in LOCKSTEP with the pics pipeline's src/lib/pyramid_params.py. Effort 2
+# (not libvips' default 4): benchmarked 2026-08-18 on the 4.43 Gpx pano
+# (scripts/pano/pyramid_bench.2026-08-18.pano1-full.jsonl) — effort is pure
+# CPU, derived variants identical to 0.1 dB and bytes within 3% across 0..6,
+# while CPU is 87/116/210 s per Gpx at effort 0/2/4; effort 2 halves the
+# encode for ~0.5% more bytes. Note the size VARIANTS keep their own method
+# logic (NORMAL_WEBP_METHOD / FAST_WEBP_METHOD_*): the partition-0 overflow
+# guard there is about single large images, tiles are 1 MP and never near it.
 DZI_TILE_SIZE = 1024
 DZI_OVERLAP = 1
 DZI_FORMAT = 'webp'
-DZI_WEBP_EFFORT = 4
+DZI_WEBP_EFFORT = 2
 # WebP method: 0 = fastest, 6 = slowest/best compression. For fast encoding we
 # pick per-variant based on output pixel count: 1 is noticeably quicker than
 # 2, but it overflows partition 0 (libwebp error 6) on large images because
@@ -198,10 +205,13 @@ class _timed:
 		# process_time is process-wide and the pool is one process x N threads
 		# (vips/libwebp on their own thread pools, so per-thread CPU would
 		# undercount instead): with other jobs in flight their CPU lands in
-		# this number too. Log how many were active so such samples are
-		# recognizable — 'concurrent 1' means the cpu figure is clean.
+		# this number too. Log how many jobs this process had in flight so such
+		# samples are recognizable — 'concurrent 1' means the cpu figure is
+		# clean. (processing_state's own table is empty in the pool child; its
+		# updates are piped to the parent — hence worker_processing's counter.)
 		try:
-			concurrent = len(processing_state.get_active_list())
+			import worker_processing
+			concurrent = worker_processing.child_inflight()
 		except Exception:
 			concurrent = -1
 		logger.info(f"[timing] {self.label} for {self.unique_id}: wall {self._time.monotonic() - self.t0:.1f}s, "
