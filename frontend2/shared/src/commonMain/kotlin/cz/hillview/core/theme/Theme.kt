@@ -1,10 +1,13 @@
 package cz.hillview.core.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
 // Battery is a stated requirement: the default dark scheme uses true black
@@ -37,8 +40,24 @@ fun HillviewTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
-        content = content,
-    )
+    MaterialTheme(colorScheme = if (darkTheme) DarkColors else LightColors) {
+        // The Surface is not decoration — it is what sets LocalContentColor.
+        //
+        // MaterialTheme provides a colour SCHEME; it does not touch the
+        // content colour, and Material3's default for that is Color.BLACK.
+        // So every Text without an explicit colour rendered black, which in
+        // light mode looks exactly right and hides the bug — and in dark mode
+        // is black on a true-black background, i.e. invisible. That is why
+        // only the explicitly-coloured text (the greens, the errors, an
+        // OutlinedTextField's own labels) survived dark mode, and why whole
+        // rows of settings looked empty rather than wrong.
+        //
+        // Surface sets background AND contentColorFor(background), so both
+        // schemes get a readable pairing from one place.
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+            content = content,
+        )
+    }
 }
