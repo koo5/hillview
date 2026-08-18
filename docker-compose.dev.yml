@@ -30,6 +30,9 @@ services:
       # Second storage pool for local dev (matches the "pics2" files pool in FILE_POOLS).
       # Prod mounts its real second disk at the pool's path instead.
       - pics2:/app/pics2
+      # The worker's uploads volume (matches the "wpics" files pool in
+      # FILE_POOLS), so deleting a keep_pics_in_worker photo removes its files.
+      - uploads:/app/wuploads
 
   umami:
     network_mode: host
@@ -53,7 +56,10 @@ services:
         MAGICK_HEIGHT_LIMIT: ${MAGICK_HEIGHT_LIMIT:-65536}
         MAGICK_AREA_LIMIT: ${MAGICK_AREA_LIMIT:-1GP}
     container_name: hillview_worker
-    mem_limit: 12g
+    # Sized for gigapixel pano processing: the EXR decode of a ~35 GB pano
+    # wants tens of GB in the subprocess. The RAM admission gate still
+    # protects the machine globally (125 GB host).
+    mem_limit: 100g
     network_mode: host
     depends_on:
       volume-permissions:
@@ -62,10 +68,36 @@ services:
       - ./backend/worker:/app/worker
       - ./backend/common:/app/common
       - uploads:/app/uploads
+      # No-upload ingestion trees (LOCAL_PHOTO_ROOTS): mounted READ-ONLY at
+      # their host paths, so absolute symlink targets keep meaning and the
+      # kernel enforces that the worker can never write to or delete a source.
+      # NB: dockerd is snap-confined (Ubuntu Core) and can only bind sources
+      # under /home — a /var/data/tiff source fails with "mkdir /var/data:
+      # read-only file system". The tiff spill tree rides the host's existing
+      # fstab bind (/var/data/tiff → /home/koom/tiff, nofail): SOURCE under
+      # /home, container TARGET at the canonical /var/data/tiff, which is the
+      # only spelling symlinks ever use.
+      - /home/koom/autocopy:/home/koom/autocopy:ro
+      - /home/koom/tiff:/var/data/tiff:ro
     environment:
       #- MAGICK_TEMPORARY_PATH=/app/worker/tmp/
       - UPLOAD_DIR=/app/uploads
       - PICS_URL=${PICS_URL:-}
+      # keep_pics_in_worker plumbing: the env var only ALLOWS the mode (each
+      # upload opts in via form field); WORKER_PICS_URL is the served base of
+      # this worker's own uploads volume (set_host-managed, Caddy /wpics).
+      - ALLOW_KEEP_PICS_IN_WORKER=${ALLOW_KEEP_PICS_IN_WORKER:-}
+      - WORKER_PICS_URL=${WORKER_PICS_URL:-}
+      # No-upload ingestion: colon-separated trees the worker may read photos
+      # from directly (gate + allowlist for the local_photo_path upload field).
+      - LOCAL_PHOTO_ROOTS=${LOCAL_PHOTO_ROOTS:-}
+      # root=url;root=url — where Caddy serves those trees, so an offered
+      # external pyramid can be served in place (set_host-managed).
+      - LOCAL_PHOTO_URLS=${LOCAL_PHOTO_URLS:-}
+      # vips materializes full-decode loads (notably EXR) up to this size in
+      # RAM instead of a /tmp/vips-*.v temp file; bigger rasters still spill
+      # to disc gracefully. Sized with mem_limit in mind.
+      - VIPS_DISC_THRESHOLD=${VIPS_DISC_THRESHOLD:-}
       - MAX_FILE_SIZE=${MAX_FILE_SIZE:-157286400}
       - MAX_IMAGE_WIDTH=${MAX_IMAGE_WIDTH:-32192}
       - MAX_IMAGE_HEIGHT=${MAX_IMAGE_HEIGHT:-32192}

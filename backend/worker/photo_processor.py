@@ -39,6 +39,13 @@ LLM_VARIANT_SIZE = 640
 WEBP_QUALITY_SIZES = 97
 WEBP_QUALITY_DZI = 97
 NORMAL_WEBP_METHOD = 6
+# The worker's own DZI pyramid parameters — also the bar an external pyramid
+# must meet on the prod path (see external_pyramid_usable). DZI_WEBP_EFFORT is
+# libvips' webpsave default; stated explicitly so the attestation is exact.
+DZI_TILE_SIZE = 1024
+DZI_OVERLAP = 1
+DZI_FORMAT = 'webp'
+DZI_WEBP_EFFORT = 4
 # WebP method: 0 = fastest, 6 = slowest/best compression. For fast encoding we
 # pick per-variant based on output pixel count: 1 is noticeably quicker than
 # 2, but it overflows partition 0 (libwebp error 6) on large images because
@@ -93,9 +100,9 @@ def _assert_output_base_owned(output_base: str, photo_id) -> None:
 	photo_processor singleton) — this job's files would land in a dir whose
 	owner rmtree's it on completion. The leak is deterministic on job overlap
 	(only the downstream ENOENT was intermittent), so failing loud here catches
-	the whole class at its first occurrence. Shared roots (KEEP_PICS_IN_WORKER
-	/ the default upload_dir) have no ``work/`` parent and are exempt — they
-	are shared by design.
+	the whole class at its first occurrence. Shared roots (the default
+	upload_dir) have no ``work/`` parent and are exempt — they are shared by
+	design.
 	"""
 	if not photo_id:
 		return
@@ -107,6 +114,87 @@ def _assert_output_base_owned(output_base: str, photo_id) -> None:
 		raise RuntimeError(
 			f"output_base {output_base!r} is another job's work dir "
 			f"(this photo_id={photo_id}): per-job state leaked across pool threads")
+
+
+def external_pyramid_usable(keep_pics_in_worker: bool, blur_applied: bool, dzi: Dict[str, Any],
+                            required: Dict[str, Any]) -> Tuple[bool, str]:
+	"""May an externally rendered pyramid (e.g. the pano pipeline's phase_13
+	output) be served for this photo instead of one the worker renders itself?
+
+	Returns (usable, reason). Three layers, in order:
+
+	1. Anonymization — same on every path. An external pyramid is pre-blur, so
+	   if this photo's size variants were blurred at all, serving it would leak
+	   exactly what anonymization hid. ``blur_applied`` is the RESOLVED
+	   answer (computed from the final detections after processing), which is
+	   why this is decided here and not at request time: the effective blur
+	   set is empty for skip ("[]"), for precomputed detections with zero
+	   blurred objects, for empty manual rects AND for auto-detect that found
+	   nothing; non-empty for auto-detect with hits, precomputed with any
+	   blurred, non-empty manual rects. Only the resolved detections know.
+
+	2. Prod path (keep_pics_in_worker=False: artifacts ship to the API's pool)
+	   is STRICT: the pyramid must have been built with the parameters prod
+	   would have used for this job — descriptor TileSize/Overlap/Format, plus
+	   WebP Q/effort, which a .dzi does not record, so they must be positively
+	   attested by a ``<prefix>.dzi.params.json`` sidecar written by whoever
+	   rendered the pyramid ({"tile_size","overlap","format","q","effort"}).
+	   No sidecar ⇒ not usable. This is the real danger direction: an aux
+	   worker on a dev box has the LOCAL_PHOTO_ROOTS mounts AND ships to prod.
+
+	3. Dev path (keep_pics_in_worker=True: served from this worker's own
+	   volume / the archive mount, never leaves the box) accepts any pyramid
+	   whose descriptor matches the photo's dimensions (checked by the caller).
+	"""
+	if blur_applied:
+		return False, "anonymization blurred this photo; a pre-blur external pyramid would leak it"
+	if keep_pics_in_worker:
+		return True, "dev preview: served from this worker, any dims-matching pyramid accepted"
+	for key in ('tile_size', 'overlap', 'format'):
+		if dzi.get(key) != required.get(key):
+			return False, f"prod path requires {key}={required.get(key)!r}, pyramid has {dzi.get(key)!r}"
+	params = dzi.get('params')
+	if not params:
+		return False, "prod path requires a <prefix>.dzi.params.json sidecar attesting q/effort; none found"
+	for key in ('q', 'effort'):
+		if params.get(key) != required.get(key):
+			return False, f"prod path requires {key}={required.get(key)!r}, pyramid params attest {params.get(key)!r}"
+	return True, "prod path: pyramid parameters match what this worker would have used"
+
+
+def _override_blur_free(override: Optional["AnonymizationOverride"]) -> Optional[bool]:
+	"""Can we tell, BEFORE decoding, that anonymization will blur nothing?
+
+	True: skip ("[]"); precomputed detections with no object to blur; an empty
+	manual-rects list. False: precomputed with something to blur; non-empty
+	manual rects. None: auto-detect — unknowable until the detector has run
+	on the pixels (decided later from the resolved detections).
+	"""
+	if override is None:
+		return None
+	if override.detections is not None:
+		return not any(o.get('blurred', should_blur(o)) for o in (override.detections.get('objects') or []))
+	if override.skip_anonymization:
+		return True
+	return not any(None not in (r.get('x'), r.get('y'), r.get('width'), r.get('height')) for r in override.rectangles)
+
+
+def _validate_input_path(filepath: str) -> str:
+	"""Validate an input image path for external-tool use: under /app, or under
+	one of the LOCAL_PHOTO_ROOTS trees (no-upload ingestion, mounted read-only).
+
+	Env read at call time (like _get_size_url) so the pool subprocess needs no
+	extra plumbing. With the env unset this is exactly the old
+	validate_file_path(filepath, "/app") — prod behavior unchanged.
+	"""
+	bases = ["/app"] + [r for r in os.getenv("LOCAL_PHOTO_ROOTS", "").split(":") if r]
+	last_err = SecurityValidationError(f"no valid base for {filepath}")
+	for base in bases:
+		try:
+			return validate_file_path(filepath, base)
+		except SecurityValidationError as e:
+			last_err = e
+	raise last_err
 
 
 def create_center_crop(image, target_width: int, target_height: int):
@@ -407,10 +495,17 @@ class PhotoProcessor:
 		try:
 			# Validate filepath before passing to external tool
 			try:
-				validated_filepath = validate_file_path(filepath, "/app")
+				validated_filepath = _validate_input_path(filepath)
 			except SecurityValidationError as e:
 				result['debug']['parsing_errors'].append(f"Path validation failed for exiftool: {e}")
 				logger.debug(f"Path validation failed for exiftool: {e}")
+				return result
+
+			# EXR carries no EXIF; geo/captured_at arrive via the upload
+			# metadata blob and merge downstream. Skipping exiftool here also
+			# keeps one parser away from untrusted input for this format.
+			if validated_filepath.lower().endswith('.exr'):
+				logger.info(f"Skipping exiftool for EXR (no EXIF container): {filepath}")
 				return result
 
 			# Use -n flag to get raw numeric values instead of formatted strings
@@ -512,17 +607,34 @@ class PhotoProcessor:
 
 	def get_image_dimensions(self, filepath: str, orientation: int
 							 ) -> Tuple[int, int]:
-		"""Get image dimensions using ImageMagick identify (known-good implementation)."""
+		"""Get image dimensions from the file header, without decoding pixels."""
 		try:
 			# Validate filepath before passing to external tool
-			validated_filepath = validate_file_path(filepath, "/app")
+			validated_filepath = _validate_input_path(filepath)
 		except SecurityValidationError as e:
 			logger.debug(f"Path validation failed for identify: {e}")
 			return 0, 0
 
-		cmd = ['identify', '-format', '%w %h', validated_filepath]
-		output = subprocess.check_output(cmd, timeout=IMAGE_TOOL_TIMEOUT).decode('utf-8')
-		dimensions = [int(x) for x in output.split()]
+		if validated_filepath.lower().endswith('.exr'):
+			# ImageMagick decodes the full EXR raster even for -format '%w %h'
+			# (observed: 8.5 min on a 35 GB pano). Read the header directly via
+			# OpenEXR instead — blur._exr_encoding already parses the same
+			# header on the same files, so this adds no new parser to the
+			# untrusted-input surface (and runs in the crash-isolated pool
+			# subprocess like everything else here).
+			import OpenEXR
+			exr = OpenEXR.InputFile(validated_filepath)
+			try:
+				dw = exr.header()['dataWindow']
+				dimensions = [dw.max.x - dw.min.x + 1, dw.max.y - dw.min.y + 1]
+			finally:
+				exr.close()
+		else:
+			# -ping: header-only inspection — identify must not decode a whole
+			# gigapixel raster to answer width×height.
+			cmd = ['identify', '-ping', '-format', '%w %h', validated_filepath]
+			output = subprocess.check_output(cmd, timeout=IMAGE_TOOL_TIMEOUT).decode('utf-8')
+			dimensions = [int(x) for x in output.split()]
 		if orientation in [5, 6, 7, 8]:
 			dimensions = [dimensions[1], dimensions[0]]
 		logger.debug(f'Image dimensions: {dimensions}')
@@ -531,6 +643,8 @@ class PhotoProcessor:
 
 	async def create_optimized_sizes(self, source_path: str, unique_id: str, width: int, height: int, photo_id: str = None, client_signature: str = None, anonymization_override: Optional[AnonymizationOverride] = None, quality: Optional[int] = None, fast: bool = False, encoding: Optional[str] = None,
 									 output_base: Optional[str] = None,
+									 keep_pics_in_worker: bool = False,
+									 local_pyramid_path: Optional[str] = None,
 									 ) -> tuple[Dict[str, Dict[str, Any]], Optional[Dict[str, Any]]]:
 		"""Create optimized versions with anonymization and unique IDs.
 
@@ -538,6 +652,10 @@ class PhotoProcessor:
 		encoding: EXR pixel encoding ('srgb'/'linear') sourced from upload metadata;
 			passed to read_image so it need not read the embedded header tag.
 		output_base: per-job output root (see process_uploaded_photo).
+		keep_pics_in_worker: serve artifacts from this worker's own uploads
+			volume instead of shipping them (see _get_size_url).
+		local_pyramid_path: an externally rendered <prefix>.dzi OFFERED by the
+			client; the worker decides whether to use it (see the pyramid block).
 		"""
 
 		sizes_info = {}
@@ -554,7 +672,37 @@ class PhotoProcessor:
 			from anonymize import anonymize_image as _  # noqa: F401
 			logger.info(f"Successfully imported anonymization module")
 
-		processing_state.set_phase("anonymizing")
+		# Pyramid offer, early decision. If the override PROVES no blur will be
+		# applied (skip; precomputed with nothing to blur; empty manual rects)
+		# and policy accepts the offered pyramid, every size variant can be
+		# derived from its levels and the source is never decoded at all — for
+		# a gigapixel EXR that is the whole cost. Auto-detect can't be judged
+		# before the detector has run, so that case is decided after step 1.
+		ext_pyramid = None          # accepted external pyramid metadata dict
+		pyr = None                  # PyramidSource we derive variants from (external or own)
+		offer_pending = bool(local_pyramid_path)
+		if local_pyramid_path:
+			blur_free = _override_blur_free(anonymization_override)
+			if blur_free is not None:
+				offer_pending = False
+				if blur_free:
+					ext_pyramid = self._external_pyramid(local_pyramid_path, width, height, False,
+					                                     keep_pics_in_worker, quality, unique_id)
+				else:
+					logger.info(f"External pyramid for {unique_id}: declined before decode — the override blurs")
+			if ext_pyramid:
+				from pyramid_source import PyramidSource
+				pyr = PyramidSource(local_pyramid_path, ext_pyramid)
+				logger.info(f"Deriving all size variants of {unique_id} from the external pyramid; source decode skipped")
+
+		# "decode", not "anonymizing": every branch below starts by decoding the
+		# source (read_image — minutes of CPU for a gigapixel EXR), and with
+		# skip_anonymization that decode is ALL that happens here. The label
+		# flips to "anonymizing" only where detection/blur actually run, so a
+		# skip-anonymization pano no longer reports anonymizing(NNNs) while it
+		# is really just decoding.
+		image = None
+		processing_state.set_phase("decode")
 		# Admission gating (start stagger + RAM) moved to the parent process —
 		# app.wait_admission(), one global instance. This in-child rate_limit
 		# became per-process after the worker-pool split (3 independent stagger
@@ -578,17 +726,21 @@ class PhotoProcessor:
 					to_blur = [o for o in objects if o.get("blurred", should_blur(o))]
 					logger.info(f"Applying precomputed detections for {unique_id}: "
 								f"blurring {len(to_blur)}/{len(objects)} objects")
-					image = read_image(source_path, encoding=encoding)
+					if pyr is None:
+						image = read_image(source_path, encoding=encoding)
 					if to_blur:
+						processing_state.set_phase("anonymizing")
 						from blur import apply_blur
 						apply_blur(source_path, image, to_blur)
 				elif anonymization_override.skip_anonymization:
 					logger.info(f"Skipping anonymization for {unique_id} due to override")
-					image = read_image(source_path, encoding=encoding)
+					if pyr is None:
+						image = read_image(source_path, encoding=encoding)
 					detections = {"objects": [], "manual": True}
 				else:
 					logger.info(f"Applying manual anonymization for {unique_id} with rectangles: {anonymization_override.rectangles}")
-					image = read_image(source_path, encoding=encoding)
+					if pyr is None:
+						image = read_image(source_path, encoding=encoding)
 					detections = {"objects": [], "manual": True}
 					for rect in anonymization_override.rectangles:
 						x = rect.get('x')
@@ -607,8 +759,38 @@ class PhotoProcessor:
 
 
 			# Use actual image dimensions (may differ from EXIF width/height
-			# due to auto-rotation during pyvips loading)
-			height, width = image.shape[:2]
+			# due to auto-rotation during pyvips loading). Without a decoded
+			# raster the header dims stand — the accepted pyramid was checked
+			# against exactly those.
+			if image is not None:
+				height, width = image.shape[:2]
+
+			# Pyramid decision, now that anonymization has resolved:
+			#   external offer still pending (auto-detect) → judge it on the
+			#   real detections; else render our OWN pyramid (non-fast, image
+			#   big enough) — dzsave first, ship later — so that variants can
+			#   be derived from its levels too. Either way `pyr` becomes the
+			#   pixel source for every variant below and the full raster is no
+			#   longer needed; only fast mode without a pyramid resizes from it.
+			if offer_pending:
+				blur_applied = any(o.get('blurred', should_blur(o)) for o in (detections or {}).get('objects', []))
+				ext_pyramid = self._external_pyramid(local_pyramid_path, width, height, blur_applied,
+				                                     keep_pics_in_worker, quality, unique_id)
+				if ext_pyramid:
+					from pyramid_source import PyramidSource
+					pyr = PyramidSource(local_pyramid_path, ext_pyramid)
+			own_dzi = None  # (dzi_file, tiles_dir, meta) of a pyramid rendered here, shipped after the variants
+			if pyr is None and not fast and max(width, height) >= self.DZI_MIN_DIMENSION:
+				processing_state.set_phase("dzi_pyramid")
+				own_dzi = self._render_own_pyramid(image, unique_id, photo_id, quality=quality, output_base=output_base)
+				from pyramid_source import PyramidSource
+				pyr = PyramidSource(own_dzi[0], own_dzi[2])
+				# The raster's last consumer was dzsave; release ~3 bytes/pixel
+				# before the encodes (a gigapixel pano's raster is many GB).
+				image = None
+			# One pixel source for every variant below, whichever it is.
+			from pyramid_source import RasterSource, scale_bboxes
+			src = pyr if pyr is not None else RasterSource(image, source_path, encoding)
 
 			if fast:
 				size_variants = ['full', 320, 1200, 2048]
@@ -641,7 +823,10 @@ class PhotoProcessor:
 				new_height = int(height * scale)
 
 				logger.info(f"Creating size {size} for {unique_id}: {new_width}x{new_height} at {output_file_path}")
-				new_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+				# From a pyramid: smallest level >= 2x the target, so the
+				# INTER_AREA downscale averages >= 4 source pixels per output
+				# pixel and washes out that level's WebP encode (see pyramid_source).
+				new_image = cv2.resize(src.for_width(new_width), (new_width, new_height), interpolation=cv2.INTER_AREA)
 				logger.debug(f"Resized image to {new_width}x{new_height} for size {size}")
 				new_image_rgb = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB)
 				logger.debug(f"Converted image to RGB color space for size {size}")
@@ -654,7 +839,7 @@ class PhotoProcessor:
 				size_info.update({
 					'width': new_width,
 					'height': new_height,
-					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature)
+					'url': await self._get_size_url(output_file_path, relative_path, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
 				})
 				sizes_info[size] = size_info
 
@@ -668,7 +853,7 @@ class PhotoProcessor:
 			if crop_th > height:
 				continue  # source too short — create_center_crop would upscale
 			if height > 0 and width / height > crop_tw / crop_th:
-				cropped = create_center_crop(image, crop_tw, crop_th)
+				cropped = create_center_crop(src.for_center_crop(crop_tw, crop_th), crop_tw, crop_th)
 
 				user_id_part, photo_id_part = unique_id.split('/', 1)
 				user_id_part = validate_user_id(user_id_part)
@@ -689,7 +874,7 @@ class PhotoProcessor:
 					'path': crop_relative_path,
 					'width': crop_tw,
 					'height': crop_th,
-					'url': await self._get_size_url(crop_file_path, crop_relative_path, photo_id, client_signature)
+					'url': await self._get_size_url(crop_file_path, crop_relative_path, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
 				}
 
 		logger.info(f"Created {len(sizes_info)} size variants for {unique_id}")
@@ -697,13 +882,15 @@ class PhotoProcessor:
 		if not fast:
 			# Create 640_llm variant (black fill over detections, no colors/stick figures, for LLM analysis)
 			# Use original size if image is smaller than LLM_VARIANT_SIZE
-			llm_image = read_image(source_path, encoding=encoding)
+			llm_image = src.fresh_for_width(LLM_VARIANT_SIZE)
 			# Black out only the objects that were actually blurred — sub-threshold
 			# detections are recorded but stay visible (same policy as apply_blur).
 			# Prefer the persisted "blurred" flag; fall back to should_blur for legacy
-			# format-#1 records that predate it (see detections.py).
-			apply_blackout(llm_image, [o for o in detections.get("objects", [])
-			                           if o.get("blurred", should_blur(o))])
+			# format-#1 records that predate it (see detections.py). Bboxes are
+			# full-image coords; a pyramid level needs them scaled to its size.
+			apply_blackout(llm_image, scale_bboxes(
+				[o for o in detections.get("objects", []) if o.get("blurred", should_blur(o))],
+				llm_image.shape[1] / width))
 			llm_h, llm_w = llm_image.shape[:2]
 
 			if llm_w <= LLM_VARIANT_SIZE:
@@ -730,7 +917,7 @@ class PhotoProcessor:
 			copy_exif_data(source_path, llm_output_path)
 			logger.info(f"Created 640_llm variant for {unique_id}: {llm_width}x{llm_height} at {llm_output_path}")
 
-			llm_url = await self._get_size_url(llm_output_path, llm_relative_path, photo_id, client_signature)
+			llm_url = await self._get_size_url(llm_output_path, llm_relative_path, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
 			sizes_info['640_llm'] = {
 				'path': llm_relative_path,
 				'width': llm_width,
@@ -738,15 +925,31 @@ class PhotoProcessor:
 				'url': llm_url
 			}
 
-		if not fast:
-			processing_state.set_phase("dzi_pyramid")
-			# Generate DZI pyramid from the anonymized image (not the original source)
-			# Store metadata inline in sizes['full']['pyramid'] so the client can
-			# initialise OpenSeadragon without an extra round-trip for the .dzi file.
-			if 'full' in sizes_info:
-				pyramid = await self.generate_dzi_pyramid(image, unique_id, photo_id, client_signature, quality=quality, output_base=output_base)
-				if pyramid:
-					sizes_info['full']['pyramid'] = pyramid
+		if 'full' in sizes_info:
+			# Deep-zoom pyramid. Metadata is stored inline in
+			# sizes['full']['pyramid'] so the client can initialise OpenSeadragon
+			# without an extra .dzi fetch.
+			#
+			# An externally rendered pyramid (pano pipeline phase_13) is an
+			# OFFER: the upload client attaches one whenever it has one, and the
+			# worker decides whether to use it from the other parameters —
+			# blur applied, dev-serve vs prod path, prod's strict parameter
+			# match (external_pyramid_usable). Declining is not an error: the
+			# worker then does what it would have done without the offer, which
+			# is its own render, or none in fast mode. `fast` itself stays a
+			# pure encode-cost knob: it decides only whether the worker renders
+			# its OWN pyramid, never whether an offered one is used.
+			#
+			# The decision itself was taken above (before the variants, so they
+			# could derive from the chosen pyramid); here we only publish it: an
+			# accepted external pyramid is served in place, an own pyramid is
+			# rendered already and gets shipped now.
+			pyramid = ext_pyramid
+			if pyramid is None and own_dzi is not None:
+				processing_state.set_phase("dzi_pyramid")
+				pyramid = await self._ship_own_pyramid(*own_dzi, unique_id, photo_id, client_signature, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker)
+			if pyramid:
+				sizes_info['full']['pyramid'] = pyramid
 
 		return sizes_info, detections
 
@@ -755,22 +958,87 @@ class PhotoProcessor:
 	# Skip DZI pyramid generation for images where both dimensions are below this threshold
 	DZI_MIN_DIMENSION = 2048
 
-	async def generate_dzi_pyramid(self, image: np.ndarray, unique_id: str, photo_id: str = None, client_signature: str = None, quality: Optional[int] = None, output_base: Optional[str] = None) -> Optional[Dict[str, Any]]:
-		"""Generate a DZI (Deep Zoom Image) pyramid from an anonymized image.
+	def _external_pyramid(self, dzi_path: str, width: int, height: int, blur_applied: bool,
+	                      keep_pics_in_worker: bool, quality: Optional[int], unique_id: str) -> Optional[Dict[str, Any]]:
+		"""Validate a client-provided DZI pyramid and, if policy allows, return the
+		pyramid metadata dict pointing at it (served in place — never copied).
+
+		The descriptor is XML: parsed with xml.etree, not regex. Whether the
+		pyramid may be USED is external_pyramid_usable's call; on "no" we log
+		the reason and return None — the offer is declined, the caller carries
+		on as if none was made. The one hard failure is a Size that doesn't
+		match the processed image: that is not policy but a wrong pyramid for
+		this file (a pipeline association bug worth surfacing, not hiding).
+		"""
+		import xml.etree.ElementTree as ET
+		ns = '{http://schemas.microsoft.com/deepzoom/2008}'
+		root = ET.parse(dzi_path).getroot()
+		size = root.find(f'{ns}Size')
+		if size is None:
+			raise ValueError(f"external pyramid {dzi_path}: descriptor has no Size element")
+		dzi = {
+			'tile_size': int(root.get('TileSize')),
+			'overlap': int(root.get('Overlap')),
+			'format': root.get('Format'),
+			'width': int(size.get('Width')),
+			'height': int(size.get('Height')),
+			'params': None,
+		}
+		if (dzi['width'], dzi['height']) != (width, height):
+			raise ValueError(
+				f"external pyramid {dzi_path} is {dzi['width']}x{dzi['height']} but the photo is "
+				f"{width}x{height} — wrong pyramid for this file")
+		params_path = dzi_path + '.params.json'
+		if os.path.isfile(params_path):
+			with open(params_path) as f:
+				dzi['params'] = json.load(f)
+
+		required = {
+			'tile_size': DZI_TILE_SIZE, 'overlap': DZI_OVERLAP, 'format': DZI_FORMAT,
+			'q': quality if quality is not None else WEBP_QUALITY_DZI, 'effort': DZI_WEBP_EFFORT,
+		}
+		usable, reason = external_pyramid_usable(keep_pics_in_worker, blur_applied, dzi, required)
+		logger.info(f"External pyramid for {unique_id}: {dzi_path} ({dzi['width']}x{dzi['height']}, "
+		            f"tile {dzi['tile_size']}, {dzi['format']}, params={dzi['params']}) — "
+		            f"{'USING' if usable else 'declined'}: {reason}")
+		if not usable:
+			return None
+
+		# Serve in place: map the archive root the pyramid lives under to the
+		# URL Caddy serves that root at (LOCAL_PHOTO_URLS, "root=url;root=url").
+		url_map = dict(
+			pair.split('=', 1) for pair in os.getenv('LOCAL_PHOTO_URLS', '').split(';') if '=' in pair)
+		base_root = next((r for r in sorted(url_map, key=len, reverse=True)
+		                  if dzi_path == r or dzi_path.startswith(r.rstrip('/') + '/')), None)
+		if base_root is None:
+			raise RuntimeError(f"external pyramid {dzi_path} is usable but no LOCAL_PHOTO_URLS entry serves its root")
+		url_base = url_map[base_root].rstrip('/') + '/'
+		rel = os.path.relpath(dzi_path, base_root)
+		dzi_url = url_base + rel
+		return {
+			'type': 'dzi',
+			'dzi_url': dzi_url,
+			'tiles_url': dzi_url.removesuffix('.dzi') + '_files',
+			'tile_size': dzi['tile_size'],
+			'overlap': dzi['overlap'],
+			'format': dzi['format'],
+			'width': dzi['width'],
+			'height': dzi['height'],
+			'external': True,
+		}
+
+	def _render_own_pyramid(self, image: np.ndarray, unique_id: str, photo_id: str = None, quality: Optional[int] = None, output_base: Optional[str] = None) -> Tuple[str, str, Dict[str, Any]]:
+		"""dzsave a DZI (Deep Zoom Image) pyramid from an anonymized image into
+		the job's work dir. Returns (dzi_file, tiles_dir, meta) — the tiles are
+		NOT shipped yet: the caller derives the size variants from this pyramid
+		first (see PyramidSource) and ships with _ship_own_pyramid afterwards.
 
 		Args:
 			image: Anonymized image as a numpy BGR array (already sRGB 8-bit).
 			output_base: per-job output root (see process_uploaded_photo).
-
-		Returns pyramid metadata dict for inline use by OpenSeadragon, or None if generation fails.
-		The metadata allows the client to open the deep-zoom viewer without a separate .dzi fetch.
 		"""
 		try:
 			h, w = image.shape[:2]
-			if max(w, h) < self.DZI_MIN_DIMENSION:
-				logger.info(f"Skipping DZI pyramid for {unique_id}: image ({w}x{h}) below {self.DZI_MIN_DIMENSION}px threshold")
-				return None
-
 			user_id_part, photo_id_part = unique_id.split('/', 1)
 			user_id_part = validate_user_id(user_id_part)
 			safe_photo_id = sanitize_filename(photo_id_part)
@@ -785,8 +1053,8 @@ class PhotoProcessor:
 			dzi_file = dzi_output_base + '.dzi'
 			tiles_dir = dzi_output_base + '_files'
 
-			tile_size = 1024
-			overlap = 1
+			tile_size = DZI_TILE_SIZE
+			overlap = DZI_OVERLAP
 
 			import pyvips
 			# Convert BGR numpy array to pyvips RGB image
@@ -794,13 +1062,30 @@ class PhotoProcessor:
 			rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 			img = pyvips.Image.new_from_memory(rgb.data, w, h, 3, 'uchar')
 			webp_quality_dzi = quality if quality is not None else WEBP_QUALITY_DZI
-			img.dzsave(dzi_output_base, tile_size=tile_size, overlap=overlap, suffix=f'.webp[Q={webp_quality_dzi}]')
+			img.dzsave(dzi_output_base, tile_size=tile_size, overlap=overlap, suffix=f'.{DZI_FORMAT}[Q={webp_quality_dzi},effort={DZI_WEBP_EFFORT}]')
+			logger.info(f"DZI generated for {unique_id}")
+			meta = {'tile_size': tile_size, 'overlap': overlap, 'format': DZI_FORMAT, 'width': w, 'height': h}
+			return dzi_file, tiles_dir, meta
+		except Exception as e:
+			# DZI is required (when the image is large enough to have one): a
+			# failure here fails the whole photo so the client retries, rather
+			# than silently producing a photo without deep zoom.
+			logger.error(f"DZI pyramid generation failed for {unique_id}: {e}", exc_info=True)
+			raise
 
-			logger.info(f"DZI generated for {unique_id}, uploading files")
+	async def _ship_own_pyramid(self, dzi_file: str, tiles_dir: str, meta: Dict[str, Any], unique_id: str, photo_id: str = None, client_signature: str = None, output_base: Optional[str] = None, keep_pics_in_worker: bool = False) -> Optional[Dict[str, Any]]:
+		"""Ship a pyramid rendered by _render_own_pyramid (descriptor + every
+		tile, through _get_size_url like any other artifact) and return the
+		pyramid metadata dict for inline use by OpenSeadragon — it lets the
+		client open the deep-zoom viewer without a separate .dzi fetch."""
+		try:
+			output_base = output_base or self.upload_dir
+			tile_size, overlap, w, h = meta['tile_size'], meta['overlap'], meta['width'], meta['height']
+			logger.info(f"Uploading DZI files for {unique_id}")
 
 			# Upload the .dzi XML descriptor
 			dzi_relative = os.path.relpath(dzi_file, output_base)
-			dzi_url = await self._get_size_url(dzi_file, dzi_relative, photo_id, client_signature)
+			dzi_url = await self._get_size_url(dzi_file, dzi_relative, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
 
 			# The .dzi URL determines which pool this pyramid lives on. The tile
 			# base URL is derived from it by string surgery, so every tile must
@@ -827,7 +1112,7 @@ class PhotoProcessor:
 						if not os.path.isfile(tile_path):
 							continue
 						tile_relative = os.path.relpath(tile_path, output_base)
-						tile_url = await self._get_size_url(tile_path, tile_relative, photo_id, client_signature)
+						tile_url = await self._get_size_url(tile_path, tile_relative, photo_id, client_signature, keep_pics_in_worker=keep_pics_in_worker)
 						if tile_url != pool_base + tile_relative:
 							raise PoolMigrationError(f"DZI tile for {unique_id} landed on a different pool than its .dzi: {tile_url} (expected base {pool_base})")
 						tile_count += 1
@@ -929,25 +1214,35 @@ class PhotoProcessor:
 			logger.error(f"Failed to upload {relative_path} to API server: {error_string}")
 			raise RuntimeError(f"Failed to upload {relative_path} to API server: {error_string}")
 
-	async def _get_size_url(self, file_path: str, relative_path: str, photo_id: str = None, client_signature: str = None) -> str:
-		"""Get URL for a size variant - CDN upload, API server upload, or local only.
+	async def _get_size_url(self, file_path: str, relative_path: str, photo_id: str = None, client_signature: str = None, keep_pics_in_worker: bool = False) -> str:
+		"""Get URL for a size variant - keep locally, CDN upload, or API server upload.
 
 		In the CDN/API modes the shipped copy is the product and the local
 		file under opt/ is an intermediate — the caller reclaims it by
 		rmtree'ing the whole per-job work dir (see worker_processing / app).
 		Without this, every processed photo permanently duplicated its full
-		variant set in the worker's uploads volume. KEEP_PICS_IN_WORKER mode
-		is the exception — there the local file IS the served copy.
+		variant set in the worker's uploads volume. keep_pics_in_worker (a
+		per-photo upload flag, gated on ALLOW_KEEP_PICS_IN_WORKER in app) is
+		the exception — the file is promoted out of the work dir into this
+		worker's own uploads volume and served from there at WORKER_PICS_URL.
 		"""
-		keep_pics_in_worker = os.getenv("KEEP_PICS_IN_WORKER", "false").lower() in ("true", "1", "yes")
 		use_cdn = os.getenv("USE_CDN", "false").lower() in ("true", "1", "yes")
 
 		if keep_pics_in_worker:
-			# Keep files in worker, just return local URL
-			if PICS_URL:
-				return PICS_URL + relative_path
-			else:
-				raise RuntimeError("PICS_URL not configured for local file access")
+			# Promote the finished file out of the per-job work dir into the
+			# served tree. os.replace is atomic within the volume (work/ and
+			# opt/ share it), so a returned URL never points at a half-written
+			# file — mirroring the ship modes, where the URL is returned only
+			# after the upload completed. WORKER_PICS_URL falls back to
+			# PICS_URL for old single-toggle deployments that predate the
+			# separate base.
+			base = os.getenv("WORKER_PICS_URL") or PICS_URL
+			if not base:
+				raise RuntimeError("WORKER_PICS_URL (or PICS_URL) not configured for keep_pics_in_worker")
+			dest = os.path.join(str(self.upload_dir), relative_path)
+			os.makedirs(os.path.dirname(dest), exist_ok=True)
+			os.replace(file_path, dest)
+			return base + relative_path
 		elif use_cdn:
 			# Upload to CDN
 			if not os.getenv("BUCKET_NAME"):
@@ -966,7 +1261,7 @@ class PhotoProcessor:
 			logger.error(f"Cannot upload {relative_path}: client_signature is None")
 			raise RuntimeError(f"client_signature is required for API upload of {relative_path}")
 		else:
-			raise RuntimeError("No upload method configured: either set KEEP_PICS_IN_WORKER=true, USE_CDN=true (with BUCKET_NAME), or provide photo_id and client_signature for API upload")
+			raise RuntimeError("No upload method configured: either pass keep_pics_in_worker (with ALLOW_KEEP_PICS_IN_WORKER=true), set USE_CDN=true (with BUCKET_NAME), or provide photo_id and client_signature for API upload")
 
 
 	async def _anonymize_image(self, source_path: str, encoding: Optional[str] = None) -> tuple[Optional[str], dict]:
@@ -998,6 +1293,8 @@ class PhotoProcessor:
 		quality: Optional[int] = None,
 		fast: bool = False,
 		output_base: Optional[str] = None,
+		keep_pics_in_worker: bool = False,
+		local_pyramid_path: Optional[str] = None,
 	) -> Optional[Dict[str, Any]]:
 		"""Process a user-uploaded photo and return processing results.
 
@@ -1030,13 +1327,16 @@ class PhotoProcessor:
 		# `-w` uses the camera white balance; we do NOT pass -4 (linear) since
 		# viewers then render the pixels dark/flat (see scripts/raw/notes).
 		#
-		# We rename to a .tiff extension (rather than overwriting in place)
+		# We write to a .tiff extension (rather than overwriting in place)
 		# because ImageMagick's identify picks the reader from the suffix —
 		# a TIFF-content file with a .CR2 suffix triggers the CR2/DNG coder
-		# and fails. Both the CR2 and the derived TIFF live under the job's
-		# work dir, so the caller reclaims them by rmtree'ing it.
+		# and fails. The derived TIFF goes under the job's output_base (its
+		# work dir), NOT next to the source: the caller reclaims the work dir
+		# by rmtree'ing it, and in no-upload mode the source sits on a
+		# read-only mount where a sibling write would fail with EROFS.
 		if os.path.splitext(file_path)[1].lower() == '.cr2':
-			tiff_path = os.path.splitext(file_path)[0] + '.tiff'
+			tiff_stem = sanitize_filename(os.path.splitext(os.path.basename(file_path))[0])
+			tiff_path = os.path.join(output_base or self.upload_dir, tiff_stem + '.tiff')
 			with open(tiff_path, 'wb') as out:
 				dcraw_result = subprocess.run(
 					['dcraw', '-w', '-T', '-c', file_path],
@@ -1208,7 +1508,7 @@ class PhotoProcessor:
 		# .exr.encoding sidecar value); read_image falls back to the embedded
 		# header tag when this is absent.
 		encoding = metadata.get('encoding') if metadata else None
-		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base)
+		sizes_info, detections = await self.create_optimized_sizes(file_path, unique_id, width, height, photo_id, client_signature, override, quality=quality, fast=fast, encoding=encoding, output_base=output_base, keep_pics_in_worker=keep_pics_in_worker, local_pyramid_path=local_pyramid_path)
 
 		# Extract captured_at from EXIF DateTimeOriginal (with corruption fix)
 		raw_data = exif_data.get('data', {})
