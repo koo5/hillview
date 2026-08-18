@@ -98,6 +98,9 @@ class StampRefiner private constructor(private val context: Context) {
 	}
 
 	private val database: PhotoDatabase = PhotoDatabase.getDatabase(context)
+	// The refiner spans both stores by nature: it READS the sensor record and
+	// WRITES the photo row. Two databases, and no lock shared between them.
+	private val geo: GeoTrackingDatabase = GeoTrackingDatabase.getDatabase(context)
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 	/** How many refinements are in flight — the UI's progress indicator. */
@@ -169,10 +172,10 @@ class StampRefiner private constructor(private val context: Context) {
 		wantCompass: Boolean,
 		wantKalman: Boolean,
 	): RefineResult {
-		val bearingDao = database.bearingDao()
-		val locationDao = database.locationDao()
-		val androidId = database.sourceDao().getSourceIdByName("android")
-		val kalmanId = database.sourceDao().getSourceIdByName("gps-kalman")
+		val bearingDao = geo.bearingDao()
+		val locationDao = geo.locationDao()
+		val androidId = geo.sourceDao().getSourceIdByName("android")
+		val kalmanId = geo.sourceDao().getSourceIdByName("gps-kalman")
 
 		// Compass first: its window closes shortly after the shutter.
 		var refinedBearing: Double? = null

@@ -9,7 +9,7 @@ import androidx.test.rule.GrantPermissionRule
 import cz.hillview.map.LocationTracking
 import cz.hillview.map.MapSession
 import cz.hillview.map.MapStateHolder
-import cz.hillview.plugin.PhotoDatabase
+import cz.hillview.plugin.GeoTrackingDatabase
 import kotlin.math.abs
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -181,7 +181,7 @@ class GeoElectionBehaviourTest {
         // using, and the row has to be able to say so for itself.
         gps.inject(centre.latitude - 0.2, centre.longitude - 0.2)
 
-        val db = PhotoDatabase.getDatabase(Behaviour.context)
+        val db = GeoTrackingDatabase.getDatabase(Behaviour.context)
         compose.waitUntil(30_000) {
             val androidId = db.sourceDao().getSourceIdByName("android")
             androidId != null && db.locationDao().getAllLocations()

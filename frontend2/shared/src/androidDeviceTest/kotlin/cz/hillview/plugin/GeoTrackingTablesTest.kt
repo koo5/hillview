@@ -22,14 +22,14 @@ class GeoTrackingTablesTest {
 
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
-    private lateinit var db: PhotoDatabase
+    private lateinit var db: GeoTrackingDatabase
     private var android = 0
     private var manual = 0
     private var kalman = 0
 
     @Before
     fun openDatabase() {
-        db = Room.inMemoryDatabaseBuilder(context, PhotoDatabase::class.java).build()
+        db = Room.inMemoryDatabaseBuilder(context, GeoTrackingDatabase::class.java).build()
         // The whole elect-able vocabulary, which is the point of it being
         // this short — see the v13→v14 migration note in PhotoDatabase.
         android = db.sourceDao().getOrCreateSourceId("android")

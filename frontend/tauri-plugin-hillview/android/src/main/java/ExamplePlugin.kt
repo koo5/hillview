@@ -1912,10 +1912,13 @@ class ExamplePlugin(private val activity: Activity) : Plugin(activity) {
 						return@launch
 					}
 
-					val bearingEntity = db.bearingDao().getBearingNearTimestamp(timestamp)
+					// The sensor record lives in its own database since v18 —
+					// `db` above is the photo store, which no longer carries it.
+					val geo = cz.hillview.plugin.GeoTrackingDatabase.getDatabase(activity)
+					val bearingEntity = geo.bearingDao().getBearingNearTimestamp(timestamp)
 					var sourceName = "unknown"
 					if (bearingEntity != null) {
-						sourceName = db.sourceDao().getSourceNameById(bearingEntity.sourceId) ?: "unknown"
+						sourceName = geo.sourceDao().getSourceNameById(bearingEntity.sourceId) ?: "unknown"
 					}
 
 					CoroutineScope(Dispatchers.Main).launch {
