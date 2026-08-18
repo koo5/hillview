@@ -5,6 +5,7 @@
       <excludeFolder url="file://$MODULE_DIR$/backend/worker/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/backend/worker/venv" />
     </content>
+    <orderEntry type="jdk" jdkName="~/repos/koo5/hillview/0/hillview/backend/.venv" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="hillview-common" exported="" />
   </component>

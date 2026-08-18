@@ -91,6 +91,13 @@ async def _pano_pie(photo_id: str, compass, slack: float, default_far: float,
         pie["projection"] = cal["projection"]
     if cal and cal.get("x0") is not None:
         pie["x0"] = cal["x0"]
+    if cal and cal.get("calibratedStitch"):
+        # per-panel shift/scale + seams from a piecewise calibration — the
+        # overlay bench seeds its handles from this
+        try:
+            pie["stitch"] = json.loads(cal["calibratedStitch"])
+        except (TypeError, ValueError):
+            pass
     return pie
 
 

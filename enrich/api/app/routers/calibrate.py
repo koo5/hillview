@@ -112,7 +112,10 @@ async def calibration(photo_id: str):
 class AcceptRequest(BaseModel):
     photo_id: str
     annotation_ids: list[str]      # the INCLUDED set (UI's toggles, authoritative)
-    model: str = "linear"          # linear (f1/f2 stitches) | rectilinear (f0)
+    model: str = "linear"          # linear (f1/f2) | rectilinear (f0) | piecewise (stitched)
+    # piecewise: seam positions as fractions of the width — the panels between
+    # them get their own shift & scale on top of the linear law
+    seams: list[float] = []
     note: str | None = None
 
 
@@ -128,6 +131,10 @@ async def accept(req: AcceptRequest):
             raise HTTPException(422, "rectilinear needs at least 4 usable included anchors")
     elif req.model == "linear":
         fit = calibrate.fit_summary(pts, data["photo"]["compass_angle"])
+        if not fit:
+            raise HTTPException(422, "need at least 2 usable included anchors")
+    elif req.model == "piecewise":
+        fit = calibrate.fit_piecewise(pts, data["photo"]["compass_angle"], req.seams)
         if not fit:
             raise HTTPException(422, "need at least 2 usable included anchors")
     else:
@@ -160,6 +167,15 @@ async def accept(req: AcceptRequest):
                             facts.lit("rectilinear")))
             triples.append((ph, facts._p("calibratedX0"),
                             facts.lit(str(fit["x0"]), facts.XSD + "double")))
+        if fit.get("model") == "piecewise":
+            # the stitch model on top of the linear law: seams + per-panel
+            # shift/scale, one JSON literal (the overlay bench's knots/hwarp/
+            # hscale, verbatim) — consumers that only need the pie ignore it
+            triples.append((ph, facts._p("calibratedStitch"),
+                            facts.lit(json.dumps({"knots": fit["knots"],
+                                                  "hwarp": fit["hwarp"],
+                                                  "hscale": fit["hscale"]},
+                                                 separators=(",", ":")))))
         # meta links facts to the pano's annotations? No — hv:about the photo's
         # annotation set is indirect; link to the photo via hv:about instead.
         fact_graphs: dict[str, str] = {}

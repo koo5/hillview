@@ -3,7 +3,7 @@
 	import StandardBody from '$lib/components/StandardBody.svelte';
 	import PhotoHead from '$lib/components/PhotoHead.svelte';
 	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
-	import { CreativeCommons, Calendar, Copyright, MapPin } from 'lucide-svelte';
+	import { CreativeCommons, Calendar, Copyright, MapPin, Mountain } from 'lucide-svelte';
 	import MyExternalLink from '$lib/components/MyExternalLink.svelte';
 </script>
 
@@ -126,6 +126,39 @@
 				Mapillary contributor. When reusing a Mapillary photo, please attribute both the
 				original contributor and Mapillary as required by Mapillary's
 				<MyExternalLink href="https://www.mapillary.com/terms">terms</MyExternalLink>.
+			</p>
+		</section>
+
+		<section class="document-section">
+			<h2>
+				<Mountain size={24} />
+				Terrain data
+			</h2>
+			<p>
+				Some photos carry a <strong>terrain horizon overlay</strong> — a skyline computed
+				from public elevation models and aligned to the photo. These renders are derived
+				works of the elevation data they were computed from, so the data licences follow
+				them wherever they are shown. Each overlay carries its own attribution notice,
+				displayed under the photo, because a render made from different sources carries a
+				different notice.
+			</p>
+			<p>
+				Elevation data comes from the Copernicus DEM (GLO-30) and, in Czechia, from ČÚZK's
+				open elevation models (DMP 1G / DMR, CC BY 4.0). Peak and place names come from
+				<MyExternalLink href="https://www.openstreetmap.org/copyright">OpenStreetMap</MyExternalLink>
+				contributors under the ODbL.
+			</p>
+			<p>
+				As required by the Copernicus DEM licence:
+				<em>
+					The organisations in charge of the Copernicus programme by law or by delegation
+					do not incur any liability for any use of the Copernicus WorldDEM-30.
+				</em>
+			</p>
+			<p>
+				Copernicus WorldDEM-30 is © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH
+				2014-2018, provided under COPERNICUS by the European Union and ESA; all rights
+				reserved. Nothing here implies endorsement by Copernicus, ESA, DLR, Airbus or ČÚZK.
 			</p>
 		</section>
 

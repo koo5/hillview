@@ -92,6 +92,82 @@ def fit_summary(points: list[dict], compass: float | None) -> dict | None:
     }
 
 
+def fit_piecewise(points: list[dict], compass: float | None,
+                  seams: list[float]) -> dict | None:
+    """Stitched-pano model: the linear law (Theil-Sen, as fit_summary) PLUS a
+    per-PANEL shift and scale, panels being the pieces between the given
+    seams (fractions of the width, 0 < s < 1). What a frame stitched at the
+    wrong focal length leaves behind is exactly this: within its region the
+    azimuth runs at a different rate (scale) and is displaced (shift), while
+    the rest of the pano is fine.
+
+    Per panel the residual against the global line is fitted robustly as
+    r = shift + d·(x − centre) (Theil-Sen; one point → shift only; none →
+    neutral). In the overlay projector's terms (shared/terrain/overlayFit.ts,
+    `hwarp`/`hscale`/`knots`): hwarp[k] = shift (the pano shows an azimuth
+    that much HIGHER there), hscale[k] = b/(b + d) (the panel's content is
+    rendered that much larger than the ideal law), knots = [0, *seams, 1].
+    Emits fov/centre_bearing like the linear fit, so consumers that only
+    want the pie are unchanged."""
+    if len(points) < 2:
+        return None
+    base = theil_sen([p["x"] for p in points], [p["delta"] for p in points])
+    if not base:
+        return None
+    a, b = base
+    if abs(b) < 1e-9:
+        return None
+    knots = [0.0] + sorted(s for s in seams if 0.0 < s < 1.0) + [1.0]
+    n = len(knots)
+    hwarp = [0.0] * n
+    hscale = [1.0] * n
+    panel_n = [0] * (n - 1)
+    for k in range(n - 1):
+        lo, hi = knots[k], knots[k + 1]
+        last = k == n - 2
+        pk = [p for p in points if lo <= p["x"] < hi or (last and p["x"] == hi)]
+        panel_n[k] = len(pk)
+        if not pk:
+            continue
+        c = (lo + hi) / 2
+        rs = [p["delta"] - (a + b * p["x"]) for p in pk]
+        if len(pk) >= 2 and len({p["x"] for p in pk}) >= 2:
+            ts = theil_sen([p["x"] - c for p in pk], rs)
+            shift, d = ts if ts else (sorted(rs)[len(rs) // 2], 0.0)
+        else:
+            shift, d = rs[0], 0.0
+        scale = b / (b + d) if b + d != 0 else 1.0
+        hwarp[k] = round(shift, 3)
+        hscale[k] = round(min(2.0, max(0.5, scale)), 5)
+
+    def predict(x: float) -> float:
+        k = 0
+        while k < n - 2 and x >= knots[k + 1]:
+            k += 1
+        c = (knots[k] + knots[k + 1]) / 2
+        # true(x) = ideal(c) + (ideal(x) − ideal(c))/scale + shift
+        return (a + b * c) + (b * (x - c)) / hscale[k] + hwarp[k]
+
+    for p in points:
+        p["residual"] = round(p["delta"] - predict(p["x"]), 2)
+    rms = math.sqrt(sum(p["residual"] ** 2 for p in points) / len(points))
+    centre_bias = a + b * 0.5
+    return {
+        "model": "piecewise",
+        "intercept": round(a, 2), "slope": round(b, 2),
+        "fov": round(abs(b), 1),
+        "centre_bias": round(centre_bias, 2),
+        "centre_bearing": (round((compass + centre_bias) % 360, 2)
+                           if compass is not None else None),
+        "rms": round(rms, 2),
+        "n": len(points),
+        "knots": [round(k, 5) for k in knots],
+        "hwarp": hwarp,
+        "hscale": hscale,
+        "panel_n": panel_n,
+    }
+
+
 def fit_rectilinear(points: list[dict], compass: float | None) -> dict | None:
     """Rectilinear (f0) model: delta(x) = c + atan(k·(x − x0)), degrees — for
     panos whose stitch OUTPUT projection is rectilinear (a straight line fit

@@ -237,6 +237,12 @@ def read_image(source_path, encoding=None):
 	# back to cv2 which likely also fails and produces a misleading
 	# "pyvips load failed" warning.
 	try:
+		# NB: vips' EXR loader is full-decode class — it materializes the whole
+		# decoded raster at open time regardless of the access mode (verified
+		# empirically 2026-08-14: access='sequential' still wrote a tens-of-GB
+		# /tmp/vips-*.v for a gigapixel pano). Where that materialization goes
+		# is steered by VIPS_DISC_THRESHOLD (worker env): rasters under the
+		# threshold stay in a RAM buffer, larger ones spill to a temp file.
 		img = pyvips.Image.new_from_file(source_path)
 		img = img.autorot()
 	except pyvips.Error as e:

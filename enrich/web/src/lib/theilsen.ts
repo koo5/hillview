@@ -3,7 +3,7 @@
 
 export interface FitSummary {
 	/** absent = linear (back-compat) */
-	model?: 'linear' | 'rectilinear';
+	model?: 'linear' | 'rectilinear' | 'piecewise';
 	intercept: number;
 	slope: number;
 	fov: number;
@@ -14,12 +14,27 @@ export interface FitSummary {
 	/** rectilinear only: projection centre (principal point x) and tan scale */
 	x0?: number;
 	k?: number;
+	/** piecewise only: the stitch model on top of the linear law — seams as
+	 * width fractions incl. 0 and 1, and per-panel shift (deg) / scale
+	 * (about the panel centre); the overlay bench's knots/hwarp/hscale */
+	knots?: number[];
+	hwarp?: number[];
+	hscale?: number[];
+	panel_n?: number[];
 }
 
 /** model-aware prediction: Δ at rect-x under the fit */
 export function predict(fit: FitSummary, x: number): number {
 	if (fit.model === 'rectilinear')
 		return fit.intercept + (Math.atan(fit.k! * (x - fit.x0!)) * 180) / Math.PI;
+	if (fit.model === 'piecewise' && fit.knots && fit.hwarp && fit.hscale) {
+		const kn = fit.knots;
+		let k = 0;
+		while (k < kn.length - 2 && x >= kn[k + 1]) k++;
+		const c = (kn[k] + kn[k + 1]) / 2;
+		// true(x) = ideal(c) + (ideal(x) − ideal(c))/scale + shift
+		return fit.intercept + fit.slope * c + (fit.slope * (x - c)) / fit.hscale[k] + fit.hwarp[k];
+	}
 	return fit.intercept + fit.slope * x;
 }
 
@@ -125,4 +140,61 @@ export function fitRectilinear(
 		x0,
 		k
 	};
+}
+
+/** Stitched-pano model (mirror of api fit_piecewise): the linear law PLUS a
+ * per-PANEL shift and scale, panels being the pieces between `seams` (width
+ * fractions in (0, 1)). A frame stitched at the wrong focal length leaves
+ * exactly this behind: within its region the azimuth runs at a different
+ * rate (scale) and is displaced (shift). Per panel the residual against the
+ * global line is Theil-Sen-fitted as r = shift + d·(x − centre) (one point →
+ * shift only; none → neutral); hscale = b/(b + d), hwarp = shift, knots =
+ * [0, …seams, 1] — the overlay bench's handle model, verbatim. */
+export function fitPiecewise(
+	points: { x: number; delta: number }[],
+	compass: number | null,
+	seams: number[]
+): FitSummary | null {
+	if (points.length < 2) return null;
+	const base = theilSen(points.map((p) => p.x), points.map((p) => p.delta));
+	if (!base) return null;
+	const [a, b] = base;
+	if (Math.abs(b) < 1e-9) return null;
+	const knots = [0, ...[...seams].filter((v) => v > 0 && v < 1).sort((p, q) => p - q), 1];
+	const n = knots.length;
+	const hwarp = new Array(n).fill(0);
+	const hscale = new Array(n).fill(1);
+	const panel_n = new Array(n - 1).fill(0);
+	for (let k = 0; k < n - 1; k++) {
+		const lo = knots[k], hi = knots[k + 1], last = k === n - 2;
+		const pk = points.filter((p) => (lo <= p.x && p.x < hi) || (last && p.x === hi));
+		panel_n[k] = pk.length;
+		if (!pk.length) continue;
+		const c = (lo + hi) / 2;
+		const rs = pk.map((p) => p.delta - (a + b * p.x));
+		let shift = 0, d = 0;
+		if (pk.length >= 2 && new Set(pk.map((p) => p.x)).size >= 2) {
+			const ts = theilSen(pk.map((p) => p.x - c), rs);
+			if (ts) [shift, d] = ts;
+			else shift = [...rs].sort((p, q) => p - q)[Math.floor(rs.length / 2)];
+		} else shift = rs[0];
+		hwarp[k] = +shift.toFixed(3);
+		hscale[k] = +Math.min(2, Math.max(0.5, b + d !== 0 ? b / (b + d) : 1)).toFixed(5);
+	}
+	const fit: FitSummary = {
+		model: 'piecewise',
+		intercept: a,
+		slope: b,
+		fov: Math.abs(b),
+		centre_bias: a + b * 0.5,
+		centre_bearing: compass != null ? (((compass + a + b * 0.5) % 360) + 360) % 360 : null,
+		rms: 0,
+		n: points.length,
+		knots,
+		hwarp,
+		hscale,
+		panel_n
+	};
+	fit.rms = Math.sqrt(points.reduce((s, p) => s + (p.delta - predict(fit, p.x)) ** 2, 0) / points.length);
+	return fit;
 }

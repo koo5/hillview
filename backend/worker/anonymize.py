@@ -230,6 +230,10 @@ def anonymize_image(source_path, encoding=None):
 	t0 = time.monotonic()
 	image = read_image(source_path, encoding=encoding)
 	logger.info(f"Image read ({time.monotonic() - t0:.1f}s), starting YOLO detection: {source_path}")
+	# Decode is over; from here on the phase label is honest (the caller sets
+	# "decode" before read_image — see create_optimized_sizes).
+	import processing_state
+	processing_state.set_phase("anonymizing")
 
 	t_detect = time.monotonic()
 	boxes = detect_targets(image)

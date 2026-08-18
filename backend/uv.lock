@@ -1240,6 +1240,7 @@ version = "1.0.0"
 source = { virtual = "worker" }
 dependencies = [
     { name = "aiofiles" },
+    { name = "defusedxml" },
     { name = "exifread" },
     { name = "fastapi" },
     { name = "fire" },
@@ -1275,6 +1276,7 @@ dev = [
 requires-dist = [
     { name = "aiofiles" },
     { name = "bandit", marker = "extra == 'dev'" },
+    { name = "defusedxml" },
     { name = "exifread" },
     { name = "fastapi" },
     { name = "fire" },

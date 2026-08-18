@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import type { Candidate, CandidatePhoto, Wedge } from '$lib/types';
 	import { escapeHtml, html } from '$lib/html';
+	import { candidateLabel } from '$lib/candidateLabel';
 	import 'leaflet/dist/leaflet.css';
 
 	let {
@@ -77,6 +78,11 @@
 	let L: any = null;
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let layer: any = null;
+	// what the view was last fitted to — refit only when the SCENE changes
+	// (photo, candidate set, wedge, pie), not on selection/hover or pin
+	// placement: every marker click used to re-run fitBounds and throw away
+	// the user's zoom
+	let lastFitKey = '';
 
 	const COLORS: Record<string, string> = {
 		proposed: '#8b93a1',
@@ -206,13 +212,25 @@
 				bubblingMouseEvents: false
 			})
 				.bindTooltip(
-					html`${c.displayName ?? c.candidate}<br>${c.km ?? '?'} km · Δ${c.bearing_offset ?? '?'}°`
+					html`${candidateLabel(c)}<br>${c.km ?? '?'} km · Δ${c.bearing_offset ?? '?'}°`
 				)
 				.addTo(layer);
 			m.on('click', () => onselect?.(c.candidate));
 			pts.push([c.lat, c.lon]);
 		}
-		if (fit && pts.length) map.fitBounds(pts, { padding: [30, 30], maxZoom: 15 });
+		if (fit && pts.length) {
+			const key = JSON.stringify([
+				photo.lat,
+				photo.lon,
+				candidates.map((c) => c.candidate).sort(),
+				wedge,
+				annotationPie
+			]);
+			if (key !== lastFitKey) {
+				lastFitKey = key;
+				map.fitBounds(pts, { padding: [30, 30], maxZoom: 15 });
+			}
+		}
 	}
 
 	function emitViewport() {
