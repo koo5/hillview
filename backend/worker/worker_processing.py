@@ -82,6 +82,18 @@ _workers = []           # index -> multiprocessing.Process (None while (re)spawn
 _pending = {}           # job_id -> (asyncio.Future, args) — args kept for requeue-on-rebuild
 _inflight = {}          # worker_idx -> set of job_ids currently being processed
 _loop = None            # the asyncio event loop that owns the futures
+
+# Child-side: jobs currently inside _run_photo_processing in THIS process
+# (one per busy puller thread). processing_state._active is empty in the child
+# (its phase updates are piped to the parent), so this is the only honest
+# in-process concurrency figure — photo_processor's [timing] lines report it
+# so a process-wide CPU number can be judged clean (1) or shared (>1).
+_child_inflight = 0
+_child_inflight_lock = threading.Lock()
+
+
+def child_inflight() -> int:
+	return _child_inflight
 _pool_size = 0
 _threads = 1            # puller threads per worker process
 _job_counter = 0
@@ -166,6 +178,7 @@ def _worker_main(worker_idx, job_queue, result_queue, phase_queue, threads=1):
 	logger.info(f"[worker {worker_idx}] warm-up imports done in {time.monotonic() - t0:.1f}s")
 
 	def _pull_loop():
+		global _child_inflight
 		while True:
 			job = job_queue.get()
 			if job is None:  # shutdown sentinel (one per thread)
@@ -173,6 +186,8 @@ def _worker_main(worker_idx, job_queue, result_queue, phase_queue, threads=1):
 			job_id = job["job_id"]
 			# Announce pickup so the parent can attribute a death to this job.
 			result_queue.put((job_id, "picked", worker_idx))
+			with _child_inflight_lock:
+				_child_inflight += 1
 			try:
 				result = _run_photo_processing(**job["args"])
 				result_queue.put((job_id, "ok", result))
@@ -183,6 +198,9 @@ def _worker_main(worker_idx, job_queue, result_queue, phase_queue, threads=1):
 					"tb": traceback.format_exc(),
 				}))
 				logger.error(f"[worker {worker_idx}] job {job_id} failed: {e}")
+			finally:
+				with _child_inflight_lock:
+					_child_inflight -= 1
 
 	pullers = [threading.Thread(target=_pull_loop, name=f"puller-{i}", daemon=False)
 			   for i in range(max(1, threads))]
