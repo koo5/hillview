@@ -58,7 +58,8 @@ class GeoTrackingManager(private val context: Context) {
 			}
 	}
 
-	private val database: PhotoDatabase = PhotoDatabase.getDatabase(context)
+	// The sensor store, in its own file since v18 — see GeoTrackingDatabase.
+	private val database: GeoTrackingDatabase = GeoTrackingDatabase.getDatabase(context)
 
 	// Cache for source name -> source ID mapping to avoid frequent DB lookups
 	private val sourceIdCache = ConcurrentHashMap<String, Int>()

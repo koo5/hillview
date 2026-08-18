@@ -11,7 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
-import cz.hillview.plugin.PhotoDatabase
+import cz.hillview.plugin.GeoTrackingDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -59,7 +59,7 @@ private class AndroidExternalCameraController(
     }
 
     override suspend fun tableCounts(): Pair<Int, Int> = withContext(Dispatchers.IO) {
-        val db = PhotoDatabase.getDatabase(context)
+        val db = GeoTrackingDatabase.getDatabase(context)
         db.bearingDao().countBearings() to db.locationDao().countLocations()
     }
 }

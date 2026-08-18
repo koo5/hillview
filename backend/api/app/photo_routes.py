@@ -55,12 +55,12 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
 from push_notifications import send_activity_broadcast_notification, create_notification_for_user
 from common.database import get_db
-from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation, PhotoModerationAudit, UserRole
+from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation, PhotoLicenseHistory, PhotoModerationAudit, UserRole
 from common.config import get_write_pool
 from common.utc import format_utc
 from auth import get_current_active_user, get_current_user_optional_with_query
 from hidden_content_filters import apply_hidden_content_filters
-from hillview_routes import legal_rights_to_license
+from hillview_routes import ALLOWED_LICENSES, legal_rights_to_license
 from common.file_utils import (
 	get_file_size_from_upload
 )
@@ -771,6 +771,81 @@ async def get_sitemap_photo_ids(
 	}
 
 
+@router.get("/{photo_id}/license-history")
+async def list_license_history(
+	request: Request,
+	photo_id: str,
+	current_user: Optional[User] = Depends(get_current_user_optional_with_query),
+	db: AsyncSession = Depends(get_db)
+):
+	"""Every recorded licence change on one photo, newest first.
+
+	An audit nobody can read is not an audit. This is PUBLIC — same visibility
+	as the photo itself — because the audience for a licence history is
+	precisely the people downstream: someone holding a copy taken under
+	CC-BY-SA needs to be able to show it was offered that way at that time,
+	and a later switch to something stricter must not make that unanswerable.
+
+	What is public is the GRANT (which licence, from when), not the ACTOR.
+	``reason`` and the actor's username go to the owner and to moderators;
+	``ip_address``/``user_agent`` only to moderators. Anonymous callers still
+	learn whether the rights-holder made the change themselves, which is the
+	part that bears on the grant.
+	"""
+	query = select(Photo).where(Photo.id == photo_id, Photo.deleted == False)
+	# The same filter the public detail page runs, so this endpoint can never
+	# reveal a photo that page would hide.
+	query = apply_hidden_content_filters(
+		query,
+		current_user.id if current_user else None,
+		'hillview'
+	)
+	photo = (await db.execute(query)).scalars().first()
+	if not photo:
+		raise HTTPException(
+			status_code=status.HTTP_404_NOT_FOUND,
+			detail="Photo not found"
+		)
+
+	is_moderator = bool(current_user) and current_user.role in (UserRole.ADMIN, UserRole.MODERATOR)
+	is_owner = bool(current_user) and photo.owner_id == str(current_user.id)
+
+	rows = (await db.execute(
+		select(PhotoLicenseHistory)
+		.where(PhotoLicenseHistory.photo_id == photo_id)
+		.order_by(PhotoLicenseHistory.created_at.desc())
+	)).scalars().all()
+
+	return {
+		# The licence in force now, so the history reads as a complete story
+		# without a second request. Public name, as everywhere else the API
+		# says "license" on the way out.
+		"current": legal_rights_to_license(photo.legal_rights),
+		"entries": [
+			{
+				"id": r.id,
+				"old_license": legal_rights_to_license(r.old_license) if r.old_license else None,
+				"new_license": legal_rights_to_license(r.new_license) if r.new_license else None,
+				"actor_was_owner": bool(r.actor_was_owner),
+				"created_at": format_utc(r.created_at),
+				**(
+					{
+						"actor_username": r.actor_username,
+						"actor_role": r.actor_role,
+						"reason": r.reason,
+					}
+					if (is_owner or is_moderator) else {}
+				),
+				**(
+					{"ip_address": r.ip_address, "user_agent": r.user_agent}
+					if is_moderator else {}
+				),
+			}
+			for r in rows
+		],
+	}
+
+
 @router.get("/moderation-audit")
 async def list_moderation_audit(
 	request: Request,
@@ -1119,6 +1194,9 @@ class PhotoEditRequest(BaseModel):
 	description: Optional[str] = None
 	featured: Optional[bool] = None  # moderator-only; see the gate below
 	bearing: Optional[float] = None  # degrees; normalized into [0, 360)
+	# Licence identifier from ALLOWED_LICENSES (stored as Photo.legal_rights).
+	# Owner-changeable, and every change is recorded — see the handler.
+	license: Optional[str] = None
 	reason: Optional[str] = None
 
 
@@ -1130,7 +1208,7 @@ async def edit_photo(
 	current_user: User = Depends(get_current_active_user),
 	db: AsyncSession = Depends(get_db)
 ):
-	"""Edit a photo's title, description, bearing, or featured flag.
+	"""Edit a photo's title, description, bearing, licence, or featured flag.
 
 	Owners may edit their own photo's title/description/bearing; admins and
 	moderators may edit any photo. ``featured`` is a curation flag, so only
@@ -1141,6 +1219,11 @@ async def edit_photo(
 	clears the field. When the actor doesn't own the photo, the change is
 	recorded in the moderation audit (see ``PhotoModerationAudit``) with the
 	old and new values snapshotted in ``extra_data['changes']``.
+
+	``license`` is the exception to that rule: a licence change is recorded in
+	``PhotoLicenseHistory`` ALWAYS, owner or not. It is not moderation — it is
+	the grant downstream users rely on, so who offered what, and when, has to
+	stay answerable after the fact.
 	"""
 	await rate_limit_photo_operations(request, current_user.id)
 
@@ -1196,6 +1279,16 @@ async def edit_photo(
 		if payload.featured is not None and payload.featured != bool(photo.featured):
 			changes["featured"] = {"old": bool(photo.featured), "new": payload.featured}
 			photo.featured = payload.featured
+		if payload.license is not None:
+			if payload.license not in ALLOWED_LICENSES:
+				raise HTTPException(
+					status_code=status.HTTP_400_BAD_REQUEST,
+					detail=f"Unknown license identifier: {payload.license}"
+				)
+			if payload.license != photo.legal_rights:
+				changes["license"] = {"old": photo.legal_rights, "new": payload.license}
+				photo.legal_rights = payload.license
+
 		if payload.bearing is not None:
 			if not math.isfinite(payload.bearing):
 				raise HTTPException(
@@ -1208,10 +1301,38 @@ async def edit_photo(
 				photo.compass_angle = new_bearing
 
 		if changes:
-			if not is_owner:
+			owner_username = None
+			if not is_owner or "license" in changes:
 				owner_username = await db.scalar(
 					select(User.username).where(User.id == photo.owner_id)
 				)
+
+			# Written for the owner's own change too, which is why it is not
+			# the moderation audit: a copy taken under CC-BY-SA was taken
+			# under the licence offered AT THAT MOMENT, and a later switch
+			# must not be able to make that unanswerable.
+			if "license" in changes:
+				db.add(PhotoLicenseHistory(
+					photo_id=photo.id,
+					photo_owner_id=photo.owner_id,
+					photo_owner_username=owner_username,
+					old_license=changes["license"]["old"],
+					new_license=changes["license"]["new"],
+					actor_user_id=str(current_user.id),
+					actor_username=current_user.username,
+					actor_role=current_user.role.value if current_user.role else None,
+					actor_was_owner=is_owner,
+					reason=payload.reason.strip() if payload.reason and payload.reason.strip() else None,
+					ip_address=get_client_ip(request),
+					user_agent=request.headers.get("user-agent"),
+				))
+				logger.info(
+					f"License: {current_user.username} ({current_user.id}) changed photo "
+					f"{photo.id} from {changes['license']['old']} to "
+					f"{changes['license']['new']}"
+				)
+
+			if not is_owner:
 				db.add(PhotoModerationAudit(
 					action="edit",
 					actor_user_id=str(current_user.id),
@@ -1243,6 +1364,12 @@ async def edit_photo(
 			"description": photo.description,
 			"featured": bool(photo.featured),
 			"bearing": photo.compass_angle,
+			# The API has two licence vocabularies: writes take the GRANT
+			# identifier (the same ones the upload authorization accepts,
+			# stored as legal_rights), reads return the public name. This is a
+			# read of the resulting state, so it speaks the read vocabulary —
+			# `changed` is what tells a caller whether their write landed.
+			"license": legal_rights_to_license(photo.legal_rights),
 			"changed": sorted(changes),
 		}
 

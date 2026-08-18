@@ -57,6 +57,20 @@ object StartupReconciler {
 				// here costs latency, never correctness.
 				Log.w(TAG, "startup reconcile failed; deadlines will cover it", e)
 			}
+
+			// OUTSIDE that try on purpose. The rows just handed back are
+			// waiting on nobody — the job uploading them died with the previous
+			// process — so this launch is what parks a fresh one against the
+			// current settings; without it a full queue can start the app with
+			// no schedule at all, and the next capture is the only thing that
+			// would notice.
+			//
+			// Which makes it the LAST thing that should be skipped because the
+			// step above threw. It does throw in practice: the start-time geo
+			// dump transacts on this same database, and losing the race costs a
+			// SQLITE_BUSY on the reclaim — a latency problem that must not turn
+			// into an unscheduled queue.
+			PhotoUploadManager(context).reconcile("app_start")
 		}
 	}
 }

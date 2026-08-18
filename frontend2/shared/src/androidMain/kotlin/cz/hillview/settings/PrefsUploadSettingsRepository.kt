@@ -1,6 +1,7 @@
 package cz.hillview.settings
 
 import android.content.Context
+import cz.hillview.plugin.PhotoUploadManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,7 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * unconfigured store.
  */
 class PrefsUploadSettingsRepository(
-    context: Context,
+    private val context: Context,
     defaults: UploadSettings,
 ) : UploadSettingsRepository {
     private val prefs = context.getSharedPreferences("hillview_upload_prefs", Context.MODE_PRIVATE)
@@ -40,9 +41,23 @@ class PrefsUploadSettingsRepository(
     override val settings: StateFlow<UploadSettings> = _settings.asStateFlow()
 
     override fun update(transform: (UploadSettings) -> UploadSettings) {
-        val next = transform(_settings.value)
+        val previous = _settings.value
+        val next = transform(previous)
         persist(next)
         _settings.value = next
+
+        // Any of these three changes what the schedule SHOULD be: turning
+        // auto-upload on must pick up photos captured while it was off (a
+        // capture during that time enqueued nothing at all), and flipping the
+        // network rule invalidates the constraint baked into whatever is
+        // already parked. The reconciler works out which; this only reports
+        // that something relevant moved.
+        if (next.autoUploadEnabled != previous.autoUploadEnabled ||
+            next.wifiOnly != previous.wifiOnly ||
+            next.license != previous.license
+        ) {
+            PhotoUploadManager(context).reconcile("settings_changed")
+        }
     }
 
     private fun persist(s: UploadSettings) {

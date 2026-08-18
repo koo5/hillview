@@ -34,6 +34,22 @@ class HillviewApplication : Application() {
             androidContext(this@HillviewApplication)
         }
 
+        // Starting anew means nothing from the previous process is running —
+        // no refinement will finish, no upload is in flight. Spend that
+        // certainty instead of waiting deadlines out: release refinement
+        // holds and hand back photos stuck mid-upload. processStart is
+        // captured at the top of onCreate, before anything of ours could
+        // have claimed a photo.
+        //
+        // FIRST, and the geo dump below waits for it. These two used to launch
+        // as independent coroutines and race each other; separate database
+        // files (v18) mean they can no longer block each other in SQLite, but
+        // the order still matters for a plainer reason — this is two fast
+        // UPDATEs that the upload schedule depends on, and the dump is a
+        // whole-table read plus a CSV write. Cheap work that something waits
+        // on goes before expensive work that nothing waits on.
+        cz.hillview.plugin.StartupReconciler.run(this, processStart)
+
         // App-start geo dump, as the Tauri plugin's init does — a crash or
         // swipe-away skips the session-end dump; this catches up (only
         // exports when auto_export is on; clears either way).
@@ -44,14 +60,6 @@ class HillviewApplication : Application() {
                 android.util.Log.w("HillviewApp", "start-time geo dump failed", e)
             }
         }
-
-        // Starting anew means nothing from the previous process is running —
-        // no refinement will finish, no upload is in flight. Spend that
-        // certainty instead of waiting deadlines out: release refinement
-        // holds and hand back photos stuck mid-upload. processStart is
-        // captured at the top of onCreate, before anything of ours could
-        // have claimed a photo.
-        cz.hillview.plugin.StartupReconciler.run(this, processStart)
 
         // Lockstep logout: whichever shared-kt AuthenticationManager instance
         // (upload worker, status sync, UI store) declares the session dead,

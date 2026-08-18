@@ -276,5 +276,108 @@ class TestParseExifDatetime:
         assert dt.utcoffset().total_seconds() == 0
 
 
+class TestSynthesizeProvenance:
+    """What survives the upload-metadata hop into UserComment.
+
+    This is a contract with the pics pipeline, not an implementation
+    detail: a browser capture cannot write EXIF at all, and the Android
+    fast-write path deliberately does not (the whole-file rewrite is the
+    throughput cost it exists to avoid), so for both of them the metadata
+    blob is the ONLY carrier of provenance.
+    """
+
+    def test_the_fast_write_stamp_survives_in_full(self):
+        from photo_processor import synthesize_provenance
+        out = json.loads(synthesize_provenance({
+            "latitude": 50.1, "longitude": 14.4,     # not provenance, must not leak
+            "location_source": "gps",
+            "bearing_source": "android-compass-true",
+            "location_age_ms": 207,
+            "refined": True,
+            "exposure": {"mode": "sports", "iso": 133, "outcome": "ontarget"},
+        }))
+        assert out["location_source"] == "gps"
+        assert out["bearing_source"] == "android-compass-true"
+        assert out["location_age_ms"] == 207
+        assert out["refined"] is True
+        # Nested, not stringified — a consumer reads exposure.mode directly.
+        assert out["exposure"]["mode"] == "sports"
+        # Geo lives in its own columns; duplicating it here would rot.
+        assert "latitude" not in out
+
+    def test_absent_keys_are_omitted_not_nulled(self):
+        # An older client sends the two it knows; the rest must not appear
+        # as nulls, which a consumer would have to special-case.
+        from photo_processor import synthesize_provenance
+        out = json.loads(synthesize_provenance({
+            "location_source": "manual", "bearing_source": "arrow_drag",
+        }))
+        assert out == {"location_source": "manual", "bearing_source": "arrow_drag"}
+
+    def test_nothing_to_say_means_no_usercomment(self):
+        # None (not "{}"), so the caller leaves a genuinely embedded
+        # UserComment alone rather than overwriting it with an empty object.
+        from photo_processor import synthesize_provenance
+        assert synthesize_provenance({"latitude": 50.1}) is None
+        assert synthesize_provenance({}) is None
+        assert synthesize_provenance(None) is None
+
+
+class TestBrowserMetadataAcceptsProvenance:
+    """The upload metadata model is a DOOR, and pydantic drops what it does
+    not declare — silently.
+
+    That is not hypothetical: the Android client sent location_age_ms and
+    exposure, photo_processor was written to fold them into UserComment,
+    and the worker never saw either, because BrowserMetadata did not list
+    them. Nothing failed; the keys simply evaporated between the two.
+    This test is the tripwire for the next such key.
+    """
+
+    @staticmethod
+    def _browser_metadata():
+        # Importing app touches UPLOAD_DIR at module scope, which is a
+        # container path; point it at a temp dir so the model is reachable
+        # from a host unit test.
+        import sys, os, tempfile
+        sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+        os.environ.setdefault("UPLOAD_DIR", tempfile.mkdtemp(prefix="hv-uploads-"))
+        from app import BrowserMetadata
+        return BrowserMetadata
+
+    def test_the_fast_write_stamp_survives_validation(self):
+        BrowserMetadata = self._browser_metadata()
+
+        raw = json.dumps({
+            "latitude": 50.1, "longitude": 14.4, "bearing": 13.2,
+            "captured_at": "2026-08-12T10:43:13.084Z",
+            "location_source": "gps",
+            "bearing_source": "android-compass-true",
+            "location_age_ms": 409,
+            "refined": True,
+            "exposure": {"mode": "sports", "iso": 133, "outcome": "ontarget"},
+        })
+        parsed = BrowserMetadata.model_validate_json(raw).model_dump(exclude_none=True)
+
+        assert parsed["location_age_ms"] == 409
+        assert parsed["refined"] is True
+        assert parsed["exposure"]["mode"] == "sports"
+        # …and the sub-second capture instant, which is what the whole
+        # ms-ISO captured_at change exists for.
+        assert parsed["captured_at"].endswith("10:43:13.084Z")
+
+    def test_every_provenance_key_can_get_through(self):
+        # Guards the two halves against drifting apart: photo_processor
+        # copies PROVENANCE_KEYS out of the parsed metadata, so a key it
+        # knows about that this model does not is dead on arrival.
+        BrowserMetadata = self._browser_metadata()
+        from photo_processor import PROVENANCE_KEYS
+
+        declared = set(BrowserMetadata.model_fields)
+        # 'v' is the pipeline's semantics version, sent by pics, not the app.
+        missing = [k for k in PROVENANCE_KEYS if k not in declared and k != "v"]
+        assert not missing, f"photo_processor reads {missing}, which BrowserMetadata drops"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

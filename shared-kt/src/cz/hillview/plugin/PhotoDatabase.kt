@@ -7,8 +7,11 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
-    entities = [PhotoEntity::class, BearingEntity::class, LocationEntity::class, SourceEntity::class, EditEntity::class],
-    version = 16,
+    // The sensor tables (bearings/locations/sources) moved OUT to
+    // GeoTrackingDatabase in v18 — see that file for why. What is left here is
+    // durable and low-rate: a capture and the edits that belong to it.
+    entities = [PhotoEntity::class, EditEntity::class],
+    version = 18,
     // Schemas are exported per app (they compile these entities with different
     // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
     // docs/geo-election-test-todo.md item 6. Both agree on the identityHash;
@@ -24,9 +27,6 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 abstract class PhotoDatabase : RoomDatabase() {
 
     abstract fun photoDao(): SimplePhotoDao
-    abstract fun bearingDao(): BearingDao
-    abstract fun locationDao(): LocationDao
-    abstract fun sourceDao(): SourceDao
     abstract fun editDao(): EditDao
 
     companion object {
@@ -280,6 +280,32 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_16_17 = object : Migration(16, 17) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// Per-photo licence (see PhotoEntity.license). Null on every
+				// existing row, which is what keeps them uploadable: the
+				// upload falls back to the global setting for those.
+				database.execSQL("ALTER TABLE photos ADD COLUMN license TEXT")
+			}
+		}
+
+		private val MIGRATION_17_18 = object : Migration(17, 18) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// The sensor tables now live in their own file
+				// (GeoTrackingDatabase) so that a bulk delete of sensor rows
+				// can no longer stall a photo write. Dropped rather than
+				// copied: this data is disposable by design — exported to CSV
+				// and cleared to now-5min every five minutes — so what is lost
+				// is at most one session's tail, once.
+				//
+				// Children before parent: bearings and locations carry foreign
+				// keys into sources.
+				database.execSQL("DROP TABLE IF EXISTS bearings")
+				database.execSQL("DROP TABLE IF EXISTS locations")
+				database.execSQL("DROP TABLE IF EXISTS sources")
+			}
+		}
+
         fun getDatabase(context: Context): PhotoDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -287,7 +313,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                     PhotoDatabase::class.java,
                     "hillview_photos_database"
                 )
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18)
                     .build()
                 INSTANCE = instance
                 instance

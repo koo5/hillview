@@ -17,6 +17,7 @@
 	import { http, handleApiError, TokenExpiredError } from '$lib/http';
 	import { auth } from '$lib/auth.svelte';
 	import { constructPhotoMapUrl, constructUserProfileUrl, parsePhotoUidParts } from '$lib/urlUtils';
+	import { GRANTABLE_LICENSES, grantIdForLicense, licenseLabelFor } from '$lib/photoUtils';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { TAURI, BROWSER } from '$lib/tauri';
@@ -72,6 +73,20 @@
 	let statusMessage = '';
 	let statusError = false;
 	let showHideUserDialog = false;
+
+	// The licence this photo is offered under, and every change to it. A photo
+	// taken under one licence can be relicensed later, and someone holding a
+	// copy relies on the earlier grant — so the page shows the trail, not just
+	// the current answer. Empty for the overwhelming majority of photos, where
+	// it renders nothing at all.
+	type LicenseChange = {
+		old_license: string | null;
+		new_license: string | null;
+		actor_was_owner: boolean;
+		created_at: string;
+	};
+	let licenseHistory: LicenseChange[] = [];
+	let showLicenseHistory = false;
 
 	$: photoUid = $page.params.uid;
 	$: isAuthenticated = $auth.is_authenticated;
@@ -143,6 +158,23 @@
 			} catch (err) {
 				console.error('🢄 Error loading annotations:', err);
 			}
+		}
+
+		// Same posture as annotations: independent, and silent on failure —
+		// the licence line above stands on its own without the history.
+		licenseHistory = [];
+		showLicenseHistory = false;
+		if (photo && parts?.id && parts.source === 'hillview') {
+			loadLicenseHistory(parts.id);
+		}
+	}
+
+	async function loadLicenseHistory(photoId: string) {
+		try {
+			const resp = await http.get(`/photos/${encodeURIComponent(photoId)}/license-history`);
+			if (resp.ok) licenseHistory = (await resp.json()).entries ?? [];
+		} catch (err) {
+			console.error('🢄 Error loading license history:', err);
 		}
 	}
 
@@ -257,6 +289,8 @@
 	let editDescription = '';
 	let editBearing: number | null = null;
 	let editFeatured = false;
+	// In the GRANT vocabulary writes take, not the public name reads return.
+	let editLicense = '';
 	let isSavingEdit = false;
 
 	$: canEditPhoto = !!photo && photo.source === 'hillview' && (photo.is_own_photo || $isModerator);
@@ -271,6 +305,7 @@
 		editDescription = p.description ?? '';
 		editBearing = p.bearing;
 		editFeatured = p.featured ?? false;
+		editLicense = grantIdForLicense(p.license) ?? '';
 	}
 
 	async function saveEdit() {
@@ -284,6 +319,7 @@
 				title: editTitle,
 				description: editDescription,
 				bearing: editBearing,
+				...(editLicense ? { license: editLicense } : {}),
 				...($isModerator ? { featured: editFeatured } : {})
 			});
 			if (!response.ok) {
@@ -296,9 +332,13 @@
 				title: updated.title,
 				description: updated.description,
 				featured: updated.featured,
-				bearing: updated.bearing
+				bearing: updated.bearing,
+				license: updated.license
 			};
 			syncEditForm(photo);
+			// A relicensing just added a row to the trail shown above — refresh
+			// it rather than leaving the page contradicting itself.
+			if (updated.changed.includes('license')) loadLicenseHistory(photo.id);
 			setStatus(
 				updated.changed.length ? `Saved: ${updated.changed.join(', ')}` : 'No changes to save',
 				false,
@@ -435,7 +475,41 @@
 								>{photo.latitude.toFixed(4)}, {photo.longitude.toFixed(4)}</a>
 						</span>
 					{/if}
+					{#if licenseLabelFor(photo.license)}
+						<span class="detail">
+							<span class="detail-label">License</span>
+							<span data-testid="photo-detail-license">{licenseLabelFor(photo.license)}</span>
+							{#if licenseHistory.length > 0}
+								<!-- A disclosure, not an always-open list: the trail matters
+								     to whoever comes looking for it, and would otherwise
+								     crowd the photo out for everyone else. -->
+								<button
+									type="button"
+									class="license-history-toggle"
+									on:click={() => (showLicenseHistory = !showLicenseHistory)}
+									data-testid="photo-detail-license-history-toggle"
+								>
+									{showLicenseHistory ? 'hide' : 'changed'} ({licenseHistory.length})
+								</button>
+							{/if}
+						</span>
+					{/if}
 				</div>
+
+				{#if showLicenseHistory && licenseHistory.length > 0}
+					<ul class="license-history" data-testid="photo-detail-license-history">
+						{#each licenseHistory as change}
+							<li>
+								<span class="license-history-when">{formatDateTime(change.created_at)}</span>
+								{licenseLabelFor(change.old_license) ?? 'none'}
+								→
+								{licenseLabelFor(change.new_license) ?? 'none'}
+								<span class="license-history-actor"
+									>({change.actor_was_owner ? 'by the owner' : 'by a moderator'})</span>
+							</li>
+						{/each}
+					</ul>
+				{/if}
 
 				<!-- Next to the data it credits, and above the annotation list, which
 				     can run to dozens of rows — a credit below that is out of sight.
@@ -565,6 +639,17 @@
 							data-testid="photo-edit-description-input"
 						></textarea>
 					</label>
+					<label class="edit-field">
+						<span>License</span>
+						<select bind:value={editLicense} data-testid="photo-edit-license-select">
+							{#each GRANTABLE_LICENSES as option}
+								<option value={option.id}>{option.label}</option>
+							{/each}
+						</select>
+					</label>
+					<!-- Changing this is recorded — see the licence trail above. A
+					     photo may already have been copied under the licence it
+					     carried at the time, and that grant stands. -->
 					<div class="edit-field-row">
 						<label class="edit-field bearing">
 							<span>Bearing°</span>
@@ -715,6 +800,34 @@
 
 	.detail a:hover {
 		color: #0d47a1;
+	}
+
+	.license-history-toggle {
+		background: none;
+		border: none;
+		padding: 0;
+		margin-left: 4px;
+		color: #1565c0;
+		text-decoration: underline;
+		font: inherit;
+		cursor: pointer;
+	}
+
+	.license-history {
+		list-style: none;
+		margin: 6px 0 0;
+		padding: 0;
+		color: #555;
+		font-size: 0.85rem;
+	}
+
+	.license-history li {
+		padding: 2px 0;
+	}
+
+	.license-history-when,
+	.license-history-actor {
+		color: #999;
 	}
 
 	.actions-row {

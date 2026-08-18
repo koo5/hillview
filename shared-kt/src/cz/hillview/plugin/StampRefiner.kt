@@ -98,6 +98,9 @@ class StampRefiner private constructor(private val context: Context) {
 	}
 
 	private val database: PhotoDatabase = PhotoDatabase.getDatabase(context)
+	// The refiner spans both stores by nature: it READS the sensor record and
+	// WRITES the photo row. Two databases, and no lock shared between them.
+	private val geo: GeoTrackingDatabase = GeoTrackingDatabase.getDatabase(context)
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 	/** How many refinements are in flight — the UI's progress indicator. */
@@ -139,10 +142,11 @@ class StampRefiner private constructor(private val context: Context) {
 
 		scope.launch {
 			inFlight.value = inFlight.value + 1
-			val startedAt = System.currentTimeMillis()
+			// A measured DURATION, so monotonic — it is only ever subtracted.
+			val startedAt = android.os.SystemClock.elapsedRealtime()
 			try {
 				val result = refine(photoId, capturedAtMs, wantLocation, wantCompass, wantKalman)
-				onResult?.invoke(result.copy(waitMs = System.currentTimeMillis() - startedAt))
+				onResult?.invoke(result.copy(waitMs = android.os.SystemClock.elapsedRealtime() - startedAt))
 			} catch (e: Exception) {
 				Log.e(TAG, "refinement of $photoId failed", e)
 			} finally {
@@ -168,10 +172,10 @@ class StampRefiner private constructor(private val context: Context) {
 		wantCompass: Boolean,
 		wantKalman: Boolean,
 	): RefineResult {
-		val bearingDao = database.bearingDao()
-		val locationDao = database.locationDao()
-		val androidId = database.sourceDao().getSourceIdByName("android")
-		val kalmanId = database.sourceDao().getSourceIdByName("gps-kalman")
+		val bearingDao = geo.bearingDao()
+		val locationDao = geo.locationDao()
+		val androidId = geo.sourceDao().getSourceIdByName("android")
+		val kalmanId = geo.sourceDao().getSourceIdByName("gps-kalman")
 
 		// Compass first: its window closes shortly after the shutter.
 		var refinedBearing: Double? = null
@@ -251,11 +255,16 @@ class StampRefiner private constructor(private val context: Context) {
 		return RefineResult(photoId, "applied", 0, moved, turned)
 	}
 
+	// MONOTONIC deadline: a wall-clock one can be pushed further away by a
+	// backward time step, and this loop holds the photo's uploadHoldUntil while
+	// it spins. Note the CONTRAST with the window arithmetic in refine(), which
+	// stays on the wall clock on purpose — there the reference point is the
+	// photo's capture time, a wall-clock instant.
 	private suspend fun <T> awaitRow(t: Long, query: () -> T?): T? {
-		val deadline = System.currentTimeMillis() + BRACKET_TIMEOUT_MS
+		val deadline = android.os.SystemClock.elapsedRealtime() + BRACKET_TIMEOUT_MS
 		while (true) {
 			query()?.let { return it }
-			if (System.currentTimeMillis() >= deadline) return null
+			if (android.os.SystemClock.elapsedRealtime() >= deadline) return null
 			delay(BRACKET_POLL_MS)
 		}
 	}

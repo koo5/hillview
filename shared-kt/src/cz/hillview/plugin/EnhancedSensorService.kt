@@ -7,6 +7,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.hardware.GeomagneticField
 import android.location.Location
+import android.os.SystemClock
 import android.location.LocationManager
 import android.os.Process
 import android.util.Log
@@ -187,6 +188,14 @@ class EnhancedSensorService(
     private var isRunning = false
     private var currentMode = MODE_ROTATION_VECTOR
     private var lastUpdateTime = 0L
+
+    /**
+     * Longest gap the complementary filter will integrate across. Beyond it
+     * the gyro contribution is meaningless and actively harmful — see the use
+     * site. One second is far longer than any real inter-sample interval at
+     * the rates this service registers.
+     */
+    private val MAX_FILTER_GAP_MS = 1_000L
 
     // Device orientation tracking
     private var deviceOrientation = DeviceOrientation.PORTRAIT
@@ -489,6 +498,8 @@ class EnhancedSensorService(
             hasMagnetometer = false
 
             // Reset smoothing state to avoid stale values on restart
+            lastUpdateTime = 0L
+            lastComplementaryUpdate = 0L
             smoothedMagneticHeading = null
             smoothedTrueHeading = null
             smoothedPitch = null
@@ -651,8 +662,14 @@ class EnhancedSensorService(
 
 
     private fun handleRotationVector(event: SensorEvent, source: String) {
-        // Rate limiting based on current mode
-        val currentTime = System.currentTimeMillis()
+        // Rate limiting based on current mode. MONOTONIC: this is an
+        // elapsed-time decision, and the wall clock can step BACKWARD (an NTP
+        // correction on resume, the user setting the time). When it did, this
+        // subtraction went negative and stayed under the limit until wall time
+        // climbed back past lastUpdateTime — dropping every sample for the
+        // length of the jump, which is a compass frozen at its last heading
+        // while the sensors are perfectly healthy.
+        val currentTime = SystemClock.elapsedRealtime()
         val rateLimit = MODE_RATE_LIMITS[currentMode] ?: UPDATE_RATE_MS
 
         if (currentTime - lastUpdateTime < rateLimit) {
@@ -814,8 +831,8 @@ class EnhancedSensorService(
             return
         }
 
-        // Rate limiting
-        val currentTime = System.currentTimeMillis()
+        // Rate limiting — monotonic, see handleRotationVector.
+        val currentTime = SystemClock.elapsedRealtime()
         val rateLimit = MODE_RATE_LIMITS[currentMode] ?: UPDATE_RATE_MS
 
         if (currentTime - lastUpdateTime < rateLimit) {
@@ -878,7 +895,10 @@ class EnhancedSensorService(
             return
         }
 
-        val currentTime = System.currentTimeMillis()
+        // Monotonic, see handleRotationVector — and doubly so here: `dt` for
+        // the complementary filter below is derived from this, and a backward
+        // step would feed the filter a negative interval.
+        val currentTime = SystemClock.elapsedRealtime()
         val rateLimit = MODE_RATE_LIMITS[currentMode] ?: UPDATE_RATE_MS
 
         if (currentTime - lastUpdateTime < rateLimit) {
@@ -894,9 +914,17 @@ class EnhancedSensorService(
             val magneticHeading = Math.toDegrees(orientation[0].toDouble()).toFloat()
             val normalizedHeading = if (magneticHeading < 0) magneticHeading + 360 else magneticHeading
 
-            // Apply complementary filter if we have gyroscope data
-            if (hasGyroscope && lastComplementaryUpdate > 0) {
-                val dt = (currentTime - lastComplementaryUpdate) / 1000f
+            // Apply complementary filter if we have gyroscope data.
+            // The dt ceiling is what makes a RESUME safe: after a pause the
+            // previous sample can be minutes old, and integrating the gyro
+            // rate over that gap throws the filtered angle wildly off — from
+            // which it recovers only 2% per sample, so the compass reads wrong
+            // (or wanders) for many seconds. A gap that large is a restart,
+            // not a measurement: fall through and re-seed from the
+            // magnetometer instead.
+            val gapMs = currentTime - lastComplementaryUpdate
+            if (hasGyroscope && lastComplementaryUpdate > 0 && gapMs <= MAX_FILTER_GAP_MS) {
+                val dt = gapMs / 1000f
                 val gyroRate = Math.toDegrees(gyroscopeData[2].toDouble()).toFloat() // Z-axis rotation
 
                 // Complementary filter: 98% gyro, 2% magnetometer

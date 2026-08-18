@@ -20,8 +20,11 @@ import androidx.camera.camera2.interop.CaptureRequestOptions
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.core.Preview
 import androidx.camera.core.UseCaseGroup
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -94,6 +97,12 @@ private const val REMETER_MIN_FRAMES = 3
 private const val REMETER_STREAM_TIMEOUT_MS = 2_000L
 private const val REMETER_SETTLE_TIMEOUT_MS = 900L
 private const val REMETER_APPLY_TIMEOUT_MS = 600L
+
+// How often a moving scene is allowed to re-spend the rule's budget.
+// Measuring is free (it rides frames we already produce); APPLYING is a
+// camera round trip, so it is rate-limited. ~3 Hz tracks a drive through
+// shade and sun without churning the request queue.
+private const val SCENE_APPLY_INTERVAL_MS = 300L
 
 // Finalization (EXIF rewrite, gallery index) must survive the pane: a photo
 // taken a heartbeat before leaving capture still needs its final bytes —
@@ -242,6 +251,50 @@ private class AndroidPhotoCapture(
      */
     @Volatile private var meteredExposureNs: Long? = null
     @Volatile private var meteredIso: Int? = null
+
+    // Continuous metering. The scene is measured from analysis frames at
+    // whatever exposure we are already using, so a rule's plan can be
+    // recomputed at any moment without ever giving the camera back to AE —
+    // no preview pump, no wait before a manual shot, and no per-shot
+    // metering window in interval runs.
+    private val sceneMeter = SceneMeter()
+    private var analysisUseCase: ImageAnalysis? = null
+    private val analysisExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    @Volatile private var continuousMetering = true
+    @Volatile private var lastSceneApplyMs = 0L
+
+    /**
+     * One analysis frame: measure, then re-spend the rule's budget if the
+     * scene has actually moved. Rate-limited because re-applying request
+     * options is a camera round trip, not arithmetic.
+     */
+    private fun onAnalysisFrame(image: androidx.camera.core.ImageProxy) {
+        try {
+            val rule = exposureRule
+            // The exposure these pixels were taken at — ours when a rule is
+            // in force, AE's otherwise.
+            val exposure = meteredExposureNs ?: state.plan?.exposureNs
+            val iso = meteredIso ?: state.plan?.iso
+            if (exposure != null && iso != null) {
+                val plane = image.planes[0]
+                sceneMeter.onFrame(
+                    meanLumaSubsampled(
+                        plane.buffer, image.width, image.height, plane.rowStride,
+                    ),
+                    exposure, iso,
+                )
+            }
+            if (rule == null || !continuousMetering) return
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastSceneApplyMs < SCENE_APPLY_INTERVAL_MS) return
+            lastSceneApplyMs = now
+            scope.launch { applyRequestOptions() }
+        } catch (e: Exception) {
+            Log.w(TAG, "analysis frame failed", e)
+        } finally {
+            image.close()
+        }
+    }
     @Volatile private var lastFrameLog = 0L
 
     /**
@@ -452,15 +505,47 @@ private class AndroidPhotoCapture(
         val preview = buildPreviewUseCase()
         previewUseCase = preview
 
-        val group = UseCaseGroup.Builder()
-            .addUseCase(preview)
-            .addUseCase(capture)
+        // Continuous metering (see SceneMeter): a small analysis stream lets
+        // us measure the scene from frames we are already producing, instead
+        // of handing the camera back to auto-exposure for a window before
+        // every shot. Cheap — a few thousand subsampled luma samples.
+        val analysis = ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setResolutionSelector(
+                ResolutionSelector.Builder()
+                    .setResolutionStrategy(
+                        ResolutionStrategy(
+                            android.util.Size(640, 480),
+                            ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
+                        ),
+                    )
+                    .build(),
+            )
             .build()
+            .also { it.setAnalyzer(analysisExecutor, ::onAnalysisFrame) }
+        analysisUseCase = analysis
 
         provider.unbindAll()
-        val cam = provider.bindToLifecycle(
-            lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, group,
-        )
+        // Three use cases is a guaranteed combination on LIMITED and above
+        // but not on LEGACY hardware, so a refusal degrades to the
+        // two-use-case binding and the AE-window path rather than failing.
+        val cam = try {
+            provider.bindToLifecycle(
+                lifecycleOwner,
+                CameraSelector.DEFAULT_BACK_CAMERA,
+                UseCaseGroup.Builder()
+                    .addUseCase(preview).addUseCase(capture).addUseCase(analysis).build(),
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "no analysis stream on this camera; metering falls back to AE windows", e)
+            analysisUseCase = null
+            continuousMetering = false
+            provider.bindToLifecycle(
+                lifecycleOwner,
+                CameraSelector.DEFAULT_BACK_CAMERA,
+                UseCaseGroup.Builder().addUseCase(preview).addUseCase(capture).build(),
+            )
+        }
         camera = cam
         previewBound = true
         applyZoomAfterBind(cam)
@@ -554,6 +639,10 @@ private class AndroidPhotoCapture(
                     if (!aeIsOn) return
                     exp?.let { meteredExposureNs = it }
                     iso?.let { meteredIso = it }
+                    // Seed the continuous meter from AE's own answer, so the
+                    // first frame after a rule is chosen is already right
+                    // rather than a step away from it.
+                    if (exp != null && iso != null) sceneMeter.seedFromAutoExposure(exp, iso)
                     if (exp == null || iso == null) return
                     meterFrames++
                     val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
@@ -827,8 +916,13 @@ private class AndroidPhotoCapture(
         var applied = "none"
 
         val rule = exposureRule?.takeIf { state.manualShutterSupported }
-        val metered = meteredExposureNs
-        val meteredGain = meteredIso
+        // The scene estimate is CONTINUOUS (SceneMeter, fed by the analysis
+        // stream), so a rule always has a current reading to spend and never
+        // has to borrow the camera back to get one. The frozen AE harvest is
+        // the fallback for hardware that refused the analysis stream.
+        val sceneReading = sceneMeter.meteredPair()
+        val metered = sceneReading?.first ?: meteredExposureNs
+        val meteredGain = sceneReading?.second ?: meteredIso
         // A rule needs a reading to spend; without one AE keeps the camera
         // (and the harvest hands it back the moment a frame lands).
         awaitingMetering = rule != null && !meteringWindow &&
@@ -907,6 +1001,15 @@ private class AndroidPhotoCapture(
      */
     override suspend fun prepareExposure() {
         if (exposureRule == null || !state.manualShutterSupported) return
+        // Continuous metering makes this free: the scene estimate is already
+        // current, so there is nothing to wait for. That deletes a metering
+        // window from before EVERY interval shot — and it is why a manual
+        // tap needs no window either. Only hardware that refused the
+        // analysis stream still pays the AE handover below.
+        if (continuousMetering && sceneMeter.meteredPair() != null) {
+            applyRequestOptions()
+            return
+        }
         // Nothing to meter with, and every wait below would run its full
         // timeout before finding that out — a dead camera must not slow
         // the run's cadence down on top of taking no photos.
@@ -1090,6 +1193,11 @@ private class AndroidPhotoCapture(
         Log.i(
             TAG,
             "recording finalized: ${file.length()} bytes, ${log.frameCount} frames, " +
+                log.exposureSummary(),
+        )
+        cz.hillview.plugin.EventLog.record(
+            "video",
+            "${file.name}: ${file.length() / 1024}KB, ${log.frameCount} frames, " +
                 log.exposureSummary(),
         )
         if (!hideFromGalleryPref()) PhotoStorage.indexInGallery(context, file)
@@ -1353,6 +1461,14 @@ private class AndroidPhotoCapture(
                                 "captured $filename via ${mode.key} -> $locator " +
                                     "(device pose ${snapshot.deviceRotationDeg}°)",
                             )
+                            cz.hillview.plugin.EventLog.record(
+                                "capture",
+                                "$filename (${mode.key}, " +
+                                    (snapshot.locationSource ?: "no position") + ", " +
+                                    (snapshot.exposure?.let {
+                                        "${formatShutter(it.plan.exposureNs)} iso${it.plan.iso}"
+                                    } ?: "auto exposure") + ")",
+                            )
                         } catch (e: Exception) {
                             Log.e(TAG, "post-save handling failed", e)
                             kotlinx.coroutines.withContext(Dispatchers.Main) {
@@ -1448,6 +1564,9 @@ private class AndroidPhotoCapture(
         orientationJob = null
         gpsStarted = false
         orientationStarted = false
+        analysisUseCase?.clearAnalyzer()
+        analysisUseCase = null
+        analysisExecutor.shutdown()
         orientationSensor.setRunning(false)
         lifecycleOwner.lifecycle.removeObserver(orientationLifecycle)
         try {

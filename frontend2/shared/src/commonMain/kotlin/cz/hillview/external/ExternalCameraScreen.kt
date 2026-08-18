@@ -115,15 +115,6 @@ fun ExternalCameraPane(
             style = MaterialTheme.typography.bodySmall,
         )
 
-        notice?.let {
-            Text(
-                it,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.testTag("external-camera-notice"),
-            )
-        }
-
         // THE APP'S value pair, not a feed of this pane's own — the whole
         // point of the engine work. This is the same bearing a capture would
         // stamp (car mode's mount offset included, a manual claim included)
@@ -177,6 +168,17 @@ fun ExternalCameraPane(
                 onClick = { exportGeoTrackingNow() },
                 modifier = Modifier.testTag("external-export-now"),
             ) { Text("Export CSVs now") }
+        }
+
+        // Below the buttons: a notice arriving must not move the control
+        // you were reaching for.
+        notice?.let {
+            Text(
+                it,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("external-camera-notice"),
+            )
         }
 
         Text(

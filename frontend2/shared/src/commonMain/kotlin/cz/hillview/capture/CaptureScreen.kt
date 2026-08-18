@@ -55,7 +55,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import cz.hillview.core.nowMs
 import kotlin.math.roundToInt
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 // The two glass families every original overlay uses: dark pills for info
 // and actions (rgba(0,0,0,.5–.7) in the CSS), white glass for the utility
@@ -231,18 +235,42 @@ fun CaptureScreen(
             runCount = 0
             return@LaunchedEffect
         }
+        // An ABSOLUTE timeline. The loop used to sleep a fixed interval
+        // AFTER each shot, so the real period was "interval + however long
+        // issuing the shot took" and the error accumulated — a run could
+        // only ever slide later, never correct. Targets are computed from
+        // the run's start instead, so a slow shot is absorbed rather than
+        // added to every shot after it.
+        val interval = intervalSec.seconds
+        val clock = TimeSource.Monotonic.markNow()
+        var nextAt = Duration.ZERO
         while (true) {
-            if (!state.capturing) {
-                // Hand AE the camera back for a moment first: an exposure
-                // rule turns it off, and without this the whole run would
-                // be exposed for whatever the scene was when the rule was
-                // chosen. This is the one place we own the clock, so it is
-                // the one place it can be done — no-op under Auto.
-                capture.prepareExposure()
-                capture.capture()
-                runCount++
+            // The previous shot may still be in flight. WAIT for it and
+            // then fire — the beat is late, not cancelled (user's choice:
+            // under load, density beats regularity).
+            //
+            // capture.state is re-read here deliberately: `state` above is
+            // the value captured at composition, so the old
+            // `if (!state.capturing)` guard was testing launch-time data
+            // and never actually withheld anything.
+            while (capture.state.capturing) delay(15)
+            // Metering is continuous now, so this is free — it only costs a
+            // window on hardware that refused the analysis stream.
+            capture.prepareExposure()
+            capture.capture()
+            runCount++
+            nextAt += interval
+            val now = clock.elapsedNow()
+            if (now >= nextAt) {
+                // Behind schedule: go again immediately, and re-base so the
+                // debt cannot accumulate into a rapid-fire burst when the
+                // phone recovers. Counted, because a run that is quietly
+                // late is exactly what thermal throttling looks like.
+                CaptureStatsLog.increment("interval behind", nowMs())
+                nextAt = now
+            } else {
+                delay(nextAt - now)
             }
-            delay(intervalSec * 1000L)
         }
     }
 
@@ -270,6 +298,8 @@ fun CaptureScreen(
                 locationSource = photo.snapshot.locationSource,
                 locationAgeMs = photo.snapshot.locationAgeMs,
                 exposureJson = photo.snapshot.exposure?.let { exposureProvenanceJson(it) },
+                // Snapshot, not a live read — see PendingUpload.license.
+                license = uploadSettings.license,
             )
         )
         // Under eco the map catches up here, once per capture — Tauri's
@@ -614,39 +644,47 @@ fun CaptureScreen(
                             }
                         }
 
-                        // The bias biases the METERING, so it needs a rule
-                        // of ours to ride on — under auto exposure the
-                        // camera's own AE owns that decision.
-                        state.exposureRule?.let { rule ->
-                            MenuLabel("Bias")
-                            Row {
-                                EV_BIAS_CHOICES.forEach { ev ->
-                                    ShutterChip(
-                                        formatEvBias(ev),
-                                        rule.evBias == ev,
-                                        "capture-exposure-ev-${evTag(ev)}",
-                                    ) {
-                                        exposureBias = ev
-                                        capture.exposureRule = rule.copy(evBias = ev)
-                                    }
+                        // The bias biases the METERING, so it needs a rule of
+                        // ours to ride on — under auto exposure the camera's
+                        // own AE owns that decision. Shown ALWAYS, disabled
+                        // under Auto, rather than appearing when a rule is
+                        // picked: this menu is anchored at its bottom, so a
+                        // row materialising here shoves the Rule and Target
+                        // chips upward — and the tap after choosing a rule is
+                        // usually a target, aimed at where the chip WAS.
+                        MenuLabel("Bias")
+                        Row {
+                            EV_BIAS_CHOICES.forEach { ev ->
+                                ShutterChip(
+                                    formatEvBias(ev),
+                                    state.exposureRule?.evBias == ev,
+                                    "capture-exposure-ev-${evTag(ev)}",
+                                ) {
+                                    exposureBias = ev
+                                    // Under Auto this arms the bias for the
+                                    // rule you pick next, rather than doing
+                                    // nothing and looking broken.
+                                    capture.exposureRule = state.exposureRule?.copy(evBias = ev)
                                 }
                             }
                         }
 
                         // What the rule actually resolved to last time it
                         // was applied — the only honest answer to "is this
-                        // mode working here?", live, in the field.
-                        state.plan?.let { plan ->
-                            Text(
+                        // mode working here?", live, in the field. Always
+                        // occupies its line, for the same reason as the bias
+                        // row: a line that appears moves everything above it.
+                        Text(
+                            state.plan?.let { plan ->
                                 "${formatShutter(plan.exposureNs)} · ISO ${plan.iso} · " +
-                                    plan.outcome.name.lowercase(),
-                                color = Color(0x99FFFFFF),
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier
-                                    .padding(start = 8.dp, top = 2.dp, bottom = 2.dp)
-                                    .testTag("capture-exposure-plan"),
-                            )
-                        }
+                                    plan.outcome.name.lowercase()
+                            } ?: "auto exposure",
+                            color = Color(0x99FFFFFF),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier
+                                .padding(start = 8.dp, top = 2.dp, bottom = 2.dp)
+                                .testTag("capture-exposure-plan"),
+                        )
                     }
                 }
                 TextButton(

@@ -22,7 +22,38 @@ data class DevicePhotoCard(
     val height: Int,
     val uploadStatus: String,
     val retryCount: Int,
+    /** When the last upload attempt happened, or null if never attempted. */
+    val lastAttemptAtMs: Long? = null,
+    /** Whatever the last failure said — the reason a row is stuck. */
+    val uploadError: String? = null,
+    /**
+     * The file the row points at is gone. Rows outlive their bytes (a test
+     * run deleted, a gallery cleanup, storage reclaimed) and such a row can
+     * never upload — it is the main thing worth deleting in bulk.
+     */
+    val fileMissing: Boolean = false,
+    /**
+     * The licence THIS photo goes out under, snapshotted at capture. Null on
+     * rows taken before licences were per-photo; those still upload under the
+     * global setting, which is what the card says.
+     */
+    val license: String? = null,
 )
+
+/**
+ * What the list is showing. With tens of thousands of rows, scrolling is
+ * not how anyone finds anything — the real questions are "what is stuck",
+ * "what failed and why", "what can I delete". So the filter IS the
+ * navigation, and its counts are the map.
+ */
+enum class PhotoFilter(val label: String, val status: String?) {
+    All("All", null),
+    Pending("Pending", "pending"),
+    Failed("Failed", "failed"),
+    Uploading("Uploading", "uploading"),
+    Processing("Processing", "processing"),
+    Completed("Done", "completed"),
+}
 
 data class StatusCounts(val pending: Int, val done: Int, val failed: Int)
 
@@ -35,7 +66,17 @@ data class DevicePhotosPage(
 
 /** The screen's data seam — the shared Room DB on Android, empty on desktop. */
 interface DevicePhotoBrowser {
-    suspend fun page(page: Int, pageSize: Int): DevicePhotosPage
+    suspend fun page(page: Int, pageSize: Int, filter: PhotoFilter = PhotoFilter.All): DevicePhotosPage
+
+    /** Row counts per filter, for the chips — one cheap COUNT each. */
+    suspend fun counts(): Map<PhotoFilter, Int>
+
+    /**
+     * Forget a photo. [alsoFile] deletes the bytes too; without it only the
+     * row goes, which is what you want for a row whose file is already gone.
+     * Never touches the server — a completed upload stays uploaded.
+     */
+    suspend fun delete(id: String, alsoFile: Boolean)
 
     /**
      * The original's per-card button is a GLOBAL retry:
@@ -43,7 +84,22 @@ interface DevicePhotoBrowser {
      * bypasses the wifi-only constraint.
      */
     suspend fun retryUploads()
+
+    /**
+     * Relicense a single photo. A DIVERGENCE from the original, where the
+     * licence is one global setting read at upload time: here it is a
+     * property of the photo, fixed when the shutter fired, so a setting
+     * change cannot silently relicense a queue.
+     *
+     * Only offered while the row has not gone out — once the server has it,
+     * its copy is the one that counts and there is no endpoint to amend it.
+     */
+    suspend fun changeLicense(id: String, license: String)
 }
+
+/** A row whose licence is still ours to change (not yet on the server). */
+fun licenseEditable(status: String): Boolean =
+    status == "pending" || status == "failed"
 
 /** The thumbnail: decoded from the locator on Android, a placeholder elsewhere. */
 @Composable
@@ -57,6 +113,10 @@ fun uploadStatusLabel(status: String): String = when (status) {
     "pending" -> "upload Pending"
     "uploading" -> "Uploading"
     "failed" -> "upload Failed"
+    // "processing" deliberately falls through to the raw status, as in the
+    // original — its wording is ported, quirks and all, and a lone
+    // capitalisation here would be an undeclared divergence. (Reverted once
+    // already, caught by DevicePhotosRulesTest.)
     else -> status
 }
 

@@ -213,10 +213,32 @@ export function getLicenseId(photo: PhotoData | null): string | null {
 	return null;
 }
 
-export function getLicenseLabel(photo: PhotoData | null): string | null {
-	const id = getLicenseId(photo);
+/**
+ * The licences a Hillview owner may grant, in the vocabulary WRITES take
+ * (upload authorization and PATCH /photos/{id}). Reads speak a public name
+ * instead — the two differ only in that the grant 'full1' reads as 'arr' —
+ * so an edit form has to translate what it read back with [grantIdForLicense].
+ * Keep in step with the backend's ALLOWED_LICENSES.
+ */
+export const GRANTABLE_LICENSES: { id: string; label: string }[] = [
+	{ id: 'ccbysa4+osm', label: LICENSE_LABELS['ccbysa4+osm'] },
+	{ id: 'full1', label: LICENSE_LABELS['arr'] },
+];
+
+/** A licence id as read → the grant identifier a write must send. */
+export function grantIdForLicense(id: string | null | undefined): string | null {
+	if (!id) return null;
+	return id === 'arr' ? 'full1' : id;
+}
+
+/** Human label for a bare license id — falls back to the id itself. */
+export function licenseLabelFor(id: string | null | undefined): string | null {
 	if (!id) return null;
 	return LICENSE_LABELS[id] ?? id;
+}
+
+export function getLicenseLabel(photo: PhotoData | null): string | null {
+	return licenseLabelFor(getLicenseId(photo));
 }
 
 // Canonical license-text URLs for licenses sourced from third parties. Hillview's
