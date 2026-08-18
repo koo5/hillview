@@ -9,6 +9,33 @@ package cz.hillview.map
  * subdomain from [subdomains]. [maxNativeZoom] is the deepest zoom the
  * provider actually serves; the map may zoom past it by upscaling tiles.
  */
+/**
+ * What the tiles look like UNDER the map's floating controls, and therefore
+ * what those controls have to do to stay legible.
+ *
+ * This is a property of the PROVIDER, not of the app's light/dark setting:
+ * the panels sit on the map, so their contrast is against the tiles, and a
+ * dark basemap needs light-on-dark chrome whatever the phone is set to.
+ * Reading the app theme here is what produced black-on-black in the first
+ * place.
+ */
+enum class MapChrome {
+    /** Ordinary cartography — pale paper. Chrome is dark-on-light. */
+    OnLight,
+
+    /** A dark basemap (CartoDB Dark). Chrome is light-on-dark. */
+    OnDark,
+
+    /**
+     * Photography: aerial imagery, where a single screen holds snow and
+     * forest and no tone is safe. Chrome goes OPAQUE and stops borrowing the
+     * map as its background — at which point the tone is a free choice, so it
+     * follows the app theme, the only preference left once contrast is
+     * guaranteed by opacity.
+     */
+    OnMixed,
+}
+
 data class TileProvider(
     val key: String,
     val displayName: String,
@@ -17,6 +44,8 @@ data class TileProvider(
     val maxNativeZoom: Int,
     val subdomains: List<String> = emptyList(),
     val tileSize: Int = 256,
+    /** How the overlay must dress itself over these tiles — see [MapChrome]. */
+    val chrome: MapChrome = MapChrome.OnLight,
     /** Hidden from the picker outside dev builds, like VITE_DEV_MODE gates it there. */
     val devOnly: Boolean = false,
 )
@@ -72,6 +101,7 @@ val TILE_PROVIDERS: List<TileProvider> = listOf(
         attribution = "© CARTO, $OSM_ATTRIBUTION",
         maxNativeZoom = 20,
         subdomains = listOf("a", "b", "c", "d"),
+        chrome = MapChrome.OnDark,
     ),
     TileProvider(
         key = "TracesTrack.Topo",
@@ -87,6 +117,7 @@ val TILE_PROVIDERS: List<TileProvider> = listOf(
         attribution = "Ortofoto ČR © ČÚZK, CC BY 4.0",
         maxNativeZoom = 20,
         devOnly = true,
+        chrome = MapChrome.OnMixed,
     ),
 )
 

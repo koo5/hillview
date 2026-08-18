@@ -70,6 +70,51 @@ private val PANEL_WHITE = Color(0xE6FFFFFF)
  */
 private val PANEL_INK = Color(0xFF202124)
 
+// The dark counterparts. Not pure black: a panel the same colour as a
+// near-black basemap reads as a hole in the map rather than a control, so it
+// sits slightly above the tiles and carries a hairline besides.
+private val PANEL_DARK = Color(0xE61E1E1E)
+private val PANEL_DARK_INK = Color(0xFFE8EAED)
+private val PANEL_DARK_BORDER = Color(0x33FFFFFF)
+
+/** What the panels are wearing, decided once per [MapChrome]. */
+private data class ChromeTone(
+    val panel: Color,
+    val ink: Color,
+    val border: Color?,
+    /** Which scheme the panel hands its subtree — see LightPanelTheme. */
+    val dark: Boolean,
+)
+
+private val LIGHT_TONE = ChromeTone(PANEL_WHITE, PANEL_INK, null, dark = false)
+private val DARK_TONE = ChromeTone(PANEL_DARK, PANEL_DARK_INK, PANEL_DARK_BORDER, dark = true)
+
+private val LocalChromeTone = androidx.compose.runtime.staticCompositionLocalOf { LIGHT_TONE }
+
+/**
+ * The tone for a provider. OnMixed goes opaque — over aerial imagery the
+ * panel cannot borrow the map as a background, and once it is opaque the
+ * choice of tone is free, so it follows the app theme.
+ */
+private fun chromeToneFor(providerKey: String, appIsDark: Boolean): ChromeTone =
+    when (TILE_PROVIDERS.firstOrNull { it.key == providerKey }?.chrome ?: MapChrome.OnLight) {
+        MapChrome.OnLight -> LIGHT_TONE
+        MapChrome.OnDark -> DARK_TONE
+        MapChrome.OnMixed ->
+            if (appIsDark) DARK_TONE.copy(panel = Color(0xFF1E1E1E))
+            else LIGHT_TONE.copy(panel = Color(0xFFFFFFFF))
+    }
+
+/** The panel's scheme, so its components choose ink for the panel, not the app. */
+@Composable
+private fun PanelTheme(content: @Composable () -> Unit) {
+    if (LocalChromeTone.current.dark) {
+        cz.hillview.core.theme.DarkPanelTheme(content)
+    } else {
+        cz.hillview.core.theme.LightPanelTheme(content)
+    }
+}
+
 /** What the compass button shows — intent and reality are separate. */
 enum class TrackingPhase { Inactive, Starting, Active, Error }
 
@@ -117,6 +162,11 @@ fun MapOverlayUi(
     mapOrientation: Double = 0.0,
     onResetNorth: () -> Unit = {},
 ) {
+    val chromeTone = chromeToneFor(
+        settings.tileProviderKey,
+        androidx.compose.foundation.isSystemInDarkTheme(),
+    )
+    androidx.compose.runtime.CompositionLocalProvider(LocalChromeTone provides chromeTone) {
     Box(Modifier.fillMaxSize().safeContentPadding()) {
         // Top-left: zoom, where Leaflet keeps it (44dp touch targets).
         Column(Modifier.align(Alignment.TopStart).padding(8.dp)) {
@@ -287,13 +337,13 @@ fun MapOverlayUi(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 76.dp)
-                    .background(PANEL_WHITE, RoundedCornerShape(20.dp))
+                    .background(LocalChromeTone.current.panel, RoundedCornerShape(20.dp))
                     .testTag("map-position-prompt"),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // A Box background paints pixels without touching the theme,
-                // so this subtree is told it is a light panel by hand.
-                cz.hillview.core.theme.LightPanelTheme {
+                // so this subtree is handed the panel's scheme by hand.
+                PanelTheme {
                 TextButton(
                     onClick = onClaimManualPosition,
                     modifier = Modifier.testTag("accept-manual-position"),
@@ -315,14 +365,15 @@ fun MapOverlayUi(
         Text(
             text = "$markerCount photos",
             style = MaterialTheme.typography.bodySmall,
-            color = PANEL_INK,
+            color = LocalChromeTone.current.ink,
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(8.dp)
-                .background(PANEL_WHITE, RoundedCornerShape(4.dp))
+                .background(LocalChromeTone.current.panel, RoundedCornerShape(4.dp))
                 .padding(horizontal = 6.dp, vertical = 2.dp)
                 .testTag("map-status"),
         )
+    }
     }
 }
 
@@ -331,13 +382,15 @@ private fun ControlSurface(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
+    val tone = LocalChromeTone.current
     Surface(
         modifier = modifier,
-        color = PANEL_WHITE,
-        contentColor = PANEL_INK,
+        color = tone.panel,
+        contentColor = tone.ink,
+        border = tone.border?.let { androidx.compose.foundation.BorderStroke(1.dp, it) },
         shape = RoundedCornerShape(4.dp),
         shadowElevation = 2.dp,
-        content = { cz.hillview.core.theme.LightPanelTheme { content() } },
+        content = { PanelTheme { content() } },
     )
 }
 
@@ -352,12 +405,15 @@ private fun HunterPanel(
     if (alpha == 0f) return
     Surface(
         modifier = modifier.alpha(alpha).padding(bottom = 2.dp),
-        color = PANEL_WHITE,
-        contentColor = PANEL_INK,
+        color = LocalChromeTone.current.panel,
+        contentColor = LocalChromeTone.current.ink,
+        border = LocalChromeTone.current.border?.let {
+            androidx.compose.foundation.BorderStroke(1.dp, it)
+        },
         shape = RoundedCornerShape(8.dp),
         shadowElevation = 2.dp,
     ) {
-        cz.hillview.core.theme.LightPanelTheme { content() }
+        PanelTheme { content() }
     }
 }
 
@@ -392,19 +448,19 @@ private fun Modifier.verticalLabel(): Modifier = this
 @Composable
 private fun HunterToggle(active: Boolean, onClick: () -> Unit) {
     Surface(
-        color = PANEL_WHITE,
-        contentColor = PANEL_INK,
+        color = LocalChromeTone.current.panel,
+        contentColor = LocalChromeTone.current.ink,
         shape = RoundedCornerShape(topStart = 4.dp, bottomEnd = 8.dp),
         shadowElevation = if (active) 0.dp else 2.dp,
         modifier = Modifier.testTag("hunter-mode-toggle"),
     ) {
-        cz.hillview.core.theme.LightPanelTheme {
+        PanelTheme {
         TextButton(onClick = onClick) {
             // The bow icon is inlined lucide art in the original; a caret
             // pair plus a bow glyph reads the same at this size.
             Text(
                 text = if (active) "⌄ 🏹" else "⌃ 🏹",
-                color = if (active) ACTIVE_BLUE else Color.Black.copy(alpha = 0.6f),
+                color = if (active) ACTIVE_BLUE else LocalChromeTone.current.ink.copy(alpha = 0.6f),
             )
         }
         }
@@ -418,10 +474,11 @@ private fun SourceButton(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        color = if (source.enabled) ACTIVE_BLUE else Color.White,
+        color = if (source.enabled) ACTIVE_BLUE else LocalChromeTone.current.panel,
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (source.enabled) ACTIVE_BLUE_BORDER else Color(0xFFCCCCCC),
+            if (source.enabled) ACTIVE_BLUE_BORDER
+            else LocalChromeTone.current.border ?: Color(0xFFCCCCCC),
         ),
         shape = RoundedCornerShape(4.dp),
         onClick = onClick,
@@ -435,7 +492,7 @@ private fun SourceButton(
         ) {
             Text(
                 text = source.name,
-                color = if (source.enabled) Color.White else Color.Black,
+                color = if (source.enabled) Color.White else LocalChromeTone.current.ink,
                 style = MaterialTheme.typography.labelLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -474,7 +531,7 @@ private fun FiltersButton(
     ) {
         Text(
             text = "Filters ($activeFilterCount)",
-            color = if (activeFilterCount > 0) Color.White else Color.Black,
+            color = if (activeFilterCount > 0) Color.White else LocalChromeTone.current.ink,
             textDecoration = if (overridden) TextDecoration.LineThrough else null,
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -488,7 +545,7 @@ private fun PanelSeparator() {
         Modifier
             .padding(horizontal = 4.dp)
             .size(width = 1.dp, height = 24.dp)
-            .background(Color.Black.copy(alpha = 0.15f)),
+            .background(LocalChromeTone.current.ink.copy(alpha = 0.15f)),
     )
 }
 
@@ -508,14 +565,17 @@ private fun LocationButton(
     val fill = when (tracking) {
         LocationTracking.Active -> ACTIVE_BLUE
         LocationTracking.Background -> ACTIVE_BLUE.copy(alpha = 0.5f)
-        LocationTracking.Off -> PANEL_WHITE
+        LocationTracking.Off -> LocalChromeTone.current.panel
     }
     Box {
         Surface(
             color = fill,
             shape = RoundedCornerShape(4.dp),
             shadowElevation = 2.dp,
-            border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFDDDDDD)),
+            border = androidx.compose.foundation.BorderStroke(
+                2.dp,
+                LocalChromeTone.current.border ?: Color(0xFFDDDDDD),
+            ),
             modifier = Modifier
                 .alpha(if (tracking == LocationTracking.Off) 0.6f else 1f)
                 // Which of the three states this is in must be readable from
@@ -543,7 +603,8 @@ private fun LocationButton(
                     Text(
                         text = "◎",
                         color = if (flash) Color(0xFF34D399) else {
-                            if (tracking == LocationTracking.Off) Color.Black else Color.White
+                            if (tracking == LocationTracking.Off) LocalChromeTone.current.ink
+                            else Color.White
                         },
                         style = MaterialTheme.typography.titleMedium,
                     )
@@ -582,12 +643,13 @@ private fun CompassButton(
 
     Box {
         Surface(
-            color = if (wanted) ACTIVE_BLUE else PANEL_WHITE,
+            color = if (wanted) ACTIVE_BLUE else LocalChromeTone.current.panel,
             shape = RoundedCornerShape(4.dp),
             shadowElevation = 2.dp,
             border = androidx.compose.foundation.BorderStroke(
                 2.dp,
-                if (phase == TrackingPhase.Error) Color(0xFFF44336) else Color(0xFFDDDDDD),
+                if (phase == TrackingPhase.Error) Color(0xFFF44336)
+                else LocalChromeTone.current.border ?: Color(0xFFDDDDDD),
             ),
             modifier = Modifier
                 .alpha(if (unavailable) 0.5f else if (phase == TrackingPhase.Starting) 0.7f else 1f)
@@ -606,7 +668,7 @@ private fun CompassButton(
             ) {
                 Text(
                     text = "🧭",
-                    color = if (wanted) Color.White else Color.Black,
+                    color = if (wanted) Color.White else LocalChromeTone.current.ink,
                 )
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(

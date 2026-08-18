@@ -51,6 +51,12 @@ fun LightPanelTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = LightColors, content = content)
 }
 
+/** [LightPanelTheme]'s opposite, for chrome over a dark basemap. */
+@Composable
+fun DarkPanelTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = DarkColors, content = content)
+}
+
 @Composable
 fun HillviewTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
