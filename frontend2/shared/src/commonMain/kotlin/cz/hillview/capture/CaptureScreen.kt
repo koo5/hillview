@@ -172,6 +172,12 @@ fun CaptureScreen(
             }
         capture.selectResolution(parsed)
     }
+    // Same shape: the still-capture mode and JPEG quality are build options
+    // of the ImageCapture, persisted like the resolution pin; configureStill
+    // dedups, so re-running on ready cannot rebind-loop either.
+    LaunchedEffect(mapSettings.stillCaptureMode, mapSettings.jpegQuality, state.ready) {
+        capture.configureStill(mapSettings.stillCaptureMode, mapSettings.jpegQuality)
+    }
 
     // Eco effects apply only while this screen is up — the composition IS
     // the activity gate the Tauri `powerSavingActive` derives. The slider's
@@ -565,6 +571,54 @@ fun CaptureScreen(
                             ) {
                                 showResolutionMenu = false
                                 capture.focusInfinity = true
+                            }
+                        }
+                        // What sits between the press and the exposure —
+                        // CameraX's capture mode (see StillCaptureMode:
+                        // Quality locks 3A first, the shutter lag the user
+                        // feels; Latency does not; ZSL serves an already-
+                        // captured frame where the camera can). A knob
+                        // because the answer is measured in the field,
+                        // with the Stats dialog's press→exposure numbers.
+                        Text(
+                            "Still capture",
+                            color = Color(0x99FFFFFF),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+                        )
+                        StillCaptureMode.entries.forEach { mode ->
+                            val unsupported =
+                                mode == StillCaptureMode.ZeroShutterLag && !state.zslSupported
+                            ResolutionOption(
+                                label = mode.label +
+                                    if (unsupported) " (unsupported here → Latency)" else "",
+                                selected = state.stillCaptureMode == mode,
+                                tag = "still-mode-option-${mode.key}",
+                            ) {
+                                showResolutionMenu = false
+                                mapSettingsRepo.update { it.copy(stillCaptureMode = mode) }
+                            }
+                        }
+                        // Decoupled from the mode on purpose: CameraX's
+                        // default ties them (100 for Quality, 95 otherwise)
+                        // and the two trades have nothing to do with each
+                        // other.
+                        Text(
+                            "JPEG quality",
+                            color = Color(0x99FFFFFF),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+                        )
+                        Row {
+                            JPEG_QUALITY_CHOICES.forEach { q ->
+                                ResolutionOption(
+                                    label = q.toString(),
+                                    selected = state.jpegQuality == q,
+                                    tag = "jpeg-quality-option-$q",
+                                ) {
+                                    showResolutionMenu = false
+                                    mapSettingsRepo.update { it.copy(jpegQuality = q) }
+                                }
                             }
                         }
                     }

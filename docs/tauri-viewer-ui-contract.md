@@ -93,6 +93,13 @@ tiebreak is load-bearing, not cosmetic.
 The last rule is the surprising one: with hunter mode off, a single featured
 photo in range collapses the navigable ring to the featured subset.
 
+Note where "any featured" comes from: `anyFeatured` is
+`featured === true && !filtered` over `photosInRange` (`:127-130`) — decided
+over the in-range set, BEFORE the override, not over the list the override
+produced. So a featured-but-filtered photo does not become a featured set
+just because the user overrode the filters. Computing it from the
+post-override list looks equivalent and is not.
+
 ### `photoInFront`
 
 Two stores, not one. `newPhotoInFront` (`mapState.ts:208-245`) is the

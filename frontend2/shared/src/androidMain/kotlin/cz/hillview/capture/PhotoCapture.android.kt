@@ -104,6 +104,61 @@ private const val REMETER_APPLY_TIMEOUT_MS = 600L
 // shade and sun without churning the request queue.
 private const val SCENE_APPLY_INTERVAL_MS = 300L
 
+// Camera2 3A enum names for the shutter-press log line — the integers are
+// unreadable in a field and the constants have no toString.
+private fun afModeName(v: Int?): String = when (v) {
+    null -> "?"
+    CameraMetadata.CONTROL_AF_MODE_OFF -> "OFF"
+    CameraMetadata.CONTROL_AF_MODE_AUTO -> "AUTO"
+    CameraMetadata.CONTROL_AF_MODE_MACRO -> "MACRO"
+    CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO -> "CONT_VIDEO"
+    CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE -> "CONT_PICTURE"
+    CameraMetadata.CONTROL_AF_MODE_EDOF -> "EDOF"
+    else -> v.toString()
+}
+
+private fun afStateName(v: Int?): String = when (v) {
+    null -> "?"
+    CameraMetadata.CONTROL_AF_STATE_INACTIVE -> "INACTIVE"
+    CameraMetadata.CONTROL_AF_STATE_PASSIVE_SCAN -> "PASSIVE_SCAN"
+    CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED -> "PASSIVE_FOCUSED"
+    CameraMetadata.CONTROL_AF_STATE_ACTIVE_SCAN -> "ACTIVE_SCAN"
+    CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED -> "FOCUSED_LOCKED"
+    CameraMetadata.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED -> "NOT_FOCUSED_LOCKED"
+    CameraMetadata.CONTROL_AF_STATE_PASSIVE_UNFOCUSED -> "PASSIVE_UNFOCUSED"
+    else -> v.toString()
+}
+
+private fun aeModeName(v: Int?): String = when (v) {
+    null -> "?"
+    CameraMetadata.CONTROL_AE_MODE_OFF -> "OFF"
+    CameraMetadata.CONTROL_AE_MODE_ON -> "ON"
+    CameraMetadata.CONTROL_AE_MODE_ON_AUTO_FLASH -> "ON_AUTO_FLASH"
+    CameraMetadata.CONTROL_AE_MODE_ON_ALWAYS_FLASH -> "ON_ALWAYS_FLASH"
+    CameraMetadata.CONTROL_AE_MODE_ON_AUTO_FLASH_REDEYE -> "ON_AUTO_FLASH_REDEYE"
+    else -> v.toString()
+}
+
+private fun aeStateName(v: Int?): String = when (v) {
+    null -> "?"
+    CameraMetadata.CONTROL_AE_STATE_INACTIVE -> "INACTIVE"
+    CameraMetadata.CONTROL_AE_STATE_SEARCHING -> "SEARCHING"
+    CameraMetadata.CONTROL_AE_STATE_CONVERGED -> "CONVERGED"
+    CameraMetadata.CONTROL_AE_STATE_LOCKED -> "LOCKED"
+    CameraMetadata.CONTROL_AE_STATE_FLASH_REQUIRED -> "FLASH_REQUIRED"
+    CameraMetadata.CONTROL_AE_STATE_PRECAPTURE -> "PRECAPTURE"
+    else -> v.toString()
+}
+
+private fun awbStateName(v: Int?): String = when (v) {
+    null -> "?"
+    CameraMetadata.CONTROL_AWB_STATE_INACTIVE -> "INACTIVE"
+    CameraMetadata.CONTROL_AWB_STATE_SEARCHING -> "SEARCHING"
+    CameraMetadata.CONTROL_AWB_STATE_CONVERGED -> "CONVERGED"
+    CameraMetadata.CONTROL_AWB_STATE_LOCKED -> "LOCKED"
+    else -> v.toString()
+}
+
 // Finalization (EXIF rewrite, gallery index) must survive the pane: a photo
 // taken a heartbeat before leaving capture still needs its final bytes —
 // the controller's own scope dies in release().
@@ -298,6 +353,27 @@ private class AndroidPhotoCapture(
     @Volatile private var lastFrameLog = 0L
 
     /**
+     * What the HAL said about AF/AE/AWB on the latest preview result. Only
+     * ever READ at the shutter press, for the log line that says what the
+     * capture pipeline's 3A lock (Quality mode) is about to wait on.
+     */
+    private data class ThreeAState(
+        val afMode: Int?,
+        val afState: Int?,
+        val aeMode: Int?,
+        val aeState: Int?,
+        val awbState: Int?,
+        val atMs: Long,
+    ) {
+        fun describe(nowMs: Long): String =
+            "af=${afModeName(afMode)}/${afStateName(afState)} " +
+                "ae=${aeModeName(aeMode)}/${aeStateName(aeState)} " +
+                "awb=${awbStateName(awbState)} (${nowMs - atMs}ms ago)"
+    }
+
+    @Volatile private var last3A: ThreeAState? = null
+
+    /**
      * Whether the request we last applied leaves AE running — the harvest
      * gate. Gating on "no rule is set" instead would shut the harvest out
      * of the deliberate metering window [prepareExposure] opens.
@@ -459,8 +535,22 @@ private class AndroidPhotoCapture(
         }
         cameraProvider = provider
 
+        // The still-capture mode decides what CameraX puts between the
+        // press and the exposure (see StillCaptureMode): MAXIMIZE_QUALITY
+        // runs a 3A lock first — the shutter lag the user feels — so it is
+        // a knob, and JPEG quality is pinned explicitly so the mode cannot
+        // change it behind our back (CameraX's default couples the two).
+        val mode = stillMode
+        val quality = jpegQuality
         val captureBuilder = ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
+            .setCaptureMode(
+                when (mode) {
+                    StillCaptureMode.Quality -> ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
+                    StillCaptureMode.Latency -> ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
+                    StillCaptureMode.ZeroShutterLag -> ImageCapture.CAPTURE_MODE_ZERO_SHUTTER_LAG
+                },
+            )
+            .setJpegQuality(quality.coerceIn(1, 100))
         pinnedResolution?.let { r ->
             // Three fences, because the default selector quietly prefers
             // 4:3: an aspect strategy derived from the request, a bounding
@@ -563,9 +653,16 @@ private class AndroidPhotoCapture(
         exposureRange = info.getCameraCharacteristic(
             CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE,
         )
+        val afModes = info.getCameraCharacteristic(
+            CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES,
+        )
+        // Whether a ZSL choice is real here — CameraX falls back silently
+        // otherwise, so the menu needs to say it.
+        val zsl = cam.cameraInfo.isZslSupported
         Log.d(
             TAG,
             "camera caps: manualSensor=$manualSensor iso=$isoRange exposure=$exposureRange " +
+                "zsl=$zsl afModes=${afModes?.joinToString()} " +
                 "capabilities=${capabilities?.joinToString()}",
         )
         // The real JPEG menu, from the sensor itself — the whole point of
@@ -578,9 +675,6 @@ private class AndroidPhotoCapture(
             ?.distinct()
             .orEmpty()
 
-        val afModes = info.getCameraCharacteristic(
-            CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES,
-        )
         val minFocusDistance = info.getCameraCharacteristic(
             CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE,
         )
@@ -593,11 +687,19 @@ private class AndroidPhotoCapture(
             manualFocusSupported = manualFocus,
             availableResolutions = jpegSizes,
             selectedResolution = pinnedResolution,
+            stillCaptureMode = mode,
+            jpegQuality = quality,
+            zslSupported = zsl,
         )
-        Log.d(
+        Log.i(
             TAG,
             "bound: pinned=$pinnedResolution actual=${capture.resolutionInfo?.resolution} " +
-                "jpegSizes=${jpegSizes.take(4)}",
+                "still=${mode.key} jpeg=$quality zsl=$zsl jpegSizes=${jpegSizes.take(4)}",
+        )
+        cz.hillview.plugin.EventLog.record(
+            "camera",
+            "bound ${capture.resolutionInfo?.resolution ?: "?"} still=${mode.key} " +
+                "jpeg=$quality" + (if (mode == StillCaptureMode.ZeroShutterLag && !zsl) " (zsl unsupported → latency)" else ""),
         )
 
         // Options chosen before (re)binding still apply.
@@ -636,6 +738,17 @@ private class AndroidPhotoCapture(
                         lastFrameLog = now
                         Log.d(TAG, "frame exposureNs=$exp iso=$iso rule=$exposureRule aeOn=$aeIsOn")
                     }
+                    // The 3A picture as the HAL reports it, every frame,
+                    // so the shutter press can log what CameraX's capture
+                    // pipeline is about to wait on (see StillCaptureMode).
+                    last3A = ThreeAState(
+                        afMode = result.get(CaptureResult.CONTROL_AF_MODE),
+                        afState = result.get(CaptureResult.CONTROL_AF_STATE),
+                        aeMode = result.get(CaptureResult.CONTROL_AE_MODE),
+                        aeState = result.get(CaptureResult.CONTROL_AE_STATE),
+                        awbState = result.get(CaptureResult.CONTROL_AWB_STATE),
+                        atMs = now,
+                    )
                     if (!aeIsOn) return
                     exp?.let { meteredExposureNs = it }
                     iso?.let { meteredIso = it }
@@ -666,12 +779,27 @@ private class AndroidPhotoCapture(
     }
 
     @Volatile private var pinnedResolution: CaptureResolution? = null
+    @Volatile private var stillMode: StillCaptureMode = StillCaptureMode.DEFAULT
+    @Volatile private var jpegQuality: Int = DEFAULT_JPEG_QUALITY
 
     override fun selectResolution(resolution: CaptureResolution?) {
         if (resolution == pinnedResolution) return
         pinnedResolution = resolution
         // A use case's resolution is fixed at bind time; changing it means
         // rebinding. openCamera() rebuilds everything from current fields.
+        rebindIfBound()
+    }
+
+    override fun configureStill(mode: StillCaptureMode, jpegQuality: Int) {
+        if (mode == stillMode && jpegQuality == this.jpegQuality) return
+        Log.i(TAG, "still capture <- ${mode.key} jpeg=$jpegQuality (was ${stillMode.key}/${this.jpegQuality})")
+        stillMode = mode
+        this.jpegQuality = jpegQuality
+        // Both are ImageCapture.Builder options — same rebind as a resolution.
+        rebindIfBound()
+    }
+
+    private fun rebindIfBound() {
         if (cameraBound) {
             cameraBound = false
             cameraProvider?.unbindAll()
@@ -1275,14 +1403,40 @@ private class AndroidPhotoCapture(
         }
     }
 
-    // Stats timeline: shutter press → CameraX JPEG → finalization; plus
-    // inter-shot cadence. Feeds the copyable Stats dialog.
+    // Stats timeline: shutter press → exposure start (CameraX's
+    // onCaptureStarted — everything before it is the capture pipeline's
+    // own pre-work, the 3A lock included) → CameraX JPEG → finalization;
+    // plus inter-shot cadence. Feeds the copyable Stats dialog.
     @Volatile private var captureStartMs = 0L
+    @Volatile private var captureExposedAtMs = 0L
     @Volatile private var lastShotAtMs = 0L
+
+    /**
+     * The shutter's voice plays at onCaptureStarted — the actual exposure —
+     * not at onImageSaved, which trails it by the HAL's still processing
+     * plus the JPEG write (user-requested: the click should mark the
+     * moment the photo was taken). Idempotent per press: the storage chain
+     * may call takePicture twice, and a pipeline that never reports
+     * onCaptureStarted still gets its click, late, at the save.
+     */
+    @Volatile private var captureTonePlayed = false
+
+    private fun playCaptureToneOnce(snapshot: SensorSnapshot, where: String) {
+        if (captureTonePlayed) return
+        captureTonePlayed = true
+        if (where != "exposure") Log.w(TAG, "capture tone at $where (no onCaptureStarted)")
+        playCaptureTone(snapshot)
+    }
 
     init {
         CaptureStatsLog.platformLines = {
             buildList {
+                // The knobs the timings above were taken under.
+                add(
+                    "still: ${state.stillCaptureMode.key} jpeg=${state.jpegQuality} " +
+                        "zsl=${if (state.zslSupported) "yes" else "no"} " +
+                        "focus=${if (state.focusInfinity) "∞" else "auto"}",
+                )
                 if (android.os.Build.VERSION.SDK_INT >= 29) {
                     val pm = context.getSystemService(Context.POWER_SERVICE)
                         as android.os.PowerManager
@@ -1306,7 +1460,19 @@ private class AndroidPhotoCapture(
         val capture = imageCapture ?: return
         if (state.capturing) return
         captureStartMs = SystemClock.elapsedRealtime()
+        captureExposedAtMs = 0L
+        captureTonePlayed = false
         state = state.copy(capturing = true, errorMessage = null)
+        // What the capture pipeline is about to wait on. In Quality mode
+        // CameraX locks 3A before the still (AF trigger + convergence, ≤1 s
+        // each) — so af=OFF/INACTIVE here with still=quality predicts a
+        // full timeout, and this line is how that shows up in a field.
+        Log.i(
+            TAG,
+            "press: still=${state.stillCaptureMode.key} jpeg=${state.jpegQuality} " +
+                "focusInf=$focusInfinity rule=${exposureRule?.mode} " +
+                "3A ${last3A?.describe(captureStartMs) ?: "unknown"}",
+        )
 
         // A wedged camera pipeline can swallow a still capture without
         // delivering EITHER callback (seen with camera-pipe on the API-31
@@ -1389,18 +1555,45 @@ private class AndroidPhotoCapture(
             options,
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageSavedCallback {
+                override fun onCaptureStarted() {
+                    // The camera has started exposing the still: the
+                    // moment the photo is OF. Press→here is CameraX's
+                    // pre-capture work (3A lock in Quality mode, request
+                    // submission); here→saved is the HAL + JPEG + write.
+                    val now = SystemClock.elapsedRealtime()
+                    captureExposedAtMs = now
+                    val lag = now - captureStartMs
+                    CaptureStatsLog.record("press→exposure", lag, System.currentTimeMillis())
+                    Log.i(TAG, "exposure started ${lag}ms after press")
+                    playCaptureToneOnce(snapshot, "exposure")
+                }
+
                 override fun onImageSaved(results: ImageCapture.OutputFileResults) {
                     watchdog.cancel()
                     val shotAt = SystemClock.elapsedRealtime()
                     val wall = System.currentTimeMillis()
                     CaptureStatsLog.record("shutter→jpeg", shotAt - captureStartMs, wall)
+                    val exposedAt = captureExposedAtMs
+                    if (exposedAt != 0L) {
+                        CaptureStatsLog.record("exposure→jpeg", shotAt - exposedAt, wall)
+                    } else {
+                        CaptureStatsLog.increment("no onCaptureStarted", wall)
+                    }
+                    val timing = if (exposedAt != 0L) {
+                        "press→exp ${exposedAt - captureStartMs}ms, exp→jpeg ${shotAt - exposedAt}ms"
+                    } else {
+                        "press→jpeg ${shotAt - captureStartMs}ms (no onCaptureStarted)"
+                    }
+                    Log.i(TAG, "saved: $timing")
                     if (lastShotAtMs != 0L) {
                         CaptureStatsLog.record("cadence", shotAt - lastShotAtMs, wall)
                     }
                     lastShotAtMs = shotAt
+                    playCaptureToneOnce(snapshot, "save")
                     // The shutter is FREE the moment CameraX hands the JPEG
-                    // over: tone, eco refresh, and the next capture all
-                    // proceed now. The EXIF rewrite below is a WHOLE-FILE
+                    // over: eco refresh and the next capture proceed now
+                    // (the tone already played at onCaptureStarted). The
+                    // EXIF rewrite below is a WHOLE-FILE
                     // copy (ExifInterface has no surgical patch) — 4-25 MB
                     // on a real sensor — and used to run right here on the
                     // main executor: per-shot jank, and the throughput
@@ -1409,7 +1602,6 @@ private class AndroidPhotoCapture(
                     // overlapping captures finalize in parallel.
                     state = state.copy(capturing = false)
                     ecoCaptureRefresh()
-                    playCaptureTone(snapshot)
                     captureFinishScope.launch {
                         val finalizeStart = SystemClock.elapsedRealtime()
                         try {
@@ -1467,7 +1659,7 @@ private class AndroidPhotoCapture(
                                     (snapshot.locationSource ?: "no position") + ", " +
                                     (snapshot.exposure?.let {
                                         "${formatShutter(it.plan.exposureNs)} iso${it.plan.iso}"
-                                    } ?: "auto exposure") + ")",
+                                    } ?: "auto exposure") + ") $timing",
                             )
                         } catch (e: Exception) {
                             Log.e(TAG, "post-save handling failed", e)

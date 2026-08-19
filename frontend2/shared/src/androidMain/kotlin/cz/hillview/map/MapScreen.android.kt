@@ -678,6 +678,14 @@ private fun rememberMapView(): MapView {
             // Leaflet's inertia is short and friction-heavy. Off is the
             // closest match to the original's controlled feel.
             isFlingEnabled = false
+            // The map panel is movableContent in MainScreen — a rotation
+            // RE-PARENTS this view between the portrait Column and the
+            // landscape Row instead of rebuilding it. osmdroid's default
+            // (destroy mode ON) runs onDetach() — tile provider and overlays
+            // torn down — on every onDetachedFromWindow, which would leave a
+            // dead map after the first rotation. Teardown belongs to the
+            // composition leaving, which the DisposableEffect below owns.
+            setDestroyMode(false)
         }
     }
     DisposableEffect(mapView) { onDispose { mapView.onDetach() } }

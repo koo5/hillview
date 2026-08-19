@@ -85,6 +85,15 @@ data class CaptureState(
     val availableResolutions: List<CaptureResolution> = emptyList(),
     /** The pinned still size; null = CameraX's own choice. */
     val selectedResolution: CaptureResolution? = null,
+    /** The still-capture mode the bound ImageCapture was built with. */
+    val stillCaptureMode: StillCaptureMode = StillCaptureMode.Latency,
+    /** The JPEG quality the bound ImageCapture was built with. */
+    val jpegQuality: Int = DEFAULT_JPEG_QUALITY,
+    /**
+     * The camera can do zero-shutter-lag stills (private reprocessing). When
+     * false a ZSL choice silently behaves as Latency — the menu says so.
+     */
+    val zslSupported: Boolean = false,
     /** Device advertises MANUAL_SENSOR — shutter control is offerable. */
     val manualShutterSupported: Boolean = false,
     /** AF-off + a real focus range exist — the ∞ toggle is offerable. */
@@ -110,6 +119,49 @@ data class CaptureState(
     /** Where the last recording landed, once it has been finalized. */
     val lastVideoPath: String? = null,
 )
+
+/**
+ * What sits between the shutter press and the exposure — CameraX's
+ * still-capture mode, a knob because the delay it buys is the single
+ * most visible thing about the shutter and the trade is scene-dependent.
+ *
+ * Found 2026-08-19 by reading the CameraX 1.6 (camera-pipe) capture
+ * pipeline: in [Quality] mode every still is preceded by a 3A LOCK — wait
+ * for AF/AE/AWB to converge (≤1 s), then an AF trigger and a wait for the
+ * lens to report locked (≤1 s) — before the capture request is even
+ * submitted. With focus pinned at infinity (AF mode OFF) the lens never
+ * reports "locked", so that second wait is expected to run to its full
+ * timeout on every shot. [Latency] skips the lock entirely; for vista
+ * shots out of a moving vehicle the lock buys nothing (the scene IS at
+ * infinity) and costs the shutter lag the user feels. [ZeroShutterLag]
+ * serves the still from a ring buffer of frames already captured by the
+ * repeating request (so an exposure rule still applies) — where the
+ * camera supports private reprocessing; elsewhere it is Latency.
+ *
+ * JPEG quality is a separate knob ([JPEG_QUALITY_CHOICES]) because CameraX
+ * couples it to the mode by default (100 for Quality, 95 otherwise) and
+ * the two trades have nothing to do with each other.
+ */
+enum class StillCaptureMode(val key: String, val label: String) {
+    /** CameraX MAXIMIZE_QUALITY: the 3A lock described above, then the shot. */
+    Quality("quality", "Quality (3A lock first)"),
+
+    /** CameraX MINIMIZE_LATENCY: the shot, as it stands. */
+    Latency("latency", "Latency (no lock)"),
+
+    /** CameraX ZERO_SHUTTER_LAG where supported, else Latency. */
+    ZeroShutterLag("zsl", "Zero shutter lag"),
+    ;
+
+    companion object {
+        val DEFAULT = Latency
+        fun fromKey(key: String?): StillCaptureMode = entries.firstOrNull { it.key == key } ?: DEFAULT
+    }
+}
+
+/** What the Quality mode used to give implicitly — kept as the default. */
+const val DEFAULT_JPEG_QUALITY = 100
+val JPEG_QUALITY_CHOICES: List<Int> = listOf(100, 95, 90, 80)
 
 /**
  * The offered shutter times, in nanoseconds. Chosen for the app's actual
@@ -513,6 +565,11 @@ interface PhotoCapture {
      *
      * Suspends until the rule is back in force, so the shot that follows
      * is taken under it. No-op under auto exposure.
+     *
+     * Since metering went continuous (SceneMeter, 2026-08-11) the window
+     * above is the FALLBACK for hardware that refused the analysis stream:
+     * with a current scene estimate this returns at once, so it costs an
+     * interval run nothing and a manual tap never calls it at all.
      */
     suspend fun prepareExposure()
 
@@ -550,6 +607,14 @@ interface PhotoCapture {
      * [CaptureState.selectedResolution] when applied.
      */
     fun selectResolution(resolution: CaptureResolution?)
+
+    /**
+     * How a still is taken and how hard the JPEG is squeezed — see
+     * [StillCaptureMode]. Both are ImageCapture BUILD options, so a change
+     * rebinds the camera exactly like [selectResolution]; the applied pair
+     * lands in [CaptureState.stillCaptureMode] / [CaptureState.jpegQuality].
+     */
+    fun configureStill(mode: StillCaptureMode, jpegQuality: Int)
 
     fun capture()
 

@@ -1,5 +1,7 @@
 package cz.hillview.settings
 
+import cz.hillview.capture.DEFAULT_JPEG_QUALITY
+import cz.hillview.capture.StillCaptureMode
 import cz.hillview.map.BearingMode
 import cz.hillview.map.DEFAULT_TILE_PROVIDER
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +45,15 @@ data class MapSettings(
     val cameraOverlayOpacity: Int = 3,
     /** Pinned still size as "WxH"; null = auto (Tauri selectedResolution). */
     val captureResolution: String? = null,
+    /**
+     * What sits between the shutter press and the exposure — see
+     * StillCaptureMode. A frontend2 knob (the original has no say in this;
+     * its WebView camera does whatever the browser does); persisted beside
+     * the resolution it is bound with.
+     */
+    val stillCaptureMode: StillCaptureMode = StillCaptureMode.DEFAULT,
+    /** JPEG quality of the saved stills, 1..100 (CaptureState.jpegQuality). */
+    val jpegQuality: Int = DEFAULT_JPEG_QUALITY,
     /**
      * The Main page's activity — "view" or "capture" — persisted so the
      * mode survives restarts, as the Tauri appSettings.activity does.
