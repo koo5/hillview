@@ -1437,6 +1437,10 @@ private class AndroidPhotoCapture(
                         "zsl=${if (state.zslSupported) "yes" else "no"} " +
                         "focus=${if (state.focusInfinity) "∞" else "auto"}",
                 )
+                // Whether the compass and the fix stream are actually alive —
+                // the "stuck after unbackgrounding" question, answerable from
+                // the dialog instead of logcat.
+                add(engine.livenessLine())
                 if (android.os.Build.VERSION.SDK_INT >= 29) {
                     val pm = context.getSystemService(Context.POWER_SERVICE)
                         as android.os.PowerManager

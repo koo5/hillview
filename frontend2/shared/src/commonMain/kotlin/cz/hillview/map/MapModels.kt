@@ -9,6 +9,12 @@ data class PhotoMarker(
     val longitude: Double,
     /** True-north heading the photo was shot at; null when unknown. */
     val bearingDeg: Double?,
+    /**
+     * Elevation the photo was shot at, degrees, null when unknown. The map
+     * ignores it; the viewer pane navigates up and down by it (see
+     * docs/tauri-viewer-ui-contract.md), and treats null as level.
+     */
+    val pitchDeg: Double? = null,
     val capturedAtMs: Long,
     /** Which photo source it came from — decides the marker's border colour. */
     val source: String = "device",
