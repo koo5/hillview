@@ -77,9 +77,11 @@ actual fun MapScreen(
     val spatial by state.spatial.collectAsState()
     val bearing by state.bearing.collectAsState()
 
-    // Hunter mode: persisted preference, overridable per session.
-    var hunterOverride by remember { mutableStateOf<Boolean?>(null) }
-    val hunterMode = hunterOverride ?: mapSettings.hunterModePref
+    // Hunter mode and the filter override moved OUT of this screen: the
+    // viewer pane reads the same two flags to decide what you can turn to,
+    // so they are shared state now (see MapFilterState).
+    val filters: MapFilterState = org.koin.compose.koinInject()
+    val hunterMode by filters.hunterMode.collectAsState()
 
     // Session-only, exactly as in the Svelte app — but held in MapSession
     // rather than the composition, because the map is its own destination
@@ -98,7 +100,7 @@ actual fun MapScreen(
     var positionPrompt by remember { mutableStateOf(false) }
     val manualClaimed by session.manualPositionClaimed.collectAsState()
     val manualPositionElected by session.manualPositionElected.collectAsState()
-    var overrideFilters by remember { mutableStateOf(false) }
+    val overrideFilters by filters.overrideFilters.collectAsState()
     var showFilters by remember { mutableStateOf(false) }
     // The toggle panel enumerates whatever sources the composite carries
     // (device + hillview today; mapillary/panoramax join when their
@@ -335,7 +337,7 @@ actual fun MapScreen(
                     selectedPhotoId = photo.id
                     // Tapping a greyed-out photo un-greys the set, like the
                     // original's overrideFilters flip.
-                    if (!hunterMode) hunterOverride = true
+                    filters.revealHiddenPhotos()
                 }
                 // Greying rule from the contract: outside hunter mode, when
                 // featured photos exist, non-featured ones INSIDE the range
@@ -486,10 +488,7 @@ actual fun MapScreen(
             compassUnavailable = mapSettings.bearingMode == BearingMode.Walking &&
                 !controller.compassAvailable(),
             markerCount = markers.size,
-            onToggleHunterMode = {
-                hunterOverride = null
-                settings.update { it.copy(hunterModePref = !hunterMode) }
-            },
+            onToggleHunterMode = { filters.toggleHunterMode() },
             onToggleSource = { id ->
                 settings.update { s ->
                     val d = sourceDescriptors.find { it.id == id }
@@ -498,7 +497,7 @@ actual fun MapScreen(
                 }
             },
             onOpenFilters = { showFilters = true },
-            onToggleOverrideFilters = { overrideFilters = !overrideFilters },
+            onToggleOverrideFilters = { filters.toggleOverrideFilters() },
             currentTileProvider = mapSettings.tileProviderKey,
             onPickTileProvider = { key -> settings.update { it.copy(tileProviderKey = key) } },
             onToggleLocation = {

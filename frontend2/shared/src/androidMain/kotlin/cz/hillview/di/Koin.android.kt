@@ -159,6 +159,23 @@ actual fun platformModule(): Module = module {
         )
     }
     single<TokenStore> { AuthManagerTokenStore(androidContext()) }
+    // The viewer pane's state: the ring and the four directions, derived from
+    // the map's markers and the one bearing. Android supplies the range
+    // culling, which lives in shared-kt and is shared with the Tauri app.
+    single {
+        cz.hillview.viewer.ViewerStateHolder(
+            map = get(),
+            markers = get<cz.hillview.map.PhotoMarkerSource>().markers,
+            hunterMode = get<cz.hillview.map.MapFilterState>().hunterMode,
+            overrideFilters = get<cz.hillview.map.MapFilterState>().overrideFilters,
+            cull = cz.hillview.viewer.SharedRangeCuller(),
+            scope = kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+            ),
+            now = { System.currentTimeMillis() },
+        )
+    }
+
     single<cz.hillview.devicephotos.DevicePhotoBrowser> {
         cz.hillview.devicephotos.DaoDevicePhotoBrowser(androidContext())
     }

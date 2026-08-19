@@ -21,7 +21,7 @@ import cz.hillview.plugin.sortPhotosByBearing
  * identity used for picks. Results are matched back to the original markers
  * by id, so nothing downstream ever sees the stand-ins.
  */
-internal class SharedRangeCuller(
+class SharedRangeCuller(
     private val maxPhotos: Int = MAX_RING_PHOTOS,
 ) : RangeCuller {
 

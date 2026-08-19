@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -30,8 +31,11 @@ import cz.hillview.settings.ALLOWED_LICENSES
 import cz.hillview.settings.GPS_INTERVAL_CHOICES_MS
 import cz.hillview.settings.formatGpsInterval
 import cz.hillview.settings.exportGeoTrackingNow
+import cz.hillview.settings.clearTrackingExportFolder
 import cz.hillview.settings.geoAutoExportEnabled
+import cz.hillview.settings.rememberTrackingFolderPicker
 import cz.hillview.settings.setGeoAutoExport
+import cz.hillview.settings.trackingExportFolderLabel
 import cz.hillview.settings.CompassSettingsRepository
 import cz.hillview.settings.StorageMode
 import cz.hillview.settings.storageFacts
@@ -159,6 +163,9 @@ fun SettingsScreen(
         // samples the same arbitration the shutter runs). Auto-export
         // dumps at each capture-session end; the button dumps right now.
         var geoAutoExport by rememberSaveable { mutableStateOf(geoAutoExportEnabled()) }
+        // Plain state, not saveable: the pref is the truth and reading it is
+        // free — saving a copy could only ever disagree with it.
+        var exportFolder by remember { mutableStateOf(trackingExportFolderLabel()) }
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
@@ -166,7 +173,8 @@ fun SettingsScreen(
             Column(Modifier.weight(1f)) {
                 Text("Tracking CSV export", style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    "Bearings and locations → GeoTrackingDumps/",
+                    exportFolder?.let { "Bearings and locations → $it/" }
+                        ?: "Bearings and locations → GeoTrackingDumps/",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -182,6 +190,47 @@ fun SettingsScreen(
                 },
                 modifier = Modifier.testTag("settings-geo-auto-export"),
             )
+        }
+        // WHERE the CSVs land — the user's durability call, stated rather
+        // than implied: the default folder dies with the app (uninstall or
+        // "Clear storage") and no file manager can reach it since Android
+        // 11, while a picked folder survives both — and a picked folder is
+        // also a location history lying around after the app is gone, which
+        // is exactly why it is a choice and not a default. The picker is the
+        // system's (SAF), so the app never touches a folder it wasn't
+        // pointed at — and typed-directory rules don't apply through it.
+        rememberTrackingFolderPicker(
+            onChosen = { exportFolder = trackingExportFolderLabel() },
+        )?.let { pickFolder ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (exportFolder == null) {
+                        "Exports live in the app's private folder: deleted " +
+                            "with the app, invisible to file managers."
+                    } else {
+                        "Exports go to a folder you picked; they survive " +
+                            "uninstalling the app."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(
+                    onClick = pickFolder,
+                    modifier = Modifier.testTag("settings-geo-export-folder"),
+                ) { Text(if (exportFolder == null) "Choose folder…" else "Change…") }
+                if (exportFolder != null) {
+                    TextButton(
+                        onClick = {
+                            clearTrackingExportFolder()
+                            exportFolder = null
+                        },
+                        modifier = Modifier.testTag("settings-geo-export-folder-reset"),
+                    ) { Text("Reset") }
+                }
+            }
         }
 
         // How often the fused provider is asked for a fix. The value goes
