@@ -26,6 +26,16 @@ data class SensorSnapshot(
     val trueBearingDeg: Float? = null,
     /** Which sensor produced the heading — EXIF provenance (bearing_source). */
     val bearingSource: String? = null,
+    /**
+     * Camera ELEVATION at the shutter, degrees, positive up — how far the
+     * phone was tilted, where [trueBearingDeg] says which way it faced. The
+     * viewer needs both to offer "the photo above this one".
+     *
+     * Nullable and never defaulted to 0: the viewer's up/down rule is
+     * strictly-higher and strictly-lower, so "level" and "unknown" must stay
+     * distinguishable all the way to the server.
+     */
+    val pitchDeg: Float? = null,
     val capturedAtMs: Long,
     /** EXIF provenance: "gps" or "manual" (map-positioned, gate lifted). */
     val locationSource: String? = null,

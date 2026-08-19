@@ -102,6 +102,8 @@ data class PendingUpload(
     // upload metadata blob is built from — the fast-write path's only record
     // of these (the file carries no EXIF there).
     val bearingSource: String? = null,
+    /** Camera elevation at the shutter, degrees; null when unrecorded. */
+    val pitchDeg: Double? = null,
     val locationSource: String? = null,
     val locationAgeMs: Long? = null,
     val exposureJson: String? = null,

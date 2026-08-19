@@ -98,7 +98,18 @@ data class PhotoEntity(
      * Null on rows captured before this existed; the upload falls back to
      * the global setting for those, so they stay uploadable.
      */
-    val license: String? = null
+    val license: String? = null,
+
+    /**
+     * Camera elevation at the shutter, degrees, positive up (v19). Bearing
+     * says which way the camera faced; this says how far it was tilted, and
+     * the viewer pane needs both to offer "the photo above this one".
+     *
+     * Nullable on purpose, unlike `bearing` which uses 0.0 for unset: the
+     * viewer's rule is strictly-higher / strictly-lower, so "level" and
+     * "not recorded" must not collapse into each other.
+     */
+    val pitch: Double? = null
 )
 
 enum class UploadStatus {
