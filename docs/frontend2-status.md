@@ -92,6 +92,19 @@ upload trigger) still publishes only after the final bytes exist.
   camera shape; MapStateHolder is process-wide (capture and map move one
   camera); locations ride shared-kt's fused PreciseLocationService; the
   photo folder is Hillview2 (HILLVIEW_FOLDER env var overrides).
+  **2026-08-19: the two panels are `movableContentOf`** — a rotation
+  re-parents them between the portrait Column and the landscape Row
+  instead of rebuilding them. Plain lambdas disposed both compositions,
+  which is why an interval run stopped on rotation (its `repeating`
+  rememberSaveable had nothing to restore from — only activity
+  recreation goes through the Bundle, and MainActivity handles
+  orientation itself), and took the exposure rule and the camera binding
+  with it. Two re-parenting facts: CameraX's PreviewView (TextureView)
+  re-attaches its SurfaceTexture on its own; osmdroid's MapView does NOT
+  survive it by default — destroy mode runs onDetach() on every
+  onDetachedFromWindow — so `setDestroyMode(false)` and the explicit
+  onDetach() on dispose (rememberMapView). Not yet rotation-tested on a
+  device.
 - Capture pane = the video (round 4): FILL_CENTER preview, every control
   floats over it in the original's absolute spots (pill 60/60, shutter
   pill bottom-centre, 📷 lower-left, ⚡ shutter-speed menu lower-right,

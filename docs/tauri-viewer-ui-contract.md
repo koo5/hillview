@@ -150,9 +150,10 @@ a decoration around a single image.
   "No photos within the range circle" with a hint to zoom or pan, links to
   `/bestof` and `/activity`, and a button that opens the camera.
 - Thumbnail strips exist but are **commented out** top and bottom
-  (`:95-107`, `:179-190`); their click handler
-  (`handleThumbnailClick` → `updateBearing(photo.bearing)`) survives. Port
-  the handler's semantics if the strip comes back, not the strip.
+  (`:95-107`, `:179-190`), with a surviving click handler
+  (`handleThumbnailClick` → `updateBearing(photo.bearing)`). **Disused —
+  do not port.** Recorded only so the next reader of `Gallery.svelte` does
+  not mistake the dead markup for something the port missed.
 - `zoomViewData` is cleared on destroy (`:16-18`) — the zoom view's lifetime
   is tied to this pane being mounted.
 
