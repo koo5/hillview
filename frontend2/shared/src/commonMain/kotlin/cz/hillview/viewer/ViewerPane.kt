@@ -3,8 +3,7 @@ package cz.hillview.viewer
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -20,13 +19,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -113,61 +111,63 @@ fun ViewerPane(
                 modifier = Modifier
                     .fillMaxSize()
                     .pointerInput(state.left, state.right, state.up, state.down, width, height) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
-                            var locked: Boolean? = null // true = horizontal
-                            var total = Offset.Zero
-                            var moved = false
-
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change: PointerInputChange =
-                                    event.changes.firstOrNull() ?: break
-                                if (!change.pressed) break
-
-                                total += change.positionChange()
-                                if (!moved && total.getDistance() >= startThresholdPx) {
-                                    moved = true
-                                    // Axis lock, decided once and held: no
-                                    // diagonals, no changing your mind.
-                                    locked = abs(total.x) > abs(total.y)
-                                }
-                                if (moved) {
-                                    val horizontal = locked == true
-                                    var dx = if (horizontal) total.x * DAMPING else 0f
-                                    var dy = if (horizontal) 0f else total.y * DAMPING
-                                    // A hard wall, not a rubber band: dragging
-                                    // toward a direction with no photo does
-                                    // not move at all.
-                                    if (dx > 0 && state.left == null) dx = 0f
-                                    if (dx < 0 && state.right == null) dx = 0f
-                                    if (dy > 0 && state.up == null) dy = 0f
-                                    if (dy < 0 && state.down == null) dy = 0f
-                                    change.consume()
-                                    scope.launch { travel.snapTo(Offset(dx, dy)) }
-                                }
-                            }
-
-                            scope.launch {
+                        // detectDragGestures rather than a hand-rolled
+                        // awaitEachGesture loop: its touch slop is what keeps
+                        // a tap a tap, which is the job the original's 10px
+                        // dragStartThreshold was doing.
+                        var locked: Boolean? = null
+                        var total = Offset.Zero
+                        detectDragGestures(
+                            onDragStart = {
+                                locked = null
+                                total = Offset.Zero
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                total += dragAmount
+                                // Axis lock, decided once and held for the
+                                // rest of the gesture: no diagonals.
+                                if (locked == null) locked = abs(total.x) > abs(total.y)
+                                val horizontal = locked == true
+                                var dx = if (horizontal) total.x * DAMPING else 0f
+                                var dy = if (horizontal) 0f else total.y * DAMPING
+                                // A hard wall, not a rubber band.
+                                if (dx > 0 && state.left == null) dx = 0f
+                                if (dx < 0 && state.right == null) dx = 0f
+                                if (dy > 0 && state.up == null) dy = 0f
+                                if (dy < 0 && state.down == null) dy = 0f
+                                scope.launch { travel.snapTo(Offset(dx, dy)) }
+                            },
+                            onDragEnd = {
                                 val horizontal = locked == true
                                 val dominant = if (horizontal) total.x else total.y
                                 val turn = when {
-                                    !moved || abs(dominant) <= snapThresholdPx -> null
+                                    abs(dominant) <= snapThresholdPx -> null
                                     horizontal && dominant > 0 -> Turn.Left
                                     horizontal -> Turn.Right
                                     dominant > 0 -> Turn.Up
                                     else -> Turn.Down
                                 }
-                                if (turn != null && neighbour(turn) != null) {
-                                    commit(turn)
-                                } else {
+                                scope.launch {
+                                    if (turn != null && neighbour(turn) != null) {
+                                        commit(turn)
+                                    } else {
+                                        travel.animateTo(
+                                            Offset.Zero,
+                                            tween(SNAP_MS, easing = SNAP_EASING),
+                                        )
+                                    }
+                                }
+                            },
+                            onDragCancel = {
+                                scope.launch {
                                     travel.animateTo(
                                         Offset.Zero,
                                         tween(SNAP_MS, easing = SNAP_EASING),
                                     )
                                 }
-                            }
-                        }
+                            },
+                        )
                     },
             ) {
                 // Every slot is PANE-SIZED, including the neighbours: the
