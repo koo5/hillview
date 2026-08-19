@@ -135,6 +135,7 @@ class ProcessedPhotoData(BaseModel):
 	latitude: Optional[float] = None
 	longitude: Optional[float] = None
 	compass_angle: Optional[float] = None
+	pitch: Optional[float] = None
 	altitude: Optional[float] = None
 	exif_data: Optional[Dict[str, Any]] = None
 	sizes: Optional[Dict[str, Any]] = None
@@ -269,6 +270,8 @@ async def save_processed_photo(
 		photo.geometry = None
 	if processed_data.compass_angle is not None:
 		photo.compass_angle = processed_data.compass_angle
+	if processed_data.pitch is not None:
+		photo.pitch = processed_data.pitch
 	if processed_data.altitude is not None:
 		photo.altitude = processed_data.altitude
 	photo.exif_data = processed_data.exif_data

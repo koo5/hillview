@@ -93,6 +93,13 @@ data class PhotoData(
     val url: String? = null,
     val coord: LatLng,
     val bearing: Double,
+    /**
+     * Camera elevation in degrees, positive up; null when unrecorded. Unlike
+     * [bearing], which uses 0.0 as its unset value, this stays NULLABLE: the
+     * viewer navigates up and down by it and has to tell "level" apart from
+     * "unknown" (docs/tauri-viewer-ui-contract.md).
+     */
+    val pitch: Double? = null,
     val altitude: Double? = null,
     val source: String, // Just source ID
     val sizes: Map<String, PhotoSize>? = null,

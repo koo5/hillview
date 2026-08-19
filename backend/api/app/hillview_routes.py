@@ -179,6 +179,11 @@ def convert_photo_to_response(photo, username: str, longitude: float, latitude: 
 			'coordinates': [longitude, latitude]
 		},
 		'bearing': photo.compass_angle or 0,
+		# Null rather than 0 when unknown, unlike bearing: the viewer's
+		# up/down navigation needs "no pitch recorded" to be distinguishable
+		# from "level", or every legacy photo becomes a candidate for both
+		# directions at once. See docs/tauri-viewer-ui-contract.md.
+		'pitch': photo.pitch,
 		'computed_altitude': photo.altitude or 0,
 		'captured_at': format_utc(photo.captured_at),
 		'is_pano': False,

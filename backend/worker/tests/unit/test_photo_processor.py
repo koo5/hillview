@@ -366,6 +366,19 @@ class TestBrowserMetadataAcceptsProvenance:
         # ms-ISO captured_at change exists for.
         assert parsed["captured_at"].endswith("10:43:13.084Z")
 
+    def test_pitch_arrives_as_a_number_not_a_dropped_key(self):
+        # Pitch is the newest provenance field and the first one the VIEWER
+        # depends on rather than the record: without it the pane cannot offer
+        # "the photo above this one". Nothing sent it before, so this asserts
+        # the door is open rather than that anything walks through it yet.
+        BrowserMetadata = self._browser_metadata()
+
+        parsed = BrowserMetadata.model_validate_json(
+            '{"bearing": 137.0, "pitch": -12.5}'
+        ).model_dump(exclude_none=True)
+
+        assert parsed["pitch"] == -12.5
+
     def test_every_provenance_key_can_get_through(self):
         # Guards the two halves against drifting apart: photo_processor
         # copies PROVENANCE_KEYS out of the parsed metadata, so a key it

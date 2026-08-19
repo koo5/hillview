@@ -78,6 +78,12 @@ class Photo(Base):
 	geometry: Mapped[Any] = mapped_column(Geometry('POINT', srid=4326), nullable=True)  # PostGIS geometry for spatial queries
 	altitude: Mapped[Optional[float]] = mapped_column(Float)
 	compass_angle: Mapped[Optional[float]] = mapped_column(Float)  # Same as bearing
+	# Elevation the shot was taken at, degrees: positive up. Bearing says
+	# which way the camera faced, this says how far it was tilted, and the
+	# viewer needs both to offer "the photo above this one" — see
+	# docs/tauri-viewer-ui-contract.md. Null on everything uploaded before
+	# clients began sending it, which is every photo so far.
+	pitch: Mapped[Optional[float]] = mapped_column(Float)
 
 	# Image dimensions
 	width: Mapped[Optional[int]] = mapped_column(Integer)

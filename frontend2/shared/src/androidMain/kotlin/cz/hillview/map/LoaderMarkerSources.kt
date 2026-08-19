@@ -36,6 +36,9 @@ internal fun PhotoData.toMarker(): PhotoMarker = PhotoMarker(
     longitude = coord.lng,
     // 0 is "unset" everywhere in this pipeline (the loaders default to it).
     bearingDeg = bearing.takeIf { it != 0.0 },
+    // Already nullable upstream, so it passes through untouched — unlike
+    // bearing, this one never used 0 to mean "unset".
+    pitchDeg = pitch,
     capturedAtMs = captured_at ?: 0L,
     source = source,
     featured = featured == true,

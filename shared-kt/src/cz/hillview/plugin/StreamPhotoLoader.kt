@@ -405,6 +405,13 @@ class StreamPhotoLoader {
         val featured = photoJson["featured"]?.jsonPrimitive?.booleanOrNull
         val filtered = photoJson["filtered"]?.jsonPrimitive?.booleanOrNull
 
+        // Camera elevation (Hillview endpoint). Null-preserving on purpose:
+        // the server sends null for every photo uploaded before clients began
+        // recording it, and "unknown" must not read as "level".
+        val pitch = photoJson["pitch"]
+            ?.takeIf { it !is kotlinx.serialization.json.JsonNull }
+            ?.jsonPrimitive?.doubleOrNull
+
         // Extract fileHash from file_md5 (Hillview endpoint)
         val fileHash = photoJson["file_md5"]?.jsonPrimitive?.content
 
@@ -435,6 +442,7 @@ class StreamPhotoLoader {
             url = url,
             coord = coord,
             bearing = bearing,
+            pitch = pitch,
             altitude = altitude,
             source = "stream", // Just source ID
             sizes = sizes,

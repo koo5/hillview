@@ -109,6 +109,14 @@ class EnhancedSensorService(
     // passes the callback as a trailing lambda, which binds to the LAST
     // parameter — putting this one last silently rebound them to the handler.
     private val callbackHandler: android.os.Handler? = null,
+    // Whether this instance pauses/resumes ITSELF on app background/foreground
+    // and screen off/on (the AppLifecycleObserver below). True = the Tauri
+    // plugin's behaviour, unchanged. frontend2's GeoEngine passes false: it
+    // owns the hardware's lifetime, re-arms both sensors and the fix stream
+    // on every return to the foreground, and runs a liveness watchdog — two
+    // actors pausing and resuming the same listener is how a resume gets
+    // lost. (Also BEFORE onSensorUpdate, for the trailing-lambda reason above.)
+    private val observeAppLifecycle: Boolean = true,
     private val onSensorUpdate: (OrientationSensorData) -> Unit,
 ) : SensorEventListener {
     companion object {
@@ -285,7 +293,35 @@ class EnhancedSensorService(
         }
 
         // Initialize lifecycle observer
-        initializeLifecycleObserver()
+        if (observeAppLifecycle) initializeLifecycleObserver()
+    }
+
+    /**
+     * elapsedRealtime of the last RAW sensor event this listener received —
+     * before rate limiting and before the change-suppression in
+     * sendSensorData, so a phone lying perfectly still keeps this moving
+     * while emitting nothing. The liveness signal an owner's watchdog needs:
+     * a registered listener that has gone silent for seconds while the app
+     * is in the foreground is stuck (seen after unbackgrounding), and the
+     * only cure is a fresh registration. 0 until the first event.
+     */
+    @Volatile
+    var lastRawEventElapsedMs: Long = 0L
+        private set
+
+    /** Whether a sensor registration is currently in place (not paused/stopped). */
+    val running: Boolean get() = isRunning
+
+    /**
+     * Stop AND release the lifecycle observer / screen receiver. stopSensor()
+     * alone is a PAUSE (the observer keeps the instance alive and resumes it
+     * later); an owner that is done with the instance must call this, or
+     * every instance it ever made stays registered with ProcessLifecycleOwner
+     * and keeps re-registering its sensors on each foreground return.
+     */
+    fun destroy() {
+        stopSensor()
+        cleanupLifecycleObserver()
     }
 
     /**
@@ -345,7 +381,11 @@ class EnhancedSensorService(
      * the three-arg one (main looper), so the default path is unchanged.
      */
     private fun registerSensor(sensor: Sensor) {
-        sensorManager.registerListener(this, sensor, SENSOR_DELAY, callbackHandler)
+        val ok = sensorManager.registerListener(this, sensor, SENSOR_DELAY, callbackHandler)
+        // registerListener REFUSING is silent otherwise — and a refused
+        // re-registration on foreground return is a compass that looks
+        // healthy and never moves again.
+        if (!ok) Log.w(TAG, "⚠️ registerListener refused for ${sensor.name} (type ${sensor.type})")
     }
 
     private fun startSensorInternal(mode: Int = MODE_UPRIGHT_ROTATION_VECTOR) {
@@ -589,6 +629,7 @@ class EnhancedSensorService(
 	}
 
     override fun onSensorChanged(event: SensorEvent) {
+        lastRawEventElapsedMs = SystemClock.elapsedRealtime()
 
 		logEvent(event)
 
