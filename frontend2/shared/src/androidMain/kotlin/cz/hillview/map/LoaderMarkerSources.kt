@@ -43,6 +43,14 @@ internal fun PhotoData.toMarker(): PhotoMarker = PhotoMarker(
     source = source,
     featured = featured == true,
     fileMd5 = fileHash,
+    // The whole rendition set travels with the photo: the slot that shows it
+    // decides which one to fetch, and the same photo is a neighbour in one
+    // slot and the front photo in another.
+    sizes = sizes.orEmpty().mapValues { (_, s) ->
+        cz.hillview.map.PhotoRendition(url = s.url, width = s.width, height = s.height)
+    },
+    url = url,
+    isDevicePhoto = is_device_photo,
     filteredOut = filtered == true,
 )
 

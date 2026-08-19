@@ -2,7 +2,23 @@ package cz.hillview.map
 
 import kotlinx.coroutines.flow.StateFlow
 
-/** A photo as the map cares about it. */
+/** One rendition of a photo: the same image at one particular size. */
+data class PhotoRendition(
+    val url: String,
+    val width: Int,
+    val height: Int,
+)
+
+/**
+ * A photo as the map cares about it — and, since the viewer pane shows the
+ * same objects, as the viewer needs it too.
+ *
+ * It carries the whole [sizes] map rather than one chosen URL because the
+ * choice is not the model's to make: each slot picks the smallest rendition
+ * at least as wide as ITS container, and the same photo is a neighbour in one
+ * slot and the front photo in another (see [pickRendition] and
+ * docs/tauri-viewer-ui-contract.md).
+ */
 data class PhotoMarker(
     val id: String,
     val latitude: Double,
@@ -27,6 +43,15 @@ data class PhotoMarker(
      * uploaded twin from the backend collapse into one marker.
      */
     val fileMd5: String? = null,
+    /**
+     * Renditions by key: numeric widths ("500", "1024", …) plus "full".
+     * Empty when the source offers none, in which case [url] is all there is.
+     */
+    val sizes: Map<String, PhotoRendition> = emptyMap(),
+    /** The single URL a source without renditions offers, if any. */
+    val url: String? = null,
+    /** Device photos resolve through the platform's own file access. */
+    val isDevicePhoto: Boolean = false,
     /**
      * The backend's verdict under the active analysis filters: present but
      * non-matching. Drawn washed out unless the user flips the override —
@@ -83,3 +108,27 @@ interface PhotoMarkerSource {
 
 /** Walking rotates the view to the sensor heading; car keeps a mount offset. */
 enum class BearingMode { Walking, Car }
+
+/**
+ * Which rendition to show in a container [containerWidthPx] wide, ported from
+ * Photo.svelte's updateSelectedUrl.
+ *
+ * The rule: of the NUMERIC sizes in ascending order, the first at least as
+ * wide as the container — the smallest one that will not be upscaled. If none
+ * qualifies, "full"; if there is no "full" either, the widest numeric one;
+ * and failing everything, the photo's bare [PhotoMarker.url].
+ *
+ * The choice belongs to the slot, not the photo: the viewer lays its five
+ * slots out at FULL viewport size (a 3x3 grid offset so the front cell covers
+ * the screen), so a neighbour asks for the same width the front photo does —
+ * which is why the model carries every rendition instead of a chosen one.
+ */
+fun PhotoMarker.pickRendition(containerWidthPx: Int): PhotoRendition? {
+    val numeric = sizes.entries
+        .mapNotNull { (key, value) -> key.toIntOrNull()?.let { it to value } }
+        .sortedBy { it.first }
+    numeric.firstOrNull { (width, _) -> width >= containerWidthPx }?.let { return it.second }
+    sizes["full"]?.let { return it }
+    numeric.lastOrNull()?.let { return it.second }
+    return url?.let { PhotoRendition(it, 0, 0) }
+}

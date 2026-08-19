@@ -143,10 +143,36 @@ RIGHT (`Gallery.svelte:45-56`), as with any drag-the-content gesture.
 
 `Gallery.svelte:163-172`. Five slots in one grid, keyed and classed
 `['up','left','front','right','down']`, each holding a `Photo` or nothing.
-The front is centred; the neighbours sit around it, off-view. `swipe2d`
-translates **the whole grid** (`transformTarget: photosGrid`), so a drag
-physically pulls the neighbour into place — the slots are the animation, not
-a decoration around a single image.
+
+The geometry is the part that matters and is easy to get wrong. The grid is
+**300% x 300%, offset `left:-100%; top:-100%`** (`:258-262`): nine cells, each
+the size of the viewport, with `front` (col 2, row 2) sitting exactly over the
+visible area and the four neighbours in the cells around it, off-screen.
+`swipe2d` translates **the whole grid** (`transformTarget: photosGrid`, 0.3s
+cubic-bezier on snap), so a drag physically pulls the neighbour into place.
+
+The consequence for images: **neighbours are not thumbnails**. Every slot is
+viewport-sized, so each `Photo` asks for the same width the front one does,
+and a swipe reveals an image that is already loaded at display size. The
+prefetch is a consequence of laying the neighbours out for real, not a
+separate mechanism — and any port that renders neighbours small to "save
+bandwidth" gets a visible pop on every swipe instead.
+
+## Choosing an image
+
+`Photo.svelte` is handed the WHOLE photo, not a URL, and picks per slot
+(`updateSelectedUrl`, `:145-190`): of the numeric `sizes` keys ascending, the
+first at least as wide as the container; else `full`; else the widest numeric;
+else the bare `photo.url`. Device photos resolve through `getDevicePhotoUrl`.
+
+It also swaps progressively (`handleImageChange`, `:203+`): the newly chosen
+URL is loaded into an off-screen `Image` and `displayedUrl` only changes once
+it is ready, so a resize or a size upgrade never blanks a slot that already
+had something in it.
+
+So the model has to carry every rendition. One chosen URL cannot work: the
+same photo is a neighbour in one slot and the front photo in another, and the
+container width is the slot's business, not the photo's.
 
 - Gesture: `swipe2d` with `snapThreshold: 50`, `dampingFactor: 1.0`, and
   `canGoLeft/Right/Up/Down` gating from the four neighbour stores, so a drag

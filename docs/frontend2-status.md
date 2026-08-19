@@ -359,6 +359,54 @@ external activity drops the engine to Off, and a map-only view comes back
 at the relaxed rates. Remaining: the sliders themselves, and real-device
 tuning of the numbers.
 
+**C5. Compass and GPS frozen after unbackgrounding — RE-ARMED 2026-08-19,
+not yet device-verified.** User report (recurring; the 2026-08-18
+monotonic-clock fix removed one cause, not this one): come back to the
+app and both the compass and the fix are stuck at their last values. By
+reading, every consumer downstream is lifecycle-agnostic (plain
+`collect`s, no `repeatOnLifecycle`), so the sources are the suspects:
+`EnhancedSensorService` paused/resumed ITSELF via its own
+ProcessLifecycleOwner + screen-state observer (and the engine never
+released those — every instance ever made stayed registered), and the
+fused-location request was simply left in place across a backgrounding,
+which on modern Android means across a FROZEN process. Whatever the
+platform does to those registrations, a fresh one is known-good, so the
+engine now owns the policy: it observes the process lifecycle itself
+(`observeAppLifecycle = false` to the service, `destroy()` on stop),
+pauses sensors on background unless `GeoConfig.sensorsInBackground`
+(true only for the external-camera service — which, incidentally, had
+its sensors paused by the old observer the moment the system camera came
+to the front, the exact moment it needs them), and on every foreground
+return tears down and re-registers sensors and removes + re-requests the
+fix stream. A watchdog on the geo thread (5 s) catches what no lifecycle
+event announces: a registered listener silent for >5 s in the foreground
+(raw events, `lastRawEventElapsedMs`, not the change-suppressed output —
+a still phone emits nothing) is re-registered with backoff to 60 s; no
+fix for >60 s re-requests the stream with backoff to 10 min (no sky is
+normal). Every action is an event-log "geo" line, the Stats dialog shows
+`geo: foreground/background, sensors raw event Ns ago, fix Ns ago`, and
+`registerListener` refusals are now logged. If the freeze recurs WITH the
+re-arm lines present in the event log, the fault is downstream after
+all and the liveness line says which stream.
+
+**Tracking CSV exports can outlive the app (2026-08-19, user-requested).**
+The dumps' home — app-private `GeoTrackingDumps/` — is deleted on
+uninstall and unreachable to file managers since Android 11; public typed
+dirs (DCIM/Pictures) refuse non-media files, and unprompted writes into
+Documents/ would litter a folder the user never offered. So durability is
+the user's explicit act: a "Choose folder…" row under Tracking CSV export
+opens the system folder picker (SAF), the tree URI persists as
+`export_tree_uri` in hillview_tracking_prefs (grant taken before pref,
+released on Reset), and `dumpAndClear` creates the CSVs there via
+DocumentsContract — framework APIs only, so shared-kt still compiles in
+the Tauri app, which has no picker and keeps its old behaviour. A dead
+grant (reinstall, folder deleted) drops the choice loudly (event-log
+"export" line) and falls back to app-private; transient failures fall
+back per-file and keep the choice. Every dump now logs an "export" line
+with counts and destination. Default unchanged — private, dies with the
+app — deliberately: a location history that outlives the app must be
+opted into. Not yet device-verified.
+
 ## Remaining tasks
 
 Implementation, roughly in value order:
