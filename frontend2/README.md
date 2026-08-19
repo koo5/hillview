@@ -48,6 +48,14 @@ set -x JAVA_HOME /snap/android-studio/current/jbr
 In Android Studio / IntelliJ, set Gradle JDK to the bundled JBR
 (Settings → Build Tools → Gradle → Gradle JVM).
 
+Note the bundled JBR moves when Android Studio updates itself, and nothing
+pins it — which has bitten once: the JBR went to **JDK 25**, and while this
+app (Gradle 9.5.1) was fine, the Tauri project (Gradle 8.14.3, Kotlin 2.0.20)
+died at `IllegalArgumentException: 25.0.2` inside `JavaVersion.parse`, since
+that toolchain predates JDK 25. A warm Gradle daemon masked it for hours.
+Build the Tauri Android project with `JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64`
+(`apt install openjdk-21-jdk-headless`).
+
 ## Commands
 
 Everything assumes `JAVA_HOME` points at the JBR (see above). On a
@@ -135,6 +143,46 @@ adb emu sensor set magnetic-field <-48.4*sinθ>:5.9:<-48.4*cosθ>
   type `resValue` — note AGP 9 needs `buildFeatures { resValues = true }`.
 - Android namespace: `cz.hillview` (app) / `cz.hillview.shared` (library)
 - Kotlin package everywhere: `cz.hillview`
+
+## Signing
+
+Both build types are signed with **our own key**, not the SDK's debug key.
+Every machine's `~/.android/debug.keystore` holds the same `CN=Android Debug`
+certificate, so a debug-signed APK has an identity shared with every test
+build and malware sample ever scanned — no reputation of its own, which is
+the profile a sideload scanner treats with suspicion.
+
+The key lives outside the repo, at `~/secrets/frontend2-keystore.properties`:
+
+```properties
+storeFile=/home/you/secrets/hillview-frontend2-dev.jks
+keyAlias=hillview-frontend2-dev
+password=...
+```
+
+Deliberately NOT `~/secrets/keystore.properties` — that path is what
+`frontend/scripts/patch-android-gen-files.py` reads for the **Tauri** app's
+release signing, and Play App Signing binds the first upload key, so a
+provisional key must not be able to become that by accident.
+
+Without the file the build still works, falling back to the debug key: a
+checkout without the secret must not be unbuildable. To create one:
+
+```fish
+keytool -genkeypair -v -keystore ~/secrets/hillview-frontend2-dev.jks \
+  -alias hillview-frontend2-dev -keyalg RSA -keysize 4096 -validity 10000 \
+  -dname "CN=Hillview Dev, O=Hillview, C=CZ"
+```
+
+10000 days so a provisional key CAN later be promoted to a real upload key
+(Google requires validity past 2033) rather than regenerated.
+
+**Changing the key forces an uninstall.** Android refuses to update an app
+whose certificate changed (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`), and
+uninstalling wipes app data — both Room databases and the prefs, i.e. the
+photo queue and its provenance rows. The JPEGs in DCIM survive; the rows that
+know their bearing, licence and upload state do not. Drain the upload queue
+before switching keys.
 
 ## Features
 
