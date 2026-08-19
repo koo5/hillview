@@ -263,16 +263,17 @@ into the single funnel. Everything else is layout.
 - The Gallery clears `zoomViewData` when it is destroyed (`:16-18`): the zoom
   view's lifetime is the pane's.
 
-## Ratings follow the front photo
+## Ratings follow the photo, from two places
 
-Not in this pane, despite belonging to the same idea:
-`OpenSeadragonViewer.svelte:159-169` syncs the signed-in user's rating to
-`$photoInFront`, skipping when the id has not changed, and guards the async
-result with a **generation counter** so a fetch that lands after you have
-turned away cannot paint a stale rating. Rating from the keyboard supersedes
-any in-flight fetch the same way (`:171-178`).
+Not this pane's business either way. `PhotoActionsMenu.svelte` is the main
+consumer — it takes a `photo` PROP and fetches that photo's rating, so it
+serves whatever it is pointed at. `OpenSeadragonViewer.svelte:159-169` is the
+second: it syncs to `$photoInFront` directly, skipping when the id has not
+changed, and guards the async result with a **generation counter** so a fetch
+that lands after you have turned away cannot paint a stale rating. Rating
+from the keyboard supersedes any in-flight fetch the same way (`:171-178`).
 
-For the port that means the rating belongs with the zoom view, not the
-viewer pane — but the generation-counter discipline belongs anywhere the
+For the port that means the rating belongs with whatever shows the photo's
+actions, not with this pane — but the generation-counter discipline belongs anywhere the
 front photo drives an async fetch, which the pane will do as soon as it
 loads images.

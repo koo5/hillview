@@ -180,7 +180,10 @@ fun MainScreen(
                     // panel slot (no camera stream; a foreground service keeps
                     // the record alive while the system camera owns the screen).
                     "external" -> cz.hillview.external.ExternalCameraPane()
-                    else -> GalleryPlaceholder()
+                    // Named "gallery" for historical reasons only — it is
+                    // the VIEWER: the photo you are facing from where the map
+                    // says you stand. See docs/tauri-viewer-ui-contract.md.
+                    else -> cz.hillview.viewer.ViewerPane()
                 }
             }
         }
