@@ -119,6 +119,24 @@ upload trigger) still publishes only after the final bytes exist.
   faster / slower / under / overexposed) is tallied per shot in the Stats
   dialog: that tally is how "which mode is right" gets answered from a
   real drive rather than from the couch.
+  **2026-08-11: metering is CONTINUOUS** (SceneMeter, backlog "Metering
+  made continuous"): a 640×480 ImageAnalysis stream measures the scene at
+  the exposure we set, and the rule is re-planned from it at ≤3 Hz; the
+  AE window above is now only the fallback for hardware that refuses a
+  third use case — prepareExposure() returns at once otherwise, and a
+  manual tap never calls it. So nothing of OURS sits between the press
+  and the shutter.
+  **2026-08-19: the shutter lag was CameraX's, not ours** — see backlog
+  "Shutter lag: the 3A lock". ImageCapture ran in MAXIMIZE_QUALITY, which
+  in the 1.6 camera-pipe backend locks 3A (converge ≤1 s, AF trigger +
+  wait for lens-locked ≤1 s) before every still; with Focus ∞ (AF OFF)
+  the lens never reports locked, so that wait is expected to run to its
+  timeout. Now a knob in the 📷 menu (StillCaptureMode: Quality /
+  Latency [default] / Zero shutter lag where supported) plus a decoupled
+  JPEG-quality row (default 100 — what Quality gave implicitly); the
+  shutter tone plays at onCaptureStarted (the exposure) instead of after
+  the JPEG write; Stats gains press→exposure / exposure→jpeg, and the
+  press logs the HAL's 3A state so a Quality-mode timeout is visible.
   2026-08-09: the shot's exposure story also rides in the UserComment
   provenance JSON — `"exposure":{mode, target_ns, ev_bias, applied_ns,
   iso, outcome, metered_ns, metered_iso}`, snapshotted at the shutter.

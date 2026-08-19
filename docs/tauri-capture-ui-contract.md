@@ -150,7 +150,12 @@ ratio chip; re-applied after eco rebinds — zoom is per camera session),
 long-press = AE/AF lock (no-auto-cancel metering, "AE/AF locked" chip, a
 tap refocuses and releases), and Focus Auto/∞ rows in the 📷 menu (the
 vista pin: AF off, lens at 0 diopters; offered only when the sensor has
-AF-off plus a real focus range).
+AF-off plus a real focus range). The 📷 menu also carries two rows with
+no original equivalent (2026-08-19, see the backlog's "Shutter lag: the
+3A lock"): **Still capture** — Quality / Latency (default) / Zero shutter
+lag, CameraX's capture mode, i.e. whether a 3A lock runs between the
+press and the exposure — and **JPEG quality** (100/95/90/80). Both
+persist with the resolution pin (MapSettings) and rebind the camera.
 Hard-won platform facts: a Preview REUSED across unbind/bind never
 re-attaches its surface (build a fresh one per beat), the TextureView
 does NOT hold its last frame on unbind (a grabbed bitmap overlay is the
