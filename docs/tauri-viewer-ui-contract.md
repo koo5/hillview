@@ -174,9 +174,7 @@ So the model has to carry every rendition. One chosen URL cannot work: the
 same photo is a neighbour in one slot and the front photo in another, and the
 container width is the slot's business, not the photo's.
 
-- Gesture: `swipe2d` with `snapThreshold: 50`, `dampingFactor: 1.0`, and
-  `canGoLeft/Right/Up/Down` gating from the four neighbour stores, so a drag
-  toward an empty slot does not rubber-band.
+- Gesture: `swipe2d` — the mechanics are in the next section.
 - Chevron buttons duplicate all four directions (`gallery-nav-left`,
   `-right`, `-up`, `-down`), rendered only when that neighbour exists.
 - Empty state (`:109-135`): a spinner while `anySourceLoading`, otherwise
@@ -213,3 +211,68 @@ same definition), the `filtered` / `featured` flags, `pitch`, and `picks`.
 
 The one behaviour to get right before any pixels: navigation writes bearing
 into the single funnel. Everything else is layout.
+
+## The swipe, in detail
+
+`actions/swipe2d.ts`, as configured by `Gallery.svelte:25-34`.
+
+- **A drag must earn the name.** Nothing moves until total movement reaches
+  `dragStartThreshold` (10 px), so a tap on the photo stays a tap.
+- **Axis lock, once, at that moment.** Whichever of |dx| / |dy| is larger at
+  the instant the drag is recognised wins, and the other axis is zeroed for
+  the REST of the gesture (`:188-225`). No diagonal travel, and no changing
+  your mind halfway.
+- **Damping 1.0**, passed by the Gallery — the library's default is 0.3, so
+  this is a deliberate 1:1 follow: the grid tracks the finger exactly.
+- **No rubber-band into nothing.** `canGoLeft/Right/Up/Down` come from the
+  four neighbour stores; a drag toward an absent neighbour has its delta
+  zeroed rather than damped (`:212-224`). The wall is hard.
+- **Release**: horizontal wins if `|dx| > snapThreshold (50)` and
+  `|dx| > |dy|`, else vertical on the same test. Below threshold it snaps
+  back. The transition is restored to
+  `transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)` for the snap and set to
+  `none` during the drag, and a successful swipe suppresses the click that
+  would otherwise follow.
+- **Direction is inverted** on the way out: swiping LEFT goes to the photo on
+  the RIGHT (`Gallery.svelte:45-56`), as with any drag-the-content gesture.
+- **Pinch pre-empts it**: the action exposes `reset()`, and the Gallery calls
+  it from `handlePhotoInteraction` (`:58-63`) whenever a photo-level gesture
+  starts, so a zoom does not leave a half-committed drag behind.
+
+## Pinch, and the way into the zoom view
+
+`Photo.svelte:286-360`.
+
+- Only the **front** slot pinches (`if (!isFront || !photo) return`). The
+  neighbours are laid out but not interactive.
+- While pinching, the slot shows an **inline** pan/zoom preview — a
+  `translate(tx, ty) scale(s)` on the container, origin (0,0).
+- On release, `PINCH_PROMOTE_SCALE = 1.15` decides: at or below it the
+  gesture was incidental and the inline snaps back to 1x; above it, the
+  preview is **promoted** into the full zoom view.
+- Promotion carries the framing across. The visible viewport is converted
+  from screen space into OpenSeadragon viewport coordinates — image width is
+  1 unit and height is the aspect ratio, so BOTH axes normalise by the
+  rendered width — accounting for the letterboxing of `object-fit: contain`,
+  then clamped and published as `pendingZoomView {x1,y1,x2,y2}`.
+- `Main.svelte:208-231` bridges: when a pending view and a front photo are
+  both present it opens `zoomViewData` with the full-size url, dimensions and
+  `sizes.full.pyramid` (the DZI). A pending view bound to a uid opens ONLY
+  for that photo, so a deep link to a since-moved photo reaches the not-found
+  state instead of zooming a random neighbour to alien bounds.
+- The Gallery clears `zoomViewData` when it is destroyed (`:16-18`): the zoom
+  view's lifetime is the pane's.
+
+## Ratings follow the front photo
+
+Not in this pane, despite belonging to the same idea:
+`OpenSeadragonViewer.svelte:159-169` syncs the signed-in user's rating to
+`$photoInFront`, skipping when the id has not changed, and guards the async
+result with a **generation counter** so a fetch that lands after you have
+turned away cannot paint a stale rating. Rating from the keyboard supersedes
+any in-flight fetch the same way (`:171-178`).
+
+For the port that means the rating belongs with the zoom view, not the
+viewer pane — but the generation-counter discipline belongs anywhere the
+front photo drives an async fetch, which the pane will do as soon as it
+loads images.
