@@ -6,6 +6,8 @@ package cz.hillview.plugin
 */
 
 import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
 import android.util.Log
 // app.tauri import removed with the carve-out to GeoTrackingCommands.kt —
 // this file compiles in both apps (shared-kt).
@@ -34,6 +36,27 @@ class GeoTrackingManager(private val context: Context) {
 	companion object {
 		@Volatile
 		private var INSTANCE: GeoTrackingManager? = null
+
+		/**
+		 * hillview_tracking_prefs key holding the user-picked SAF tree URI
+		 * that CSV exports are created in; absent = the app-private
+		 * GeoTrackingDumps/ default. Written by the settings UI (frontend2's
+		 * GeoExport.android.kt), read by [dumpAndClear] — see writeExportCsv.
+		 */
+		const val EXPORT_TREE_URI_PREF = "export_tree_uri"
+
+		/**
+		 * "primary:DCIM/Hillview" → "DCIM/Hillview": the label a person
+		 * recognizes as the folder they picked. Non-primary volumes keep
+		 * their id prefix ("1234-ABCD:tracking") — it is what distinguishes
+		 * an SD card, and inventing a nicer name would be a guess.
+		 */
+		fun exportFolderDisplayName(treeUriString: String): String = try {
+			val id = DocumentsContract.getTreeDocumentId(Uri.parse(treeUriString))
+			id.removePrefix("primary:").ifEmpty { id }
+		} catch (e: Exception) {
+			treeUriString
+		}
 
 		/**
 		 * The one manager per process — use this, not the constructor.
@@ -325,30 +348,29 @@ class GeoTrackingManager(private val context: Context) {
 
 		CoroutineScope(Dispatchers.IO).launch {
 			if (shouldDump) {
-				// Use app's external files directory (no permissions needed)
-				val externalFilesDir = context.getExternalFilesDir(null)
-				val hillviewDir = File(externalFilesDir, "GeoTrackingDumps")
-				if (!hillviewDir.exists()) {
-					hillviewDir.mkdirs()
-				}
-
-				val bearingsFn = File(hillviewDir, "hillview_orientations_${now}.csv")
-				val locationsFn = File(hillviewDir, "hillview_locations_${now}.csv")
-
 				try {
 					val sourceIdToName = buildSourceIdToNameMap()
 
 					val bearings = database.bearingDao().getAllBearings()
-					val bearingsCsv = bearingsToCsv(bearings, sourceIdToName)
-					bearingsFn.writeText(bearingsCsv)
-					Log.i(TAG, "🢄📡 Dumped ${bearings.size} bearings to ${bearingsFn.absolutePath}")
+					val bearingsAt = writeExportCsv(
+						"hillview_orientations_${now}.csv",
+						bearingsToCsv(bearings, sourceIdToName),
+					)
+					Log.i(TAG, "🢄📡 Dumped ${bearings.size} bearings to $bearingsAt")
 
 					val locations = database.locationDao().getAllLocations()
-					val locationsCsv = locationsToCsv(locations, sourceIdToName)
-					locationsFn.writeText(locationsCsv)
-					Log.i(TAG, "🢄📡 Dumped ${locations.size} locations to ${locationsFn.absolutePath}")
+					val locationsAt = writeExportCsv(
+						"hillview_locations_${now}.csv",
+						locationsToCsv(locations, sourceIdToName),
+					)
+					Log.i(TAG, "🢄📡 Dumped ${locations.size} locations to $locationsAt")
+					EventLog.record(
+						"export",
+						"${bearings.size} bearings + ${locations.size} locations → $locationsAt",
+					)
 				} catch (e: Exception) {
 					Log.e(TAG, "🢄📡 Failed to dump geo tracking data: ${e.message}", e)
+					EventLog.record("export", "CSV dump FAILED: ${e.message}")
 				}
 			} else {
 				Log.d(TAG, "🢄📡 Skipping geo data dump (auto_export disabled)")
@@ -365,6 +387,66 @@ class GeoTrackingManager(private val context: Context) {
 				Log.e(TAG, "🢄📡 Failed to clear geo tracking tables: ${e.message}", e)
 			}
 		}
+	}
+
+	/**
+	 * Where an exported CSV lands, and the reason it is a choice at all:
+	 * the default — the app's external-files GeoTrackingDumps/ — needs no
+	 * permission but DIES WITH THE APP (Android deletes Android/data/<pkg>
+	 * on uninstall) and is unreachable to file managers since Android 11.
+	 * A CSV cannot simply go somewhere durable instead: public typed
+	 * directories refuse non-media files, and unprompted writes into
+	 * Documents/ would litter a folder the user never asked us into. So
+	 * durability is the USER'S call, made through the system folder picker
+	 * (ACTION_OPEN_DOCUMENT_TREE): the picked tree URI is persisted as
+	 * `export_tree_uri` in hillview_tracking_prefs, and while it is set and
+	 * its grant alive, exports are created there via DocumentsContract —
+	 * any folder the picker offers, including ones this app could never
+	 * touch directly. Framework APIs only, deliberately: shared-kt must
+	 * compile in both apps without new dependencies. The Tauri app has no
+	 * picker UI, never sets the pref, and keeps its old behaviour exactly.
+	 *
+	 * @return a human-readable locator of where the bytes actually went.
+	 */
+	private fun writeExportCsv(displayName: String, content: String): String {
+		val prefs = context.getSharedPreferences("hillview_tracking_prefs", Context.MODE_PRIVATE)
+		val treeUriString = prefs.getString(EXPORT_TREE_URI_PREF, null)
+		if (treeUriString != null) {
+			try {
+				val treeUri = Uri.parse(treeUriString)
+				val parent = DocumentsContract.buildDocumentUriUsingTree(
+					treeUri,
+					DocumentsContract.getTreeDocumentId(treeUri),
+				)
+				val fileUri = DocumentsContract.createDocument(
+					context.contentResolver, parent, "text/csv", displayName,
+				) ?: throw java.io.IOException("createDocument returned null")
+				context.contentResolver.openOutputStream(fileUri)?.use {
+					it.write(content.toByteArray(Charsets.UTF_8))
+				} ?: throw java.io.IOException("openOutputStream returned null")
+				return exportFolderDisplayName(treeUriString) + "/" + displayName
+			} catch (e: SecurityException) {
+				// The grant is dead — the folder was deleted, or this is a
+				// reinstall (persisted grants do not survive one). Retrying
+				// every dump forever would fail every 5 minutes in external
+				// mode, so the choice is dropped, loudly.
+				prefs.edit().remove(EXPORT_TREE_URI_PREF).apply()
+				Log.w(TAG, "🢄📡 export folder grant lost — back to app-private", e)
+				EventLog.record(
+					"export",
+					"chosen folder unreachable (${e.message}) — exports back to app-private",
+				)
+			} catch (e: Exception) {
+				// Transient (provider hiccup, storage full there): fall back
+				// for THIS file, keep the choice.
+				Log.w(TAG, "🢄📡 export to chosen folder failed, using app-private", e)
+			}
+		}
+		val dir = File(context.getExternalFilesDir(null), "GeoTrackingDumps")
+		if (!dir.exists()) dir.mkdirs()
+		val file = File(dir, displayName)
+		file.writeText(content)
+		return file.absolutePath
 	}
 
 	private suspend fun buildSourceIdToNameMap(): Map<Int, String> {
