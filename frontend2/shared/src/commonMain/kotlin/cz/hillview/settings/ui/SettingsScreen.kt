@@ -391,6 +391,27 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Column(Modifier.weight(1f)) {
+                Text("Geo debug readout", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Under the photo count: the app's elected bearing and " +
+                        "position — who wrote each and how long ago — against " +
+                        "the sensor's raw heading. For telling a still phone " +
+                        "from a chain that stopped writing.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = mapSettings.showGeoDebug,
+                onCheckedChange = { on -> mapRepository.update { it.copy(showGeoDebug = on) } },
+                modifier = Modifier.testTag("settings-geo-debug"),
+            )
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.weight(1f)) {
                 Text("Landscape compass workaround", style = MaterialTheme.typography.bodyLarge)
                 Text(
                     "Negate the heading when face-down in landscape " +

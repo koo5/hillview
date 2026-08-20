@@ -13,6 +13,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -98,7 +99,10 @@ actual fun MapScreen(
     // reason about, not because a bug was pinned on it. The session
     // outlives the composition, so the session owns it.
     val trackingWanted by session.bearingTrackingWanted.collectAsState()
-    var trackingPhase by remember { mutableStateOf(TrackingPhase.Inactive) }
+    // The phase belongs to the session for the same reason the intent
+    // does: it outlives this composition, and the capture pane's debug
+    // readout has to be able to see it.
+    val trackingPhase by session.bearingPhase.collectAsState()
     val locationTracking by session.locationTracking.collectAsState()
     var locationFlash by remember { mutableStateOf(false) }
     // A pan happened and no manual position is claimed: exploration is
@@ -154,12 +158,12 @@ actual fun MapScreen(
     LaunchedEffect(trackingWanted, mapSettings.bearingMode) {
         if (!trackingWanted) {
             controller.stopBearing()
-            trackingPhase = TrackingPhase.Inactive
+            session.setBearingPhase(TrackingPhase.Inactive)
             return@LaunchedEffect
         }
-        trackingPhase = TrackingPhase.Starting
+        session.setBearingPhase(TrackingPhase.Starting)
         val started = controller.startBearing(mapSettings.bearingMode) { heading, accuracy ->
-            trackingPhase = TrackingPhase.Active
+            session.setBearingPhase(TrackingPhase.Active)
             // Both modes drive the bearing state past a 1° dead-band:
             // walking from the compass, car from the gps-kalman course
             // (mount offset already composed in). The capture stamp reads
@@ -178,9 +182,12 @@ actual fun MapScreen(
             }
         }
         if (!started) {
-            trackingPhase = TrackingPhase.Error
+            // Error then Inactive: the readout catches the Error only if
+            // something is watching at that instant, but the log line and
+            // the reverted intent survive it.
+            session.setBearingPhase(TrackingPhase.Error)
             session.setBearingTrackingWanted(false)
-            trackingPhase = TrackingPhase.Inactive
+            session.setBearingPhase(TrackingPhase.Inactive)
         }
     }
 
@@ -256,6 +263,32 @@ actual fun MapScreen(
         controller.adjustMountOffset(delta)
         state.updateBearingByDiff(delta, source = "gps-kalman", now = System.currentTimeMillis())
     }
+    // The ages are the diagnosis, so they have to keep counting even when
+    // nothing else changes — but only while the readout is on screen.
+    val raw by controller.rawOrientation.collectAsState()
+    val debugNow by produceState(0L, mapSettings.showGeoDebug) {
+        while (mapSettings.showGeoDebug) {
+            value = System.currentTimeMillis()
+            delay(500)
+        }
+    }
+    val debugLines = if (!mapSettings.showGeoDebug) emptyList() else cz.hillview.geo.geoDebugLines(
+        cz.hillview.geo.GeoDebugInput(
+            bearing = bearing,
+            spatial = spatial,
+            bearingWanted = trackingWanted,
+            bearingPhase = trackingPhase,
+            bearingMode = mapSettings.bearingMode,
+            locationTracking = locationTracking,
+            rawHeadingDeg = raw?.trueHeading?.toDouble(),
+            rawAccuracy = raw?.accuracyLevel,
+            rawAtMs = raw?.timestamp,
+            rawDetail = raw?.detail,
+            manualPositionClaimed = manualClaimed,
+            nowMs = debugNow,
+        ),
+    )
+
     val mapView = rememberMapView()
     val applied = remember { AppliedCamera() }
 
@@ -500,6 +533,7 @@ actual fun MapScreen(
             compassUnavailable = mapSettings.bearingMode == BearingMode.Walking &&
                 !controller.compassAvailable(),
             markerCount = markers.size,
+            debugLines = debugLines,
             onToggleHunterMode = { filters.toggleHunterMode() },
             onToggleSource = { id ->
                 settings.update { s ->
@@ -756,6 +790,13 @@ private class MapSensorController(private val context: Context) {
     private var compassJob: Job? = null
     private var carJob: Job? = null
     private var fixJob: Job? = null
+
+    /**
+     * The engine's heading BEFORE election, for the debug readout: the
+     * question it answers is whether a still readout means a still phone or
+     * a chain that stopped writing, and only the raw side can say.
+     */
+    val rawOrientation get() = engine.orientation
 
     fun compassAvailable(): Boolean =
         (context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager)

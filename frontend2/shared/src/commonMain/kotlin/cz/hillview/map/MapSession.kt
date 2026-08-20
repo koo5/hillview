@@ -93,6 +93,21 @@ class MapSession {
     }
 
     /**
+     * What the bearing plumbing is actually DOING, as opposed to what the
+     * user asked for above. It lives here rather than in the map's
+     * composition because it is the status of a session-long activity and
+     * because the capture pane's debug readout has to be able to see it —
+     * "want ON, phase Error" is a diagnosis, and it is invisible if the
+     * phase is a variable inside one screen.
+     */
+    private val _bearingPhase = MutableStateFlow(TrackingPhase.Inactive)
+    val bearingPhase: StateFlow<TrackingPhase> = _bearingPhase.asStateFlow()
+
+    fun setBearingPhase(value: TrackingPhase) {
+        _bearingPhase.value = value
+    }
+
+    /**
      * Entering capture arms a **clean** ACTIVE, and bearing tracking with
      * it. Clean is the whole point: the regression this reproduces left the
      * background flag set, which the suite describes as leaving "the button

@@ -146,6 +146,12 @@ fun MapOverlayUi(
     trackingPhase: TrackingPhase,
     compassUnavailable: Boolean,
     markerCount: Int,
+    /**
+     * The geo debug readout's lines (empty = off). Rendered here rather
+     * than built here: what to say about the chain is a decision for
+     * GeoDebugText, which is pure and tested.
+     */
+    debugLines: List<String> = emptyList(),
     onToggleHunterMode: () -> Unit,
     onToggleSource: (String) -> Unit,
     onOpenFilters: () -> Unit,
@@ -357,22 +363,45 @@ fun MapOverlayUi(
             }
         }
 
-        // On BARE TILES, unlike everything else here, so it cannot assume a
-        // background: the dark tile providers (CartoDB Dark) turned this into
-        // black-on-black. Same white pill as the controls, which is legible
-        // over any tiles the provider serves — including the bright and dark
-        // patches within one map.
-        Text(
-            text = "$markerCount photos",
-            style = MaterialTheme.typography.bodySmall,
-            color = LocalChromeTone.current.ink,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(8.dp)
-                .background(LocalChromeTone.current.panel, RoundedCornerShape(4.dp))
-                .padding(horizontal = 6.dp, vertical = 2.dp)
-                .testTag("map-status"),
-        )
+        Column(
+            modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            // The geo debug readout, stacked on the same anchor so it shares
+            // the pill's one bottom-left corner instead of claiming another.
+            if (debugLines.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .background(LocalChromeTone.current.panel, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                        .testTag("geo-debug"),
+                ) {
+                    debugLines.forEach { line ->
+                        Text(
+                            text = line,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = LocalChromeTone.current.ink,
+                        )
+                    }
+                }
+            }
+
+            // On BARE TILES, unlike everything else here, so it cannot assume a
+            // background: the dark tile providers (CartoDB Dark) turned this into
+            // black-on-black. Same white pill as the controls, which is legible
+            // over any tiles the provider serves — including the bright and dark
+            // patches within one map.
+            Text(
+                text = "$markerCount photos",
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalChromeTone.current.ink,
+                modifier = Modifier
+                    .background(LocalChromeTone.current.panel, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .testTag("map-status"),
+            )
+        }
     }
     }
 }

@@ -407,6 +407,34 @@ with counts and destination. Default unchanged — private, dies with the
 app — deliberately: a location history that outlives the app must be
 opted into. Not yet device-verified.
 
+## Two numbers are called "the compass" (2026-08-20)
+
+Worth knowing before the next heading bug is reported, because it cost a
+morning:
+
+- **The engine's raw heading** — `GeoEngine.orientation.trueHeading`. Moves
+  whenever the phone turns, as long as the engine is bound. The
+  external-camera pane's STATUS line prints this one.
+- **The app's elected bearing** — `MapStateHolder.bearing`. This is the value
+  a photo is stamped with, the map arrow points at, and the capture pill
+  shows. It is only written while something is driving it, and in car mode it
+  comes from the GPS course, not the compass.
+
+So "the compass is stuck in capture but fine in the external pane" is one
+value frozen next to another that never was. Three paths stand the elected
+side down, all silently and all faithful to the original: dragging the
+bearing arrow (`Map.svelte:1230`), navigating photos in the viewer
+(`bearingTracking.ts:32`), and a failed compass start reverting the intent.
+The original's answer to all three is the capture pane's bearing-tracking
+hint, which frontend2 now has.
+
+`Settings → Geo debug readout` prints the whole chain under the photo count:
+elected value, who wrote it, how long ago, against the raw heading with its
+own age and the drift between them. The two ages are the diagnosis — the map
+writes only past a 1° dead-band, so a still phone's elected age is
+legitimately minutes old, and only a FRESH raw age beside a large drift means
+the chain stopped. See `GeoDebugText.kt`.
+
 ## Deferred decisions
 
 **Marker refresh on capture, vs the original's placeholder markers

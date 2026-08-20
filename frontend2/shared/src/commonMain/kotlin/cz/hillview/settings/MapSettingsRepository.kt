@@ -20,6 +20,13 @@ data class MapSettings(
     /** The persisted half of hunter mode; the override is session-only. */
     val hunterModePref: Boolean = false,
     /**
+     * The geo debug readout (see GeoDebugText): the elected bearing, who
+     * wrote it and how long ago, next to the engine's raw heading. Off by
+     * default — it is for answering "why is that number not moving?", not
+     * for carrying around.
+     */
+    val showGeoDebug: Boolean = false,
+    /**
      * "Do not show again" for the capture pane's bearing-tracking hint —
      * the original's hideBearingTrackingHint, kept because the hint answers
      * a question ("why is the heading not moving?") that only needs
