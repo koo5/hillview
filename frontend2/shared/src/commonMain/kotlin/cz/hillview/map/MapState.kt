@@ -176,11 +176,30 @@ class MapStateHolder(
     }
 
     /** Preserves source, photoUid and accuracy unless overridden. */
+    /**
+     * Turn the bearing by a hand-applied angle — car mode's mount offset.
+     *
+     * Pitch and magnetic heading do NOT survive it. Someone reaches for a
+     * manual adjustment precisely when the sensors are of no use
+     * (interference is the usual reason), so carrying the last sample's
+     * measurements forward would attach them to a value that deliberately
+     * overrode measurement — under the new source's name, where nothing
+     * downstream could tell they were inherited.
+     *
+     * Accuracy is preserved, unlike those two, because the original does:
+     * `accuracy_level ?? current.accuracy_level` (mapState.ts:513). It is
+     * the compass's own quality rating and predates this state carrying any
+     * measurement, so the port keeps its behaviour rather than quietly
+     * improving on it — pitch and magneticDeg are fields the original never
+     * had, and the rule above is what decides them.
+     */
     fun updateBearingByDiff(diff: Double, source: String? = null, now: Long) {
         val old = _bearing.value
         _bearing.value = old.copy(
             bearing = normalizeBearing(old.bearing + diff),
             source = source ?: old.source,
+            magneticDeg = null,
+            pitch = null,
             ts = now,
         )
     }

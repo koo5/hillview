@@ -93,6 +93,26 @@ Each of these cost a debugging session, and each is the same mistake:
   while MainScreen was configuring capture on the way in. Whoever went second
   won, so the capture pane's compass worked or did not, at random.
 
+## The position side (open)
+
+The orientation half is closed: everything a photo records about heading now
+comes from `bearing`. The position half is not, and the divergence is worth
+knowing before someone "fixes" it casually.
+
+The original builds a capture's `locationData` from `$bearingState &&
+$spatialState` (CameraCapture.svelte:1182-1190) — the one state — and reads
+the raw `gpsLocation` store only for the power-saving and background paths.
+When the map is not following (exploring with tracking in the background),
+the live fix is recorded as `alt_location` beside the elected position, so
+the row says where the user said they were AND what the receiver thought.
+
+frontend2 stamps the raw fix as the primary position instead, with a separate
+branch for an accepted manual claim. Usually identical — a following map
+writes its position from that same fix — but they part exactly when it
+matters: while exploring, or when a claim is pending. Aligning it needs
+`alt_location` ported first (the concept does not exist here yet), which is
+why this is written down rather than done in passing.
+
 ## Auditing it
 
 These greps are the whole audit. Both should return only the boundary and the
