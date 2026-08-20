@@ -284,6 +284,7 @@ actual fun MapScreen(
             rawAccuracy = raw?.accuracyLevel,
             rawAtMs = raw?.timestamp,
             rawDetail = raw?.detail,
+            rawStillMs = controller.sensorValueStillMs(),
             manualPositionClaimed = manualClaimed,
             nowMs = debugNow,
         ),
@@ -797,6 +798,9 @@ private class MapSensorController(private val context: Context) {
      * a chain that stopped writing, and only the raw side can say.
      */
     val rawOrientation get() = engine.orientation
+
+    /** How long the attitude sample has been repeating — see GeoEngine. */
+    fun sensorValueStillMs(): Long? = engine.sensorValueStillMs()
 
     fun compassAvailable(): Boolean =
         (context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager)

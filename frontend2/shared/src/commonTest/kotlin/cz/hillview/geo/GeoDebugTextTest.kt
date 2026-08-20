@@ -115,6 +115,23 @@ class GeoDebugTextTest {
         assertTrue(lines[0].endsWith("uid:40b42f32"), lines[0])
     }
 
+    /**
+     * The frozen-registration case: samples keep arriving (raw age 0) while
+     * the value has not changed in a minute. Both ages are needed to say
+     * that, which is the whole reason the second one exists.
+     */
+    @Test
+    fun aRepeatingSampleIsDistinguishedFromAFreshOne() {
+        val lines = geoDebugLines(input().copy(rawStillMs = 62_000))
+        assertTrue(lines[1].contains("0.0s still 62s"), lines[1])
+    }
+
+    @Test
+    fun aMovingSensorSaysSoRatherThanClaimingStillness() {
+        val lines = geoDebugLines(input().copy(rawStillMs = 200))
+        assertTrue(lines[1].contains("0.0s still 0.2s"), lines[1])
+    }
+
     @Test
     fun theSensorDetailIsCompressedToWhatVariesBetweenDevices() {
         assertEquals(

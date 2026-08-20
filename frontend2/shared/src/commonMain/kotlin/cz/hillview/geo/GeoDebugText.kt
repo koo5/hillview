@@ -47,6 +47,14 @@ data class GeoDebugInput(
     val rawAtMs: Long? = null,
     /** Which fusion mode produced the raw reading (OrientationSensorData.detail). */
     val rawDetail: String? = null,
+    /**
+     * How long the sensor has been REPEATING one attitude sample. Events
+     * still arriving (a fresh rawAtMs) while this climbs is a registration
+     * that died without going silent — the heading then answers only to the
+     * device-orientation remap, which is what "it alternates between two
+     * values depending on how I hold it" looks like from the outside.
+     */
+    val rawStillMs: Long? = null,
     val manualPositionClaimed: Boolean = false,
     val nowMs: Long,
 )
@@ -74,6 +82,9 @@ fun geoDebugLines(input: GeoDebugInput): List<String> = listOf(
             append(deg(shortestDelta(input.rawHeadingDeg, input.bearing.bearing)))
             append(' ')
             append(age(input.rawAtMs, input.nowMs))
+            // Two ages again, and for the same reason as the elected line:
+            // arriving is not moving.
+            input.rawStillMs?.let { append(" still ${age(input.nowMs - it, input.nowMs)}") }
         }
         append(" · ")
         append(if (input.bearingMode == BearingMode.Car) "car" else "walk")

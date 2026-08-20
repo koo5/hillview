@@ -36,6 +36,17 @@ private const val TAG = "GeoEngine"
 private const val WATCHDOG_PERIOD_MS = 5_000L
 private const val SENSOR_SILENCE_BASE_MS = 5_000L
 private const val SENSOR_SILENCE_MAX_MS = 60_000L
+
+// The other way a registration dies: it keeps DELIVERING, at full rate, but
+// every sample repeats one frozen attitude. Silence never trips, the EMA
+// converges on the frozen value, and the elected bearing tracks it faithfully
+// — the heading then answers only to the device-orientation remap, which
+// reads as a compass alternating between a couple of values depending on how
+// the phone is held. Requires evidence the phone MOVED (the orientation class
+// changed, which the framework's own listener reports independently of our
+// registration), so a phone lying still is never restarted for lying still.
+private const val SENSOR_STUCK_MS = 12_000L
+private const val SENSOR_STUCK_MAX_MS = 60_000L
 private const val FIX_SILENCE_BASE_MS = 60_000L
 private const val FIX_SILENCE_MAX_MS = 10 * 60_000L
 
@@ -149,6 +160,9 @@ class GeoEngine private constructor(private val context: Context) {
     @Volatile private var lastFixAtMs = 0L
     @Volatile private var fixSilenceLimitMs = FIX_SILENCE_BASE_MS
     @Volatile private var sensorSilenceLimitMs = SENSOR_SILENCE_BASE_MS
+    // Backs off like the silence limit: if a fresh registration comes back
+    // just as frozen, retrying every twelve seconds forever helps nobody.
+    @Volatile private var sensorStuckLimitMs = SENSOR_STUCK_MS
     @Volatile private var sensorRestarts = 0
     @Volatile private var fixRerequests = 0
 
@@ -312,8 +326,38 @@ class GeoEngine private constructor(private val context: Context) {
             // sensor the platform refuses outright is retried on a minute
             // cadence rather than every tick.
             if (raw > sensorsStartedAtMs) sensorSilenceLimitMs = SENSOR_SILENCE_BASE_MS
+            // A sample that MOVED recently is proof the registration is
+            // genuinely healthy, which the arrival of one is not.
+            if (now - sensors.lastRawValueChangeElapsedMs < SENSOR_STUCK_MS) {
+                sensorStuckLimitMs = SENSOR_STUCK_MS
+            }
             val last = raw.takeIf { it != 0L } ?: sensorsStartedAtMs
             val silence = now - last
+            val valueChange = sensors.lastRawValueChangeElapsedMs
+            val stuck = sensorLooksStuck(
+                nowMs = now,
+                rawEventAtMs = raw,
+                valueChangeAtMs = valueChange,
+                orientationChangeAtMs = sensors.lastOrientationChangeElapsedMs,
+                stuckLimitMs = sensorStuckLimitMs,
+            )
+            if (silence <= sensorSilenceLimitMs && stuck) {
+                sensorRestarts++
+                val still = (now - valueChange) / 1000
+                sensorStuckLimitMs = (sensorStuckLimitMs * 2).coerceAtMost(SENSOR_STUCK_MAX_MS)
+                Log.w(TAG, "sensor value frozen ${still}s while the device turned — re-registering (#$sensorRestarts)")
+                cz.hillview.plugin.EventLog.record(
+                    "geo",
+                    "attitude frozen ${still}s while the device turned — re-registered (#$sensorRestarts)",
+                )
+                CaptureStatsLog.increment("geo sensor restarts", System.currentTimeMillis())
+                mainHandler.post {
+                    if (sensorService === sensors) {
+                        stopSensors()
+                        syncSensors()
+                    }
+                }
+            }
             if (silence > sensorSilenceLimitMs) {
                 sensorRestarts++
                 sensorSilenceLimitMs = (sensorSilenceLimitMs * 2).coerceAtMost(SENSOR_SILENCE_MAX_MS)
@@ -356,14 +400,26 @@ class GeoEngine private constructor(private val context: Context) {
         }
     }
 
+    /**
+     * How long the raw attitude has been REPEATING, for the debug readout —
+     * null when there is nothing to say yet. Distinguishes a still phone
+     * (short) from a frozen registration (long, while the phone turns).
+     */
+    fun sensorValueStillMs(): Long? {
+        val at = sensorService?.lastRawValueChangeElapsedMs?.takeIf { it != 0L } ?: return null
+        return SystemClock.elapsedRealtime() - at
+    }
+
     /** One line for the Stats dialog: how alive each stream is right now. */
     fun livenessLine(): String {
         val now = SystemClock.elapsedRealtime()
         val sensors = sensorService
         val sensorAge = sensors?.lastRawEventElapsedMs?.takeIf { it != 0L }?.let { "${(now - it) / 1000}s ago" }
+        val valueAge = sensors?.lastRawValueChangeElapsedMs?.takeIf { it != 0L }
+            ?.let { ", value moved ${(now - it) / 1000}s ago" } ?: ""
         val fixAge = lastFixAtMs.takeIf { it != 0L }?.let { "${(now - it) / 1000}s ago" }
         return "geo: ${if (foreground) "foreground" else "background"}, " +
-            "sensors " + (if (sensors == null) "off" else "raw event ${sensorAge ?: "never"}") + ", " +
+            "sensors " + (if (sensors == null) "off" else "raw event ${sensorAge ?: "never"}$valueAge") + ", " +
             "fix " + (if (locationService == null) "off" else (fixAge ?: "never")) +
             (if (sensorRestarts + fixRerequests > 0) ", restarts $sensorRestarts/$fixRerequests" else "")
     }

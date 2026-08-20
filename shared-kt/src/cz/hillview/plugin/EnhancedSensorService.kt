@@ -217,6 +217,7 @@ class EnhancedSensorService(
             if (newOrientation != deviceOrientation) {
                 Log.d(TAG, "📱 Device orientation changed: $deviceOrientation → $newOrientation")
                 deviceOrientation = newOrientation
+                lastOrientationChangeElapsedMs = SystemClock.elapsedRealtime()
 			}
 
         }
@@ -307,6 +308,36 @@ class EnhancedSensorService(
      */
     @Volatile
     var lastRawEventElapsedMs: Long = 0L
+        private set
+
+    /**
+     * When a raw attitude event last carried a DIFFERENT value from the one
+     * before it — which is not the same question as when one last arrived.
+     *
+     * A rotation-vector sensor can go on delivering at full rate while
+     * repeating one frozen sample (seen after unbackgrounding). Everything
+     * downstream then looks alive: events flow, the EMA converges on the
+     * frozen value, the elected bearing tracks it perfectly. The only
+     * visible symptom is that the heading answers to nothing except the
+     * device-orientation remap — which reads as "the compass alternates
+     * between two values depending on how I hold the phone", because that
+     * remap is then the only live input left in the chain.
+     *
+     * 0 until the first event.
+     */
+    @Volatile
+    var lastRawValueChangeElapsedMs: Long = 0L
+        private set
+
+    /**
+     * When the device-orientation class last changed. OrientationEventListener
+     * registers its OWN accelerometer listener inside the framework, so this
+     * keeps moving even when our registration is the dead one — which makes
+     * it the evidence that the phone really moved while the attitude sample
+     * did not. 0 until the first change.
+     */
+    @Volatile
+    var lastOrientationChangeElapsedMs: Long = 0L
         private set
 
     /** Whether a sensor registration is currently in place (not paused/stopped). */
@@ -628,8 +659,25 @@ class EnhancedSensorService(
 
 	}
 
+    private var lastRawVectorValues: FloatArray? = null
+
     override fun onSensorChanged(event: SensorEvent) {
         lastRawEventElapsedMs = SystemClock.elapsedRealtime()
+
+        // Exact comparison, deliberately: a live sensor's last decimal
+        // always jitters, so bit-identical samples mean a repeated one, not
+        // a still phone. (And a still phone is not harmed by being noticed
+        // — the stuck check upstream also demands evidence of movement.)
+        if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR ||
+            event.sensor.type == Sensor.TYPE_GAME_ROTATION_VECTOR ||
+            event.sensor.type == Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR
+        ) {
+            val previous = lastRawVectorValues
+            if (previous == null || !previous.contentEquals(event.values)) {
+                lastRawValueChangeElapsedMs = lastRawEventElapsedMs
+                lastRawVectorValues = event.values.clone()
+            }
+        }
 
 		logEvent(event)
 

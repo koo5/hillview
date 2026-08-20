@@ -428,9 +428,22 @@ bearing arrow (`Map.svelte:1230`), navigating photos in the viewer
 The original's answer to all three is the capture pane's bearing-tracking
 hint, which frontend2 now has.
 
+**A registration can die without going silent (2026-08-20).** The liveness
+watchdog stamped `lastRawEventElapsedMs` on event ARRIVAL, so a
+rotation-vector sensor repeating one frozen sample at full rate looked
+perfectly healthy — and everything downstream stays healthy with it: the EMA
+converges on the frozen value, the elected bearing tracks it faithfully. The
+only live input left is then the device-orientation remap
+(`remapCoordinatesForOrientation`), so the heading alternates between a
+handful of values depending on how the phone is held. The service now also
+tracks when a sample last CHANGED, and the watchdog re-registers when a
+repeat outlasts a turn (`sensorLooksStuck` — repetition alone is a phone on
+a table, and must never trigger a restart).
+
 `Settings → Geo debug readout` prints the whole chain under the photo count:
 elected value, who wrote it, how long ago, against the raw heading with its
-own age and the drift between them. The two ages are the diagnosis — the map
+own age, how long that raw sample has been REPEATING, and the drift between
+them. The two ages are the diagnosis — the map
 writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
