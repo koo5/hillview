@@ -55,6 +55,13 @@ fun CameraOverlayUi(
      */
     statusText: String? = null,
     uploadsText: String? = null,
+    /**
+     * The tracking hints outrank the calibration hint, as in the original
+     * (`showHint = showCalibrationHint && !$shouldShowBearingTrackingHint
+     * && !$shouldShowLocationTrackingHint`): telling someone to calibrate a
+     * compass that is not running would be advice about the wrong problem.
+     */
+    suppressHint: Boolean = false,
 ) {
     // The post-open hint: 4 s from the camera coming ready, as the
     // original fires doCalibrationHint right after the stream starts.
@@ -101,7 +108,7 @@ fun CameraOverlayUi(
     ) {
         Column(Modifier.padding(start = 18.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)) {
             when {
-                showHint -> HintContent(bearingMode)
+                showHint && !suppressHint -> HintContent(bearingMode)
                 else -> LocationRows(state, overridePosition)
             }
             statusText?.let { MonoText(it, Modifier.testTag("capture-status")) }

@@ -20,6 +20,13 @@ data class MapSettings(
     /** The persisted half of hunter mode; the override is session-only. */
     val hunterModePref: Boolean = false,
     /**
+     * "Do not show again" for the capture pane's bearing-tracking hint —
+     * the original's hideBearingTrackingHint, kept because the hint answers
+     * a question ("why is the heading not moving?") that only needs
+     * answering until the user knows.
+     */
+    val hideBearingTrackingHint: Boolean = false,
+    /**
      * "Show unanalyzed photos": default on, and only *meaningful* once some
      * analysis filter is active — unchecked it greys every photo the
      * analysis has not passed, which locally is all of them. The modal

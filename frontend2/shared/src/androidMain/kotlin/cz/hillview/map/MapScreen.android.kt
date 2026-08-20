@@ -85,13 +85,21 @@ actual fun MapScreen(
 
     // Session-only, exactly as in the Svelte app — but held in MapSession
     // rather than the composition, because the map is its own destination
-    // here and a trip through capture would otherwise reset it. The effects
-    // below keep the two in step in both directions: what the user does on
-    // this screen is written back, and what happened while the screen was
-    // away (capture arming a clean ACTIVE) is adopted.
-    var trackingWanted by remember { mutableStateOf(session.bearingTrackingWanted.value) }
+    // here and a trip through capture would otherwise reset it.
+    //
+    // READ-ONLY here, and deliberately so. This screen used to keep its own
+    // copy of both intents and mirror them back to the session in effects,
+    // so the same intent had two homes and either could win: the write-back
+    // carried the value read when the composition started, which is stale
+    // the moment anything else arms tracking in the same frame (entering
+    // capture does exactly that, from MainScreen, which composes first).
+    // Whether that race ever fired in practice was never demonstrated — it
+    // is removed because one intent with two writers is not a thing to
+    // reason about, not because a bug was pinned on it. The session
+    // outlives the composition, so the session owns it.
+    val trackingWanted by session.bearingTrackingWanted.collectAsState()
     var trackingPhase by remember { mutableStateOf(TrackingPhase.Inactive) }
-    var locationTracking by remember { mutableStateOf(session.locationTracking.value) }
+    val locationTracking by session.locationTracking.collectAsState()
     var locationFlash by remember { mutableStateOf(false) }
     // A pan happened and no manual position is claimed: exploration is
     // free, and this offers the two exits — claim this position, or snap
@@ -137,12 +145,6 @@ actual fun MapScreen(
     }
     val density = LocalDensity.current
 
-    val sessionLocation by session.locationTracking.collectAsState()
-    val sessionBearingWanted by session.bearingTrackingWanted.collectAsState()
-    LaunchedEffect(sessionLocation) { locationTracking = sessionLocation }
-    LaunchedEffect(sessionBearingWanted) { trackingWanted = sessionBearingWanted }
-    LaunchedEffect(locationTracking) { session.setLocationTracking(locationTracking) }
-    LaunchedEffect(trackingWanted) { session.setBearingTrackingWanted(trackingWanted) }
 
     val controller = remember { MapSensorController(context.applicationContext) }
     DisposableEffect(controller) { onDispose { controller.release() } }
@@ -177,7 +179,7 @@ actual fun MapScreen(
         }
         if (!started) {
             trackingPhase = TrackingPhase.Error
-            trackingWanted = false
+            session.setBearingTrackingWanted(false)
             trackingPhase = TrackingPhase.Inactive
         }
     }
@@ -244,7 +246,7 @@ actual fun MapScreen(
     // offset by the angle travelled.
     arrowOverlay.onDragStart = {
         if (mapSettings.bearingMode == BearingMode.Walking && trackingWanted) {
-            trackingWanted = false
+            session.setBearingTrackingWanted(false)
         }
     }
     arrowOverlay.onBearing = { value ->
@@ -511,7 +513,7 @@ actual fun MapScreen(
             currentTileProvider = mapSettings.tileProviderKey,
             onPickTileProvider = { key -> settings.update { it.copy(tileProviderKey = key) } },
             onToggleLocation = {
-                locationTracking = when (locationTracking) {
+                session.setLocationTracking(when (locationTracking) {
                     // ACTIVE or BACKGROUND both turn fully off.
                     LocationTracking.Active, LocationTracking.Background -> LocationTracking.Off
                     LocationTracking.Off -> {
@@ -527,16 +529,16 @@ actual fun MapScreen(
                         }
                         LocationTracking.Active
                     }
-                }
+                })
             },
-            onToggleTracking = { trackingWanted = !trackingWanted },
+            onToggleTracking = { session.setBearingTrackingWanted(!trackingWanted) },
             onSelectBearingMode = { mode ->
                 // Picking a mode stops the old tracker and starts the new
                 // one — enabling tracking is a deliberate side effect of the
                 // choice, not something the user has to do afterwards.
-                trackingWanted = false
+                session.setBearingTrackingWanted(false)
                 settings.update { it.copy(bearingMode = mode) }
-                trackingWanted = true
+                session.setBearingTrackingWanted(true)
             },
             onZoom = { delta ->
                 state.updateSpatial(
@@ -551,7 +553,7 @@ actual fun MapScreen(
             },
             onRevertToGps = {
                 positionPrompt = false
-                locationTracking = LocationTracking.Active
+                session.setLocationTracking(LocationTracking.Active)
             },
             mapOrientation = spatial.orientation,
             onResetNorth = {
@@ -650,7 +652,7 @@ actual fun MapScreen(
                     // Exploring: the map parks (following would yank it
                     // back mid-read), but captures keep geotagging from
                     // the fix until the claim is accepted.
-                    locationTracking = LocationTracking.Background
+                    session.setLocationTracking(LocationTracking.Background)
                 }
                 if (!manualClaimed) positionPrompt = true
                 syncFromMap()

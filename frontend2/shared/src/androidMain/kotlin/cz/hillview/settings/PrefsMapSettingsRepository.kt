@@ -22,6 +22,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
                 BearingMode.Walking
             },
             hunterModePref = prefs.getBoolean("hunter_mode", false),
+            hideBearingTrackingHint = prefs.getBoolean("hide_bearing_tracking_hint", false),
             showUnanalyzed = prefs.getBoolean("show_unanalyzed", true),
             powerSavingPref = prefs.getBoolean("power_saving", false),
             ecoFps = prefs.getFloat("eco_fps", 15f),
@@ -52,6 +53,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             .putInt("max_photos", next.maxPhotos.coerceIn(MIN_MAX_PHOTOS, MAX_MAX_PHOTOS))
             .putString("bearing_mode", if (next.bearingMode == BearingMode.Car) "car" else "walking")
             .putBoolean("hunter_mode", next.hunterModePref)
+            .putBoolean("hide_bearing_tracking_hint", next.hideBearingTrackingHint)
             .putBoolean("show_unanalyzed", next.showUnanalyzed)
             .putBoolean("power_saving", next.powerSavingPref)
             .putFloat("eco_fps", next.ecoFps.coerceIn(0f, 30f))

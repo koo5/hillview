@@ -376,7 +376,25 @@ fun CaptureScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalAlignment = Alignment.Start,
         ) {
+            // "Why is the heading not moving?" — because the compass is not
+            // driving the app's bearing, which is a state the pane must
+            // EXPLAIN rather than merely reflect. The capture readout shows
+            // mapState.bearing (the value a photo would be stamped with), so
+            // with tracking off it is legitimately frozen, and the original
+            // answers exactly this with its bearing-tracking hint.
+            val bearingTrackingOn by session.bearingTrackingWanted.collectAsState()
+            val showBearingHint = !bearingTrackingOn && !mapSettings.hideBearingTrackingHint
+            if (showBearingHint) {
+                BearingTrackingHint(
+                    onEnable = { session.setBearingTrackingWanted(true) },
+                    onDismiss = {
+                        mapSettingsRepo.update { it.copy(hideBearingTrackingHint = true) }
+                    },
+                )
+            }
+
             CameraOverlayUi(
+                suppressHint = showBearingHint,
                 state = state,
                 bearingMode = mapSettings.bearingMode,
                 overridePosition = if (capture.manualLocationElected) capture.manualLocation else null,
@@ -1304,5 +1322,38 @@ private fun ResolutionOption(
             },
             style = MaterialTheme.typography.bodySmall,
         )
+    }
+}
+
+
+/**
+ * The original's `bearing-tracking-hint`: shown in the capture pane while
+ * neither bearing source is on, dismissible for good. Without it the frozen
+ * heading reads as a bug rather than as a switch nobody flipped.
+ */
+@Composable
+private fun BearingTrackingHint(onEnable: () -> Unit, onDismiss: () -> Unit) {
+    androidx.compose.material3.Surface(
+        color = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+        modifier = Modifier.padding(4.dp).testTag("bearing-tracking-hint"),
+    ) {
+        androidx.compose.foundation.layout.Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        ) {
+            androidx.compose.material3.Text(
+                "Turn on bearing tracking?",
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+            )
+            androidx.compose.material3.TextButton(
+                onClick = onEnable,
+                modifier = Modifier.testTag("enable-bearing-hint"),
+            ) { androidx.compose.material3.Text("🧭") }
+            androidx.compose.material3.TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("dismiss-bearing-hint"),
+            ) { androidx.compose.material3.Text("✕") }
+        }
     }
 }
