@@ -109,6 +109,16 @@ actual fun MapScreen(
     val sourceDescriptors = remember(markerSource) { markerSource.sourceDescriptors() }
     fun sourceEnabled(d: MapSourceDescriptor): Boolean =
         mapSettings.sourceStates[d.id] ?: d.defaultEnabled
+    // A photo just taken is in the database but not in the marker set, which
+    // is refetched on viewport change — so without this it stays invisible,
+    // and out of the viewer's ring, until you happen to pan. The Tauri app
+    // covers the same gap with placeholder markers; here the row already
+    // exists, so the news is enough. See CaptureEvents.
+    val captureEvents: cz.hillview.capture.CaptureEvents = org.koin.compose.koinInject()
+    LaunchedEffect(Unit) {
+        captureEvents.captured.collect { markerSource.refresh() }
+    }
+
     LaunchedEffect(mapSettings.sourceStates) {
         sourceDescriptors.forEach { d ->
             markerSource.setSourceEnabled(d.id, sourceEnabled(d))

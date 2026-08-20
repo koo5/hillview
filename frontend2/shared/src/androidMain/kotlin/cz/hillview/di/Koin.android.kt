@@ -182,6 +182,6 @@ actual fun platformModule(): Module = module {
     // Captures go to the shared-kt upload stack — the same code the Tauri
     // app runs. See /shared-kt/README.md.
     single<cz.hillview.upload.UploadPipeline> {
-        cz.hillview.upload.SharedStackUploadPipeline(androidContext())
+        cz.hillview.upload.SharedStackUploadPipeline(androidContext(), get())
     }
 }

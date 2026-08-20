@@ -407,6 +407,28 @@ with counts and destination. Default unchanged — private, dies with the
 app — deliberately: a location history that outlives the app must be
 opted into. Not yet device-verified.
 
+## Deferred decisions
+
+**Marker refresh on capture, vs the original's placeholder markers
+(2026-08-20).** A photo just taken is in the database but not in the marker
+set, which is refetched on viewport change — so it stayed invisible, and out
+of the viewer's ring, until the map happened to move. Fixed by telling the
+map that a row landed (`CaptureEvents`), which works because frontend2 writes
+the row synchronously in the capture path.
+
+The Tauri app covers the same gap with PLACEHOLDER MARKERS
+(`placeholderInjector.ts`): an optimistic photo carrying the id the real one
+will get, injected at the shutter, re-embedded into every update, scoped to
+the viewport so it cannot become an off-screen ghost, and removed when the
+real row arrives. It needs that because a capture there crosses the
+JS/native boundary and the row appears much later.
+
+Revisit when optimising for BATTERY: our version costs a refresh per photo,
+which in interval mode is a query every couple of seconds for a whole shoot,
+where injection costs nothing. Cheapest fixes first: refresh only the device
+source rather than the composite; conflate bursts into one refresh; or adopt
+placeholders and let the periodic refetch reconcile.
+
 ## Remaining tasks
 
 Implementation, roughly in value order:

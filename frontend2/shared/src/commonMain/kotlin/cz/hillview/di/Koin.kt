@@ -57,6 +57,7 @@ val appModule = module {
             ),
         )
     }
+    single { cz.hillview.capture.CaptureEvents() }
     viewModel { LoginViewModel(get(), get()) }
 }
 
