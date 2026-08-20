@@ -39,7 +39,7 @@ private class AuthManagerTokenStore(context: Context) : TokenStore {
         if (expiresAt == null) {
             // The backend's Token model always carries expires_at; without it
             // the native store can't manage the session.
-            android.util.Log.e("HillviewTokenStore", "no expires_at on login token — session not persisted")
+            android.util.Log.e("hv-HillviewTokenStore", "no expires_at on login token — session not persisted")
             return@withContext
         }
         val result = auth.storeAuthToken(
@@ -49,7 +49,7 @@ private class AuthManagerTokenStore(context: Context) : TokenStore {
             tokens.refreshTokenExpiresAt,
         )
         if (!result.success) {
-            android.util.Log.w("HillviewTokenStore", "client-key registration failed: ${result.error}")
+            android.util.Log.w("hv-HillviewTokenStore", "client-key registration failed: ${result.error}")
         }
     }
 

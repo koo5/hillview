@@ -95,15 +95,19 @@ fun MainScreen(
         gpsIntervalMs = mapSettings.gpsIntervalMs,
     )
 
-    // The original's appOldActivity block: entering capture arms tracking
-    // (both on a toggle AND on initial load of a persisted capture
-    // activity); returning to view stands the bearing side down.
+    // The original's appOldActivity block: entering a recording activity
+    // arms tracking (both on a toggle AND on initial load of a persisted
+    // one); returning to view stands the bearing side down. External counts
+    // as recording — it is recording, and moving between the two recording
+    // panes is not leaving.
     var oldActivity by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(activity) {
         if (oldActivity != activity) {
+            val recording = activity == "capture" || activity == "external"
+            val wasRecording = oldActivity == "capture" || oldActivity == "external"
             when {
-                activity == "capture" -> session.onEnterCapture()
-                oldActivity == "capture" -> session.onLeaveCapture()
+                recording -> session.onEnterRecording()
+                wasRecording -> session.onLeaveRecording()
             }
             oldActivity = activity
         }

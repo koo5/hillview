@@ -162,7 +162,7 @@ actual fun MapScreen(
             return@LaunchedEffect
         }
         session.setBearingPhase(TrackingPhase.Starting)
-        val started = controller.startBearing(mapSettings.bearingMode) { heading, accuracy ->
+        val started = controller.startBearing(mapSettings.bearingMode) { heading, accuracy, magnetic, pitch ->
             session.setBearingPhase(TrackingPhase.Active)
             // Both modes drive the bearing state past a 1° dead-band:
             // walking from the compass, car from the gps-kalman course
@@ -177,6 +177,10 @@ actual fun MapScreen(
                         "gps-kalman"
                     },
                     accuracyLevel = accuracy,
+                    // Car mode measures neither, and says so rather than
+                    // letting a compass sample ride along under its name.
+                    magneticDeg = magnetic,
+                    pitch = pitch,
                     now = System.currentTimeMillis(),
                 )
             }
@@ -853,20 +857,31 @@ private class MapSensorController(private val context: Context) {
         }
     }
 
-    private var carHeading: ((Float, Int?) -> Unit)? = null
+    private var carHeading: ((Float, Int?, Double?, Double?) -> Unit)? = null
     private var wantLocation = false
     private var wantCar = false
     private var onFix: ((Double, Double) -> Unit)? = null
 
     /** @return false when the stream cannot be observed (reverts intent). */
-    fun startBearing(mode: BearingMode, onHeading: (Float, Int?) -> Unit): Boolean {
+    fun startBearing(
+        mode: BearingMode,
+        /** heading, accuracy, magnetic heading, pitch — one sample, not four reads. */
+        onHeading: (Float, Int?, Double?, Double?) -> Unit,
+    ): Boolean {
         stopBearing()
         return when (mode) {
             BearingMode.Walking -> {
                 if (!compassAvailable()) return false
                 compassJob = scope.launch {
                     engine.orientation.collect { data ->
-                        data?.let { onHeading(it.trueHeading, it.accuracyLevel) }
+                        data?.let {
+                            onHeading(
+                                it.trueHeading,
+                                it.accuracyLevel,
+                                it.magneticHeading.toDouble(),
+                                it.pitch.toDouble(),
+                            )
+                        }
                     }
                 }
                 true
@@ -879,7 +894,9 @@ private class MapSensorController(private val context: Context) {
                 if (!engine.hasLocationPermission()) return false
                 engine.resetCarHeadingFilter()
                 carJob = scope.launch {
-                    engine.carBearing.collect { onHeading(it.toFloat(), null) }
+                    // No magnetic heading and no pitch: a GPS course knows
+                    // neither, and null is what that means.
+                    engine.carBearing.collect { onHeading(it.toFloat(), null, null, null) }
                 }
                 wantCar = true
                 syncLocation()

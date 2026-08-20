@@ -57,7 +57,7 @@ class HillviewApplication : Application() {
             try {
                 cz.hillview.plugin.GeoTrackingManager.get(this@HillviewApplication).dumpAndClear()
             } catch (e: Exception) {
-                android.util.Log.w("HillviewApp", "start-time geo dump failed", e)
+                android.util.Log.w("hv-HillviewApp", "start-time geo dump failed", e)
             }
         }
 

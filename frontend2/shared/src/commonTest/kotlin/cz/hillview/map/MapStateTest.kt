@@ -411,7 +411,7 @@ class MapSessionTest {
 
         // The clean-ACTIVE re-arm kills stale background flags; a gated
         // claim cannot be stale, so it must survive.
-        session.onEnterCapture()
+        session.onEnterRecording()
         assertEquals(LocationTracking.Background, session.locationTracking.value)
         assertTrue(session.manualPositionClaimed.value)
     }
@@ -461,7 +461,7 @@ class MapSessionTest {
         assertTrue(session.mapPositionWithoutFix.value)
         assertTrue(session.manualPositionElected.value)
 
-        session.onEnterCapture()
+        session.onEnterRecording()
         assertTrue(session.manualPositionElected.value)
     }
 
@@ -471,7 +471,7 @@ class MapSessionTest {
         // did not deliberately claim a position.
         val session = MapSession()
         session.setLocationTracking(LocationTracking.Background)
-        session.onEnterCapture()
+        session.onEnterRecording()
         assertEquals(LocationTracking.Active, session.locationTracking.value)
     }
 }

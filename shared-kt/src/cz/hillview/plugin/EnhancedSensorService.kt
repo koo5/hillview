@@ -134,7 +134,7 @@ class EnhancedSensorService(
     private val onSensorUpdate: (OrientationSensorData) -> Unit,
 ) : SensorEventListener {
     companion object {
-        private const val TAG = "🢄Sensors"
+        private const val TAG = "hv-Sensors"
         private const val UPDATE_RATE_MS = 10 // Higher frequency for better fusion
         // The historical rate, kept as the default for callers that do not
         // choose one (the Tauri plugin).

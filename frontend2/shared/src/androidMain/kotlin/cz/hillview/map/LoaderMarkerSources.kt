@@ -169,7 +169,7 @@ class StreamMarkerSource(
     }
 
     companion object {
-        private const val TAG = "StreamMarkerSource"
+        private const val TAG = "hv-StreamMarkerSource"
         const val REFETCH_MS = 30_000L
     }
 }
@@ -233,6 +233,6 @@ class PanoramaxMarkerSource(
     }
 
     companion object {
-        private const val TAG = "PanoramaxMarkerSource"
+        private const val TAG = "hv-PanoramaxMarkerSource"
     }
 }

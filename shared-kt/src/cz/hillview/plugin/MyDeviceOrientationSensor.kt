@@ -10,7 +10,7 @@ class MyDeviceOrientationSensor(
 	private val onOrientationChanged: ((DeviceOrientation) -> Unit)?
 ) {
 	companion object {
-		private const val TAG = "MyDeviceOrientationSensor"
+		private const val TAG = "hv-MyDeviceOrientationSensor"
 	}
 
 	private var isSuspended: Boolean = false

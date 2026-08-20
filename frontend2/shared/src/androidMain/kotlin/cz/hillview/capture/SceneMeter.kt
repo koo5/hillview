@@ -4,7 +4,7 @@ import android.util.Log
 import kotlin.math.abs
 import kotlin.math.pow
 
-private const val TAG = "SceneMeter"
+private const val TAG = "hv-SceneMeter"
 
 /**
  * Continuous metering that never touches auto-exposure.

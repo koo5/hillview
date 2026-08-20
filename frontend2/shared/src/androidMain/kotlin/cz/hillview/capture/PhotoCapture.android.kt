@@ -86,7 +86,7 @@ import java.io.File
 import java.io.IOException
 import kotlin.coroutines.resume
 
-private const val TAG = "PhotoCapture"
+private const val TAG = "hv-PhotoCapture"
 
 // The metering window prepareExposure opens between interval shots. The
 // frame minimum is there so a single mid-convergence frame cannot be
@@ -206,7 +206,6 @@ private class AndroidPhotoCapture(
     // location path the Tauri app's capture geotag rides on.
     // Subscriptions to the engine's streams (this pane owns no hardware).
     private var locationJob: Job? = null
-    private var orientationJob: Job? = null
 
     // Geo tracking — the same tables and CSV dumps the Tauri app writes
     // (GeoTrackingManager, shared-kt): the raw feeds, fused fixes and
@@ -411,10 +410,16 @@ private class AndroidPhotoCapture(
             field = value
             // The pill shows what a capture would stamp (Tauri shows
             // bearingState the same way).
-            value?.let { state = state.copy(bearingDeg = it.trueDeg) }
+            // The pill shows what a capture would stamp, and the
+            // calibration button needs the accuracy that came with it —
+            // both out of the same answer, arriving together.
+            value?.let {
+                state = state.copy(
+                    bearingDeg = it.trueDeg,
+                    compassAccuracy = it.accuracyLevel?.takeIf { level -> level >= 0 },
+                )
+            }
         }
-    @Volatile private var lastOrientation: OrientationSensorData? = null
-    private var lastAzimuthPush = 0L
 
     private fun onLocation(location: Location) {
         lastLocation = location
@@ -445,31 +450,19 @@ private class AndroidPhotoCapture(
         }
 
     // The shared-kt heading engine — the same fusion/declination pipeline the
-    // Tauri app runs (upright-rotation-vector default mode, EMA smoothing,
-    // GeomagneticField declination). Replaces the earlier ad-hoc
-    // rotation-vector listener, which produced MAGNETIC azimuth only.
-    // This pane OBSERVES the one owner; it does not open sensors itself, and
-    // it no longer writes tracking rows — the engine already wrote them, at
-    // full rate, for every consumer. See docs/frontend2-geo-engine-design.md.
+    // DIAGNOSTICS ONLY — the Stats dialog's liveness line, which asks
+    // whether the hardware is alive, not which way the phone is pointing.
+    // Nothing that a photo records may come from here.
     private val engine by lazy { cz.hillview.geo.GeoEngine.get(context) }
 
-    private fun observeOrientation() = scope.launch {
-        engine.orientation.collect { data ->
-            data ?: return@collect
-            lastOrientation = data
-            // Throttled ~4 Hz. The displayed/stamped bearing comes from the
-            // map's bearing state now (stampBearing) — here only the
-            // magnetometer accuracy rides up, for the calibration button
-            // (found unwired: compassAccuracy was never set).
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastAzimuthPush > 250) {
-                lastAzimuthPush = now
-                state = state.copy(
-                    compassAccuracy = data.accuracyLevel.takeIf { it >= 0 },
-                )
-            }
-        }
-    }
+    // This pane reads NO sensor. It used to keep its own subscription to the
+    // engine's orientation samples for the magnetometer accuracy and the
+    // stamped pitch, while taking the bearing from the map's state — so a
+    // photo's heading and its pitch came from two different answers, at two
+    // different instants, and under a manual claim or car mode they were not
+    // even about the same thing. Both now arrive with the bearing, through
+    // stampBearing, from the one state everything else reads.
+    // See docs/frontend2-geo-engine-design.md.
 
     // The PURE DEVICE pose (accelerometer tilt), which is emphatically not
     // the screen's orientation. CameraX's default targetRotation is the
@@ -1392,7 +1385,6 @@ private class AndroidPhotoCapture(
             gpsStarted = true
         }
         if (!orientationStarted) {
-            orientationJob = observeOrientation()
             // Separate listener from the heading engine's own, on purpose:
             // that one accepts FLAT_UP from ORIENTATION_UNKNOWN, which would
             // snap the EXIF orientation to portrait every time the phone
@@ -1702,7 +1694,6 @@ private class AndroidPhotoCapture(
         exposure: ExposureStamp? = null,
     ): SensorSnapshot {
         val location = lastLocation
-        val orientation = lastOrientation
         val ageMs = location?.let {
             (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / 1_000_000
         }
@@ -1725,10 +1716,10 @@ private class AndroidPhotoCapture(
                 longitude = manual.longitude,
                 // No altitude and no claimed accuracy: this is where the
                 // user says they are, not a measurement.
-                bearingDeg = orientation?.magneticHeading,
-                trueBearingDeg = stamp?.trueDeg ?: orientation?.trueHeading,
-                bearingSource = stamp?.source ?: orientation?.source,
-                pitchDeg = orientation?.pitch,
+                bearingDeg = stamp?.magneticDeg?.toFloat(),
+                trueBearingDeg = stamp?.trueDeg,
+                bearingSource = stamp?.source,
+                pitchDeg = stamp?.pitch?.toFloat(),
                 capturedAtMs = capturedAtMs,
                 locationSource = "manual",
                 deviceRotationDeg = DeviceOrientation.toDegrees(pose),
@@ -1740,10 +1731,10 @@ private class AndroidPhotoCapture(
                 longitude = location?.longitude,
                 altitude = location?.takeIf { it.hasAltitude() }?.altitude,
                 accuracyM = location?.takeIf { it.hasAccuracy() }?.accuracy,
-                bearingDeg = orientation?.magneticHeading,
-                trueBearingDeg = stamp?.trueDeg ?: orientation?.trueHeading,
-                bearingSource = stamp?.source ?: orientation?.source,
-                pitchDeg = orientation?.pitch,
+                bearingDeg = stamp?.magneticDeg?.toFloat(),
+                trueBearingDeg = stamp?.trueDeg,
+                bearingSource = stamp?.source,
+                pitchDeg = stamp?.pitch?.toFloat(),
                 capturedAtMs = capturedAtMs,
                 locationSource = location?.let { "gps" },
                 locationAgeMs = ageMs,
@@ -1758,8 +1749,6 @@ private class AndroidPhotoCapture(
         // (MainScreen hands it a GeoConfig), not to this pane.
         locationJob?.cancel()
         locationJob = null
-        orientationJob?.cancel()
-        orientationJob = null
         gpsStarted = false
         orientationStarted = false
         analysisUseCase?.clearAnalyzer()

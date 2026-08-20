@@ -491,6 +491,21 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## The rule the geo bugs keep breaking (2026-08-20)
+
+Every one of them — the capture pane's private pitch subscription, the
+external pane's second heading, MapScreen's duplicated tracking intents,
+TrackingPhase hidden in a composition, the service configuring the engine Off
+while the activity configured it on — is the same violation: something other
+than the one state answered "where am I / which way am I facing".
+
+Written up as [one-state.md](one-state.md), pointed at from
+`frontend2/CLAUDE.md`, and enforced for the read side by
+`OneStateArchitectureTest`, which walks the source tree and fails the build
+on a new side channel. (Its Gradle wiring declares `src/` as a task input;
+without that a violation added under androidMain leaves `jvmTest` up to date
+and the check silently unrun.)
+
 ## Deferred decisions
 
 **Marker refresh on capture, vs the original's placeholder markers

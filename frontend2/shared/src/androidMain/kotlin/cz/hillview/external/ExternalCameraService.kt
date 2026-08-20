@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-private const val TAG = "ExternalCamera"
+private const val TAG = "hv-ExternalCamera"
 
 /**
  * The external-camera mode's engine: sensors and GPS run CONTINUOUSLY into
@@ -73,7 +73,6 @@ class ExternalCameraService : Service() {
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
 	@Volatile private var lastFixLine: String = "no fix yet"
-	@Volatile private var lastHeadingLine: String = "no heading yet"
 
 	override fun onBind(intent: Intent?): IBinder? = null
 
@@ -93,14 +92,7 @@ class ExternalCameraService : Service() {
 		// sensor and location services, which is how this pane came to show
 		// a compass reading that was not the app's.)
 		val engine = GeoEngine.get(this)
-		engine.configure(externalCameraConfig())
-		scope.launch {
-			engine.orientation.collect { data ->
-				data ?: return@collect
-				lastHeadingLine = "%.1f° (%s)".format(data.trueHeading, data.source)
-				publishStatus()
-			}
-		}
+		engine.configure(externalCameraConfig(), cz.hillview.geo.OWNER_EXTERNAL_SERVICE)
 		scope.launch {
 			engine.location.collect { fix ->
 				fix ?: return@collect
@@ -123,7 +115,15 @@ class ExternalCameraService : Service() {
 	}
 
 	private fun publishStatus() {
-		statusLine.value = "$lastFixLine · $lastHeadingLine"
+		// The FIX only. The heading used to be published here too, straight
+		// from the engine's raw sample, and it was the app's second opinion
+		// about where the phone points: the pane's stamp line shows the
+		// elected bearing (what a photo records, what the map arrow uses),
+		// and a second number beside it that answers to different rules is
+		// how "the compass is stuck here but fine there" became a puzzle.
+		// One value, from the same state as everywhere else; the raw side
+		// belongs in the geo debug readout, which exists for it.
+		statusLine.value = lastFixLine
 	}
 
 	private fun startInForeground() {
@@ -174,11 +174,13 @@ class ExternalCameraService : Service() {
 
 	override fun onDestroy() {
 		scope.cancel()
-		// Hand the hardware back. The pane that started this service is
-		// leaving too, and MainScreen will hand the engine whatever the next
-		// activity wants — Off if that is the gallery.
+		// Stop ASKING for the hardware — not turn it off. This used to
+		// configure the engine Off on the assumption that MainScreen would
+		// then set whatever the next activity wants, which is only true if
+		// MainScreen goes second: leaving external for capture, the two race,
+		// and losing means the capture pane's compass never starts.
 		try {
-			GeoEngine.get(this).configure(GeoConfig.Off)
+			GeoEngine.get(this).release(cz.hillview.geo.OWNER_EXTERNAL_SERVICE)
 		} catch (e: Exception) {
 			Log.w(TAG, "engine stop failed", e)
 		}

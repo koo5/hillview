@@ -23,7 +23,7 @@ import kotlinx.coroutines.withContext
  * windows, wifi-only, foreground promotion, status sync). Stats come
  * straight from the shared DB's upload-status counts.
  */
-private const val TAG = "SharedStackUpload"
+private const val TAG = "hv-SharedStackUpload"
 
 class SharedStackUploadPipeline(
     private val context: Context,

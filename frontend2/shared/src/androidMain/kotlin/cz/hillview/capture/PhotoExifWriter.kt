@@ -13,7 +13,7 @@ import java.util.TimeZone
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private const val TAG = "PhotoExifWriter"
+private const val TAG = "hv-PhotoExifWriter"
 
 /**
  * Writes the sensor snapshot into the JPEG's EXIF. This is the contract with

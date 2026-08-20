@@ -312,7 +312,7 @@ actual fun reconcileUploadSchedule(reason: String) {
         // so an unguarded warning would turn "reconcile unavailable" back into
         // the failed login this whole block exists to prevent.
         runCatching {
-            android.util.Log.w("UploadDiagnostics", "reconcile [$reason] skipped: ${e.message}")
+            android.util.Log.w("hv-UploadDiagnostics", "reconcile [$reason] skipped: ${e.message}")
         }
     }
 }

@@ -12,7 +12,7 @@ import androidx.room.Room
  */
 class DevicePhotoLoader(private val context: Context) {
     companion object {
-        private const val TAG = "DevicePhotoLoader"
+        private const val TAG = "hv-DevicePhotoLoader"
         private const val doLog = false
     }
 

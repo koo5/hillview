@@ -520,7 +520,18 @@ data class ManualLocation(val latitude: Double, val longitude: Double)
  * walking's compass, car mode's gps-kalman course + mount offset, or a
  * hand-set arrow. NOT the raw compass (that was the car-mode bug).
  */
-data class StampBearing(val trueDeg: Float, val source: String)
+/**
+  * The one state's answer, handed to the capture pane: what a photo taken
+  * now records. Everything the stamp needs travels together, because it is
+  * one answer — the pane reads no sensor of its own.
+  */
+data class StampBearing(
+    val trueDeg: Float,
+    val source: String,
+    val magneticDeg: Double? = null,
+    val pitch: Double? = null,
+    val accuracyLevel: Int? = null,
+)
 
 /**
  * The shutter requires a location fix — a photo mapping app's photos must

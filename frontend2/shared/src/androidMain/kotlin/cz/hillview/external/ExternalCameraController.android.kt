@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
-private const val TAG = "ExternalCamera"
+private const val TAG = "hv-ExternalCamera"
 
 private class AndroidExternalCameraController(
     private val context: Context,

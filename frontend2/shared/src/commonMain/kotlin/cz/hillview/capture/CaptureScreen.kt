@@ -151,7 +151,15 @@ fun CaptureScreen(
     // arrow — whichever currently owns the arrow.
     LaunchedEffect(Unit) {
         mapState.bearing.collect { b ->
-            capture.stampBearing = StampBearing(b.bearing.toFloat(), b.source)
+            // The whole answer, not just its heading: the pane has no sensor
+            // of its own to fill in the rest from.
+            capture.stampBearing = StampBearing(
+                trueDeg = b.bearing.toFloat(),
+                source = b.source,
+                magneticDeg = b.magneticDeg,
+                pitch = b.pitch,
+                accuracyLevel = b.accuracyLevel,
+            )
         }
     }
 

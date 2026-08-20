@@ -32,11 +32,27 @@ data class SpatialState(
     val ts: Long? = null,
 )
 
+/**
+ * Where the user is facing, and everything that came with that answer.
+ *
+ * [magneticDeg] and [pitch] live HERE, beside the bearing, rather than being
+ * read off the sensor at the moment they are needed. A photo records all
+ * three, and read separately they are three different instants — worse, when
+ * the elected bearing is a manual claim, a car-mode course or a photo the
+ * user turned to, a pitch sampled straight from the compass stack belongs to
+ * a different answer entirely. One state, written in one call, so a row
+ * cannot disagree with itself. Sources that do not measure them write null,
+ * which is the truth about those sources.
+ */
 data class BearingState(
     val bearing: Double = 141.0,
     val source: String = "map",
     val photoUid: String? = null,
     val accuracyLevel: Int? = null,
+    /** Uncorrected compass heading, when the elected source has one. */
+    val magneticDeg: Double? = null,
+    /** Tilt, when the elected source has one — null is "not recorded". */
+    val pitch: Double? = null,
     val ts: Long? = null,
 )
 
@@ -118,6 +134,9 @@ class MapStateHolder(
         source: String = "map",
         photoUid: String? = null,
         accuracyLevel: Int? = null,
+        /** Only the compass has these; every other source writes null. */
+        magneticDeg: Double? = null,
+        pitch: Double? = null,
         setTimestamp: Boolean = true,
         now: Long,
     ) {
@@ -127,6 +146,8 @@ class MapStateHolder(
             source = source,
             photoUid = photoUid,
             accuracyLevel = accuracyLevel,
+            magneticDeg = magneticDeg,
+            pitch = pitch,
             ts = if (setTimestamp) now else old.ts,
         )
         // "Whoever wrote the bearing last IS the elected source" — the

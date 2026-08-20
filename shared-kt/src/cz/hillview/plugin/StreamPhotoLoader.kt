@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
  */
 class StreamPhotoLoader {
     companion object {
-        private const val TAG = "StreamPhotoLoader"
+        private const val TAG = "hv-StreamPhotoLoader"
         private const val doLog = false
         private const val CONNECTION_TIMEOUT_SECONDS = 30L
         private const val READ_TIMEOUT_SECONDS = 60L

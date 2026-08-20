@@ -25,7 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-private const val TAG = "GeoEngine"
+private const val TAG = "hv-GeoEngine"
 
 // Liveness watchdog. A REGISTERED sensor listener in the foreground delivers
 // raw events at tens of Hz without pause, so seconds of silence mean the
@@ -56,6 +56,12 @@ private const val SENSOR_STUCK_MAX_MS = 60_000L
 // registrations at a wedged hub is the one thing that could be making it
 // worse. A watchdog that never gives up is a busy loop with a long period.
 private const val SENSOR_RESTART_GIVE_UP = 5
+
+/** The visible activity's claim on the hardware — see GeoEngine.claims. */
+const val OWNER_ACTIVITY = "activity"
+
+/** The external-camera foreground service's, which outlives the pane. */
+const val OWNER_EXTERNAL_SERVICE = "external-service"
 private const val FIX_SILENCE_BASE_MS = 60_000L
 private const val FIX_SILENCE_MAX_MS = 10 * 60_000L
 
@@ -227,11 +233,62 @@ class GeoEngine private constructor(private val context: Context) {
     val locationActive: StateFlow<Boolean> = _locationActive.asStateFlow()
 
     /**
+     * Who is asking for the hardware, and for what.
+     *
+     * There is more than one asker — the visible activity, and the
+     * external-camera foreground service that has to outlive it — and until
+     * this existed they simply took turns writing one global config, last
+     * writer wins. That is a race with a nasty landing: leaving the external
+     * pane for capture, MainScreen configures capture and the SERVICE's
+     * onDestroy then configures Off, in whichever order the system happens
+     * to destroy the service. Win, and the compass works; lose, and the
+     * sensors stop while the capture pane sits in front of you with its
+     * heading frozen and its sample age climbing, until some other activity
+     * change happens to fix it. "Sometimes it works" is the signature of it.
+     *
+     * So an owner cannot turn the hardware off any more — it can only stop
+     * asking, and what runs is the union of what is still being asked for.
+     */
+    private val claims = LinkedHashMap<String, GeoConfig>()
+
+    /**
      * Apply a configuration. Idempotent: the same config twice is a no-op, so
      * a recomposing caller can hand it over freely.
+     *
+     * [GeoConfig.Off] means "I no longer need anything", not "nobody does" —
+     * it drops this owner's claim and leaves everyone else's standing.
      */
-    fun configure(config: GeoConfig) {
-        mainHandler.post { applyConfig(config) }
+    @JvmOverloads
+    fun configure(config: GeoConfig, owner: String = OWNER_ACTIVITY) {
+        mainHandler.post {
+            if (config == GeoConfig.Off) claims.remove(owner) else claims[owner] = config
+            applyConfig(mergedConfig())
+        }
+    }
+
+    /** Stop asking. The hardware keeps running for whoever else still is. */
+    fun release(owner: String) {
+        mainHandler.post {
+            claims.remove(owner)
+            applyConfig(mergedConfig())
+        }
+    }
+
+    /**
+     * The union: sensors on if anyone wants them, at the FASTEST rate asked
+     * for (a slower claim is satisfied by a faster stream; the reverse is
+     * not), fixes likewise, and background operation if any claim needs it.
+     */
+    private fun mergedConfig(): GeoConfig {
+        if (claims.isEmpty()) return GeoConfig.Off
+        val wantSensors = claims.values.filter { it.sensors }
+        val intervals = claims.values.map { it.locationIntervalMs }.filter { it > 0 }
+        return GeoConfig(
+            sensors = wantSensors.isNotEmpty(),
+            sensorDelayUs = wantSensors.minOfOrNull { it.sensorDelayUs } ?: 0,
+            locationIntervalMs = intervals.minOrNull() ?: 0L,
+            sensorsInBackground = claims.values.any { it.sensorsInBackground },
+        )
     }
 
     /** Car mode's heading filter is stateful — the map resets it on entry. */

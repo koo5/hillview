@@ -58,7 +58,7 @@ class PhotoUploadLogic(internal val context: Context) {
 	private val editDao = database.editDao()
 
 	companion object {
-		private const val TAG = "🢄Upload"
+		private const val TAG = "hv-Upload"
 		private const val doLog = false
 		private const val PREFS_NAME = "hillview_upload_prefs"
 		private const val PREF_SERVER_URL = "server_url"

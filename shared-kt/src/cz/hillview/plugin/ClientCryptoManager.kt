@@ -69,7 +69,7 @@ import kotlinx.serialization.encodeToString
 class ClientCryptoManager(private val context: Context) {
 
     companion object {
-        private const val TAG = "🢄ClientCryptoManager"
+        private const val TAG = "hv-ClientCryptoManager"
         private const val PREFS_NAME = "hillview_client_crypto"
         private const val KEY_ALIAS = "hillview_client_signing_key"
         private const val KEY_ID_PREF = "client_key_id"

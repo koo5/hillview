@@ -108,13 +108,20 @@ class MapSession {
     }
 
     /**
-     * Entering capture arms a **clean** ACTIVE, and bearing tracking with
-     * it. Clean is the whole point: the regression this reproduces left the
-     * background flag set, which the suite describes as leaving "the button
-     * stuck half-blue, GPS still logging '-background', and captures
-     * recording the live fix only as alt_location".
+     * Entering a RECORDING activity arms a **clean** ACTIVE, and bearing
+     * tracking with it. Clean is the whole point: the regression this
+     * reproduces left the background flag set, which the suite describes as
+     * leaving "the button stuck half-blue, GPS still logging '-background',
+     * and captures recording the live fix only as alt_location".
+     *
+     * Recording means capture OR the external-camera pane. The original has
+     * only the first, so it could call this "entering capture"; here the
+     * external pane records position and heading for photos another app is
+     * taking, which is the same claim on the same hardware and wants the
+     * same arming. Treating it as "leaving capture" is what left its
+     * bearing-tracking button dark while it recorded.
      */
-    fun onEnterCapture() {
+    fun onEnterRecording() {
         // A *claimed* manual position survives entering capture — the
         // whole point of the accept gate is that a surviving claim is
         // deliberate by construction. The clean-ACTIVE re-arm exists to
@@ -127,11 +134,12 @@ class MapSession {
     }
 
     /**
-     * Leaving capture stands bearing tracking down, as the contract says.
-     * Location tracking is left alone — nothing in the original turns it off
-     * here, and the user's last choice of it is still their choice.
+     * Leaving recording altogether stands bearing tracking down, as the
+     * contract says — capture to external is not leaving. Location tracking
+     * is left alone: nothing in the original turns it off here, and the
+     * user's last choice of it is still their choice.
      */
-    fun onLeaveCapture() {
+    fun onLeaveRecording() {
         _bearingTrackingWanted.value = false
     }
 }

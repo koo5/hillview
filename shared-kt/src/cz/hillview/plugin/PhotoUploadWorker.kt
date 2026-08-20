@@ -24,7 +24,7 @@ class PhotoUploadWorker(
 ) : CoroutineWorker(context, params) {
 
     companion object {
-        private const val TAG = "🢄PhotoUploadWorker"
+        private const val TAG = "hv-PhotoUploadWorker"
         const val WORK_NAME = "photo_upload_work"
         const val KEY_AUTO_UPLOAD_ENABLED = "auto_upload_enabled"
 

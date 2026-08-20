@@ -16,7 +16,7 @@ import androidx.core.app.NotificationManagerCompat
 class NotificationHelper(private val context: Context) {
 
     companion object {
-        private const val TAG = "🢄NotificationHelper"
+        private const val TAG = "hv-NotificationHelper"
         private const val CHANNEL_ID_AUTH = "auth_notifications"
         private const val CHANNEL_ID_UPLOAD = "upload_notifications"
         // Must match the channel_id the backend sets on the FCM

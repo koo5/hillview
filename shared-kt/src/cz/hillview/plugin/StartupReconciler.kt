@@ -6,7 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
-private const val TAG = "🢄StartupReconcile"
+private const val TAG = "hv-StartupReconcile"
 
 /**
  * What the app knows the instant it starts: **nothing from before is
