@@ -437,6 +437,9 @@ class GeoEngine private constructor(private val context: Context) {
         }
     }
 
+    /** The device-orientation class the UPRIGHT remap is keyed on. */
+    fun deviceOrientationName(): String? = sensorService?.deviceOrientationName
+
     /**
      * How long the raw attitude has been REPEATING, for the debug readout —
      * null when there is nothing to say yet. Distinguishes a still phone

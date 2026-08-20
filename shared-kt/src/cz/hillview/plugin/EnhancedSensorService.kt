@@ -358,6 +358,14 @@ class EnhancedSensorService(
     var lastOrientationChangeElapsedMs: Long = 0L
         private set
 
+    /**
+     * The device-orientation class the UPRIGHT remap is keyed on. Worth
+     * showing to a person, because when the attitude sample freezes this is
+     * the only live input left in the heading — so a readout that changes
+     * ONLY when this changes is the signature of a frozen sensor.
+     */
+    val deviceOrientationName: String get() = deviceOrientation.name
+
     /** Whether a sensor registration is currently in place (not paused/stopped). */
     val running: Boolean get() = isRunning
 

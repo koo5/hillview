@@ -463,6 +463,26 @@ looking:
 The Stats line counts registrations per session, which is the first number to
 look at if it happens again.
 
+**The remap table was investigated and left alone.** UPRIGHT mode keys a
+coordinate remap on a four-state device-orientation class
+(`remapCoordinatesForOrientation`), and when the attitude sample freezes that
+remap is the only live input into the heading — which is why a frozen sensor
+presents as a compass alternating between a couple of values according to how
+the phone is held. Suspicion naturally falls on the table itself, and an
+offline port of `remapCoordinateSystem`/`getOrientation` (validated against
+Android's own documented example) does say the two landscape branches read
+180° off for a phone held VERTICALLY in landscape.
+
+Do not act on that without better evidence than we have. The phone says
+otherwise — the compass is right upright, in landscape and lying flat — and
+the emulator cannot arbitrate, because its synthesized rotation vector does
+not follow `adb emu sensor set acceleration/magnetic-field`: the portrait
+pose read a stable 14.5° while an equivalent landscape pose drifted
+285.8° → 294.3° across two 20-second settles, matching neither the model nor
+itself. The device-orientation class is now shown in the debug readout, so
+the next person to see the alternation can watch whether the heading moves
+only when the class does.
+
 `Settings → Geo debug readout` prints the whole chain under the photo count:
 elected value, who wrote it, how long ago, against the raw heading with its
 own age, how long that raw sample has been REPEATING, and the drift between

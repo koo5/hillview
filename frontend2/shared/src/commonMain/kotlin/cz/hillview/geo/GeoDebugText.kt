@@ -55,6 +55,14 @@ data class GeoDebugInput(
      * values depending on how I hold it" looks like from the outside.
      */
     val rawStillMs: Long? = null,
+    /**
+     * The device-orientation class the sensor stack's remap is keyed on.
+     * Shown because a heading that moves only when THIS moves is a frozen
+     * attitude sample being remapped four ways — the fault reads as "the
+     * compass alternates between a couple of values depending on how I hold
+     * the phone", and this is the line that says so.
+     */
+    val devicePose: String? = null,
     val manualPositionClaimed: Boolean = false,
     val nowMs: Long,
 )
@@ -92,6 +100,7 @@ fun geoDebugLines(input: GeoDebugInput): List<String> = listOf(
         append(if (input.bearingWanted) "ON" else "OFF")
         append(" · ")
         append(input.bearingPhase.name)
+        input.devicePose?.let { append(" · ${it.take(9)}") }
     },
     buildString {
         append("📍 ")

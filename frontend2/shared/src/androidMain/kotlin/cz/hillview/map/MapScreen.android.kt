@@ -285,6 +285,7 @@ actual fun MapScreen(
             rawAtMs = raw?.timestamp,
             rawDetail = raw?.detail,
             rawStillMs = controller.sensorValueStillMs(),
+            devicePose = controller.deviceOrientationName(),
             manualPositionClaimed = manualClaimed,
             nowMs = debugNow,
         ),
@@ -801,6 +802,9 @@ private class MapSensorController(private val context: Context) {
 
     /** How long the attitude sample has been repeating — see GeoEngine. */
     fun sensorValueStillMs(): Long? = engine.sensorValueStillMs()
+
+    /** The pose class the UPRIGHT remap keys on — see GeoDebugText. */
+    fun deviceOrientationName(): String? = engine.deviceOrientationName()
 
     fun compassAvailable(): Boolean =
         (context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager)

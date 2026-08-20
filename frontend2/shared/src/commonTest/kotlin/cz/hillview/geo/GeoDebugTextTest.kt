@@ -132,6 +132,17 @@ class GeoDebugTextTest {
         assertTrue(lines[1].contains("0.0s still 0.2s"), lines[1])
     }
 
+    /**
+     * The pair that names the reported fault: a frozen sample, and the pose
+     * class that is then the only live input into the heading.
+     */
+    @Test
+    fun theRemapsPoseClassIsShownBesideTheStillness() {
+        val lines = geoDebugLines(input().copy(rawStillMs = 62_000, devicePose = "LANDSCAPE_LEFT"))
+        assertTrue(lines[1].contains("still 62s"), lines[1])
+        assertTrue(lines[1].endsWith("Active · LANDSCAPE"), lines[1])
+    }
+
     @Test
     fun theSensorDetailIsCompressedToWhatVariesBetweenDevices() {
         assertEquals(
