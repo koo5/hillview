@@ -117,12 +117,28 @@ class EnhancedSensorService(
     // actors pausing and resuming the same listener is how a resume gets
     // lost. (Also BEFORE onSensorUpdate, for the trailing-lambda reason above.)
     private val observeAppLifecycle: Boolean = true,
+    /**
+     * The sampling period handed to registerListener, microseconds.
+     *
+     * It is a PARAMETER because the rate is a policy the owner decides —
+     * frontend2's GeoConfig has carried a per-activity rate (a relaxed one
+     * for map-only viewing, a normal one for capture) since the engine was
+     * written, and it never reached the hardware: registration used the
+     * constant below regardless, so the relaxed rate did not exist and a
+     * config change restarted the sensors to arrive at the identical
+     * registration. Registration churn is the thing to avoid on a device
+     * whose sensor hub can wedge, and churn that changes nothing is the
+     * worst kind. The default keeps the Tauri plugin's behaviour exactly.
+     */
+    private val sensorDelayUs: Int = DEFAULT_SENSOR_DELAY_US,
     private val onSensorUpdate: (OrientationSensorData) -> Unit,
 ) : SensorEventListener {
     companion object {
         private const val TAG = "🢄Sensors"
         private const val UPDATE_RATE_MS = 10 // Higher frequency for better fusion
-        private const val SENSOR_DELAY = 1000*30//SensorManager.SENSOR_DELAY_GAME // Faster updates
+        // The historical rate, kept as the default for callers that do not
+        // choose one (the Tauri plugin).
+        const val DEFAULT_SENSOR_DELAY_US = 1000*30//SensorManager.SENSOR_DELAY_GAME // Faster updates
 
         // Smoothing and filtering parameters
         private const val EMA_ALPHA = 1f // EMA smoothing factor (0.1-0.3 range, lower = more smoothing)
@@ -174,7 +190,9 @@ class EnhancedSensorService(
     private val madgwickAHRS = MadgwickAHRS(sampleFreq = 50f, beta = 0.1f)
 
     // Thread priority management
-    private var originalThreadPriority: Int? = null
+    // Read and written on whichever thread the boost lands on, which is no
+    // longer the caller's — hence volatile.
+    @Volatile private var originalThreadPriority: Int? = null
 
     // Sensor data buffers
     private var accelerometerData = FloatArray(3)
@@ -412,7 +430,7 @@ class EnhancedSensorService(
      * the three-arg one (main looper), so the default path is unchanged.
      */
     private fun registerSensor(sensor: Sensor) {
-        val ok = sensorManager.registerListener(this, sensor, SENSOR_DELAY, callbackHandler)
+        val ok = sensorManager.registerListener(this, sensor, sensorDelayUs, callbackHandler)
         // registerListener REFUSING is silent otherwise — and a refused
         // re-registration on foreground return is a compass that looks
         // healthy and never moves again.
@@ -425,16 +443,30 @@ class EnhancedSensorService(
             stopSensorInternal()
         }
 
-        // Boost thread priority for sensor processing to prevent starvation during photo capture
-        try {
-            if (originalThreadPriority == null) {
-                originalThreadPriority = Process.getThreadPriority(Process.myTid())
+        // Boost the thread that PROCESSES sensor events, so a photo capture
+        // cannot starve it.
+        //
+        // "The thread that processes them" used to mean "whoever called
+        // this", which was right only by accident: with no callbackHandler
+        // the events arrive on the main looper, and the caller is the main
+        // thread too. frontend2 passes its own HandlerThread, so the boost
+        // landed on the MAIN thread — pinning the UI thread at
+        // URGENT_DISPLAY for the life of the process (nothing restores it)
+        // while the thread it was meant for ran at default priority. An app
+        // that holds its UI thread above the system's own display work is a
+        // bad citizen on a weak device, and it was buying nothing.
+        val boost = Runnable {
+            try {
+                if (originalThreadPriority == null) {
+                    originalThreadPriority = Process.getThreadPriority(Process.myTid())
+                }
+                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+                Log.i(TAG, "🚀 SENSOR THREAD PRIORITY: boosted from ${originalThreadPriority} to ${Process.THREAD_PRIORITY_URGENT_DISPLAY}")
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠️ Failed to set sensor thread priority: ${e.message}")
             }
-            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
-            Log.i(TAG, "🚀 SENSOR THREAD PRIORITY: boosted from ${originalThreadPriority} to ${Process.THREAD_PRIORITY_URGENT_DISPLAY}")
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ Failed to set sensor thread priority: ${e.message}")
         }
+        if (callbackHandler != null) callbackHandler.post(boost) else boost.run()
 
 		Log.i(TAG, "🔍📡 TYPE_HEADING and TYPE_POSE_6DOF sensors if available: headingSensor: ${headingSensor != null}, poseSensor: ${poseSensor != null}")
         /*headingSensor?.let { registerSensor(it) }
@@ -546,7 +578,7 @@ class EnhancedSensorService(
             Log.i(TAG, "🔍🎯 Current configuration:")
             Log.i(TAG, "  - Mode: ${MODE_NAMES[currentMode]}")
             Log.i(TAG, "  - Rate limit: ${MODE_RATE_LIMITS[currentMode]}ms (${1000.0/(MODE_RATE_LIMITS[currentMode]?:100)} Hz)")
-            Log.i(TAG, "  - Sensor delay: SENSOR_DELAY_GAME")
+            Log.i(TAG, "  - Sensor delay: ${sensorDelayUs / 1000}ms")
         }
     }
 

@@ -47,6 +47,15 @@ private const val SENSOR_SILENCE_MAX_MS = 60_000L
 // registration), so a phone lying still is never restarted for lying still.
 private const val SENSOR_STUCK_MS = 12_000L
 private const val SENSOR_STUCK_MAX_MS = 60_000L
+
+// How many times to re-register before accepting that re-registering is not
+// the cure. Past this the engine stops trying until something real changes
+// (a return to the foreground, an activity's config), because the failure
+// mode being defended against here is not ours alone: a sensor hub can wedge
+// for the WHOLE DEVICE — every app's compass stuck at once — and churning
+// registrations at a wedged hub is the one thing that could be making it
+// worse. A watchdog that never gives up is a busy loop with a long period.
+private const val SENSOR_RESTART_GIVE_UP = 5
 private const val FIX_SILENCE_BASE_MS = 60_000L
 private const val FIX_SILENCE_MAX_MS = 10 * 60_000L
 
@@ -164,6 +173,9 @@ class GeoEngine private constructor(private val context: Context) {
     // just as frozen, retrying every twelve seconds forever helps nobody.
     @Volatile private var sensorStuckLimitMs = SENSOR_STUCK_MS
     @Volatile private var sensorRestarts = 0
+    // Restarts since the sensor was last demonstrably healthy (a sample that
+    // MOVED — an arriving one proves nothing, see sensorLooksStuck).
+    @Volatile private var sensorRestartsWithoutRecovery = 0
     @Volatile private var fixRerequests = 0
 
     private val processObserver = object : DefaultLifecycleObserver {
@@ -229,6 +241,9 @@ class GeoEngine private constructor(private val context: Context) {
 
     private fun applyConfig(config: GeoConfig) {
         if (config == active) return
+        // A real change in what the app is doing: worth trying the hardware
+        // again even if the watchdog had given up on it.
+        sensorRestartsWithoutRecovery = 0
         Log.i(TAG, "configure $active -> $config")
         cz.hillview.plugin.EventLog.record(
             "geo",
@@ -283,6 +298,9 @@ class GeoEngine private constructor(private val context: Context) {
 
     private fun onForeground() {
         foreground = true
+        // Coming back to the foreground is the other event worth a fresh
+        // attempt — much of what wedges a registration is a backgrounding.
+        sensorRestartsWithoutRecovery = 0
         // The replayed onStart at observer registration, and any start that
         // was not preceded by a stop: nothing to re-arm.
         if (!wasBackgrounded) return
@@ -328,12 +346,25 @@ class GeoEngine private constructor(private val context: Context) {
             if (raw > sensorsStartedAtMs) sensorSilenceLimitMs = SENSOR_SILENCE_BASE_MS
             // A sample that MOVED recently is proof the registration is
             // genuinely healthy, which the arrival of one is not.
-            if (now - sensors.lastRawValueChangeElapsedMs < SENSOR_STUCK_MS) {
+            if (sensors.lastRawValueChangeElapsedMs != 0L &&
+                now - sensors.lastRawValueChangeElapsedMs < SENSOR_STUCK_MS
+            ) {
                 sensorStuckLimitMs = SENSOR_STUCK_MS
+                sensorRestartsWithoutRecovery = 0
             }
             val last = raw.takeIf { it != 0L } ?: sensorsStartedAtMs
             val silence = now - last
             val valueChange = sensors.lastRawValueChangeElapsedMs
+            if (sensorRestartsWithoutRecovery == SENSOR_RESTART_GIVE_UP) {
+                sensorRestartsWithoutRecovery++ // once, so this logs once
+                Log.w(TAG, "re-registering has not revived the sensors — standing down until foreground or config change")
+                cz.hillview.plugin.EventLog.record(
+                    "geo",
+                    "sensors did not revive after $SENSOR_RESTART_GIVE_UP re-registrations — " +
+                        "standing down (a device-wide sensor stall looks like this; " +
+                        "check whether other apps' compasses are stuck too)",
+                )
+            }
             val stuck = sensorLooksStuck(
                 nowMs = now,
                 rawEventAtMs = raw,
@@ -341,8 +372,11 @@ class GeoEngine private constructor(private val context: Context) {
                 orientationChangeAtMs = sensors.lastOrientationChangeElapsedMs,
                 stuckLimitMs = sensorStuckLimitMs,
             )
-            if (silence <= sensorSilenceLimitMs && stuck) {
+            if (silence <= sensorSilenceLimitMs && stuck &&
+                sensorRestartsWithoutRecovery < SENSOR_RESTART_GIVE_UP
+            ) {
                 sensorRestarts++
+                sensorRestartsWithoutRecovery++
                 val still = (now - valueChange) / 1000
                 sensorStuckLimitMs = (sensorStuckLimitMs * 2).coerceAtMost(SENSOR_STUCK_MAX_MS)
                 Log.w(TAG, "sensor value frozen ${still}s while the device turned — re-registering (#$sensorRestarts)")
@@ -358,8 +392,11 @@ class GeoEngine private constructor(private val context: Context) {
                     }
                 }
             }
-            if (silence > sensorSilenceLimitMs) {
+            if (silence > sensorSilenceLimitMs &&
+                sensorRestartsWithoutRecovery < SENSOR_RESTART_GIVE_UP
+            ) {
                 sensorRestarts++
+                sensorRestartsWithoutRecovery++
                 sensorSilenceLimitMs = (sensorSilenceLimitMs * 2).coerceAtMost(SENSOR_SILENCE_MAX_MS)
                 Log.w(TAG, "sensors silent ${silence / 1000}s while wanted — re-registering (#$sensorRestarts)")
                 cz.hillview.plugin.EventLog.record(
@@ -421,18 +458,31 @@ class GeoEngine private constructor(private val context: Context) {
         return "geo: ${if (foreground) "foreground" else "background"}, " +
             "sensors " + (if (sensors == null) "off" else "raw event ${sensorAge ?: "never"}$valueAge") + ", " +
             "fix " + (if (locationService == null) "off" else (fixAge ?: "never")) +
+            ", registrations $sensorStarts" +
             (if (sensorRestarts + fixRerequests > 0) ", restarts $sensorRestarts/$fixRerequests" else "")
     }
+
+    // Every registerListener this process has ever asked for. Churn is the
+    // thing to watch when a sensor hub stalls device-wide, and "how many
+    // times did we register today" is the first number anyone would want.
+    @Volatile private var sensorStarts = 0
 
     private fun startSensors() {
         if (sensorService != null) return
         sensorsStartedAtMs = SystemClock.elapsedRealtime()
+        sensorStarts++
         sensorService = EnhancedSensorService(
             context = context,
             callbackHandler = handler,
             // The engine pauses, resumes and re-arms — see the foreground
             // notes above; a second actor inside the service would fight it.
             observeAppLifecycle = false,
+            // The rate the ACTIVITY asked for. Until this was passed, the
+            // service registered at its own constant and GeoConfig's rate
+            // only ever decided whether to restart the sensors — so every
+            // activity switch tore the registration down and rebuilt an
+            // identical one, and the relaxed map-only rate never ran.
+            sensorDelayUs = active.sensorDelayUs,
         ) { data ->
             // One sample, fanned out — the plugin's shape exactly.
             geoTracking.storeOrientationSensorData(data)

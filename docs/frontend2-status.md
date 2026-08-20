@@ -440,6 +440,29 @@ tracks when a sample last CHANGED, and the watchdog re-registers when a
 repeat outlasts a turn (`sensorLooksStuck` — repetition alone is a phone on
 a table, and must never trigger a restart).
 
+**When OTHER apps' compasses are stuck too (2026-08-20).** Then the stall is
+the device's sensor hub, not ours, and re-registering cannot cure it — but
+Hillview is still the prime suspect for causing it, because it is the app
+running the sensors hardest. Three misbehaviours were found and fixed while
+looking:
+
+- `GeoConfig.sensorDelayUs` never reached `registerListener` (which used a
+  hardcoded 30 ms), so the relaxed map-only rate never existed AND every
+  activity switch tore down the registration to rebuild an identical one —
+  churn that changed nothing.
+- The watchdog re-registered forever, backing off only to once a minute. At a
+  hub that is already wedged that is pure harm; it now gives up after
+  `SENSOR_RESTART_GIVE_UP` attempts until a foreground return or a config
+  change, and says so in the event log.
+- The "boost sensor processing" code boosted the CALLING thread and never
+  restored it. With frontend2's callback handler that pinned the UI thread at
+  `THREAD_PRIORITY_URGENT_DISPLAY` for the life of the process while the
+  thread it meant to boost ran at default. (Under Tauri, caller and callback
+  thread are both the main looper, which is why it read as correct.)
+
+The Stats line counts registrations per session, which is the first number to
+look at if it happens again.
+
 `Settings → Geo debug readout` prints the whole chain under the photo count:
 elected value, who wrote it, how long ago, against the raw heading with its
 own age, how long that raw sample has been REPEATING, and the drift between
