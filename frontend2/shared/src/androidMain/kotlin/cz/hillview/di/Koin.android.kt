@@ -165,6 +165,9 @@ actual fun platformModule(): Module = module {
     single {
         cz.hillview.viewer.ViewerStateHolder(
             map = get(),
+            standDownTracking = {
+                get<cz.hillview.map.MapSession>().setBearingTrackingWanted(false)
+            },
             markers = get<cz.hillview.map.PhotoMarkerSource>().markers,
             hunterMode = get<cz.hillview.map.MapFilterState>().hunterMode,
             overrideFilters = get<cz.hillview.map.MapFilterState>().overrideFilters,

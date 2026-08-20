@@ -102,6 +102,16 @@ fun deriveViewerState(
  */
 class ViewerStateHolder(
     private val map: MapStateHolder,
+    /**
+     * Turning to a photo stands bearing tracking down, because the original
+     * does: updateBearingWithPhoto() calls disableBearingTracking() before
+     * it writes. Without it the compass overwrites the photo's bearing on
+     * its next reading and the turn does not stick — you are looking along
+     * a PHOTO's direction now, not your own. The pane goes quiet in the
+     * process, which is what the capture screen's bearing-tracking hint is
+     * there to say out loud.
+     */
+    private val standDownTracking: () -> Unit,
     markers: StateFlow<List<PhotoMarker>>,
     hunterMode: StateFlow<Boolean>,
     overrideFilters: StateFlow<Boolean>,
@@ -121,6 +131,7 @@ class ViewerStateHolder(
      */
     fun turnTo(photo: PhotoMarker) {
         val bearing = photo.bearingDeg ?: return
+        standDownTracking()
         map.updateBearing(
             bearing = bearing,
             source = SOURCE_PHOTO_NAVIGATION,

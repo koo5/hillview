@@ -141,8 +141,25 @@ class ViewerStateTest {
         assertEquals(before, map.bearing.value)
     }
 
+    private var stoodDown = false
+
+    /**
+     * The original's updateBearingWithPhoto() disables bearing tracking
+     * before writing the photo's bearing; without that the compass takes
+     * the value back on its next reading and the turn does not stick.
+     */
+    @Test
+    fun turningToAPhotoStandsBearingTrackingDown() {
+        val map = MapStateHolder()
+        stoodDown = false
+        holderFor(map).turnTo(photo("p1", 90.0))
+        assertTrue(stoodDown)
+        assertEquals(90.0, map.bearing.value.bearing)
+    }
+
     private fun holderFor(map: MapStateHolder) = ViewerStateHolder(
         map = map,
+        standDownTracking = { stoodDown = true },
         markers = MutableStateFlow(emptyList()),
         hunterMode = MutableStateFlow(true),
         overrideFilters = MutableStateFlow(false),
