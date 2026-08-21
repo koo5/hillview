@@ -25,6 +25,8 @@ private class DesktopPhotoCapture : PhotoCapture {
 
     override fun selectResolution(resolution: CaptureResolution?) {}
 
+    override fun configureStill(mode: StillCaptureMode, jpegQuality: Int) {}
+
     override suspend fun prepareExposure() {}
 
     override fun capture() {}

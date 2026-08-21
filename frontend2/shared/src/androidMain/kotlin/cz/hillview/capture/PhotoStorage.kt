@@ -35,7 +35,7 @@ data class SavedPhoto(
  * reaches the same DCIM/Hillview folder without any permission.
  */
 object PhotoStorage {
-    private const val TAG = "PhotoStorage"
+    private const val TAG = "hv-PhotoStorage"
 
     /**
      * The folder's base name. "Hillview2" in both build types — this app

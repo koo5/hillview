@@ -11,7 +11,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 object PhotoUtils {
-    private const val TAG = "🢄PhotoUtils"
+    private const val TAG = "hv-PhotoUtils"
     private const val doLog = false
 
     // Thread-local date formatters to avoid creating new instances repeatedly

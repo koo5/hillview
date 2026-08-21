@@ -1,5 +1,7 @@
 package cz.hillview.settings
 
+import cz.hillview.capture.DEFAULT_JPEG_QUALITY
+import cz.hillview.capture.StillCaptureMode
 import cz.hillview.map.BearingMode
 import cz.hillview.map.DEFAULT_TILE_PROVIDER
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +19,20 @@ data class MapSettings(
     val bearingMode: BearingMode = BearingMode.Walking,
     /** The persisted half of hunter mode; the override is session-only. */
     val hunterModePref: Boolean = false,
+    /**
+     * The geo debug readout (see GeoDebugText): the elected bearing, who
+     * wrote it and how long ago, next to the engine's raw heading. Off by
+     * default — it is for answering "why is that number not moving?", not
+     * for carrying around.
+     */
+    val showGeoDebug: Boolean = false,
+    /**
+     * "Do not show again" for the capture pane's bearing-tracking hint —
+     * the original's hideBearingTrackingHint, kept because the hint answers
+     * a question ("why is the heading not moving?") that only needs
+     * answering until the user knows.
+     */
+    val hideBearingTrackingHint: Boolean = false,
     /**
      * "Show unanalyzed photos": default on, and only *meaningful* once some
      * analysis filter is active — unchecked it greys every photo the
@@ -43,6 +59,15 @@ data class MapSettings(
     val cameraOverlayOpacity: Int = 3,
     /** Pinned still size as "WxH"; null = auto (Tauri selectedResolution). */
     val captureResolution: String? = null,
+    /**
+     * What sits between the shutter press and the exposure — see
+     * StillCaptureMode. A frontend2 knob (the original has no say in this;
+     * its WebView camera does whatever the browser does); persisted beside
+     * the resolution it is bound with.
+     */
+    val stillCaptureMode: StillCaptureMode = StillCaptureMode.DEFAULT,
+    /** JPEG quality of the saved stills, 1..100 (CaptureState.jpegQuality). */
+    val jpegQuality: Int = DEFAULT_JPEG_QUALITY,
     /**
      * The Main page's activity — "view" or "capture" — persisted so the
      * mode survives restarts, as the Tauri appSettings.activity does.

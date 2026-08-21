@@ -105,6 +105,11 @@ kotlin {
             implementation(libs.koin.compose)
             implementation(libs.koin.compose.viewmodel)
 
+            // Image loading for the viewer pane's slots — multiplatform, and
+            // sharing ktor with everything else here.
+            implementation(libs.coil.compose)
+            implementation(libs.coil.network.ktor)
+
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.serialization.kotlinx.json)
@@ -161,4 +166,17 @@ dependencies {
     // Room codegen for the android target only (the KMP-target-qualified KSP
     // configuration; there is no Room usage in jvm/common).
     "kspAndroid"(libs.androidx.room.compiler)
+}
+
+// OneStateArchitectureTest reads the SOURCE TREE, not the classpath: it
+// enforces that nothing outside the geo boundary talks to the hardware (see
+// docs/one-state.md). Gradle cannot see that dependency, so a violation added
+// under androidMain — which is not on the jvm target's classpath — left the
+// task up to date and the check silently unrun. Declaring src/ as an input
+// makes any source change re-run it, which is the whole point of a fitness
+// test: it has to fire when the code moves, not when the test does.
+tasks.named<Test>("jvmTest") {
+    inputs.dir(layout.projectDirectory.dir("src"))
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+        .withPropertyName("sourceTreeForArchitectureTest")
 }

@@ -37,7 +37,7 @@ class AuthenticationManager(
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     companion object {
-        private const val TAG = "🢄AuthenticationManager"
+        private const val TAG = "hv-AuthenticationManager"
         private const val PREFS_NAME = "hillview_auth"
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_REFRESH_TOKEN = "refresh_token"

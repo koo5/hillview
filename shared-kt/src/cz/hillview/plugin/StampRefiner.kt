@@ -12,7 +12,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
-private const val TAG = "🢄StampRefiner"
+private const val TAG = "hv-StampRefiner"
 
 /**
  * Table-side stamp refinement: replace a photo row's at-the-time values with

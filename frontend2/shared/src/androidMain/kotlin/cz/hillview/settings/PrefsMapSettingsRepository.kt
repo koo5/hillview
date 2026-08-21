@@ -1,6 +1,8 @@
 package cz.hillview.settings
 
 import android.content.Context
+import cz.hillview.capture.DEFAULT_JPEG_QUALITY
+import cz.hillview.capture.StillCaptureMode
 import cz.hillview.map.BearingMode
 import cz.hillview.map.DEFAULT_TILE_PROVIDER
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +22,8 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
                 BearingMode.Walking
             },
             hunterModePref = prefs.getBoolean("hunter_mode", false),
+            showGeoDebug = prefs.getBoolean("show_geo_debug", false),
+            hideBearingTrackingHint = prefs.getBoolean("hide_bearing_tracking_hint", false),
             showUnanalyzed = prefs.getBoolean("show_unanalyzed", true),
             powerSavingPref = prefs.getBoolean("power_saving", false),
             ecoFps = prefs.getFloat("eco_fps", 15f),
@@ -34,6 +38,8 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
                 ?: emptyMap(),
             cameraOverlayOpacity = prefs.getInt("camera_overlay_opacity", 3),
             captureResolution = prefs.getString("capture_resolution", null),
+            stillCaptureMode = StillCaptureMode.fromKey(prefs.getString("still_capture_mode", null)),
+            jpegQuality = prefs.getInt("jpeg_quality", DEFAULT_JPEG_QUALITY),
             mainActivity = prefs.getString("main_activity", null) ?: "view",
             splitPercent = prefs.getFloat("split_percent", 50f),
             gpsIntervalMs = prefs.getLong("gps_interval_ms", 1_000L),
@@ -48,6 +54,8 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             .putInt("max_photos", next.maxPhotos.coerceIn(MIN_MAX_PHOTOS, MAX_MAX_PHOTOS))
             .putString("bearing_mode", if (next.bearingMode == BearingMode.Car) "car" else "walking")
             .putBoolean("hunter_mode", next.hunterModePref)
+            .putBoolean("show_geo_debug", next.showGeoDebug)
+            .putBoolean("hide_bearing_tracking_hint", next.hideBearingTrackingHint)
             .putBoolean("show_unanalyzed", next.showUnanalyzed)
             .putBoolean("power_saving", next.powerSavingPref)
             .putFloat("eco_fps", next.ecoFps.coerceIn(0f, 30f))
@@ -58,6 +66,8 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             )
             .putInt("camera_overlay_opacity", next.cameraOverlayOpacity.coerceIn(0, 5))
             .putString("capture_resolution", next.captureResolution)
+            .putString("still_capture_mode", next.stillCaptureMode.key)
+            .putInt("jpeg_quality", next.jpegQuality.coerceIn(1, 100))
             .putLong("gps_interval_ms", next.gpsIntervalMs.coerceIn(250L, 60_000L))
             .putString("main_activity", next.mainActivity)
             .putFloat("split_percent", next.splitPercent.coerceIn(10f, 90f))

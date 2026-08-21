@@ -93,13 +93,35 @@ class MapSession {
     }
 
     /**
-     * Entering capture arms a **clean** ACTIVE, and bearing tracking with
-     * it. Clean is the whole point: the regression this reproduces left the
-     * background flag set, which the suite describes as leaving "the button
-     * stuck half-blue, GPS still logging '-background', and captures
-     * recording the live fix only as alt_location".
+     * What the bearing plumbing is actually DOING, as opposed to what the
+     * user asked for above. It lives here rather than in the map's
+     * composition because it is the status of a session-long activity and
+     * because the capture pane's debug readout has to be able to see it —
+     * "want ON, phase Error" is a diagnosis, and it is invisible if the
+     * phase is a variable inside one screen.
      */
-    fun onEnterCapture() {
+    private val _bearingPhase = MutableStateFlow(TrackingPhase.Inactive)
+    val bearingPhase: StateFlow<TrackingPhase> = _bearingPhase.asStateFlow()
+
+    fun setBearingPhase(value: TrackingPhase) {
+        _bearingPhase.value = value
+    }
+
+    /**
+     * Entering a RECORDING activity arms a **clean** ACTIVE, and bearing
+     * tracking with it. Clean is the whole point: the regression this
+     * reproduces left the background flag set, which the suite describes as
+     * leaving "the button stuck half-blue, GPS still logging '-background',
+     * and captures recording the live fix only as alt_location".
+     *
+     * Recording means capture OR the external-camera pane. The original has
+     * only the first, so it could call this "entering capture"; here the
+     * external pane records position and heading for photos another app is
+     * taking, which is the same claim on the same hardware and wants the
+     * same arming. Treating it as "leaving capture" is what left its
+     * bearing-tracking button dark while it recorded.
+     */
+    fun onEnterRecording() {
         // A *claimed* manual position survives entering capture — the
         // whole point of the accept gate is that a surviving claim is
         // deliberate by construction. The clean-ACTIVE re-arm exists to
@@ -112,11 +134,12 @@ class MapSession {
     }
 
     /**
-     * Leaving capture stands bearing tracking down, as the contract says.
-     * Location tracking is left alone — nothing in the original turns it off
-     * here, and the user's last choice of it is still their choice.
+     * Leaving recording altogether stands bearing tracking down, as the
+     * contract says — capture to external is not leaving. Location tracking
+     * is left alone: nothing in the original turns it off here, and the
+     * user's last choice of it is still their choice.
      */
-    fun onLeaveCapture() {
+    fun onLeaveRecording() {
         _bearingTrackingWanted.value = false
     }
 }

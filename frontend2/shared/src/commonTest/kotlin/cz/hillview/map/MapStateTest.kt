@@ -15,6 +15,49 @@ import kotlin.test.assertTrue
  */
 class MapStateTest {
 
+    /**
+     * A hand-set bearing is reached for when the sensors are of no use, so
+     * nothing measured may travel with it — not the pitch, not the magnetic
+     * heading, not the accuracy of a reading that is no longer describing
+     * anything. Sources write what they measure and null for the rest.
+     */
+    @Test
+    fun aHandSetBearingCarriesNoMeasurements() {
+        val map = MapStateHolder()
+        map.updateBearing(
+            bearing = 90.0,
+            source = "android-compass-true",
+            accuracyLevel = 3,
+            magneticDeg = 88.0,
+            pitch = 12.0,
+            now = 1_000L,
+        )
+
+        // The arrow drag: an outright hand-set value.
+        map.updateBearing(bearing = 200.0, source = "arrow_drag", now = 2_000L)
+        assertNull(map.bearing.value.pitch)
+        assertNull(map.bearing.value.magneticDeg)
+
+        // Car mode's mount offset: a hand-applied TURN, which used to keep
+        // the previous writer's measurements under its own source name.
+        map.updateBearing(
+            bearing = 90.0,
+            source = "android-compass-true",
+            accuracyLevel = 3,
+            magneticDeg = 88.0,
+            pitch = 12.0,
+            now = 3_000L,
+        )
+        map.updateBearingByDiff(15.0, source = "gps-kalman", now = 4_000L)
+        assertEquals(105.0, map.bearing.value.bearing)
+        assertNull(map.bearing.value.pitch)
+        assertNull(map.bearing.value.magneticDeg)
+        // Accuracy is the exception, and deliberately: the original carries
+        // it across a diff (mapState.ts:513), so bearingByDiffPreserves-
+        // SourcePhotoAndAccuracy still holds. Faithfulness beats tidiness.
+        assertEquals(3, map.bearing.value.accuracyLevel)
+    }
+
     @Test
     fun spatialUpdatesDedupIgnoringTheTimestamp() {
         val state = MapStateHolder()
@@ -411,7 +454,7 @@ class MapSessionTest {
 
         // The clean-ACTIVE re-arm kills stale background flags; a gated
         // claim cannot be stale, so it must survive.
-        session.onEnterCapture()
+        session.onEnterRecording()
         assertEquals(LocationTracking.Background, session.locationTracking.value)
         assertTrue(session.manualPositionClaimed.value)
     }
@@ -461,7 +504,7 @@ class MapSessionTest {
         assertTrue(session.mapPositionWithoutFix.value)
         assertTrue(session.manualPositionElected.value)
 
-        session.onEnterCapture()
+        session.onEnterRecording()
         assertTrue(session.manualPositionElected.value)
     }
 
@@ -471,7 +514,7 @@ class MapSessionTest {
         // did not deliberately claim a position.
         val session = MapSession()
         session.setLocationTracking(LocationTracking.Background)
-        session.onEnterCapture()
+        session.onEnterRecording()
         assertEquals(LocationTracking.Active, session.locationTracking.value)
     }
 }

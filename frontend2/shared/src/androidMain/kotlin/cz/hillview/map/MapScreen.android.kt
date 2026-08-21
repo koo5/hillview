@@ -13,6 +13,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -77,19 +78,32 @@ actual fun MapScreen(
     val spatial by state.spatial.collectAsState()
     val bearing by state.bearing.collectAsState()
 
-    // Hunter mode: persisted preference, overridable per session.
-    var hunterOverride by remember { mutableStateOf<Boolean?>(null) }
-    val hunterMode = hunterOverride ?: mapSettings.hunterModePref
+    // Hunter mode and the filter override moved OUT of this screen: the
+    // viewer pane reads the same two flags to decide what you can turn to,
+    // so they are shared state now (see MapFilterState).
+    val filters: MapFilterState = org.koin.compose.koinInject()
+    val hunterMode by filters.hunterMode.collectAsState()
 
     // Session-only, exactly as in the Svelte app — but held in MapSession
     // rather than the composition, because the map is its own destination
-    // here and a trip through capture would otherwise reset it. The effects
-    // below keep the two in step in both directions: what the user does on
-    // this screen is written back, and what happened while the screen was
-    // away (capture arming a clean ACTIVE) is adopted.
-    var trackingWanted by remember { mutableStateOf(session.bearingTrackingWanted.value) }
-    var trackingPhase by remember { mutableStateOf(TrackingPhase.Inactive) }
-    var locationTracking by remember { mutableStateOf(session.locationTracking.value) }
+    // here and a trip through capture would otherwise reset it.
+    //
+    // READ-ONLY here, and deliberately so. This screen used to keep its own
+    // copy of both intents and mirror them back to the session in effects,
+    // so the same intent had two homes and either could win: the write-back
+    // carried the value read when the composition started, which is stale
+    // the moment anything else arms tracking in the same frame (entering
+    // capture does exactly that, from MainScreen, which composes first).
+    // Whether that race ever fired in practice was never demonstrated — it
+    // is removed because one intent with two writers is not a thing to
+    // reason about, not because a bug was pinned on it. The session
+    // outlives the composition, so the session owns it.
+    val trackingWanted by session.bearingTrackingWanted.collectAsState()
+    // The phase belongs to the session for the same reason the intent
+    // does: it outlives this composition, and the capture pane's debug
+    // readout has to be able to see it.
+    val trackingPhase by session.bearingPhase.collectAsState()
+    val locationTracking by session.locationTracking.collectAsState()
     var locationFlash by remember { mutableStateOf(false) }
     // A pan happened and no manual position is claimed: exploration is
     // free, and this offers the two exits — claim this position, or snap
@@ -98,7 +112,7 @@ actual fun MapScreen(
     var positionPrompt by remember { mutableStateOf(false) }
     val manualClaimed by session.manualPositionClaimed.collectAsState()
     val manualPositionElected by session.manualPositionElected.collectAsState()
-    var overrideFilters by remember { mutableStateOf(false) }
+    val overrideFilters by filters.overrideFilters.collectAsState()
     var showFilters by remember { mutableStateOf(false) }
     // The toggle panel enumerates whatever sources the composite carries
     // (device + hillview today; mapillary/panoramax join when their
@@ -107,6 +121,16 @@ actual fun MapScreen(
     val sourceDescriptors = remember(markerSource) { markerSource.sourceDescriptors() }
     fun sourceEnabled(d: MapSourceDescriptor): Boolean =
         mapSettings.sourceStates[d.id] ?: d.defaultEnabled
+    // A photo just taken is in the database but not in the marker set, which
+    // is refetched on viewport change — so without this it stays invisible,
+    // and out of the viewer's ring, until you happen to pan. The Tauri app
+    // covers the same gap with placeholder markers; here the row already
+    // exists, so the news is enough. See CaptureEvents.
+    val captureEvents: cz.hillview.capture.CaptureEvents = org.koin.compose.koinInject()
+    LaunchedEffect(Unit) {
+        captureEvents.captured.collect { markerSource.refresh() }
+    }
+
     LaunchedEffect(mapSettings.sourceStates) {
         sourceDescriptors.forEach { d ->
             markerSource.setSourceEnabled(d.id, sourceEnabled(d))
@@ -125,12 +149,6 @@ actual fun MapScreen(
     }
     val density = LocalDensity.current
 
-    val sessionLocation by session.locationTracking.collectAsState()
-    val sessionBearingWanted by session.bearingTrackingWanted.collectAsState()
-    LaunchedEffect(sessionLocation) { locationTracking = sessionLocation }
-    LaunchedEffect(sessionBearingWanted) { trackingWanted = sessionBearingWanted }
-    LaunchedEffect(locationTracking) { session.setLocationTracking(locationTracking) }
-    LaunchedEffect(trackingWanted) { session.setBearingTrackingWanted(trackingWanted) }
 
     val controller = remember { MapSensorController(context.applicationContext) }
     DisposableEffect(controller) { onDispose { controller.release() } }
@@ -140,12 +158,12 @@ actual fun MapScreen(
     LaunchedEffect(trackingWanted, mapSettings.bearingMode) {
         if (!trackingWanted) {
             controller.stopBearing()
-            trackingPhase = TrackingPhase.Inactive
+            session.setBearingPhase(TrackingPhase.Inactive)
             return@LaunchedEffect
         }
-        trackingPhase = TrackingPhase.Starting
-        val started = controller.startBearing(mapSettings.bearingMode) { heading, accuracy ->
-            trackingPhase = TrackingPhase.Active
+        session.setBearingPhase(TrackingPhase.Starting)
+        val started = controller.startBearing(mapSettings.bearingMode) { heading, accuracy, magnetic, pitch ->
+            session.setBearingPhase(TrackingPhase.Active)
             // Both modes drive the bearing state past a 1° dead-band:
             // walking from the compass, car from the gps-kalman course
             // (mount offset already composed in). The capture stamp reads
@@ -159,14 +177,21 @@ actual fun MapScreen(
                         "gps-kalman"
                     },
                     accuracyLevel = accuracy,
+                    // Car mode measures neither, and says so rather than
+                    // letting a compass sample ride along under its name.
+                    magneticDeg = magnetic,
+                    pitch = pitch,
                     now = System.currentTimeMillis(),
                 )
             }
         }
         if (!started) {
-            trackingPhase = TrackingPhase.Error
-            trackingWanted = false
-            trackingPhase = TrackingPhase.Inactive
+            // Error then Inactive: the readout catches the Error only if
+            // something is watching at that instant, but the log line and
+            // the reverted intent survive it.
+            session.setBearingPhase(TrackingPhase.Error)
+            session.setBearingTrackingWanted(false)
+            session.setBearingPhase(TrackingPhase.Inactive)
         }
     }
 
@@ -232,7 +257,7 @@ actual fun MapScreen(
     // offset by the angle travelled.
     arrowOverlay.onDragStart = {
         if (mapSettings.bearingMode == BearingMode.Walking && trackingWanted) {
-            trackingWanted = false
+            session.setBearingTrackingWanted(false)
         }
     }
     arrowOverlay.onBearing = { value ->
@@ -242,6 +267,34 @@ actual fun MapScreen(
         controller.adjustMountOffset(delta)
         state.updateBearingByDiff(delta, source = "gps-kalman", now = System.currentTimeMillis())
     }
+    // The ages are the diagnosis, so they have to keep counting even when
+    // nothing else changes — but only while the readout is on screen.
+    val raw by controller.rawOrientation.collectAsState()
+    val debugNow by produceState(0L, mapSettings.showGeoDebug) {
+        while (mapSettings.showGeoDebug) {
+            value = System.currentTimeMillis()
+            delay(500)
+        }
+    }
+    val debugLines = if (!mapSettings.showGeoDebug) emptyList() else cz.hillview.geo.geoDebugLines(
+        cz.hillview.geo.GeoDebugInput(
+            bearing = bearing,
+            spatial = spatial,
+            bearingWanted = trackingWanted,
+            bearingPhase = trackingPhase,
+            bearingMode = mapSettings.bearingMode,
+            locationTracking = locationTracking,
+            rawHeadingDeg = raw?.trueHeading?.toDouble(),
+            rawAccuracy = raw?.accuracyLevel,
+            rawAtMs = raw?.timestamp,
+            rawDetail = raw?.detail,
+            rawStillMs = controller.sensorValueStillMs(),
+            devicePose = controller.deviceOrientationName(),
+            manualPositionClaimed = manualClaimed,
+            nowMs = debugNow,
+        ),
+    )
+
     val mapView = rememberMapView()
     val applied = remember { AppliedCamera() }
 
@@ -335,7 +388,7 @@ actual fun MapScreen(
                     selectedPhotoId = photo.id
                     // Tapping a greyed-out photo un-greys the set, like the
                     // original's overrideFilters flip.
-                    if (!hunterMode) hunterOverride = true
+                    filters.revealHiddenPhotos()
                 }
                 // Greying rule from the contract: outside hunter mode, when
                 // featured photos exist, non-featured ones INSIDE the range
@@ -486,10 +539,8 @@ actual fun MapScreen(
             compassUnavailable = mapSettings.bearingMode == BearingMode.Walking &&
                 !controller.compassAvailable(),
             markerCount = markers.size,
-            onToggleHunterMode = {
-                hunterOverride = null
-                settings.update { it.copy(hunterModePref = !hunterMode) }
-            },
+            debugLines = debugLines,
+            onToggleHunterMode = { filters.toggleHunterMode() },
             onToggleSource = { id ->
                 settings.update { s ->
                     val d = sourceDescriptors.find { it.id == id }
@@ -498,11 +549,11 @@ actual fun MapScreen(
                 }
             },
             onOpenFilters = { showFilters = true },
-            onToggleOverrideFilters = { overrideFilters = !overrideFilters },
+            onToggleOverrideFilters = { filters.toggleOverrideFilters() },
             currentTileProvider = mapSettings.tileProviderKey,
             onPickTileProvider = { key -> settings.update { it.copy(tileProviderKey = key) } },
             onToggleLocation = {
-                locationTracking = when (locationTracking) {
+                session.setLocationTracking(when (locationTracking) {
                     // ACTIVE or BACKGROUND both turn fully off.
                     LocationTracking.Active, LocationTracking.Background -> LocationTracking.Off
                     LocationTracking.Off -> {
@@ -518,16 +569,16 @@ actual fun MapScreen(
                         }
                         LocationTracking.Active
                     }
-                }
+                })
             },
-            onToggleTracking = { trackingWanted = !trackingWanted },
+            onToggleTracking = { session.setBearingTrackingWanted(!trackingWanted) },
             onSelectBearingMode = { mode ->
                 // Picking a mode stops the old tracker and starts the new
                 // one — enabling tracking is a deliberate side effect of the
                 // choice, not something the user has to do afterwards.
-                trackingWanted = false
+                session.setBearingTrackingWanted(false)
                 settings.update { it.copy(bearingMode = mode) }
-                trackingWanted = true
+                session.setBearingTrackingWanted(true)
             },
             onZoom = { delta ->
                 state.updateSpatial(
@@ -542,7 +593,7 @@ actual fun MapScreen(
             },
             onRevertToGps = {
                 positionPrompt = false
-                locationTracking = LocationTracking.Active
+                session.setLocationTracking(LocationTracking.Active)
             },
             mapOrientation = spatial.orientation,
             onResetNorth = {
@@ -641,7 +692,7 @@ actual fun MapScreen(
                     // Exploring: the map parks (following would yank it
                     // back mid-read), but captures keep geotagging from
                     // the fix until the claim is accepted.
-                    locationTracking = LocationTracking.Background
+                    session.setLocationTracking(LocationTracking.Background)
                 }
                 if (!manualClaimed) positionPrompt = true
                 syncFromMap()
@@ -678,6 +729,14 @@ private fun rememberMapView(): MapView {
             // Leaflet's inertia is short and friction-heavy. Off is the
             // closest match to the original's controlled feel.
             isFlingEnabled = false
+            // The map panel is movableContent in MainScreen — a rotation
+            // RE-PARENTS this view between the portrait Column and the
+            // landscape Row instead of rebuilding it. osmdroid's default
+            // (destroy mode ON) runs onDetach() — tile provider and overlays
+            // torn down — on every onDetachedFromWindow, which would leave a
+            // dead map after the first rotation. Teardown belongs to the
+            // composition leaving, which the DisposableEffect below owns.
+            setDestroyMode(false)
         }
     }
     DisposableEffect(mapView) { onDispose { mapView.onDetach() } }
@@ -738,6 +797,19 @@ private class MapSensorController(private val context: Context) {
     private var carJob: Job? = null
     private var fixJob: Job? = null
 
+    /**
+     * The engine's heading BEFORE election, for the debug readout: the
+     * question it answers is whether a still readout means a still phone or
+     * a chain that stopped writing, and only the raw side can say.
+     */
+    val rawOrientation get() = engine.orientation
+
+    /** How long the attitude sample has been repeating — see GeoEngine. */
+    fun sensorValueStillMs(): Long? = engine.sensorValueStillMs()
+
+    /** The pose class the UPRIGHT remap keys on — see GeoDebugText. */
+    fun deviceOrientationName(): String? = engine.deviceOrientationName()
+
     fun compassAvailable(): Boolean =
         (context.getSystemService(Context.SENSOR_SERVICE) as android.hardware.SensorManager)
             .getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR) != null
@@ -785,20 +857,31 @@ private class MapSensorController(private val context: Context) {
         }
     }
 
-    private var carHeading: ((Float, Int?) -> Unit)? = null
+    private var carHeading: ((Float, Int?, Double?, Double?) -> Unit)? = null
     private var wantLocation = false
     private var wantCar = false
     private var onFix: ((Double, Double) -> Unit)? = null
 
     /** @return false when the stream cannot be observed (reverts intent). */
-    fun startBearing(mode: BearingMode, onHeading: (Float, Int?) -> Unit): Boolean {
+    fun startBearing(
+        mode: BearingMode,
+        /** heading, accuracy, magnetic heading, pitch — one sample, not four reads. */
+        onHeading: (Float, Int?, Double?, Double?) -> Unit,
+    ): Boolean {
         stopBearing()
         return when (mode) {
             BearingMode.Walking -> {
                 if (!compassAvailable()) return false
                 compassJob = scope.launch {
                     engine.orientation.collect { data ->
-                        data?.let { onHeading(it.trueHeading, it.accuracyLevel) }
+                        data?.let {
+                            onHeading(
+                                it.trueHeading,
+                                it.accuracyLevel,
+                                it.magneticHeading.toDouble(),
+                                it.pitch.toDouble(),
+                            )
+                        }
                     }
                 }
                 true
@@ -811,7 +894,9 @@ private class MapSensorController(private val context: Context) {
                 if (!engine.hasLocationPermission()) return false
                 engine.resetCarHeadingFilter()
                 carJob = scope.launch {
-                    engine.carBearing.collect { onHeading(it.toFloat(), null) }
+                    // No magnetic heading and no pitch: a GPS course knows
+                    // neither, and null is what that means.
+                    engine.carBearing.collect { onHeading(it.toFloat(), null, null, null) }
                 }
                 wantCar = true
                 syncLocation()

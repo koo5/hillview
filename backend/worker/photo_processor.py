@@ -1557,6 +1557,11 @@ class PhotoProcessor:
 				gps_data['altitude'] = metadata['altitude']
 			if metadata.get('bearing') is not None:
 				gps_data['bearing'] = metadata['bearing']
+			# Pitch has no EXIF home the way bearing does (GPSImgDirection),
+			# so metadata is its only source rather than merely its preferred
+			# one.
+			if metadata.get('pitch') is not None:
+				gps_data['pitch'] = metadata['pitch']
 
 			logger.info(f"GPS data after merge: {gps_data}")
 
@@ -1675,6 +1680,7 @@ class PhotoProcessor:
 			'latitude': gps_data.get('latitude'),
 			'longitude': gps_data.get('longitude'),
 			'compass_angle': gps_data.get('bearing'),
+			'pitch': gps_data.get('pitch'),
 			'altitude': gps_data.get('altitude'),
 			'sizes': sizes_info,  # Worker expects 'sizes', not 'sizes_info'
 			'detected_objects': detections,

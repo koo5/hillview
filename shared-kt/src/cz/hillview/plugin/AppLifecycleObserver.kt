@@ -22,7 +22,7 @@ class AppLifecycleObserver(
 ) : Application.ActivityLifecycleCallbacks, DefaultLifecycleObserver {
 
     companion object {
-        private const val TAG = "🔄AppLifecycleObserver"
+        private const val TAG = "hv-AppLifecycleObserver"
     }
 
     data class AppState(

@@ -44,7 +44,7 @@ class PreciseLocationService(
 ) {
 
     companion object {
-        private const val TAG = "🢄PreciseLocationService"
+        private const val TAG = "hv-PreciseLocationService"
         private const val doLog = false
 
         // Update intervals in milliseconds

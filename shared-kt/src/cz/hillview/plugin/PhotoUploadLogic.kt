@@ -58,7 +58,7 @@ class PhotoUploadLogic(internal val context: Context) {
 	private val editDao = database.editDao()
 
 	companion object {
-		private const val TAG = "🢄Upload"
+		private const val TAG = "hv-Upload"
 		private const val doLog = false
 		private const val PREFS_NAME = "hillview_upload_prefs"
 		private const val PREF_SERVER_URL = "server_url"
@@ -832,6 +832,11 @@ class PhotoUploadLogic(internal val context: Context) {
 		photo.locationSource?.let { put("location_source", it) }
 		photo.bearingSource?.let { put("bearing_source", it) }
 		photo.locationAgeMs?.let { put("location_age_ms", it) }
+		// Metadata is pitch's ONLY route to the server: unlike bearing it has
+		// no EXIF home to fall back on, and the fast-write path writes no EXIF
+		// anyway. Null stays absent rather than becoming 0 — see
+		// PhotoEntity.pitch.
+		photo.pitch?.let { put("pitch", it) }
 		// The stamp was interpolated after the fact (StampRefiner) — the
 		// lat/lon/bearing above are the refined values, not the live ones.
 		if (photo.stampRefinedAt != null) put("refined", true)
@@ -1338,6 +1343,8 @@ class PhotoUploadLogic(internal val context: Context) {
         exposureJson: String? = null,
         /** The licence in force at capture — see PhotoEntity.license. */
         license: String? = null,
+        /** Camera elevation at the shutter — see PhotoEntity.pitch. */
+        pitch: Double? = null,
         // The refiner's upload gate (PhotoEntity.uploadHoldUntil): non-zero
         // keeps the drain off the row until then, so refinement wins the
         // race against an expedited upload.
@@ -1374,6 +1381,7 @@ class PhotoUploadLogic(internal val context: Context) {
             locationAgeMs = locationAgeMs,
             exposureJson = exposureJson,
             license = license,
+            pitch = pitch,
             uploadHoldUntil = uploadHoldUntil,
         )
 

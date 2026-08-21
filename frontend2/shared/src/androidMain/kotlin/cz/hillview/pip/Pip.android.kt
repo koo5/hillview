@@ -10,7 +10,7 @@ import android.util.Log
 import android.util.Rational
 import cz.hillview.auth.CurrentActivityHolder
 
-private const val TAG = "Pip"
+private const val TAG = "hv-Pip"
 
 actual fun pipSupported(): Boolean {
     val activity = CurrentActivityHolder.activity ?: return false

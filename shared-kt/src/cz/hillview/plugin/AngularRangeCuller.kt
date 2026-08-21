@@ -14,7 +14,7 @@ import kotlin.math.*
  */
 class AngularRangeCuller {
     companion object {
-        private const val TAG = "AngularRangeCuller"
+        private const val TAG = "hv-AngularRangeCuller"
         private const val doLog = false
         private const val ANGULAR_BUCKETS = 36 // 10 degrees each
         private const val DEGREES_PER_BUCKET = 360.0 / ANGULAR_BUCKETS

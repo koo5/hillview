@@ -23,10 +23,16 @@ import kotlinx.coroutines.withContext
  * windows, wifi-only, foreground promotion, status sync). Stats come
  * straight from the shared DB's upload-status counts.
  */
-private const val TAG = "SharedStackUpload"
+private const val TAG = "hv-SharedStackUpload"
 
 class SharedStackUploadPipeline(
     private val context: Context,
+    /**
+     * Told once the row exists, so the map can show the photo without
+     * waiting for a pan — see CaptureEvents for why this is not a
+     * placeholder marker.
+     */
+    private val captureEvents: cz.hillview.capture.CaptureEvents? = null,
 ) : UploadPipeline {
     private val _stats = MutableStateFlow(QueueStats())
     override val stats: StateFlow<QueueStats> = _stats.asStateFlow()
@@ -101,6 +107,7 @@ class SharedStackUploadPipeline(
                     locationAgeMs = upload.locationAgeMs,
                     exposureJson = upload.exposureJson,
                     license = upload.license,
+                    pitch = upload.pitchDeg,
                     uploadHoldUntil = if (eligible) {
                         System.currentTimeMillis() + cz.hillview.plugin.StampRefiner.UPLOAD_HOLD_MS
                     } else 0,
@@ -114,6 +121,10 @@ class SharedStackUploadPipeline(
                     )
                 }
                 PhotoUploadManager(context).startAutomaticUpload("capture")
+                // After the insert, never before: a refresh that raced the
+                // row would query the database and find nothing, which is
+                // exactly the bug this exists to fix.
+                captureEvents?.photoStored(photoId)
             }
         } catch (e: Exception) {
             // A photo that can't be ingested must not take the app down —

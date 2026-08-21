@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
  */
 class StreamPhotoLoader {
     companion object {
-        private const val TAG = "StreamPhotoLoader"
+        private const val TAG = "hv-StreamPhotoLoader"
         private const val doLog = false
         private const val CONNECTION_TIMEOUT_SECONDS = 30L
         private const val READ_TIMEOUT_SECONDS = 60L
@@ -405,6 +405,13 @@ class StreamPhotoLoader {
         val featured = photoJson["featured"]?.jsonPrimitive?.booleanOrNull
         val filtered = photoJson["filtered"]?.jsonPrimitive?.booleanOrNull
 
+        // Camera elevation (Hillview endpoint). Null-preserving on purpose:
+        // the server sends null for every photo uploaded before clients began
+        // recording it, and "unknown" must not read as "level".
+        val pitch = photoJson["pitch"]
+            ?.takeIf { it !is kotlinx.serialization.json.JsonNull }
+            ?.jsonPrimitive?.doubleOrNull
+
         // Extract fileHash from file_md5 (Hillview endpoint)
         val fileHash = photoJson["file_md5"]?.jsonPrimitive?.content
 
@@ -435,6 +442,7 @@ class StreamPhotoLoader {
             url = url,
             coord = coord,
             bearing = bearing,
+            pitch = pitch,
             altitude = altitude,
             source = "stream", // Just source ID
             sizes = sizes,

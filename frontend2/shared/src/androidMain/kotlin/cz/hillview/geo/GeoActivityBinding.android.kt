@@ -16,10 +16,13 @@ actual fun BindGeoToActivity(
         engine.configure(
             when {
                 // The external-camera activity runs its own foreground
-                // service, which configures the engine itself — it must keep
-                // running while this composition is backgrounded, so the
-                // activity binding must not fight it.
-                activity == "external" -> return@LaunchedEffect
+                // service, which claims the engine itself so it can keep
+                // running while this composition is backgrounded. The
+                // activity claims the SAME thing rather than standing aside:
+                // two identical claims merge to one config, so neither the
+                // handover in nor the handover out has a gap — and whichever
+                // of the two goes away first, the other still holds it.
+                activity == "external" -> externalCameraConfig(gpsIntervalMs)
                 activity == "capture" -> captureGeoConfig(gpsIntervalMs)
                 mapWantsTracking -> mapOnlyGeoConfig()
                 else -> GeoConfig.Off

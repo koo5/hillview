@@ -39,7 +39,7 @@ private class AuthManagerTokenStore(context: Context) : TokenStore {
         if (expiresAt == null) {
             // The backend's Token model always carries expires_at; without it
             // the native store can't manage the session.
-            android.util.Log.e("HillviewTokenStore", "no expires_at on login token — session not persisted")
+            android.util.Log.e("hv-HillviewTokenStore", "no expires_at on login token — session not persisted")
             return@withContext
         }
         val result = auth.storeAuthToken(
@@ -49,7 +49,7 @@ private class AuthManagerTokenStore(context: Context) : TokenStore {
             tokens.refreshTokenExpiresAt,
         )
         if (!result.success) {
-            android.util.Log.w("HillviewTokenStore", "client-key registration failed: ${result.error}")
+            android.util.Log.w("hv-HillviewTokenStore", "client-key registration failed: ${result.error}")
         }
     }
 
@@ -159,12 +159,32 @@ actual fun platformModule(): Module = module {
         )
     }
     single<TokenStore> { AuthManagerTokenStore(androidContext()) }
+    // The viewer pane's state: the ring and the four directions, derived from
+    // the map's markers and the one bearing. Android supplies the range
+    // culling, which lives in shared-kt and is shared with the Tauri app.
+    single {
+        cz.hillview.viewer.ViewerStateHolder(
+            map = get(),
+            standDownTracking = {
+                get<cz.hillview.map.MapSession>().setBearingTrackingWanted(false)
+            },
+            markers = get<cz.hillview.map.PhotoMarkerSource>().markers,
+            hunterMode = get<cz.hillview.map.MapFilterState>().hunterMode,
+            overrideFilters = get<cz.hillview.map.MapFilterState>().overrideFilters,
+            cull = cz.hillview.viewer.SharedRangeCuller(),
+            scope = kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+            ),
+            now = { System.currentTimeMillis() },
+        )
+    }
+
     single<cz.hillview.devicephotos.DevicePhotoBrowser> {
         cz.hillview.devicephotos.DaoDevicePhotoBrowser(androidContext())
     }
     // Captures go to the shared-kt upload stack — the same code the Tauri
     // app runs. See /shared-kt/README.md.
     single<cz.hillview.upload.UploadPipeline> {
-        cz.hillview.upload.SharedStackUploadPipeline(androidContext())
+        cz.hillview.upload.SharedStackUploadPipeline(androidContext(), get())
     }
 }

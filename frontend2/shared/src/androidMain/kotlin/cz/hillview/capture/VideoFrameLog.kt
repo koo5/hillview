@@ -6,7 +6,7 @@ import android.os.SystemClock
 import android.util.Log
 import java.io.File
 
-private const val TAG = "VideoFrameLog"
+private const val TAG = "hv-VideoFrameLog"
 
 /**
  * The sidecar that makes a recording pairable with the geo record.

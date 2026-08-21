@@ -12,7 +12,7 @@ import androidx.core.app.ServiceCompat
 
 class PhotoUploadForegroundService : Service() {
     companion object {
-        private const val TAG = "PhotoUploadForeground"
+        private const val TAG = "hv-PhotoUploadForeground"
         const val CHANNEL_ID = "photo_upload_foreground"
         const val NOTIFICATION_ID = 2001
         const val ACTION_START_UPLOAD = "START_UPLOAD"

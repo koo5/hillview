@@ -109,12 +109,36 @@ class EnhancedSensorService(
     // passes the callback as a trailing lambda, which binds to the LAST
     // parameter — putting this one last silently rebound them to the handler.
     private val callbackHandler: android.os.Handler? = null,
+    // Whether this instance pauses/resumes ITSELF on app background/foreground
+    // and screen off/on (the AppLifecycleObserver below). True = the Tauri
+    // plugin's behaviour, unchanged. frontend2's GeoEngine passes false: it
+    // owns the hardware's lifetime, re-arms both sensors and the fix stream
+    // on every return to the foreground, and runs a liveness watchdog — two
+    // actors pausing and resuming the same listener is how a resume gets
+    // lost. (Also BEFORE onSensorUpdate, for the trailing-lambda reason above.)
+    private val observeAppLifecycle: Boolean = true,
+    /**
+     * The sampling period handed to registerListener, microseconds.
+     *
+     * It is a PARAMETER because the rate is a policy the owner decides —
+     * frontend2's GeoConfig has carried a per-activity rate (a relaxed one
+     * for map-only viewing, a normal one for capture) since the engine was
+     * written, and it never reached the hardware: registration used the
+     * constant below regardless, so the relaxed rate did not exist and a
+     * config change restarted the sensors to arrive at the identical
+     * registration. Registration churn is the thing to avoid on a device
+     * whose sensor hub can wedge, and churn that changes nothing is the
+     * worst kind. The default keeps the Tauri plugin's behaviour exactly.
+     */
+    private val sensorDelayUs: Int = DEFAULT_SENSOR_DELAY_US,
     private val onSensorUpdate: (OrientationSensorData) -> Unit,
 ) : SensorEventListener {
     companion object {
-        private const val TAG = "🢄Sensors"
+        private const val TAG = "hv-Sensors"
         private const val UPDATE_RATE_MS = 10 // Higher frequency for better fusion
-        private const val SENSOR_DELAY = 1000*30//SensorManager.SENSOR_DELAY_GAME // Faster updates
+        // The historical rate, kept as the default for callers that do not
+        // choose one (the Tauri plugin).
+        const val DEFAULT_SENSOR_DELAY_US = 1000*30//SensorManager.SENSOR_DELAY_GAME // Faster updates
 
         // Smoothing and filtering parameters
         private const val EMA_ALPHA = 1f // EMA smoothing factor (0.1-0.3 range, lower = more smoothing)
@@ -166,7 +190,9 @@ class EnhancedSensorService(
     private val madgwickAHRS = MadgwickAHRS(sampleFreq = 50f, beta = 0.1f)
 
     // Thread priority management
-    private var originalThreadPriority: Int? = null
+    // Read and written on whichever thread the boost lands on, which is no
+    // longer the caller's — hence volatile.
+    @Volatile private var originalThreadPriority: Int? = null
 
     // Sensor data buffers
     private var accelerometerData = FloatArray(3)
@@ -209,6 +235,7 @@ class EnhancedSensorService(
             if (newOrientation != deviceOrientation) {
                 Log.d(TAG, "📱 Device orientation changed: $deviceOrientation → $newOrientation")
                 deviceOrientation = newOrientation
+                lastOrientationChangeElapsedMs = SystemClock.elapsedRealtime()
 			}
 
         }
@@ -285,7 +312,73 @@ class EnhancedSensorService(
         }
 
         // Initialize lifecycle observer
-        initializeLifecycleObserver()
+        if (observeAppLifecycle) initializeLifecycleObserver()
+    }
+
+    /**
+     * elapsedRealtime of the last RAW sensor event this listener received —
+     * before rate limiting and before the change-suppression in
+     * sendSensorData, so a phone lying perfectly still keeps this moving
+     * while emitting nothing. The liveness signal an owner's watchdog needs:
+     * a registered listener that has gone silent for seconds while the app
+     * is in the foreground is stuck (seen after unbackgrounding), and the
+     * only cure is a fresh registration. 0 until the first event.
+     */
+    @Volatile
+    var lastRawEventElapsedMs: Long = 0L
+        private set
+
+    /**
+     * When a raw attitude event last carried a DIFFERENT value from the one
+     * before it — which is not the same question as when one last arrived.
+     *
+     * A rotation-vector sensor can go on delivering at full rate while
+     * repeating one frozen sample (seen after unbackgrounding). Everything
+     * downstream then looks alive: events flow, the EMA converges on the
+     * frozen value, the elected bearing tracks it perfectly. The only
+     * visible symptom is that the heading answers to nothing except the
+     * device-orientation remap — which reads as "the compass alternates
+     * between two values depending on how I hold the phone", because that
+     * remap is then the only live input left in the chain.
+     *
+     * 0 until the first event.
+     */
+    @Volatile
+    var lastRawValueChangeElapsedMs: Long = 0L
+        private set
+
+    /**
+     * When the device-orientation class last changed. OrientationEventListener
+     * registers its OWN accelerometer listener inside the framework, so this
+     * keeps moving even when our registration is the dead one — which makes
+     * it the evidence that the phone really moved while the attitude sample
+     * did not. 0 until the first change.
+     */
+    @Volatile
+    var lastOrientationChangeElapsedMs: Long = 0L
+        private set
+
+    /**
+     * The device-orientation class the UPRIGHT remap is keyed on. Worth
+     * showing to a person, because when the attitude sample freezes this is
+     * the only live input left in the heading — so a readout that changes
+     * ONLY when this changes is the signature of a frozen sensor.
+     */
+    val deviceOrientationName: String get() = deviceOrientation.name
+
+    /** Whether a sensor registration is currently in place (not paused/stopped). */
+    val running: Boolean get() = isRunning
+
+    /**
+     * Stop AND release the lifecycle observer / screen receiver. stopSensor()
+     * alone is a PAUSE (the observer keeps the instance alive and resumes it
+     * later); an owner that is done with the instance must call this, or
+     * every instance it ever made stays registered with ProcessLifecycleOwner
+     * and keeps re-registering its sensors on each foreground return.
+     */
+    fun destroy() {
+        stopSensor()
+        cleanupLifecycleObserver()
     }
 
     /**
@@ -345,7 +438,11 @@ class EnhancedSensorService(
      * the three-arg one (main looper), so the default path is unchanged.
      */
     private fun registerSensor(sensor: Sensor) {
-        sensorManager.registerListener(this, sensor, SENSOR_DELAY, callbackHandler)
+        val ok = sensorManager.registerListener(this, sensor, sensorDelayUs, callbackHandler)
+        // registerListener REFUSING is silent otherwise — and a refused
+        // re-registration on foreground return is a compass that looks
+        // healthy and never moves again.
+        if (!ok) Log.w(TAG, "⚠️ registerListener refused for ${sensor.name} (type ${sensor.type})")
     }
 
     private fun startSensorInternal(mode: Int = MODE_UPRIGHT_ROTATION_VECTOR) {
@@ -354,16 +451,30 @@ class EnhancedSensorService(
             stopSensorInternal()
         }
 
-        // Boost thread priority for sensor processing to prevent starvation during photo capture
-        try {
-            if (originalThreadPriority == null) {
-                originalThreadPriority = Process.getThreadPriority(Process.myTid())
+        // Boost the thread that PROCESSES sensor events, so a photo capture
+        // cannot starve it.
+        //
+        // "The thread that processes them" used to mean "whoever called
+        // this", which was right only by accident: with no callbackHandler
+        // the events arrive on the main looper, and the caller is the main
+        // thread too. frontend2 passes its own HandlerThread, so the boost
+        // landed on the MAIN thread — pinning the UI thread at
+        // URGENT_DISPLAY for the life of the process (nothing restores it)
+        // while the thread it was meant for ran at default priority. An app
+        // that holds its UI thread above the system's own display work is a
+        // bad citizen on a weak device, and it was buying nothing.
+        val boost = Runnable {
+            try {
+                if (originalThreadPriority == null) {
+                    originalThreadPriority = Process.getThreadPriority(Process.myTid())
+                }
+                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+                Log.i(TAG, "🚀 SENSOR THREAD PRIORITY: boosted from ${originalThreadPriority} to ${Process.THREAD_PRIORITY_URGENT_DISPLAY}")
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠️ Failed to set sensor thread priority: ${e.message}")
             }
-            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
-            Log.i(TAG, "🚀 SENSOR THREAD PRIORITY: boosted from ${originalThreadPriority} to ${Process.THREAD_PRIORITY_URGENT_DISPLAY}")
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ Failed to set sensor thread priority: ${e.message}")
         }
+        if (callbackHandler != null) callbackHandler.post(boost) else boost.run()
 
 		Log.i(TAG, "🔍📡 TYPE_HEADING and TYPE_POSE_6DOF sensors if available: headingSensor: ${headingSensor != null}, poseSensor: ${poseSensor != null}")
         /*headingSensor?.let { registerSensor(it) }
@@ -475,7 +586,7 @@ class EnhancedSensorService(
             Log.i(TAG, "🔍🎯 Current configuration:")
             Log.i(TAG, "  - Mode: ${MODE_NAMES[currentMode]}")
             Log.i(TAG, "  - Rate limit: ${MODE_RATE_LIMITS[currentMode]}ms (${1000.0/(MODE_RATE_LIMITS[currentMode]?:100)} Hz)")
-            Log.i(TAG, "  - Sensor delay: SENSOR_DELAY_GAME")
+            Log.i(TAG, "  - Sensor delay: ${sensorDelayUs / 1000}ms")
         }
     }
 
@@ -588,7 +699,25 @@ class EnhancedSensorService(
 
 	}
 
+    private var lastRawVectorValues: FloatArray? = null
+
     override fun onSensorChanged(event: SensorEvent) {
+        lastRawEventElapsedMs = SystemClock.elapsedRealtime()
+
+        // Exact comparison, deliberately: a live sensor's last decimal
+        // always jitters, so bit-identical samples mean a repeated one, not
+        // a still phone. (And a still phone is not harmed by being noticed
+        // — the stuck check upstream also demands evidence of movement.)
+        if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR ||
+            event.sensor.type == Sensor.TYPE_GAME_ROTATION_VECTOR ||
+            event.sensor.type == Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR
+        ) {
+            val previous = lastRawVectorValues
+            if (previous == null || !previous.contentEquals(event.values)) {
+                lastRawValueChangeElapsedMs = lastRawEventElapsedMs
+                lastRawVectorValues = event.values.clone()
+            }
+        }
 
 		logEvent(event)
 

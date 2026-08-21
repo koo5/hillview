@@ -16,7 +16,7 @@ import android.util.Log
  */
 class CullingGrid(private val bounds: Bounds) {
     companion object {
-        private const val TAG = "CullingGrid"
+        private const val TAG = "hv-CullingGrid"
         private const val GRID_SIZE = 10
 
         // Source priority levels (lower number = higher priority) - matching TypeScript

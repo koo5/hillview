@@ -92,6 +92,19 @@ upload trigger) still publishes only after the final bytes exist.
   camera shape; MapStateHolder is process-wide (capture and map move one
   camera); locations ride shared-kt's fused PreciseLocationService; the
   photo folder is Hillview2 (HILLVIEW_FOLDER env var overrides).
+  **2026-08-19: the two panels are `movableContentOf`** — a rotation
+  re-parents them between the portrait Column and the landscape Row
+  instead of rebuilding them. Plain lambdas disposed both compositions,
+  which is why an interval run stopped on rotation (its `repeating`
+  rememberSaveable had nothing to restore from — only activity
+  recreation goes through the Bundle, and MainActivity handles
+  orientation itself), and took the exposure rule and the camera binding
+  with it. Two re-parenting facts: CameraX's PreviewView (TextureView)
+  re-attaches its SurfaceTexture on its own; osmdroid's MapView does NOT
+  survive it by default — destroy mode runs onDetach() on every
+  onDetachedFromWindow — so `setDestroyMode(false)` and the explicit
+  onDetach() on dispose (rememberMapView). Not yet rotation-tested on a
+  device.
 - Capture pane = the video (round 4): FILL_CENTER preview, every control
   floats over it in the original's absolute spots (pill 60/60, shutter
   pill bottom-centre, 📷 lower-left, ⚡ shutter-speed menu lower-right,
@@ -119,6 +132,24 @@ upload trigger) still publishes only after the final bytes exist.
   faster / slower / under / overexposed) is tallied per shot in the Stats
   dialog: that tally is how "which mode is right" gets answered from a
   real drive rather than from the couch.
+  **2026-08-11: metering is CONTINUOUS** (SceneMeter, backlog "Metering
+  made continuous"): a 640×480 ImageAnalysis stream measures the scene at
+  the exposure we set, and the rule is re-planned from it at ≤3 Hz; the
+  AE window above is now only the fallback for hardware that refuses a
+  third use case — prepareExposure() returns at once otherwise, and a
+  manual tap never calls it. So nothing of OURS sits between the press
+  and the shutter.
+  **2026-08-19: the shutter lag was CameraX's, not ours** — see backlog
+  "Shutter lag: the 3A lock". ImageCapture ran in MAXIMIZE_QUALITY, which
+  in the 1.6 camera-pipe backend locks 3A (converge ≤1 s, AF trigger +
+  wait for lens-locked ≤1 s) before every still; with Focus ∞ (AF OFF)
+  the lens never reports locked, so that wait is expected to run to its
+  timeout. Now a knob in the 📷 menu (StillCaptureMode: Quality /
+  Latency [default] / Zero shutter lag where supported) plus a decoupled
+  JPEG-quality row (default 100 — what Quality gave implicitly); the
+  shutter tone plays at onCaptureStarted (the exposure) instead of after
+  the JPEG write; Stats gains press→exposure / exposure→jpeg, and the
+  press logs the HAL's 3A state so a Quality-mode timeout is visible.
   2026-08-09: the shot's exposure story also rides in the UserComment
   provenance JSON — `"exposure":{mode, target_ns, ev_bias, applied_ns,
   iso, outcome, metered_ns, metered_iso}`, snapshotted at the shutter.
@@ -327,6 +358,175 @@ sub-flags VALUES rather than new machinery. Device-verified: leaving the
 external activity drops the engine to Off, and a map-only view comes back
 at the relaxed rates. Remaining: the sliders themselves, and real-device
 tuning of the numbers.
+
+**C5. Compass and GPS frozen after unbackgrounding — RE-ARMED 2026-08-19,
+not yet device-verified.** User report (recurring; the 2026-08-18
+monotonic-clock fix removed one cause, not this one): come back to the
+app and both the compass and the fix are stuck at their last values. By
+reading, every consumer downstream is lifecycle-agnostic (plain
+`collect`s, no `repeatOnLifecycle`), so the sources are the suspects:
+`EnhancedSensorService` paused/resumed ITSELF via its own
+ProcessLifecycleOwner + screen-state observer (and the engine never
+released those — every instance ever made stayed registered), and the
+fused-location request was simply left in place across a backgrounding,
+which on modern Android means across a FROZEN process. Whatever the
+platform does to those registrations, a fresh one is known-good, so the
+engine now owns the policy: it observes the process lifecycle itself
+(`observeAppLifecycle = false` to the service, `destroy()` on stop),
+pauses sensors on background unless `GeoConfig.sensorsInBackground`
+(true only for the external-camera service — which, incidentally, had
+its sensors paused by the old observer the moment the system camera came
+to the front, the exact moment it needs them), and on every foreground
+return tears down and re-registers sensors and removes + re-requests the
+fix stream. A watchdog on the geo thread (5 s) catches what no lifecycle
+event announces: a registered listener silent for >5 s in the foreground
+(raw events, `lastRawEventElapsedMs`, not the change-suppressed output —
+a still phone emits nothing) is re-registered with backoff to 60 s; no
+fix for >60 s re-requests the stream with backoff to 10 min (no sky is
+normal). Every action is an event-log "geo" line, the Stats dialog shows
+`geo: foreground/background, sensors raw event Ns ago, fix Ns ago`, and
+`registerListener` refusals are now logged. If the freeze recurs WITH the
+re-arm lines present in the event log, the fault is downstream after
+all and the liveness line says which stream.
+
+**Tracking CSV exports can outlive the app (2026-08-19, user-requested).**
+The dumps' home — app-private `GeoTrackingDumps/` — is deleted on
+uninstall and unreachable to file managers since Android 11; public typed
+dirs (DCIM/Pictures) refuse non-media files, and unprompted writes into
+Documents/ would litter a folder the user never offered. So durability is
+the user's explicit act: a "Choose folder…" row under Tracking CSV export
+opens the system folder picker (SAF), the tree URI persists as
+`export_tree_uri` in hillview_tracking_prefs (grant taken before pref,
+released on Reset), and `dumpAndClear` creates the CSVs there via
+DocumentsContract — framework APIs only, so shared-kt still compiles in
+the Tauri app, which has no picker and keeps its old behaviour. A dead
+grant (reinstall, folder deleted) drops the choice loudly (event-log
+"export" line) and falls back to app-private; transient failures fall
+back per-file and keep the choice. Every dump now logs an "export" line
+with counts and destination. Default unchanged — private, dies with the
+app — deliberately: a location history that outlives the app must be
+opted into. Not yet device-verified.
+
+## Two numbers are called "the compass" (2026-08-20)
+
+Worth knowing before the next heading bug is reported, because it cost a
+morning:
+
+- **The engine's raw heading** — `GeoEngine.orientation.trueHeading`. Moves
+  whenever the phone turns, as long as the engine is bound. The
+  external-camera pane's STATUS line prints this one.
+- **The app's elected bearing** — `MapStateHolder.bearing`. This is the value
+  a photo is stamped with, the map arrow points at, and the capture pill
+  shows. It is only written while something is driving it, and in car mode it
+  comes from the GPS course, not the compass.
+
+So "the compass is stuck in capture but fine in the external pane" is one
+value frozen next to another that never was. Three paths stand the elected
+side down, all silently and all faithful to the original: dragging the
+bearing arrow (`Map.svelte:1230`), navigating photos in the viewer
+(`bearingTracking.ts:32`), and a failed compass start reverting the intent.
+The original's answer to all three is the capture pane's bearing-tracking
+hint, which frontend2 now has.
+
+**A registration can die without going silent (2026-08-20).** The liveness
+watchdog stamped `lastRawEventElapsedMs` on event ARRIVAL, so a
+rotation-vector sensor repeating one frozen sample at full rate looked
+perfectly healthy — and everything downstream stays healthy with it: the EMA
+converges on the frozen value, the elected bearing tracks it faithfully. The
+only live input left is then the device-orientation remap
+(`remapCoordinatesForOrientation`), so the heading alternates between a
+handful of values depending on how the phone is held. The service now also
+tracks when a sample last CHANGED, and the watchdog re-registers when a
+repeat outlasts a turn (`sensorLooksStuck` — repetition alone is a phone on
+a table, and must never trigger a restart).
+
+**When OTHER apps' compasses are stuck too (2026-08-20).** Then the stall is
+the device's sensor hub, not ours, and re-registering cannot cure it — but
+Hillview is still the prime suspect for causing it, because it is the app
+running the sensors hardest. Three misbehaviours were found and fixed while
+looking:
+
+- `GeoConfig.sensorDelayUs` never reached `registerListener` (which used a
+  hardcoded 30 ms), so the relaxed map-only rate never existed AND every
+  activity switch tore down the registration to rebuild an identical one —
+  churn that changed nothing.
+- The watchdog re-registered forever, backing off only to once a minute. At a
+  hub that is already wedged that is pure harm; it now gives up after
+  `SENSOR_RESTART_GIVE_UP` attempts until a foreground return or a config
+  change, and says so in the event log.
+- The "boost sensor processing" code boosted the CALLING thread and never
+  restored it. With frontend2's callback handler that pinned the UI thread at
+  `THREAD_PRIORITY_URGENT_DISPLAY` for the life of the process while the
+  thread it meant to boost ran at default. (Under Tauri, caller and callback
+  thread are both the main looper, which is why it read as correct.)
+
+The Stats line counts registrations per session, which is the first number to
+look at if it happens again.
+
+**The remap table was investigated and left alone.** UPRIGHT mode keys a
+coordinate remap on a four-state device-orientation class
+(`remapCoordinatesForOrientation`), and when the attitude sample freezes that
+remap is the only live input into the heading — which is why a frozen sensor
+presents as a compass alternating between a couple of values according to how
+the phone is held. Suspicion naturally falls on the table itself, and an
+offline port of `remapCoordinateSystem`/`getOrientation` (validated against
+Android's own documented example) does say the two landscape branches read
+180° off for a phone held VERTICALLY in landscape.
+
+Do not act on that without better evidence than we have. The phone says
+otherwise — the compass is right upright, in landscape and lying flat — and
+the emulator cannot arbitrate, because its synthesized rotation vector does
+not follow `adb emu sensor set acceleration/magnetic-field`: the portrait
+pose read a stable 14.5° while an equivalent landscape pose drifted
+285.8° → 294.3° across two 20-second settles, matching neither the model nor
+itself. The device-orientation class is now shown in the debug readout, so
+the next person to see the alternation can watch whether the heading moves
+only when the class does.
+
+`Settings → Geo debug readout` prints the whole chain under the photo count:
+elected value, who wrote it, how long ago, against the raw heading with its
+own age, how long that raw sample has been REPEATING, and the drift between
+them. The two ages are the diagnosis — the map
+writes only past a 1° dead-band, so a still phone's elected age is
+legitimately minutes old, and only a FRESH raw age beside a large drift means
+the chain stopped. See `GeoDebugText.kt`.
+
+## The rule the geo bugs keep breaking (2026-08-20)
+
+Every one of them — the capture pane's private pitch subscription, the
+external pane's second heading, MapScreen's duplicated tracking intents,
+TrackingPhase hidden in a composition, the service configuring the engine Off
+while the activity configured it on — is the same violation: something other
+than the one state answered "where am I / which way am I facing".
+
+Written up as [one-state.md](one-state.md), pointed at from
+`frontend2/CLAUDE.md`, and enforced for the read side by
+`OneStateArchitectureTest`, which walks the source tree and fails the build
+on a new side channel. (Its Gradle wiring declares `src/` as a task input;
+without that a violation added under androidMain leaves `jvmTest` up to date
+and the check silently unrun.)
+
+## Deferred decisions
+
+**Marker refresh on capture, vs the original's placeholder markers
+(2026-08-20).** A photo just taken is in the database but not in the marker
+set, which is refetched on viewport change — so it stayed invisible, and out
+of the viewer's ring, until the map happened to move. Fixed by telling the
+map that a row landed (`CaptureEvents`), which works because frontend2 writes
+the row synchronously in the capture path.
+
+The Tauri app covers the same gap with PLACEHOLDER MARKERS
+(`placeholderInjector.ts`): an optimistic photo carrying the id the real one
+will get, injected at the shutter, re-embedded into every update, scoped to
+the viewport so it cannot become an off-screen ghost, and removed when the
+real row arrives. It needs that because a capture there crosses the
+JS/native boundary and the row appears much later.
+
+Revisit when optimising for BATTERY: our version costs a refresh per photo,
+which in interval mode is a query every couple of seconds for a whole shoot,
+where injection costs nothing. Cheapest fixes first: refresh only the device
+source rather than the composite; conflate bursts into one refresh; or adopt
+placeholders and let the periodic refetch reconcile.
 
 ## Remaining tasks
 

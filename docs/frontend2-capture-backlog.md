@@ -208,6 +208,80 @@ Open: TARGET_LUMA (110) is the one number that decides whether the app's
 idea of "correct exposure" matches the user's, and it wants tuning
 against real scenes rather than an emulator's static one.
 
+Also open (noticed 2026-08-19): `onAnalysisFrame` re-applies the request
+options every 300 ms UNCONDITIONALLY while a rule is set — the comment
+promises "if the scene has actually moved", the code has no change
+check. Harmless for exposure (the plan is idempotent) but it is a
+repeating-request replacement at ~3 Hz and a `state` write each time.
+
+## Shutter lag: the 3A lock (2026-08-19)
+
+User report: a noticeable delay between pressing the shutter and the
+photo, in manual capture; OpenCamera shows the same, the stock camera
+does not. First guess was that we re-meter after the press — we do not
+(the tap path is `capture.capture()` straight to `takePicture()`, and
+prepareExposure() is a no-op under continuous metering). The delay is
+CameraX's, confirmed by decompiling the 1.6.1 camera-pipe backend we
+ship (`CapturePipelineImpl.defaultNoFlashCapture`):
+
+- `ImageCapture` was built with CAPTURE_MODE_MAXIMIZE_QUALITY. In that
+  mode the pipeline calls `lockAf(CHECK_3A_TIMEOUT = 1 s)` before
+  submitting the still: camera-pipe `lock3A(afLockBehavior =
+  AFTER_CURRENT_SCAN, convergedCondition = is3AConverged)` — wait until
+  AF is settled AND AE converged-or-OFF AND AWB converged (≤1 s), then
+  send AF_TRIGGER_START and wait for AF_STATE ∈ {FOCUSED_LOCKED,
+  NOT_FOCUSED_LOCKED} (≤1 s). AF is unlocked after the capture, off the
+  critical path.
+- Under an exposure rule AE is OFF, so AE never holds it. AF does: in
+  continuous-picture a frame or two if the lens is settled, a whole
+  passive scan if the phone just moved.
+- With Focus ∞ (AF_MODE_OFF via the interop) camera-pipe still sends the
+  trigger — it only skips AF when the camera has no AF at all
+  (`supportsAutoFocusTrigger`) — and an AF-OFF lens reports INACTIVE
+  forever, so the lock wait is expected to run to its full 1 s on every
+  shot. Inferred from bytecode, not yet measured on a phone: the new
+  press→exposure stat answers it (Focus Auto vs ∞, Quality vs Latency).
+  Note the 2026-08-11 "zero handovers, 2 s cadence" measurement was on
+  the emulator, whose fixed-focus camera skips the lock — a real phone
+  in Quality mode pays it per interval shot too.
+- After that comes the non-ZSL still itself (TEMPLATE_STILL_CAPTURE,
+  full-res, HAL processing, JPEG) and CameraX's file write; the tone and
+  the button used to wait for onImageSaved, so "press → click" was the
+  whole shutter→jpeg path. The stock camera uses ZSL and clicks at
+  capture start; OpenCamera (Camera2 mode) triggers AF before the shot
+  and has no ZSL — same class of lag.
+
+What landed (commit after this note):
+
+- **StillCaptureMode knob** (📷 menu, persisted in MapSettings as
+  `still_capture_mode`): Quality (MAXIMIZE_QUALITY, the lock), Latency
+  (MINIMIZE_LATENCY, no lock — the NEW DEFAULT), Zero shutter lag
+  (ZERO_SHUTTER_LAG; the menu marks it "unsupported here → Latency"
+  from `cameraInfo.isZslSupported`; camera-pipe 1.6.1 does implement ZSL
+  via private reprocessing, and ZSL frames come from the repeating
+  request so an exposure rule still applies). Both are ImageCapture
+  build options → same rebind as a resolution change.
+- **JPEG quality knob** (100/95/90/80, `jpeg_quality`, default 100):
+  CameraX couples it to the mode (100 for Quality, 95 otherwise), so
+  switching the default to Latency would otherwise have silently
+  dropped quality; pinned explicitly instead.
+- **Shutter tone at onCaptureStarted** (`OnImageSavedCallback`, CameraX
+  1.4+), idempotent per press with a late fallback at the save if the
+  pipeline never reports capture start (counted as "no onCaptureStarted"
+  in Stats). This is also the hook the capture-time-pairing item below
+  wants for stamping the real exposure time — not done here.
+- **Logging**: `press:` line with the HAL's latest 3A state
+  (af=MODE/STATE ae=MODE/STATE awb=STATE, harvested from every preview
+  result), still mode, focus pin and rule; `exposure started Nms after
+  press`; `saved: press→exp / exp→jpeg`; the same timing appended to the
+  in-app event-log "capture" line; Stats gains `press→exposure`,
+  `exposure→jpeg` and a `still: mode jpeg zsl focus` header line; bind
+  logs `still=… jpeg=… zsl=…` (logcat + event log "camera").
+
+To verify on a phone: Stats dialog after a few shots in each mode; for
+CameraX's own view `adb shell setprop log.tag.CXCP DEBUG` and watch
+"Locking 3A" → "Locking 3A done" in logcat.
+
 ## The camera-control question (original framing)
 
 Users expect native-camera behaviours: tap to focus/expose, exposure

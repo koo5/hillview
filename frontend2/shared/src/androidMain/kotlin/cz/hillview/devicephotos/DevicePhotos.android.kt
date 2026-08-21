@@ -96,7 +96,7 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
                 } catch (e: Exception) {
                     // The row goes regardless: a file we cannot delete is
                     // exactly as unwanted as one we can.
-                    android.util.Log.w("DevicePhotos", "could not delete ${row.path}", e)
+                    android.util.Log.w("hv-DevicePhotos", "could not delete ${row.path}", e)
                 }
             }
         }

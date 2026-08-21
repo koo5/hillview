@@ -24,9 +24,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -93,15 +95,19 @@ fun MainScreen(
         gpsIntervalMs = mapSettings.gpsIntervalMs,
     )
 
-    // The original's appOldActivity block: entering capture arms tracking
-    // (both on a toggle AND on initial load of a persisted capture
-    // activity); returning to view stands the bearing side down.
+    // The original's appOldActivity block: entering a recording activity
+    // arms tracking (both on a toggle AND on initial load of a persisted
+    // one); returning to view stands the bearing side down. External counts
+    // as recording — it is recording, and moving between the two recording
+    // panes is not leaving.
     var oldActivity by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(activity) {
         if (oldActivity != activity) {
+            val recording = activity == "capture" || activity == "external"
+            val wasRecording = oldActivity == "capture" || oldActivity == "external"
             when {
-                activity == "capture" -> session.onEnterCapture()
-                oldActivity == "capture" -> session.onLeaveCapture()
+                recording -> session.onEnterRecording()
+                wasRecording -> session.onLeaveRecording()
             }
             oldActivity = activity
         }
@@ -156,24 +162,45 @@ fun MainScreen(
         val totalPx = if (portrait) constraints.maxHeight else constraints.maxWidth
         var split by remember { mutableStateOf(mapSettings.splitPercent.coerceIn(10f, 90f)) }
 
-        val photoPanel: @Composable () -> Unit = {
-            when (activity) {
-                "capture" -> CaptureScreen(onOpenSettings = onOpenSettings)
-                // The external-camera mode: a peer of capture in the same
-                // panel slot (no camera stream; a foreground service keeps
-                // the record alive while the system camera owns the screen).
-                "external" -> cz.hillview.external.ExternalCameraPane()
-                else -> GalleryPlaceholder()
+        // Both panels MOVE between the portrait Column and the landscape
+        // Row below; they are not rebuilt. Plain lambdas here meant a
+        // rotation disposed both compositions and composed fresh ones in
+        // the other branch — the capture pane lost its interval run
+        // (rememberSaveable has nothing to restore from when a composable
+        // merely leaves and re-enters; only activity recreation goes
+        // through the Bundle), its exposure rule and its whole camera
+        // binding, and the map its view. movableContentOf keeps the same
+        // composition — effects, remembered objects, AndroidViews — alive
+        // across the re-parenting (the PreviewView is a TextureView and
+        // CameraX re-attaches its SurfaceTexture on re-attach to window).
+        // `activity` is passed as a parameter, not captured: a remembered
+        // lambda would otherwise keep the value it was created with.
+        val currentOnOpenSettings by rememberUpdatedState(onOpenSettings)
+        val photoPanel = remember {
+            movableContentOf { activity: String ->
+                when (activity) {
+                    "capture" -> CaptureScreen(onOpenSettings = { currentOnOpenSettings() })
+                    // The external-camera mode: a peer of capture in the same
+                    // panel slot (no camera stream; a foreground service keeps
+                    // the record alive while the system camera owns the screen).
+                    "external" -> cz.hillview.external.ExternalCameraPane()
+                    // Named "gallery" for historical reasons only — it is
+                    // the VIEWER: the photo you are facing from where the map
+                    // says you stand. See docs/tauri-viewer-ui-contract.md.
+                    else -> cz.hillview.viewer.ViewerPane()
+                }
             }
         }
-        val mapPanel: @Composable () -> Unit = {
-            MapScreen(
-                settings = settingsRepo,
-                markerSource = koinInject(),
-                stateHolder = stateHolder,
-                stateStore = koinInject(),
-                session = session,
-            )
+        val mapPanel = remember {
+            movableContentOf {
+                MapScreen(
+                    settings = settingsRepo,
+                    markerSource = koinInject(),
+                    stateHolder = stateHolder,
+                    stateStore = koinInject(),
+                    session = session,
+                )
+            }
         }
         val divider: @Composable () -> Unit = {
             // The split ruler: a visible grip, so the drag affordance reads
@@ -225,13 +252,13 @@ fun MainScreen(
         // past the pane edge, overreaching into the photo panel.
         if (portrait) {
             Column(Modifier.fillMaxSize()) {
-                Box(Modifier.fillMaxWidth().weight(split).clipToBounds()) { photoPanel() }
+                Box(Modifier.fillMaxWidth().weight(split).clipToBounds()) { photoPanel(activity) }
                 divider()
                 Box(Modifier.fillMaxWidth().weight(100f - split).clipToBounds()) { mapPanel() }
             }
         } else {
             Row(Modifier.fillMaxSize()) {
-                Box(Modifier.fillMaxHeight().weight(split).clipToBounds()) { photoPanel() }
+                Box(Modifier.fillMaxHeight().weight(split).clipToBounds()) { photoPanel(activity) }
                 divider()
                 Box(Modifier.fillMaxHeight().weight(100f - split).clipToBounds()) { mapPanel() }
             }

@@ -32,11 +32,27 @@ data class SpatialState(
     val ts: Long? = null,
 )
 
+/**
+ * Where the user is facing, and everything that came with that answer.
+ *
+ * [magneticDeg] and [pitch] live HERE, beside the bearing, rather than being
+ * read off the sensor at the moment they are needed. A photo records all
+ * three, and read separately they are three different instants — worse, when
+ * the elected bearing is a manual claim, a car-mode course or a photo the
+ * user turned to, a pitch sampled straight from the compass stack belongs to
+ * a different answer entirely. One state, written in one call, so a row
+ * cannot disagree with itself. Sources that do not measure them write null,
+ * which is the truth about those sources.
+ */
 data class BearingState(
     val bearing: Double = 141.0,
     val source: String = "map",
     val photoUid: String? = null,
     val accuracyLevel: Int? = null,
+    /** Uncorrected compass heading, when the elected source has one. */
+    val magneticDeg: Double? = null,
+    /** Tilt, when the elected source has one — null is "not recorded". */
+    val pitch: Double? = null,
     val ts: Long? = null,
 )
 
@@ -118,6 +134,9 @@ class MapStateHolder(
         source: String = "map",
         photoUid: String? = null,
         accuracyLevel: Int? = null,
+        /** Only the compass has these; every other source writes null. */
+        magneticDeg: Double? = null,
+        pitch: Double? = null,
         setTimestamp: Boolean = true,
         now: Long,
     ) {
@@ -127,6 +146,8 @@ class MapStateHolder(
             source = source,
             photoUid = photoUid,
             accuracyLevel = accuracyLevel,
+            magneticDeg = magneticDeg,
+            pitch = pitch,
             ts = if (setTimestamp) now else old.ts,
         )
         // "Whoever wrote the bearing last IS the elected source" — the
@@ -155,11 +176,30 @@ class MapStateHolder(
     }
 
     /** Preserves source, photoUid and accuracy unless overridden. */
+    /**
+     * Turn the bearing by a hand-applied angle — car mode's mount offset.
+     *
+     * Pitch and magnetic heading do NOT survive it. Someone reaches for a
+     * manual adjustment precisely when the sensors are of no use
+     * (interference is the usual reason), so carrying the last sample's
+     * measurements forward would attach them to a value that deliberately
+     * overrode measurement — under the new source's name, where nothing
+     * downstream could tell they were inherited.
+     *
+     * Accuracy is preserved, unlike those two, because the original does:
+     * `accuracy_level ?? current.accuracy_level` (mapState.ts:513). It is
+     * the compass's own quality rating and predates this state carrying any
+     * measurement, so the port keeps its behaviour rather than quietly
+     * improving on it — pitch and magneticDeg are fields the original never
+     * had, and the rule above is what decides them.
+     */
     fun updateBearingByDiff(diff: Double, source: String? = null, now: Long) {
         val old = _bearing.value
         _bearing.value = old.copy(
             bearing = normalizeBearing(old.bearing + diff),
             source = source ?: old.source,
+            magneticDeg = null,
+            pitch = null,
             ts = now,
         )
     }

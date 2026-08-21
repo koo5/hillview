@@ -185,4 +185,25 @@ class CameraOverlayUiTest {
         onNodeWithTag("calibration-hint", useUnmergedTree = true).assertIsDisplayed()
         onNodeWithText("• Calibrate compass.").assertIsDisplayed()
     }
+
+    /**
+     * "Calibrate compass" is advice about the wrong problem when no compass
+     * is driving the app's bearing — so the bearing-tracking hint outranks
+     * it, exactly as the original composes the two
+     * (showHint = showCalibrationHint && !$shouldShowBearingTrackingHint).
+     */
+    @Test
+    fun theTrackingHintOutranksTheCalibrationHint() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(ready = true, fixLatitude = 50.0, fixLongitude = 14.0),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+                suppressHint = true,
+            )
+        }
+        onNodeWithTag("calibration-hint", useUnmergedTree = true).assertDoesNotExist()
+    }
 }

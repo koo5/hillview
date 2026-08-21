@@ -36,10 +36,21 @@ internal fun PhotoData.toMarker(): PhotoMarker = PhotoMarker(
     longitude = coord.lng,
     // 0 is "unset" everywhere in this pipeline (the loaders default to it).
     bearingDeg = bearing.takeIf { it != 0.0 },
+    // Already nullable upstream, so it passes through untouched — unlike
+    // bearing, this one never used 0 to mean "unset".
+    pitchDeg = pitch,
     capturedAtMs = captured_at ?: 0L,
     source = source,
     featured = featured == true,
     fileMd5 = fileHash,
+    // The whole rendition set travels with the photo: the slot that shows it
+    // decides which one to fetch, and the same photo is a neighbour in one
+    // slot and the front photo in another.
+    sizes = sizes.orEmpty().mapValues { (_, s) ->
+        cz.hillview.map.PhotoRendition(url = s.url, width = s.width, height = s.height)
+    },
+    url = url,
+    isDevicePhoto = is_device_photo,
     filteredOut = filtered == true,
 )
 
@@ -158,7 +169,7 @@ class StreamMarkerSource(
     }
 
     companion object {
-        private const val TAG = "StreamMarkerSource"
+        private const val TAG = "hv-StreamMarkerSource"
         const val REFETCH_MS = 30_000L
     }
 }
@@ -222,6 +233,6 @@ class PanoramaxMarkerSource(
     }
 
     companion object {
-        private const val TAG = "PanoramaxMarkerSource"
+        private const val TAG = "hv-PanoramaxMarkerSource"
     }
 }

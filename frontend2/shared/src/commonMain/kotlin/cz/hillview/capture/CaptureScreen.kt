@@ -151,7 +151,15 @@ fun CaptureScreen(
     // arrow — whichever currently owns the arrow.
     LaunchedEffect(Unit) {
         mapState.bearing.collect { b ->
-            capture.stampBearing = StampBearing(b.bearing.toFloat(), b.source)
+            // The whole answer, not just its heading: the pane has no sensor
+            // of its own to fill in the rest from.
+            capture.stampBearing = StampBearing(
+                trueDeg = b.bearing.toFloat(),
+                source = b.source,
+                magneticDeg = b.magneticDeg,
+                pitch = b.pitch,
+                accuracyLevel = b.accuracyLevel,
+            )
         }
     }
 
@@ -171,6 +179,12 @@ fun CaptureScreen(
                 }
             }
         capture.selectResolution(parsed)
+    }
+    // Same shape: the still-capture mode and JPEG quality are build options
+    // of the ImageCapture, persisted like the resolution pin; configureStill
+    // dedups, so re-running on ready cannot rebind-loop either.
+    LaunchedEffect(mapSettings.stillCaptureMode, mapSettings.jpegQuality, state.ready) {
+        capture.configureStill(mapSettings.stillCaptureMode, mapSettings.jpegQuality)
     }
 
     // Eco effects apply only while this screen is up — the composition IS
@@ -298,6 +312,7 @@ fun CaptureScreen(
                 locationSource = photo.snapshot.locationSource,
                 locationAgeMs = photo.snapshot.locationAgeMs,
                 exposureJson = photo.snapshot.exposure?.let { exposureProvenanceJson(it) },
+                pitchDeg = photo.snapshot.pitchDeg?.toDouble(),
                 // Snapshot, not a live read — see PendingUpload.license.
                 license = uploadSettings.license,
             )
@@ -369,7 +384,25 @@ fun CaptureScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalAlignment = Alignment.Start,
         ) {
+            // "Why is the heading not moving?" — because the compass is not
+            // driving the app's bearing, which is a state the pane must
+            // EXPLAIN rather than merely reflect. The capture readout shows
+            // mapState.bearing (the value a photo would be stamped with), so
+            // with tracking off it is legitimately frozen, and the original
+            // answers exactly this with its bearing-tracking hint.
+            val bearingTrackingOn by session.bearingTrackingWanted.collectAsState()
+            val showBearingHint = !bearingTrackingOn && !mapSettings.hideBearingTrackingHint
+            if (showBearingHint) {
+                BearingTrackingHint(
+                    onEnable = { session.setBearingTrackingWanted(true) },
+                    onDismiss = {
+                        mapSettingsRepo.update { it.copy(hideBearingTrackingHint = true) }
+                    },
+                )
+            }
+
             CameraOverlayUi(
+                suppressHint = showBearingHint,
                 state = state,
                 bearingMode = mapSettings.bearingMode,
                 overridePosition = if (capture.manualLocationElected) capture.manualLocation else null,
@@ -565,6 +598,54 @@ fun CaptureScreen(
                             ) {
                                 showResolutionMenu = false
                                 capture.focusInfinity = true
+                            }
+                        }
+                        // What sits between the press and the exposure —
+                        // CameraX's capture mode (see StillCaptureMode:
+                        // Quality locks 3A first, the shutter lag the user
+                        // feels; Latency does not; ZSL serves an already-
+                        // captured frame where the camera can). A knob
+                        // because the answer is measured in the field,
+                        // with the Stats dialog's press→exposure numbers.
+                        Text(
+                            "Still capture",
+                            color = Color(0x99FFFFFF),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+                        )
+                        StillCaptureMode.entries.forEach { mode ->
+                            val unsupported =
+                                mode == StillCaptureMode.ZeroShutterLag && !state.zslSupported
+                            ResolutionOption(
+                                label = mode.label +
+                                    if (unsupported) " (unsupported here → Latency)" else "",
+                                selected = state.stillCaptureMode == mode,
+                                tag = "still-mode-option-${mode.key}",
+                            ) {
+                                showResolutionMenu = false
+                                mapSettingsRepo.update { it.copy(stillCaptureMode = mode) }
+                            }
+                        }
+                        // Decoupled from the mode on purpose: CameraX's
+                        // default ties them (100 for Quality, 95 otherwise)
+                        // and the two trades have nothing to do with each
+                        // other.
+                        Text(
+                            "JPEG quality",
+                            color = Color(0x99FFFFFF),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+                        )
+                        Row {
+                            JPEG_QUALITY_CHOICES.forEach { q ->
+                                ResolutionOption(
+                                    label = q.toString(),
+                                    selected = state.jpegQuality == q,
+                                    tag = "jpeg-quality-option-$q",
+                                ) {
+                                    showResolutionMenu = false
+                                    mapSettingsRepo.update { it.copy(jpegQuality = q) }
+                                }
                             }
                         }
                     }
@@ -1249,5 +1330,38 @@ private fun ResolutionOption(
             },
             style = MaterialTheme.typography.bodySmall,
         )
+    }
+}
+
+
+/**
+ * The original's `bearing-tracking-hint`: shown in the capture pane while
+ * neither bearing source is on, dismissible for good. Without it the frozen
+ * heading reads as a bug rather than as a switch nobody flipped.
+ */
+@Composable
+private fun BearingTrackingHint(onEnable: () -> Unit, onDismiss: () -> Unit) {
+    androidx.compose.material3.Surface(
+        color = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+        modifier = Modifier.padding(4.dp).testTag("bearing-tracking-hint"),
+    ) {
+        androidx.compose.foundation.layout.Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        ) {
+            androidx.compose.material3.Text(
+                "Turn on bearing tracking?",
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+            )
+            androidx.compose.material3.TextButton(
+                onClick = onEnable,
+                modifier = Modifier.testTag("enable-bearing-hint"),
+            ) { androidx.compose.material3.Text("🧭") }
+            androidx.compose.material3.TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("dismiss-bearing-hint"),
+            ) { androidx.compose.material3.Text("✕") }
+        }
     }
 }

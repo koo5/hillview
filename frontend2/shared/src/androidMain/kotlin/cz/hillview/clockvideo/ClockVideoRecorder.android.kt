@@ -77,7 +77,7 @@ import java.io.File
 import kotlin.coroutines.resume
 import kotlin.math.roundToLong
 
-private const val TAG = "ClockVideoRecorder"
+private const val TAG = "hv-ClockVideoRecorder"
 
 @Composable
 actual fun rememberClockVideoRecorder(): ClockVideoRecorder {

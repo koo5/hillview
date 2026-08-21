@@ -41,7 +41,7 @@ object EventLog {
             if (events.size >= CAPACITY) events.removeFirst()
             events.addLast(event)
         }
-        Log.i("🢄Event", "[$category] $message")
+        Log.i("hv-Event", "[$category] $message")
     }
 
     /** Newest first, which is the order anyone reads a log they are chasing. */

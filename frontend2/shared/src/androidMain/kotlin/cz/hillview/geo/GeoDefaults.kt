@@ -43,6 +43,12 @@ fun externalCameraConfig(gpsIntervalMs: Long = GPS_INTERVAL_DEFAULT_MS) = GeoCon
     sensors = true,
     sensorDelayUs = SENSOR_DELAY_NORMAL_US,
     locationIntervalMs = gpsIntervalMs,
+    // The sentence above, made true: until 2026-08-19 the sensor service's
+    // own lifecycle observer paused the sensors the moment the system camera
+    // app came to the front — exactly when this mode needs them. The engine
+    // now owns that decision, and this is the one config that says "keep
+    // going" (the location-typed foreground service is what permits it).
+    sensorsInBackground = true,
 )
 
 /**

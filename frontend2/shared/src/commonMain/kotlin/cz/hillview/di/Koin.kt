@@ -47,6 +47,17 @@ val appModule = module {
             ?.let { (spatial, bearing) -> cz.hillview.map.MapStateHolder(spatial, bearing, sink) }
             ?: cz.hillview.map.MapStateHolder(sink = sink)
     }
+    // Shared by the map (greying) and the viewer pane (which photos are in
+    // the navigable ring) — see MapFilterState.
+    single {
+        cz.hillview.map.MapFilterState(
+            settings = get(),
+            scope = kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+            ),
+        )
+    }
+    single { cz.hillview.capture.CaptureEvents() }
     viewModel { LoginViewModel(get(), get()) }
 }
 

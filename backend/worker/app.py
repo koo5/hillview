@@ -753,6 +753,7 @@ class BrowserMetadata(BaseModel):
 	# said so. Any future provenance key needs a line here too.
 	location_age_ms: Optional[int] = None  # age of the stamped fix at the shutter
 	refined: Optional[bool] = None  # the stamp was interpolated after the fact
+	pitch: Optional[float] = None  # camera elevation, degrees, positive up
 	exposure: Optional[dict] = None  # rule/plan/metering — see exposureProvenanceJson
 	encoding: Optional[str] = None  # EXR pixel encoding: 'srgb' or 'linear' (sourced from .exr.encoding sidecar at upload). Worker falls back to the embedded header tag when absent.
 	exif: Optional[dict] = None  # Structured multi-frame source EXIF from the pipeline. A whole nested object: EXR panos send a representative identity header (Make/Model/LensModel/…) + 'pano_frames' (array-of-arrays, one entry per pano position, each a stack of frames); fused-stack singles send just 'stack_frames' (flat list of the bracket's members). Merged into exif_data['data'] (the same place a single's embedded tags land, so camera fields read at exif_data.data.* uniformly); NOT split into typed columns. See pics/src/lib/stamp.derive_pano_exif / derive_stack_exif.
@@ -774,6 +775,7 @@ class ProcessedPhotoData(BaseModel):
 	latitude: Optional[float] = None
 	longitude: Optional[float] = None
 	compass_angle: Optional[float] = None
+	pitch: Optional[float] = None
 	altitude: Optional[float] = None
 	exif_data: Optional[dict] = None
 	sizes: Optional[dict] = None
@@ -1292,6 +1294,7 @@ async def _upload_inner(file: Optional[UploadFile], client_signature: str, photo
 				processed_data.latitude = processing_result.get("latitude")
 				processed_data.longitude = processing_result.get("longitude")
 				processed_data.compass_angle = processing_result.get("compass_angle")
+				processed_data.pitch = processing_result.get("pitch")
 				processed_data.altitude = processing_result.get("altitude")
 				processed_data.exif_data = processing_result.get("exif_data")
 				processed_data.sizes = processing_result.get("sizes")

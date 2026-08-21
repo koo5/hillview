@@ -146,7 +146,7 @@ class UploadCoalescingBehaviourTest {
         if (windows < burst) {
             assertTrue("no coalescing: runs=$runs enqueues=$enqueues", runs < enqueues)
         } else {
-            Log.i("UploadCoalescing", "burst too slow to observe coalescing (windows=$windows) — collapse assertion skipped")
+            Log.i("hv-UploadCoalescing", "burst too slow to observe coalescing (windows=$windows) — collapse assertion skipped")
         }
 
         // The original's responsiveness proxy: the screen is still alive.

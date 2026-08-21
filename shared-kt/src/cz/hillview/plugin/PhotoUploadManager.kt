@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit
 
 class PhotoUploadManager(private val context: Context) {
     companion object {
-        private const val TAG = "PhotoUploadManager"
+        private const val TAG = "hv-PhotoUploadManager"
 
         // Coalescing window for capture bursts. The first capture in a window
         // uploads immediately (expedited + foreground notification); captures
