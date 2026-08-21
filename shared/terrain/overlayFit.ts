@@ -22,6 +22,7 @@
  * never needs the terrain worker.
  */
 import { pickFromDepthOrHorizon, type TerrainPick } from './depthPanoViewer';
+export { isDepthBlob, parseDepthBlob, DEPTH_BLOB_HEADER_BYTES, DEPTH_BLOB_VERSION } from './depthPanoViewer';
 import { colForAzimuth, type LabelClass } from './peakLabels';
 
 /** Manual pano↔render alignment (the hv:terrainOverlayFit fact, canonical
@@ -66,12 +67,20 @@ export interface OverlayFit {
 	 * length as `warp`; last entry ignored. Absent (or all 1) = none. */
 	hscale?: number[];
 	/** atmospheric visibility read off the photo, km; null/absent = full
-	 * render range. A hard distance cutoff, not a shading term. */
+	 * render range. A hard distance cutoff, not a shading term — the DEFAULT
+	 * the viewer opens with (the baked skyline is cut here). */
 	visibility_km?: number | null;
+	/** how far the baked document reaches, km: labels are baked out to this
+	 * (capped by the render's range) so a viewer's fog slider has room above
+	 * the default without a re-export. Absent = DEFAULT_MAX_VISIBILITY_KM. */
+	max_visibility_km?: number | null;
 	/** client wall-clock of the change (epoch ms) — drafts/live state only;
 	 * facts stay timestamp-free, being content-addressed. */
 	saved_at?: number;
 }
+
+/** Range the export bakes labels to when the fit does not say (km). */
+export const DEFAULT_MAX_VISIBILITY_KM = 150;
 
 /** Signed angle difference in (-180, 180]. */
 export function wrapDelta(d: number): number {
@@ -466,6 +475,11 @@ export interface OverlayDepthRef {
  * as a pending suggestion forever.
  */
 export interface TerrainOverlay {
+	/** how far the labels were actually baked, km (max_visibility capped by
+	 * the render's range) — the ceiling for a viewer's fog slider; absent on
+	 * documents baked before it existed (their labels reach the fit's
+	 * visibility only) */
+	labels_cutoff_km?: number;
 	version: 1;
 	fit: OverlayFit;
 	skyline: OverlaySkyline;
@@ -494,6 +508,19 @@ export function effectiveFit(overlay: TerrainOverlay): OverlayFit {
 	const adj = overlay.user_adjust;
 	if (!adj?.horizon_pct_delta) return overlay.fit;
 	return { ...overlay.fit, horizon_pct: overlay.fit.horizon_pct + adj.horizon_pct_delta };
+}
+
+/** The fog a viewer opens with (km) and the farthest fog its slider can
+ * offer with labels present: default = the fit's visibility (else the label
+ * cutoff, else null = everything baked), max = the label cutoff (else the
+ * fit's visibility, else the depth range). */
+export function fogBounds(overlay: TerrainOverlay): { defaultKm: number | null; maxKm: number | null } {
+	const fit = overlay.fit;
+	const labelsKm = overlay.labels_cutoff_km ?? null;
+	const depthKm = overlay.depth?.max_distance_m != null ? overlay.depth.max_distance_m / 1000 : null;
+	const defaultKm = fit.visibility_km ?? labelsKm ?? null;
+	const maxKm = labelsKm ?? fit.visibility_km ?? depthKm ?? null;
+	return { defaultKm, maxKm };
 }
 
 /** Azimuth of skyline sample i. */

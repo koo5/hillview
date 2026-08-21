@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseDepthBlob } from '$terrain/overlayFit';
 import {
+	inflateIfGzip,
 	loadOverlayDepth,
 	overlayDepthReady,
 	releaseOverlayDepth
@@ -8,11 +10,26 @@ import {
 const URL_A = 'https://pics.example/terrain/aaa.depth.bin.gz';
 const URL_B = 'https://pics.example/terrain/bbb.depth.bin.gz';
 
-function depthResponse(values: number[]) {
-	return {
-		ok: true,
-		arrayBuffer: async () => Uint16Array.from(values).buffer
-	} as unknown as Response;
+/** an HVD1 container around `values`, laid out as width×height (default 1 row) */
+function depthBlob(values: number[], width = values.length, height = 1): ArrayBuffer {
+	const buf = new ArrayBuffer(16 + values.length * 2);
+	const dv = new DataView(buf);
+	for (const [i, c] of [...'HVD1'].entries()) dv.setUint8(i, c.charCodeAt(0));
+	dv.setUint16(4, 1, true); // version
+	dv.setUint16(6, 16, true); // header bytes
+	dv.setUint32(8, width, true);
+	dv.setUint32(12, height, true);
+	new Uint16Array(buf, 16).set(values);
+	return buf;
+}
+
+function depthResponse(values: number[], width?: number, height?: number) {
+	return { ok: true, arrayBuffer: async () => depthBlob(values, width, height) } as unknown as Response;
+}
+
+/** bare little-endian samples: what a truncated or foreign download looks like */
+function headerlessResponse(values: number[]) {
+	return { ok: true, arrayBuffer: async () => Uint16Array.from(values).buffer } as unknown as Response;
 }
 
 describe('loadOverlayDepth', () => {
@@ -84,23 +101,26 @@ describe('loadOverlayDepth', () => {
 	});
 
 	it('rejects a buffer that does not match the overlay grid', async () => {
-		// a truncated download (or one served without Content-Encoding: gzip)
-		// reads past the end as `undefined`, which passes the `!== 0` sky test
-		// and yields a confident marker reading "NaN, NaN · NaN km"
+		// a truncated download reads past the end as `undefined`, which passes
+		// the `!== 0` sky test and yields a confident marker reading
+		// "NaN, NaN · NaN km" — the container's declared grid catches it
 		vi.stubGlobal(
 			'fetch',
 			vi.fn(async () => depthResponse([1, 2, 3]))
 		);
-		await expect(loadOverlayDepth(URL_A, 4096)).rejects.toThrow(/3 samples/);
+		await expect(loadOverlayDepth(URL_A, { width: 64, height: 64 })).rejects.toThrow(/3×1/);
 		expect(overlayDepthReady(URL_A)).toBe(false);
 	});
 
-	it('accepts a buffer of the declared size', async () => {
-		vi.stubGlobal(
-			'fetch',
-			vi.fn(async () => depthResponse([1, 2, 3]))
-		);
-		expect((await loadOverlayDepth(URL_A, 3)).length).toBe(3);
+	it('accepts a container whose grid matches the overlay', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => depthResponse([1, 2, 3, 4], 2, 2)));
+		expect((await loadOverlayDepth(URL_A, { width: 2, height: 2 })).length).toBe(4);
+	});
+
+	it('refuses a headerless blob — there is no legacy form', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => headerlessResponse([1, 2, 3, 4])));
+		await expect(loadOverlayDepth(URL_A, { width: 2, height: 2 })).rejects.toThrow(/no HVD1 header/);
+		expect(overlayDepthReady(URL_A)).toBe(false);
 	});
 
 	it('does not let an in-flight load resurrect a released buffer', async () => {
@@ -128,5 +148,35 @@ describe('loadOverlayDepth', () => {
 		// a transient pool hiccup must not poison click-back for the session
 		expect(Array.from(await loadOverlayDepth(URL_A))).toEqual([5]);
 		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+});
+
+
+describe('inflateIfGzip', () => {
+	it('a container can never be mistaken for gzip', async () => {
+		// the collision the container removes: a BARE buffer whose first sample
+		// is 0x8B1F is terrain at 142.46 km and reads as gzip's 1f 8b. Wrapped,
+		// the same samples start with "HVD1" and the question cannot arise.
+		const bare = new Uint16Array([0x8b1f, 0x0008, 7, 8]).buffer as ArrayBuffer;
+		expect(new Uint8Array(bare).subarray(0, 3)).toEqual(new Uint8Array([0x1f, 0x8b, 0x08]));
+		const wrapped = depthBlob([0x8b1f, 0x0008, 7, 8], 2, 2);
+		expect(await inflateIfGzip(wrapped)).toBe(wrapped); // untouched
+		expect(Array.from(parseDepthBlob(wrapped))).toEqual([0x8b1f, 0x0008, 7, 8]);
+	});
+
+	it('needs the deflate byte too, so 1f 8b alone is not enough', async () => {
+		const notGzip = new Uint8Array([0x1f, 0x8b, 0x99, 0x00]).buffer as ArrayBuffer;
+		expect(await inflateIfGzip(notGzip)).toBe(notGzip);
+	});
+
+	it('inflates gzip bytes and leaves raw samples alone', async () => {
+		const { gzipSync } = await import('node:zlib');
+		const raw = new Uint16Array([0, 1, 2, 65535, 4]);
+		const gz = gzipSync(Buffer.from(raw.buffer));
+		const gzBuf = new Uint8Array(gz).buffer as ArrayBuffer; // a fresh, plain ArrayBuffer copy
+		const out = new Uint16Array(await inflateIfGzip(gzBuf));
+		expect(Array.from(out)).toEqual([0, 1, 2, 65535, 4]);
+		const same = await inflateIfGzip(raw.buffer);
+		expect(new Uint16Array(same)).toEqual(raw);
 	});
 });

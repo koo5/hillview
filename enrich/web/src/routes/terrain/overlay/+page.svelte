@@ -22,7 +22,7 @@
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import { apiBase } from '$lib/config';
-	import { azimuthForColumn, type TerrainMeta } from '$terrain/depthPanoViewer';
+	import { azimuthForColumn, parseDepthBlob, type TerrainMeta } from '$terrain/depthPanoViewer';
 	import {
 		hitSkyLabel,
 		labelEvidence,
@@ -218,6 +218,11 @@
 	// at the wrong focal length: Ctrl-drag a handle sideways to pull the
 	// panel's edge in/out, or type it in the panel editor
 	let hscale = $state<number[]>([1, 1]);
+	// how far the baked document reaches (labels), km — the ceiling of the
+	// zoom view's fog slider. 150 unless changed; the fog slider is the
+	// DEFAULT the viewer opens with
+	const DEFAULT_MAX_VIS_KM = 150;
+	let maxVisKm = $state(DEFAULT_MAX_VIS_KM);
 	// handle positions (fractions of the width). Equally spaced by default;
 	// double-click the pano to put a seam exactly where the stitch has one,
 	// double-click a handle to remove it
@@ -499,7 +504,7 @@
 			status = 'loading depth…';
 			dlog('depth fetch…');
 			const buf = await (await fetch(`${apiBase}/terrain/renders/${done.id}/depth`)).arrayBuffer();
-			depth = new Uint16Array(buf);
+			depth = parseDepthBlob(buf, done.meta!); // HVD1 header, or a legacy buffer at meta's size
 			dlog(`depth ok ${(buf.byteLength / 1048576).toFixed(1)} MB`);
 			// the fit is fully workable now — labels are cosmetic. Drafting/
 			// sync must NOT wait for the peaks fetch (a cold Overpass pass can
@@ -591,6 +596,7 @@
 		hscale = f.hscale && f.hscale.length === warp.length ? f.hscale.slice() : warp.map(() => 1);
 		knots = f.knots && f.knots.length === warp.length ? f.knots.slice() : uniformKnots(warp.length);
 		selectedSeg = null;
+		maxVisKm = f.max_visibility_km ?? DEFAULT_MAX_VIS_KM;
 		return f.visibility_km ?? null;
 	}
 
@@ -622,6 +628,7 @@
 			hscale = warp.map(() => 1);
 		}
 		visLog = visLogMax;
+		maxVisKm = DEFAULT_MAX_VIS_KM;
 	}
 
 	function resetToDefaults() {
@@ -727,7 +734,8 @@
 			...(hwarp.some((v) => v !== 0) ? { hwarp: [...hwarp] } : {}),
 			...(hscale.some((v, i) => i < hscale.length - 1 && v !== 1) ? { hscale: [...hscale] } : {}),
 			...(!isUniform(knots) ? { knots: [...knots] } : {}),
-			visibility_km: visCutoffM === null ? null : +(visCutoffM / 1000).toFixed(1)
+			visibility_km: visCutoffM === null ? null : +(visCutoffM / 1000).toFixed(1),
+			...(Math.abs(maxVisKm - DEFAULT_MAX_VIS_KM) > 1e-9 ? { max_visibility_km: +maxVisKm.toFixed(1) } : {})
 		};
 	}
 
@@ -1344,7 +1352,7 @@
 			<input type="range" min="-8" max="8" step="0.05" bind:value={rollDeg} />
 		</label>
 		<label>
-			fog
+			<span title="the DEFAULT visibility visitors open with — cut the skyline and labels where the photo's haze cuts them; the zoom view can then slide fog between here and 'max'">fog</span>
 			<input
 				class="num"
 				type="number"
@@ -1355,6 +1363,15 @@
 				oninput={(e) => setFogKm(e.currentTarget.valueAsNumber)}
 			/>km
 			<input type="range" min="3" max={visLogMax} step="0.01" bind:value={visLog} />
+		</label>
+		<label title="how far the graduated document reaches: labels are baked out to this, CAPPED BY THE RENDER'S OWN RANGE — asking for more than the render covers cannot invent terrain, so re-render further if you need it. The fog slider on the left is the DEFAULT visitors open with — tune it to the photo's haze.">
+			max
+			<input class="num" type="number" min="5" max="400" step="5" bind:value={maxVisKm} data-testid="overlay-max-vis" />km
+			{#if maxVisKm > maxDistM / 1000 + 0.05}
+				<span class="info warn" data-testid="overlay-max-vis-capped"
+					>→ {Math.round(maxDistM / 1000)} km (render's range)</span
+				>
+			{/if}
 		</label>
 		<span class="group" title="handles sit on seams. Drag up/down: lift the horizon there. Sideways: SHIFT the panel to the right of the handle and every panel beyond it (a stitched pano's error accumulates seam by seam) — Alt: this panel only, Shift: vertical only. Ctrl-drag: SCALE that panel about its centre (both axes — a frame stitched at the wrong focal length). Double-click the pano to add a seam where the stitch has one, double-click a handle to remove it; click a handle to edit its panel's numbers.">
 			segments
@@ -1452,6 +1469,7 @@
 	.panel-editor { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; margin-left: 6px; }
 	.panel-editor .num { width: 5.5em; }
 	.info.state.dirty { color: #f2d55c; }
+	.info.warn { color: #f2d55c; opacity: 0.95; }
 	.linkish { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 4px; font: inherit; }
 	.err { color: #d33; font-size: 12px; }
 	.controls {

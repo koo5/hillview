@@ -107,6 +107,181 @@ diffable.
   applied — but if many large packages ever queue up, move blobs to sidecar
   files next to the manifest rather than parsing more cleverly.
 
+### Fetching a package without a browser
+
+`scripts/graduation_fetch.py` asks the workbench for the current package
+(POST `/graduation/export` — everything pending by default; `--photo` /
+`--annotation` narrow it, `--no-overlays` / `--no-annotations` split it),
+prints what is in it (ops by type, per overlay: render, skyline samples,
+label counts by class, fit shape, depth blob; blobs; skipped) and writes it
+into `backend/data/graduation/incoming/` under the same name the
+workbench's download button would use (`--dest`, `--container hillview_api`
+for a `docker cp` into `/app/data/graduation/incoming`, `--dry-run`,
+`--force`). It moves bytes and reports; applying stays a human click in
+`/admin/graduation`. Verified 2026-08-18: 104 ops previewed `clean`/`new`,
+except one overlay `conflict` for a photo hillview already had an overlay
+for — expected when the workbench mirror has not synced since the apply
+(`POST /api/sync/run` on the workbench; the mirror sync is manual).
+
+### The zoom view's terrain UI
+
+* **⛰ Terrain** toolbar button (on by default, only for photos that carry an
+  overlay); **Terrain visibility** slider in the ⋮ menu, capped at
+  `labels_cutoff_km` — past the label reach the horizon would keep moving out
+  with no new names, so the slider stops where the naming stops.
+* **Label scale** (the former "Annotation scale") now scales the terrain
+  slats as well as annotation pills: font, padding, pill height, leader, gap
+  and tap slop all derive from it, so the layouter's slat pitch follows and
+  bigger labels simply thin themselves out. The two terrain readouts (the
+  pick card and the tap-a-label evidence box) scale with it too — someone
+  who raises it cannot read 11 px, and a card is no more readable than a
+  label.
+* **Attribution names its scope**: "Terrain overlay (horizon & labels): …"
+  before the notices, with a title spelling out that it does not cover the
+  photograph or its annotations. The notices themselves stay verbatim —
+  Copernicus Art. 6(b) requires exact wording (docs/terrain-data-licensing.md).
+* **Small screens collapse the notice behind an ⓘ** (≤ 640 px wide, the
+  Leaflet/OSM pattern; starts collapsed each open). Licence-wise this is the
+  defensible split: OSMF's attribution guidelines bless collapsing only on
+  constrained displays behind an obvious control, CC BY permits any
+  reasonable manner, and Copernicus 6(b) requires the notice to accompany
+  the data — not to persist on screen. Desktop keeps the always-visible
+  line. The ⓘ is absolutely positioned in the strip's corner so it adds no
+  height while collapsed; expanding grows the strip, and the measured
+  `bottomInset` re-lays the annotation labels above it automatically.
+* **The pick readout is DOM, not canvas**: the marker stays a canvas circle
+  (it must track the viewport), but the coordinates are a link to the map
+  next to a copy button — canvas text cannot be clicked, and a coordinate
+  you cannot act on is trivia.
+* **The pick link is a map URL with the column's bearing**, split by
+  platform. On web a plain click opens a fresh tab (like the annotation
+  coord links): the map page mirrors all of its state to the URL via
+  `replaceState`, so an in-app move creates no history entry — Back could
+  not return to the photo, and a new tab sidesteps that whole structural
+  gap (see below). On Tauri a plain click closes the zoomview and moves
+  the app's own map: the WebView has no tabs, and an external open would
+  land in the system browser at the public site, losing app and session.
+  The in-app mechanism matters: `Map.svelte` reads `?lat=` only in
+  `afterInit`, so a same-route `goto('/?lat=…')` moves nothing — the
+  handler seeds `updateSpatialState({center, zoom})` + `updateBearing`
+  instead, which both `setView`s a mounted map (store subscription) and
+  positions a fresh one (the map mounts at the store's centre), then
+  `myGoto('/')` only if the zoomview was overlaying some other route.
+  The URL catches up by itself via the debounced flush.
+* **Known structural gap — map history**: the `/` page's state (pan, zoom,
+  bearing, front photo, zoomview) lives in stores and is mirrored to the
+  URL with `replaceState` only; the URL→state direction runs once, in
+  `afterInit`. So within the map the browser's Back has nothing to step
+  through, and on Android the hardware back (which drives WebView history)
+  has the same hole. The eventual fix is SvelteKit shallow routing:
+  `pushState` for discrete jumps (zoomview open, pick-link teleports) with
+  pans staying `replaceState`, plus a popstate→spatialState path in
+  `Map.svelte`. Touchy (the state↔URL flusher is race-prone); its own work
+  item. Until then, outward links from the zoomview open new tabs on web.
+
+### Two visibilities: the default and the max (built 2026-08-19)
+
+The fit carries `visibility_km` — the DEFAULT a visitor opens with, tuned
+by hand to the photo's haze — and `max_visibility_km` (150 unless changed,
+serialised only when changed): how far the document is BUILT. The export
+bakes the **skyline at the default** (exact first paint, no depth needed)
+and the **labels out to max**, capped by the render's range and never
+below the default; the document states the result as `labels_cutoff_km`.
+**The render's range is the ceiling**: the export bakes to
+`min(max_visibility_km, render max_distance_m)`, because no cap can invent
+terrain the render never marched. Asking for 145 km on a 100 km render
+gives 100 — the bench says so next to the `max` field, and
+`scripts/graduation_fetch.py` prints "(fit asks 145, capped by the render's
+100 km)". If a photo wants reach, re-render further first.
+
+The zoom view has a **Terrain visibility** slider in the ⋮ display menu
+(shown while the overlay is on): default = the photo's own, range up to
+`labels_cutoff_km`; moving it filters labels by distance and recomputes the
+horizon from the depth blob at that cutoff (`skylineFromDepth`, the
+bench's live math; one fetch, cached, failures remembered per value so no
+retry loop), "reset" returns to the baked. The bench got a `max` field
+next to `fog`. The three graduated overlays were rebaked rather than
+carrying compatibility for older documents. Also from this work: the
+**⛰ Terrain toggle is a first-class toolbar button, on by default** (per-
+browser choice persists), and the depth-blob loader now **sniffs gzip and
+inflates client-side** — Caddy's plain `file_server` hands the `.gz` out
+without `Content-Encoding`, which had silently broken the click-back on
+hv.dev4-3.
+
+#### What the client-side inflate costs (measured 2026-08-20, idle host)
+
+Chromium, per blob, 126 KB → 5.5 MB (Ďáblice). CPU read per browser
+process from `/proc`, main-thread time from CDP `TaskDuration` on
+`threadTicks`; 50 ops × 6 interleaved repetitions, medians:
+
+| path | wall | CPU (all procs) | renderer | main thread |
+|---|---|---|---|---|
+| transfer only (126 KB, no inflate) | 2.0 ms | 3.4 | 1.6 | 0.9 |
+| inflate only, from memory | 16.4 ms | 17.2 | 16.4 | 15.8 |
+| **ours: plain `.gz` + JS inflate** | **20.0 ms** | **22.0** | **19.0** | **17.8** |
+| server declares `Content-Encoding: gzip` | 34.0 ms | 42.0 | 34.4 | 32.2 |
+
+~20 ms, **once per photo** — the buffer is cached and nothing fetches it
+until the first fog move or the first click-back, so it is off the
+page-load path and costs about the same as one `skylineFromDepth` (5–28 ms).
+
+**Letting the server declare the encoding is ~2× WORSE here**, which is the
+opposite of the intuition. With `Content-Encoding` the network service
+inflates and then has to hand 5.5 MB across the process boundary to the
+renderer; our way only 126 KB crosses it and the inflate happens in-process.
+Renderer CPU alone is 34.4 vs 19.0 ms. (An earlier attempt to measure this
+on a loaded host produced a contradictory 1.5×-either-way spread — the
+result only became stable at load 0.07.)
+
+So the pool keeps serving the `.gz` as a plain file and the client inflates.
+**Which of the two it got is no longer inferred**: since 2026-08-20 the
+renderer prefixes every depth buffer with a header, so the payload names
+itself (`encode_depth_u16` in `enrich/terrain/renderer.py`, the authority;
+mirrored in `shared/terrain/depthPanoViewer.ts` `parseDepthBlob` and
+`enrich/api/app/overlay_export.py` `decode_depth`):
+
+```
+0   4   magic "HVD1"
+4   2   format version (uint16 LE) = 1
+6   2   header length in bytes (uint16 LE) = 32   ← readers take the sample
+8   4   width  (uint32 LE)                          offset from HERE, not
+12  4   height (uint32 LE)                          from a constant
+16  4   depth_scale_m (float32 LE)
+20  12  reserved, zero — readers MUST ignore what they do not know
+32  ..  samples: uint16 LE, row-major, 0 = sky
+```
+
+A gzip stream starts `1f 8b 08`, a depth buffer starts `HVD1`: disjoint by
+construction, so the transport question has an answer rather than a guess.
+That matters because bare samples genuinely could not tell you — the first
+two bytes are just a sample, and the value 35 615 (terrain at 142.46 km)
+*is* gzip's magic. The declared grid also turns a truncated download into a
+precise error instead of a horizon drawn from `undefined` (which passes the
+"not sky" test and yields a marker at NaN, NaN).
+
+One format everywhere, and no legacy form: the render artifact the worker
+writes, the buffer the workbench viewer and the overlay bench fetch, and the
+graduated blob are the same bytes, and every reader REQUIRES the header —
+nothing here had shipped, so there was nothing to stay compatible with. The
+buffers that predated it were migrated in place by
+`scripts/terrain_migrate_depth_header.py` (50 artifacts, grid and scale from
+each render's meta, atomic writes, `.gz` sibling regenerated, idempotent);
+the render pool was then pruned to one fresh render per photo, so the
+migration script is kept only as the record of how it was done.
+
+For the record, the Caddy alternative to inflating client-side would be:
+
+```
+@gz path *.bin.gz
+header @gz Content-Encoding gzip
+header @gz Content-Type application/octet-stream   # describes the DECODED entity
+```
+
+— verified working (a client that announces gzip decodes 5 729 792 bytes, a
+plain one keeps the 128 700-byte file its `.gz` name promises, and **the
+wire carries 128 700 either way**), but measurably slower, and as written it
+sends the header even to clients that never announced gzip.
+
 ## Two comparisons, deliberately different
 
 It is easy to conflate these; they answer different questions.

@@ -32,6 +32,94 @@
  * modulo 1, and a URL rect's x may leave [0, 1] — normalizeRect on parse.
  */
 
+// ---------------------------------------------------------------------------
+// depth buffer wire format ("HVD1") — mirror of enrich/terrain/renderer.py,
+// which is the authority (encode_depth_u16 / depth_samples).
+//
+// Samples are row-major little-endian uint16, prefixed with a header so the
+// payload NAMES ITSELF. Two readers need that: anything fetching the artifact
+// gets it either verbatim or transparently inflated by the transport, and bare
+// samples cannot say which they are (the sample value 35615 — terrain at
+// 142.46 km — encodes gzip's own 1f 8b magic); and a truncated buffer
+// otherwise reads as confident nonsense rather than failing.
+//
+//   0   4   magic "HVD1"
+//   4   2   format version (uint16 LE), currently 1
+//   6   2   header length in bytes (uint16 LE) — where the samples start
+//   8   4   width  (uint32 LE)
+//   12  4   height (uint32 LE)
+//   16  4   depth_scale_m (float32 LE)
+//   20  12  reserved, zero; readers MUST ignore what they do not know
+//   32  ..  samples
+//
+// Every reader REQUIRES the header: the handful of buffers written before
+// 2026-08-20 were migrated in place (scripts/terrain_migrate_depth_header.py),
+// so there is no headerless form left to support.
+export const DEPTH_BLOB_VERSION = 1;
+export const DEPTH_BLOB_HEADER_BYTES = 32;
+
+/** True when `buf` starts with the HVD1 magic. */
+export function isDepthBlob(buf: ArrayBuffer): boolean {
+	if (buf.byteLength < 16) return false;
+	const b = new Uint8Array(buf, 0, 4);
+	return b[0] === 0x48 && b[1] === 0x56 && b[2] === 0x44 && b[3] === 0x31; // "HVD1"
+}
+
+export interface DepthBlobHeader {
+	version: number;
+	headerBytes: number;
+	width: number;
+	height: number;
+	/** metres per sample step, when the header is long enough to carry it */
+	scaleM: number | null;
+}
+
+/** Read the header, or null when the buffer does not carry one. */
+export function depthBlobHeader(buf: ArrayBuffer): DepthBlobHeader | null {
+	if (!isDepthBlob(buf)) return null;
+	const dv = new DataView(buf);
+	const headerBytes = dv.getUint16(6, true);
+	return {
+		version: dv.getUint16(4, true),
+		headerBytes,
+		width: dv.getUint32(8, true),
+		height: dv.getUint32(12, true),
+		scaleM: headerBytes >= 20 && buf.byteLength >= 20 ? dv.getFloat32(16, true) : null
+	};
+}
+
+/**
+ * HVD1 container → the samples, as a VIEW onto the same buffer (no copy).
+ * Validates the version, the declared grid and the payload length, and — when
+ * `expect` is given — that the grid is the one the caller describes.
+ */
+export function parseDepthBlob(
+	buf: ArrayBuffer,
+	expect?: { width: number; height: number }
+): Uint16Array {
+	const head = depthBlobHeader(buf);
+	if (!head)
+		throw new Error(
+			`depth buffer has no HVD1 header (${buf.byteLength} bytes) — a truncated download,` +
+				' or not a depth buffer at all'
+		);
+	if (head.version !== DEPTH_BLOB_VERSION)
+		throw new Error(`depth buffer version ${head.version}, this reader speaks ${DEPTH_BLOB_VERSION}`);
+	// a LATER version may have grown the header; take the offset from the file
+	if (head.headerBytes < 16 || head.headerBytes > buf.byteLength || head.headerBytes % 2)
+		throw new Error(`depth buffer header claims ${head.headerBytes} bytes`);
+	const body = buf.byteLength - head.headerBytes;
+	if (body !== head.width * head.height * 2)
+		throw new Error(
+			`depth buffer says ${head.width}×${head.height} (${head.width * head.height * 2} bytes) but carries ${body}`
+		);
+	if (expect && (expect.width !== head.width || expect.height !== head.height))
+		throw new Error(
+			`depth buffer is ${head.width}×${head.height}, the overlay describes ${expect.width}×${expect.height}`
+		);
+	return new Uint16Array(buf, head.headerBytes, head.width * head.height);
+}
+
 export interface TerrainMeta {
 	width: number;
 	height: number;
@@ -422,7 +510,9 @@ export class DepthPanoViewer {
 			opts.depth ??
 				fetch(opts.depthUrl!).then(async (r) => {
 					if (!r.ok) throw new Error(`depth load failed: HTTP ${r.status}`);
-					return new Uint16Array(await r.arrayBuffer());
+					// the artifact carries its own header (HVD1); a legacy one
+					// is accepted at exactly the size meta declares
+					return parseDepthBlob(await r.arrayBuffer(), meta);
 				})
 		]);
 		if (this.disposed) return;

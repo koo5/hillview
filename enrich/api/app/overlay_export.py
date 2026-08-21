@@ -22,10 +22,14 @@ second opinion computed a slightly different way.
 from __future__ import annotations
 
 import math
+import struct
 
 import numpy as np
 
 OVERLAY_FORMAT = 1
+# how far labels are baked when the fit does not say (km) — mirrors
+# overlayFit.DEFAULT_MAX_VISIBILITY_KM
+DEFAULT_MAX_VISIBILITY_KM = 150.0
 
 # mirrors peakLabels.ts — kept in sync by hand, small and stable
 R_EARTH_M = 6_371_000.0
@@ -79,6 +83,28 @@ DIRECTION_MAX_DIST_M = 100_000.0
 DIRECTION_MIN_OCCLUDER_M = 1_000.0   # not "behind" a tree in the foreground
 
 
+# ---------------------------------------------------------------------------
+# depth buffer wire format ("HVD1") — the AUTHORITY is enrich/terrain/
+# renderer.py (encode_depth_u16 / depth_samples), mirrored here because the API
+# container does not import the worker's package.
+#
+#   0 "HVD1" · 4 version u16 · 6 header bytes u16 · 8 width u32 · 12 height u32
+#   16 depth_scale_m f32 · 20 reserved (12, zero) · 32 samples u16 LE row-major
+DEPTH_BLOB_MAGIC = b"HVD1"
+DEPTH_BLOB_VERSION = 1
+DEPTH_BLOB_HEADER_BYTES = 32
+
+
+def depth_blob_header(buf: bytes) -> dict | None:
+    """{version, header_bytes, width, height, scale_m} or None when headerless."""
+    if len(buf) < 16 or buf[:4] != DEPTH_BLOB_MAGIC:
+        return None
+    version, hlen, width, height = struct.unpack("<HHII", buf[4:16])
+    scale = struct.unpack("<f", buf[16:20])[0] if hlen >= 20 and len(buf) >= 20 else None
+    return {"version": version, "header_bytes": hlen, "width": width,
+            "height": height, "scale_m": scale}
+
+
 def az_step_of(meta: dict) -> float:
     """Degrees per column. The renderer states az_step_deg explicitly; the
     span fallback has to unwrap, because a sweep that crosses north has
@@ -122,9 +148,21 @@ def bearing_distance(lat1: float, lon1: float,
 
 
 def decode_depth(buf: bytes, meta: dict) -> np.ndarray:
-    """Raw little-endian uint16 → (H, W) array of quanta (0 = sky)."""
+    """Depth buffer (HVD1) → (H, W) array of quanta (0 = sky)."""
     h, w = int(meta["height"]), int(meta["width"])
-    q = np.frombuffer(buf, dtype="<u2")
+    head = depth_blob_header(buf)
+    if head is None:
+        raise ValueError("depth buffer has no HVD1 header")
+    if head["version"] != DEPTH_BLOB_VERSION:
+        raise ValueError(f"depth buffer version {head['version']}, "
+                         f"this reader speaks {DEPTH_BLOB_VERSION}")
+    hlen = head["header_bytes"]
+    if hlen < 16 or hlen > len(buf):
+        raise ValueError(f"depth buffer header claims {hlen} bytes")
+    if (head["width"], head["height"]) != (w, h):
+        raise ValueError(f"depth buffer is {head['width']}×{head['height']}, "
+                         f"meta says {w}×{h}")
+    q = np.frombuffer(buf[hlen:], dtype="<u2")
     if q.size != h * w:
         raise ValueError(f"depth buffer is {q.size} samples, meta says {h}×{w}")
     return q.reshape(h, w)
@@ -426,11 +464,21 @@ def build_overlay(*, fit: dict, meta: dict, depth: bytes, peaks: list[dict],
             "without its licence notice (set TERRAIN_ATTRIBUTION on the worker "
             "and re-render)")
     q = decode_depth(depth, meta)
+    # two ranges: the DEFAULT visibility (what the viewer opens with — the
+    # baked skyline is cut here so the first paint needs no depth) and the
+    # MAX visibility the document is built to (labels reach it, capped by the
+    # render's range) so a viewer's fog slider has room without a re-export
     vis_km = fit.get("visibility_km")
     cutoff_m = float(vis_km) * 1000.0 if vis_km is not None else None
+    max_km = fit.get("max_visibility_km")
+    max_m = (float(max_km) if max_km is not None else DEFAULT_MAX_VISIBILITY_KM) * 1000.0
+    if cutoff_m is not None:
+        max_m = max(max_m, cutoff_m)          # never bake fewer labels than the default shows
+    if meta.get("max_distance_m") is not None:
+        max_m = min(max_m, float(meta["max_distance_m"]))
 
     elev, dist = skyline_from_depth(meta, q, cutoff_m)
-    labels = project_labels(meta, q, peaks, cutoff_m)
+    labels = project_labels(meta, q, peaks, max_m)
 
     skyline = {
         "az_start": round(azimuth_for_column(meta, 0), 6),
@@ -452,6 +500,8 @@ def build_overlay(*, fit: dict, meta: dict, depth: bytes, peaks: list[dict],
         "fit": fit,
         "skyline": skyline,
         "labels": labels,
+        # how far the labels reach — the ceiling for a viewer's fog slider
+        "labels_cutoff_km": round(max_m / 1000.0, 1),
         "render": render_ref,
         # licence obligation, carried BY the data: a render made from other
         # sources carries a different notice, and an old overlay keeps the

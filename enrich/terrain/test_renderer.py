@@ -7,8 +7,9 @@ import math
 import numpy as np
 import pytest
 
-from renderer import (DemGrid, Panorama, decode_depth_u16, destination_point,
-                      effective_radius, encode_depth_u16, render)
+from renderer import (DemGrid, Panorama, decode_depth_u16, depth_blob_header,
+                      depth_samples, destination_point, effective_radius,
+                      encode_depth_u16, render)
 
 LAT0, LON0 = 50.0, 14.5
 M_PER_DEG_LAT = 111_320.0
@@ -305,3 +306,39 @@ def test_checkpoint_partials_are_prefixes_of_the_final():
     assert grown.any(), "the far peak should appear only in the final"
     assert float(np.nanmin(final.depth[grown])) > 10_000.0
     assert part.meta()["width"] == final.meta()["width"]
+
+
+# --- the HVD1 depth container ----------------------------------------------
+
+def test_encoded_depth_names_itself_and_carries_its_grid():
+    """Bare samples cannot say whether they are samples or a gzip stream (the
+    value 35615 IS gzip's 1f 8b); the header settles it and pins the grid."""
+    depth = np.array([[142460.0, 32.0, np.nan], [1.0, 2.0, 3.0]], dtype=np.float32)
+    buf = encode_depth_u16(depth)
+    assert buf[:4] == b"HVD1"
+    assert buf[:3] != b"\x1f\x8b\x08"
+    assert depth_blob_header(buf) == {"version": 1, "header_bytes": 32, "width": 3,
+                                      "height": 2, "scale_m": pytest.approx(4.0)}
+    assert len(buf) == 32 + 3 * 2 * 2
+    assert buf[20:32] == b"\0" * 12                          # reserved, zeroed
+    # the collision sample really is in there, harmlessly
+    assert np.frombuffer(depth_samples(buf, 2, 3), dtype="<u2")[0] == 35615
+    back = decode_depth_u16(buf, 2, 3)
+    assert back[0][0] == 142460.0 and np.isnan(back[0][2])
+
+
+def test_decode_refuses_a_headerless_buffer():
+    """No legacy form: the buffers written before the header existed were
+    migrated in place (scripts/terrain_migrate_depth_header.py)."""
+    bare = encode_depth_u16(np.array([[10.0, 20.0]], dtype=np.float32))[32:]
+    assert depth_blob_header(bare) is None
+    with pytest.raises(ValueError, match="no HVD1 header"):
+        decode_depth_u16(bare, 1, 2)
+
+
+def test_decode_refuses_a_container_that_disagrees_with_the_caller():
+    buf = encode_depth_u16(np.array([[1.0, 2.0, 3.0]], dtype=np.float32))
+    with pytest.raises(ValueError, match="is 3×1, the caller expects 2×2"):
+        decode_depth_u16(buf, 2, 2)
+    with pytest.raises(ValueError, match="carries"):
+        decode_depth_u16(buf[:-2], 1, 3)

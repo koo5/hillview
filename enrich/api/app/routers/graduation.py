@@ -400,8 +400,9 @@ async def _bake_overlay(photo_id: str, fit: dict) -> tuple[dict, tuple[str, byte
     path = _artifact_abspath(row.depth_path)
     with open(path, "rb") as f:
         depth = f.read()
-    # the worker maintains a pre-compressed sibling (uint16 depth shrinks ~60:1);
-    # reuse it rather than re-compressing, and fall back if it is missing
+    # the artifact is already the self-identifying HVD1 container the pool
+    # will serve, so reuse the worker's pre-compressed sibling (uint16 depth
+    # shrinks ~60:1) and fall back only if it is missing
     try:
         with open(path + ".gz", "rb") as f:
             depth_gz = f.read()
