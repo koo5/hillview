@@ -379,6 +379,31 @@ fun planExposure(
 }
 
 /**
+ * The (time, gain) a metering frame is CREDITED to — which exposure the
+ * scene meter is told produced the pixels it just measured: the plan while
+ * a rule holds the sensor, AE's harvest otherwise, never a mix of the two.
+ *
+ * The order is the meter's anchor, not a convenience. While a rule is
+ * applied AE is off, so the harvest is frozen at whatever light the rule
+ * was ENGAGED in — and crediting frames to it moves the loop's fixed point
+ * from luma = target to luma = target × (harvest / estimate): the meter
+ * stops measuring the scene and starts reproducing the dead reading.
+ * Engage Sports in the shade and drive into sun, and every shot of the
+ * run comes back pinned near clipping — the interval-mode "stuck in high
+ * exposure" report (2026-08-21). SceneMeterLoopTest walks the whole loop
+ * through exactly that day.
+ */
+fun meterCreditedExposure(
+    plan: ExposurePlan?,
+    aeExposureNs: Long?,
+    aeIso: Int?,
+): Pair<Long, Int>? = when {
+    plan != null -> plan.exposureNs to plan.iso
+    aeExposureNs != null && aeIso != null -> aeExposureNs to aeIso
+    else -> null
+}
+
+/**
  * The bias ladder: the direct answer to a sun in frame, which no shutter
  * rule can help with — shutter priority only ever reproduces the METERING's
  * decision, and metering targets the average, so a backlit scene is

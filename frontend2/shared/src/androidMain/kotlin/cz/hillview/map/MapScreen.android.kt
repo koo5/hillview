@@ -269,6 +269,9 @@ actual fun MapScreen(
     }
     // The ages are the diagnosis, so they have to keep counting even when
     // nothing else changes — but only while the readout is on screen.
+    // When the overlay was last handed a bearing, and which — see
+    // GeoDebugText: the arrow can freeze while every other readout moves.
+    val arrowStamp = remember { longArrayOf(0L, 0L) }
     val raw by controller.rawOrientation.collectAsState()
     val debugNow by produceState(0L, mapSettings.showGeoDebug) {
         while (mapSettings.showGeoDebug) {
@@ -291,6 +294,9 @@ actual fun MapScreen(
             rawStillMs = controller.sensorValueStillMs(),
             devicePose = controller.deviceOrientationName(),
             manualPositionClaimed = manualClaimed,
+            arrowSetAtMs = arrowStamp[0].takeIf { it != 0L },
+            arrowValueDeg = arrowStamp[1].takeIf { arrowStamp[0] != 0L }
+                ?.let { Double.fromBits(it) },
             nowMs = debugNow,
         ),
     )
@@ -368,6 +374,11 @@ actual fun MapScreen(
                 // Tip at 1.3x the ring, as in the original — just outside it.
                 arrowTipPx = ringPx * 1.3f
                 arrowOverlay.bearingDeg = bearing.bearing
+                // Not Compose state: written from inside the update block,
+                // where a state write would recompose and re-enter it. The
+                // readout's own half-second tick is what reads it.
+                arrowStamp[0] = System.currentTimeMillis()
+                arrowStamp[1] = bearing.bearing.toRawBits()
                 arrowOverlay.tipRadiusPx = arrowTipPx
                 arrowOverlay.fullCircleHitArea =
                     mapSettings.bearingMode == BearingMode.Car && trackingWanted

@@ -9,6 +9,11 @@
 # ~830% CPU (8 cores) on this box while merely idling at a Compose screen.
 # The guest gets few cores and the scope gets a hard quota, so a forgotten
 # emulator can't eat the machine. Override with EMU_CPUS / EMU_QUOTA / EMU_RAM.
+#
+# Emulators started AROUND this script (ad-hoc systemd-run, IDE, a Claude
+# session) are covered by emulator-watchdog.py, which the systemd user timer
+# hillview-emu-watchdog.timer runs every 5 min: it clamps any unquota'd
+# emulator scope and stops the emulator after 30 min without adb traffic.
 set -euo pipefail
 
 AVD="${EMU_AVD:-Medium_Phone_API_36}"

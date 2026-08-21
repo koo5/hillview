@@ -506,6 +506,30 @@ on a new side channel. (Its Gradle wiring declares `src/` as a task input;
 without that a violation added under androidMain leaves `jvmTest` up to date
 and the check silently unrun.)
 
+## The map arrow freezing while the readouts move (open, 2026-08-21)
+
+Reported after the sensor work landed: readouts fine, arrow stuck after
+unbackgrounding — and the map still pans on GPS, so the canvas is not frozen.
+
+That combination points away from the geo chain entirely. The arrow is drawn
+by osmdroid from a value the `AndroidView` update block copies out of the
+bearing state; the GPS follow is coroutine-driven (`snapshotFlow`) and needs
+no recomposition. So an update block that stops re-running gives exactly this
+picture: every Compose readout tracks, the map still moves, the arrow holds
+its last handed value.
+
+NOT reproduced on the emulator — a HOME cycle, and a 45-second backgrounding
+behind another app with `send-trim-memory RUNNING_CRITICAL`, both left the
+arrow tracking (86k–92k pixels differing across a heading change, against a
+71k baseline). So the readout carries the instrument instead:
+
+    🗺 arrow 24s @307.7° Δ0.0°
+
+Δ is the tell, not the age: a still phone legitimately shows a climbing age
+with Δ0, because the block only re-runs when something recomposes. A large Δ
+means the overlay is holding a bearing the state has moved on from — the
+drawing stopped, not the sensors.
+
 ## Deferred decisions
 
 **Marker refresh on capture, vs the original's placeholder markers
