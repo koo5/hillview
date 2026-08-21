@@ -27,7 +27,8 @@
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { togglePhotoRating, fetchPhotoRating, ratingShortcutFor, type Rating } from '$lib/photoActions';
 	import type { PhotoData } from '$lib/sources';
-	import { photoInFront } from '$lib/mapState';
+	import { photoInFront, updateBearing, updateSpatialState } from '$lib/mapState';
+	import { TAURI } from '$lib/tauri';
 	import { track } from '$lib/analytics';
 	import { onMount, onDestroy, type Snippet } from 'svelte';
 	import OpenSeadragon from 'openseadragon';
@@ -43,13 +44,16 @@
 	} from '$lib/annotationApi';
 	import { Origin, UserSelectAction, type DrawingStyle } from '@annotorious/core';
 	import { fetchDetections, type DetectedObject } from '$lib/detectionApi';
-	import { showDetections, showPhotoInfoWindow, showTerrainOverlay } from '$lib/data.svelte.js';
+	import { showAnnotations, showDetections, showPhotoInfoWindow, showTerrainOverlay } from '$lib/data.svelte.js';
 	import {
 		createOverlayProjector,
 		effectiveFit,
 		pickFromOverlay,
+		fogBounds,
+		skylineFromDepth,
 		skylinePolylines,
 		type OverlayLabel,
+		type OverlaySkyline,
 		type TerrainOverlay
 	} from '$terrain/overlayFit';
 	import {
@@ -81,7 +85,7 @@
 		dropdownMenuState,
 		type DropdownMenuItem,
 	} from '$lib/components/dropdown-menu/dropdownMenu.svelte';
-	import { MapPin, MoreVertical, Share } from 'lucide-svelte';
+	import { MapPin, MoreVertical, Mountain, Share, Tags } from 'lucide-svelte';
 	import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { buildTileSource } from '$zoomview/tileSource';
@@ -296,6 +300,52 @@
 		goToCoords(label, lat, lon);
 	}
 
+	/** Plain click on the terrain pick's coordinates — split by platform.
+	 *
+	 *  Web: a fresh tab, like the annotation coord links. The in-app
+	 *  alternative moves the map through the store, which the browser never
+	 *  sees (the map page mirrors ALL its state to the URL via replaceState,
+	 *  so no history entry exists to come Back to) — the photo would simply
+	 *  be gone. A new tab keeps the photo tab and its history intact. When
+	 *  the map ever gains shallow-routing history (pushState), this can
+	 *  become an in-app navigation again.
+	 *
+	 *  Tauri: keep the in-app close+move. The WebView has no tabs — an
+	 *  external open would bounce the user into the system browser at the
+	 *  PUBLIC site (externalBaseUrl), losing app and session both, which is
+	 *  strictly worse than the history loss. Mechanism: the live map ignores
+	 *  ?lat= after init (Map.svelte reads URL params only in afterInit), so
+	 *  the store is what moves it — Map both subscribes to spatialState and
+	 *  mounts at its center. The URL follows via onSpatialStateChange. */
+	function handleTerrainPickClick(e: MouseEvent) {
+		if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+		e.preventDefault();
+		if (!terrainPick) return;
+		track('terrainPickMap', {photo: data.photo_id ?? ''});
+		if (!TAURI) {
+			openExternalUrl(terrainPickMapUrl(terrainPick));
+			return;
+		}
+		const { lat, lon, azimuth_deg } = terrainPick;
+		onClose();
+		updateSpatialState({ center: { lat, lng: lon }, zoom: COORDS_MAP_ZOOM });
+		// carry the picked column's bearing too, same as the anchor's URL does
+		updateBearing(Math.round(azimuth_deg * 10) / 10);
+		if (window.location.pathname !== '/') myGoto('/');
+	}
+
+	/** Map URL for the terrain pick: the annotation-coords URL plus the picked
+	 *  column's true bearing, so the map opens facing the way the photo looks. */
+	function terrainPickMapUrl(p: { lat: number; lon: number; azimuth_deg: number }): string {
+		return constructMapUrl({
+			lat: p.lat,
+			lon: p.lon,
+			zoom: COORDS_MAP_ZOOM,
+			bearing: Math.round(p.azimuth_deg * 10) / 10,
+			baseUrl: externalBaseUrl()
+		});
+	}
+
 	/** Build dropdown menu items for the selected annotation. */
 	function buildAnnotationMenuItems(ann: AnnotationData): DropdownMenuItem[] {
 		const items: DropdownMenuItem[] = [];
@@ -422,6 +472,13 @@
 	let isLoading = true;
 	let labelCanvas: HTMLCanvasElement | null = null;
 	let resizeObserver: ResizeObserver | null = null;
+	// The bottom strip (title + terrain attribution); its measured height is
+	// fed to the label layouter so bottom-edge pills stay above the chrome.
+	let bottomChromeEl: HTMLDivElement | null = null;
+	// Small screens collapse the attribution behind an ⓘ toggle (desktop
+	// ignores this — the media query only applies the collapsed class there).
+	// Resets per zoomview open, so a phone always starts collapsed.
+	let attributionExpanded = false;
 
 	// ---- graduated terrain overlay (horizon line + peak labels) ----
 	// The document is a few KB and draws everything. Its depth buffer is a few
@@ -434,10 +491,24 @@
 		lat: number;
 		lon: number;
 		distance_m: number;
+		/** true bearing of the picked depth column — rides into the map link */
+		azimuth_deg: number;
 		imgX: number;
 		imgY: number;
 	} | null = null;
 	let terrainPickBusy = false;
+	/** where to put the pick readout, in canvas px — updated by every terrain
+	 * redraw so the card tracks the marker */
+	let terrainPickScreen: { x: number; y: number } | null = null;
+	let terrainPickCopied = false;
+	// fog: the visibility the viewer shows. null = the fit's default (the
+	// baked skyline is cut there, no depth needed). Any other value filters
+	// the labels by distance and, for the horizon, recomputes the skyline
+	// from the depth blob — the same math the bench uses live.
+	let terrainFogKm: number | null = null;
+	let fogSkyline: { km: number; skyline: OverlaySkyline } | null = null;
+	let fogSkylineLoading = false;
+	let fogSkylineFailed: number | null = null; // the km a recompute failed for — no retry loop
 	// label pills currently on screen (for tap → evidence) and the tapped one
 	let terrainPills: (SkyLabel & { kind?: string; cls?: LabelClass; facts: OverlayLabel })[] = [];
 	let terrainLabelInfo: { name: string; cls: LabelClass; evidence: string; x: number; y: number } | null = null;
@@ -455,6 +526,9 @@
 		terrainOverlay = null;
 		terrainPick = null;
 		terrainLabelInfo = null;
+		terrainFogKm = null;
+		fogSkyline = null;
+		fogSkylineFailed = null;
 		releaseOverlayDepth();
 		scheduleDrawTerrain();
 		try {
@@ -574,13 +648,36 @@
 		}
 	}
 
+	// React to the annotations toggle the same way: a hidden layer is synced
+	// as an empty one, which also empties the label pills and the id maps.
+	$: if (annotator) {
+		void $showAnnotations;
+		syncAnnotationsToViewer();
+	}
+
+	/** Toolbar toggle for the hillview annotation layer. Hiding it first
+	 *  drops back to view mode and closes any open selection — the draw/edit
+	 *  tools disappear with the layer, and nothing may keep editing what the
+	 *  visitor can no longer see. */
+	function toggleAnnotations() {
+		if ($showAnnotations) {
+			if (annotationMode !== 'view') setAnnotationMode('view');
+			clearViewSelection();
+		}
+		showAnnotations.update((v) => !v);
+	}
+
 	function syncAnnotationsToViewer() {
 		if (!annotator) {
 			console.warn('[OSD] syncAnnotationsToViewer: annotator not ready');
 			return;
 		}
 		const dims = getImageDims();
-		const w3cAnnotations = annotations
+		// Hidden layer = empty layer: the annotator, the id maps and (via
+		// syncDetectionsToViewer → rebuildParsedAnnotations) the label pills
+		// all derive from `source`, so one gate covers every surface.
+		const source = $showAnnotations ? annotations : [];
+		const w3cAnnotations = source
 			.filter((a) => a.target)
 			.map((a) => toW3cAnnotation(a, dims.w, dims.h));
 		//console.log('[OSD] Syncing annotations to viewer:', w3cAnnotations.length, w3cAnnotations);
@@ -592,7 +689,7 @@
 		// On initial load, UI IDs = DB IDs (1:1)
 		uiToDb.clear();
 		dbToUi.clear();
-		for (const a of annotations) {
+		for (const a of source) {
 			if (!a.target) continue;
 			uiToDb.set(a.id, a.id);
 			dbToUi.set(a.id, a.id);
@@ -624,7 +721,7 @@
 	function rebuildParsedAnnotations() {
 		const dims = getImageDims();
 		parsedAnnotations = [];
-		for (const ann of annotations) {
+		for (const ann of $showAnnotations ? annotations : []) {
 			if (!ann.body) continue;
 			const firstItem = parseAnnotationBody(ann.body)[0];
 			const label = firstItem ? firstItem.value : ann.body;
@@ -676,6 +773,16 @@
 				if (viewSelectedAnnotation) updateMenuAnchor();
 			});
 		}
+	}
+
+	// Redraw labels when the bottom chrome's occupants change (overlay toggle,
+	// a different overlay document, entering/leaving annotation modes, the
+	// attribution expanding from its small-screen ⓘ): Svelte flushes the DOM
+	// first, the rAF draw then measures the strip's new height.
+	$: if (labelCanvas) {
+		void $showTerrainOverlay; void terrainOverlay; void annotationMode;
+		void attributionExpanded;
+		scheduleDrawLabels();
 	}
 
 	// Debounced viewport bounds emission for URL sync
@@ -760,6 +867,12 @@
 	const BASE_PILL_RADIUS = 4;
 	const BASE_TEXT_BASELINE_OFFSET = 5;
 	const BASE_ANNOTATION_STROKE_WIDTH = 1.5;
+	// terrain slats at scale 1 (see paintSkyPills / layoutSkyLabels)
+	const TERRAIN_LABEL_FONT_PX = 11;
+	const TERRAIN_LABEL_PAD_PX = 6;
+	const TERRAIN_LABEL_PILL_H = 18;
+	const TERRAIN_LABEL_LEADER = 14;
+	const TERRAIN_LABEL_GAP = 3;
 	let annotationScale = 1;
 	let lastAppliedAnnotationScale = annotationScale;
 	const DISPLAY_MENU_TEST_ID = 'osd-display-menu';
@@ -812,6 +925,7 @@
 		applyAnnotatorScaleStyle();
 		lastDrawFingerprint = '';
 		scheduleDrawLabels();
+		scheduleDrawTerrain(); // the terrain slats scale with it too
 	}
 
 	$: if (annotationScale !== lastAppliedAnnotationScale) {
@@ -822,7 +936,7 @@
 	/** Build the display/actions menu (share + annotation scale).
 	 *  The scale slider snippet is declared in markup, so it's passed in from
 	 *  the click handler where it's in lexical scope. */
-	function buildDisplayMenuItems(scaleSnippet: Snippet): DropdownMenuItem[] {
+	function buildDisplayMenuItems(scaleSnippet: Snippet, fogSnippet: Snippet): DropdownMenuItem[] {
 		const items: DropdownMenuItem[] = [];
 		if ($photoInFront) {
 			items.push({
@@ -835,25 +949,20 @@
 			items.push({ type: 'divider' });
 		}
 		items.push({ type: 'custom', id: 'annotation-scale', render: scaleSnippet });
-		// only offered where there is something to show: most photos have no
-		// graduated overlay, and a dead toggle is worse than no toggle
-		if (terrainOverlay) {
+		// (the terrain overlay toggle is a first-class toolbar button; its
+		// visibility slider lives here, next to the other display knobs)
+		if (terrainOverlay && $showTerrainOverlay) {
 			items.push({ type: 'divider' });
-			items.push({
-				id: 'terrain-overlay',
-				label: $showTerrainOverlay ? 'Hide terrain horizon' : 'Show terrain horizon',
-				testId: 'osd-terrain-toggle',
-				onclick: () => showTerrainOverlay.update((v) => !v),
-			});
+			items.push({ type: 'custom', id: 'terrain-fog', render: fogSnippet });
 		}
 		return items;
 	}
 
 	/** Toggle the display/actions menu from the toolbar menu button. */
-	function toggleDisplayMenu(scaleSnippet: Snippet) {
+	function toggleDisplayMenu(scaleSnippet: Snippet, fogSnippet: Snippet) {
 		track('displayMenu');
 		if (!displayMenuBtnEl) return;
-		toggleDropdownMenu(buildDisplayMenuItems(scaleSnippet), displayMenuBtnEl, {
+		toggleDropdownMenu(buildDisplayMenuItems(scaleSnippet, fogSnippet), displayMenuBtnEl, {
 			placement: 'below-left',
 			testId: DISPLAY_MENU_TEST_ID,
 		});
@@ -895,11 +1004,20 @@
 			inputs.push({ label, cx, cy, pillW, id: dbId });
 		}
 
-		const { cmds, fingerprint: fp } = buildLabelCommands(inputs, W, H, labelMargin, { pillH: labelPillH });
+		// Keep bottom-edge pills above the bottom chrome (title + attribution).
+		// The strip's height is part of the fingerprint: toggling the overlay
+		// changes the inset without moving any centroid, and the stale-anchor
+		// skip below must not eat that redraw.
+		const bottomInset = bottomChromeEl?.offsetHeight ?? 0;
+		const { cmds, fingerprint } = buildLabelCommands(inputs, W, H, labelMargin, {
+			pillH: labelPillH,
+			bottomInset
+		});
+		const fp = `${fingerprint};bi${bottomInset}`;
 		if (fp === lastDrawFingerprint) return;
 		lastDrawFingerprint = fp;
 
-		resolveOverlaps(cmds, W, H, { gap: labelGap });
+		resolveOverlaps(cmds, W, H, { gap: labelGap, bottomInset });
 
 		// Expose resolved label state for Playwright tests and render clickable overlays
 		if (typeof window !== 'undefined') {
@@ -970,9 +1088,20 @@
 		const proj = createOverlayProjector(fit, size.x, size.y);
 		const to = imageToScreenAffine(item);
 
-		// horizon: stroked as separate runs so sky gaps break the line instead
-		// of being bridged by a false chord
-		const runs = skylinePolylines(terrainOverlay.skyline, proj, fit);
+		// horizon: the baked skyline at the fit's default visibility, or — when
+		// the visitor moved the fog — one recomputed from the depth blob at
+		// that cutoff (kept until the fog changes again). Stroked as separate
+		// runs so sky gaps break the line instead of being bridged by a chord.
+		const bakedFog = fogBounds(terrainOverlay).defaultKm;
+		const fogKm = terrainFogKm ?? bakedFog;
+		const useBaked = terrainFogKm === null || (bakedFog !== null && Math.abs(terrainFogKm - bakedFog) < 0.05);
+		let skyline = terrainOverlay.skyline;
+		if (!useBaked && terrainFogKm !== null) {
+			if (fogSkyline && Math.abs(fogSkyline.km - terrainFogKm) < 0.05) skyline = fogSkyline.skyline;
+			else if (fogSkylineFailed === null || Math.abs(fogSkylineFailed - terrainFogKm) >= 0.05)
+				void ensureFogSkyline(terrainFogKm); // draws baked meanwhile, redraws when ready
+		}
+		const runs = skylinePolylines(skyline, proj, fit);
 		for (const [width, color] of [
 			[4, 'rgba(0,0,0,0.55)'],
 			[1.8, 'rgba(255,220,50,0.95)']
@@ -1004,12 +1133,20 @@
 		// what a label CLAIMS decides its text (summit → name + OSM elevation,
 		// mass → name, direction → name, painted dim). Tap a pill for the
 		// evidence behind it.
-		ctx.font = '11px system-ui, sans-serif';
+		// terrain labels honour the same "Label scale" slider as annotations:
+		// every length below is a base × the scale, and the layouter's slat
+		// pitch follows automatically (it is derived from the pill height), so
+		// bigger labels simply thin themselves out
+		const k = annotationScale;
+		ctx.font = `${TERRAIN_LABEL_FONT_PX * k}px system-ui, sans-serif`;
 		const inputs: {
 			label: string; cx: number; cy: number; pillW: number;
 			kind?: string; cls?: LabelClass; facts: OverlayLabel;
 		}[] = [];
+		const fogM = fogKm !== null ? fogKm * 1000 : Infinity;
 		for (const m of terrainOverlay.labels ?? []) {
+			// labels are baked out to the document's max range; the fog cuts them
+			if (m.distance_m > fogM) continue;
 			const pt = proj.projectAzimuth(m.azimuth_deg, m.elev_deg);
 			if (!pt) continue;
 			const cx = to.x(pt.x, pt.y);
@@ -1020,15 +1157,19 @@
 				label,
 				cx,
 				cy,
-				pillW: Math.ceil(ctx.measureText(label).width) + 12,
+				pillW: Math.ceil(ctx.measureText(label).width) + TERRAIN_LABEL_PAD_PX * 2 * k,
 				kind: m.kind,
 				cls: m.class ?? 'mass',
 				facts: m
 			});
 		}
 		ctx.textBaseline = 'middle';
-		terrainPills = layoutSkyLabels(inputs, W, H, { pillH: 18, leader: 14 });
-		paintSkyPills(ctx, terrainPills);
+		terrainPills = layoutSkyLabels(inputs, W, H, {
+			pillH: TERRAIN_LABEL_PILL_H * k,
+			leader: TERRAIN_LABEL_LEADER * k,
+			gap: TERRAIN_LABEL_GAP * k
+		});
+		paintSkyPills(ctx, terrainPills, { scale: k });
 
 		// the answer to the last click: a marker where the user asked, with
 		// its coordinates
@@ -1036,28 +1177,85 @@
 			const sx = to.x(terrainPick.imgX, terrainPick.imgY);
 			const sy = to.y(terrainPick.imgX, terrainPick.imgY);
 			ctx.beginPath();
-			ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+			ctx.arc(sx, sy, 6 * k, 0, Math.PI * 2);
 			ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-			ctx.lineWidth = 3;
+			ctx.lineWidth = 3 * k;
 			ctx.stroke();
 			ctx.strokeStyle = 'rgba(120,220,255,0.98)';
-			ctx.lineWidth = 1.6;
+			ctx.lineWidth = 1.6 * k;
 			ctx.stroke();
-			const km = terrainPick.distance_m / 1000;
-			const text =
-				`${terrainPick.lat.toFixed(5)}, ${terrainPick.lon.toFixed(5)} · ` +
-				`${km >= 10 ? Math.round(km) : km.toFixed(1)} km`;
-			const tw = ctx.measureText(text).width;
-			ctx.fillStyle = 'rgba(10,26,44,0.82)';
-			ctx.beginPath();
-			ctx.roundRect(sx - tw / 2 - 6, sy + 10, tw + 12, 18, 4);
-			ctx.fill();
-			ctx.strokeStyle = 'rgba(120,220,255,0.55)';
-			ctx.lineWidth = 1;
-			ctx.stroke();
-			ctx.fillStyle = '#fff';
-			ctx.fillText(text, sx - tw / 2, sy + 19.5);
+			// the readout itself is DOM, not canvas: it carries a link to the
+			// map and a copy button, and canvas text cannot be clicked. It
+			// rides here so it follows the marker on every pan and zoom.
+			terrainPickScreen = { x: sx, y: sy + 10 * k };
+		} else {
+			terrainPickScreen = null;
 		}
+	}
+
+	/** Recompute the skyline at `km` from the depth blob (fetched on first
+	 * need, the same bytes the click-back uses) and redraw. */
+	async function ensureFogSkyline(km: number) {
+		const ov = terrainOverlay;
+		const ref = ov?.depth;
+		if (!ov || !ref || fogSkylineLoading) return;
+		fogSkylineLoading = true;
+		terrainPickBusy = !overlayDepthReady(ref.url);
+		scheduleDrawTerrain();
+		try {
+			const depth = await loadOverlayDepth(ref.url, ref);
+			if (terrainOverlay !== ov) return; // photo changed meanwhile
+			const elev = skylineFromDepth(ref, depth, km * 1000);
+			const stepAz = ref.az_step_deg ?? (ref.width > 1 ? (((ref.az_end - ref.az_start) % 360) + 360) % 360 / (ref.width - 1) : 0);
+			fogSkyline = { km, skyline: { az_start: ref.az_start, az_step: stepAz, elev_deg: elev } };
+			fogSkylineFailed = null;
+		} catch (e) {
+			console.warn('[OSD] fog skyline failed:', e);
+			fogSkylineFailed = km; // keep drawing the baked skyline; no retry until the fog changes
+		} finally {
+			fogSkylineLoading = false;
+			terrainPickBusy = false;
+			scheduleDrawTerrain();
+		}
+	}
+
+	async function copyTerrainPick() {
+		if (!terrainPick) return;
+		const text = `${terrainPick.lat.toFixed(5)}, ${terrainPick.lon.toFixed(5)}`;
+		try {
+			await navigator.clipboard.writeText(text);
+			terrainPickCopied = true;
+			setTimeout(() => (terrainPickCopied = false), 1500);
+		} catch {
+			/* clipboard blocked (insecure origin, permission) — the link still works */
+		}
+	}
+
+	function setTerrainFog(km: number | null) {
+		terrainFogKm = km;
+		scheduleDrawTerrain();
+	}
+
+	/** True when an image-space point lands inside a visible hillview
+	 *  annotation's rectangle. Reads the annotator's own layer, so it agrees
+	 *  with what annotorious will select from the same click — and it is
+	 *  empty when the annotations toggle is off. Detections don't count:
+	 *  they are not selectable, so they open no menu and must not eat the
+	 *  terrain click. */
+	function annotationAt(imgX: number, imgY: number): boolean {
+		if (!annotator) return false;
+		try {
+			for (const a of annotator.getAnnotations()) {
+				if (isDetectionId(a.id)) continue;
+				const sel = (a as any).target?.selector;
+				const rawSel = Array.isArray(sel) ? sel[0] : sel;
+				const g = rawSel?.type === 'RECTANGLE' ? rawSel.geometry : null;
+				if (g && imgX >= g.x && imgX <= g.x + g.w && imgY >= g.y && imgY <= g.y + g.h) return true;
+			}
+		} catch {
+			/* annotator mid-teardown */
+		}
+		return false;
 	}
 
 	/**
@@ -1074,13 +1272,15 @@
 		terrainPickBusy = !overlayDepthReady(ref.url);
 		scheduleDrawTerrain();
 		try {
-			const depth = await loadOverlayDepth(ref.url, ref.width * ref.height);
+			const depth = await loadOverlayDepth(ref.url, ref);
 			const pick = pickFromOverlay(terrainOverlay, depth, imgX, imgY, size.x, size.y);
+			terrainPickCopied = false;
 			terrainPick = pick
 				? {
 						lat: pick.lat,
 						lon: pick.lon,
 						distance_m: pick.distance_m,
+						azimuth_deg: pick.azimuth_deg,
 						imgX,
 						imgY
 					}
@@ -1400,7 +1600,7 @@
 			// through to the close-on-background behaviour below.
 			if ($showTerrainOverlay && terrainOverlay) {
 				// a tap on a label pill reveals what the label is claiming
-				const pill = hitSkyLabel(terrainPills, pt.x, pt.y, 4);
+				const pill = hitSkyLabel(terrainPills, pt.x, pt.y, 4 * annotationScale);
 				if (pill) {
 					event.preventDefaultAction = true;
 					terrainLabelInfo = {
@@ -1422,6 +1622,15 @@
 					event.preventDefaultAction = true;
 					const vpPt = viewer.viewport.viewerElementToViewportCoordinates(pt);
 					const imgPt = item.viewportToImageCoordinates(vpPt);
+					// A click landing on an annotation belongs to the
+					// annotation: annotorious is opening its menu from this
+					// same click, and two popups for one tap is noise. Any
+					// existing pick card yields as well.
+					if (annotationAt(imgPt.x, imgPt.y)) {
+						terrainPick = null;
+						scheduleDrawTerrain();
+						return;
+					}
 					pickTerrainAt(imgPt.x, imgPt.y);
 					return;
 				}
@@ -1737,9 +1946,10 @@
 				onClose();
 			}
 		} else if (e.key === 'd') {
-			if (requireAuth()) setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw');
+			// gated like the buttons: no drawing/editing while the layer is hidden
+			if ($showAnnotations && requireAuth()) setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw');
 		} else if (e.key === 'e') {
-			if (requireAuth()) setAnnotationMode(annotationMode === 'edit' ? 'view' : 'edit');
+			if ($showAnnotations && requireAuth()) setAnnotationMode(annotationMode === 'edit' ? 'view' : 'edit');
 		} else {
 			const rating = ratingShortcutFor(e);
 			if (rating) {
@@ -1757,26 +1967,38 @@
 		<PhotoInfoWindow photo={$photoInFront} variant="zoom"/>
 	{/if}
 
-	<!--
-		Terrain data attribution. Displaying it is a LICENCE OBLIGATION, not
-		decoration (docs/terrain-data-licensing.md): the DEM notice rides in
-		each overlay because a render made from other sources carries a
-		different one. Shown whenever the overlay is drawn, and the OSM credit
-		only while its labels are on screen.
-	-->
-	{#if $showTerrainOverlay && terrainOverlay?.attribution}
-		<div class="terrain-attribution" data-testid="osd-terrain-attribution">
-			{terrainOverlay.attribution}{#if terrainOverlay.label_attribution && terrainOverlay.labels?.length}
-				· {terrainOverlay.label_attribution}{/if}
-		</div>
-	{/if}
-
 	{#if $showTerrainOverlay && terrainPickBusy}
 		<div class="terrain-busy" data-testid="osd-terrain-busy">reading terrain…</div>
 	{/if}
 
+	{#if $showTerrainOverlay && terrainPick && terrainPickScreen}
+		{@const km = terrainPick.distance_m / 1000}
+		<div
+			class="terrain-pick-card"
+			style="left:{terrainPickScreen.x}px; top:{terrainPickScreen.y}px; font-size:{11 *
+				annotationScale}px"
+			data-testid="osd-terrain-pick-card"
+		>
+			<a
+				href={terrainPickMapUrl(terrainPick)}
+				title={TAURI ? 'show this point on the map (closes the photo)' : 'open this point on the map in a new tab'}
+				data-testid="osd-terrain-pick-map"
+				onclick={handleTerrainPickClick}
+				>{terrainPick.lat.toFixed(5)}, {terrainPick.lon.toFixed(5)}</a
+			>
+			<span class="terrain-pick-dist">· {km >= 10 ? Math.round(km) : km.toFixed(1)} km</span>
+			<button class="linkish" onclick={copyTerrainPick} title="copy the coordinates"
+				>{terrainPickCopied ? 'copied' : 'copy'}</button
+			>
+		</div>
+	{/if}
+
 	{#if $showTerrainOverlay && terrainLabelInfo}
-		<div class="terrain-label-info" style="left:{terrainLabelInfo.x}px; top:{terrainLabelInfo.y}px" data-testid="osd-terrain-label-info">
+		<div
+			class="terrain-label-info"
+			style="left:{terrainLabelInfo.x}px; top:{terrainLabelInfo.y}px; font-size:{11 * annotationScale}px"
+			data-testid="osd-terrain-label-info"
+		>
 			<b>{terrainLabelInfo.name}</b> · {terrainLabelInfo.cls}<br />{terrainLabelInfo.evidence}
 		</div>
 	{/if}
@@ -1794,7 +2016,7 @@
 			class="toolbar-btn toolbar-btn-menu"
 			class:active={displayMenuOpen}
 			bind:this={displayMenuBtnEl}
-			onclick={() => toggleDisplayMenu(scaleControl)}
+			onclick={() => toggleDisplayMenu(scaleControl, fogSnippet)}
 			title="Menu"
 			aria-label="Display and actions menu"
 			data-testid="osd-display-menu-toggle"
@@ -1803,30 +2025,93 @@
 		>
 			<MoreVertical size={18} aria-hidden="true" />
 		</button>
+		{#if terrainOverlay}
+			<!-- only where there is something to show: most photos have no
+			     graduated overlay, and a dead toggle is worse than no toggle -->
+			<button
+				class="toolbar-btn toolbar-btn-terrain"
+				class:active={$showTerrainOverlay}
+				onclick={() => showTerrainOverlay.update((v) => !v)}
+				title={$showTerrainOverlay ? 'Hide terrain horizon and peak labels' : 'Show terrain horizon and peak labels'}
+				aria-pressed={$showTerrainOverlay}
+				data-testid="osd-terrain-toggle"
+			>
+				<Mountain size={16} aria-hidden="true" /><span class="toolbar-btn-label">Terrain</span>
+			</button>
+		{/if}
+		<!-- always shown, unlike the terrain toggle: draw lives behind it, so
+		     even an unannotated photo needs it to reach the pen -->
 		<button
-			class="toolbar-btn toolbar-btn-draw"
-			class:active={annotationMode === 'draw'}
-			onclick={() => { if (requireAuth()) setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw'); }}
-			title={annotationMode === 'draw' ? 'Stop drawing' : 'Draw annotation'}
-			data-testid="osd-annotate-draw"
+			class="toolbar-btn toolbar-btn-annotations"
+			class:active={$showAnnotations}
+			onclick={toggleAnnotations}
+			title={$showAnnotations ? 'Hide annotations' : 'Show annotations'}
+			aria-pressed={$showAnnotations}
+			data-testid="osd-annotations-toggle"
 		>
-			✏️ Draw
+			<Tags size={16} aria-hidden="true" /><span class="toolbar-btn-label">Annotations</span>
 		</button>
-		<button
-			class="toolbar-btn toolbar-btn-edit"
-			class:active={annotationMode === 'edit'}
-			onclick={() => { if (requireAuth()) setAnnotationMode(annotationMode === 'edit' ? 'view' : 'edit'); }}
-			title={annotationMode === 'edit' ? 'Stop editing' : 'Edit annotations'}
-			data-testid="osd-annotate-edit"
-		>
-			🔧 Edit
-		</button>
+		{#if $showAnnotations}
+			<button
+				class="toolbar-btn toolbar-btn-draw"
+				class:active={annotationMode === 'draw'}
+				onclick={() => { if (requireAuth()) setAnnotationMode(annotationMode === 'draw' ? 'view' : 'draw'); }}
+				title={annotationMode === 'draw' ? 'Stop drawing' : 'Draw annotation'}
+				aria-label="Draw annotation"
+				data-testid="osd-annotate-draw"
+			>
+				<span aria-hidden="true">✏️</span><span class="toolbar-btn-label">Draw</span>
+			</button>
+			<button
+				class="toolbar-btn toolbar-btn-edit"
+				class:active={annotationMode === 'edit'}
+				onclick={() => { if (requireAuth()) setAnnotationMode(annotationMode === 'edit' ? 'view' : 'edit'); }}
+				title={annotationMode === 'edit' ? 'Stop editing' : 'Edit annotations'}
+				aria-label="Edit annotations"
+				data-testid="osd-annotate-edit"
+			>
+				<span aria-hidden="true">🔧</span><span class="toolbar-btn-label">Edit</span>
+			</button>
+		{/if}
 	</div>
+
+	{#snippet fogSnippet()}
+		{@const fb = terrainOverlay ? fogBounds(terrainOverlay) : { defaultKm: null, maxKm: null }}
+		{@const maxKm = Math.max(10, Math.ceil(fb.maxKm ?? fb.defaultKm ?? 150))}
+		{@const shown = terrainFogKm ?? fb.defaultKm ?? maxKm}
+		<div class="display-menu-scale" data-testid="osd-terrain-fog">
+			<div class="display-menu-scale-header">
+				<label id="osd-terrain-fog-label" class="display-menu-scale-label" for="osd-terrain-fog-slider">Terrain visibility</label>
+				<span class="display-menu-scale-value" aria-live="polite">
+					{Math.round(shown)} km{#if terrainFogKm !== null && fb.defaultKm !== null && Math.abs(terrainFogKm - fb.defaultKm) >= 0.05}
+						<button class="linkish" onclick={() => setTerrainFog(null)} title="back to this overlay's own visibility ({Math.round(fb.defaultKm)} km)">reset</button>{/if}
+				</span>
+			</div>
+			<input
+				id="osd-terrain-fog-slider"
+				class="display-menu-scale-slider"
+				type="range"
+				min="5"
+				max={maxKm}
+				step="1"
+				value={shown}
+				oninput={(e) => setTerrainFog(e.currentTarget.valueAsNumber)}
+				aria-labelledby="osd-terrain-fog-label"
+				data-testid="osd-terrain-fog-slider"
+			/>
+			<div class="display-menu-hint">
+				<!-- "photo's own" only when the fit actually carries a haze
+				     reading; with none, the default IS the full baked reach and
+				     calling that the photo's visibility would be a fiction -->
+				{#if terrainOverlay?.fit.visibility_km != null}photo's own: {Math.round(terrainOverlay.fit.visibility_km)} km ·{/if} labels reach {maxKm} km{#if fogSkylineLoading} · reading terrain…{:else if fogSkylineFailed !== null && terrainFogKm !== null && Math.abs(fogSkylineFailed - terrainFogKm) < 0.05} · terrain unavailable — horizon shown as baked{/if}
+			</div>
+		</div>
+	{/snippet}
 
 	{#snippet scaleControl()}
 		<div class="display-menu-scale" data-testid="osd-display-menu-scale">
 			<div class="display-menu-scale-header">
-				<label id="osd-annotation-scale-label" class="display-menu-scale-label" for="osd-annotation-scale">Annotation scale</label>
+				<label id="osd-annotation-scale-label" class="display-menu-scale-label" for="osd-annotation-scale">Label scale</label>
 				<span class="display-menu-scale-value" aria-live="polite">{annotationScale.toFixed(1)}×</span>
 			</div>
 			<input
@@ -1927,10 +2212,54 @@
 	<!-- OpenSeadragon container -->
 	<div bind:this={container} class="osd-container"></div>
 
-	<!-- Filename bar -->
-	{#if annotationMode === 'view'}
-		<div class="filename-bar">{data.title || data.description || data.filename}</div>
-	{/if}
+	<!--
+		Bottom chrome: the photo title and, while the terrain overlay is on,
+		the data attribution — stacked in one measured strip so the annotation
+		label layouter can keep bottom-edge pills above it (drawLabelsNow reads
+		this element's offsetHeight and passes it as bottomInset).
+	-->
+	<div class="bottom-chrome" bind:this={bottomChromeEl}>
+		{#if annotationMode === 'view'}
+			<div class="filename-bar">{data.title || data.description || data.filename}</div>
+		{/if}
+		<!--
+			Terrain data attribution. Displaying it is a LICENCE OBLIGATION, not
+			decoration (docs/terrain-data-licensing.md): the DEM notice rides in
+			each overlay because a render made from other sources carries a
+			different one. Shown whenever the overlay is drawn, and the OSM credit
+			only while its labels are on screen.
+		-->
+		{#if $showTerrainOverlay && terrainOverlay?.attribution}
+			<!-- the notices below cover the TERRAIN OVERLAY only — the horizon line
+			     and its peak labels. The photograph and its annotations are the
+			     photographer's and Hillview's own; saying so is the difference
+			     between crediting a source and appearing to license the photo.
+
+			     Small screens collapse the notice behind the ⓘ button — the
+			     OSMF-blessed exception for constrained displays; CC BY permits
+			     any reasonable manner and Copernicus 6(b) requires the notice
+			     to accompany the data, not to persist on screen. Desktop always
+			     shows it: the collapsed class only bites inside the media query. -->
+			<div
+				class="terrain-attribution"
+				class:collapsed={!attributionExpanded}
+				data-testid="osd-terrain-attribution"
+				title="Applies to the terrain horizon and its peak labels — not to the photograph or its annotations."
+			>
+				<span class="terrain-attribution-scope">Terrain overlay (horizon &amp; labels):</span>
+				{terrainOverlay.attribution}{#if terrainOverlay.label_attribution && terrainOverlay.labels?.length}
+					· {terrainOverlay.label_attribution}{/if}
+			</div>
+			<button
+				class="terrain-attribution-toggle"
+				onclick={() => (attributionExpanded = !attributionExpanded)}
+				title="Terrain data attribution"
+				aria-label="Terrain data attribution"
+				aria-expanded={attributionExpanded}
+				data-testid="osd-terrain-attribution-toggle"
+			>ⓘ</button>
+		{/if}
+	</div>
 </div>
 
 <style>
@@ -2006,6 +2335,13 @@
 		background: rgba(255,255,255,1);
 	}
 
+	.toolbar-btn-draw,
+	.toolbar-btn-edit {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+	}
+
 	.toolbar-btn-draw.active {
 		border-color: #e2904a;
 		background: rgba(226,144,74,0.75);
@@ -2030,6 +2366,88 @@
 		border-color: #6c757d;
 		background: rgba(108,117,125,0.8);
 		color: #fff;
+	}
+
+	.terrain-attribution-scope {
+		font-weight: 600;
+		opacity: 0.95;
+	}
+
+	.terrain-pick-card {
+		position: absolute;
+		z-index: 4;
+		transform: translateX(-50%);
+		display: flex;
+		align-items: center;
+		gap: 0.36em;
+		white-space: nowrap;
+		font-size: 11px; /* overridden inline by the label scale */
+		line-height: 1.4;
+		padding: 0.27em 0.64em;
+		border-radius: 0.55em;
+		color: #fff;
+		background: rgba(10, 26, 44, 0.9);
+		border: 1px solid rgba(120, 220, 255, 0.55);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+	}
+
+	.terrain-pick-card a {
+		color: #8fd8ff;
+		text-decoration: underline;
+	}
+
+	.terrain-pick-dist {
+		opacity: 0.85;
+	}
+
+	.display-menu-hint {
+		font-size: 11px;
+		opacity: 0.7;
+		margin-top: 2px;
+	}
+	.linkish {
+		background: none;
+		border: 0;
+		color: inherit;
+		text-decoration: underline;
+		cursor: pointer;
+		font: inherit;
+		/* em, not px: these buttons sit inside cards whose font-size carries
+		   the label scale, and a fixed size would stay small when the rest grew */
+		font-size: 0.95em;
+		padding: 0 0 0 0.5em;
+	}
+
+	.toolbar-btn-terrain {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+	}
+
+	.toolbar-btn-terrain.active {
+		border-color: #5a8f3c;
+		background: rgba(90,143,60,0.78);
+		color: #fff;
+	}
+
+	.toolbar-btn-terrain.active:hover {
+		background: rgba(90,143,60,0.92);
+	}
+
+	.toolbar-btn-annotations {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+	}
+
+	.toolbar-btn-annotations.active {
+		border-color: #8a6bbf;
+		background: rgba(138,107,191,0.75);
+		color: #fff;
+	}
+
+	.toolbar-btn-annotations.active:hover {
+		background: rgba(138,107,191,0.9);
 	}
 
 	.display-menu-scale {
@@ -2262,12 +2680,6 @@
 	/* Terrain data credits — a licence obligation, so it must stay legible
 	   over any photo and must not be clipped away on narrow screens. */
 	.terrain-attribution {
-		position: absolute;
-		left: 8px;
-		right: 8px;
-		bottom: 6px;
-		z-index: 4;
-		pointer-events: none;
 		font-size: 10px;
 		line-height: 1.3;
 		color: rgba(255, 255, 255, 0.82);
@@ -2275,15 +2687,61 @@
 		text-align: center;
 	}
 
+	/* The small-screen ⓘ: floats in the strip's corner (absolute, so it adds
+	   no height while collapsed — the label inset stays honest) and re-enables
+	   pointer events inside the otherwise inert strip. Hidden on desktop. */
+	.terrain-attribution-toggle {
+		display: none;
+		position: absolute;
+		right: 6px;
+		bottom: 4px;
+		width: 26px;
+		height: 26px;
+		padding: 0;
+		border: none;
+		border-radius: 50%;
+		background: rgba(0, 0, 0, 0.45);
+		color: rgba(255, 255, 255, 0.9);
+		font-size: 15px;
+		line-height: 26px;
+		text-align: center;
+		pointer-events: auto;
+		cursor: pointer;
+	}
+
+	@media (max-width: 640px) {
+		.terrain-attribution.collapsed {
+			display: none;
+		}
+		.terrain-attribution {
+			/* keep the expanded notice clear of the ⓘ, symmetrically */
+			padding: 0 34px;
+		}
+		.terrain-attribution-toggle {
+			display: block;
+		}
+		/* Icon-only toolbar: five labelled buttons don't fit a phone. The
+		   icons stay, the titles/aria-labels carry the names. */
+		.toolbar-btn-label {
+			display: none;
+		}
+		.annotation-toolbar {
+			gap: 4px;
+		}
+		.toolbar-btn {
+			padding: 6px 8px;
+		}
+	}
+
 	.terrain-label-info {
 		position: absolute;
 		z-index: 4;
 		pointer-events: none;
-		max-width: min(320px, 80vw);
-		font-size: 11px;
+		max-width: min(29em, 80vw);
+		font-size: 11px; /* overridden inline by the label scale */
 		line-height: 1.35;
-		padding: 5px 8px;
-		border-radius: 6px;
+		padding: 0.45em 0.73em;
+		border-radius: 0.55em;
 		color: #fff;
 		background: rgba(10, 26, 44, 0.9);
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
@@ -2316,11 +2774,25 @@
 		pointer-events: none;
 	}
 
-	.filename-bar {
+	/* One measured strip at the bottom holding the title and the terrain
+	   attribution; annotation labels are laid out above it (bottomInset), so
+	   nothing in here gets painted over. z-index above the label canvas (2)
+	   so leader lines running to bottom centroids pass under the text. */
+	.bottom-chrome {
 		position: absolute;
-		bottom: 20px;
-		left: 50%;
-		transform: translateX(-50%);
+		left: 0;
+		right: 0;
+		bottom: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 4px;
+		padding: 0 8px 6px;
+		z-index: 4;
+		pointer-events: none;
+	}
+
+	.filename-bar {
 		background: rgba(0,0,0,0.2);
 		color: #fff;
 		padding: 6px 16px;
@@ -2330,8 +2802,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		z-index: 1;
-		pointer-events: none;
 	}
 
 

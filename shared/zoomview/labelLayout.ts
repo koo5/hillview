@@ -22,6 +22,12 @@ export const LABEL_GAP = 3; // minimum gap between pills
 interface LabelLayoutOptions {
 	pillH?: number;
 	gap?: number;
+	/** Height (CSS px) of chrome docked at the canvas bottom — title bar,
+	 *  attribution line. Bottom-edge anchors land above it and left/right
+	 *  stacks compress against it, so pills never sit under the chrome.
+	 *  Culling still uses the full canvas: an annotation whose centroid falls
+	 *  behind the chrome keeps its label, anchored just above the strip. */
+	bottomInset?: number;
 }
 
 /** Determine which canvas edge is nearest to a point. */
@@ -76,12 +82,13 @@ export function buildLabelCommands(
 	const cmds: LabelDrawCmd[] = [];
 	const fpParts: string[] = [];
 	const pillH = options.pillH ?? LABEL_PILL_H;
+	const Hb = H - (options.bottomInset ?? 0);
 
 	for (const { label, cx, cy, pillW, id } of inputs) {
 		if (cx < 0 || cx > W || cy < 0 || cy > H) continue;
 
-		const { lx, ly, edge } = assignEdge(cx, cy, W, H, margin);
-		const { tx, ty } = computePillRect(lx, ly, pillW, W, H, pillH);
+		const { lx, ly, edge } = assignEdge(cx, cy, W, Hb, margin);
+		const { tx, ty } = computePillRect(lx, ly, pillW, W, Hb, pillH);
 
 		cmds.push({ label, cx, cy, lx, ly, edge, pillW, pillH, tx, ty, id });
 		fpParts.push(`${cx},${cy}`);
@@ -102,6 +109,7 @@ export function resolveOverlaps(
 	options: LabelLayoutOptions = {}
 ): void {
 	const gap = options.gap ?? LABEL_GAP;
+	const Hb = H - (options.bottomInset ?? 0);
 	const groups: Record<Edge, LabelDrawCmd[]> = { left: [], right: [], top: [], bottom: [] };
 	for (const cmd of cmds) groups[cmd.edge].push(cmd);
 
@@ -122,8 +130,8 @@ export function resolveOverlaps(
 			}
 			// If last pill overflows bottom, compress upward
 			const last = group[group.length - 1];
-			if (last.ty + last.pillH > H - 2) {
-				const shift = last.ty + last.pillH - (H - 2);
+			if (last.ty + last.pillH > Hb - 2) {
+				const shift = last.ty + last.pillH - (Hb - 2);
 				for (let i = group.length - 1; i >= 0; i--) {
 					group[i].ty -= shift;
 					group[i].ly = group[i].ty + group[i].pillH / 2;

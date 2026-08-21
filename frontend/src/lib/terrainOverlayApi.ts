@@ -14,6 +14,7 @@
  */
 import { http } from '$lib/http';
 import type { TerrainOverlay } from '$terrain/overlayFit';
+import { parseDepthBlob } from '$terrain/depthPanoViewer';
 
 export interface PhotoTerrainOverlay {
 	photo_id: string;
@@ -53,21 +54,43 @@ let generation = 0;
  * produces a confident marker reading "NaN, NaN · NaN km". A wrong answer
  * presented as a real one is worse than an error.
  */
-export async function loadOverlayDepth(url: string, expected?: number): Promise<Uint16Array> {
+/** Inflate when the bytes are a gzip stream, else pass them through.
+ *
+ * Unambiguous by construction: the payload underneath is an HVD1 container
+ * (see overlayFit.parseDepthBlob), which starts with "HVD1" — a gzip stream
+ * starts with 1f 8b 08. The third byte is checked too: 0x08 is the only
+ * compression method gzip defines.
+ *
+ * Exported for tests. */
+export async function inflateIfGzip(buf: ArrayBuffer): Promise<ArrayBuffer> {
+	const head = new Uint8Array(buf, 0, Math.min(3, buf.byteLength));
+	if (head.length < 3 || head[0] !== 0x1f || head[1] !== 0x8b || head[2] !== 0x08) return buf;
+	if (typeof DecompressionStream === 'undefined')
+		throw new Error('terrain depth arrived gzipped and this browser cannot inflate it');
+	const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
+	return await new Response(stream).arrayBuffer();
+}
+
+export async function loadOverlayDepth(
+	url: string,
+	expect?: { width: number; height: number }
+): Promise<Uint16Array> {
 	if (cachedUrl === url && cachedDepth) return cachedDepth;
 	if (inflight && inflight.url === url) return inflight.p;
 	const gen = generation;
 	const p = (async () => {
 		const res = await fetch(url);
 		if (!res.ok) throw new Error(`Failed to fetch terrain depth: ${res.status}`);
-		const buf = await res.arrayBuffer();
-		const depth = new Uint16Array(buf);
-		if (expected !== undefined && depth.length !== expected) {
-			throw new Error(
-				`terrain depth is ${depth.length} samples, the overlay describes ${expected}` +
-					' (truncated download, or served without Content-Encoding: gzip)'
-			);
-		}
+		let buf = await res.arrayBuffer();
+		// The blob is stored gzipped (…depth.bin.gz). A server that sets
+		// Content-Encoding: gzip hands us the container; a plain file server
+		// (Caddy's file_server, a CDN that doesn't touch .gz) hands us the gzip
+		// bytes as-is — so the transport is decided by the gzip magic and the
+		// payload identifies itself. Measured 2026-08-20: inflating here is
+		// ~2× cheaper than Content-Encoding, because only the 126 KB crosses
+		// the network-service→renderer boundary, not the 5.5 MB.
+		buf = await inflateIfGzip(buf);
+		const depth = parseDepthBlob(buf, expect);
 		if (gen === generation) {
 			cachedUrl = url;
 			cachedDepth = depth;
