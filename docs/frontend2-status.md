@@ -538,7 +538,14 @@ at ordinary split positions, so the head — which was the ONLY indicator of
 the armed state — renders off-pane. The user was not missing the signal; the
 signal was not on screen.
 
-The armed state therefore moved to the one place that is always visible: the
+A second finding closed the loop (user-supplied): the gesture accepts ANY
+point left of the button (`pos.x < circle.left`) — the thin track is a
+picture, not the hit-box — but nothing said so, and precision-aiming at the
+line was the real failure mode. While the slider is open, the whole catch
+zone now wears a wash that tints with the armed state (neutral / run-green /
+video-red), so the affordance is the hit-box rather than the line.
+
+The armed state also moved to the one place that is always visible: the
 shutter itself previews what release will do (green ▶ Ns for a run, red ⏺
 REC for video, blue 📷 otherwise) with the verdict spelled out under it
 ("release: start 4s run" / "release: record" / "release: cancel"). The

@@ -2,7 +2,9 @@ package cz.hillview.capture
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -360,6 +362,17 @@ fun CaptureScreen(
         }
     }
 
+    // Pane-scope, not cluster-scope: the catch-zone wash below and the
+    // shutter cluster both need these. What releasing RIGHT NOW would do
+    // (null = cancel) used to live only inside the gesture loop
+    // (overSlider), so the one fact the whole gesture turns on was the one
+    // fact the screen could not show — and a run kept starting, or not, by
+    // surprise (user-raised: "i keep missing it").
+    var sliderVisible by remember { mutableStateOf(false) }
+    var armedStop by remember { mutableStateOf<Int?>(null) }
+    var circleBounds by remember { mutableStateOf<Rect?>(null) }
+    var paneOrigin by remember { mutableStateOf(Offset.Zero) }
+
     // The capture pane IS the camera stream — the original's camera-content
     // fills with the video and positions every control absolutely over it
     // (CameraCapture.svelte styles). No control rows under the video, no
@@ -367,6 +380,7 @@ fun CaptureScreen(
     // a letterboxed preview above a stack of visible controls.)
     Box(
         modifier = Modifier
+            .onGloballyPositioned { paneOrigin = it.positionInRoot() }
             .fillMaxSize()
             .background(Color.Black),
     ) {
@@ -820,6 +834,36 @@ fun CaptureScreen(
         }
 
         // Bottom-centre stack over the video: hints and gate escapes above
+        // The catch zone, drawn as what it IS: the gesture accepts any
+        // point left of the button (pos.x < circle.left) — the thin track
+        // is a picture, not the hit-box. Nothing said so, and precision-
+        // aiming at the line was the real reason arming kept being missed
+        // (user-caught: "i kept trying to target the track exactly"). While
+        // the slider is open the whole zone wears a wash — neutral until
+        // armed, then the run's green or video's red, so the surface your
+        // finger is somewhere over always shows the state it is setting.
+        val circle = circleBounds
+        if (sliderVisible && circle != null) {
+            val zoneWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
+                (circle.left - paneOrigin.x).coerceAtLeast(0f).toDp()
+            }
+            val armed = armedStop
+            Box(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxHeight()
+                    .width(zoneWidth)
+                    .background(
+                        when {
+                            armed == LADDER_VIDEO_STOP -> Color(0x2EFF5252)
+                            armed != null && armed > 0 -> Color(0x2E4CAF50)
+                            else -> Color(0x14FFFFFF)
+                        },
+                    )
+                    .testTag("interval-catch-zone"),
+            )
+        }
+
         // the shutter, as the original stacks its absolute elements above
         // shutter-container (bottom: 6px, centred).
         Column(
@@ -896,15 +940,6 @@ fun CaptureScreen(
             // button cancels, as the original's release-over-nothing does.
             // A tap stops a running run. The continuous slider is this
             // port's take on the original's fixed slow/fast pair.
-            var sliderVisible by remember { mutableStateOf(false) }
-            // What releasing RIGHT NOW would do, or null when it would
-            // cancel. It used to live only inside the gesture loop
-            // (overSlider), so the one fact the whole gesture turns on was
-            // the one fact the screen could not show — and a run kept
-            // starting, or not, by surprise (user-raised: "i keep missing
-            // it"). The UI renders this; the loop writes it.
-            var armedStop by remember { mutableStateOf<Int?>(null) }
-            var circleBounds by remember { mutableStateOf<Rect?>(null) }
             var sliderZone by remember { mutableStateOf<Rect?>(null) }
             var clusterOrigin by remember { mutableStateOf(Offset.Zero) }
             val gateOpen =
