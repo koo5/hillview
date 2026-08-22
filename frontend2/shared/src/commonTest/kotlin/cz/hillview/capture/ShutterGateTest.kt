@@ -270,6 +270,23 @@ class ExposureLabelTest {
         assertEquals("=1/500", exposureLabel(ExposureRule(ExposureMode.Pin, 2_000_000)))
         assertEquals("≥1/500", exposureLabel(ExposureRule(ExposureMode.Floor, 2_000_000)))
         assertEquals("🏃1/500", exposureLabel(ExposureRule(ExposureMode.Sports, 2_000_000)))
+        // The plan diverging from the target shows on the button — a slid
+        // Sports shutter must not read as the target holding.
+        assertEquals(
+            "🏃1/2000→1/125",
+            exposureLabel(
+                ExposureRule(ExposureMode.Sports, 500_000),
+                ExposurePlan(exposureNs = 8_000_000, iso = 3200, outcome = ExposureOutcome.Underexposed),
+            ),
+        )
+        // On target: no arrow, nothing to say.
+        assertEquals(
+            "🏃1/2000",
+            exposureLabel(
+                ExposureRule(ExposureMode.Sports, 500_000),
+                ExposurePlan(exposureNs = 500_000, iso = 400, outcome = ExposureOutcome.OnTarget),
+            ),
+        )
     }
 
     @Test

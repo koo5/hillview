@@ -430,8 +430,18 @@ fun exposureModeLabel(mode: ExposureMode): String = when (mode) {
     ExposureMode.Sports -> "Sports"
 }
 
-/** What the ⚡ button says: the rule in one glance, bias included. */
-fun exposureLabel(rule: ExposureRule?): String {
+/**
+ * What the ⚡ button says: the rule in one glance, bias included — and,
+ * when the light has pushed the PLAN off the rule's target, where it
+ * actually landed ("🏃1/2000→1/125").
+ *
+ * The arrow is the answer to "does the target row even do anything?",
+ * asked from a pitch-black room where the button said 1/2000 while the
+ * plan had long slid to the Sports floor. The resolved value only lived
+ * inside the open ⚡ menu; the button told the rule and kept the outcome
+ * to itself, so a working slide and a dead one looked identical.
+ */
+fun exposureLabel(rule: ExposureRule?, plan: ExposurePlan? = null): String {
     if (rule == null) return "Auto"
     val time = formatShutter(rule.targetNs)
     val head = when (rule.mode) {
@@ -439,7 +449,9 @@ fun exposureLabel(rule: ExposureRule?): String {
         ExposureMode.Floor -> "≥$time"
         ExposureMode.Sports -> "🏃$time"
     }
-    return if (rule.evBias == 0.0) head else "$head ${formatEvBias(rule.evBias)}EV"
+    val landed = plan?.takeIf { it.exposureNs != rule.targetNs }
+        ?.let { "→${formatShutter(it.exposureNs)}" } ?: ""
+    return if (rule.evBias == 0.0) "$head$landed" else "$head$landed ${formatEvBias(rule.evBias)}EV"
 }
 
 /**

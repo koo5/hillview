@@ -789,7 +789,7 @@ fun CaptureScreen(
                         .background(LightGlass, RoundedCornerShape(20.dp))
                         .testTag("shutter-speed-button"),
                 ) {
-                    Text("⚡ " + exposureLabel(state.exposureRule), color = Color.White)
+                    Text("⚡ " + exposureLabel(state.exposureRule, state.plan), color = Color.White)
                 }
             }
 
