@@ -896,6 +896,13 @@ fun CaptureScreen(
             // A tap stops a running run. The continuous slider is this
             // port's take on the original's fixed slow/fast pair.
             var sliderVisible by remember { mutableStateOf(false) }
+            // What releasing RIGHT NOW would do, or null when it would
+            // cancel. It used to live only inside the gesture loop
+            // (overSlider), so the one fact the whole gesture turns on was
+            // the one fact the screen could not show — and a run kept
+            // starting, or not, by surprise (user-raised: "i keep missing
+            // it"). The UI renders this; the loop writes it.
+            var armedStop by remember { mutableStateOf<Int?>(null) }
             var circleBounds by remember { mutableStateOf<Rect?>(null) }
             var sliderZone by remember { mutableStateOf<Rect?>(null) }
             var clusterOrigin by remember { mutableStateOf(Offset.Zero) }
@@ -968,6 +975,7 @@ fun CaptureScreen(
                                             ((zone.bottom - pos.y) / zone.height * LADDER_VIDEO_STOP)
                                                 .roundToInt().coerceIn(0, LADDER_VIDEO_STOP)
                                     }
+                                    armedStop = if (overSlider) intervalSec else null
                                     change.consume()
                                     if (event.changes.none { it.pressed }) {
                                         // Released on the ladder: the top
@@ -985,6 +993,7 @@ fun CaptureScreen(
                                 // The slider lives exactly as long as the
                                 // finger does, run or no run.
                                 sliderVisible = false
+                                armedStop = null
                             }
                         }
                     },
@@ -1004,6 +1013,7 @@ fun CaptureScreen(
                         )
                     }
 
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
                         modifier = Modifier
                             .size(70.dp)
@@ -1012,6 +1022,13 @@ fun CaptureScreen(
                                 when {
                                     !gateOpen -> Color(0x802196F3)
                                     repeating -> Color(0xFF4CAF50)
+                                    // Armed: wear the colour NOW that the
+                                    // release is about to make true — the
+                                    // run's green, video's red. The button
+                                    // previews its own future instead of
+                                    // leaving it to a label off to the side.
+                                    armedStop == LADDER_VIDEO_STOP -> Color(0xFFD32F2F)
+                                    armedStop != null && armedStop!! > 0 -> Color(0xFF4CAF50)
                                     else -> Color(0xFF2196F3)
                                 },
                             )
@@ -1034,17 +1051,58 @@ fun CaptureScreen(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                if (state.capturing && !repeating) "…" else "📷",
+                                when {
+                                    armedStop == LADDER_VIDEO_STOP -> "⏺"
+                                    armedStop != null && armedStop!! > 0 -> "▶"
+                                    state.capturing && !repeating -> "…"
+                                    else -> "📷"
+                                },
                                 style = MaterialTheme.typography.titleMedium,
                             )
-                            if (repeating) {
-                                Text(
+                            when {
+                                armedStop == LADDER_VIDEO_STOP -> Text(
+                                    "REC",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                )
+                                armedStop != null && armedStop!! > 0 -> Text(
+                                    "${armedStop}s",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                )
+                                repeating -> Text(
                                     "Stop",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color.White,
                                 )
                             }
                         }
+                    }
+                    // The release verdict, spelled out while the slider is
+                    // open: what letting go does, right under the button
+                    // that is previewing it. This is the line the ladder
+                    // head could not carry (clipped off-pane at common
+                    // splits — the original cause of "i keep missing it").
+                    if (sliderVisible) {
+                        Text(
+                            text = when {
+                                armedStop == LADDER_VIDEO_STOP -> "release: record"
+                                armedStop != null && armedStop!! > 0 ->
+                                    "release: start ${armedStop}s run"
+                                armedStop != null -> "single — release: nothing"
+                                else -> "release: cancel"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = when {
+                                armedStop == LADDER_VIDEO_STOP -> Color(0xFFFF5252)
+                                armedStop != null && armedStop!! > 0 -> Color(0xFF69F0AE)
+                                else -> Color(0xB3FFFFFF)
+                            },
+                            modifier = Modifier
+                                .padding(top = 2.dp)
+                                .testTag("capture-armed-hint"),
+                        )
+                    }
                     }
                 }
                 // The original's capture-counter badge, live during a run.
@@ -1160,6 +1218,11 @@ private fun IntervalSlider(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.padding(end = 16.dp),
     ) {
+        // Compact, and NOT the announcement: at common split positions the
+        // 280 dp track is taller than the capture pane, so this head is
+        // clipped off-pane (device-caught — which is also why the armed
+        // state was invisible when it lived only here). What release does
+        // is said by the shutter cluster, which is always on-pane.
         Text(
             text = when (intervalSec) {
                 0 -> "single"

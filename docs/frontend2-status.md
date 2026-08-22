@@ -530,6 +530,24 @@ with Δ0, because the block only re-runs when something recomposes. A large Δ
 means the overlay is holding a bearing the state has moved on from — the
 drawing stopped, not the sensors.
 
+## The interval ladder's head is clipped at common splits (2026-08-22)
+
+Found while fixing "i keep missing that the interval mode is about to
+start": the 280 dp track plus its head label is taller than the capture pane
+at ordinary split positions, so the head — which was the ONLY indicator of
+the armed state — renders off-pane. The user was not missing the signal; the
+signal was not on screen.
+
+The armed state therefore moved to the one place that is always visible: the
+shutter itself previews what release will do (green ▶ Ns for a run, red ⏺
+REC for video, blue 📷 otherwise) with the verdict spelled out under it
+("release: start 4s run" / "release: record" / "release: cancel"). The
+ladder head keeps only the compact stop label; nothing that must be seen may
+live there. The track itself still works while partly clipped — the gesture
+has pointer capture, so stops above the pane edge remain reachable by
+sliding to the top of the screen — but a shorter track at small pane heights
+would be the proper follow-up if it bothers anyone in practice.
+
 ## Deferred decisions
 
 **Marker refresh on capture, vs the original's placeholder markers
