@@ -1221,6 +1221,18 @@ async def oauth_login_internal(
 			detail="OAuth provider did not return required email"
 		)
 
+	return await oauth_user_to_tokens(db, provider, oauth_id, email)
+
+
+async def oauth_user_to_tokens(db: AsyncSession, provider: str, oauth_id: str, email: str) -> dict:
+	"""Match-or-create the user for a VERIFIED OAuth identity and mint the
+	standard access+refresh pair (shared sid session family).
+
+	The shared tail of every OAuth-shaped login, however the identity was
+	proven: the browser authorization-code exchange above, or a natively
+	acquired Google ID token (/auth/google/native). Callers must have
+	verified the identity before handing over oauth_id/email.
+	"""
 	# Check if user exists
 	result = await db.execute(
 		select(User).where(
@@ -1285,6 +1297,100 @@ async def oauth_login_internal(
 			"role": user.role.value if user.role else "user"
 		}
 	}
+
+class GoogleIdTokenLogin(BaseModel):
+	id_token: str
+
+
+def verify_google_id_token(token: str) -> Dict[str, Any]:
+	"""Verify a Google ID token (signature, expiry, issuer) against OUR
+	client id and return its claims.
+
+	google-auth ships transitively with firebase-admin; imported lazily so
+	environments without it never pay the import — and unit tests patch
+	this seam rather than Google's JWKS. The audience is the same web
+	client id the browser flow uses: the app passes it as serverClientId
+	to Credential Manager, so a token minted for another app's audience
+	can never log into Hillview.
+	"""
+	from google.oauth2 import id_token as google_id_token
+	from google.auth.transport import requests as google_requests
+	return google_id_token.verify_oauth2_token(
+		token,
+		google_requests.Request(),
+		audience=OAUTH_PROVIDERS["google"]["client_id"],
+		clock_skew_in_seconds=10,
+	)
+
+
+@router.post("/auth/google/native")
+async def google_native_login(
+	payload: GoogleIdTokenLogin,
+	request: Request,
+	db: AsyncSession = Depends(get_db)
+):
+	"""Native Sign in with Google: the app hands over the ID token that
+	Credential Manager acquired on-device — no browser, no deep link, no
+	polling session. Downstream is identical to the browser flow: the same
+	match-or-create and the same sid-stamped token pair
+	(oauth_user_to_tokens).
+	"""
+	# Same budget as the OAuth callback: this is a login door.
+	if not is_rate_limiting_disabled():
+		identifier = auth_rate_limiter.get_identifier(request)
+		if not await auth_rate_limiter.check_rate_limit(identifier, max_requests=30, window_seconds=300):
+			raise HTTPException(
+				status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+				detail="Too many login attempts.",
+				headers={"Retry-After": "300"}
+			)
+
+	if not OAUTH_PROVIDERS["google"]["client_id"]:
+		raise HTTPException(status_code=503, detail="Google login is not configured")
+
+	# Bounded like the OAuth code: a real ID token is a compact JWT; a
+	# hostile payload shouldn't reach the crypto layer at silly sizes.
+	if not payload.id_token or len(payload.id_token) > 4096:
+		raise HTTPException(status_code=400, detail="Invalid Google ID token")
+
+	try:
+		# google-auth's transport is blocking (JWKS fetch) — keep the event
+		# loop free; the certs are cached across calls by the transport.
+		claims = await asyncio.to_thread(verify_google_id_token, payload.id_token)
+	except Exception as e:
+		await security_audit.log_event(
+			db=db,
+			event_type="google_native_login_failed",
+			ip_address=get_client_ip(request),
+			user_agent=request.headers.get("user-agent"),
+			event_details={"error": str(e)},
+			severity="warning"
+		)
+		raise HTTPException(status_code=400, detail="Invalid Google ID token")
+
+	oauth_id = claims.get("sub")
+	email = claims.get("email")
+	if not oauth_id or not email:
+		raise HTTPException(status_code=400, detail="Google token missing required claims")
+	if claims.get("email_verified") is False:
+		# Unverified addresses must not capture the existing account that
+		# legitimately owns that email (oauth_user_to_tokens matches on it).
+		raise HTTPException(status_code=400, detail="Google account email is not verified")
+
+	result = await oauth_user_to_tokens(db, "google", oauth_id, email)
+
+	await security_audit.log_event(
+		db=db,
+		event_type="google_native_login_success",
+		user_identifier=result["user_info"].get("username"),
+		ip_address=get_client_ip(request),
+		user_agent=request.headers.get("user-agent"),
+		event_details={"provider": "google", "auth_method": "google_id_token"},
+		severity="info",
+		user_id=result["user_info"].get("user_id")
+	)
+	return result
+
 
 @router.get("/auth/me", response_model=UserOut)
 async def read_users_me(
@@ -1412,8 +1518,9 @@ async def register_client_public_key(
 			detail="Failed to register client public key"
 		)
 
-# Upload authorization for secure uploads
-ALLOWED_LICENSES = {'ccbysa4+osm', 'full1'}
+# Upload authorization for secure uploads. The vocabulary is defined once, in
+# hillview_routes, alongside the mapping that turns it into a public name.
+from hillview_routes import ALLOWED_LICENSES
 
 class UploadAuthorizationRequest(BaseModel):
 	# Tolerate unknown fields but log them (see authorize_upload) — catches
@@ -1581,9 +1688,24 @@ async def authorize_upload(
 		user_public_key = result.scalars().first()
 
 		if not user_public_key:
+			# 409, not 400: the request is well-formed and the auth valid —
+			# the SERVER is missing state (this device key was never
+			# registered under this user: server-URL switch, DB reset, or
+			# account switch). The machine-readable error_code is what
+			# clients key their self-heal on; 401 would be wrong twice over
+			# (auth DID succeed, and clients answer 401s by burning a
+			# refresh-token rotation).
+			log.warning(
+				f"authorize-upload rejected: client key '{auth_request.client_key_id}' is not registered "
+				f"(or inactive) for user {current_user.id} — the client should (re-)register it via "
+				f"/auth/register-client-key"
+			)
 			raise HTTPException(
-				status_code=status.HTTP_400_BAD_REQUEST,
-				detail=f"Client public key '{auth_request.client_key_id}' not found or inactive. Please ensure the key is registered and active."
+				status_code=status.HTTP_409_CONFLICT,
+				detail={
+					"error_code": "client_key_not_registered",
+					"message": f"Client public key '{auth_request.client_key_id}' not found or inactive. Please ensure the key is registered and active.",
+				}
 			)
 
 		# Create geometry point from latitude/longitude if available

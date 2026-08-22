@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
-	import { fitRectilinear, fitSummary, residual } from '$lib/theilsen';
+	import { fitPiecewise, fitRectilinear, fitSummary, residual } from '$lib/theilsen';
 	import CalibScatter from '$lib/components/CalibScatter.svelte';
 	import Help from '$lib/components/Help.svelte';
 	import PhotoThumb from '$lib/components/PhotoThumb.svelte';
@@ -47,13 +47,47 @@
 
 	// azimuth↔x law: linear for cylindrical/equirect stitches (f1/f2), atan
 	// for rectilinear (f0) — per pano, read off the .pto p-line, never assume
-	let model = $state<'linear' | 'rectilinear'>('linear');
+	let model = $state<'linear' | 'rectilinear' | 'piecewise'>('linear');
+	// piecewise (stitched panos): seams as width fractions; the panels between
+	// them get their own shift & scale on top of the linear law. Type them, or
+	// pull them from the overlay bench where they were placed on the picture.
+	let seamsText = $state('');
+	const seams = $derived(
+		seamsText
+			.split(/[\s,;]+/)
+			.map(Number)
+			.filter((v) => Number.isFinite(v) && v > 0 && v < 1)
+	);
+	async function seamsFromOverlay() {
+		if (!sel) return;
+		try {
+			const [d, f] = await Promise.all([
+				api.get<{ draft: { knots?: number[] } | null }>(`/terrain/overlay-draft?photo_id=${sel.id}`).catch(() => ({ draft: null })),
+				api.get<{ fit: { knots?: number[] } | null }>(`/terrain/overlay-fit?photo_id=${sel.id}`).catch(() => ({ fit: null }))
+			]);
+			const k = d.draft?.knots ?? f.fit?.knots;
+			if (!k || k.length < 3) {
+				err = 'the overlay bench has no seams placed for this pano (double-click the pano there to add them)';
+				return;
+			}
+			seamsText = k.slice(1, -1).map((v) => v.toFixed(4)).join(', ');
+			model = 'piecewise';
+		} catch (e) {
+			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+		}
+	}
 	function fitWith(pts: { x: number; delta: number }[]) {
 		const compass = data?.photo.compass_angle ?? null;
-		return model === 'rectilinear' ? fitRectilinear(pts, compass) : fitSummary(pts, compass);
+		if (model === 'rectilinear') return fitRectilinear(pts, compass);
+		if (model === 'piecewise') return fitPiecewise(pts, compass, seams);
+		return fitSummary(pts, compass);
 	}
 
 	const usableRows = $derived((data?.rows ?? []).filter((r) => r.usable));
+	const unusableRows = $derived((data?.rows ?? []).filter((r) => !r.usable));
+	// rule "none" = no located candidate at all — the geocoder has not run on these
+	// (distinct from an anchor that exists but was rejected or judged out of view)
+	const noAnchorRows = $derived(unusableRows.filter((r) => r.rule === 'none'));
 	const includedRows = $derived(usableRows.filter((r) => !excluded.has(r.annotation_id)));
 	const fit = $derived(fitWith(includedRows.map((r) => ({ x: r.rect_x!, delta: r.delta! }))));
 	const scatterPoints = $derived(
@@ -122,6 +156,40 @@
 			refreshing = false;
 		}
 	}
+	// Anchors come from anchorCandidate facts, which only a GEOCODE run mints —
+	// parse alone leaves freshly-imported annotations with rule "none". Scoped to
+	// this pano so it never turns into an all-current external-lookup sweep.
+	let geocoding = $state<string | null>(null);
+	async function geocodePano() {
+		if (!sel || geocoding) return;
+		geocoding = 'starting…';
+		try {
+			const res = await api.post<{ run_id: string; annotations: number }>('/geocode/run', {
+				scope: 'photo',
+				photo_id: sel.id,
+				note: 'from calibration bench'
+			});
+			// the run is a background task; poll it, then re-pick anchors
+			for (;;) {
+				await new Promise((r) => setTimeout(r, 1500));
+				const run = await api.get<{ status: string; stats: { done?: number } | null; error: string | null }>(
+					`/runs/${res.run_id}`
+				);
+				if (run.status === 'running') {
+					geocoding = `${run.stats?.done ?? 0}/${res.annotations}…`;
+					continue;
+				}
+				if (run.status === 'failed') err = `geocode run failed: ${run.error ?? ''}`;
+				break;
+			}
+			await refresh();
+		} catch (e) {
+			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+		} finally {
+			geocoding = null;
+		}
+	}
+
 	// selection lives in the URL (?pano=…) so pano links are shareable/reloadable
 	function pick(p: Pano) {
 		goto(`?pano=${p.id}`, { noScroll: true, keepFocus: true });
@@ -170,7 +238,7 @@
 		try {
 			const res = await api.post<{ run_id: string; fit: Record<string, number> }>(
 				'/calibrate/accept',
-				{ photo_id: sel.id, annotation_ids: includedRows.map((r) => r.annotation_id), model }
+				{ photo_id: sel.id, annotation_ids: includedRows.map((r) => r.annotation_id), model, seams }
 			);
 			accepted = `saved — run ${res.run_id.slice(0, 8)}, bearing ${res.fit.centre_bearing}°, FOV ${res.fit.fov}°`;
 			loadPanos();
@@ -333,6 +401,11 @@
 				{#if fit?.model === 'rectilinear'}
 					<div class="stat"><div class="n">{fit.x0?.toFixed(3)}</div><div class="l">x₀ (proj centre)</div></div>
 				{/if}
+				{#if fit?.model === 'piecewise' && fit.knots}
+					<div class="stat" title="per panel: shift° / scale (points)"><div class="n" style="font-size:12px;font-family:ui-monospace,monospace">
+						{#each fit.hwarp ?? [] as h, k}{#if k < (fit.knots?.length ?? 1) - 1}{k ? ' · ' : ''}{h >= 0 ? '+' : ''}{h.toFixed(2)}/{fit.hscale?.[k].toFixed(3)} ({fit.panel_n?.[k]}){/if}{/each}
+					</div><div class="l">panels</div></div>
+				{/if}
 				<div style="flex:1"></div>
 				<label style="font-size:12px; display:flex; align-items:center; gap:4px"
 					title="The pano's stitch OUTPUT projection sets the azimuth↔x law: linear for cylindrical/equirect (f1/f2), atan for rectilinear (f0). Read the .pto p-line f-value — it varies per pano, never assume (docs/pano-source-archaeology.md). Symptom of the wrong model: residuals bow — both ends one sign, middle the other, worst on far APPROVED anchors. Rectilinear needs ≥ 4 included points.">
@@ -340,12 +413,25 @@
 					<select bind:value={model}>
 						<option value="linear">linear — cylindrical/equirect (f1/f2)</option>
 						<option value="rectilinear">rectilinear — f0, Δ = atan(k·(x−x₀))</option>
+						<option value="piecewise">piecewise — stitched: per-panel shift &amp; scale</option>
 					</select>
 				</label>
+				{#if model === 'piecewise'}
+					<label style="font-size:12px; display:flex; align-items:center; gap:4px"
+						title="seam positions as fractions of the width (0..1), comma-separated — the panels between them get their own azimuth shift and scale on top of the linear law. A frame stitched at the wrong focal length shows as a panel with scale ≠ 1. Each panel needs ≥ 2 anchors to fit a scale (1 → shift only, 0 → neutral). Accepting writes calibratedStitch, which the overlay bench seeds its handles from.">
+						seams
+						<input style="width:14em" placeholder="e.g. 0.42, 0.71, 0.9" bind:value={seamsText} data-testid="calibration-seams" />
+						<button onclick={seamsFromOverlay} title="take the seams placed on the overlay bench for this pano (its draft, else its saved fit)">from overlay</button>
+					</label>
+				{/if}
 				{#if excluded.size}<span class="muted" style="font-size:11px">{excluded.size} excluded (kept as draft)</span>{/if}
 				<button onclick={refresh} disabled={refreshing}
 					title="re-pick anchors and recompute rows — use after approving/pinning coords in another tab; keeps your selection">
 					{refreshing ? '↻ …' : '↻ recalc'}
+				</button>
+				<button onclick={geocodePano} disabled={!!geocoding}
+					title="run the geocoder over THIS pano's annotations: mints anchorCandidate facts (body coords → geo: pin, wiki link → Wikipedia coords, label → Nominatim), then recalcs. Needed after new annotations arrive — parse alone gives them no anchor.">
+					{geocoding ? `⌖ ${geocoding}` : '⌖ geocode pano'}
 				</button>
 				<button onclick={() => autoKick(10)} title="iteratively exclude worst residuals > 10°">auto-kick &gt;10°</button>
 				<button onclick={includeAll} disabled={excluded.size === 0}>include all</button>
@@ -390,11 +476,20 @@
 					{/each}
 				</tbody>
 			</table>
-			{#if data.rows.some((r) => !r.usable)}
+			{#if unusableRows.length}
 				<p class="muted" style="font-size:12px">
-					{data.rows.filter((r) => !r.usable).length} annotations unusable
-					(no anchor / bad rect / no compass): {data.rows.filter((r) => !r.usable).map((r) => r.body || '(unnamed)').slice(0, 8).join(' · ')}…
+					{unusableRows.length} annotations unusable
+					(no anchor / bad rect / no compass): {unusableRows.map((r) => r.body || '(unnamed)').slice(0, 8).join(' · ')}…
 				</p>
+				{#if noAnchorRows.length}
+					<p class="muted" style="font-size:12px">
+						{noAnchorRows.length} of those have <b>no located candidate at all</b> — run
+						<button onclick={geocodePano} disabled={!!geocoding} style="font-size:11px">
+							{geocoding ? `⌖ ${geocoding}` : '⌖ geocode pano'}
+						</button>
+						to mint anchors for them.
+					</p>
+				{/if}
 			{/if}
 		{:else}
 			<p class="muted">← pick a pano</p>

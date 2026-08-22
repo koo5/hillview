@@ -32,6 +32,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utils.base_test import BasePhotoTest
 from utils.image_utils import create_test_image_full_gps, create_test_image_no_exif
 from utils.secure_upload_utils import SecureUploadClient, generate_test_captured_at
+from utils.secure_upload_utils import dev_origin_client
 from utils.test_utils import API_URL, wait_for_photo_processing
 
 WORKER_URL = os.getenv("TEST_WORKER_URL", "http://localhost:8056")
@@ -51,7 +52,7 @@ async def post_upload_async(upload_client, image_data: bytes, auth_data: dict,
 		filename,
 		auth_data["upload_authorized_at"]
 	)
-	async with httpx.AsyncClient() as client:
+	async with dev_origin_client() as client:
 		return await client.post(
 			f"{auth_data['worker_url']}/upload_async",
 			files={'file': (filename, image_data, 'image/jpeg')},
@@ -147,7 +148,7 @@ class TestUploadAsync(BasePhotoTest):
 		image_data = create_test_image_full_gps(200, 150, (255, 255, 0), 50.0755, 14.4378, 45.0)
 		auth_data = await self._authorize(upload_client, client_keys, filename, image_data)
 
-		async with httpx.AsyncClient() as client:
+		async with dev_origin_client() as client:
 			response = await client.post(
 				f"{auth_data['worker_url']}/upload_async",
 				files={'file': (filename, image_data, 'image/jpeg')},

@@ -24,6 +24,17 @@ Disallow: /hidden
 Disallow: /settings
 Disallow: /users/
 Disallow: /tile
+# Signed-in-only surfaces. An anonymous crawler renders them as an empty shell or
+# a login prompt — thin pages that burn crawl budget and invite the soft-404
+# classification. NB: this list is a deny-list with no catch-all, so a NEW route
+# is crawlable by default; add it here when it isn't meant for search.
+Disallow: /admin
+Disallow: /moderate
+Disallow: /contributions
+Disallow: /notifications
+# Moderator-only history view living under the otherwise-public /photo/ tree.
+# Longer path than "Allow: /photo/", so it wins under longest-match.
+Disallow: /photo/*/annotations
 
 # AI answer/search crawlers — OAI-SearchBot, ChatGPT-User (OpenAI), Claude-SearchBot,
 # Claude-User (Anthropic), PerplexityBot — are intentionally ALLOWED: they aren't

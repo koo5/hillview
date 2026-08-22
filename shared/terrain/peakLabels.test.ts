@@ -4,8 +4,12 @@ import { destinationPoint } from './depthPanoViewer';
 import {
 	bearingDistance,
 	colForAzimuth,
+	explainPeak,
+	explainPeaks,
 	hitSkyLabel,
+	labelEvidence,
 	labelPriority,
+	labelText,
 	layoutSkyLabels,
 	projectPeak,
 	projectPeaks,
@@ -122,6 +126,195 @@ describe('projectPeak — visibility straight from the depth buffer', () => {
 	});
 });
 
+// the same grid with an eye height, so the height band is testable. Row 5
+// (centre +4.5°) at 20 km ⇔ ele ≈ 1901 m for eye 300 m, k 0.13.
+const metaEye: TerrainMeta = { ...meta, eye_elevation_m: 300, refraction_k: 0.13 };
+const peakEle = (az: number, d: number, name: string, ele: number, extra: Partial<Peak> = {}): Peak => ({
+	...peakAt(az, d, name),
+	ele,
+	...extra
+});
+
+describe('label classes — what a label claims, and its evidence', () => {
+	it('summit needs the tight depth window AND the height band (in metres)', () => {
+		const depth = makeDepth({ 90: { skyTop: 5, depths: [20_000] } });
+		const agrees = projectPeak(metaEye, depth, peakEle(90.5, 20_000, 'Vrch', 1901))!;
+		expect(agrees.class).toBe('summit');
+		expect(Math.abs(agrees.dh_m!)).toBeLessThan(15);
+		expect(agrees.seen_m).toBe(20_000);
+		expect(agrees.col_offset).toBe(0);
+		// ele says the summit is ~1.1 km higher than the rendered edge: a
+		// different landform — not shown, and the explanation says why
+		expect(projectPeak(metaEye, depth, peakEle(90.5, 20_000, 'Vrch', 3000))).toBeNull();
+		const why = explainPeak(metaEye, depth, peakEle(90.5, 20_000, 'Vrch', 3000));
+		expect(why.verdict).toBe('hidden');
+		expect(why.reason).toMatch(/different landform/);
+	});
+
+	it('wide window only → mass, carrying what was actually seen', () => {
+		// 21 km: outside 300 m + 3 % (900 m), inside 8 m + 6 % (1208 m)
+		const depth = makeDepth({ 90: { skyTop: 5, depths: [21_000] } });
+		const m = projectPeak(metaEye, depth, peakEle(90.5, 20_000, 'Vrch', 1901))!;
+		expect(m.class).toBe('mass');
+		expect(m.seen_m).toBe(21_000);
+		expect(m.distance_m).toBeCloseTo(20_000, 0);
+		// …but mass needs the height band too: a hill far below the terrain
+		// seen near it is a different landform, not its mass
+		expect(projectPeak(metaEye, depth, peakEle(90.5, 20_000, 'Vrch', 500))).toBeNull();
+	});
+
+	it('a summit outranks a mass claim of equal priority', () => {
+		const depth = makeDepth({ 90: { skyTop: 5, depths: [21_000] }, 91: { skyTop: 5, depths: [21_000] } });
+		const marks = projectPeaks(metaEye, depth, [
+			peakEle(90.5, 20_000, 'Kopec', 1901), // wide only → mass, nearer
+			peakEle(91.5, 21_000, 'Vrch', 1901 + 60) // tight → summit
+		]);
+		expect(marks.map((m) => [m.name, m.class])).toEqual([
+			['Vrch', 'summit'],
+			['Kopec', 'mass']
+		]);
+	});
+
+	it('a tight row below a wide-only skyline row is the anchor', () => {
+		const depth = makeDepth({ 90: { skyTop: 4, depths: [21_000, 21_000, 20_000] } });
+		// ele ≈ 1551 m puts the summit's angle at row 6 (+3.5°) for eye 300 m
+		const m = projectPeak(metaEye, depth, peakEle(90.5, 20_000, 'Vrch', 1551))!;
+		expect(m.seen_m).toBe(20_000);
+		expect(m.v).toBeCloseTo((6 + 0.5) / meta.height, 6);
+		expect(m.class).toBe('summit');
+	});
+
+	it('without an eye height, tight alone makes a summit', () => {
+		const depth = makeDepth({ 90: { skyTop: 5, depths: [20_000] } });
+		const m = projectPeak(meta, depth, peakEle(90.5, 20_000, 'Vrch', 3000))!;
+		expect(m.class).toBe('summit');
+		expect(m.dh_m).toBeNull();
+	});
+
+	it('a hidden notable settlement → direction, anchored at the top edge of the occluder', () => {
+		const depth = makeDepth({ 90: { skyTop: 5, depths: [5_000] } });
+		const town = projectPeak(metaEye, depth, peakEle(90.5, 20_000, 'Town', 200, { kind: 'town', population: 40_000 }))!;
+		expect(town.class).toBe('direction');
+		expect(town.seen_m).toBe(5_000);
+		expect(town.v).toBeCloseTo((5 + 0.5) / meta.height, 6);
+		// a small village is dropped; a hidden PEAK is never direction material
+		expect(projectPeak(metaEye, depth, peakEle(90.5, 20_000, 'Ves', 200, { kind: 'village', population: 300 }))).toBeNull();
+		expect(projectPeak(metaEye, depth, { ...peakAt(90.5, 20_000, 'Big'), prominence: 900 })).toBeNull();
+		// beyond 100 km no direction hint; nor behind foreground clutter
+		const far = { ...metaEye, max_distance_m: 200_000 };
+		expect(projectPeak(far, depth, peakEle(90.5, 150_000, 'City', 200, { kind: 'city', population: 500_000 }))).toBeNull();
+		const tree = makeDepth({ 90: { skyTop: 0, depths: [100] } });
+		expect(projectPeak(metaEye, tree, peakEle(90.5, 20_000, 'City', 200, { kind: 'city', population: 500_000 }))).toBeNull();
+	});
+
+	it('a settlement is seen or a direction hint — never mass', () => {
+		const near = makeDepth({ 90: { skyTop: 5, depths: [21_000] } });
+		const town = peakEle(90.5, 20_000, 'Town', 200, { kind: 'town', population: 40_000 });
+		expect(projectPeak(metaEye, near, town)!.class).toBe('direction');
+		const village = peakEle(90.5, 20_000, 'Ves', 200, { kind: 'village', population: 300 });
+		expect(projectPeak(metaEye, near, village)).toBeNull();
+		const exact = makeDepth({ 90: { skyTop: 5, depths: [20_000] } });
+		expect(projectPeak(metaEye, exact, peakEle(90.5, 20_000, 'Town', 3000, { kind: 'town', population: 40_000 }))!.class).toBe('direction');
+		expect(projectPeak(metaEye, exact, peakEle(90.5, 20_000, 'Town', 1901, { kind: 'town', population: 40_000 }))!.class).toBe('summit');
+	});
+
+	it('direction labels sort after every visible one', () => {
+		const depth = makeDepth({
+			89: { skyTop: 5, depths: [5_000] },
+			90: { skyTop: 5, depths: [5_000] },
+			91: { skyTop: 5, depths: [5_000] },
+			180: { skyTop: 5, depths: [20_000] }
+		});
+		const marks = projectPeaks(metaEye, depth, [
+			peakEle(90.5, 20_000, 'City', 200, { kind: 'city', population: 500_000 }),
+			{ ...peakEle(180.5, 20_000, 'Small', 1901), prominence: 10 }
+		]);
+		expect(marks.map((m) => [m.name, m.class])).toEqual([
+			['Small', 'summit'],
+			['City', 'direction']
+		]);
+	});
+
+	it('azimuth neighbourhood rescues a node one column off its summit', () => {
+		const depth = makeDepth({ 90: { skyTop: 5, depths: [5_000] }, 91: { skyTop: 5, depths: [20_000] } });
+		const m = projectPeak(metaEye, depth, peakEle(90.5, 20_000, 'Edge', 1901))!;
+		expect(m.col_offset).toBe(1);
+		expect(m.class).toBe('summit');
+		expect(m.u).toBeCloseTo((91 + 0.5) / meta.width, 6);
+	});
+
+	it('one label per depth pixel keeps the higher priority', () => {
+		const depth = makeDepth({ 90: { skyTop: 5, depths: [20_000] } });
+		const marks = projectPeaks(metaEye, depth, [
+			peakEle(90.5, 20_000, 'Turm A', 1901),
+			{ ...peakEle(90.5, 20_000, 'Turm B', 1901), prominence: 40 }
+		]);
+		expect(marks.map((m) => m.name)).toEqual(['Turm B']);
+	});
+
+	it('labelText: elevation only for a summit with an OSM elevation; places never', () => {
+		const depth = makeDepth({ 90: { skyTop: 5, depths: [20_000] } });
+		const summit = projectPeak(metaEye, depth, peakEle(90.5, 20_000, 'Vrch', 1901))!;
+		expect(labelText(summit)).toBe('Vrch 1901');
+		expect(labelText(summit, { km: true })).toBe('Vrch 1901 · 20 km');
+		const est = projectPeak(metaEye, depth, peakEle(90.5, 20_000, 'Vrch', 1901, { ele_estimated: true }))!;
+		expect(labelText(est)).toBe('Vrch');
+		const mass = projectPeak(metaEye, makeDepth({ 90: { skyTop: 5, depths: [21_000] } }), peakEle(90.5, 20_000, 'Vrch', 1901))!;
+		expect(mass.class).toBe('mass');
+		expect(labelText(mass, { km: true })).toBe('Vrch · 20 km');
+		const town = projectPeak(metaEye, depth, peakEle(90.5, 20_000, 'Town', 1901, { kind: 'town', population: 40_000 }))!;
+		expect(labelText(town)).toBe('Town');
+		const hidden = projectPeak(metaEye, makeDepth({ 90: { skyTop: 5, depths: [5_000] } }), peakEle(90.5, 20_000, 'Big', 200, { kind: 'town', population: 40_000 }))!;
+		expect(labelText(hidden, { km: true })).toBe('Big');
+		expect(labelEvidence(hidden)).toMatch(/Hidden.*behind terrain at 5\.0 km/);
+		expect(labelEvidence(summit)).toMatch(/Summit seen/);
+		expect(labelEvidence(mass)).toMatch(/not confirmed as the summit/);
+	});
+});
+
+describe('explainPeak — a verdict and a reason for every candidate', () => {
+	const depth = makeDepth({ 90: { skyTop: 5, depths: [20_000] }, 180: { skyTop: 5, depths: [5_000] } });
+
+	it('labelled classes come with their evidence sentence and a mark', () => {
+		const e = explainPeak(metaEye, depth, peakEle(90.5, 20_000, 'Vrch', 1901));
+		expect(e.verdict).toBe('summit');
+		expect(e.mark?.class).toBe('summit');
+		expect(e.reason).toMatch(/Summit seen/);
+	});
+
+	it('names the gate that stopped a candidate', () => {
+		expect(explainPeak(metaEye, depth, peakAt(90.5, 300)).verdict).toBe('too-close');
+		expect(explainPeak(metaEye, depth, peakAt(90.5, 200_000)).verdict).toBe('out-of-range');
+		expect(explainPeak(metaEye, depth, peakEle(90.5, 50_000, 'Ves', 200, { kind: 'village', population: 300 })).verdict).toBe('out-of-range');
+		// hidden peak: behind terrain, and peaks are never direction hints
+		const hid = explainPeak(metaEye, depth, { ...peakAt(180.5, 20_000, 'Big'), prominence: 900 });
+		expect(hid.verdict).toBe('hidden');
+		expect(hid.reason).toMatch(/hidden behind terrain at 5\.0 km/);
+		// hidden small village: below the direction threshold, and says so
+		const ves = explainPeak(metaEye, depth, peakEle(180.5, 20_000, 'Ves', 200, { kind: 'village', population: 300 }));
+		expect(ves.verdict).toBe('not-notable');
+		expect(ves.reason).toMatch(/priority ≥ 240/);
+		// all-sky column
+		expect(explainPeak(metaEye, depth, peakAt(45.5, 20_000)).verdict).toBe('no-terrain');
+	});
+
+	it('explainPeaks lists labelled first in projectPeaks order, marks pixel losers, then the rest', () => {
+		const out = explainPeaks(metaEye, depth, [
+			peakEle(90.5, 20_000, 'Turm A', 1901),
+			{ ...peakEle(90.5, 20_000, 'Turm B', 1901), prominence: 40 },
+			{ ...peakAt(180.5, 20_000, 'Big'), prominence: 900 },
+			peakAt(90.5, 300, 'Near')
+		]);
+		expect(out.map((e) => [e.peak.name, e.verdict, e.kept])).toEqual([
+			['Turm B', 'summit', true],
+			['Turm A', 'summit', false],
+			['Big', 'hidden', false],
+			['Near', 'too-close', false]
+		]);
+		expect(out[1].reason).toMatch(/Shares its depth pixel/);
+	});
+});
+
 describe('settlement place names as label candidates', () => {
 	it('labelPriority: population log-maps into prominence-like metres', () => {
 		expect(labelPriority({ kind: 'city', population: 1_000_000 })).toBeCloseTo(450, 0);
@@ -151,14 +344,17 @@ describe('settlement place names as label candidates', () => {
 	});
 });
 
-describe('layoutSkyLabels — pills above summits, stacking upward', () => {
+describe('layoutSkyLabels — slats rising from the sky above their summits', () => {
 	const W = 800, H = 400;
 	const mk = (cx: number, cy: number, w = 60, label = 'X') => ({ label, cx, cy, pillW: w });
+	const R = Math.PI / 4;
 
-	it('places the pill centered above the target, leader-gap clear of it', () => {
+	it('starts the slat just above the anchor, at the default 45°', () => {
 		const [l] = layoutSkyLabels([mk(400, 200)], W, H);
-		expect(l.tx).toBe(400 - 30);
-		expect(l.ty).toBe(200 - 12 - 20); // cy - leader - pillH
+		expect(l.ox).toBe(400);
+		expect(l.oy).toBe(200 - 12); // cy - leader
+		expect(l.angle).toBeCloseTo(R, 9);
+		expect(l.pillH).toBe(20);
 	});
 
 	it('thins same-neighborhood labels: the higher-priority one wins its column', () => {
@@ -166,38 +362,65 @@ describe('layoutSkyLabels — pills above summits, stacking upward', () => {
 		expect(placed.map((p) => p.label)).toEqual(['First']);
 	});
 
-	it('stacks pills whose columns are distinct but pills still overlap', () => {
-		// 50 px apart: past minGapX (40), but 60 px pills overlap → stack
-		const [a, b] = layoutSkyLabels([mk(400, 200), mk(450, 205)], W, H);
-		expect(b.ty).toBe(a.ty - 20 - 3); // pillH + gap higher
+	it('parallel slats tile at Δx·sin θ ≥ pillH + gap, whatever the label length', () => {
+		// pitch 33 px > 23/sin45 = 32.5 → both fit, even with 300 px names
+		const [a, b] = layoutSkyLabels([mk(400, 200, 300), mk(433, 200, 300)], W, H);
+		expect(a.label).toBe('X');
+		expect(b).toBeDefined();
+		// pitch 30 px < 32.5 → the second is skipped
+		expect(layoutSkyLabels([mk(400, 200, 300), mk(430, 200, 300)], W, H)).toHaveLength(1);
 	});
 
-	it('non-overlapping labels keep their own height', () => {
-		const [a, b] = layoutSkyLabels([mk(100, 200), mk(700, 200)], W, H);
-		expect(a.ty).toBe(b.ty);
+	it('at 0° it is a horizontal, non-stacking layout: the next anchor must clear the previous label', () => {
+		const opts = { angleDeg: 0 };
+		expect(layoutSkyLabels([mk(400, 200, 60), mk(450, 200, 60)], W, H, opts)).toHaveLength(1);
+		const [a, b] = layoutSkyLabels([mk(400, 200, 60), mk(464, 200, 60)], W, H, opts);
+		expect(a.oy).toBe(b.oy); // no stacking: same height
+		expect(a.angle).toBe(0);
 	});
 
-	it('clamps pills horizontally into the canvas', () => {
-		const [l] = layoutSkyLabels([mk(2, 200)], W, H);
-		expect(l.tx).toBe(2);
+	it('a shorter slat lets a closer neighbour in once it ends before the neighbour starts', () => {
+		// 30 px pitch is too close for a long left slat…
+		expect(layoutSkyLabels([mk(400, 200, 300), mk(430, 200, 60)], W, H)).toHaveLength(1);
+		// …but a 15 px left slat is over (15 + 3 gap ≤ 30·cos45 = 21.2 along the
+		// axis) before the neighbour's origin arrives, so both fit
+		expect(layoutSkyLabels([mk(400, 200, 15), mk(430, 200, 60)], W, H)).toHaveLength(2);
 	});
 
-	it('hitSkyLabel finds the pill under a tap, with touch slop', () => {
+	it('anchors at different heights: bands are compared perpendicular to the slats', () => {
+		// same x pitch (26 px) but the right anchor sits 30 px higher: the
+		// perpendicular separation 26·sin45 − 30·cos45 ≈ −2.8 → overlapping bands
+		expect(layoutSkyLabels([mk(400, 200, 100), mk(426, 170, 100)], W, H)).toHaveLength(1);
+		// …and 30 px LOWER: 26·sin45 + 30·cos45 ≈ 39.6 ≥ 23 → both fit
+		expect(layoutSkyLabels([mk(400, 200, 100), mk(426, 230, 100)], W, H)).toHaveLength(2);
+	});
+
+	it('extra input fields ride through to the placed pills', () => {
+		const [l] = layoutSkyLabels([{ ...mk(400, 200), cls: 'summit', mark: 7 }], W, H);
+		expect(l.cls).toBe('summit');
+		expect(l.mark).toBe(7);
+	});
+
+	it('hitSkyLabel inverse-rotates the tap into the pill frame, with touch slop', () => {
 		const placed = layoutSkyLabels([mk(400, 200, 60, 'Hit')], W, H);
-		const { tx, ty, pillW, pillH } = placed[0];
-		expect(hitSkyLabel(placed, tx + pillW / 2, ty + pillH / 2)?.label).toBe('Hit');
-		expect(hitSkyLabel(placed, tx - 3, ty - 3)?.label).toBe('Hit'); // slop
-		expect(hitSkyLabel(placed, tx + pillW + 20, ty)).toBeNull();
+		const { ox, oy, pillW, pillH } = placed[0];
+		// a point half-way along the axis and half a pill above it (in the frame)
+		const along = pillW / 2, across = -pillH / 2;
+		const px = ox + along * Math.cos(R) + across * Math.sin(R);
+		const py = oy - along * Math.sin(R) + across * Math.cos(R);
+		expect(hitSkyLabel(placed, px, py)?.label).toBe('Hit');
+		// just outside the far end along the axis (beyond slop) → miss
+		const fx = ox + (pillW + 20) * Math.cos(R);
+		const fy = oy - (pillW + 20) * Math.sin(R);
+		expect(hitSkyLabel(placed, fx, fy)).toBeNull();
+		// slop: 3 px before the origin still hits
+		expect(hitSkyLabel(placed, ox - 3 * Math.cos(R), oy + 3 * Math.sin(R))?.label).toBe('Hit');
 	});
 
-	it('drops labels pushed past the top instead of piling up', () => {
-		// distinct 45 px columns (past thinning) near the top edge: wide
-		// pills overlap → stack upward → overflow the canvas top → dropped
-		const crowd = Array.from({ length: 12 }, (_, i) => mk(150 + i * 45, 60, 200, `P${i}`));
-		const placed = layoutSkyLabels(crowd, W, H);
-		expect(placed.length).toBeLessThan(12);
-		expect(placed.length).toBeGreaterThan(0);
-		for (const l of placed) expect(l.ty).toBeGreaterThanOrEqual(2);
+	it('drops a slat that would start above the canvas top; keeps one that merely runs off it', () => {
+		expect(layoutSkyLabels([mk(400, 20)], W, H)).toHaveLength(0); // origin at y=8, top edge at 2 → 8-14 < 2
+		const [l] = layoutSkyLabels([mk(400, 60, 300)], W, H); // 300 px slat rises 212 px above y=48
+		expect(l).toBeDefined();
 	});
 });
 

@@ -211,6 +211,11 @@ import TimelinePanel from './TimelinePanel.svelte';
 			([pending, photo]) => ({ pending, photo })
 		).subscribe(({ pending, photo }) => {
 			if (!pending || !photo) return;
+			// A uid-bound pending view (URL ?photo= flow) opens only for that
+			// photo — not for whatever streams in front first. Otherwise a
+			// deleted/moved photo's link would open a random nearby photo
+			// zoomed to alien bounds instead of reaching the not-found state.
+			if (pending.photoUid && photo.uid !== pending.photoUid) return;
 			const fullPhotoInfo = getFullPhotoInfo(photo);
 			zoomViewData.set({
 				fallback_url: '',

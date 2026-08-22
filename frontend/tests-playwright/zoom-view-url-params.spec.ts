@@ -3,6 +3,7 @@ import { test, expect } from './fixtures';
 import { recreateTestUsers, loginAsTestUser } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
+import { BACKEND_URL } from './helpers/adminAuth';
 import { collectErrors } from './helpers/consoleLogging';
 
 type Page = import('@playwright/test').Page;
@@ -385,6 +386,20 @@ test.describe('Zoom View URL Parameters', () => {
       return page.evaluate(() => (window as any).__lastClipboardText as string);
     }
 
+    /** Share mints a short /shared/{slug} link; resolve it via the backend and
+     * return the target map URL, which carries the actual map params. */
+    async function resolveShareTarget(clipboardText: string): Promise<URL> {
+      const urlMatch = clipboardText.match(/https?:\/\/\S+/);
+      expect(urlMatch, 'Share clipboard should contain a URL').toBeTruthy();
+      const shareUrl = new URL(urlMatch![0]);
+      expect(shareUrl.pathname, 'Share should mint a short /shared/{slug} link').toMatch(/^\/shared\/\d+/);
+      const slug = shareUrl.pathname.slice('/shared/'.length);
+      const res = await fetch(`${BACKEND_URL}/api/shared/${encodeURIComponent(slug)}`);
+      expect(res.ok, `Short share link should resolve, got ${res.status}`).toBe(true);
+      const { target } = await res.json();
+      return new URL(target, shareUrl.origin);
+    }
+
     test('share URL from zoom view should include x1/y1/x2/y2 params', async ({ page, testUsers }) => {
       await loginAsTestUser(page, testUsers.passwords.test);
       await uploadPhoto(page, testPhotos[0]);
@@ -402,12 +417,8 @@ test.describe('Zoom View URL Parameters', () => {
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
 
-      // Read share URL from intercepted clipboard
-      const clipboardText = await getLastClipboardText(page);
-      const urlMatch = clipboardText.match(/https?:\/\/\S+/);
-      expect(urlMatch, 'Share clipboard should contain a URL').toBeTruthy();
-
-      const shareUrl = new URL(urlMatch![0]);
+      // Read share URL from intercepted clipboard and resolve the short link
+      const shareUrl = await resolveShareTarget(await getLastClipboardText(page));
       const x1 = shareUrl.searchParams.get('x1');
       const y1 = shareUrl.searchParams.get('y1');
       const x2 = shareUrl.searchParams.get('x2');
@@ -441,8 +452,7 @@ test.describe('Zoom View URL Parameters', () => {
       await page.click('[data-testid="osd-display-menu-toggle"]');
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
-      const defaultClip = await getLastClipboardText(page);
-      const defaultUrl = new URL(defaultClip.match(/https?:\/\/\S+/)![0]);
+      const defaultUrl = await resolveShareTarget(await getLastClipboardText(page));
       const defaultWidth = parseFloat(defaultUrl.searchParams.get('x2')!) - parseFloat(defaultUrl.searchParams.get('x1')!);
 
       // Zoom in by double-clicking
@@ -459,8 +469,7 @@ test.describe('Zoom View URL Parameters', () => {
       await page.click('[data-testid="osd-display-menu-toggle"]');
       await page.click('[data-testid="osd-share"]');
       await page.waitForTimeout(500);
-      const zoomedClip = await getLastClipboardText(page);
-      const zoomedUrl = new URL(zoomedClip.match(/https?:\/\/\S+/)![0]);
+      const zoomedUrl = await resolveShareTarget(await getLastClipboardText(page));
       const zoomedWidth = parseFloat(zoomedUrl.searchParams.get('x2')!) - parseFloat(zoomedUrl.searchParams.get('x1')!);
 
       // After zooming in, viewport width should be smaller
@@ -469,6 +478,42 @@ test.describe('Zoom View URL Parameters', () => {
   });
 
   test.describe('Error handling', () => {
+
+    // Same clean slate as the describes above: the stale-position test uploads
+    // the same photo they do, and a re-upload of an identical file by the same
+    // user is rejected by the backend's per-user MD5 duplicate check.
+    test.beforeEach(async ({ testUsers }) => {
+      await recreateTestUsers();
+    });
+
+    test('should show not-found instead of an eternal spinner for a deleted photo', async ({ page }) => {
+      // Well-formed uid that exists nowhere — same shape as a deleted photo's
+      // stale share link. The public-endpoint probe 404s and the pending
+      // overlay must say so rather than spin forever.
+      await page.goto(
+        '/?lat=50.1153&lon=14.4938&zoom=18&photo=hillview-00000000-0000-0000-0000-000000000000&x1=0.2&y1=0.2&x2=0.6&y2=0.6'
+      );
+      await expect(page.getByTestId('zoom-view-pending-error')).toBeVisible({ timeout: T(15000) });
+
+      // The overlay still closes normally
+      await page.getByTestId('zoom-view-pending-close').click();
+      await expect(page.getByTestId('zoom-view-pending')).not.toBeVisible();
+    });
+
+    test('should pan to the photo\'s real location when the URL position is stale', async ({ page, testUsers }) => {
+      await loginAsTestUser(page, testUsers.passwords.test);
+      const photoId = await uploadPhoto(page, testPhotos[0]);
+
+      await page.goto('/');
+      await ensureSourceEnabled(page, 'hillview', true);
+
+      // ~5.5 km north of the photo's actual position — outside the streamed
+      // bounds, so without the probe's corrective pan the photo never arrives.
+      await page.goto(
+        `/?lat=50.1653&lon=14.4938&zoom=18&photo=hillview-${photoId}&x1=0.2&y1=0.2&x2=0.6&y2=0.6`
+      );
+      await page.locator('[data-testid="osd-viewer-overlay"]').waitFor({ state: 'visible', timeout: T(30000) });
+    });
 
     test('should handle malformed zoom params gracefully', async ({ page }) => {
       const { errors } = collectErrors(page);

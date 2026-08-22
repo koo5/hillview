@@ -12,7 +12,14 @@
 
 	onMount(async () => {
 		try {
-			const response = await http.get(`/shared/${encodeURIComponent($page.params.slug)}`);
+			// params.slug types as string | undefined since the SvelteKit types
+			// tightened; a missing slug is the same as a dead link.
+			const slug = $page.params.slug;
+			if (!slug) {
+				error = 'This share link does not exist.';
+				return;
+			}
+			const response = await http.get(`/shared/${encodeURIComponent(slug)}`);
 			if (!response.ok) {
 				error = response.status === 404 ? 'This share link does not exist.' : 'Failed to resolve share link.';
 				return;

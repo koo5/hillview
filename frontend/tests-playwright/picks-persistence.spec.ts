@@ -63,7 +63,7 @@ test.describe('Picks Persistence', () => {
 		await ensureSourceEnabled(page, 'hillview', true);
 		await page.waitForFunction(() => {
 			return document.querySelectorAll('.marker-container[data-photo-id]').length > 0;
-		}, { timeout: T(30000) });
+		}, undefined, { timeout: T(30000) });
 		await page.waitForTimeout(2000); // let things settle
 
 		// Read which markers are visible — should be 3 out of 4

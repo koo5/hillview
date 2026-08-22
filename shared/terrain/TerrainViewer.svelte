@@ -26,17 +26,20 @@
 		type ViewRect
 	} from '$terrain/depthPanoViewer';
 	import {
+		explainPeaks,
 		hitSkyLabel,
+		labelEvidence,
+		labelText,
 		layoutSkyLabels,
 		PLACE_KINDS,
 		projectPeaks,
 		texToCanvas,
 		type Peak,
+		type PeakExplanation,
 		type PeakMark,
 		type SkyLabel
 	} from '$terrain/peakLabels';
-	import { LABEL_PAD } from '$zoomview/labelLayout';
-	import { paintLabels } from '$zoomview/labelPaint';
+	import { paintSkyPills } from '$terrain/labelPills';
 
 	let {
 		previewUrl,
@@ -45,6 +48,7 @@
 		visibilityKm = $bindable(80),
 		skyColor = $bindable('#a7cdf0'),
 		onpick,
+		onlabels,
 		initialRect,
 		onviewchange,
 		peaks = [],
@@ -61,6 +65,9 @@
 		visibilityKm?: number;
 		skyColor?: string;
 		onpick?: (pick: TerrainPick | null) => void;
+		/** after every label repaint: the marks whose slats are on screen right
+		 * now (the layouter's survivors), so a host can show "shown / thinned" */
+		onlabels?: (placed: PeakMark[]) => void;
 		/** viewport rect to restore (zoom view's x1..y2 convention, e.g. from
 		 * URL params); normalized here, so seam-straddling x is fine */
 		initialRect?: ViewRect | null;
@@ -95,20 +102,10 @@
 	let marks: PeakMark[] = [];
 	// pills currently on screen, with their marks — labels are CLICKABLE:
 	// a tap on a pill picks that exact feature (geodesic distance, name)
-	let placedLabels: { pill: SkyLabel; mark: PeakMark }[] = [];
+	let placedLabels: (SkyLabel & { mark: PeakMark; kind?: string; cls?: PeakMark['class'] })[] = [];
 	let tapX = 0;
 	let tapY = 0;
-
-	// zoomview label PAINTER, same style as the photo zoom view; placement
-	// is the terrain-specific sky layouter (layoutSkyLabels)
-	const LABEL_STYLE = {
-		labelFont: 'bold 12px system-ui,sans-serif',
-		labelPad: LABEL_PAD,
-		leaderWidth: 1.5,
-		leaderDash: 4,
-		pillRadius: 4,
-		textBaselineOffset: 4
-	};
+	const LABEL_FONT = '11px system-ui, sans-serif';
 
 	function recomputeMarks(): void {
 		const m = viewer?.getMetaData();
@@ -142,42 +139,51 @@
 			ctx.clearRect(0, 0, labelCanvas.width, labelCanvas.height);
 			return;
 		}
+		ctx.clearRect(0, 0, W, H);
 		if (showPeakLabels && marks.length) {
-			ctx.font = LABEL_STYLE.labelFont;
-			const inputs = [];
-			const visible: PeakMark[] = [];
+			ctx.font = LABEL_FONT;
 			// generous cap: the layouter's per-neighborhood thinning is the
 			// real display limit — a hard slice-40 under a saturated pool made
-			// tolerance trade near labels for far ones instead of adding
-			for (const mark of marks.slice(0, 150)) {
+			// tolerance trade near labels for far ones instead of adding.
+			// Direction labels sort after every visible one, so a plain slice
+			// would drop them all: cap the visible ones, keep the (few) hints.
+			// fog is meteorological visibility: what has faded into it gets no
+			// label either (the bench and the export apply the same cutoff)
+			const cutoffM = visibilityKm * 1000;
+			const inView = marks.filter((m) => m.distance_m <= cutoffM);
+			const capped = [
+				...inView.filter((m) => m.class !== 'direction').slice(0, 150),
+				...inView.filter((m) => m.class === 'direction')
+			];
+			const inputs: {
+				label: string; cx: number; cy: number; pillW: number;
+				kind?: string; cls?: PeakMark['class']; mark: PeakMark;
+			}[] = [];
+			for (const mark of capped) {
 				const p = texToCanvas(m, rect, mark.u, mark.v, W, H);
 				if (!p) continue;
-				const label = mark.ele ? `${mark.name} ${Math.round(mark.ele)}` : mark.name;
+				// what the label CLAIMS decides its text: summit → name + OSM
+				// elevation, mass → name, direction → name (painted dim)
+				const label = labelText(mark);
 				inputs.push({
 					label,
 					cx: p.cx,
 					cy: p.cy,
-					pillW: ctx.measureText(label).width + LABEL_PAD * 2,
-					id: String(visible.length)
+					pillW: Math.ceil(ctx.measureText(label).width) + 12,
+					kind: mark.kind,
+					cls: mark.class,
+					mark
 				});
-				visible.push(mark);
 			}
-			// vista-board placement: pills in the sky above their summits (never
-			// covering them), stacked upward on crowding; the painter's
-			// edge:'bottom' case is exactly leader-up-to-pill-bottom geometry
-			const placed = layoutSkyLabels(inputs, W, H);
-			placedLabels = placed.map((pill) => ({ pill, mark: visible[Number(pill.id)] }));
-			paintLabels(
-				ctx,
-				W,
-				H,
-				placed.map((c) => ({ ...c, lx: c.cx, ly: c.cy, edge: 'bottom' as const })),
-				LABEL_STYLE
-			);
+			// vista-board placement: slats rising from the sky above their
+			// summits (never covering them), first-come by priority; the same
+			// layouter + painter the overlay bench and the zoom view use
+			placedLabels = layoutSkyLabels(inputs, W, H, { pillH: 18, leader: 14 });
+			paintSkyPills(ctx, placedLabels);
 		} else {
 			placedLabels = [];
-			ctx.clearRect(0, 0, W, H); // paintLabels clears when it runs
 		}
+		onlabels?.(placedLabels.map((p) => p.mark));
 		paintCompass(ctx, m, rect, W, H);
 	}
 
@@ -276,6 +282,7 @@
 	$effect(() => {
 		const fog = { visibilityKm, skyColor };
 		viewer?.setFog(fog);
+		repaintLabels(); // labels beyond the visibility distance drop out with it
 	});
 
 	// live vertical exaggeration — same read-before-null-check rule
@@ -297,6 +304,30 @@
 
 	export function resetView(): void {
 		viewer?.resetView();
+	}
+
+	/** The whole candidate pool with a verdict + reason each (labelled first,
+	 * priority order) — for a "why did / didn't this POI make it" listing.
+	 * Same inputs the labels are drawn from: this render's depth, the pool,
+	 * the places toggle and the window slider. */
+	export function explainPool(): (PeakExplanation & { kept: boolean })[] {
+		const m = viewer?.getMetaData();
+		const d = viewer?.getDepthData();
+		if (!m || !d) return [];
+		const pool = showPlaces ? peaks : peaks.filter((p) => !(p.kind && PLACE_KINDS.has(p.kind)));
+		return explainPeaks(m, d, pool, peakTolerance);
+	}
+
+	/** Pan the view so `azimuthDeg` sits at the centre, keeping the zoom. */
+	export function centerOnAzimuth(azimuthDeg: number): void {
+		const m = viewer?.getMetaData();
+		const r = viewer?.getRect();
+		if (!m || !r) return;
+		const step = m.az_step_deg ?? (m.width > 1 ? (m.az_end - m.az_start) / (m.width - 1) : 0);
+		if (!(step > 0)) return;
+		const u = ((((azimuthDeg - m.az_start) % 360) + 360) % 360) / step / m.width;
+		const w = r.x2 - r.x1;
+		viewer?.setRect(normalizeRect({ x1: u - w / 2, x2: u + w / 2, y1: r.y1, y2: r.y2 }));
 	}
 
 	export function setRect(rect: ViewRect): void {
@@ -323,13 +354,9 @@
 		const m = viewer?.getMetaData();
 		if (!m || !placedLabels.length || !onpick) return;
 		const r = canvas.getBoundingClientRect();
-		const hitPill = hitSkyLabel(
-			placedLabels.map((p) => p.pill),
-			e.clientX - r.left,
-			e.clientY - r.top
-		);
+		const hitPill = hitSkyLabel(placedLabels, e.clientX - r.left, e.clientY - r.top);
 		if (!hitPill) return;
-		const mark = placedLabels.find((p) => p.pill === hitPill)!.mark;
+		const mark = hitPill.mark;
 		const geo = destinationPoint(m.lat, m.lon, mark.azimuth_deg, mark.distance_m);
 		onpick({
 			lat: geo.lat,
@@ -338,7 +365,8 @@
 			azimuth_deg: mark.azimuth_deg,
 			col: Math.min(m.width - 1, Math.floor(mark.u * m.width)),
 			row: Math.min(m.height - 1, Math.floor(mark.v * m.height)),
-			label: mark.name
+			label: mark.name,
+			evidence: `${mark.class} — ${labelEvidence(mark)}`
 		});
 	}
 </script>

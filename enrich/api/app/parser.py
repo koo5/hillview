@@ -11,15 +11,21 @@ import re
 import urllib.parse
 from dataclasses import dataclass, field
 
-PARSER_VERSION = "3"   # 3: decimal-comma coords ("50,0620061, 14,8864855") parse; per-
+PARSER_VERSION = "4"   # 4: southern/western coords parse — S/W letters and leading
+                       #    minus both sign the value; lon accepts 3 integer digits
+                       #    (100-180°); pattern mirrored in the frontend TS twin
+                       # 3: decimal-comma coords ("50,0620061, 14,8864855") parse; per-
                        #    segment roles emitted (coords no longer misfiled as context;
                        #    URL-/coords-first bodies count as unnamed)
                        # 2: type keywords match on word boundaries (v1 substring-matched
                        #    "hrad" inside "Zahradní" → castle, "vrch" in "Vrchlického", …)
 
 # lat first, lon second (matches the source convention: "50.73N, 15.00E");
-# [.,] decimal separator — Czech bodies also write "50,0620061, 14,8864855"
-COORD_RE = re.compile(r"(\d{1,2}[.,]\d{3,})\s*[NnSs]?[,\s]+(\d{1,2}[.,]\d{3,})\s*[EeWw]?")
+# [.,] decimal separator — Czech bodies also write "50,0620061, 14,8864855";
+# southern/western values may be marked either way, "-33.8568" or "33.8568S".
+# TS twin: frontend/src/lib/utils/coordParser.ts (clickable coords in the
+# zoomview) — keep the pattern and semantics in sync both ways.
+COORD_RE = re.compile(r"(-?\d{1,2}[.,]\d{3,})\s*([NnSs])?[,\s]+(-?\d{1,3}[.,]\d{3,})\s*([EeWw])?")
 WIKI_RE = re.compile(r"https?://(\w{2,3})\.wikipedia\.org/wiki/([^\s|)]+)")
 URL_RE = re.compile(r"https?://")
 
@@ -59,6 +65,17 @@ def _coord_float(s: str) -> float:
     return float(s.replace(",", "."))
 
 
+def _hemisphere(value: float, letter: str | None, negative: str) -> float:
+    """A leading minus already signed the value; an S/W letter forces the
+    southern/western hemisphere. N/E (and no letter) leave it as parsed."""
+    return -abs(value) if (letter or "").upper() == negative else value
+
+
+def _coords_from_match(m: re.Match) -> tuple[float, float]:
+    return (_hemisphere(_coord_float(m.group(1)), m.group(2), "S"),
+            _hemisphere(_coord_float(m.group(3)), m.group(4), "W"))
+
+
 def _segment_role(i: int, seg: str) -> str:
     if WIKI_RE.search(seg):
         return "wiki"
@@ -96,7 +113,7 @@ def parse_body(body: str | None) -> ParsedBody:
     for p in parts:
         m = COORD_RE.search(p)
         if m and result.coords is None:
-            result.coords = (_coord_float(m.group(1)), _coord_float(m.group(2)))
+            result.coords = _coords_from_match(m)
         w = WIKI_RE.search(p)
         if w and result.wiki is None:
             result.wiki = (w.group(1), urllib.parse.unquote(w.group(2)).replace("_", " "))

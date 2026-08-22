@@ -97,6 +97,18 @@ export function constructMapUrl(options: {
 }
 
 /**
+ * Base URL for links that open OUTSIDE the current view — a new browser tab on
+ * web, the system browser from the Tauri app. Those need an absolute URL, and
+ * the Tauri app has no web origin of its own, so it points at the public site;
+ * on web we stay on whatever instance the user is actually on (dev server,
+ * staging, prod) rather than bouncing them to hillview.cz.
+ */
+export function externalBaseUrl(): string {
+    if (TAURI || typeof window === 'undefined') return HILLVIEW_BASE_URL;
+    return window.location.origin;
+}
+
+/**
  * Constructs a share URL for a photo on hillview.cz
  * @param photo Photo data containing location information and uid
  * @returns Complete hillview.cz URL with location and photo parameters

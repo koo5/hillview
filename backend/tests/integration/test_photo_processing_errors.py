@@ -14,6 +14,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.base_test import BasePhotoTest
 from utils.test_utils import API_URL, upload_test_image, wait_for_photo_processing, recreate_test_users
+from utils.secure_upload_utils import tls_verify
 from utils.auth_utils import AuthTestHelper
 from utils.image_utils import (
 	create_test_image_no_exif,
@@ -148,7 +149,10 @@ async def test_successful_processing():
 	for size_name, size_info in sizes.items():
 		url = size_info['url']
 		print(f"Testing {size_name} URL: {url}")
-		response = requests.head(url, timeout=10)
+		# Same gate as dev_origin_client (see its docstring): this is the app's
+		# own URL, served in dev by a Caddy origin whose `tls internal` CA Python
+		# does not trust. Verification stays on unless explicitly opted out.
+		response = requests.head(url, timeout=10, verify=tls_verify())
 		assert response.status_code == 200, f"{size_name} URL {url} returned status {response.status_code}"
 		print(f"✓ {size_name} URL is accessible")
 

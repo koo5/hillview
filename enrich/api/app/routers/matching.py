@@ -91,6 +91,13 @@ async def _pano_pie(photo_id: str, compass, slack: float, default_far: float,
         pie["projection"] = cal["projection"]
     if cal and cal.get("x0") is not None:
         pie["x0"] = cal["x0"]
+    if cal and cal.get("calibratedStitch"):
+        # per-panel shift/scale + seams from a piecewise calibration — the
+        # overlay bench seeds its handles from this
+        try:
+            pie["stitch"] = json.loads(cal["calibratedStitch"])
+        except (TypeError, ValueError):
+            pass
     return pie
 
 
@@ -289,14 +296,18 @@ async def view_candidates(ann_id: str, slack: float = 2.0, half: float = 60,
             sizes = {r.id: r.sizes for r in (await conn.execute(text(
                 "SELECT id, sizes FROM photo_mirror WHERE id = ANY(:ids)"),
                 {"ids": ids})).all()}
+            cur_rect = matching.rect_of_target((await conn.execute(text(
+                "SELECT target FROM annotation_mirror WHERE id = :aid"),
+                {"aid": ann_id})).scalar())
             mres = {}
             for r in (await conn.execute(text(
                 "SELECT DISTINCT ON (photo_id) photo_id, id, status, raw_matches, "
-                "inliers, ratio, overlay_path FROM match_results "
+                "inliers, ratio, overlay_path, params FROM match_results "
                 "WHERE annotation_id = :aid AND photo_id = ANY(:ids) "
                 "ORDER BY photo_id, enqueued_at DESC"),
                 {"aid": ann_id, "ids": ids})).all():
-                mres[r.photo_id] = dict(r._mapping)
+                mres[r.photo_id] = {**dict(r._mapping),
+                                    "stale_rect": matching.rect_is_stale(r.params, cur_rect)}
         verdicts = await _verdicts_for(ann_id, ids)
         for c in cands:
             c["sizes"] = sizes.get(c["photo_id"])
@@ -398,9 +409,9 @@ async def enqueue_pair(annotation_id: str, photo_id: str, *, matcher: str = "mas
             "SELECT sizes FROM photo_mirror WHERE id = :id"),
             {"id": photo_id})).scalar()
 
-    g = (ann.target.get("selector") or {}).get("geometry") or {}
-    rect = [float(g.get("x", 0)), float(g.get("y", 0)),
-            float(g.get("w", 0)), float(g.get("h", 0))]
+    # same extraction the staleness check reads back — one definition, so a stored
+    # params.rect and a live rect can never disagree by construction
+    rect = matching.rect_of_target(ann.target) or [0.0, 0.0, 0.0, 0.0]
     full = (ann.sizes or {}).get("full") or {}
     pfull = ((psizes or {}).get("full") or {})
     purl = pfull.get("url")
@@ -486,10 +497,16 @@ async def result(result_json: str = Form(...),
 @router.get("/matching/results")
 async def results(annotation_id: str):
     async with wb_engine.connect() as conn:
+        cur = matching.rect_of_target((await conn.execute(text(
+            "SELECT target FROM annotation_mirror WHERE id = :aid"),
+            {"aid": annotation_id})).scalar())
         rows = (await conn.execute(text(
             "SELECT * FROM match_results WHERE annotation_id = :aid "
             "ORDER BY enqueued_at DESC LIMIT 200"), {"aid": annotation_id})).all()
-    return [dict(r._mapping) for r in rows]
+    return [{**dict(r._mapping),
+             "stale_rect": matching.rect_is_stale(r.params, cur),
+             "current_rect": cur}
+            for r in rows]
 
 
 @router.get("/matching/overlay/{result_id}")

@@ -64,7 +64,7 @@
 {#if photo}
 	<PhotoHead
 		title={buildHeadTitle(photo, annotations)}
-		description={buildHeadDescription(photo)}
+		description={buildHeadDescription(photo, annotations)}
 		ogType="article"
 		ogUrl={$page.url.href}
 		ogImage={ogImage ? { url: ogImage.url, width: ogImage.width, height: ogImage.height } : null}

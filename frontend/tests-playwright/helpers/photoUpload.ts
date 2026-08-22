@@ -107,17 +107,16 @@ export async function safeSetInputFiles(fileInput: ReturnType<Page['locator']>, 
 }
 
 /**
- * Upload a single photo file. Returns the photo ID assigned by the server.
+ * Submit ONE file through the upload form of an already-open /photos page and
+ * wait for that file's own outcome. Returns the photo ID assigned by the server;
+ * throws with the app's own message if the upload was rejected.
+ *
+ * Every wait here is scoped to the submitted file. The activity log accumulates
+ * across uploads within a page session, so an unscoped "any success entry" wait
+ * is satisfied instantly by a PREVIOUS upload's entry and observes nothing.
  */
-export async function uploadPhoto(page: Page, photoFilename: string): Promise<string> {
-  const photoPath = path.join(testAssetsDir, photoFilename);
-
-  // Go to photos page
-  await page.goto('/photos');
-  // Let the app's JS bundle settle before interacting (WebKit prod-build chunk
-  // loading — see loginAs). The /photos page has no map/SSE, so networkidle is
-  // reliable here and doesn't hang like the map pages.
-  await page.waitForLoadState('networkidle');
+export async function submitPhotoUpload(page: Page, photoPath: string): Promise<string> {
+  const photoName = path.basename(photoPath);
 
   // Check the license checkbox first (file input is disabled until license is set)
   const licenseCheckbox = page.locator('[data-testid="license-checkbox"]');
@@ -132,44 +131,93 @@ export async function uploadPhoto(page: Page, photoFilename: string): Promise<st
   await page.waitForFunction(() => {
     const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
     return input && !input.disabled;
-  }, { timeout: T(10000) });
+  }, undefined, { timeout: T(30000) });
 
   // Select file (uses ASCII temp copy if filename has non-ASCII chars)
   await safeSetInputFiles(fileInput, photoPath);
+
+  // The log entries carry the BROWSER-side file name, which is the ASCII temp
+  // copy's name whenever the original had non-ASCII chars — read it back rather
+  // than guessing at the escaping.
+  const uploadedName = await fileInput.evaluate((el: HTMLInputElement) => el.files?.[0]?.name ?? '');
+  if (!uploadedName) {
+    throw new Error(`submitPhotoUpload: ${photoName} was not attached to the file input`);
+  }
+
+  // Batch-level failures (no license selected, expired token, …) are logged
+  // without per-file metadata, so count those up front and treat a NEW one as
+  // terminal for this upload.
+  const fatalBefore = await page
+    .locator('[data-testid="log-entry"][data-log-type="error"][data-operation=""]')
+    .count();
 
   // Wait for upload button to be enabled
   const uploadButton = page.locator('[data-testid="upload-submit-button"]');
   await page.waitForFunction(() => {
     const button = document.querySelector('[data-testid="upload-submit-button"]') as HTMLButtonElement;
     return button && !button.disabled;
-  }, { timeout: T(5000) });
+  }, undefined, { timeout: T(30000) });
 
   // Click upload
   await uploadButton.click();
 
-  // Wait for upload to complete
-  await page.waitForFunction(() => {
-    const uploadSuccessEntry = document.querySelector('[data-testid="log-entry"][data-operation="upload"][data-outcome="success"]');
-    const batchCompleteEntry = document.querySelector('[data-testid="log-entry"][data-operation="batch_complete"]');
-    return uploadSuccessEntry || batchCompleteEntry;
-  }, { timeout: T(30000) });
+  // Wait for THIS file's upload to settle — its own success or failure entry,
+  // or a new batch-level error. Reading the id off the very same entry removes
+  // the old two-step (wait for "some" completion, then hope the id is there),
+  // which under load read an empty id and left callers to fail mysteriously
+  // later on a `photo=hillview-` URL built from it.
+  const result = await page.waitForFunction((arg: { name: string; fatalBefore: number }) => {
+    const read = (el: Element) => ({
+      outcome: el.getAttribute('data-outcome') || 'failure',
+      photoId: el.getAttribute('data-photo-id') || '',
+      message: el.querySelector('.log-message')?.textContent?.trim() || ''
+    });
 
-  // Extract photo ID from the success log entry
-  const photoId = await page.evaluate(() => {
-    const entry = document.querySelector('[data-testid="log-entry"][data-operation="upload"][data-outcome="success"]');
-    return entry?.getAttribute('data-photo-id') || '';
-  });
+    const scoped = `[data-testid="log-entry"][data-operation="upload"][data-filename="${arg.name}"]`;
+    const settled = document.querySelector(`${scoped}[data-outcome="success"]`)
+      ?? document.querySelector(`${scoped}[data-outcome="failure"]`);
+    if (settled) return read(settled);
+
+    const fatal = document.querySelectorAll('[data-testid="log-entry"][data-log-type="error"][data-operation=""]');
+    if (fatal.length > arg.fatalBefore) return read(fatal[0]);
+
+    return null;
+  }, { name: uploadedName, fatalBefore }, { timeout: T(60000) }).then(h => h.jsonValue());
+
+  if (result.outcome !== 'success') {
+    throw new Error(`submitPhotoUpload: upload of ${photoName} was rejected — ${result.message}`);
+  }
+  if (!result.photoId) {
+    throw new Error(`submitPhotoUpload: upload of ${photoName} succeeded but its log entry carried no photo id`);
+  }
 
   // Wait for file input to be cleared
   await page.waitForFunction(() => {
     const input = document.querySelector('[data-testid="photo-file-input"]') as HTMLInputElement;
     return input && input.value === '';
-  }, { timeout: T(5000) });
+  }, undefined, { timeout: T(30000) });
+
+  return result.photoId;
+}
+
+/**
+ * Upload a single photo file from `test-assets` on a freshly-loaded /photos
+ * page, and wait out the backend's async processing. Returns the photo ID.
+ */
+export async function uploadPhoto(page: Page, photoFilename: string): Promise<string> {
+  const photoPath = path.join(testAssetsDir, photoFilename);
+
+  // Go to photos page
+  await page.goto('/photos');
+  // Let the app's JS bundle settle before interacting (WebKit prod-build chunk
+  // loading — see loginAs). The /photos page has no map/SSE, so networkidle is
+  // reliable here and doesn't hang like the map pages.
+  await page.waitForLoadState('networkidle');
+
+  const photoId = await submitPhotoUpload(page, photoPath);
 
   // Wait for async worker processing to complete (EXIF extraction, GPS indexing)
-  if (photoId) {
-    await waitForPhotoProcessing(page, photoId);
-  }
+  await waitForPhotoProcessing(page, photoId);
 
   return photoId;
 }

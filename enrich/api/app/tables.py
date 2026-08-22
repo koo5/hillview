@@ -33,6 +33,7 @@ photo_mirror = sa.Table(
     sa.Column("exif_data", JSONB),
     sa.Column("analysis", JSONB),
     sa.Column("detected_objects", JSONB),
+    sa.Column("terrain_overlay", JSONB),           # see 010_photo_terrain_overlay
     sa.Column("processing_status", sa.Text),
     sa.Column("is_public", sa.Boolean),
     sa.Column("deleted", sa.Boolean, nullable=False, server_default=sa.false()),
@@ -86,6 +87,9 @@ runs = sa.Table(
 sync_state = sa.Table(
     "sync_state", metadata,
     sa.Column("table_name", sa.Text, primary_key=True),
+    # watermark + last_append_at belonged to the append tier removed 2026-08-06
+    # (see app/sync.py). Left in place, NO LONGER MAINTAINED — their values are
+    # frozen at the last append that ever ran. Read last_reconcile_at instead.
     sa.Column("watermark", sa.DateTime(timezone=True)),
     sa.Column("last_append_at", sa.DateTime(timezone=True)),
     sa.Column("last_reconcile_at", sa.DateTime(timezone=True)),

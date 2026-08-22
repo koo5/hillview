@@ -16,11 +16,13 @@ async function openMapWithFrontPhoto(page: any, password: string) {
 	await ensureSourceEnabled(page, 'hillview', true);
 	await page.waitForFunction(
 		() => document.querySelectorAll('.marker-container[data-photo-id]').length > 0,
+		undefined,
 		{ timeout: T(30000) },
 	);
 	await page.waitForFunction(
 		() => !!document.querySelector('.bearing-circle.selected'),
-		{ timeout: T(15000) },
+		undefined,
+		{ timeout: T(30000) },
 	);
 }
 

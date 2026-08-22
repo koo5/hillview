@@ -12,6 +12,7 @@
 	import { api, ApiError } from '$lib/api';
 	import { apiBase } from '$lib/config';
 	import TerrainViewer from '$terrain/TerrainViewer.svelte';
+	import type { PeakExplanation, PeakMark, PeakVerdict } from '$terrain/peakLabels';
 	import Help from '$lib/components/Help.svelte';
 	import type { DepthPanoViewer, TerrainMeta, TerrainPick } from '$terrain/depthPanoViewer';
 	import type { Peak } from '$terrain/peakLabels';
@@ -28,6 +29,9 @@
 			| (TerrainMeta & {
 					attribution?: string;
 					max_distance_m?: number;
+					eye_elevation_m?: number;
+					eye_source?: string;
+					ground_m?: number;
 					progress_pct?: number;
 					stage?: string | null;
 			  })
@@ -81,6 +85,47 @@
 
 	// viewer controls (parity with the main app's TerrainPane statusbar)
 	let visibilityKm = $state(80); // meteorological visibility
+
+	// ---- label pool listing: every candidate with its verdict + reason, and
+	// whether its slat is on screen right now (why a name makes it or doesn't)
+	let viewerRef = $state<TerrainViewer | null>(null);
+	let poolOpen = $state(false);
+	let poolFilter = $state('');
+	let poolRows = $state<(PeakExplanation & { kept: boolean })[]>([]);
+	let placedKeys = $state<Set<string>>(new Set());
+	const markKey = (m: { name: string; azimuth_deg: number }) => `${m.name}@${m.azimuth_deg.toFixed(3)}`;
+	function refreshPool(): void {
+		poolRows = poolOpen && viewerRef ? viewerRef.explainPool() : [];
+	}
+	// re-list when the inputs the labels are drawn from change
+	$effect(() => {
+		void sel; void peaks; void showPlaces; void peakTolerance; void poolOpen;
+		refreshPool();
+	});
+	const VERDICT_LABEL: Record<PeakVerdict, string> = {
+		summit: 'summit', mass: 'mass', direction: 'direction', hidden: 'hidden',
+		'not-notable': 'hidden · not notable', 'too-close': 'too close',
+		'out-of-range': 'out of range', 'outside-sweep': 'outside sweep', 'no-terrain': 'no terrain'
+	};
+	const poolShown = $derived.by(() => {
+		const q = poolFilter.trim().toLowerCase();
+		const rows = q ? poolRows.filter((r) => r.peak.name.toLowerCase().includes(q)) : poolRows;
+		return rows.slice(0, 400);
+	});
+	const poolCounts = $derived.by(() => {
+		const c: Record<string, number> = {};
+		for (const r of poolRows) {
+			const k = r.mark && !r.kept ? 'shares pixel' : r.verdict;
+			c[k] = (c[k] ?? 0) + 1;
+		}
+		return c;
+	});
+	function poolStatus(r: PeakExplanation & { kept: boolean }): string {
+		if (!r.mark) return '';
+		if (!r.kept) return 'pixel taken';
+		if (r.distance_m > visibilityKm * 1000) return 'beyond fog';
+		return placedKeys.has(markKey(r.mark)) ? 'on screen' : 'thinned';
+	}
 	let skyColor = $state('#a7cdf0');
 	let showPeakLabels = $state(true);
 	let showPlaces = $state(true);
@@ -166,10 +211,17 @@
 
 	onMount(async () => {
 		await load();
-		// deep link from the photo page: /terrain?photo=<id> pre-fills the
-		// enqueue form and selects that photo's newest render if one exists
+		// deep links: /terrain?render=<id> selects that render (a prefix of
+		// the uuid is enough — the rows show the first 8 chars); /terrain?
+		// photo=<id> pre-fills the enqueue form and selects that photo's
+		// newest render if one exists
+		const rid = page.url.searchParams.get('render');
 		const pid = page.url.searchParams.get('photo');
-		if (pid) {
+		const byId = rid ? renders.find((x) => x.id.startsWith(rid)) : undefined;
+		if (byId) {
+			if (byId.photo_id) photoId = byId.photo_id;
+			select(byId);
+		} else if (pid) {
 			photoId = pid;
 			const r = renders.find((x) => x.photo_id === pid); // newest-first
 			if (r) select(r);
@@ -326,11 +378,19 @@
 		<ul class="renders">
 			{#each filtered as r (r.id)}
 				<li class:active={sel?.id === r.id}>
-					<button data-testid="terrain-row" data-status={r.status} onclick={() => select(r)}>
+					<button data-testid="terrain-row" data-status={r.status} data-render-id={r.id} onclick={() => select(r)}>
 						<b>{r.status}</b>
 						{r.photo_title ??
 							(r.photo_id ? r.photo_id.slice(0, 8) : `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)}`)}
-						<small>{new Date(r.enqueued_at).toLocaleString()}</small>
+						<small
+							>{new Date(r.enqueued_at).toLocaleString()} · <code class="rid" title={r.id}>{r.id.slice(0, 8)}</code>{#if r.meta?.max_distance_m}
+								{' · '}{Math.round(r.meta.max_distance_m / 1000)} km{/if}{#if r.meta?.eye_elevation_m}
+								{' · '}<span
+									title={`eye ${r.meta.eye_elevation_m.toFixed(1)} m — ${r.meta.eye_source ?? '?'}` +
+										(r.meta.ground_m != null ? ` (ground ${r.meta.ground_m} m)` : '')}
+									>eye {Math.round(r.meta.eye_elevation_m)} m</span
+								>{/if}</small
+						>
 						{#if r.error}<small class="err">{r.error}</small>{/if}
 					</button>
 				</li>
@@ -341,6 +401,8 @@
 	<div class="stage">
 		{#if viewable}
 			<TerrainViewer
+				bind:this={viewerRef}
+				onlabels={(placed) => (placedKeys = new Set(placed.map(markKey)))}
 				previewUrl={`${apiBase}/terrain/renders/${viewable.id}/preview`}
 				depthUrl={`${apiBase}/terrain/renders/${viewable.id}/depth`}
 				meta={viewable.meta!}
@@ -375,7 +437,7 @@
 			>
 				{full ? '✕' : '⛶'}
 			</button>
-			<label>
+			<label title="meteorological visibility: haze on the terrain AND the label cutoff — nothing farther than this gets a label (the overlay bench saves the same cutoff into the fit)">
 				fog
 				<input
 					type="range"
@@ -406,26 +468,116 @@
 				<label title="include settlement names (city/town/village/district) among the labels">
 					<input type="checkbox" bind:checked={showPlaces} /> places
 				</label>
-				<label
-					title="depth-match tolerance: looser shows more labels, but may label peaks actually hidden behind a similar-depth ridge"
-				>
-					±{Math.round(peakTolerance * 100)}%
+				<label title="depth match window — the ? explains what it changes">
+					window ±{Math.round(peakTolerance * 100)}%
 					<input
 						type="range"
 						min="0.01"
-						max="0.25"
+						max="0.10"
 						step="0.005"
 						data-testid="terrain-peak-tol"
 						bind:value={peakTolerance}
 					/>
 				</label>
+				<Help align="right" title="what does the window change?">
+					<h4>depth match window</h4>
+					<p>
+						A candidate (peak, tower, settlement) gets a label when the column of the depth
+						buffer under its bearing sees terrain at about its distance. "About" is this
+						window: <b>±{Math.round(peakTolerance * 100)} % of the candidate's distance, + 8 m</b>.
+						At 60 km that is ±{(peakTolerance * 60).toFixed(1)} km.
+					</p>
+					<dl>
+						<dt>tighter</dt>
+						<dd>
+							fewer labels — and the ones that drop out are mostly <i>visible</i> summits
+							whose exact distance fell between two sampled rows: one 0.025° row moves the
+							ground hit-point by kilometres at grazing angles, and the render's own march
+							steps 0.5 % of distance. Below ~3 % you are rejecting real summits.
+						</dd>
+						<dt>wider</dt>
+						<dd>
+							more labels — but the extra ones are mostly ridges <i>in front of hidden
+							places</i> being counted as them (the famous valley towns appear on the
+							horizon line, at the right bearing, and are not visible). Above ~10 % this
+							stops being a visibility test, which is why the slider ends there.
+						</dd>
+						<dt>default 6 %</dt>
+						<dd>the render's own depth precision — measured: 98 % of what it rejects sits
+							more than two rows below the ridge by the candidate's own elevation.</dd>
+					</dl>
+					<h4>what it does not change</h4>
+					<ul>
+						<li>
+							<b>summit vs mass</b> — whether a label prints its elevation is a separate,
+							tighter test (300 m + 3 % of distance, plus the candidate's own elevation
+							angle agreeing with the pixel to within ~100 m).
+						</li>
+						<li>
+							<b>direction labels</b> — hidden but notable settlements are the dim, dashed
+							ones, decided by hiddenness, not by this window.
+						</li>
+						<li>
+							<b>what graduates</b> — the overlay bench and the export are pinned at 6 %.
+							This slider is a lens for exploring the pool on this page.
+						</li>
+					</ul>
+					<p>Tap any label to see what it claims and the numbers behind it.</p>
+				</Help>
+				<button
+					class:on={poolOpen}
+					data-testid="terrain-pool-toggle"
+					title="list every candidate in this render's sweep with its verdict — why a name makes it or doesn't"
+					onclick={() => (poolOpen = !poolOpen)}>pool</button
+				>
 			{/if}
 		</div>
+
+		{#if poolOpen}
+			<div class="pool" data-testid="terrain-pool">
+				<div class="pool-head">
+					<input placeholder="filter by name…" bind:value={poolFilter} data-testid="terrain-pool-filter" />
+					<span class="counts">
+						{#each Object.entries(poolCounts) as [v, n] (v)}<span title={VERDICT_LABEL[v as PeakVerdict] ?? v}>{v} {n}</span>{/each}
+					</span>
+					<button class="linkish" onclick={() => (poolOpen = false)} aria-label="close">×</button>
+				</div>
+				<div class="pool-body">
+					{#if !poolRows.length}
+						<p class="muted">no render / pool loaded yet</p>
+					{:else}
+						<table>
+							<thead><tr><th>name</th><th>km</th><th>az</th><th>verdict</th><th>now</th><th>why</th></tr></thead>
+							<tbody>
+								{#each poolShown as r (`${r.peak.name}@${r.azimuth_deg.toFixed(3)}`)}
+									<tr
+										class:label={!!r.mark}
+										class:dim={r.mark?.class === 'direction'}
+										class:on={!!r.mark && placedKeys.has(markKey(r.mark))}
+										title="click to centre the view on it"
+										onclick={() => viewerRef?.centerOnAzimuth(r.azimuth_deg)}
+									>
+										<td class="name">{r.peak.name}{#if r.peak.kind && r.peak.kind !== 'peak'}<small> {r.peak.kind}</small>{/if}</td>
+										<td class="num">{(r.distance_m / 1000).toFixed(r.distance_m < 10000 ? 1 : 0)}</td>
+										<td class="num">{r.azimuth_deg.toFixed(1)}°</td>
+										<td class="verdict v-{r.verdict}">{VERDICT_LABEL[r.verdict]}</td>
+										<td class="now">{poolStatus(r)}</td>
+										<td class="why">{r.reason}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+						{#if poolShown.length < poolRows.length && !poolFilter}<p class="muted">first 400 of {poolRows.length} — filter to see the rest</p>{/if}
+					{/if}
+				</div>
+			</div>
+		{/if}
 
 		{#if picked}
 			<div class="chip picked" data-testid="terrain-picked">
 				📍 {picked.label ? `${picked.label} · ` : ''}{picked.lat.toFixed(5)}, {picked.lon.toFixed(5)}
 				· {(picked.distance_m / 1000).toFixed(1)} km @ {picked.azimuth_deg.toFixed(1)}°
+				{#if picked.evidence}<span class="evidence" data-testid="terrain-picked-evidence"> · {picked.evidence}</span>{/if}
 				<a href={`https://hillview.cz/?lat=${picked.lat}&lon=${picked.lon}&zoom=14`} target="_blank"
 					>open on map</a
 				>
@@ -579,6 +731,11 @@
 	.renders li.active button {
 		outline: 2px solid var(--accent, #4a90e2);
 	}
+	.renders .rid {
+		font-family: ui-monospace, Menlo, Consolas, monospace;
+		font-size: 0.95em;
+		opacity: 0.85;
+	}
 
 	/* ---- stage: the viewer fills it; controls float on top ---- */
 	.stage {
@@ -638,6 +795,107 @@
 		bottom: 10px;
 		font-variant-numeric: tabular-nums;
 		max-width: calc(100% - 20px);
+	}
+	.chip.picked .evidence {
+		opacity: 0.8;
+	}
+	/* ---- label pool listing: a docked panel over the right of the stage ---- */
+	.pool {
+		position: absolute;
+		top: 44px;
+		right: 8px;
+		bottom: 40px;
+		width: min(560px, 60%);
+		z-index: 6;
+		display: flex;
+		flex-direction: column;
+		background: rgba(13, 15, 18, 0.9);
+		backdrop-filter: blur(3px);
+		border-radius: 8px;
+		font-size: 12px;
+	}
+	.pool-head {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+		padding: 6px 8px;
+		border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+	}
+	.pool-head input {
+		flex: 0 0 160px;
+	}
+	.pool-head .counts {
+		flex: 1;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 10px;
+		opacity: 0.8;
+		font-variant-numeric: tabular-nums;
+	}
+	.pool-body {
+		overflow: auto;
+		min-height: 0;
+	}
+	.pool table {
+		border-collapse: collapse;
+		width: 100%;
+	}
+	.pool th {
+		position: sticky;
+		top: 0;
+		background: rgba(13, 15, 18, 0.95);
+		text-align: left;
+		font-weight: 600;
+		padding: 4px 6px;
+		font-size: 11px;
+		opacity: 0.75;
+	}
+	.pool td {
+		padding: 3px 6px;
+		border-top: 1px solid rgba(255, 255, 255, 0.06);
+		vertical-align: top;
+	}
+	.pool tr {
+		cursor: pointer;
+	}
+	.pool tr:hover td {
+		background: rgba(255, 255, 255, 0.05);
+	}
+	.pool tr:not(.label) td {
+		opacity: 0.6;
+	}
+	.pool tr.dim td.name {
+		font-style: italic;
+	}
+	.pool tr.on td.name {
+		color: var(--accent, #4a90e2);
+	}
+	.pool td.num {
+		font-variant-numeric: tabular-nums;
+		text-align: right;
+		white-space: nowrap;
+	}
+	.pool td.verdict {
+		white-space: nowrap;
+	}
+	.pool td.v-summit { color: #f2d55c; }
+	.pool td.v-mass { color: #d9c48a; }
+	.pool td.v-direction { color: #8fb4d9; }
+	.pool td.why {
+		opacity: 0.85;
+		min-width: 14em;
+	}
+	.pool .muted {
+		opacity: 0.6;
+		padding: 8px;
+	}
+	.linkish {
+		background: none;
+		border: 0;
+		color: inherit;
+		cursor: pointer;
+		padding: 0 4px;
+		font: inherit;
 	}
 	.chip.hint {
 		left: 10px;

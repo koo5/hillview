@@ -1,0 +1,194 @@
+package cz.hillview.plugin
+
+import kotlinx.serialization.Serializable
+
+/**
+ * Photo Worker Types - Core data structures for photo worker implementation
+ *
+ * This is a faithful translation of TypeScript photoWorkerTypes.ts to maintain
+ * 100% compatibility with the existing Web Worker implementation.
+ */
+
+@Serializable
+enum class MessageType {
+    PROCESS_CONFIG,
+    PROCESS_AREA,
+    PICKS_UPDATED,
+    ABORT_PROCESS,
+    ABORT_AREA,
+    CLEANUP,
+    PANORAMAX_HIDDEN_INVALIDATE,
+    REMOVE_PHOTO,
+    REMOVE_USER_PHOTOS
+}
+
+@Serializable
+data class RemovePhotoData(
+    val photoId: String,
+    val source: String
+)
+
+@Serializable
+data class RemoveUserPhotosData(
+    val userId: String,
+    val source: String
+)
+
+@Serializable
+enum class ResponseType {
+    PROCESS_STARTED,
+    CONFIG_COMPLETE,
+    AREA_COMPLETE,
+    PROCESS_ABORTED,
+    CLEANUP_COMPLETE,
+    ERROR
+}
+
+// Type aliases for clarity and consistency with TypeScript
+typealias ProcessId = String
+typealias SourceId = String
+typealias Priority = Int
+typealias FileHash = String
+typealias PhotoIndex = Int
+typealias CellKey = String
+
+@Serializable
+data class WorkerMessage(
+    val type: MessageType,
+    val messageId: Int,
+    val processId: ProcessId,
+    val priority: Priority,
+    val data: String // JSON string for flexible data structure
+)
+
+
+
+
+@Serializable
+data class LatLng(
+    val lat: Double,
+    val lng: Double
+)
+
+@Serializable
+data class Bounds(
+    val top_left: LatLng,
+    val bottom_right: LatLng
+)
+
+@Serializable
+data class PhotoSize(
+    val url: String,
+    val width: Int,
+    val height: Int,
+    val pyramid: kotlinx.serialization.json.JsonObject? = null
+)
+
+@Serializable
+data class PhotoData(
+    val id: String,
+    val uid: String,
+    val source_type: String,
+    val filename: String? = null,
+    val url: String? = null,
+    val coord: LatLng,
+    val bearing: Double,
+    /**
+     * Camera elevation in degrees, positive up; null when unrecorded. Unlike
+     * [bearing], which uses 0.0 as its unset value, this stays NULLABLE: the
+     * viewer navigates up and down by it and has to tell "level" apart from
+     * "unknown" (docs/tauri-viewer-ui-contract.md).
+     */
+    val pitch: Double? = null,
+    val altitude: Double? = null,
+    val source: String, // Just source ID
+    val sizes: Map<String, PhotoSize>? = null,
+    val is_device_photo: Boolean = false,
+    val captured_at: Long? = null,
+    val created_at: Long? = null,
+    val accuracy: Double? = null,
+    val fileHash: String? = null,
+    val range_distance: Double? = null, // Added during range culling
+    val description: String? = null,
+    val is_pano: Boolean? = null,
+    val creator: Creator? = null,
+    val featured: Boolean? = null,
+    val filtered: Boolean? = null,
+    val license: String? = null
+)
+
+@Serializable
+data class Creator(
+    val id: String,
+    val username: String
+)
+
+@Serializable
+data class SourceConfig(
+    val id: String,
+    val name: String,
+    val type: String, // "device" or "stream"
+    val enabled: Boolean,
+    val color: String,
+    val url: String? = null,
+    val subtype: String? = null,
+    val requests: List<String> = emptyList()
+)
+
+// Process management types
+enum class ProcessType {
+    CONFIG, AREA, SOURCES_PHOTOS_IN_AREA
+}
+
+data class ProcessInfo(
+    val id: String,
+    val type: ProcessType,
+    val messageId: Int,
+    val startTime: Long,
+    var shouldAbort: Boolean = false
+)
+
+@Serializable
+data class ConfigData(
+    val sources: List<SourceConfig>,
+    val expectedWorkerVersion: String? = null,
+    val queryOptionsJson: String? = null,  // Pre-serialized analysis filters
+    val maxPhotosInArea: Int? = null  // User-configurable max photos limit
+)
+
+@Serializable
+data class PicksData(
+    val picks: List<String> = emptyList()
+)
+
+@Serializable
+data class PhotoResponse(
+    val photos_in_area: List<PhotoData>,
+    val photos_in_range: List<PhotoData>,
+    val hasMore: Boolean,
+    val error: String? = null
+)
+
+// State management types
+data class StateData<T>(
+    var data: T? = null,
+    var lastUpdateId: Int = -1,
+    var lastProcessedId: Int = -1
+)
+
+// Stream message types for EventSource
+@Serializable
+sealed class StreamMessage {
+    @Serializable
+    data class Photos(val photos: List<PhotoData>) : StreamMessage()
+
+    @Serializable
+    data class StreamComplete(val total: Int? = null) : StreamMessage()
+
+    @Serializable
+    object IgnoreMessage : StreamMessage()
+
+    @Serializable
+    data class Error(val message: String) : StreamMessage()
+}
+

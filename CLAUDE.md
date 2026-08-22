@@ -93,13 +93,16 @@ python -m pytest tests/ -v
 
 Each subdirectory has its own `CLAUDE.md` with detailed instructions:
 
+- **`/frontend2/CLAUDE.md`**: the KMP/Compose rewrite — start with its "one state" rule
 - **`/frontend/CLAUDE.md`**: Android testing, UI development, build processes
 - **`/backend/CLAUDE.md`**: API development, database operations, deployment
 
 ## Documentation Guides
 
+- **[One State](docs/one-state.md)**: the app's load-bearing architectural rule — one user-facing location/orientation state, written and read by everything, with no direct hardware side-channels. Read before touching position or heading.
 - **[Database Migrations Guide](docs/database-migrations.md)**: Complete workflow for managing database schema changes with Alembic
 - **[Terrain Data Licensing](docs/terrain-data-licensing.md)**: DEM/OSM licence obligations for terrain renders (required notices, pre-launch checklist)
+- **[Native Android Auth](docs/native-auth.md)**: Credential Manager + Google ID-token login — concepts, security reasoning, and where everything lives
 
 ## Common Issues & Solutions
 

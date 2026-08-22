@@ -39,6 +39,8 @@
 		error: string | null;
 		has_overlay: boolean;
 		body: string | null;
+		// measured against a rect that has since moved (annotation reshaped)
+		stale_rect: boolean;
 		// as_pano:
 		candidate_id?: string;
 		candidate_title?: string | null;
@@ -530,6 +532,9 @@
 										{m.inliers}/{m.raw_matches}
 										{#if m.has_overlay}· <a href="{apiBase}/matching/overlay/{m.id}" target="_blank">overlay</a>{/if}
 									{:else}{m.status}{/if}
+									{#if m.stale_rect}
+										<span class="pill stale" title="measured against a different rect — the annotation has been reshaped since">rect moved</span>
+									{/if}
 								</td>
 							</tr>
 						{/each}
@@ -557,6 +562,9 @@
 										{m.inliers}/{m.raw_matches}
 										{#if m.has_overlay}· <a href="{apiBase}/matching/overlay/{m.id}" target="_blank">overlay</a>{/if}
 									{:else}{m.status}{/if}
+									{#if m.stale_rect}
+										<span class="pill stale" title="measured against a different rect — the annotation has been reshaped since">rect moved</span>
+									{/if}
 								</td>
 								<td>
 									<span class="pill {m.verdict === 'approved' ? 'ok' : ''}" style="font-size:10px">{m.verdict}</span>

@@ -34,6 +34,8 @@
 			inliers: number | null;
 			ratio: number | null;
 			overlay_path: string | null;
+			// the annotation was reshaped after this result was computed
+			stale_rect: boolean;
 		} | null;
 		verdict: string;
 	}
@@ -575,6 +577,13 @@
 										<span class="pill bad" title={c.match.status}>error</span>
 									{:else}
 										<button onclick={() => runMatch([c.photo_id])}>match</button>
+									{/if}
+									{#if c.match?.stale_rect}
+										<span
+											class="pill stale"
+											title="this result was measured against a different rect — the annotation has been reshaped since. Re-run the match to refresh it."
+											>rect moved</span
+										>
 									{/if}
 								</td>
 								<td style="white-space:nowrap">

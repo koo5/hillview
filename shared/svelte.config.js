@@ -5,4 +5,9 @@
 // config is sufficient — the apps' own configs still govern their builds
 // (vite-plugin-svelte uses the app config for every file it compiles,
 // including these shared ones).
-export default {};
+//
+// CJS on purpose: this tree has no package.json, so Node treats .js as CJS —
+// `export default` here breaks loaders that require() the file (seen from
+// svelte-check via dev.sh quick-checks). module.exports loads fine from both
+// require() and dynamic import().
+module.exports = {};

@@ -78,6 +78,12 @@ class Photo(Base):
 	geometry: Mapped[Any] = mapped_column(Geometry('POINT', srid=4326), nullable=True)  # PostGIS geometry for spatial queries
 	altitude: Mapped[Optional[float]] = mapped_column(Float)
 	compass_angle: Mapped[Optional[float]] = mapped_column(Float)  # Same as bearing
+	# Elevation the shot was taken at, degrees: positive up. Bearing says
+	# which way the camera faced, this says how far it was tilted, and the
+	# viewer needs both to offer "the photo above this one" — see
+	# docs/tauri-viewer-ui-contract.md. Null on everything uploaded before
+	# clients began sending it, which is every photo so far.
+	pitch: Mapped[Optional[float]] = mapped_column(Float)
 
 	# Image dimensions
 	width: Mapped[Optional[int]] = mapped_column(Integer)
@@ -116,6 +122,11 @@ class Photo(Base):
 	detected_objects: Mapped[Optional[dict]] = mapped_column(JSON)
 	sizes: Mapped[Optional[dict]] = mapped_column(JSON)
 	analysis: Mapped[Optional[dict]] = mapped_column(JSONB)  # AI-generated photo analysis (indexed)
+	# Terrain overlay graduated from the enrichment workbench: fitted horizon
+	# line + visible peak labels, baked to vectors (no depth buffer). Tens of
+	# KB — served only by GET /photos/{id}/terrain-overlay, never inlined.
+	# See docs/terrain-overlay-graduation.md.
+	terrain_overlay: Mapped[Optional[dict]] = mapped_column(JSONB)
 
 	# Client signature fields for secure uploads
 	client_signature: Mapped[Optional[str]] = mapped_column(Text)  # Base64-encoded ECDSA signature from client
@@ -300,7 +311,7 @@ class FlaggedPhoto(Base):
 
 class PhotoModerationAudit(Base):
 	"""Audit trail of moderation actions taken by admins/moderators on photos
-	they do not own (currently: deletions).
+	they do not own (currently: deletions and metadata edits).
 
 	Deliberately denormalized and free of FK cascade deletes: the actor's and
 	the owner's usernames/ids are snapshotted so the record survives later
@@ -310,7 +321,7 @@ class PhotoModerationAudit(Base):
 	__tablename__ = "photo_moderation_audit"
 
 	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
-	action: Mapped[str] = mapped_column(String(32), index=True)  # 'delete'
+	action: Mapped[str] = mapped_column(String(32), index=True)  # 'delete' | 'edit'
 
 	# Actor: the admin/moderator who performed the action.
 	actor_user_id: Mapped[str] = mapped_column(String, index=True)  # no FK — keep audit if actor is deleted
@@ -327,6 +338,52 @@ class PhotoModerationAudit(Base):
 	ip_address: Mapped[Optional[str]] = mapped_column(String)
 	user_agent: Mapped[Optional[str]] = mapped_column(String)
 	extra_data: Mapped[Optional[dict]] = mapped_column(JSON)  # photo snapshot (filename, title, etc.)
+
+	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class PhotoLicenseHistory(Base):
+	"""Every change to a photo's licence, whoever made it.
+
+	Separate from ``PhotoModerationAudit`` on purpose. That table answers "what
+	did a moderator do to someone else's photo", and relicensing is normally
+	the OWNER's own act — putting those rows there would bury the moderation
+	view under routine edits. This table answers a different question, one
+	nothing else can: *under which licence was this photo offered, and when*.
+	Someone who took a copy under CC-BY-SA relies on it having been offered
+	that way at that moment; a silent later switch to something stricter must
+	not be able to erase that. So the record is append-only and kept even when
+	the actor is a moderator (whose action ALSO lands in the moderation audit).
+
+	Denormalized and FK-free for the same reason as the moderation audit: it
+	must outlive the photo row and both accounts.
+
+	The ORIGINAL grant is not a row here — it is the licence chosen at upload
+	(``Photo.legal_rights`` as of ``Photo.uploaded_at``); the first change
+	snapshots it in ``old_license``.
+	"""
+	__tablename__ = "photo_license_history"
+
+	id: Mapped[str] = mapped_column(String, primary_key=True, default=generate_uuid)
+
+	photo_id: Mapped[str] = mapped_column(String(255), index=True)  # no FK — survives photo deletion
+	photo_owner_id: Mapped[Optional[str]] = mapped_column(String, index=True)
+	photo_owner_username: Mapped[Optional[str]] = mapped_column(String)
+
+	# Both sides of the change: null old_license = the photo carried none.
+	old_license: Mapped[Optional[str]] = mapped_column(String)
+	new_license: Mapped[Optional[str]] = mapped_column(String)
+
+	actor_user_id: Mapped[str] = mapped_column(String, index=True)
+	actor_username: Mapped[Optional[str]] = mapped_column(String)
+	actor_role: Mapped[Optional[str]] = mapped_column(String)
+	# Whether the actor was the owner AT THE TIME — ownership can change, and
+	# "did the rights-holder do this themselves?" is the question that matters.
+	actor_was_owner: Mapped[bool] = mapped_column(Boolean, default=False)
+
+	reason: Mapped[Optional[str]] = mapped_column(Text)
+	ip_address: Mapped[Optional[str]] = mapped_column(String)
+	user_agent: Mapped[Optional[str]] = mapped_column(String)
 
 	created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 

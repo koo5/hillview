@@ -34,6 +34,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.secure_upload_utils import SecureUploadClient, generate_test_captured_at
+from utils.secure_upload_utils import dev_origin_client
 from utils.test_utils import wait_for_photo_processing
 
 ASSET = os.path.join(os.path.dirname(__file__), '..', 'assets', 'truck.jpg')
@@ -116,7 +117,7 @@ class TestAnonymizationOverrideRoundtrip:
 
 		async def full_image_of(photo):
 			url = photo["sizes"]["full"]["url"]
-			async with httpx.AsyncClient() as client:
+			async with dev_origin_client() as client:
 				response = await client.get(url, follow_redirects=True)
 				response.raise_for_status()
 				return Image.open(BytesIO(response.content)).convert("RGB")

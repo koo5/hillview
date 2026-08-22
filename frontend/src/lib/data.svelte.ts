@@ -409,6 +409,18 @@ if (typeof document !== 'undefined') {
 // Debug: render anonymization object detections (bounding boxes) in the zoom view
 export let showDetections = localStorageSharedStore('showDetections', false);
 
+// Graduated terrain overlay in the zoom view: the fitted horizon line + peak
+// labels a curator aligned in the enrichment workbench. Off by default — only
+// a minority of photos have one, and it draws over the picture.
+// on by default: a photo that carries a graduated overlay shows its horizon and
+// labels unless the visitor turns them off (the choice persists per browser)
+export let showTerrainOverlay = localStorageSharedStore('showTerrainOverlay', true);
+
+// Hillview annotations in the zoom view: the drawn shapes and their label
+// pills. On by default; turning them off also hides the draw/edit tools —
+// you cannot edit what you cannot see. Persists per browser.
+export let showAnnotations = localStorageSharedStore('showAnnotations', true);
+
 // Metadata / EXIF info window, toggled with the 'i' key. A single flag drives two
 // overlays at once: one over the map pane and one in the corner of the zoom view.
 // Either window's 'x' button closes both. Persisted so the choice survives reloads.

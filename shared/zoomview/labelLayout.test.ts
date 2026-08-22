@@ -116,6 +116,27 @@ describe('buildLabelCommands', () => {
 		expect(cmds[0].pillH).toBe(32);
 		expect(cmds[0].ty).toBe(H - MARGIN - 32);
 	});
+
+	it('bottomInset lifts bottom-edge pills above docked chrome', () => {
+		const inputs: LabelInput[] = [
+			{ label: 'Hello', cx: 400, cy: 595, pillW: 50 },
+		];
+		const { cmds } = buildLabelCommands(inputs, W, H, MARGIN, { bottomInset: 40 });
+		expect(cmds[0].edge).toBe('bottom');
+		expect(cmds[0].ly).toBe(H - 40 - MARGIN);
+		expect(cmds[0].ty).toBe(H - 40 - MARGIN - LABEL_PILL_H);
+	});
+
+	it('bottomInset does not cull a centroid sitting behind the chrome', () => {
+		// the shape is still visible under a translucent strip; its label
+		// anchors just above the strip instead of disappearing
+		const inputs: LabelInput[] = [
+			{ label: 'Hello', cx: 400, cy: 598, pillW: 50 },
+		];
+		const { cmds } = buildLabelCommands(inputs, W, H, MARGIN, { bottomInset: 40 });
+		expect(cmds).toHaveLength(1);
+		expect(cmds[0].ly).toBe(H - 40 - MARGIN);
+	});
 });
 
 describe('resolveOverlaps', () => {
@@ -194,6 +215,16 @@ describe('resolveOverlaps', () => {
 		// Last pill should end before H - 2
 		const last = cmds[cmds.length - 1];
 		expect(last.ty + last.pillH).toBeLessThanOrEqual(H - 2);
+	});
+
+	it('bottomInset moves the compression floor up', () => {
+		const cmds = [
+			makeCmd({ ty: H - 50, ly: H - 50 }),
+			makeCmd({ ty: H - 45, ly: H - 45 }),
+		];
+		resolveOverlaps(cmds, W, H, { bottomInset: 40 });
+		const last = cmds[cmds.length - 1];
+		expect(last.ty + last.pillH).toBeLessThanOrEqual(H - 40 - 2);
 	});
 
 	it('compresses leftward when pills overflow right on top edge', () => {

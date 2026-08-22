@@ -10,13 +10,14 @@
 		Share,
 		Flag,
 		Trash2,
-		Map as MapIcon,
-		MoreVertical,
-		Clock
+		Glasses,
+		Clock,
+		Pencil
 	} from 'lucide-svelte';
 	import { http, handleApiError, TokenExpiredError } from '$lib/http';
 	import { auth } from '$lib/auth.svelte';
 	import { constructPhotoMapUrl, constructUserProfileUrl, parsePhotoUidParts } from '$lib/urlUtils';
+	import { GRANTABLE_LICENSES, grantIdForLicense, licenseLabelFor } from '$lib/photoUtils';
 	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { TAURI, BROWSER } from '$lib/tauri';
@@ -28,11 +29,14 @@
 		buildPhotoImageJsonLd,
 		buildHeadTitle,
 		buildHeadDescription,
+		buildAnnotationSummary,
+		titleUsesPlace,
 		displayTitle,
 		type PublicPhoto,
 		type PhotoAnnotation
 	} from '$lib/photoDisplay';
 	import PhotoAnnotations from '$lib/components/PhotoAnnotations.svelte';
+	import PlaceAttribution from '$lib/components/PlaceAttribution.svelte';
 	import PhotoHead from '$lib/components/PhotoHead.svelte';
 	import JsonLd from '$lib/components/JsonLd.svelte';
 	import {
@@ -50,8 +54,7 @@
 	import HideUserDialog from '$lib/components/HideUserDialog.svelte';
 	import FlagReasonDialog from '$lib/components/FlagReasonDialog.svelte';
 	import AnonymizationModal from '$lib/components/anonymization-modal/AnonymizationModal.svelte';
-	import { showDropdownMenu } from '$lib/components/dropdown-menu/dropdownMenu.svelte';
-	import { getPhotoMenuItemsForServerPhoto } from '$lib/photoAnonymizationMenu';
+	import { openAnonymizationModalForServerPhoto } from '$lib/components/anonymization-modal/anonymizationModal.svelte.js';
 	import { isModerator } from '$lib/adminNotifications';
 
 	export let data: { photo?: PublicPhoto; annotations?: PhotoAnnotation[] } | undefined = undefined;
@@ -70,6 +73,20 @@
 	let statusMessage = '';
 	let statusError = false;
 	let showHideUserDialog = false;
+
+	// The licence this photo is offered under, and every change to it. A photo
+	// taken under one licence can be relicensed later, and someone holding a
+	// copy relies on the earlier grant — so the page shows the trail, not just
+	// the current answer. Empty for the overwhelming majority of photos, where
+	// it renders nothing at all.
+	type LicenseChange = {
+		old_license: string | null;
+		new_license: string | null;
+		actor_was_owner: boolean;
+		created_at: string;
+	};
+	let licenseHistory: LicenseChange[] = [];
+	let showLicenseHistory = false;
 
 	$: photoUid = $page.params.uid;
 	$: isAuthenticated = $auth.is_authenticated;
@@ -141,6 +158,23 @@
 			} catch (err) {
 				console.error('🢄 Error loading annotations:', err);
 			}
+		}
+
+		// Same posture as annotations: independent, and silent on failure —
+		// the licence line above stands on its own without the history.
+		licenseHistory = [];
+		showLicenseHistory = false;
+		if (photo && parts?.id && parts.source === 'hillview') {
+			loadLicenseHistory(parts.id);
+		}
+	}
+
+	async function loadLicenseHistory(photoId: string) {
+		try {
+			const resp = await http.get(`/photos/${encodeURIComponent(photoId)}/license-history`);
+			if (resp.ok) licenseHistory = (await resp.json()).entries ?? [];
+		} catch (err) {
+			console.error('🢄 Error loading license history:', err);
 		}
 	}
 
@@ -246,30 +280,86 @@
 		}
 	}
 
-	// --- Anonymization menu (same pattern as /photos/+page.svelte) ---
-	function showAnonymizationMenu(event: MouseEvent) {
-		if (!photo) return;
-		const button = event.currentTarget as HTMLButtonElement;
-		const items = getPhotoMenuItemsForServerPhoto(photo.id);
-		showDropdownMenu(items, button, {
-			placement: 'below-right',
-			testId: 'photo-detail-anonymization-menu'
-		});
+	// --- Metadata edit form (title/description/bearing, plus mod-only featured) ---
+	// Owners edit their own photo; moderators edit any. Synced from the photo only
+	// when a different photo loads (guarded by uid), so in-progress edits survive
+	// the reassignments rating clicks make.
+	let editUid = '';
+	let editTitle = '';
+	let editDescription = '';
+	let editBearing: number | null = null;
+	let editFeatured = false;
+	// In the GRANT vocabulary writes take, not the public name reads return.
+	let editLicense = '';
+	let isSavingEdit = false;
+
+	$: canEditPhoto = !!photo && photo.source === 'hillview' && (photo.is_own_photo || $isModerator);
+
+	$: if (photo && photo.uid !== editUid) {
+		editUid = photo.uid;
+		syncEditForm(photo);
 	}
 
-	function viewUserProfile() {
-		if (!photo?.owner_id) return;
-		myGoto(constructUserProfileUrl(photo.owner_id));
+	function syncEditForm(p: PublicPhoto) {
+		editTitle = p.title ?? '';
+		editDescription = p.description ?? '';
+		editBearing = p.bearing;
+		editFeatured = p.featured ?? false;
+		editLicense = grantIdForLicense(p.license) ?? '';
 	}
 
-	function viewOnMap() {
-		if (!photo) return;
-		myGoto(constructPhotoMapUrl(photo));
+	async function saveEdit() {
+		if (!photo || isSavingEdit) return;
+
+		isSavingEdit = true;
+		try {
+			// featured is moderator-only; sending it as a plain owner would be
+			// rejected the moment it differs from what's stored.
+			const response = await http.patch(`/photos/${photo.id}`, {
+				title: editTitle,
+				description: editDescription,
+				bearing: editBearing,
+				...(editLicense ? { license: editLicense } : {}),
+				...($isModerator ? { featured: editFeatured } : {})
+			});
+			if (!response.ok) {
+				const errorText = await response.text();
+				throw new Error(`Failed to save: ${response.status} ${errorText}`);
+			}
+			const updated = await response.json();
+			photo = {
+				...photo,
+				title: updated.title,
+				description: updated.description,
+				featured: updated.featured,
+				bearing: updated.bearing,
+				license: updated.license
+			};
+			syncEditForm(photo);
+			// A relicensing just added a row to the trail shown above — refresh
+			// it rather than leaving the page contradicting itself.
+			if (updated.changed.includes('license')) loadLicenseHistory(photo.id);
+			setStatus(
+				updated.changed.length ? `Saved: ${updated.changed.join(', ')}` : 'No changes to save',
+				false,
+				3000
+			);
+		} catch (err) {
+			console.error('🢄 Error saving photo edit:', err);
+			setStatus(`Save failed: ${handleApiError(err)}`, true, 5000);
+		} finally {
+			isSavingEdit = false;
+		}
 	}
 
 	$: headTitle = photo ? buildHeadTitle(photo, annotations) : '';
 	$: headOgImage = photo ? pickOgImage(photo) : null;
-	$: headDescription = photo ? buildHeadDescription(photo) : '';
+	$: headDescription = photo ? buildHeadDescription(photo, annotations) : '';
+	// Visible twin of the head-description fallback: when the author wrote no
+	// description, say what the annotations name right under the title. Visible
+	// text is a stronger snippet source for crawlers than any meta tag — the
+	// page otherwise ends in menu items.
+	$: annotationSummary = photo && !photo.description ? buildAnnotationSummary(annotations) : '';
 	// schema.org ImageObject for the photo (precise structured data, incl. the
 	// annotated landmark labels as keywords). Built in photoDisplay so it's
 	// unit-testable against real payloads.
@@ -328,54 +418,104 @@
 		</div>
 	{:else if photo}
 		<div class="photo-detail" data-testid="photo-detail">
-			<div class="photo-container">
+			{#if annotationSummary}
+				<p class="annotation-summary" data-testid="photo-detail-summary">{annotationSummary}</p>
+			{/if}
+
+			<!-- The photo itself opens the interactive map/zoomview — same target
+			     as the Location detail below. A real anchor, not a click handler:
+			     this page is the canonical target for shared photos, so the hop to
+			     the interactive map must be crawlable and open-in-new-tab-able. -->
+			<a
+				class="photo-container"
+				href={constructPhotoMapUrl(photo)}
+				title="Open in the interactive map"
+				data-testid="photo-detail-image-link"
+			>
 				<img
 					src={getDisplayImageUrl(photo)}
 					alt={displayTitle(photo, annotations)}
 					data-testid="photo-detail-image"
 				/>
-			</div>
+			</a>
 
 			<div class="metadata">
 				{#if photo.description}
 					<p class="description" data-testid="photo-detail-description">{photo.description}</p>
 				{/if}
 
-				<div class="meta-row">
+				<!-- Every fact in one uniformly labeled row -->
+				<div class="details-row" data-testid="photo-detail-details">
 					{#if photo.owner_username}
-						<button
-							class="owner-link"
-							on:click={viewUserProfile}
-							data-testid="photo-detail-owner"
-						>
-							@{photo.owner_username}
-						</button>
+						<span class="detail">
+							<span class="detail-label">By</span>
+							{#if photo.owner_id}
+								<a href={constructUserProfileUrl(photo.owner_id)} data-testid="photo-detail-owner">@{photo.owner_username}</a>
+							{:else}
+								<span data-testid="photo-detail-owner">@{photo.owner_username}</span>
+							{/if}
+						</span>
 					{/if}
 					{#if photo.captured_at}
-						<span class="captured">
-							<Clock size={14} />
-							{formatDateTime(photo.captured_at)}
+						<span class="detail">
+							<span class="detail-label">Captured</span>
+							<span data-testid="photo-detail-captured">{formatDateTime(photo.captured_at)}</span>
+						</span>
+					{/if}
+					{#if photo.uploaded_at}
+						<span class="detail">
+							<span class="detail-label">Uploaded</span>
+							<span data-testid="photo-detail-uploaded">{formatDateTime(photo.uploaded_at)}</span>
+						</span>
+					{/if}
+					{#if photo.latitude != null && photo.longitude != null}
+						<span class="detail">
+							<span class="detail-label">Location</span>
+							<a href={constructPhotoMapUrl(photo)} data-testid="photo-detail-view-on-map"
+								>{photo.latitude.toFixed(4)}, {photo.longitude.toFixed(4)}</a>
+						</span>
+					{/if}
+					{#if licenseLabelFor(photo.license)}
+						<span class="detail">
+							<span class="detail-label">License</span>
+							<span data-testid="photo-detail-license">{licenseLabelFor(photo.license)}</span>
+							{#if licenseHistory.length > 0}
+								<!-- A disclosure, not an always-open list: the trail matters
+								     to whoever comes looking for it, and would otherwise
+								     crowd the photo out for everyone else. -->
+								<button
+									type="button"
+									class="license-history-toggle"
+									on:click={() => (showLicenseHistory = !showLicenseHistory)}
+									data-testid="photo-detail-license-history-toggle"
+								>
+									{showLicenseHistory ? 'hide' : 'changed'} ({licenseHistory.length})
+								</button>
+							{/if}
 						</span>
 					{/if}
 				</div>
 
-				{#if photo.latitude != null && photo.longitude != null}
-					<div class="meta-row">
-						<button
-							class="map-link"
-							on:click={viewOnMap}
-							data-testid="photo-detail-view-on-map"
-						>
-							<MapIcon size={14} />
-							View on Map ({photo.latitude.toFixed(4)}, {photo.longitude.toFixed(4)})
-						</button>
-					</div>
+				{#if showLicenseHistory && licenseHistory.length > 0}
+					<ul class="license-history" data-testid="photo-detail-license-history">
+						{#each licenseHistory as change}
+							<li>
+								<span class="license-history-when">{formatDateTime(change.created_at)}</span>
+								{licenseLabelFor(change.old_license) ?? 'none'}
+								→
+								{licenseLabelFor(change.new_license) ?? 'none'}
+								<span class="license-history-actor"
+									>({change.actor_was_owner ? 'by the owner' : 'by a moderator'})</span>
+							</li>
+						{/each}
+					</ul>
 				{/if}
 
-				{#if photo.uploaded_at}
-					<p class="uploaded" data-testid="photo-detail-uploaded">
-						Uploaded: {formatDateTime(photo.uploaded_at)}
-					</p>
+				<!-- Next to the data it credits, and above the annotation list, which
+				     can run to dozens of rows — a credit below that is out of sight.
+				     Only when the heading actually draws on the geocoded place. -->
+				{#if titleUsesPlace(photo, annotations)}
+					<PlaceAttribution label="Place name" />
 				{/if}
 			</div>
 
@@ -458,20 +598,92 @@
 						Delete
 					</button>
 					{#if TAURI || BROWSER}
+						<!-- Direct button — this used to be a "More" dropdown whose menu
+						     held exactly this one action -->
 						<button
 							class="action-button"
-							on:click={showAnonymizationMenu}
-							title="Anonymization options"
-							data-testid="photo-menu-button"
+							on:click={() => photo && openAnonymizationModalForServerPhoto(photo.id)}
+							title="Change blur settings"
+							data-testid="photo-detail-anonymization-button"
 						>
-							<MoreVertical size={16} />
-							More
+							<Glasses size={16} />
+							Anonymization
 						</button>
 					{/if}
 				</div>
 			{/if}
 
-			<PhotoAnnotations {annotations} />
+			<!-- Metadata edit form with an explicit save: owners edit their own
+			     photo, moderators any. Featured is a curation flag, so only
+			     moderators see it. Hillview photos only — external sources
+			     can't be edited. -->
+			{#if canEditPhoto}
+				<div class="photo-edit" data-testid="photo-edit-form">
+					<h3 class="photo-edit-heading">
+						<Pencil size={14} />
+						{photo.is_own_photo ? 'Edit details' : 'Edit details (moderator)'}
+					</h3>
+					<label class="edit-field">
+						<span>Title</span>
+						<input
+							type="text"
+							bind:value={editTitle}
+							data-testid="photo-edit-title-input"
+						/>
+					</label>
+					<label class="edit-field">
+						<span>Description</span>
+						<textarea
+							rows="3"
+							bind:value={editDescription}
+							data-testid="photo-edit-description-input"
+						></textarea>
+					</label>
+					<label class="edit-field">
+						<span>License</span>
+						<select bind:value={editLicense} data-testid="photo-edit-license-select">
+							{#each GRANTABLE_LICENSES as option}
+								<option value={option.id}>{option.label}</option>
+							{/each}
+						</select>
+					</label>
+					<!-- Changing this is recorded — see the licence trail above. A
+					     photo may already have been copied under the licence it
+					     carried at the time, and that grant stands. -->
+					<div class="edit-field-row">
+						<label class="edit-field bearing">
+							<span>Bearing°</span>
+							<input
+								type="number"
+								step="any"
+								placeholder="unchanged"
+								bind:value={editBearing}
+								data-testid="photo-edit-bearing-input"
+							/>
+						</label>
+						{#if $isModerator}
+							<label class="edit-checkbox">
+								<input
+									type="checkbox"
+									bind:checked={editFeatured}
+									data-testid="photo-edit-featured-checkbox"
+								/>
+								<span>Featured</span>
+							</label>
+						{/if}
+						<button
+							class="action-button save"
+							on:click={saveEdit}
+							disabled={isSavingEdit}
+							data-testid="photo-edit-save-button"
+						>
+							{isSavingEdit ? 'Saving…' : 'Save'}
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<PhotoAnnotations {annotations} {photo} />
 
 			<!-- Moderators/admins can inspect the full edit history of this photo's annotations. -->
 			{#if $isModerator && photoUid && parsePhotoUidParts(photoUid)?.source === 'hillview'}
@@ -536,6 +748,12 @@
 		text-decoration: underline;
 	}
 
+	.annotation-summary {
+		margin: 0 0 12px 0;
+		color: #555;
+		font-size: 0.95rem;
+	}
+
 	.photo-container {
 		display: flex;
 		justify-content: center;
@@ -561,45 +779,55 @@
 		margin: 0 0 12px 0;
 	}
 
-	.meta-row {
+	.details-row {
 		display: flex;
 		gap: 16px;
-		align-items: center;
+		align-items: baseline;
 		flex-wrap: wrap;
-		margin-bottom: 8px;
 		color: #555;
 		font-size: 0.9rem;
 	}
 
-	.captured {
-		display: flex;
-		align-items: center;
-		gap: 4px;
+	.detail-label {
+		color: #999;
+		margin-right: 2px;
 	}
 
-	.owner-link,
-	.map-link {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		background: none;
-		border: none;
+	.detail a {
 		color: #1565c0;
-		cursor: pointer;
-		padding: 0;
-		font-size: inherit;
 		text-decoration: underline;
 	}
 
-	.owner-link:hover,
-	.map-link:hover {
+	.detail a:hover {
 		color: #0d47a1;
 	}
 
-	.uploaded {
-		font-size: 0.8rem;
-		color: #888;
-		margin: 4px 0 0 0;
+	.license-history-toggle {
+		background: none;
+		border: none;
+		padding: 0;
+		margin-left: 4px;
+		color: #1565c0;
+		text-decoration: underline;
+		font: inherit;
+		cursor: pointer;
+	}
+
+	.license-history {
+		list-style: none;
+		margin: 6px 0 0;
+		padding: 0;
+		color: #555;
+		font-size: 0.85rem;
+	}
+
+	.license-history li {
+		padding: 2px 0;
+	}
+
+	.license-history-when,
+	.license-history-actor {
+		color: #999;
 	}
 
 	.actions-row {
@@ -670,6 +898,76 @@
 		background: #fffbeb;
 		color: #92400e;
 		border-color: #fde68a;
+	}
+
+	.photo-edit {
+		margin-top: 16px;
+		padding-top: 16px;
+		border-top: 1px solid #eee;
+	}
+
+	.photo-edit-heading {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0 0 10px 0;
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: #4f46e5;
+	}
+
+	.edit-field {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		margin-bottom: 10px;
+		font-size: 0.85rem;
+		color: #555;
+	}
+
+	.edit-field input,
+	.edit-field textarea {
+		padding: 6px 8px;
+		border: 1px solid #d1d5db;
+		border-radius: 4px;
+		font-size: 14px;
+		font-family: inherit;
+		color: #1f2937;
+	}
+
+	.edit-field-row {
+		display: flex;
+		gap: 16px;
+		align-items: center;
+		flex-wrap: wrap;
+	}
+
+	.edit-field-row .edit-field {
+		margin-bottom: 0;
+	}
+
+	.edit-field.bearing input {
+		width: 110px;
+	}
+
+	.edit-checkbox {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 0.9rem;
+		color: #555;
+		cursor: pointer;
+	}
+
+	.action-button.save {
+		background: #4a90e2;
+		color: white;
+		border-color: transparent;
+	}
+
+	.action-button.save:hover:not(:disabled) {
+		background: #3b7fd1;
+		color: white;
 	}
 
 	.rating-count {

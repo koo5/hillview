@@ -82,7 +82,9 @@ private fun bearingBetween(lat1: Double, lng1: Double, lat2: Double, lng2: Doubl
     return (Math.toDegrees(atan2(y, x)) + 360.0) % 360.0
 }
 
-private fun distanceMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
+// internal (was private): the StampRefiner reports how far a refinement
+// moved a stamp with this same haversine — one distance, not two.
+internal fun distanceMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Double {
     val φ1 = Math.toRadians(lat1)
     val φ2 = Math.toRadians(lat2)
     val Δφ = Math.toRadians(lat2 - lat1)

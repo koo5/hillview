@@ -1,0 +1,170 @@
+package cz.hillview.viewer
+
+import cz.hillview.map.BearingState
+import cz.hillview.map.MapStateHolder
+import cz.hillview.map.PhotoMarker
+import cz.hillview.map.SpatialState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/**
+ * The viewer's state derivation and its one action, from
+ * docs/tauri-viewer-ui-contract.md.
+ */
+class ViewerStateTest {
+
+    private fun photo(
+        id: String,
+        bearing: Double?,
+        pitch: Double? = null,
+        featured: Boolean = false,
+        filteredOut: Boolean = false,
+    ) = PhotoMarker(
+        id = id,
+        latitude = 50.0,
+        longitude = 14.0,
+        bearingDeg = bearing,
+        pitchDeg = pitch,
+        capturedAtMs = 0L,
+        featured = featured,
+        filteredOut = filteredOut,
+    )
+
+    /**
+     * Stands in for shared-kt's AngularRangeCuller: keeps everything, sorted
+     * the way the real one guarantees. What is tested here is the derivation
+     * around it, not the culling.
+     */
+    private val keepAll = RangeCuller { photos, _, _, _, _ ->
+        photos.sortedWith(compareBy({ it.bearingDeg ?: Double.MAX_VALUE }, { it.id }))
+    }
+
+    private fun derive(
+        markers: List<PhotoMarker>,
+        bearing: Double = 0.0,
+        stickyUid: String? = null,
+        hunter: Boolean = true,
+        override: Boolean = false,
+        cull: RangeCuller = keepAll,
+    ) = deriveViewerState(
+        markers,
+        SpatialState(latitude = 50.0, longitude = 14.0, range = 500.0),
+        BearingState(bearing = bearing, photoUid = stickyUid),
+        hunter, override, cull,
+    )
+
+    @Test
+    fun theRingIsWhatYouCanTurnTo() {
+        val state = derive(
+            listOf(photo("n", 0.0), photo("e", 90.0), photo("hidden", 45.0, filteredOut = true)),
+        )
+        assertEquals(listOf("n", "e"), state.ring.map { it.id })
+        assertEquals("n", state.front?.id)
+        // Two photos, so both sides of the ring are the same one.
+        assertEquals("e", state.left?.id)
+        assertEquals("e", state.right?.id)
+    }
+
+    @Test
+    fun theFrontPhotoFollowsTheBearing() {
+        val markers = listOf(photo("n", 0.0), photo("e", 90.0), photo("s", 180.0))
+        assertEquals("n", derive(markers, bearing = 5.0).front?.id)
+        assertEquals("e", derive(markers, bearing = 80.0).front?.id)
+        assertEquals("s", derive(markers, bearing = 190.0).front?.id)
+    }
+
+    @Test
+    fun upAndDownNeverDuplicateLeftOrRight() {
+        val markers = listOf(
+            photo("level", 90.0, pitch = 0.0),
+            photo("high", 91.0, pitch = 20.0),
+            photo("far", 200.0, pitch = 40.0),
+        )
+        val state = derive(markers, bearing = 90.0)
+        assertEquals("level", state.front?.id)
+        assertEquals("high", state.right?.id)
+        assertNull(state.up, "the photo above is already reachable sideways")
+    }
+
+    @Test
+    fun aPhotoWithNoBearingIsNotInTheRing() {
+        val state = derive(listOf(photo("a", 0.0), photo("nobearing", null)))
+        assertEquals(listOf("a"), state.ring.map { it.id })
+    }
+
+    @Test
+    fun theChosenPhotoIsOfferedToTheCullerAsAPick() {
+        // The contract's reason: without this, the photo you are looking at
+        // can be culled out from under you when the map moves.
+        var seenPicks: Set<String>? = null
+        val spy = RangeCuller { photos, _, _, _, picks ->
+            seenPicks = picks
+            photos.sortedBy { it.bearingDeg }
+        }
+        derive(listOf(photo("a", 0.0)), stickyUid = "chosen", cull = spy)
+        assertEquals(setOf("chosen"), seenPicks)
+    }
+
+    @Test
+    fun nothingInRangeIsAnEmptyStateNotACrash() {
+        val state = derive(emptyList())
+        assertTrue(state.ring.isEmpty())
+        assertNull(state.front)
+        assertNull(state.left)
+        assertNull(state.up)
+    }
+
+    @Test
+    fun turningWritesTheBearingAndRemembersTheChoice() {
+        // The point of the pane: navigating IS turning, through the one
+        // funnel, so the map and the next capture's stamp follow from it.
+        val map = MapStateHolder()
+        val holder = holderFor(map)
+
+        holder.turnTo(photo("chosen", 137.0))
+
+        assertEquals(137.0, map.bearing.value.bearing)
+        assertEquals("chosen", map.bearing.value.photoUid)
+        assertEquals(ViewerStateHolder.SOURCE_PHOTO_NAVIGATION, map.bearing.value.source)
+    }
+
+    @Test
+    fun turningToAPhotoWithNoBearingIsRefused() {
+        val map = MapStateHolder()
+        val before = map.bearing.value
+        holderFor(map).turnTo(photo("unknown", null))
+        assertEquals(before, map.bearing.value)
+    }
+
+    private var stoodDown = false
+
+    /**
+     * The original's updateBearingWithPhoto() disables bearing tracking
+     * before writing the photo's bearing; without that the compass takes
+     * the value back on its next reading and the turn does not stick.
+     */
+    @Test
+    fun turningToAPhotoStandsBearingTrackingDown() {
+        val map = MapStateHolder()
+        stoodDown = false
+        holderFor(map).turnTo(photo("p1", 90.0))
+        assertTrue(stoodDown)
+        assertEquals(90.0, map.bearing.value.bearing)
+    }
+
+    private fun holderFor(map: MapStateHolder) = ViewerStateHolder(
+        map = map,
+        standDownTracking = { stoodDown = true },
+        markers = MutableStateFlow(emptyList()),
+        hunterMode = MutableStateFlow(true),
+        overrideFilters = MutableStateFlow(false),
+        cull = keepAll,
+        scope = CoroutineScope(Dispatchers.Unconfined),
+        now = { 1_000L },
+    )
+}

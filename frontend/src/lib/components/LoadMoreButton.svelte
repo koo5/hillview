@@ -4,8 +4,16 @@
 
 	export let hasMore: boolean = false;
 	export let loading: boolean = false;
-	export let onLoadMore: () => void;
+	export let onLoadMore: (userInitiated: boolean) => void;
 	export let rootMargin: string = '100px';
+	/** The last attempt failed. Auto-loading stops either way — a scroll into
+	 *  view would just fail again, and silently, since IntersectionObserver
+	 *  fires on intersection *changes*. The label only changes once the visitor
+	 *  actually asked: an auto-load nobody requested has no business reporting
+	 *  itself, and the button staying in its normal state is also what keeps a
+	 *  failure out of Googlebot's render (it never clicks). */
+	export let failed: boolean = false;
+	export let failedUserInitiated: boolean = false;
 
 	let buttonElement: HTMLElement;
 	let intersectionObserver: IntersectionObserver | null = null;
@@ -25,8 +33,8 @@
 			intersectionObserver = new IntersectionObserver(
 				(entries) => {
 					entries.forEach((entry) => {
-						if (entry.isIntersecting && hasMore && !loading) {
-							onLoadMore();
+						if (entry.isIntersecting && hasMore && !loading && !failed) {
+							onLoadMore(false);
 						}
 					});
 				},
@@ -43,7 +51,7 @@
 
 	function handleClick() {
 		if (hasMore && !loading) {
-			onLoadMore();
+			onLoadMore(true);
 		}
 	}
 </script>
@@ -60,6 +68,8 @@
 			{#if loading}
 				<Spinner />
 				Loading more...
+			{:else if failedUserInitiated}
+				Couldn't load more — Retry
 			{:else}
 				Load More Photos
 			{/if}

@@ -759,6 +759,59 @@ test.describe('Annotation Tests', () => {
     expect(cmds[0].edge).toBe('right');
   });
 
+  // ── View-mode context menu ──
+
+  /** Leave draw/edit mode by switching off whichever toggle is active. */
+  async function enterViewMode(page: Page) {
+    for (const id of ['osd-annotate-draw', 'osd-annotate-edit']) {
+      const btn = page.locator(`[data-testid="${id}"]`);
+      if (await btn.evaluate((el) => el.classList.contains('active'))) await btn.click();
+    }
+  }
+
+  // In view mode the shape IS the affordance: selecting it opens the menu, with
+  // no intermediate "..." button to find and click.
+  test('clicking an annotation shape opens its context menu directly', async ({ page }) => {
+    await drawAnnotation(page, 'Ještěd');
+    await enterViewMode(page);
+    await clickRegion(page);
+
+    await expect(page.locator('[data-testid="annotation-context-menu"]')).toBeVisible({
+      timeout: T(5000),
+    });
+    await expect(page.locator('[data-testid="annotation-menu-btn"]')).toHaveCount(0);
+  });
+
+  // A coordinate segment becomes its own menu entry pointing at the map. It is
+  // an <a> so middle/ctrl-click get native open-in-new-tab; the primary click
+  // opens externally rather than navigating this tab away from the viewer.
+  test('coordinate segment gets a map link menu item', async ({ page }) => {
+    await drawAnnotation(page, 'Ještěd | 50.732N, 15.008E');
+    await enterViewMode(page);
+    await clickRegion(page);
+
+    const coordsItem = page.locator('[data-testid="annotation-menu-coords-1"]');
+    await expect(coordsItem).toBeVisible({ timeout: T(5000) });
+    await expect(coordsItem).toHaveText(/50\.732N, 15\.008E/);
+
+    const href = await coordsItem.getAttribute('href');
+    expect(href).toContain('lat=50.732');
+    expect(href).toContain('lon=15.008');
+    expect(href).toContain('zoom=16');
+  });
+
+  // Bodies without coordinates must not grow a phantom map entry.
+  test('plain annotation gets no map link menu item', async ({ page }) => {
+    await drawAnnotation(page, 'just a label');
+    await enterViewMode(page);
+    await clickRegion(page);
+
+    await expect(page.locator('[data-testid="annotation-context-menu"]')).toBeVisible({
+      timeout: T(5000),
+    });
+    await expect(page.locator('[data-testid^="annotation-menu-coords-"]')).toHaveCount(0);
+  });
+
   // ── Rating shortcuts ──
 
   // The zoom view has no on-screen like/dislike buttons, so '*'/'&' are the

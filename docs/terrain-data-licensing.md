@@ -105,17 +105,41 @@ the attribution line whenever peak candidates are loaded. This is separate
 from (and additional to) the Leaflet map-tile attribution — the panorama
 viewer is not the map, so it can't borrow the map's credit line.
 
+## OSM place names (Nominatim reverse geocoding)
+
+Source: `backend/api/app/backfill_places.py` against a self-hosted
+Nominatim (`NOMINATIM_URL`), stored as `photos.place_name` / `place_slug` /
+`geocode`. Licence: **ODbL** — every Nominatim response says so itself
+(`"licence": "Data © OpenStreetMap contributors, ODbL 1.0"`). Display
+"© OpenStreetMap contributors" wherever those names are shown.
+
+Where they surface: `/photo/<uid>` (heading, `og:title`, details row) and the
+card headings on `/bestof` and `/activity`, because `displayTitle()` falls back
+to the place when a photo has no title, description or annotation.
+
+Discharged: `PlaceAttribution.svelte`, rendered on those three routes and only
+when a place name is actually on screen. Separate from the Leaflet map-tile
+credit for the same reason the peaks credit is — none of those pages is the
+map, so there is no credit line to borrow.
+
 ## Checklist
 
 | obligation | where it must appear | status |
 |---|---|---|
 | GLO-30 6(b) notice on renders | viewer UIs, via `meta.attribution` | **done** (frontend pane; entrypoint default) |
-| GLO-30 6(c) liability sentence | app terms / legal page | **TODO before renders go public** |
-| GLO-30 6(e) pass-through | API/download terms | TODO if artifacts become redistributable |
-| ČÚZK CC BY credit | `TERRAIN_ATTRIBUTION` of ČÚZK-fed workers | TODO when those mosaics exist (+ re-verify terms) |
-| OSM ODbL peaks credit | next to peak labels | **done** (frontend pane) |
+| GLO-30 6(b) notice on graduated overlays | zoom view, via the overlay's own `attribution` | **done** (`osd-terrain-attribution`; mandatory field, copied at export) |
+| GLO-30 6(c) liability sentence | app terms / legal page | **done** (`/licensing` § Terrain data) |
+| GLO-30 6(e) pass-through | API/download terms | TODO if artifacts become redistributable — note the graduated depth buffers ARE served publicly from the storage pool, so this activates the moment they are documented as an API |
+| GLO-30 6(d) no endorsement | anywhere terrain is described | **done** (stated on `/licensing`) |
+| ČÚZK CC BY credit | `TERRAIN_ATTRIBUTION` of ČÚZK-fed workers | **done in data** (renders carry the combined "© ČÚZK · produced using Copernicus…" notice) — re-verify their terms page before public launch |
+| OSM ODbL peaks credit | next to peak labels | **done** (frontend pane; overlay `label_attribution`, shown only while labels are) |
 | bench (enrich/web) attribution display | bench terrain page | open — loopback-only today, so no public communication happens there |
 
 Related: `enrich/terrain/README.md` § Licensing / attribution (summary),
 `docs/terrain-mode.md` (graduation plan — step "(1) main backend serves the
-two artifacts" is the moment 6(c) and the API-terms items activate).
+two artifacts" is the moment 6(c) and the API-terms items activate),
+`docs/terrain-overlay-graduation.md` (the per-photo overlay graduation is
+the other 6(c) activation path: photo pages are public, so the first shipped
+overlay must land together with the terms-page liability sentence; the
+overlay item carries `attribution` + `label_attribution` as mandatory
+fields).

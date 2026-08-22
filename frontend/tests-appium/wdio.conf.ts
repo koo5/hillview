@@ -65,7 +65,17 @@ export const config: WebdriverIO.Config = {
         // capabilities for native Hillview app tests on Android Emulator
         platformName: 'Android',
         'appium:deviceName': 'Android GoogleAPI Emulator',
-        'appium:platformVersion': '12.0',
+        // Match whatever emulator is running; the suite historically ran on
+        // an Android 12 AVD, now driven against API 36 (SDK-36 upgrade pass).
+        'appium:platformVersion': process.env.WDIO_PLATFORM_VERSION || '16',
+        // The headless swiftshader emulator needs generous timeouts: the
+        // uiautomator2 instrumentation install alone can exceed the default
+        // 120s session budget (both 2026-08-05 session-creation timeouts died
+        // at exactly ~120s).
+        'appium:uiautomator2ServerInstallTimeout': 120000,
+        'appium:uiautomator2ServerLaunchTimeout': 120000,
+        'appium:androidInstallTimeout': 180000,
+        'appium:adbExecTimeout': 120000,
         'appium:automationName': 'UiAutomator2',
         'appium:appPackage': 'cz.hillviedev',
         'appium:appActivity': '.MainActivity',
@@ -119,7 +129,7 @@ export const config: WebdriverIO.Config = {
     //
     // Default timeout in milliseconds for request
     // if browser driver or grid doesn't send response
-    connectionRetryTimeout: 120000,
+    connectionRetryTimeout: 420000,
     //
     // Default request retries count
     connectionRetryCount: 3,

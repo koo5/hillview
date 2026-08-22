@@ -12,6 +12,7 @@ Use these utilities instead of calling the old /upload endpoint directly.
 import httpx
 import json
 import base64
+import contextlib
 import os
 from datetime import timedelta
 import datetime
@@ -30,6 +31,37 @@ sys.path.append(backend_dir)
 
 from common.jwt_utils import generate_ecdsa_key_pair, serialize_private_key, serialize_public_key
 from .test_utils import recreate_test_users
+
+
+# TLS verification is ON unless explicitly disabled, and that default matters:
+# this module is not test-only. backend/debug.sh -> utils.debug_utils is the
+# production hillview CLI, and an unconditional verify=False there would make it
+# silently accept ANY certificate — a real downgrade, on the upload path, in
+# prod. So the loosening is opt-in and lives behind one env var, set by the test
+# entry points only (see backend/tests/run_integration_tests.sh).
+INSECURE_TLS_ENV = "HILLVIEW_INSECURE_TLS"
+
+
+def tls_verify() -> bool:
+	"""False only when the caller has explicitly opted out of verification."""
+	return os.getenv(INSECURE_TLS_ENV, "").strip().lower() not in ("1", "true", "yes")
+
+
+def dev_origin_client(**kwargs) -> httpx.AsyncClient:
+	"""httpx client for URLs the APP advertises: the worker from authorize-upload,
+	a photo's size URLs from its record.
+
+	Following the advertised URL is the property under test — "the client uses
+	the URL it was given" — and the one that must survive the worker moving to
+	its own hostname, or becoming several for different task kinds. So when dev
+	serves that URL from a Caddy origin whose `tls internal` CA Python does not
+	trust, relax verification rather than routing around the URL, which would
+	delete the coverage. The browser suite relaxes the same check, via
+	`ignoreHTTPSErrors` in playwright.config.ts, against the same origin.
+
+	Verification still applies unless HILLVIEW_INSECURE_TLS is set — see above.
+	"""
+	return httpx.AsyncClient(verify=tls_verify(), **kwargs)
 
 
 class WorkerUnavailableError(Exception):
@@ -273,29 +305,63 @@ class SecureUploadClient:
 
 	async def authorize_upload_with_params(self, auth_token: str, filename: str, file_size: int,
 										   latitude: float, longitude: float, description: str,
-										   is_public: bool = True, file_data: bytes = None,
+										   is_public: bool = True, file_data=None,  # bytes, or a path str (see docstring)
 										   captured_at: str = None, version: int = None,
 										   license: str = 'ccbysa4+osm',
 										   title: str = None, keywords: list = None,
-										   featured: bool = False):
+										   featured: bool = False,
+										   fast_md5: bool = False):
 		"""Request upload authorization with custom parameters.
 
 		Args:
+			file_data: File bytes, or a filesystem path (str). A path is hashed
+			           from disk in chunks (same digest as hashing the whole
+			           bytes) so a multi-GB pano never has to fit in RAM; pass
+			           the same path to upload_to_worker so the body streams too.
+			           KNOWN DISCREPANCY (accepted 2026-08-14): with a path the
+			           file is read twice — once here for the MD5, once in
+			           upload_to_worker for the body — while the bytes variant
+			           hashes the exact in-memory snapshot it uploads. If the
+			           file changes between the two reads, the stored file_md5
+			           (duplicate detection, MD5-based lookup) silently disagrees
+			           with the uploaded bytes: the worker does NOT re-verify the
+			           body against the authorized hash. Only pass paths to files
+			           that are immutable for the duration of the upload.
 			captured_at: Optional ISO timestamp. If None, the server will extract it from EXIF.
 			             For test images without real EXIF, use generate_test_captured_at().
 			version: Optional version number. If >1, allows re-uploading completed photos.
+			fast_md5: Path input only — hash just the first MiB + byte length
+			          instead of the whole file (see the inline comment for the
+			          dedup-identity trade-off).
 		"""
 
 		hash_start_time = utcnow()
 
-		if file_data:
+		if isinstance(file_data, str):
+			hasher = hashlib.md5()
+			with open(file_data, 'rb') as f:
+				if fast_md5:
+					# --fast-md5: identity = first MiB + byte length, not the
+					# full content. Trades dedup rigor for skipping a full read
+					# of a multi-GB pano; two DIFFERENT files that share their
+					# first MiB and exact size would collide (accepted). Same
+					# file always maps to the same id either way — but note a
+					# file's fast id differs from its full-hash id, so switching
+					# the flag between runs re-uploads instead of deduping.
+					hasher.update(f.read(1024 * 1024))
+					hasher.update(str(os.path.getsize(file_data)).encode())
+				else:
+					for chunk in iter(lambda: f.read(8 * 1024 * 1024), b''):
+						hasher.update(chunk)
+			file_md5 = hasher.hexdigest()
+		elif file_data:
 			file_md5 = hashlib.md5(file_data).hexdigest()
 		else:
 			file_md5 = hashlib.md5(f"{filename}_{file_size}".encode()).hexdigest()
 
 		hash_end_time = utcnow()
 		hash_duration = (hash_end_time - hash_start_time).total_seconds()
-		print(f"   Calculated file MD5: {file_md5} (took {hash_duration:.2f} seconds)")
+		print(f"   Calculated file MD5: {file_md5} (took {hash_duration:.2f} seconds){' (fast-md5: first MiB + size)' if fast_md5 else ''}")
 
 		upload_request = {
 			"filename": filename,
@@ -334,16 +400,33 @@ class SecureUploadClient:
 
 		return await self._request_upload_authorization(auth_token, upload_request)
 
-	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 600_00.0, anonymization_override: str = None, quality: int = None, fast: bool = False, metadata: str = None):
+	async def upload_to_worker(self, file_input, auth_data, client_keys, filename="secure_test.jpg", timeout: float = 600_00.0, anonymization_override: str = None, quality: int = None, fast: bool = False, metadata: str = None, keep_pics_in_worker: bool = False, no_upload: bool = False, local_pyramid_path: str = None):
 		"""Phase 3: Upload file to worker with proper client signature.
 
 		Args:
-			file_input: Either a file path (str) or file data (bytes)
+			file_input: Either a file path (str) or file data (bytes). A path is
+			            streamed from disk instead of loaded into memory — see
+			            authorize_upload_with_params for the hash/body
+			            double-read discrepancy that comes with paths.
 			anonymization_override: JSON string - None=auto, "[]"=skip anonymization
 			quality: WebP quality (1-100). None=use worker default (97).
 			fast: Skip pyramid, 640_llm, EXIF copy, use fast WebP encoding.
 			metadata: JSON string (BrowserMetadata schema) — lat/lon/bearing/etc
 			          fallback for formats that can't carry EXIF (e.g. EXR).
+			keep_pics_in_worker: serve artifacts from the worker's own uploads
+			          volume instead of shipping them to the API's storage pool.
+			          The worker 400s unless it runs with ALLOW_KEEP_PICS_IN_WORKER.
+			no_upload: send only the file's PATH (file_input must be a path the
+			          worker can see under its LOCAL_PHOTO_ROOTS mounts) — no
+			          body transfer at all. The worker walks symlinks and
+			          validates containment itself, so the path is sent as
+			          given. 400s unless the worker has LOCAL_PHOTO_ROOTS.
+			local_pyramid_path: OFFER an externally rendered DZI pyramid
+			          (<prefix>.dzi, tiles in <prefix>_files/ beside it) that the
+			          worker MAY use instead of rendering its own — the worker
+			          decides from anonymization / dev-vs-prod / parameter
+			          policy, and declining is silent. Same LOCAL_PHOTO_ROOTS
+			          gate as no_upload.
 		"""
 		upload_jwt = auth_data["upload_jwt"]
 		worker_url = auth_data["worker_url"]
@@ -359,16 +442,31 @@ class SecureUploadClient:
 			timestamp
 		)
 
-		async with httpx.AsyncClient() as client:
+		async with contextlib.AsyncExitStack() as stack:
+			client = await stack.enter_async_context(dev_origin_client())
 			# Handle both file paths and file data
-			if isinstance(file_input, bytes):
+			if no_upload:
+				if isinstance(file_input, bytes):
+					raise ValueError("no_upload requires a file path, not bytes")
+				# Path-only ingestion: no file part, no body transfer — the
+				# worker reads the file itself from its LOCAL_PHOTO_ROOTS
+				# mounts (and walks any symlinks server-side).
+				files = None
+			elif isinstance(file_input, bytes):
 				# File data provided directly
 				files = {'file': (filename, file_input, 'image/jpeg')}
 			else:
-				# File path provided, read the file
-				with open(file_input, 'rb') as f:
-					file_data = f.read()
-				files = {'file': (filename, file_data, get_content_type(filename))}
+				# File path provided: hand httpx the open file so the multipart
+				# body streams from disk in 64 KiB chunks. Reading the whole
+				# file into one bytes blob gave the TLS layer the entire body as
+				# a single write, and OpenSSL's outgoing buffer then had to hold
+				# the whole encrypted request in one contiguous allocation — on
+				# a multi-GB pano that fails as "SSLError: [BUF] malloc failure
+				# (_ssl.c)". httpx rewinds seekable files (seek(0)) on every
+				# send, so the backpressure retries below still transmit the
+				# full body.
+				f = stack.enter_context(open(file_input, 'rb'))
+				files = {'file': (filename, f, get_content_type(filename))}
 
 			data = {'client_signature': client_signature}
 			if anonymization_override is not None:
@@ -379,6 +477,12 @@ class SecureUploadClient:
 				data['fast'] = 'true'
 			if metadata is not None:
 				data['metadata'] = metadata
+			if keep_pics_in_worker:
+				data['keep_pics_in_worker'] = 'true'
+			if no_upload:
+				data['local_photo_path'] = file_input
+			if local_pyramid_path:
+				data['local_pyramid_path'] = local_pyramid_path
 			headers = {
 				'Authorization': f'Bearer {upload_jwt}',
 				'Expect': '100-continue'
@@ -441,7 +545,7 @@ class SecureUploadClient:
 		worker_url = auth_data["worker_url"]
 
 		# Test with invalid token
-		async with httpx.AsyncClient() as client:
+		async with dev_origin_client() as client:
 			try:
 				fake_token = "invalid.jwt.token"
 				files = {'file': ('test.jpg', b'fake image', 'image/jpeg')}
@@ -474,7 +578,7 @@ class SecureUploadClient:
 		if worker_url is None:
 			worker_url = os.getenv("TEST_WORKER_URL", "http://localhost:8056")
 		try:
-			async with httpx.AsyncClient() as client:
+			async with dev_origin_client() as client:
 				response = await client.get(f"{worker_url}/health", timeout=100.0)
 				if response.status_code == 200:
 					print(f"✅ Worker server is healthy ({worker_url})")

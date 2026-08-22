@@ -1,4 +1,5 @@
 import { HILLVIEW_BASE_URL, constructUserProfileUrl } from './urlUtilsServer';
+import { isCoordsOnly, splitOnCoords } from './utils/coordParser';
 
 export interface PhotoSize {
 	url: string;
@@ -18,6 +19,7 @@ export interface PublicPhoto {
 	place_name?: string | null;
 	license?: string | null;
 	is_public?: boolean;
+	featured?: boolean;
 	latitude: number | null;
 	longitude: number | null;
 	bearing: number | null;
@@ -226,6 +228,7 @@ export function displayTitle(
 	photo: {
 		title?: string | null;
 		description?: string | null;
+		place_name?: string | null;
 		original_filename: string | null;
 	},
 	annotations: PhotoAnnotation[] = []
@@ -235,13 +238,53 @@ export function displayTitle(
 	// image's real caption when title + description are both empty, so prefer them
 	// before falling through to the filename. Grid callers pass no annotations and
 	// keep the old title/description/filename behaviour.
-	return (
-		photo.title ||
-		photo.description ||
-		firstAnnotationText(annotations) ||
-		photo.original_filename ||
-		'Photo'
-	);
+	//
+	// The reverse-geocoded place ("Sedlec, Kutná Hora") replaces the machine
+	// filename, which is worse than nothing here — on /bestof and /activity it is
+	// also the anchor text of the link to the photo's page, so it was telling
+	// search engines that page is about "hillview_photo_1786290382280.jpg".
+	// place_name is populated out-of-band by backfill_places.py (the `places`
+	// compose service).
+	//
+	// A landmark and a place answer different questions — what is in the frame
+	// vs where it was taken — so when only annotations caption the photo (half of
+	// the annotated ones carry no title or description) they are joined rather
+	// than ranked: "Chrám svaté Barbory — Sedlec, Kutná Hora". Author-written text
+	// gets no such suffix; it is a caption already.
+	const { landmark, place, fallback } = titleParts(photo, annotations);
+	if (fallback !== undefined) return fallback;
+	if (landmark && place) return `${landmark} — ${place}`;
+	return landmark || place || 'Photo';
+}
+
+/**
+ * Whether the title shown for this photo draws on the reverse-geocoded place —
+ * i.e. whether displaying it obliges us to credit OpenStreetMap (ODbL). Derived
+ * from the same resolution displayTitle runs, so the two cannot disagree; a
+ * separate re-implementation of the precedence would answer "is a place_name
+ * stored" instead of "is one on screen", and those differ for every photo that
+ * has a title of its own.
+ */
+export function titleUsesPlace(
+	photo: Parameters<typeof displayTitle>[0],
+	annotations: PhotoAnnotation[] = []
+): boolean {
+	return !!titleParts(photo, annotations).place;
+}
+
+function titleParts(
+	photo: Parameters<typeof displayTitle>[0],
+	annotations: PhotoAnnotation[]
+): { landmark: string; place: string; fallback?: string } {
+	const none = { landmark: '', place: '' };
+	if (photo.title) return { ...none, fallback: photo.title };
+	if (photo.description) return { ...none, fallback: photo.description };
+	const landmark = firstAnnotationText(annotations);
+	const place = photo.place_name || '';
+	if (!landmark && !place && photo.original_filename) {
+		return { ...none, fallback: photo.original_filename };
+	}
+	return { landmark, place };
 }
 
 export function parseAnnotationBody(body: string | null | undefined): AnnotationBodySegment[] {
@@ -256,11 +299,18 @@ export function parseAnnotationBody(body: string | null | undefined): Annotation
 }
 
 // A meaningful annotation segment is a text segment (not a URL) that isn't a
-// placeholder ('?', 'oops') the annotators use for "don't know yet".
+// placeholder ('?', 'oops') the annotators use for "don't know yet", and isn't a
+// bare coordinate pair. Annotators routinely pin a landmark's position as its own
+// segment, so without this ~half of a dense photo's segments are geo strings —
+// which say nothing about *what* is in the frame and so belong in neither the
+// schema.org keywords nor the title fallback (an untitled photo whose first
+// segment is a pair would otherwise get "49.9561603N, 15.2874025E" as its
+// og:title). Same fullmatch rule the backend parser applies to the name slot.
 function meaningfulAnnotationText(value: string): string | null {
 	const trimmed = value.trim();
 	const placeholder = trimmed.toLowerCase();
 	if (!trimmed || placeholder === '?' || placeholder === 'oops') return null;
+	if (isCoordsOnly(trimmed)) return null;
 	return trimmed;
 }
 
@@ -319,39 +369,115 @@ export function buildHeadTitle(photo: PublicPhoto, annotations: PhotoAnnotation[
 }
 
 /**
- * og:description / <meta name="description"> for a photo. Picks the best single
- * human-readable line available: the author's description, else the
- * reverse-geocoded place name, else the bare coordinates as a last resort.
+ * One line naming what the photo's annotations identify, for photos whose
+ * author wrote no description: distinct labels, most notable first, packed
+ * into a character budget with a "+N" tail for the rest.
  *
- * Deliberately does NOT splice in an annotation — cherry-picking the *first*
- * label ("… — Strojimport") was arbitrary noise; the full landmark set now lives
- * in the ImageObject's keywords, and a lone label (when it's all a photo has)
- * surfaces as the title instead (see displayTitle). Precise structured metadata
- * lives in buildPhotoImageJsonLd. Shared by the /photo/[uid] detail route and
- * the map homepage's ?photo= share cards so both emit identical head tags.
+ * One label per annotation (its name slot), not every text segment — the flat
+ * landmark set already lives in annotationKeywords. "Most notable first" is
+ * read off annotator behaviour rather than any heuristic of ours: a label
+ * whose annotation carries a reference link (Wikipedia, monument register)
+ * was worth sourcing to whoever pinned it, so linked labels lead and
+ * unlinked ones fill the remaining budget. Near-connector-free format on
+ * purpose: labels arrive in the photo's language while the UI is English,
+ * and a bare comma list reads fine in both.
  */
-export function buildHeadDescription(photo: PublicPhoto): string {
-	if (photo.description) return photo.description;
-	if (photo.place_name) return photo.place_name;
+export function buildAnnotationSummary(annotations: PhotoAnnotation[] = [], budget = 150): string {
+	const linked: string[] = [];
+	const unlinked: string[] = [];
+	for (const a of annotations) {
+		if (!a.body) continue;
+		const segments = parseAnnotationBody(a.body);
+		const raw = segments
+			.filter((s) => s.kind === 'text')
+			.map((s) => meaningfulAnnotationText(s.value))
+			.find(Boolean);
+		if (!raw) continue;
+		// The name slot may carry an embedded position ("Kostel sv. Štěpána
+		// (Malín) 49.966892, 15.305111") — display keeps it, a summary doesn't.
+		const label = splitOnCoords(raw)
+			.filter((r) => r.type === 'text')
+			.map((r) => r.value)
+			.join(' ')
+			.replace(/\s+/g, ' ')
+			.trim();
+		if (!label) continue;
+		(segments.some((s) => s.kind === 'link') ? linked : unlinked).push(label);
+	}
+	const labels = dedupeCaseInsensitive([...linked, ...unlinked]);
+	if (!labels.length) return '';
+
+	const taken: string[] = [];
+	let length = 0;
+	for (const label of labels) {
+		const cost = label.length + (taken.length ? 2 : 0);
+		// Always take at least one label, even an over-budget one
+		if (taken.length && length + cost > budget) break;
+		taken.push(label);
+		length += cost;
+	}
+	const rest = labels.length - taken.length;
+	return taken.join(', ') + (rest > 0 ? ` +${rest}` : '');
+}
+
+// Google renders roughly this many characters of a description before cutting
+const SNIPPET_BUDGET = 155;
+
+/**
+ * og:description / <meta name="description"> for a photo. The author's
+ * description leads — but a short one ("Pohled na Kutnou Horu, Čáslav, ...")
+ * leaves most of the snippet to the crawler's improvisation (menu items,
+ * whatever), so when it leaves meaningful room inside the snippet budget it
+ * is topped up with the composed annotation summary (" • " separated; see
+ * buildAnnotationSummary — an *aggregate*, unlike the arbitrary first-label
+ * cherry-pick this function once deliberately refused). Without a
+ * description: place name plus the summary; bare coordinates only as a last
+ * resort. Precise structured metadata lives in buildPhotoImageJsonLd. Shared
+ * by the /photo/[uid] detail route and the map homepage's ?photo= share
+ * cards so both emit identical head tags.
+ */
+export function buildHeadDescription(
+	photo: PublicPhoto,
+	annotations: PhotoAnnotation[] = []
+): string {
+	if (photo.description) {
+		const room = SNIPPET_BUDGET - photo.description.length - ' • '.length;
+		const summary = room >= 30 ? buildAnnotationSummary(annotations, room) : '';
+		return summary ? `${photo.description} • ${summary}` : photo.description;
+	}
+	const parts = [photo.place_name, buildAnnotationSummary(annotations)].filter(Boolean);
+	if (parts.length) return parts.join(' — ');
 	if (photo.latitude != null && photo.longitude != null) {
 		return `${photo.latitude.toFixed(4)}, ${photo.longitude.toFixed(4)}`;
 	}
 	return 'Photo on Hillview';
 }
 
+// Backend timestamps are UTC. Most endpoints stamp the 'Z' explicitly
+// (common/utc.py format_utc), but a few emit naive .isoformat() strings —
+// which new Date() would read in the viewer's zone, silently shifting the
+// instant by the viewer's offset. Treat an offset-less string as UTC.
+const TZ_SUFFIX_RE = /(?:Z|[+-]\d\d:?\d\d)$/i;
+export function parseUtcTimestamp(value: string): Date {
+	return new Date(TZ_SUFFIX_RE.test(value) ? value : value + 'Z');
+}
+
 export function formatDate(value: string | null | undefined): string {
 	if (!value) return '';
 	try {
-		return new Date(value).toLocaleDateString();
+		return parseUtcTimestamp(value).toLocaleDateString();
 	} catch {
 		return value;
 	}
 }
 
+// timeZoneName makes the rendered zone explicit ("… 15:29:13 GMT+2") — the
+// stored instant is UTC and the conversion target is the viewer's zone, so
+// without the label the time reads as an unqualified wall-clock.
 export function formatDateTime(value: string | null | undefined): string {
 	if (!value) return '';
 	try {
-		return new Date(value).toLocaleString();
+		return parseUtcTimestamp(value).toLocaleString(undefined, { timeZoneName: 'short' });
 	} catch {
 		return value;
 	}

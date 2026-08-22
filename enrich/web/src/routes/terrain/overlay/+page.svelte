@@ -9,28 +9,54 @@
 	// a vertical calibration — saving it is the obvious next step once this
 	// UX proves out.
 	//
-	// The vertical fit is a piecewise-linear warp: N handles ride the dashed
-	// horizon line, each dragging its neighborhood up/down (offsets stored in
-	// DEGREES so they survive zoom/rescale). Two handles = plain roll+offset;
-	// more handles absorb per-seam pano stitching wobble. A global roll
-	// slider (shear approximation) sits on top for fine trim.
+	// The fit is a piecewise-linear warp: N handles ride the dashed horizon
+	// line, each dragging its neighborhood up/down (`warp`) AND sideways
+	// (`hwarp`, azimuth offset — Shift-drag locks to vertical); both stored
+	// in DEGREES so they survive zoom/rescale. Two handles = plain
+	// roll+offset; more handles absorb per-seam pano stitching wobble, and
+	// the sideways axis is what a stitched pano's local stretch needs — a
+	// vertical warp alone can put the curve on the ridge at the handle while
+	// the peaks left and right of it stay displaced. A global roll slider
+	// (shear approximation) sits on top for fine trim.
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import { apiBase } from '$lib/config';
-	import { azimuthForColumn, type TerrainMeta } from '$terrain/depthPanoViewer';
+	import { azimuthForColumn, parseDepthBlob, type TerrainMeta } from '$terrain/depthPanoViewer';
 	import {
+		hitSkyLabel,
+		labelEvidence,
+		labelText,
 		layoutSkyLabels,
 		PLACE_KINDS,
 		projectPeaks,
 		type Peak,
-		type PeakMark
+		type PeakMark,
+		type SkyLabel
 	} from '$terrain/peakLabels';
+	import { paintSkyPills } from '$terrain/labelPills';
+	// the pano layer is an OpenSeadragon viewer over the photo's DZI pyramid:
+	// sizes.full is capped at 8192 px wide by the worker, the pyramid has
+	// every pixel — same tile-source glue as the main app's zoom view
+	import { buildTileSource, type DziPyramid } from '$zoomview/tileSource';
+	import { OSD_VIEWER_DEFAULTS } from '$zoomview/viewerInit';
+	// the fit's geometry is SHARED with the main app's zoom view, so a
+	// graduated overlay draws exactly where it was fitted here
+	import {
+		createOverlayProjector,
+		resampleWarp,
+		skylineFromDepth,
+		resampleSteps,
+		uniformKnots,
+		warpAt as warpAtShared,
+		wrapDelta,
+		type OverlayFit
+	} from '$terrain/overlayFit';
 
 	interface PhotoInfo {
 		id: string;
 		title: string | null;
-		sizes: Record<string, { url?: string }> | null;
+		sizes: Record<string, { url?: string; pyramid?: DziPyramid }> | null;
 		width: number | null;
 		height: number | null;
 		pie: {
@@ -40,6 +66,9 @@
 			/** from calibratedProjection/calibratedX0 facts, when accepted */
 			projection?: string;
 			x0?: number;
+			/** from a piecewise (stitched) calibration: seams + per-panel
+			 * shift/scale, the handle model verbatim */
+			stitch?: { knots: number[]; hwarp: number[]; hscale: number[] };
 		} | null;
 	}
 	interface RenderRow {
@@ -57,6 +86,13 @@
 	let status = $state('');
 	let saving = $state(false);
 	let saveMsg = $state('');
+	// graduation: approving the saved fit fact is what publishes this overlay
+	// to the main app (docs/terrain-overlay-graduation.md). No separate flag —
+	// the export derives its work list from approved facts.
+	let fitFact = $state<string | null>(null);
+	let fitApproved = $state(false);
+	let gradBusy = $state(false);
+	let gradMsg = $state('');
 	let draftState = $state('');
 	let suppressDraft = true; // no autosave until a photo's state is restored
 	let draftTimer: ReturnType<typeof setTimeout> | undefined;
@@ -131,20 +167,8 @@
 		}
 	}
 
-	/** saved manual alignment (hv:terrainOverlayFit fact via the API) */
-	interface OverlayFit {
-		projection: string;
-		centre_bearing: number;
-		fov_deg: number;
-		horizon_pct: number;
-		v_scale: number;
-		roll_deg: number;
-		warp: number[];
-		/** atmospheric visibility that day, km; null/absent = full */
-		visibility_km?: number | null;
-		/** client wall-clock of the change (epoch ms) — drafts/live only */
-		saved_at?: number;
-	}
+	// OverlayFit (the saved manual alignment, hv:terrainOverlayFit) is defined
+	// in $terrain/overlayFit — the main app reads the same shape.
 
 	// manual alignment: bearing trim + fov (horizontal, for uncalibrated
 	// panos), horizon position + vertical scale (always manual)
@@ -165,6 +189,9 @@
 	let showPlaces = $state(true);
 	let peaks: Peak[] = [];
 	let marks = $state<PeakMark[]>([]);
+	// pills currently on screen (for tap → evidence) and the last tapped one
+	let placedPills: (SkyLabel & { kind?: string; cls?: PeakMark['class']; mark: PeakMark })[] = [];
+	let labelInfo = $state<PeakMark | null>(null);
 	// fog: visibility cutoff for the skyline (log10 metres on the slider;
 	// at the top end = the render's full max_distance = no cutoff)
 	let visLog = $state(6);
@@ -180,19 +207,171 @@
 	// last = right edge), linearly interpolated between; always reassigned
 	// (never mutated in place) so the redraw effect tracks it by reference
 	let warp = $state<number[]>([0, 0]);
+	// horizontal (azimuth) shift per SEGMENT, degrees (hwarp[k] = the panel
+	// starting at handle k; last entry unused): dragging a handle sideways
+	// says "the terrain the model draws here actually sits THERE" and moves
+	// that panel and every panel to its right rigidly (Alt: this panel only)
+	// — a stitched pano's seams are steps, which the vertical warp cannot
+	// absorb. Kept the same length as `warp`.
+	let hwarp = $state<number[]>([0, 0]);
+	// per-panel SCALE (about the panel's centre, both axes) — a frame stitched
+	// at the wrong focal length: Ctrl-drag a handle sideways to pull the
+	// panel's edge in/out, or type it in the panel editor
+	let hscale = $state<number[]>([1, 1]);
+	// how far the baked document reaches (labels), km — the ceiling of the
+	// zoom view's fog slider. 150 unless changed; the fog slider is the
+	// DEFAULT the viewer opens with
+	const DEFAULT_MAX_VIS_KM = 150;
+	let maxVisKm = $state(DEFAULT_MAX_VIS_KM);
+	// handle positions (fractions of the width). Equally spaced by default;
+	// double-click the pano to put a seam exactly where the stitch has one,
+	// double-click a handle to remove it
+	let knots = $state<number[]>([0, 1]);
+	const isUniform = (k: number[]) => k.every((v, i) => Math.abs(v - i / (k.length - 1)) < 1e-6);
+	// the panel whose numbers the inline editor shows (set by clicking a handle)
+	let selectedSeg = $state<number | null>(null);
+	const MAX_SEGMENTS = 48;
+	/** equal spacing with n segments — resamples every per-handle array */
+	function setSegments(n: number) {
+		const handles = Math.max(2, Math.min(MAX_SEGMENTS + 1, Math.round(n) + 1));
+		if (handles === warp.length && isUniform(knots)) return;
+		const oldKnots = knots;
+		const nk = uniformKnots(handles);
+		warp = nk.map((f) => warpAtShared(warp, f, oldKnots));
+		hwarp = resampleSteps(hwarp, handles, 0, oldKnots);
+		hscale = resampleSteps(hscale, handles, 1, oldKnots);
+		knots = nk;
+		selectedSeg = null;
+	}
+	/** put a seam at horizontal fraction f: the panel it splits keeps its
+	 * shift/scale on both sides, the vertical warp is interpolated there */
+	function insertKnot(f: number) {
+		f = Math.min(0.999, Math.max(0.001, f));
+		if (knots.length >= MAX_SEGMENTS + 1) return;
+		let k = 0;
+		while (k < knots.length - 1 && f >= knots[k + 1]) k++;
+		if (Math.abs(f - knots[k]) < 0.002 || Math.abs(f - knots[k + 1]) < 0.002) return; // on a knot already
+		const w = warpAtShared(warp, f, knots);
+		knots = [...knots.slice(0, k + 1), f, ...knots.slice(k + 1)];
+		warp = [...warp.slice(0, k + 1), w, ...warp.slice(k + 1)];
+		hwarp = [...hwarp.slice(0, k + 1), hwarp[k], ...hwarp.slice(k + 1)];
+		hscale = [...hscale.slice(0, k + 1), hscale[k], ...hscale.slice(k + 1)];
+		selectedSeg = k + 1;
+	}
+	/** remove an interior handle: the two panels merge, the left one's
+	 * shift/scale win */
+	function removeKnot(i: number) {
+		if (i <= 0 || i >= knots.length - 1) return;
+		knots = knots.filter((_, j) => j !== i);
+		warp = warp.filter((_, j) => j !== i);
+		hwarp = hwarp.filter((_, j) => j !== i);
+		hscale = hscale.filter((_, j) => j !== i);
+		selectedSeg = null;
+	}
+	/** the panel a handle acts on: the one to its right, or for the last
+	 * handle the one to its left */
+	const panelOf = (i: number) => Math.min(i, warp.length - 2);
+
+	// ---- explicit save / revert / undo: what is SAVED (the fact), whether
+	// the live alignment differs from it, and a history of settled states.
+	// The auto-draft keeps running underneath (it is what lets two windows
+	// share the working state) — but it is no longer the only state you can
+	// see, and a stray drag is one Ctrl+Z away.
+	let savedFit = $state<OverlayFit | null>(null);
+	const dirty = $derived.by(() => {
+		void proj; void bearingOffset; void fovDeg; void horizonPct; void vScale; void rollDeg; void warp; void hwarp; void visLog;
+		if (!photo) return false;
+		const live = bareOf(liveFit() as unknown as Record<string, unknown>);
+		return live !== (savedFit ? bareOf(savedFit as unknown as Record<string, unknown>) : '');
+	});
+	let history = $state<string[]>([]);
+	let histIdx = $state(-1);
+	let skipHistory = false; // set while applying a snapshot, so it isn't re-pushed
+	let histTimer: ReturnType<typeof setTimeout> | undefined;
+	/** one history entry per SETTLED change: a drag's stream of moves or a
+	 * slider's run of inputs coalesce into the state 500 ms after the last */
+	function scheduleHistory() {
+		clearTimeout(histTimer);
+		histTimer = setTimeout(() => {
+			if (!skipHistory) pushHistory(JSON.stringify(liveFit()));
+		}, 500);
+	}
+	/** history starts at the state a load landed on, so the first Ctrl+Z
+	 * after the first change goes back to it */
+	function seedHistory() {
+		history = [JSON.stringify(liveFit())];
+		histIdx = 0;
+	}
+	function pushHistory(snapshot: string) {
+		if (skipHistory) return;
+		if (histIdx >= 0 && history[histIdx] === snapshot) return;
+		const next = history.slice(0, histIdx + 1);
+		next.push(snapshot);
+		if (next.length > 100) next.shift();
+		history = next;
+		histIdx = next.length - 1;
+	}
+	function applySnapshot(raw: string) {
+		clearTimeout(histTimer); // a pending push would re-record the state we are leaving
+		skipHistory = true;
+		try {
+			applyRemoteFit(JSON.parse(raw) as OverlayFit);
+		} finally {
+			// the autosave effect runs after this tick; release the guard then
+			setTimeout(() => (skipHistory = false), 0);
+		}
+	}
+	function undo() {
+		if (histIdx <= 0) return;
+		histIdx -= 1;
+		applySnapshot(history[histIdx]);
+	}
+	function redo() {
+		if (histIdx >= history.length - 1) return;
+		histIdx += 1;
+		applySnapshot(history[histIdx]);
+	}
+	/** back to the last SAVED fit: the draft and this tab's live key go
+	 * with it (undoable like any other change) */
+	function revertToSaved() {
+		if (!photo || !savedFit) return;
+		applyRemoteFit(savedFit);
+		api.del(`/terrain/overlay-draft?photo_id=${photo.id}`).catch(() => {});
+		try {
+			localStorage.removeItem(liveKey(photo.id));
+		} catch {
+			/* fine */
+		}
+		lastSync = '';
+		draftState = '';
+		saveMsg = 'reverted to the saved fit';
+	}
+	/** apply a fit to the knobs the way a remote/live snapshot is applied
+	 * (fog included), without touching sync bookkeeping */
+	function applyRemoteFit(f: OverlayFit) {
+		const vk = applyFitState(f);
+		if (vk === null) visLog = visLogMax;
+		else setFogKm(vk);
+	}
 
 	// view transform: screen = base * z + (tx, ty). Base = the image
 	// contain-fitted into the fixed-height stage at zoom 1 (baseW × baseH
 	// CSS px, centered by the clamp), so a wide pano gets vertical room to
-	// zoom into instead of staying a fit-to-width noodle.
+	// zoom into instead of staying a fit-to-width noodle. OpenSeadragon owns
+	// the pan/zoom; (z, tx, ty) mirror its viewport (syncView) so the overlay
+	// canvas and every hit-test keep working in base space unchanged.
 	let z = $state(1);
 	let tx = $state(0);
 	let ty = $state(0);
 	let baseW = $state(0);
 	let baseH = $state(0);
-	let naturalW = $state(0); // image native px — crisp rendering past 1:1
+	let naturalW = $state(0); // image native px (the pyramid's true size)
+	let naturalH = $state(0);
 
-	let img: HTMLImageElement;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let viewer: any = null; // OpenSeadragon.Viewer, alive while the stage is
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let OSD: any = null;
 	let overlay: HTMLCanvasElement;
 	let stageEl: HTMLDivElement;
 
@@ -208,6 +387,12 @@
 		}
 		return null;
 	});
+	/** the DZI pyramid (worker skips it below 2048 px; older photos may lack
+	 * one) — without it the viewer opens imgUrl as a single image */
+	const pyramid = $derived.by((): DziPyramid | null => {
+		const p = photo?.sizes?.full?.pyramid;
+		return p && p.type === 'dzi' ? p : null;
+	});
 
 	async function load() {
 		err = null;
@@ -219,6 +404,9 @@
 		saveMsg = '';
 		draftState = '';
 		suppressDraft = true;
+		savedFit = null;
+		history = [];
+		histIdx = -1;
 		resetView();
 		warp = warp.map(() => 0);
 		rollDeg = 0;
@@ -240,11 +428,16 @@
 				savedVisKm = applyFitState(f);
 			};
 			try {
-				const sf = await api.get<{ fit: OverlayFit | null }>(
-					`/terrain/overlay-fit?photo_id=${photoId}`
-				);
+				const sf = await api.get<{
+					fit: OverlayFit | null;
+					fact?: string;
+					approved?: boolean;
+				}>(`/terrain/overlay-fit?photo_id=${photoId}`);
 				if (sf.fit) {
 					applyFit(sf.fit);
+					savedFit = sf.fit;
+					fitFact = sf.fact ?? null;
+					fitApproved = !!sf.approved;
 					saveMsg = 'restored saved fit';
 				}
 			} catch {
@@ -276,9 +469,16 @@
 				applyFit(restored.f);
 				lastSync = bareOf(restored.f as unknown as Record<string, unknown>);
 				lastTs = restored.f.saved_at ?? 0;
-				saveMsg = `restored ${restored.src}`;
+				const differs =
+					!savedFit ||
+					bareOf(restored.f as unknown as Record<string, unknown>) !==
+						bareOf(savedFit as unknown as Record<string, unknown>);
+				saveMsg = differs
+					? `restored ${restored.src} — unsaved changes since the last save (revert to drop them)`
+					: `restored ${restored.src} (same as the saved fit)`;
 				dlog(`restored ${restored.src} (saved_at=${restored.f.saved_at ?? 'none'})`);
 			}
+
 			status = 'loading render…';
 			const rs = await api.get<{ renders: RenderRow[] }>(
 				`/terrain/renders?photo_id=${photoId}`
@@ -290,6 +490,7 @@
 				status = '';
 				err = 'no finished render for this photo — enqueue one on the terrain bench first';
 				suppressDraft = false; // controls still usable; keep drafting
+				seedHistory();
 				return;
 			}
 			render = done;
@@ -303,13 +504,14 @@
 			status = 'loading depth…';
 			dlog('depth fetch…');
 			const buf = await (await fetch(`${apiBase}/terrain/renders/${done.id}/depth`)).arrayBuffer();
-			depth = new Uint16Array(buf);
+			depth = parseDepthBlob(buf, done.meta!); // HVD1 header, or a legacy buffer at meta's size
 			dlog(`depth ok ${(buf.byteLength / 1048576).toFixed(1)} MB`);
 			// the fit is fully workable now — labels are cosmetic. Drafting/
 			// sync must NOT wait for the peaks fetch (a cold Overpass pass can
 			// take minutes; sitting at "loading peaks" used to silently
 			// disable all persistence)
 			suppressDraft = false;
+			seedHistory();
 			requestAnimationFrame(draw);
 			status = 'loading peak labels… (fitting already works)';
 			// label candidates arrive CHUNKED, nearest tiles first: small
@@ -372,42 +574,12 @@
 		const key = `${render?.id}:${cutoffM ?? 'full'}`;
 		const hit = skyCaches.get(key);
 		if (hit) return hit;
-		const step = (meta.elev_max_deg - meta.elev_min_deg) / meta.height;
-		const out: (number | null)[] = new Array(meta.width).fill(null);
-		const maxQ = cutoffM === null ? 0xffff : Math.floor(cutoffM / meta.depth_scale_m);
-		for (let c = 0; c < meta.width; c++) {
-			// top-down to the first terrain pixel (rows above are sky = 0)
-			let r0 = -1;
-			for (let r = 0; r < meta.height; r++) {
-				if (d[r * meta.width + c] !== 0) {
-					r0 = r;
-					break;
-				}
-			}
-			if (r0 < 0) continue;
-			// below r0 depth is non-increasing (a lower ray hits terrain at or
-			// before a higher one), so the fog crossing binary-searches; near-
-			// clip sky (0) at the bottom passes the predicate and is rejected
-			// after the search
-			let lo = r0;
-			if (d[r0 * meta.width + c] > maxQ) {
-				let hi = meta.height;
-				while (lo < hi) {
-					const mid = (lo + hi) >> 1;
-					if (d[mid * meta.width + c] <= maxQ) hi = mid;
-					else lo = mid + 1;
-				}
-			}
-			if (lo >= meta.height || d[lo * meta.width + c] === 0) continue;
-			out[c] = meta.elev_max_deg - (lo + 0.5) * step;
-		}
+		const out = skylineFromDepth(meta, d, cutoffM);
 		// scrubbing the fog slider caches one array per stop — cap the map
 		if (skyCaches.size >= 8) skyCaches.delete(skyCaches.keys().next().value!);
 		skyCaches.set(key, out);
 		return out;
 	}
-
-	const wrapDelta = (d: number) => ((((d + 180) % 360) + 360) % 360) - 180;
 
 	/** apply a fit/draft/live snapshot to the alignment knobs; returns its
 	 * visibility_km (null = full) for the caller to apply once the render's
@@ -420,6 +592,11 @@
 		vScale = f.v_scale;
 		rollDeg = f.roll_deg;
 		if (f.warp?.length >= 2) warp = f.warp.slice();
+		hwarp = f.hwarp && f.hwarp.length === warp.length ? f.hwarp.slice() : warp.map(() => 0);
+		hscale = f.hscale && f.hscale.length === warp.length ? f.hscale.slice() : warp.map(() => 1);
+		knots = f.knots && f.knots.length === warp.length ? f.knots.slice() : uniformKnots(warp.length);
+		selectedSeg = null;
+		maxVisKm = f.max_visibility_km ?? DEFAULT_MAX_VIS_KM;
 		return f.visibility_km ?? null;
 	}
 
@@ -437,8 +614,21 @@
 		horizonPct = 50;
 		vScale = 1;
 		rollDeg = 0;
-		warp = warp.map(() => 0);
+		// a piecewise calibration seeds the seams and per-panel shift/scale;
+		// otherwise a neutral equally-spaced warp
+		const st = photo?.pie?.stitch;
+		if (st && st.knots?.length >= 2 && st.hwarp?.length === st.knots.length && st.hscale?.length === st.knots.length) {
+			knots = st.knots.slice();
+			warp = st.knots.map(() => 0);
+			hwarp = st.hwarp.slice();
+			hscale = st.hscale.slice();
+		} else {
+			warp = warp.map(() => 0);
+			hwarp = warp.map(() => 0);
+			hscale = warp.map(() => 1);
+		}
 		visLog = visLogMax;
+		maxVisKm = DEFAULT_MAX_VIS_KM;
 	}
 
 	function resetToDefaults() {
@@ -458,16 +648,9 @@
 
 	function fitPayload() {
 		return {
+			...liveFit(),
 			photo_id: photo!.id,
 			render_id: render?.id ?? null,
-			projection: proj,
-			centre_bearing: (photo!.pie?.bearing ?? 0) + bearingOffset,
-			fov_deg: fovDeg,
-			horizon_pct: horizonPct,
-			v_scale: vScale,
-			roll_deg: rollDeg,
-			warp: [...warp],
-			visibility_km: visCutoffM === null ? null : +(visCutoffM / 1000).toFixed(1),
 			saved_at: Date.now()
 		};
 	}
@@ -477,8 +660,22 @@
 		saving = true;
 		saveMsg = '';
 		try {
-			const r = await api.post<{ run_id: string }>('/terrain/overlay-fit', fitPayload());
+			const r = await api.post<{ run_id: string; fact: string }>(
+				'/terrain/overlay-fit',
+				fitPayload()
+			);
 			saveMsg = `saved ✓ run ${r.run_id.slice(0, 8)}`;
+			savedFit = liveFit();
+			// fits are content-addressed, so re-saving an alignment that was
+			// already graduated lands on the SAME fact and keeps its approval;
+			// a genuinely new alignment starts unapproved and has to be
+			// graduated deliberately
+			const wasFact = fitFact;
+			fitFact = r.fact;
+			if (wasFact !== r.fact) {
+				fitApproved = false;
+				gradMsg = '';
+			}
 			// the fact now carries this state — draft and live key are redundant
 			draftState = '';
 			api.del(`/terrain/overlay-draft?photo_id=${photo.id}`).catch(() => {});
@@ -496,153 +693,198 @@
 		}
 	}
 
-	/** warp offset (degrees, + = up) at horizontal fraction 0..1 */
-	function warpAt(frac: number): number {
-		const n = warp.length;
-		const pos = Math.min(1, Math.max(0, frac)) * (n - 1);
-		const i0 = Math.floor(pos);
-		const i1 = Math.min(n - 1, i0 + 1);
-		return warp[i0] + (warp[i1] - warp[i0]) * (pos - i0);
+	/** publish (or unpublish) the saved fit: approving the fact is what puts
+	 * this overlay in the graduation export's work list */
+	async function toggleGraduate() {
+		if (!photo || !fitFact) return;
+		const want = !fitApproved;
+		gradBusy = true;
+		gradMsg = '';
+		try {
+			await api.post('/terrain/overlay-fit/graduate', {
+				photo_id: photo.id,
+				fact: fitFact,
+				graduate: want
+			});
+			fitApproved = want;
+			gradMsg = want ? 'queued for graduation' : 'withdrawn';
+			dlog(`graduate=${want} fact=${fitFact.slice(-16)}`);
+		} catch (e) {
+			gradMsg = e instanceof ApiError ? `failed: ${e.status} ${e.message}` : 'failed';
+		} finally {
+			gradBusy = false;
+		}
 	}
 
-	/** change control-point count, preserving the current warp shape */
-	function resampleWarp(old: number[], n: number): number[] {
-		n = Math.min(9, Math.max(2, n));
-		if (old.length === n) return old.slice();
-		const out: number[] = [];
-		for (let i = 0; i < n; i++) {
-			const pos = (i / (n - 1)) * (old.length - 1);
-			const i0 = Math.floor(pos);
-			const i1 = Math.min(old.length - 1, i0 + 1);
-			out.push(old[i0] + (old[i1] - old[i0]) * (pos - i0));
-		}
-		return out;
+	/** warp offset (degrees, + = up) at horizontal fraction 0..1 */
+	const warpAt = (frac: number) => warpAtShared(warp, frac, knots);
+
+	/** the live alignment as an OverlayFit — the shared projector's input, and
+	 * the exact shape that gets saved, drafted and eventually graduated */
+	function liveFit(): OverlayFit {
+		return {
+			projection: proj,
+			centre_bearing: (photo?.pie?.bearing ?? 0) + bearingOffset,
+			fov_deg: fovDeg,
+			horizon_pct: horizonPct,
+			v_scale: vScale,
+			roll_deg: rollDeg,
+			warp: [...warp],
+			// only when they do something — an untouched fit keeps its shape
+			...(hwarp.some((v) => v !== 0) ? { hwarp: [...hwarp] } : {}),
+			...(hscale.some((v, i) => i < hscale.length - 1 && v !== 1) ? { hscale: [...hscale] } : {}),
+			...(!isUniform(knots) ? { knots: [...knots] } : {}),
+			visibility_km: visCutoffM === null ? null : +(visCutoffM / 1000).toFixed(1),
+			...(Math.abs(maxVisKm - DEFAULT_MAX_VIS_KM) > 1e-9 ? { max_visibility_km: +maxVisKm.toFixed(1) } : {})
+		};
 	}
+
+	/** the fit's geometry over the contain-fitted base box */
+	const baseProjector = () => createOverlayProjector(liveFit(), baseW, baseH);
 
 	function pxPerDegBase(): number {
-		return (baseW / fovDeg) * vScale;
+		return baseProjector().pxPerDeg;
 	}
 
 	function resetView() {
-		z = 1;
-		tx = 0;
-		ty = 0;
-		if (stageEl) clampPan();
+		if (viewer?.viewport) viewer.viewport.goHome(true);
+		else {
+			z = 1;
+			tx = 0;
+			ty = 0;
+		}
+	}
+
+	/** double-click: on a handle → remove that seam; elsewhere on the pano →
+	 * put a seam there (the panel it splits keeps its numbers on both
+	 * sides). Zoom reset moved to the "reset" button. */
+	function onStageDblClick(p: { x: number; y: number }) {
+		if (!photo) return;
+		const hi = hitHandle(p);
+		if (hi !== null) {
+			removeKnot(hi);
+			return;
+		}
+		const xb = (p.x - tx) / z; // base-space x
+		if (xb < 0 || xb > baseW) return;
+		insertKnot(xb / baseW);
 	}
 
 	/** contain-fit the image into the stage box → base dimensions */
 	function fit() {
-		if (!stageEl || !img?.naturalWidth || !img.naturalHeight) return;
-		const a = img.naturalWidth / img.naturalHeight;
-		naturalW = img.naturalWidth;
+		if (!stageEl || !naturalW || !naturalH) return;
+		const a = naturalW / naturalH;
 		baseW = Math.min(stageEl.clientWidth, stageEl.clientHeight * a);
 		baseH = baseW / a;
-		clampPan();
+		// zoom cap relative to the image's NATIVE pixels: allow up to ~8×
+		// beyond 1:1 (over-zoom is genuinely useful when nudging the curve by
+		// 0.01°), with ×16 over the fit as the floor for small images
+		if (viewer?.viewport) viewer.viewport.maxZoomPixelRatio = Math.max(8, (16 * baseW) / naturalW);
+		syncView();
 	}
 
-	/** clamp one axis: center when it fits, edge-clamp when it overflows */
-	function clampAxis(t: number, extent: number, avail: number): number {
-		if (extent <= avail) return (avail - extent) / 2;
-		return Math.min(0, Math.max(avail - extent, t));
+	/** mirror OSD's viewport into the (z, tx, ty) view transform the overlay
+	 * draws with — viewport x ≡ image width, so the screen span of [0, 1] is
+	 * the displayed image width. Runs per animated frame (viewport-change). */
+	function syncView() {
+		if (!viewer?.viewport || !OSD || !(baseW > 0)) return;
+		const vp = viewer.viewport;
+		const p0 = vp.viewportToViewerElementCoordinates(new OSD.Point(0, 0));
+		const p1 = vp.viewportToViewerElementCoordinates(new OSD.Point(1, 0));
+		const w = p1.x - p0.x;
+		if (!(w > 0)) return;
+		z = w / baseW;
+		tx = p0.x;
+		ty = p0.y;
 	}
 
-	function clampPan() {
-		tx = clampAxis(tx, baseW * z, stageEl?.clientWidth ?? 0);
-		ty = clampAxis(ty, baseH * z, stageEl?.clientHeight ?? 0);
-	}
+	// --- stage interactions: OSD owns pan / wheel-zoom / pinch (edge-clamped,
+	// no zoom-out past the fit); a press on a handle or a label pill takes the
+	// gesture over via preventDefaultAction on the drag events ---
+	let press: { kind: 'handle'; idx: number } | { kind: 'pill' } | null = null;
 
-	function zoomAt(px: number, py: number, factor: number) {
-		// cap relative to the image's NATIVE pixels: allow up to ~8× beyond
-		// 1:1 (over-zoom is genuinely useful when nudging the curve by 0.01°),
-		// with ×16 as the floor for small images
-		const native = baseW > 0 && img?.naturalWidth ? img.naturalWidth / baseW : 1;
-		const zMax = Math.max(16, native * 8);
-		const z2 = Math.min(zMax, Math.max(1, z * factor));
-		const f = z2 / z;
-		tx = px - (px - tx) * f;
-		ty = py - (py - ty) * f;
-		z = z2;
-		clampPan();
-	}
-
-	// --- stage interactions: pan / wheel-zoom / pinch / handle drag ---
-	const pointers = new Map<number, { x: number; y: number }>();
-	let drag: { kind: 'pan' } | { kind: 'handle'; idx: number } | null = null;
-
-	function stagePos(e: PointerEvent | WheelEvent) {
-		const r = stageEl.getBoundingClientRect();
-		return { x: e.clientX - r.left, y: e.clientY - r.top };
-	}
-
-	/** base-space position of warp handle i on the (warped) horizon line */
-	function handleBase(i: number): { x: number; y: number } {
-		const W = baseW;
-		const H = baseH;
-		const xb = (i / (warp.length - 1)) * W;
-		const rollK = Math.tan((rollDeg * Math.PI) / 180);
-		const yb = (horizonPct / 100) * H + (xb - W / 2) * rollK - warpAt(xb / W) * pxPerDegBase();
-		return { x: xb, y: yb };
+	/** base-space position of warp handle i on the (warped) horizon line —
+	 * drawn where the knot's ideal azimuth now sits, so a sideways drag moves
+	 * the handle with the content it re-aligned */
+	function handleBase(i: number, proj = baseProjector()): { x: number; y: number } {
+		const xb = (knots[i] ?? i / (warp.length - 1)) * baseW; // the seam itself
+		return { x: xb, y: proj.horizonY(xb) };
 	}
 
 	function hitHandle(p: { x: number; y: number }): number | null {
+		const proj = baseProjector();
 		for (let i = 0; i < warp.length; i++) {
-			const h = handleBase(i);
+			const h = handleBase(i, proj);
 			if (Math.hypot(h.x * z + tx - p.x, h.y * z + ty - p.y) <= HANDLE_HIT) return i;
 		}
 		return null;
 	}
 
-	function onPointerDown(e: PointerEvent) {
-		stageEl.setPointerCapture(e.pointerId);
-		const p = stagePos(e);
-		pointers.set(e.pointerId, p);
-		if (pointers.size === 1) {
-			const hi = hitHandle(p);
-			drag = hi !== null ? { kind: 'handle', idx: hi } : { kind: 'pan' };
-		} else {
-			drag = null; // second finger cancels handle/pan → pinch
+	// OSD canvas-* event shapes (position/delta are px relative to the viewer
+	// element, which fills the stage — same frame as the overlay canvas)
+	type OsdPt = { x: number; y: number };
+	type OsdPress = { position: OsdPt };
+	type OsdDrag = {
+		delta: OsdPt;
+		originalEvent: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean };
+		preventDefaultAction: boolean;
+	};
+
+	function onCanvasPress(e: OsdPress) {
+		const p = e.position;
+		// a tap on a label pill reveals what the label is claiming
+		const pill = hitSkyLabel(placedPills, p.x, p.y);
+		if (pill) {
+			labelInfo = pill.mark;
+			press = { kind: 'pill' };
+			return;
+		}
+		const hi = hitHandle(p);
+		if (hi !== null) selectedSeg = panelOf(hi);
+		press = hi !== null ? { kind: 'handle', idx: hi } : null;
+	}
+
+	function onCanvasDrag(e: OsdDrag) {
+		if (!press) return; // plain drag → OSD pans
+		e.preventDefaultAction = true;
+		if (press.kind !== 'handle') return;
+		const ppd = pxPerDegBase();
+		if (ppd <= 0) return;
+		const mods = e.originalEvent ?? {};
+		const dx = e.delta.x;
+		const dy = e.delta.y;
+		const idx = press.idx;
+		const seg = panelOf(idx);
+		const sc = hscale[seg] || 1;
+		const dDeg = dy / z / (ppd * sc);
+		warp = warp.map((v, i) => (i === idx ? v - dDeg : v));
+		if (mods.ctrlKey || mods.metaKey) {
+			// Ctrl: SCALE the panel about its centre — pull its edge at
+			// the handle in (drag toward the centre) or out; the content
+			// at the handle follows the pointer
+			const half = ((knots[seg + 1] - knots[seg]) / 2) * baseW;
+			if (half > 1) {
+				const dxb = dx / z;
+				const towardCentre = idx <= seg ? dxb : -dxb; // left edge: right = in
+				const f = Math.max(0.5, Math.min(2, 1 - towardCentre / half));
+				hscale = hscale.map((v, i) => (i === seg ? +(v * f).toFixed(5) : v));
+			}
+		} else if (!mods.shiftKey) {
+			// sideways: content dragged right ⇒ the pano shows a LOWER
+			// azimuth here than the model thought ⇒ negative offset — for
+			// this handle's panel and every panel to its right (a stitched
+			// pano's error accumulates seam by seam); Alt = this panel
+			// only; Shift = vertical only.
+			const dxDeg = dx / z / ppd;
+			hwarp = hwarp.map((v, i) =>
+				(mods.altKey ? i === seg : i >= seg && i < hwarp.length - 1) ? v - dxDeg : v
+			);
 		}
 	}
 
-	function onPointerMove(e: PointerEvent) {
-		const prev = pointers.get(e.pointerId);
-		if (!prev) return;
-		const p = stagePos(e);
-		if (pointers.size === 2) {
-			let other: { x: number; y: number } | null = null;
-			for (const [id, q] of pointers) if (id !== e.pointerId) other = q;
-			if (other) {
-				const d0 = Math.hypot(prev.x - other.x, prev.y - other.y);
-				const d1 = Math.hypot(p.x - other.x, p.y - other.y);
-				if (d0 > 0) zoomAt((p.x + other.x) / 2, (p.y + other.y) / 2, d1 / d0);
-				tx += (p.x - prev.x) / 2;
-				ty += (p.y - prev.y) / 2;
-				clampPan();
-			}
-		} else if (drag?.kind === 'handle') {
-			const ppd = pxPerDegBase();
-			if (ppd > 0) {
-				const dDeg = (p.y - prev.y) / z / ppd;
-				const idx = drag.idx;
-				warp = warp.map((v, i) => (i === idx ? v - dDeg : v));
-			}
-		} else if (drag?.kind === 'pan') {
-			tx += p.x - prev.x;
-			ty += p.y - prev.y;
-			clampPan();
-		}
-		pointers.set(e.pointerId, p);
-	}
-
-	function onPointerUp(e: PointerEvent) {
-		pointers.delete(e.pointerId);
-		drag = pointers.size === 1 ? { kind: 'pan' } : null;
-	}
-
-	function onWheel(e: WheelEvent) {
-		e.preventDefault();
-		const p = stagePos(e);
-		zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.0018));
+	/** release / drag-end / a second finger (pinch) all end a handle drag */
+	function onCanvasRelease() {
+		press = null;
 	}
 
 	function draw() {
@@ -661,36 +903,14 @@
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, sw, sh);
 
+		// the fit's geometry, shared with the main app's zoom view: (azimuth
+		// delta, elevation)° → a point in base space. All three projections
+		// share px/deg = W/fov at the centre of the horizon, so switching
+		// projections keeps the rough fit.
 		const centre = (photo.pie?.bearing ?? 0) + bearingOffset;
-		const horizonY = (horizonPct / 100) * H;
-		const pxPerDeg = (W / fovDeg) * vScale; // equirect square-pixel guess × trim
-		const rollK = Math.tan((rollDeg * Math.PI) / 180);
-		// warped+rolled horizon in base space, then base → screen
-		const hyBase = (x: number) => horizonY + (x - W / 2) * rollK - warpAt(x / W) * pxPerDeg;
-		// projection: (azimuth delta, elevation)° → base x + px displacement
-		// above the horizon. All three share px/deg = W/fov at the centre of
-		// the horizon, so switching projections keeps the rough fit.
-		const fovRad = (Math.min(fovDeg, 358) * Math.PI) / 180;
-		const fCyl = (W / fovRad) * vScale;
-		const fRectH = W / 2 / Math.tan(Math.min(fovRad, (178 * Math.PI) / 180) / 2);
-		const project = (deltaDeg: number, elevDeg: number): { xb: number; dy: number } | null => {
-			const a = (deltaDeg * Math.PI) / 180;
-			const e = (elevDeg * Math.PI) / 180;
-			switch (proj) {
-				case 'equirect':
-					if (Math.abs(deltaDeg) > fovDeg / 2 + 2) return null;
-					return { xb: W * (0.5 + deltaDeg / fovDeg), dy: elevDeg * pxPerDeg };
-				case 'cylindrical':
-					if (Math.abs(deltaDeg) > fovDeg / 2 + 2) return null;
-					return { xb: W * (0.5 + deltaDeg / fovDeg), dy: fCyl * Math.tan(e) };
-				case 'rectilinear': {
-					if (Math.abs(deltaDeg) >= 89) return null;
-					const xb = W / 2 + fRectH * Math.tan(a);
-					if (xb < -0.1 * W || xb > 1.1 * W) return null;
-					return { xb, dy: (fRectH * vScale * Math.tan(e)) / Math.cos(a) };
-				}
-			}
-		};
+		const projector = createOverlayProjector(liveFit(), W, H);
+		const hyBase = projector.horizonY;
+		const project = projector.project;
 		const toX = (x: number) => x * z + tx;
 		const toY = (y: number) => y * z + ty;
 
@@ -701,7 +921,7 @@
 		ctx.lineWidth = 1;
 		ctx.beginPath();
 		for (let i = 0; i < warp.length; i++) {
-			const xb = (i / (warp.length - 1)) * W;
+			const xb = (knots[i] ?? i / (warp.length - 1)) * W;
 			if (i) ctx.lineTo(toX(xb), toY(hyBase(xb)));
 			else ctx.moveTo(toX(xb), toY(hyBase(xb)));
 		}
@@ -743,9 +963,8 @@
 						pen = false;
 						continue;
 					}
-					const yb = hyBase(pt.xb) - pt.dy;
-					if (pen) ctx.lineTo(toX(pt.xb), toY(yb));
-					else ctx.moveTo(toX(pt.xb), toY(yb));
+					if (pen) ctx.lineTo(toX(pt.x), toY(pt.y));
+					else ctx.moveTo(toX(pt.x), toY(pt.y));
 					pen = true;
 				}
 				ctx.stroke();
@@ -758,7 +977,10 @@
 		// per-neighborhood thinning keeps the best name per column
 		if (showLabels && marks.length) {
 			ctx.font = '11px system-ui, sans-serif';
-			const inputs: { label: string; cx: number; cy: number; pillW: number; id?: string }[] = [];
+			const inputs: {
+				label: string; cx: number; cy: number; pillW: number;
+				kind?: string; cls?: PeakMark['class']; mark: PeakMark;
+			}[] = [];
 			for (const m of marks) {
 				if (!showPlaces && m.kind && PLACE_KINDS.has(m.kind)) continue;
 				if (visCutoffM !== null && m.distance_m > visCutoffM) continue;
@@ -767,41 +989,26 @@
 					meta.elev_max_deg - m.v * (meta.elev_max_deg - meta.elev_min_deg);
 				const pt = project(delta, elev);
 				if (!pt) continue;
-				const xb = pt.xb;
-				const yb = hyBase(xb) - pt.dy;
-				const km = m.distance_m / 1000;
-				const label = `${m.name} · ${km >= 10 ? Math.round(km) : km.toFixed(1)} km`;
+				const xb = pt.x;
+				const yb = pt.y;
+				// what the label CLAIMS decides its text: summit → name + OSM
+				// elevation, mass → name, direction → name, dim
+				const label = labelText(m, { km: true });
 				inputs.push({
 					label,
 					cx: toX(xb),
 					cy: toY(yb),
 					pillW: Math.ceil(ctx.measureText(label).width) + 12,
-					id: m.kind
+					kind: m.kind,
+					cls: m.class,
+					mark: m
 				});
 			}
 			ctx.textBaseline = 'middle';
-			for (const l of layoutSkyLabels(inputs, sw, sh, { pillH: 18, leader: 14 })) {
-				// settlements tinted blue vs terrain features' yellow/black
-				const isPlace = !!l.id && PLACE_KINDS.has(l.id);
-				ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-				ctx.lineWidth = 1;
-				ctx.beginPath();
-				ctx.moveTo(l.cx, l.ty + l.pillH);
-				ctx.lineTo(l.cx, l.cy - 3);
-				ctx.stroke();
-				ctx.beginPath();
-				ctx.arc(l.cx, l.cy, 2.2, 0, Math.PI * 2);
-				ctx.fillStyle = isPlace ? 'rgba(143,180,217,0.95)' : 'rgba(255,220,50,0.95)';
-				ctx.fill();
-				ctx.beginPath();
-				ctx.roundRect(l.tx, l.ty, l.pillW, l.pillH, 4);
-				ctx.fillStyle = isPlace ? 'rgba(20,44,74,0.68)' : 'rgba(0,0,0,0.62)';
-				ctx.fill();
-				ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-				ctx.stroke();
-				ctx.fillStyle = '#fff';
-				ctx.fillText(l.label, l.tx + 6, l.ty + l.pillH / 2 + 0.5);
-			}
+			placedPills = layoutSkyLabels(inputs, sw, sh, { pillH: 18, leader: 14 });
+			paintSkyPills(ctx, placedPills);
+		} else {
+			placedPills = [];
 		}
 
 		// warp handles (constant screen size)
@@ -820,6 +1027,25 @@
 			ctx.arc(hx, hy, 1.6, 0, Math.PI * 2);
 			ctx.fillStyle = 'rgba(255,220,50,0.95)';
 			ctx.fill();
+			// the panel to the right: its numbers, when it has any; the
+			// selected panel's handle is ringed
+			const seg = panelOf(i);
+			if (i < warp.length - 1 && (hwarp[seg] !== 0 || hscale[seg] !== 1)) {
+				ctx.font = '10px ui-monospace, monospace';
+				ctx.textAlign = 'left';
+				ctx.fillStyle = 'rgba(255,255,255,0.85)';
+				const parts = [];
+				if (hwarp[seg] !== 0) parts.push(`${hwarp[seg] > 0 ? '+' : ''}${hwarp[seg].toFixed(2)}°`);
+				if (hscale[seg] !== 1) parts.push(`×${hscale[seg].toFixed(3)}`);
+				ctx.fillText(parts.join(' '), hx + HANDLE_R + 3, hy + HANDLE_R + 10);
+			}
+			if (selectedSeg !== null && i === selectedSeg) {
+				ctx.beginPath();
+				ctx.arc(hx, hy, HANDLE_R + 3, 0, Math.PI * 2);
+				ctx.strokeStyle = 'rgba(255,220,50,0.9)';
+				ctx.lineWidth = 1;
+				ctx.stroke();
+			}
 		}
 	}
 
@@ -832,6 +1058,10 @@
 		void vScale;
 		void rollDeg;
 		void warp;
+		void hwarp;
+		void hscale;
+		void knots;
+		void selectedSeg;
 		void showCurve;
 		void showLabels;
 		void showPlaces;
@@ -856,6 +1086,10 @@
 		void vScale;
 		void rollDeg;
 		void warp;
+		void hwarp;
+		void hscale;
+		void knots;
+		void selectedSeg;
 		void visLog;
 		if (!photo || suppressDraft) {
 			if (photo && suppressDraft)
@@ -864,6 +1098,7 @@
 		}
 		const payload = fitPayload();
 		const bare = bareOf(payload);
+		scheduleHistory();
 		// identical alignment to one just received from another window → the
 		// writer already persisted it; rewriting would ping-pong events
 		if (bare === lastSync) return;
@@ -888,9 +1123,7 @@
 
 	// action on the stage div: it lives behind {#if imgUrl}, so it doesn't
 	// exist yet at onMount — wire listeners when the element itself appears.
-	// Wheel must be a manual non-passive listener to preventDefault scroll.
 	function stageSetup(node: HTMLElement) {
-		node.addEventListener('wheel', onWheel, { passive: false });
 		const ro = new ResizeObserver(() => {
 			fit();
 			draw();
@@ -898,8 +1131,82 @@
 		ro.observe(node);
 		return {
 			destroy: () => {
-				node.removeEventListener('wheel', onWheel);
 				ro.disconnect();
+			}
+		};
+	}
+
+	/** the pano layer: an OpenSeadragon viewer on the host div, opened on the
+	 * DZI pyramid (single full image when there is none). Also an action —
+	 * the host appears/disappears with {#if imgUrl}, and load() nulls the
+	 * photo first, so a photo switch is always destroy → fresh viewer. */
+	function osdSetup(node: HTMLElement) {
+		let destroyed = false;
+		let fellBack = false;
+		const url = imgUrl!;
+		const pyr = pyramid;
+		const source = pyr ? buildTileSource(pyr, url) : { type: 'image', url };
+		dlog(pyr ? `osd: dzi ${pyr.width}x${pyr.height} tile ${pyr.tile_size}` : `osd: single image ${url}`);
+		import('openseadragon').then((mod) => {
+			if (destroyed) return;
+			OSD = mod.default;
+			viewer = new OSD.Viewer({
+				...OSD_VIEWER_DEFAULTS,
+				element: node,
+				tileSources: source,
+				// bench overrides: fine wheel steps (this is a 0.01° tool);
+				// double-click is seam add/remove, not zoom; no touch flick;
+				// edge-clamped pans and no zoom-out past the fit (the old
+				// clampPan); no keyboard nav — r rotates and f flips, which
+				// would break the affine view mirror (ctrl+z still bubbles to
+				// the window handler)
+				zoomPerScroll: 1.2,
+				gestureSettingsMouse: { clickToZoom: false, dblClickToZoom: false, dblClickDragToZoom: false },
+				gestureSettingsTouch: {
+					clickToZoom: false,
+					dblClickToZoom: false,
+					dblClickDragToZoom: false,
+					flickEnabled: false
+				},
+				constrainDuringPan: true,
+				visibilityRatio: 1,
+				minZoomImageRatio: 1,
+				maxZoomPixelRatio: 8,
+				keyboardNavEnabled: false,
+				imageLoaderLimit: 4
+			});
+			viewer.addHandler('open', () => {
+				const size = viewer.world.getItemAt(0)?.getContentSize?.();
+				if (size) {
+					naturalW = size.x;
+					naturalH = size.y;
+				}
+				dlog(`osd open ${naturalW}x${naturalH}`);
+				fit();
+				draw();
+			});
+			viewer.addHandler('open-failed', (e: { message?: string }) => {
+				dlog(`osd open FAILED: ${e?.message ?? '?'}`);
+				if (pyr && !fellBack) {
+					fellBack = true;
+					dlog('osd: falling back to the single image');
+					viewer.open({ type: 'image', url });
+				}
+			});
+			viewer.addHandler('viewport-change', syncView);
+			viewer.addHandler('animation-finish', syncView);
+			viewer.addHandler('canvas-press', onCanvasPress);
+			viewer.addHandler('canvas-drag', onCanvasDrag);
+			viewer.addHandler('canvas-drag-end', onCanvasRelease);
+			viewer.addHandler('canvas-release', onCanvasRelease);
+			viewer.addHandler('canvas-pinch', onCanvasRelease);
+			viewer.addHandler('canvas-double-click', (e: OsdPress) => onStageDblClick(e.position));
+		});
+		return {
+			destroy: () => {
+				destroyed = true;
+				viewer?.destroy();
+				viewer = null;
 			}
 		};
 	}
@@ -961,7 +1268,23 @@
 			window.removeEventListener('pagehide', onHide);
 		};
 	});
+	// keyboard: undo/redo like any editor — but not while typing in a field
+	function onKey(e: KeyboardEvent) {
+		const t = e.target as HTMLElement | null;
+		if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+		if (!(e.ctrlKey || e.metaKey)) return;
+		if (e.key === 'z' || e.key === 'Z') {
+			e.preventDefault();
+			if (e.shiftKey) redo();
+			else undo();
+		} else if (e.key === 'y' || e.key === 'Y') {
+			e.preventDefault();
+			redo();
+		}
+	}
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <h1 style="font-size:16px">Terrain ⧉ pano overlay <small style="opacity:.6">(experiment)</small></h1>
 
@@ -977,6 +1300,12 @@
 		</span>
 	{/if}
 	{#if status}<span class="info">{status}</span>{/if}
+	{#if labelInfo}
+		<span class="info" data-testid="overlay-label-evidence" title="tap a label to see what it claims">
+			<b>{labelInfo.name}</b> · {labelInfo.class} — {labelEvidence(labelInfo)}
+			<button class="linkish" onclick={() => (labelInfo = null)} aria-label="dismiss">×</button>
+		</span>
+	{/if}
 	{#if err}<span class="err">{err}</span>{/if}
 </section>
 
@@ -1004,8 +1333,8 @@
 		</label>
 		<label>
 			fov
-			<input class="num" type="number" min="5" max="360" step="0.1" bind:value={fovDeg} />°
-			<input type="range" min="20" max="360" step="0.1" bind:value={fovDeg} />
+			<input class="num" type="number" min="5" max="400" step="0.1" bind:value={fovDeg} title="horizontal field of view; a stitched pano may exceed 360° by its closing overlap" />°
+			<input type="range" min="20" max="400" step="0.1" bind:value={fovDeg} />
 		</label>
 		<label>
 			horizon
@@ -1023,7 +1352,7 @@
 			<input type="range" min="-8" max="8" step="0.05" bind:value={rollDeg} />
 		</label>
 		<label>
-			fog
+			<span title="the DEFAULT visibility visitors open with — cut the skyline and labels where the photo's haze cuts them; the zoom view can then slide fog between here and 'max'">fog</span>
 			<input
 				class="num"
 				type="number"
@@ -1035,11 +1364,40 @@
 			/>km
 			<input type="range" min="3" max={visLogMax} step="0.01" bind:value={visLog} />
 		</label>
-		<span class="group">
-			segments <span class="val">{warp.length - 1}</span>
-			<button onclick={() => (warp = resampleWarp(warp, warp.length + 1))} disabled={warp.length >= 9}>+</button>
-			<button onclick={() => (warp = resampleWarp(warp, warp.length - 1))} disabled={warp.length <= 2}>−</button>
-			<button onclick={() => { warp = warp.map(() => 0); rollDeg = 0; }} title="zero all handle offsets and roll">level</button>
+		<label title="how far the graduated document reaches: labels are baked out to this, CAPPED BY THE RENDER'S OWN RANGE — asking for more than the render covers cannot invent terrain, so re-render further if you need it. The fog slider on the left is the DEFAULT visitors open with — tune it to the photo's haze.">
+			max
+			<input class="num" type="number" min="5" max="400" step="5" bind:value={maxVisKm} data-testid="overlay-max-vis" />km
+			{#if maxVisKm > maxDistM / 1000 + 0.05}
+				<span class="info warn" data-testid="overlay-max-vis-capped"
+					>→ {Math.round(maxDistM / 1000)} km (render's range)</span
+				>
+			{/if}
+		</label>
+		<span class="group" title="handles sit on seams. Drag up/down: lift the horizon there. Sideways: SHIFT the panel to the right of the handle and every panel beyond it (a stitched pano's error accumulates seam by seam) — Alt: this panel only, Shift: vertical only. Ctrl-drag: SCALE that panel about its centre (both axes — a frame stitched at the wrong focal length). Double-click the pano to add a seam where the stitch has one, double-click a handle to remove it; click a handle to edit its panel's numbers.">
+			segments
+			<input
+				class="num"
+				type="number"
+				min="1"
+				max={MAX_SEGMENTS}
+				step="1"
+				value={warp.length - 1}
+				data-testid="overlay-segments"
+				onchange={(e) => setSegments(e.currentTarget.valueAsNumber)}
+			/>
+			<button onclick={() => setSegments(warp.length)} disabled={warp.length >= MAX_SEGMENTS + 1}>+</button>
+			<button onclick={() => setSegments(warp.length - 2)} disabled={warp.length <= 2}>−</button>
+			<button onclick={() => { warp = warp.map(() => 0); hwarp = hwarp.map(() => 0); hscale = hscale.map(() => 1); rollDeg = 0; }} title="zero all handle offsets (vertical and sideways), reset panel scales and roll — seams stay">level</button>
+			{#if !isUniform(knots)}<span class="info" title="seams are where you put them (double-click the pano to add, a handle to remove); the number field re-spaces them equally">seams placed</span>{/if}
+			{#if selectedSeg !== null && selectedSeg < warp.length - 1}
+				<span class="panel-editor" title="the panel to the right of the clicked handle: sideways shift in degrees and scale about its centre (both axes)">
+					panel {selectedSeg + 1}
+					shift <input class="num" type="number" step="0.01" value={hwarp[selectedSeg]} data-testid="overlay-panel-shift"
+						onchange={(e) => { const v = e.currentTarget.valueAsNumber; if (Number.isFinite(v)) hwarp = hwarp.map((h, i) => (i === selectedSeg ? v : h)); }} />°
+					scale <input class="num" type="number" step="0.001" min="0.5" max="2" value={hscale[selectedSeg]} data-testid="overlay-panel-scale"
+						onchange={(e) => { const v = e.currentTarget.valueAsNumber; if (Number.isFinite(v) && v > 0) hscale = hscale.map((h, i) => (i === selectedSeg ? v : h)); }} />
+				</span>
+			{/if}
 		</span>
 		<span class="group">
 			zoom <span class="val">×{z.toFixed(2)}</span>
@@ -1051,44 +1409,50 @@
 				disabled={!photo}
 				title="reset all alignment to the calibration-derived defaults and discard the draft"
 			>defaults</button>
-			<button onclick={saveFit} disabled={saving || !photo}>save fit</button>
+			<button onclick={undo} disabled={histIdx <= 0} title="undo (Ctrl+Z)">↶</button>
+			<button onclick={redo} disabled={histIdx >= history.length - 1} title="redo (Ctrl+Shift+Z)">↷</button>
+			<button
+				onclick={revertToSaved}
+				disabled={!photo || !savedFit || !dirty}
+				data-testid="overlay-revert"
+				title="back to the last saved fit — drops the draft and this tab's live state (undoable)"
+			>revert</button>
+			<button onclick={saveFit} disabled={saving || !photo || (!dirty && !!fitFact)} data-testid="overlay-save">save fit</button>
+			<span class="info state" class:dirty data-testid="overlay-fit-state">
+				{#if !photo}—{:else if !savedFit}never saved{:else if dirty}unsaved changes{:else}saved ✓{/if}
+			</span>
 			{#if saveMsg}<span class="info">{saveMsg}</span>{/if}
 			{#if draftState}<span class="info">{draftState}</span>{/if}
 		</span>
+		<span class="group">
+			<label
+				title={fitFact
+					? 'approve this fit so the graduation export carries the overlay into Hillview'
+					: 'save the fit first — graduation publishes a saved fit'}
+			>
+				<input
+					type="checkbox"
+					data-testid="overlay-graduate"
+					checked={fitApproved}
+					disabled={gradBusy || !fitFact}
+					onchange={toggleGraduate}
+				/>
+				graduate
+			</label>
+			{#if gradMsg}<span class="info">{gradMsg}</span>{/if}
+		</span>
 	</section>
 
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div
-		class="stage"
-		bind:this={stageEl}
-		use:stageSetup
-		onpointerdown={onPointerDown}
-		onpointermove={onPointerMove}
-		onpointerup={onPointerUp}
-		onpointercancel={onPointerUp}
-		ondblclick={resetView}
-	>
-		<img
-			bind:this={img}
-			src={imgUrl}
-			alt={photo?.title ?? 'pano'}
-			draggable="false"
-			class:pixelated={naturalW > 0 && z * baseW > naturalW}
-			style="width: {baseW}px; transform: translate({tx}px, {ty}px) scale({z})"
-			onload={() => {
-				dlog(`img loaded ${img.naturalWidth}x${img.naturalHeight}`);
-				fit();
-				draw();
-			}}
-			onerror={() => dlog(`img FAILED: ${imgUrl}`)}
-		/>
+	<div class="stage" bind:this={stageEl} use:stageSetup>
+		<div class="osd" use:osdSetup data-testid="overlay-osd"></div>
 		<canvas bind:this={overlay}></canvas>
 	</div>
 	<p class="hint">
 		<b>proj</b> must match the pano's stitch output projection — read the .pto p-line's f-value
 		(f0 rectilinear / f1 cylindrical / f2 equirect); it varies per pano, see
 		docs/pano-source-archaeology.md. Wrong projection = unfittable by design.
-		<b>wheel / pinch</b> zooms about the cursor, <b>drag</b> pans, <b>double-click</b> resets.
+		<b>wheel / pinch</b> zooms about the cursor (into the full-resolution pyramid), <b>drag</b> pans,
+		<b>double-click</b> adds/removes a seam, <b>reset</b> refits.
 		The dashed line is the horizon reference — drag its <b>round handles</b> up/down to bend the
 		fit locally (offsets interpolate between handles; <b>segments ±</b> adds or removes them —
 		with just two, dragging the ends IS a roll). The <b>roll</b> slider tilts globally on top.
@@ -1101,6 +1465,12 @@
 <style>
 	.pick { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
 	.info { font-size: 12px; opacity: 0.7; }
+	.info.state { opacity: 0.9; }
+	.panel-editor { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; margin-left: 6px; }
+	.panel-editor .num { width: 5.5em; }
+	.info.state.dirty { color: #f2d55c; }
+	.info.warn { color: #f2d55c; opacity: 0.95; }
+	.linkish { background: none; border: 0; color: inherit; cursor: pointer; padding: 0 4px; font: inherit; }
 	.err { color: #d33; font-size: 12px; }
 	.controls {
 		display: flex;
@@ -1141,20 +1511,9 @@
 		user-select: none;
 	}
 	.stage:active { cursor: grabbing; }
-	.stage img {
-		position: absolute;
-		top: 0;
-		left: 0;
-		display: block;
-		max-width: none;
-		height: auto;
-		transform-origin: 0 0;
-		will-change: transform;
-	}
-	/* past 1:1 native pixels, smoothing turns detail to mush — go crisp */
-	.stage img.pixelated {
-		image-rendering: pixelated;
-	}
+	/* the OSD host fills the stage; the overlay canvas sits above it and never
+	 * takes pointer events — OSD's canvas-* events drive handle drags */
+	.stage .osd { position: absolute; inset: 0; }
 	.stage canvas { position: absolute; inset: 0; pointer-events: none; }
 	.hint { font-size: 12px; opacity: 0.6; max-width: 60rem; }
 </style>

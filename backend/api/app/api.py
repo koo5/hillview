@@ -469,7 +469,26 @@ async def robots_txt():
 	# the API surface out of search, but allow the Swagger UI at /docs (so it can be
 	# discovered). The matching X-Robots-Tag header (see SecurityHeadersMiddleware)
 	# skips /docs for the same reason.
-	return PlainTextResponse("User-agent: *\nAllow: /docs\nDisallow: /\n")
+	#
+	# /bestof/photos is allowed too. hillview.cz/bestof server-renders its first
+	# batch and lazy-loads the rest; refusing that fetch left a failed control in
+	# the rendered page (this is the endpoint whose refusal Search Console read as
+	# a soft 404 — as a CORS error in the console, since Chrome reports a
+	# robots-refused subresource that way). Allowing it stays safe because the
+	# noindex comes from the X-Robots-Tag header, which only works on a fetch that
+	# is permitted — the inverse of the pics origin, where a Disallow would strand
+	# already-indexed URLs behind an unreadable noindex. The cursor URLs it opens
+	# are render subresources, not crawl targets, and are derived from real rows,
+	# so the set is bounded by the collection.
+	#
+	# /activity/recent stays disallowed: an endlessly growing feed whose contents
+	# are already reachable as /photo/<uid> from the sitemap.
+	return PlainTextResponse(
+		"User-agent: *\n"
+		"Allow: /docs\n"
+		"Allow: /api/bestof/photos\n"
+		"Disallow: /\n"
+	)
 
 
 # Database migration function

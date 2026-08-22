@@ -37,6 +37,12 @@ LEGAL_RIGHTS_TO_LICENSE = {
 	'ccbysa4+osm': 'ccbysa4+osm',
 }
 
+# The licence identifiers a client may choose — the keys above, since a
+# licence we cannot map to a public name is one we cannot display. Lives here,
+# next to the mapping, so the upload authorization and the per-photo edit
+# validate against the same vocabulary rather than two copies of it.
+ALLOWED_LICENSES = frozenset(LEGAL_RIGHTS_TO_LICENSE)
+
 def legal_rights_to_license(legal_rights: Optional[str]) -> str:
 	if not legal_rights:
 		return 'arr'
@@ -173,6 +179,11 @@ def convert_photo_to_response(photo, username: str, longitude: float, latitude: 
 			'coordinates': [longitude, latitude]
 		},
 		'bearing': photo.compass_angle or 0,
+		# Null rather than 0 when unknown, unlike bearing: the viewer's
+		# up/down navigation needs "no pitch recorded" to be distinguishable
+		# from "level", or every legacy photo becomes a candidate for both
+		# directions at once. See docs/tauri-viewer-ui-contract.md.
+		'pitch': photo.pitch,
 		'computed_altitude': photo.altitude or 0,
 		'captured_at': format_utc(photo.captured_at),
 		'is_pano': False,

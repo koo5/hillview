@@ -6,7 +6,18 @@
 	// Content is authored per page as the children snippet; shared typography
 	// for it lives in app.css under .help-panel (snippet markup compiles in the
 	// parent's scope, so scoped styles here can't reach it).
-	let { children }: { children: Snippet } = $props();
+	let {
+		children,
+		align = 'left',
+		title = 'what am I looking at?'
+	}: {
+		children: Snippet;
+		/** which edge of the button the panel hangs from — 'right' for a
+		 * button near the right edge of its container */
+		align?: 'left' | 'right';
+		/** tooltip when closed */
+		title?: string;
+	} = $props();
 	let open = $state(false);
 </script>
 
@@ -16,11 +27,11 @@
 	<button
 		class="help-btn"
 		class:on={open}
-		title={open ? 'hide help' : 'what am I looking at?'}
+		title={open ? 'hide help' : title}
 		onclick={() => (open = !open)}>?</button
 	>
 	{#if open}
-		<div class="help-panel card">
+		<div class="help-panel card" class:right={align === 'right'}>
 			<button class="close" title="close" onclick={() => (open = false)}>×</button>
 			{@render children()}
 		</div>
@@ -49,12 +60,18 @@
 		position: absolute;
 		left: 0;
 		top: 28px;
+		text-align: left;
+		white-space: normal;
 		z-index: 40;
 		width: min(620px, 86vw);
 		max-height: 72vh;
 		overflow: auto;
 		font-size: 13px;
 		box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
+	}
+	.help-panel.right {
+		left: auto;
+		right: 0;
 	}
 	.close {
 		position: absolute;

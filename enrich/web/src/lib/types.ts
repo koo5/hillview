@@ -1,5 +1,7 @@
 export interface SyncTableState {
 	table_name: string;
+	// relics of the append tier removed 2026-08-06: still returned by the API,
+	// no longer updated. last_reconcile_at is the one live timestamp.
 	watermark: string | null;
 	last_append_at: string | null;
 	last_reconcile_at: string | null;
@@ -92,7 +94,7 @@ export interface CandidatePhoto {
 	lon: number | null;
 	bearing: number | null;
 	// the origin photo's own view pie (calibrated FOV when available)
-	pie?: { bearing: number; half: number; radius_m: number; calibrated?: boolean } | null;
+	pie?: { bearing: number; half: number; radius_m: number; calibrated?: boolean; projection?: string; x0?: number; stitch?: { knots: number[]; hwarp: number[]; hscale: number[] } } | null;
 }
 
 export interface CandidatesResponse {

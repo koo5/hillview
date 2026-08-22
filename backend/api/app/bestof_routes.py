@@ -12,24 +12,42 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import Photo, PhotoRating, PhotoRatingType, User
+from common.models import Photo, PhotoAnnotation, PhotoRating, PhotoRatingType, User
 from hillview_routes import legal_rights_to_license
 from common.utc import format_utc
 from auth import get_current_user_optional_with_query
 from hidden_content_filters import apply_hidden_content_filters
 from rate_limiter import general_rate_limiter
-from annotation_routes import effective_annotation_count_subquery
+from annotation_routes import effective_annotation_count_subquery, effective_annotation_conditions
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bestof", tags=["bestof"])
+
+# Size of a ?page=N slice. Deliberately owned here rather than by the caller:
+# the page size and the step between pages are the same number, and if the two
+# ever diverge the failure is silent — a step under the size repeats photos
+# across pages, a step over it leaves photos that NO page lists, unreachable by
+# any crawler. One constant, one expression (page_offset), no way to desync.
+BESTOF_PAGE_SIZE = 40
+
+
+def page_offset(page: Optional[int]) -> int:
+	"""Row offset of page N (1-based). Junk and out-of-range mean page 1."""
+	if not page or page < 1:
+		return 0
+	return (int(page) - 1) * BESTOF_PAGE_SIZE
 
 
 @router.get("/photos")
 async def get_best_photos(
 	request: Request,
 	limit: int = 20,
+	# Deprecated: /bestof pages by ?page= only — one coordinate system, which is
+	# also the one a crawler walks. Kept accepted so a deployed older frontend
+	# keeps working through a rollout; delete once none are left.
 	cursor: Optional[str] = None,
+	page: Optional[int] = None,
 	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
@@ -63,12 +81,14 @@ async def get_best_photos(
 
 		annotation_count_expr = func.coalesce(annotation_sub.c.annotation_count, 0).label('annotation_count')
 
-		# Total score
-		score_expr = (
+		# Total score. Kept unlabelled too: a SELECT alias can't be referenced from
+		# WHERE, so the filter and the cursor comparison use the raw expression.
+		score_raw = (
 			func.coalesce(thumbs_up_sub.c.thumbs_up_count, 0)
 			+ func.coalesce(annotation_sub.c.annotation_count, 0)
 			+ resolution_bonus
-		).label('score')
+		)
+		score_expr = score_raw.label('score')
 
 		query = (
 			select(
@@ -83,6 +103,15 @@ async def get_best_photos(
 			.outerjoin(thumbs_up_sub, Photo.id == thumbs_up_sub.c.photo_id)
 			.outerjoin(annotation_sub, Photo.id == annotation_sub.c.photo_id)
 			.where(Photo.deleted == False)
+			# A photo earns its place here — one like, one annotation, or being a
+			# large panorama is enough, but zero is not. Without this the "best of"
+			# was the whole collection: on a 52k-photo dump 98% scored zero and
+			# sorted by nothing but id, so the ranking ran out of meaning after a
+			# few hundred rows and the tail was thin content (a camera filename and
+			# a thumbnail) that dilutes crawl budget. It also keeps the listing
+			# bounded — the page's own empty state already promises this reading:
+			# "Photos will appear here as they receive ratings and annotations".
+			.where(score_raw > 0)
 			.order_by(score_expr.desc(), Photo.id.desc())
 		)
 
@@ -94,8 +123,8 @@ async def get_best_photos(
 				cursor_id = parts[1]
 				query = query.where(
 					or_(
-						score_expr < cursor_score,
-						and_(score_expr == cursor_score, Photo.id < cursor_id)
+						score_raw < cursor_score,
+						and_(score_raw == cursor_score, Photo.id < cursor_id)
 					)
 				)
 			except (ValueError, IndexError) as e:
@@ -104,6 +133,17 @@ async def get_best_photos(
 					status_code=status.HTTP_400_BAD_REQUEST,
 					detail="Invalid cursor format"
 				)
+
+		# ?page= is the ENTRY POINT — the server-rendered, crawlable, shareable
+		# address of a position in the ranking, and it fixes its own batch size.
+		# The cursor is the CONTINUATION from wherever you entered: every response
+		# hands back a next_cursor, so the lazy-loader walks on from a paged batch
+		# exactly as it would from the first one. They never combine (a cursor
+		# already encodes a position), so cursor wins if both arrive.
+		paged = page is not None and not cursor
+		if paged:
+			limit = BESTOF_PAGE_SIZE
+			query = query.offset(page_offset(page))
 
 		query = query.limit(limit + 1)
 
@@ -121,6 +161,21 @@ async def get_best_photos(
 		if has_more:
 			photo_results = photo_results[:-1]
 
+		# Effective annotation bodies for this page of photos. The labels ARE
+		# the page's content — /bestof is the index of views, and each entry's
+		# summary line ("Chrám svaté Barbory, GASK, …") is what both readers
+		# and crawlers come for; a bare count carries none of it.
+		page_ids = [row[0].id for row in photo_results]
+		bodies_by_photo: dict = {}
+		if page_ids:
+			ann_result = await db.execute(
+				select(PhotoAnnotation.photo_id, PhotoAnnotation.body)
+				.where(and_(PhotoAnnotation.photo_id.in_(page_ids), effective_annotation_conditions()))
+				.order_by(PhotoAnnotation.created_at)
+			)
+			for pid, body in ann_result.all():
+				bodies_by_photo.setdefault(pid, []).append(body)
+
 		photos_data = []
 		next_cursor = None
 
@@ -131,6 +186,10 @@ async def get_best_photos(
 				"original_filename": photo.original_filename,
 				"title": photo.title,
 				"description": photo.description,
+				# Reverse-geocoded label (backfill_places.py). displayTitle falls back
+				# to it so a card headline — which is also the anchor text of the link
+				# to /photo/<uid> — reads "Sedlec, Kutná Hora" and not a camera filename.
+				"place_name": photo.place_name,
 				"uploaded_at": format_utc(photo.uploaded_at),
 				"captured_at": format_utc(photo.captured_at),
 				"processing_status": photo.processing_status,
@@ -144,6 +203,7 @@ async def get_best_photos(
 				"owner_id": photo.owner_id,
 				"score": score_int,
 				"annotation_count": int(annotation_count) if annotation_count else 0,
+				"annotations": bodies_by_photo.get(photo.id, []),
 				"license": legal_rights_to_license(photo.legal_rights)
 			})
 			next_cursor = f"{score_int}:{photo.id}"
@@ -151,7 +211,10 @@ async def get_best_photos(
 		return {
 			"photos": photos_data,
 			"has_more": has_more,
-			"next_cursor": next_cursor if has_more else None
+			"next_cursor": next_cursor if has_more else None,
+			# Echoed so a caller never has to know or derive the slice size.
+			"page": max(1, page) if paged else None,
+			"page_size": limit,
 		}
 
 	except HTTPException:
