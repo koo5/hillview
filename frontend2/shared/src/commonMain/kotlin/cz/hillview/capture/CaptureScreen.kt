@@ -2,6 +2,7 @@ package cz.hillview.capture
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -1235,7 +1236,13 @@ private fun IntervalSlider(
         )
         Box(
             modifier = Modifier
-                .size(width = 48.dp, height = INTERVAL_TRACK_LENGTH)
+                // 64 wide (was 48): this ladder is read mid-gesture, at
+                // arm's length, from the corner of the eye — the default
+                // gutter and its hairline track were sized for a control
+                // you look AT (user-raised, same session as doubling the
+                // length: "the track maybe also needed to become a little
+                // wider").
+                .size(width = 64.dp, height = INTERVAL_TRACK_LENGTH)
                 .onGloballyPositioned { onTrackPositioned(it.boundsInRoot()) },
             contentAlignment = Alignment.Center,
         ) {
@@ -1246,6 +1253,18 @@ private fun IntervalSlider(
                 onValueChange = { onChange(it.roundToInt()) },
                 valueRange = 0f..LADDER_VIDEO_STOP.toFloat(),
                 enabled = enabled,
+                // A thicker track line, for the same at-a-glance reason as
+                // the wider gutter. Track height pre-rotation IS thickness
+                // post-rotation. 22 dp because the M3 default is ALREADY
+                // 16 dp (measured on device — a first pass at 12 dp made the
+                // track thinner while looking like an improvement in the
+                // diff).
+                track = { sliderState ->
+                    androidx.compose.material3.SliderDefaults.Track(
+                        sliderState = sliderState,
+                        modifier = Modifier.height(22.dp),
+                    )
+                },
                 modifier = Modifier
                     .requiredWidth(INTERVAL_TRACK_LENGTH)
                     .rotate(-90f)
