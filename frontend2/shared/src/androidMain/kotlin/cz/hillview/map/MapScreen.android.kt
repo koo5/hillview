@@ -551,6 +551,7 @@ actual fun MapScreen(
                 !controller.compassAvailable(),
             markerCount = markers.size,
             debugLines = debugLines,
+            onCloseDebug = { settings.update { it.copy(showGeoDebug = false) } },
             onToggleHunterMode = { filters.toggleHunterMode() },
             onToggleSource = { id ->
                 settings.update { s ->
