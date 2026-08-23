@@ -60,7 +60,7 @@ fun DevicePhotosScreen(
     var filter by remember { mutableStateOf(PhotoFilter.All) }
     var filterCounts by remember { mutableStateOf<Map<PhotoFilter, Int>>(emptyMap()) }
     var cards by remember { mutableStateOf<List<DevicePhotoCard>>(emptyList()) }
-    var counts by remember { mutableStateOf(StatusCounts(0, 0, 0)) }
+    var counts by remember { mutableStateOf(StatusCounts(0, 0, 0, 0, 0)) }
     var totalCount by remember { mutableStateOf(0) }
     var hasMore by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf(1) }
@@ -118,14 +118,23 @@ fun DevicePhotosScreen(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 16.dp),
         ) {
+            // Only the stages that are non-zero: a full five-part line is
+            // noise on the common all-done day, and a zero segment says
+            // nothing a missing one does not.
             Text(
-                "$totalCount photos · ${counts.pending} pending · " +
-                    "${counts.done} uploaded · ${counts.failed} failed",
+                buildList {
+                    add("$totalCount photos")
+                    if (counts.waiting > 0) add("${counts.waiting} waiting")
+                    if (counts.uploading > 0) add("${counts.uploading} uploading")
+                    if (counts.processing > 0) add("${counts.processing} processing")
+                    add("${counts.done} uploaded")
+                    if (counts.failed > 0) add("${counts.failed} failed")
+                }.joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f).testTag("device-photo-stats"),
             )
             if (uploadSettings.autoUploadEnabled && sessionState is SessionState.LoggedIn) {
-                if (counts.pending + counts.failed > 0) {
+                if (counts.actionable > 0) {
                     TextButton(
                         enabled = !forcing,
                         onClick = {
@@ -145,7 +154,7 @@ fun DevicePhotosScreen(
                         Text(if (forcing) "Uploading…" else "⬆ Upload now")
                     }
                 }
-            } else if (counts.pending + counts.failed > 0) {
+            } else if (counts.actionable > 0) {
                 // A force button that the gate would silently swallow is a
                 // trap; the original shows this sentence instead of one.
                 Text(
