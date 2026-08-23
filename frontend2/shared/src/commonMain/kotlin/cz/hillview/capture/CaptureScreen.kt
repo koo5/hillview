@@ -252,6 +252,21 @@ fun CaptureScreen(
             runCount = 0
             return@LaunchedEffect
         }
+        // A run under Auto defaults to Sports (user-decided): an interval
+        // run is a walking or driving shoot, where motion blur is the
+        // failure mode and Sports is the rule built for exactly that. Only
+        // when the rule IS Auto — Pin/Floor/Sports picked by hand is the
+        // user's choice and survives untouched — and only for the run's
+        // lifetime: engaged here, stood down in the finally below. The
+        // identity check (===) means even re-picking identical Sports
+        // values mid-run counts as an explicit choice and is kept.
+        val engaged = if (capture.exposureRule == null && capture.state.manualShutterSupported) {
+            ExposureRule(ExposureMode.Sports, exposureTargetNs, exposureBias)
+                .also { capture.exposureRule = it }
+        } else {
+            null
+        }
+        try {
         // An ABSOLUTE timeline. The loop used to sleep a fixed interval
         // AFTER each shot, so the real period was "interval + however long
         // issuing the shot took" and the error accumulated — a run could
@@ -287,6 +302,14 @@ fun CaptureScreen(
                 nextAt = now
             } else {
                 delay(nextAt - now)
+            }
+        }
+        } finally {
+            // The run's engagement ends with the run — the effect is
+            // cancelled when `repeating` flips false, so this is the stop
+            // path (and the leave-the-screen path) in one place.
+            if (engaged != null && capture.exposureRule === engaged) {
+                capture.exposureRule = null
             }
         }
     }
