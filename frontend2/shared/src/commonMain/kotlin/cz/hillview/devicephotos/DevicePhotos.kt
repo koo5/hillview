@@ -107,6 +107,13 @@ interface DevicePhotoBrowser {
     suspend fun retryUploads()
 
     /**
+     * Force this one photo out now — bypasses the failed-row backoff, the
+     * wifi-only constraint and the auto-upload toggle, none of which an
+     * explicit "upload THIS" tap should be silently swallowed by.
+     */
+    suspend fun retryUpload(id: String)
+
+    /**
      * Relicense a single photo. A DIVERGENCE from the original, where the
      * licence is one global setting read at upload time: here it is a
      * property of the photo, fixed when the shutter fired, so a setting

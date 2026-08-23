@@ -225,9 +225,27 @@ fun DevicePhotosScreen(
                 items(cards, key = { it.id }) { card ->
                     PhotoCard(
                         card = card,
-                        retryOffered = uploadSettings.autoUploadEnabled &&
-                            sessionState is SessionState.LoggedIn,
-                        onRetry = { scope.launch { browser.retryUploads(); load(1, false) } },
+                        // Login is the only real requirement: the targeted
+                        // path bypasses the auto-upload toggle by design (a
+                        // manual "upload THIS" is not automatic uploading —
+                        // and someone who keeps auto-upload OFF and pushes
+                        // photos out by hand is exactly who this serves).
+                        // The original gated its button on the toggle, but
+                        // its button was the GLOBAL drain, which the toggle
+                        // genuinely governs.
+                        retryOffered = sessionState is SessionState.LoggedIn,
+                        // THIS photo, not the queue (user-corrected: the
+                        // global drain has its own button in the header).
+                        onRetry = {
+                            scope.launch {
+                                browser.retryUpload(card.id)
+                                // Targeted upload runs off-screen; give it a
+                                // beat before re-reading, as the header
+                                // button does.
+                                kotlinx.coroutines.delay(2_000)
+                                load(1, append = false)
+                            }
+                        },
                         onDelete = { alsoFile ->
                             scope.launch {
                                 browser.delete(card.id, alsoFile)
@@ -433,10 +451,10 @@ private fun PhotoCard(
                     TextButton(
                         onClick = onRetry,
                         modifier = Modifier.testTag("retry-uploads-button"),
-                    ) { Text("Retry uploads") }
+                    ) { Text("⬆ Upload this photo now") }
                 } else {
                     Text(
-                        "Enable auto-upload in settings to retry failed uploads.",
+                        "Sign in to upload.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

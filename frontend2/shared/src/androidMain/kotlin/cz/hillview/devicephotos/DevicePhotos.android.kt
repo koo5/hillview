@@ -110,6 +110,12 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
         }
     }
 
+    override suspend fun retryUpload(id: String) {
+        withContext(Dispatchers.IO) {
+            PhotoUploadManager(context).startManualUpload(id)
+        }
+    }
+
     override suspend fun changeLicense(id: String, license: String) = withContext(Dispatchers.IO) {
         PhotoDatabase.getDatabase(context).photoDao().updateLicense(id, license)
         EventLog.record("upload", "license set to $license for $id")

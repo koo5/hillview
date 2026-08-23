@@ -54,8 +54,28 @@ class PhotoUploadManager(private val context: Context) {
     // include UI toggles — so it never runs on the caller's thread.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /**
+     * Force ONE photo out, now. Runs the drain in targeted mode directly on
+     * this manager's scope rather than through WorkManager: the caller is a
+     * button on a foreground screen, so there is no constraint to wait for
+     * and no process-death to survive — and "retry_button" + a photoId is
+     * the full-bypass combination (no wifi-only, no backoff, no auto-upload
+     * gate; each documented at its check).
+     */
     fun startManualUpload(photoId: String) {
-        // in future, use PhotoUploadForeground here
+        scope.launch {
+            EventLog.record("upload", "manual upload requested for $photoId")
+            try {
+                PhotoUploadLogic(context).doWorkInternal("retry_button", photoId)
+            } catch (e: Exception) {
+                Log.e(TAG, "manual upload of $photoId failed", e)
+                EventLog.record("upload", "manual upload failed: ${e.message}")
+            }
+            // The forced photo may now be in "processing"; the schedule and
+            // the status sync are the reconciler's business, same as after
+            // any other drain.
+            reconcile("manual_photo")
+        }
     }
 
     /**
