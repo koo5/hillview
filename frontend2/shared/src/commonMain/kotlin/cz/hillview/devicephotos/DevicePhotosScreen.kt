@@ -106,13 +106,55 @@ fun DevicePhotosScreen(
             ) { Text(if (loading) "Loading…" else "Refresh") }
         }
 
-        // The DevicePhotoStats line: what the upload stack has and hasn't done.
-        Text(
-            "$totalCount photos · ${counts.pending} pending · " +
-                "${counts.done} uploaded · ${counts.failed} failed",
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(horizontal = 16.dp).testTag("device-photo-stats"),
-        )
+        // The DevicePhotoStats line: what the upload stack has and hasn't
+        // done — with the original's global RetryUploadsButton beside it
+        // (DevicePhotoStats.svelte:105). "Force" is real: the retry_button
+        // trigger bypasses both the failed rows' exponential backoff and
+        // the wifi-only constraint, so it uploads NOW, on whatever network
+        // is there — which is exactly what someone standing somewhere with
+        // one bar of LTE and a bus to catch is asking for.
+        var forcing by remember { mutableStateOf(false) }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        ) {
+            Text(
+                "$totalCount photos · ${counts.pending} pending · " +
+                    "${counts.done} uploaded · ${counts.failed} failed",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f).testTag("device-photo-stats"),
+            )
+            if (uploadSettings.autoUploadEnabled && sessionState is SessionState.LoggedIn) {
+                if (counts.pending + counts.failed > 0) {
+                    TextButton(
+                        enabled = !forcing,
+                        onClick = {
+                            forcing = true
+                            scope.launch {
+                                browser.retryUploads()
+                                // The drain runs in WorkManager; give it a
+                                // beat before re-reading the counts, as the
+                                // original's 2 s refresh does.
+                                kotlinx.coroutines.delay(2_000)
+                                load(1, append = false)
+                                forcing = false
+                            }
+                        },
+                        modifier = Modifier.testTag("manual-upload-button"),
+                    ) {
+                        Text(if (forcing) "Uploading…" else "⬆ Upload now")
+                    }
+                }
+            } else if (counts.pending + counts.failed > 0) {
+                // A force button that the gate would silently swallow is a
+                // trap; the original shows this sentence instead of one.
+                Text(
+                    "Enable auto-upload in settings to upload.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("manual-upload-hint"),
+                )
+            }
+        }
 
         // The filter IS the navigation. At ten thousand rows nobody scrolls
         // to find anything — the questions are "what is stuck", "what
