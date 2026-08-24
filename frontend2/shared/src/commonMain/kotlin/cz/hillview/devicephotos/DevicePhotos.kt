@@ -178,6 +178,6 @@ fun formatFileSize(bytes: Long): String {
     return "$text ${units[index]}"
 }
 
-/** Locale date/time — java.text on both JVM-family targets. */
+/** ISO date/time ("2026-08-24" / "15:45:12"), device-local zone — java.text on both JVM-family targets. */
 expect fun formatLocalDate(epochMs: Long): String
 expect fun formatLocalTime(epochMs: Long): String
