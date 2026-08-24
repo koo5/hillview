@@ -2,6 +2,9 @@ package cz.hillview.capture
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -249,6 +252,21 @@ fun CaptureScreen(
             runCount = 0
             return@LaunchedEffect
         }
+        // A run under Auto defaults to Sports (user-decided): an interval
+        // run is a walking or driving shoot, where motion blur is the
+        // failure mode and Sports is the rule built for exactly that. Only
+        // when the rule IS Auto — Pin/Floor/Sports picked by hand is the
+        // user's choice and survives untouched — and only for the run's
+        // lifetime: engaged here, stood down in the finally below. The
+        // identity check (===) means even re-picking identical Sports
+        // values mid-run counts as an explicit choice and is kept.
+        val engaged = if (capture.exposureRule == null && capture.state.manualShutterSupported) {
+            ExposureRule(ExposureMode.Sports, exposureTargetNs, exposureBias)
+                .also { capture.exposureRule = it }
+        } else {
+            null
+        }
+        try {
         // An ABSOLUTE timeline. The loop used to sleep a fixed interval
         // AFTER each shot, so the real period was "interval + however long
         // issuing the shot took" and the error accumulated — a run could
@@ -284,6 +302,14 @@ fun CaptureScreen(
                 nextAt = now
             } else {
                 delay(nextAt - now)
+            }
+        }
+        } finally {
+            // The run's engagement ends with the run — the effect is
+            // cancelled when `repeating` flips false, so this is the stop
+            // path (and the leave-the-screen path) in one place.
+            if (engaged != null && capture.exposureRule === engaged) {
+                capture.exposureRule = null
             }
         }
     }
@@ -359,6 +385,17 @@ fun CaptureScreen(
         }
     }
 
+    // Pane-scope, not cluster-scope: the catch-zone wash below and the
+    // shutter cluster both need these. What releasing RIGHT NOW would do
+    // (null = cancel) used to live only inside the gesture loop
+    // (overSlider), so the one fact the whole gesture turns on was the one
+    // fact the screen could not show — and a run kept starting, or not, by
+    // surprise (user-raised: "i keep missing it").
+    var sliderVisible by remember { mutableStateOf(false) }
+    var armedStop by remember { mutableStateOf<Int?>(null) }
+    var circleBounds by remember { mutableStateOf<Rect?>(null) }
+    var paneOrigin by remember { mutableStateOf(Offset.Zero) }
+
     // The capture pane IS the camera stream — the original's camera-content
     // fills with the video and positions every control absolutely over it
     // (CameraCapture.svelte styles). No control rows under the video, no
@@ -366,6 +403,7 @@ fun CaptureScreen(
     // a letterboxed preview above a stack of visible controls.)
     Box(
         modifier = Modifier
+            .onGloballyPositioned { paneOrigin = it.positionInRoot() }
             .fillMaxSize()
             .background(Color.Black),
     ) {
@@ -774,7 +812,7 @@ fun CaptureScreen(
                         .background(LightGlass, RoundedCornerShape(20.dp))
                         .testTag("shutter-speed-button"),
                 ) {
-                    Text("⚡ " + exposureLabel(state.exposureRule), color = Color.White)
+                    Text("⚡ " + exposureLabel(state.exposureRule, state.plan), color = Color.White)
                 }
             }
 
@@ -819,6 +857,36 @@ fun CaptureScreen(
         }
 
         // Bottom-centre stack over the video: hints and gate escapes above
+        // The catch zone, drawn as what it IS: the gesture accepts any
+        // point left of the button (pos.x < circle.left) — the thin track
+        // is a picture, not the hit-box. Nothing said so, and precision-
+        // aiming at the line was the real reason arming kept being missed
+        // (user-caught: "i kept trying to target the track exactly"). While
+        // the slider is open the whole zone wears a wash — neutral until
+        // armed, then the run's green or video's red, so the surface your
+        // finger is somewhere over always shows the state it is setting.
+        val circle = circleBounds
+        if (sliderVisible && circle != null) {
+            val zoneWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
+                (circle.left - paneOrigin.x).coerceAtLeast(0f).toDp()
+            }
+            val armed = armedStop
+            Box(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxHeight()
+                    .width(zoneWidth)
+                    .background(
+                        when {
+                            armed == LADDER_VIDEO_STOP -> Color(0x2EFF5252)
+                            armed != null && armed > 0 -> Color(0x2E4CAF50)
+                            else -> Color(0x14FFFFFF)
+                        },
+                    )
+                    .testTag("interval-catch-zone"),
+            )
+        }
+
         // the shutter, as the original stacks its absolute elements above
         // shutter-container (bottom: 6px, centred).
         Column(
@@ -895,8 +963,6 @@ fun CaptureScreen(
             // button cancels, as the original's release-over-nothing does.
             // A tap stops a running run. The continuous slider is this
             // port's take on the original's fixed slow/fast pair.
-            var sliderVisible by remember { mutableStateOf(false) }
-            var circleBounds by remember { mutableStateOf<Rect?>(null) }
             var sliderZone by remember { mutableStateOf<Rect?>(null) }
             var clusterOrigin by remember { mutableStateOf(Offset.Zero) }
             val gateOpen =
@@ -968,6 +1034,7 @@ fun CaptureScreen(
                                             ((zone.bottom - pos.y) / zone.height * LADDER_VIDEO_STOP)
                                                 .roundToInt().coerceIn(0, LADDER_VIDEO_STOP)
                                     }
+                                    armedStop = if (overSlider) intervalSec else null
                                     change.consume()
                                     if (event.changes.none { it.pressed }) {
                                         // Released on the ladder: the top
@@ -985,6 +1052,7 @@ fun CaptureScreen(
                                 // The slider lives exactly as long as the
                                 // finger does, run or no run.
                                 sliderVisible = false
+                                armedStop = null
                             }
                         }
                     },
@@ -1004,6 +1072,7 @@ fun CaptureScreen(
                         )
                     }
 
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
                         modifier = Modifier
                             .size(70.dp)
@@ -1012,6 +1081,13 @@ fun CaptureScreen(
                                 when {
                                     !gateOpen -> Color(0x802196F3)
                                     repeating -> Color(0xFF4CAF50)
+                                    // Armed: wear the colour NOW that the
+                                    // release is about to make true — the
+                                    // run's green, video's red. The button
+                                    // previews its own future instead of
+                                    // leaving it to a label off to the side.
+                                    armedStop == LADDER_VIDEO_STOP -> Color(0xFFD32F2F)
+                                    armedStop != null && armedStop!! > 0 -> Color(0xFF4CAF50)
                                     else -> Color(0xFF2196F3)
                                 },
                             )
@@ -1034,17 +1110,58 @@ fun CaptureScreen(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                if (state.capturing && !repeating) "…" else "📷",
+                                when {
+                                    armedStop == LADDER_VIDEO_STOP -> "⏺"
+                                    armedStop != null && armedStop!! > 0 -> "▶"
+                                    state.capturing && !repeating -> "…"
+                                    else -> "📷"
+                                },
                                 style = MaterialTheme.typography.titleMedium,
                             )
-                            if (repeating) {
-                                Text(
+                            when {
+                                armedStop == LADDER_VIDEO_STOP -> Text(
+                                    "REC",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                )
+                                armedStop != null && armedStop!! > 0 -> Text(
+                                    "${armedStop}s",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                )
+                                repeating -> Text(
                                     "Stop",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color.White,
                                 )
                             }
                         }
+                    }
+                    // The release verdict, spelled out while the slider is
+                    // open: what letting go does, right under the button
+                    // that is previewing it. This is the line the ladder
+                    // head could not carry (clipped off-pane at common
+                    // splits — the original cause of "i keep missing it").
+                    if (sliderVisible) {
+                        Text(
+                            text = when {
+                                armedStop == LADDER_VIDEO_STOP -> "release: record"
+                                armedStop != null && armedStop!! > 0 ->
+                                    "release: start ${armedStop}s run"
+                                armedStop != null -> "single — release: nothing"
+                                else -> "release: cancel"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = when {
+                                armedStop == LADDER_VIDEO_STOP -> Color(0xFFFF5252)
+                                armedStop != null && armedStop!! > 0 -> Color(0xFF69F0AE)
+                                else -> Color(0xB3FFFFFF)
+                            },
+                            modifier = Modifier
+                                .padding(top = 2.dp)
+                                .testTag("capture-armed-hint"),
+                        )
+                    }
                     }
                 }
                 // The original's capture-counter badge, live during a run.
@@ -1160,6 +1277,11 @@ private fun IntervalSlider(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.padding(end = 16.dp),
     ) {
+        // Compact, and NOT the announcement: at common split positions the
+        // 280 dp track is taller than the capture pane, so this head is
+        // clipped off-pane (device-caught — which is also why the armed
+        // state was invisible when it lived only here). What release does
+        // is said by the shutter cluster, which is always on-pane.
         Text(
             text = when (intervalSec) {
                 0 -> "single"
@@ -1172,7 +1294,13 @@ private fun IntervalSlider(
         )
         Box(
             modifier = Modifier
-                .size(width = 48.dp, height = INTERVAL_TRACK_LENGTH)
+                // 64 wide (was 48): this ladder is read mid-gesture, at
+                // arm's length, from the corner of the eye — the default
+                // gutter and its hairline track were sized for a control
+                // you look AT (user-raised, same session as doubling the
+                // length: "the track maybe also needed to become a little
+                // wider").
+                .size(width = 64.dp, height = INTERVAL_TRACK_LENGTH)
                 .onGloballyPositioned { onTrackPositioned(it.boundsInRoot()) },
             contentAlignment = Alignment.Center,
         ) {
@@ -1183,6 +1311,18 @@ private fun IntervalSlider(
                 onValueChange = { onChange(it.roundToInt()) },
                 valueRange = 0f..LADDER_VIDEO_STOP.toFloat(),
                 enabled = enabled,
+                // A thicker track line, for the same at-a-glance reason as
+                // the wider gutter. Track height pre-rotation IS thickness
+                // post-rotation. 22 dp because the M3 default is ALREADY
+                // 16 dp (measured on device — a first pass at 12 dp made the
+                // track thinner while looking like an improvement in the
+                // diff).
+                track = { sliderState ->
+                    androidx.compose.material3.SliderDefaults.Track(
+                        sliderState = sliderState,
+                        modifier = Modifier.height(22.dp),
+                    )
+                },
                 modifier = Modifier
                     .requiredWidth(INTERVAL_TRACK_LENGTH)
                     .rotate(-90f)

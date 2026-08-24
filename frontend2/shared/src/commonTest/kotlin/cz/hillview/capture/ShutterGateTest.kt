@@ -270,6 +270,23 @@ class ExposureLabelTest {
         assertEquals("=1/500", exposureLabel(ExposureRule(ExposureMode.Pin, 2_000_000)))
         assertEquals("≥1/500", exposureLabel(ExposureRule(ExposureMode.Floor, 2_000_000)))
         assertEquals("🏃1/500", exposureLabel(ExposureRule(ExposureMode.Sports, 2_000_000)))
+        // The plan diverging from the target shows on the button — a slid
+        // Sports shutter must not read as the target holding.
+        assertEquals(
+            "🏃1/2000→1/125",
+            exposureLabel(
+                ExposureRule(ExposureMode.Sports, 500_000),
+                ExposurePlan(exposureNs = 8_000_000, iso = 3200, outcome = ExposureOutcome.Underexposed),
+            ),
+        )
+        // On target: no arrow, nothing to say.
+        assertEquals(
+            "🏃1/2000",
+            exposureLabel(
+                ExposureRule(ExposureMode.Sports, 500_000),
+                ExposurePlan(exposureNs = 500_000, iso = 400, outcome = ExposureOutcome.OnTarget),
+            ),
+        )
     }
 
     @Test
@@ -388,5 +405,35 @@ class ResolutionLabelTest {
         assertEquals(null, aspectRatioLabel(CaptureResolution(4001, 3000)))
         assertEquals("4001×3000", resolutionLabel(CaptureResolution(4001, 3000)).substringAfter("("). substringBefore(")"))
         assertEquals(null, aspectRatioLabel(CaptureResolution(0, 0)))
+    }
+}
+
+/**
+ * Which exposure a metering frame is credited to. The precedence IS the
+ * behaviour: the harvest is frozen while a rule holds the sensor, so
+ * crediting it first anchors the meter to dead light — the 2026-08-21
+ * "interval Sports stuck in high exposure" report. SceneMeterLoopTest
+ * (androidHostTest) plays that run out end to end.
+ */
+class MeterCreditedExposureTest {
+
+    private val plan = ExposurePlan(2_000_000L, 200, ExposureOutcome.OnTarget)
+
+    @Test
+    fun aRuleInForceCreditsFramesToItsOwnPlan() {
+        assertEquals(2_000_000L to 200, meterCreditedExposure(plan, 33_000_000L, 800))
+    }
+
+    @Test
+    fun underAutoExposureTheHarvestIsTheCredit() {
+        assertEquals(33_000_000L to 800, meterCreditedExposure(null, 33_000_000L, 800))
+    }
+
+    @Test
+    fun halfAHarvestCreditsNothing() {
+        // Pairing a time from one source with a gain from another would be
+        // a product that never exposed anything; better no evidence at all.
+        assertEquals(null, meterCreditedExposure(null, 33_000_000L, null))
+        assertEquals(null, meterCreditedExposure(null, null, 800))
     }
 }

@@ -55,7 +55,28 @@ enum class PhotoFilter(val label: String, val status: String?) {
     Completed("Done", "completed"),
 }
 
-data class StatusCounts(val pending: Int, val done: Int, val failed: Int)
+/**
+ * The queue, by stage rather than by lump. "Pending" used to fold three
+ * different situations into one number — waiting for a drain, bytes in
+ * flight, and uploaded-but-the-server-is-still-processing — and the last
+ * of those reads as "stuck" precisely when everything is working
+ * (user-raised: a forced upload succeeded and the line still said
+ * "1 pending"). A queue display is only reassuring if it moves when the
+ * queue does.
+ */
+data class StatusCounts(
+    /** Not yet attempted (or re-queued): waiting for a drain. */
+    val waiting: Int,
+    /** Bytes in flight right now. */
+    val uploading: Int,
+    /** On the server, its pipeline still chewing. */
+    val processing: Int,
+    val done: Int,
+    val failed: Int,
+) {
+    /** What a drain could act on — the Upload-now button's question. */
+    val actionable: Int get() = waiting + failed
+}
 
 data class DevicePhotosPage(
     val photos: List<DevicePhotoCard>,
@@ -84,6 +105,13 @@ interface DevicePhotoBrowser {
      * bypasses the wifi-only constraint.
      */
     suspend fun retryUploads()
+
+    /**
+     * Force this one photo out now — bypasses the failed-row backoff, the
+     * wifi-only constraint and the auto-upload toggle, none of which an
+     * explicit "upload THIS" tap should be silently swallowed by.
+     */
+    suspend fun retryUpload(id: String)
 
     /**
      * Relicense a single photo. A DIVERGENCE from the original, where the
