@@ -5,6 +5,7 @@
 	import {invoke} from "@tauri-apps/api/core";
 	import { RefreshCw, Download, Upload, Clock, MapPin, Camera, AlertCircle, ChevronLeft, ChevronRight, CheckCircle, MoreVertical } from 'lucide-svelte';
 	import { getDevicePhotoUrl } from '$lib/devicePhotoHelper';
+	import { formatDate as isoFormatDate, formatTimeSec } from '$lib/dateUtils';
 	import {app} from "$lib/data.svelte";
 	import RetryUploadsButton from "$lib/components/RetryUploadsButton.svelte";
 	import DevicePhotoStats from "$lib/components/DevicePhotoStats.svelte";
@@ -196,11 +197,11 @@
 	}
 
 	function formatDate(timestamp: number): string {
-		return new Date(timestamp).toLocaleDateString();
+		return isoFormatDate(timestamp);
 	}
 
 	function formatTime(timestamp: number): string {
-		return new Date(timestamp).toLocaleTimeString();
+		return formatTimeSec(timestamp);
 	}
 
 	function getPhotoUrl(photo: DevicePhoto): string {

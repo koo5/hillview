@@ -5,6 +5,7 @@
 	import {invoke} from '@tauri-apps/api/core';
 	import {get} from 'svelte/store';
 	import {playShutterSound} from '$lib/utils/shutterSound';
+	import {formatDate, formatTimeSec} from '$lib/dateUtils';
 	import {app, mockCamera, fakeCamera, powerSaving, powerSavingActive} from "$lib/data.svelte.js";
 	import DualCaptureButton from './DualCaptureButton.svelte';
 	import CaptureQueueStatus from './CaptureQueueStatus.svelte';
@@ -933,7 +934,7 @@
 			if ($mockCamera && !$fakeCamera) {
 				const now = new Date();
 				const ms = String(now.getMilliseconds()).padStart(3, '0');
-				const timeStr = now.toLocaleTimeString(undefined, { hour12: false }) + '.' + ms;
+				const timeStr = formatTimeSec(now) + '.' + ms;
 				context.fillStyle = 'rgba(0, 0, 0, 0.5)';
 				context.fillRect(0, 0, canvas.width, 40);
 				context.fillStyle = '#00ff88';
@@ -1270,8 +1271,8 @@
 		// Timestamp
 		const now = new Date();
 		const ms = String(now.getMilliseconds()).padStart(3, '0');
-		const timeStr = now.toLocaleTimeString(undefined, { hour12: false }) + '.' + ms;
-		const dateStr = now.toLocaleDateString();
+		const timeStr = formatTimeSec(now) + '.' + ms;
+		const dateStr = formatDate(now);
 
 		ctx.fillStyle = '#00ff88';
 		ctx.font = 'bold 48px monospace';

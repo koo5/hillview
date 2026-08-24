@@ -4,6 +4,7 @@
 
 <script lang="ts">
 	import {app} from '$lib/data.svelte';
+	import {formatTimeSec} from '$lib/dateUtils';
 	import {onMount} from 'svelte';
 	import {get} from 'svelte/store';
 	import {myGoto} from '$lib/navigation.svelte';
@@ -62,7 +63,7 @@
 	}
 
 	function formatLogTime(timestamp: Date): string {
-		return timestamp.toLocaleTimeString();
+		return formatTimeSec(timestamp);
 	}
 
 
