@@ -34,3 +34,8 @@ worker/venv/**/*
 
 # uv virtual environments
 **/.venv
+
+# Local virtualenvs (git-ignored, but they ARE in the build context: api/app/venv was
+# being baked into the api image by `COPY api/app /app/app` -- 243 MB of stale py3.10
+# packages that trip every image scan).
+**/venv
