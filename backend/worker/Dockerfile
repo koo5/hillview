@@ -3,33 +3,30 @@ FROM python:3.12-slim
 RUN mkdir -p /tmp
 RUN chmod a=rwx,o+t /tmp
 
-# Install system dependencies for image processing and geospatial operations
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    libpq-dev \
-    libgdal-dev \
-    gdal-bin \
-    libgeos-dev \
-    libproj-dev \
-    libspatialindex-dev \
-    pkg-config \
+# System dependencies. Two groups: shared libs the wheels dlopen (opencv,
+# torch), and the CLIs the worker shells out to (exiftool, vips, identify/
+# convert, dcraw, `free` from procps). --no-install-recommends keeps
+# imagemagick's ghostscript/extra-coder recommends (and cups, avahi, mariadb
+# client libs, unbound ...) out of the runtime image.
+#
+# Trimmed 2026-08-25 (deps audit): gcc, g++, pkg-config, libpq-dev, libgdal-dev,
+# gdal-bin, libgeos-dev, libproj-dev, libspatialindex-dev, libxrender-dev
+# (-> libxrender1), jpegoptim, htop, mc, iotop, jnettop. Every Python dep
+# installs from a wheel (pyvips builds in ABI mode either way -- there was
+# never a libvips-dev here), nothing in worker/ references gdal/geos/proj/
+# jpegoptim, and the ops tools are an `apt-get install` away in a console.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
-    libxrender-dev \
+    libxrender1 \
     libgomp1 \
     imagemagick \
-    jpegoptim \
     libimage-exiftool-perl \
     libvips-tools \
     dcraw \
     procps \
-    htop \
-    mc \
-    iotop \
-    jnettop \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv
@@ -53,7 +50,9 @@ RUN uv export --frozen --no-hashes --no-emit-project --package hillview-worker |
     --extra-index-url https://download.pytorch.org/whl/cpu \
     --index-strategy unsafe-best-match \
     -r /tmp/requirements.txt && \
-    rm /tmp/requirements.txt
+    rm /tmp/requirements.txt /bin/uv
+# (/bin/uv removed: install-time only, and the static binary drags its own
+# Rust/Go dependency advisories into every scan of the runtime image)
 
 # Run as non-root user
 RUN groupadd --gid 1001 worker && useradd --create-home --shell /bin/bash --uid 1001 --gid 1001 worker

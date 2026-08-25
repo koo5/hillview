@@ -37,6 +37,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
+import struct
+
 import numpy as np
 
 R_EARTH_M = 6_371_000.0
@@ -408,20 +410,98 @@ def shade(pano: Panorama, fog_density_per_m: float = 0.0,
     return np.clip(rgb, 0, 255).astype(np.uint8)
 
 
+# ---------------------------------------------------------------------------
+# depth buffer wire format ("HVD1")
+#
+# Samples are row-major little-endian uint16 — raw on purpose: browsers
+# truncate 16-bit PNG to 8 via canvas, while a raw buffer goes straight into a
+# Uint16Array → WebGL texture. They are prefixed with a small header so the
+# payload NAMES ITSELF. Two readers need that:
+#
+#   * anything fetching the artifact gets it either verbatim or transparently
+#     inflated by the transport (Content-Encoding), and bare samples cannot say
+#     which they are — the first two bytes are just a sample, and the value
+#     35615 (terrain at 142.46 km) encodes gzip's own 1f 8b magic;
+#   * a truncated or mismatched buffer otherwise reads as confident nonsense
+#     (the tail comes back `undefined`, passes the "not sky" test and yields a
+#     marker at NaN, NaN) instead of failing.
+#
+#   0   4   magic "HVD1"
+#   4   2   format version (uint16 LE), currently 1
+#   6   2   header length in bytes (uint16 LE) — where the samples start
+#   8   4   width  (uint32 LE)
+#   12  4   height (uint32 LE)
+#   16  4   depth_scale_m (float32 LE) — metres per sample step; without it the
+#           numbers have no unit
+#   20  12  reserved, written as zero; readers MUST ignore what they do not
+#           know. Later fields go here without moving the samples; a header
+#           that outgrows 32 bytes bumps `header length`, which is why every
+#           reader takes the sample offset from the header rather than a
+#           constant.
+#   32  ..  samples
+#
+# Mirrored in shared/terrain/depthPanoViewer.ts (parseDepthBlob) and read by
+# enrich/api/app/overlay_export.py. Every reader REQUIRES the header: the
+# handful of buffers written before 2026-08-20 were migrated in place by
+# scripts/terrain_migrate_depth_header.py, so there is no headerless form
+# left to support.
+DEPTH_BLOB_MAGIC = b"HVD1"
+DEPTH_BLOB_VERSION = 1
+DEPTH_BLOB_HEADER_BYTES = 32
+
+
+def depth_blob_header(buf: bytes) -> dict | None:
+    """{version, header_bytes, width, height, scale_m} when `buf` carries the
+    HVD1 header, else None (a legacy headerless buffer)."""
+    if len(buf) < 16 or buf[:4] != DEPTH_BLOB_MAGIC:
+        return None
+    version, hlen, width, height = struct.unpack("<HHII", buf[4:16])
+    scale = struct.unpack("<f", buf[16:20])[0] if hlen >= 20 and len(buf) >= 20 else None
+    return {"version": version, "header_bytes": hlen, "width": width,
+            "height": height, "scale_m": scale}
+
+
 def encode_depth_u16(depth: np.ndarray, scale_m: float = DEPTH_SCALE_M) -> bytes:
-    """Row-major little-endian uint16, value = round(depth/scale), 0 = sky.
-    Raw on purpose: browsers truncate 16-bit PNG to 8 via canvas; a raw buffer
-    goes straight into a Uint16Array → WebGL texture."""
+    """HVD1 header + row-major little-endian uint16 samples (0 = sky)."""
     q = np.round(np.nan_to_num(depth, nan=0.0) / scale_m)
     q = np.clip(q, 0, 65535).astype("<u2")
     q[~np.isfinite(depth)] = DEPTH_SKY
     q[(q == DEPTH_SKY) & np.isfinite(depth)] = 1     # don't lose sub-scale hits to "sky"
-    return q.tobytes()
+    rows, cols = q.shape
+    header = (DEPTH_BLOB_MAGIC
+              + struct.pack("<HHIIf", DEPTH_BLOB_VERSION, DEPTH_BLOB_HEADER_BYTES,
+                            cols, rows, float(scale_m)))
+    return header.ljust(DEPTH_BLOB_HEADER_BYTES, b"\0") + q.tobytes()
 
 
 def decode_depth_u16(buf: bytes, rows: int, cols: int,
                      scale_m: float = DEPTH_SCALE_M) -> np.ndarray:
-    q = np.frombuffer(buf, dtype="<u2").reshape(rows, cols).astype(np.float32)
+    """Inverse of encode_depth_u16."""
+    q = np.frombuffer(depth_samples(buf, rows, cols), dtype="<u2").reshape(rows, cols).astype(np.float32)
     out = q * scale_m
     out[q == DEPTH_SKY] = np.nan
     return out
+
+
+def depth_samples(buf: bytes, rows: int, cols: int) -> bytes:
+    """The sample bytes of a depth buffer, header stripped.
+
+    `rows`/`cols` are what the caller expects (from the render meta); a
+    buffer that disagrees, an unknown version or a wrong length is an error
+    rather than a silently misread horizon."""
+    head = depth_blob_header(buf)
+    if head is None:
+        raise ValueError("depth buffer has no HVD1 header")
+    if head["version"] != DEPTH_BLOB_VERSION:
+        raise ValueError(f"depth buffer version {head['version']}, this reader speaks {DEPTH_BLOB_VERSION}")
+    hlen = head["header_bytes"]
+    # a LATER version may have grown the header; take the offset from the file
+    if hlen < 16 or hlen > len(buf):
+        raise ValueError(f"depth buffer header claims {hlen} bytes")
+    if (head["width"], head["height"]) != (cols, rows):
+        raise ValueError(f"depth buffer is {head['width']}×{head['height']}, the caller expects {cols}×{rows}")
+    body = buf[hlen:]
+    if len(body) != rows * cols * 2:
+        raise ValueError(f"depth buffer says {head['width']}×{head['height']} "
+                         f"but carries {len(body)} bytes")
+    return body

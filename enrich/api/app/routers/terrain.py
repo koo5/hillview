@@ -608,8 +608,12 @@ class OverlayFitRequest(BaseModel):
     # (seams placed by hand). Both optional; serialised only when non-neutral
     hscale: list[float] | None = None
     knots: list[float] | None = None
-    # atmospheric visibility read off the photo (fog slider), km; null = full
+    # atmospheric visibility read off the photo (fog slider), km; null = full —
+    # the DEFAULT a viewer opens with (the baked skyline is cut here)
     visibility_km: float | None = None
+    # how far the baked document reaches (labels), km; None = the export's
+    # default (150). Serialised only when set to something else
+    max_visibility_km: float | None = None
     # client wall-clock (epoch ms) of the change — DRAFTS ONLY, so a browser
     # can tell its stale local live-state from a fresher draft written by
     # another browser; facts stay timestamp-free (content-addressed)
@@ -627,6 +631,8 @@ def _overlay_fit_json(req: OverlayFitRequest, with_ts: bool = False) -> str:
            "warp": [round(w, 4) for w in req.warp],
            "visibility_km": (round(req.visibility_km, 1)
                              if req.visibility_km is not None else None)}
+    if req.max_visibility_km is not None and abs(req.max_visibility_km - 150.0) > 1e-9:
+        fit["max_visibility_km"] = round(req.max_visibility_km, 1)
     if req.hwarp and any(abs(w) > 0 for w in req.hwarp):
         fit["hwarp"] = [round(w, 4) for w in req.hwarp]
     if req.hscale and any(abs(v - 1.0) > 1e-9 for v in req.hscale[:-1]):

@@ -1,0 +1,6 @@
+[install]
+# Dependency cooloff: only resolve package versions published at least this
+# many seconds ago (14 days). Ranges that only match younger versions fail to
+# resolve; list a package here to exempt it (e.g. a CVE fix younger than 14d).
+minimumReleaseAge = 1209600
+minimumReleaseAgeExcludes = []

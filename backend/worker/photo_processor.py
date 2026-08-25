@@ -752,7 +752,8 @@ class PhotoProcessor:
 		# a gigapixel EXR that is the whole cost. Auto-detect can't be judged
 		# before the detector has run, so that case is decided after step 1.
 		ext_pyramid = None          # accepted external pyramid metadata dict
-		pyr = None                  # PyramidSource we derive variants from (external or own)
+		pyr = None                  # PyramidSource as the variant source — only ever an accepted
+		                            # external pyramid on the skip-decode path (see the guard below)
 		offer_pending = bool(local_pyramid_path)
 		if local_pyramid_path:
 			blur_free = _override_blur_free(anonymization_override)
@@ -764,9 +765,23 @@ class PhotoProcessor:
 				else:
 					logger.info(f"External pyramid for {unique_id}: declined before decode — the override blurs")
 			if ext_pyramid:
-				from pyramid_source import PyramidSource
-				pyr = PyramidSource(local_pyramid_path, ext_pyramid)
-				logger.info(f"Deriving all size variants of {unique_id} from the external pyramid; source decode skipped")
+				if width >= 2 * self.FULL_VARIANT_WIDTH:
+					from pyramid_source import PyramidSource
+					pyr = PyramidSource(local_pyramid_path, ext_pyramid)
+					logger.info(f"Deriving all size variants of {unique_id} from the external pyramid; source decode skipped")
+				else:
+					# Accepted for SERVING only. Deriving variants needs every
+					# target to have a >=2x pyramid level (pyramid_source
+					# for_width), and the largest target is the 'full' variant
+					# at min(width, FULL_VARIANT_WIDTH) — below 2x that,
+					# for_width clamps to the full-resolution level and 'full'
+					# becomes a ~1x re-encode of WebP tiles, seams included.
+					# A photo this small is also cheap to decode, so decode it
+					# and let the raster win below: the decode-skip is only
+					# taken where it is both needed and harmless.
+					logger.info(f"External pyramid for {unique_id}: accepted for serving, but "
+					            f"{width}px < 2x{self.FULL_VARIANT_WIDTH} leaves no >=2x level for the "
+					            f"'full' variant; decoding the source for the size variants")
 
 		# "decode", not "anonymizing": every branch below starts by decoding the
 		# source (read_image — minutes of CPU for a gigapixel EXR), and with
@@ -841,32 +856,40 @@ class PhotoProcessor:
 			if image is not None:
 				height, width = image.shape[:2]
 
-			# Pyramid decision, now that anonymization has resolved:
-			#   external offer still pending (auto-detect) → judge it on the
-			#   real detections; else render our OWN pyramid (non-fast, image
-			#   big enough) — dzsave first, ship later — so that variants can
-			#   be derived from its levels too. Either way `pyr` becomes the
-			#   pixel source for every variant below and the full raster is no
-			#   longer needed; only fast mode without a pyramid resizes from it.
+			# Pyramid decision, now that anonymization has resolved: an
+			# external offer still pending (auto-detect) is judged on the real
+			# detections; without an accepted external pyramid the worker
+			# renders its OWN (non-fast, image big enough) — dzsave now, ship
+			# after the variants. Neither becomes the variant source here: the
+			# raster exists on every path through this block and wins below.
 			if offer_pending:
 				blur_applied = any(o.get('blurred', should_blur(o)) for o in (detections or {}).get('objects', []))
 				ext_pyramid = self._external_pyramid(local_pyramid_path, width, height, blur_applied,
 				                                     keep_pics_in_worker, quality, unique_id)
-				if ext_pyramid:
-					from pyramid_source import PyramidSource
-					pyr = PyramidSource(local_pyramid_path, ext_pyramid)
+				# The source was decoded on this path (the detector needed it),
+				# so the raster is the variant source either way; acceptance
+				# only decides which pyramid gets published below.
 			own_dzi = None  # (dzi_file, tiles_dir, meta) of a pyramid rendered here, shipped after the variants
-			if pyr is None and not fast and max(width, height) >= self.DZI_MIN_DIMENSION:
+			if ext_pyramid is None and not fast and max(width, height) >= self.DZI_MIN_DIMENSION:
 				processing_state.set_phase("dzi_pyramid")
 				own_dzi = self._render_own_pyramid(image, unique_id, photo_id, quality=quality, output_base=output_base)
-				from pyramid_source import PyramidSource
-				pyr = PyramidSource(own_dzi[0], own_dzi[2])
-				# The raster's last consumer was dzsave; release ~3 bytes/pixel
-				# before the encodes (a gigapixel pano's raster is many GB).
-				image = None
-			# One pixel source for every variant below, whichever it is.
+			# One pixel source for every variant below. The DECODED RASTER WINS
+			# whenever we have one: pyramid levels are already WebP-encoded, so
+			# deriving from them costs a second lossy generation, and the ">=2x
+			# downscale washes the first one out" argument only holds when such
+			# a level exists — for 'full' (scale 1 below 8192 px) and for
+			# 4096/3072 on mid-size photos it does not, and the level is the
+			# full-resolution one, i.e. a same-size re-encode with tile seams.
+			# The pyramid is therefore only the source when the source was
+			# never decoded at all (an accepted external pyramid — there the
+			# second generation is the price of skipping a gigapixel decode,
+			# measured at 0.3-0.8 dB in scripts/pano/pyramid_bench.py), and
+			# the acceptance block guarded width >= 2*FULL_VARIANT_WIDTH, so
+			# every for_width target below does have its >=2x level. (Crop
+			# variants may still clamp on short-and-wide strips — see
+			# for_center_crop — accepted for what they are used for.)
 			from pyramid_source import RasterSource, scale_bboxes
-			src = pyr if pyr is not None else RasterSource(image, source_path, encoding)
+			src = RasterSource(image, source_path, encoding) if image is not None else pyr
 
 			if fast:
 				size_variants = ['full', 320, 1200, 2048]
@@ -892,7 +915,7 @@ class PhotoProcessor:
 				size_info = {'path': relative_path}
 
 				if size == 'full':
-					scale = 1 if width <= 8192 else 8192 / width
+					scale = 1 if width <= self.FULL_VARIANT_WIDTH else self.FULL_VARIANT_WIDTH / width
 				else:
 					scale = size / width
 
@@ -1050,6 +1073,12 @@ class PhotoProcessor:
 	# Skip DZI pyramid generation for images where both dimensions are below this threshold
 	DZI_MIN_DIMENSION = 2048
 
+	# The 'full' size variant is capped at this width. Also the anchor of the
+	# external-pyramid variant-derivation guard: deriving variants from a
+	# pyramid is only allowed when width >= 2x this, so the largest target
+	# still has a >=2x level (see create_optimized_sizes).
+	FULL_VARIANT_WIDTH = 8192
+
 	def _external_pyramid(self, dzi_path: str, width: int, height: int, blur_applied: bool,
 	                      keep_pics_in_worker: bool, quality: Optional[int], unique_id: str) -> Optional[Dict[str, Any]]:
 		"""Validate a client-provided DZI pyramid and, if policy allows, return its
@@ -1070,18 +1099,28 @@ class PhotoProcessor:
 		# client-named input even though it lives on an operator archive.
 		import defusedxml.ElementTree as ET
 		ns = '{http://schemas.microsoft.com/deepzoom/2008}'
-		root = ET.parse(dzi_path).getroot()
-		size = root.find(f'{ns}Size')
-		if size is None:
-			raise ValueError(f"external pyramid {dzi_path}: descriptor has no Size element")
-		dzi = {
-			'tile_size': int(root.get('TileSize')),
-			'overlap': int(root.get('Overlap')),
-			'format': root.get('Format'),
-			'width': int(size.get('Width')),
-			'height': int(size.get('Height')),
-			'params': None,
-		}
+		# A descriptor that isn't a well-formed DZI is a DECLINED offer, not a
+		# failed photo: the worker can always render its own. (Only a
+		# well-formed descriptor whose Size contradicts the photo fails hard
+		# below — that one means the wrong pyramid was associated with this
+		# file, which is a pipeline bug worth surfacing.)
+		try:
+			root = ET.parse(dzi_path).getroot()
+			size = root.find(f'{ns}Size')
+			if size is None:
+				raise ValueError("no Size element")
+			dzi = {
+				'tile_size': int(root.get('TileSize')),
+				'overlap': int(root.get('Overlap')),
+				'format': root.get('Format'),
+				'width': int(size.get('Width')),
+				'height': int(size.get('Height')),
+				'params': None,
+			}
+		except Exception as e:
+			logger.info(f"External pyramid for {unique_id}: {dzi_path} — declined: "
+			            f"unreadable DZI descriptor ({type(e).__name__}: {e})")
+			return None
 		if (dzi['width'], dzi['height']) != (width, height):
 			raise ValueError(
 				f"external pyramid {dzi_path} is {dzi['width']}x{dzi['height']} but the photo is "

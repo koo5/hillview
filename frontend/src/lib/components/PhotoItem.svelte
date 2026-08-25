@@ -4,6 +4,7 @@
 	import { clearFilters } from '$lib/components/filters-modal/filtersStore';
 	import type { PhotoItemData } from '$lib/types/photoItemTypes';
 	import { displayTitle } from '$lib/photoDisplay';
+	import { formatDateTime } from '$lib/dateUtils';
 	import { ChevronDown } from 'lucide-svelte';
 
 	// Props
@@ -19,25 +20,6 @@
 	let detailsExpanded = false;
 
 	// Helper functions
-	function formatDateTime(dateStr: string): string {
-		const date = new Date(dateStr);
-		return date.toLocaleString(undefined, {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit'
-		});
-	}
-
-	function formatTime(dateStr: string): string {
-		const date = new Date(dateStr);
-		return date.toLocaleTimeString(undefined, {
-			hour: '2-digit',
-			minute: '2-digit'
-		});
-	}
-
 	function getPhotoUrl(photo: PhotoItemData): string {
 		return photo.sizes?.['320_crop']?.url || photo.sizes?.['320']?.url || '';
 	}

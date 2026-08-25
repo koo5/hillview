@@ -124,8 +124,16 @@ class PyramidSource:
 		return self._level_cache[level]
 
 	def for_width(self, target_w: int) -> np.ndarray:
-		"""Whole level at least 2x `target_w` wide (or full-res if none is).
-		Cached — treat as read-only."""
+		"""Whole level at least 2x `target_w` wide, cached — treat as read-only.
+
+		NB when no level is that big (a target at or near full resolution) this
+		clamps to the full-resolution level, so the caller re-encodes
+		already-encoded tiles at ~1x — a second lossy generation the >=2x rule
+		would otherwise have washed out. The worker therefore only uses this
+		class as a variant source when the raster was never decoded AND the
+		photo is >= 2x its largest for_width target (the guard in
+		create_optimized_sizes), so the clamp is never hit from there.
+		"""
 		return self.whole_level(self.level_for(2 * target_w))
 
 	def fresh_for_width(self, target_w: int) -> np.ndarray:

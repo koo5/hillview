@@ -16,6 +16,14 @@ import { PLACE_KINDS, type LabelClass, type SkyLabel } from './peakLabels';
 /** how far above the ridge line a direction label's leader stops (px) */
 export const DIRECTION_LEADER_LIFT_PX = 8;
 
+/** Everything the pill draws, at scale 1. A host that scales its labels
+ * (the zoom view's "Label scale" slider) passes a multiplier and every
+ * length grows with it — the layouter's slat pitch already follows, since
+ * it is derived from the pill height. */
+export interface SkyPillStyle {
+	scale?: number;
+}
+
 export interface SkyPillFacts {
 	kind?: string;
 	cls?: LabelClass;
@@ -23,8 +31,10 @@ export interface SkyPillFacts {
 
 export function paintSkyPills(
 	ctx: CanvasRenderingContext2D,
-	pills: (SkyLabel & SkyPillFacts)[]
+	pills: (SkyLabel & SkyPillFacts)[],
+	style: SkyPillStyle = {}
 ): void {
+	const k = style.scale ?? 1;
 	ctx.textBaseline = 'middle';
 	for (const l of pills) {
 		const isPlace = !!l.kind && PLACE_KINDS.has(l.kind);
@@ -34,16 +44,16 @@ export function paintSkyPills(
 		// leader stops well clear of the ridge — the anchor is what hides the
 		// place, and the line must not touch it)
 		ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-		ctx.lineWidth = 1;
-		if (dim) ctx.setLineDash([3, 3]);
+		ctx.lineWidth = 1 * k;
+		if (dim) ctx.setLineDash([3 * k, 3 * k]);
 		ctx.beginPath();
-		ctx.moveTo(l.cx, l.cy - (dim ? DIRECTION_LEADER_LIFT_PX : 3));
+		ctx.moveTo(l.cx, l.cy - (dim ? DIRECTION_LEADER_LIFT_PX : 3) * k);
 		ctx.lineTo(l.ox, l.oy);
 		ctx.stroke();
 		ctx.setLineDash([]);
 		if (!dim) {
 			ctx.beginPath();
-			ctx.arc(l.cx, l.cy, 2.2, 0, Math.PI * 2);
+			ctx.arc(l.cx, l.cy, 2.2 * k, 0, Math.PI * 2);
 			ctx.fillStyle = isPlace ? 'rgba(143,180,217,0.95)' : 'rgba(255,220,50,0.95)';
 			ctx.fill();
 		}
@@ -52,13 +62,13 @@ export function paintSkyPills(
 		ctx.translate(l.ox, l.oy);
 		ctx.rotate(-l.angle);
 		ctx.beginPath();
-		ctx.roundRect(0, -l.pillH, l.pillW, l.pillH, 4);
+		ctx.roundRect(0, -l.pillH, l.pillW, l.pillH, 4 * k);
 		ctx.fillStyle = isPlace ? 'rgba(20,44,74,0.68)' : 'rgba(0,0,0,0.62)';
 		ctx.fill();
 		ctx.strokeStyle = 'rgba(255,255,255,0.35)';
 		ctx.stroke();
 		ctx.fillStyle = '#fff';
-		ctx.fillText(l.label, 6, -l.pillH / 2 + 0.5);
+		ctx.fillText(l.label, 6 * k, -l.pillH / 2 + 0.5);
 		ctx.restore();
 	}
 	ctx.globalAlpha = 1;

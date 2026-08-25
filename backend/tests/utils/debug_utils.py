@@ -767,7 +767,11 @@ def upload_files(files: list, license: str, parallel: int = 1, user: str = None,
 
 		token_manager = TokenManager(user, password)
 
-		items = [(i, os.path.basename(f), description, f) for i, f in enumerate(files)]
+		# Absolute paths: with --no-upload the path is what the worker resolves
+		# (it rejects relative ones), and `upload-files --no-upload pano.exr`
+		# from the pipeline's workdir is the natural invocation. Harmless for
+		# the body-upload path, which only opens the file locally.
+		items = [(i, os.path.basename(f), description, os.path.abspath(f)) for i, f in enumerate(files)]
 
 		def read_file(filepath):
 			# Return the path, not the bytes: authorize-upload hashes a path in

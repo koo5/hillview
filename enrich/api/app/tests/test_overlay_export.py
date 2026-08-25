@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from app.overlay_export import (build_overlay, col_for_azimuth,
-                                bearing_distance, decode_depth,
+                                bearing_distance, decode_depth, depth_blob_header,
                                 project_labels, skyline_from_depth)
 
 # 4 columns × 6 rows spanning +6..-6° (2° per row), 10 m quanta
@@ -24,6 +24,14 @@ META = {"width": 4, "height": 6, "az_start": 0.5, "az_end": 3.5,
 FIT = {"centre_bearing": 2.0, "fov_deg": 90.0, "horizon_pct": 50.0,
        "projection": "equirect", "roll_deg": 0.0, "v_scale": 1.0,
        "visibility_km": None, "warp": [0.0, 0.0]}
+
+
+def packed(q, meta=META):
+    """The HVD1 wire form of a depth array — what every reader now requires."""
+    import struct as _s
+    head = b"HVD1" + _s.pack("<HHIIf", 1, 32, int(meta["width"]), int(meta["height"]),
+                             float(meta["depth_scale_m"]))
+    return head.ljust(32, b"\0") + q.tobytes()
 
 
 def depth_buf(columns, meta=META):
@@ -82,8 +90,9 @@ def test_near_clip_zeros_below_terrain_do_not_become_a_horizon():
 
 
 def test_decode_depth_rejects_a_mismatched_buffer():
+    q = depth_buf({1: {"skyTop": 2, "depths": [20000]}})
     try:
-        decode_depth(b"\x00\x00", META)
+        decode_depth(packed(q)[:-2], META)            # truncated payload
     except ValueError as e:
         assert "meta says" in str(e)
     else:
@@ -173,7 +182,7 @@ def test_col_for_azimuth_is_the_inverse_of_the_sweep():
 
 def test_build_overlay_document():
     q = depth_buf({1: {"skyTop": 2, "depths": [20000]}})
-    doc = build_overlay(fit=FIT, meta=META, depth=q.tobytes(),
+    doc = build_overlay(fit=FIT, meta=META, depth=packed(q),
                         peaks=[peak_at(1.5, 20000, "Vrch")],
                         render_id="r-1", attribution="© somebody",
                         label_attribution="peaks © OpenStreetMap contributors")
@@ -189,11 +198,39 @@ def test_build_overlay_document():
     assert doc["label_attribution"].startswith("peaks ©")
 
 
+def test_skyline_cut_at_the_default_visibility_labels_baked_to_max():
+    """The viewer opens with the fit's visibility (skyline cut there, no
+    depth needed) but the labels reach max_visibility_km — capped by the
+    render's range — so a fog slider has room without a re-export."""
+    q = depth_buf({1: {"skyTop": 2, "depths": [20000]},
+                   2: {"skyTop": 2, "depths": [60000]}})
+    peaks = [peak_at(1.5, 20000, "Near"), peak_at(2.5, 60000, "Far")]
+    fit = {**FIT, "visibility_km": 30.0, "max_visibility_km": 150.0}
+    doc = build_overlay(fit=fit, meta=META, depth=packed(q), peaks=peaks,
+                        render_id="r", attribution="© test")
+    # skyline: column 2's terrain (60 km) is beyond the default → cut
+    assert doc["skyline"]["distance_m"][1] == 20000
+    assert doc["skyline"]["distance_m"][2] is None
+    # labels: both, the far one being inside the max range
+    assert sorted(l["name"] for l in doc["labels"]) == ["Far", "Near"]
+    # ceiling = min(max, render range) = 100 km here
+    assert doc["labels_cutoff_km"] == 100.0
+    # no max in the fit → the default 150 km, still capped by the render
+    doc2 = build_overlay(fit={**FIT, "visibility_km": 30.0}, meta=META, depth=packed(q),
+                         peaks=peaks, render_id="r", attribution="© test")
+    assert doc2["labels_cutoff_km"] == 100.0 and len(doc2["labels"]) == 2
+    # a max BELOW the default never bakes fewer labels than the default shows
+    doc3 = build_overlay(fit={**FIT, "visibility_km": 70.0, "max_visibility_km": 30.0}, meta=META,
+                         depth=packed(q), peaks=peaks, render_id="r", attribution="© test")
+    assert doc3["labels_cutoff_km"] == 70.0
+    assert sorted(l["name"] for l in doc3["labels"]) == ["Far", "Near"]
+
+
 def test_fit_survives_verbatim():
     """Landing is detected by comparing this sub-object against the exported
     fact — any normalization here would strand the item as forever-pending."""
     q = depth_buf({1: {"skyTop": 2, "depths": [20000]}})
-    doc = build_overlay(fit=FIT, meta=META, depth=q.tobytes(), peaks=[],
+    doc = build_overlay(fit=FIT, meta=META, depth=packed(q), peaks=[],
                         render_id="r-1", attribution="x")
     assert doc["fit"] == FIT
     assert (json.dumps(doc["fit"], sort_keys=True, separators=(",", ":"))
@@ -204,7 +241,7 @@ def test_document_is_json_serializable_without_nan():
     """NaN is not JSON: a sky column must serialize as null, or the package
     file becomes unparseable by every strict reader downstream."""
     q = depth_buf({1: {"skyTop": 2, "depths": [20000]}})
-    doc = build_overlay(fit=FIT, meta=META, depth=q.tobytes(), peaks=[],
+    doc = build_overlay(fit=FIT, meta=META, depth=packed(q), peaks=[],
                         render_id="r-1", attribution="x")
     text = json.dumps(doc, allow_nan=False)
     assert "NaN" not in text
@@ -213,7 +250,7 @@ def test_document_is_json_serializable_without_nan():
 
 def test_label_attribution_omitted_when_no_labels():
     q = depth_buf({1: {"skyTop": 2, "depths": [20000]}})
-    doc = build_overlay(fit=FIT, meta=META, depth=q.tobytes(), peaks=[],
+    doc = build_overlay(fit=FIT, meta=META, depth=packed(q), peaks=[],
                         render_id="r-1", attribution="x",
                         label_attribution="peaks © OpenStreetMap contributors")
     assert "label_attribution" not in doc
@@ -247,9 +284,9 @@ def test_depth_ref_always_states_the_step():
 
 def test_depth_ref_only_when_the_buffer_travels():
     q = depth_buf({1: {"skyTop": 2, "depths": [20000]}})
-    without = build_overlay(fit=FIT, meta=META, depth=q.tobytes(), peaks=[],
+    without = build_overlay(fit=FIT, meta=META, depth=packed(q), peaks=[],
                             render_id="r-1", attribution="x")
-    with_depth = build_overlay(fit=FIT, meta=META, depth=q.tobytes(), peaks=[],
+    with_depth = build_overlay(fit=FIT, meta=META, depth=packed(q), peaks=[],
                                render_id="r-1", attribution="x",
                                depth_gz_bytes=999)
     assert "depth" not in without
@@ -266,13 +303,13 @@ def test_refuses_to_bake_without_attribution():
     q = depth_buf({1: {"skyTop": 2, "depths": [20000]}})
     for missing in ("", "   ", None):
         with pytest.raises(ValueError, match="no attribution"):
-            build_overlay(fit=FIT, meta=META, depth=q.tobytes(), peaks=[],
+            build_overlay(fit=FIT, meta=META, depth=packed(q), peaks=[],
                           render_id="r-1", attribution=missing)
 
 
 def test_bakes_with_a_real_notice():
     q = depth_buf({1: {"skyTop": 2, "depths": [20000]}})
-    doc = build_overlay(fit=FIT, meta=META, depth=q.tobytes(), peaks=[],
+    doc = build_overlay(fit=FIT, meta=META, depth=packed(q), peaks=[],
                         render_id="r-1",
                         attribution="© ČÚZK · produced using Copernicus WorldDEM-30")
     assert "ČÚZK" in doc["attribution"]
@@ -407,3 +444,46 @@ def test_one_label_per_depth_pixel_keeps_the_higher_priority():
     b = peak_at(1.5, 20000, "Turm B", ele=676, prominence=40)
     got = project_labels(META_EYE, q, [a, b], None)
     assert [m["name"] for m in got] == ["Turm B"]
+
+
+# --- the HVD1 depth buffer -------------------------------------------------
+
+def _packed(values, width, height, scale=4.0):
+    import struct as _s
+    body = np.array(values, dtype="<u2").tobytes()
+    head = b"HVD1" + _s.pack("<HHIIf", 1, 32, width, height, scale)
+    return head.ljust(32, b"\0") + body
+
+
+def test_decode_reads_the_container():
+    packed = _packed([[0, 1234], [65535, 7]], 2, 2)
+    assert packed[:4] == b"HVD1" and packed[:3] != b"\x1f\x8b\x08"
+    assert packed[20:32] == b"\0" * 12                      # reserved, zeroed
+    assert depth_blob_header(packed) == {"version": 1, "header_bytes": 32, "width": 2,
+                                         "height": 2, "scale_m": 4.0}
+    assert decode_depth(packed, {"width": 2, "height": 2}).tolist() == [[0, 1234], [65535, 7]]
+
+
+def test_decode_refuses_headerless_and_mismatched_buffers():
+    bare = np.zeros(4, dtype="<u2").tobytes()
+    assert depth_blob_header(bare) is None
+    for buf, meta, msg in (
+        (bare, {"width": 2, "height": 2}, "no HVD1 header"),
+        (_packed([[0, 0], [0, 0]], 2, 2), {"width": 4, "height": 1}, "meta says 4×1"),
+        (_packed([[0, 0], [0, 0]], 2, 2)[:-2], {"width": 2, "height": 2}, "3 samples"),
+    ):
+        try:
+            decode_depth(buf, meta)
+        except ValueError as e:
+            assert msg in str(e)
+        else:
+            raise AssertionError(f"expected a ValueError ({msg})")
+
+
+def test_container_survives_the_gzip_collision_sample():
+    """A bare buffer whose first sample is 0x8B1F reads as gzip; with the
+    header it starts with "HVD1" and a reader never has to guess."""
+    assert np.array([0x8B1F], dtype="<u2").tobytes()[:2] == b"\x1f\x8b"
+    packed = _packed([[0x8B1F, 0x0008]], 2, 1)
+    assert packed[:3] != b"\x1f\x8b\x08"
+    assert decode_depth(packed, {"width": 2, "height": 1}).tolist() == [[0x8B1F, 0x0008]]

@@ -1,21 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
-	clampPartialOffX,
 	angularSpanDeg,
 	azimuthAtU,
 	azimuthForColumn,
+	clampPartialOffX,
 	compassTicks,
+	depthBlobHeader,
 	destinationPoint,
 	hexToRgb,
+	isDepthBlob,
 	normalizeRect,
+	parseDepthBlob,
 	pickFromDepth,
 	pickFromDepthOrHorizon,
 	rectFromView,
+	type TerrainMeta,
+	type ViewRect,
 	viewFromRect,
 	wedgeFromRect,
-	wrap01,
-	type TerrainMeta,
-	type ViewRect
+	wrap01
 } from './depthPanoViewer';
 
 
@@ -233,5 +236,63 @@ describe('derived wedge (rect -> map, one-way)', () => {
 	it('caps FOV at the full sweep', () => {
 		const w = wedgeFromRect(meta, { x1: -0.5, y1: 0, x2: 1.5, y2: 0.05 });
 		expect(w.fovDeg).toBeCloseTo(360, 6);
+	});
+});
+
+describe('parseDepthBlob — the HVD1 container', () => {
+	it('reads the header, reserved bytes and all', () => {
+		const buf = blob([1, 2, 3, 4], 2, 2);
+		expect(depthBlobHeader(buf)).toEqual({ version: 1, headerBytes: 32, width: 2, height: 2, scaleM: 4 });
+		expect(new Uint8Array(buf, 20, 12).every((b) => b === 0)).toBe(true); // reserved
+		expect(depthBlobHeader(new Uint16Array([1, 2, 3, 4]).buffer)).toBeNull();
+	});
+
+	const blob = (values: number[], width = values.length, height = 1, opts: { version?: number; headerBytes?: number } = {}) => {
+		const buf = new ArrayBuffer(32 + values.length * 2);
+		const dv = new DataView(buf);
+		for (const [i, c] of [...'HVD1'].entries()) dv.setUint8(i, c.charCodeAt(0));
+		dv.setUint16(4, opts.version ?? 1, true);
+		dv.setUint16(6, opts.headerBytes ?? 32, true);
+		dv.setUint32(8, width, true);
+		dv.setUint32(12, height, true);
+		dv.setFloat32(16, 4, true);
+		new Uint16Array(buf, 32).set(values);
+		return buf;
+	};
+
+	it('returns the samples as a view, with no copy', () => {
+		const buf = blob([0, 1234, 65535, 7], 2, 2);
+		const d = parseDepthBlob(buf, { width: 2, height: 2 });
+		expect(Array.from(d)).toEqual([0, 1234, 65535, 7]);
+		expect(d.buffer).toBe(buf); // a view, not a copy
+		expect(d.byteOffset).toBe(32);
+	});
+
+	it('names itself, so gzip can never be confused with samples', () => {
+		// a bare buffer of these samples starts with 1f 8b 08 — the collision
+		const bare = new Uint16Array([0x8b1f, 0x0008]).buffer;
+		expect(new Uint8Array(bare)[0]).toBe(0x1f);
+		expect(isDepthBlob(bare)).toBe(false);
+		const wrapped = blob([0x8b1f, 0x0008], 2, 1);
+		expect(isDepthBlob(wrapped)).toBe(true);
+		expect(Array.from(parseDepthBlob(wrapped))).toEqual([0x8b1f, 0x0008]);
+	});
+
+	it('refuses a version it does not speak, and a header it cannot trust', () => {
+		expect(() => parseDepthBlob(blob([1, 2], 2, 1, { version: 2 }))).toThrow(/version 2/);
+		expect(() => parseDepthBlob(blob([1, 2], 2, 1, { headerBytes: 8 }))).toThrow(/claims 8/);
+		expect(() => parseDepthBlob(blob([1, 2], 2, 1, { headerBytes: 9999 }))).toThrow(/claims 9999/);
+	});
+
+	it('catches a truncated payload and a grid that is not the overlay\'s', () => {
+		const buf = blob([1, 2, 3, 4], 2, 2);
+		expect(() => parseDepthBlob(buf.slice(0, 36))).toThrow(/carries 4/);
+		expect(() => parseDepthBlob(buf, { width: 4, height: 1 })).toThrow(/is 2×2, the overlay describes 4×1/);
+	});
+
+	it('refuses a headerless buffer — there is no legacy form', () => {
+		const bare = new Uint16Array([1, 2, 3, 4]).buffer;
+		expect(() => parseDepthBlob(bare, { width: 2, height: 2 })).toThrow(/no HVD1 header/);
+		expect(() => parseDepthBlob(bare)).toThrow(/no HVD1 header/);
 	});
 });
