@@ -62,6 +62,26 @@ async function mintShortShareUrl(photo: PhotoData | any, zoomViewBounds?: { x1: 
 }
 
 /**
+ * The URL a share of this photo (and, optionally, zoom-view window) points
+ * at: the short /shared/{slug} form when the backend mints one, else the long
+ * parameterised map URL. Used by sharePhoto and by the zoom view's print QR.
+ */
+export async function buildShareUrl(photo: PhotoData | any, zoomViewBounds?: { x1: number; y1: number; x2: number; y2: number }): Promise<string> {
+	return (await mintShortShareUrl(photo, zoomViewBounds)) ?? constructShareUrl(photo, zoomViewBounds);
+}
+
+/**
+ * The shortest form of a share URL that still resolves: a /shared/{id}-{title}
+ * slug loses its decorative title part (the resolver reads only the leading
+ * id — SLUG_ID_RE in share_routes.py). For QR codes, where every byte is a
+ * denser symbol; the copied/shared link keeps the readable slug. Any other
+ * URL comes back unchanged.
+ */
+export function compactShareUrl(url: string): string {
+	return url.replace(/(\/shared\/\d+)-[^/?#]*/, '$1');
+}
+
+/**
  * Share a photo using native sharing (Tauri) or clipboard fallback (web).
  * Returns a result with a user-facing message and error flag.
  */
@@ -69,7 +89,7 @@ export async function sharePhoto(photo: PhotoData | any, zoomViewBounds?: { x1: 
 	if (!photo) return { message: '', error: false };
 
 	try {
-		const shareUrl = (await mintShortShareUrl(photo, zoomViewBounds)) ?? constructShareUrl(photo, zoomViewBounds);
+		const shareUrl = await buildShareUrl(photo, zoomViewBounds);
 		const shareText = `Check out this photo on Hillview${getUserName(photo) ? ` by @${getUserName(photo)}` : ''}`;
 
 		if (TAURI) {
