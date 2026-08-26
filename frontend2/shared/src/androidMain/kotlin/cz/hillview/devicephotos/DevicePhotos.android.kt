@@ -68,8 +68,9 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
                 totalCount = total,
                 hasMore = page * pageSize < total,
                 counts = StatusCounts(
-                    pending = dao.getPendingUploadCount() + dao.getUploadingCount() +
-                        dao.getProcessingCount(),
+                    waiting = dao.getPendingUploadCount(),
+                    uploading = dao.getUploadingCount(),
+                    processing = dao.getProcessingCount(),
                     done = dao.getCompletedUploadCount(),
                     failed = dao.getFailedUploadCount(),
                 ),
@@ -106,6 +107,12 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
     override suspend fun retryUploads() {
         withContext(Dispatchers.IO) {
             PhotoUploadManager(context).startAutomaticUpload("retry_button")
+        }
+    }
+
+    override suspend fun retryUpload(id: String) {
+        withContext(Dispatchers.IO) {
+            PhotoUploadManager(context).startManualUpload(id)
         }
     }
 

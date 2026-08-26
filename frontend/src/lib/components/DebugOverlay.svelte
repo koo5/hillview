@@ -10,6 +10,7 @@
 		screenOrientationAngle
 	} from "$lib/deviceOrientationExif";
     import {getPhotoSourceColor, getPhotoSourceName} from '$lib/photoUtils';
+    import {formatDate} from '$lib/dateUtils';
 
     // Access the stats store properly
     $: queueStats = captureQueue.stats;
@@ -183,7 +184,7 @@
                                     <div class="photo-details">
                                         🧭 {photo.bearing?.toFixed(1)}°
                                         {#if photo.altitude}| ⛰️ {photo.altitude?.toFixed(0)}m{/if}
-                                        {#if photo.captured_at}| 📅 {new Date(photo.captured_at).toLocaleDateString()}{/if}
+                                        {#if photo.captured_at}| 📅 {formatDate(photo.captured_at)}{/if}
                                     </div>
                                     {#if photo.filename}
                                         <div class="photo-file">{photo.filename}</div>

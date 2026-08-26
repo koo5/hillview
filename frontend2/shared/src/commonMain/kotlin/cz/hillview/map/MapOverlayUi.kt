@@ -2,6 +2,7 @@ package cz.hillview.map
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -152,6 +153,14 @@ fun MapOverlayUi(
      * GeoDebugText, which is pure and tested.
      */
     debugLines: List<String> = emptyList(),
+    /**
+     * Dismisses the readout in place — writes the same persisted setting
+     * the Settings switch reads, so the two stay one fact. The original's
+     * DebugOverlay is a mess, but it has a close button in its header
+     * (closeDebug, DebugOverlay.svelte:50); this readout shipped without
+     * one, which meant a trip through Settings to make it go away.
+     */
+    onCloseDebug: () -> Unit = {},
     onToggleHunterMode: () -> Unit,
     onToggleSource: (String) -> Unit,
     onOpenFilters: () -> Unit,
@@ -370,19 +379,40 @@ fun MapOverlayUi(
             // The geo debug readout, stacked on the same anchor so it shares
             // the pill's one bottom-left corner instead of claiming another.
             if (debugLines.isNotEmpty()) {
-                Column(
+                Row(
+                    verticalAlignment = Alignment.Top,
                     modifier = Modifier
                         .background(LocalChromeTone.current.panel, RoundedCornerShape(4.dp))
                         .padding(horizontal = 6.dp, vertical = 3.dp)
                         .testTag("geo-debug"),
                 ) {
-                    debugLines.forEach { line ->
-                        Text(
-                            text = line,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            color = LocalChromeTone.current.ink,
-                        )
+                    // The one part of the original's DebugOverlay worth
+                    // porting: it can be closed where it stands. At the
+                    // START of the row, deliberately: the panel re-measures
+                    // on every half-second tick (the age strings change
+                    // width), so a close button at the row's END drifts with
+                    // the longest line — a moving target that a finger (and
+                    // a scripted tap against dumped bounds) keeps missing.
+                    // The panel's LEFT edge is anchored; this corner stands
+                    // still.
+                    Text(
+                        text = "✕",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = LocalChromeTone.current.ink,
+                        modifier = Modifier
+                            .clickable(onClick = onCloseDebug)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .testTag("geo-debug-close"),
+                    )
+                    Column(Modifier.padding(start = 4.dp)) {
+                        debugLines.forEach { line ->
+                            Text(
+                                text = line,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color = LocalChromeTone.current.ink,
+                            )
+                        }
                     }
                 }
             }

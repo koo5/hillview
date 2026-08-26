@@ -4,6 +4,14 @@ version = "1.0.0"
 description = "Hillview backend workspace"
 requires-python = ">=3.12"
 
+[tool.uv]
+# Dependency cooloff: resolution ignores distributions uploaded after this
+# date. Advance it deliberately when refreshing deps -- `scripts/deps.py backend`
+# does that and the upgrade in one go; a plain `uv lock` with a different value
+# re-resolves the whole lockfile from scratch. CVE-fix versions younger than
+# this need `--exclude-newer-package pkg=DATE` (`deps.py backend --young pkg`).
+exclude-newer = "2026-08-11T00:00:00Z"
+
 [tool.uv.workspace]
 members = ["common", "api/app", "worker", "tests"]
 

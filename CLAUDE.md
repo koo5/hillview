@@ -46,6 +46,13 @@ python -m pytest tests/ -v
 ./scripts/migrate.sh upgrade head
 ```
 
+### Dependencies (from repo root)
+```bash
+# Audit every lockfile; refresh with the 14-day cooloff (see the script's docstring)
+scripts/deps.py audit
+scripts/deps.py backend pillow==12.3.0     # or --all; cargo / frontend subcommands likewise
+```
+
 ## Architecture Overview
 
 ### Frontend (`/frontend/`)
@@ -101,8 +108,10 @@ Each subdirectory has its own `CLAUDE.md` with detailed instructions:
 
 - **[One State](docs/one-state.md)**: the app's load-bearing architectural rule — one user-facing location/orientation state, written and read by everything, with no direct hardware side-channels. Read before touching position or heading.
 - **[Database Migrations Guide](docs/database-migrations.md)**: Complete workflow for managing database schema changes with Alembic
+- **[PostgreSQL Alpine Migration](docs/postgres-alpine-migration.md)**: why the postgres image moved to the alpine tag + ICU collation, the dump/restore procedure, and `backend/scripts/pg_rehearse_alpine.py` to prove it on a throwaway cluster first
 - **[Terrain Data Licensing](docs/terrain-data-licensing.md)**: DEM/OSM licence obligations for terrain renders (required notices, pre-launch checklist)
 - **[Native Android Auth](docs/native-auth.md)**: Credential Manager + Google ID-token login — concepts, security reasoning, and where everything lives
+- **[Zoom view print view](docs/zoomview-print.md)**: ⋮ → Print view + Ctrl+P — share-link QR in the middle, why the viewer freezes instead of re-rendering at print time, the replaced-element canvas gotcha
 
 ## Common Issues & Solutions
 

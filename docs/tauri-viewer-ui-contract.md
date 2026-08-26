@@ -238,6 +238,16 @@ into the single funnel. Everything else is layout.
 - **Pinch pre-empts it**: the action exposes `reset()`, and the Gallery calls
   it from `handlePhotoInteraction` (`:58-63`) whenever a photo-level gesture
   starts, so a zoom does not leave a half-committed drag behind.
+- **A new gesture fast-forwards the old one's animation.** The successful
+  release keeps its completion handler in
+  `dragState.pendingTransitionListener`, and `startDrag` calls it
+  SYNCHRONOUSLY with a synthetic transitionend (`:141-154`) before doing
+  anything else: the turn the animation was carrying is applied now, the
+  grid rests at zero, and the new drag proceeds from rest on the NEW front
+  photo. This is what makes rapid swiping advance one photo per swipe —
+  cancelling the in-flight animation instead (which is what frontend2 did
+  before porting this) loses the turn it was carrying, and fast swiping
+  makes no progress.
 
 ## Pinch, and the way into the zoom view
 

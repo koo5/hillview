@@ -214,6 +214,23 @@ promises "if the scene has actually moved", the code has no change
 check. Harmless for exposure (the plan is idempotent) but it is a
 repeating-request replacement at ~3 Hz and a `state` write each time.
 
+Fixed (2026-08-21): interval Sports runs still came back stuck at high
+exposure, and the bug was inside this very fix. `onAnalysisFrame` told
+SceneMeter which exposure produced the frame it measured as
+`meteredExposureNs ?: state.plan?.exposureNs` — harvest first. But the AE
+harvest is frozen the moment a rule turns AE off, so with a rule in force
+(the entire run) every frame was credited to the light the rule was
+ENGAGED in, not the exposure that actually took it. That moves the loop's
+fixed point from luma = target to luma = target × (harvest / estimate):
+engage Sports in the shade, drive into sun, and the meter cannot settle
+below ~0.43 × the shade product no matter how bright the scene — photos
+pinned near clipping, with Sports duly spending the bogus product past
+its knee (1/125 at max gain, in daylight). Nothing ever recovers, because
+prepareExposure short-circuits while `meteredPair()` is non-null, so the
+old AE-window fallback never runs either. The precedence now lives in
+`meterCreditedExposure` (plan first, never a mixed pair) and
+`SceneMeterLoopTest` plays the shade-into-sun run against both orders.
+
 ## Shutter lag: the 3A lock (2026-08-19)
 
 User report: a noticeable delay between pressing the shutter and the

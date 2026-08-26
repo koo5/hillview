@@ -1,5 +1,6 @@
 <script lang="ts">
     import {getBuildInfo} from '$lib/build-info';
+    import {formatTimeSec} from '$lib/dateUtils';
     import {onMount} from 'svelte';
     import {spatialState, bearingState} from '$lib/mapState';
 	import {gpsLocation, locationError, locationTracking} from '$lib/location.svelte.js';
@@ -36,7 +37,7 @@
 
         // Update time every second
         const interval = setInterval(() => {
-            currentTime = new Date().toLocaleTimeString(undefined, {hour12: false});
+            currentTime = formatTimeSec(new Date());
         }, 1000);
 
         // Fetch build information from Tauri commands
@@ -198,7 +199,7 @@
             </div>
         {/if}
         <div style="font-size: 9px; opacity: 0.7">
-            Updated: {new Date($compassData.timestamp).toLocaleTimeString()}</div>
+            Updated: {formatTimeSec($compassData.timestamp)}</div>
     {:else if $compassAvailable}
         <div style="opacity: 0.6">Waiting for sensor data...</div>
     {/if}
