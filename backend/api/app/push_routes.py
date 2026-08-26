@@ -63,6 +63,8 @@ async def validate_client_key_ownership(
 # Request/Response models
 class PushRegistrationRequest(BaseModel):
 	push_endpoint: str = Field(..., min_length=10)  # Allow FCM endpoints (fcm:token) and HTTP URLs
+	webpush_auth: Optional[str] = None
+	webpush_p256dh: Optional[str] = None
 	distributor_package: Optional[str] = None
 	timestamp: int = Field(...)  # Unix timestamp for replay protection
 	client_signature: str = Field(..., min_length=1)  # Base64 ECDSA signature
@@ -192,6 +194,8 @@ async def register_push(
 	stmt = pg_insert(PushRegistration).values(
 		client_key_id=client_key_id,
 		push_endpoint=request.push_endpoint,
+		webpush_auth=request.webpush_auth,
+		webpush_p256dh=request.webpush_p256dh,
 		distributor_package=request.distributor_package
 	)
 
@@ -200,6 +204,8 @@ async def register_push(
 		index_elements=['client_key_id'],
 		set_={
 			'push_endpoint': stmt.excluded.push_endpoint,
+			'webpush_auth': stmt.excluded.webpush_auth,
+			'webpush_p256dh': stmt.excluded.webpush_p256dh,
 			'distributor_package': stmt.excluded.distributor_package,
 			'updated_at': utcnow()
 		}

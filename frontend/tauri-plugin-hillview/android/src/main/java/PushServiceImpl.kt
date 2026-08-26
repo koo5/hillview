@@ -27,7 +27,7 @@ class PushServiceImpl : PushService() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val manager = PushDistributorManager.getInstance(this@PushServiceImpl)
-                manager.onNewEndpoint(endpoint.url)
+                manager.onNewEndpoint(endpoint.url, endpoint.pubkey, endpoint.auth)
                 Log.d(TAG, "✅ Backend registration completed")
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Backend registration failed", e)

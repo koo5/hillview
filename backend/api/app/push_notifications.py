@@ -11,6 +11,8 @@ from sqlalchemy.future import select
 from sqlalchemy import and_, delete as sa_delete, text
 import push_toggle
 from fcm_push import send_fcm_push, send_fcm_batch, is_fcm_configured
+import json
+from pywebpush import webpush
 
 logger = logging.getLogger(__name__)
 
@@ -186,22 +188,49 @@ async def send_push_to_client(client_key_id: str, db: AsyncSession, notif: Notif
 				logger.warning(f"FCM failed for {client_key_id}")
 				return
 
-			# UnifiedPush HTTP endpoint - send poke to trigger fetch
-			response = await client.post(
-				registration.push_endpoint,
-				json={
-					"content": "activity_update",
-					"encrypted": False
-				},
-				headers={"Content-Type": "application/json"}
-			)
-
-			if response.status_code == 200:
-				logger.info(f"UnifiedPush sent successfully to {client_key_id}")
-				return True
+			# UnifiedPush endpoint
+			if registration.webpush_auth and registration.webpush_p256dh:
+				subscription_info = {
+					"endpoint": registration.push_endpoint,
+					"keys": {
+						"auth": registration.webpush_auth,
+						"p256dh": registration.webpush_p256dh
+					}
+				}
+				payload = json.dumps({"content": "activity_update", "encrypted": True})
+				
+				try:
+					await asyncio.to_thread(
+						webpush,
+						subscription_info=subscription_info,
+						data=payload,
+						vapid_private_key=None,
+						vapid_claims=None,
+						ttl=86400,
+						timeout=10.0
+					)
+					logger.info(f"UnifiedPush webpush sent successfully to {client_key_id}")
+					return True
+				except Exception as e:
+					logger.warning(f"UnifiedPush webpush failed for {client_key_id}: {e}")
+					return False
 			else:
-				logger.warning(f"UnifiedPush failed for {client_key_id}: {response.status_code}")
-				return
+				# Plain HTTP POST for distributors without WebPush encryption
+				response = await client.post(
+					registration.push_endpoint,
+					json={
+						"content": "activity_update",
+						"encrypted": False
+					},
+					headers={"Content-Type": "application/json"}
+				)
+
+				if response.status_code == 200:
+					logger.info(f"UnifiedPush POST sent successfully to {client_key_id}")
+					return True
+				else:
+					logger.warning(f"UnifiedPush POST failed for {client_key_id}: {response.status_code}")
+					return
 
 		except Exception as e:
 			logger.error(f"Error sending push to {client_key_id}: {e}")
@@ -297,7 +326,9 @@ async def _send_activity_broadcast_notification_impl(
 	# Get eligible users with their push endpoints in one query
 	user_endpoints_query = select(
 		User.id,
-		PushRegistration.push_endpoint
+		PushRegistration.push_endpoint,
+		PushRegistration.webpush_auth,
+		PushRegistration.webpush_p256dh
 	).join(
 		UserPublicKey, User.id == UserPublicKey.user_id
 	).join(
@@ -321,7 +352,9 @@ async def _send_activity_broadcast_notification_impl(
 	# Get anonymous client endpoints
 	anon_endpoints_query = select(
 		PushRegistration.client_key_id,
-		PushRegistration.push_endpoint
+		PushRegistration.push_endpoint,
+		PushRegistration.webpush_auth,
+		PushRegistration.webpush_p256dh
 	).where(
 		and_(
 			~PushRegistration.client_key_id.in_(select(UserPublicKey.key_id)),
@@ -365,17 +398,17 @@ async def _send_activity_broadcast_notification_impl(
 	fcm_tokens = []
 	unified_push_endpoints = []
 
-	for _, endpoint in user_endpoints:
+	for user_id, endpoint, webpush_auth, webpush_p256dh in user_endpoints:
 		if endpoint.startswith('fcm:'):
 			fcm_tokens.append(endpoint)
 		else:
-			unified_push_endpoints.append(endpoint)
+			unified_push_endpoints.append((endpoint, webpush_auth, webpush_p256dh))
 
-	for _, endpoint in anon_endpoints:
+	for client_key_id, endpoint, webpush_auth, webpush_p256dh in anon_endpoints:
 		if endpoint.startswith('fcm:'):
 			fcm_tokens.append(endpoint)
 		else:
-			unified_push_endpoints.append(endpoint)
+			unified_push_endpoints.append((endpoint, webpush_auth, webpush_p256dh))
 
 	# Batch send FCM
 	fcm_result: Dict[str, object] = {'success': 0, 'failure': 0, 'stale_tokens': []}
@@ -404,7 +437,7 @@ async def _send_activity_broadcast_notification_impl(
 	)
 
 
-async def send_unified_push_batch(endpoints: List[str]) -> Dict[str, int]:
+async def send_unified_push_batch(endpoints: List[tuple]) -> Dict[str, int]:
 	"""Send UnifiedPush pokes to multiple endpoints concurrently."""
 	if not endpoints:
 		return {'success': 0, 'failure': 0}
@@ -413,19 +446,51 @@ async def send_unified_push_batch(endpoints: List[str]) -> Dict[str, int]:
 		logger.info(f"UnifiedPush batch skipped: outgoing push disabled (push_toggle); would have sent {len(endpoints)}")
 		return {'success': 0, 'failure': 0}
 
-	async def send_one(endpoint: str) -> bool:
+	async def send_one(ep_tuple: tuple) -> bool:
+		endpoint, webpush_auth, webpush_p256dh = ep_tuple
 		try:
-			async with httpx.AsyncClient(timeout=10.0) as client:
-				response = await client.post(
-					endpoint,
-					json={"content": "activity_update", "encrypted": False},
-					headers={"Content-Type": "application/json"}
-				)
-				return response.status_code == 200
-		except Exception as e:
-			logger.warning(f"UnifiedPush failed for {endpoint[:30]}...: {e}")
-			return False
+			# If we have webpush keys, use pywebpush
+			if webpush_auth and webpush_p256dh:
+				subscription_info = {
+					"endpoint": endpoint,
+					"keys": {
+						"auth": webpush_auth,
+						"p256dh": webpush_p256dh
+					}
+				}
+				
+				# Send payload
+				payload = json.dumps({"content": "activity_update", "encrypted": True})
+				
+				try:
+					await asyncio.to_thread(
+						webpush,
+						subscription_info=subscription_info,
+						data=payload,
+						vapid_private_key=None,
+						vapid_claims=None,
+						ttl=86400,
+						timeout=10.0
+					)
+					return True
+				except Exception as e:
+					logger.warning(f"UnifiedPush webpush failed for {endpoint[:30]}...: {e}")
+					return False
+			else:
+				# Plain HTTP POST for distributors without WebPush encryption
+				async with httpx.AsyncClient(timeout=10.0) as client:
+					response = await client.post(
+						endpoint,
+						json={"content": "activity_update", "encrypted": False},
+						headers={"Content-Type": "application/json"}
+					)
+					return response.status_code == 200
 
 	results = await asyncio.gather(*[send_one(ep) for ep in endpoints], return_exceptions=True)
-	success = sum(1 for r in results if r is True)
+	success = 0
+	for r in results:
+		if r is True:
+			success += 1
+		elif isinstance(r, Exception):
+			logger.warning(f"send_unified_push_batch gathered exception: {r}")
 	return {'success': success, 'failure': len(endpoints) - success}
