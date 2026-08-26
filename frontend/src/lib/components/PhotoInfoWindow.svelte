@@ -1,13 +1,14 @@
 <script lang="ts">
 	import type { PhotoData } from '$lib/types/photoTypes';
-	import { X } from 'lucide-svelte';
+	import { X, Info } from 'lucide-svelte';
 	import { showPhotoInfoWindow } from '$lib/data.svelte';
 	import {
 		getPhotoSourceId,
 		getPhotoSourceName,
 		getUserName,
 		getLicenseLabel,
-		formatCapturedAt
+		formatCapturedAt,
+		getCapturedAtDetails
 	} from '$lib/photoUtils';
 	import {
 		fetchExif,
@@ -65,6 +66,18 @@
 
 	// Base metadata rows. Precision matches the DebugOverlay conventions.
 	$: capturedStr = formatCapturedAt(photo);
+	// Timezone transparency: capturedStr is the instant converted to the
+	// viewer's zone (ISO 24-h); the expandable details say so explicitly and
+	// give the corresponding UTC. The ⓘ toggle works on touch; the title
+	// attribute doubles as a desktop mouseover shortcut.
+	$: capturedDetails = getCapturedAtDetails(photo);
+	$: capturedZoneStr = capturedDetails
+		? `${capturedDetails.offset}${capturedDetails.zone ? ' · ' + capturedDetails.zone : ''}`
+		: null;
+	$: capturedTitle = capturedDetails
+		? `This device's time zone (${capturedZoneStr}) — UTC: ${capturedDetails.utc}`
+		: null;
+	let showCapturedDetails = false;
 	$: coordStr = photo?.coord ? `${photo.coord.lat?.toFixed(6)}, ${photo.coord.lng?.toFixed(6)}` : null;
 	$: bearingStr = photo?.bearing != null ? `${photo.bearing.toFixed(1)}°` : null;
 	$: altitudeStr = photo?.altitude != null ? `${photo.altitude.toFixed(0)} m` : null;
@@ -116,7 +129,32 @@
 				<dd class="pinfo-note">{exifLoading ? 'Loading EXIF…' : 'No camera EXIF'}</dd>
 			{/if}
 
-			{#if capturedStr}<dt>Captured</dt><dd>{capturedStr}</dd>{/if}
+			{#if capturedStr}
+				<dt>Captured</dt>
+				<dd data-testid="photo-info-captured">
+					<span title={capturedTitle}>{capturedStr}</span>
+					{#if capturedDetails}
+						<button
+							type="button"
+							class="pinfo-tz-toggle"
+							data-testid="photo-info-captured-toggle"
+							aria-expanded={showCapturedDetails}
+							aria-label="Time zone details"
+							title="Time zone details"
+							on:click={() => (showCapturedDetails = !showCapturedDetails)}
+						>
+							<Info size={12} aria-hidden="true" />
+						</button>
+					{/if}
+				</dd>
+				{#if capturedDetails && showCapturedDetails}
+					<dt>UTC</dt>
+					<dd data-testid="photo-info-captured-utc">{capturedDetails.utc}</dd>
+					<dd class="pinfo-note" data-testid="photo-info-captured-note">
+						Shown in this device's time zone ({capturedZoneStr}), not the capture location's.
+					</dd>
+				{/if}
+			{/if}
 			{#if coordStr}<dt>Coords</dt><dd>{coordStr}</dd>{/if}
 			{#if bearingStr}<dt>Bearing</dt><dd>{bearingStr}</dd>{/if}
 			{#if altitudeStr}<dt>Altitude</dt><dd>{altitudeStr}</dd>{/if}
@@ -215,6 +253,31 @@
 		grid-column: 1 / -1;
 		opacity: 0.55;
 		font-style: italic;
+	}
+
+	/* Inline ⓘ next to the captured timestamp; sized for touch despite the
+	   12px glyph. */
+	.pinfo-tz-toggle {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		vertical-align: -4px;
+		width: 18px;
+		height: 18px;
+		margin-left: 2px;
+		padding: 0;
+		border: none;
+		border-radius: 4px;
+		background: none;
+		color: #fff;
+		opacity: 0.55;
+		cursor: pointer;
+	}
+
+	.pinfo-tz-toggle:hover,
+	.pinfo-tz-toggle[aria-expanded='true'] {
+		opacity: 1;
+		background: rgba(255, 255, 255, 0.14);
 	}
 
 	.pinfo-file {

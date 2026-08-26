@@ -506,6 +506,55 @@ on a new side channel. (Its Gradle wiring declares `src/` as a task input;
 without that a violation added under androidMain leaves `jvmTest` up to date
 and the check silently unrun.)
 
+## The map arrow freezing while the readouts move (open, 2026-08-21)
+
+Reported after the sensor work landed: readouts fine, arrow stuck after
+unbackgrounding — and the map still pans on GPS, so the canvas is not frozen.
+
+That combination points away from the geo chain entirely. The arrow is drawn
+by osmdroid from a value the `AndroidView` update block copies out of the
+bearing state; the GPS follow is coroutine-driven (`snapshotFlow`) and needs
+no recomposition. So an update block that stops re-running gives exactly this
+picture: every Compose readout tracks, the map still moves, the arrow holds
+its last handed value.
+
+NOT reproduced on the emulator — a HOME cycle, and a 45-second backgrounding
+behind another app with `send-trim-memory RUNNING_CRITICAL`, both left the
+arrow tracking (86k–92k pixels differing across a heading change, against a
+71k baseline). So the readout carries the instrument instead:
+
+    🗺 arrow 24s @307.7° Δ0.0°
+
+Δ is the tell, not the age: a still phone legitimately shows a climbing age
+with Δ0, because the block only re-runs when something recomposes. A large Δ
+means the overlay is holding a bearing the state has moved on from — the
+drawing stopped, not the sensors.
+
+## The interval ladder's head is clipped at common splits (2026-08-22)
+
+Found while fixing "i keep missing that the interval mode is about to
+start": the 280 dp track plus its head label is taller than the capture pane
+at ordinary split positions, so the head — which was the ONLY indicator of
+the armed state — renders off-pane. The user was not missing the signal; the
+signal was not on screen.
+
+A second finding closed the loop (user-supplied): the gesture accepts ANY
+point left of the button (`pos.x < circle.left`) — the thin track is a
+picture, not the hit-box — but nothing said so, and precision-aiming at the
+line was the real failure mode. While the slider is open, the whole catch
+zone now wears a wash that tints with the armed state (neutral / run-green /
+video-red), so the affordance is the hit-box rather than the line.
+
+The armed state also moved to the one place that is always visible: the
+shutter itself previews what release will do (green ▶ Ns for a run, red ⏺
+REC for video, blue 📷 otherwise) with the verdict spelled out under it
+("release: start 4s run" / "release: record" / "release: cancel"). The
+ladder head keeps only the compact stop label; nothing that must be seen may
+live there. The track itself still works while partly clipped — the gesture
+has pointer capture, so stops above the pane edge remain reachable by
+sliding to the top of the screen — but a shorter track at small pane heights
+would be the proper follow-up if it bothers anyone in practice.
+
 ## Deferred decisions
 
 **Marker refresh on capture, vs the original's placeholder markers

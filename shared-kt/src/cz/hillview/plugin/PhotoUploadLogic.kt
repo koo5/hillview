@@ -229,6 +229,21 @@ class PhotoUploadLogic(internal val context: Context) {
 					if (!photoId.isNullOrEmpty())
 					{
 						photo = photoDao.getPhotoById(photoId)
+						// Only a row that is WAITING can be forced. Without
+						// this, the refetch next iteration would find the
+						// same row in whatever status the upload just left
+						// it — "processing" included — claim it again (the
+						// claim only checks equality with the status it was
+						// selected under) and drain it in duplicate forever.
+						if (photo != null && photo.uploadStatus != "pending" &&
+							photo.uploadStatus != "failed"
+						) {
+							Log.d(
+								TAG,
+								"Targeted photo ${photo.filename} is ${photo.uploadStatus} — nothing to force"
+							)
+							break
+						}
 					}
 					else
 					{
@@ -383,6 +398,15 @@ class PhotoUploadLogic(internal val context: Context) {
 							e.message ?: "Unknown error"
 						)
 					}
+
+					// Targeted mode is ONE pass over ONE photo, success or
+					// failure alike — the status guard above catches the
+					// happy path's refetch, this catches the failed one
+					// (a targeted retry of a row that fails again would
+					// otherwise spin against the same row forever, since
+					// retry_button bypasses the backoff that normally
+					// spaces such attempts).
+					if (!photoId.isNullOrEmpty()) break
 				}
 
 

@@ -168,4 +168,24 @@ class GeoDebugTextTest {
         val lines = geoDebugLines(input())
         assertEquals("📍 50.1,14.5 gps 0.0s · ACTIVE", lines[2])
     }
+
+    /**
+     * The arrow is drawn from a value the map overlay is HANDED, so it can
+     * freeze while every Compose readout keeps moving — and the map keeps
+     * panning meanwhile, because the GPS follow does not need the code path
+     * that hands it over. This line is the difference between "the sensors
+     * stopped" and "the drawing stopped".
+     */
+    @Test
+    fun theArrowLineShowsWhenTheOverlayWasLastHandedABearing() {
+        val stale = geoDebugLines(
+            input().copy(arrowSetAtMs = now - 40_000, arrowValueDeg = 200.0),
+        )
+        assertEquals("🗺 arrow 40s @200.0° Δ110.0°", stale.last())
+
+        val live = geoDebugLines(input().copy(arrowSetAtMs = now, arrowValueDeg = 90.0))
+        assertEquals("🗺 arrow 0.0s @90.0° Δ0.0°", live.last())
+
+        assertEquals("🗺 arrow never set", geoDebugLines(input()).last())
+    }
 }

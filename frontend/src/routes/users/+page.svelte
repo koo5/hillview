@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { http, handleApiError } from '$lib/http';
+	import { parseInstant, isoDate } from '$lib/dateUtils';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { constructUserProfileUrl } from '$lib/urlUtils';
 	import { app } from '$lib/data.svelte';
@@ -47,7 +48,8 @@
 	}
 
 	function formatDate(dateStr: string): string {
-		const date = new Date(dateStr);
+		const date = parseInstant(dateStr);
+		if (!date) return dateStr;
 		const now = new Date();
 		const diffInDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -58,7 +60,7 @@
 		} else if (diffInDays < 7) {
 			return `${diffInDays} days ago`;
 		} else {
-			return date.toLocaleDateString();
+			return isoDate(date);
 		}
 	}
 

@@ -4,6 +4,7 @@ import {PluginListener} from "@tauri-apps/api/core";
 import {bearingMode, bearingState, updateBearing} from "$lib/mapState";
 import {getSettings, settings, settingsDefaults} from "$lib/settings";
 import {getAngularDistance} from "$lib/utils/bearingUtils";
+import {formatTimeSec} from "$lib/dateUtils";
 
 export interface CompassData {
     magnetic_heading: number | null;  // 0-360 degrees from magnetic north
@@ -272,7 +273,7 @@ async function startTauriSensor(mode: SensorMode = SensorMode.UPRIGHT_ROTATION_V
 						accuracy_level: compassUpdate.accuracy_level,
 						pitch: data.pitch?.toFixed(1) + '°',
 						roll: data.roll?.toFixed(1) + '°',
-						timestamp: new Date(data.timestamp).toLocaleTimeString()
+						timestamp: formatTimeSec(data.timestamp)
 					}));
 				*/
 			});

@@ -54,6 +54,8 @@ class MapOverlayUiTest {
         var trackingToggled = 0
         var pickedMode: BearingMode? = null
         var zoomDelta: Double? = null
+        var debugClosed = 0
+        var debugLines: List<String> = emptyList()
     }
 
     private fun androidx.compose.ui.test.ComposeUiTest.overlay(h: Harness) {
@@ -72,6 +74,8 @@ class MapOverlayUiTest {
                 trackingPhase = h.trackingPhase,
                 compassUnavailable = h.compassUnavailable,
                 markerCount = 3,
+                debugLines = h.debugLines,
+                onCloseDebug = { h.debugClosed++ },
                 onToggleHunterMode = { h.hunterToggled++ },
                 onToggleSource = { h.toggledSource = it },
                 onOpenFilters = { h.filtersOpened++ },
@@ -84,6 +88,23 @@ class MapOverlayUiTest {
                 onZoom = { h.zoomDelta = it },
             )
         }
+    }
+
+    /**
+     * The one part of the original's DebugOverlay worth porting is that it
+     * can be closed where it stands (closeDebug, DebugOverlay.svelte:50).
+     * performClick() aims at the node's centre, same as a finger — if the
+     * hit region and the glyph disagree, this fails the way the finger does.
+     */
+    @Test
+    fun theDebugReadoutClosesWhereItStands() = runComposeUiTest {
+        val h = Harness().apply {
+            debugLines = listOf("🧭 90.0° android-compass-true 0.0s", "📍 50.1,14.5 gps 0.0s")
+        }
+        overlay(h)
+        onNodeWithTag("geo-debug", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithTag("geo-debug-close", useUnmergedTree = true).performClick()
+        assertEquals(1, h.debugClosed)
     }
 
     @Test

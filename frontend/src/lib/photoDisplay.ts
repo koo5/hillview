@@ -1,5 +1,6 @@
 import { HILLVIEW_BASE_URL, constructUserProfileUrl } from './urlUtilsServer';
 import { isCoordsOnly, splitOnCoords } from './utils/coordParser';
+import { parseInstant, formatDate as isoFormatDate, formatDateTimeZoned } from './dateUtils';
 
 export interface PhotoSize {
 	url: string;
@@ -456,29 +457,15 @@ export function buildHeadDescription(
 // Backend timestamps are UTC. Most endpoints stamp the 'Z' explicitly
 // (common/utc.py format_utc), but a few emit naive .isoformat() strings —
 // which new Date() would read in the viewer's zone, silently shifting the
-// instant by the viewer's offset. Treat an offset-less string as UTC.
-const TZ_SUFFIX_RE = /(?:Z|[+-]\d\d:?\d\d)$/i;
+// instant by the viewer's offset. parseInstant treats an offset-less string
+// as UTC.
 export function parseUtcTimestamp(value: string): Date {
-	return new Date(TZ_SUFFIX_RE.test(value) ? value : value + 'Z');
+	return parseInstant(value) ?? new Date(NaN);
 }
 
-export function formatDate(value: string | null | undefined): string {
-	if (!value) return '';
-	try {
-		return parseUtcTimestamp(value).toLocaleDateString();
-	} catch {
-		return value;
-	}
-}
+export const formatDate = isoFormatDate;
 
-// timeZoneName makes the rendered zone explicit ("… 15:29:13 GMT+2") — the
-// stored instant is UTC and the conversion target is the viewer's zone, so
-// without the label the time reads as an unqualified wall-clock.
-export function formatDateTime(value: string | null | undefined): string {
-	if (!value) return '';
-	try {
-		return parseUtcTimestamp(value).toLocaleString(undefined, { timeZoneName: 'short' });
-	} catch {
-		return value;
-	}
-}
+// The zone suffix makes the rendered zone explicit ("… 15:29:13 UTC+02:00") —
+// the stored instant is UTC and the conversion target is the viewer's zone,
+// so without the label the time reads as an unqualified wall-clock.
+export const formatDateTime = formatDateTimeZoned;

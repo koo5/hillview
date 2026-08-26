@@ -3,6 +3,7 @@ import type {PhotoForInfo, FullPhotoInfo, PhotoData} from '$lib/types/photoTypes
 import { get } from 'svelte/store';
 import { sources, type Source } from '$lib/data.svelte';
 import { constructUserProfileUrl } from '$lib/urlUtilsServer';
+import { parseInstant, isoDateTimeSec, formatDateTimeSec, viewerZoneInfo } from '$lib/dateUtils';
 
 /**
  * Get the full-size URL for any photo type
@@ -147,14 +148,32 @@ export function getUserName(photo: PhotoData | null): string | null {
 	return null;
 }
 
+// Site-wide ISO display: "2026-08-24 15:45:12", viewer's timezone.
 export function formatCapturedAt(photo: PhotoData | null): string | null {
 	if (!photo?.captured_at) return null;
-	try {
-		const date = new Date(photo.captured_at);
-		return date.toLocaleString();
-	} catch {
-		return String(photo.captured_at);
-	}
+	return formatDateTimeSec(photo.captured_at) || String(photo.captured_at);
+}
+
+// Timezone-transparent companion to formatCapturedAt. captured_at is an
+// absolute instant (ISO string with Z from the backend, or epoch ms from
+// Panoramax); what we can NOT know client-side is the local time at the
+// capture location, so the details name the viewer's zone and give UTC.
+export interface CapturedAtDetails {
+	utc: string; // "2026-08-24 13:45:12" in UTC
+	offset: string; // viewer's UTC offset at that instant, e.g. "UTC+02:00"
+	zone: string | null; // viewer's IANA zone, e.g. "Europe/Prague"
+}
+
+export function getCapturedAtDetails(photo: PhotoData | null): CapturedAtDetails | null {
+	if (!photo?.captured_at) return null;
+	const date = parseInstant(photo.captured_at);
+	const zoneInfo = date ? viewerZoneInfo(date) : null;
+	if (!date || !zoneInfo) return null;
+	return {
+		utc: isoDateTimeSec(date, true),
+		offset: zoneInfo.offset,
+		zone: zoneInfo.zone
+	};
 }
 
 export function getPhotoDetailUrl(photo: PhotoData | null): string | null {

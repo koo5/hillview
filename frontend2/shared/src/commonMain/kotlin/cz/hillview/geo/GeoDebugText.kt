@@ -64,6 +64,19 @@ data class GeoDebugInput(
      */
     val devicePose: String? = null,
     val manualPositionClaimed: Boolean = false,
+    /**
+     * When the map overlay was last HANDED a bearing, and which one.
+     *
+     * The arrow is drawn by osmdroid from a value the AndroidView update
+     * block writes, so it can go stale in a way no other readout can: the
+     * elected bearing keeps moving, every Compose readout follows it, and
+     * the arrow sits still because the block that copies one into the other
+     * has stopped running. Coroutine-driven work (the GPS follow) keeps
+     * going meanwhile, which is why the map still pans while the arrow is
+     * frozen — the symptom that sends you looking at the sensors, wrongly.
+     */
+    val arrowSetAtMs: Long? = null,
+    val arrowValueDeg: Double? = null,
     val nowMs: Long,
 )
 
@@ -114,6 +127,20 @@ fun geoDebugLines(input: GeoDebugInput): List<String> = listOf(
         append(" · ")
         append(input.locationTracking.name.uppercase())
         if (input.manualPositionClaimed) append(" · claimed")
+    },
+    buildString {
+        append("🗺 arrow ")
+        if (input.arrowSetAtMs == null) {
+            append("never set")
+        } else {
+            append(age(input.arrowSetAtMs, input.nowMs))
+            input.arrowValueDeg?.let { append(" @${deg(it)}") }
+            // The gap that names the fault: the overlay is holding a bearing
+            // the state has moved on from.
+            input.arrowValueDeg?.let {
+                append(" Δ${deg(shortestDelta(it, input.bearing.bearing))}")
+            }
+        }
     },
 )
 

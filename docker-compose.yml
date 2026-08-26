@@ -4,6 +4,21 @@ services:
 
   postgres:
     init: true
+    # PostgreSQL 15.19 + PostGIS 3.5.7 on Alpine (pinned by digest, 2026-08-24 build).
+    # docker-postgis deliberately builds its PG 14-17 Debian variants FROM
+    # postgres:N-bullseye ("cautious release cycle"), but the official postgres
+    # image stopped building bullseye in 2025-07 at 15.13 -- so 15-3.5 (Debian)
+    # no longer receives PostgreSQL minor/security releases. Alternatives that
+    # stay on Debian/glibc: postgis/postgis:18-3.6 (trixie, PG major bump) or an
+    # own image FROM postgres:15-trixie + pgdg postgresql-15-postgis-3.
+    # musl != glibc collation, so this image must NOT be started on a cluster
+    # initialised by the old image -- hence the new volume name below and the
+    # dump/restore procedure in docs/postgres-alpine-migration.md.
+    #
+    # PARKED 2026-08-25: prepared and rehearsed (backend/scripts/pg_rehearse_alpine.py
+    # passed on the dev DB) but not switched on yet. To migrate, swap the four
+    # commented lines in this service + umami-init + volumes: and follow the runbook.
+    #image: postgis/postgis:15-3.5-alpine@sha256:22c05d317c2ffe76ebba2798a25eafaf764355c80faf5228c228de75346549a1
     image: postgis/postgis:15-3.5
     container_name: hillview_postgres
     mem_limit: 4g
@@ -12,10 +27,19 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      # Locale per the official image docs ("Locale Customization",
+      # https://hub.docker.com/_/postgres/): Alpine variants from Postgres 15 take
+      # their collation from ICU. On musl the libc en_US collation is plain byte
+      # order (A,B,a,b,z,é); ICU en-US sorts like glibc did (a,A,b,B,é,z) and does
+      # not change under an OS/libc upgrade. Both are only consulted by initdb, i.e.
+      # when the data volume is created; verified by backend/scripts/pg_rehearse_alpine.py.
+      #LANG: en_US.utf8
+      #POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=en-US"
       # Removed POSTGRES_HOST_AUTH_METHOD: trust - use password auth instead
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-25432}:5432"
     volumes:
+      #- postgres_data_15alpine:/var/lib/postgresql/data
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/initdb.d:/docker-entrypoint-initdb.d:ro
     healthcheck:
@@ -127,6 +151,9 @@ services:
 
 
   umami-init:
+    # only needs psql; keep it on the same image as the postgres service so nothing
+    # extra is pulled (alpine line parked together with the postgres service above)
+    #image: postgis/postgis:15-3.5-alpine@sha256:22c05d317c2ffe76ebba2798a25eafaf764355c80faf5228c228de75346549a1
     image: postgis/postgis:15-3.5
     container_name: hillview_umami_init
     restart: "no"
@@ -145,7 +172,9 @@ services:
 
 
   umami:
-    image: ghcr.io/umami-software/umami@sha256:e3f80c0625aad7179b49da27d475357cabb1068b8cacd9a792cfd6966888b123
+    # umami 3.3.0 (pinned by digest; 3.x tags are plain "3.3.0" / "latest"). Bumped from
+    # 3.1.0 on 2026-08-25 for GHSA-3xx8-742v-m4mq (cache token reusable as share token).
+    image: ghcr.io/umami-software/umami@sha256:87312d334d009ee67ee0d2fba8fed01435547cc468e452243aef5133a9984d48
 #    image: ghcr.io/umami-software/umami:postgresql-latest
     container_name: hillview_umami
     mem_limit: 1g
@@ -259,7 +288,11 @@ services:
 
 
 volumes:
+  # glibc cluster from the Debian postgis image. When the parked alpine migration
+  # happens, postgres_data_15alpine takes over and this one stays as the rollback
+  # target until proven; then delete it here and `docker volume rm hillview_postgres_data`.
   postgres_data:
+  #postgres_data_15alpine:
   uploads:
   analyzer_data:
   # NB: the `pics` volume is intentionally NOT defined here. The api service

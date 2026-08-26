@@ -94,12 +94,38 @@ fun ViewerPane(
             Turn.Down -> state.down
         }
 
+        // The slide-out currently animating, and the photo it is carrying —
+        // the original's dragState.pendingTransitionListener. It exists so a
+        // gesture that arrives DURING the animation can fast-forward it
+        // instead of killing it: without this, the second gesture's snapTo
+        // cancelled the commit coroutine inside animateTo, turnTo never ran,
+        // and a fast pair of swipes advanced zero photos (user-caught; the
+        // original solves it in startDrag, swipe2d.ts:141).
+        val pending = remember { androidx.compose.runtime.mutableStateOf<Pair<Turn, PhotoMarker>?>(null) }
+
+        // The original's synthetic-transitionend: apply the turn the
+        // interrupted animation was carrying, rest the grid, and let
+        // whatever comes next start clean on the NEW front photo.
+        suspend fun fastForward() {
+            val p = pending.value ?: return
+            pending.value = null
+            holder.turnTo(p.second)
+            // Also cancels the in-flight animateTo — its coroutine skips the
+            // turn it would have applied, which fastForward just did.
+            travel.snapTo(Offset.Zero)
+        }
+
         suspend fun commit(turn: Turn) {
             val photo = neighbour(turn) ?: return
+            pending.value = turn to photo
             // Travel first, then turn: the state swap puts the new front at
             // centre, so the grid is snapped back to zero in the same frame
             // and the movement reads as continuous.
             travel.animateTo(offsetFor(turn), tween(SNAP_MS, easing = SNAP_EASING))
+            // Cleared BEFORE the next suspension: between animateTo
+            // returning and turnTo there must be no window where a
+            // fast-forward could apply the same turn twice.
+            pending.value = null
             holder.turnTo(photo)
             travel.snapTo(Offset.Zero)
         }
@@ -110,7 +136,13 @@ fun ViewerPane(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(state.left, state.right, state.up, state.down, width, height) {
+                    // Keyed on the pane size ONLY. The neighbours used to be
+                    // keys too, which restarted this handler — killing the
+                    // active drag — every time a turn landed mid-gesture,
+                    // exactly what a fast-forwarded commit does. The lambdas
+                    // read `state` through the State delegate, so they see
+                    // the current neighbours without any restart.
+                    .pointerInput(width, height) {
                         // detectDragGestures rather than a hand-rolled
                         // awaitEachGesture loop: its touch slop is what keeps
                         // a tap a tap, which is the job the original's 10px
@@ -121,6 +153,12 @@ fun ViewerPane(
                             onDragStart = {
                                 locked = null
                                 total = Offset.Zero
+                                // A touch during the slide-out completes it
+                                // NOW (the original's startDrag). Same scope
+                                // as every onDrag snapTo, so this runs first
+                                // and the drag proceeds from rest against
+                                // the new front's neighbours.
+                                scope.launch { fastForward() }
                             },
                             onDrag = { change, dragAmount ->
                                 change.consume()
@@ -180,18 +218,21 @@ fun ViewerPane(
                 Slot(state.down, travel.value, Offset(0f, height.toFloat()), width, "down")
             }
 
-            // The chevrons duplicate every direction that exists.
+            // The chevrons duplicate every direction that exists. Each tap
+            // fast-forwards a slide already in flight, for the same reason a
+            // drag does: a quick double-tap used to cancel the first commit
+            // mid-animation and advance one photo instead of two.
             NavButton("‹", Alignment.CenterStart, state.left != null, "left") {
-                scope.launch { commit(Turn.Left) }
+                scope.launch { fastForward(); commit(Turn.Left) }
             }
             NavButton("›", Alignment.CenterEnd, state.right != null, "right") {
-                scope.launch { commit(Turn.Right) }
+                scope.launch { fastForward(); commit(Turn.Right) }
             }
             NavButton("⌃", Alignment.TopCenter, state.up != null, "up") {
-                scope.launch { commit(Turn.Up) }
+                scope.launch { fastForward(); commit(Turn.Up) }
             }
             NavButton("⌄", Alignment.BottomCenter, state.down != null, "down") {
-                scope.launch { commit(Turn.Down) }
+                scope.launch { fastForward(); commit(Turn.Down) }
             }
         }
     }

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { fly } from 'svelte/transition';
 	import { Maximize2, Minimize2, ChevronUp, ChevronDown, RefreshCw } from 'lucide-svelte';
+	import { formatDateTimeSec } from '$lib/dateUtils';
 	import {
 		timelineActive,
 		timelineLoading,
@@ -37,9 +38,7 @@
 	}
 
 	function fmtWhen(ts: unknown): string {
-		if (ts === undefined || ts === null) return '';
-		const d = new Date(ts as any);
-		return isNaN(d.getTime()) ? String(ts) : d.toLocaleString();
+		return formatDateTimeSec(ts as any);
 	}
 
 	function thumbUrl(p: any): string | null {
