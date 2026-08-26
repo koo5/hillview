@@ -5,7 +5,7 @@ description = "Hillview backend workspace"
 requires-python = ">=3.12"
 
 [tool.uv.workspace]
-members = ["common", "api/app", "worker", "tests"]
+members = ["common", "api/app", "worker", "tests", "panoramax"]
 
 [tool.ruff]
 exclude = [

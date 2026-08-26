@@ -103,6 +103,7 @@ Each subdirectory has its own `CLAUDE.md` with detailed instructions:
 - **[Database Migrations Guide](docs/database-migrations.md)**: Complete workflow for managing database schema changes with Alembic
 - **[Terrain Data Licensing](docs/terrain-data-licensing.md)**: DEM/OSM licence obligations for terrain renders (required notices, pre-launch checklist)
 - **[Native Android Auth](docs/native-auth.md)**: Credential Manager + Google ID-token login — concepts, security reasoning, and where everything lives
+- **[Panoramax Federation](docs/panoramax-federation.md)**: The `backend/panoramax/` read API + sequencer serving CC photos to the Panoramax federation (harvester contract, deployment, registration)
 
 ## Common Issues & Solutions
 

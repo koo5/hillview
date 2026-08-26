@@ -13,6 +13,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       # Removed POSTGRES_HOST_AUTH_METHOD: trust - use password auth instead
+      # For initdb.d/create-panoramax-role.sh (fresh clusters only; empty =
+      # skip). Existing clusters: backend/scripts/provision_panoramax_role.sh.
+      PANORAMAX_DB_PASSWORD: ${PANORAMAX_DB_PASSWORD:-}
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-25432}:5432"
     volumes:
@@ -230,6 +233,45 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+
+  panoramax:
+    # Panoramax/GeoVisio-compatible read API — Hillview's membership in the
+    # Panoramax federation (see docs/panoramax-federation.md). Opt-in via
+    # profile: docker compose --profile panoramax up -d --build panoramax
+    # Runs as the panoramax_ro role (see docker/postgres/initdb.d/
+    # create-panoramax-role.sh + backend/scripts/provision_panoramax_role.sh);
+    # migration 030 must be applied (api prestart does it) — until then the
+    # container waits, logging.
+    init: true
+    restart: always
+    build:
+      context: backend
+      dockerfile: panoramax/Dockerfile
+    container_name: hillview_panoramax
+    mem_limit: 1g
+    profiles: ["panoramax"]
+    ports:
+      - "127.0.0.1:8058:8058"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://panoramax_ro:${PANORAMAX_DB_PASSWORD:-}@${postgres:-postgres}:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      # Public canonical base URL registered in the meta-catalog. Its last
+      # characters must not be '/', 'a', 'p' or 'i' (the catalog rstrip("/api")s
+      # the whole string); any *.hillview.cz host is safe.
+      - PANORAMAX_BASE_URL=${PANORAMAX_BASE_URL:-http://localhost:8058}
+      # Where "/" sends humans following the catalog's per-item rel=via link
+      - PANORAMAX_VIEWER_URL=${PANORAMAX_VIEWER_URL:-https://hillview.cz}
+      - PANORAMAX_INSTANCE_NAME=${PANORAMAX_INSTANCE_NAME:-Hillview}
+      - PANORAMAX_SCOPE=${PANORAMAX_SCOPE:-cc}
+      - PANORAMAX_SESSION_GAP_HOURS=${PANORAMAX_SESSION_GAP_HOURS:-3}
+      - PANORAMAX_SEQUENCER_INTERVAL_S=${PANORAMAX_SEQUENCER_INTERVAL_S:-300}
+      - PANORAMAX_SEQUENCER_ENABLED=${PANORAMAX_SEQUENCER_ENABLED:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+
 
   analyzer:
     # LLM photo analyzer (production component; previously a manually-run script).
