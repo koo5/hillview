@@ -5,6 +5,7 @@
     import StandardBody from '$lib/components/StandardBody.svelte';
     import { auth } from '$lib/auth.svelte';
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
+    import { formatDateTimeSec } from '$lib/dateUtils';
     import { simplePhotoWorker } from '$lib/simplePhotoWorker';
 
     interface HiddenPhoto {
@@ -130,7 +131,7 @@
     }
 
     function formatDate(dateString: string): string {
-        return new Date(dateString).toLocaleString();
+        return formatDateTimeSec(dateString);
     }
 
     function getSourceDisplayName(source: string): string {

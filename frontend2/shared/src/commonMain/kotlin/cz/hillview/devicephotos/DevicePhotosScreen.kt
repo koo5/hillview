@@ -60,7 +60,7 @@ fun DevicePhotosScreen(
     var filter by remember { mutableStateOf(PhotoFilter.All) }
     var filterCounts by remember { mutableStateOf<Map<PhotoFilter, Int>>(emptyMap()) }
     var cards by remember { mutableStateOf<List<DevicePhotoCard>>(emptyList()) }
-    var counts by remember { mutableStateOf(StatusCounts(0, 0, 0)) }
+    var counts by remember { mutableStateOf(StatusCounts(0, 0, 0, 0, 0)) }
     var totalCount by remember { mutableStateOf(0) }
     var hasMore by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf(1) }
@@ -106,13 +106,64 @@ fun DevicePhotosScreen(
             ) { Text(if (loading) "Loading…" else "Refresh") }
         }
 
-        // The DevicePhotoStats line: what the upload stack has and hasn't done.
-        Text(
-            "$totalCount photos · ${counts.pending} pending · " +
-                "${counts.done} uploaded · ${counts.failed} failed",
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(horizontal = 16.dp).testTag("device-photo-stats"),
-        )
+        // The DevicePhotoStats line: what the upload stack has and hasn't
+        // done — with the original's global RetryUploadsButton beside it
+        // (DevicePhotoStats.svelte:105). "Force" is real: the retry_button
+        // trigger bypasses both the failed rows' exponential backoff and
+        // the wifi-only constraint, so it uploads NOW, on whatever network
+        // is there — which is exactly what someone standing somewhere with
+        // one bar of LTE and a bus to catch is asking for.
+        var forcing by remember { mutableStateOf(false) }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 16.dp),
+        ) {
+            // Only the stages that are non-zero: a full five-part line is
+            // noise on the common all-done day, and a zero segment says
+            // nothing a missing one does not.
+            Text(
+                buildList {
+                    add("$totalCount photos")
+                    if (counts.waiting > 0) add("${counts.waiting} waiting")
+                    if (counts.uploading > 0) add("${counts.uploading} uploading")
+                    if (counts.processing > 0) add("${counts.processing} processing")
+                    add("${counts.done} uploaded")
+                    if (counts.failed > 0) add("${counts.failed} failed")
+                }.joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f).testTag("device-photo-stats"),
+            )
+            if (uploadSettings.autoUploadEnabled && sessionState is SessionState.LoggedIn) {
+                if (counts.actionable > 0) {
+                    TextButton(
+                        enabled = !forcing,
+                        onClick = {
+                            forcing = true
+                            scope.launch {
+                                browser.retryUploads()
+                                // The drain runs in WorkManager; give it a
+                                // beat before re-reading the counts, as the
+                                // original's 2 s refresh does.
+                                kotlinx.coroutines.delay(2_000)
+                                load(1, append = false)
+                                forcing = false
+                            }
+                        },
+                        modifier = Modifier.testTag("manual-upload-button"),
+                    ) {
+                        Text(if (forcing) "Uploading…" else "⬆ Upload now")
+                    }
+                }
+            } else if (counts.actionable > 0) {
+                // A force button that the gate would silently swallow is a
+                // trap; the original shows this sentence instead of one.
+                Text(
+                    "Enable auto-upload in settings to upload.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("manual-upload-hint"),
+                )
+            }
+        }
 
         // The filter IS the navigation. At ten thousand rows nobody scrolls
         // to find anything — the questions are "what is stuck", "what
@@ -174,9 +225,27 @@ fun DevicePhotosScreen(
                 items(cards, key = { it.id }) { card ->
                     PhotoCard(
                         card = card,
-                        retryOffered = uploadSettings.autoUploadEnabled &&
-                            sessionState is SessionState.LoggedIn,
-                        onRetry = { scope.launch { browser.retryUploads(); load(1, false) } },
+                        // Login is the only real requirement: the targeted
+                        // path bypasses the auto-upload toggle by design (a
+                        // manual "upload THIS" is not automatic uploading —
+                        // and someone who keeps auto-upload OFF and pushes
+                        // photos out by hand is exactly who this serves).
+                        // The original gated its button on the toggle, but
+                        // its button was the GLOBAL drain, which the toggle
+                        // genuinely governs.
+                        retryOffered = sessionState is SessionState.LoggedIn,
+                        // THIS photo, not the queue (user-corrected: the
+                        // global drain has its own button in the header).
+                        onRetry = {
+                            scope.launch {
+                                browser.retryUpload(card.id)
+                                // Targeted upload runs off-screen; give it a
+                                // beat before re-reading, as the header
+                                // button does.
+                                kotlinx.coroutines.delay(2_000)
+                                load(1, append = false)
+                            }
+                        },
                         onDelete = { alsoFile ->
                             scope.launch {
                                 browser.delete(card.id, alsoFile)
@@ -382,10 +451,10 @@ private fun PhotoCard(
                     TextButton(
                         onClick = onRetry,
                         modifier = Modifier.testTag("retry-uploads-button"),
-                    ) { Text("Retry uploads") }
+                    ) { Text("⬆ Upload this photo now") }
                 } else {
                     Text(
-                        "Enable auto-upload in settings to retry failed uploads.",
+                        "Sign in to upload.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

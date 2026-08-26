@@ -24,7 +24,8 @@
 	 * closes the viewer (mirroring the original ZoomView behaviour).
 	 */
 	import { openExternalUrl, constructMapUrl, externalBaseUrl } from '$lib/urlUtils';
-	import { sharePhoto as sharePhotoUtil } from '$lib/shareUtils';
+	import { sharePhoto as sharePhotoUtil, buildShareUrl, compactShareUrl } from '$lib/shareUtils';
+	import QRCode from 'qrcode';
 	import { togglePhotoRating, fetchPhotoRating, ratingShortcutFor, type Rating } from '$lib/photoActions';
 	import type { PhotoData } from '$lib/sources';
 	import { photoInFront, updateBearing, updateSpatialState } from '$lib/mapState';
@@ -64,7 +65,7 @@
 		type LabelClass,
 		type SkyLabel
 	} from '$terrain/peakLabels';
-	import { paintSkyPills } from '$terrain/labelPills';
+	import { paintSkyPills, SKY_PILL_PALETTE_PRINT } from '$terrain/labelPills';
 	import {
 		fetchTerrainOverlay,
 		loadOverlayDepth,
@@ -85,7 +86,7 @@
 		dropdownMenuState,
 		type DropdownMenuItem,
 	} from '$lib/components/dropdown-menu/dropdownMenu.svelte';
-	import { MapPin, MoreVertical, Mountain, Share, Tags } from 'lucide-svelte';
+	import { MapPin, MoreVertical, Mountain, Printer, Share, Tags } from 'lucide-svelte';
 	import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { buildTileSource } from '$zoomview/tileSource';
@@ -150,6 +151,188 @@
 				shareMessageError = false;
 			}, result.error ? 3000 : 4000);
 		}
+	}
+
+	// ---- print view ----
+	//
+	// A chrome-less rendering of the current view with a share-link QR in the
+	// middle, meant for the browser's own Ctrl+P. Two things make printing
+	// this viewer non-trivial, and both are handled by FREEZING rather than by
+	// re-rendering at print time:
+	//
+	// - OSD resizes itself in its rAF loop, and our overlay canvases resize
+	//   (which clears them) in a ResizeObserver with a rAF redraw behind it.
+	//   Chromium snapshots the print layout somewhere in the middle of that,
+	//   so the terrain line lands on a stale projection and the label canvas
+	//   comes out blank. While printing (beforeprint→afterprint, or the whole
+	//   time the print view is on) nothing resizes: the bitmaps keep their
+	//   screen size and are merely CSS-scaled.
+	// - That scale must be UNIFORM or the overlays drift off the photo, so
+	//   the @media print layout below turns the overlay into a centred box
+	//   with the screen container's aspect ratio (--print-ar). Bonus: what
+	//   prints is exactly the current view, letterboxed onto the page.
+	//
+	// The OSD canvas is tainted by cross-origin tiles, so compositing the
+	// layers into one image was never an option.
+	let printMode = false;
+	/** set for the duration of a browser print job (beforeprint→afterprint),
+	 *  independently of the print view — plain Ctrl+P freezes too */
+	let printingNow = false;
+	const renderFrozen = () => printMode || printingNow;
+	/** container aspect ratio, refreshed on resize; the print layout locks to it */
+	let printAr = 1.5;
+	let printShareUrl: string | null = null;
+	let printQrCanvas: HTMLCanvasElement | null = null;
+	let printPageStyle: HTMLStyleElement | null = null;
+	let printGen = 0;
+	// paper palette for the pills (black on white) and thicker leaders: a
+	// stationary hairline over a photo is easy to miss on a sheet
+	const PRINT_LEADER_WIDTH_MUL = 2;
+	const PRINT_SKY_LEADER_WIDTH = 2.5;
+	// the label scale the print view switches to (pills sized for paper, where
+	// the whole view shrinks onto a page); the visitor's own value comes back
+	// on exit
+	const PRINT_LABEL_SCALE = 1.4;
+	let printPrevLabelScale = 1;
+
+	// The tab title is the photo's while the zoom view is open (so "Save as
+	// PDF" from the print view gets a filename worth keeping); the page's
+	// own title comes back on close. Captured on mount, applied reactively so
+	// a photo change inside the open viewer follows.
+	let pageTitleBefore: string | null = null;
+	$: if (pageTitleBefore !== null) {
+		document.title = `${data.title || data.description || data.filename} – Hillview`;
+	}
+
+	async function enterPrintMode() {
+		if (printMode || !viewer?.viewport || !container) return;
+		track('printView', { photo: data.photo_id ?? '' });
+		closeDropdownMenu();
+		if (annotationMode !== 'view') setAnnotationMode('view');
+		clearViewSelection();
+		annotator?.setSelected?.();
+
+		printAr = container.offsetWidth / Math.max(1, container.offsetHeight);
+
+		// freeze: no OSD refits, no canvas resizes, no panning away from the
+		// view the QR is about to encode
+		viewer.autoResize = false;
+		viewer.setMouseNavEnabled(false);
+		printMode = true;
+		// the attribution is a licence obligation and must be on the paper —
+		// the small-screen ⓘ collapse does not apply here
+		attributionExpanded = true;
+		installPrintPageStyle();
+		// repaint the pills in the paper palette, at the paper scale (the
+		// scale change alone also triggers onAnnotationScaleChanged)
+		printPrevLabelScale = annotationScale;
+		annotationScale = PRINT_LABEL_SCALE;
+		lastDrawFingerprint = '';
+		scheduleDrawLabels();
+		scheduleDrawTerrain();
+
+		const gen = ++printGen;
+		const photo = $photoInFront;
+		const b = viewer.viewport.getBounds();
+		const bounds = { x1: b.x, y1: b.y, x2: b.x + b.width, y2: b.y + b.height };
+		// no photo record (should not happen in this view) → the address bar
+		// already carries the same view state. Id-only slug: fewer bytes,
+		// sparser code (29×29 → 25×25 for a typical link).
+		const url = photo ? await buildShareUrl(photo, bounds) : window.location.href;
+		if (gen !== printGen || !printMode) return;
+		printShareUrl = compactShareUrl(url);
+	}
+
+	function exitPrintMode() {
+		if (!printMode) return;
+		printGen++;
+		printMode = false;
+		printShareUrl = null;
+		printPageStyle?.remove();
+		printPageStyle = null;
+		if (viewer) {
+			viewer.autoResize = true;
+			viewer.setMouseNavEnabled(true);
+		}
+		// the window may have changed size under the freeze; and the pills go
+		// back to the screen palette and the visitor's scale either way
+		annotationScale = printPrevLabelScale;
+		lastDrawFingerprint = '';
+		syncOverlayCanvasSizes();
+		scheduleDrawLabels();
+		scheduleDrawTerrain();
+	}
+
+	/** Orientation follows the view's aspect; Chrome's dialog then shows the
+	 *  page the right way round without the visitor having to flip it. Injected
+	 *  only while the print view is on: @page cannot be scoped by selector. */
+	function installPrintPageStyle() {
+		printPageStyle?.remove();
+		printPageStyle = document.createElement('style');
+		printPageStyle.dataset.testid = 'osd-print-page-style';
+		printPageStyle.textContent = `@page { size: ${printAr >= 1 ? 'landscape' : 'portrait'}; }`;
+		document.head.appendChild(printPageStyle);
+	}
+
+	$: if (printQrCanvas && printShareUrl) renderPrintQr(printQrCanvas, printShareUrl);
+
+	function renderPrintQr(canvas: HTMLCanvasElement, url: string) {
+		// A 1024px bitmap, displayed at the stylesheet's --qr size (a fraction
+		// of the print box, so screen and paper match): the bitmap is what the
+		// printer gets, and blurry module edges are what kills a scan.
+		// Lowest error correction = fewest modules: the id-only /shared/ link
+		// is a sparse 25×25 code, and even the long-URL fallback stays
+		// readable as a code rather than a black square. The tile's padding
+		// is the quiet zone, so no margin inside the bitmap.
+		QRCode.toCanvas(canvas, url, { width: 1024, margin: 0, errorCorrectionLevel: 'L' })
+			.then(() => {
+				// the library pins its own inline px size; the stylesheet rules
+				canvas.style.width = '';
+				canvas.style.height = '';
+			})
+			.catch((e: unknown) => console.warn('[OSD] print QR render failed:', e));
+	}
+
+	// only the host is spelled out under the code: the slug (let alone the
+	// long-URL fallback) is nothing anyone types off a sheet of paper, and a
+	// wide text strip turns the tile into a slab
+	$: printShareHost = printShareUrl ? printShareUrl.replace(/^https?:\/\//, '').split('/')[0] : '';
+	// the hint strip (screen only) shows what the code encodes: the id-only
+	// short link, or — when the mint was refused (photo not public, backend
+	// unreachable, rate limit) — the long map URL, flagged, since that one
+	// prints as a dense block
+	$: printShareLinkText = printShareUrl ? printShareUrl.replace(/^https?:\/\//, '') : '';
+	$: printShareIsLong = !!printShareUrl && !/\/shared\//.test(printShareUrl);
+
+	/** Overlay canvases track the container 1:1 (setting width/height also
+	 *  clears them, hence the redraws). A no-op while frozen — see above. */
+	function syncOverlayCanvasSizes() {
+		if (!labelCanvas || !container || renderFrozen()) return;
+		labelCanvas.width  = container.offsetWidth;
+		labelCanvas.height = container.offsetHeight;
+		if (labelLeaderCanvas) {
+			labelLeaderCanvas.width  = container.offsetWidth;
+			labelLeaderCanvas.height = container.offsetHeight;
+		}
+		if (terrainCanvas) {
+			terrainCanvas.width  = container.offsetWidth;
+			terrainCanvas.height = container.offsetHeight;
+		}
+		printAr = container.offsetWidth / Math.max(1, container.offsetHeight);
+		scheduleDrawLabels();
+		scheduleDrawTerrain();
+	}
+
+	function onBeforePrint() {
+		printingNow = true;
+		if (viewer) viewer.autoResize = false;
+	}
+
+	function onAfterPrint() {
+		printingNow = false;
+		if (printMode) return;
+		if (viewer) viewer.autoResize = true;
+		syncOverlayCanvasSizes();
 	}
 
 	function showRatingFeedback(message: string) {
@@ -471,6 +654,9 @@
 
 	let isLoading = true;
 	let labelCanvas: HTMLCanvasElement | null = null;
+	/** the annotation leaders, on their own layer UNDER the terrain canvas so
+	 *  they pass beneath the slats while the pills (labelCanvas) stay on top */
+	let labelLeaderCanvas: HTMLCanvasElement | null = null;
 	let resizeObserver: ResizeObserver | null = null;
 	// The bottom strip (title + terrain attribution); its measured height is
 	// fed to the label layouter so bottom-edge pills stay above the chrome.
@@ -855,7 +1041,7 @@
 		type LabelInput,
 		type LabelDrawCmd
 	} from '$zoomview/labelLayout';
-	import { paintLabels } from '$zoomview/labelPaint';
+	import { paintLabels, LABEL_PALETTE_PRINT } from '$zoomview/labelPaint';
 	import { toW3cAnnotation } from '$zoomview/annotationTargets';
 	import { OSD_VIEWER_DEFAULTS, initialSourceFor, swapInMainSource } from '$zoomview/viewerInit';
 
@@ -867,6 +1053,8 @@
 	const BASE_PILL_RADIUS = 4;
 	const BASE_TEXT_BASELINE_OFFSET = 5;
 	const BASE_ANNOTATION_STROKE_WIDTH = 1.5;
+	/** zoom factor per wheel notch with Shift held (plain wheel: zoomPerScroll) */
+	const FINE_ZOOM_PER_SCROLL = 1.15;
 	// terrain slats at scale 1 (see paintSkyPills / layoutSkyLabels)
 	const TERRAIN_LABEL_FONT_PX = 11;
 	const TERRAIN_LABEL_PAD_PX = 6;
@@ -946,6 +1134,16 @@
 				testId: 'osd-share',
 				onclick: handleShare,
 			});
+			// web only: the Android webview has no print dialog to hand over to
+			if (!TAURI) {
+				items.push({
+					id: 'print',
+					label: 'Print view',
+					icon: Printer,
+					testId: 'osd-print-view',
+					onclick: enterPrintMode,
+				});
+			}
 			items.push({ type: 'divider' });
 		}
 		items.push({ type: 'custom', id: 'annotation-scale', render: scaleSnippet });
@@ -1013,7 +1211,7 @@
 			pillH: labelPillH,
 			bottomInset
 		});
-		const fp = `${fingerprint};bi${bottomInset}`;
+		const fp = `${fingerprint};bi${bottomInset};p${printMode ? 1 : 0}`;
 		if (fp === lastDrawFingerprint) return;
 		lastDrawFingerprint = fp;
 
@@ -1027,14 +1225,20 @@
 
 		// Painting lives in $zoomview/labelPaint (extracted for reuse by the
 		// enrichment workbench; op sequence pinned by unit tests there).
-		paintLabels(ctx, W, H, cmds, {
+		// Leaders on their own canvas under the terrain slats, pills on top
+		// of everything (see the layer order where the canvases are made).
+		const paintStyle = {
 			labelFont,
 			labelPad,
-			leaderWidth,
+			leaderWidth: printMode ? leaderWidth * PRINT_LEADER_WIDTH_MUL : leaderWidth,
 			leaderDash,
 			pillRadius,
-			textBaselineOffset
-		});
+			textBaselineOffset,
+			palette: printMode ? LABEL_PALETTE_PRINT : undefined
+		};
+		const leaderCtx = labelLeaderCanvas?.getContext('2d');
+		if (leaderCtx) paintLabels(leaderCtx, W, H, cmds, { ...paintStyle, pass: 'leaders' });
+		paintLabels(ctx, W, H, cmds, { ...paintStyle, pass: leaderCtx ? 'pills' : 'all' });
 	}
 
 	let drawTerrainRaf = 0;
@@ -1169,7 +1373,9 @@
 			leader: TERRAIN_LABEL_LEADER * k,
 			gap: TERRAIN_LABEL_GAP * k
 		});
-		paintSkyPills(ctx, terrainPills, { scale: k });
+		paintSkyPills(ctx, terrainPills, printMode
+			? { scale: k, leaderWidth: PRINT_SKY_LEADER_WIDTH, palette: SKY_PILL_PALETTE_PRINT }
+			: { scale: k });
 
 		// the answer to the last click: a marker where the user asked, with
 		// its coordinates
@@ -1308,6 +1514,9 @@
 		// (extracted for reuse by the enrichment workbench; behavior pinned
 		// by unit tests there).
 		console.log('[OSD] fallback_url:', JSON.stringify(data.fallback_url), 'main url:', JSON.stringify(data.url));
+		// lets the print stylesheet hide the page underneath (see @media print)
+		document.body.classList.add('hv-zoomview-open');
+		pageTitleBefore = document.title;
 		const initial = initialSourceFor(data.fallback_url, data.pyramid, data.url);
 		usingFallback = initial.usingFallback;
 
@@ -1537,29 +1746,30 @@
 		// The canvas is created imperatively so it can't use Svelte scoped styles;
 		// inline style is intentional here.
 		labelCanvas = document.createElement('canvas');
-		labelCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:2';
+		// width/height:100% matter: a <canvas> is a replaced element, so
+		// inset:0 alone leaves it at its bitmap size — fine on screen, where
+		// that IS the container size, but in print the container is scaled
+		// and the overlays must scale with OSD's (100%-sized) canvas.
+		labelCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3';
 		labelCanvas.dataset.testid = 'osd-label-canvas';
 		container.appendChild(labelCanvas);
 
-		// Terrain overlay sits UNDER the annotation labels (z-index 1 vs 2):
-		// annotations are the user's own content and must stay readable over
-		// a horizon line that spans the whole frame.
+		// Layer order, bottom to top: annotation leaders (1) — terrain
+		// horizon, slat leaders and slats (2) — annotation pills (3). The
+		// pills are the user's own content and must stay readable over a
+		// horizon line that spans the whole frame; the leaders go under the
+		// slats so no line is drawn across a label of either kind.
+		labelLeaderCanvas = document.createElement('canvas');
+		labelLeaderCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1';
+		labelLeaderCanvas.dataset.testid = 'osd-label-leader-canvas';
+		container.appendChild(labelLeaderCanvas);
+
 		terrainCanvas = document.createElement('canvas');
-		terrainCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:1';
+		terrainCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2';
 		terrainCanvas.dataset.testid = 'osd-terrain-canvas';
 		container.appendChild(terrainCanvas);
 
-		resizeObserver = new ResizeObserver(() => {
-			if (!labelCanvas) return;
-			labelCanvas.width  = container.offsetWidth;
-			labelCanvas.height = container.offsetHeight;
-			if (terrainCanvas) {
-				terrainCanvas.width  = container.offsetWidth;
-				terrainCanvas.height = container.offsetHeight;
-			}
-			scheduleDrawLabels();
-			scheduleDrawTerrain();
-		});
+		resizeObserver = new ResizeObserver(syncOverlayCanvasSizes);
 		resizeObserver.observe(container);
 
 		viewer.addHandler('viewport-change', scheduleDrawLabels);
@@ -1568,6 +1778,22 @@
 		viewer.addHandler('update-viewport',  scheduleDrawTerrain);
 		viewer.addHandler('viewport-change', emitViewportBounds);
 		viewer.addHandler('update-viewport',  emitViewportBounds);
+
+		// Shift+wheel: fine zoom steps (zoomPerScroll is 2.5× per notch —
+		// right for getting somewhere, useless for framing). Browsers report
+		// a shifted wheel as a HORIZONTAL delta and OSD derives its step from
+		// deltaY alone, so without this Shift+wheel does nothing; the wheel is
+		// read here directly, whichever axis it landed on.
+		viewer.addHandler('canvas-scroll', (event: any) => {
+			if (!event.shift) return;
+			const oe = event.originalEvent as WheelEvent | undefined;
+			const delta = oe ? (oe.deltaY || oe.deltaX) : 0;
+			if (!delta) return;
+			event.preventDefaultAction = true;
+			const factor = delta < 0 ? FINE_ZOOM_PER_SCROLL : 1 / FINE_ZOOM_PER_SCROLL;
+			viewer.viewport.zoomBy(factor, viewer.viewport.pointFromPixel(event.position, true));
+			viewer.viewport.applyConstraints();
+		});
 
 		// Close the viewer when the user clicks/taps the black background
 		// outside the image bounds (mirrors original ZoomView behaviour).
@@ -1695,6 +1921,13 @@
 
 	onDestroy(() => {
 		clearViewSelection();
+		document.body.classList.remove('hv-zoomview-open');
+		printPageStyle?.remove();
+		printPageStyle = null;
+		if (pageTitleBefore !== null) {
+			document.title = pageTitleBefore;
+			pageTitleBefore = null;
+		}
 		window.visualViewport?.removeEventListener('resize', onViewportResize);
 		resizeObserver?.disconnect();
 		viewer?.removeHandler('viewport-change', scheduleDrawLabels);
@@ -1932,6 +2165,13 @@
 			}
 			return;
 		}
+		// the print view owns the keyboard: Escape leaves it (instead of
+		// closing the viewer), everything else is inert — the view must stay
+		// what the QR encodes
+		if (printMode) {
+			if (e.key === 'Escape') exitPrintMode();
+			return;
+		}
 		if (e.key === 'Escape') {
 			if (displayMenuOpen) {
 				closeDropdownMenu();
@@ -1960,9 +2200,9 @@
 	}
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window on:keydown={handleKeydown} on:beforeprint={onBeforePrint} on:afterprint={onAfterPrint} />
 
-<div class="osd-overlay" data-testid="osd-viewer-overlay">
+<div class="osd-overlay" class:print-mode={printMode} style:--print-ar={printAr} style:--label-scale={annotationScale} data-testid="osd-viewer-overlay">
 	{#if $showPhotoInfoWindow}
 		<PhotoInfoWindow photo={$photoInFront} variant="zoom"/>
 	{/if}
@@ -2003,6 +2243,32 @@
 		</div>
 	{/if}
 
+	{#if printMode}
+		<!-- Print view: the share-link QR dead centre (a scan reopens exactly
+		     this view), with the site's name under it. data-url carries the
+		     encoded link for tests. The hint strip is for the screen only —
+		     @media print drops it. -->
+		<div class="print-qr" data-testid="osd-print-qr" data-url={printShareUrl ?? ''}>
+			<canvas bind:this={printQrCanvas} data-testid="osd-print-qr-canvas"></canvas>
+			<div class="print-qr-host" data-testid="osd-print-qr-host">{printShareHost || '…'}</div>
+		</div>
+		<div class="print-hint" data-testid="osd-print-hint">
+			<span>Print view — <kbd>Ctrl</kbd>+<kbd>P</kbd> to print</span>
+			<button class="print-hint-btn" onclick={() => window.print()} data-testid="osd-print-now">Print</button>
+			<button class="print-hint-btn" onclick={exitPrintMode} data-testid="osd-print-exit">Exit</button>
+			<span class="print-hint-link" class:long={printShareIsLong} data-testid="osd-print-link" title={printShareUrl ?? ''}>
+				{#if !printShareUrl}
+					minting link…
+				{:else if printShareIsLong}
+					⚠ short link unavailable — QR encodes {printShareLinkText}
+				{:else}
+					QR → {printShareLinkText}
+				{/if}
+			</span>
+		</div>
+	{/if}
+
+	{#if !printMode}
 	<!-- Close button -->
 	<button class="close-btn" onclick={onClose} aria-label="Close zoom view" data-testid="osd-viewer-close">
 		<svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -2074,6 +2340,7 @@
 			</button>
 		{/if}
 	</div>
+	{/if}
 
 	{#snippet fogSnippet()}
 		{@const fb = terrainOverlay ? fogBounds(terrainOverlay) : { defaultKm: null, maxKm: null }}
@@ -2797,12 +3064,185 @@
 		color: #fff;
 		padding: 6px 16px;
 		border-radius: 20px;
-		font-size: 13px;
+		/* follows the ⋮ label-scale slider like the pills do */
+		font-size: calc(13px * var(--label-scale, 1));
 		max-width: 80vw;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 
+	/* ---- print view (screen) ---- */
+
+	/* paper-coloured, so the letterbox and the text strip come out as they
+	   will on the page (WYSIWYG with the print layout below).
+
+	   Everything DOM-rendered in this mode (QR tile, title, attribution) is
+	   sized off --print-short, the shorter side of the print box: vmin on
+	   screen, the letterboxed box's short side on paper. The overlay
+	   canvases scale into that box as bitmaps; sizing the text the same way
+	   keeps the sheet the picture the screen showed. --label-scale is the
+	   label-scale slider (1.4× while the mode is on), so the title grows
+	   with the pills. */
+	.osd-overlay.print-mode {
+		background: #fff;
+		--print-short: min(
+			100vw,
+			100vh,
+			calc(100vh * var(--print-ar, 1.5)),
+			calc(100vw / var(--print-ar, 1.5))
+		);
+		/* 13px on a 900px-short screen */
+		--print-text: calc(var(--print-short) * 0.0145 * var(--label-scale, 1));
+		--qr: calc(var(--print-short) * 0.28);
+	}
+
+	.print-mode .filename-bar {
+		background: rgba(255, 255, 255, 0.8);
+		color: #111;
+		font-size: var(--print-text);
+	}
+
+	.print-mode .terrain-attribution {
+		color: #222;
+		text-shadow: none;
+		/* 10px on that same screen */
+		font-size: calc(var(--print-short) * 0.0111);
+	}
+
+	/* the licence notice must be on the paper: never collapsed here, and no
+	   ⓘ to (un)collapse it with (specificity beats the small-screen rules) */
+	.print-mode .terrain-attribution.collapsed {
+		display: block;
+	}
+
+	.print-mode .terrain-attribution-toggle {
+		display: none;
+	}
+
+	.print-qr {
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		transform: translate(-50%, -50%);
+		z-index: 5;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		/* all lengths in em of a size derived from the code, so the tile
+		   scales as one piece with the print box */
+		font-size: calc(var(--qr, 250px) * 0.06);
+		gap: 0.4em;
+		/* the padding doubles as the code's quiet zone (≥4 modules) */
+		padding: 1.05em 1.05em 0.65em;
+		border-radius: 0.95em;
+		background: #fff;
+		color: #111;
+		box-shadow: 0 0.15em 0.65em rgba(0, 0, 0, 0.22);
+		pointer-events: none;
+	}
+
+	.print-qr canvas {
+		display: block;
+		width: var(--qr, 250px);
+		height: var(--qr, 250px);
+	}
+
+	.print-qr-host {
+		font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+		/* follows the label scale like the pills and the title do */
+		font-size: calc(1em * var(--label-scale, 1));
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		line-height: 1.2;
+		color: #111;
+		white-space: nowrap;
+	}
+
+	.print-hint {
+		position: absolute;
+		top: calc(12px + var(--safe-area-inset-top, 0px));
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 10;
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 6px 12px;
+		border-radius: 8px;
+		background: rgba(255, 255, 255, 0.92);
+		color: #222;
+		font-size: 13px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+		white-space: nowrap;
+	}
+
+	.print-hint-link {
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 12px;
+		color: #555;
+		max-width: 38vw;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.print-hint-link.long {
+		color: #a04000;
+	}
+
+	.print-hint kbd {
+		font: inherit;
+		font-size: 12px;
+		padding: 0 4px;
+		border: 1px solid #bbb;
+		border-bottom-width: 2px;
+		border-radius: 4px;
+		background: #f6f6f6;
+	}
+
+	.print-hint-btn {
+		border: 1px solid #ccc;
+		border-radius: 6px;
+		background: #fff;
+		color: #222;
+		font-size: 13px;
+		padding: 3px 10px;
+		cursor: pointer;
+	}
+
+	.print-hint-btn:hover {
+		background: #eee;
+	}
+
+	/* ---- print layout ----
+	   Applies to any print of the viewer, print view or plain Ctrl+P. Nothing
+	   re-renders while printing (see the freeze in the script), so the frozen
+	   bitmaps must scale evenly: the overlay becomes a centred box with the
+	   screen container's aspect ratio. The rest of the app is hidden so the
+	   map does not print around it (or on pages after it). */
+	@media print {
+		:global(body.hv-zoomview-open) {
+			background: #fff !important;
+		}
+
+		:global(body.hv-zoomview-open > *) {
+			visibility: hidden;
+		}
+
+		.osd-overlay {
+			visibility: visible;
+			position: fixed;
+			inset: 0;
+			margin: auto;
+			width: min(100vw, calc(100vh * var(--print-ar, 1.5)));
+			height: min(100vh, calc(100vw / var(--print-ar, 1.5)));
+			print-color-adjust: exact;
+			-webkit-print-color-adjust: exact;
+		}
+
+		.print-hint {
+			display: none;
+		}
+	}
 
 </style>

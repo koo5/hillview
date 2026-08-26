@@ -31,7 +31,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 	invoke: vi.fn(),
 }));
 
-import { sharePhoto } from './shareUtils';
+import { sharePhoto, compactShareUrl } from './shareUtils';
 import { http } from '$lib/http';
 
 describe('shareUtils', () => {
@@ -111,6 +111,19 @@ describe('shareUtils', () => {
 			const bounds = { x1: 0.1, y1: 0.2, x2: 0.8, y2: 0.9 };
 			await sharePhoto(photo, bounds);
 			expect(constructShareUrl).toHaveBeenCalledWith(photo, bounds);
+		});
+	});
+
+	describe('compactShareUrl (print QR)', () => {
+		it('drops the decorative title part of a /shared/ slug', () => {
+			expect(compactShareUrl('https://hillview.cz/shared/7-vysoky-kotel')).toBe('https://hillview.cz/shared/7');
+			expect(compactShareUrl('https://hillview.cz/shared/12345-')).toBe('https://hillview.cz/shared/12345');
+		});
+
+		it('leaves an id-only slug and any other URL alone', () => {
+			expect(compactShareUrl('https://hillview.cz/shared/7')).toBe('https://hillview.cz/shared/7');
+			const long = 'https://hillview.cz/?lat=50&lon=14&zoom=18&photo=hillview-123&x1=0.1';
+			expect(compactShareUrl(long)).toBe(long);
 		});
 	});
 

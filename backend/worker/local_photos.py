@@ -27,7 +27,13 @@ from typing import Dict, Optional, Tuple
 
 EXTERNAL_DATA_DIR = "/external-data"
 
-MAX_SYMLINK_HOPS = 2  # a marker link → the artifact, at most; deeper chains are a config smell
+# Total symlink expansions across ALL path components (the walk covers
+# intermediate DIRECTORY links too — the pipeline's offdisk spill makes e.g.
+# ``.../misc/phase_tiff -> /var/data/tiff/home/...``, HV_OFFDISK_ROOT).
+# Counted in the real layouts: spilled phase dir = 1 hop; a sorted/-style file
+# link whose target then crosses a spilled dir = 2. Known-max + 1; deeper
+# chains are a config smell.
+MAX_SYMLINK_HOPS = 3
 
 
 class LocalPhotoPathError(ValueError):
@@ -76,47 +82,63 @@ def host_to_container(host_path: str, table: Optional[Dict[str, str]] = None) ->
 
 def resolve_local_photo_path(host_path: str) -> Tuple[str, str]:
 	"""Resolve a client-supplied HOST path to (root name, container path of a
-	readable regular file), walking symlinks manually with per-hop containment.
+	readable regular file), walking symlinks at EVERY component with per-hop
+	containment.
 
-	Each hop — the path itself and every link target — must map into a
-	configured root and exist in the container, so "target outside the photo
-	roots" and "target's tree not mounted here" each fail with a message
-	naming the offending hop rather than a generic error. Directory symlinks
-	along the way are not walked (the roots are operator-mounted trees and the
-	uploader is authenticated; this is a dev-box feature, not a sandbox).
+	The walk descends from a configured root one component at a time through
+	the container mount. A symlink at any component — an offdisk-spilled
+	directory (``phase_tiff -> /var/data/tiff/home/...``) as much as a final
+	marker link — is expanded by splicing its target (resolved against the
+	link's HOST directory when relative) with the remaining components, and
+	the containment check restarts from the top: a target may land in a
+	different root, and every hop must map into some configured root. So
+	"target outside the photo roots" and "target's tree not mounted here"
+	each fail with a message naming the offending hop rather than a generic
+	error, and no path the kernel would traverse is ever taken on trust.
 	"""
 	table = roots()
 	path = host_path
-	for _hop in range(MAX_SYMLINK_HOPS + 1):
+	hops = 0
+	while True:
 		name, cpath = host_to_container(path, table)
-		if os.path.islink(cpath):
-			target = os.readlink(cpath)
-			if not os.path.isabs(target):
-				target = os.path.join(os.path.dirname(os.path.normpath(path)), target)
-			path = target  # stays in host space; containment re-checked next hop
+		croot = container_root(name)
+		rel = os.path.relpath(cpath, croot)
+		comps = [] if rel == "." else rel.split(os.sep)
+		cur_host, cur_cont = table[name], croot
+		spliced = False
+		for i, comp in enumerate(comps):
+			cur_host = os.path.join(cur_host, comp)
+			cur_cont = os.path.join(cur_cont, comp)
+			if os.path.islink(cur_cont):
+				hops += 1
+				if hops > MAX_SYMLINK_HOPS:
+					raise LocalPhotoPathError(
+						f"too many symlink hops resolving {host_path!r} (limit {MAX_SYMLINK_HOPS})")
+				target = os.readlink(cur_cont)
+				if not os.path.isabs(target):
+					target = os.path.join(os.path.dirname(cur_host), target)
+				path = os.path.join(target, *comps[i + 1:])  # host space; re-checked from the top
+				spliced = True
+				break
+		if spliced:
 			continue
-		if not os.path.exists(cpath):
+		if not os.path.exists(cur_cont):
 			raise LocalPhotoPathError(
-				f"path {path!r} does not exist in the worker container as {cpath!r} (is its tree mounted?)")
-		if not os.path.isfile(cpath):
+				f"path {path!r} does not exist in the worker container as {cur_cont!r} (is its tree mounted?)")
+		if not os.path.isfile(cur_cont):
 			raise LocalPhotoPathError(f"path {path!r} is not a regular file")
-		if not os.access(cpath, os.R_OK):
+		if not os.access(cur_cont, os.R_OK):
 			raise LocalPhotoPathError(f"path {path!r} is not readable by the worker")
-		# Belt and braces for the one thing the hop walk does not cover:
-		# INTERMEDIATE directory symlinks. The walk re-maps only the final
-		# component; a directory link inside the archive whose target happens
-		# to exist in CONTAINER space (``-> /app``, ``-> /``) would be followed
-		# by the kernel on open. Resolving in container space must therefore
-		# still land under EXTERNAL_DATA_DIR. (Host-absolute directory links
-		# into another root — ``-> /var/data/tiff/...`` — dangle in the
-		# container and were already rejected above as non-existent; that
-		# layout is unsupported by design, only final-component links are.)
-		real = os.path.realpath(cpath)
+		# Belt and braces: the walk expanded every link it saw, so by
+		# construction nothing here should re-resolve elsewhere — but if a
+		# link appears mid-walk (a race with the pipeline re-spilling a dir),
+		# the kernel would follow it on open, so assert the container-space
+		# resolution still lands under EXTERNAL_DATA_DIR.
+		real = os.path.realpath(cur_cont)
 		if not _under(real, EXTERNAL_DATA_DIR):
 			raise LocalPhotoPathError(
-				f"path {path!r} resolves outside {EXTERNAL_DATA_DIR} in the container ({real!r}) — a directory symlink escapes the mounted roots")
-		return name, cpath
-	raise LocalPhotoPathError(f"too many symlink hops resolving {host_path!r} (limit {MAX_SYMLINK_HOPS})")
+				f"path {path!r} resolves outside {EXTERNAL_DATA_DIR} in the container ({real!r}) — a symlink escapes the mounted roots")
+		return name, cur_cont
 
 
 def root_name_of(cpath: str) -> str:

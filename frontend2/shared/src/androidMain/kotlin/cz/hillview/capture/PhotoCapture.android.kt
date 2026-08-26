@@ -326,16 +326,18 @@ private class AndroidPhotoCapture(
         try {
             val rule = exposureRule
             // The exposure these pixels were taken at — ours when a rule is
-            // in force, AE's otherwise.
-            val exposure = meteredExposureNs ?: state.plan?.exposureNs
-            val iso = meteredIso ?: state.plan?.iso
-            if (exposure != null && iso != null) {
+            // in force, AE's otherwise. The precedence lives in
+            // meterCreditedExposure because getting it backwards anchored
+            // the meter to the frozen harvest and pinned whole interval
+            // runs overexposed (see its doc).
+            val credited = meterCreditedExposure(state.plan, meteredExposureNs, meteredIso)
+            if (credited != null) {
                 val plane = image.planes[0]
                 sceneMeter.onFrame(
                     meanLumaSubsampled(
                         plane.buffer, image.width, image.height, plane.rowStride,
                     ),
-                    exposure, iso,
+                    credited.first, credited.second,
                 )
             }
             if (rule == null || !continuousMetering) return

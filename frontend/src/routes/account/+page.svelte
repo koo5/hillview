@@ -6,6 +6,7 @@
     import StandardBody from '$lib/components/StandardBody.svelte';
     import { auth, logout } from '$lib/auth.svelte';
     import { http, handleApiError, TokenExpiredError } from '$lib/http';
+    import { formatDateTime } from '$lib/dateUtils';
 
     let userInfo: any = null;
     let isLoading = true;
@@ -83,13 +84,7 @@
     }
 
     function formatDate(dateString: string) {
-        return new Date(dateString).toLocaleDateString(undefined, {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+        return formatDateTime(dateString);
     }
 </script>
 
