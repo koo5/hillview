@@ -89,14 +89,23 @@ class StreamPhotoLoader {
         authToken: String?,
         shouldAbort: () -> Boolean,
         picks: Set<String> = emptySet(),
-        queryOptionsJson: String? = null  // Pre-serialized analysis filters
+        queryOptionsJson: String? = null,  // Pre-serialized analysis filters
+        /**
+         * Called after every `photos` event with what has arrived SO FAR —
+         * accumulated, bounds-filtered and capped to [maxPhotos], i.e. the
+         * same list the final return would be if the stream ended now. Lets
+         * a caller draw markers as batches land instead of at stream_complete.
+         * Null (the default) keeps the one-shot behaviour byte-for-byte.
+         * Runs on the loader's thread, inside the collect.
+         */
+        onBatch: ((List<PhotoData>) -> Unit)? = null
     ): List<PhotoData> {
         if (bounds == null) {
             Log.d(TAG, "StreamPhotoLoader: Started ${source.id} without bounds - waiting for area update")
             return emptyList()
         }
 
-        return loadPhotosWithEventSource(source, bounds, maxPhotos, authToken, shouldAbort, picks, queryOptionsJson)
+        return loadPhotosWithEventSource(source, bounds, maxPhotos, authToken, shouldAbort, picks, queryOptionsJson, onBatch)
     }
 
     private suspend fun loadPhotosWithEventSource(
@@ -106,7 +115,8 @@ class StreamPhotoLoader {
         authToken: String?,
         shouldAbort: () -> Boolean,
         picks: Set<String> = emptySet(),
-        queryOptionsJson: String? = null  // Pre-serialized analysis filters
+        queryOptionsJson: String? = null,  // Pre-serialized analysis filters
+        onBatch: ((List<PhotoData>) -> Unit)? = null
     ): List<PhotoData> {
         val photos = mutableListOf<PhotoData>()
         var retryCount = 0
@@ -135,6 +145,8 @@ class StreamPhotoLoader {
 
                             // Apply bounds filtering and respect maxPhotos limit
                             val filteredPhotos = filterPhotosInBounds(photos, bounds)
+                            // The partial set, shaped exactly like the final one.
+                            if (onBatch != null) onBatch(filteredPhotos.take(maxPhotos))
                             if (filteredPhotos.size >= maxPhotos) {
                                 if (doLog) Log.d(TAG, "StreamPhotoLoader: Reached maxPhotos limit ($maxPhotos)")
                                 streamCompleted = true

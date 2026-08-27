@@ -92,18 +92,31 @@ class DeviceMarkerSource(
     }
 
     override suspend fun refresh() {
-        _markers.value = withContext(Dispatchers.IO) {
-            loader.loadPhotos(
-                source = config,
-                bounds = wantedViewport?.toBounds(),
-                maxPhotos = settings.settings.value.maxPhotos,
-                shouldAbort = { false },
-                picks = setOfNotNull(pinnedId),
-            )
+        // The loader rethrows, and this source is first in the composite's
+        // list — so without this a Room failure used to abort the whole
+        // sweep. Same rule as the network sources: keep the last set.
+        try {
+            _markers.value = withContext(Dispatchers.IO) {
+                loader.loadPhotos(
+                    source = config,
+                    bounds = wantedViewport?.toBounds(),
+                    maxPhotos = settings.settings.value.maxPhotos,
+                    shouldAbort = { false },
+                    picks = setOfNotNull(pinnedId),
+                )
+            }
+                // (0,0) is the DB's "no location" — never a real marker.
+                .filter { it.coord.lat != 0.0 || it.coord.lng != 0.0 }
+                .map { it.toMarker() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "device query failed (keeping last set): ${e.message}")
         }
-            // (0,0) is the DB's "no location" — never a real marker.
-            .filter { it.coord.lat != 0.0 || it.coord.lng != 0.0 }
-            .map { it.toMarker() }
+    }
+
+    companion object {
+        private const val TAG = "hv-DeviceMarkerSource"
     }
 }
 
@@ -157,6 +170,10 @@ class StreamMarkerSource(
                     shouldAbort = { false },
                     picks = setOfNotNull(pinnedId),
                     queryOptionsJson = filters,
+                    // Every SSE batch goes straight to the map: the composite
+                    // re-merges on each publish, so markers fill in while the
+                    // stream is still open instead of at stream_complete.
+                    onBatch = { partial -> _markers.value = partial.map { it.toMarker() } },
                 )
             }
             _markers.value = photos.map { it.toMarker() }

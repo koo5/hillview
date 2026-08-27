@@ -74,7 +74,9 @@ const baseSources: Source[] = [
 		id: 'panoramax',
 		name: 'Panoramax',
 		type: 'panoramax',
-		enabled: false,
+		// On by default now that sources load independently: a slow or throttled
+		// Panoramax no longer delays the Hillview/device markers.
+		enabled: true,
 		color: '#3a8',
 		url: 'https://api.panoramax.xyz'
 	}
@@ -435,9 +437,18 @@ export let maxPhotosInArea = localStorageReadOnceSharedStore('maxPhotosInArea', 
 export let frontendBusy = writable(0);
 
 
+// The enabled set as it was when capture mode was entered, restored on exit.
+let sourcesBeforeCapture: Record<string, boolean> | null = null;
+
+/** The compile-time default for a source (what a fresh install enables). */
+export function defaultSourceEnabled(id: string): boolean {
+	return [...baseSources, ...deviceSources].find(s => s.id === id)?.enabled ?? false;
+}
+
 export function onAppActivityChange(newActivity: string) {
 	if (newActivity === 'capture') {
 		// Entering capture mode - disable all photo sources
+		sourcesBeforeCapture = Object.fromEntries(get(sources).map(s => [s.id, s.enabled]));
 		sources.update(srcs => {
 			return srcs.map(src => ({
 				...src,
@@ -446,13 +457,33 @@ export function onAppActivityChange(newActivity: string) {
 		});
 		// Note: Location and compass are now handled by reactive statement
 	} else {
-		// Exiting capture mode - re-enable previously enabled sources
+		// Exiting capture mode - re-enable previously enabled sources.
+		//
+		// This is also called at startup (+layout) and when leaving the lines
+		// editor, where nothing was remembered. Those calls used to force a
+		// hillview-only set, silently discarding the persisted source choices
+		// (and any default-on source) on every launch. Now: restore what capture
+		// took away; otherwise leave the persisted set alone — unless it is
+		// capture's device-only set (the app was killed mid-capture), in which
+		// case fall back to the defaults.
+		const remembered = sourcesBeforeCapture;
+		sourcesBeforeCapture = null;
+		sources.update(srcs => {
+			const stuckInCaptureSet = srcs.every(src => src.id === 'device' || !src.enabled);
+			if (!remembered && !stuckInCaptureSet) return srcs;
+			return srcs.map(src => ({
+				...src,
+				enabled: remembered ? (remembered[src.id] ?? src.enabled) : defaultSourceEnabled(src.id)
+			}));
+		});
+		/* previous behaviour:
 		sources.update(srcs => {
 			return srcs.map(src => ({
 				...src,
 				enabled: src.id === 'hillview'// || src.id === 'device'
 			}));
 		});
+		*/
 		// Note: Compass stopping is now handled by reactive statement
 	}
 }
