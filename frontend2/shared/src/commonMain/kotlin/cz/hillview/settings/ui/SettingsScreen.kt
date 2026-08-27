@@ -427,6 +427,8 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings-landscape-workaround"),
             )
         }
+
+        BuildInfoFooter()
     }
 }
 

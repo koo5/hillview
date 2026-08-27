@@ -48,6 +48,9 @@ screen.
 export JAVA_HOME=/snap/android-studio/current/jbr   # NOT the Tauri app's JDK 21
 ./gradlew :shared:jvmTest :shared:testAndroidHostTest   # host tests
 ./gradlew :androidApp:assembleDebug                     # APK
+# Which build is on the phone: Settings footer, or `adb logcat | grep hv-build`
+# → "0.1.0 · <git sha>[+<diff hash> (uncommitted)] · <commit time>" (BuildInfo,
+# stamped from git content in androidApp/build.gradle.kts — not the clock)
 ./gradlew :shared:connectedAndroidDeviceTest \
     -Pandroid.testInstrumentationRunnerArguments.class=<FQCN>   # on a device
 ```
