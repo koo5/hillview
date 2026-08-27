@@ -70,8 +70,10 @@ registration (the harvester code itself never validates licenses).
 The written policy's CC option is not bare CC-BY-SA-4.0: *"CC-BY-SA 4.0 for
 original or derivated pictures sharing **+ usable for creating derivated data
 (including AI models) under LO 2.0, CC-BY 4.0 or ODbL 1.0**"*. The reference
-instance's EULA (OSM-France, Article 3, as amended 2026-02-02) puts the same
-two-layer grant in front of contributors:
+instance's EULA (OSM-France, Article 3, as amended 2026-02-02; live text at
+`panoramax.openstreetmap.fr/api/pages/end-user-license-agreement/en-gb`,
+re-verified 2026-08-27) puts the same two-layer grant in front of
+contributors:
 
 > "Open Data Licence" pictures are:
 > - under CC-BY-SA 4.0 licence for every original or derivated picture
@@ -113,7 +115,7 @@ data.gouv.fr as "Export du catalogue global des photos de Panoramax"
 (organisation Panoramax, created 2025-11-24, licence `lov2`) — three months
 *before* OSM-France relicensed its own metadata. Nothing in the catalog's
 docs or API states this: the STAC landing page has no `license` field or
-`rel=license` link, `/api/configuration` is empty, the docs mention licences
+`rel=license` link, `/api/configuration` is a 404, the docs mention licences
 only in the joining policy, and each item/collection merely carries the
 *pictures* licence copied verbatim from its source instance (osm-fr items say
 `CC-BY-SA-4.0`, ign says `etalab-2.0`). So the policy's "usable for creating
