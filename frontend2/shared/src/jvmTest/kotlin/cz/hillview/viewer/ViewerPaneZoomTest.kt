@@ -40,10 +40,11 @@ class ViewerPaneZoomTest {
         override fun update(transform: (UploadSettings) -> UploadSettings) { _s.value = transform(_s.value) }
     }
 
-    private class Rig {
+    private class Rig(source: String = "hillview") {
+        private val src = source
         private fun photo(id: String, bearing: Double) = PhotoMarker(
             id = id, latitude = 50.0, longitude = 14.0, bearingDeg = bearing,
-            capturedAtMs = 0L, source = "hillview",
+            capturedAtMs = 0L, source = src,
         )
 
         private val keepAll = RangeCuller { photos, _, _, _, _ ->
@@ -147,6 +148,23 @@ class ViewerPaneZoomTest {
         mainClock.advanceTimeBy(1_000)
         assertEquals("b", rig.map.bearing.value.photoUid, "the turn itself must have landed")
         assertEquals(1f, onNodeWithTag("viewer-slot-front").zoom())
+    }
+
+    /**
+     * The ↗ chip exists only for photos that HAVE a page. A device photo is
+     * still on the phone; a server one has the map deep link.
+     */
+    @Test
+    fun theWebLinkAppearsOnlyForServerPhotos() = runComposeUiTest {
+        pane(Rig())
+        onNodeWithTag("viewer-open-web").assertExists()
+    }
+
+    @Test
+    fun aDevicePhotoHasNoWebLink() = runComposeUiTest {
+        pane(Rig(source = "device"))
+        onNodeWithTag("viewer-slot-front").assertExists()
+        onNodeWithTag("viewer-open-web").assertDoesNotExist()
     }
 
     /** At 1x a one-finger drag is still a swipe: the zoom must not steal it. */
