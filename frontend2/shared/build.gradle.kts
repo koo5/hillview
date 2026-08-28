@@ -131,6 +131,10 @@ kotlin {
             implementation(libs.compose.uiTest)
             implementation(compose.desktop.currentOs)
             implementation(libs.junit)
+            // Dispatchers.Main on desktop, which collectAsStateWithLifecycle
+            // needs — without it any screen that collects with a lifecycle
+            // cannot be composed in a jvm test at all.
+            implementation(libs.kotlinx.coroutines.swing)
         }
     }
 }
