@@ -255,6 +255,7 @@
 	<!-- Backdrop to close menu when clicking outside -->
 	<div
 		class="dropdown-backdrop"
+		data-testid="dropdown-backdrop"
 		use:portal
 		ontouchstart={swallowEvent}
 		ontouchmove={swallowEvent}
