@@ -246,26 +246,44 @@ fun CaptureScreen(
     var exposureTargetNs by rememberSaveable { mutableStateOf(2_000_000L) }
     var exposureBias by rememberSaveable { mutableStateOf(0.0) }
 
+    // A MOTION shoot under Auto defaults to Sports (user-decided): an
+    // interval run and a video are both walking or driving shoots, where
+    // motion blur is the failure mode and Sports is the rule built for
+    // exactly that. Only when the rule IS Auto — Pin/Floor/Sports picked by
+    // hand is the user's choice and survives untouched — and only for the
+    // shoot's lifetime. The identity check (===) on the way out means even
+    // re-picking identical Sports values mid-shoot counts as an explicit
+    // choice and is kept.
+    fun engageSportsIfAuto(): ExposureRule? =
+        if (capture.exposureRule == null && capture.state.manualShutterSupported) {
+            ExposureRule(ExposureMode.Sports, exposureTargetNs, exposureBias)
+                .also { capture.exposureRule = it }
+        } else {
+            null
+        }
+    fun standDownSports(engaged: ExposureRule?) {
+        if (engaged != null && capture.exposureRule === engaged) capture.exposureRule = null
+    }
+
+    // Video inherits the default. Engaged at the ladder release, BEFORE
+    // startVideo (its rebind re-applies the request options, so the first
+    // frames already carry the rule); stood down when the recording ends,
+    // whichever way it ends.
+    var videoEngaged by remember { mutableStateOf<ExposureRule?>(null) }
+    LaunchedEffect(state.recording) {
+        if (!state.recording) {
+            standDownSports(videoEngaged)
+            videoEngaged = null
+        }
+    }
+
     LaunchedEffect(repeating, intervalSec) {
         if (!repeating || intervalSec <= 0) {
             // The original zeroes its badge when the run stops.
             runCount = 0
             return@LaunchedEffect
         }
-        // A run under Auto defaults to Sports (user-decided): an interval
-        // run is a walking or driving shoot, where motion blur is the
-        // failure mode and Sports is the rule built for exactly that. Only
-        // when the rule IS Auto — Pin/Floor/Sports picked by hand is the
-        // user's choice and survives untouched — and only for the run's
-        // lifetime: engaged here, stood down in the finally below. The
-        // identity check (===) means even re-picking identical Sports
-        // values mid-run counts as an explicit choice and is kept.
-        val engaged = if (capture.exposureRule == null && capture.state.manualShutterSupported) {
-            ExposureRule(ExposureMode.Sports, exposureTargetNs, exposureBias)
-                .also { capture.exposureRule = it }
-        } else {
-            null
-        }
+        val engaged = engageSportsIfAuto()
         try {
         // An ABSOLUTE timeline. The loop used to sleep a fixed interval
         // AFTER each shot, so the real period was "interval + however long
@@ -308,9 +326,7 @@ fun CaptureScreen(
             // The run's engagement ends with the run — the effect is
             // cancelled when `repeating` flips false, so this is the stop
             // path (and the leave-the-screen path) in one place.
-            if (engaged != null && capture.exposureRule === engaged) {
-                capture.exposureRule = null
-            }
+            standDownSports(engaged)
         }
     }
 
@@ -1041,6 +1057,7 @@ fun CaptureScreen(
                                         // stop starts a recording, anything
                                         // above "single" starts a run.
                                         if (overSlider && intervalSec == LADDER_VIDEO_STOP) {
+                                            videoEngaged = engageSportsIfAuto()
                                             capture.startVideo()
                                         } else if (overSlider && intervalSec > 0) {
                                             repeating = true
