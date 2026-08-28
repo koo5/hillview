@@ -11,7 +11,7 @@
 import type { PhotoData, Bounds } from '../photoWorkerTypes';
 import { BasePhotoSourceLoader, type PhotoSourceCallbacks } from './PhotoSourceLoader';
 import type { PhotoSourceOptions } from './PhotoSourceFactory';
-import { backendUrl } from '../config';
+import { backendUrl, ownPanoramaxInstanceUrls, ownPhotoAssetUrlPrefixes } from '../config';
 
 const LOG_PREFIX = '🢄🔍PanoramaxSourceLoader';
 const doLog = false;
@@ -80,6 +80,33 @@ async function ensurePanoramaxHidden(
 		}
 	})();
 	return hiddenInflight;
+}
+
+const normalizeInstanceUrl = (u: string): string => u.trim().replace(/\/+$/, '').toLowerCase();
+const ownInstanceUrlsNormalized = ownPanoramaxInstanceUrls.map(normalizeInstanceUrl);
+
+// Self-duplicate detection: once Hillview federates, the meta-catalog serves
+// our own CC photos back through this source, duplicating the native hillview
+// copies. The catalog's /api/search puts a rel=via link on every item whose
+// href is the origin instance URL — that's the primary signal. The asset-host
+// prefix check is a fallback for responses without via links. Cross-source
+// id-dedup is deliberately NOT the mechanism: the hillview source caps photos
+// per bbox, so the native copy may be absent while the federated one loads.
+export function isOwnInstanceItem(item: any): boolean {
+	const links: any[] = Array.isArray(item?.links) ? item.links : [];
+	const via = links.find((l) => l?.rel === 'via' && typeof l?.href === 'string');
+	if (via) {
+		const href = normalizeInstanceUrl(via.href);
+		return ownInstanceUrlsNormalized.some((u) => href === u || href.startsWith(u + '/'));
+	}
+	const assets = item?.assets && typeof item.assets === 'object' ? item.assets : {};
+	for (const key of Object.keys(assets)) {
+		const href = assets[key]?.href;
+		if (typeof href === 'string' && ownPhotoAssetUrlPrefixes.some((p) => href.startsWith(p))) {
+			return true;
+		}
+	}
+	return false;
 }
 
 function getProducerIdFromItem(item: any): string | undefined {
@@ -313,6 +340,7 @@ export class PanoramaxSourceLoader extends BasePhotoSourceLoader {
 
 		const items: any[] = Array.isArray(data?.features) ? data.features : [];
 		let droppedHidden = 0;
+		let droppedSelf = 0;
 		for (const item of items) {
 			if (item?.id && hidden.photoIds.has(item.id)) {
 				droppedHidden++;
@@ -323,11 +351,15 @@ export class PanoramaxSourceLoader extends BasePhotoSourceLoader {
 				droppedHidden++;
 				continue;
 			}
+			if (isOwnInstanceItem(item)) {
+				droppedSelf++;
+				continue;
+			}
 			const photo = convertPanoramaxItem(item, this.source);
 			if (photo) this.streamPhotos.push(photo);
 		}
 
-		if (doLog) console.log(`${LOG_PREFIX}: got ${this.streamPhotos.length} photos for ${this.source.id} (filtered ${droppedHidden} hidden)`);
+		if (doLog) console.log(`${LOG_PREFIX}: got ${this.streamPhotos.length} photos for ${this.source.id} (filtered ${droppedHidden} hidden, ${droppedSelf} own-instance)`);
 
 		this.callbacks.enqueueMessage({
 			type: 'photosAdded',
