@@ -19,6 +19,10 @@ from its own bearing.
 `OneStateArchitectureTest` (in `:shared:jvmTest`) enforces the read side, so
 a new side channel fails the build.
 
+The upload stack has the same shape of rule — one scheduler, one drain — in
+[docs/upload-one-funnel.md](../docs/upload-one-funnel.md), enforced by
+`UploadFunnelArchitectureTest`.
+
 ## The original is the specification
 
 The Tauri app carries known-good semantics, worked out against real use. When

@@ -179,4 +179,12 @@ tasks.named<Test>("jvmTest") {
     inputs.dir(layout.projectDirectory.dir("src"))
         .withPathSensitivity(PathSensitivity.RELATIVE)
         .withPropertyName("sourceTreeForArchitectureTest")
+    // UploadFunnelArchitectureTest walks these two as well: the upload stack
+    // lives in shared-kt, and the app module has the WorkManager wiring.
+    inputs.dir(layout.projectDirectory.dir("../../shared-kt/src"))
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+        .withPropertyName("sharedKtTreeForArchitectureTest")
+    inputs.dir(layout.projectDirectory.dir("../androidApp/src"))
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+        .withPropertyName("appTreeForArchitectureTest")
 }
