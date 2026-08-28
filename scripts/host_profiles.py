@@ -194,8 +194,8 @@ PROFILES = {
 	# to be turned on, or it reverted every boot), and its own names resolve to
 	# itself rather than to dev4.
 	**vm_profiles("dev4", "192.168.122.64"),
-	**vm_profiles("dev4-3", "192.168.122.31", ygg_reachable_locally=True),
-	**vm_profiles("dev4-2", "192.168.122.37", ygg_reachable_locally=True),
+	**vm_profiles("dev4-3", "192.168.122.31"),
+	**vm_profiles("dev4-2", "192.168.122.37"),
 }
 
 
@@ -211,7 +211,14 @@ PROFILES = {
 #
 # Driving a browser wants an h2 origin either way — plain HTTP/1.1 starves chunk
 # loads into the stalled-request flake class.
-WEB_SUFFIXES = ("local", "ygg")
+#
+# ygg first: it is the canonical origin, the one name that works from anywhere.
+# `local` is the fallback for a box that cannot reach its own ygg name, which is
+# every VM — their ygg names are terminated on jj, and ygg does not run inside
+# them. The reachable_locally flag is what makes this ordering safe, and it means
+# a box that later CAN resolve its own ygg name starts preferring it with no
+# change here.
+WEB_SUFFIXES = ("ygg", "local")
 
 
 def profile_for(hostname, leg):
