@@ -107,6 +107,8 @@ data class PendingUpload(
     val locationSource: String? = null,
     val locationAgeMs: Long? = null,
     val exposureJson: String? = null,
+    /** The other position stream, as JSON — see altLocationFor. */
+    val altLocationJson: String? = null,
     /**
      * The licence in force AT CAPTURE. Snapshotted rather than read at
      * upload time: a licence is a statement about this photo, made when it

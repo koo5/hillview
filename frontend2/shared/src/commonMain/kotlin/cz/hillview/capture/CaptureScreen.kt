@@ -136,6 +136,11 @@ fun CaptureScreen(
     LaunchedEffect(manualElected) {
         capture.manualLocationElected = manualElected
     }
+    // BACKGROUND tracking = exploring: the map is parked off the fix. The
+    // other half of what altLocationFor needs.
+    LaunchedEffect(locationTracking) {
+        capture.exploring = locationTracking == cz.hillview.map.LocationTracking.Background
+    }
     // The stamp position is the map's centre, LIVE — same shape as the stamp
     // bearing below, and the same as Tauri, whose locationData is reactive on
     // $spatialState. It was previously read once at the electing moment, so
@@ -145,7 +150,7 @@ fun CaptureScreen(
     // manualLocationElected alone decides whether anything reads it.
     LaunchedEffect(Unit) {
         mapState.spatial.collect { s ->
-            capture.manualLocation = ManualLocation(s.latitude, s.longitude)
+            capture.manualLocation = ManualLocation(s.latitude, s.longitude, s.ts)
         }
     }
     // The capture stamp bearing IS the map's bearing state (Tauri:
@@ -355,6 +360,7 @@ fun CaptureScreen(
                 locationAgeMs = photo.snapshot.locationAgeMs,
                 exposureJson = photo.snapshot.exposure?.let { exposureProvenanceJson(it) },
                 pitchDeg = photo.snapshot.pitchDeg?.toDouble(),
+                altLocationJson = photo.snapshot.altLocation?.let { altLocationJson(it) },
                 // Snapshot, not a live read — see PendingUpload.license.
                 license = uploadSettings.license,
             )

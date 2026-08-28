@@ -491,6 +491,31 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## Closed on 2026-08-28
+
+- **Position's second stream (`alt_location`).** The one-state rule's open
+  half is closed: two streams, castled on confirmation, the other riding
+  along — see the table in [one-state.md](one-state.md). Room v20 (both
+  apps' schemas exported, hashes match); the backend already synthesizes
+  the field into the UserComment provenance. Device-verified in all three
+  states.
+- **Viewer: inline pinch-zoom + ↗ to the web app.** This pane zooms and no
+  more; the original's promotion threshold (1.15) now decides inline-stays
+  vs snap-back, and the zoom view lives in the web app behind an unobtrusive
+  chip (server photos only, the share URL's deep-link shape). Verified by a
+  Compose test that pinches — adb cannot — which needed
+  `kotlinx-coroutines-swing` in jvmTest for a desktop `Dispatchers.Main`;
+  every lifecycle-collecting screen is now composable in a jvm test.
+- **Motion shoots default to Sports** — interval runs and video — only from
+  Auto, only for the shoot's lifetime.
+- **Upload: one scheduler, one drain**, as a fence
+  ([upload-one-funnel.md](upload-one-funnel.md) + `UploadFunnelArchitectureTest`).
+
+Emulator notes from the session: it needs `-no-window -gpu
+swiftshader_indirect` from a shell without a display, and its system_server
+can die once after a headless boot (DeadSystemException) — relaunch the app
+and carry on. Never run a Gradle build beside it on this box.
+
 ## The rule the geo bugs keep breaking (2026-08-20)
 
 Every one of them — the capture pane's private pitch subscription, the
