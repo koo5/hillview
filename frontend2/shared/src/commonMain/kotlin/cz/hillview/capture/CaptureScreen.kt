@@ -415,6 +415,17 @@ fun CaptureScreen(
     // surprise (user-raised: "i keep missing it").
     var sliderVisible by remember { mutableStateOf(false) }
     var armedStop by remember { mutableStateOf<Int?>(null) }
+    // Why the last shutter press did nothing, shown briefly in the status
+    // line. A press that is silently ignored is indistinguishable from a
+    // dead button (field report: "does not react to long press anymore
+    // until I restart"); this makes the two look different.
+    var ignoredPress by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(ignoredPress) {
+        if (ignoredPress != null) {
+            delay(2_500)
+            ignoredPress = null
+        }
+    }
     var circleBounds by remember { mutableStateOf<Rect?>(null) }
     var paneOrigin by remember { mutableStateOf(Offset.Zero) }
 
@@ -472,7 +483,7 @@ fun CaptureScreen(
                         it.copy(cameraOverlayOpacity = nextOverlayOpacity(it.cameraOverlayOpacity))
                     }
                 },
-                statusText = statusLineText(state),
+                statusText = ignoredPress?.let { "⚠️ press ignored: $it" } ?: statusLineText(state),
                 uploadsText = "uploads: ${queueStats.done} done" +
                     (if (queueStats.duplicate > 0) ", ${queueStats.duplicate} dup" else "") +
                     (if (queueStats.pending > 0) ", ${queueStats.pending} pending" else "") +
@@ -1003,13 +1014,29 @@ fun CaptureScreen(
                     // without this the handler kept a pre-recording snapshot
                     // and a tap could never stop a recording (device-caught).
                     .pointerInput(gateOpen, repeating, state.recording) {
+                        // The camera is CALLED from inside this block
+                        // (capture(), startVideo(), the Sports engagement's
+                        // request-options write). An exception escaping
+                        // awaitEachGesture kills this pointerInput coroutine,
+                        // and it only comes back when a KEY changes — after
+                        // a run ends, none does. That is a shutter dead
+                        // until the app restarts, which is what the field
+                        // reported. So: one gesture may fail; the handler
+                        // may not.
                         awaitEachGesture {
+                          try {
                             val down = awaitFirstDown(requireUnconsumed = false)
-                            val circle = circleBounds ?: return@awaitEachGesture
+                            val circle = circleBounds ?: run {
+                                ignoredPress = "shutter not laid out yet"
+                                return@awaitEachGesture
+                            }
                             if (!circle.contains(clusterOrigin + down.position)) {
                                 return@awaitEachGesture
                             }
-                            if (!gateOpen) return@awaitEachGesture
+                            if (!gateOpen) {
+                                ignoredPress = if (!state.ready) "camera not ready" else "no GPS fix"
+                                return@awaitEachGesture
+                            }
                             if (state.recording) {
                                 // Recording behaves exactly like a run: any
                                 // completed press on the button ends it.
@@ -1027,7 +1054,10 @@ fun CaptureScreen(
                                 if (circle.contains(clusterOrigin + up.position)) repeating = false
                                 return@awaitEachGesture
                             }
-                            if (state.capturing) return@awaitEachGesture
+                            if (state.capturing) {
+                                ignoredPress = "previous shot still in flight"
+                                return@awaitEachGesture
+                            }
                             down.consume()
                             val quick = withTimeoutOrNull(300L) {
                                 if (waitForUpOrCancellation() != null) "tap" else "cancel"
@@ -1077,6 +1107,15 @@ fun CaptureScreen(
                                 sliderVisible = false
                                 armedStop = null
                             }
+                          } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                          } catch (e: Exception) {
+                            // Logged where the user can see it; the next
+                            // press gets a live handler either way.
+                            sliderVisible = false
+                            armedStop = null
+                            ignoredPress = "shutter error: ${e.message ?: e::class.simpleName}"
+                          }
                         }
                     },
             ) {
