@@ -38,6 +38,15 @@ class HillviewApplication : Application() {
             dirtyHash = BuildConfig.GIT_DIRTY_HASH
         }
         android.util.Log.i("hv-build", cz.hillview.BuildInfo.label())
+        // A crash writes its trace to a file the Event log screen shows on
+        // the next start — installed before anything of ours can throw.
+        cz.hillview.diag.CrashLog.install(this)
+        cz.hillview.diag.CrashLog.lastReport(this)?.let { report ->
+            cz.hillview.plugin.EventLog.record(
+                "crash",
+                "previous run crashed: " + (report.lineSequence().firstOrNull { it.contains("Exception") || it.contains("Error") } ?: "see Event log → Copy crash"),
+            )
+        }
         // The UploadSettingsRepository (createdAtStart) materializes the
         // upload-settings prefs the shared-kt stack reads.
         initKoin {

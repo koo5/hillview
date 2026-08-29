@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -44,6 +43,7 @@ import kotlinx.coroutines.delay
 fun EventLogScreen(onBack: () -> Unit) {
     var events by remember { mutableStateOf<List<LoggedEvent>>(emptyList()) }
     var category by remember { mutableStateOf<String?>(null) }
+    var crash by remember { mutableStateOf(lastCrashReport()) }
     val clipboard = LocalClipboardManager.current
 
     LaunchedEffect(Unit) {
@@ -110,6 +110,26 @@ fun EventLogScreen(onBack: () -> Unit) {
             }
         }
 
+        // The previous run's crash, if there was one — see CrashLog. The
+        // whole reason it exists is to be copied out and pasted into a
+        // report, so that is the one action offered.
+        crash?.let { report ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "Previous run crashed: " +
+                        (report.lineSequence().firstOrNull { it.contains("Exception") || it.contains("Error") }
+                            ?.take(80) ?: "trace available"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.weight(1f).testTag("event-log-crash"),
+                )
+                TextButton(
+                    onClick = { clipboard.setText(AnnotatedString(report)) },
+                    modifier = Modifier.testTag("event-log-copy-crash"),
+                ) { Text("Copy crash") }
+                TextButton(onClick = { clearCrashReport(); crash = null }) { Text("✕") }
+            }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             // The point of an in-field log is getting it OUT of the field.
             TextButton(
@@ -131,19 +151,26 @@ fun EventLogScreen(onBack: () -> Unit) {
         }
 
         // Newest first: a log you are chasing is read from the top.
-        SelectionContainer {
-            LazyColumn(
-                Modifier.fillMaxSize().testTag("event-log-list"),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                items(shown) { event ->
-                    Text(
-                        "${formatLogTime(event.atMs)} [${event.category}] ${event.message}",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+        //
+        // No SelectionContainer around this list any more. It wrapped a
+        // LazyColumn whose rows come and go by the second, get emptied by
+        // Clear and rebuilt on every return to the screen — the exact churn
+        // the selection registrar is known to fall over on — and the only
+        // thing it added was per-row text selection, which the Copy button
+        // already covers whole. Removed after a field crash on exactly that
+        // clear/back/return sequence; NOT verified as the cause (the trace
+        // did not survive — which is what CrashLog above is for).
+        LazyColumn(
+            Modifier.fillMaxSize().testTag("event-log-list"),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            items(shown) { event ->
+                Text(
+                    "${formatLogTime(event.atMs)} [${event.category}] ${event.message}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }
@@ -162,6 +189,10 @@ data class LoggedEvent(val atMs: Long, val category: String, val message: String
 expect suspend fun collectEventLog(): List<LoggedEvent>
 
 expect fun clearEventLog()
+
+/** The previous run's crash report (see CrashLog), or null. */
+expect fun lastCrashReport(): String?
+expect fun clearCrashReport()
 
 /** Wall-clock to the second — the resolution a human correlates by. */
 expect fun formatLogTime(epochMs: Long): String
