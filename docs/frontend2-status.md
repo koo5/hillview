@@ -496,6 +496,13 @@ the chain stopped. See `GeoDebugText.kt`.
 - **Anonymization options** on Device photos (the original's modal: auto /
   none, custom noted): an edit → the drain applies it → targeted re-upload.
   Device-verified end to end.
+- **Crash on Back (field: "back button, or an accidental gesture around
+  it").** Reproduced: `IllegalArgumentException: NavDisplay backstack cannot
+  be empty` — a system back gesture followed by a tap on "← Back" while the
+  pop animation still runs; the leaving screen is still touchable, pops a
+  second time, and nav3 throws on the empty stack. Every pop now goes
+  through one guard that never removes the root. (The event-log theory was a
+  false lead; CrashLog from the same day would have said so in one line.)
 - **"Shutter dead until restart" (field report, not reproduced here).** The
   gesture loop calls the camera from inside `pointerInput`; an exception
   escaping it killed the handler until a key changed, which after a run none
