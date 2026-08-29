@@ -491,6 +491,22 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-08-29
+
+- **Anonymization options** on Device photos (the original's modal: auto /
+  none, custom noted): an edit → the drain applies it → targeted re-upload.
+  Device-verified end to end.
+- **"Shutter dead until restart" (field report, not reproduced here).** The
+  gesture loop calls the camera from inside `pointerInput`; an exception
+  escaping it killed the handler until a key changed, which after a run none
+  does. The loop now survives any exception, and a press that is ignored
+  says why in the status line (`⚠️ press ignored: …`) — so if it recurs the
+  phone names the cause. Emulator note: uiautomator dumps go blind (root
+  node only, "Skipping invisible child") while a Compose dialog is up and
+  after some capture sequences; taps still land, screenshots still work.
+- The local backend had lost its test users (401 everywhere, two jvm tests
+  "failing"); `POST /api/debug/recreate-test-users` fixed it.
+
 ## Closed on 2026-08-28
 
 - **Position's second stream (`alt_location`).** The one-state rule's open
