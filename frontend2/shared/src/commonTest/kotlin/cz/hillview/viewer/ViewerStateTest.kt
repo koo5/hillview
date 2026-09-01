@@ -136,11 +136,40 @@ class ViewerStateTest {
     }
 
     @Test
-    fun turningToAPhotoWithNoBearingIsRefused() {
+    fun choosingAPhotoWithNoBearingKeepsTheViewStill() {
+        // It used to be refused outright; now the choice lands — the view
+        // just has nothing to turn to, so the bearing stays put.
         val map = MapStateHolder()
-        val before = map.bearing.value
+        stoodDown = false
+        val before = map.bearing.value.bearing
         holderFor(map).turnTo(photo("unknown", null))
-        assertEquals(before, map.bearing.value)
+        assertEquals(before, map.bearing.value.bearing)
+        assertEquals("unknown", map.bearing.value.photoUid)
+        assertEquals(ViewerStateHolder.SOURCE_PHOTO_NAVIGATION, map.bearing.value.source)
+        // Deliberate choice: tracking stands down like for any turn.
+        assertTrue(stoodDown)
+    }
+
+    @Test
+    fun aChosenPhotoWithNoBearingFrontsWithNoNeighbours() {
+        val markers = listOf(photo("n", 0.0), photo("e", 90.0), photo("plus", null))
+        val state = derive(markers, bearing = 5.0, stickyUid = "plus")
+        assertEquals("plus", state.front?.id)
+        // The ring is still what you can TURN to — unchanged.
+        assertEquals(listOf("n", "e"), state.ring.map { it.id })
+        assertNull(state.left)
+        assertNull(state.right)
+        assertNull(state.up)
+        assertNull(state.down)
+    }
+
+    @Test
+    fun theHeadinglessChoiceDropsWithThePhotoUid() {
+        // Any bearing write without photoUid clears the choice (see
+        // MapStateTest.bearingClearsPhotoAndAccuracyWhenNotGiven); the
+        // derivation then falls back to the nearest-bearing rule.
+        val markers = listOf(photo("n", 0.0), photo("plus", null))
+        assertEquals("n", derive(markers, bearing = 5.0, stickyUid = null).front?.id)
     }
 
     private var stoodDown = false

@@ -400,15 +400,17 @@ actual fun MapScreen(
                 markerOverlay.onPhotoTapped = { photo ->
                     // Turning the view to the photo IS the selection — the
                     // bearing carries the photo id, exactly as the original
-                    // does via updateBearingWithPhoto.
-                    photo.bearingDeg?.let { photoBearing ->
-                        state.updateBearing(
-                            bearing = photoBearing,
-                            source = "marker_click",
-                            photoUid = photo.id,
-                            now = System.currentTimeMillis(),
-                        )
-                    }
+                    // does via updateBearingWithPhoto. A heading-less photo
+                    // (grey plus-marker) cannot turn the view, but the tap
+                    // still selects it: the current bearing is rewritten with
+                    // the photo id attached and the viewer fronts it (see
+                    // deriveViewerState's heading-less rule).
+                    state.updateBearing(
+                        bearing = photo.bearingDeg ?: state.bearing.value.bearing,
+                        source = "marker_click",
+                        photoUid = photo.id,
+                        now = System.currentTimeMillis(),
+                    )
                     selectedPhotoId = photo.id
                     // Tapping a greyed-out photo un-greys the set, like the
                     // original's overrideFilters flip.

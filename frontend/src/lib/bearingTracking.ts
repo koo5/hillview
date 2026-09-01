@@ -1,5 +1,5 @@
 import { get } from 'svelte/store';
-import {bearingMode, updateBearing, type BearingMode} from '$lib/mapState';
+import {bearingMode, bearingState, updateBearing, type BearingMode} from '$lib/mapState';
 import { enableCompass, disableCompass } from '$lib/compass.svelte';
 import { enableGpsOrientation, disableGpsOrientation } from '$lib/gpsOrientation.svelte';
 import type {PhotoData, PhotoId} from './types/photoTypes';
@@ -31,5 +31,10 @@ export function selectBearingMode(mode: BearingMode) {
 
 export function updateBearingWithPhoto(photo: PhotoData, source: string = 'photo_navigation') {
 	disableBearingTracking();
-	updateBearing(photo.bearing, source, photo.uid);
+	// A photo with no recorded heading cannot be "turned to": keep the view
+	// where it is and record only the choice (the photoUid). The choice drops
+	// as soon as anything else writes the bearing, which clears photoUid —
+	// same lifetime as any deliberate selection.
+	const bearing = photo.has_bearing === false ? get(bearingState).bearing : photo.bearing;
+	updateBearing(bearing, source, photo.uid);
 }

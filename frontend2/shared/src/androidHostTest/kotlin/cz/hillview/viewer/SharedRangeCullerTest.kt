@@ -47,6 +47,24 @@ class SharedRangeCullerTest {
     }
 
     @Test
+    fun aPickedPhotoWithoutABearingSurvivesTheCull() {
+        // A tapped grey plus-marker becomes the pick; the shared culler keeps
+        // in-range picks whether or not they carry a heading — without this
+        // the photo being viewed is culled out from under the viewer.
+        val chosen = marker("plus", null)
+        val out = cull(listOf(marker("a", 0.0), chosen), picks = setOf("plus"))
+        assertTrue(out.any { it === chosen }, "the picked heading-less marker must come back")
+        assertTrue(out.any { it.id == "a" })
+    }
+
+    @Test
+    fun aPickedHeadinglessPhotoBeyondTheRangeStaysOut() {
+        // Picks bypass the cull, not the range: same rule as for any pick.
+        val out = cull(listOf(marker("far", null, metresNorth = 5_000.0)), picks = setOf("far"))
+        assertEquals(emptyList<String>(), out.map { it.id })
+    }
+
+    @Test
     fun photosBeyondTheRangeAreDropped() {
         val out = cull(listOf(marker("near", 0.0, metresNorth = 100.0), marker("far", 90.0, metresNorth = 5_000.0)))
         assertEquals(listOf("near"), out.map { it.id })

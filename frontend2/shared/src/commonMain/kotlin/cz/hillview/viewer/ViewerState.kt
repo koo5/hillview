@@ -74,6 +74,17 @@ fun deriveViewerState(
         inRange, hunterMode, overrideFilters,
         filtered = { it.filteredOut }, featured = { it.featured }, bearing = { it.bearingDeg },
     )
+    // A deliberately chosen photo with no heading (a tapped grey plus-marker)
+    // cannot be in the ring — the ring's whole order is bearing — but it IS
+    // what you are viewing: it fronts with no neighbours, like a front photo
+    // that fell out of range. The choice lives exactly as long as photoUid
+    // does; any bearing write without it (a compass tick, a turn) drops it.
+    val chosenHeadingless = bearing.photoUid?.let { uid ->
+        inRange.firstOrNull { it.id == uid && it.bearingDeg == null }
+    }
+    if (chosenHeadingless != null) {
+        return ViewerState(ring = ring, front = chosenHeadingless)
+    }
     val front = viewerFrontPhoto(
         ring, bearing.bearing, bearing.photoUid, { it.id }, { it.bearingDeg!! },
     )
@@ -141,10 +152,14 @@ class ViewerStateHolder(
      * viewerFrontPhoto.
      */
     fun turnTo(photo: PhotoMarker) {
-        val bearing = photo.bearingDeg ?: return
+        //val bearing = photo.bearingDeg ?: return
+        // A photo with no heading cannot turn the view — but choosing it is
+        // still a choice: the CURRENT bearing is rewritten with the photo id
+        // attached (updateBearing never dedups), the tracking stands down as
+        // for any deliberate turn, and deriveViewerState fronts the photo.
         standDownTracking()
         map.updateBearing(
-            bearing = bearing,
+            bearing = photo.bearingDeg ?: map.bearing.value.bearing,
             source = SOURCE_PHOTO_NAVIGATION,
             photoUid = photo.id,
             now = now(),
