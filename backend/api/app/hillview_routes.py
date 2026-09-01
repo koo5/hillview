@@ -19,6 +19,7 @@ from hidden_content_filters import apply_hidden_content_filters
 from auth import get_current_user_optional_with_query
 from rate_limiter import general_rate_limiter
 from internal_guard import require_internal_ip
+import debug_delays
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -589,6 +590,10 @@ async def get_hillview_images(
 		# Create generator for EventSource streaming
 		async def generate_stream():
 			try:
+				# Debug knob: `POST /api/internal/debug/delays {"name": "hillview_stream", ...}`
+				# makes this source slow so the clients' per-source loading can be
+				# observed (the map must fill in from the other sources meanwhile).
+				await debug_delays.sleep_for("hillview_stream")
 				# Send the data as a single event with proper type field
 				data = {
 					'type': 'photos',

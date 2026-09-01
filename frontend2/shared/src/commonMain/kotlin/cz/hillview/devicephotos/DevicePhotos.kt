@@ -38,6 +38,12 @@ data class DevicePhotoCard(
      * global setting, which is what the card says.
      */
     val license: String? = null,
+    /**
+     * The EFFECTIVE anonymization choice — "auto" (detect and blur), "none",
+     * or "custom" (regions drawn on the web) — pending edits included, so a
+     * choice made a moment ago reads back before the drain has applied it.
+     */
+    val anonymization: String = "auto",
 )
 
 /**
@@ -112,6 +118,16 @@ interface DevicePhotoBrowser {
      * explicit "upload THIS" tap should be silently swallowed by.
      */
     suspend fun retryUpload(id: String)
+
+    /**
+     * Change how the server anonymizes this photo, and re-upload it — the
+     * original's "Anonymization options" (photoAnonymizationMenu.ts). An
+     * EDIT is recorded (set_anonymization_override; value null = auto-detect,
+     * "[]" = none), the drain applies it — override set, version bumped, row
+     * back to pending — and the photo goes out again under the new setting.
+     * Custom regions come from the web app; choosing here replaces them.
+     */
+    suspend fun setAnonymization(id: String, value: String?)
 
     /**
      * Relicense a single photo. A DIVERGENCE from the original, where the

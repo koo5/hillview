@@ -119,10 +119,21 @@ class ViewerStateHolder(
     scope: CoroutineScope,
     private val now: () -> Long,
 ) {
+    /**
+     * Computed only while something is looking — the original's semantics
+     * exactly: photoInFront is a Svelte derived store, and derived stores
+     * run only while subscribed, which only the Gallery does. Eagerly here
+     * meant a range cull and a sort of the whole marker set on every compass
+     * tick (~10 Hz) for as long as the process lived, including the entire
+     * time the capture or external-camera pane was up and nobody could see
+     * the result (user-caught). WhileSubscribed makes the pane's collector
+     * the switch; the first frame after entering the viewer pays one
+     * derivation, as the original's first subscription does.
+     */
     val state: StateFlow<ViewerState> =
         combine(markers, map.spatial, map.bearing, hunterMode, overrideFilters) { m, s, b, h, o ->
             deriveViewerState(m, s, b, h, o, cull)
-        }.stateIn(scope, SharingStarted.Eagerly, ViewerState())
+        }.stateIn(scope, SharingStarted.WhileSubscribed(), ViewerState())
 
     /**
      * Turn to a neighbour. The uid is recorded alongside the bearing so the

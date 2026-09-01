@@ -17,6 +17,9 @@ import android.util.Log
 class CullingGrid(private val bounds: Bounds) {
     companion object {
         private const val TAG = "hv-CullingGrid"
+        // Off like AngularRangeCuller's: the culler runs on every marker
+        // publish now, and unguarded Log calls also keep it out of host tests.
+        private const val doLog = false
         private const val GRID_SIZE = 10
 
         // Source priority levels (lower number = higher priority) - matching TypeScript
@@ -42,7 +45,7 @@ class CullingGrid(private val bounds: Bounds) {
             return emptyList()
         }
 
-        Log.d(TAG, "Starting culling with ${photosPerSource.values.sumOf { it.size }} total photos, maxPhotos: $maxPhotos, picks: ${picks.size}")
+        if (doLog) Log.d(TAG, "Starting culling with ${photosPerSource.values.sumOf { it.size }} total photos, maxPhotos: $maxPhotos, picks: ${picks.size}")
 
         // First, extract picked photos - they are always included
         // picks contains UIDs like "hillview-abc123"
@@ -63,19 +66,23 @@ class CullingGrid(private val bounds: Bounds) {
         // Calculate remaining slots after picks
         val remainingSlots = maxPhotos - pickedPhotos.size
         if (remainingSlots <= 0) {
-            Log.d(TAG, "${pickedPhotos.size} picked photos fill the limit of $maxPhotos")
+            if (doLog) Log.d(TAG, "${pickedPhotos.size} picked photos fill the limit of $maxPhotos")
             return pickedPhotos.take(maxPhotos)
         }
 
         // Create grid cells map
         val gridCells = mutableMapOf<CellKey, CellPhotos>()
 
-        // Sort sources by priority (device first, mapillary last)
-        val sortedSources = photosPerSource.keys.sortedBy { sourceId ->
-            SOURCE_PRIORITY[sourceId] ?: Int.MAX_VALUE
-        }
+        // Sort sources by priority (device first, mapillary last). Sources
+        // outside the table (panoramax, anything new) tie — broken by id so
+        // the result is a function of the input, never of map insertion
+        // order (the composite re-culls on every arrival; the final set
+        // must not depend on which source answered first).
+        val sortedSources = photosPerSource.keys.sortedWith(
+            compareBy({ sourceId -> SOURCE_PRIORITY[sourceId] ?: Int.MAX_VALUE }, { sourceId -> sourceId })
+        )
 
-        Log.d(TAG, "Processing sources in priority order: $sortedSources")
+        if (doLog) Log.d(TAG, "Processing sources in priority order: $sortedSources")
 
         // Populate grid cells with photos from each source
         // Exclude already picked photos
@@ -119,7 +126,7 @@ class CullingGrid(private val bounds: Bounds) {
             }
         }
 
-        Log.d(TAG, "Populated ${gridCells.size} grid cells")
+        if (doLog) Log.d(TAG, "Populated ${gridCells.size} grid cells")
 
         // Round-robin selection across all cells
         val regularPhotos = mutableListOf<PhotoData>()
@@ -150,7 +157,7 @@ class CullingGrid(private val bounds: Bounds) {
         // Combine picked photos first, then regular photos
         val result = pickedPhotos + regularPhotos
 
-        Log.d(TAG, "Culling completed: ${pickedPhotos.size} picks + ${regularPhotos.size} culled = ${result.size} photos from ${gridCells.size} cells in $roundNumber rounds")
+        if (doLog) Log.d(TAG, "Culling completed: ${pickedPhotos.size} picks + ${regularPhotos.size} culled = ${result.size} photos from ${gridCells.size} cells in $roundNumber rounds")
 
         return result
     }

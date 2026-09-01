@@ -109,7 +109,16 @@ data class PhotoEntity(
      * viewer's rule is strictly-higher / strictly-lower, so "level" and
      * "not recorded" must not collapse into each other.
      */
-    val pitch: Double? = null
+    val pitch: Double? = null,
+
+    /**
+     * The position stream the photo did NOT record (v20), as the JSON the
+     * upload metadata sends under `alt_location` — the original's field,
+     * which the backend synthesizes into the UserComment provenance. Kept
+     * as JSON rather than five columns because it is opaque to this table:
+     * nothing here reads it, it only travels.
+     */
+    val altLocationJson: String? = null
 )
 
 enum class UploadStatus {
