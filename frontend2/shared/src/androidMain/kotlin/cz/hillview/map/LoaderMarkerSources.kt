@@ -34,8 +34,11 @@ internal fun PhotoData.toMarker(): PhotoMarker = PhotoMarker(
     id = id,
     latitude = coord.lat,
     longitude = coord.lng,
-    // 0 is "unset" everywhere in this pipeline (the loaders default to it).
-    bearingDeg = bearing.takeIf { it != 0.0 },
+    // The loaders keep 0.0 as the wire default for a missing heading and say
+    // so in has_bearing; testing for 0.0 here used to turn a photo shot due
+    // north into "no bearing" (grey, no arrow, out of the viewer ring).
+    //bearingDeg = bearing.takeIf { it != 0.0 },
+    bearingDeg = bearing.takeIf { has_bearing },
     // Already nullable upstream, so it passes through untouched — unlike
     // bearing, this one never used 0 to mean "unset".
     pitchDeg = pitch,

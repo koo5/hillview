@@ -65,6 +65,7 @@ describe('iconSignature', () => {
 		expect(iconSignature({ ...base, featured: true })).not.toBe(sig);
 		expect(iconSignature({ ...base, filtered: true })).not.toBe(sig);
 		expect(iconSignature({ ...base, is_placeholder: true })).not.toBe(sig);
+		expect(iconSignature({ ...base, has_bearing: false })).not.toBe(sig);
 		expect(iconSignature({ ...base, source: { id: 'mapillary', color: '#0f0' } })).not.toBe(sig);
 	});
 });

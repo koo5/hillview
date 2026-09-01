@@ -92,12 +92,23 @@ data class PhotoData(
     val filename: String? = null,
     val url: String? = null,
     val coord: LatLng,
+    /** Shooting direction, degrees clockwise from north. 0.0 when unknown — see [has_bearing]. */
     val bearing: Double,
     /**
+     * Whether [bearing] was actually recorded. The loaders default a missing
+     * heading to 0.0 (the JSON contract with the Tauri frontend keeps
+     * `bearing` numeric), which made "unknown" indistinguishable from "due
+     * north": a photo shot at exactly 0° lost its arrow and dropped out of the
+     * viewer ring. Consumers that care (frontend2's marker mapping) read this
+     * flag instead of testing for 0.0.
+     */
+    val has_bearing: Boolean = true,
+    /**
      * Camera elevation in degrees, positive up; null when unrecorded. Unlike
-     * [bearing], which uses 0.0 as its unset value, this stays NULLABLE: the
-     * viewer navigates up and down by it and has to tell "level" apart from
-     * "unknown" (docs/tauri-viewer-ui-contract.md).
+     * [bearing], which keeps 0.0 as its unset value for the JSON contract (see
+     * [has_bearing]), this stays NULLABLE: the viewer navigates up and down by
+     * it and has to tell "level" apart from "unknown"
+     * (docs/tauri-viewer-ui-contract.md).
      */
     val pitch: Double? = null,
     val altitude: Double? = null,

@@ -115,7 +115,8 @@ export class OptimizedMarkerSystem {
              data-source="${getPhotoSourceId(photo) || 'unknown'}"
              data-is-placeholder="${photo.is_placeholder || false}"`;
 
-		const bearingColor = photo.featured ? 'gold' : photo.bearing_color;
+		// No recorded heading: flat grey, no arrow (frontend2 draws the same).
+		const bearingColor = photo.featured ? 'gold' : (photo.has_bearing === false ? '#9E9E9E' : photo.bearing_color);
 
 		// Compute initial grayed state so it's baked into the HTML
 		const grayed = grayingCtx ? this.shouldGray(photo, grayingCtx) : false;
@@ -130,7 +131,8 @@ export class OptimizedMarkerSystem {
 					data,
 					7,
 					photo.id,
-					grayed
+					grayed,
+					photo.has_bearing !== false
 				),
 			iconSize: [arrowSize, arrowSize],
 			iconAnchor: [arrowSize / 2, arrowSize / 2]
@@ -146,7 +148,8 @@ export class OptimizedMarkerSystem {
 		data: string = '',
 		offsetPixels: number = 0,
 		photoId?: string,
-		grayed: boolean = false
+		grayed: boolean = false,
+		hasBearing: boolean = true
 	): string {
 
 		const {arrowSize} = this.atlasDimensions;
@@ -187,8 +190,8 @@ export class OptimizedMarkerSystem {
 					 opacity: 0.8;
 				   "></div>
 
-			  <!-- Direction arrow (foreground) -->
-			  <div class="direction-arrow"
+			  <!-- Direction arrow (foreground); none when the heading is unknown -->
+			  ${hasBearing ? `<div class="direction-arrow"
 				   style="
 					 background-image: url(${this.atlasDataUrl});
 					 background-position: ${backgroundPos};
@@ -197,7 +200,7 @@ export class OptimizedMarkerSystem {
 					 height: ${arrowSize}px;
 					 transform: scale(${arrowScale});
 					 opacity: 0.7;
-				   "></div>
+				   "></div>` : ''}
 		</div>`;
 	}
 
@@ -216,8 +219,8 @@ export class OptimizedMarkerSystem {
 			const photoData = (marker as any)._photoData as PhotoData;
 			if (!photoData) return;
 
-			// Featured photos keep gold color
-			if (photoData.featured) return;
+			// Featured photos keep gold color; heading-less ones stay grey
+			if (photoData.featured || photoData.has_bearing === false) return;
 
 			// Recalculate bearing diff color
 			const bearingDiff = this.calculateAbsBearingDiff(photoData.bearing, currentBearing);
@@ -397,7 +400,7 @@ export class OptimizedMarkerSystem {
 		const element = marker.getElement();
 		const circle = element?.querySelector('.bearing-circle') as HTMLElement | null;
 		if (circle) {
-			if (!photo.featured && photo.bearing_color && circle.style.backgroundColor !== photo.bearing_color) {
+			if (!photo.featured && photo.has_bearing !== false && photo.bearing_color && circle.style.backgroundColor !== photo.bearing_color) {
 				circle.style.backgroundColor = photo.bearing_color;
 			}
 			if (grayingCtx) circle.classList.toggle('grayed', this.shouldGray(photo, grayingCtx));

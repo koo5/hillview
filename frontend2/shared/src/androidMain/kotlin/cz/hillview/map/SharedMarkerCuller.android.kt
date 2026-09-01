@@ -45,6 +45,7 @@ class SharedMarkerCuller : MarkerCuller {
                     source_type = marker.source,
                     coord = LatLng(marker.latitude, marker.longitude),
                     bearing = marker.bearingDeg ?: 0.0,
+                    has_bearing = marker.bearingDeg != null,
                     source = sourceId,
                     fileHash = marker.fileMd5,
                     captured_at = marker.capturedAtMs,

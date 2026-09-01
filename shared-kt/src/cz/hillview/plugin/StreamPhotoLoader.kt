@@ -354,7 +354,7 @@ class StreamPhotoLoader {
      * 1. Mapillary endpoint: geometry.coordinates, thumb_1024_url, compass_angle, etc.
      * 2. Hillview endpoint: geometry.coordinates, filename + sizes, bearing, etc.
      */
-    private fun parsePhotoJson(photoJson: JsonObject): PhotoData {
+    internal fun parsePhotoJson(photoJson: JsonObject): PhotoData {
         val id = photoJson["id"]?.jsonPrimitive?.content
             ?: throw IllegalArgumentException("Photo missing id")
 
@@ -369,11 +369,12 @@ class StreamPhotoLoader {
         // Extract bearing with endpoint-specific fallbacks
         // Mapillary: compass_angle, computed_compass_angle, computed_bearing
         // Hillview: bearing, computed_bearing
-        val bearing = photoJson["bearing"]?.jsonPrimitive?.doubleOrNull
+        val recordedBearing = photoJson["bearing"]?.jsonPrimitive?.doubleOrNull
             ?: photoJson["computed_bearing"]?.jsonPrimitive?.doubleOrNull
             ?: photoJson["compass_angle"]?.jsonPrimitive?.doubleOrNull
             ?: photoJson["computed_compass_angle"]?.jsonPrimitive?.doubleOrNull
-            ?: 0.0
+        // 0.0 stays the wire default; has_bearing carries whether it was recorded.
+        val bearing = recordedBearing ?: 0.0
 
         // Extract altitude with fallbacks
         val altitude = photoJson["computed_altitude"]?.jsonPrimitive?.doubleOrNull
@@ -454,6 +455,7 @@ class StreamPhotoLoader {
             url = url,
             coord = coord,
             bearing = bearing,
+            has_bearing = recordedBearing != null,
             pitch = pitch,
             altitude = altitude,
             source = "stream", // Just source ID

@@ -66,6 +66,7 @@ export function iconSignature(photo: {
 	featured?: boolean;
 	filtered?: boolean;
 	is_placeholder?: boolean;
+	has_bearing?: boolean;
 	// PhotoData.source is a Source object from the worker, or just its id.
 	source?: string | { id?: string; color?: string } | null;
 }): string {
@@ -73,6 +74,7 @@ export function iconSignature(photo: {
 	return [
 		photo.id,
 		photo.bearing ?? 0,
+		photo.has_bearing === false ? 0 : 1,
 		photo.featured ? 1 : 0,
 		photo.filtered ? 1 : 0,
 		photo.is_placeholder ? 1 : 0,

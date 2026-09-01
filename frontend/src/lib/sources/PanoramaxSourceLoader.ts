@@ -105,7 +105,9 @@ export function convertPanoramaxItem(item: any, source: any): PhotoData | null {
 
 	let bearing = props['view:azimuth'];
 	if (bearing === undefined || bearing === null) bearing = props['pers:yaw'];
-	if (typeof bearing !== 'number') bearing = 0;
+	// Unoriented uploads carry neither: 0 stays the default, has_bearing says so.
+	const hasBearing = typeof bearing === 'number';
+	if (!hasBearing) bearing = 0;
 
 	const thumbUrl: string = assets?.thumb?.href || props['geovisio:thumbnail'] || '';
 	const sdUrl: string | undefined = assets?.sd?.href;
@@ -135,6 +137,7 @@ export function convertPanoramaxItem(item: any, source: any): PhotoData | null {
 		uid: `${source.id}-${item.id}`,
 		coord: { lat, lng },
 		bearing,
+		...(hasBearing ? {} : { has_bearing: false }),
 		url: thumbUrl || hdUrl || sdUrl || '',
 		filename,
 		source_type: source.type,

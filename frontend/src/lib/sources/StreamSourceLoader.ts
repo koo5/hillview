@@ -21,7 +21,8 @@ export function convertStreamPhoto(photo: any, source: any): PhotoData {
     if (bearing === undefined || bearing === null) {
         bearing = photo.bearing
     }
-    if (bearing === undefined || bearing === null) {
+    const hasBearing = !(bearing === undefined || bearing === null);
+    if (!hasBearing) {
         console.warn(`StreamSourceLoader: Photo ${photo.id} missing bearing info, defaulting to 0`);
         bearing = 0
     }
@@ -45,6 +46,7 @@ export function convertStreamPhoto(photo: any, source: any): PhotoData {
             { lat: photo.geometry.coordinates[1], lng: photo.geometry.coordinates[0] } :
             photo.coord,
         bearing,
+        ...(hasBearing ? {} : { has_bearing: false }),
         url: photo.thumb_1024_url || photo.url || '',
         filename: photo.filename,
         source_type: source.type,

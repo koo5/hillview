@@ -112,6 +112,17 @@ describe('OptimizedMarkerSystem.updateMarkers (diffing)', () => {
 		expect(markerFor(again, 'z')).toBe(a); // LIFO pool hands the same object back
 	});
 
+	it('a photo with no recorded heading draws grey with no arrow, and keeps it on colour updates', () => {
+		const markers = system.updateMarkers(map, [photo('u', 50.05, 14.35, { has_bearing: false, bearing_color: '#00ff00' })]);
+		const el = markerFor(markers, 'u').getElement()!;
+		expect(el.querySelector('.direction-arrow')).toBeNull();
+		const circle = el.querySelector('.bearing-circle') as HTMLElement;
+		expect(circle.style.backgroundColor).toMatch(/#9e9e9e|rgb\(158, 158, 158\)/i);
+
+		system.updateMarkerColors(markers, 90);
+		expect(circle.style.backgroundColor).toMatch(/#9e9e9e|rgb\(158, 158, 158\)/i);
+	});
+
 	it('draws one marker for duplicate keys in a publish', () => {
 		const markers = system.updateMarkers(map, [photo('a'), photo('a')]);
 		expect(markers).toHaveLength(1);
