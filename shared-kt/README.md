@@ -27,6 +27,11 @@ the loaders behind its PhotoMarkerSource adapters (LoaderMarkerSources.kt);
 PhotoWorkerService stays plugin-side until its ExamplePlugin reference is
 carved out (the PhotoUploadCommands pattern). Known upstream quirk kept
 verbatim: StreamPhotoLoader sends client_id=default.
+2026-08-27 (SOURCES): `StreamPhotoLoader.loadPhotos(…, onBatch = null)` reports
+each SSE batch (accumulated, bounds-filtered, capped) so both consumers can
+publish per source as it arrives; `CullingGrid` tie-breaks equal-priority
+sources by id (arrival-order independence) and has host tests in frontend2.
+See docs/sources-loading.md.
 
 Sensor family COMPLETE (2026-08-05, second wave): EnhancedSensorService,
 DeviceOrientationProvider, MyDeviceOrientationSensor, PreciseLocationService,

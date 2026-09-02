@@ -2,6 +2,7 @@ import { test as base } from '@playwright/test';
 import { recreateTestUsers, type TestUserSetupResult } from './helpers/testUsers';
 import { setupConsoleLogging } from './helpers/consoleLogging';
 import { trackPendingRequests } from './helpers/pendingRequests';
+import { mockPanoramaxSearch } from './helpers/panoramaxMocks';
 
 /**
  * Track which spec file last triggered user recreation.
@@ -40,6 +41,10 @@ export const test = base.extend<{ testUsers: TestUserSetupResult }>({
 				}
 			};
 		});
+
+		// Panoramax is on by default and would otherwise hit the public instance
+		// from every test. Empty by default; specs override with their own route.
+		await mockPanoramaxSearch(page, []);
 
 		// Relay browser console/errors to test output (gated by PLAYWRIGHT_CONSOLE_LOG env var)
 		setupConsoleLogging(page);

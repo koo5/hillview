@@ -52,7 +52,7 @@ import {AngularRangeCuller, sortPhotosByBearing} from '../lib/AngularRangeCuller
 import { TAURI } from '../lib/tauri';
 import { invalidatePanoramaxHidden } from '../lib/sources/PanoramaxSourceLoader';
 import { invoke } from '@tauri-apps/api/core';
-import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS } from '../lib/photoWorkerConstants';
+import { MAX_PHOTOS_IN_AREA, MAX_PHOTOS_IN_RANGE, DEFAULT_RANGE_METERS, PARTIAL_PUBLISH_THROTTLE_MS } from '../lib/photoWorkerConstants';
 
 const doLog = false;
 
@@ -177,7 +177,15 @@ function mergeAndCullPhotos(): { photos_in_area: PhotoData[], photos_in_range: P
 }
 
 // Direct photo array transfer (no serialization needed)
-function sendPhotosUpdate(): void {
+//
+// `complete` tells the main thread (and the tests) whether this is the settled
+// state for the current area (true) or a partial publish while sources are
+// still loading (false). Partial publishes exist so the map fills in as each
+// source lands instead of waiting for the slowest one.
+function sendPhotosUpdate(complete: boolean = true): void {
+    if (complete) cancelPendingPartialPublish();
+    lastPublishAt = Date.now();
+
     // Merge and cull photos from all sources
     const { photos_in_area, photos_in_range } = mergeAndCullPhotos();
 
@@ -187,10 +195,57 @@ function sendPhotosUpdate(): void {
         photos_in_area: [...photos_in_area],
         photos_in_range: [...photos_in_range],
         current_range: current_range,
+        complete,
         timestamp: Date.now()
     });
 
-    if (doLog) console.log(`🢄NewWorker: Sent ${photos_in_area.length} area photos + ${photos_in_range.length} range photos directly`);
+    if (doLog) console.log(`🢄NewWorker: Sent ${photos_in_area.length} area photos + ${photos_in_range.length} range photos directly (complete=${complete})`);
+}
+
+// Partial-publish throttle. The first batch for an area goes out immediately
+// (that's the time-to-first-marker); further batches are trailing-edge
+// throttled to PARTIAL_PUBLISH_THROTTLE_MS so a stream delivering many small
+// batches doesn't re-cull and redraw on every one. The final (complete)
+// publish clears any pending partial — it supersedes it.
+let lastPublishAt = 0;
+let partialPublishTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelPendingPartialPublish(): void {
+    if (partialPublishTimer) {
+        clearTimeout(partialPublishTimer);
+        partialPublishTimer = null;
+    }
+}
+
+function schedulePartialPublish(): void {
+    if (partialPublishTimer) return; // a trailing publish is already pending; it will see the latest state
+    const elapsed = Date.now() - lastPublishAt;
+    if (elapsed >= PARTIAL_PUBLISH_THROTTLE_MS) {
+        sendPhotosUpdate(false);
+        return;
+    }
+    partialPublishTimer = setTimeout(() => {
+        partialPublishTimer = null;
+        // Only while an area is still loading: once it completed, the final
+        // publish already carried this state, and a late partial would make
+        // the main thread think loading resumed.
+        if (hasRunningProcessOfType('area')) sendPhotosUpdate(false);
+    }, PARTIAL_PUBLISH_THROTTLE_MS - elapsed);
+}
+
+function hasRunningProcessOfType(type: ProcessInfo['type']): boolean {
+    for (const processInfo of processTable.values()) {
+        if (processInfo.type === type && !processInfo.shouldAbort) return true;
+    }
+    return false;
+}
+
+// True when the message came from a loader whose area process is still the
+// current one. Loaders of a superseded area can still have batches queued.
+function isFromLiveProcess(message: any): boolean {
+    if (message.processId === undefined) return true; // untagged (e.g. tests driving loaders directly)
+    const processInfo = processTable.get(message.processId);
+    return !!processInfo && !processInfo.shouldAbort;
 }
 
 
@@ -256,6 +311,13 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
     processTable.set(processId, processInfo);
     if (doLog) console.log(`🢄NewWorker: Started ${type} process ${processId}`);
 
+    // A new area is a new first arrival: its first batch must not be throttled
+    // by however recently the previous area's final publish went out.
+    if (type === 'area') {
+        cancelPendingPartialPublish();
+        lastPublishAt = 0;
+    }
+
     // Start async operation via photoOperations - it will post completion messages back to the queue
     const operationCallbacks = {
         shouldAbort: (id: string) => shouldAbortProcess(id),
@@ -312,6 +374,16 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
         getValidToken: (forceRefresh?: boolean) => getValidToken(forceRefresh || false)
     };
 
+    // The operations are deliberately not awaited (the loop must keep serving
+    // messages while they run); a rejection must still complete the process,
+    // or the process table stays blocked forever.
+    const settle = (p: Promise<void> | undefined) => {
+        p?.catch((error) => {
+            console.error(`🢄NewWorker: Error in ${type} process ${processId}:`, error);
+            messageQueue.addMessage({ type: 'processComplete', processId, processType: type, messageId });
+        });
+    };
+
     // Start the actual business logic operations
     try {
         if (type === 'config') {
@@ -322,34 +394,35 @@ async function startProcess(type: 'config' | 'area' | 'sourcesPhotosInArea', mes
                     maxPhotosInAreaValue = currentState.config.data.maxPhotosInArea;
                     photoOperations.setMaxPhotosInArea(maxPhotosInAreaValue);
                 }
+                photoOperations.setStreamInactivityTimeoutMs(currentState.config.data.streamInactivityTimeoutMs);
                 // Update query options before processing config
                 photoOperations.setQueryOptionsJson(currentState.config.data.queryOptionsJson);
-                photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks);
+                settle(photoOperations.processConfig(processId, messageId, currentState.config.data, operationCallbacks));
             } else {
                 console.warn(`🢄NewWorker: PROCESSCONFIG - Config data is null for process ${processId}`);
             }
         } else if (type === 'area') {
             if (doLog) console.log(`🢄NewWorker: About to call processArea with area:`, currentState.area.data, 'sources:', currentState.config.data?.sources?.length || 0);
             if (currentState.area.data) {
-                photoOperations.processArea(
+                settle(photoOperations.processArea(
                     processId,
                     messageId,
                     currentState.area.data,
                     currentState.config.data?.sources || [],
                     operationCallbacks
-                );
+                ));
             } else {
                 console.warn(`🢄NewWorker: Area data is null for process ${processId}`);
             }
         } else if (type === 'sourcesPhotosInArea') {
             if (doLog) console.log(`🢄NewWorker: Calling processCombinePhotos for ${processId}`);
-            photoOperations.processCombinePhotos(
+            settle(photoOperations.processCombinePhotos(
                 processId,
                 messageId,
                 currentState.area.data,
                 currentState.config.data?.sources || [],
                 operationCallbacks
-            );
+            ));
         }
     } catch (error) {
         console.error(`🢄NewWorker: Error in startProcess ${type}:`, error);
@@ -490,6 +563,15 @@ async function loop(): Promise<void> {
 
 				case 'areaUpdated':
 					updateState('area', message);
+					// A newer viewport supersedes the one still loading: mark it so the
+					// loop can start the new area right away (its loadSource cancels the
+					// old loaders) instead of queueing behind the slowest source.
+					for (const processInfo of processTable.values()) {
+						if (processInfo.type === 'area' && !processInfo.shouldAbort) {
+							if (doLog) console.log(`🢄NewWorker: Newer area supersedes process ${processInfo.id}`);
+							processInfo.shouldAbort = true;
+						}
+					}
 					break;
 
 					// fixme: this probably shoulnt be a message, each operation should set something like lastProcessedId = messageId directly
@@ -518,14 +600,24 @@ async function loop(): Promise<void> {
 				case 'photosAdded':
 					// Handle streaming photo updates from StreamSourceLoader
 					if (doLog) console.log(`🢄NewWorker: Photos updated from stream ${message.source_id}: ${message.photos?.length || 0} photos`);
+					if (!isFromLiveProcess(message)) {
+						if (doLog) console.log(`🢄NewWorker: Dropping batch from superseded process ${message.processId} (${message.source_id})`);
+						break;
+					}
 					if (message.photos && Array.isArray(message.photos)) {
 						// Replace the photo array for this source (source handles accumulation)
 						currentState.sourcesPhotosInArea.data.set(message.source_id, message.photos);
 						if (doLog) console.log(`🢄NewWorker: Source ${message.source_id} set to ${message.photos.length} photos`);
 
-						// Update sourcesPhotosInArea version to trigger combine operation
-						sourcesPhotosInAreaVersion++;
-						updateState('sourcesPhotosInArea', { id: sourcesPhotosInAreaVersion });
+						// Publish what we have so far: this source's markers go on the map
+						// now, the merged set is re-culled when the next source lands.
+						// (The previous mechanism — bumping sourcesPhotosInArea to trigger
+						// a combine process — never fired: updateState() ignores a message
+						// without a data field, and the combine could not start anyway
+						// while the area process held the process table.)
+						//sourcesPhotosInAreaVersion++;
+						//updateState('sourcesPhotosInArea', { id: sourcesPhotosInAreaVersion });
+						schedulePartialPublish();
 					}
 					break;
 
@@ -739,6 +831,8 @@ export function reset(deps: { postMessage: (msg: any) => void }) {
 	currentState.sourcesPhotosInArea = { data: new Map(), lastUpdateId: -1, lastProcessedId: -1 };
 	isBlocked = false;
 	cullingGrid = null;
+	cancelPendingPartialPublish();
+	lastPublishAt = 0;
 	maxPhotosInAreaValue = MAX_PHOTOS_IN_AREA;
 	sourcesPhotosInAreaVersion = 0;
 	lastProcessedSourcesPhotosInAreaVersion = -1;

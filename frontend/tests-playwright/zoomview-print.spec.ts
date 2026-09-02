@@ -90,9 +90,10 @@ test.describe('Zoom view print view', () => {
     // back at the visitor's value
     await page.click('[data-testid="osd-display-menu-toggle"]', { timeout: T(10000) });
     await expect(page.locator('[data-testid="osd-annotation-scale-slider"]')).toHaveValue('1');
-    // toggle it closed with its own button — Escape on an open menu falls
+    // close it the way a visitor does, on the backdrop — the toggle is under
+    // that backdrop while the menu is open, and Escape on an open menu falls
     // through to closing the viewer (the dropdown eats the key first)
-    await page.click('[data-testid="osd-display-menu-toggle"]', { timeout: T(10000) });
+    await page.click('[data-testid="dropdown-backdrop"]', { position: { x: 5, y: 5 }, timeout: T(10000) });
     await expect(page.locator('[data-testid="osd-annotation-scale-slider"]')).not.toBeVisible();
 
     // the Exit button does the same

@@ -23,6 +23,19 @@ describe('convertPanoramaxItem', () => {
 		}
 	};
 
+	it('flags an unoriented item (no view:azimuth, no pers:yaw)', () => {
+		const { 'view:azimuth': _, ...props } = baseItem.properties;
+		const result = convertPanoramaxItem({ ...baseItem, properties: props }, source)!;
+		expect(result.bearing).toBe(0);
+		expect(result.has_bearing).toBe(false);
+	});
+
+	it('an azimuth of exactly 0 is a heading', () => {
+		const result = convertPanoramaxItem({ ...baseItem, properties: { ...baseItem.properties, 'view:azimuth': 0 } }, source)!;
+		expect(result.bearing).toBe(0);
+		expect(result.has_bearing).toBeUndefined();
+	});
+
 	it('builds uid from source.id + item.id', () => {
 		const result = convertPanoramaxItem(baseItem, source);
 		expect(result?.uid).toBe('panoramax-ba7c08c3-6415-4044-9894-a8c1d0e59986');

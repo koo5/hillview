@@ -4,6 +4,8 @@ package cz.hillview.diag
 actual suspend fun collectEventLog(): List<LoggedEvent> = emptyList()
 
 actual fun clearEventLog() {}
+actual fun lastCrashReport(): String? = null
+actual fun clearCrashReport() {}
 
 actual fun formatLogTime(epochMs: Long): String =
     java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)

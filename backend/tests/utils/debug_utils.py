@@ -14,7 +14,11 @@ import requests
 from .api_client import api_client
 from .auth_utils import auth_helper
 import asyncio
-from .secure_upload_utils import SecureUploadClient, WorkerUnavailableError
+# tls_verify: every direct HTTP call in this module must pass
+# ``verify=tls_verify()`` — a bare ``requests.post(...)`` silently ignores the
+# HILLVIEW_INSECURE_TLS opt-out and dies on dev's Caddy-internal certs (the
+# /auth/token login did exactly that, 2026-08-31).
+from .secure_upload_utils import SecureUploadClient, WorkerUnavailableError, tls_verify
 from .test_utils import wait_for_photo_processing, API_URL
 
 
@@ -552,7 +556,8 @@ class TokenManager:
 		response = requests.post(
 			token_url,
 			data={"username": user, "password": password},
-			headers={"Content-Type": "application/x-www-form-urlencoded"}
+			headers={"Content-Type": "application/x-www-form-urlencoded"},
+			verify=tls_verify(),
 		)
 		if response.status_code != 200:
 			raise Exception(f"Login failed at {token_url}: {response.status_code} - {response.text}")
@@ -585,7 +590,8 @@ class TokenManager:
 		print("🔄 Refreshing auth token...")
 		response = requests.post(
 			f"{self.api_url}/auth/refresh",
-			json={"refresh_token": self.refresh_token}
+			json={"refresh_token": self.refresh_token},
+			verify=tls_verify(),
 		)
 		if response.status_code != 200:
 			print("⚠️ Refresh failed, re-logging in...")
@@ -608,7 +614,8 @@ def _get_token(user: str = None, password: str = None) -> str:
 		response = requests.post(
 			token_url,
 			data={"username": user, "password": password},
-			headers={"Content-Type": "application/x-www-form-urlencoded"}
+			headers={"Content-Type": "application/x-www-form-urlencoded"},
+			verify=tls_verify(),
 		)
 		if response.status_code != 200:
 			raise Exception(f"Login failed at {token_url}: {response.status_code} - {response.text}")
@@ -647,6 +654,7 @@ def dump_photos(user: str = None, password: str = None):
 			headers={"Authorization": f"Bearer {token}"},
 			params=params,
 			timeout=30,
+			verify=tls_verify(),
 		)
 		response.raise_for_status()
 		data = response.json()
@@ -978,7 +986,8 @@ def set_analyses(distilled_json_path: str):
 			try:
 				response = requests.post(
 					f"{API_URL}/hillview/internal/set-analysis",
-					json={"file_md5": file_md5, "analysis": analysis}
+					json={"file_md5": file_md5, "analysis": analysis},
+					verify=tls_verify(),
 				)
 
 				if response.status_code == 200:

@@ -93,25 +93,33 @@ Each of these cost a debugging session, and each is the same mistake:
   while MainScreen was configuring capture on the way in. Whoever went second
   won, so the capture pane's compass worked or did not, at random.
 
-## The position side (open)
+## The position side: two streams, castled on confirmation
 
-The orientation half is closed: everything a photo records about heading now
-comes from `bearing`. The position half is not, and the divergence is worth
-knowing before someone "fixes" it casually.
+Position has two streams — the receiver's fix and the map's centre — and a
+photo records ONE of them as primary. The original swaps them (the user's
+word: castles them) the moment the map is panned; frontend2 swaps them only
+when the pan is CONFIRMED, through the pill's accepted claim or the no-fix
+hatch (`MapSession.manualPositionElected`). Panning by itself is
+exploration and changes nothing a photo records.
 
-The original builds a capture's `locationData` from `$bearingState &&
-$spatialState` (CameraCapture.svelte:1182-1190) — the one state — and reads
-the raw `gpsLocation` store only for the power-saving and background paths.
-When the map is not following (exploring with tracking in the background),
-the live fix is recorded as `alt_location` beside the elected position, so
-the row says where the user said they were AND what the receiver thought.
+Whichever stream is not primary rides along as `alt_location` — the
+original's field, same JSON, synthesized by the backend into the UserComment
+provenance — so a reviewer can promote it later. `altLocationFor` is the
+rule:
 
-frontend2 stamps the raw fix as the primary position instead, with a separate
-branch for an accepted manual claim. Usually identical — a following map
-writes its position from that same fix — but they part exactly when it
-matters: while exploring, or when a claim is pending. Aligning it needs
-`alt_location` ported first (the concept does not exist here yet), which is
-why this is written down rather than done in passing.
+| state | primary | `alt_location` |
+| --- | --- | --- |
+| following (map = fix) | fix, `gps` | none — one stream |
+| exploring, prompt up, unclaimed | fix, `gps` | map centre, `map-unclaimed` |
+| claimed | map centre, `manual` | live fix, `gps-background` |
+| no-fix hatch | map centre, `manual` | none — no fix exists |
+
+The claimed row is the original's exact case. The unclaimed row is one the
+original never has (it would already have swapped), and the rule extends to
+it symmetrically, tagged so nobody mistakes an unconfirmed pan for a
+measurement. The capture pane reads `exploring` and `manualLocationElected`
+as mirrors of session state, exactly as it reads the bearing — it samples
+no stream of its own.
 
 ## Auditing it
 

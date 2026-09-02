@@ -69,6 +69,10 @@ class AngularRangeCuller {
         for (photo in photosInArea) {
             // Skip already picked photos
             if (pickedUids.contains(photo.uid)) continue
+            // No recorded heading: cannot be bucketed by direction, could not be
+            // turned to afterwards. Picks (an explicit selection) are the
+            // exception, handled above. Mirrors AngularRangeCuller.ts.
+            if (!photo.has_bearing) continue
 
             val distance = calculateDistance(center.lat, center.lng, photo.coord.lat, photo.coord.lng)
 

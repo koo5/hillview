@@ -21,6 +21,7 @@ from common.models import User
 from cache_service import MapillaryCacheService
 from rate_limiter import general_rate_limiter
 from auth import get_current_user_optional_with_query
+import debug_delays
 from hidden_content_filters import filter_mapillary_photos_list
 from mock_mapillary import mock_mapillary_service
 from debug_utils import debug_only
@@ -311,6 +312,9 @@ async def stream_mapillary_images(
 		cache_enabled = ENABLE_MAPILLARY_CACHE or mock_active
 		live_enabled = ENABLE_MAPILLARY_LIVE or mock_active
 		log.info(f"Stream generator started for request {request_id} from client {client_id} (cache_enabled={cache_enabled}, live_enabled={live_enabled}, mock_active={mock_active})")
+		# Debug knob, see hillview_routes.generate_stream: a slow Mapillary must not
+		# hold back the other sources' markers.
+		await debug_delays.sleep_for("mapillary_stream")
 
 		# Check if any Mapillary functionality is enabled
 		if not cache_enabled and not live_enabled:

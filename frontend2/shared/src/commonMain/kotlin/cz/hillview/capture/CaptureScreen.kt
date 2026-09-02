@@ -136,6 +136,11 @@ fun CaptureScreen(
     LaunchedEffect(manualElected) {
         capture.manualLocationElected = manualElected
     }
+    // BACKGROUND tracking = exploring: the map is parked off the fix. The
+    // other half of what altLocationFor needs.
+    LaunchedEffect(locationTracking) {
+        capture.exploring = locationTracking == cz.hillview.map.LocationTracking.Background
+    }
     // The stamp position is the map's centre, LIVE — same shape as the stamp
     // bearing below, and the same as Tauri, whose locationData is reactive on
     // $spatialState. It was previously read once at the electing moment, so
@@ -145,7 +150,7 @@ fun CaptureScreen(
     // manualLocationElected alone decides whether anything reads it.
     LaunchedEffect(Unit) {
         mapState.spatial.collect { s ->
-            capture.manualLocation = ManualLocation(s.latitude, s.longitude)
+            capture.manualLocation = ManualLocation(s.latitude, s.longitude, s.ts)
         }
     }
     // The capture stamp bearing IS the map's bearing state (Tauri:
@@ -246,26 +251,44 @@ fun CaptureScreen(
     var exposureTargetNs by rememberSaveable { mutableStateOf(2_000_000L) }
     var exposureBias by rememberSaveable { mutableStateOf(0.0) }
 
+    // A MOTION shoot under Auto defaults to Sports (user-decided): an
+    // interval run and a video are both walking or driving shoots, where
+    // motion blur is the failure mode and Sports is the rule built for
+    // exactly that. Only when the rule IS Auto — Pin/Floor/Sports picked by
+    // hand is the user's choice and survives untouched — and only for the
+    // shoot's lifetime. The identity check (===) on the way out means even
+    // re-picking identical Sports values mid-shoot counts as an explicit
+    // choice and is kept.
+    fun engageSportsIfAuto(): ExposureRule? =
+        if (capture.exposureRule == null && capture.state.manualShutterSupported) {
+            ExposureRule(ExposureMode.Sports, exposureTargetNs, exposureBias)
+                .also { capture.exposureRule = it }
+        } else {
+            null
+        }
+    fun standDownSports(engaged: ExposureRule?) {
+        if (engaged != null && capture.exposureRule === engaged) capture.exposureRule = null
+    }
+
+    // Video inherits the default. Engaged at the ladder release, BEFORE
+    // startVideo (its rebind re-applies the request options, so the first
+    // frames already carry the rule); stood down when the recording ends,
+    // whichever way it ends.
+    var videoEngaged by remember { mutableStateOf<ExposureRule?>(null) }
+    LaunchedEffect(state.recording) {
+        if (!state.recording) {
+            standDownSports(videoEngaged)
+            videoEngaged = null
+        }
+    }
+
     LaunchedEffect(repeating, intervalSec) {
         if (!repeating || intervalSec <= 0) {
             // The original zeroes its badge when the run stops.
             runCount = 0
             return@LaunchedEffect
         }
-        // A run under Auto defaults to Sports (user-decided): an interval
-        // run is a walking or driving shoot, where motion blur is the
-        // failure mode and Sports is the rule built for exactly that. Only
-        // when the rule IS Auto — Pin/Floor/Sports picked by hand is the
-        // user's choice and survives untouched — and only for the run's
-        // lifetime: engaged here, stood down in the finally below. The
-        // identity check (===) means even re-picking identical Sports
-        // values mid-run counts as an explicit choice and is kept.
-        val engaged = if (capture.exposureRule == null && capture.state.manualShutterSupported) {
-            ExposureRule(ExposureMode.Sports, exposureTargetNs, exposureBias)
-                .also { capture.exposureRule = it }
-        } else {
-            null
-        }
+        val engaged = engageSportsIfAuto()
         try {
         // An ABSOLUTE timeline. The loop used to sleep a fixed interval
         // AFTER each shot, so the real period was "interval + however long
@@ -308,9 +331,7 @@ fun CaptureScreen(
             // The run's engagement ends with the run — the effect is
             // cancelled when `repeating` flips false, so this is the stop
             // path (and the leave-the-screen path) in one place.
-            if (engaged != null && capture.exposureRule === engaged) {
-                capture.exposureRule = null
-            }
+            standDownSports(engaged)
         }
     }
 
@@ -339,6 +360,7 @@ fun CaptureScreen(
                 locationAgeMs = photo.snapshot.locationAgeMs,
                 exposureJson = photo.snapshot.exposure?.let { exposureProvenanceJson(it) },
                 pitchDeg = photo.snapshot.pitchDeg?.toDouble(),
+                altLocationJson = photo.snapshot.altLocation?.let { altLocationJson(it) },
                 // Snapshot, not a live read — see PendingUpload.license.
                 license = uploadSettings.license,
             )
@@ -393,6 +415,17 @@ fun CaptureScreen(
     // surprise (user-raised: "i keep missing it").
     var sliderVisible by remember { mutableStateOf(false) }
     var armedStop by remember { mutableStateOf<Int?>(null) }
+    // Why the last shutter press did nothing, shown briefly in the status
+    // line. A press that is silently ignored is indistinguishable from a
+    // dead button (field report: "does not react to long press anymore
+    // until I restart"); this makes the two look different.
+    var ignoredPress by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(ignoredPress) {
+        if (ignoredPress != null) {
+            delay(2_500)
+            ignoredPress = null
+        }
+    }
     var circleBounds by remember { mutableStateOf<Rect?>(null) }
     var paneOrigin by remember { mutableStateOf(Offset.Zero) }
 
@@ -450,7 +483,7 @@ fun CaptureScreen(
                         it.copy(cameraOverlayOpacity = nextOverlayOpacity(it.cameraOverlayOpacity))
                     }
                 },
-                statusText = statusLineText(state),
+                statusText = ignoredPress?.let { "⚠️ press ignored: $it" } ?: statusLineText(state),
                 uploadsText = "uploads: ${queueStats.done} done" +
                     (if (queueStats.duplicate > 0) ", ${queueStats.duplicate} dup" else "") +
                     (if (queueStats.pending > 0) ", ${queueStats.pending} pending" else "") +
@@ -981,13 +1014,29 @@ fun CaptureScreen(
                     // without this the handler kept a pre-recording snapshot
                     // and a tap could never stop a recording (device-caught).
                     .pointerInput(gateOpen, repeating, state.recording) {
+                        // The camera is CALLED from inside this block
+                        // (capture(), startVideo(), the Sports engagement's
+                        // request-options write). An exception escaping
+                        // awaitEachGesture kills this pointerInput coroutine,
+                        // and it only comes back when a KEY changes — after
+                        // a run ends, none does. That is a shutter dead
+                        // until the app restarts, which is what the field
+                        // reported. So: one gesture may fail; the handler
+                        // may not.
                         awaitEachGesture {
+                          try {
                             val down = awaitFirstDown(requireUnconsumed = false)
-                            val circle = circleBounds ?: return@awaitEachGesture
+                            val circle = circleBounds ?: run {
+                                ignoredPress = "shutter not laid out yet"
+                                return@awaitEachGesture
+                            }
                             if (!circle.contains(clusterOrigin + down.position)) {
                                 return@awaitEachGesture
                             }
-                            if (!gateOpen) return@awaitEachGesture
+                            if (!gateOpen) {
+                                ignoredPress = if (!state.ready) "camera not ready" else "no GPS fix"
+                                return@awaitEachGesture
+                            }
                             if (state.recording) {
                                 // Recording behaves exactly like a run: any
                                 // completed press on the button ends it.
@@ -1005,7 +1054,10 @@ fun CaptureScreen(
                                 if (circle.contains(clusterOrigin + up.position)) repeating = false
                                 return@awaitEachGesture
                             }
-                            if (state.capturing) return@awaitEachGesture
+                            if (state.capturing) {
+                                ignoredPress = "previous shot still in flight"
+                                return@awaitEachGesture
+                            }
                             down.consume()
                             val quick = withTimeoutOrNull(300L) {
                                 if (waitForUpOrCancellation() != null) "tap" else "cancel"
@@ -1041,6 +1093,7 @@ fun CaptureScreen(
                                         // stop starts a recording, anything
                                         // above "single" starts a run.
                                         if (overSlider && intervalSec == LADDER_VIDEO_STOP) {
+                                            videoEngaged = engageSportsIfAuto()
                                             capture.startVideo()
                                         } else if (overSlider && intervalSec > 0) {
                                             repeating = true
@@ -1054,6 +1107,15 @@ fun CaptureScreen(
                                 sliderVisible = false
                                 armedStop = null
                             }
+                          } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                          } catch (e: Exception) {
+                            // Logged where the user can see it; the next
+                            // press gets a live handler either way.
+                            sliderVisible = false
+                            armedStop = null
+                            ignoredPress = "shutter error: ${e.message ?: e::class.simpleName}"
+                          }
                         }
                     },
             ) {

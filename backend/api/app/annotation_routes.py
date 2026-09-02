@@ -16,7 +16,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, PhotoAnnotation, User, HiddenUser
 from common.utc import format_utc
-from auth import get_current_active_user, get_current_user_optional
+from auth import get_current_active_user, get_current_user_optional, require_moderator
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +30,12 @@ PLACEHOLDER_BODIES = ('', '?', 'oops')
 
 
 def effective_annotation_conditions():
-    """Filter selecting effective annotations: current, non-deleted, and
-    carrying real text (NULL, empty and placeholder bodies are excluded)."""
+    """Filter selecting effective annotations: current, non-deleted, non-hidden,
+    and carrying real text (NULL, empty and placeholder bodies are excluded)."""
     return and_(
         PhotoAnnotation.is_current == True,
         PhotoAnnotation.event_type != 'deleted',
+        PhotoAnnotation.event_type != 'hidden',
         func.lower(func.trim(func.coalesce(PhotoAnnotation.body, ''))).notin_(PLACEHOLDER_BODIES),
     )
 
@@ -70,7 +71,7 @@ class AnnotationResponse(BaseModel):
     is_current: bool
     superseded_by: Optional[str]
     created_at: Optional[str]
-    event_type: str  # 'created' | 'updated' | 'deleted'
+    event_type: str  # 'created' | 'updated' | 'deleted' | 'hidden'
     owner_username: Optional[str] = None
 
 
@@ -97,7 +98,7 @@ async def list_annotations(
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """Return all current (non-deleted) annotations for a photo."""
+    """Return all current (non-deleted, non-hidden) annotations for a photo."""
     query = (
         select(PhotoAnnotation, User.username)
         .join(User, PhotoAnnotation.user_id == User.id)
@@ -106,6 +107,9 @@ async def list_annotations(
                 PhotoAnnotation.photo_id == photo_id,
                 PhotoAnnotation.is_current == True,
                 PhotoAnnotation.event_type != 'deleted',
+                # Kept as a separate predicate: a future moderator-only
+                # include_hidden param would skip just this line.
+                PhotoAnnotation.event_type != 'hidden',
             )
         )
         .order_by(PhotoAnnotation.created_at)
@@ -187,16 +191,19 @@ async def my_contributions(
     )
 
     Tip = aliased(PA)
+    Pred = aliased(PA)
     query = (
         select(
             Tip,
             tips.c.my_roles,
+            Pred.user_id.label('pred_user_id'),
             ST_Y(Photo.geometry).label('lat'),
             ST_X(Photo.geometry).label('lon'),
             Photo.compass_angle.label('bearing'),
             Photo.width.label('width'),
         )
         .join(tips, tips.c.tip_id == Tip.id)
+        .join(Pred, Pred.superseded_by == Tip.id, isouter=True)
         .join(Photo, Tip.photo_id == Photo.id, isouter=True)
         # Drop still-live placeholders (unfinished '?' boxes carry no contribution);
         # keep removed chains, which tell the "your annotation was deleted" story.
@@ -214,9 +221,12 @@ async def my_contributions(
     contributions = []
     standing = changed = removed = 0
     photo_ids = set()
-    for tip, my_roles, lat, lon, bearing, width in rows:
+    for tip, my_roles, pred_user_id, lat, lon, bearing, width in rows:
         is_removed = tip.event_type == 'deleted'
-        mine_is_current = tip.user_id == me
+        # A moderator hide is dedup housekeeping (e.g. the annotation duplicates
+        # a terrain-overlay label), not an edit — standing looks through it to
+        # the pre-hide author.
+        mine_is_current = tip.user_id == me or (tip.event_type == 'hidden' and pred_user_id == me)
         if is_removed:
             removed += 1
         elif mine_is_current:
@@ -360,3 +370,51 @@ async def delete_annotation(
     old.superseded_by = tombstone.id
     await db.commit()
     logger.info(f"Annotation {annotation_id} deleted (tombstone {tombstone.id}) by user {current_user.id}")
+
+
+@router.post("/{annotation_id}/hide", response_model=AnnotationResponse)
+async def hide_annotation(
+    annotation_id: str,
+    current_user: User = Depends(require_moderator()),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hide an annotation by appending a 'hidden' event to the supersede chain.
+
+    Moderator-only. A hidden annotation is invisible to viewers and excluded
+    from annotation counts, but — unlike a delete tombstone — it carries the
+    predecessor's body/target forward, so the enrichment workbench keeps
+    treating it as a normal current annotation (a calibration anchor). Typical
+    use: a hill annotation that became a duplicate of a terrain-overlay label.
+
+    Unhide goes through the annotation-history undo. A later user PUT on the
+    hidden tip resurfaces the chain (tip rule); DELETE tombstones it outright.
+    """
+    old = await db.get(PhotoAnnotation, annotation_id)
+    if not old or old.event_type == 'deleted':
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    if not old.is_current:
+        raise HTTPException(status_code=409, detail="Annotation has already been superseded")
+    if old.event_type == 'hidden':
+        raise HTTPException(status_code=409, detail="Annotation is already hidden")
+
+    # Soft tombstone — body/target carried forward so the workbench still sees
+    # a normal annotation; source_annotation_id carried so graduation-package
+    # idempotency (_find_by_source) keeps matching the hidden tip.
+    hidden = PhotoAnnotation(
+        photo_id=old.photo_id,
+        user_id=current_user.id,  # the hiding moderator — the event log names the actor
+        body=old.body,
+        target=old.target,
+        is_current=True,
+        event_type='hidden',
+        source_annotation_id=old.source_annotation_id,
+    )
+    db.add(hidden)
+    await db.flush()
+
+    old.is_current = False
+    old.superseded_by = hidden.id
+    await db.commit()
+    await db.refresh(hidden)
+    logger.info(f"Annotation {annotation_id} hidden (event {hidden.id}) by moderator {current_user.id}")
+    return _serialize(hidden, current_user.username)

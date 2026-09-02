@@ -312,6 +312,9 @@ export class KotlinPhotoWorker {
                         photos_in_area: photosInArea,
                         photos_in_range: photosInRange,
                         timestamp: timestamp,
+                        // false while sources are still landing (Kotlin publishes per
+                        // source now), true for the settled set — same as new.worker.ts
+                        complete: payload.complete,
                         device_query_started_at: payload.device_query_started_at
                     }
                 });
@@ -439,7 +442,10 @@ export class KotlinPhotoWorker {
      * Validate WorkerMessage structure before sending to Kotlin
      */
     private validateWorkerMessage(message: WorkerMessage): void {
-        if (!message.type || !['PROCESS_CONFIG', 'PROCESS_AREA', 'PICKS_UPDATED', 'ABORT_PROCESS', 'ABORT_AREA', 'CLEANUP'].includes(message.type)) {
+        // Every MessageType the Kotlin side handles (PhotoWorkerService.MessageType);
+        // the removal/invalidate ones were missing here, so those messages never
+        // reached Kotlin — they threw into the error callback instead.
+        if (!message.type || !['PROCESS_CONFIG', 'PROCESS_AREA', 'PICKS_UPDATED', 'ABORT_PROCESS', 'ABORT_AREA', 'CLEANUP', 'REMOVE_PHOTO', 'REMOVE_USER_PHOTOS', 'PANORAMAX_HIDDEN_INVALIDATE'].includes(message.type)) {
             throw new Error(`Invalid message type: ${message.type}`);
         }
 

@@ -12,6 +12,19 @@ describe('convertStreamPhoto', () => {
         filename: 'test.jpg',
     };
 
+    it('flags a photo whose heading was not recorded, keeping bearing 0 on the wire', () => {
+        const { compass_angle, ...noHeading } = basePhoto;
+        const result = convertStreamPhoto(noHeading, sampleSource);
+        expect(result.bearing).toBe(0);
+        expect(result.has_bearing).toBe(false);
+    });
+
+    it('a heading of exactly 0 is a heading, not "unknown"', () => {
+        const result = convertStreamPhoto({ ...basePhoto, compass_angle: 0 }, sampleSource);
+        expect(result.bearing).toBe(0);
+        expect(result.has_bearing).toBeUndefined();
+    });
+
     it('preserves license field when present in response', () => {
         const photo = { ...basePhoto, license: 'ccbysa4+osm' };
         const result = convertStreamPhoto(photo, sampleSource);

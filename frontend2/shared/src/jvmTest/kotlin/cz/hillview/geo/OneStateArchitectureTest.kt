@@ -41,17 +41,18 @@ class OneStateArchitectureTest {
         "geo/GeoActivityBinding.android.kt" to "hands the engine the activity's claim",
         // Writer adapters exist to turn samples into funnel calls.
         "map/MapScreen.android.kt" to "MapSensorController — the compass/car writer",
-        // Two things, and the second is an OPEN QUESTION, not a blessing:
+        // Two things:
         //   1. the Stats liveness line — asks whether the hardware is alive,
         //      which the state cannot answer (a frozen sample and a still
         //      phone look identical in it);
-        //   2. the fix stream, which the stamp still takes its position
-        //      from. The original stamps $spatialState and records the live
-        //      fix as alt_location; this port has no alt_location yet. See
-        //      "The position side" in docs/one-state.md.
+        //   2. the fix stream, as the position's SECOND stream. Which one a
+        //      photo records is decided by session state the pane mirrors
+        //      (manualLocationElected, exploring), and the other rides along
+        //      as alt_location — see "The position side" in
+        //      docs/one-state.md. The pane never decides; it applies.
         // An allowlist entry that understates what a file does is how a
         // violation hides in plain sight, so this one spells it out.
-        "capture/PhotoCapture.android.kt" to "Stats liveness line + the fix stream (open)",
+        "capture/PhotoCapture.android.kt" to "Stats liveness line + the fix stream (the second position stream)",
         // Claims the engine so tracking outlives the pane it was started
         // from, and reads fixes for its own status line.
         "external/ExternalCameraService.kt" to "foreground-service claim",

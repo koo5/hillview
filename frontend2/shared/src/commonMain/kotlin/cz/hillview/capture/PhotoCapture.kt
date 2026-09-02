@@ -62,6 +62,8 @@ data class SensorSnapshot(
      * the answer came out the way it did.
      */
     val exposure: ExposureStamp? = null,
+    /** The other position stream, when there was one — see [altLocationFor]. */
+    val altLocation: AltLocation? = null,
 )
 
 data class CapturedPhoto(
@@ -549,7 +551,66 @@ fun captureTone(locationSource: String?, locationAgeMs: Long?): CaptureTone =
     }
 
 /** A user-supplied position for when the sky is unreachable. */
-data class ManualLocation(val latitude: Double, val longitude: Double)
+data class ManualLocation(val latitude: Double, val longitude: Double, val atMs: Long? = null)
+
+/** The live fix, recorded beside a map position the user claimed. */
+const val ALT_SOURCE_GPS_BACKGROUND = "gps-background"
+
+/** The map position, recorded beside the fix while it is NOT yet claimed. */
+const val ALT_SOURCE_MAP_UNCLAIMED = "map-unclaimed"
+
+/**
+ * The stream a photo did NOT take its position from, riding along so a
+ * reviewer can promote it later — the original's `alt_location`
+ * (CameraCapture.svelte:958-966), same field names, same JSON.
+ */
+data class AltLocation(
+    val latitude: Double,
+    val longitude: Double,
+    val atMs: Long?,
+    val accuracyM: Float?,
+    val source: String,
+)
+
+/** `{"lat":..,"lng":..,"ts":..,"accuracy":..,"source":".."}` — the shape the backend's provenance test asserts. */
+fun altLocationJson(a: AltLocation): String {
+    val fields = buildList {
+        add("\"lat\":${a.latitude}")
+        add("\"lng\":${a.longitude}")
+        a.atMs?.let { add("\"ts\":$it") }
+        a.accuracyM?.let { add("\"accuracy\":$it") }
+        add("\"source\":\"${a.source}\"")
+    }
+    return fields.joinToString(",", prefix = "{", postfix = "}")
+}
+
+/**
+ * Which stream rides along as the alternative — the castling rule.
+ *
+ * Two streams exist: the receiver's fix and the map's centre. One is
+ * primary (what the photo records), and the OTHER is worth keeping when
+ * they differ. The original swaps them the moment the map is panned; here
+ * (user-decided) the swap waits for the claim, so the pre-claim state —
+ * exploring, prompt showing, fix still primary — is one the original never
+ * has, and the rule extends to it symmetrically: the un-claimed map
+ * position rides along, tagged so nobody mistakes it for a measurement.
+ *
+ * - claimed (or the no-fix hatch): primary = map, alt = the live fix,
+ *   `gps-background` — the original's exact case;
+ * - exploring, unclaimed: primary = fix, alt = the map position,
+ *   `map-unclaimed`;
+ * - following: the streams are one stream; nothing to keep.
+ */
+fun altLocationFor(
+    manualElected: Boolean,
+    exploring: Boolean,
+    fix: AltLocation?,
+    mapPosition: AltLocation?,
+): AltLocation? = when {
+    manualElected -> fix
+    exploring -> mapPosition
+    else -> null
+}
 
 /**
  * The bearing a capture stamps — Tauri's known-good semantics: photos
@@ -601,6 +662,14 @@ interface PhotoCapture {
      * of recording it is to be able to re-judge the choice afterwards.
      */
     var manualLocationElected: Boolean
+
+    /**
+     * Location tracking is BACKGROUND: the map is parked somewhere the fix
+     * is not, and the user has not (yet) claimed it. Mirrored from
+     * MapSession by the screen, like [manualLocationElected], so a shutter
+     * press can apply [altLocationFor] without reaching for session state.
+     */
+    var exploring: Boolean
 
     /**
      * How the shutter is chosen, null = auto exposure. Only honoured when

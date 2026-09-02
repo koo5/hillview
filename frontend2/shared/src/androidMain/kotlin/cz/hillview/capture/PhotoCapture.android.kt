@@ -406,6 +406,7 @@ private class AndroidPhotoCapture(
     // to the tracking tables belongs to the map pane, which is always composed
     // and therefore can answer for it whether or not capture is open.
     @Volatile override var manualLocationElected: Boolean = false
+    @Volatile override var exploring: Boolean = false
 
     override var stampBearing: StampBearing? = null
         set(value) {
@@ -1707,6 +1708,23 @@ private class AndroidPhotoCapture(
         // it. Which stream is primary is decided in the UI, where it can be
         // seen and withdrawn; this function only reports the decision.
         val manual = manualLocation.takeIf { manualLocationElected }
+        // The stream NOT chosen above, kept beside the one that was — see
+        // altLocationFor for the rule and why it has a case the original
+        // does not.
+        val alt = altLocationFor(
+            manualElected = manualLocationElected,
+            exploring = exploring,
+            fix = location?.let {
+                AltLocation(
+                    it.latitude, it.longitude, it.time,
+                    it.takeIf { l -> l.hasAccuracy() }?.accuracy,
+                    ALT_SOURCE_GPS_BACKGROUND,
+                )
+            },
+            mapPosition = manualLocation?.let {
+                AltLocation(it.latitude, it.longitude, it.atMs, null, ALT_SOURCE_MAP_UNCLAIMED)
+            },
+        )
         // The stamp bearing is the MAP's bearing state (Tauri semantics:
         // capture reads $bearingState) — car mode's gps-kalman + mount
         // offset included. Raw compass only as a fallback before the
@@ -1726,6 +1744,7 @@ private class AndroidPhotoCapture(
                 locationSource = "manual",
                 deviceRotationDeg = DeviceOrientation.toDegrees(pose),
                 exposure = exposure,
+                altLocation = alt,
             )
         } else {
             SensorSnapshot(
@@ -1742,6 +1761,7 @@ private class AndroidPhotoCapture(
                 locationAgeMs = ageMs,
                 deviceRotationDeg = DeviceOrientation.toDegrees(pose),
                 exposure = exposure,
+                altLocation = alt,
             )
         }
     }

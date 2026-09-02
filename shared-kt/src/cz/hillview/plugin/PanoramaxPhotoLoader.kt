@@ -254,7 +254,7 @@ class PanoramaxPhotoLoader {
 			.toString()
 	}
 
-	private fun convertPanoramaxItem(item: JsonObject, source: SourceConfig): PhotoData? {
+	internal fun convertPanoramaxItem(item: JsonObject, source: SourceConfig): PhotoData? {
 		val id = item["id"]?.jsonPrimitive?.contentOrNull ?: return null
 		val coords = item["geometry"]?.jsonObject?.get("coordinates")?.jsonArray ?: return null
 		if (coords.size < 2) return null
@@ -264,9 +264,11 @@ class PanoramaxPhotoLoader {
 		val props = item["properties"]?.jsonObject ?: JsonObject(emptyMap())
 		val assets = item["assets"]?.jsonObject
 
-		val bearing = props["view:azimuth"]?.jsonPrimitive?.doubleOrNull
+		val recordedBearing = props["view:azimuth"]?.jsonPrimitive?.doubleOrNull
 			?: props["pers:yaw"]?.jsonPrimitive?.doubleOrNull
-			?: 0.0
+		// Unoriented uploads carry neither; 0.0 stays the wire default and
+		// has_bearing says it was not recorded (frontend2 draws those without an arrow).
+		val bearing = recordedBearing ?: 0.0
 
 		val thumbUrl = assets?.get("thumb")?.jsonObject?.get("href")?.jsonPrimitive?.contentOrNull
 			?: props["geovisio:thumbnail"]?.jsonPrimitive?.contentOrNull
@@ -310,6 +312,7 @@ class PanoramaxPhotoLoader {
 			url = previewUrl,
 			coord = LatLng(lat = lat, lng = lng),
 			bearing = bearing,
+			has_bearing = recordedBearing != null,
 			altitude = 0.0,
 			source = source.id,
 			sizes = if (sizes.isEmpty()) null else sizes,

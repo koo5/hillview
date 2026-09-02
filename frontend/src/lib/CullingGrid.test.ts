@@ -374,6 +374,51 @@ describe('CullingGrid', () => {
         });
     });
 
+    describe('Arrival-order independence', () => {
+        // Sources now load concurrently and the merged set is re-culled as each
+        // one lands, so the culled set must be a pure function of the per-source
+        // contents — never of the order the sources arrived (= Map insertion order).
+        const spread = (prefix: string, n: number, sourceId: string): PhotoData[] =>
+            Array.from({ length: n }, (_, i) => createPhotoData({
+                id: `${prefix}${i}`,
+                uid: `${sourceId}-${prefix}${i}`,
+                // 6 photos per source dropped into the same 3 cells → contention
+                coord: { lat: 50.095 - (i % 3) * 0.03, lng: 14.305 + (i % 3) * 0.03 },
+                source: { id: sourceId, name: sourceId, type: 'stream', enabled: true },
+                is_device_photo: false
+            }));
+
+        const uids = (photos: PhotoData[]) => photos.map(p => p.uid);
+
+        it('equal-priority sources yield the same set whichever arrived first', () => {
+            const grid = new CullingGrid(testBounds);
+            // panoramax and osm both map to the "other" priority tier
+            const pano = spread('p', 6, 'panoramax');
+            const osm = spread('o', 6, 'osm');
+
+            const panoFirst = grid.cullPhotos(new Map([['panoramax', pano], ['osm', osm]]), 4);
+            const osmFirst = grid.cullPhotos(new Map([['osm', osm], ['panoramax', pano]]), 4);
+
+            expect(uids(panoFirst)).toEqual(uids(osmFirst));
+            expect(panoFirst).toHaveLength(4);
+        });
+
+        it('an intermediate cull of the first source leaves the final cull unchanged', () => {
+            const grid = new CullingGrid(testBounds);
+            const hv = spread('h', 6, 'hillview');
+            const mp = spread('m', 6, 'mapillary');
+
+            grid.cullPhotos(new Map([['mapillary', mp]]), 4); // mapillary landed first, got published alone
+            const afterBoth = grid.cullPhotos(new Map([['mapillary', mp], ['hillview', hv]]), 4);
+            const fresh = new CullingGrid(testBounds).cullPhotos(new Map([['hillview', hv], ['mapillary', mp]]), 4);
+
+            expect(uids(afterBoth)).toEqual(uids(fresh));
+            // …and priority, not arrival, decides who fills the contested cells.
+            expect(afterBoth.filter(p => p.uid.startsWith('hillview-')).length)
+                .toBeGreaterThanOrEqual(afterBoth.filter(p => p.uid.startsWith('mapillary-')).length);
+        });
+    });
+
     describe('Coverage statistics', () => {
         it('should provide coverage statistics', () => {
             const grid = new CullingGrid(testBounds);

@@ -8,9 +8,20 @@ import kotlinx.coroutines.flow.StateFlow
  * shared PhotoUploadLogic/PhotoUploadManager/AuthenticationManager read —
  * the same contract the Tauri app's settings UI writes.
  */
+/**
+ * Where "open in web app" links go. The original hardcodes this
+ * (HILLVIEW_BASE_URL in urlUtils.ts) regardless of which API it talks to;
+ * here it is a setting with the same default, so a dev backend can pair
+ * with a dev web app. Its own value, deliberately — never derived from the
+ * API URL by trimming a path segment.
+ */
+const val HILLVIEW_WEB_URL = "https://hillview.cz"
+
 data class UploadSettings(
     /** The FULL API URL (…/api) — see BackendConfig; never assembled from a host. */
     val serverUrl: String,
+    /** The web app's root, for links out of the app — see HILLVIEW_WEB_URL. */
+    val webUrl: String = HILLVIEW_WEB_URL,
     val autoUploadEnabled: Boolean,
     val wifiOnly: Boolean,
     /**

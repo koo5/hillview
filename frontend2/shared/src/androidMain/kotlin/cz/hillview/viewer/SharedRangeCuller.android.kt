@@ -37,9 +37,11 @@ class SharedRangeCuller(
         val byId = HashMap<String, PhotoMarker>(photos.size)
         val standIns = ArrayList<PhotoData>(photos.size)
         for (marker in photos) {
-            // A photo with no bearing cannot be bucketed by direction, and
-            // could not be navigated to afterwards either.
-            val bearing = marker.bearingDeg ?: continue
+            // A photo with no bearing cannot be bucketed by direction — but the
+            // shared culler owns that rule now (it skips has_bearing=false in
+            // the buckets while keeping in-range PICKS): a chosen heading-less
+            // photo must come back, or the thing you are looking at gets
+            // culled out from under you.
             byId[marker.id] = marker
             standIns += PhotoData(
                 id = marker.id,
@@ -49,7 +51,8 @@ class SharedRangeCuller(
                 uid = marker.id,
                 source_type = marker.source,
                 coord = LatLng(marker.latitude, marker.longitude),
-                bearing = bearing,
+                bearing = marker.bearingDeg ?: 0.0,
+                has_bearing = marker.bearingDeg != null,
                 source = marker.source,
             )
         }

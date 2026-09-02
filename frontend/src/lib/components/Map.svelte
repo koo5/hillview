@@ -39,6 +39,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 
 		updateBearing,
 		picks,
+		timelinePinned,
 		anyFeatured,
 		anyFiltered,
 		hunterMode,
@@ -1004,6 +1005,14 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 		}
 		if (photo.filtered && !get(overrideFilters)) {
 			overrideFilters.set(true);
+		}
+
+		if (photo.has_bearing === false) {
+			// The angular cull skips heading-less photos, so this one can only
+			// enter photosInRange as a pick — and the photoInFront→picks wiring
+			// only runs once it already IS front. Seed the pick here so the
+			// very first click works; the wiring takes over from there.
+			picks.set(new Set([photo.uid, ...get(timelinePinned)]));
 		}
 
 		if (isInRange) {

@@ -205,43 +205,56 @@ we have to make photo id a part of bearingState. (First, we have to ensure cross
 Then, photosInRange should already be sorted by bearing and id here, and then we can maybe make this work, where bearing takes precedence, but id is a tiebreaker.
 */
 
+/**
+ * The front-photo rule, extracted for tests. A deliberately chosen photo
+ * (visual.photoUid) wins while the view still looks straight at it — or, for a
+ * photo with no recorded heading, for as long as the choice stands at all:
+ * there is no bearing to look along, so the uid IS the whole selection (it
+ * clears on the next bearing write, like any choice). Otherwise: nearest
+ * bearing, uid as the tiebreaker.
+ */
+export function computePhotoInFront<T extends { uid: string; bearing: number; has_bearing?: boolean }>(
+	photos: T[],
+	visual: { bearing: number; photoUid?: string }
+): T | null {
+	if (photos.length === 0) {
+		//console.log('🢄Navigation: No photos available for photoInFront');
+		return null;
+	}
+
+	//console.log(`🢄Navigation: Calculating photoInFront from ${JSON.stringify(photos.map(p => ({uid: p.uid, bearing: p.bearing})))} with current bearing ${visual.bearing} and photoUid ${visual.photoUid}`);
+
+	// If a specific photo is selected in bearingState, and bearing matches, use that photo
+	if (visual.photoUid) {
+		const selectedPhoto = photos.find(p => p.uid === visual.photoUid);
+		if (selectedPhoto && (selectedPhoto.has_bearing === false || calculateAbsBearingDiff(selectedPhoto.bearing, visual.bearing) === 0)) {
+			if (doLog) console.log(`🢄Navigation: photoInFront ${selectedPhoto.uid} selected by photoUid from bearingState`);
+			return selectedPhoto;
+		}
+	}
+
+
+	// Find photo closest to current bearing (using uid as tiebreaker for stable sorting)
+	const currentBearing = visual.bearing;
+	let closestIndex = 0;
+	let smallestDiff = calculateAbsBearingDiff(photos[0].bearing, currentBearing);
+
+	for (let i = 1; i < photos.length; i++) {
+		const diff = calculateAbsBearingDiff(photos[i].bearing, currentBearing);
+		if (diff < smallestDiff || (diff === smallestDiff && photos[i].uid < photos[closestIndex].uid)) {
+			smallestDiff = diff;
+			closestIndex = i;
+		}
+	}
+
+	const p = photos[closestIndex];
+	//console.debug(`🢄Navigation: photoInFront ${p.uid} selected from ${photos.length} photos in range by bearing proximity`);
+	return p;
+}
+
 export const newPhotoInFront = derived(
 	[navigablePhotos, bearingState],
-	([photos, visual]) => {
-		if (photos.length === 0) {
-			//console.log('🢄Navigation: No photos available for photoInFront');
-			return null;
-		}
-
-		//console.log(`🢄Navigation: Calculating photoInFront from ${JSON.stringify(photos.map(p => ({uid: p.uid, bearing: p.bearing})))} with current bearing ${visual.bearing} and photoUid ${visual.photoUid}`);
-
-		// If a specific photo is selected in bearingState, and bearing matches, use that photo
-		if (visual.photoUid) {
-			const selectedPhoto = photos.find(p => p.uid === visual.photoUid);
-			if (selectedPhoto && calculateAbsBearingDiff(selectedPhoto.bearing, visual.bearing) === 0) {
-				if (doLog) console.log(`🢄Navigation: photoInFront ${selectedPhoto.uid} selected by photoUid from bearingState`);
-				return selectedPhoto;
-			}
-		}
-
-
-		// Find photo closest to current bearing (using uid as tiebreaker for stable sorting)
-		const currentBearing = visual.bearing;
-		let closestIndex = 0;
-		let smallestDiff = calculateAbsBearingDiff(photos[0].bearing, currentBearing);
-
-		for (let i = 1; i < photos.length; i++) {
-			const diff = calculateAbsBearingDiff(photos[i].bearing, currentBearing);
-			if (diff < smallestDiff || (diff === smallestDiff && photos[i].uid < photos[closestIndex].uid)) {
-				smallestDiff = diff;
-				closestIndex = i;
-			}
-		}
-
-		const p = photos[closestIndex];
-		//console.debug(`🢄Navigation: photoInFront ${p.uid} selected from ${photos.length} photos in range by bearing proximity`);
-		return p;
-	}
+	([photos, visual]) => computePhotoInFront(photos, visual)
 );
 
 newPhotoInFront.subscribe(photo => {

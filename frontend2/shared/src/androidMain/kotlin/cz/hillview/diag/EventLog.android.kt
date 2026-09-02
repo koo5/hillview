@@ -10,6 +10,12 @@ actual suspend fun collectEventLog(): List<LoggedEvent> = withContext(Dispatcher
 
 actual fun clearEventLog() = EventLog.clear()
 
+actual fun lastCrashReport(): String? = CrashLog.lastReport(appContext())
+actual fun clearCrashReport() = CrashLog.clear(appContext())
+
+private fun appContext(): android.content.Context =
+    org.koin.core.context.GlobalContext.get().get<android.content.Context>()
+
 actual fun formatLogTime(epochMs: Long): String =
     java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
         .format(java.util.Date(epochMs))

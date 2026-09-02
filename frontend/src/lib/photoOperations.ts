@@ -35,11 +35,16 @@ export class PhotoOperations {
     private maxPhotosInArea: number = MAX_PHOTOS_IN_AREA;
 	private picks: Set<PhotoId> = new Set();
     private queryOptionsJson?: string | null;  // Pre-serialized analysis filters
+    private streamInactivityTimeoutMs?: number;  // undefined = loader default
 
     constructor() {}
 
     setMaxPhotosInArea(maxPhotos: number): void {
         this.maxPhotosInArea = maxPhotos;
+    }
+
+    setStreamInactivityTimeoutMs(ms: number | undefined): void {
+        this.streamInactivityTimeoutMs = ms;
     }
 
     setPicks(picks: Set<PhotoId>): void {
@@ -144,46 +149,69 @@ export class PhotoOperations {
         // Area operations create FRESH arrays (never modify existing)
         let newPhotosInArea: PhotoData[] = [];
 
-        // For each enabled source, collect photos in area
-        if (sources) {
-            for (const source of sources.filter(s => s.enabled)) {
-                if (callbacks.shouldAbort(processId)) return;
+        // The completion message is posted from `finally`: an area process that
+        // never completes leaves the worker's process table blocked for good,
+        // so a throw anywhere in here (an unsupported source type, say) must
+        // still hand the slot back. Whether the results are *used* is decided
+        // by the abort checks below, as before.
+        try {
+            // Every enabled source loads concurrently. Each one publishes its own
+            // photos as they arrive (photosAdded → the worker's partial publish),
+            // so the map fills in per source instead of after the slowest one.
+            // The old sequential loop is kept below for reference.
+            const loads: Promise<void>[] = [];
+            if (sources) {
+                for (const source of sources.filter(s => s.enabled)) {
+                    if (callbacks.shouldAbort(processId)) return;
 
-                const cache = this.sourceCache.get(source.id);
+                    const cache = this.sourceCache.get(source.id);
 
-                if (cache && cache.isComplete && cache.cachedBounds && this.isAreaWithinCachedBounds(area, cache.cachedBounds)) {
-                    // Cache is complete AND current area is within cached bounds - use cache
-                    if (doLog) console.log(`🢄PhotoOperations: Current area is within cached bounds for ${source.id}, filtering cached photos`);
-                    const filteredPhotos = filterPhotosByArea(cache.photos, area);
-                    if (doLog) console.log(`🢄PhotoOperations: Filtered ${filteredPhotos.length} photos from ${cache.photos.length} cached for ${source.id}`);
+                    if (cache && cache.isComplete && cache.cachedBounds && this.isAreaWithinCachedBounds(area, cache.cachedBounds)) {
+                        // Cache is complete AND current area is within cached bounds - use cache
+                        if (doLog) console.log(`🢄PhotoOperations: Current area is within cached bounds for ${source.id}, filtering cached photos`);
+                        const filteredPhotos = filterPhotosByArea(cache.photos, area);
+                        if (doLog) console.log(`🢄PhotoOperations: Filtered ${filteredPhotos.length} photos from ${cache.photos.length} cached for ${source.id}`);
 
-                    if (filteredPhotos.length > 0) {
-                        newPhotosInArea.push(...filteredPhotos);
+                        if (filteredPhotos.length > 0) {
+                            newPhotosInArea.push(...filteredPhotos);
+                        }
+                    } else if (cache && !cache.isComplete) {
+                        // Cache is partial - need to perform bounded load
+                        if (doLog) console.log(`🢄PhotoOperations: Cache for ${source.id} is partial, performing bounded load`);
+                        loads.push(this.loadSource(source, processId, callbacks, area));
+                    } else {
+                        // No cache - perform bounded load
+                        if (doLog) console.log(`🢄PhotoOperations: No cache for ${source.id}, performing bounded load`);
+                        loads.push(this.loadSource(source, processId, callbacks, area));
                     }
-                } else if (cache && !cache.isComplete) {
-                    // Cache is partial - need to perform bounded load
-                    if (doLog) console.log(`🢄PhotoOperations: Cache for ${source.id} is partial, performing bounded load`);
-                    await this.loadSource(source, processId, callbacks, area);
-                } else {
-                    // No cache - perform bounded load
-                    if (doLog) console.log(`🢄PhotoOperations: No cache for ${source.id}, performing bounded load`);
-                    await this.loadSource(source, processId, callbacks, area);
                 }
             }
+            /*
+            for (const source of sources.filter(s => s.enabled)) {
+                ...
+                    await this.loadSource(source, processId, callbacks, area);
+                ...
+            }
+            */
+
+            // loadSource never rejects (it reports through loadError), but
+            // allSettled keeps one misbehaving source from taking the rest down.
+            await Promise.allSettled(loads);
+
+            if (callbacks.shouldAbort(processId)) return;
+
+            callbacks.updatePhotosInArea(newPhotosInArea);
+            callbacks.sendPhotosInAreaUpdate();
+
+            if (doLog) console.log(`🢄PhotoOperations: Area processing complete (${processId}) - ${newPhotosInArea.length} photos in area`);
+        } finally {
+            callbacks.postMessage({
+                type: 'processComplete',
+                processId,
+                processType: 'area',
+                messageId
+            });
         }
-
-        if (callbacks.shouldAbort(processId)) return;
-
-        callbacks.updatePhotosInArea(newPhotosInArea);
-        callbacks.sendPhotosInAreaUpdate();
-
-        if (doLog) console.log(`🢄PhotoOperations: Area processing complete (${processId}) - ${newPhotosInArea.length} photos in area`);
-        callbacks.postMessage({
-            type: 'processComplete',
-            processId,
-            processType: 'area',
-            messageId
-        });
     }
 
 
@@ -218,7 +246,9 @@ export class PhotoOperations {
                 });
             },
             enqueueMessage: (message) => {
-                callbacks.postMessage(message);
+                // Stamp the owning process so the worker can drop batches that
+                // a superseded (aborted) area's loader still had in flight.
+                callbacks.postMessage({ ...message, processId });
             },
             getValidToken: callbacks.getValidToken
         };
@@ -236,10 +266,21 @@ export class PhotoOperations {
         const options: PhotoSourceOptions = {
             maxPhotos: this.maxPhotosInArea,
             picks: sourcePickIds,
-            queryOptionsJson: this.queryOptionsJson
+            queryOptionsJson: this.queryOptionsJson,
+            streamInactivityTimeoutMs: this.streamInactivityTimeoutMs
         };
 
-        const loader = PhotoSourceFactory.createLoader(source, sourceCallbacks, options);
+        // createLoader throws for an unsupported source type; that used to
+        // escape processArea as an unhandled rejection and wedge the worker.
+        // Now it is one source's failure like any other.
+        let loader: PhotoSourceLoader;
+        try {
+            loader = PhotoSourceFactory.createLoader(source, sourceCallbacks, options);
+        } catch (error) {
+            console.error(`🢄PhotoOperations: Cannot load source ${source.id}:`, error);
+            sourceCallbacks.onError?.(error instanceof Error ? error : new Error(String(error)));
+            return;
+        }
         this.loadingProcesses.set(source.id, loader);
 
         try {

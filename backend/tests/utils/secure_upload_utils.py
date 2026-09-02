@@ -154,7 +154,7 @@ class SecureUploadClient:
 		if not setup_result:
 			raise Exception("Test environment not available")
 
-		async with httpx.AsyncClient() as client:
+		async with httpx.AsyncClient(verify=tls_verify()) as client:
 			response = await client.post(f"{self.api_url}/auth/token", data={
 				"username": "test",
 				"password": "StrongTestPassword123!"
@@ -217,7 +217,7 @@ class SecureUploadClient:
 			client_key_pair = self.generate_client_keys()
 
 		# Test authentication first
-		async with httpx.AsyncClient() as client:
+		async with httpx.AsyncClient(verify=tls_verify()) as client:
 			response = await client.get(
 				f"{self.api_url}/auth/me/",
 				headers={"Authorization": f"Bearer {auth_token}"},
@@ -258,7 +258,7 @@ class SecureUploadClient:
 
 	async def _request_upload_authorization(self, auth_token: str, upload_request: dict):
 		"""Internal method to make upload authorization request and handle response."""
-		async with httpx.AsyncClient() as client:
+		async with httpx.AsyncClient(verify=tls_verify()) as client:
 
 			request_start_time = utcnow()
 
@@ -568,7 +568,7 @@ class SecureUploadClient:
 
 	async def test_api_server_connectivity(self):
 		"""Test basic API server health."""
-		async with httpx.AsyncClient() as client:
+		async with httpx.AsyncClient(verify=tls_verify()) as client:
 			response = await client.get(f"{self.api_url}/debug")
 			assert response.status_code == 200
 			assert response.json()["status"] == "ok"
