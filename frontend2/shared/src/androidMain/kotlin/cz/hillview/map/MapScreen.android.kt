@@ -425,15 +425,29 @@ actual fun MapScreen(
 
                 // The front photo follows the view unless the user picked
                 // one; a bearing whose source is a tap keeps that choice.
-                val inRange = { m: PhotoMarker ->
-                    centre.distanceToAsDouble(GeoPoint(m.latitude, m.longitude)) <= rangeMeters
+                //
+                // ONLY in the view activity, on both counts — the original's
+                // gate, twice over: selected styling refuses to apply while
+                // activity == 'capture' (optimizedMarkers.ts:88), and
+                // updateSelectedMarker REMOVES the current selection and
+                // returns (:309). During capture and external, nobody is
+                // choosing photos, so recomputing the front marker on every
+                // compass tick was pure churn — and worse than free, because
+                // the selection feeds pinnedId, which is part of the cull
+                // cache key (user-caught: the enlarged marker kept dancing
+                // through a capture session).
+                val selectionFollows = mapSettings.mainActivity == "view"
+                if (selectionFollows) {
+                    val inRange = { m: PhotoMarker ->
+                        centre.distanceToAsDouble(GeoPoint(m.latitude, m.longitude)) <= rangeMeters
+                    }
+                    selectedPhotoId = if (bearing.photoUid != null) {
+                        bearing.photoUid
+                    } else {
+                        frontPhoto(visible, bearing.bearing, { it.id }, { it.bearingDeg }, inRange)?.id
+                    }
                 }
-                selectedPhotoId = if (bearing.photoUid != null) {
-                    bearing.photoUid
-                } else {
-                    frontPhoto(visible, bearing.bearing, { it.id }, { it.bearingDeg }, inRange)?.id
-                }
-                markerOverlay.selectedId = selectedPhotoId
+                markerOverlay.selectedId = if (selectionFollows) selectedPhotoId else null
                 markerOverlay.markers = visible.map { marker ->
                     // Two wash-out reasons compose: the backend's analysis
                     // filter verdict (unless overridden), and the
