@@ -328,58 +328,6 @@ class MapStatePersistenceTest {
         assertNull(fresh.spatial.value.ts)
     }
 }
-
-/**
- * Which photo is "in front" — the selection the whole gallery and marker
- * highlighting hang off. Rule and tiebreak from the Playwright suite.
- */
-class FrontPhotoTest {
-
-    private data class P(val id: String, val bearing: Double?, val inRange: Boolean = true)
-
-    private fun front(photos: List<P>, viewBearing: Double) =
-        frontPhoto(photos, viewBearing, { it.id }, { it.bearing }, { it.inRange })
-
-    @Test
-    fun picksTheBearingClosestToWhereWeAreLooking() {
-        val photos = listOf(P("a", 10.0), P("b", 90.0), P("c", 200.0))
-        assertEquals("b", front(photos, 85.0)?.id)
-    }
-
-    @Test
-    fun comparesTheShortWayRoundNorth() {
-        val photos = listOf(P("a", 350.0), P("b", 180.0))
-        assertEquals("a", front(photos, 5.0)?.id)
-    }
-
-    @Test
-    fun tiesBreakOnIdSoTheChoiceCannotFlipUnderChurn() {
-        // Same bearing for both: without a tiebreak the winner would depend
-        // on list order, which changes as markers are re-culled.
-        val ordered = listOf(P("b", 90.0), P("a", 90.0))
-        assertEquals("a", front(ordered, 90.0)?.id)
-        assertEquals("a", front(ordered.reversed(), 90.0)?.id)
-    }
-
-    @Test
-    fun ignoresPhotosOutOfRange() {
-        val photos = listOf(P("near", 200.0, inRange = true), P("far", 90.0, inRange = false))
-        assertEquals("near", front(photos, 90.0)?.id)
-    }
-
-    @Test
-    fun ignoresPhotosWithoutABearing() {
-        val photos = listOf(P("unknown", null), P("known", 300.0))
-        assertEquals("known", front(photos, 90.0)?.id)
-    }
-
-    @Test
-    fun nothingInRangeMeansNoFrontPhoto() {
-        assertNull(front(listOf(P("a", 10.0, inRange = false)), 10.0))
-        assertNull(front(emptyList(), 10.0))
-    }
-}
-
 /**
  * Tapping a marker. The port shipped with the hit list never populated, so
  * taps silently did nothing on a device while every other test passed —

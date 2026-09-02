@@ -55,34 +55,17 @@ fun <T> clusterByProximity(
 }
 
 /**
- * The front photo: of the photos **in range**, the one whose own bearing is
- * closest to where the view is pointed, with the id as tiebreak.
- *
- * The tiebreak is not decoration — the Playwright suite notes that without
- * it "the front photo is decided by a diff-0 tie and flips under marker
- * churn". Returns null when nothing is in range.
- */
-fun <T> frontPhoto(
-    photos: List<T>,
-    viewBearing: Double,
-    id: (T) -> String,
-    bearing: (T) -> Double?,
-    inRange: (T) -> Boolean,
-): T? = photos
-    .filter { inRange(it) && bearing(it) != null }
-    .minWithOrNull(
-        compareBy<T> { absBearingDiff(bearing(it)!!, viewBearing) }.thenBy { id(it) },
-    )
-
-/**
  * Which marker a tap picks: the nearest one inside the touch radius, and
  * when a rose has stacked several at the very same point, the one that best
  * agrees with the current view.
  *
  * That second rule matters because a rose is *drawn* as one glyph, so every
  * photo in it is exactly equidistant from the tap. Falling back to the same
- * "closest to where we are looking" test [frontPhoto] uses keeps a tap and
- * the automatic selection from ever disagreeing about the same pile.
+ * "closest to where we are looking" test the viewer's front rule
+ * (viewerFrontPhoto) uses keeps a tap and the automatic selection from ever
+ * disagreeing about the same pile. (The map once had its own copy of that
+ * rule, frontPhoto — deleted when the enlarged marker became a READER of
+ * the viewer's front instead of a second computation of it.)
  */
 fun <T> markerAtTap(
     drawn: List<T>,

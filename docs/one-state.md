@@ -121,20 +121,21 @@ measurement. The capture pane reads `exploring` and `manualLocationElected`
 as mirrors of session state, exactly as it reads the bearing — it samples
 no stream of its own.
 
-## Known debt: "in front" is computed twice
+## "In front" has one computation
 
 The PICK is one state — a tapped or navigated-to photo rides in
-`bearing.photoUid`, written through the funnel like everything else. But
-the ANSWER "which photo is in front" is currently computed in two places:
-the viewer's derivation (`deriveViewerState`: cull → filter rules → sticky
-front) and the map's own `frontPhoto()` in the marker pass (a plain
-in-range nearest-bearing). Same inputs, same idea, two implementations —
-they can disagree at the edges (the viewer's ring applies hunter/filter
-rules; the map's does not), which is precisely the shape of bug this
-document exists to prevent. Both are dark outside the view activity (the
-viewer by WhileSubscribed, the map by the original's capture gate), so the
-natural unification is the map reading the viewer holder's `front` while
-in view. Not done yet: the marker pipeline has in-progress work on it.
+`bearing.photoUid`, written through the funnel like everything else — and
+the ANSWER "which photo is in front" has one computation: the viewer's
+derivation (`deriveViewerState`). The map's enlarged marker is a READER of
+it (`MapScreen` collects the holder's `front` while the view activity is
+up), not a second computation; the map's own copy of the rule
+(`frontPhoto`) is deleted. Outside the view activity both are dark — the
+viewer by WhileSubscribed, the marker styling by the original's capture
+gate — so the map's collector doubles as the subscription switch.
+
+One consequence, deliberate: the enlarged marker now obeys the same hunter
+and filter rules the viewer does, because it IS the viewer's answer. A
+marker the viewer would not front no longer enlarges.
 
 ## Auditing it
 
