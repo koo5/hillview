@@ -319,6 +319,36 @@ class MapStatePersistenceTest {
         assertEquals(50.115, restored.spatial.value.latitude)
     }
 
+    /**
+     * Range is a read-back of what the 70 dp circle means on the ground —
+     * a measurement, not the user placing themselves. It must change the
+     * value the viewer's ring culls against and NOTHING else: no election,
+     * no tracking row, no intentional-move timestamp.
+     */
+    @Test
+    fun theRangeReadBackElectsNothingAndWritesNoRow() {
+        val rows = mutableListOf<String>()
+        val sink = object : TrackingSink {
+            override fun writeLocationRow(latitude: Double, longitude: Double, source: String, detail: String, now: Long) { rows += "loc" }
+            override fun writeBearingRow(bearing: Double, source: String, detail: String, accuracyLevel: Int?, now: Long) { rows += "bear" }
+            override fun electBearingSource(source: String) { rows += "electB" }
+            override fun electLocationSource(source: String) { rows += "electL" }
+        }
+        val holder = MapStateHolder(sink = sink)
+        val tsBefore = holder.spatial.value.ts
+
+        holder.updateRange(240.0)
+
+        assertEquals(240.0, holder.spatial.value.range)
+        assertEquals(tsBefore, holder.spatial.value.ts, "a measurement is not an intentional move")
+        assertEquals(emptyList(), rows, "a measurement elects nothing and records nothing")
+
+        // Unchanged and nonsense values are dropped rather than notified.
+        holder.updateRange(240.0)
+        holder.updateRange(-5.0)
+        assertEquals(240.0, holder.spatial.value.range)
+    }
+
     @Test
     fun anEmptyStoreLeavesTheDefaults() {
         val store = InMemoryMapStateStore()

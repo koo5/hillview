@@ -397,6 +397,12 @@ actual fun MapScreen(
                 }.takeIf { it > 0 } ?: spatial.range
                 rangeOverlay.centre = centre
                 rangeOverlay.radiusPx = ringPx
+                // Read the circle's ground meaning back into the one state,
+                // so the viewer's ring culls against what the circle SHOWS.
+                // Only on real change: this block runs per recomposition.
+                if (kotlin.math.abs(rangeMeters - spatial.range) > spatial.range * 0.01) {
+                    state.updateRange(rangeMeters)
+                }
                 gpsOverlay.position = lastFix
                 // ACTIVE and BACKGROUND alike, as the original keeps it —
                 // "keep the pulsing GPS marker alive in BACKGROUND too".
