@@ -121,6 +121,21 @@ measurement. The capture pane reads `exploring` and `manualLocationElected`
 as mirrors of session state, exactly as it reads the bearing — it samples
 no stream of its own.
 
+## Known debt: "in front" is computed twice
+
+The PICK is one state — a tapped or navigated-to photo rides in
+`bearing.photoUid`, written through the funnel like everything else. But
+the ANSWER "which photo is in front" is currently computed in two places:
+the viewer's derivation (`deriveViewerState`: cull → filter rules → sticky
+front) and the map's own `frontPhoto()` in the marker pass (a plain
+in-range nearest-bearing). Same inputs, same idea, two implementations —
+they can disagree at the edges (the viewer's ring applies hunter/filter
+rules; the map's does not), which is precisely the shape of bug this
+document exists to prevent. Both are dark outside the view activity (the
+viewer by WhileSubscribed, the map by the original's capture gate), so the
+natural unification is the map reading the viewer holder's `front` while
+in view. Not done yet: the marker pipeline has in-progress work on it.
+
 ## Auditing it
 
 These greps are the whole audit. Both should return only the boundary and the
