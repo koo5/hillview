@@ -1321,7 +1321,7 @@ async def _upload_inner(file: Optional[UploadFile], client_signature: str, photo
 			logger.info(f"Sending processing result to API server for photo {photo_id}")
 			logger.info(f"Payload: {payload}")
 
-			max_retries = 5
+			max_retries = 10
 			async with httpx.AsyncClient() as client:
 				for attempt in range(max_retries):
 					try:

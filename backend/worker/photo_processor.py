@@ -1318,7 +1318,7 @@ class PhotoProcessor:
 
 		try:
 			async with httpx.AsyncClient() as client:
-				max_retries = 5
+				max_retries = 10
 				with open(file_path, 'rb') as f:
 					file_data = f.read()
 				file_size = len(file_data)
