@@ -1584,12 +1584,16 @@ async def process(file: Optional[UploadFile], client_signature: str, photo_id: s
 		retry_after_minutes = 5  # Retry in 5 minutes
 
 	except Exception as unexpected_error:
-		# Unexpected errors - retriable failures with longer delay
-		logger.error(f"Unexpected error processing photo {safe_filename}: {unexpected_error}")
-		# exc_info = (type(exc), exc, exc.__traceback__)
-		# logger.error('Exception occurred', exc_info=exc_info)
+		# Unexpected errors - retriable failures with longer delay.
+		# Name the exception type: a bare KeyError str()s to just the key, and
+		# "Unexpected error: 'data'" tells the uploader nothing. A RuntimeError
+		# is worker_processing's carrier for an unmapped child-process exception
+		# and already leads with the child's type, so don't prefix it twice.
+		_name = type(unexpected_error).__name__
+		_detail = str(unexpected_error) if _name == "RuntimeError" else f"{_name}: {unexpected_error}"
+		logger.error(f"Unexpected error processing photo {safe_filename}: {_detail}", exc_info=True)
 		processing_status = "error"
-		error_message = f"Unexpected error: {unexpected_error}"
+		error_message = f"Unexpected error: {_detail}"
 		retry_after_minutes = 10  # Retry in 10 minutes
 
 	finally:

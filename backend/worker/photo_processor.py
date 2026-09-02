@@ -481,13 +481,21 @@ class PhotoProcessor:
 		result = {
 			'exif': {},
 			'gps': {},
+			# Raw exiftool tag dump. Present (empty) even when no parser ran —
+			# every downstream read is ``exif_data['data']``, and an absent key
+			# once surfaced as an opaque "Unexpected error: 'data'" for EXRs.
+			'data': {},
 			'debug': {
 				'has_exif': False,
 				'has_gps_coords': False,
 				'has_bearing': False,
 				'found_gps_tags': [],
 				'found_bearing_tags': [],
-				'parsing_errors': []
+				'parsing_errors': [],
+				# Set to the format name when the file has no EXIF container
+				# by design (EXR): geo/bearing can then ONLY come from the
+				# upload metadata, and the validation errors say so.
+				'no_exif_container': None,
 			}
 		}
 
@@ -579,6 +587,7 @@ class PhotoProcessor:
 			# keeps one parser away from untrusted input for this format.
 			if validated_filepath.lower().endswith('.exr'):
 				logger.info(f"Skipping exiftool for EXR (no EXIF container): {filepath}")
+				result['debug']['no_exif_container'] = 'EXR'
 				return result
 
 			# Use -n flag to get raw numeric values instead of formatted strings
@@ -1626,8 +1635,18 @@ class PhotoProcessor:
 		logger.info(f"  - Orientation: {orientation}")
 
 		# Validate required data (from either EXIF or metadata)
+		no_exif_fmt = debug_info.get('no_exif_container')
 		if not gps_data.get('latitude') or gps_data.get('longitude') is None:
-			if not debug_info.get('has_exif'):
+			if no_exif_fmt:
+				# The format carries no EXIF by design, so the upload metadata
+				# blob is the only geo channel — say which half is missing.
+				if not metadata:
+					error_msg = (f"{no_exif_fmt} carries no EXIF: latitude/longitude must arrive via the "
+								 f"upload metadata (--metadata), but none was supplied")
+				else:
+					error_msg = (f"{no_exif_fmt} carries no EXIF: the upload metadata must carry "
+								 f"latitude/longitude, but it has only {sorted(metadata.keys())}")
+			elif not debug_info.get('has_exif'):
 				error_msg = "No EXIF data found in image file"
 			else:
 				found_tags = debug_info.get('found_bearing_tags', [])
@@ -1640,7 +1659,11 @@ class PhotoProcessor:
 
 		if gps_data.get('bearing') is None:
 			found_tags = debug_info.get('found_gps_tags', [])
-			if found_tags:
+			if no_exif_fmt:
+				error_msg = (f"{no_exif_fmt} carries no EXIF: compass bearing must arrive via the upload "
+							 f"metadata ('bearing'), but the metadata "
+							 f"{'was not supplied' if not metadata else 'has no bearing'}")
+			elif found_tags:
 				error_msg = f"Compass direction missing (found GPS tags: {', '.join(found_tags)}; need GPSImgDirection, GPSTrack, or GPSDestBearing)"
 			else:
 				error_msg = "Compass bearing missing from photo"
