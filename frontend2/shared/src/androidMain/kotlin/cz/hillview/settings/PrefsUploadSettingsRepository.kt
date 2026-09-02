@@ -22,6 +22,7 @@ class PrefsUploadSettingsRepository(
     private val _settings = MutableStateFlow(
         UploadSettings(
             serverUrl = prefs.getString("server_url", null) ?: defaults.serverUrl,
+            webUrl = prefs.getString("web_url", null) ?: defaults.webUrl,
             autoUploadEnabled =
                 if (prefs.contains("auto_upload_enabled")) prefs.getBoolean("auto_upload_enabled", false)
                 else defaults.autoUploadEnabled,
@@ -63,6 +64,7 @@ class PrefsUploadSettingsRepository(
     private fun persist(s: UploadSettings) {
         prefs.edit()
             .putString("server_url", s.serverUrl)
+            .putString("web_url", s.webUrl)
             .putBoolean("auto_upload_enabled", s.autoUploadEnabled)
             .putBoolean("wifi_only", s.wifiOnly)
             .putString("auto_upload_license", s.license)

@@ -359,6 +359,53 @@ class PhotoMarkerOverlay : Overlay() {
  * pixel radius rather than round-tripping through metres, which would only
  * add projection drift.
  */
+/**
+ * "You are here", by the receiver: the original's gpsMarkerIcon
+ * (Map.svelte:1518) — a blue crosshair at the LAST FIX, kept while location
+ * tracking is ACTIVE or BACKGROUND. Its whole value is the background case:
+ * while following, the fix is the map centre and everything already points
+ * at it; while EXPLORING, the map is parked somewhere else and this dot is
+ * the only thing still saying where the receiver actually is.
+ *
+ * Geometry is the original's SVG, in dp: outer circle r=7 stroke 2, filled
+ * core r=3, four compass ticks spanning r=7..10. Same blue (#4285F4).
+ */
+class GpsMarkerOverlay : Overlay() {
+    var position: GeoPoint? = null
+    var visible: Boolean = false
+
+    private val blue = Color.rgb(0x42, 0x85, 0xF4)
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = blue
+        strokeCap = Paint.Cap.ROUND
+    }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = blue
+    }
+
+    override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
+        if (shadow || !visible) return
+        val p = position ?: return
+        val d = mapView.context.resources.displayMetrics.density
+        val point = android.graphics.Point()
+        mapView.projection.toPixels(p, point)
+        val x = point.x.toFloat()
+        val y = point.y.toFloat()
+        stroke.strokeWidth = 2f * d
+        canvas.drawCircle(x, y, 7f * d, stroke)
+        canvas.drawCircle(x, y, 3f * d, fill)
+        for ((dx, dy) in listOf(-1 to 0, 1 to 0, 0 to -1, 0 to 1)) {
+            canvas.drawLine(
+                x + dx * 7f * d, y + dy * 7f * d,
+                x + dx * 10f * d, y + dy * 10f * d,
+                stroke,
+            )
+        }
+    }
+}
+
 class RangeCircleOverlay : Overlay() {
     /** Screen radius in device pixels (70dp worth). */
     var radiusPx: Float = 0f

@@ -8,6 +8,7 @@ import { BasePhotoSourceLoader, type PhotoSourceCallbacks } from './PhotoSourceL
 import { verbalizeEventSourceReadyState } from './eventSourceUtils';
 import { postToast } from '../workerToast';
 import type { PhotoSourceOptions } from './PhotoSourceFactory';
+import { STREAM_INACTIVITY_TIMEOUT_MS } from '../photoWorkerConstants';
 
 const LOG_PREFIX = '🢄🔍StreamSourceLoader';
 const doLog = false;
@@ -20,7 +21,8 @@ export function convertStreamPhoto(photo: any, source: any): PhotoData {
     if (bearing === undefined || bearing === null) {
         bearing = photo.bearing
     }
-    if (bearing === undefined || bearing === null) {
+    const hasBearing = !(bearing === undefined || bearing === null);
+    if (!hasBearing) {
         console.warn(`StreamSourceLoader: Photo ${photo.id} missing bearing info, defaulting to 0`);
         bearing = 0
     }
@@ -44,6 +46,7 @@ export function convertStreamPhoto(photo: any, source: any): PhotoData {
             { lat: photo.geometry.coordinates[1], lng: photo.geometry.coordinates[0] } :
             photo.coord,
         bearing,
+        ...(hasBearing ? {} : { has_bearing: false }),
         url: photo.thumb_1024_url || photo.url || '',
         filename: photo.filename,
         source_type: source.type,
@@ -115,12 +118,42 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     private maxPhotos?: number;
     private picks?: Set<PhotoId>;
     private queryOptionsJson?: string | null;  // Pre-serialized analysis filters
+    // Watchdog: an EventSource that goes silent (no message, no error) would
+    // otherwise never resolve start(), and the area process it belongs to would
+    // never complete. Re-armed on open and on every message.
+    private inactivityTimeoutMs: number;
+    private inactivityTimerId?: ReturnType<typeof setTimeout>;
 
     constructor(source: any, callbacks: PhotoSourceCallbacks, options?: PhotoSourceOptions) {
         super(source, callbacks);
         this.maxPhotos = options?.maxPhotos;
         this.picks = options?.picks;
         this.queryOptionsJson = options?.queryOptionsJson;
+        this.inactivityTimeoutMs = options?.streamInactivityTimeoutMs ?? STREAM_INACTIVITY_TIMEOUT_MS;
+    }
+
+    private armWatchdog(): void {
+        this.disarmWatchdog();
+        if (!(this.inactivityTimeoutMs > 0)) return;
+        this.inactivityTimerId = setTimeout(() => {
+            this.inactivityTimerId = undefined;
+            if (this.isComplete || this.isAborted()) return;
+            console.warn(`${LOG_PREFIX}: no stream activity for ${this.inactivityTimeoutMs}ms on ${this.source.id} - giving up`);
+            if (this.eventSource) {
+                this.eventSource.close();
+                this.eventSource = undefined;
+            }
+            // A stall after data flowed is a lost connection (toast); a stall
+            // before anything arrived reads as the server never answering.
+            this.handleFinalFailure(`Stream timed out after ${this.inactivityTimeoutMs}ms of silence`, this.wasConnected);
+        }, this.inactivityTimeoutMs);
+    }
+
+    private disarmWatchdog(): void {
+        if (this.inactivityTimerId) {
+            clearTimeout(this.inactivityTimerId);
+            this.inactivityTimerId = undefined;
+        }
     }
 
     private async getAuthTokenWithTimeout(timeoutMs: number = 5000, forceRefresh: boolean = false): Promise<string | null> {
@@ -248,6 +281,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         // Let OS handle connection lifecycle - no artificial timeout
 
         this.eventSource = new EventSource(url.toString());
+        this.armWatchdog();
         if (doLog) console.log(`StreamSourceLoader: Created EventSource for ${this.source.id} with URL:`, url.toString());
         if (doLog) console.log(`StreamSourceLoader: Initial EventSource readyState: ${verbalizeEventSourceReadyState(this.eventSource.readyState)}`);
 
@@ -262,6 +296,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
         });
 
         this.eventSource.onmessage = (event) => {
+            this.armWatchdog();
             try {
                 const data = JSON.parse(event.data);
                 this.handleStreamMessage(data);
@@ -382,6 +417,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
                 wasErrored: this.wasErrored
             });
             this.updateLoadingStatus(true, 'Loading photos...');
+            this.armWatchdog();
 
             // Toast only on reconnection
             if (this.wasErrored) {
@@ -420,6 +456,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     }
 
     private resolveCompletion(): void {
+        this.disarmWatchdog();
         // Clear readyState monitor
         if (this.readyStateMonitorId) {
             clearInterval(this.readyStateMonitorId);
@@ -504,6 +541,7 @@ export class StreamSourceLoader extends BasePhotoSourceLoader {
     cancel(): void {
         if (doLog) console.log(`StreamSourceLoader: Cancelling stream for ${this.source.id} - called from:`, new Error().stack?.split('\n')[2]);
         super.cancel();
+        this.disarmWatchdog();
 
         // Clear loading status
         this.updateLoadingStatus(false, 'Cancelled');

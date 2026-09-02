@@ -28,6 +28,25 @@ class HillviewApplication : Application() {
         // Native Sign in with Google — empty keeps the button hidden.
         cz.hillview.auth.NativeAuthConfig.googleServerClientId =
             BuildConfig.HILLVIEW_GOOGLE_CLIENT_ID
+        // Which build is running — Settings footer, and one logcat line so a
+        // phone can be checked against the tree: `adb logcat | grep hv-build`.
+        cz.hillview.BuildInfo.apply {
+            version = BuildConfig.VERSION_NAME
+            gitSha = BuildConfig.GIT_SHA
+            gitCommitTime = BuildConfig.GIT_COMMIT_TIME
+            dirty = BuildConfig.GIT_DIRTY
+            dirtyHash = BuildConfig.GIT_DIRTY_HASH
+        }
+        android.util.Log.i("hv-build", cz.hillview.BuildInfo.label())
+        // A crash writes its trace to a file the Event log screen shows on
+        // the next start — installed before anything of ours can throw.
+        cz.hillview.diag.CrashLog.install(this)
+        cz.hillview.diag.CrashLog.lastReport(this)?.let { report ->
+            cz.hillview.plugin.EventLog.record(
+                "crash",
+                "previous run crashed: " + (report.lineSequence().firstOrNull { it.contains("Exception") || it.contains("Error") } ?: "see Event log → Copy crash"),
+            )
+        }
         // The UploadSettingsRepository (createdAtStart) materializes the
         // upload-settings prefs the shared-kt stack reads.
         initKoin {

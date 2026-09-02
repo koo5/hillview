@@ -100,6 +100,23 @@ fun SettingsScreen(
                 .testTag("settings-server-url"),
         )
 
+        // The web app, for the viewer's "open in web app" link. Applies
+        // live — nothing caches it.
+        var webUrlText by rememberSaveable { mutableStateOf(settings.webUrl) }
+        OutlinedTextField(
+            value = webUrlText,
+            onValueChange = { url ->
+                webUrlText = url
+                repository.update { it.copy(webUrl = url.trim().trimEnd('/')) }
+            },
+            label = { Text("Web app URL") },
+            supportingText = { Text("Where \"open in web app\" links go") },
+            singleLine = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("settings-web-url"),
+        )
+
         // The setting vs the RUNTIME: deliberately separate values. Auth,
         // the upload workers, and every cached client resolved the runtime
         // URL at startup; the only sanctioned way to move them all is a
@@ -427,6 +444,8 @@ fun SettingsScreen(
                 modifier = Modifier.testTag("settings-landscape-workaround"),
             )
         }
+
+        BuildInfoFooter()
     }
 }
 

@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     // GeoTrackingDatabase in v18 — see that file for why. What is left here is
     // durable and low-rate: a capture and the edits that belong to it.
     entities = [PhotoEntity::class, EditEntity::class],
-    version = 19,
+    version = 20,
     // Schemas are exported per app (they compile these entities with different
     // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
     // docs/geo-election-test-todo.md item 6. Both agree on the identityHash;
@@ -315,6 +315,14 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_19_20 = object : Migration(19, 20) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// The alternative position stream (PhotoEntity.altLocationJson).
+				// Null on existing rows: they were taken before it was kept.
+				database.execSQL("ALTER TABLE photos ADD COLUMN altLocationJson TEXT")
+			}
+		}
+
         fun getDatabase(context: Context): PhotoDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -322,7 +330,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                     PhotoDatabase::class.java,
                     "hillview_photos_database"
                 )
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
+                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
                     .build()
                 INSTANCE = instance
                 instance

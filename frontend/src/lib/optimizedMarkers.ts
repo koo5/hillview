@@ -7,6 +7,7 @@ import {app} from "$lib/data.svelte";
 import {getBearingColor} from './utils/bearingUtils';
 import {getPhotoSourceId, getPhotoSourceColor} from './photoUtils';
 import {getDistance} from './utils/distanceUtils';
+import {diffByKey, markerKey, iconSignature} from './markerDiff';
 
 const doLog = false;
 
@@ -43,6 +44,8 @@ export class OptimizedMarkerSystem {
 	private options: OptimizedMarkerOptions;
 	private markerPool: L.Marker[] = [];
 	private activeMarkers: L.Marker[] = [];
+	// The same markers keyed by photo (markerKey) — what updateMarkers diffs against.
+	private activeByKey = new Map<string, L.Marker>();
 	private atlasDataUrl: string;
 	private atlasDimensions: any;
 	private currentSelectedMarker: L.Marker | null = null;
@@ -112,7 +115,8 @@ export class OptimizedMarkerSystem {
              data-source="${getPhotoSourceId(photo) || 'unknown'}"
              data-is-placeholder="${photo.is_placeholder || false}"`;
 
-		const bearingColor = photo.featured ? 'gold' : photo.bearing_color;
+		// No recorded heading: flat grey, no arrow (frontend2 draws the same).
+		const bearingColor = photo.featured ? 'gold' : (photo.has_bearing === false ? '#9E9E9E' : photo.bearing_color);
 
 		// Compute initial grayed state so it's baked into the HTML
 		const grayed = grayingCtx ? this.shouldGray(photo, grayingCtx) : false;
@@ -127,7 +131,8 @@ export class OptimizedMarkerSystem {
 					data,
 					7,
 					photo.id,
-					grayed
+					grayed,
+					photo.has_bearing !== false
 				),
 			iconSize: [arrowSize, arrowSize],
 			iconAnchor: [arrowSize / 2, arrowSize / 2]
@@ -143,7 +148,8 @@ export class OptimizedMarkerSystem {
 		data: string = '',
 		offsetPixels: number = 0,
 		photoId?: string,
-		grayed: boolean = false
+		grayed: boolean = false,
+		hasBearing: boolean = true
 	): string {
 
 		const {arrowSize} = this.atlasDimensions;
@@ -184,8 +190,8 @@ export class OptimizedMarkerSystem {
 					 opacity: 0.8;
 				   "></div>
 
-			  <!-- Direction arrow (foreground) -->
-			  <div class="direction-arrow"
+			  <!-- Direction arrow (foreground); none when the heading is unknown -->
+			  ${hasBearing ? `<div class="direction-arrow"
 				   style="
 					 background-image: url(${this.atlasDataUrl});
 					 background-position: ${backgroundPos};
@@ -194,7 +200,7 @@ export class OptimizedMarkerSystem {
 					 height: ${arrowSize}px;
 					 transform: scale(${arrowScale});
 					 opacity: 0.7;
-				   "></div>
+				   "></div>` : ''}
 		</div>`;
 	}
 
@@ -213,8 +219,8 @@ export class OptimizedMarkerSystem {
 			const photoData = (marker as any)._photoData as PhotoData;
 			if (!photoData) return;
 
-			// Featured photos keep gold color
-			if (photoData.featured) return;
+			// Featured photos keep gold color; heading-less ones stay grey
+			if (photoData.featured || photoData.has_bearing === false) return;
 
 			// Recalculate bearing diff color
 			const bearingDiff = this.calculateAbsBearingDiff(photoData.bearing, currentBearing);
@@ -317,13 +323,41 @@ export class OptimizedMarkerSystem {
 	}
 
 	/**
-	 * Update markers for new photo set with pooling
+	 * Update markers for new photo set with pooling.
+	 *
+	 * Diffs against the markers already on the map (keyed by photo) instead of
+	 * tearing everything down: the photo set is republished as each source
+	 * lands, and with the full rebuild every publish re-created every marker's
+	 * DOM. Now a publish only touches the markers that actually changed —
+	 * a late source arriving swaps its share of slots, nothing else flickers.
 	 */
 	updateMarkers(map: L.Map, photos: PhotoData[], grayingCtx?: GrayingContext): L.Marker[] {
 
 		////console.log(`OptimizedMarkerSystem: updateMarkers called with ${photos.length} photos`);
 		////console.log(`OptimizedMarkerSystem: current activeMarkers count: ${this.activeMarkers.length}`);
 
+		const diff = diffByKey(this.activeByKey.keys(), photos, markerKey);
+
+		for (const key of diff.removed) {
+			const marker = this.activeByKey.get(key);
+			this.activeByKey.delete(key);
+			if (marker) this.releaseMarker(marker);
+		}
+
+		for (const photo of diff.kept) {
+			this.refreshMarker(this.activeByKey.get(markerKey(photo))!, photo, grayingCtx);
+		}
+
+		for (const photo of diff.added) {
+			const marker = this.createOptimizedMarker(photo, grayingCtx);
+			marker.addTo(map);
+			this.activeByKey.set(markerKey(photo), marker);
+		}
+
+		// Keep the array in photo order (updateMarkerColors / click lookup iterate it)
+		this.activeMarkers = diff.ordered.map(photo => this.activeByKey.get(markerKey(photo))!);
+
+		/* Full rebuild, replaced by the diff above:
 		// Return unused markers to pool
 		this.returnMarkersToPool();
 		//console.log(`OptimizedMarkerSystem: after returnMarkersToPool, activeMarkers count: ${this.activeMarkers.length}`);
@@ -335,9 +369,59 @@ export class OptimizedMarkerSystem {
 
 			return marker;
 		});
+		*/
 
 		//console.log(`OptimizedMarkerSystem: Created ${this.activeMarkers.length} markers, added to map`);
 		return this.activeMarkers;
+	}
+
+	/**
+	 * Bring an existing marker up to date with a republished photo. Structure
+	 * is rebuilt only when a baked-in field changed (iconSignature); position,
+	 * bearing-diff colour, grayed state and z-tier are patched in place.
+	 */
+	private refreshMarker(marker: L.Marker, photo: PhotoData, grayingCtx?: GrayingContext): void {
+		const previous = (marker as any)._photoData as PhotoData | undefined;
+		(marker as any)._photoData = photo;
+
+		if (!previous || previous.coord.lat !== photo.coord.lat || previous.coord.lng !== photo.coord.lng) {
+			marker.setLatLng(photo.coord);
+		}
+
+		const isSelected = marker === this.currentSelectedMarker;
+
+		if (!previous || iconSignature(previous) !== iconSignature(photo)) {
+			marker.setIcon(this.createSeparatedIcon(photo, grayingCtx));
+			marker.setZIndexOffset(photo.filtered ? -100000 : (photo.featured ? 500000 : 0));
+			if (isSelected) this.applySelectedStyling(marker);
+			return;
+		}
+
+		const element = marker.getElement();
+		const circle = element?.querySelector('.bearing-circle') as HTMLElement | null;
+		if (circle) {
+			if (!photo.featured && photo.has_bearing !== false && photo.bearing_color && circle.style.backgroundColor !== photo.bearing_color) {
+				circle.style.backgroundColor = photo.bearing_color;
+			}
+			if (grayingCtx) circle.classList.toggle('grayed', this.shouldGray(photo, grayingCtx));
+		}
+	}
+
+	/**
+	 * Take a marker off the map and back into the pool.
+	 */
+	private releaseMarker(marker: L.Marker): void {
+		if (marker === this.currentSelectedMarker) this.currentSelectedMarker = null;
+		marker.off('click'); // Remove click handlers
+		marker.remove();
+
+		// Clean up marker state
+		delete (marker as any)._photoData;
+
+		// Add to pool if under limit
+		if (this.options.enablePooling && this.markerPool.length < this.options.maxPoolSize) {
+			this.markerPool.push(marker);
+		}
 	}
 
 	/**
@@ -359,6 +443,7 @@ export class OptimizedMarkerSystem {
 
 		// Clear selected marker reference
 		this.currentSelectedMarker = null;
+		this.activeByKey.clear();
 
 		if (!this.options.enablePooling) {
 			// If not pooling, just remove markers

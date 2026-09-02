@@ -39,10 +39,12 @@
 		createAnnotation,
 		updateAnnotation,
 		deleteAnnotation,
+		hideAnnotation,
 		targetToPixels,
 		targetToNormalized,
 		type AnnotationData,
 	} from '$lib/annotationApi';
+	import { isModerator } from '$lib/adminNotifications';
 	import { Origin, UserSelectAction, type DrawingStyle } from '@annotorious/core';
 	import { fetchDetections, type DetectedObject } from '$lib/detectionApi';
 	import { showAnnotations, showDetections, showPhotoInfoWindow, showTerrainOverlay } from '$lib/data.svelte.js';
@@ -2154,6 +2156,44 @@
 		}
 	}
 
+	async function hideEditingAnnotation() {
+		if (!editingAnnotation || !annotator) return;
+
+		// Create path: shape isn't persisted yet — nothing to hide (the button
+		// isn't rendered in that state either)
+		if (pendingNewAnnotation) return;
+
+		const dbId = editingAnnotation.id;
+		const uiId = dbToUi.get(dbId);
+		console.log('[OSD] hideEditingAnnotation — dbId:', dbId, 'uiId:', uiId);
+		try {
+			await hideAnnotation(dbId);
+			// Same cleanup as delete: the hidden row is no longer displayed here
+			// (it stays a calibration anchor in the enrichment workbench)
+			if (uiId) {
+				uiToDb.delete(uiId);
+				try { annotator.removeAnnotation(uiId); } catch (_) {}
+			}
+			dbToUi.delete(dbId);
+			annotations = annotations.filter((a) => a.id !== dbId);
+			rebuildParsedAnnotations();
+			scheduleDrawLabels();
+			// Close panel
+			editingAnnotation = null;
+			editBody = '';
+			originalW3cSnapshot = null;
+			originalDbId = null;
+		} catch (e) {
+			console.error('[OSD] hideEditingAnnotation — failed:', e);
+			showError('Failed to hide annotation');
+			// Close panel so the user isn't stuck — annotation remains on canvas
+			editingAnnotation = null;
+			editBody = '';
+			originalW3cSnapshot = null;
+			originalDbId = null;
+		}
+	}
+
 	function autofocus(node: HTMLElement) { node.focus(); (node as HTMLInputElement).select?.(); }
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -2428,6 +2468,9 @@
 			/>
 			<div class="edit-body-actions">
 				<button class="edit-body-btn delete" onclick={deleteEditingAnnotation} data-testid="osd-edit-body-delete">Delete</button>
+				{#if $isModerator && !pendingNewAnnotation}
+					<button class="edit-body-btn hide" onclick={hideEditingAnnotation} data-testid="osd-edit-body-hide" title="Hide from viewers (kept as a calibration anchor)">Hide</button>
+				{/if}
 				<div style="flex:1"></div>
 				<button class="edit-body-btn cancel" onclick={cancelEditBody} data-testid="osd-edit-body-cancel">Cancel</button>
 				<button class="edit-body-btn save" onclick={saveEditBody} data-testid="osd-edit-body-save">Save</button>
@@ -2890,6 +2933,13 @@
 	}
 
 	.edit-body-btn.delete:hover { background: #c82333; }
+
+	.edit-body-btn.hide {
+		background: #b45309;
+		color: #fff;
+	}
+
+	.edit-body-btn.hide:hover { background: #92400e; }
 
 	.text-modal-overlay {
 		position: absolute;

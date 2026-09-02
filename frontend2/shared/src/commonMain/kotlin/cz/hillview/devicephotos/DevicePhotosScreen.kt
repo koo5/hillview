@@ -253,6 +253,15 @@ fun DevicePhotosScreen(
                             }
                         },
                         globalLicense = uploadSettings.license,
+                        onSetAnonymization = { value ->
+                            scope.launch {
+                                browser.setAnonymization(card.id, value)
+                                // The re-upload runs off-screen; a beat, then
+                                // re-read so the row shows its new status.
+                                kotlinx.coroutines.delay(2_000)
+                                load(1, append = false)
+                            }
+                        },
                         onChangeLicense = { license ->
                             scope.launch {
                                 browser.changeLicense(card.id, license)
@@ -295,9 +304,50 @@ private fun PhotoCard(
     /** What a row with no licence of its own would go out under. */
     globalLicense: String? = null,
     onChangeLicense: (String) -> Unit = {},
+    /** null = auto-detect & blur, "[]" = no anonymization. */
+    onSetAnonymization: (String?) -> Unit = {},
 ) {
     var confirmingDelete by remember { mutableStateOf(false) }
     var editingLicense by remember { mutableStateOf(false) }
+    var editingAnonymization by remember { mutableStateOf(false) }
+
+    if (editingAnonymization) {
+        // The original's AnonymizationModal: two radio choices, the current
+        // one marked, and a note when the web app's custom regions are what
+        // is in force. Either choice queues a re-upload.
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { editingAnonymization = false },
+            title = { Text("Anonymization") },
+            text = {
+                Column {
+                    Text(
+                        "How the server blurs this photo. Changing it uploads " +
+                            "the photo again under the new setting.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(
+                        onClick = { editingAnonymization = false; onSetAnonymization(null) },
+                        modifier = Modifier.testTag("option-auto-anonymize"),
+                    ) { Text(if (card.anonymization == "auto") "● Auto-detect & blur" else "○ Auto-detect & blur") }
+                    TextButton(
+                        onClick = { editingAnonymization = false; onSetAnonymization("[]") },
+                        modifier = Modifier.testTag("option-skip-anonymization"),
+                    ) { Text(if (card.anonymization == "none") "● No anonymization" else "○ No anonymization") }
+                    if (card.anonymization == "custom") {
+                        Text(
+                            "● Custom regions, drawn in the web app. Choosing " +
+                                "either option above replaces them.",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("anonymization-custom-note"),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { editingAnonymization = false }) { Text("Cancel") }
+            },
+        )
+    }
 
     if (editingLicense) {
         androidx.compose.material3.AlertDialog(
@@ -486,6 +536,21 @@ private fun PhotoCard(
                     enabled = licenseEditable(card.uploadStatus),
                     modifier = Modifier.testTag("change-license-button"),
                 ) { Text("Change license") }
+                // Offered at every status — a re-upload is the point — but
+                // not for a row whose file is gone: there is nothing to send.
+                TextButton(
+                    onClick = { editingAnonymization = true },
+                    enabled = !card.fileMissing,
+                    modifier = Modifier.testTag("anonymization-options-button"),
+                ) {
+                    Text(
+                        when (card.anonymization) {
+                            "none" -> "Blur: off"
+                            "custom" -> "Blur: custom"
+                            else -> "Blur: auto"
+                        },
+                    )
+                }
             }
         }
     }

@@ -74,6 +74,17 @@ fun deriveViewerState(
         inRange, hunterMode, overrideFilters,
         filtered = { it.filteredOut }, featured = { it.featured }, bearing = { it.bearingDeg },
     )
+    // A deliberately chosen photo with no heading (a tapped grey plus-marker)
+    // cannot be in the ring — the ring's whole order is bearing — but it IS
+    // what you are viewing: it fronts with no neighbours, like a front photo
+    // that fell out of range. The choice lives exactly as long as photoUid
+    // does; any bearing write without it (a compass tick, a turn) drops it.
+    val chosenHeadingless = bearing.photoUid?.let { uid ->
+        inRange.firstOrNull { it.id == uid && it.bearingDeg == null }
+    }
+    if (chosenHeadingless != null) {
+        return ViewerState(ring = ring, front = chosenHeadingless)
+    }
     val front = viewerFrontPhoto(
         ring, bearing.bearing, bearing.photoUid, { it.id }, { it.bearingDeg!! },
     )
@@ -119,10 +130,21 @@ class ViewerStateHolder(
     scope: CoroutineScope,
     private val now: () -> Long,
 ) {
+    /**
+     * Computed only while something is looking — the original's semantics
+     * exactly: photoInFront is a Svelte derived store, and derived stores
+     * run only while subscribed, which only the Gallery does. Eagerly here
+     * meant a range cull and a sort of the whole marker set on every compass
+     * tick (~10 Hz) for as long as the process lived, including the entire
+     * time the capture or external-camera pane was up and nobody could see
+     * the result (user-caught). WhileSubscribed makes the pane's collector
+     * the switch; the first frame after entering the viewer pays one
+     * derivation, as the original's first subscription does.
+     */
     val state: StateFlow<ViewerState> =
         combine(markers, map.spatial, map.bearing, hunterMode, overrideFilters) { m, s, b, h, o ->
             deriveViewerState(m, s, b, h, o, cull)
-        }.stateIn(scope, SharingStarted.Eagerly, ViewerState())
+        }.stateIn(scope, SharingStarted.WhileSubscribed(), ViewerState())
 
     /**
      * Turn to a neighbour. The uid is recorded alongside the bearing so the
@@ -130,10 +152,14 @@ class ViewerStateHolder(
      * viewerFrontPhoto.
      */
     fun turnTo(photo: PhotoMarker) {
-        val bearing = photo.bearingDeg ?: return
+        //val bearing = photo.bearingDeg ?: return
+        // A photo with no heading cannot turn the view — but choosing it is
+        // still a choice: the CURRENT bearing is rewritten with the photo id
+        // attached (updateBearing never dedups), the tracking stands down as
+        // for any deliberate turn, and deriveViewerState fronts the photo.
         standDownTracking()
         map.updateBearing(
-            bearing = bearing,
+            bearing = photo.bearingDeg ?: map.bearing.value.bearing,
             source = SOURCE_PHOTO_NAVIGATION,
             photoUid = photo.id,
             now = now(),

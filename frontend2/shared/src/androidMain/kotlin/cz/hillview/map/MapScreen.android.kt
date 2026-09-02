@@ -105,6 +105,12 @@ actual fun MapScreen(
     val trackingPhase by session.bearingPhase.collectAsState()
     val locationTracking by session.locationTracking.collectAsState()
     var locationFlash by remember { mutableStateOf(false) }
+    // The last fix, HELD — not only applied to the map centre. In BACKGROUND
+    // tracking the fix callback deliberately stops writing spatial state
+    // (exploring must not be yanked back), which used to mean the fix went
+    // nowhere at all and the receiver's position vanished from the map the
+    // moment you panned. The GPS dot (GpsMarkerOverlay) is where it goes.
+    var lastFix by remember { mutableStateOf<GeoPoint?>(null) }
     // A pan happened and no manual position is claimed: exploration is
     // free, and this offers the two exits — claim this position, or snap
     // back to the fix. No timeout: reading a map takes as long as it
@@ -201,6 +207,7 @@ actual fun MapScreen(
     LaunchedEffect(locationTracking, locationPermission.granted) {
         controller.setLocationEnabled(locationTracking != LocationTracking.Off) { lat, lon ->
             locationFlash = true
+            lastFix = GeoPoint(lat, lon)
             if (locationTracking == LocationTracking.Active) {
                 state.updateSpatial(
                     latitude = lat, longitude = lon,
@@ -252,6 +259,7 @@ actual fun MapScreen(
     val markerOverlay = remember { PhotoMarkerOverlay() }
     markerOverlay.onDrawn = { markerPositions = it }
     val rangeOverlay = remember { RangeCircleOverlay() }
+    val gpsOverlay = remember { GpsMarkerOverlay() }
     val arrowOverlay = remember { BearingArrowOverlay() }
     // Arrow drag: walking sets the bearing outright, car adjusts the mount
     // offset by the angle travelled.
@@ -348,6 +356,7 @@ actual fun MapScreen(
                     applied.providerKey = mapSettings.tileProviderKey
                 }
                 if (rangeOverlay !in view.overlays) view.overlays.add(rangeOverlay)
+                if (gpsOverlay !in view.overlays) view.overlays.add(gpsOverlay)
                 if (markerOverlay !in view.overlays) view.overlays.add(markerOverlay)
                 // Late, so it draws on top — and so its touch handler gets
                 // refusal before the map pans.
@@ -371,6 +380,10 @@ actual fun MapScreen(
                 }.takeIf { it > 0 } ?: spatial.range
                 rangeOverlay.centre = centre
                 rangeOverlay.radiusPx = ringPx
+                gpsOverlay.position = lastFix
+                // ACTIVE and BACKGROUND alike, as the original keeps it —
+                // "keep the pulsing GPS marker alive in BACKGROUND too".
+                gpsOverlay.visible = locationTracking != LocationTracking.Off
                 // Tip at 1.3x the ring, as in the original — just outside it.
                 arrowTipPx = ringPx * 1.3f
                 arrowOverlay.bearingDeg = bearing.bearing
@@ -387,15 +400,17 @@ actual fun MapScreen(
                 markerOverlay.onPhotoTapped = { photo ->
                     // Turning the view to the photo IS the selection — the
                     // bearing carries the photo id, exactly as the original
-                    // does via updateBearingWithPhoto.
-                    photo.bearingDeg?.let { photoBearing ->
-                        state.updateBearing(
-                            bearing = photoBearing,
-                            source = "marker_click",
-                            photoUid = photo.id,
-                            now = System.currentTimeMillis(),
-                        )
-                    }
+                    // does via updateBearingWithPhoto. A heading-less photo
+                    // (grey plus-marker) cannot turn the view, but the tap
+                    // still selects it: the current bearing is rewritten with
+                    // the photo id attached and the viewer fronts it (see
+                    // deriveViewerState's heading-less rule).
+                    state.updateBearing(
+                        bearing = photo.bearingDeg ?: state.bearing.value.bearing,
+                        source = "marker_click",
+                        photoUid = photo.id,
+                        now = System.currentTimeMillis(),
+                    )
                     selectedPhotoId = photo.id
                     // Tapping a greyed-out photo un-greys the set, like the
                     // original's overrideFilters flip.

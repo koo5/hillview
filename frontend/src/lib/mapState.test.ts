@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toTableSource, kotlinOwnsSource } from './mapState';
+import { computePhotoInFront, toTableSource, kotlinOwnsSource } from './mapState';
 
 /**
  * The boundary where the app's own bearing/location source names become the
@@ -58,6 +58,35 @@ describe('toTableSource', () => {
 		]) {
 			expect(vocabulary).toContain(toTableSource(source).source);
 		}
+	});
+});
+
+describe('computePhotoInFront', () => {
+	const p = (uid: string, bearing: number, extra: Record<string, unknown> = {}) => ({ uid, bearing, ...extra });
+
+	it('picks the nearest bearing, uid as the tiebreaker', () => {
+		const photos = [p('b', 90), p('a', 90), p('c', 180)];
+		expect(computePhotoInFront(photos, { bearing: 92 })?.uid).toBe('a');
+	});
+
+	it('a chosen photo wins only while the view looks straight at it', () => {
+		const photos = [p('chosen', 90), p('other', 100)];
+		expect(computePhotoInFront(photos, { bearing: 90, photoUid: 'chosen' })?.uid).toBe('chosen');
+		// view moved off it → nearest bearing again
+		expect(computePhotoInFront(photos, { bearing: 100, photoUid: 'chosen' })?.uid).toBe('other');
+	});
+
+	it('a chosen heading-less photo wins wherever the view points — the uid IS the selection', () => {
+		const photos = [p('grey', 0, { has_bearing: false }), p('other', 100)];
+		expect(computePhotoInFront(photos, { bearing: 100, photoUid: 'grey' })?.uid).toBe('grey');
+	});
+
+	it('without a choice, plain nearest-bearing applies — has_bearing gives no priority', () => {
+		// (A heading-less photo normally is not even in range without a pick;
+		// if it is, it competes by its wire bearing like before the flag.)
+		const photos = [p('grey', 0, { has_bearing: false }), p('east', 90)];
+		expect(computePhotoInFront(photos, { bearing: 2 })?.uid).toBe('grey');
+		expect(computePhotoInFront(photos, { bearing: 80 })?.uid).toBe('east');
 	});
 });
 

@@ -7,6 +7,8 @@ import cz.hillview.map.SpatialState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -134,14 +136,86 @@ class ViewerStateTest {
     }
 
     @Test
-    fun turningToAPhotoWithNoBearingIsRefused() {
+    fun choosingAPhotoWithNoBearingKeepsTheViewStill() {
+        // It used to be refused outright; now the choice lands — the view
+        // just has nothing to turn to, so the bearing stays put.
         val map = MapStateHolder()
-        val before = map.bearing.value
+        stoodDown = false
+        val before = map.bearing.value.bearing
         holderFor(map).turnTo(photo("unknown", null))
-        assertEquals(before, map.bearing.value)
+        assertEquals(before, map.bearing.value.bearing)
+        assertEquals("unknown", map.bearing.value.photoUid)
+        assertEquals(ViewerStateHolder.SOURCE_PHOTO_NAVIGATION, map.bearing.value.source)
+        // Deliberate choice: tracking stands down like for any turn.
+        assertTrue(stoodDown)
+    }
+
+    @Test
+    fun aChosenPhotoWithNoBearingFrontsWithNoNeighbours() {
+        val markers = listOf(photo("n", 0.0), photo("e", 90.0), photo("plus", null))
+        val state = derive(markers, bearing = 5.0, stickyUid = "plus")
+        assertEquals("plus", state.front?.id)
+        // The ring is still what you can TURN to — unchanged.
+        assertEquals(listOf("n", "e"), state.ring.map { it.id })
+        assertNull(state.left)
+        assertNull(state.right)
+        assertNull(state.up)
+        assertNull(state.down)
+    }
+
+    @Test
+    fun theHeadinglessChoiceDropsWithThePhotoUid() {
+        // Any bearing write without photoUid clears the choice (see
+        // MapStateTest.bearingClearsPhotoAndAccuracyWhenNotGiven); the
+        // derivation then falls back to the nearest-bearing rule.
+        val markers = listOf(photo("n", 0.0), photo("plus", null))
+        assertEquals("n", derive(markers, bearing = 5.0, stickyUid = null).front?.id)
     }
 
     private var stoodDown = false
+
+    /**
+     * The derivation is not free — a range cull and a sort of every marker
+     * — and it used to run on every compass tick for the life of the
+     * process, viewer or no viewer. It must run only while something
+     * collects, as the original's derived store does.
+     */
+    @Test
+    fun nothingIsDerivedWhileNobodyIsLooking() = kotlinx.coroutines.test.runTest {
+        var culls = 0
+        val counting = RangeCuller { photos, a, b, c, d -> culls++; keepAll.inRange(photos, a, b, c, d) }
+        val map = MapStateHolder()
+        val holder = ViewerStateHolder(
+            map = map,
+            standDownTracking = {},
+            markers = MutableStateFlow(listOf(photo("a", 90.0))),
+            hunterMode = MutableStateFlow(true),
+            overrideFilters = MutableStateFlow(false),
+            cull = counting,
+            // The sharing coroutine lives as long as the holder; runTest
+            // cancels backgroundScope at the end instead of waiting on it.
+            scope = backgroundScope,
+            now = { 1_000L },
+        )
+        // The compass ticks; nobody is in the viewer.
+        repeat(5) { map.updateBearing(10.0 * it, now = it.toLong()) }
+        testScheduler.advanceUntilIdle()
+        assertEquals(0, culls, "derived with no subscriber")
+
+        // The viewer opens: the value is derived, and follows the compass.
+        val derived = kotlinx.coroutines.withTimeout(5_000) {
+            holder.state.first { it.ring.isNotEmpty() }
+        }
+        assertEquals("a", derived.front?.id)
+        assertTrue(culls >= 1, "not derived for a subscriber")
+        val before = culls
+        val watcher = launch { holder.state.collect {} }
+        testScheduler.runCurrent()
+        map.updateBearing(180.0, now = 99L)
+        testScheduler.advanceUntilIdle()
+        assertTrue(culls > before, "a bearing change did not re-derive (culls=$culls, before=$before)")
+        watcher.cancel()
+    }
 
     /**
      * The original's updateBearingWithPhoto() disables bearing tracking
