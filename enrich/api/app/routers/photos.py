@@ -22,16 +22,52 @@ PANO_EXPR = ("greatest(p.width, p.height)::float / "
              "nullif(least(p.width, p.height), 0) >= 2.0")
 
 
+# the photo's terrain render state, one value: a finished render with a depth
+# artifact wins over anything in flight, which wins over a failure — so the
+# index shows what the terrain/overlay benches can actually use
+TERRAIN_EXPR = ("(SELECT tr.status FROM terrain_renders tr WHERE tr.photo_id = p.id "
+                "ORDER BY (tr.status = 'done' AND tr.depth_path IS NOT NULL) DESC, "
+                "(tr.status IN ('queued', 'rendering')) DESC, tr.enqueued_at DESC "
+                "LIMIT 1)")
+
+
+async def _overlay_states() -> dict[str, str]:
+    """photo_id → 'approved' | 'saved' from hv:terrainOverlayFit facts (rejected
+    ones ignored; approved = graduated/marked for export, saved = a fit exists)."""
+    photo_prefix = graph.photo_iri("")
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?ph ?status WHERE {{
+  GRAPH ?f {{ ?ph hv:terrainOverlayFit ?v }}
+  OPTIONAL {{ GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status ?status }} }}
+}}""")
+    out: dict[str, str] = {}
+    for b in res["results"]["bindings"]:
+        ph = b["ph"]["value"]
+        if not ph.startswith(photo_prefix):
+            continue
+        status = b.get("status", {}).get("value", "")
+        if status.endswith("rejected"):
+            continue
+        pid = ph[len(photo_prefix):]
+        if status.endswith("approved") or pid not in out:
+            out[pid] = "approved" if status.endswith("approved") else "saved"
+    return out
+
+
 @router.get("/photos")
 async def list_photos(q: str | None = None, pano: bool = False,
                       annotated: bool = False, calibrated: bool = False,
+                      terrain: bool = False, overlay: bool = False,
                       page: int = 1):
-    """Photo index: annotation counts + calibrated flags, most-annotated first.
-    Filters: q (title/place/id-prefix), pano (aspect ≥ 2), annotated, calibrated."""
+    """Photo index: annotation counts + calibrated / terrain / overlay flags,
+    most-annotated first. Filters: q (title/place/id-prefix), pano (aspect ≥ 2),
+    annotated, calibrated, terrain (a finished render with depth), overlay (a
+    saved or approved overlay fit)."""
     res = await graph.store.query(f"""{graph.PREFIXES}
 SELECT DISTINCT ?ph WHERE {{ GRAPH ?f {{ ?ph hv:calibratedBearing ?o }} }}""")
     calibrated_ids = {b["ph"]["value"].rsplit("/", 1)[-1]
                       for b in res["results"]["bindings"]}
+    overlays = await _overlay_states()
 
     where = ["p.deleted = false", "p.missing_since IS NULL"]
     params: dict = {"lim": PAGE_SIZE, "off": (max(page, 1) - 1) * PAGE_SIZE}
@@ -44,6 +80,12 @@ SELECT DISTINCT ?ph WHERE {{ GRAPH ?f {{ ?ph hv:calibratedBearing ?o }} }}""")
     if calibrated:
         where.append("p.id = ANY(:cal_ids)")
         params["cal_ids"] = list(calibrated_ids) or [""]
+    if terrain:
+        where.append("EXISTS (SELECT 1 FROM terrain_renders tr WHERE tr.photo_id = p.id "
+                     "AND tr.status = 'done' AND tr.depth_path IS NOT NULL)")
+    if overlay:
+        where.append("p.id = ANY(:ov_ids)")
+        params["ov_ids"] = list(overlays) or [""]
     having = ("HAVING count(a.id) FILTER (WHERE a.is_current AND a.missing_since IS NULL) > 0"
               if annotated else "")
     base = (f"FROM photo_mirror p "
@@ -56,21 +98,26 @@ SELECT DISTINCT ?ph WHERE {{ GRAPH ?f {{ ?ph hv:calibratedBearing ?o }} }}""")
             f"SELECT p.id, p.title, p.place_name, p.width, p.height, "
             f"p.compass_angle, p.sizes, p.uploaded_at, "
             f"count(a.id) FILTER (WHERE a.is_current AND a.missing_since IS NULL) AS n_annotations, "
-            f"({PANO_EXPR}) AS is_pano "
+            f"({PANO_EXPR}) AS is_pano, {TERRAIN_EXPR} AS terrain "
             f"{base} "
             f"ORDER BY n_annotations DESC, p.uploaded_at DESC NULLS LAST "
             f"LIMIT :lim OFFSET :off"), params)).all()
     return {"total": total, "page_size": PAGE_SIZE,
-            "photos": [{**dict(r._mapping), "calibrated": r.id in calibrated_ids}
+            "photos": [{**dict(r._mapping), "calibrated": r.id in calibrated_ids,
+                        "overlay": overlays.get(r.id)}
                        for r in rows]}
 
 
-def _match_row(r, **extra) -> dict:
+def _match_row(r, overrides: dict | None = None, **extra) -> dict:
     """One match_results row for the page, plus stale_rect: whether the annotation
-    has been reshaped since the matcher looked at it. params/ann_target are only
-    carried this far to answer that, so they are dropped from the payload."""
+    has been reshaped since the matcher looked at it (a workbench reshape —
+    approved proposedGeometry, `overrides` — counts as the current rect).
+    params/ann_target are only carried this far to answer that, so they are
+    dropped from the payload."""
+    from ..geometry import apply_rect
     d = dict(r._mapping)
     target, params = d.pop("ann_target", None), d.pop("params", None)
+    target = apply_rect(target, (overrides or {}).get(d.get("annotation_id")))
     d["stale_rect"] = matching.rect_is_stale(params, matching.rect_of_target(target))
     return {**d, **extra}
 
@@ -166,6 +213,9 @@ SELECT ?ann ?rect WHERE {{
                 "x": x, "y": y, "w": ww, "h": hh}
         except (ValueError, KeyError):
             pass
+    # the same proposals as rect tuples, for the match rows' staleness check
+    # (they may reference annotations on other photos, so take them all)
+    proposed_all = {a: (r["x"], r["y"], r["w"], r["h"]) for a, r in proposed_rects.items()}
 
     w, h = photo.width or 0, photo.height or 0
     d = dict(photo._mapping)
@@ -184,7 +234,7 @@ SELECT ?ann ?rect WHERE {{
                          "proposed_rect": proposed_rects.get(a.id)} for a in anns],
         "facts": photo_facts,
         "matches": {
-            "as_pano": [_match_row(r) for r in as_pano],
-            "as_candidate": [_match_row(r, verdict=verdicts.get(r.annotation_id, "none"))
+            "as_pano": [_match_row(r, proposed_all) for r in as_pano],
+            "as_candidate": [_match_row(r, proposed_all, verdict=verdicts.get(r.annotation_id, "none"))
                              for r in as_candidate]},
     }

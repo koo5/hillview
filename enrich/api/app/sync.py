@@ -33,6 +33,7 @@ import sys
 from sqlalchemy import text
 
 from .db import hv_engine, wb_engine
+from . import config
 from .runs import create_run, fail_run, finish_run
 
 BATCH = 1000
@@ -125,8 +126,11 @@ def _params(row, spec) -> dict:
 # the sync pass (non-destructive repair)
 # ---------------------------------------------------------------------------
 
-async def sync_reconcile() -> dict:
+async def sync_reconcile() -> tuple[dict, list[str]]:
+    """→ (per-table stats, ids of annotation_mirror rows inserted/updated by this
+    pass — the derivation set for sync_and_derive)."""
     stats = {}
+    changed_annotations: list[str] = []
     for mirror, spec in SPECS.items():
         # 1. id -> hash maps on both sides
         async with hv_engine.connect() as hv:
@@ -194,7 +198,9 @@ async def sync_reconcile() -> dict:
                      "missing_stamped": len(missing), "reappeared": len(reappeared)})})
         stats[mirror] = {"source_rows": len(src), "changed": len(changed),
                          "missing_stamped": len(missing), "reappeared": len(reappeared)}
-    return stats
+        if native:
+            changed_annotations = list(changed)
+    return stats, changed_annotations
 
 
 # ---------------------------------------------------------------------------
@@ -221,12 +227,52 @@ async def run_sync(mode: str = "sync") -> dict:
     # full of it, and renaming would orphan every past row for no gain
     run_id = await create_run(kind="sync_reconcile")
     try:
-        stats = await sync_reconcile()
+        stats, changed = await sync_reconcile()
+        derive_ids: list[str] = []
+        if config.DERIVE_ON_SYNC and changed:
+            # parse the changed rows right here (local, idempotent, ms per row) so
+            # the sync's own stats say what it derived; geocode is chained by
+            # sync_and_derive after the sync lock is released
+            from .routers.parse import parse_annotations
+            async with wb_engine.connect() as wb:
+                derive_ids = [r[0] for r in (await wb.execute(text(
+                    "SELECT id FROM annotation_mirror WHERE id = ANY(:ids) "
+                    "AND is_current AND missing_since IS NULL"),
+                    {"ids": changed})).all()]
+            if derive_ids:
+                p = await parse_annotations(
+                    "a.id = ANY(:ids)", {"ids": derive_ids}, "sync",
+                    annotation_ids=derive_ids, note=f"after sync {run_id}")
+                stats["derive"] = {"parsed": p["stats"]["annotations"],
+                                   "facts": p["stats"]["facts"],
+                                   "parse_run": p["run_id"]}
         await finish_run(run_id, stats=stats)
-        return {"run_id": str(run_id), "status": "succeeded", "stats": stats}
+        return {"run_id": str(run_id), "status": "succeeded", "stats": stats,
+                "derive_ids": derive_ids}
     except Exception as e:
         await fail_run(run_id, f"{type(e).__name__}: {e}")
         raise
+
+
+async def sync_and_derive(mode: str = "sync") -> dict:
+    """The full pass: sync under the sync lock (parsing the changed rows inside
+    the run), then — lock released, so the dashboard's 'running' means syncing —
+    one scoped geocode run over the same rows, awaited (it queues behind any
+    geocode job in flight). Gate: ENRICH_DERIVE_ON_SYNC. The bulk buttons stay
+    for what sync cannot know about: a PARSER_VERSION bump, catch-up after an
+    orphaned run."""
+    async with sync_lock:
+        result = await run_sync(mode)
+    ids = result.pop("derive_ids", [])
+    if ids:
+        from .routers.geocode import prepare_geocode, execute_geocode
+        geo_run, todo = await prepare_geocode(
+            ids, "sync", note=f"after sync {result['run_id']}")
+        gstats = await execute_geocode(geo_run, todo)
+        result["geocode"] = {"run_id": str(geo_run), "annotations": len(todo),
+                             "candidates": gstats.get("candidates"),
+                             "errors": gstats.get("errors")}
+    return result
 
 
 async def _main(argv: list[str]) -> None:
@@ -234,7 +280,7 @@ async def _main(argv: list[str]) -> None:
     if "append" in argv:
         raise SystemExit(APPEND_GONE)
     print("== sync ==", flush=True)
-    print(await run_sync(), flush=True)
+    print(await sync_and_derive(), flush=True)
 
 
 if __name__ == "__main__":

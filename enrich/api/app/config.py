@@ -16,6 +16,9 @@ HILLVIEW_DB_URL = os.getenv(
 OXIGRAPH_URL = os.getenv("OXIGRAPH_URL", "http://127.0.0.1:7878")
 ARTIFACTS_DIR = os.getenv("ARTIFACTS_DIR", str(Path(__file__).parents[1] / "artifacts"))
 ALLOW_RAW_UPDATE = os.getenv("ENRICH_ALLOW_RAW_UPDATE", "0") in ("1", "true", "yes")
+# after a sync, derive facts for the rows it changed: parse their bodies (local,
+# idempotent) and geocode them (external, paced, cached) — see sync.sync_and_derive
+DERIVE_ON_SYNC = os.getenv("ENRICH_DERIVE_ON_SYNC", "1") in ("1", "true", "yes")
 # schema file(s) applied idempotently at startup (see db.init_schema)
 SCHEMA_DIR = os.getenv("SCHEMA_DIR", str(Path(__file__).parents[2] / "db" / "init"))
 # Workbench web UI, plus the main hillview frontend's origins — its terrain

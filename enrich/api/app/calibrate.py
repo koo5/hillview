@@ -69,6 +69,36 @@ def theil_sen(xs: list[float], ys: list[float]) -> tuple[float, float] | None:
     return a, b
 
 
+def unwrap_deltas(points: list[dict], width, height, prior_fov: float | None = None) -> int:
+    """Δ (candidate azimuth − compass) is stored normalised to −180…180. On a
+    pano whose FOV exceeds 180° with the compass pointing away from the image
+    centre, Δ crosses ±180 INSIDE the image and a straight-line fit sees a 360°
+    jump. Unwrap in place: predict each point from the one nearest x = 0.5
+    using an FOV prior — the pano's accepted calibration when it has one, else
+    the aspect-ratio guess (DEG_PER_ASPECT·2 per unit, 60…360°; crude: a 31:1
+    crop has measured 166° and a 38:1 one 360°) — and add ±360 where the stored
+    Δ is more than 180° from that prediction. Points that don't wrap are
+    untouched (k = 0). → number of points unwrapped."""
+    if len(points) < 2:
+        return 0
+    if not prior_fov:
+        try:
+            aspect = float(width) / float(height)
+        except (TypeError, ZeroDivisionError, ValueError):
+            return 0
+        prior_fov = min(360.0, max(60.0, aspect * DEG_PER_ASPECT * 2))
+    ref = min(points, key=lambda p: abs(p["x"] - 0.5))
+    n = 0
+    for p in points:
+        pred = ref["delta"] + prior_fov * (p["x"] - ref["x"])
+        k = round((pred - p["delta"]) / 360.0)
+        if k:
+            p["delta_raw"] = p["delta"]
+            p["delta"] = p["delta"] + 360.0 * k
+            n += 1
+    return n
+
+
 def fit_summary(points: list[dict], compass: float | None) -> dict | None:
     """points: [{x, delta}] (delta vs compass). → fit params + per-point residuals."""
     if len(points) < 2:
@@ -78,7 +108,7 @@ def fit_summary(points: list[dict], compass: float | None) -> dict | None:
         return None
     a, b = fit
     for p in points:
-        p["residual"] = round(p["delta"] - (a + b * p["x"]), 2)
+        p["residual"] = round(ang_norm(p["delta"] - (a + b * p["x"])), 2)
     rms = math.sqrt(sum(p["residual"] ** 2 for p in points) / len(points))
     centre_bias = a + b * 0.5
     return {
@@ -149,7 +179,7 @@ def fit_piecewise(points: list[dict], compass: float | None,
         return (a + b * c) + (b * (x - c)) / hscale[k] + hwarp[k]
 
     for p in points:
-        p["residual"] = round(p["delta"] - predict(p["x"]), 2)
+        p["residual"] = round(ang_norm(p["delta"] - predict(p["x"])), 2)
     rms = math.sqrt(sum(p["residual"] ** 2 for p in points) / len(points))
     centre_bias = a + b * 0.5
     return {
@@ -212,7 +242,7 @@ def fit_rectilinear(points: list[dict], compass: float | None) -> dict | None:
     sse, x0, k, c = best
     for p in points:
         p["residual"] = round(
-            p["delta"] - (c + math.degrees(math.atan(k * (p["x"] - x0)))), 2)
+            ang_norm(p["delta"] - (c + math.degrees(math.atan(k * (p["x"] - x0))))), 2)
     rms = math.sqrt(sse / len(points))
     fov = math.degrees(math.atan(k * (1 - x0)) - math.atan(k * (0 - x0)))
     centre_bias = c + math.degrees(math.atan(k * (0.5 - x0)))
@@ -229,38 +259,118 @@ def fit_rectilinear(points: list[dict], compass: float | None) -> dict | None:
     }
 
 
+AUTO_TOL_DEG = 20.0   # auto-pick vs a predicted azimuth: max |bearing − predicted|
+DEG_PER_ASPECT = 4.8  # half-FOV guess per unit of aspect ratio: measured panos give
+                      # 253° at 26:1 and 360° at 38:1 → ≈ 9.6° of FOV per unit, half = 4.8
+
+
+def half_window_for(width, height) -> tuple[float, str]:
+    """Compass half-window when nothing better is known: ±TOL_DEG for ordinary
+    photos, widened by the aspect ratio for panos (26:1 → ±125°, 38:1 → ±180°).
+    → (deg, basis text for the UI)."""
+    try:
+        aspect = float(width) / float(height)
+    except (TypeError, ZeroDivisionError, ValueError):
+        return TOL_DEG, f"compass ±{TOL_DEG:.0f}°"
+    half = min(180.0, max(TOL_DEG, aspect * DEG_PER_ASPECT))
+    basis = (f"compass ±{half:.0f}° (widened for the {aspect:.0f}:1 pano)"
+             if half > TOL_DEG else f"compass ±{TOL_DEG:.0f}°")
+    return half, basis
+
+
 def pick_anchor(candidates: list[dict], photo_lon, photo_lat, compass,
-                importance: dict[str, float]) -> tuple[dict | None, str]:
-    """Choose one anchor per annotation. approved > wikipedia > best in-view nominatim
-    (by cached importance, fallback nearest). → (candidate|None, rule)."""
+                importance: dict[str, float], rect_x: float | None = None,
+                predict=None, predict_basis: str = "",
+                half_window: float = TOL_DEG,
+                window_basis: str = "") -> tuple[dict | None, str, str]:
+    """Choose one anchor per annotation and say why. Order: approved > pinned
+    (geo: coordinates the annotator gave) > wikipedia > auto. Auto picks among
+    the Nominatim hits within the distance ceiling: with `predict` (rect_x →
+    expected Δ vs compass, from the pano's calibration or a fit of its trusted
+    anchors) the hit nearest the predicted azimuth wins if within AUTO_TOL_DEG;
+    otherwise the most important hit inside the compass half-window.
+    → (candidate|None, rule, why)."""
     located = [c for c in candidates if c.get("lat") is not None]
     if not located:
-        return None, "none"
+        return None, "none", "no candidate with coordinates"
     approved = [c for c in located if c["status"] == "approved"]
     if approved:
-        return approved[0], "approved"
+        return approved[0], "approved", "approved by the curator"
     nonrejected = [c for c in located if c["status"] != "rejected"]
     if not nonrejected:
-        return None, "all-rejected"
-    # geo: candidates = author/curator-given points (body-embedded coords or map
-    # pins); strongest un-curated signal, above external lookups
-    pinned = [c for c in nonrejected if c["candidate"].startswith("geo:")]
+        return None, "all-rejected", "every candidate was rejected"
+    # a candidate is the annotation's OWN unless it was only borrowed from a
+    # namesake (seeded_from and not own)
+    def borrowed(c):
+        return bool(c.get("seeded_from")) and not c.get("own")
+    # geo: candidates = author/curator-given points (body-embedded coords, a
+    # lat/lon-only hillview link, or map pins); strongest un-curated signal
+    pinned = [c for c in nonrejected if c["candidate"].startswith("geo:") and not borrowed(c)]
     if pinned:
-        return pinned[0], "pinned"
-    wiki = [c for c in nonrejected if "wikipedia.org" in c["candidate"]]
+        return pinned[0], "pinned", "coordinates given by the annotator (body / link / pin)"
+    wiki = [c for c in nonrejected if "wikipedia.org" in c["candidate"] and not borrowed(c)]
     if wiki:
-        return wiki[0], "wikipedia"
-    def in_view(c):
+        return wiki[0], "wikipedia", "coordinates of the linked wikipedia page"
+
+    def db_of(c):
+        return ang_norm(bearing_deg(photo_lon, photo_lat, c["lon"], c["lat"]) - compass)
+
+    # namesake seeds: another annotation's own anchor for the same label / id=
+    # key — trusted above Nominatim, but only if the geometry agrees (a "hl.n."
+    # elsewhere is a different station); generous distance ceiling, the source
+    # annotator vouched for the place
+    seeds = [c for c in nonrejected if borrowed(c)
+             and MIN_KM <= haversine_km(photo_lon, photo_lat, c["lon"], c["lat"]) <= PEAK_KM]
+    if seeds and compass is not None:
+        def src_text(c):
+            s = (c.get("seeded_from") or [{}])[0]
+            what = "their coordinates" if c["candidate"].startswith("geo:") else "their anchor"
+            return f"namesake ‘{s.get('label') or '?'}’ on {s.get('photo_title') or 'another photo'} ({what})"
+        if predict is not None and rect_x is not None:
+            expected = predict(rect_x)
+            best = min(seeds, key=lambda c: abs(ang_norm(db_of(c) - expected)))
+            err = abs(ang_norm(db_of(best) - expected))
+            if err <= AUTO_TOL_DEG:
+                return best, "namesake", (f"{src_text(best)}: off by {err:.0f}° from the azimuth "
+                                          f"predicted for the rect ({predict_basis})")
+        else:
+            inside = [c for c in seeds if abs(db_of(c)) <= half_window]
+            if inside:
+                best = min(inside, key=lambda c: abs(db_of(c)))
+                return best, "namesake", (f"{src_text(best)}: inside "
+                                          f"{window_basis or f'compass ±{half_window:.0f}°'}")
+    pool, too_far = [], 0
+    for c in nonrejected:
         km = haversine_km(photo_lon, photo_lat, c["lon"], c["lat"])
-        if not (MIN_KM <= km <= kind_ceiling(c.get("osmType"))):
-            return False
-        if compass is not None:
-            db = ang_norm(bearing_deg(photo_lon, photo_lat, c["lon"], c["lat"]) - compass)
-            if abs(db) > TOL_DEG:
-                return False
-        return True
-    pool = [c for c in nonrejected if in_view(c)] or []
+        if MIN_KM <= km <= kind_ceiling(c.get("osmType")):
+            pool.append(c)
+        else:
+            too_far += 1
     if not pool:
-        return None, "no-in-view"
-    best = max(pool, key=lambda c: importance.get(c["candidate"], 0.0))
-    return best, "auto"
+        return None, "no-in-view", (f"{len(nonrejected)} Nominatim hit(s), all outside the "
+                                    f"distance ceiling ({NEAR_KM:.0f} km places / "
+                                    f"{PEAK_KM:.0f} km peaks)")
+    if compass is None:
+        best = max(pool, key=lambda c: importance.get(c["candidate"], 0.0))
+        return best, "auto", f"most important of {len(pool)} hit(s); photo has no compass"
+    if predict is not None and rect_x is not None:
+        expected = predict(rect_x)
+        scored = sorted(pool, key=lambda c: abs(ang_norm(db_of(c) - expected)))
+        best, err = scored[0], abs(ang_norm(db_of(scored[0]) - expected))
+        if err <= AUTO_TOL_DEG:
+            return best, "auto", (f"nearest to the azimuth predicted for the rect "
+                                  f"({predict_basis}): off by {err:.0f}°"
+                                  + (f", {len(pool) - 1} other hit(s) further off"
+                                     if len(pool) > 1 else ""))
+        return None, "no-in-view", (f"{len(pool)} hit(s) within distance, but the closest is "
+                                    f"{err:.0f}° from the azimuth predicted for the rect "
+                                    f"({predict_basis}; limit {AUTO_TOL_DEG:.0f}°)")
+    inside = [c for c in pool if abs(db_of(c)) <= half_window]
+    basis = window_basis or f"compass ±{half_window:.0f}°"
+    if not inside:
+        return None, "no-in-view", f"{len(pool)} hit(s) within distance but none inside {basis}"
+    best = max(inside, key=lambda c: importance.get(c["candidate"], 0.0))
+    why = f"most important of {len(inside)} hit(s) inside {basis}"
+    if too_far:
+        why += f"; {too_far} beyond the distance ceiling"
+    return best, "auto", why

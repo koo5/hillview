@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { api, ApiError } from '$lib/api';
 	import { localStorageSharedStore } from '$lib/svelte-shared-store';
 	import type { AnnotationList, AnnotationRow, CandidatesResponse } from '$lib/types';
@@ -42,10 +42,50 @@
 		if (sel) cands = await api.get<CandidatesResponse>(`/annotations/${sel.id}/candidates`);
 	}
 
+	// the runner's live state (GET /geocode/status): polled while a job runs,
+	// whoever started it — this button, the calibration bench, or a sync
+	interface GeoRun {
+		id: string;
+		status: string;
+		note: string | null;
+		started_at: string;
+		finished_at: string | null;
+		error: string | null;
+		stats: {
+			annotations?: number; done?: number; candidates?: number; wiki_hits?: number; errors?: number;
+			current?: { annotation_id: string; label: string | null; wiki: boolean; coords: boolean } | null;
+			recent?: { annotation_id: string; label: string | null; hits: number; wiki: boolean; wiki_tried: boolean; pin: boolean }[];
+			error_detail?: { annotation_id: string; label: string | null; error: string }[];
+		} | null;
+	}
+	let geo = $state<{ running: boolean; run: GeoRun | null } | null>(null);
+	let geoTimer: ReturnType<typeof setTimeout> | null = null;
+	async function pollGeo() {
+		try {
+			const g = await api.get<{ running: boolean; run: GeoRun | null }>('/geocode/status');
+			const wasRunning = geo?.running;
+			geo = g;
+			// fast while a job runs; slow otherwise, so a run started elsewhere
+			// (sync, calibration bench, curl) still shows up here
+			if (geoTimer) clearTimeout(geoTimer);
+			geoTimer = setTimeout(pollGeo, g.running ? 2000 : 10000);
+			if (!g.running && wasRunning) {
+				// a run just finished under us — refresh what we are looking at
+				if (sel) await reloadCands();
+				await load();
+			}
+		} catch {
+			/* status is advisory */
+		}
+	}
+	onMount(pollGeo);
+	onDestroy(() => geoTimer && clearTimeout(geoTimer));
+
 	async function runGeocode() {
 		running = true;
 		try {
 			await api.post('/geocode/run', { scope: 'all-current' });
+			await pollGeo();
 		} catch (e) {
 			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
 		} finally {
@@ -116,11 +156,52 @@
 	</Help>
 </div>
 <p class="muted">
-	Nominatim/Wikipedia candidates per label. Approve the right one — it becomes the anchor.
+	Nominatim/Wikipedia candidates per label, plus locations borrowed from <b>namesake</b>
+	annotations (same label or id= key on another photo). Approve the right one — it becomes the anchor.
 	Blue dot = photo, dashed ray = its bearing.
 </p>
 
 {#if err}<div class="card" style="border-color:var(--bad)">{err}</div>{/if}
+
+{#if geo?.run}
+	{@const r = geo.run}
+	{@const st = r.stats ?? {}}
+	<div class="card" style="font-size:12px; margin-bottom:10px" data-testid="geocode-runner">
+		<div class="row" style="gap:10px; align-items:baseline">
+			<b>geocode runner</b>
+			<span class="pill {geo.running ? 'running' : r.status === 'succeeded' ? 'ok' : 'bad'}">{geo.running ? 'running' : r.status}</span>
+			<span class="mono muted" style="font-size:11px">{r.id.slice(0, 8)}</span>
+			{#if r.note}<span class="muted">{r.note}</span>{/if}
+			<div style="flex:1"></div>
+			<span class="mono">{st.done ?? 0}/{st.annotations ?? '?'}</span>
+			<span class="muted">· {st.candidates ?? 0} candidates · {st.wiki_hits ?? 0} wiki · {st.errors ?? 0} errors</span>
+		</div>
+		{#if geo.running && st.annotations}
+			<div style="height:4px; background:var(--panel2); border-radius:2px; margin:6px 0">
+				<div style="height:4px; width:{Math.round(100 * (st.done ?? 0) / st.annotations)}%; background:var(--accent); border-radius:2px"></div>
+			</div>
+		{/if}
+		{#if geo.running && st.current}
+			<div class="muted">now: <a href="/annotations/{st.current.annotation_id}">{st.current.label ?? '(no label)'}</a>{st.current.wiki ? ' · wiki' : ''}{st.current.coords ? ' · pin' : ''}</div>
+		{/if}
+		{#if st.recent?.length}
+			<div class="muted" style="margin-top:4px">
+				recent:
+				{#each st.recent as o (o.annotation_id)}
+					<a href="/annotations/{o.annotation_id}" title={`${o.hits} nominatim hit(s)${o.wiki_tried ? (o.wiki ? ', wiki coords found' : ', wiki page has no coords') : ''}${o.pin ? ', body coords → pin' : ''}`}
+						>{o.label ?? '(wiki)'}</a
+					><span class="mono" style="font-size:10px"> {o.hits}{o.wiki ? 'w' : ''}{o.pin ? 'p' : ''}</span>{' '}
+				{/each}
+			</div>
+		{/if}
+		{#if st.error_detail?.length}
+			<div style="color:var(--bad); margin-top:4px">
+				{#each st.error_detail as e (e.annotation_id)}<div>{e.label}: {e.error}</div>{/each}
+			</div>
+		{/if}
+		{#if r.error}<div style="color:var(--bad)">{r.error}</div>{/if}
+	</div>
+{/if}
 
 <div class="row" style="align-items:flex-start; gap:18px">
 	<div style="flex:0 0 380px">
@@ -131,8 +212,8 @@
 				onchange={(e) => ($q = (e.target as HTMLInputElement).value)}
 				style="flex:1"
 			/>
-			<button onclick={runGeocode} disabled={running} title="geocode all current labels">
-				{running ? '…' : '⟳ run geocode'}
+			<button onclick={runGeocode} disabled={running || !!geo?.running} title="geocode all current labels (Nominatim per label, biased to a ~200 km box around the photo; wikipedia coords; pins from body coords)">
+				{running || geo?.running ? '⟳ running…' : '⟳ run geocode'}
 			</button>
 		</div>
 		<table>

@@ -18,6 +18,30 @@
 	let offset = $state(0);
 	const LIMIT = 50;
 
+	// bulk parse: every current annotation body → facts (local, content-
+	// addressed, idempotent — re-running is free; curation survives). Sync
+	// parses + geocodes the rows it changed by itself; this is the catch-up for
+	// a parser version bump or an orphaned run.
+	let parsing = $state(false);
+	let parseMsg = $state<string | null>(null);
+	async function parseAll() {
+		parsing = true;
+		parseMsg = null;
+		try {
+			const r = await api.post<{ run_id: string; stats: Record<string, number> }>('/parse/run', {
+				scope: 'all-current',
+				note: 'from annotations bench'
+			});
+			const st = r.stats;
+			parseMsg = `parsed ${st.annotations} annotations → ${st.facts} facts (${st.with_coords} with coords, ${st.with_wiki} with wiki, ${st.unnamed} unnamed)`;
+			await load();
+		} catch (e) {
+			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+		} finally {
+			parsing = false;
+		}
+	}
+
 	async function load() {
 		loading = true;
 		try {
@@ -54,6 +78,9 @@
 		<h4>what this page does</h4>
 		<p>
 			The mirrored annotations with the facts the parser extracted from each body.
+			<b>⟳ parse all</b> (top right) runs that parser in bulk. Sync already parses and
+			geocodes the annotations it changed; the bulk buttons are for a parser upgrade
+			(re-parse everything) or catch-up after an orphaned run.
 			Bodies are pipe-separated (<span class="mono">name|wiki-url|…</span>); the parser
 			worker turns them into RDF facts (labelText, wikipediaUrl, …), each stored as its
 			own content-addressed graph with proposed/approved/rejected curation status.
@@ -107,7 +134,15 @@
 	{#if loading}<span class="muted">loading…</span>{/if}
 	<div style="flex:1"></div>
 	<span class="muted">{data ? `${data.total} annotations` : ''}</span>
+	<button
+		data-testid="parse-all"
+		onclick={parseAll}
+		disabled={parsing}
+		title="run the body parser over every current annotation (local, idempotent) — sync already parses + geocodes what it changed; use this after a parser upgrade or an orphaned run">
+		{parsing ? 'parsing…' : '⟳ parse all'}
+	</button>
 </div>
+{#if parseMsg}<p class="muted" style="font-size:12px; margin:4px 0">{parseMsg} — next: <a href="/geocode">⟳ run geocode</a> to mint anchor candidates from the new labels/coords</p>{/if}
 
 {#if err}<div class="card" style="border-color:var(--bad)">{err}</div>{/if}
 
