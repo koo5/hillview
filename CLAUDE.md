@@ -113,6 +113,7 @@ Each subdirectory has its own `CLAUDE.md` with detailed instructions:
 - **[Native Android Auth](docs/native-auth.md)**: Credential Manager + Google ID-token login — concepts, security reasoning, and where everything lives
 - **[Photo sources: independent loading](docs/sources-loading.md)**: the one contract all three marker pipelines follow — concurrent per-source loads, publish-on-arrival, deterministic cross-source cull, throttle policy — and how to test it (manual streams in the worker harness, the `hillview_stream`/`mapillary_stream` debug delay, the Panoramax route mock)
 - **[Zoom view print view](docs/zoomview-print.md)**: ⋮ → Print view + Ctrl+P — share-link QR in the middle, why the viewer freezes instead of re-rendering at print time, the replaced-element canvas gotcha
+- **[Panoramax Federation](docs/panoramax-federation.md)**: The `backend/panoramax/` read API + sequencer serving CC photos to the Panoramax federation (harvester contract, deployment, registration)
 
 ## Common Issues & Solutions
 
