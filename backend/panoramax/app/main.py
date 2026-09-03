@@ -39,8 +39,11 @@ app = FastAPI(
 
 @app.on_event('startup')
 async def _startup() -> None:
+	# always build the engine here, sequencer or not: it fails fast at boot on
+	# an empty DATABASE_URL password instead of on the first request
+	engine = get_engine()
 	if settings.sequencer_enabled():
-		app.state.sequencer_task = asyncio.create_task(sequencer.loop(get_engine()))
+		app.state.sequencer_task = asyncio.create_task(sequencer.loop(engine))
 
 
 @app.on_event('shutdown')

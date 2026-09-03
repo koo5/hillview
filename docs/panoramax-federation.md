@@ -276,7 +276,11 @@ the bucket's CORS policy before any CC photo is written to that pool.
 ## Deployment
 
 1. Set in `.env`: `PANORAMAX_DB_PASSWORD=<secret>`, and for prod
-   `PANORAMAX_BASE_URL=https://cc.geovisio.hillview.cz`.
+   `PANORAMAX_BASE_URL=https://cc.geovisio.hillview.cz`. Leaving the password
+   empty (the compose default — it can't be `:?`-required, since compose
+   interpolates before applying profiles and would then break every command
+   for everyone) makes the container exit at boot with a message naming the
+   variable; same for an unknown `PANORAMAX_SCOPE`.
 2. Role: fresh clusters get `panoramax_ro` from initdb automatically; existing
    deployments run `./backend/scripts/provision_panoramax_role.sh` (after the
    api container has applied migration 033 — grants reference the schema).

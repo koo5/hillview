@@ -31,8 +31,21 @@ SCOPES = {
 }
 
 
+def _validated_scope_id(value: str) -> str:
+	if value not in SCOPES:
+		raise SystemExit(
+			f"unknown PANORAMAX_SCOPE {value!r}; allowed: {', '.join(sorted(SCOPES))}")
+	return value
+
+
 def active_scope() -> Scope:
-	return SCOPES[os.getenv('PANORAMAX_SCOPE', 'cc')]
+	return SCOPES[_validated_scope_id(os.getenv('PANORAMAX_SCOPE', 'cc'))]
+
+
+# Fail at import (= container boot), not on the first request: a typo'd scope
+# would otherwise leave a healthy-looking container that 500s every endpoint
+# and dumps a KeyError per sequencer pass.
+_validated_scope_id(os.getenv('PANORAMAX_SCOPE', 'cc'))
 
 
 def base_url() -> str:

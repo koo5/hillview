@@ -26,10 +26,13 @@ export const ownPanoramaxInstanceUrls = parseUrlList(
 	import.meta.env.VITE_OWN_PANORAMAX_INSTANCE_URLS,
 	['https://panoramax.hillview.cz']
 );
+// Trailing slash enforced: these are matched with startsWith(), so a bare-host
+// override like "https://pics.hillview.cz" would also match
+// "https://pics.hillview.cz.evil.example/…" and hide a foreign photo.
 export const ownPhotoAssetUrlPrefixes = parseUrlList(
 	import.meta.env.VITE_OWN_PHOTO_ASSET_URL_PREFIXES,
 	['https://pics.hillview.cz/', 'https://pics2.hillview.cz/', 'https://pics4.t3.storage.dev/']
-);
+).map((p) => (p.endsWith('/') ? p : p + '/'));
 
 // Re-export constants for app use
 export { MAX_DEBUG_MODES } from './constants';

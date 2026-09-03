@@ -48,7 +48,18 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$(readlink -f -- "$0")")/../../.." && pwd)"
 META_CATALOG="${META_CATALOG:-/home/koom/repos/panoramax/server/meta-catalog/0/meta-catalog}"
+# Throwaway state (harvester venv, load summary, photo ids). Survives runs so
+# the venv is only built once; safe to rm -rf.
 WORK_DIR="${WORK_DIR:-${TMPDIR:-/tmp}/panoramax-e2e}"
+# The CATALOG's OWN postgres, not hillview's. Everything in this URL is
+# hardcoded in $META_CATALOG/docker-compose.yml: user `username`, password
+# `password`, db `panoramax`, and host port 5439 (mapped from the container's
+# 5432). Two classic ways to fail to connect to it by hand:
+#   - the stack is down — this script starts it in step 3 and STOPS it at the
+#     end unless --keep-up; restart with
+#       docker compose -f "$META_CATALOG/docker-compose.yml" up -d database migrations
+#   - using port 5432 — on this box localhost:5432 is the HILLVIEW postgres,
+#     which refuses these credentials
 CATALOG_DB='postgresql://username:password@localhost:5439/panoramax'
 INSTANCE_NAME="${INSTANCE_NAME:-hillview-e2e}"
 PANORAMAX_URL="${PANORAMAX_URL:-http://localhost:8058}"
@@ -86,9 +97,20 @@ assert_eq() {  # assert_eq <actual> <expected> <what>
 	[ "$1" = "$2" ] && ok "$3 = $1" || fail "$3: expected $2, got $1"
 }
 
+# psql into the two databases: hv_psql = hillview's postgres (photos, users,
+# panoramax.* schema), cat_psql = the meta-catalog's postgres (what the
+# harvester writes: collections, items, deleted_items, harvests, ...).
 hv_psql()  { docker exec hillview_postgres psql -U "${POSTGRES_USER:-hillview}" -d "${POSTGRES_DB:-hillview}" -tA -c "$1"; }
 cat_psql() { docker exec meta-catalog-database-1 psql -U username -d panoramax -tA -c "$1"; }
+# The harvester CLI from the meta-catalog checkout, installed into
+# $WORK_DIR/venv in step 3. NOTE the trailing --db: the CLI does NOT default
+# to our catalog URL, so running it by hand without --db is the usual reason
+# it "can't connect to its db". By-hand equivalent of what this script runs:
+#   /tmp/panoramax-e2e/venv/bin/stac-harvester harvest hillview-e2e \
+#       --incremental-harvest --db 'postgresql://username:password@localhost:5439/panoramax'
 harvester() { "$WORK_DIR/venv/bin/stac-harvester" "$@" --db "$CATALOG_DB"; }
+# One synthesis pass inside the panoramax container (the same code the
+# in-container loop runs every PANORAMAX_SEQUENCER_INTERVAL_S seconds).
 sequencer() { docker exec hillview_panoramax python /app/app/sequencer.py --once 2>&1 | tail -1; }
 
 # Collections whose harvest failed. This is the check that matters most: the
@@ -176,6 +198,9 @@ TOTAL_PHOTOS=$(hv_psql "SELECT count(*) FROM panoramax.sequence_photos")
 ok "$TOTAL_SEQ ready sequences / $TOTAL_PHOTOS memberships"
 
 step "3/8  meta-catalog stack + harvester"
+# Only `database` (postgres on :5439) + `migrations` (one-shot schema setup,
+# exits 0 when done) are needed — the harvester runs as a local CLI, not as a
+# catalog-stack service, and the catalog's rust API container isn't used here.
 docker compose -f "$META_CATALOG/docker-compose.yml" up -d database migrations >/dev/null 2>&1
 until docker exec meta-catalog-database-1 pg_isready -U username -d panoramax >/dev/null 2>&1; do sleep 2; done
 until [ "$(cat_psql "SELECT to_regclass('public.instances') IS NOT NULL")" = "t" ]; do sleep 2; done
