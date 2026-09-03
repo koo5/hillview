@@ -26,8 +26,8 @@ creation (panoramax_ro is provisioning/initdb territory, not alembic — see
 docker/postgres/). Grants ARE applied here, guarded on the role's existence,
 because on a fresh cluster the schema doesn't exist yet at initdb time.
 
-Revision ID: 030_add_panoramax_schema
-Revises: 029_share_links
+Revision ID: 033_add_panoramax_schema
+Revises: 032_photo_pitch
 Create Date: 2026-08-05
 
 """
@@ -36,8 +36,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = '030_add_panoramax_schema'
-down_revision: Union[str, None] = '029_share_links'
+revision: str = '033_add_panoramax_schema'
+down_revision: Union[str, None] = '032_photo_pitch'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -84,6 +84,28 @@ def upgrade() -> None:
         ON panoramax.sequence_photos (sequence_id, rank)
     """)
 
+    # The last sequence each departed photo belonged to, maintained by the
+    # membership trigger (upsert on leave, delete on return). The sequencer
+    # counts these as identity overlap (live membership wins), so a sequence
+    # emptied by a deactivation / licence flip / flag revives under its OWN
+    # id when the photos become eligible again, instead of minting a new
+    # collection uuid the catalog would drop and re-harvest. photo_id is the
+    # PK: one "last sequence" per photo, no ambiguity when a photo moves A->B
+    # and then leaves B. No FK to photos: rows are written from inside the
+    # cascade of a photos hard-delete, where the parent is already gone (the
+    # trigger skips those, so dead rows don't accumulate either).
+    op.execute("""
+        CREATE TABLE panoramax.departed_photos (
+            photo_id VARCHAR PRIMARY KEY,
+            sequence_id UUID NOT NULL REFERENCES panoramax.sequences(id) ON DELETE CASCADE,
+            departed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
+    op.execute("""
+        CREATE INDEX ix_panoramax_departed_photos_seq
+        ON panoramax.departed_photos (sequence_id)
+    """)
+
     # Any change to a member photo that alters what the federation sees
     # (visibility, license, position, heading, capture time, derivatives,
     # title/description, processing state, soft-delete) bumps the owning
@@ -127,16 +149,30 @@ def upgrade() -> None:
         BEGIN
             IF TG_OP IN ('INSERT', 'UPDATE') THEN
                 -- a sequence gaining a member is live by definition: revive
-                -- tombstones the sequencer repopulates, and bump updated_at
+                -- tombstones the sequencer repopulates, and bump updated_at;
+                -- a returning photo is no longer departed
                 UPDATE panoramax.sequences
                 SET updated_at = now(), status = 'ready'
                 WHERE id = NEW.sequence_id;
+                DELETE FROM panoramax.departed_photos WHERE photo_id = NEW.photo_id;
             END IF;
             IF TG_OP IN ('UPDATE', 'DELETE')
                AND (TG_OP = 'DELETE' OR OLD.sequence_id IS DISTINCT FROM NEW.sequence_id) THEN
                 UPDATE panoramax.sequences
                 SET updated_at = now()
                 WHERE id = OLD.sequence_id;
+                -- remember where the photo came from, unless this delete is the
+                -- cascade of the photo itself being hard-deleted (it can never
+                -- return) or of the sequence being hard-deleted (test cleanup;
+                -- production only tombstones) — in both cases the parent row
+                -- is already gone and the insert would violate its FK
+                IF EXISTS (SELECT 1 FROM photos WHERE id = OLD.photo_id)
+                   AND EXISTS (SELECT 1 FROM panoramax.sequences WHERE id = OLD.sequence_id) THEN
+                    INSERT INTO panoramax.departed_photos (photo_id, sequence_id, departed_at)
+                    VALUES (OLD.photo_id, OLD.sequence_id, now())
+                    ON CONFLICT (photo_id) DO UPDATE
+                        SET sequence_id = EXCLUDED.sequence_id, departed_at = EXCLUDED.departed_at;
+                END IF;
                 UPDATE panoramax.sequences s
                 SET status = 'deleted', updated_at = now()
                 WHERE s.id = OLD.sequence_id
@@ -169,7 +205,8 @@ def upgrade() -> None:
                     TO panoramax_ro;
                 GRANT USAGE ON SCHEMA panoramax TO panoramax_ro;
                 GRANT SELECT, INSERT, UPDATE, DELETE
-                    ON panoramax.sequences, panoramax.sequence_photos TO panoramax_ro;
+                    ON panoramax.sequences, panoramax.sequence_photos,
+                       panoramax.departed_photos TO panoramax_ro;
             END IF;
         END $$;
     """)
@@ -180,6 +217,7 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION IF EXISTS panoramax.bump_sequence_on_photo_change()")
     op.execute("DROP TRIGGER IF EXISTS panoramax_membership_trg ON panoramax.sequence_photos")
     op.execute("DROP FUNCTION IF EXISTS panoramax.bump_sequence_on_membership()")
+    op.execute("DROP TABLE IF EXISTS panoramax.departed_photos")
     op.execute("DROP TABLE IF EXISTS panoramax.sequence_photos")
     op.execute("DROP TABLE IF EXISTS panoramax.sequences")
     op.execute("DROP SCHEMA IF EXISTS panoramax")

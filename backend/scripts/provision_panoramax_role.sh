@@ -6,7 +6,7 @@
 # exported):
 #     ./backend/scripts/provision_panoramax_role.sh
 #
-# Must run AFTER migration 030_add_panoramax_schema (the grants reference the
+# Must run AFTER migration 033_add_panoramax_schema (the grants reference the
 # panoramax schema). Migration 030 also applies these grants itself when the
 # role already exists, so on fresh clusters this script is unnecessary.
 set -euo pipefail
@@ -44,7 +44,8 @@ GRANT USAGE ON SCHEMA public TO panoramax_ro;
 GRANT SELECT ON photos, users, photo_ratings, flagged_photos TO panoramax_ro;
 GRANT USAGE ON SCHEMA panoramax TO panoramax_ro;
 GRANT SELECT, INSERT, UPDATE, DELETE
-    ON panoramax.sequences, panoramax.sequence_photos TO panoramax_ro;
+    ON panoramax.sequences, panoramax.sequence_photos,
+       panoramax.departed_photos TO panoramax_ro;
 EOSQL
 
 echo "panoramax_ro provisioned."

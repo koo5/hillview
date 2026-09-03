@@ -7,7 +7,7 @@ set -e
 #
 # Only the role is created here: the panoramax schema and the photos/users
 # tables don't exist yet at cluster-init time. The actual grants live in
-# alembic migration 030_add_panoramax_schema, which applies them iff this role
+# alembic migration 033_add_panoramax_schema, which applies them iff this role
 # exists — and it will, because the api container runs migrations after
 # postgres is up.
 #

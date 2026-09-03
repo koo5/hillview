@@ -21,6 +21,11 @@ diff makes the recompute idempotent anyway. Stability rules:
   merge) loses its membership rows; the membership trigger tombstones it
   (status='deleted'). Tombstones are never hard-deleted and revive if the
   sequencer repopulates them.
+- Revival actually finds the tombstone: the membership trigger records the
+  last sequence of every departed photo in panoramax.departed_photos, and
+  identity overlap counts those too (live membership wins). So a user deactivated and reactivated, or a photo flagged
+  and un-flagged, comes back under the same collection uuid instead of a new
+  one the catalog would have to drop and re-harvest.
 """
 import argparse
 import asyncio
@@ -107,6 +112,17 @@ def assign_sequence_ids(
 	return result
 
 
+def identity_map(
+	live: dict[str, str], former: dict[str, str],
+) -> dict[str, str]:
+	"""photo -> sequence used for overlap counting: live membership first,
+	then the sequence a photo last belonged to (departed_photos), so an
+	emptied sequence can be recognised when its photos come back."""
+	merged = dict(former)
+	merged.update(live)
+	return merged
+
+
 def desired_memberships(
 	assigned_sessions: list[tuple[str, list[PhotoStub]]],
 ) -> list[Membership]:
@@ -156,8 +172,17 @@ async def run_once(engine: AsyncEngine, scope: Scope | None = None, gap: timedel
 		"""), {'scope': scope.id})).all()
 		current = [Membership(photo_id=r[0], sequence_id=str(r[1]), rank=r[2]) for r in rows]
 
-		existing_seq_ids = {m.sequence_id for m in current}
-		existing_seq_of_photo = {m.photo_id: m.sequence_id for m in current}
+		rows = (await conn.execute(text("""
+			SELECT d.photo_id, d.sequence_id
+			FROM panoramax.departed_photos d
+			JOIN panoramax.sequences s ON s.id = d.sequence_id
+			WHERE s.scope = :scope
+		"""), {'scope': scope.id})).all()
+		former_seq_of_photo = {r[0]: str(r[1]) for r in rows}
+
+		existing_seq_ids = {m.sequence_id for m in current} | set(former_seq_of_photo.values())
+		existing_seq_of_photo = identity_map(
+			{m.photo_id: m.sequence_id for m in current}, former_seq_of_photo)
 
 		# per-owner sessions -> globally desired memberships
 		desired: list[Membership] = []

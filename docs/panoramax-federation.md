@@ -10,7 +10,7 @@ shared Panoramax map alongside every other instance's.
 | Piece | Where | What it does |
 |---|---|---|
 | Read API + sequencer | `backend/panoramax/` | FastAPI container serving `/api/configuration`, `/api/collections`, `/api/collections/{id}/items`; an in-process sequencer synthesizes sequences |
-| DB schema | migration `030_add_panoramax_schema` | `panoramax.sequences` + `panoramax.sequence_photos` + triggers on `photos`/membership |
+| DB schema | migration `033_add_panoramax_schema` | `panoramax.sequences` + `panoramax.sequence_photos` + triggers on `photos`/membership |
 | DB role | `docker/postgres/initdb.d/create-panoramax-role.sh` (fresh clusters) / `backend/scripts/provision_panoramax_role.sh` (existing) | `panoramax_ro`: SELECT on `photos`/`users`/`photo_ratings`/`flagged_photos`, read-write on the `panoramax` schema only |
 | Compose service | `docker-compose.yml`, profile `panoramax`, port 127.0.0.1:8058 | `docker compose --profile panoramax up -d --build panoramax` |
 | Frontend self-dedup | `PanoramaxSourceLoader.ts` (`isOwnInstanceItem`) | drops our own photos when they come back through the meta-catalog |
@@ -168,6 +168,16 @@ Lifecycle invariants:
   (photos have no updated-at column to drive anything cheaper); an unchanged
   owner produces zero writes, so `updated_at` only moves on real change.
   Session→sequence identity: keep the UUID of the sequence you overlap most.
+- **Tombstones revive under their own id.** Live membership alone can't do
+  that — an emptied sequence has no membership rows left to overlap with — so
+  the membership trigger keeps `panoramax.departed_photos` (the last
+  sequence of every photo that left and hasn't returned; `photo_id` is the
+  PK, rows skipped for hard-deleted photos) and the sequencer counts those as
+  overlap too, live membership winning. A user deactivated and reactivated, a licence flipped
+  and flipped back, a single-photo sequence flagged and cleared: all come back
+  as the *same* collection uuid, which the catalog re-harvests in place
+  instead of drop-and-reimport under a new id. Found by the heavy e2e mode
+  (the light run only ever restored a photo into a still-live sequence).
 
 ## Meta-catalog harvester contract (verified against its source)
 
@@ -269,9 +279,16 @@ the bucket's CORS policy before any CC photo is written to that pool.
    `PANORAMAX_BASE_URL=https://cc.geovisio.hillview.cz`.
 2. Role: fresh clusters get `panoramax_ro` from initdb automatically; existing
    deployments run `./backend/scripts/provision_panoramax_role.sh` (after the
-   api container has applied migration 030 — grants reference the schema).
+   api container has applied migration 033 — grants reference the schema).
 3. `docker compose --profile panoramax up -d --build panoramax` (dev:
    `./compose.sh --profile panoramax up -d --build panoramax`).
+   On the dev box the service is reachable at
+   `https://hv.dev4-2.jj.internal/geovisio/api/…`: the vhost snippet has
+   `handle_path /geovisio/* { reverse_proxy localhost:8058 }` and `.env.dev`
+   sets `PANORAMAX_BASE_URL=https://hv.dev4-2.jj.internal/geovisio` so
+   self/next links round-trip through Caddy. (Editing the bind-mounted
+   Caddyfile replaces its inode; `caddy reload` then still reads the old
+   file — recreate the caddy container.)
 4. Caddy vhost (lives outside the repo, `~/caddy/Caddyfile` on the VM). See the
    naming section for the `rstrip("/api")` caveat — any `*.hillview.cz` host is
    safe:
@@ -355,8 +372,11 @@ End-to-end against the **real harvester**, fully scripted:
 
 ```bash
 ./backend/panoramax/scripts/e2e_federation.sh            # full run
+./backend/panoramax/scripts/e2e_federation.sh --heavy    # + production-shaped 50k-photo corpus
 ./backend/panoramax/scripts/e2e_federation.sh --no-seed  # reuse existing photos
 ./backend/panoramax/scripts/e2e_federation.sh --keep-up  # leave the catalog running
+./backend/panoramax/scripts/e2e_federation.sh --keep-load     # --heavy: leave the corpus in the DB
+./backend/panoramax/scripts/e2e_federation.sh --cleanup-load  # remove a kept corpus
 ./backend/panoramax/scripts/e2e_federation.sh --down     # tear the catalog down
 ```
 
@@ -372,6 +392,28 @@ via incremental harvest, deletion propagation into `deleted_items`, sequence
 tombstoning plus tombstone visibility through the CQL status filter, restore,
 and pystac validation.
 
+**Heavy mode** (`--heavy`; `LOAD_PHOTOS=50000 LOAD_USERS=40 LOAD_YEARS=3
+LOAD_SEED=1` to tune) adds a production-shaped corpus written straight into
+the DB by `scripts/generate_load.py` — the worker path is skipped because 50k
+photos through YOLO and derivative generation is a day's work, and everything
+the federation service reads is a database row anyway. The corpus has
+heavy-tailed users with home areas, sessions ranging from singles to walks of
+hundreds of photos over the span, second-to-minute gaps and a random-walk
+track inside a session, inter-session gaps always > 2× the split threshold
+(so the expected sequence count is exact), and ~10% ineligible rows of every
+kind the eligibility filter knows (ARR, private, soft-deleted, failed,
+thumbs-down, flagged) plus one inactive and one test user. On top of the
+light phases it asserts: sequencer output equals the generator's independent
+expectation (sequences, memberships, singles, nothing for the excluded users)
+and a second pass changes nothing; every `/api/collections` page and every
+`/items` page of the largest sequence walks cleanly with no duplicates and
+strictly increasing ranks; 200 random edits across users make the `updated`
+filter return exactly the touched sequences and land in the catalog after one
+incremental harvest; deactivating the heaviest user tombstones all their
+sequences, the catalog drops them, and reactivating revives the **same**
+uuids. It prints timings for the sequencer passes, harvests and page
+latencies, and removes the corpus at the end unless `--keep-load`.
+
 Two things it does that are worth knowing: it points the seeder straight at
 `localhost:8056` (the API advertises the deployment's public `WORKER_URL`,
 which may not resolve locally), and it clears `users.is_test` on the seeded
@@ -383,24 +425,44 @@ without it the API mints ephemeral keys and the worker 401s every upload),
 `backend/worker/.env`, plus `backend/worker/models/` (~48 MB of YOLO weights,
 needed to build the worker image).
 
-## State of play (2026-08-07)
+## State of play (2026-08-28)
 
-Built, tested and verified end-to-end against the real harvester; **not yet
-committed** (branch `enrich`) and **not yet deployed or registered**.
+Built and verified end-to-end against the real harvester in both e2e modes;
+committed on branch `enrich` (`3ce4880b`) except the later changes listed
+below; **not yet deployed or registered**.
 
-Verified working: migration 030 applies; 117 sequences / 23,961 memberships
-synthesized from real dev data; full harvest of 120 collections / 23,973 items
-with zero harvest errors; incremental harvest picks up exactly the
-trigger-bumped collection; soft-delete propagates to `deleted_items`; emptied
-sequences tombstone and stay listable through the CQL status filter; restore
-round-trips; pystac validates both shapes; 59 backend + 26 frontend unit tests
-pass. The `panoramax_ro` role was probed directly: `UPDATE`/`DELETE` on
-`photos` and `users` are denied, writes succeed only inside the `panoramax`
-schema.
+Verified working (light mode, real dev data at the time): full harvest of 120
+collections / 23,973 items with zero harvest errors; incremental harvest picks
+up exactly the trigger-bumped collection; soft-delete propagates to
+`deleted_items`; emptied sequences tombstone, stay listable through the CQL
+status filter and **revive under the same uuid**; restore round-trips; pystac
+validates both shapes. The `panoramax_ro` role was probed directly:
+`UPDATE`/`DELETE` on `photos` and `users` are denied, writes succeed only
+inside the `panoramax` schema.
+
+Verified at scale (heavy mode, 2026-08-28: 50,000 generated photos, 40 users,
+3 years, 44,704 eligible, 1,783 expected sequences incl. 624 singles, largest
+543 photos): sequencer matches the independent expectation exactly and a
+second pass writes nothing; full harvest of 1,786 collections / 44,716 items
+with zero errors in **28 s**; sequencer full pass **18 s**, no-op pass 1.7 s;
+collections page (100) avg 24 ms, items page avg 10 ms; 200 random edits →
+`updated` filter returns exactly the 150 touched sequences → one incremental
+harvest (5.6 s) lands all 200; deactivating the heaviest user (148 sequences
+/ 4,226 items) tombstones everything in 2.3 s, the catalog drops it in 0.9 s,
+reactivation revives the same 148 uuids and the catalog has the items back
+after an 8.6 s incremental harvest. 75 backend unit tests pass.
+
+Changes since the commit: CQL parsing moved to pygeofilter; migration
+renumbered **030 → 033** (the dev2026-07-07 merge added 030–032 on 029,
+leaving two alembic heads that would have failed the api prestart);
+`panoramax.departed_photos` + identity-map merge so tombstones revive (heavy
+mode found that they never did); `generate_load.py` + `--heavy`; the registration
+drafts document.
 
 Open decisions, in rough priority order:
 
-1. **Metadata licence** — currently unstated (see the licensing section).
+1. **Metadata licence** — see the licensing section and
+   [panoramax-registration-drafts.md](panoramax-registration-drafts.md).
 2. **WebP** — accept the two client breakages, add `item-preview` links, or
    generate JPEG thumbs (see the WebP section).
 3. **Prod deploy + registration** — Caddy vhost, then the GitLab issue.

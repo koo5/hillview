@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from sequencer import (
+	identity_map,
 	Membership,
 	PhotoStub,
 	assign_sequence_ids,
@@ -138,3 +139,31 @@ class TestDesiredMemberships:
 		out = desired_memberships([('seq-A', s1), ('seq-B', s2)])
 		assert [(m.sequence_id, m.rank) for m in out] == [
 			('seq-A', 1), ('seq-A', 2), ('seq-B', 1)]
+
+
+class TestIdentityMap:
+	def test_live_membership_wins_over_former(self):
+		m = identity_map({'p1': 'live-seq'}, {'p1': 'old-seq', 'p2': 'old-seq'})
+		assert m == {'p1': 'live-seq', 'p2': 'old-seq'}
+
+	def test_emptied_sequence_revives_under_its_own_id(self):
+		# all of a sequence's photos left (owner deactivated); when they come
+		# back as one session, overlap via former_photo_ids must pick the
+		# tombstone's id rather than minting a fresh uuid
+		photos = [stub(1, T0), stub(2, T0 + timedelta(minutes=1)), stub(3, T0 + timedelta(minutes=2))]
+		former = {p.id: 'tomb' for p in photos}
+		assigned = assign_sequence_ids([photos], identity_map({}, former))
+		assert assigned[0][0] == 'tomb'
+
+	def test_former_membership_cannot_steal_a_live_sequence(self):
+		# seq A is live with photos 1-3; photo 4 once belonged to A but now sits
+		# in its own far-away session: A goes to the bigger overlap, 4 gets a
+		# fresh id
+		live = {'photo-1': 'A', 'photo-2': 'A', 'photo-3': 'A'}
+		former = {'photo-4': 'A'}
+		big = [stub(1, T0), stub(2, T0 + timedelta(minutes=1)), stub(3, T0 + timedelta(minutes=2))]
+		lone = [stub(4, T0 + timedelta(days=30))]
+		assigned = assign_sequence_ids([lone, big], identity_map(live, former))
+		by_first = {session[0].id: seq for seq, session in assigned}
+		assert by_first['photo-1'] == 'A'
+		assert by_first['photo-4'] != 'A'
