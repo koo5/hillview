@@ -66,6 +66,12 @@ def facts_for(parsed: ParsedBody, annotation_id: str, photo_id: str) -> list[tup
         out.append((_p("context"), lit(parsed.context)))
     if parsed.wiki_url:
         out.append((_p("wikipediaPage"), iri(parsed.wiki_url)))
+    for u in parsed.links:
+        # what the annotator pointed at (hillview views, hrady.cz, …) — kept for
+        # the operator as a clickable reference, never used as an identifier
+        out.append((_p("webPage"), iri(u)))
+    if parsed.poi_key:
+        out.append((_p("poiKey"), lit(parsed.poi_key)))
     if parsed.coords:
         lat, lon = parsed.coords
         out.append((_p("embeddedCoords"),
@@ -157,6 +163,24 @@ def geocode_facts_for(annotation_id: str, candidates: list[dict],
         out.append((cand, _p("coords"),
                     lit(f"POINT({wiki_candidate['lon']} {wiki_candidate['lat']})",
                         f"{GEO}wktLiteral")))
+    return out
+
+
+def namesake_facts_for(annotation_id: str, seeds: list[dict]) -> list[tuple[str, str, str]]:
+    """Candidates borrowed from NAMESAKE annotations (same normalized label or
+    the same id= key, on another photo): each seed's located anchor / own
+    coordinates / wikipedia page becomes an anchorCandidate here, and the
+    candidate URI records where it came from (hv:seededFrom <annotation>) so
+    the UI can say "from ‘Kupa’ on Havránka". seeds: [{uri, lat, lon, source}]."""
+    ann = iri(graph.annotation_iri(annotation_id))
+    out: list[tuple[str, str, str]] = []
+    for s in seeds:
+        cand = iri(s["uri"])
+        out.append((ann, _p("anchorCandidate"), cand))
+        if not s["uri"].startswith("geo:"):
+            out.append((cand, _p("coords"),
+                        lit(f"POINT({s['lon']} {s['lat']})", f"{GEO}wktLiteral")))
+        out.append((cand, _p("seededFrom"), iri(graph.annotation_iri(s["source"]))))
     return out
 
 

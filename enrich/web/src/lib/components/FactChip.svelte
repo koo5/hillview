@@ -22,8 +22,24 @@
 		}
 	}
 
+	// a hillview.cz view link (hv:webPage from the parser) reads as what it points
+	// at — "hillview view · 50.15163, 14.52344 · z16 · 181° · photo c39895fd" — so
+	// the operator sees the annotator's reference without decoding a query string
+	function hillviewView(u: string): string | null {
+		const m = /^https?:\/\/(?:www\.)?hillview\.cz\/\?(.+)$/.exec(u);
+		if (!m) return null;
+		const q = new URLSearchParams(m[1]);
+		const parts: string[] = [];
+		if (q.get('lat') && q.get('lon')) parts.push(`${Number(q.get('lat')).toFixed(5)}, ${Number(q.get('lon')).toFixed(5)}`);
+		if (q.get('zoom')) parts.push(`z${Math.round(Number(q.get('zoom')))}`);
+		if (q.get('bearing')) parts.push(`${Math.round(Number(q.get('bearing')))}°`);
+		if (q.get('photo')) parts.push(`photo ${q.get('photo')!.replace(/^hillview-/, '').slice(0, 8)}`);
+		return `hillview view · ${parts.join(' · ')}`;
+	}
 	const display = $derived(
-		fact.value_type === 'uri' ? fact.value.replace(/^https?:\/\//, '').slice(0, 46) : fact.value
+		fact.value_type === 'uri'
+			? (hillviewView(fact.value) ?? fact.value.replace(/^https?:\/\//, '').slice(0, 46))
+			: fact.value
 	);
 
 	// verdict mode: a rejected depictedIn is a negative verdict ("not depicted

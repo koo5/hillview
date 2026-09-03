@@ -31,6 +31,11 @@ WORKER_TOKEN = os.getenv("ENRICH_WORKER_TOKEN", "dev-worker-token")
 # render() kwargs a client may set; mirrored in worker.py (defense on both
 # ends). dsm_stack is not a render() kwarg: the worker maps it to a named
 # TERRAIN_DSM_PATH_<STACK> env stack (glo30 / cuzk).
+# how far a render marches when the caller doesn't say: 180 km (the renderer's
+# own default is 100 km; the uint16 depth encoding tops out at 262 km, and the
+# worker fetches GLO-30 on demand, so DEM coverage is not the limit)
+DEFAULT_MAX_DISTANCE_M = float(os.getenv("TERRAIN_DEFAULT_MAX_KM", "180")) * 1000
+
 ALLOWED_PARAMS = {"observer_height_m", "observer_elevation_m",
                   "gps_altitude_m", "gps_datum", "dsm_stack",
                   "az_start", "az_end", "az_step_deg",
@@ -43,23 +48,135 @@ class EnqueueRequest(BaseModel):
     lat: float | None = None         # …or an ad-hoc point
     lon: float | None = None
     params: dict = {}
+    # eye height per photo (curated fact › OSM tower › default_height_m) unless
+    # params carries an explicit observer_height_m
+    per_photo_height: bool = True
+    default_height_m: float | None = None
 
 
-@router.post("/terrain/enqueue")
-async def enqueue(req: EnqueueRequest):
+async def _observer_height_fact(photo_id: str) -> dict | None:
+    """The photo's curated hv:observerHeight: approved wins, else the newest
+    non-rejected proposal. → {height_m, fact, status} | None."""
+    from .. import graph
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?f ?v ?status ?t WHERE {{
+  GRAPH ?f {{ <{graph.photo_iri(photo_id)}> hv:observerHeight ?v }}
+  OPTIONAL {{ GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status ?status . OPTIONAL {{ ?f hv:decidedAt ?t }} }} }}
+}}""")
+    best = None
+    for b in res["results"]["bindings"]:
+        status = b.get("status", {}).get("value", "").rsplit("#", 1)[-1] or "proposed"
+        if status == "rejected":
+            continue
+        try:
+            h = float(b["v"]["value"])
+        except ValueError:
+            continue
+        cand = {"height_m": h, "fact": b["f"]["value"], "status": status,
+                "decided_at": b.get("t", {}).get("value", "")}
+        if best is None or (cand["status"] == "approved") > (best["status"] == "approved") \
+                or (cand["status"] == best["status"] and cand["decided_at"] > best["decided_at"]):
+            best = cand
+    return best
+
+
+async def resolve_observer_height(photo_id: str, lat: float, lon: float,
+                                  default_m: float | None = None) -> dict:
+    """Eye height for a photo's render, most trusted first: curated
+    hv:observerHeight fact › OSM tower/viewpoint height at the position ›
+    the caller's default. Every answer says where it came from."""
+    from .. import geocode
+    fact = await _observer_height_fact(photo_id)
+    osm = await geocode.osm_observer_height(lat, lon)
+    if fact:
+        out = {"height_m": fact["height_m"], "source": "fact", "fact": fact["fact"],
+               "fact_status": fact["status"]}
+    elif osm and osm.get("height_m") is not None:
+        out = {"height_m": osm["height_m"], "source": "osm"}
+    else:
+        # a tower/viewpoint may be right here yet carry no height anywhere —
+        # say so (source stays 'default'; the UI asks for a pinned height)
+        out = {"height_m": default_m, "source": "default"}
+    out["osm"] = osm
+    out["fact_detail"] = fact
+    return out
+
+
+@router.get("/terrain/observer-height")
+async def observer_height(photo_id: str, default_m: float | None = None):
+    async with wb_engine.connect() as conn:
+        row = (await conn.execute(text(
+            "SELECT ST_Y(geometry) AS lat, ST_X(geometry) AS lon FROM photo_mirror "
+            "WHERE id = :id AND geometry IS NOT NULL"), {"id": photo_id})).first()
+    if not row:
+        raise HTTPException(404, "photo not found or has no position")
+    return await resolve_observer_height(photo_id, row.lat, row.lon, default_m)
+
+
+class ObserverHeightRequest(BaseModel):
+    photo_id: str
+    height_m: float
+    note: str | None = None
+
+
+@router.post("/terrain/observer-height")
+async def set_observer_height(req: ObserverHeightRequest):
+    """Curated eye height for a photo: mint hv:observerHeight, approve it,
+    demote a previously approved one (superseded) — the override above the
+    OSM default and the form value."""
+    from datetime import datetime, timezone
+    from .. import facts, graph
+    from ..runs import create_run, fail_run, finish_run
+    if not (0 <= req.height_m <= 500):
+        raise HTTPException(422, "height must be 0…500 m")
+    ph = facts.iri(graph.photo_iri(req.photo_id))
+    s, p, o = ph, facts._p("observerHeight"), facts.lit(f"{req.height_m:g}", "http://www.w3.org/2001/XMLSchema#decimal")
+    g = graph.fact_iri(facts.fact_hash(s, p, o))
+    now = datetime.now(timezone.utc).isoformat()
+    prior = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?f WHERE {{
+  GRAPH ?f {{ {ph} hv:observerHeight ?v }}
+  GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status hv:approved }}
+}}""")
+    superseded = [b["f"]["value"] for b in prior["results"]["bindings"] if b["f"]["value"] != g]
+    run_id = await create_run(kind="observer_height",
+                              params={"photo_id": req.photo_id, "height_m": req.height_m},
+                              note=req.note)
+    try:
+        await graph.store.load_turtle(g, f"{s} {p} {o} .\n")
+        run = facts.iri(graph.run_iri(run_id))
+        meta = (f"{facts.iri(g)} <http://www.w3.org/ns/prov#wasGeneratedBy> {run} .\n"
+                f"{facts.iri(g)} {facts._p('about')} {ph} .")
+        await graph.store.load_turtle(graph.GRAPH_META, graph.PREFIXES + "\n" + meta)
+        await graph.store.update(facts.curate_update(g, "approved", now, note=req.note))
+        for f in superseded:
+            await graph.store.update(facts.curate_update(
+                f, "rejected", now, note=f"superseded by observer height → {req.height_m:g} m"))
+        await finish_run(run_id, stats={"fact": g, "superseded": len(superseded)},
+                         graph_iri=graph.run_iri(run_id))
+        return {"run_id": str(run_id), "fact": g, "height_m": req.height_m,
+                "superseded": superseded}
+    except Exception as e:
+        await fail_run(run_id, f"{type(e).__name__}: {e}")
+        raise HTTPException(500, f"observer height failed: {e}")
+
+
+async def _enqueue_photo(photo_id: str | None, lat: float | None, lon: float | None,
+                         params: dict, per_photo_height: bool = True,
+                         default_height_m: float | None = None) -> str:
+    """Insert a terrain_renders row for a viewpoint and hand it to the worker.
+    → render id. photo_id: viewpoint, GPS-altitude hint and view wedge from the
+    photo; else an ad-hoc lat/lon."""
     from .. import actors
-    if not actors.init_broker():
-        raise HTTPException(503, "no RABBITMQ_URL configured")
-    params = {k: v for k, v in (req.params or {}).items() if k in ALLOWED_PARAMS}
-
-    lat, lon = req.lat, req.lon
-    if req.photo_id:
+    params = {k: v for k, v in (params or {}).items() if k in ALLOWED_PARAMS}
+    params.setdefault("max_distance_m", DEFAULT_MAX_DISTANCE_M)
+    if photo_id:
         async with wb_engine.connect() as conn:
             row = (await conn.execute(text(
                 "SELECT ST_Y(geometry) AS lat, ST_X(geometry) AS lon, altitude, "
                 "compass_angle, width, height "
                 "FROM photo_mirror WHERE id = :id AND geometry IS NOT NULL"),
-                {"id": req.photo_id})).first()
+                {"id": photo_id})).first()
         if not row:
             raise HTTPException(404, "photo not found or has no position")
         lat, lon = row.lat, row.lon
@@ -70,6 +187,22 @@ async def enqueue(req: EnqueueRequest):
         # renderer.resolve_eye_elevation; provenance lands in meta.eye_source.
         if row.altitude is not None and "gps_altitude_m" not in params:
             params["gps_altitude_m"] = row.altitude
+        # eye height: an explicit observer_height_m in params overrides everything;
+        # otherwise (per_photo_height) the photo's curated fact › OSM tower height
+        # › the caller's default. The source is kept on the row (not sent to
+        # the worker) so the bench can say where the eye height came from.
+        if per_photo_height and "observer_height_m" not in params:
+            res = await resolve_observer_height(photo_id, lat, lon, default_height_m)
+            if res["height_m"] is not None:
+                params["observer_height_m"] = res["height_m"]
+            height_source = res["source"] + (
+                f" ({res['osm']['name'] or res['osm']['kind']} {res['osm']['height_m']:g} m via "
+                f"{res['osm'].get('height_source')}, {res['osm']['distance_m']:g} m away)"
+                if res["source"] == "osm" and res.get("osm") else "")
+        elif "observer_height_m" in params:
+            height_source = "explicit"
+        else:
+            height_source = "worker default"
         # Photos with a known bearing render only their view wedge (pie:
         # calibrated FOV when available, compass ± assumed 90° otherwise)
         # + margin — no point marching 360° for a photograph, pano or not.
@@ -77,7 +210,7 @@ async def enqueue(req: EnqueueRequest):
         # circle anyway fall back to the full sweep.
         if "az_start" not in params and "az_end" not in params:
             from .matching import _pano_pie
-            pie = await _pano_pie(req.photo_id, row.compass_angle,
+            pie = await _pano_pie(photo_id, row.compass_angle,
                                   slack=2.0, default_far=2000, assumed_fov=90)
             margin = 5.0
             if pie and 2 * (pie["half"] + margin) < 360:
@@ -85,13 +218,15 @@ async def enqueue(req: EnqueueRequest):
                 params["az_end"] = pie["bearing"] + pie["half"] + margin
     if lat is None or lon is None:
         raise HTTPException(422, "need photo_id or lat+lon")
+    if not photo_id:
+        height_source = "explicit" if "observer_height_m" in params else "worker default"
 
     async with wb_engine.begin() as conn:
         rid = (await conn.execute(text(
             "INSERT INTO terrain_renders (photo_id, lat, lon, params) "
             "VALUES (:pid, :lat, :lon, CAST(:p AS jsonb)) RETURNING id"),
-            {"pid": req.photo_id, "lat": lat, "lon": lon,
-             "p": json.dumps(params)})).scalar_one()
+            {"pid": photo_id, "lat": lat, "lon": lon,
+             "p": json.dumps({**params, "observer_height_source": height_source})})).scalar_one()
     # No callback URL or token in the message: the worker takes both from ITS
     # environment (TERRAIN_CALLBACK_URL / ENRICH_WORKER_TOKEN), so a
     # compromised broker can't redirect artifacts or read the secret.
@@ -99,7 +234,93 @@ async def enqueue(req: EnqueueRequest):
         "result_id": str(rid), "lat": lat, "lon": lon, "params": params,
     })
     print(f"terrain: enqueued {rid} @ ({lat:.5f}, {lon:.5f})", flush=True)
-    return {"queued": str(rid)}
+    return str(rid)
+
+
+@router.post("/terrain/enqueue")
+async def enqueue(req: EnqueueRequest):
+    from .. import actors
+    if not actors.init_broker():
+        raise HTTPException(503, "no RABBITMQ_URL configured")
+    return {"queued": await _enqueue_photo(req.photo_id, req.lat, req.lon, req.params,
+                                           req.per_photo_height, req.default_height_m)}
+
+
+async def _batch_candidates(scope: str, resolve_heights: bool = False,
+                            default_height_m: float | None = None) -> dict:
+    """Photos a batch would render: scope 'calibrated' = panos with an accepted
+    (non-rejected) calibration that have no finished render with a depth
+    artifact and nothing queued/rendering. → {candidates, skipped_rendered,
+    skipped_pending}."""
+    if scope != "calibrated":
+        raise HTTPException(422, "scope must be 'calibrated'")
+    from .. import graph
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT DISTINCT ?ph WHERE {{
+  GRAPH ?f {{ ?ph hv:calibratedBearing ?o }}
+  FILTER NOT EXISTS {{ GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status hv:rejected }} }}
+}}""")
+    ids = sorted({b["ph"]["value"].rsplit("/", 1)[-1] for b in res["results"]["bindings"]})
+    if not ids:
+        return {"scope": scope, "candidates": [], "skipped_rendered": 0, "skipped_pending": 0}
+    async with wb_engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT p.id, p.title, p.geometry IS NOT NULL AS located, "
+            "EXISTS (SELECT 1 FROM terrain_renders tr WHERE tr.photo_id = p.id "
+            "        AND tr.status = 'done' AND tr.depth_path IS NOT NULL) AS rendered, "
+            "EXISTS (SELECT 1 FROM terrain_renders tr WHERE tr.photo_id = p.id "
+            "        AND tr.status IN ('queued', 'rendering')) AS pending "
+            "FROM photo_mirror p WHERE p.id = ANY(:ids) ORDER BY p.title"),
+            {"ids": ids})).all()
+    cands = [{"photo_id": r.id, "title": r.title} for r in rows
+             if r.located and not r.rendered and not r.pending]
+    if resolve_heights:
+        pos = {r.id: r for r in rows}
+        async with wb_engine.connect() as conn:
+            ll = {r.id: (r.lat, r.lon) for r in (await conn.execute(text(
+                "SELECT id, ST_Y(geometry) AS lat, ST_X(geometry) AS lon FROM photo_mirror "
+                "WHERE id = ANY(:ids)"), {"ids": [c["photo_id"] for c in cands]})).all()}
+        for c in cands:
+            lat, lon = ll[c["photo_id"]]
+            r = await resolve_observer_height(c["photo_id"], lat, lon, default_height_m)
+            c["observer_height"] = {k: r.get(k) for k in ("height_m", "source", "osm", "fact_status")}
+    return {"scope": scope, "candidates": cands,
+            "skipped_rendered": sum(1 for r in rows if r.rendered),
+            "skipped_pending": sum(1 for r in rows if r.pending and not r.rendered)}
+
+
+@router.get("/terrain/batch")
+async def batch_preview(scope: str = "calibrated", heights: bool = False,
+                        default_height_m: float | None = None):
+    """heights=true also resolves each candidate's eye height (OSM lookups,
+    cached — the first call over a fresh set takes a second per pano)."""
+    return await _batch_candidates(scope, heights, default_height_m)
+
+
+class BatchRequest(BaseModel):
+    scope: str = "calibrated"
+    params: dict = {}          # same render params as a single enqueue
+    limit: int | None = None   # cap for a first taste
+    per_photo_height: bool = True
+    default_height_m: float | None = None
+
+
+@router.post("/terrain/batch")
+async def batch_enqueue(req: BatchRequest):
+    """Enqueue one render per batch candidate with the given params (each gets
+    its own view wedge from its calibration, like a single enqueue)."""
+    from .. import actors
+    if not actors.init_broker():
+        raise HTTPException(503, "no RABBITMQ_URL configured")
+    preview = await _batch_candidates(req.scope)
+    todo = preview["candidates"][: req.limit] if req.limit else preview["candidates"]
+    queued = []
+    for c in todo:
+        queued.append({"photo_id": c["photo_id"], "title": c["title"],
+                       "render_id": await _enqueue_photo(c["photo_id"], None, None, req.params,
+                                                         req.per_photo_height, req.default_height_m)})
+    return {"queued": queued, "skipped_rendered": preview["skipped_rendered"],
+            "skipped_pending": preview["skipped_pending"]}
 
 
 @router.post("/terrain/result")
@@ -643,6 +864,11 @@ def _overlay_fit_json(req: OverlayFitRequest, with_ts: bool = False) -> str:
             fit["knots"] = [round(k, 5) for k in req.knots]
     if with_ts and req.saved_at is not None:
         fit["saved_at"] = round(req.saved_at)
+    if with_ts and req.render_id:
+        # drafts remember the render they were made on (a refraction test
+        # render, say); the fact's canonical JSON stays render-free — the run
+        # params carry it there
+        fit["render_id"] = req.render_id
     return json.dumps(fit, sort_keys=True, separators=(",", ":"))
 
 
@@ -713,12 +939,18 @@ SELECT ?f ?v ?run ?status WHERE {{
         fit = json.loads(best["value"])
     except ValueError:
         return {"fit": None}
+    run_id = best["run"].rsplit("/", 1)[-1] or None
+    render_id = None
+    if run_id:
+        async with wb_engine.connect() as conn:
+            params = (await conn.execute(text(
+                "SELECT params FROM runs WHERE id = CAST(:id AS uuid)"), {"id": run_id})).scalar()
+        render_id = (params or {}).get("render_id")
     # `fact` is what the bench curates: approving THIS fit is what marks the
     # overlay for graduation (docs/terrain-overlay-graduation.md — approval is
     # the selection, there is no separate marked-for-export flag)
-    return {"fit": fit, "fact": best["fact"],
-            "run_id": best["run"].rsplit("/", 1)[-1] or None,
-            "approved": best["approved"]}
+    return {"fit": fit, "fact": best["fact"], "run_id": run_id,
+            "render_id": render_id, "approved": best["approved"]}
 
 
 class OverlayGraduateRequest(BaseModel):

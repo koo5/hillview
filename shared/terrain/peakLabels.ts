@@ -62,6 +62,9 @@ export interface PeakMark {
 	v: number;
 	distance_m: number;
 	azimuth_deg: number;
+	/** the feature's own position — so a label can be correlated with a map */
+	lat?: number;
+	lon?: number;
 	ele?: number | null;
 	ele_estimated?: boolean;
 	prominence?: number | null;
@@ -355,6 +358,8 @@ export function explainPeak(
 		v: (row + 0.5) / meta.height,
 		distance_m: distanceM,
 		azimuth_deg: bearingDeg,
+		lat: peak.lat,
+		lon: peak.lon,
 		ele: peak.ele,
 		ele_estimated: peak.ele_estimated,
 		prominence: peak.prominence,

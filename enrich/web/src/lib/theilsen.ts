@@ -11,6 +11,8 @@ export interface FitSummary {
 	centre_bearing: number | null;
 	rms: number;
 	n: number;
+	/** how many Δ were unwrapped by ±360° before fitting (wide pano, compass off-centre) */
+	unwrapped?: number;
 	/** rectilinear only: projection centre (principal point x) and tan scale */
 	x0?: number;
 	k?: number;
@@ -21,6 +23,41 @@ export interface FitSummary {
 	hwarp?: number[];
 	hscale?: number[];
 	panel_n?: number[];
+}
+
+/** angle difference folded to −180…180 */
+export function angNorm(d: number): number {
+	return ((((d + 180) % 360) + 360) % 360) - 180;
+}
+
+/** mirror of calibrate.unwrap_deltas: Δ is stored folded to ±180; on a pano
+ * wider than 180° with the compass off-centre it crosses ±180 INSIDE the
+ * image and a straight line sees a 360° jump. Predict each point from the one
+ * nearest x = 0.5 with the aspect-ratio FOV prior (9.6° per unit of aspect,
+ * clamped 60…360) and add ±360 where the stored Δ is >180° from that.
+ * Mutates the points; returns how many were unwrapped (0 = nothing changed). */
+export function unwrapDeltas(
+	points: { x: number; delta: number }[],
+	width: number | null,
+	height: number | null,
+	priorFov: number | null = null
+): number {
+	if (points.length < 2) return 0;
+	if (!priorFov) {
+		if (!width || !height) return 0;
+		priorFov = Math.min(360, Math.max(60, (width / height) * 9.6)); // crude: 31:1 measured 166°, 38:1 360°
+	}
+	const ref = points.reduce((b, p) => (Math.abs(p.x - 0.5) < Math.abs(b.x - 0.5) ? p : b));
+	let n = 0;
+	for (const p of points) {
+		const pred = ref.delta + priorFov * (p.x - ref.x);
+		const k = Math.round((pred - p.delta) / 360);
+		if (k) {
+			p.delta += 360 * k;
+			n++;
+		}
+	}
+	return n;
 }
 
 /** model-aware prediction: Δ at rect-x under the fit */
@@ -64,7 +101,7 @@ export function fitSummary(
 	if (!fit) return null;
 	const [a, b] = fit;
 	const rms = Math.sqrt(
-		points.reduce((s, p) => s + (p.delta - (a + b * p.x)) ** 2, 0) / points.length
+		points.reduce((s, p) => s + angNorm(p.delta - (a + b * p.x)) ** 2, 0) / points.length
 	);
 	const centre_bias = a + b * 0.5;
 	return {
@@ -79,7 +116,7 @@ export function fitSummary(
 }
 
 export function residual(p: { x: number; delta: number }, fit: FitSummary): number {
-	return p.delta - predict(fit, p.x);
+	return angNorm(p.delta - predict(fit, p.x));
 }
 
 /** Rectilinear (f0) model: Δ(x) = c + atan(k·(x − x0)), degrees — for panos
@@ -195,6 +232,6 @@ export function fitPiecewise(
 		hscale,
 		panel_n
 	};
-	fit.rms = Math.sqrt(points.reduce((s, p) => s + (p.delta - predict(fit, p.x)) ** 2, 0) / points.length);
+	fit.rms = Math.sqrt(points.reduce((s, p) => s + angNorm(p.delta - predict(fit, p.x)) ** 2, 0) / points.length);
 	return fit;
 }

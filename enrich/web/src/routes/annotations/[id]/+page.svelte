@@ -529,10 +529,13 @@
 					</p>
 					<p>
 						<b>Anchor candidates</b> — from a geocode run: the label is sent to
-						<b>Nominatim</b> (OSM search, results cached), and if the body carries a
-						wikipedia link its coordinates are fetched too. Each candidate is an OSM object
-						or wikipedia page; the indented chips underneath (coords, display name, OSM
-						type) describe <i>that candidate</i>, not the annotation.
+							<b>Nominatim</b> (OSM search biased to a ~200 km box around the photo, results
+							cached), if the body carries a wikipedia link its coordinates are fetched, body
+							coordinates become a pin, and <b>namesakes</b> — annotations with the same label
+							or <span class="mono">id=</span> key on other photos — lend their own anchor /
+							coordinates (chip <span class="mono">seededFrom</span> says which). Each candidate
+							is an OSM object, wikipedia page or point; the indented chips underneath describe
+							<i>that candidate</i>, not the annotation.
 					</p>
 					<p style="margin-bottom:0">
 						Approving one <span class="mono">anchorCandidate</span> designates it as THE

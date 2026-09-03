@@ -91,11 +91,11 @@ async def _pano_pie(photo_id: str, compass, slack: float, default_far: float,
         pie["projection"] = cal["projection"]
     if cal and cal.get("x0") is not None:
         pie["x0"] = cal["x0"]
-    if cal and cal.get("calibratedStitch"):
+    if cal and cal.get("stitch"):
         # per-panel shift/scale + seams from a piecewise calibration — the
         # overlay bench seeds its handles from this
         try:
-            pie["stitch"] = json.loads(cal["calibratedStitch"])
+            pie["stitch"] = json.loads(cal["stitch"])
         except (TypeError, ValueError):
             pass
     return pie
@@ -225,7 +225,8 @@ async def view_candidates(ann_id: str, slack: float = 2.0, half: float = 60,
             raise HTTPException(404, "annotation not found")
         if row.lat is None or row.compass_angle is None:
             raise HTTPException(422, "ray mode needs the pano's position and compass")
-        rx = rect_x(row.target)
+        from ..geometry import effective_target
+        rx = rect_x(await effective_target(ann_id, row.target))
         if rx is None:
             raise HTTPException(422, "ray mode needs an annotation rect")
         cal = await _calibration_for(row.photo_id)
@@ -296,9 +297,10 @@ async def view_candidates(ann_id: str, slack: float = 2.0, half: float = 60,
             sizes = {r.id: r.sizes for r in (await conn.execute(text(
                 "SELECT id, sizes FROM photo_mirror WHERE id = ANY(:ids)"),
                 {"ids": ids})).all()}
-            cur_rect = matching.rect_of_target((await conn.execute(text(
+            from ..geometry import effective_target
+            cur_rect = matching.rect_of_target(await effective_target(ann_id, (await conn.execute(text(
                 "SELECT target FROM annotation_mirror WHERE id = :aid"),
-                {"aid": ann_id})).scalar())
+                {"aid": ann_id})).scalar()))
             mres = {}
             for r in (await conn.execute(text(
                 "SELECT DISTINCT ON (photo_id) photo_id, id, status, raw_matches, "
@@ -411,7 +413,8 @@ async def enqueue_pair(annotation_id: str, photo_id: str, *, matcher: str = "mas
 
     # same extraction the staleness check reads back — one definition, so a stored
     # params.rect and a live rect can never disagree by construction
-    rect = matching.rect_of_target(ann.target) or [0.0, 0.0, 0.0, 0.0]
+    from ..geometry import effective_target
+    rect = matching.rect_of_target(await effective_target(ann.id, ann.target)) or [0.0, 0.0, 0.0, 0.0]
     full = (ann.sizes or {}).get("full") or {}
     pfull = ((psizes or {}).get("full") or {})
     purl = pfull.get("url")
@@ -497,9 +500,10 @@ async def result(result_json: str = Form(...),
 @router.get("/matching/results")
 async def results(annotation_id: str):
     async with wb_engine.connect() as conn:
-        cur = matching.rect_of_target((await conn.execute(text(
+        from ..geometry import effective_target
+        cur = matching.rect_of_target(await effective_target(annotation_id, (await conn.execute(text(
             "SELECT target FROM annotation_mirror WHERE id = :aid"),
-            {"aid": annotation_id})).scalar())
+            {"aid": annotation_id})).scalar()))
         rows = (await conn.execute(text(
             "SELECT * FROM match_results WHERE annotation_id = :aid "
             "ORDER BY enqueued_at DESC LIMIT 200"), {"aid": annotation_id})).all()

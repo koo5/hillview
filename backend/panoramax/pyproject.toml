@@ -1,0 +1,22 @@
+[project]
+name = "hillview-panoramax"
+version = "1.0.0"
+description = "Panoramax/GeoVisio-compatible read API serving Hillview's CC-licensed photos to the Panoramax federation"
+requires-python = ">=3.12"
+
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    # real CQL2-text grammar for the /api/collections `filter` param; same
+    # library the reference GeoVisio server uses (it pins ~=0.3.1)
+    "pygeofilter>=0.3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.0.3",
+    "pytest-asyncio>=1.0,<2",
+    "httpx",
+]

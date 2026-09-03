@@ -14,7 +14,7 @@ describe('candidateLabel', () => {
 		expect(candidateLabel({ candidate: 'https://cs.m.wikipedia.org/wiki/Bezd%C4%9Bz_(hrad)' })).toBe('Bezděz (hrad)');
 	});
 	it('falls back to the bare URI, surviving malformed escapes', () => {
-		expect(candidateLabel({ candidate: 'geo:50.1,14.4' })).toBe('geo:50.1,14.4');
+		expect(candidateLabel({ candidate: 'geo:50.1,14.4' })).toBe('50.1, 14.4');
 		expect(candidateLabel({ candidate: 'https://cs.wikipedia.org/wiki/Bad%E0' })).toBe('Bad%E0');
 	});
 });
