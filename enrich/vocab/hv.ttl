@@ -38,6 +38,7 @@ hv:oopsMarker     rdfs:comment "Body marks a stitching error, not a real target.
 hv:unnamed        rdfs:comment "Body carries no usable name (bare ? or empty)." .
 hv:typeGuess      rdfs:comment "Cheap keyword type heuristic (tower/church/peak/…)." .
 hv:webPage        rdfs:comment "Human-facing web page for this resource (explicit external reference, e.g. https://hillview.cz/photo/{id})." .
+hv:poiKey         rdfs:comment "The author's key for the annotated subject itself (body segment id=<key>); annotations sharing a key are the same POI." .
 
 # geocoding (M2) — candidates are external identifiers (OSM object URIs, Wikipedia
 # page URLs); metadata about a candidate are ordinary facts about that URI, so they
@@ -46,6 +47,7 @@ hv:anchorCandidate rdfs:comment "Candidate real-world anchor for this annotation
 hv:coords          rdfs:comment "Coordinates of a resource." ; rdfs:range geo:wktLiteral .
 hv:displayName     rdfs:comment "Human-readable name (e.g. Nominatim display_name)." .
 hv:osmType         rdfs:comment "OSM category/type string (e.g. man_made/tower)." .
+hv:seededFrom      rdfs:comment "This candidate location was borrowed from a NAMESAKE annotation (same label or id= key on another photo): its approved anchor, own coordinates or wikipedia page." .
 
 # matching (M3)
 hv:depictedIn rdfs:comment "The annotation's feature is visible in this photo. Created by a human verdict in the matching bench (approved = true pair, rejected = false pair) — the gold set." .
@@ -64,6 +66,7 @@ hv:calibratedStitch  rdfs:comment "Piecewise stitch model on top of the linear l
 # re-saving the same alignment idempotent. Which render it was fitted against is
 # provenance and lives in the run params. Approving one is what graduates the overlay
 # into Hillview (docs/terrain-overlay-graduation.md).
+hv:observerHeight      rdfs:comment "Camera height above ground at this photo's viewpoint, metres (curated: an approved value overrides the OSM tower-height default and the form value for terrain renders)." .
 hv:terrainOverlayFit   rdfs:comment "Manual pano↔terrain-render alignment as a canonical-JSON literal (projection, centre_bearing, fov_deg, horizon_pct, v_scale, roll_deg, warp[], visibility_km). Approve to graduate." .
 hv:terrainOverlayDraft rdfs:comment "In-progress alignment, auto-saved. Same JSON plus saved_at; lives in the MUTABLE per-photo graph …/id/graph/draft/overlay/{photo_id}, NOT a content-addressed fact — never queried as one." .
 

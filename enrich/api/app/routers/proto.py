@@ -95,6 +95,7 @@ SELECT ?p ?v ?run ?status WHERE {{
             "rms": d.get("calibrationRms"),
             "projection": d.get("calibratedProjection"),
             "x0": d.get("calibratedX0"), "run": best[0],
+            "stitch": d.get("calibratedStitch"),
             "approved": d["approved"]}
 
 

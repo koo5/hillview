@@ -8,6 +8,7 @@ GET  /api/annotations/{id}/candidates — candidates + metadata + live plausibil
                           (km + Δbearing vs the photo), for the map UI.
 """
 import asyncio
+import re
 import math
 
 from fastapi import APIRouter, HTTPException
@@ -48,7 +49,7 @@ async def _labels_from_graph(ann_ids: list[str]) -> dict[str, dict]:
 SELECT ?ann ?p ?o WHERE {{
   VALUES ?ann {{ {values} }}
   GRAPH ?f {{ ?ann ?p ?o }}
-  FILTER(?p IN (hv:labelText, hv:wikipediaPage, hv:typeGuess, hv:embeddedCoords))
+  FILTER(?p IN (hv:labelText, hv:wikipediaPage, hv:typeGuess, hv:embeddedCoords, hv:poiKey))
   FILTER NOT EXISTS {{ GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status hv:rejected }} }}
 }}""")
     out: dict[str, dict] = {}
@@ -62,6 +63,8 @@ SELECT ?ann ?p ?o WHERE {{
             d["wiki_url"] = o
         elif p.endswith("typeGuess"):
             d["type_guess"] = o
+        elif p.endswith("poiKey"):
+            d["poi_key"] = o
         elif p.endswith("embeddedCoords"):
             try:
                 lon, lat = o.replace("POINT(", "").rstrip(")").split()
@@ -76,6 +79,219 @@ class GeocodeRequest(BaseModel):
     photo_id: str | None = None
     annotation_ids: list[str] | None = None
     note: str | None = None
+
+
+def namesake_key(label: str | None) -> str | None:
+    """Case/diacritics/punctuation-folded label — what makes two annotations
+    namesakes ('Kupa' ~ 'kupa', 'Cerny most?' ~ 'Černý Most')."""
+    import unicodedata
+    if not label:
+        return None
+    k = unicodedata.normalize("NFKD", label).encode("ascii", "ignore").decode().lower()
+    k = re.sub(r"[^a-z0-9]+", " ", k).strip()
+    return k if len(k) >= 3 else None
+
+
+async def _namesake_seeds(todo: dict) -> dict[str, list[dict]]:
+    """For each todo annotation: located anchors of its namesakes on OTHER
+    photos — annotations with the same folded label or the same id= key. A
+    namesake contributes its own data only (approved anchor > body coords >
+    wikipedia page), never something that was itself seeded, so seeds don't
+    propagate transitively. → {ann_id: [{uri, lat, lon, source, label,
+    photo_title}]}."""
+    async with wb_engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT a.id, a.photo_id, p.title FROM annotation_mirror a "
+            "JOIN photo_mirror p ON p.id = a.photo_id "
+            "WHERE a.is_current AND a.missing_since IS NULL"))).all()
+    photo_of = {r.id: r.photo_id for r in rows}
+    title_of = {r.id: r.title for r in rows}
+    labels = await _labels_from_graph(list(photo_of))
+    keys: dict[str, list[str]] = {}
+    for a, d in labels.items():
+        for k in filter(None, (namesake_key(d.get("label")),
+                               f"id={d['poi_key']}" if d.get("poi_key") else None)):
+            keys.setdefault(k, []).append(a)
+
+    # every annotation's own located anchor: approved anchorCandidate (any kind)
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?a ?c ?co WHERE {{
+  GRAPH ?f {{ ?a hv:anchorCandidate ?c }}
+  GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status hv:approved }}
+  OPTIONAL {{ GRAPH ?g {{ ?c hv:coords ?co }} }}
+}}""")
+    approved: dict[str, dict] = {}
+    for b in res["results"]["bindings"]:
+        a = b["a"]["value"].rsplit("/", 1)[-1]
+        uri = b["c"]["value"]
+        pt = graph.parse_geo_uri(uri)
+        if not pt and "co" in b:
+            try:
+                lon, lat = b["co"]["value"].replace("POINT(", "").rstrip(")").split()
+                pt = (float(lat), float(lon))
+            except ValueError:
+                pt = None
+        if pt and a not in approved:
+            approved[a] = {"uri": uri, "lat": pt[0], "lon": pt[1]}
+    # wikipedia pages with looked-up coords (metadata on the page URI)
+    wiki_urls = sorted({d["wiki_url"] for d in labels.values() if d.get("wiki_url")})
+    wiki_pt: dict[str, tuple[float, float]] = {}
+    for i in range(0, len(wiki_urls), 200):
+        values = " ".join(f"<{u}>" for u in wiki_urls[i:i + 200])
+        res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?u ?co WHERE {{ VALUES ?u {{ {values} }} GRAPH ?g {{ ?u hv:coords ?co }} }}""")
+        for b in res["results"]["bindings"]:
+            try:
+                lon, lat = b["co"]["value"].replace("POINT(", "").rstrip(")").split()
+                wiki_pt[b["u"]["value"]] = (float(lat), float(lon))
+            except ValueError:
+                pass
+
+    def own_anchor(a: str) -> dict | None:
+        if a in approved:
+            return approved[a]
+        d = labels.get(a, {})
+        if d.get("coords"):
+            lat, lon = d["coords"]
+            return {"uri": graph.geo_uri(lat, lon), "lat": lat, "lon": lon}
+        if d.get("wiki_url") in wiki_pt:
+            lat, lon = wiki_pt[d["wiki_url"]]
+            return {"uri": d["wiki_url"], "lat": lat, "lon": lon}
+        return None
+
+    out: dict[str, list[dict]] = {}
+    for b_id, d in todo.items():
+        seen: set[str] = set()
+        for k in filter(None, (namesake_key(d.get("label")),
+                               f"id={d['poi_key']}" if d.get("poi_key") else None)):
+            for a_id in keys.get(k, []):
+                if a_id == b_id or photo_of.get(a_id) == photo_of.get(b_id):
+                    continue
+                src = own_anchor(a_id)
+                if not src or src["uri"] in seen:
+                    continue
+                seen.add(src["uri"])
+                out.setdefault(b_id, []).append({
+                    **src, "source": a_id, "label": labels[a_id].get("label"),
+                    "photo_title": title_of.get(a_id)})
+    return out
+
+
+async def prepare_geocode(ann_ids: list[str], scope: str,
+                          note: str | None) -> tuple:
+    """Pick the annotations worth geocoding (a label or embedded coords in their
+    non-rejected facts) and open the run row. → (run_id, todo)."""
+    labels = await _labels_from_graph(ann_ids)
+    todo = {a: d for a, d in labels.items()
+            if d.get("label") or d.get("coords") or d.get("wiki_url")}
+    if todo:
+        # the photo position drives the Nominatim viewbox bias (geocode.viewbox_for)
+        async with wb_engine.connect() as conn:
+            rows = (await conn.execute(text(
+                "SELECT a.id, ST_Y(p.geometry), ST_X(p.geometry) FROM annotation_mirror a "
+                "JOIN photo_mirror p ON p.id = a.photo_id WHERE a.id = ANY(:ids) "
+                "AND p.geometry IS NOT NULL"), {"ids": list(todo)})).all()
+        for ann_id, lat, lon in rows:
+            todo[ann_id]["near"] = (lat, lon)
+        for ann_id, seeds in (await _namesake_seeds(todo)).items():
+            todo[ann_id]["namesakes"] = seeds
+    run_id = await create_run(kind="geocode",
+                              params={"scope": scope, "annotations": len(todo)},
+                              note=note)
+    return run_id, todo
+
+
+async def execute_geocode(run_id, todo: dict) -> dict:
+    """The geocode job: Nominatim per label (paced, cached) + wikipedia coords +
+    geo: pins from embedded coords → anchorCandidate facts. Waits for the
+    geocode lock (one job at a time); the endpoint spawns it as a task, the
+    post-sync derivation awaits it. → final stats (empty dict on failure)."""
+    async with geocode_lock:
+        try:
+            import re
+            triples_by_ann: dict[str, list] = {}
+            stats = {"annotations": len(todo), "done": 0, "candidates": 0,
+                     "wiki_hits": 0, "errors": 0,
+                     # live visibility (runs page / geocode bench poll these):
+                     # what is being looked up now, the last few outcomes, errors
+                     "current": None, "recent": [], "error_detail": []}
+
+            async def _flush():
+                async with wb_engine.begin() as conn:
+                    await conn.execute(text(
+                        "UPDATE runs SET stats = CAST(:s AS jsonb) WHERE id = :id"),
+                        {"s": __import__("json").dumps(stats), "id": run_id})
+
+            for ann_id, d in todo.items():
+                stats["current"] = {"annotation_id": ann_id, "label": d.get("label"),
+                                    "wiki": bool(d.get("wiki_url")),
+                                    "coords": bool(d.get("coords"))}
+                await _flush()
+                try:
+                    cands = (await geocode.nominatim_search(d["label"], d.get("near"))
+                             if d.get("label") else [])
+                    wiki_cand = None
+                    if d.get("wiki_url"):
+                        m = re.match(r"https?://(\w{2,3})\.wikipedia\.org/wiki/(.+)",
+                                     d["wiki_url"])
+                        if m:
+                            import urllib.parse
+                            wc = await geocode.wikipedia_coords(
+                                m.group(1),
+                                urllib.parse.unquote(m.group(2)).replace("_", " "))
+                            if wc:
+                                wiki_cand = {"url": d["wiki_url"], **wc}
+                                stats["wiki_hits"] += 1
+                    triples = facts.geocode_facts_for(
+                        ann_id, cands, wiki_cand, geo_point=d.get("coords"))
+                    seeds = d.get("namesakes") or []
+                    if seeds:
+                        triples += facts.namesake_facts_for(ann_id, seeds)
+                        stats["namesakes"] = stats.get("namesakes", 0) + len(seeds)
+                    if triples:
+                        triples_by_ann[ann_id] = triples
+                    stats["candidates"] += (len(cands) + (1 if wiki_cand else 0)
+                                            + (1 if d.get("coords") else 0) + len(seeds))
+                    stats["recent"] = ([{"annotation_id": ann_id, "label": d.get("label"),
+                                         "hits": len(cands), "wiki": bool(wiki_cand),
+                                         "wiki_tried": bool(d.get("wiki_url")),
+                                         "pin": bool(d.get("coords")),
+                                         "seeds": len(seeds)}]
+                                       + stats["recent"])[:8]
+                except Exception as e:
+                    # one bad annotation must not kill the run
+                    stats["errors"] += 1
+                    stats["error_detail"] = ([{"annotation_id": ann_id, "label": d.get("label"),
+                                               "error": f"{type(e).__name__}: {e}"[:200]}]
+                                             + stats["error_detail"])[:5]
+                    print(f"geocode {ann_id}: {type(e).__name__}: {e}", flush=True)
+                stats["done"] += 1
+            stats["current"] = None
+            await _flush()
+
+            payload = facts.build_triples_payload(triples_by_ann, run_id)
+            for g_iri, nt in payload["fact_graphs"].items():
+                await graph.store.load_turtle(g_iri, nt)
+            await graph.store.load_turtle(graph.GRAPH_META, payload["meta_turtle"])
+            stats["facts"] = payload["n_facts"]
+            await finish_run(run_id, stats=stats, graph_iri=graph.run_iri(run_id))
+            return stats
+        except Exception as e:
+            await fail_run(run_id, f"{type(e).__name__}: {e}")
+            return {}
+
+
+@router.get("/geocode/status")
+async def geocode_status():
+    """Is a geocode job running, and the latest geocode run row (stats carry
+    `current` / `recent` / `error_detail` while it runs) — what the geocode
+    bench polls to show the runner working."""
+    async with wb_engine.connect() as conn:
+        row = (await conn.execute(text(
+            "SELECT id, status, note, started_at, finished_at, stats, error FROM runs "
+            "WHERE kind = 'geocode' ORDER BY started_at DESC LIMIT 1"))).first()
+    return {"running": geocode_lock.locked(),
+            "run": ({**dict(row._mapping), "id": str(row.id)} if row else None)}
 
 
 @router.post("/geocode/run")
@@ -103,65 +319,8 @@ async def geocode_run(req: GeocodeRequest):
             f"SELECT a.id FROM annotation_mirror a WHERE {' AND '.join(where)}"),
             params)).all()]
 
-    labels = await _labels_from_graph(ann_ids)
-    todo = {a: d for a, d in labels.items() if d.get("label") or d.get("coords")}
-    run_id = await create_run(kind="geocode",
-                              params={"scope": req.scope, "annotations": len(todo)},
-                              note=req.note)
-
-    async def _job():
-        async with geocode_lock:
-            try:
-                import re
-                triples_by_ann: dict[str, list] = {}
-                stats = {"annotations": len(todo), "done": 0, "candidates": 0,
-                         "wiki_hits": 0}
-                stats["errors"] = 0
-                for ann_id, d in todo.items():
-                    try:
-                        cands = (await geocode.nominatim_search(d["label"])
-                                 if d.get("label") else [])
-                        wiki_cand = None
-                        if d.get("wiki_url"):
-                            m = re.match(r"https?://(\w{2,3})\.wikipedia\.org/wiki/(.+)",
-                                         d["wiki_url"])
-                            if m:
-                                import urllib.parse
-                                wc = await geocode.wikipedia_coords(
-                                    m.group(1),
-                                    urllib.parse.unquote(m.group(2)).replace("_", " "))
-                                if wc:
-                                    wiki_cand = {"url": d["wiki_url"], **wc}
-                                    stats["wiki_hits"] += 1
-                        triples = facts.geocode_facts_for(
-                            ann_id, cands, wiki_cand, geo_point=d.get("coords"))
-                        if triples:
-                            triples_by_ann[ann_id] = triples
-                        stats["candidates"] += (len(cands) + (1 if wiki_cand else 0)
-                                                + (1 if d.get("coords") else 0))
-                    except Exception as e:
-                        # one bad annotation must not kill the run
-                        stats["errors"] += 1
-                        print(f"geocode {ann_id}: {type(e).__name__}: {e}", flush=True)
-                    stats["done"] += 1
-                    if stats["done"] % 25 == 0:
-                        async with wb_engine.begin() as conn:
-                            await conn.execute(text(
-                                "UPDATE runs SET stats = CAST(:s AS jsonb) "
-                                "WHERE id = :id"),
-                                {"s": __import__("json").dumps(stats),
-                                 "id": run_id})
-
-                payload = facts.build_triples_payload(triples_by_ann, run_id)
-                for g_iri, nt in payload["fact_graphs"].items():
-                    await graph.store.load_turtle(g_iri, nt)
-                await graph.store.load_turtle(graph.GRAPH_META, payload["meta_turtle"])
-                stats["facts"] = payload["n_facts"]
-                await finish_run(run_id, stats=stats, graph_iri=graph.run_iri(run_id))
-            except Exception as e:
-                await fail_run(run_id, f"{type(e).__name__}: {e}")
-
-    asyncio.create_task(_job())
+    run_id, todo = await prepare_geocode(ann_ids, req.scope, req.note)
+    asyncio.create_task(execute_geocode(run_id, todo))
     return {"run_id": str(run_id), "started": True, "annotations": len(todo)}
 
 
@@ -209,6 +368,35 @@ SELECT ?cand ?p ?o WHERE {{ VALUES ?cand {{ {values} }} GRAPH ?g {{ ?cand ?p ?o 
                     pass
             elif p in ("displayName", "osmType"):
                 c[p] = b["o"]["value"]
+            elif p == "seededFrom":
+                c.setdefault("seeded_from", []).append(b["o"]["value"].rsplit("/", 1)[-1])
+        # provenance of borrowed candidates → "from ‘Kupa’ on Havránka" + own-ness
+        # (this annotation's own body coords / wikipedia page, even if the same
+        # URI was also seeded from elsewhere)
+        src_ids = sorted({a for c in cands.values() for a in c.get("seeded_from", [])})
+        if src_ids:
+            async with wb_engine.connect() as conn:
+                rows = (await conn.execute(text(
+                    "SELECT a.id, a.body, p.title FROM annotation_mirror a "
+                    "LEFT JOIN photo_mirror p ON p.id = a.photo_id WHERE a.id = ANY(:ids)"),
+                    {"ids": src_ids})).all()
+            src_labels = await _labels_from_graph(src_ids)
+            info = {r.id: {"annotation_id": r.id,
+                           "label": (src_labels.get(r.id, {}).get("label")
+                                     or (r.body or "").split("|")[0].strip() or None),
+                           "photo_title": r.title} for r in rows}
+            for c in cands.values():
+                if c.get("seeded_from"):
+                    c["seeded_from"] = [info.get(a, {"annotation_id": a}) for a in c["seeded_from"]]
+        own = await _labels_from_graph([ann_id])
+        own_uris = set()
+        if own.get(ann_id, {}).get("coords"):
+            own_uris.add(graph.geo_uri(*own[ann_id]["coords"]))
+        if own.get(ann_id, {}).get("wiki_url"):
+            own_uris.add(own[ann_id]["wiki_url"])
+        for uri, c in cands.items():
+            if uri in own_uris:
+                c["own"] = True
 
     out = []
     for c in cands.values():
