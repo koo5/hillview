@@ -17,6 +17,27 @@ import kotlinx.coroutines.flow.StateFlow
  */
 const val HILLVIEW_WEB_URL = "https://hillview.cz"
 
+/**
+ * The production API. Its OWN host (api.hillview.cz), which is the whole
+ * reason the API URL is a value of its own and never derived from the web
+ * root — see BackendConfig.
+ */
+const val HILLVIEW_API_URL = "https://api.hillview.cz/api"
+
+/** One predefined choice of the API-URL combobox: a name and the FULL …/api URL. */
+data class ServerPreset(val label: String, val apiUrl: String)
+
+/**
+ * The combobox's predefined choices; anything else is typed. The dev entry
+ * is the platform default (on Android the emulator's route to the host
+ * machine; on the desktop shell HILLVIEW_BACKEND or localhost), so a phone
+ * on the LAN still types its address.
+ */
+fun serverPresets(): List<ServerPreset> = listOf(
+    ServerPreset("Production", HILLVIEW_API_URL),
+    ServerPreset("Local dev backend", cz.hillview.core.net.defaultBackendConfig().apiUrl),
+)
+
 data class UploadSettings(
     /** The FULL API URL (…/api) — see BackendConfig; never assembled from a host. */
     val serverUrl: String,

@@ -1510,7 +1510,7 @@ private class AndroidPhotoCapture(
         val settings = uploadSettings.settings.value
         takePictureWithFallback(
             capture = capture,
-            chain = PhotoStorage.chain(settings.storage),
+            chain = PhotoStorage.chain(settings.storage, settings.hideFromGallery),
             filename = filename,
             hideFromGallery = settings.hideFromGallery,
             writeExif = settings.writeExif,

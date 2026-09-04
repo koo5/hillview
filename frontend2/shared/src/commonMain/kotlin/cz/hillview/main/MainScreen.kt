@@ -53,10 +53,19 @@ import org.koin.compose.koinInject
  * layout"): a resizable split with the photo panel over an ALWAYS-mounted
  * map. Activities (view | capture) switch panel content, never navigation;
  * the activity and the split are persisted. Real navigation exists only
- * behind the hamburger (settings, login, clock video).
+ * behind the hamburger (settings, login; the clock-video recorder stays
+ * wired but out of the menu — [CLOCK_VIDEO_IN_MENU]).
  *
  * Lines and terrain are web-only activities — not ported.
  */
+/**
+ * The clock-calibration recorder (README "Clock calibration video") is a
+ * lab tool for the pics pipeline, not something a user on a hill needs
+ * in the ⋮ menu. Hidden 2026-09-03; the screen, its route and the
+ * callback stay wired so flipping this is the whole change back.
+ */
+private const val CLOCK_VIDEO_IN_MENU = false
+
 @Composable
 fun MainScreen(
     onOpenSettings: () -> Unit,
@@ -377,9 +386,11 @@ fun MainScreen(
                     // (External camera moved OUT of the menu to a floating
                     // 🛰 button beside 📷 — it is an activity you toggle,
                     // not a page you visit.)
-                    MenuLink("Clock video", "menu-clock-video") {
-                        menuOpen = false
-                        onOpenClockVideo()
+                    if (CLOCK_VIDEO_IN_MENU) {
+                        MenuLink("Clock video", "menu-clock-video") {
+                            menuOpen = false
+                            onOpenClockVideo()
+                        }
                     }
                     if (sessionState is SessionState.LoggedIn) {
                         MenuLink("Sign out", "menu-logout-button") {
