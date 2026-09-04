@@ -505,6 +505,51 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-09-04
+
+- **The camera button rotates with the phone again** (user-raised: "in
+  tauri, the camera button in main screen would rotate to indicate
+  understood photo orientation"). The original's floating camera toggle
+  turns with `relativeOrientationExif`, so its icon stays upright in the
+  world and shows the orientation the next photo will be given
+  (`Main.svelte`, `deviceOrientationExif.ts`). Ported as ONE state:
+  - `DevicePoseState` (commonMain, koin single) is the twin of the
+    original's `deviceOrientationExif` store. Degrees, not EXIF codes —
+    this capture path already speaks degrees, and an EXIF code is the
+    JPEG's business. `null` = nothing is sensing it, which is what the
+    original's reset-to-1-on-unmount amounts to.
+  - The ONE writer is the capture engine's existing
+    `MyDeviceOrientationSensor` — the app's only pose listener, which is
+    there because CameraX must be told where "up" is. It kept a private
+    `@Volatile deviceOrientation` copy as well; that copy is gone, and the
+    shutter reads the state like everyone else. Two copies of a
+    hardware-derived fact is exactly how a reader ends up registering its
+    own listener.
+  - The second input is the DISPLAY's rotation, `rememberScreenAngleDeg`
+    (the original's `screenOrientationAngle`). The two turn in opposite
+    senses, so under auto-rotate they cancel and the icon sits still; it
+    is under a rotation lock — the normal state when shooting — that the
+    icon is the only thing that moves.
+  - `devicePoseUiRotation` is that subtraction as arithmetic instead of
+    the original's 16-row table; `DevicePoseRotationTest` checks it
+    against every row of that table, in the original's own terms.
+  - One deliberate divergence: the turn takes the SHORT way round
+    (`nextRotationTarget`). The original animates the CSS value, so
+    180° → -90° sweeps three quarters of a turn backwards. The phone did
+    not do that.
+  - NOT yet phone-verified — no device was reachable from this machine,
+    and the emulator cannot pose a phone convincingly. What to look for on
+    an A22: turn auto-rotate OFF, open capture, turn the phone; the 📷
+    icon should follow the horizon within ~0.3 s and sit upright again
+    once the camera closes.
+- **The architecture test greps CODE, not prose** (`kotlinCodeOnly`, in
+  `jvmTest/.../arch/`). The new patterns are `OrientationEventListener`
+  and `MyDeviceOrientationSensor(` — names that the rule's own
+  explanations have to say out loud, which would otherwise fail the test
+  they document. Comments and string literals are blanked before matching;
+  proved to still fire by adding a listener under `androidMain` and
+  watching the build go red.
+
 ## 2026-09-03
 
 - **Settings tidy-up.** Wi-Fi only sits directly under Auto-upload again

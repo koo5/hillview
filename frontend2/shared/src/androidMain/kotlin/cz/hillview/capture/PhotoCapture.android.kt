@@ -169,8 +169,9 @@ actual fun rememberPhotoCapture(): PhotoCapture {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val uploadSettings: UploadSettingsRepository = org.koin.compose.koinInject()
+    val devicePose: DevicePoseState = org.koin.compose.koinInject()
     val capture = remember(lifecycleOwner) {
-        AndroidPhotoCapture(context.applicationContext, lifecycleOwner, uploadSettings)
+        AndroidPhotoCapture(context.applicationContext, lifecycleOwner, uploadSettings, devicePose)
     }
     DisposableEffect(capture) {
         onDispose { capture.release() }
@@ -189,6 +190,7 @@ private class AndroidPhotoCapture(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
     private val uploadSettings: UploadSettingsRepository,
+    private val devicePose: DevicePoseState,
 ) : PhotoCapture {
 
     override var state by mutableStateOf(CaptureState())
@@ -480,15 +482,30 @@ private class AndroidPhotoCapture(
     // `device-orientation` event from this same class) and it filters
     // FLAT_UP/FLAT_DOWN, so pointing at the ground or the sky keeps the last
     // real pose instead of snapping to portrait.
-    @Volatile private var deviceOrientation: DeviceOrientation = DeviceOrientation.PORTRAIT
-
+    //
+    // The pose it reports has ONE home, [DevicePoseState] — this engine is
+    // its only writer, and the floating camera button reads it there to turn
+    // its icon, as the original's rotates with `relativeOrientationExif`. The
+    // engine keeps no private copy: a second copy of a hardware-derived fact
+    // is how a reader ends up registering a second listener, which is the
+    // mistake docs/one-state.md is about.
     private val orientationSensor = MyDeviceOrientationSensor(context) { pose ->
-        deviceOrientation = pose
+        devicePose.set(DeviceOrientation.toDegrees(pose))
         // Settable on an already-bound use case — no rebind, no preview blink.
         val rotation = DeviceOrientation.toSurfaceRotation(pose)
         imageCapture?.targetRotation = rotation
         Log.d(TAG, "device pose $pose (${DeviceOrientation.toDegrees(pose)}°) → targetRotation $rotation")
     }
+
+    /**
+     * The pose to stamp/aim with right now. PORTRAIT while nothing has been
+     * sensed yet, which is where the sensor itself starts and what the
+     * original's store resets to.
+     */
+    private val deviceOrientation: DeviceOrientation
+        get() = devicePose.rotationDeg.value
+            ?.let { DeviceOrientation.fromDegrees(it) }
+            ?: DeviceOrientation.PORTRAIT
 
     // bindToLifecycle already unbinds the camera on STOP; the accelerometer
     // has no such contract, so it gets suspended alongside — the same
@@ -1777,6 +1794,11 @@ private class AndroidPhotoCapture(
         analysisUseCase = null
         analysisExecutor.shutdown()
         orientationSensor.setRunning(false)
+        // Nothing is sensing the pose any more, so say so rather than leave a
+        // stale one standing: the original's CameraCapture resets its store to
+        // orientation 1 on unmount for the same reason, which is why its
+        // camera button sits upright once the camera is closed.
+        devicePose.set(null)
         lifecycleOwner.lifecycle.removeObserver(orientationLifecycle)
         try {
             shutterSound.release()

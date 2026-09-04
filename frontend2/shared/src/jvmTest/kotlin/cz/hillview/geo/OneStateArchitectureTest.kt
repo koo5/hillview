@@ -1,5 +1,6 @@
 package cz.hillview.geo
 
+import cz.hillview.arch.kotlinCodeOnly
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.fail
@@ -29,6 +30,12 @@ class OneStateArchitectureTest {
         ".orientation.collect",
         ".orientation.value",
         ".location.collect",
+        // The DEVICE POSE sensor (portrait/landscape/inverted), whose one
+        // published home is DevicePoseState. Both spellings, because the
+        // tempting shortcut for a second reader is either the shared-kt
+        // wrapper or the platform class it wraps.
+        "MyDeviceOrientationSensor(",
+        "OrientationEventListener",
     )
 
     /**
@@ -52,7 +59,10 @@ class OneStateArchitectureTest {
         //      docs/one-state.md. The pane never decides; it applies.
         // An allowlist entry that understates what a file does is how a
         // violation hides in plain sight, so this one spells it out.
-        "capture/PhotoCapture.android.kt" to "Stats liveness line + the fix stream (the second position stream)",
+        "capture/PhotoCapture.android.kt" to
+            "Stats liveness line + the fix stream (the second position stream) " +
+            "+ the device-pose sensor, which exists to aim CameraX and " +
+            "publishes to DevicePoseState",
         // Claims the engine so tracking outlives the pane it was started
         // from, and reads fixes for its own status line.
         "external/ExternalCameraService.kt" to "foreground-service claim",
@@ -66,7 +76,11 @@ class OneStateArchitectureTest {
             .filterNot { it.path.contains("Test") }
             .filterNot { f -> allowed.keys.any { f.path.replace('\\', '/').endsWith(it) } }
             .mapNotNull { f ->
-                val hits = f.readText().let { text -> sideChannels.filter(text::contains) }
+                // Comments and string literals do not talk to hardware, and
+                // the rule has to be explainable in the files it governs —
+                // see kotlinCodeOnly.
+                val code = kotlinCodeOnly(f.readText())
+                val hits = sideChannels.filter(code::contains)
                 if (hits.isEmpty()) null else "${f.relativeTo(src)} -> ${hits.joinToString()}"
             }
             .toList()

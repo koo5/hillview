@@ -33,13 +33,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import cz.hillview.auth.SessionManager
 import cz.hillview.auth.SessionState
 import cz.hillview.capture.CaptureScreen
+import cz.hillview.capture.DevicePoseState
+import cz.hillview.capture.rememberDevicePoseRotation
 import cz.hillview.core.nowMs
+import cz.hillview.core.ui.rememberScreenAngleDeg
 import cz.hillview.map.MapScreen
 import cz.hillview.map.MapSession
 import cz.hillview.map.MapStateHolder
@@ -79,6 +83,7 @@ fun MainScreen(
     session: MapSession = koinInject(),
     sessionManager: SessionManager = koinInject(),
     stateHolder: MapStateHolder = koinInject(),
+    devicePose: DevicePoseState = koinInject(),
 ) {
     val mapSettings by settingsRepo.settings.collectAsState()
     val activity = mapSettings.mainActivity
@@ -87,6 +92,16 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
     var menuOpen by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
+
+    // The camera icon turns with the phone, so it always shows the
+    // orientation the next photo will be understood to have — the original's
+    // floating camera toggle, whose icon "rotates with
+    // relativeOrientationExif" (docs/tauri-map-ui-contract.md, "Floating
+    // controls"). Under auto-rotate the UI turns too and the two cancel, so
+    // the icon sits still; under a rotation lock it is the only thing that
+    // moves, which is when it is worth having.
+    val devicePoseDeg by devicePose.rotationDeg.collectAsState()
+    val cameraIconRotation = rememberDevicePoseRotation(devicePoseDeg, rememberScreenAngleDeg())
 
     LaunchedEffect(Unit) { sessionManager.restoreIfNeeded() }
 
@@ -284,6 +299,7 @@ fun MainScreen(
             FloatingControl(
                 label = "📷",
                 tag = "camera-button",
+                labelRotationDeg = cameraIconRotation,
                 active = activity == "capture",
                 onClick = {
                     menuOpen = false
@@ -458,6 +474,12 @@ private fun FloatingControl(
     label: String,
     tag: String,
     active: Boolean = false,
+    /**
+     * Turns the glyph, not the button: the button is a circle, so this is
+     * what the original's `transform: rotate()` on the whole element amounts
+     * to, without disturbing the ripple or the layout.
+     */
+    labelRotationDeg: Float = 0f,
     onClick: () -> Unit,
 ) {
     Surface(
@@ -471,7 +493,11 @@ private fun FloatingControl(
         modifier = Modifier.padding(4.dp),
     ) {
         TextButton(onClick = onClick, modifier = Modifier.testTag(tag)) {
-            Text(label, style = MaterialTheme.typography.titleMedium)
+            Text(
+                label,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.graphicsLayer { rotationZ = labelRotationDeg },
+            )
         }
     }
 }
