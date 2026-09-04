@@ -463,7 +463,21 @@ looking:
 The Stats line counts registrations per session, which is the first number to
 look at if it happens again.
 
-**The remap table was investigated and left alone.** UPRIGHT mode keys a
+**The remap table is CORRECT; the model that doubted it was wrong (settled
+2026-09-04).** Both modes — plain UPRIGHT and the A22 landscape workaround —
+were tested and vetted on real devices in the Tauri app, and both live in
+`shared-kt` (`EnhancedSensorService`), which BOTH apps compile: the vetting
+carries to frontend2 unchanged. So the offline model below is wrong
+somewhere (most likely in how it maps a physical pose to the
+DeviceOrientation class, or in the roll-flip interaction), and the episode
+is kept only as a warning about the instrument, not about the code. Do not
+"fix" the remap on the strength of a model.
+
+(frontend2 has so far been exercised only on an A22 with the workaround on;
+the no-workaround path is vetted in Tauri and is the same shared code, so
+this is a coverage note, not a doubt.)
+
+**The original investigation, for the record.** UPRIGHT mode keys a
 coordinate remap on a four-state device-orientation class
 (`remapCoordinatesForOrientation`), and when the attitude sample freezes that
 remap is the only live input into the heading — which is why a frozen sensor
@@ -490,6 +504,82 @@ them. The two ages are the diagnosis — the map
 writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
+
+## 2026-09-03
+
+- **Settings tidy-up.** Wi-Fi only sits directly under Auto-upload again
+  (the geo export and GPS-interval controls had been inserted between
+  them); the two DCIM storage targets are listed together (display order
+  only — `PhotoStorage.chain` keeps the enum order for fallback); each
+  licence radio carries a label and a two-sentence explainer
+  (`LicenseInfo`, next to `ALLOWED_LICENSES`), and "About these licenses"
+  opens the web app's /licensing page. The full1 wording separates the
+  GRANT (full, to Hillview) from what Hillview does with it today:
+  publishes the photo as all-rights-reserved PLUS the same OSM mapping
+  grant the CC option carries (user, 2026-09-03 — the read-side name
+  'arr' undersells this, and the web app's /licensing page, its
+  'All rights reserved' label and the licence-model draft all still
+  describe 'arr' as reuse-only-by-arrangement; whole-codebase list in
+  the session of that date). The device-photos per-photo picker shows
+  the same labels.
+- **API URL is a combobox** (`serverPresets`: Production =
+  `HILLVIEW_API_URL` = https://api.hillview.cz/api, Local dev = the
+  platform default) under ▾ on the field; anything else is typed. Still
+  the FULL …/api URL either way — the production API has its own host,
+  which is why it is never derived from the web root.
+- **Hiding photos — what current Android actually does** (AOSP
+  MediaProvider `FileUtils.isDirectoryHidden`, checked 2026-09-03): a
+  directory is hidden from the media collections when its name starts
+  with "." OR it contains `.nomedia`; hidden status is inherited by
+  subdirectories; `.nomedia` in a top-level default directory (DCIM,
+  Pictures…) or in DCIM/Camera is DELETED by the provider, so only a
+  subfolder can be hidden. On a MediaStore insert the provider rewrites a
+  hidden name to "_" + name (`sanitizeDisplayName(rewriteHiddenFileName)`),
+  which is the `_.Hillview2` we saw. Google Photos reads the same index, so
+  a hidden folder is neither shown nor backed up. Android's own advice
+  for media "that provide value to the user only within your app" is
+  app-specific external storage (Android/data/<pkg>/files), which the
+  index never touches. So the three honest options are: app-private
+  folder (invisible, gone on uninstall), a hidden DCIM subfolder
+  (dot-name or `.nomedia`, both equally supported), or visible.
+- **Hidden means a direct file write** (decided after the research
+  below): `PhotoStorage.chain(preferred, hideFromGallery)` leaves the
+  MediaStore target out while hiding is on, `outputOptions` refuses
+  MediaStore+hidden as the safety net, the MediaStore option's note says
+  so, and the switch text says what it is (a second, hidden folder for
+  NEW photos; earlier ones stay). Device test `hidingLeavesTheMediaStoreOut`
+  added (compiled, not run — needs a device).
+- **GPS fix interval control hidden** (`GPS_INTERVAL_SETTING_LIVE` in
+  SettingsScreen.kt) until the value reaches the hardware; the persisted
+  setting and the BindGeoToActivity seam stay.
+- **Clock video is out of the ⋮ menu** (`CLOCK_VIDEO_IN_MENU` in
+  MainScreen.kt, a lab tool for the pics pipeline); screen, route and
+  callback stay wired.
+- **OPEN — the GPS fix interval setting never reaches the hardware.**
+  `GeoEngine.startLocation` constructs `PreciseLocationService` without an
+  interval, and the service hard-codes 1 s (`UPDATE_INTERVAL` /
+  `FASTEST_INTERVAL`, shared-kt). The slider therefore only drives the
+  restart-on-change branch of `applyConfig` and the event-log line
+  ("fixes Nms"); `mapOnlyGeoConfig`'s 2 s is equally nominal — every
+  activity gets 1 s fixes. Fix = an interval parameter on
+  `PreciseLocationService` (default 1000, so the Tauri plugin is
+  byte-for-byte unchanged) passed from `startLocation`. Two more things
+  the fix must know: the view activity ignores the setting by design
+  (`mapOnlyGeoConfig`), and the external-camera SERVICE claims
+  `externalCameraConfig()` with the default, so the engine's min-of-claims
+  merge pins external mode at 1 s whatever the setting says — pass the
+  setting to the service's claim too. Eco mode is camera-only
+  (`ecoFps` → preview duty in PhotoCapture); it never touches geo.
+- **"Hide from gallery" is a folder choice, not a flag.** It saves NEW
+  captures into `DCIM/.Hillview2` (or the private folder's `.Hillview2`),
+  which the media scanner skips, and skips the explicit post-save scan.
+  Photos already taken stay where they were, and the Device photos list
+  is database-driven, so nothing disappears. With the MediaStore target it
+  cannot apply, and MediaProvider renames the folder to `_.Hillview2` on
+  the way in — so hide+MediaStore currently lands photos in a THIRD
+  folder, visible. What the switch should MEAN is an open decision; the
+  Tauri version (dot-folder plus a `.nomedia` marker) was experimentation,
+  not a template.
 
 ## 2026-08-29
 
