@@ -15,7 +15,8 @@
 	import ZoomView from '$lib/components/ZoomView.svelte';
 	import DropdownMenu from '$lib/components/dropdown-menu/DropdownMenu.svelte';
 	import {clearAlerts} from "$lib/alertSystem.svelte";
-	import {checkAuth} from '$lib/auth.svelte';
+	import {auth, checkAuth} from '$lib/auth.svelte';
+	import {pendingLoads} from '$lib/pageLoading';
 	import {zoomViewData, pendingZoomView} from '$lib/zoomView.svelte';
 	import {getCurrent} from "@tauri-apps/plugin-deep-link";
 	import {navigateWithHistory} from "$lib/navigation.svelte";
@@ -71,6 +72,15 @@
 	});
 
 	onMount(async () => {
+
+		// Interactivity marker. The web build server-renders ~17 routes, so a page
+		// paints real markup before its JS runs and "the button is visible" is not
+		// evidence that clicking it does anything — a Playwright run lost a menu
+		// click 50ms before the document's client code started, and a rating
+		// keypress the same way. Child components mount before this callback, so
+		// the attribute means the page is wired, not merely painted. Set first,
+		// ahead of the awaits below. Nothing in the app reads it; tests wait on it.
+		window.document.documentElement.setAttribute('data-hydrated', '');
 
 		/*try{
 			await invoke('plugin:edge-to-edge|disable');
@@ -210,6 +220,17 @@
 		}
 	}
 
+	// Companion to `data-hydrated`: this one says the view on screen is not yet
+	// the visitor's own. Until auth settles, a server-rendered page is showing
+	// the anonymous batch; while a page corrects it (pendingLoads, see
+	// $lib/pageLoading) the content is still the old view. Tests wait for
+	// `html[data-hydrated]:not([data-loading])`, and the indicator below shows it.
+	$: if (typeof document !== 'undefined') {
+		document.documentElement.toggleAttribute(
+			'data-loading',
+			!$auth.checked || $pendingLoads > 0
+		);
+	}
 
 </script>
 
@@ -221,6 +242,12 @@
 </svelte:head>
 
 <slot/>
+<!-- Rendered on the server too: the pre-hydration half of this indicator has no
+     JS to switch it on, so CSS in app.css decides when it shows — including the
+     label, which is a ::after content. Deliberately no text node: /bestof and
+     /activity are server-rendered for crawlers, and a literal "Loading…" in
+     their HTML is the shape that got /bestof classified as a soft 404 once. -->
+<div class="page-loading" role="status" aria-label="Loading"></div>
 <NavigationMenu isOpen={$navigationMenuOpen} onClose={closeNavigationMenu} />
 <AuthStatusWatcher/>
 <DropdownMenu/>

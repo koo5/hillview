@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { onMount } from 'svelte';
+	import { trackLoad } from '$lib/pageLoading';
 	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 	import {
 		EyeOff,
@@ -101,7 +102,7 @@
 	// come back null/false. When we hydrated from SSR data, re-fetch once under
 	// the client's auth token to pick those up, without flashing the spinner.
 	onMount(() => {
-		if (data?.photo) loadPhoto(true);
+		if (data?.photo) void trackLoad(() => loadPhoto(true));
 	});
 
 	function setStatus(message: string, isError = false, timeoutMs = 3000) {

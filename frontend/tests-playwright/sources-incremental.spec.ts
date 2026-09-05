@@ -51,29 +51,39 @@ test.describe('Sources load independently', () => {
     await expect(markers(page, 'mapillary')).toHaveCount(15);
   });
 
-  test('Panoramax markers come from the (mocked) instance', async ({ page }) => {
-    const items = createMockPanoramaxItems(CENTER.lat, CENTER.lng, 5);
-    await mockPanoramaxSearch(page, items);
+  // The two tests that want the source in its shipped state (on) rather than the
+  // suite-wide off. See fixtures.ts for why every other test turns it off.
+  test.describe('with the source at its real default', () => {
+    test.use({ panoramaxDefault: true });
 
-    await page.goto('/');
-    await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
-    await page.waitForSelector('.source-buttons-group', { timeout: T(5000) });
-    await setMapLocation(page, CENTER.lat, CENTER.lng, 16);
-    await configureSources(page, { hillview: false, mapillary: false, panoramax: true });
+    test('Panoramax markers come from the (mocked) instance', async ({ page, browserName }) => {
+      // WebKit fetches this from the photo worker, where Playwright cannot route
+      // the request (probed on 1.59.1), so the mock below would be ignored and the
+      // assertion would count whatever the public instance happens to hold today.
+      test.skip(browserName === 'webkit', 'page.route cannot intercept worker requests in WebKit');
+      const items = createMockPanoramaxItems(CENTER.lat, CENTER.lng, 5);
+      await mockPanoramaxSearch(page, items);
 
-    await expect(markers(page, 'panoramax')).toHaveCount(5, { timeout: T(20000) });
-    await expect(spinner(page, 'panoramax')).toBeHidden();
-  });
+      await page.goto('/');
+      await page.waitForSelector('.leaflet-container', { timeout: T(10000) });
+      await page.waitForSelector('.source-buttons-group', { timeout: T(5000) });
+      await setMapLocation(page, CENTER.lat, CENTER.lng, 16);
+      await configureSources(page, { hillview: false, mapillary: false, panoramax: true });
 
-  test('Panoramax is on by default for a fresh visitor', async ({ page }) => {
-    await page.goto('/');
-    await page.evaluate(() => localStorage.clear());
-    await page.goto('/');
-    await page.waitForSelector('.source-buttons-group', { timeout: T(10000) });
-    await ensureHunterMode(page, true);
+      await expect(markers(page, 'panoramax')).toHaveCount(5, { timeout: T(20000) });
+      await expect(spinner(page, 'panoramax')).toBeHidden();
+    });
 
-    await expect(page.locator('[data-testid="source-toggle-panoramax"]')).toHaveClass(/active/);
-    await expect(page.locator('[data-testid="source-toggle-hillview"]')).toHaveClass(/active/);
-    await expect(page.locator('[data-testid="source-toggle-mapillary"]')).not.toHaveClass(/active/);
+    test('Panoramax is on by default for a fresh visitor', async ({ page }) => {
+      await page.goto('/');
+      await page.evaluate(() => localStorage.clear());
+      await page.goto('/');
+      await page.waitForSelector('.source-buttons-group', { timeout: T(10000) });
+      await ensureHunterMode(page, true);
+
+      await expect(page.locator('[data-testid="source-toggle-panoramax"]')).toHaveClass(/active/);
+      await expect(page.locator('[data-testid="source-toggle-hillview"]')).toHaveClass(/active/);
+      await expect(page.locator('[data-testid="source-toggle-mapillary"]')).not.toHaveClass(/active/);
+    });
   });
 });

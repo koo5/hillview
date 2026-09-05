@@ -4,6 +4,7 @@
 	import { auth } from '$lib/auth.svelte';
 	import { http, handleApiError } from '$lib/http';
 	import { createSsrBackedLoad } from '$lib/ssrBackedLoad';
+	import { trackLoad } from '$lib/pageLoading';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { ACTIVITY_NOTIFICATION_REFRESH_EVENT } from '$lib/notificationRouteUtils';
 	import { constructPhotoMapUrl, constructUserProfileUrl } from '$lib/urlUtils';
@@ -113,7 +114,7 @@
 	// identical list only flashes the spinner (and for crawlers, blocked from
 	// /api/ by robots.txt, it rendered an error page — Google read /bestof,
 	// which had the same shape, as a soft 404).
-	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void loadActivityData());
+	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void trackLoad(() => loadActivityData()));
 	$: syncLoad($auth);
 
 	async function loadActivityData(cursor?: string, userInitiated = false) {
