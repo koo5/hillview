@@ -505,6 +505,45 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-09-06
+
+- **The interval ladder goes sub-second, and becomes the scale it reads**
+  (user-raised: "can we try to support modes faster than 1s? can we improve
+  the slider? i think it should draw exactly where, on the vertical scale, is
+  the gesture currently landing + highlight the current span + draw the
+  seconds label right inside there").
+  - **Rungs** (`IntervalLadder.kt`): single, 0.2 / 0.3 / 0.5 / 0.75 s, then
+    1…15 s, then VIDEO. Not evenly spaced in time, deliberately: below a
+    second the useful differences are proportional, not absolute. The state
+    is now an INDEX into that list, and the run loop takes milliseconds.
+  - **What the fast end promises.** Nothing, and it says so. A full-res JPEG
+    takes a few hundred ms to issue on a mid-range phone, so 0.2 s is a
+    request. The run loop already handles it: absolute timeline, wait for the
+    previous shot rather than drop the beat, count each late one as
+    "interval behind" in the capture stats. Asking for 0.2 s therefore gives
+    "as fast as it can" plus an honest counter.
+  - **The ladder is the catch zone.** The old control drew a 280 dp rotated
+    Material slider beside the button while the gesture read `pos.x <
+    circle.left` over the whole pane — one picture, a different hit-box.
+    Now the zone itself carries the bands, at pane height, so what is drawn
+    is what is read. Three consequences fall out: the head can no longer be
+    clipped (it was, at common splits — the 2026-08-22 entry), the shutter
+    cluster no longer grows by ~280 dp and carries the button ~115 dp up the
+    pane out from under the finger holding it, and every rung gets a band the
+    size it is actually selected at.
+  - **Mapping is FLOOR, not round.** Each rung owns one equal band, which is
+    the band drawn. The old mapping rounded against the interval COUNT, so
+    the two end stops had half-height bands — harmless while the scale was
+    invisible, a lie the moment it is drawn.
+  - **What it draws:** every rung labelled small at the left while the bands
+    are at least 14 dp; the hovered band filled with its label centred inside
+    it; a line across the zone at the finger's exact height. Filled neutral
+    while the thumb is still on the button, run-green or video-red once the
+    finger is in the zone and a release would act.
+  - NOT yet phone-verified — no device reachable from this machine. The pure
+    parts (rung list, labels, band mapping, band colours) are covered by
+    `IntervalLadderTest`.
+
 ## 2026-09-04
 
 - **The camera button rotates with the phone again** (user-raised: "in
@@ -737,6 +776,10 @@ live there. The track itself still works while partly clipped — the gesture
 has pointer capture, so stops above the pane edge remain reachable by
 sliding to the top of the screen — but a shorter track at small pane heights
 would be the proper follow-up if it bothers anyone in practice.
+
+**Closed 2026-09-06, the other way round:** not a shorter track but no
+separate track at all. The ladder IS the catch zone, so it is exactly as
+tall as the pane and cannot be clipped. See the 2026-09-06 entry.
 
 ## Deferred decisions
 

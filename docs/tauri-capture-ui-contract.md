@@ -164,10 +164,14 @@ last good frame), and the session's first on-screen frame can trail the
 bind by most of a second (never run the beat on a timer). Shutter-pin
 metering goes stale while frozen — accepted. The slow/fast
 pair itself is a
-continuous 0–15 s vertical interval slider driven by the ORIGINAL's
-one-finger grammar — hold 300 ms and it unfolds beside the still-held
-thumb, slide onto it to pick the interval live, release there to start
-the run (release back over the button cancels, tap stops a run); the manual
+graded vertical interval LADDER (0.2 s to 15 s, plus single at the foot
+and VIDEO at the head) driven by the ORIGINAL's one-finger grammar —
+hold 300 ms and it unfolds over the pane beside the still-held thumb,
+slide onto it to pick the rung live, release there to start the run
+(release back over the button cancels, tap stops a run). The ladder IS
+the catch zone: its bands are the regions the gesture reads, the band
+under the finger is filled and names itself, and a line marks the exact
+height the finger is at; the manual
 shutter-speed ladder (no original equivalent; added for crisp car shots)
 collapses behind
 a ⚡ button lower-right, expanding upward like the 📷 selector; the
