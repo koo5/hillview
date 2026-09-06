@@ -32,16 +32,24 @@ import androidx.compose.ui.unit.dp
  * The rungs are NOT evenly spaced in time, deliberately. Even seconds are
  * the working range, so they get a rung each; below one second the useful
  * differences are proportional rather than absolute, so the stops thin out.
- * The bottom rung is "single" (releasing there does nothing — the tap
- * already took the shot) and the top is VIDEO, which is where "even less
- * than zero interval" belongs.
+ * The top rung is VIDEO, which is where "even less than zero interval"
+ * belongs; the bottom is the way out.
  */
 internal sealed interface LadderRung {
     /** What the ladder band and the shutter both show. */
     val label: String
 
-    data object Single : LadderRung {
-        override val label = "single"
+    /**
+     * The bottom rung: releasing here does nothing at all.
+     *
+     * It read "single" until 2026-09-06, which was wrong twice over
+     * (user-caught): a plain tap is what takes a single shot, and this
+     * rung does not take one. Releasing here is the same act as releasing
+     * back over the button — the original's release-over-nothing — so it
+     * says the same word.
+     */
+    data object Cancel : LadderRung {
+        override val label = "cancel"
     }
 
     data class Every(val ms: Int) : LadderRung {
@@ -77,7 +85,7 @@ private val SUB_SECOND_MS = listOf(200, 300, 500, 750)
 
 /** The rungs, bottom (index 0) to top. */
 internal val INTERVAL_LADDER: List<LadderRung> = buildList {
-    add(LadderRung.Single)
+    add(LadderRung.Cancel)
     SUB_SECOND_MS.forEach { add(LadderRung.Every(it)) }
     (1..INTERVAL_MAX_SEC).forEach { add(LadderRung.Every(it * 1000)) }
     add(LadderRung.Video)
@@ -138,7 +146,7 @@ internal fun ladderBandColor(rung: LadderRung, selected: Boolean, armed: Boolean
     !armed -> HoverBand
     rung is LadderRung.Video -> VideoBand
     rung is LadderRung.Every -> RunBand
-    // Armed over "single": releasing does nothing, so it wears no promise.
+    // Armed over "cancel": releasing does nothing, so it wears no promise.
     else -> HoverBand
 }
 

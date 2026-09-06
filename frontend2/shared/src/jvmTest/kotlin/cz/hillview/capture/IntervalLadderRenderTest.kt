@@ -23,7 +23,7 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class IntervalLadderRenderTest {
 
-    /** 0 single, 1..4 sub-second, 5 = 1 s, 6 = 2 s. */
+    /** 0 cancel, 1..4 sub-second, 5 = 1 s, 6 = 2 s. */
     private val twoSeconds = INTERVAL_LADDER.indexOf(LadderRung.Every(2_000))
 
     private fun androidx.compose.ui.test.ComposeUiTest.ladder(

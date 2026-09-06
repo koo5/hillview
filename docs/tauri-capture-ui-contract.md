@@ -164,7 +164,7 @@ last good frame), and the session's first on-screen frame can trail the
 bind by most of a second (never run the beat on a timer). Shutter-pin
 metering goes stale while frozen — accepted. The slow/fast
 pair itself is a
-graded vertical interval LADDER (0.2 s to 15 s, plus single at the foot
+graded vertical interval LADDER (0.2 s to 15 s, plus cancel at the foot
 and VIDEO at the head) driven by the ORIGINAL's one-finger grammar —
 hold 300 ms and it unfolds over the pane beside the still-held thumb,
 slide onto it to pick the rung live, release there to start the run

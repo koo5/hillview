@@ -512,7 +512,7 @@ the chain stopped. See `GeoDebugText.kt`.
   the slider? i think it should draw exactly where, on the vertical scale, is
   the gesture currently landing + highlight the current span + draw the
   seconds label right inside there").
-  - **Rungs** (`IntervalLadder.kt`): single, 0.2 / 0.3 / 0.5 / 0.75 s, then
+  - **Rungs** (`IntervalLadder.kt`): cancel, 0.2 / 0.3 / 0.5 / 0.75 s, then
     1…15 s, then VIDEO. Not evenly spaced in time, deliberately: below a
     second the useful differences are proportional, not absolute. The state
     is now an INDEX into that list, and the run loop takes milliseconds.
@@ -540,6 +540,12 @@ the chain stopped. See `GeoDebugText.kt`.
     it; a line across the zone at the finger's exact height. Filled neutral
     while the thumb is still on the button, run-green or video-red once the
     finger is in the zone and a release would act.
+  - **The bottom rung says "cancel", not "single"** (user-caught, same day).
+    It was wrong twice over: a plain tap is what takes a single shot, and
+    that rung does not take one. Releasing there is the same act as
+    releasing back over the button — the original's release-over-nothing —
+    so it gets the same word, and the release hint's two ways of saying it
+    collapse into one.
   - NOT yet phone-verified — no device reachable from this machine. The pure
     parts (rung list, labels, band mapping, band colours) are covered by
     `IntervalLadderTest`.

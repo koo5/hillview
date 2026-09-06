@@ -1235,7 +1235,8 @@ fun CaptureScreen(
                                 armedRung is LadderRung.Video -> "release: record"
                                 armedRung is LadderRung.Every ->
                                     "release: start ${armedRung.label} run"
-                                armedRung != null -> "single — release: nothing"
+                                // The bottom rung and the button itself are
+                                // the same act, so they get the same word.
                                 else -> "release: cancel"
                             },
                             style = MaterialTheme.typography.labelSmall,
