@@ -130,9 +130,10 @@ test.describe('Photo Detail Page', () => {
 		await page.getByTestId('photo-edit-save-button').click();
 
 		await page.goto(`/photo/${uid}`);
-		await expect(page.getByTestId('photo-detail-license')).toHaveText('All rights reserved', {
-			timeout: T(10000)
-		});
+		await expect(page.getByTestId('photo-detail-license')).toHaveText(
+			'All rights reserved + OSM mapping grant',
+			{ timeout: T(10000) }
+		);
 
 		// Collapsed by default; the trail is a click away.
 		const toggle = page.getByTestId('photo-detail-license-history-toggle');
@@ -143,7 +144,7 @@ test.describe('Photo Detail Page', () => {
 		const history = page.getByTestId('photo-detail-license-history');
 		await expect(history).toBeVisible();
 		await expect(history).toContainText('CC BY-SA 4.0 + OSM mapping grant');
-		await expect(history).toContainText('All rights reserved');
+		await expect(history).toContainText('All rights reserved + OSM mapping grant');
 		await expect(history).toContainText('by the owner');
 	});
 

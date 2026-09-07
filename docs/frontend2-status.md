@@ -607,11 +607,12 @@ the chain stopped. See `GeoDebugText.kt`.
   GRANT (full, to Hillview) from what Hillview does with it today:
   publishes the photo as all-rights-reserved PLUS the same OSM mapping
   grant the CC option carries (user, 2026-09-03 — the read-side name
-  'arr' undersells this, and the web app's /licensing page, its
-  'All rights reserved' label and the licence-model draft all still
-  describe 'arr' as reuse-only-by-arrangement; whole-codebase list in
-  the session of that date). The device-photos per-photo picker shows
-  the same labels.
+  'arr' undersells this). 2026-09-07: the web app's /licensing page, its
+  label table, the JSON-LD comments and both licence docs now say the
+  same; the id 'arr' itself is KEPT by decision (shipped clients compare
+  against it — compatibility project, not an edit), with the debt written
+  up under "Known debt" in docs/todo/content-license-model-draft.md. The
+  device-photos per-photo picker shows the same labels.
 - **API URL is a combobox** (`serverPresets`: Production =
   `HILLVIEW_API_URL` = https://api.hillview.cz/api, Local dev = the
   platform default) under ▾ on the field; anything else is typed. Still
