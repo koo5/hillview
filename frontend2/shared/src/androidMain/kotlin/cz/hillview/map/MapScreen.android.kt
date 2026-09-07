@@ -82,6 +82,7 @@ actual fun MapScreen(
     // viewer pane reads the same two flags to decide what you can turn to,
     // so they are shared state now (see MapFilterState).
     val filters: MapFilterState = org.koin.compose.koinInject()
+    val viewerHolder: cz.hillview.viewer.ViewerStateHolder = org.koin.compose.koinInject()
     val hunterMode by filters.hunterMode.collectAsState()
 
     // Session-only, exactly as in the Svelte app — but held in MapSession
@@ -149,6 +150,22 @@ actual fun MapScreen(
     // The front photo: what the gallery would show and the marker drawn as
     // selected. Recomputed from bearing + range, or set by tapping.
     var selectedPhotoId by remember { mutableStateOf<String?>(null) }
+    // ONE front-photo rule. The map used to run its own (frontPhoto():
+    // in-range nearest-bearing) beside the viewer's derivation, and the two
+    // could disagree at the edges — the viewer's ring applies the hunter and
+    // filter rules, the map's pass did not — which is exactly the bug shape
+    // one-state.md exists to prevent. The enlarged marker now IS the
+    // viewer's front photo.
+    //
+    // Collected only while the view activity is up: outside it this effect
+    // holds no subscription, so the viewer derivation stays dark (its
+    // WhileSubscribed gate) and the marker keeps its last id for the pin —
+    // the same double gate the original has (optimizedMarkers.ts:88,:309).
+    val selectionFollows = mapSettings.mainActivity == "view"
+    LaunchedEffect(selectionFollows) {
+        if (!selectionFollows) return@LaunchedEffect
+        viewerHolder.state.collect { selectedPhotoId = it.front?.id }
+    }
     // Published by the marker overlay after each draw that moved anything.
     var markerPositions by remember {
         mutableStateOf<List<Pair<String, Pair<Float, Float>>>>(emptyList())
@@ -380,6 +397,12 @@ actual fun MapScreen(
                 }.takeIf { it > 0 } ?: spatial.range
                 rangeOverlay.centre = centre
                 rangeOverlay.radiusPx = ringPx
+                // Read the circle's ground meaning back into the one state,
+                // so the viewer's ring culls against what the circle SHOWS.
+                // Only on real change: this block runs per recomposition.
+                if (kotlin.math.abs(rangeMeters - spatial.range) > spatial.range * 0.01) {
+                    state.updateRange(rangeMeters)
+                }
                 gpsOverlay.position = lastFix
                 // ACTIVE and BACKGROUND alike, as the original keeps it —
                 // "keep the pulsing GPS marker alive in BACKGROUND too".
@@ -423,17 +446,10 @@ actual fun MapScreen(
                 val visible = markers
                 val anyFeatured = visible.any { it.featured }
 
-                // The front photo follows the view unless the user picked
-                // one; a bearing whose source is a tap keeps that choice.
-                val inRange = { m: PhotoMarker ->
-                    centre.distanceToAsDouble(GeoPoint(m.latitude, m.longitude)) <= rangeMeters
-                }
-                selectedPhotoId = if (bearing.photoUid != null) {
-                    bearing.photoUid
-                } else {
-                    frontPhoto(visible, bearing.bearing, { it.id }, { it.bearingDeg }, inRange)?.id
-                }
-                markerOverlay.selectedId = selectedPhotoId
+                // Selection styling only in the view activity — the
+                // original's capture gate. The id itself arrives from the
+                // viewer's derivation (see selectedPhotoId above).
+                markerOverlay.selectedId = if (selectionFollows) selectedPhotoId else null
                 markerOverlay.markers = visible.map { marker ->
                     // Two wash-out reasons compose: the backend's analysis
                     // filter verdict (unless overridden), and the

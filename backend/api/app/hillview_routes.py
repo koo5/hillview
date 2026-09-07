@@ -33,6 +33,18 @@ MAX_TIMELINE_USERS = int(os.getenv("MAX_HILLVIEW_TIMELINE_USERS", "20"))
 
 from sqlalchemy import or_, and_, func
 
+# Grant identifier (what a client sends, what Photo.legal_rights stores) →
+# the public licence name every read returns.
+#
+# KNOWN DEBT — the name 'arr' undersells its modality. A 'full1' photo is
+# published as all-rights-reserved PLUS the same OpenStreetMap mapping grant
+# that 'ccbysa4+osm' carries: Hillview holds full rights and grants it on the
+# contributor's behalf. A truer name would mirror the other ('arr+osm'), but
+# 'arr' is a public READ value that shipped clients compare against (the
+# web/Tauri app's grantIdForLicense and label table), so renaming it is a
+# compatibility project — enumerated under "Known debt: the public licence
+# name `arr`" in docs/todo/content-license-model-draft.md. Decision
+# 2026-09-07: keep the id; fix the prose wherever the modality is described.
 LEGAL_RIGHTS_TO_LICENSE = {
 	'full1': 'arr',
 	'ccbysa4+osm': 'ccbysa4+osm',
@@ -45,6 +57,11 @@ LEGAL_RIGHTS_TO_LICENSE = {
 ALLOWED_LICENSES = frozenset(LEGAL_RIGHTS_TO_LICENSE)
 
 def legal_rights_to_license(legal_rights: Optional[str]) -> str:
+	# Defensive default for a row with no recorded grant. Since 'arr' also
+	# implies the OSM mapping grant (see the note above), this default now
+	# advertises a grant nobody made — acceptable only because migration 016
+	# backfilled every row and uploads require a grant, so a real photo never
+	# gets here.
 	if not legal_rights:
 		return 'arr'
 	return LEGAL_RIGHTS_TO_LICENSE.get(legal_rights, legal_rights)

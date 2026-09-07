@@ -126,8 +126,9 @@ export function pickSmallestImage(
  * when a date is known, the year (taken date, falling back to upload date).
  *
  * Every Hillview photo stays under its owner's copyright: 'arr' reserves all
- * rights, and CC BY-SA *licenses* the photo without waiving copyright — so a '©'
- * notice is correct for both. Only 'arr' gets the "All rights reserved." tail;
+ * rights (Hillview's OSM mapping grant on top of it is a licence, not a waiver),
+ * and CC BY-SA *licenses* the photo without waiving copyright — so a '©' notice
+ * is correct for both. Only 'arr' gets the "All rights reserved." tail;
  * appending it to a CC photo would contradict the licence it grants.
  *
  * Returns undefined for an ownerless photo (owner_username null) so
@@ -166,11 +167,12 @@ export function buildPhotoImageJsonLd(
 	const content = pickLargestImage(photo, 2048);
 	const thumb = pickSmallestImage(photo);
 	// Every Hillview photo carries governing terms — either a reusable license
-	// (CC BY-SA + OSM) or 'arr' (all rights reserved, i.e. licensable only by
-	// arranging it with the owner) — so all are eligible for the Licensable
-	// badge, which needs `license`. The acquire path is what differs: a reusable
-	// licence is free (follow the terms on /licensing), while 'arr' must be
-	// negotiated via /contact.
+	// (CC BY-SA + OSM) or 'arr' (all rights reserved apart from the same OSM
+	// mapping grant, i.e. licensable for anything else only by arranging it
+	// with the owner) — so all are eligible for the Licensable badge, which
+	// needs `license`. The acquire path is what differs: a reusable licence is
+	// free (follow the terms on /licensing), while 'arr' must be negotiated via
+	// /contact. Both point `license` at /licensing, which spells the grant out.
 	const license = photo.license || null;
 	const isArr = license === 'arr';
 	const licensePage = `${HILLVIEW_BASE_URL}/licensing`;

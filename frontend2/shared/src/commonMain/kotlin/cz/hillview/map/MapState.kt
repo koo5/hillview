@@ -125,6 +125,25 @@ class MapStateHolder(
     }
 
     /**
+     * The range READ-BACK — what the 70 dp circle currently means on the
+     * ground, measured off the map's projection after a move or zoom. The
+     * original recomputes it on every map sync (get_range, Map.svelte:651);
+     * here it was never written at all, so the viewer's ring culled against
+     * the constructor default (1000 m) forever while the drawn circle
+     * shrank with zoom — navigation reached photos far outside the circle
+     * (user-caught in gallery mode).
+     *
+     * Deliberately NOT [updateSpatial]: a range change is a measurement,
+     * not the user placing themselves — it must not elect the map position,
+     * write a tracking row, or bump the intentional-move timestamp.
+     */
+    fun updateRange(range: Double) {
+        val old = _spatial.value
+        if (range == old.range || range <= 0.0) return
+        _spatial.value = old.copy(range = range)
+    }
+
+    /**
      * No dedup — every call notifies, as in the original. Note that
      * [photoUid] and [accuracyLevel] are **cleared** when not supplied:
      * that is how a compass tick drops the photo selection.

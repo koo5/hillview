@@ -58,6 +58,10 @@ val appModule = module {
         )
     }
     single { cz.hillview.capture.CaptureEvents() }
+    // "How is the phone being held" — ONE home, written by the capture
+    // engine's pose sensor (the app's only OrientationEventListener), read by
+    // the floating camera button. See DevicePoseState.
+    single { cz.hillview.capture.DevicePoseState() }
     viewModel { LoginViewModel(get(), get()) }
 }
 
