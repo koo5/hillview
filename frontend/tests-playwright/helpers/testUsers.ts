@@ -96,6 +96,22 @@ export async function loginAs(page: any, username: string, password: string) {
 
   // Wait for successful login redirect
   await page.waitForURL('/', { timeout: T(15000) });
+
+  // …and then for the map to actually mount. The URL turns into '/' the moment the
+  // app calls myGoto, while the map is only just starting its dynamic import, so
+  // returning here hands back a page mid-import. Every caller whose next line is a
+  // goto elsewhere then tears that import down, and on WebKit the wreckage shows up
+  // as an "Unable to preload CSS" uncaught error followed ~3s later by
+  // `page.goto: WebKit encountered an internal error` — the signature behind all 7
+  // failures of the 2026-09-05 run, in 7 different specs, each on its first
+  // navigation after logging in.
+  //
+  // Correlation is 7 of 7 traces; the mechanism is NOT proven — 24 synthetic
+  // attempts (plain, with the chunks delayed to widen the window, and with tracing
+  // on) reproduced it zero times, so something about a long-running suite is part of
+  // it. This wait removes the tear-down entirely and costs ~240ms on WebKit, ~95ms
+  // on chromium, which is worth it either way: no caller wants a half-loaded page.
+  await page.locator('.leaflet-container').waitFor({ state: 'attached', timeout: T(15000) });
 }
 
 /**

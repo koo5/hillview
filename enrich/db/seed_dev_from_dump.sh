@@ -31,6 +31,12 @@
 # must never observe an empty source, or it would stamp every mirror row missing_since.
 set -euo pipefail
 
+# On Debian/Ubuntu hosts psql is a perl wrapper (pg_wrapper), and perl prints a
+# 15-line "Setting locale failed" warning per call when a forwarded LC_* (ssh
+# SendEnv) names a locale the host never generated — eight psql calls, eight
+# copies. Nothing here is locale-dependent, so pin one every glibc ships.
+export LC_ALL=C.UTF-8
+
 MODE=fresh
 PRESYNC=yes
 ARGS=()

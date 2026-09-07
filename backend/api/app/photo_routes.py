@@ -39,7 +39,9 @@
 import os
 import sys
 import math
+import re
 import logging
+from collections import Counter
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
@@ -1520,16 +1522,89 @@ async def get_photo_share_metadata(
 		)
 
 
+# exiftool prints a tag either as a bare number (``-n`` mode — what the worker's
+# own dump uses) or, by default, as a PrintConv string: ``"170.0 mm"``,
+# ``"1/500"``, ``"+1/3"``. The pics pipeline snapshots source-frame EXIF in the
+# latter form (pics/src/lib/stamp._read_cr2_exif), and the worker merges it into
+# the same ``exif_data['data']`` dict — so both forms coexist in one column.
+# Optional sign, number, optional "/denominator", optional trailing unit.
+_EXIF_NUMBER_RE = re.compile(
+	r'^\s*([+-]?)\s*(\d+(?:\.\d+)?)\s*(?:/\s*(\d+(?:\.\d+)?))?\s*[A-Za-z%°]*\s*$'
+)
+
+
+def _exif_number(v) -> Optional[float]:
+	"""Numeric value of an exiftool tag in either output mode, else None.
+
+	Numbers pass through untouched. Strings are parsed from exiftool's default
+	PrintConv forms — ``"170.0 mm"`` → 170, ``"1/500"`` → 0.002, ``"+1/3"`` →
+	0.333…, ``"-2/3"`` → -0.666… — and anything else (``"undef"``, text) is None.
+	"""
+	if isinstance(v, bool):
+		return None
+	if isinstance(v, (int, float)):
+		return v
+	if not isinstance(v, str):
+		return None
+	m = _EXIF_NUMBER_RE.match(v)
+	if not m:
+		return None
+	sign, num, den = m.groups()
+	try:
+		value = float(num) / float(den) if den else float(num)
+	except (ValueError, ZeroDivisionError):
+		return None
+	if sign == '-':
+		value = -value
+	# "255 mm" → 255, not 255.0 — but keep 0.4 / 0.002 as they are.
+	return int(value) if value.is_integer() else value
+
+
+def _exif_stacks(data: dict) -> list:
+	"""The pipeline's per-frame source EXIF as a list of stacks, each a list of
+	frame dicts: every inner list of ``pano_frames`` is one stack (the bracket
+	shot at one pano position), and ``stack_frames`` (a fused single) is one
+	stack. Either may be absent; malformed entries are skipped."""
+	stacks = []
+	pano = data.get('pano_frames')
+	if isinstance(pano, list):
+		for stack in pano:
+			if isinstance(stack, list):
+				frames = [f for f in stack if isinstance(f, dict)]
+				if frames:
+					stacks.append(frames)
+	stack = data.get('stack_frames')
+	if isinstance(stack, list):
+		frames = [f for f in stack if isinstance(f, dict)]
+		if frames:
+			stacks.append(frames)
+	return stacks
+
+
 def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
 	"""Extract a small, display-friendly subset of camera/lens EXIF from the raw
 	exiftool dump stored in ``Photo.exif_data`` (worker writes the full tag set
-	under ``exif_data['data']`` via ``exiftool -json -n``).
+	under ``exif_data['data']`` via ``exiftool -json -n``; pipeline uploads merge
+	their source frames' PrintConv-form EXIF into the same dict — see
+	``_exif_number`` for the forms accepted).
 
 	Only camera settings are exposed (focal length, aperture, ISO, shutter,
 	exposure compensation, camera make/model, lens). Positional data
 	(GPS/altitude/bearing) is deliberately omitted here — it is already served
 	via the response's top-level latitude/longitude/bearing/altitude, and the raw
 	dump can carry more precise/sensitive location than we want to publish.
+
+	Exposure triangle (aperture/ISO/shutter): when the pipeline snapshotted the
+	source frames (``pano_frames`` — one stack per pano position — or
+	``stack_frames``, a fused single's one stack), those are the truth about what
+	was exposed: an EXR pano has no embedded exposure at all, and a fused TIFF
+	embeds only its anchor frame's. Each stack is summarised to its (min, max).
+	A bracket's members differ by design, so a stack spanning several values is
+	sent as ``<field>_range: [min, max]`` INSTEAD of a scalar; a constant one
+	stays a plain scalar. A pano's positions normally all agree; the most common
+	summary is sent, and ``<field>_mixed: true`` flags positions that disagree.
+	``frames`` (total source frames) and ``positions`` (stack count, panos only)
+	give the context. Photos without frame provenance just use their own tags.
 
 	Returns ``None`` when there is no usable camera EXIF.
 	"""
@@ -1540,8 +1615,7 @@ def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
 		return None
 
 	def num(key):
-		v = data.get(key)
-		return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+		return _exif_number(data.get(key))
 
 	def text(key):
 		v = data.get(key)
@@ -1550,12 +1624,34 @@ def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
 		s = str(v).strip()
 		return s or None
 
+	def positive(key):
+		# Phones write FocalLengthIn35mmFormat = 0 for "unknown" (every Ulefone
+		# Armor 22 upload does); a zero focal length is never real.
+		v = num(key)
+		return v if v is not None and v > 0 else None
+
+	stacks = _exif_stacks(data)
+
+	def triangle(key, out_key) -> dict:
+		# One (min, max) summary per stack that carries the tag at all.
+		summaries = []
+		for stack in stacks:
+			values = [v for v in (_exif_number(f.get(key)) for f in stack) if v is not None]
+			if values:
+				summaries.append((min(values), max(values)))
+		if not summaries:
+			v = num(key)
+			return {out_key: v} if v is not None else {}
+		# most_common keeps first-seen order among ties → pto/capture order.
+		(lo, hi), _ = Counter(summaries).most_common(1)[0]
+		out = {out_key: lo} if lo == hi else {f'{out_key}_range': [lo, hi]}
+		if len(set(summaries)) > 1:
+			out[f'{out_key}_mixed'] = True
+		return out
+
 	curated = {
-		'focal_length': num('FocalLength'),
-		'focal_length_35mm': num('FocalLengthIn35mmFormat'),
-		'f_number': num('FNumber'),
-		'iso': num('ISO'),
-		'exposure_time': num('ExposureTime'),
+		'focal_length': positive('FocalLength'),
+		'focal_length_35mm': positive('FocalLengthIn35mmFormat'),
 		'exposure_compensation': num('ExposureCompensation'),
 		'make': text('Make'),
 		'model': text('Model'),
@@ -1563,6 +1659,12 @@ def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
 	}
 	# Drop absent tags; collapse to None when nothing useful survived.
 	curated = {k: v for k, v in curated.items() if v is not None}
+	for key, out_key in (('FNumber', 'f_number'), ('ISO', 'iso'), ('ExposureTime', 'exposure_time')):
+		curated.update(triangle(key, out_key))
+	if curated and stacks:
+		curated['frames'] = sum(len(stack) for stack in stacks)
+		if len(stacks) > 1:
+			curated['positions'] = len(stacks)
 	return curated or None
 
 
