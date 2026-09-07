@@ -4,10 +4,8 @@
 
 
 # convert raws to webp and geotag
-in a directory of CR2 files:
-```
-~/repos/koo5/hillview/0/hillview/scripts/raw/raw.sh
-```
+(raw.py/raw.sh were removed 2026-09-06 as legacy; develop RAWs with
+scripts/raw/raw_darktable.py and follow scripts/pano/README.md for the pipeline)
 
 
 

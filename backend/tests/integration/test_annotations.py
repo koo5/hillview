@@ -21,7 +21,26 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.base_test import BaseUserManagementTest
-from utils.test_utils import API_URL, query_hillview_endpoint
+from utils.test_utils import API_URL, clear_test_database
+
+
+def own_public_photo_id(token):
+    """Id of a public photo the calling user just uploaded.
+
+    Deliberately not the first hit of a world-bbox /hillview query: the dev
+    database is shared and usually holds hundreds of other people's photos, so
+    that query hands back a stranger's photo and the tests below then annotate
+    a photo they do not own. The owner listing can only return your own.
+    """
+    resp = requests.get(
+        f"{API_URL}/photos/",
+        params={"only_processed": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, f"Photo listing failed: {resp.status_code}: {resp.text}"
+    mine = [p for p in resp.json()["photos"] if p["is_public"]]
+    assert mine, "No photos after create_test_photos — check worker"
+    return mine[0]["id"]
 
 
 class TestAnnotationCRUD(BaseUserManagementTest):
@@ -31,14 +50,7 @@ class TestAnnotationCRUD(BaseUserManagementTest):
         super().setup_method(method)
         # Upload test photos so we have a photo_id to annotate
         self.create_test_photos(self.test_users, self.auth_tokens)
-        # Grab the first available photo
-        result = query_hillview_endpoint(token=self.test_token, params={
-            "top_left_lat": 90, "top_left_lon": -180,
-            "bottom_right_lat": -90, "bottom_right_lon": 180,
-            "client_id": "test_annotations",
-        })
-        assert result and result.get("data"), "No photos after create_test_photos — check worker"
-        self.photo_id = result["data"][0]["id"]
+        self.photo_id = own_public_photo_id(self.test_token)
 
     def test_create_annotation(self):
         """Test creating a new annotation."""
@@ -196,15 +208,14 @@ class TestAnnotationHide(BaseUserManagementTest):
     enrichment workbench still sees a normal current annotation)."""
 
     def setup_method(self, method=None):
+        # This class asserts on the bestof ranking, which is global and shows
+        # 20 rows: any photo left in the database by another test or another
+        # branch would decide whether ours makes the page. Wipe first, then let
+        # the base setup recreate the users the wipe just deleted.
+        clear_test_database()
         super().setup_method(method)
         self.create_test_photos(self.test_users, self.auth_tokens)
-        result = query_hillview_endpoint(token=self.test_token, params={
-            "top_left_lat": 90, "top_left_lon": -180,
-            "bottom_right_lat": -90, "bottom_right_lon": 180,
-            "client_id": "test_annotations_hide",
-        })
-        assert result and result.get("data"), "No photos after create_test_photos — check worker"
-        self.photo_id = result["data"][0]["id"]
+        self.photo_id = own_public_photo_id(self.test_token)
 
     def _create(self, body, headers=None):
         resp = requests.post(
@@ -296,9 +307,19 @@ class TestAnnotationHide(BaseUserManagementTest):
         """Hidden annotations drop out of the shared effective-count subquery
         (exercised via the bestof endpoint's counts and bodies)."""
         body = "Bestof visibility probe annotation"
+        # A second annotation keeps the photo scoring after the hide, so the
+        # post-hide assertions below are about the count and not about the
+        # photo falling off the listing entirely.
+        keeper = "Bestof annotation that stays visible"
         ann = self._create(body)
+        self._create(keeper)
 
         def bestof_photo():
+            """Our photo's row in the ranking, or None if it stopped scoring.
+
+            Page one is the whole ranking here — setup wiped the database, so
+            the only photo that scores at all is the one we just annotated.
+            """
             resp = requests.get(f"{API_URL}/bestof/photos")
             assert resp.status_code == 200
             for p in resp.json()["photos"]:
@@ -308,7 +329,8 @@ class TestAnnotationHide(BaseUserManagementTest):
 
         before = bestof_photo()
         assert before is not None, "Annotated photo should appear in bestof"
-        assert body in before.get("annotations", [])
+        assert body in before["annotations"]
+        assert keeper in before["annotations"]
         count_before = before["annotation_count"]
 
         requests.post(
@@ -317,10 +339,10 @@ class TestAnnotationHide(BaseUserManagementTest):
         )
 
         after = bestof_photo()
-        if after is not None:
-            assert body not in after.get("annotations", [])
-            assert after["annotation_count"] == count_before - 1
-        # else: the photo dropped below the score threshold entirely — also correct
+        assert after is not None, "Photo still scores through the second annotation"
+        assert body not in after["annotations"]
+        assert keeper in after["annotations"]
+        assert after["annotation_count"] == count_before - 1
 
     def test_undo_hide_restores(self):
         """Undoing the hide event resurfaces the annotation as an 'updated' tip."""
@@ -389,13 +411,7 @@ class TestAnnotationHiddenUserFiltering(BaseUserManagementTest):
     def setup_method(self, method=None):
         super().setup_method(method)
         self.create_test_photos(self.test_users, self.auth_tokens)
-        result = query_hillview_endpoint(token=self.test_token, params={
-            "top_left_lat": 90, "top_left_lon": -180,
-            "bottom_right_lat": -90, "bottom_right_lon": 180,
-            "client_id": "test_annotations_filter",
-        })
-        assert result and result.get("data"), "No photos after create_test_photos — check worker"
-        self.photo_id = result["data"][0]["id"]
+        self.photo_id = own_public_photo_id(self.test_token)
 
     def test_hidden_user_annotations_filtered(self):
         """Annotations by hidden users should not appear in listing."""

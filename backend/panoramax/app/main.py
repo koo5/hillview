@@ -18,6 +18,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import text
 
@@ -34,6 +35,25 @@ app = FastAPI(
 	title='Hillview Panoramax API',
 	description='GeoVisio-compatible read API for the Panoramax federation',
 	docs_url=None, redoc_url=None, openapi_url=None,
+)
+
+# Optional, not required by the federation. The harvester is server-side (no
+# CORS), the federated viewer reads the meta-catalog rather than instances, the
+# catalog's per-item rel=via link to us is a navigation (not a fetch), and our
+# own hillview.cz frontend reads api.panoramax.xyz, never this endpoint. So
+# nothing in the normal flow needs it; it's a zero-cost hedge for a third-party
+# STAC browser or a console poking us from another origin. Harmless because
+# everything here is public, anonymous and cookieless, so `*` without
+# credentials exposes nothing a server-side fetch couldn't already read.
+# The genuinely REQUIRED CORS is on the asset hosts named in `sizes` (the
+# viewer loads photos as WebGL textures) — that lives in the pics vhosts /
+# bucket config, not here.
+app.add_middleware(
+	CORSMiddleware,
+	allow_origins=['*'],
+	allow_methods=['GET', 'HEAD', 'OPTIONS'],
+	allow_headers=['*'],
+	max_age=86400,
 )
 
 
@@ -97,14 +117,20 @@ async def landing() -> dict:
 			f"Panoramax-compatible (GeoVisio STAC) view of {settings.instance_name()} "
 			f"photos published under {scope.license}."
 		),
+		# Only classes we actually satisfy. Dropped vs an earlier fuller list:
+		#   ogcapi-features-1/core  — needs a /conformance endpoint + real
+		#                             bbox/datetime filtering, neither present
+		#   ogcapi-features-3/filter + cql2/cql2-text — need /queryables and
+		#                             feature-level filtering; our `filter` is
+		#                             only the status/updated subset on
+		#                             /collections (all the harvester needs)
+		# The reference GeoVisio server doesn't advertise filter/cql2 either.
+		# Re-add a class only alongside the endpoints that back it.
 		'conformsTo': [
 			'https://api.stacspec.org/v1.0.0/core',
 			'https://api.stacspec.org/v1.0.0/collections',
 			'https://api.stacspec.org/v1.0.0/ogcapi-features',
-			'http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core',
 			'http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson',
-			'http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter',
-			'http://www.opengis.net/spec/cql2/1.0/conf/cql2-text',
 		],
 		'links': [
 			{'rel': 'self', 'href': f"{base}/api/", 'type': 'application/json'},

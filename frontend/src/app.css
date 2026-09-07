@@ -95,3 +95,49 @@ body.power-saving *::after {
 	animation: none !important;
 	transition: none !important;
 }
+
+/* "Not your view yet" indicator — one element, two states:
+
+   1. before hydration: the web build server-renders ~17 routes, so a page
+      paints real markup ~80ms (idle) to ~800ms (slow device) before its JS
+      runs, and a click in that window is silently lost (Svelte 5 replays only
+      onload/onerror, never clicks);
+   2. after hydration, while a page swaps the anonymous server-rendered view
+      for the signed-in visitor's own — see $lib/pageLoading.
+
+   No JS exists for state 1, so CSS drives both: `data-hydrated` and
+   `data-loading` are set on <html> by +layout.svelte. Delayed 300ms so a fast
+   load never flashes it, and pointer-events off so it can never eat a click. */
+.page-loading {
+	display: none;
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	z-index: 2000;
+	padding: 0.35rem 0.8rem;
+	border-radius: 999px;
+	font-size: 0.8125rem;
+	color: #374151;
+	background: rgba(255, 255, 255, 0.92);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+	pointer-events: none;
+	opacity: 0;
+	animation: hv-page-loading 0.15s ease 0.3s forwards;
+}
+
+/* Label lives here, not in the markup — see +layout.svelte. */
+.page-loading::after {
+	content: 'Loading…';
+}
+
+html:not([data-hydrated]) .page-loading,
+html[data-loading] .page-loading {
+	display: block;
+}
+
+@keyframes hv-page-loading {
+	to {
+		opacity: 1;
+	}
+}

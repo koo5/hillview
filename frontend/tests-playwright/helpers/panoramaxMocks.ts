@@ -2,10 +2,16 @@
  * Panoramax is fetched browser-side straight from the public instance
  * (https://api.panoramax.xyz/api/search), so unlike Mapillary there is no
  * backend mock to switch on. These helpers intercept the request in the page
- * instead. fixtures.ts registers an empty default for every test (the source
- * is on by default, and the suite must never depend on the public internet);
- * a spec that wants photos registers its own route on top — Playwright
- * matches routes in reverse registration order, so the spec's wins.
+ * instead; a spec that wants photos registers its own route on top of the empty
+ * default from fixtures.ts — Playwright matches routes in reverse registration
+ * order, so the spec's wins.
+ *
+ * WEBKIT: none of this applies. The fetch is issued by the photo worker, and
+ * Playwright cannot route a worker's requests in WebKit (probed on 1.59.1 —
+ * neither page.route nor context.route fires; chromium and firefox both do).
+ * Keeping the public internet out of the suite there is fixtures.ts's job: it
+ * turns the source off before the app boots, so nothing is ever requested. A
+ * spec that needs Panoramax photos on the map is chromium/firefox only.
  */
 import type { Page } from '@playwright/test';
 

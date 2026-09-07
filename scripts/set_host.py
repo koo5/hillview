@@ -202,7 +202,7 @@ def clear_database():
 	"""
 	try:
 		with urllib.request.urlopen(
-			urllib.request.Request(CLEAR_DB_URL, method="POST"), timeout=10
+			urllib.request.Request(CLEAR_DB_URL, method="POST"), timeout=1000
 		) as response:
 			if 200 <= response.status < 300:
 				print("  cleared the dev database (its rows held old-host URLs)")

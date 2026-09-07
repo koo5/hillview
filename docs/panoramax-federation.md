@@ -273,6 +273,20 @@ joined. Current state: `pics.hillview.cz` sends
 lives there today (863 non-CC photos do), so it is a latent trap: configure
 the bucket's CORS policy before any CC photo is written to that pool.
 
+The **instance API itself** is also CORS-open (added 2026-08-30), but this is
+**optional, not a federation requirement** — the earlier claim that the viewer
+relies on it was wrong. The harvester is server-side (no CORS); the federated
+viewer reads the meta-catalog, not instances; the per-item `rel=via` link to
+us is a navigation, not a fetch; and our own hillview.cz frontend reads
+`api.panoramax.xyz`, never this endpoint. So nothing in the normal flow needs
+it; `main.py`'s `CORSMiddleware` (`allow_origins=['*']`, GET/HEAD/OPTIONS, no
+credentials) is a zero-cost hedge for a third-party STAC browser pointed
+straight at us, harmless because everything served is public and anonymous.
+The prod Caddy vhost for `cc.geovisio.hillview.cz` needs no CORS config of its
+own either way. The genuinely required CORS is the asset-host header above;
+the dev box's `/pics` route in `~/caddy/Caddyfile` sends
+`Access-Control-Allow-Origin: *` now, matching prod.
+
 ## Deployment
 
 1. Set in `.env`: `PANORAMAX_DB_PASSWORD=<secret>`, and for prod

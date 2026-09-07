@@ -114,3 +114,34 @@ Headline annotated panos and their sources (full table in `pano_map.md`):
   many 0-annotation panos with poses — future annotation targets and Track-B corpus.
 - **Re-run after each fresh prod dump or autocopy reorg** (the trees and naming keep evolving).
 - Ongoing (owner): collecting older raw/`.pto` data from pre-pipeline eras into the mount.
+
+## Addendum 2026-09-06 — the EXIF-provenance dig
+
+Revisited for a different question: recovering per-frame camera EXIF (`pano_frames` /
+`stack_frames`, see `_curate_exif` in `backend/api/app/photo_routes.py`) for the 62 EXR panos,
+177 fused stacks and 15 TIFF/WebP panos uploaded before the pics pipeline started shipping it
+(pics commit a8ae6eb, 2026-07-13). Tools and the resulting `original_filename → exif` table
+live in `scripts/exif_backfill/`. What changed or was learned since June:
+
+- **The mount moved.** `/shared/autocopy/` is gone. Recent shoots are in `~/autocopy/`
+  (Aug 2026 on); everything older sits on the cold disk under
+  `/bac20/cold/dnd/hillview_eos/` — `done/`, `0ver/`, `ktiff/` (June–July shoots), `hugin/`,
+  `maybe_todo_later/autocopy_todo_review/` (older *versions* of some `done/` datedirs — the
+  same date can exist in several places; enumerate all, don't assume the newest wins). The
+  `hash` file there is a dedupe tool's SQLite DB, not an index — ignore it.
+- **Frame keys.** One Canon counter shows up as `036A7584.CR2` (sRGB), `_36A7584.CR2` (Adobe
+  RGB) and `36A7584` in hand-Hugin names; the pipeline also prefixes stems with the shoot date
+  (`2026-03-28_100EOS5D_036A0819.CR2`). Key on the 7-char tail for the `0`/`_` forms, all 8 for
+  `AAAA3089`-style codes.
+- **Opaque stitch inputs are indices.** Pre-manifest gen-1 buckets name their pto inputs
+  `stack_NNNN.tif`. `NNNN` is the position of that stack in the *sorted* pto_gen input set, so
+  the first-phase pto (all stacks) plus the canvas pto (surviving indices) pins down exactly
+  which frames were pruned — e.g. Havránka `AAAB6922---AAAB6943`: 22 frames shot, 21 left in
+  the bucket, 19 stitched. Bracket grouping for those comes from the CR2s' own AEB tags
+  (`BracketMode`/`AEBShotCount`/`BracketValue`), which round-trips pics' `_fused_focus`
+  (a *focus-weighted blend of an AEB bracket*, not a focus stack) as well.
+- **Hand-Hugin panos may be stitched from camera JPGs**, not CR2s (`hugin/boranovice/`:
+  `036A9196.JPG`…). The JPGs carry full EXIF, so they serve as frame sources when no CR2 exists.
+- **`uploaded/prod*/` manifests** now cover 238/254 of those files with photo_ids matching the
+  prod dump; two re-uploads show two prod ids for one filename. `original_filename` remains the
+  safer join key.

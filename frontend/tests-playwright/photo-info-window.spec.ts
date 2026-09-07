@@ -66,15 +66,24 @@ test.describe('Photo info window (i key)', () => {
   test('shows EXIF for the hillview photo in front and mirrors into the zoom view', async ({ page, testUsers }) => {
     // Inject deterministic curated EXIF into the public-photo response the window
     // fetches — the test-asset JPEGs carry only a GPS direction, no camera tags.
+    // Shaped like a pipeline pano: aperture varies within the bracket (range),
+    // ISO is the same within each position but not across them (mixed), and
+    // the source-frame count is reported. Real pixel dimensions ride along on the
+    // same record (the local photo's sizes.full is only a rendition).
     await page.route('**/photos/public/**', route =>
       route.fulfill({
         json: {
+          width: 66897,
+          height: 5133,
           exif: {
             focal_length: 24,
             focal_length_35mm: 36,
-            f_number: 2.8,
+            f_number_range: [8, 11],
             iso: 200,
+            iso_mixed: true,
             exposure_time: 0.004,
+            frames: 6,
+            positions: 2,
             make: 'Canon',
             model: 'Canon EOS R6',
             lens: 'RF24-70mm F2.8 L IS USM',
@@ -100,10 +109,12 @@ test.describe('Photo info window (i key)', () => {
 
     // Curated EXIF, rendered precisely by the formatters.
     await expect(mapWin).toContainText('24 mm (36 mm eq.)');
-    await expect(mapWin).toContainText('ƒ/2.8');
-    await expect(mapWin).toContainText('ISO 200');
+    await expect(mapWin).toContainText('ƒ/8–11');
+    await expect(mapWin).toContainText('ISO 200 + other');
     await expect(mapWin).toContainText('1/250 s');
+    await expect(mapWin.locator('[data-testid="photo-info-frames"]')).toHaveText('6 (2 positions)');
     await expect(mapWin).toContainText('Canon EOS R6');
+    await expect(mapWin).toContainText('66897 × 5133');
     // Base metadata comes off the local photo object (no fetch needed).
     await expect(mapWin).toContainText('Bearing');
 

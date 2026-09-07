@@ -11,14 +11,16 @@
 		getCapturedAtDetails
 	} from '$lib/photoUtils';
 	import {
-		fetchExif,
-		getCachedExif,
+		fetchPublicInfo,
+		getCachedPublicInfo,
 		formatFocalLength,
 		formatAperture,
 		formatIso,
 		formatShutter,
 		formatCamera,
-		type PhotoExif
+		formatFrames,
+		type PhotoExif,
+		type PublicPhotoInfo
 	} from '$lib/photoExif';
 
 	export let photo: PhotoData | null = null;
@@ -28,40 +30,45 @@
 	$: uid = photo?.uid ?? null;
 	$: isHillview = getPhotoSourceId(photo) === 'hillview';
 
-	// Curated camera/lens EXIF is only served for hillview photos, and only via a
-	// per-photo fetch (cached). Base metadata below comes straight off the local
-	// photo object, so the window is useful immediately while EXIF resolves.
-	let exif: PhotoExif | null = null;
-	let exifUid: string | null = null;
+	// Curated camera/lens EXIF and the real pixel dimensions are only served for
+	// hillview photos, via a per-photo fetch of the public record (cached). Base
+	// metadata below comes straight off the local photo object, so the window is
+	// useful immediately while that resolves.
+	let info: PublicPhotoInfo | null = null;
+	let infoUid: string | null = null;
 	let exifLoading = false;
 
-	function loadExif(u: string | null, hillview: boolean) {
-		if (u === exifUid) return;
-		exifUid = u;
-		exif = null;
+	function loadInfo(u: string | null, hillview: boolean) {
+		if (u === infoUid) return;
+		infoUid = u;
+		info = null;
 		exifLoading = false;
 		if (!u || !hillview) return;
-		const cached = getCachedExif(u);
+		const cached = getCachedPublicInfo(u);
 		if (cached !== undefined) {
-			exif = cached;
+			info = cached;
 			return;
 		}
 		exifLoading = true;
-		fetchExif(u).then(result => {
-			if (u !== exifUid) return; // focused photo changed while we waited
-			exif = result;
+		fetchPublicInfo(u).then(result => {
+			if (u !== infoUid) return; // focused photo changed while we waited
+			info = result;
 			exifLoading = false;
 		});
 	}
-	$: loadExif(uid, isHillview);
+	$: loadInfo(uid, isHillview);
+	$: exif = info?.exif ?? null;
 
-	// EXIF rows (precise values; see photoExif formatters).
+	// EXIF rows (precise values; see photoExif formatters). Pipeline uploads
+	// (EXR panos, fused stacks) describe their source frames: a bracket's
+	// varying value comes as a range, and positions that disagree are marked.
 	$: cameraStr = exif ? formatCamera(exif.make, exif.model) : null;
 	$: lensStr = exif?.lens ?? null;
 	$: focalStr = exif ? formatFocalLength(exif) : null;
-	$: apertureStr = exif ? formatAperture(exif.f_number) : null;
-	$: shutterStr = exif ? formatShutter(exif.exposure_time) : null;
-	$: isoStr = exif ? formatIso(exif.iso) : null;
+	$: apertureStr = exif ? formatAperture(exif.f_number, exif.f_number_range, exif.f_number_mixed) : null;
+	$: shutterStr = exif ? formatShutter(exif.exposure_time, exif.exposure_time_range, exif.exposure_time_mixed) : null;
+	$: isoStr = exif ? formatIso(exif.iso, exif.iso_range, exif.iso_mixed) : null;
+	$: framesStr = exif ? formatFrames(exif.frames, exif.positions) : null;
 	$: hasCameraExif = !!(cameraStr || lensStr || focalStr || apertureStr || shutterStr || isoStr);
 
 	// Base metadata rows. Precision matches the DebugOverlay conventions.
@@ -81,9 +88,17 @@
 	$: coordStr = photo?.coord ? `${photo.coord.lat?.toFixed(6)}, ${photo.coord.lng?.toFixed(6)}` : null;
 	$: bearingStr = photo?.bearing != null ? `${photo.bearing.toFixed(1)}°` : null;
 	$: altitudeStr = photo?.altitude != null ? `${photo.altitude.toFixed(0)} m` : null;
-	$: dims = photo?.sizes?.full?.width && photo?.sizes?.full?.height
-		? `${photo.sizes.full.width} × ${photo.sizes.full.height}`
-		: null;
+	// Real pixel size. For hillview photos `sizes.full` is just the largest
+	// rendition (a gigapixel pano is downsized there), so the dimensions come
+	// from the public record, or stay hidden until it resolves. External sources
+	// report their own full size in `sizes.full`.
+	$: dims = isHillview
+		? info?.width && info?.height
+			? `${info.width} × ${info.height}`
+			: null
+		: photo?.sizes?.full?.width && photo?.sizes?.full?.height
+			? `${photo.sizes.full.width} × ${photo.sizes.full.height}`
+			: null;
 	$: sourceName = getPhotoSourceName(photo) ?? getPhotoSourceId(photo) ?? null;
 	$: creator = getUserName(photo);
 	$: licenseStr = getLicenseLabel(photo);
@@ -124,6 +139,7 @@
 			{#if apertureStr}<dt>Aperture</dt><dd>{apertureStr}</dd>{/if}
 			{#if shutterStr}<dt>Shutter</dt><dd>{shutterStr}</dd>{/if}
 			{#if isoStr}<dt>ISO</dt><dd>{isoStr}</dd>{/if}
+			{#if framesStr}<dt>Frames</dt><dd data-testid="photo-info-frames">{framesStr}</dd>{/if}
 
 			{#if isHillview && !hasCameraExif}
 				<dd class="pinfo-note">{exifLoading ? 'Loading EXIF…' : 'No camera EXIF'}</dd>

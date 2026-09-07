@@ -82,5 +82,11 @@ semantics in all of them, and their tests (`CullingGrid.test.ts`,
   Panoramax is fetched browser-side from the public instance, so
   `fixtures.ts` routes `api.panoramax.xyz/api/search` to an empty result for
   every test; a spec that wants photos registers its own route on top
-  (`helpers/panoramaxMocks.ts`; later routes win). Marker source is on the
+  (`helpers/panoramaxMocks.ts`; later routes win). That route holds on chromium
+  and firefox only — the fetch is issued by the photo worker, and Playwright
+  cannot intercept a worker's requests in WebKit, where the mock is simply never
+  consulted. So `fixtures.ts` also turns the source off before the app boots
+  (`localStorage.sourceStates`), which needs no interception; a Panoramax spec
+  opts back in with `test.use({ panoramaxDefault: true })` and, if it needs
+  mocked photos on the map, skips WebKit. Marker source is on the
   inner element: `.optimized-photo-marker:has(.marker-container[data-source="…"])`.

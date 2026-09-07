@@ -9,7 +9,7 @@ API:
 CLI:
   brackets.py [CR2 ...]               # default: all *.CR2 in cwd
 
-Both callers (raw.py auto-fuse, pano/pipeline.py uniform check) use the
+Callers (pano/pipeline.py uniform check; formerly raw.py auto-fuse) use the
 same exiftool batch read; the distinction is per-stack vs. whole-batch
 detection.
 
@@ -143,7 +143,7 @@ def print_groups(cr2s: list[Path], stream=sys.stdout) -> list[list[Path]]:
 	  - [G] is the group index (1-based; omitted for singles).
 	  - <pos> is "p/N" within the group, or "single".
 	  - "*" marks the middle frame (the one whose stem becomes the
-	    fused output's stem, matching what fuse_brackets in raw.py uses).
+	    fused output's stem, as the former raw.py fuse_brackets used).
 	  - "→ <stem>_fused" annotates only on the middle of brackets.
 
 	Returns the same groups list as detect_bracket_groups.

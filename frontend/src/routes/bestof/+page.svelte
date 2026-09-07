@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { auth } from '$lib/auth.svelte';
 	import { createSsrBackedLoad } from '$lib/ssrBackedLoad';
+	import { trackLoad } from '$lib/pageLoading';
 	import { http, handleApiError } from '$lib/http';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
@@ -74,8 +75,9 @@
 
 	// Who needs a fetch and who keeps the server-rendered batch — see
 	// createSsrBackedLoad (an anonymous visitor keeps it; that is what stopped
-	// crawlers rendering this page as a soft 404).
-	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void loadPhotos());
+	// crawlers rendering this page as a soft 404). trackLoad marks the page as
+	// "not your view yet" while the signed-in batch replaces the anonymous one.
+	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void trackLoad(() => loadPhotos()));
 	$: syncLoad($auth);
 
 	/** `append` distinguishes a lazy-loaded continuation from the initial load. */
