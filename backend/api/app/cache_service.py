@@ -6,10 +6,10 @@ import os
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 
-from typing import List, Optional, Tuple, Dict, Any
+from typing import Callable, List, Optional, Tuple, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, text
+from sqlalchemy import func, text, update
 from sqlalchemy.dialects.postgresql import insert
 from geoalchemy2 import functions as geo_func
 from geoalchemy2.shape import from_shape, to_shape
@@ -24,8 +24,23 @@ log = logging.getLogger(__name__)
 class MapillaryCacheService:
 	"""Service for managing Mapillary photo caching with PostGIS spatial queries"""
 
-	def __init__(self, db: AsyncSession):
-		self.db = db
+	def __init__(self, session_factory: Callable[[], AsyncSession]):
+		"""Takes a session FACTORY (`SessionLocal`), never a live session.
+
+		Every method opens its own short session and commits or closes before it
+		returns, so the caller — the Mapillary SSE stream, which lives as long as
+		the client stays connected and spends most of that time awaiting Mapillary —
+		never holds a transaction, or a pooled connection, across that wait. Nothing
+		crosses a session boundary as an attached ORM object either: the two writes
+		to a CachedRegion are `UPDATE … WHERE id` statements.
+		"""
+		self._sessions = session_factory
+
+	async def _run(self, statement, params=None):
+		"""One read in its own session. The Result comes back fully buffered, so
+		it is safe to consume after the session is gone."""
+		async with self._sessions() as db:
+			return await db.execute(statement, params)
 
 	async def get_cached_photos_in_bbox(
 		self,
@@ -63,7 +78,7 @@ class MapillaryCacheService:
 			WHERE ST_Within(p.geometry, ST_GeomFromText(:bbox_wkt, 4326))
 			LIMIT 5
 		""")
-		debug_result = await self.db.execute(debug_query, {
+		debug_result = await self._run(debug_query, {
 			'bbox_wkt': bbox_wkt,
 			'bbox_min_x': top_left_lon,
 			'bbox_min_y': bottom_right_lat,
@@ -101,7 +116,7 @@ class MapillaryCacheService:
 				{hidden_filters}
 			""")
 
-			count_result = await self.db.execute(count_query, {'bbox_wkt': bbox_wkt, 'current_user_id': current_user_id} if current_user_id else {'bbox_wkt': bbox_wkt})
+			count_result = await self._run(count_query, {'bbox_wkt': bbox_wkt, 'current_user_id': current_user_id} if current_user_id else {'bbox_wkt': bbox_wkt})
 			total_cached_photos = count_result.scalar()
 
 			if total_cached_photos <= max_photos:
@@ -168,7 +183,7 @@ class MapillaryCacheService:
 		if current_user_id:
 			params['current_user_id'] = current_user_id
 
-		result = await self.db.execute(query, params)
+		result = await self._run(query, params)
 
 		cached_photos = result.fetchall()
 
@@ -271,7 +286,7 @@ class MapillaryCacheService:
 
 		log.debug(f"Completeness check: Checking coverage with region IDs: {region_ids}, request_bbox={request_bbox_wkt}")
 
-		result = await self.db.execute(coverage_query, {
+		result = await self._run(coverage_query, {
 			'region_ids': region_ids,
 			'request_bbox': request_bbox_wkt
 		})
@@ -332,7 +347,7 @@ class MapillaryCacheService:
 			)
 		)
 
-		result = await self.db.execute(query)
+		result = await self._run(query)
 		return result.scalars().all()
 
 	async def calculate_uncached_regions(
@@ -414,40 +429,40 @@ class MapillaryCacheService:
 				func.ST_GeomFromText(bbox_wkt, 4326)
 			)
 		)
-		result = await self.db.execute(existing_query)
-		existing_region = result.scalars().first()
+		async with self._sessions() as db:
+			result = await db.execute(existing_query)
+			existing_region = result.scalars().first()
 
-		if existing_region:
-			return existing_region
+			if existing_region:
+				return existing_region
 
-		# Create new region with retry logic
-		try:
+			# Create new region with retry logic
 			region = CachedRegion(
 				bbox=func.ST_GeomFromText(bbox_wkt, 4326),
 				is_complete=False,
 				photo_count=0,
 				has_more=True
 			)
+			db.add(region)
+			try:
+				await db.commit()
+			except Exception as e:
+				# Handle potential unique constraint violations
+				await db.rollback()
 
-			self.db.add(region)
-			await self.db.commit()
-			await self.db.refresh(region)
+				# Try to find the region that was created by another request
+				result = await db.execute(existing_query)
+				existing_region = result.scalars().first()
 
-			return region
-
-		except Exception as e:
-			# Handle potential unique constraint violations
-			await self.db.rollback()
-
-			# Try to find the region that was created by another request
-			result = await self.db.execute(existing_query)
-			existing_region = result.scalars().first()
-
-			if existing_region:
-				return existing_region
-			else:
+				if existing_region:
+					return existing_region
 				# Re-raise if it's not a race condition
 				raise e
+
+			# Loaded here and usable after the session closes (expire_on_commit=False);
+			# callers only ever need its id from now on.
+			await db.refresh(region)
+			return region
 
 	async def cache_photos(
 		self,
@@ -466,7 +481,7 @@ class MapillaryCacheService:
 		existing_query = select(MapillaryPhotoCache.mapillary_id).where(
 			MapillaryPhotoCache.mapillary_id.in_(photo_ids)
 		)
-		result = await self.db.execute(existing_query)
+		result = await self._run(existing_query)
 		existing_ids = set(result.scalars().all())
 
 		# Prepare batch insert data
@@ -543,29 +558,30 @@ class MapillaryCacheService:
 			photos_to_insert.append(photo_dict)
 			cached_count += 1
 
-		# Batch insert
+		# Batch insert — its own short session, committed before this returns.
 		if photos_to_insert:
-
-
 			stmt = insert(MapillaryPhotoCache).values(photos_to_insert)
 			stmt = stmt.on_conflict_do_nothing(index_elements=['mapillary_id'])
 
-			try:
-				await self.db.execute(stmt)
+			# The region counter is an UPDATE by id, not an attribute write on the
+			# `region` object: that object came out of another session, and an
+			# in-database increment is what is correct under concurrent writers
+			# anyway. (An `except BaseException: rollback` used to live here; it
+			# never worked, because under a cancelled scope the rollback itself
+			# raised before reaching the socket. Teardown under cancellation is the
+			# session's own job now — see release_session in common/database.py.)
+			async with self._sessions() as db:
+				await db.execute(stmt)
+				await db.execute(
+					update(CachedRegion)
+					.where(CachedRegion.id == region.id)
+					.values(photo_count=CachedRegion.photo_count + cached_count, last_updated=utcnow())
+				)
+				await db.commit()
 
-				# Update region stats
-				region.photo_count += cached_count
-				region.last_updated = utcnow()
-
-				await self.db.commit()
-			except BaseException:
-				# Catch BaseException so asyncio.CancelledError also triggers
-				# rollback — otherwise a cancelled background cache-population
-				# coroutine leaves the connection "idle in transaction"
-				# holding row locks on cached_regions, which then wedges every
-				# subsequent DELETE FROM cached_regions (e.g. clear-database).
-				await self.db.rollback()
-				raise
+			# Keep the caller's detached copy in step.
+			region.photo_count += cached_count
+			region.last_updated = utcnow()
 
 		end_time = datetime.datetime.now()
 		duration = (end_time - start_time).total_seconds()
@@ -573,33 +589,36 @@ class MapillaryCacheService:
 		return cached_count
 
 	async def mark_region_complete(self, region: CachedRegion):
-		"""Mark a region as completely cached"""
-		try:
-			region.is_complete = True
-			region.has_more = False
-			region.last_updated = utcnow()
-			await self.db.commit()
-		except BaseException:
-			await self.db.rollback()
-			raise
+		"""Mark a region as completely cached — an UPDATE by id, see cache_photos."""
+		now = utcnow()
+		async with self._sessions() as db:
+			await db.execute(
+				update(CachedRegion)
+				.where(CachedRegion.id == region.id)
+				.values(is_complete=True, has_more=False, last_updated=now)
+			)
+			await db.commit()
+		region.is_complete = True
+		region.has_more = False
+		region.last_updated = now
 
 	async def get_cache_stats(self) -> Dict[str, Any]:
 		"""Get cache statistics"""
 
 		# Count total cached photos
-		photo_count = await self.db.execute(
+		photo_count = await self._run(
 			select(func.count(MapillaryPhotoCache.mapillary_id))
 		)
 		total_photos = photo_count.scalar()
 
 		# Count cached regions
-		region_count = await self.db.execute(
+		region_count = await self._run(
 			select(func.count(CachedRegion.id))
 		)
 		total_regions = region_count.scalar()
 
 		# Count complete regions
-		complete_count = await self.db.execute(
+		complete_count = await self._run(
 			select(func.count(CachedRegion.id)).where(CachedRegion.is_complete == True)
 		)
 		complete_regions = complete_count.scalar()

@@ -1462,28 +1462,39 @@ async def delete_user_account(
 	# Apply user profile rate limiting
 	await rate_limit_user_profile(request, current_user.id)
 
+	user_id = current_user.id
 	try:
-		# First, get all user's photos and delete their files before CASCADE deletes DB records
-		# Get all user's photos to delete their files
+		# Files MUST be gone before we report the account deleted — a user must never be
+		# told "deleted" while their photos still dangle. So: capture the files, delete
+		# them, and only then remove the account. The sweep runs off the event loop and
+		# outside any transaction (the read snapshot is ended first): a big account
+		# could otherwise freeze the API and, inside an open transaction, be killed by
+		# the idle-txn guardrail mid-deletion.
 		photos_result = await db.execute(
-			select(Photo).where(Photo.owner_id == current_user.id)
+			select(Photo).where(Photo.owner_id == user_id)
 		)
-		user_photos = photos_result.scalars().all()
+		all_sizes = [photo.sizes for photo in photos_result.scalars().all()]
+		await db.rollback()  # end the read snapshot before the (possibly long) sweep
 
-		# Delete photo files from filesystem - must succeed before DB deletion
-		if user_photos:
-			deleted_count = await delete_all_user_photo_files(user_photos)
-			if deleted_count != len(user_photos):
-				# Some file deletions failed - abort user deletion
+		if all_sizes:
+			from photos import delete_photo_files_for_sizes
+			deleted_count = await delete_photo_files_for_sizes(all_sizes)
+			if deleted_count != len(all_sizes):
+				# Some file deletions failed — abort, account stays intact so the user
+				# can retry. Never report success with files still on disk.
 				raise HTTPException(
 					status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-					detail=f"Failed to delete all photo files ({deleted_count}/{len(user_photos)} succeeded). User deletion aborted."
+					detail=f"Failed to delete all photo files ({deleted_count}/{len(all_sizes)} succeeded). User deletion aborted."
 				)
-			log.info(f"Successfully deleted {deleted_count} photo files for user {current_user.id}")
+			log.info(f"Successfully deleted {deleted_count} photo files for user {user_id}")
 
-		# Now delete the user - CASCADE constraint will delete database records
-		await db.delete(current_user)
-		await db.commit()
+		# Files are gone; now remove the user. DB-level ON DELETE CASCADE
+		# (Photo.owner_id) clears the rest. Re-fetch: the object from the read above
+		# was expired by the rollback.
+		user = await db.get(User, user_id)
+		if user is not None:
+			await db.delete(user)
+			await db.commit()
 
 		return {"message": "Account successfully deleted"}
 	except Exception as e:

@@ -12,7 +12,7 @@ from sqlalchemy import select, Float, case, literal, case, literal
 from geoalchemy2.functions import ST_MakeEnvelope, ST_Within, ST_X, ST_Y
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from common.database import get_db
+from common.database import get_db, SessionLocal
 from common.models import Photo, User
 from common.utc import format_utc
 from hidden_content_filters import apply_hidden_content_filters
@@ -559,7 +559,6 @@ async def get_hillview_images(
 	picks: str = Query(None, description="Comma-separated list of picked photo IDs"),
 	max_photos: int = Query(400, description="Maximum number of photos to return", ge=1),
 	analysis_filters: Optional[AnalysisFilters] = Depends(parse_analysis_filters),
-	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
 	"""Get Hillview images from database filtered by bounding box area"""
@@ -584,21 +583,27 @@ async def get_hillview_images(
 
 		current_user_id = current_user.id if current_user else None
 
-		# Get picked photos first (they have priority)
-		picked_photos = await query_picked_photos(db, bbox, picked_ids, current_user_id)
-		log.info(f"Found {len(picked_photos)} picked photos in bounds")
+		# Both reads in one short session, closed before the stream starts. The
+		# StreamingResponse below lives as long as the client stays connected, and a
+		# session taken from Depends(get_db) would sit idle in its read transaction,
+		# holding a pooled connection, for that whole time — which is what
+		# idle_in_transaction_session_timeout will (rightly) kill once it is set.
+		async with SessionLocal() as db:
+			# Get picked photos first (they have priority)
+			picked_photos = await query_picked_photos(db, bbox, picked_ids, current_user_id)
+			log.info(f"Found {len(picked_photos)} picked photos in bounds")
 
-		# Get regular photos up to the limit minus picked photos
-		remaining_limit = effective_max_photos - len(picked_photos)
-		regular_photos = []
-		if remaining_limit > 0:
-			regular_photos = await query_photos_in_bounds(
-				db, bbox, current_user_id,
-				exclude_ids=picked_ids,
-				limit=remaining_limit,
-				analysis_filters=analysis_filters
-			)
-			log.info(f"Found {len(regular_photos)} regular photos")
+			# Get regular photos up to the limit minus picked photos
+			remaining_limit = effective_max_photos - len(picked_photos)
+			regular_photos = []
+			if remaining_limit > 0:
+				regular_photos = await query_photos_in_bounds(
+					db, bbox, current_user_id,
+					exclude_ids=picked_ids,
+					limit=remaining_limit,
+					analysis_filters=analysis_filters
+				)
+				log.info(f"Found {len(regular_photos)} regular photos")
 
 		# Combine picked photos first, then regular photos
 		filtered_photos = picked_photos + regular_photos

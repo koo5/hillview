@@ -895,18 +895,23 @@ async def delete_users_by_usernames(db: AsyncSession, usernames: list[str]) -> d
 		user_ids = [row[0] for row in user_ids_result.fetchall()]
 
 		if user_ids:
-			# First, get all photos to delete their files
+			# Capture each photo's `sizes` while attached, then end the read
+			# transaction BEFORE the file sweep. The sweep can be long (clear-database
+			# wipes tens of thousands), and it must not run inside an open transaction
+			# or the idle-txn guardrail would kill this very operation. Files are
+			# deleted best-effort here (as before): the DB rows go regardless, and
+			# clear-database's wholesale directory sweep is the local catch-all.
 			photos_query = select(Photo).where(Photo.owner_id.in_(user_ids))
 			photos_result = await db.execute(photos_query)
-			photos_to_delete = photos_result.scalars().all()
+			all_sizes = [photo.sizes for photo in photos_result.scalars().all()]
+			await db.rollback()  # end the read snapshot; nothing written yet
 
-			# Delete photo files from filesystem
-			if photos_to_delete:
-				from photos import delete_all_user_photo_files
-				deleted_files_count = await delete_all_user_photo_files(photos_to_delete)
-				logger.info(f"Deleted {deleted_files_count}/{len(photos_to_delete)} photo files for users: {usernames}")
+			if all_sizes:
+				from photos import delete_photo_files_for_sizes
+				deleted_files_count = await delete_photo_files_for_sizes(all_sizes)
+				logger.info(f"Deleted {deleted_files_count}/{len(all_sizes)} photo files for users: {usernames}")
 
-			# Delete photos from database
+			# Now the DB deletes, in a fresh short write transaction.
 			photo_delete_stmt = delete(Photo).where(Photo.owner_id.in_(user_ids))
 			photo_result = await db.execute(photo_delete_stmt)
 			summary["photos_deleted"] = photo_result.rowcount
