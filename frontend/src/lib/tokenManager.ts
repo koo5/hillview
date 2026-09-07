@@ -11,6 +11,14 @@ export interface TokenData {
     token_type: string;
     expires_at: string;
     refresh_token_expires_at?: string;
+    /**
+     * Read-only ticket for the frontend's own server renderer, minted alongside
+     * the pair above. Mirrored into a cookie by ssrTicketCookie.ts so SSR can
+     * render this visitor's view instead of an anonymous one. Absent on Android,
+     * where Kotlin owns tokens and there is no SSR.
+     */
+    ssr_token?: string;
+    ssr_token_expires_at?: string;
 }
 
 export interface TokenManager {

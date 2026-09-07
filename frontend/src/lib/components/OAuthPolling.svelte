@@ -55,7 +55,9 @@
                         refresh_token: tokenData.refresh_token,
                         expires_at: tokenData.expires_at,
                         token_type: tokenData.token_type,
-                        refresh_token_expires_at: tokenData.refresh_token_expires_at
+                        refresh_token_expires_at: tokenData.refresh_token_expires_at,
+                        ssr_token: tokenData.ssr_token,
+                        ssr_token_expires_at: tokenData.ssr_token_expires_at
                     }, 'oauth');
 
                     if (authSuccess) {

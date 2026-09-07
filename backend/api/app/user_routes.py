@@ -23,7 +23,7 @@ from common.database import get_db
 from common.models import User, UserPublicKey, Photo, UserRole
 from common.utc import utcnow, format_utc, utc_from_timestamp, utc_plus_timedelta
 from photos import delete_all_user_photo_files
-from jwt_service import create_upload_authorization_token, REFRESH_TOKEN_EXPIRE_MINUTES
+from jwt_service import create_upload_authorization_token, create_ssr_read_token, REFRESH_TOKEN_EXPIRE_MINUTES
 from auth import (
 	authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
 	get_password_hash, Token, UserCreate, UserOut, UserOAuth, RefreshTokenRequest,
@@ -155,6 +155,10 @@ def store_oauth_session(tokens: Dict[str, Any], user_info: Dict[str, Any]) -> st
         'expires_at': expires_at,
         'token_expires_at': tokens['expires_at'],
         'refresh_token_expires_at': tokens.get('refresh_token_expires_at'),
+        # The SSR read ticket rides along so the polling response can carry it —
+        # the web popup flow collects its tokens here, not from /auth/oauth.
+        'ssr_token': tokens.get('ssr_token'),
+        'ssr_token_expires_at': tokens.get('ssr_token_expires_at'),
         'user_info': user_info,
         'created_at': utcnow()
     }
@@ -273,12 +277,18 @@ async def login_for_access_token(
 		data={"sub": user.username, "user_id": user.id, "sid": sid, "jti": new_refresh_jti()}
 	)
 
+	ssr_token, ssr_expires = create_ssr_read_token(
+		data={"sub": user.id, "username": user.username, "sid": sid}
+	)
+
 	return {
 		"access_token": access_token,
 		"refresh_token": refresh_token,
+		"ssr_token": ssr_token,
 		"token_type": "bearer",
 		"expires_at": expires,
-		"refresh_token_expires_at": refresh_expires
+		"refresh_token_expires_at": refresh_expires,
+		"ssr_token_expires_at": ssr_expires
 	}
 
 @router.post("/auth/logout")
@@ -440,6 +450,12 @@ async def refresh_access_token(
 			data={"sub": user.username, "user_id": user.id, "sid": session_family, "jti": new_refresh_jti()}
 		)
 
+		# Reissued on every refresh so the cookie the client mirrors it into keeps
+		# tracking the session rather than aging out mid-session.
+		ssr_token, ssr_expires = create_ssr_read_token(
+			data={"sub": user.id, "username": user.username, "sid": session_family}
+		)
+
 		# Log successful refresh
 		await security_audit.log_event(
 			db=db,
@@ -455,9 +471,13 @@ async def refresh_access_token(
 		return {
 			"access_token": access_token,
 			"refresh_token": new_refresh_token,
+			"ssr_token": ssr_token,
 			"token_type": "bearer",
 			"expires_at": expires,
-			"refresh_token_expires_at": new_refresh_expires.isoformat() if hasattr(new_refresh_expires, 'isoformat') else new_refresh_expires
+			"refresh_token_expires_at": new_refresh_expires.isoformat() if hasattr(new_refresh_expires, 'isoformat') else new_refresh_expires,
+			# Handed over as a datetime, not isoformat(): the Token model then emits
+			# the Z-terminated form its docstring insists on.
+			"ssr_token_expires_at": ssr_expires
 		}
 
 	except HTTPException:
@@ -791,7 +811,9 @@ async def oauth_callback(
 			'access_token': jwt_token,
 			'refresh_token': refresh_token,
 			'expires_at': expires_at,
-			'refresh_token_expires_at': refresh_token_expires_at
+			'refresh_token_expires_at': refresh_token_expires_at,
+			'ssr_token': jwt_result.get("ssr_token"),
+			'ssr_token_expires_at': jwt_result.get("ssr_token_expires_at")
 		}
 
 		if polling_session_id:
@@ -803,6 +825,8 @@ async def oauth_callback(
 					'refresh_token': refresh_token,
 					'token_expires_at': expires_at,
 					'refresh_token_expires_at': refresh_token_expires_at,
+					'ssr_token': tokens['ssr_token'],
+					'ssr_token_expires_at': tokens['ssr_token_expires_at'],
 					'user_info': user_info,
 					'status': 'completed'
 				})
@@ -960,19 +984,14 @@ async def oauth_callback(
 
 		return RedirectResponse(deep_link_url)
 	else:
-		# Web app: existing behavior (redirect to dashboard)
-		# Note: For web app, you might want to set cookies here
+		# Web app: existing behavior (redirect to dashboard).
+		# No cookie is set here. An "auth_token" cookie used to be written on this
+		# branch and never read by anything — it could not be, since in production the
+		# API answers on api.hillview.cz and the site is hillview.cz, so a cookie set
+		# here never reaches the frontend origin. The SSR read ticket solves that
+		# properly: the browser mirrors it into a cookie on its own origin.
 		log.info("Web OAuth callback, redirecting to dashboard")
-		response = RedirectResponse("/")
-		response.set_cookie(
-			"auth_token",
-			jwt_token,
-			httponly=True,
-			secure=True,
-			samesite="lax",
-			expires=expires_at
-		)
-		return response
+		return RedirectResponse("/")
 
 @router.get("/auth/oauth-status/{session_id}")
 async def get_oauth_status(
@@ -1020,6 +1039,8 @@ async def get_oauth_status(
 	refresh_token = session.get('refresh_token')
 	token_expires_at = session['token_expires_at']
 	refresh_token_expires_at = session.get('refresh_token_expires_at')
+	ssr_token = session.get('ssr_token')
+	ssr_token_expires_at = session.get('ssr_token_expires_at')
 	user_info = session['user_info']
 
 	# Log successful OAuth completion
@@ -1054,6 +1075,13 @@ async def get_oauth_status(
 
 	if refresh_token_expires_at:
 		response_data["refresh_token_expires_at"] = refresh_token_expires_at if isinstance(refresh_token_expires_at, str) else refresh_token_expires_at.isoformat()
+
+	# Same fields the Token model would emit, so completeAuthentication stores the
+	# ticket from this path too; without it login mirrors no cookie until the
+	# first refresh.
+	if ssr_token and ssr_token_expires_at:
+		response_data["ssr_token"] = ssr_token
+		response_data["ssr_token_expires_at"] = ssr_token_expires_at if isinstance(ssr_token_expires_at, str) else ssr_token_expires_at.isoformat()
 
 	return response_data
 
@@ -1285,12 +1313,18 @@ async def oauth_user_to_tokens(db: AsyncSession, provider: str, oauth_id: str, e
 		data={"sub": user.username, "user_id": user.id, "sid": sid, "jti": new_refresh_jti()}
 	)
 
+	ssr_token, ssr_expires = create_ssr_read_token(
+		data={"sub": user.id, "username": user.username, "sid": sid}
+	)
+
 	return {
 		"access_token": access_token,
 		"refresh_token": refresh_token,
+		"ssr_token": ssr_token,
 		"token_type": "bearer",
 		"expires_at": expires,
 		"refresh_token_expires_at": refresh_expires.isoformat() if hasattr(refresh_expires, 'isoformat') else refresh_expires,
+		"ssr_token_expires_at": ssr_expires.isoformat() if hasattr(ssr_expires, 'isoformat') else ssr_expires,
 		"user_info": {
 			"user_id": user.id,
 			"username": user.username,

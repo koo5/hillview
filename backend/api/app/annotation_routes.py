@@ -16,7 +16,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
 from common.models import Photo, PhotoAnnotation, User, HiddenUser
 from common.utc import format_utc
-from auth import get_current_active_user, get_current_user_optional, require_moderator
+from auth import get_current_active_user, get_current_user_optional_soft_ssr, require_moderator
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +96,14 @@ def _serialize(ann: PhotoAnnotation, username: Optional[str] = None) -> Annotati
 async def list_annotations(
     photo_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user_optional),
+    current_user: Optional[User] = Depends(get_current_user_optional_soft_ssr),
 ):
-    """Return all current (non-deleted, non-hidden) annotations for a photo."""
+    """Return all current (non-deleted, non-hidden) annotations for a photo.
+
+    One of the four endpoints the frontend's server renderer calls, hence the
+    _ssr dependency — it accepts the read-only SSR ticket as well as an access
+    token. See SSR_READ_TOKEN_TYPE in auth.py.
+    """
     query = (
         select(PhotoAnnotation, User.username)
         .join(User, PhotoAnnotation.user_id == User.id)

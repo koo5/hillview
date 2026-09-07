@@ -135,6 +135,12 @@ services:
       - NODE_ENV=production
       - HOST=0.0.0.0
       - PORT=3000
+      # Authed server rendering: reads the visitor's SSR ticket cookie so pages
+      # render their view instead of the anonymous one (hooks.server.ts). NOT a
+      # VITE_ var on purpose — those bake at build time, and this one is meant to
+      # be switchable with a restart. Set to "off" to fall back to anonymous
+      # rendering with the client correcting it.
+      - SSR_AUTH=${SSR_AUTH:-on}
       - VITE_BACKEND=${VITE_BACKEND:-http://localhost:8055/api}
       - VITE_GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - VITE_GOOGLE_REDIRECT_URI=${VITE_GOOGLE_REDIRECT_URI:-}

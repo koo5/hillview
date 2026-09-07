@@ -15,6 +15,7 @@ the full validate -> blacklist -> DB path, not a mocked slice of it.
 """
 import os
 import sys
+from typing import Optional
 
 import requests
 
@@ -181,3 +182,150 @@ def test_refresh_token_reuse_revokes_the_session():
         "detecting refresh-token reuse must revoke the whole token family — got "
         f"{after.status_code}: {after.text}"
     )
+
+
+# ---------------------------------------------------------------------------
+# SSR read ticket — the third token in the payload. Read-only by construction:
+# accepted by the handful of read endpoints the web frontend's server renderer
+# calls, rejected everywhere else. See docs/ssr-auth-ticket.md.
+# ---------------------------------------------------------------------------
+
+def _bestof(bearer: Optional[str]) -> requests.Response:
+    """One of the SSR read endpoints, called the way the server renderer does."""
+    headers = {"Authorization": f"Bearer {bearer}"} if bearer else {}
+    return requests.get(f"{API_URL}/bestof/photos", headers=headers)
+
+
+def _tampered(token: str) -> str:
+    """
+    Same header and claims, signature no longer matching — what a ticket signed
+    with a rotated key looks like to the API. The FIRST signature character is
+    changed: the last one may carry unused padding bits, which a flip would not
+    disturb.
+    """
+    head, body, sig = token.split(".")
+    return f"{head}.{body}.{'A' if sig[0] != 'A' else 'B'}{sig[1:]}"
+
+
+def test_login_and_refresh_issue_an_ssr_ticket():
+    """Both token-issuing responses carry a ticket, and refresh rotates it."""
+    tokens = _login()
+    assert tokens.get("ssr_token") and tokens.get("ssr_token_expires_at"), \
+        "login must return the SSR ticket and its expiry"
+
+    refreshed = _refresh(tokens["refresh_token"]).json()
+    assert refreshed.get("ssr_token") and refreshed["ssr_token"] != tokens["ssr_token"], \
+        "refresh must issue a fresh ticket"
+
+
+def test_ssr_ticket_renders_the_visitors_own_view():
+    """A read endpoint SSR calls accepts the ticket and says who the batch is for."""
+    tokens = _login()
+    me = _me(tokens["access_token"]).json()
+
+    resp = _bestof(tokens["ssr_token"])
+    assert resp.status_code == 200, f"{resp.status_code}: {resp.text}"
+    assert resp.json().get("viewer_id") == me["id"], "batch must be tagged with the ticket's user"
+
+    anonymous = _bestof(None)
+    assert anonymous.status_code == 200
+    assert anonymous.json().get("viewer_id") is None, "an anonymous batch says so"
+
+
+def test_ssr_ticket_is_not_a_credential_elsewhere():
+    """
+    The ticket must authenticate nothing outside the SSR read endpoints: not a
+    protected read, not a write, and it must not be laundered into a session
+    through /auth/refresh. This is the property that makes a cookie holding it
+    acceptable.
+    """
+    tokens = _login()
+    ticket = tokens["ssr_token"]
+
+    assert _me(ticket).status_code == 401, "ticket must not pass get_current_user"
+    assert _logout(ticket).status_code == 401, "ticket must not authenticate a write"
+    assert _refresh(ticket).status_code == 401, "ticket must not act as a refresh token"
+
+
+def test_ssr_ticket_dies_with_the_session():
+    """Logout revokes the session family; the ticket then renders anonymously."""
+    tokens = _login()
+    assert _logout(tokens["access_token"]).status_code == 200
+
+    resp = _bestof(tokens["ssr_token"])
+    assert resp.status_code == 200, "a revoked ticket degrades, it does not error"
+    assert resp.json().get("viewer_id") is None
+
+
+def test_invalid_ssr_ticket_degrades_to_anonymous_not_401():
+    """
+    A ticket that fails validation — expired, or signed with a rotated key — must
+    produce the anonymous render, not a 401 the photo page turns into an error
+    page. The cookie can outlive its ticket (client clock behind the server), so
+    this is a real path, not a hypothetical.
+
+    An invalid *access* token on the same endpoint stays a 401: the strict
+    contract for real credentials is untouched.
+    """
+    tokens = _login()
+
+    resp = _bestof(_tampered(tokens["ssr_token"]))
+    assert resp.status_code == 200, f"dead ticket must render anonymously — got {resp.status_code}: {resp.text}"
+    assert resp.json().get("viewer_id") is None
+
+    assert _bestof(_tampered(tokens["access_token"])).status_code == 401, \
+        "an invalid access token must still be a 401 on the same endpoint"
+
+
+def _annotations(bearer: Optional[str]) -> requests.Response:
+    """The other SSR read endpoint, and the forgiving one.
+
+    Its photo id need not exist: what is under test is which credentials the
+    endpoint accepts, not what it finds.
+    """
+    headers = {"Authorization": f"Bearer {bearer}"} if bearer else {}
+    return requests.get(f"{API_URL}/annotations/photos/no-such-photo", headers=headers)
+
+
+def test_the_two_ssr_dependencies_keep_their_own_manners():
+    """
+    Both SSR read dependencies accept the ticket, and each keeps the failure mode
+    its endpoints already had for a bad ACCESS token: bestof answers 401, the
+    annotation listing shrugs and serves the anonymous view.
+
+    The second half is the compatibility promise. Annotation listing has always
+    been forgiving, so an installed app whose access token expired keeps seeing
+    annotations. Moving it to the strict flavour would have turned that into an
+    error, silently, on devices nobody can redeploy.
+    """
+    tokens = _login()
+
+    assert _annotations(tokens["ssr_token"]).status_code == 200, "ticket must be accepted here too"
+    assert _annotations(_tampered(tokens["access_token"])).status_code == 200, \
+        "a bad access token must still degrade to anonymous on the forgiving endpoint"
+    assert _bestof(_tampered(tokens["access_token"])).status_code == 401, \
+        "and must still be a 401 on the strict one"
+
+
+def test_anonymous_reads_are_tagged_as_belonging_to_nobody():
+    """
+    `viewer_id` is what the page compares against the signed-in user to decide
+    whether to refetch (createSsrBackedLoad). Null for an anonymous caller is the
+    half that keeps a crawler's render from being adopted by a signed-in visitor,
+    so it is asserted on every endpoint that reports it, not just the one.
+    """
+    assert _bestof(None).json().get("viewer_id") is None
+    assert requests.get(f"{API_URL}/activity/recent?limit=1").json().get("viewer_id") is None
+
+
+def test_ssr_ticket_tags_activity_with_its_user_too():
+    """The ticket resolves the same on /activity/recent as on /bestof/photos."""
+    tokens = _login()
+    me = _me(tokens["access_token"]).json()
+
+    resp = requests.get(
+        f"{API_URL}/activity/recent?limit=1",
+        headers={"Authorization": f"Bearer {tokens['ssr_token']}"},
+    )
+    assert resp.status_code == 200, f"{resp.status_code}: {resp.text}"
+    assert resp.json().get("viewer_id") == me["id"]

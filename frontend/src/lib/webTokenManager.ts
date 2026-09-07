@@ -7,6 +7,7 @@ import { logout, fetchUserData, getAuthGeneration, bumpAuthGeneration } from './
 import { clientCrypto } from './clientCrypto';
 import { http } from '$lib/http';
 import { authStorage, type IndexedDbTokenData } from './browser/authStorage';
+import { setSsrTicketCookie, clearSsrTicketCookie } from './ssrTicketCookie';
 import { onReconnect } from './connectivity';
 
 const doLog = false;
@@ -30,6 +31,9 @@ export class WebTokenManager implements TokenManager {
         // Subscribe to cross-tab auth changes
         authStorage.onAuthChange(async () => {
             console.log(`${this.LOG_PREFIX} Auth changed in another tab, refreshing cache`);
+            // refreshCache also re-mirrors the ticket cookie, which matters here:
+            // the change may have come from the service worker, which has no
+            // document of its own to write it into.
             const hadTokens = !!this.cachedTokenData;
             await this.refreshCache();
 
@@ -97,6 +101,10 @@ export class WebTokenManager implements TokenManager {
 
     private async refreshCache(): Promise<void> {
         this.cachedTokenData = await authStorage.getTokenData();
+        // Re-assert the ticket cookie from whatever storage holds. Covers the tab
+        // that boots with tokens already there and no cookie — cleared by the
+        // browser, or written while only the service worker was running.
+        this.mirrorSsrTicket(this.cachedTokenData);
     }
 
     private async ensureCacheInitialized(): Promise<void> {
@@ -420,13 +428,25 @@ export class WebTokenManager implements TokenManager {
             expires_at: new Date(tokenData.expires_at).getTime(),
             refresh_token_expires: tokenData.refresh_token_expires_at
                 ? new Date(tokenData.refresh_token_expires_at).getTime()
-                : this.cachedTokenData?.refresh_token_expires
+                : this.cachedTokenData?.refresh_token_expires,
+            // No fallback to the cached ticket, unlike the refresh fields above: a
+            // ticket is bound to its session (sid), so one from an earlier login
+            // must not outlive that login. A response without one means no
+            // ticket, and mirrorSsrTicket below drops the cookie to match.
+            ssr_token: tokenData.ssr_token,
+            ssr_token_expires: tokenData.ssr_token_expires_at
+                ? new Date(tokenData.ssr_token_expires_at).getTime()
+                : undefined
         };
 
         await authStorage.saveTokenData(indexedDbData);
 
         // Update local cache
         this.cachedTokenData = indexedDbData;
+
+        // Hand the read-only ticket to the server renderer. Every login path and
+        // every refresh funnels through here, so this one line covers them all.
+        this.mirrorSsrTicket(indexedDbData);
 
         console.log(`${this.LOG_PREFIX} Tokens stored in IndexedDB`);
 
@@ -456,11 +476,26 @@ export class WebTokenManager implements TokenManager {
         throw new Error(`Key registration failed: ${error.detail || response.statusText}`);
     }
 
+    /**
+     * Push the stored SSR ticket into its cookie, or drop the cookie when there
+     * is none. Called after every write here and whenever another realm (a second
+     * tab, or the service worker, which has no `document` of its own) announces a
+     * change over the auth channel.
+     */
+    private mirrorSsrTicket(data: IndexedDbTokenData | null): void {
+        if (!data?.ssr_token || !data.ssr_token_expires) {
+            clearSsrTicketCookie();
+            return;
+        }
+        setSsrTicketCookie(data.ssr_token, new Date(data.ssr_token_expires).toISOString());
+    }
+
     async clearTokens(): Promise<void> {
         console.log(`${this.LOG_PREFIX} Clearing tokens`);
 
         await authStorage.clearTokens();
         this.cachedTokenData = null;
+        clearSsrTicketCookie();
 
         console.log(`${this.LOG_PREFIX} Tokens cleared from IndexedDB`);
 

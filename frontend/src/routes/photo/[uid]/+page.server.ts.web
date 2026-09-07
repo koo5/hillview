@@ -3,8 +3,9 @@ import type { PageServerLoad } from './$types';
 import { backendInternalUrl } from '$lib/config.server';
 import { parsePhotoUidParts } from '$lib/urlUtilsServer';
 import type { PublicPhoto, PhotoAnnotation } from '$lib/photoDisplay';
+import { ssrAuthHeaders, viewerIdOf } from '$lib/ssrAuth.server';
 
-export const load: PageServerLoad = async ({ params, fetch }) => {
+export const load: PageServerLoad = async ({ params, fetch, locals }) => {
 	const photoUid = params.uid;
 	const parts = parsePhotoUidParts(photoUid);
 	if (!parts || parts.source !== 'hillview') {
@@ -14,9 +15,13 @@ export const load: PageServerLoad = async ({ params, fetch }) => {
 	const publicUrl = `${backendInternalUrl}/photos/public/${encodeURIComponent(photoUid)}`;
 	const annotationsUrl = `${backendInternalUrl}/annotations/photos/${encodeURIComponent(parts.id)}`;
 
+	// With the ticket, user_rating and is_own_photo come back resolved for this
+	// visitor. Without it they are null and false, which is what used to make the
+	// page correct itself on the client the moment it had a token.
+	const headers = ssrAuthHeaders(locals);
 	const [publicRes, annotationsRes] = await Promise.all([
-		fetch(publicUrl),
-		fetch(annotationsUrl),
+		fetch(publicUrl, { headers }),
+		fetch(annotationsUrl, { headers }),
 	]);
 
 	if (publicRes.status === 404) {
@@ -30,5 +35,5 @@ export const load: PageServerLoad = async ({ params, fetch }) => {
 	const photo: PublicPhoto = await publicRes.json();
 	const annotations: PhotoAnnotation[] = annotationsRes.ok ? await annotationsRes.json() : [];
 
-	return { photo, annotations };
+	return { photo, annotations, viewer_id: viewerIdOf(photo) };
 };

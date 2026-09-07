@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { onMount } from 'svelte';
 	import { trackLoad } from '$lib/pageLoading';
+	import { createSsrBackedLoad } from '$lib/ssrBackedLoad';
 	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 	import {
 		EyeOff,
@@ -58,7 +58,9 @@
 	import { openAnonymizationModalForServerPhoto } from '$lib/components/anonymization-modal/anonymizationModal.svelte.js';
 	import { isModerator } from '$lib/adminNotifications';
 
-	export let data: { photo?: PublicPhoto; annotations?: PhotoAnnotation[] } | undefined = undefined;
+	export let data:
+		| { photo?: PublicPhoto; annotations?: PhotoAnnotation[]; viewer_id?: string | null }
+		| undefined = undefined;
 
 	let photo: PublicPhoto | null = data?.photo ?? null;
 	let annotations: PhotoAnnotation[] = data?.annotations ?? [];
@@ -98,12 +100,22 @@
 		loadPhoto();
 	}
 
-	// SSR runs unauthenticated so user-specific fields (user_rating, is_own_photo)
-	// come back null/false. When we hydrated from SSR data, re-fetch once under
-	// the client's auth token to pick those up, without flashing the spinner.
-	onMount(() => {
-		if (data?.photo) void trackLoad(() => loadPhoto(true));
-	});
+	// User-specific fields (user_rating, is_own_photo) are only right if the server
+	// resolved them for the visitor now looking at the page. It does when it has
+	// their SSR ticket, and then this re-fetch is skipped — that gap is what let a
+	// rating shortcut fire against a stale `user_rating: null`. Without a ticket
+	// (expired, revoked, or the flag off) the batch is anonymous and we correct it,
+	// silently so no spinner flashes over content already drawn.
+	//
+	// Same policy helper as the list pages rather than an onMount check, because it
+	// waits for `checked`: at mount a signed-in visitor still reads as anonymous,
+	// would match an anonymous batch, and would skip the correction it needs. It
+	// also means logging in or out while the page is open re-resolves the fields.
+	const syncPhotoLoad = createSsrBackedLoad(
+		data?.photo ? (data.viewer_id ?? null) : false,
+		() => void trackLoad(() => loadPhoto(true))
+	);
+	$: syncPhotoLoad({ ...$auth, userId: $auth.user?.id ?? null });
 
 	function setStatus(message: string, isError = false, timeoutMs = 3000) {
 		statusMessage = message;
@@ -117,13 +129,25 @@
 	}
 
 
+	// Which photo a full load is currently fetching, so a silent correction can
+	// stand down. Builds with no server load (Tauri, `bun run dev`) have no batch
+	// to correct, so there both the uid watcher above and syncPhotoLoad want to
+	// fetch — the watcher immediately, syncPhotoLoad once auth settles — and the
+	// page would open every photo with two requests for the same thing.
+	let fullLoadInFlightFor: string | null = null;
+
 	async function loadPhoto(silent = false) {
 		if (!photoUid) {
 			error = 'Photo not found';
 			loading = false;
 			return;
 		}
+		// A correction has nothing to add while a full load of the same photo is
+		// running: that one fetches under the client's own token and lands resolved
+		// for this visitor, which is exactly what the correction was going to do.
+		if (silent && fullLoadInFlightFor === photoUid) return;
 		if (!silent) {
+			fullLoadInFlightFor = photoUid;
 			loading = true;
 			annotations = [];
 		}
@@ -147,7 +171,10 @@
 				return;
 			}
 		} finally {
-			if (!silent) loading = false;
+			if (!silent) {
+				loading = false;
+				fullLoadInFlightFor = null;
+			}
 		}
 
 		// Annotations load independently — a failure here must not hide the photo.

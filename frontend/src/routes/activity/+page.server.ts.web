@@ -1,25 +1,32 @@
 import type { PageServerLoad } from './$types';
 import { backendInternalUrl } from '$lib/config.server';
+import { ssrAuthHeaders, viewerIdOf } from '$lib/ssrAuth.server';
 
-export const load: PageServerLoad = async ({ fetch }) => {
+export const load: PageServerLoad = async ({ fetch, locals }) => {
+	// No batch on failure, so the page loads for itself — see the same choice in
+	// bestof's load.
+	const unavailable = {};
 	try {
 		const apiUrl = new URL(`${backendInternalUrl}/activity/recent`);
 		apiUrl.searchParams.set('limit', '40');
-		const response = await fetch(apiUrl.toString());
+		// Hidden-content filtering is per visitor — without the ticket this is the
+		// anonymous feed, which the client would then have to fetch again.
+		const response = await fetch(apiUrl.toString(), { headers: ssrAuthHeaders(locals) });
 
 		if (!response.ok) {
 			console.error('activity SSR: backend returned HTTP', response.status);
-			return { photos: [], has_more: false, next_cursor: null };
+			return unavailable;
 		}
 
 		const data = await response.json();
 		return {
 			photos: data.photos ?? [],
 			has_more: data.has_more ?? false,
-			next_cursor: data.next_cursor ?? null
+			next_cursor: data.next_cursor ?? null,
+			viewer_id: viewerIdOf(data)
 		};
 	} catch (error) {
 		console.error('activity SSR: failed to fetch:', error);
-		return { photos: [], has_more: false, next_cursor: null };
+		return unavailable;
 	}
 };

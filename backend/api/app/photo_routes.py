@@ -60,7 +60,7 @@ from common.database import get_db
 from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation, PhotoLicenseHistory, PhotoModerationAudit, UserRole
 from common.config import get_write_pool
 from common.utc import format_utc
-from auth import get_current_active_user, get_current_user_optional_with_query
+from auth import get_current_active_user, get_current_user_optional_with_query, get_current_user_optional_ssr
 from hidden_content_filters import apply_hidden_content_filters
 from hillview_routes import ALLOWED_LICENSES, legal_rights_to_license
 from common.file_utils import (
@@ -1672,13 +1672,17 @@ def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
 async def get_public_photo(
 	request: Request,
 	photo_uid: str,
-	current_user: Optional[User] = Depends(get_current_user_optional_with_query),
+	current_user: Optional[User] = Depends(get_current_user_optional_ssr),
 	db: AsyncSession = Depends(get_db)
 ):
 	"""Get full photo details by composite UID ({source}-{id}) for the detail page.
 
 	Publicly accessible. If the caller is authenticated, the response includes
 	their user_rating and an is_own_photo flag. Respects hidden content filters.
+
+	One of the four endpoints the frontend's server renderer calls, hence the
+	_ssr dependency: it accepts the read-only SSR ticket in addition to a normal
+	access token. See SSR_READ_TOKEN_TYPE in auth.py.
 	"""
 	# Parse composite UID: split on first '-' only (IDs may contain dashes)
 	parts = photo_uid.split('-', 1)
@@ -1768,7 +1772,10 @@ async def get_public_photo(
 			"owner_username": owner_username,
 			"user_rating": photo_rating['user_rating'],
 			"rating_counts": photo_rating['rating_counts'],
-			"is_own_photo": is_own_photo
+			"is_own_photo": is_own_photo,
+			# Who user_rating and is_own_photo were resolved for — null when
+			# anonymous. See the same field on /activity/recent for why it is an id.
+			"viewer_id": current_user.id if current_user else None
 		}
 
 	except HTTPException:
