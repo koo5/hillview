@@ -45,7 +45,7 @@
 	} from '$lib/annotationApi';
 	import { Origin, UserSelectAction, type DrawingStyle } from '@annotorious/core';
 	import { fetchDetections, type DetectedObject } from '$lib/detectionApi';
-	import { showAnnotations, showDetections, showPhotoInfoWindow, showTerrainOverlay } from '$lib/data.svelte.js';
+	import { showAnnotations, showDetections, showPhotoInfoWindow, showTerrainOverlay, togglePhotoInfoWindow } from '$lib/data.svelte.js';
 	import {
 		createOverlayProjector,
 		effectiveFit,
@@ -86,7 +86,7 @@
 		dropdownMenuState,
 		type DropdownMenuItem,
 	} from '$lib/components/dropdown-menu/dropdownMenu.svelte';
-	import { MapPin, MoreVertical, Mountain, Printer, Share, Tags } from 'lucide-svelte';
+	import { Info, MapPin, MoreVertical, Mountain, Printer, Share, Tags } from 'lucide-svelte';
 	import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { buildTileSource } from '$zoomview/tileSource';
@@ -2291,6 +2291,16 @@
 		>
 			<MoreVertical size={18} aria-hidden="true" />
 		</button>
+		<button
+			class="toolbar-btn toolbar-btn-info"
+			class:active={$showPhotoInfoWindow}
+			onclick={togglePhotoInfoWindow}
+			title={$showPhotoInfoWindow ? 'Hide photo info' : 'Show photo info'}
+			aria-pressed={$showPhotoInfoWindow}
+			data-testid="osd-photo-info-toggle"
+		>
+			<Info size={16} aria-hidden="true" /><span class="toolbar-btn-label">Info</span>
+		</button>
 		{#if terrainOverlay}
 			<!-- only where there is something to show: most photos have no
 			     graduated overlay, and a dead toggle is worse than no toggle -->
@@ -2683,6 +2693,22 @@
 		   the label scale, and a fixed size would stay small when the rest grew */
 		font-size: 0.95em;
 		padding: 0 0 0 0.5em;
+	}
+
+	.toolbar-btn-info {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+	}
+
+	.toolbar-btn-info.active {
+		border-color: #3b82f6;
+		background: rgba(59,130,246,0.75);
+		color: #fff;
+	}
+
+	.toolbar-btn-info.active:hover {
+		background: rgba(59,130,246,0.9);
 	}
 
 	.toolbar-btn-terrain {

@@ -367,8 +367,8 @@ private fun PhotoCard(
                             modifier = Modifier.testTag("license-option-$option"),
                         ) {
                             Text(
-                                if (option == (card.license ?: globalLicense)) "● $option"
-                                else "○ $option",
+                                (if (option == (card.license ?: globalLicense)) "● " else "○ ") +
+                                    cz.hillview.settings.licenseLabel(option),
                             )
                         }
                     }

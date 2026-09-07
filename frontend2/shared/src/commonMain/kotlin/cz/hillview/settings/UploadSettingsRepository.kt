@@ -117,7 +117,46 @@ expect fun storageFacts(mode: StorageMode, hideFromGallery: Boolean): StorageFac
 /** The photo folder's display name (build-configurable on Android). */
 expect fun storageFolderName(hideFromGallery: Boolean): String
 
-val ALLOWED_LICENSES = listOf("ccbysa4+osm", "full1")
+/**
+ * One grant the user can pick, in their words. [id] is the WRITE
+ * vocabulary (the backend's LEGAL_RIGHTS_TO_LICENSE keys); [label] is what
+ * the web app shows on read; [explainer] is the substance of the web
+ * app's /licensing page in two sentences, for a choice made on a hill
+ * without that page to hand. The full1 wording is deliberate: the grant
+ * to Hillview is full, and what Hillview does with it TODAY is publish
+ * the photo as all-rights-reserved PLUS the same OpenStreetMap mapping
+ * grant the CC option carries (the read-side name is 'arr', but the OSM
+ * grant is part of that modality) — the two are different facts, and
+ * the second may change (docs/todo/content-license-model-draft.md).
+ */
+data class LicenseInfo(val id: String, val label: String, val explainer: String)
+
+val LICENSE_INFO: List<LicenseInfo> = listOf(
+    LicenseInfo(
+        id = "ccbysa4+osm",
+        label = "CC BY-SA 4.0 + OSM mapping grant",
+        explainer = "You keep your copyright. Anyone may copy, share and " +
+            "remix the photo, commercially too, as long as they credit you " +
+            "and share alike; OpenStreetMap mappers may also trace map data " +
+            "from it into OSM. Choose this to contribute to the open commons.",
+    ),
+    LicenseInfo(
+        id = "full1",
+        label = "Full rights to Hillview",
+        explainer = "You keep your copyright and grant Hillview full rights to " +
+            "the photo, including paid tiers later. Hillview currently " +
+            "publishes it as all rights reserved plus the same OpenStreetMap " +
+            "mapping grant: others can view it here and OSM mappers may trace " +
+            "map data from it, but nobody may otherwise reuse it without " +
+            "arrangement. Choose this to support the project.",
+    ),
+)
+
+/** The ids above, in selector order — the backend's ALLOWED_LICENSES. */
+val ALLOWED_LICENSES: List<String> = LICENSE_INFO.map { it.id }
+
+/** Human label for a grant id; the id itself for one we do not know. */
+fun licenseLabel(id: String): String = LICENSE_INFO.firstOrNull { it.id == id }?.label ?: id
 
 /**
  * Defaults. autoUploadEnabled is OFF until the user turns it on — a
