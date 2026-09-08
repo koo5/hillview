@@ -326,12 +326,27 @@ test('renders the point cloud and its camera frusta', async ({ page }) => {
 	await page.route('**/recon/runs/*/cameras', async (route) =>
 		route.fulfill({
 			json: {
+				// pos/rot are the ENU pair the viewer must draw with; `pose` is the raw
+				// solve pose and is deliberately DIFFERENT here, so a regression back to
+				// it puts the frusta somewhere this test can see.
 				frames: [
-					{ idx: 0, id: 'a', pose: [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]], focal_px: 400, injected: false },
-					{ idx: 1, id: 'b', pose: [[1, 0, 0, 2], [0, 1, 0, 0], [0, 0, 1, 0]], focal_px: 400, injected: true }
+					{
+						idx: 0, id: 'a', focal_px: 400, injected: false,
+						pos: [0, 0, 0], rot: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+						pose: [[1, 0, 0, 99], [0, 1, 0, 99], [0, 0, 1, 99]]
+					},
+					{
+						idx: 1, id: 'b', focal_px: 400, injected: true,
+						pos: [2, 0, 0], rot: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+						pose: [[1, 0, 0, 99], [0, 1, 0, 99], [0, 0, 1, 99]]
+					}
 				]
 			}
 		})
+	);
+
+	await page.route('**/recon/runs/*/map', async (route) =>
+		route.fulfill({ json: { buildings: [], walls: [], roads: [] } })
 	);
 
 	await page.goto('/recon?run=walk_dense');

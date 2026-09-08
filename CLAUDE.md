@@ -114,6 +114,7 @@ Each subdirectory has its own `CLAUDE.md` with detailed instructions:
 - **[SSR auth ticket](docs/ssr-auth-ticket.md)**: how the web server renders a signed-in visitor's own view — the read-only `ssr_read` token, the `hv_ssr` cookie the browser mirrors it into, the two allowlisted backend dependencies, `viewer_id` + `createSsrBackedLoad`, the `SSR_AUTH` runtime switch
 - **[Photo sources: independent loading](docs/sources-loading.md)**: the one contract all three marker pipelines follow — concurrent per-source loads, publish-on-arrival, deterministic cross-source cull, throttle policy — and how to test it (manual streams in the worker harness, the `hillview_stream`/`mapillary_stream` debug delay, the Panoramax route mock)
 - **[Zoom view print view](docs/zoomview-print.md)**: ⋮ → Print view + Ctrl+P — share-link QR in the middle, why the viewer freezes instead of re-rendering at print time, the replaced-element canvas gotcha
+- **[Photo analyzer revival](docs/photo-analyzer-revival.md)**: the LLM photo-analysis service — where its data actually lives (`/shared/analyzer_data` vs the stale docker volume), why there is no pending migration, why coverage is the inverse of what 3-D work needs, and what to point it at instead
 - **[Panoramax Federation](docs/panoramax-federation.md)**: The `backend/panoramax/` read API + sequencer serving CC photos to the Panoramax federation (harvester contract, deployment, registration)
 
 ## Common Issues & Solutions

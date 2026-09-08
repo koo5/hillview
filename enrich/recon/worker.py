@@ -210,7 +210,8 @@ def reconstruct_cluster(payload: dict) -> None:
 
     files, handles = {}, []
     for key, fname in (("metadata", "metadata.json"), ("metrics", "metrics.json"),
-                       ("cloud", "points.ply"), ("topdown", "topdown.png"),
+                       ("cloud", "points.ply"), ("dense_cloud", "dense.ply"),
+                       ("topdown", "topdown.png"),
                        ("pairs_matrix", "pairs_matrix.png"), ("log", "run.log")):
         p = os.path.join(rundir, fname)
         if os.path.exists(p):

@@ -16,6 +16,7 @@ rather than on every list.
 """
 import datetime
 import json
+import math
 import os
 import shutil
 import tempfile
@@ -55,6 +56,7 @@ ARTIFACT_FILES = {
     "metadata_path": "metadata.json",
     "metrics_path": "metrics.json",
     "cloud_path": "points.ply",
+    "dense_cloud_path": "dense.ply",
     "topdown_path": "topdown.png",
     "pairs_matrix_path": "pairs_matrix.png",
 }
@@ -99,6 +101,7 @@ async def list_runs(limit: int = 100):
             "cloud_path IS NOT NULL AS has_cloud, "
             "topdown_path IS NOT NULL AS has_topdown, "
             "pairs_matrix_path IS NOT NULL AS has_pairs_matrix, "
+            "dense_cloud_path IS NOT NULL AS has_dense_cloud, "
             "metrics_path IS NOT NULL AS has_metrics, "
             "worker, enqueued_at, finished_at "
             "FROM recon_runs ORDER BY enqueued_at DESC, name LIMIT :lim"),
@@ -129,6 +132,7 @@ async def get_run(run_id: str):
         "has_cloud": bool(row["cloud_path"]),
         "has_topdown": bool(row["topdown_path"]),
         "has_pairs_matrix": bool(row["pairs_matrix_path"]),
+        "has_dense_cloud": bool(row["dense_cloud_path"]),
         "has_metrics": bool(row["metrics_path"]),
         "has_log": bool(row["log_path"]),
     }
@@ -195,7 +199,30 @@ async def cloud_artifact(run_id: str, request: Request):
     return FileResponse(path, media_type="application/octet-stream")
 
 
-def _ply_to_packed(ply_path: str, max_points: int) -> bytes:
+def _alignment(run_dir_metadata: str):
+    """The run's similarity to GPS-ENU: (scale, R, t) with p_enu = s * (R @ p) + t.
+
+    reconstruct.py fits this over the real (non-impostor) cameras, so it is already the
+    map from arbitrary solve coordinates into metres east / north / up. Applying it is
+    what turns an unreadable blob into a scene you can judge: buildings stand up, the
+    ground is flat, north is a direction, and a metre is a metre.
+    """
+    with open(run_dir_metadata) as f:
+        md = json.load(f)
+    a = md.get("alignment") or {}
+    s, R, t = a.get("scale_units_per_m"), a.get("R"), a.get("t")
+    if not s or not R or not t:
+        return None
+    return float(s), R, t
+
+
+def _apply_enu(x, y, z, s, R, t):
+    return (s * (R[0][0] * x + R[0][1] * y + R[0][2] * z) + t[0],
+            s * (R[1][0] * x + R[1][1] * y + R[1][2] * z) + t[1],
+            s * (R[2][0] * x + R[2][1] * y + R[2][2] * z) + t[2])
+
+
+def _ply_to_packed(ply_path: str, max_points: int, align=None) -> bytes:
     """ASCII PLY -> packed little-endian [float32 x,y,z][uint8 r,g,b] per point.
 
     The viewer cannot eat the PLY directly at these sizes: reconstruct.py writes ASCII, so
@@ -224,49 +251,196 @@ def _ply_to_packed(ply_path: str, max_points: int) -> bytes:
         p = pts[i].split()
         if len(p) < 6:
             continue
-        out += struct.pack("<fff3B", float(p[0]), float(p[1]), float(p[2]),
+        x, y, z = float(p[0]), float(p[1]), float(p[2])
+        if align:
+            x, y, z = _apply_enu(x, y, z, *align)
+        out += struct.pack("<fff3B", x, y, z,
                            int(float(p[3])), int(float(p[4])), int(float(p[5])))
     return bytes(out)
 
 
 @router.get("/recon/runs/{run_id}/cloud.bin")
 async def cloud_packed(run_id: str, request: Request, max_points: int = 1_500_000,
-                       dense: bool = False):
+                       dense: bool = False, enu: bool = True):
     """The point cloud in the viewer's format, converted on first request and cached.
 
     Cached beside the artifact because the conversion is a full parse of a many-megabyte
     text file — fine once, not per page load.
     """
-    col = "cloud_path"
-    path = await _artifact(run_id, col)
-    src = path
+    src = None
     if dense:
-        cand = os.path.join(os.path.dirname(path), "dense.ply")
-        if os.path.exists(cand):
-            src = cand
-    cache = f"{src}.{max_points}.bin"
+        # the real dense cloud, if this run shipped one; falling back silently is what
+        # hid the bug for weeks, so say so in a header instead
+        try:
+            src = await _artifact(run_id, "dense_cloud_path")
+        except HTTPException:
+            src = None
+    served_dense = src is not None
+    if src is None:
+        src = await _artifact(run_id, "cloud_path")
+    align = None
+    if enu:
+        try:
+            align = _alignment(await _artifact(run_id, "metadata_path"))
+        except (HTTPException, OSError, json.JSONDecodeError):
+            align = None
+    cache = f"{src}.{max_points}{'.enu' if align else ''}.bin"
     if not os.path.exists(cache):
-        _write_atomic(cache, _ply_to_packed(src, max_points))
+        _write_atomic(cache, _ply_to_packed(src, max_points, align))
     return FileResponse(cache, media_type="application/octet-stream",
-                        headers={"X-Point-Stride": "15"})
+                        headers={"X-Point-Stride": "15",
+                                 "X-Cloud": "dense" if served_dense else "sparse",
+                                 "X-Frame-Of-Reference": "enu-metres" if align else "solve"})
 
 
 @router.get("/recon/runs/{run_id}/cameras")
-async def cameras(run_id: str):
+async def cameras(run_id: str, enu: bool = True):
     """Camera poses + focals for drawing frusta, straight from metadata.json.
 
     scene.npz is not uploaded, but metadata.json carries pose_cam2world and focal_px per
-    frame, which is everything a frustum needs.
+    frame, which is everything a frustum needs. In `enu` mode the poses come back in the
+    same metres-east/north/up frame as the cloud, so the two line up and the whole scene
+    can be judged against the real world.
     """
     path = await _artifact(run_id, "metadata_path")
     with open(path) as f:
         md = json.load(f)
-    return {"frames": [{"idx": fr["idx"], "id": fr.get("id"),
-                        "pose": fr.get("pose_cam2world"),
-                        "focal_px": fr.get("focal_px"),
-                        "injected": bool(fr.get("injected"))}
-                       for fr in (md.get("frames") or [])
-                       if fr.get("pose_cam2world")]}
+    align = _alignment(path) if enu else None
+    out = []
+    for fr in (md.get("frames") or []):
+        p = fr.get("pose_cam2world")
+        if not p:
+            continue
+        pos = [p[0][3], p[1][3], p[2][3]]
+        rot = [[p[r][c] for c in range(3)] for r in range(3)]
+        if align:
+            s_, R_, t_ = align
+            pos = list(_apply_enu(pos[0], pos[1], pos[2], s_, R_, t_))
+            # rotate the orientation too, but WITHOUT the scale: a frustum's axes must
+            # stay orthonormal or it renders as a sheared box
+            rot = [[sum(R_[r][k] * rot[k][c] for k in range(3)) for c in range(3)]
+                   for r in range(3)]
+        out.append({"idx": fr["idx"], "id": fr.get("id"),
+                    "pos": pos, "rot": rot,
+                    "pose": p,
+                    "focal_px": fr.get("focal_px"),
+                    "session": fr.get("session"),
+                    "captured_at": fr.get("captured_at"),
+                    "injected": bool(fr.get("injected"))})
+    return {"frames": out, "frame_of_reference": "enu-metres" if align else "solve",
+            "center": md.get("center")}
+
+
+# ---------------------------------------------------------------- map layer
+# Overpass is the only source of building footprints we have (there is no local OSM
+# import), so the answer is cached next to the run's other artifacts: a spot's map does
+# not change between page loads, and the bench must stay usable when Overpass is slow or
+# rate-limiting. Cache key is the run id, because the ENU frame it is baked into is the
+# run's own.
+OVERPASS_URL = os.getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
+MAP_RADIUS_M = int(os.getenv("RECON_MAP_RADIUS_M", "300"))
+# fallback storey height for footprints tagged with neither height nor building:levels
+DEFAULT_STOREY_M = 3.2
+DEFAULT_BUILDING_H = 7.0
+
+
+def _osm_height(tags: dict) -> tuple[float, str]:
+    """Metres, and where the number came from — the viewer says so, because an extruded
+    default is a guess and must not read as surveyed truth."""
+    h = tags.get("height") or tags.get("building:height")
+    if h:
+        try:
+            return float(str(h).split()[0]), "height"
+        except ValueError:
+            pass
+    lev = tags.get("building:levels")
+    if lev:
+        try:
+            return DEFAULT_STOREY_M * float(str(lev).split(";")[0]), "levels"
+        except ValueError:
+            pass
+    return DEFAULT_BUILDING_H, "default"
+
+
+async def _overpass(lat: float, lon: float, radius: int) -> dict:
+    import httpx
+    q = (f"[out:json][timeout:60];("
+         f'way["building"](around:{radius},{lat},{lon});'
+         f'way["barrier"="retaining_wall"](around:{radius},{lat},{lon});'
+         f'way["highway"](around:{radius},{lat},{lon});'
+         f");out geom;")
+    async with httpx.AsyncClient(timeout=90,
+                                 headers={"User-Agent": "hillview-enrich/0.3"}) as c:
+        r = await c.post(OVERPASS_URL, data={"data": q})
+        r.raise_for_status()
+        return r.json()
+
+
+@router.get("/recon/runs/{run_id}/map")
+async def map_layer(run_id: str, refresh: bool = False):
+    """OSM footprints for this run's area, in the SAME metres-east/north/up frame as
+    the cloud and the cameras.
+
+    This is the far half of the model. MASt3R reconstructs what the cameras could see
+    with a real baseline — here, the near field — and gives low confidence to the
+    buildings behind it; the map already knows where those buildings are. Drawing both
+    in one frame is what makes a solve judgeable: the cloud either lands on the map or
+    it does not.
+    """
+    md_path = await _artifact(run_id, "metadata_path")
+    with open(md_path) as f:
+        md = json.load(f)
+    centre = md.get("center")
+    if not centre:
+        raise HTTPException(404, "run has no center")
+    lat0, lon0 = float(centre[0]), float(centre[1])
+
+    rel = os.path.join("recon", str(uuid.UUID(run_id)), "osm.json")
+    cache = _artifact_abspath(rel)
+    raw = None
+    if not refresh and os.path.exists(cache):
+        with open(cache) as f:
+            raw = json.load(f)
+    if raw is None:
+        try:
+            raw = await _overpass(lat0, lon0, MAP_RADIUS_M)
+        except Exception as e:                       # a dead Overpass must not 500 the page
+            raise HTTPException(502, f"overpass unavailable: {type(e).__name__}: {e}")
+        _write_atomic(cache, json.dumps(raw).encode())
+
+    # local ENU metres about the run centre — the same linearisation reconstruct.py uses
+    kx = 111320.0 * math.cos(math.radians(lat0))
+    ky = 110540.0
+
+    def en(p):
+        return [(p["lon"] - lon0) * kx, (p["lat"] - lat0) * ky]
+
+    buildings, walls, roads = [], [], []
+    for e in raw.get("elements", []):
+        g = e.get("geometry") or []
+        if len(g) < 2:
+            continue
+        tags = e.get("tags") or {}
+        ring = [en(p) for p in g]
+        if "building" in tags:
+            h, src = _osm_height(tags)
+            buildings.append({"id": e.get("id"), "ring": ring, "height_m": h,
+                              "height_source": src,
+                              "name": tags.get("name"), "kind": tags["building"]})
+        elif tags.get("barrier") == "retaining_wall":
+            walls.append({"id": e.get("id"), "line": ring})
+        elif tags.get("highway") in ("primary", "secondary", "tertiary", "residential",
+                                     "pedestrian", "living_street", "unclassified"):
+            roads.append({"id": e.get("id"), "line": ring,
+                          "name": tags.get("name"), "kind": tags["highway"]})
+
+    # Ground level in the run's own vertical datum: the cameras sit at U ~ 0 because the
+    # alignment puts them at mean GPS altitude, so the pavement is a person-height below.
+    align = _alignment(md_path)
+    return {"center": [lat0, lon0], "frame_of_reference": "enu-metres",
+            "radius_m": MAP_RADIUS_M, "cached": os.path.exists(cache),
+            "scale_units_per_m": align[0] if align else None,
+            "buildings": buildings, "walls": walls, "roads": roads}
 
 
 @router.get("/recon/runs/{run_id}/topdown")
@@ -293,7 +467,112 @@ class EnqueueRequest(BaseModel):
     after: str | None = None         # capture-time window, 'YYYY-MM-DD HH:MM:SS'
     before: str | None = None
     inject: list[str] = []           # photo ids to add as impostors (Doppelganger test)
+    # --- multi-session selection -------------------------------------------------
+    # Real captures are dirty: a session swings around, and one area accumulates many
+    # independent visits months apart. Fusing those is the open question, so selection
+    # has to be able to say "N frames from each of M sessions" rather than "the first N
+    # frames in time", which would just take one session and stop.
+    session_gap_s: float = 150       # a gap longer than this starts a new session
+    per_session: int | None = None   # cap per session, strided so coverage is kept
+    max_sessions: int | None = None  # keep the largest N sessions
     params: dict = {}
+
+
+def _sessionize(rows, gap_s: float) -> list[str]:
+    """Label each row with the capture session it belongs to.
+
+    A session is one continuous capture from one DEVICE: same client key, no gap longer
+    than `gap_s`. Device matters because two people can shoot the same corner at once,
+    and the time gap is what separates "kept walking" from "came back in August".
+    Rows must already be ordered by captured_at.
+    """
+    counters: dict[str, int] = {}
+    last: dict[str, datetime.datetime] = {}
+    labels = []
+    for r in rows:
+        dev = r["client_public_key_id"] or f"owner:{r['owner_id']}"
+        t = r["captured_at"]
+        prev = last.get(dev)
+        if prev is None or t is None or (t - prev).total_seconds() > gap_s:
+            counters[dev] = counters.get(dev, 0) + 1
+        if t is not None:
+            last[dev] = t
+        labels.append(f"{str(dev)[:12]}#{counters[dev]}")
+    return labels
+
+
+def _pick_sessions(rows, labels, per_session: int | None, max_sessions: int | None):
+    """Balance the selection across sessions instead of letting the biggest one win.
+
+    Within a session frames are taken by even stride, not head-truncated: a session's
+    value is its coverage of the place, and the first N frames are only its first few
+    seconds.
+    """
+    groups: dict[str, list] = {}
+    for r, lab in zip(rows, labels):
+        groups.setdefault(lab, []).append(r)
+    order = sorted(groups, key=lambda k: (-len(groups[k]), k))
+    if max_sessions:
+        order = order[:max_sessions]
+    out = []
+    for lab in order:
+        g = groups[lab]
+        if per_session and len(g) > per_session:
+            step = len(g) / per_session
+            g = [g[int(i * step)] for i in range(per_session)]
+        out += [(r, lab) for r in g]
+    out.sort(key=lambda rl: (rl[0]["captured_at"] or datetime.datetime.min, str(rl[0]["id"])))
+    return out
+
+
+# Measured on this box: 204-pair dense runs took 1919 s and 1721 s => ~9 s per directed
+# pair, dominated by the MASt3R forward passes. Rough, but the difference between "20
+# minutes" and "six hours" is the decision the number has to support.
+SECONDS_PER_PAIR = float(os.getenv("RECON_SECONDS_PER_PAIR", "9"))
+
+
+def _estimate_pairs(frames: list[dict], params: dict) -> dict:
+    """How many pairs this selection would actually solve, per pairing mode.
+
+    Worth knowing BEFORE queueing, because the modes differ by orders of magnitude and
+    only some of them can link sessions at all:
+      swin     — sliding window over capture time. Cheap, and structurally UNABLE to pair
+                 two sessions: it only ever connects temporally adjacent frames.
+      complete — every ordered pair. Links everything, cost grows as n².
+      bearing  — complete, then gated on being close together AND pointing a similar way.
+                 This is the one for fusing independent visits to a place.
+    """
+    n = len(frames)
+    mode = str(params.get("pairs") or "swin")
+    win = int(params.get("win") or 4)
+    pair_dist = float(params.get("pair_dist") or 80)
+    pair_dang = float(params.get("pair_dang") or 110)
+    if n < 2:
+        return {"mode": mode, "n_pairs_directed": 0, "est_minutes": 0}
+
+    if mode == "swin":
+        undirected = sum(min(win, n - 1 - i) for i in range(n))
+    elif mode == "complete":
+        undirected = n * (n - 1) // 2
+    else:  # bearing
+        lat0 = sum(f["lat"] for f in frames) / n
+        kx = 111320.0 * math.cos(math.radians(lat0))
+        ky = 110540.0
+        en = [((f["lon"]) * kx, (f["lat"]) * ky) for f in frames]
+        brg = [f.get("compass_angle") for f in frames]
+        undirected = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                if math.hypot(en[i][0] - en[j][0], en[i][1] - en[j][1]) > pair_dist:
+                    continue
+                if brg[i] is not None and brg[j] is not None:
+                    d = abs((brg[i] - brg[j] + 180) % 360 - 180)
+                    if d > pair_dang:
+                        continue
+                undirected += 1
+    directed = undirected * 2
+    return {"mode": mode, "n_pairs_directed": directed,
+            "est_minutes": round(directed * SECONDS_PER_PAIR / 60)}
 
 
 def _ts(v: str | None, field: str) -> datetime.datetime | None:
@@ -339,8 +618,14 @@ async def _select_frames(req: EnqueueRequest) -> list[dict]:
             "lon": req.lon, "lat": req.lat, "rad": req.radius_m,
             "after": _ts(req.after, "after"),
             "before": _ts(req.before, "before")})).mappings().all()
-        picked = list(rows)[req.offset::max(1, req.stride)][:max(0, req.limit)]
-        frames = [_manifest_frame(r) for r in picked]
+        labels = _sessionize(rows, req.session_gap_s)
+        if req.per_session or req.max_sessions:
+            pairs_rl = _pick_sessions(rows, labels, req.per_session, req.max_sessions)
+            pairs_rl = pairs_rl[req.offset::max(1, req.stride)][:max(0, req.limit)]
+            frames = [_manifest_frame(r) | {"session": lab} for r, lab in pairs_rl]
+        else:
+            idx = list(range(len(rows)))[req.offset::max(1, req.stride)][:max(0, req.limit)]
+            frames = [_manifest_frame(rows[i]) | {"session": labels[i]} for i in idx]
         if req.inject:
             inj = (await conn.execute(text(
                 "SELECT id, ST_Y(geometry) AS lat, ST_X(geometry) AS lon, altitude, "
@@ -353,7 +638,8 @@ async def _select_frames(req: EnqueueRequest) -> list[dict]:
                 {"ids": req.inject})).mappings().all()
             # impostors are excluded from the GPS alignment fit downstream, so they
             # cannot drag the similarity transform toward themselves
-            frames += [_manifest_frame(r) | {"injected": True} for r in inj]
+            frames += [_manifest_frame(r) | {"injected": True, "session": "injected"}
+                       for r in inj]
     return frames
 
 
@@ -532,7 +818,20 @@ async def preview_selection(req: EnqueueRequest):
                             - datetime.datetime.fromisoformat(caps[0])).total_seconds())
         except ValueError:
             span_s = None
+    # per-session breakdown: the unit a real capture actually comes in
+    sess: dict[str, list] = {}
+    for f in frames:
+        sess.setdefault(f.get("session") or "?", []).append(f)
+    sessions = []
+    for lab, fl in sorted(sess.items(), key=lambda kv: -len(kv[1])):
+        caps = sorted(f["captured_at"] for f in fl if f.get("captured_at"))
+        sessions.append({"session": lab, "n": len(fl),
+                         "first": caps[0][:19] if caps else None,
+                         "last": caps[-1][:19] if caps else None})
     return {"n_frames": len(frames),
+            "pairing": _estimate_pairs(frames, req.params or {}),
+            "sessions": sessions,
+            "n_sessions": len(sessions),
             # the three axes, reported separately so a warning can say WHICH one failed
             "single_camera": len(cams) == 1,
             "same_dimensions": len(dims) == 1,
@@ -572,6 +871,7 @@ RESULT_FILES = {
     "metadata": ("metadata.json", "metadata_path"),
     "metrics": ("metrics.json", "metrics_path"),
     "cloud": ("points.ply", "cloud_path"),
+    "dense_cloud": ("dense.ply", "dense_cloud_path"),
     "topdown": ("topdown.png", "topdown_path"),
     "pairs_matrix": ("pairs_matrix.png", "pairs_matrix_path"),
     "log": ("run.log", "log_path"),
@@ -583,6 +883,7 @@ async def result(result_json: str = Form(...),
                  metadata: UploadFile | None = File(None),
                  metrics: UploadFile | None = File(None),
                  cloud: UploadFile | None = File(None),
+                 dense_cloud: UploadFile | None = File(None),
                  topdown: UploadFile | None = File(None),
                  pairs_matrix: UploadFile | None = File(None),
                  log: UploadFile | None = File(None),
@@ -603,6 +904,7 @@ async def result(result_json: str = Form(...),
         raise HTTPException(422, "result_id must be a uuid")
 
     uploads = {"metadata": metadata, "metrics": metrics, "cloud": cloud,
+               "dense_cloud": dense_cloud,
                "topdown": topdown, "pairs_matrix": pairs_matrix, "log": log}
     cols: dict[str, str] = {}
     for key, up in uploads.items():

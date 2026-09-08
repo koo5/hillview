@@ -61,6 +61,7 @@
 		metrics: Metrics | null;
 		meta: Record<string, unknown> | null;
 		has_cloud: boolean;
+		has_dense_cloud?: boolean;
 		has_topdown: boolean;
 		has_pairs_matrix: boolean;
 	};
@@ -109,7 +110,27 @@
 	let metric = $state<'reproj' | 'epipolar'>('reproj');
 	let selPair = $state<string | null>(null);
 	let selFrame = $state<number | null>(null);
-	let showDense = $state(false);
+	// dense by default where it exists: the sparse cloud is anchor points only and reads as
+	// spray, which is what made these clouds look nonsensical
+	let showDense = $state(true);
+	let showMap = $state(true);
+	// …but do NOT mount the viewer until it is actually on screen. A dense cloud is
+	// hundreds of thousands of points and a WebGL context; eagerly loading one per run
+	// visit made the page heavy enough to crash a headless tab.
+	let cloudVisible = $state(false);
+	function watchCloud(node: HTMLElement) {
+		const io = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((e) => e.isIntersecting)) {
+					cloudVisible = true;
+					io.disconnect();
+				}
+			},
+			{ rootMargin: '200px' }
+		);
+		io.observe(node);
+		return { destroy: () => io.disconnect() };
+	}
 
 	// --- new run ---------------------------------------------------------------
 	// Defaults are the Prosek walk centre — the site every experiment so far used.
@@ -776,16 +797,42 @@
 						<h3>Point cloud</h3>
 						<div class="seg">
 							<button class:on={!showDense} onclick={() => (showDense = false)}>sparse</button>
-							<button class:on={showDense} onclick={() => (showDense = true)}>dense</button>
+							<button
+								class:on={showDense && !!detail.has_dense_cloud}
+								disabled={!detail.has_dense_cloud}
+								title={detail.has_dense_cloud
+									? 'per-pixel depth — the readable one'
+									: 'this run was solved without --dense'}
+								onclick={() => (showDense = true)}>dense</button
+							>
 						</div>
+						<label class="mapchk">
+							<input type="checkbox" bind:checked={showMap} /> OSM map
+						</label>
 					</div>
-					{#key `${detail.id}-${showDense}`}
-						<ReconCloudViewer runId={detail.id} dense={showDense} />
-					{/key}
+					<div use:watchCloud>
+						{#if cloudVisible}
+							{#key `${detail.id}-${showDense && !!detail.has_dense_cloud}-${showMap}`}
+								<ReconCloudViewer
+									runId={detail.id}
+									dense={showDense && !!detail.has_dense_cloud}
+									{showMap}
+								/>
+							{/key}
+						{:else}
+							<button class="loadcloud" onclick={() => (cloudVisible = true)}
+								>load point cloud</button
+							>
+						{/if}
+					</div>
 					<p class="muted small">
+						In real-world metres, GPS-aligned: <b>Z is up, +Y is north</b>, grid squares are 5 m.
 						Cameras are drawn as frusta from the solved poses — a collapsed run shows them piled
-						together, and an injected impostor (amber) sits where the real ones do not. Dense is
-						only available for runs solved with <code>dense</code>.
+						together, and an injected impostor (amber) sits where the real ones do not.
+						{#if !detail.has_dense_cloud}
+							This run has no dense cloud; the sparse one is anchor points only and reads as
+							spray.
+						{/if}
 					</p>
 				</div>
 			{/if}
@@ -925,6 +972,13 @@
 		align-items: center;
 		gap: 4px;
 	}
+	.mapchk {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 12px;
+		margin-left: 10px;
+	}
 	.seg button {
 		font-size: 12px;
 		padding: 2px 9px;
@@ -967,6 +1021,12 @@
 	}
 	.err {
 		color: #e06c6c;
+	}
+	.loadcloud {
+		width: 100%;
+		height: 120px;
+		font-size: 13px;
+		opacity: 0.7;
 	}
 	.errbox {
 		font-size: 12px;

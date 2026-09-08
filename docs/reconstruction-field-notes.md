@@ -682,6 +682,125 @@ cloud and hundreds of MB dense — not openable in a browser. The API converts t
 artifact, with a `max_points` cap applied by even stride so a downsampled cloud still spans the
 whole scene. Frusta come from `metadata.json`'s `pose_cam2world` (scene.npz is not uploaded).
 
+## Spot A, Vyšehrad plaza (2026-09-08) — the first map-correlated run
+
+`dense-spotA-2026-08-19`: 46 frames, 2 min 11 s, on the plaza outside Kongresové centrum
+Praha. It is the best-solved cluster on the bench — **1.33 px median reprojection, 7.31 px
+p90** — and it is also the run that shows most clearly what MASt3R will and will not give us.
+
+**The capture is an object sweep, not a scene sweep.** Three stills at 16:39, then a
+continuous 45-second rotation, one frame per second, 360° of heading, from a standing
+position that wandered 8.4 m × 8.4 m. Every frame is dominated by a mosaic art bench at
+1–3 m. Median solved depth is 2.77 m.
+
+**The three detached stills are 28× worse than the sweep.** Per-frame reprojection median:
+
+| frames | n | median reproj | worst |
+| --- | --- | --- | --- |
+| the three 16:39–16:41 stills | 3 | 35.09 px | 62.50 px |
+| the 45-second sweep | 43 | 1.26 px | 7.22 px |
+
+Frames 0 and 1 got 8 and 10 pairs where sweep frames got 16, because `swin` links only
+temporal neighbours and they have almost none. This is the cross-session problem in
+miniature, inside a single visit, eighty seconds wide: *pairing, not appearance, is what
+isolates a frame.*
+
+**The dense cloud contains the bench and nothing else — by construction.** All 2.49 M dense
+points lie within 5.3 m of the origin and below camera height. The depthmap for a frame
+facing the Congress Centre *does* predict the building; the confidence map for the same
+frame is dark violet over the entire building and bright only on the bench and the
+pavement around it. `--min_conf 1.5` then deletes it. So the "dense" layer is a subject
+scanner, and the far field never survives the threshold. Queued `spotA-lowconf-0p3` to
+find out what `min_conf 0.3` keeps.
+
+**Baseline was never the limit here.** Median pair baseline 2.76 m, p90 4.60 m, max 10.15 m
+— a 20 %-error depth horizon of 228 m at the median. Everything visible from this plaza is
+inside it. What kills the far field is confidence, not geometry.
+
+**The sparse cloud does reach the buildings, but mostly as ray smear.** 17.8 % of it lies
+beyond 6 m, up to 15.8 m tall. Radial spread within a 5° bearing band is the test: bands at
+240–245° are tight (p10–p90 spread / median = 0.23 at ~32 m, a real surface), bands at
+210–235° spread by 1.2–2.6× their own median. Two of the three planes RANSAC finds pass
+within 1.8–2.5 m of the camera centroid — those are the smear fan, not walls. Fit planes to
+this and you will fit the fan.
+
+**Scale is set by GPS noise when the camera stands still.** The alignment's
+`baseline_ratio` is 0.79 and the GPS residual is 1.3 m median over a cluster whose real
+spread is a few metres — so the metres this run reports are a ratio of two noisy numbers.
+The map is the fix: OSM footprints give absolute scale that a stationary capture cannot.
+
+### The compass error is a sinusoid, and one sweep measures it
+
+Comparing the phone's `compass_angle` with the solved optical axis in ENU, over 46 frames
+covering the full circle:
+
+| model fitted to (compass − solved yaw) | rms residual |
+| --- | --- |
+| constant offset only | 17.05° |
+| offset + one cycle (hard iron) | 7.89° |
+| offset + one + two cycles (soft iron) | 7.61° |
+
+The one-cycle term has amplitude 21.1° at phase 75°, and it halves the heading error on its
+own. The second harmonic adds 3.1°, so this device's distortion is dominated by hard iron.
+**A single rotation sweep, reconstructed, yields a compass calibration for its whole
+session** — which is the "pre-adjust the viewpoints" idea in its cheapest form, and it needs
+no map at all, only a solve that covers enough headings.
+
+### Grounding the solve, and making it read as solid (2026-09-08)
+
+**The vertical datum was wrong, and the fix is local.** The alignment puts the cameras at
+mean GPS altitude, so a run's height is only as good as phone GPS altitude — and the
+viewer's floor was the 5th percentile of the *whole* cloud, which at a clifftop is the
+valley. Measured camera height above that floor:
+
+| run | old floor (global p5) | floor under the cameras |
+| --- | --- | --- |
+| dense-spotA-2026-08-19 | 1.70 m | 1.15 m |
+| dense-jizni-walk | 2.39 m | ~1.3 m |
+| walk_jizni | 5.23 m | ~2.7 m |
+| dense-prosek-walk | **13.04 m** | 1.25 m |
+
+The estimator is cheap: cloud points within 3 m in plan of some camera and 0.3–4 m below
+it, low quartile. The viewer now draws its grid and the OSM map on that instead. Prosek
+stopped floating thirteen metres in the air.
+
+The residual is a **scale** signal, and a free one: a phone is held at 1.4–1.7 m, so a run
+reporting 1.15 m is ~25 % small and one reporting 2.7 m is ~1.8× large. For a stationary
+capture, where GPS scatter (1.3 m median residual here) is larger than the real baseline,
+this eye-height prior is a *better* scale estimate than the GPS fit it would replace.
+
+**Making a point cloud look solid, without meshing it.** Two changes, no new data:
+
+1. **Point size from measured spacing**, not from scene extent. Median nearest-neighbour
+   distance over a 4,000-point sample (uniform grid hash), sprite drawn at 1.6× that. The
+   gaps close, so the samples read as a surface.
+2. **Eye-dome lighting.** Render to an offscreen target with a depth texture, then shade
+   each pixel by how much nearer it is than its eight neighbours, in log eye-depth.
+   Silhouettes and creases darken, flat surfaces stay flat. This is what Potree and
+   CloudCompare do, and it costs one fullscreen pass — no normals, no lights, no mesh.
+
+The real "solid" is still a mesh: we already save per-frame depthmaps and poses in
+`dense.npz`, which is exactly TSDF-fusion input, and that would give a coloured triangle
+mesh the photos can then be projected onto. Neither open3d nor trimesh is installed yet.
+
+### Map layer in the viewer
+
+`GET /api/recon/runs/{id}/map` serves OSM footprints, retaining walls and roads for the
+run's area in the *same* metres-east/north/up frame as the cloud and the cameras, extruded
+by `height`, else `building:levels × 3.2 m`, else a 7 m default — and it says which of the
+three each building used, because a guessed height must not render as surveyed truth.
+Overpass answers are cached next to the run's other artifacts.
+
+Projecting those footprints back into the photographs (`oneoff` proj scripts) shows the
+GPS-derived alignment is already close: building base outlines land on the real building
+bases. That is the encouraging half of the result — map correlation is a refinement
+problem here, not a search problem.
+
+**Bug found while doing it:** the viewer drew camera frusta from `pose`, the *raw solve*
+pose, while the cloud came back in ENU. Every frustum was in a different coordinate system
+from the points it belonged to. Fixed to use the `pos`/`rot` the same endpoint already
+returns in ENU.
+
 ## Open threads / next experiments
 
 - **What is the warped tail made of?** ✅✅ **Answered, and it has a fix.** See "The tail is a

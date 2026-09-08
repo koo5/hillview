@@ -533,10 +533,19 @@ def measure(rundir, conf_thr=CONF_THR, pps=None):
     # that claim is only testable if the impostor's error is compared against the real
     # frames' own baseline rather than averaged into it.
     injected = [bool(f.get("injected")) for f in frames]
+    # Capture session per frame (device + time gap, assigned at selection). Real captures
+    # come in sessions and one place accumulates many independent visits; whether those
+    # FUSE is the open question, and it is only answerable if cross-session pairs are
+    # scored apart from within-session ones rather than averaged together.
+    sessions = [f.get("session") for f in frames]
 
     pairs, ep_all, rp_all, n_corres_total = [], [], [], 0
     # real-real pairs only, so the baseline the impostor is judged against is clean
     ep_real, rp_real = [], []
+    # within- vs cross-session, the multi-session fusion question
+    ep_within, rp_within, ep_cross, rp_cross = [], [], [], []
+    n_pairs_within = n_pairs_cross = 0
+    corres_within = corres_cross = 0
     imp_ep = {i: [] for i, v in enumerate(injected) if v}
     imp_rp = {i: [] for i, v in enumerate(injected) if v}
     imp_corres = {i: 0 for i, v in enumerate(injected) if v}
@@ -550,12 +559,25 @@ def measure(rundir, conf_thr=CONF_THR, pps=None):
         if upm:
             rec["baseline_m"] = round(base / upm, 2)
         rec["degenerate_baseline"] = bool(base < DEGENERATE_BASELINE_FRAC * med_depth)
+        si, sj = sessions[i], sessions[j]
+        cross = bool(si and sj and si != sj)
+        rec_cross = cross
         touches_imp = injected[i] or injected[j]
         if touches_imp:
             rec["impostor_pair"] = True
             for k in (i, j):
                 if injected[k]:
                     imp_corres[k] += int(len(xy1))
+        if si or sj:
+            rec["session_i"], rec["session_j"] = si, sj
+            rec["cross_session"] = rec_cross
+            if not touches_imp:
+                if rec_cross:
+                    n_pairs_cross += 1
+                    corres_cross += int(len(xy1))
+                else:
+                    n_pairs_within += 1
+                    corres_within += int(len(xy1))
         s = _stats(ep)
         if s:
             rec["epipolar"] = s
@@ -568,6 +590,7 @@ def measure(rundir, conf_thr=CONF_THR, pps=None):
                             imp_ep[k].append(ep)
                 else:
                     ep_real.append(ep)
+                    (ep_cross if rec_cross else ep_within).append(ep)
         if depth is not None and depth[i] is not None:
             rp, n_behind = reproj_pair(K[i], K[j], poses[i], poses[j],
                                        depth[i], int(W[i]), xy1, xy2)
@@ -583,6 +606,7 @@ def measure(rundir, conf_thr=CONF_THR, pps=None):
                             imp_rp[k].append(rp)
                 else:
                     rp_real.append(rp)
+                    (rp_cross if rec_cross else rp_within).append(rp)
         pairs.append(rec)
 
     def pooled(chunks):
@@ -631,6 +655,23 @@ def measure(rundir, conf_thr=CONF_THR, pps=None):
         "n_frames": n,
         "n_pairs": len(pairs),
         "n_injected": sum(injected),
+        # --- multi-session fusion ------------------------------------------------
+        # Do independent visits to one place actually link up? Cross-session pairs are
+        # the ones that would fuse them; within-session pairs are the control, since
+        # they share lighting, season and camera settings. A cross/within ratio near 1
+        # means fusion works; a large ratio means the sessions are being stitched by
+        # matches the geometry cannot support. `n_pairs_cross == 0` means the pairing
+        # mode never even offered a cross-session pair — swin cannot, by construction.
+        "sessions": sorted({x for x in sessions if x}),
+        "n_sessions": len({x for x in sessions if x}),
+        "n_pairs_within_session": n_pairs_within,
+        "n_pairs_cross_session": n_pairs_cross,
+        "n_corres_within_session": corres_within,
+        "n_corres_cross_session": corres_cross,
+        "within_session_reproj_px": pooled(rp_within),
+        "cross_session_reproj_px": pooled(rp_cross),
+        "within_session_epipolar_px": pooled(ep_within),
+        "cross_session_epipolar_px": pooled(ep_cross),
         "depth_horizon": depth_horizon(poses, focals, injected, depth, upm, meta),
         # baseline over real-real pairs only — what an impostor is compared against
         "real_only_reproj_px": real_rp if any(injected) else None,
@@ -729,6 +770,23 @@ def print_summary(m):
             # photographing landmarks kilometres away.
             log(f"    (compare {dh['horizon_20pct']} {u} against how far away your SUBJECT "
                 f"is — a solve can be internally honest and still miss the scene entirely)")
+    if m.get("n_sessions", 0) > 1:
+        w = m.get("within_session_reproj_px") or m.get("within_session_epipolar_px")
+        c = m.get("cross_session_reproj_px") or m.get("cross_session_epipolar_px")
+        log(f"  MULTI-SESSION: {m['n_sessions']} sessions, "
+            f"{m['n_pairs_within_session']} within-session pairs / "
+            f"{m['n_pairs_cross_session']} cross-session")
+        if not m["n_pairs_cross_session"]:
+            log("    no cross-session pairs were even attempted — swin pairing only links "
+                "temporally adjacent frames; use pairs=bearing or complete to fuse visits")
+        elif w and c:
+            log(f"    within  reproj {(m.get('within_session_reproj_px') or {}).get('median')} px  "
+                f"epipolar {(m.get('within_session_epipolar_px') or {}).get('median')} px")
+            log(f"    cross   reproj {(m.get('cross_session_reproj_px') or {}).get('median')} px  "
+                f"epipolar {(m.get('cross_session_epipolar_px') or {}).get('median')} px  "
+                f"({m['n_corres_cross_session']:,} corres)")
+            if w.get("median"):
+                log(f"    cross/within ratio = {c['median'] / w['median']:.2f}x")
     if m.get("impostors"):
         base = m.get("real_only_reproj_px") or m.get("real_only_epipolar_px")
         log(f"  IMPOSTOR CONTROL — real frames alone: "

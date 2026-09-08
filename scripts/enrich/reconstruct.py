@@ -181,6 +181,10 @@ def load_manifest(path, center):
             "anon": [tuple(b) for b in (f.get("anon_boxes") or [])],
             "ow": int(f.get("width") or 0), "oh": int(f.get("height") or 0),
             "ofn": f.get("original_filename") or "",
+            # capture session (device + time-gap), assigned upstream. Carried through to
+            # metadata so the metrics can separate WITHIN-session pairs from CROSS-session
+            # ones — the whole question when fusing independent visits to one place.
+            "sess": f.get("session"),
             **({"inj": True} if f.get("injected") else {}),
         })
     if len(out) < 2:
@@ -880,6 +884,7 @@ def main():
         "stats": stats,
         "frames": [{
             "idx": i, "id": p["id"], "injected": bool(p.get("inj")),
+            "session": p.get("sess"),
             "gps": [p["lat"], p["lon"]], "altitude": p["alt"],
             "compass_angle": p["brg"], "captured_at": p["cap"], "title": p["ttl"],
             "dist_to_center_m": round(p["d"], 1), "source_url": p["full"],
