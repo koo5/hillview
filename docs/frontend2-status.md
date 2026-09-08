@@ -505,7 +505,61 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
-## 2026-09-08
+## 2026-09-08 — the photo index
+
+- **The photos table is written out beside the photos** (user-raised: "in all
+  cases, we should do some periodic photos table dump into a public folder, so
+  that in case of app uninstall, photos that survive it aren't useless").
+  `PhotoTableDump` (androidMain) + `photoTableCsv`.
+  - **The gap.** The stamp — position, heading, pitch, exposure, licence —
+    lives in the photos TABLE, in the app's private database. A photo in DCIM
+    survives an uninstall; the row that gives it meaning does not. With the
+    fast-write default (`writeExif = false`) the surviving JPEG is a picture
+    of somewhere, at some time, pointing some way.
+  - **Unconditional, no setting.** A safety net with a switch is one people
+    discover they had turned off. Deliberately unlike the geo-tracking export
+    next door, which is opt-in and asks for a folder: a location history that
+    outlives the app is a privacy decision to put to the user; a manifest of
+    the photos they took and are publishing is the same data as the photos.
+  - **Where: `Documents/<folder>/photos.csv`, not DCIM.** Beside the photos is
+    the obvious answer and the wrong one — MediaProvider allows only images
+    and video under DCIM, so a `.csv` there is refused. Documents takes any
+    type, survives uninstall, is reachable to a file manager, and carries the
+    same folder name as the photos. MediaStore first (no permission, API 29+,
+    and it UPDATES the existing row so the name stays stable rather than
+    becoming "photos (1).csv"), then the file API, then app-private as a last
+    resort that at least exists while the app does.
+  - **When:** app start (catches up after a crash, like the geo dump), leaving
+    the app, and a five-minute pulse while shooting — an interval run in a
+    pocket never backgrounds the app, so without the pulse the only trigger
+    for hours would be the one that does not fire. Plus "Write it now" in
+    Settings.
+  - **The skip is on CONTENT, not a dirty flag.** The CSV is built, hashed and
+    compared with the last one written; every mutation of the table — a
+    capture, a deletion, an upload landing a server id — changes the bytes,
+    and nothing has to remember to announce itself. The manual button forces,
+    because the usual reason to press it is that the file is missing.
+  - Every column, in entity order, with `capturedAt` repeated as readable
+    UTC. Leaving a column out is a decision made on behalf of someone who can
+    no longer recover it. `PhotoTableCsvTest` parses a row back with an
+    ordinary RFC 4180 reader.
+  - NOT yet phone-verified — no device reachable from this machine. What to
+    check: `Documents/Hillview2/photos.csv` after backgrounding the app, and
+    that it is still there after an uninstall.
+
+- **The EXIF default is unchanged, and the question is still open.** The user
+  is undecided; nothing here decides it. What the original does is worth
+  putting on the record for whenever it IS decided: the Tauri app writes EXIF
+  ALWAYS, and can afford to because it holds the JPEG bytes in memory and
+  splices an APP1 segment in before writing the file
+  (`device_photos.rs` → `create_exif_segment_structured`). frontend2 is off by
+  default because CameraX writes the file itself and `ExifInterface` has no
+  surgical patch, so a pass means copying the whole 4–25 MB file per shot.
+  The third option neither default considers is to do what the original does —
+  splice the segment into the bytes — which would make the choice moot. Not
+  attempted; it means owning JPEG segment surgery on the capture path.
+
+## 2026-09-08 — the recording indicator
 
 - **A recording says so** (user-caught: "video recording isn't indicated in
   any way?"). It was not: the shutter stayed blue 📷 while recording, so the
