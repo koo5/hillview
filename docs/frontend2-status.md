@@ -505,6 +505,32 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-09-08
+
+- **A recording says so** (user-caught: "video recording isn't indicated in
+  any way?"). It was not: the shutter stayed blue 📷 while recording, so the
+  button that STOPS a recording looked exactly like the button that takes a
+  photo, and `recordingStartedAtMs` — whose doc comment already promised "for
+  the elapsed readout" — was rendered nowhere.
+  - The shutter goes red with ⏺ and "Stop", symmetric with a run's green
+    "Stop".
+  - `● REC 0:12` above it, on dark glass, blinking once a second. The blink
+    and the clock come off ONE ticker so they cannot disagree, and the dot
+    fades rather than disappearing — a glyph that comes and goes shifts the
+    text beside it twice a second, which reads as a fault. The dot-and-
+    elapsed shape is the app's own, from the clock-video recorder in both
+    apps; the period is the original's `blink 1s step-start`. Its own
+    composable, so the ticker does not recompose the pane and its preview
+    twice a second.
+  - **Found while wiring it: the location gate could trap a recording.** The
+    gesture tested `gateOpen` before the stop branches, so a fix lost
+    mid-recording answered every press with "no GPS fix" and left the
+    recording running — and the same trap held a repeating run. Stopping now
+    comes first, in the gesture and in the accessibility click, and the rule
+    is a named function (`shutterPressDoesSomething`) with the trap as a
+    test. The gate withholds captures; it has no business withholding exits.
+  - NOT yet phone-verified — no device reachable from this machine.
+
 ## 2026-09-06
 
 - **The interval ladder goes sub-second, and becomes the scale it reads**

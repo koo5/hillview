@@ -994,6 +994,15 @@ fun CaptureScreen(
                 }
             }
 
+            // A recording says so, out loud and on-pane. It used to say
+            // nothing at all (user-caught: "video recording isn't indicated
+            // in any way?") — the button that stops it looked exactly like
+            // the button that starts a photo, and the only difference a
+            // running recording made was invisible.
+            state.recordingStartedAtMs?.takeIf { state.recording }?.let { startedAt ->
+                RecordingIndicator(startedAtMs = startedAt)
+            }
+
             // The shutter, shaped like the original's DualCaptureButton —
             // and driven like it, as ONE gesture. Tap = one shot. Holding
             // 300 ms (the original's "shorter timeout for quicker
@@ -1010,7 +1019,12 @@ fun CaptureScreen(
             // unless deliberately lifted (the local lift OR the pill's
             // accepted claim; phone-in-hand find: the claim used to leave
             // the gate shut).
-            val tappable = gateOpen && (repeating || !state.capturing)
+            val tappable = shutterPressDoesSomething(
+                recording = state.recording,
+                repeating = repeating,
+                gateOpen = gateOpen,
+                capturing = state.capturing,
+            )
             Box(
                 Modifier
                     .onGloballyPositioned { clusterOrigin = it.positionInRoot() }
@@ -1039,10 +1053,14 @@ fun CaptureScreen(
                             if (!circle.contains(clusterOrigin + down.position)) {
                                 return@awaitEachGesture
                             }
-                            if (!gateOpen) {
-                                ignoredPress = if (!state.ready) "camera not ready" else "no GPS fix"
-                                return@awaitEachGesture
-                            }
+                            // STOPPING comes before the gate, deliberately.
+                            // The location gate exists to withhold a capture
+                            // that would have no position; it has no business
+                            // withholding the end of one. It used to run
+                            // first, so a fix lost mid-recording left the
+                            // recording unstoppable — every press answered
+                            // "no GPS fix" — and the same trap held a
+                            // repeating run.
                             if (state.recording) {
                                 // Recording behaves exactly like a run: any
                                 // completed press on the button ends it.
@@ -1058,6 +1076,10 @@ fun CaptureScreen(
                                 // handleSingleCapture with activeMode set).
                                 val up = waitForUpOrCancellation() ?: return@awaitEachGesture
                                 if (circle.contains(clusterOrigin + up.position)) repeating = false
+                                return@awaitEachGesture
+                            }
+                            if (!gateOpen) {
+                                ignoredPress = if (!state.ready) "camera not ready" else "no GPS fix"
                                 return@awaitEachGesture
                             }
                             if (state.capturing) {
@@ -1164,6 +1186,10 @@ fun CaptureScreen(
                             .clip(CircleShape)
                             .background(
                                 when {
+                                    // Recording outranks the gate: this is
+                                    // the STOP button now, and a fix lost
+                                    // mid-recording must not disguise it.
+                                    state.recording -> Color(0xFFD32F2F)
                                     !gateOpen -> Color(0x802196F3)
                                     repeating -> Color(0xFF4CAF50)
                                     // Armed: wear the colour NOW that the
@@ -1186,7 +1212,11 @@ fun CaptureScreen(
                                 if (!tappable) disabled()
                                 onClick(label = null) {
                                     if (!tappable) return@onClick false
-                                    if (repeating) repeating = false else capture.capture()
+                                    when {
+                                        state.recording -> capture.stopVideo()
+                                        repeating -> repeating = false
+                                        else -> capture.capture()
+                                    }
                                     true
                                 }
                             }
@@ -1196,6 +1226,7 @@ fun CaptureScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 when {
+                                    state.recording -> "⏺"
                                     armedRung is LadderRung.Video -> "⏺"
                                     armedRung is LadderRung.Every -> "▶"
                                     state.capturing && !repeating -> "…"
@@ -1204,6 +1235,11 @@ fun CaptureScreen(
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             when {
+                                state.recording -> Text(
+                                    "Stop",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                )
                                 armedRung is LadderRung.Video -> Text(
                                     "REC",
                                     style = MaterialTheme.typography.labelSmall,
@@ -1367,6 +1403,56 @@ private fun fmt(value: Double): String {
     val rounded = (value * 100_000).roundToInt() / 100_000.0
     return rounded.toString()
 }
+
+/**
+ * "● REC 0:12" while a recording runs, blinking once a second.
+ *
+ * The blink and the clock come off ONE ticker, so the dot and the seconds
+ * cannot disagree about how long this has been going. The dot fades rather
+ * than disappearing — a glyph that comes and goes shifts the text beside it
+ * twice a second, which reads as a fault rather than a heartbeat.
+ *
+ * The dot-and-elapsed shape is the app's own, from the clock-video recorder
+ * in both apps ("● Recording — 12s"); the period is the original's
+ * `blink 1s step-start`.
+ *
+ * Its own composable so the ticker's recomposition stops here, rather than
+ * redrawing the pane and its camera preview twice a second.
+ */
+@Composable
+internal fun RecordingIndicator(startedAtMs: Long) {
+    var now by remember(startedAtMs) { mutableStateOf(nowMs()) }
+    LaunchedEffect(startedAtMs) {
+        while (true) {
+            now = nowMs()
+            delay(RECORDING_BLINK_MS)
+        }
+    }
+    val elapsed = (now - startedAtMs).coerceAtLeast(0L)
+    val lit = (elapsed / RECORDING_BLINK_MS) % 2 == 0L
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(DarkGlass, RoundedCornerShape(20.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .testTag("capture-recording"),
+    ) {
+        Text(
+            "●",
+            color = Color(0xFFFF5252).copy(alpha = if (lit) 1f else 0f),
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(end = 6.dp),
+        )
+        Text(
+            "REC ${formatElapsed(elapsed)}",
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
+}
+
+/** The original's `blink 1s step-start`: half a second lit, half dark. */
+private const val RECORDING_BLINK_MS = 500L
 
 /**
  * A control readable over live video: dark glass backing, light text —

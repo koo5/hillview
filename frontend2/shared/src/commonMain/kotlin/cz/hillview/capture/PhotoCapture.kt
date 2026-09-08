@@ -194,6 +194,23 @@ val SHUTTER_CHOICES_NS: List<Long> = listOf(
 fun formatShutter(ns: Long): String = "1/${(1_000_000_000.0 / ns).roundToInt()}"
 
 /**
+ * A recording's elapsed time, "0:07" / "1:05" / "12:34" / "1:02:03".
+ *
+ * Minutes and seconds, hours only once there are any — a video shot from a
+ * moving car runs to minutes, and a leading "0:" on every one of them is a
+ * column of noise for the rare case.
+ */
+fun formatElapsed(ms: Long): String {
+    val total = (ms / 1000).coerceAtLeast(0L)
+    val seconds = total % 60
+    val minutes = (total / 60) % 60
+    val hours = total / 3600
+    val ss = seconds.toString().padStart(2, '0')
+    if (hours == 0L) return "$minutes:$ss"
+    return "$hours:${minutes.toString().padStart(2, '0')}:$ss"
+}
+
+/**
  * How hard a chosen shutter time is defended when the light disagrees.
  *
  * [Pin] was the only rule this app had, and it has a wall built into it:
@@ -639,6 +656,23 @@ data class StampBearing(
  */
 fun shutterEnabled(ready: Boolean, hasFix: Boolean, mapPositionElected: Boolean): Boolean =
     ready && (hasFix || mapPositionElected)
+
+/**
+ * Whether a press on the shutter does anything at all — what the button's
+ * enabled state and its accessibility click both answer.
+ *
+ * STOPPING is unconditional. The location gate exists to withhold a capture
+ * that would have no position; it has no business withholding the end of
+ * one. It used to sit in front of everything, so a fix lost mid-recording
+ * left the recording unstoppable — every press answered "no GPS fix" — and
+ * the same trap held a repeating run.
+ */
+fun shutterPressDoesSomething(
+    recording: Boolean,
+    repeating: Boolean,
+    gateOpen: Boolean,
+    capturing: Boolean,
+): Boolean = recording || repeating || (gateOpen && !capturing)
 
 @Stable
 interface PhotoCapture {

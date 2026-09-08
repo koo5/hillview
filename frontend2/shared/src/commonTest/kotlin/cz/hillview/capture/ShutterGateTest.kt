@@ -48,6 +48,52 @@ class ShutterGateTest {
     fun nothingOpensAGateOnAnUnreadyCamera() {
         assertFalse(shutterEnabled(ready = false, hasFix = true, mapPositionElected = true))
     }
+
+    // --- and what the gate may NOT do ---
+
+    /**
+     * A fix lost mid-recording used to leave the recording unstoppable: the
+     * gate ran before the stop branch, so every press answered "no GPS fix".
+     * The gate withholds captures, never exits.
+     */
+    @Test
+    fun aShutGateNeverTrapsARecordingOrARun() {
+        assertTrue(
+            shutterPressDoesSomething(
+                recording = true, repeating = false, gateOpen = false, capturing = false,
+            ),
+        )
+        assertTrue(
+            shutterPressDoesSomething(
+                recording = false, repeating = true, gateOpen = false, capturing = false,
+            ),
+        )
+        // A run stops even while its own shot is still in flight.
+        assertTrue(
+            shutterPressDoesSomething(
+                recording = false, repeating = true, gateOpen = true, capturing = true,
+            ),
+        )
+    }
+
+    @Test
+    fun anIdleShutterStillObeysTheGateAndTheShotInFlight() {
+        assertFalse(
+            shutterPressDoesSomething(
+                recording = false, repeating = false, gateOpen = false, capturing = false,
+            ),
+        )
+        assertFalse(
+            shutterPressDoesSomething(
+                recording = false, repeating = false, gateOpen = true, capturing = true,
+            ),
+        )
+        assertTrue(
+            shutterPressDoesSomething(
+                recording = false, repeating = false, gateOpen = true, capturing = false,
+            ),
+        )
+    }
 }
 
 /**
