@@ -75,7 +75,15 @@ SUMMARY_KEYS = ("reproj_px", "epipolar_px", "reproj_px_median_of_pairs",
                 "n_injected", "real_only_reproj_px", "real_only_epipolar_px",
                 "impostors",
                 # how far this cluster's baseline can actually constrain depth
-                "depth_horizon")
+                "depth_horizon",
+                # multi-session fusion: whether cross-visit pairs were even attempted, and
+                # how they compare with pairs inside one visit. Without these in the row,
+                # the one question the bench exists to answer needs an artifact fetch.
+                "n_sessions", "sessions",
+                "n_pairs_within_session", "n_pairs_cross_session",
+                "n_corres_within_session", "n_corres_cross_session",
+                "within_session_reproj_px", "cross_session_reproj_px",
+                "within_session_epipolar_px", "cross_session_epipolar_px")
 
 
 def _artifact_abspath(rel: str) -> str:

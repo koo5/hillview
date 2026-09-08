@@ -746,6 +746,55 @@ own. The second harmonic adds 3.1°, so this device's distortion is dominated by
 session** — which is the "pre-adjust the viewpoints" idea in its cheapest form, and it needs
 no map at all, only a solve that covers enough headings.
 
+### Fusing five visits to Prosek: it does not work, and the reason is specific (2026-09-08)
+
+The open question since June: *can independent sessions from one area be used together?*
+`fuse-prosek-5sessions` is the first controlled attempt, against a matched single-session
+control at the same place.
+
+| run | frames | sessions | pairing | per-pair reproj p10 / median | corres/pair |
+| --- | --- | --- | --- | --- | --- |
+| `dense-prosek-aug06` | 40 | 1 | `swin` | **1.12 / 12.13 px** | 2,572 |
+| `fuse-prosek-5sessions` | 40 | 5 (3 devices, 2025-11 to 2026-08) | `bearing`, 30 m / 50 deg | 70 / 364 px (cross), 144 px (within) | **59** cross |
+
+Three things to take from it.
+
+**1. It is not a partial failure, it is contamination.** The fusion run's *within-session*
+pairs are also wrecked — 144 px per-pair median, against 12 px for the same place solved
+alone. `sparse_global_alignment` optimises everything jointly, so 326 bad cross-session
+links drag the good geometry down with them. Adding sessions did not add information, it
+subtracted it.
+
+**2. A real cross-session link does exist.** Exactly one, between 2026-06-15 and
+2026-08-06, at **0.57 px over 3,884 correspondences** with a 0.57 m baseline. One verified
+link out of 163 undirected attempts. So the answer to "can visits be linked at all" is yes,
+rarely.
+
+**3. Thickness is NOT the gate.** The obvious fix — require plenty of correspondences before
+trusting a cross-session pair — does not separate them:
+
+| min correspondences | pairs kept | their median reproj |
+| --- | --- | --- |
+| none | 326 | 364 px |
+| 500 | 88 | 101 px |
+| 1000 | 64 | 96 px |
+| 3000 | 7 | 92 px |
+
+A pair with 3,151 correspondences sits at 7,697 px. This is the Doppelganger lesson again:
+the board was rejected while carrying 1,012 correspondences. Confidence and correctness are
+different things, and no count threshold turns one into the other.
+
+*Caveat on those numbers:* they are computed from the broken joint solve's own poses and
+depths, so they mix "this match is wrong" with "this solve is wrong". That is precisely why
+the next step cannot be another joint solve.
+
+**So the architecture follows from the measurement.** Solve each session alone, where the
+solver already works. Verify each candidate cross-session link **pairwise and independently
+of any global solve** — a two-view essential-matrix fit with an inlier ratio and a relative
+pose to check against GPS, which we do not have yet. Register the surviving links with a
+pose graph. That is the "submap pose-graph + verified loop closures" line in the open
+threads, and this run is the evidence that the verification half is the hard half.
+
 ### Visual assessment: rendering the model from a camera's own pose (2026-09-08)
 
 The sharpest test of a solve there is. Take frame i's solved pose and focal, render the
