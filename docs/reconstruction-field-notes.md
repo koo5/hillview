@@ -746,6 +746,43 @@ own. The second harmonic adds 3.1°, so this device's distortion is dominated by
 session** — which is the "pre-adjust the viewpoints" idea in its cheapest form, and it needs
 no map at all, only a solve that covers enough headings.
 
+### Visual assessment: rendering the model from a camera's own pose (2026-09-08)
+
+The sharpest test of a solve there is. Take frame i's solved pose and focal, render the
+fused cloud through it, and put the result beside frame i's actual photograph. If the pose
+and the depth are right, the render lands on the photo pixel for pixel.
+
+Done for `dense-spotA-2026-08-19`:
+
+- **frames 8 and 27 are near-perfect.** The mosaic bench matches tile for tile, and so does
+  the pavement, including which slab is the beige one and where the cracked one is. That is
+  a genuinely good reconstruction.
+- **frame 44 is visibly wrong.** The bench sits right and high of where the photo puts it,
+  with colour fringing that says two surfaces slightly apart. Frame 44 is one of the three
+  the ground analysis flagged as sitting 28 cm low.
+
+So the eyeball and the numbers agree, which is the point of doing both.
+
+**And that turns into a machine test.** `scripts/enrich/recon_frame_check.py` does it
+leave-one-out: fuse the dense points of every frame EXCEPT i, render through i's pose, and
+find the 2-D shift that best matches i's photograph (correlated on the image gradient, so
+exposure does not matter). Leaving the frame's own points out is the whole trick — include
+them and every frame agrees with itself perfectly, which is exactly why reprojection error
+is blind to this.
+
+On spot A the median frame needs **2.0 px** of shift and the worst need 22-33:
+
+| frame | shift needed |
+| --- | --- |
+| 0 | 33 px |
+| 16 | 28 px |
+| 1, 44 | 24 px |
+| 2, 15, 45 | 23 px |
+| median of all 46 | **2.0 px** |
+
+Every frame the floor analysis flagged (0, 43, 44, 45) is in the list, and it finds more
+besides. It says which way each drifted, too, which a scalar error never can.
+
 ### The world was tipped over, and GPS could never have told us (2026-09-08)
 
 The user looked at `walk_dense` and said the model had "made up an orientation about 90
