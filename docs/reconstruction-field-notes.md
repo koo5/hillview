@@ -746,6 +746,98 @@ own. The second harmonic adds 3.1°, so this device's distortion is dominated by
 session** — which is the "pre-adjust the viewpoints" idea in its cheapest form, and it needs
 no map at all, only a solve that covers enough headings.
 
+### The world was tipped over, and GPS could never have told us (2026-09-08)
+
+The user looked at `walk_dense` and said the model had "made up an orientation about 90
+roll against the actual ground". Measured, it was **76 degrees**. Every run on the bench
+was tipped except one:
+
+| run | camera-track linearity | roll error |
+| --- | --- | --- |
+| dense-spotA-2026-08-19 | 0.854 (a circle) | **0.4 deg** |
+| walk_jizni | 0.432 (a curved walk) | 3.8 deg |
+| dense-jizni-walk | 0.111 | 54.5 deg |
+| walk_dense | 0.093 | 76.2 deg |
+| dense-prosek-walk | 0.069 (a straight line) | 79.2 deg |
+| walk_dense_masked | — | 170.2 deg (upside down) |
+
+The correlation with how collinear the camera track is, is exact, and the mechanism is not
+subtle. `reconstruct.py` aligns a solve to the world with a 7-DoF Umeyama fit of the camera
+centres against GPS. **Rotation about the walk axis is unobservable when the centres are
+collinear**, and it is worse than that here: *no photo in these clusters has an altitude*,
+so every GPS target lies in one horizontal plane and the fit has no vertical information at
+all. It lays the reconstruction into that plane whichever way it likes, and a 180-degree
+roll fits exactly as well as none — which is how a run ends up upside down.
+
+**Gravity is the missing constraint, and two cheap estimates of it need no new sensor.**
+The phones' own down axis (people hold a phone roughly upright) and the normal of the
+dominant planar surface under the cameras (the ground is flat). They are independent, so
+their disagreement is the honest error bar. `enrich/api/app/recon_ground.py` computes both,
+prefers the plane when it has real support and the phones do not contradict it, and returns
+nothing rather than a guess when they disagree by more than 30 degrees.
+
+`POST /api/recon/runs/{id}/realign` then re-fits with up pinned to +Z and only yaw, scale
+and translation fitted to GPS — **horizontal components only**, because letting a missing
+altitude into the fit is what pulled the world out of plumb in the first place. The
+original is kept as `alignment_gps`, so the change is reversible. It costs almost nothing:
+
+| run | GPS residual before | after |
+| --- | --- | --- |
+| walk_dense | 2.91 m | 3.17 m |
+| dense-prosek-walk | 7.61 m | 7.38 m |
+| dense-jizni-walk | 1.77 m | 1.73 m |
+| dense-spotA | 1.305 m | 1.305 m |
+
+Three degrees of freedom of pure noise-fitting, removed for a quarter of a metre. New runs
+are realigned automatically when their result lands, so a run is never *seen* in the wrong
+orientation.
+
+**What it does not fix.** After the correction the phone-down check on the straight-walk
+runs still reads 18-19 degrees off vertical, and their dense clouds' dominant near-camera
+plane sits ~76 degrees from their sparse clouds'. One of those two surfaces is the floor and
+the other is a wall, and no amount of geometry decides which — that is the semantic layer's
+job, and it is the clearest argument yet for it.
+
+### There really are two floors, and they belong to specific frames (2026-09-08)
+
+The user: "the model is still kinda split between multiple ideas of where the ground is
+... reviewing the source photos reveals, to a human, that there were no double floors."
+
+Correct, and it is measurable. Unprojecting each frame's own depthmap and taking the median
+height of its ground points, spot A's 46 frames agree to a standard deviation of 7.5 cm —
+except four:
+
+| frame | its floor | offset from consensus |
+| --- | --- | --- |
+| 43 | -1.537 m | **-30 cm** |
+| 45 | -1.521 m | -28 cm |
+| 44 | -1.515 m | -28 cm |
+| 0 | -1.340 m | -10 cm |
+
+Consensus is -1.237 m. Pooled over all frames, the histogram has a main peak at -1.27 and a
+clear secondary at -1.56 with about 5% of the mass — that is the second floor, and it is
+those three frames. A cross-section through the plaza shows it as a distinct band.
+
+Frames 43-45 are the last three of the sweep and frame 0 is the first detached still, which
+are **exactly the frames with the fewest pairs and the worst reprojection error** (frame 0:
+62.5 px, frame 43: 7.2 px, against a 1.26 px median for the rest). So the double floor and
+the reprojection tail are the same defect seen twice: weakly-connected frames drift, and
+their drift shows up as a slab of pavement 28 cm below the real one.
+
+Three ways to attack it, in increasing order of ambition:
+
+1. **Report it.** Per-frame ground height against the consensus is a structure metric that
+   says something physical, unlike a pixel count. It flags the same frames as reprojection
+   error but tells you what went wrong.
+2. **Correct it post hoc.** Snap each frame's ground to the consensus plane, either by
+   translating that frame or by rescaling its depth. Which of the two is right is decided
+   by whether the offset grows with distance; for these frames the cameras are also ~15 cm
+   high, so it is partly pose and partly depth.
+3. **Constrain the solve.** Assert that the pixels which are *ground* lie on one surface,
+   and let that tie down the per-frame depth scale during the global alignment. This is the
+   hybrid in its purest form: the network cannot know the plaza is one plane, the map and a
+   segmentation can, and the optimiser can use it once told.
+
 ### Grounding the solve, and making it read as solid (2026-09-08)
 
 **The vertical datum was wrong, and the fix is local.** The alignment puts the cameras at

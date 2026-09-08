@@ -816,7 +816,10 @@
 					</div>
 					<div use:watchCloud>
 						{#if cloudVisible}
-							{#key `${detail.id}-${showDense && !!detail.has_dense_cloud}-${showMap}-${showPhotos}`}
+							<!-- keyed on the run and on which cloud is served, because those change the data the
+									viewer is built from. NOT on the layer toggles: those are handled in
+									place so a checkbox never costs you your viewpoint. -->
+								{#key `${detail.id}-${showDense && !!detail.has_dense_cloud}`}
 								<ReconCloudViewer
 									runId={detail.id}
 									dense={showDense && !!detail.has_dense_cloud}

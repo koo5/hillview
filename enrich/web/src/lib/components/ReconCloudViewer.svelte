@@ -67,6 +67,74 @@
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let photoMats: any[] = [];
 	let nPhotosLoaded = $state(0);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let camsGroup: any = null;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let mapGroup: any = null;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let sceneOffset: any = null;
+	let sceneSize = 1;
+	let mounted = $state(false);
+
+	// --- layer attach/detach, so a toggle never disturbs the camera -----------------
+	async function syncCameras() {
+		if (!scene || !three) return;
+		if (camsGroup) {
+			scene.remove(camsGroup);
+			disposeTree(camsGroup);
+			camsGroup = null;
+		}
+		camGroups = [];
+		for (const m of photoMats) {
+			m.map?.dispose?.();
+			m.dispose?.();
+		}
+		photoMats = [];
+		nPhotosLoaded = 0;
+		if (!showCameras) return;
+		const g = await loadCameras(three, sceneSize);
+		if (!g || disposed || !scene) return;
+		g.position.copy(sceneOffset);
+		camsGroup = g;
+		scene.add(g);
+	}
+
+	function syncMap() {
+		if (!scene || !three) return;
+		if (!showMap) {
+			if (mapGroup) {
+				scene.remove(mapGroup);
+				disposeTree(mapGroup);
+				mapGroup = null;
+			}
+			return;
+		}
+		if (mapGroup) return;
+		// Overpass can be slow or rate-limited; the cloud must already be on screen and
+		// orbitable when it is, so its failure is a note, not a dead viewer.
+		loadMap(three, groundZ - sceneOffset.z)
+			.then((m) => {
+				if (disposed || !m || !scene || !showMap) return;
+				m.position.copy(sceneOffset);
+				mapGroup = m;
+				scene.add(m);
+			})
+			.catch((e) => {
+				mapNote = `map unavailable: ${e instanceof Error ? e.message : String(e)}`;
+			});
+	}
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	function disposeTree(root: any) {
+		root.traverse?.((o: { geometry?: { dispose?: () => void }; material?: unknown }) => {
+			o.geometry?.dispose?.();
+			const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+			for (const m of mats as { map?: { dispose?: () => void }; dispose?: () => void }[]) {
+				m.map?.dispose?.();
+				m.dispose?.();
+			}
+		});
+	}
 
 	// a filled white disc, used as the point sprite's alpha mask
 	function discSprite(THREE: typeof import('three')) {
@@ -586,28 +654,13 @@
 				scene.add(new THREE.LineSegments(ng, new THREE.LineBasicMaterial({ color: 0x8fb8ef })));
 			}
 
-			if (showCameras) {
-				const cams = await loadCameras(THREE, size);
-				if (cams) {
-					cams.position.set(-centre.x, -centre.y, -centre.z);
-					scene.add(cams);
-				}
-			}
-
-			if (showMap) {
-				// Overpass can be slow or rate-limited; the cloud must already be on screen
-				// and orbitable when it is, so the map is awaited after the first frame is
-				// possible and its failure is a note, not a dead viewer.
-				loadMap(THREE, groundZ + centre.z)
-					.then((m) => {
-						if (disposed || !m) return;
-						m.position.set(-centre.x, -centre.y, -centre.z);
-						scene.add(m);
-					})
-					.catch((e) => {
-						mapNote = `map unavailable: ${e instanceof Error ? e.message : String(e)}`;
-					});
-			}
+			// Layers are attached and detached in place, never by remounting the viewer:
+			// a rebuild would throw away the orbit camera, and losing your viewpoint every
+			// time you tick a checkbox makes the toggles useless for comparing.
+			sceneOffset = centre.clone().negate();
+			sceneSize = size;
+			if (showCameras) await syncCameras();
+			if (showMap) syncMap();
 
 			const w = el.clientWidth || 800;
 			const h = el.clientHeight || 480;
@@ -659,6 +712,7 @@
 			};
 			tick();
 			setPointSize();
+			mounted = true;
 			status = '';
 
 			ro = new ResizeObserver(() => {
@@ -685,6 +739,17 @@
 		// unconditionally or the effect never subscribes to it
 		void pointSize;
 		if (cloud && three) setPointSize();
+	});
+
+	$effect(() => {
+		void showPhotos;
+		void showCameras;
+		if (mounted) syncCameras();
+	});
+
+	$effect(() => {
+		void showMap;
+		if (mounted) syncMap();
 	});
 
 	// NB: read the reactive value BEFORE the loop. Both of these lists are empty on the

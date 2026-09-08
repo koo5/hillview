@@ -416,6 +416,89 @@ async def _overpass(lat: float, lon: float, radius: int) -> dict:
         return r.json()
 
 
+@router.post("/recon/runs/{run_id}/realign")
+async def realign(run_id: str, dry_run: bool = False):
+    """Re-fit the run's solve->ENU alignment with gravity pinned.
+
+    The alignment `reconstruct.py` writes is a 7-DoF Umeyama of the camera centres against
+    GPS. Along a straight walk the centres are collinear and the roll about the walk axis
+    is unobservable, so the whole world comes out tipped on its side. This recomputes the
+    fit with up taken from the reconstruction itself (see app/recon_ground.py) and writes
+    it back into metadata.json, keeping the original as `alignment_gps` so the change is
+    reversible and auditable.
+
+    Everything downstream — cloud.bin, /cameras, /map — reads `alignment`, so one call
+    re-grounds the whole run.
+    """
+    import numpy as np
+
+    from .. import recon_ground as rg
+
+    md_path = await _artifact(run_id, "metadata_path")
+    with open(md_path) as f:
+        md = json.load(f)
+    frames = md.get("frames") or []
+    if not frames:
+        raise HTTPException(400, "run has no frames")
+    base = md.get("alignment_gps") or md.get("alignment") or {}
+    if not base.get("R"):
+        raise HTTPException(400, "run has no alignment to re-fit")
+
+    poses = np.array([f["pose_cam2world"] for f in frames], dtype=float)
+    cams = poses[:, :3, 3]
+    rots = poses[:, :3, :3]
+    real = np.array([not f.get("injected") for f in frames])
+
+    lat0, lon0 = md["center"]
+    kx = 111320.0 * math.cos(math.radians(lat0))
+    ky = 110540.0
+    alt0 = float(base.get("alt0") or 0.0)
+    gps = np.array([[(f["gps"][1] - lon0) * kx, (f["gps"][0] - lat0) * ky,
+                     (f["altitude"] - alt0) if f.get("altitude") is not None else 0.0]
+                    for f in frames], dtype=float)
+
+    cloud_path = await _artifact(run_id, "cloud_path")
+    pts = rg.read_ply_xyz(cloud_path)
+    ev = rg.estimate_up(pts, cams[real], rots[real],
+                        float(base.get("scale_units_per_m") or 1.0))
+    if not ev["up"]:
+        return {"ok": False, "reason": "no usable up estimate", "ground": ev}
+
+    s, R, t = rg.gravity_alignment(cams[real], gps[real], np.array(ev["up"], dtype=float))
+    old_up = np.array(base["R"], dtype=float).T @ np.array([0.0, 0.0, 1.0])
+    new_up = np.array(ev["up"], dtype=float)
+    old_up /= np.linalg.norm(old_up)
+    correction = float(np.degrees(math.acos(
+        max(-1.0, min(1.0, float(old_up @ new_up))))))
+    # how badly conditioned the GPS-only fit was, i.e. how much this was needed
+    c = cams[real] - cams[real].mean(0)
+    sv = np.linalg.svd(c, compute_uv=False)
+    linearity = float(sv[1] / sv[0]) if sv[0] > 0 else 0.0
+
+    resid = np.linalg.norm(
+        ((s * (R @ cams[real].T)).T + t)[:, :2] - gps[real][:, :2], axis=1)
+    old = base
+    old_resid = np.linalg.norm(
+        ((old["scale_units_per_m"] * (np.array(old["R"]) @ cams[real].T)).T
+         + np.array(old["t"]))[:, :2] - gps[real][:, :2], axis=1)
+    out = {"ok": True, "ground": ev,
+           "roll_correction_deg": round(correction, 2),
+           "camera_track_linearity": round(linearity, 4),
+           "scale_units_per_m": {"was": old["scale_units_per_m"], "now": s},
+           "gps_residual_m": {"was": round(float(np.median(old_resid)), 3),
+                              "now": round(float(np.median(resid)), 3)},
+           "dry_run": dry_run}
+    if dry_run:
+        return out
+    md.setdefault("alignment_gps", base)
+    md["alignment"] = {"scale_units_per_m": float(s), "R": R.tolist(), "t": t.tolist(),
+                       "alt0": alt0, "up_source": ev["up_source"],
+                       "roll_correction_deg": round(correction, 2)}
+    md["ground"] = ev
+    _write_atomic(md_path, json.dumps(md, indent=2).encode())
+    return out
+
+
 @router.get("/recon/runs/{run_id}/map")
 async def map_layer(run_id: str, refresh: bool = False):
     """OSM footprints for this run's area, in the SAME metres-east/north/up frame as
@@ -986,7 +1069,22 @@ async def result(result_json: str = Form(...),
         await conn.execute(text(
             f"UPDATE recon_runs SET {', '.join(sets)} "
             f"WHERE id = CAST(:id AS uuid){where}"), args)
+
+    # Ground the new run immediately. The alignment the worker computed is a GPS-only
+    # Umeyama, whose roll is unobservable along a straight walk — measured on the bench,
+    # every run but the one shot in a circle came back tipped by 54 to 170 degrees. Doing
+    # it here means a run is never SEEN in the wrong orientation. It must never break the
+    # callback, though: the artifacts are already stored and the run is already done.
+    if not running and d.get("status", "done") == "done" and "cloud" in cols_touched(cols):
+        try:
+            await realign(rid)
+        except Exception as e:
+            print(f"realign after result failed for {rid}: {type(e).__name__}: {e}")
     return {"ok": True}
+
+
+def cols_touched(cols: dict) -> set:
+    return {"cloud" if c == "cloud_path" else c for c in cols}
 
 
 # "Queued with zero consumers" is silent otherwise — the recon worker is a host process

@@ -306,6 +306,53 @@ test('previews the cluster before it can be enqueued', async ({ page }) => {
 	expect((enqueued as { limit: number }).limit).toBe(5);
 });
 
+test('a layer toggle keeps the viewpoint', async ({ page }) => {
+	// Layers used to be remounted through a {#key}, which threw away the orbit camera:
+	// every checkbox tick sent you back to the default framing, so the toggles were
+	// useless for exactly the thing they are for, comparing with and without.
+	const N = 300;
+	const buf = Buffer.alloc(N * 15);
+	for (let i = 0; i < N; i++) {
+		buf.writeFloatLE(Math.cos(i) * 3, i * 15);
+		buf.writeFloatLE(Math.sin(i) * 3, i * 15 + 4);
+		buf.writeFloatLE(i / 100, i * 15 + 8);
+	}
+	await page.route('**/cloud.bin*', async (route) =>
+		route.fulfill({ body: buf, contentType: 'application/octet-stream' })
+	);
+	await page.route('**/recon/runs/*/cameras*', async (route) =>
+		route.fulfill({
+			json: {
+				frames: [
+					{
+						idx: 0, id: 'a', focal_px: 400, injected: false,
+						pos: [0, 0, 0], rot: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+					}
+				]
+			}
+		})
+	);
+	await page.route('**/recon/runs/*/map', async (route) =>
+		route.fulfill({ json: { buildings: [], walls: [], roads: [] } })
+	);
+
+	await page.goto('/recon?run=walk_dense');
+	const canvas = page.getByTestId('recon-cloud').locator('canvas');
+	await expect(canvas).toBeVisible({ timeout: 20_000 });
+	const first = await canvas.elementHandle();
+
+	await page.getByRole('checkbox', { name: 'photos' }).check();
+	await page.waitForTimeout(500);
+	const second = await canvas.elementHandle();
+	// same canvas node means the WebGL context, and with it the orbit camera, survived
+	expect(await page.evaluate(([a, b]) => a === b, [first, second])).toBe(true);
+
+	await page.getByRole('checkbox', { name: 'OSM map' }).uncheck();
+	await page.waitForTimeout(300);
+	const third = await canvas.elementHandle();
+	expect(await page.evaluate(([a, b]) => a === b, [first, third])).toBe(true);
+});
+
 test('renders the point cloud and its camera frusta', async ({ page }) => {
 	// WebGL runs on swiftshader here (see playwright.config.ts), same as the terrain viewer.
 	// The cloud arrives as packed [float32 xyz][uint8 rgb]; this pins the decode contract,
