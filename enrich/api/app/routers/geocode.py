@@ -49,7 +49,7 @@ async def _labels_from_graph(ann_ids: list[str]) -> dict[str, dict]:
 SELECT ?ann ?p ?o WHERE {{
   VALUES ?ann {{ {values} }}
   GRAPH ?f {{ ?ann ?p ?o }}
-  FILTER(?p IN (hv:labelText, hv:wikipediaPage, hv:typeGuess, hv:embeddedCoords, hv:poiKey))
+  FILTER(?p IN (hv:labelText, hv:wikipediaPage, hv:typeGuess, hv:embeddedCoords, hv:poiKey, hv:osmRef))
   FILTER NOT EXISTS {{ GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status hv:rejected }} }}
 }}""")
     out: dict[str, dict] = {}
@@ -65,6 +65,8 @@ SELECT ?ann ?p ?o WHERE {{
             d["type_guess"] = o
         elif p.endswith("poiKey"):
             d["poi_key"] = o
+        elif p.endswith("osmRef"):
+            d["osm_ref"] = o
         elif p.endswith("embeddedCoords"):
             try:
                 lon, lat = o.replace("POINT(", "").rstrip(")").split()
@@ -92,13 +94,12 @@ def namesake_key(label: str | None) -> str | None:
     return k if len(k) >= 3 else None
 
 
-async def _namesake_seeds(todo: dict) -> dict[str, list[dict]]:
-    """For each todo annotation: located anchors of its namesakes on OTHER
-    photos — annotations with the same folded label or the same id= key. A
-    namesake contributes its own data only (approved anchor > body coords >
-    wikipedia page), never something that was itself seeded, so seeds don't
-    propagate transitively. → {ann_id: [{uri, lat, lon, source, label,
-    photo_title}]}."""
+async def _namesake_index() -> dict:
+    """Shared basis of the namesake mechanism: every current annotation's
+    photo/title, its graph labels, the folded-key → annotations map, and
+    own_anchor() — the ONE located point an annotation can lend (approved
+    anchorCandidate > body-embedded coords > wikipedia coords; never something
+    it borrowed itself, so seeds don't propagate transitively)."""
     async with wb_engine.connect() as conn:
         rows = (await conn.execute(text(
             "SELECT a.id, a.photo_id, p.title FROM annotation_mirror a "
@@ -132,7 +133,8 @@ SELECT ?a ?c ?co WHERE {{
             except ValueError:
                 pt = None
         if pt and a not in approved:
-            approved[a] = {"uri": uri, "lat": pt[0], "lon": pt[1]}
+            approved[a] = {"uri": uri, "lat": pt[0], "lon": pt[1],
+                           "how": "approved anchor"}
     # wikipedia pages with looked-up coords (metadata on the page URI)
     wiki_urls = sorted({d["wiki_url"] for d in labels.values() if d.get("wiki_url")})
     wiki_pt: dict[str, tuple[float, float]] = {}
@@ -153,11 +155,28 @@ SELECT ?u ?co WHERE {{ VALUES ?u {{ {values} }} GRAPH ?g {{ ?u hv:coords ?co }} 
         d = labels.get(a, {})
         if d.get("coords"):
             lat, lon = d["coords"]
-            return {"uri": graph.geo_uri(lat, lon), "lat": lat, "lon": lon}
+            return {"uri": graph.geo_uri(lat, lon), "lat": lat, "lon": lon,
+                    "how": "body coords"}
         if d.get("wiki_url") in wiki_pt:
             lat, lon = wiki_pt[d["wiki_url"]]
-            return {"uri": d["wiki_url"], "lat": lat, "lon": lon}
+            return {"uri": d["wiki_url"], "lat": lat, "lon": lon,
+                    "how": "wikipedia coords"}
         return None
+
+    return {"photo_of": photo_of, "title_of": title_of, "labels": labels,
+            "keys": keys, "own_anchor": own_anchor}
+
+
+async def _namesake_seeds(todo: dict) -> dict[str, list[dict]]:
+    """For each todo annotation: located anchors of its namesakes on OTHER
+    photos — annotations with the same folded label or the same id= key. A
+    namesake contributes its own data only (approved anchor > body coords >
+    wikipedia page), never something that was itself seeded, so seeds don't
+    propagate transitively. → {ann_id: [{uri, lat, lon, source, label,
+    photo_title}]}."""
+    ix = await _namesake_index()
+    photo_of, title_of = ix["photo_of"], ix["title_of"]
+    labels, keys, own_anchor = ix["labels"], ix["keys"], ix["own_anchor"]
 
     out: dict[str, list[dict]] = {}
     for b_id, d in todo.items():
@@ -177,13 +196,62 @@ SELECT ?u ?co WHERE {{ VALUES ?u {{ {values} }} GRAPH ?g {{ ?u hv:coords ?co }} 
     return out
 
 
+@router.get("/annotations/{ann_id}/namesakes")
+async def namesakes(ann_id: str):
+    """The namesake mechanism, exposed for one annotation: every OTHER current
+    annotation sharing its folded label or id= key, and what each could lend —
+    its own located anchor (approved anchorCandidate > body coords > wikipedia),
+    the only thing a geocode run will borrow as a seed. `already` marks lendable
+    points already among this annotation's candidates; same-photo namesakes are
+    listed for navigation but never seeded. `lends` is what THIS annotation
+    would contribute to its namesakes in return. Works for superseded
+    annotations too (the detail page shows them); the namesake POOL is always
+    the current ones."""
+    async with wb_engine.connect() as conn:
+        row = (await conn.execute(text(
+            "SELECT photo_id FROM annotation_mirror WHERE id = :id"),
+            {"id": ann_id})).first()
+    if not row:
+        raise HTTPException(404, "annotation not found")
+    ix = await _namesake_index()
+    my_photo = row.photo_id
+    # a superseded annotation is absent from the (current-only) index; its
+    # labels still live in the graph under its own IRI
+    d = (ix["labels"].get(ann_id)
+         or (await _labels_from_graph([ann_id])).get(ann_id, {}))
+    my_keys = [k for k in (namesake_key(d.get("label")),
+                           f"id={d['poi_key']}" if d.get("poi_key") else None) if k]
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?cand WHERE {{
+  GRAPH ?f {{ <{graph.annotation_iri(ann_id)}> hv:anchorCandidate ?cand }} }}""")
+    have = {b["cand"]["value"] for b in res["results"]["bindings"]}
+    out, seen = [], set()
+    for k in my_keys:
+        for a in ix["keys"].get(k, []):
+            if a == ann_id or a in seen:
+                continue
+            seen.add(a)
+            anchor = ix["own_anchor"](a)
+            out.append({"annotation_id": a,
+                        "label": ix["labels"].get(a, {}).get("label"),
+                        "photo_id": ix["photo_of"].get(a),
+                        "photo_title": ix["title_of"].get(a),
+                        "same_photo": ix["photo_of"].get(a) == my_photo,
+                        "anchor": anchor,
+                        "already": bool(anchor and anchor["uri"] in have)})
+    # lendable first, same-photo (never seeded) last
+    out.sort(key=lambda n: (n["same_photo"], n["anchor"] is None))
+    return {"keys": my_keys, "lends": ix["own_anchor"](ann_id), "namesakes": out}
+
+
 async def prepare_geocode(ann_ids: list[str], scope: str,
                           note: str | None) -> tuple:
     """Pick the annotations worth geocoding (a label or embedded coords in their
     non-rejected facts) and open the run row. → (run_id, todo)."""
     labels = await _labels_from_graph(ann_ids)
     todo = {a: d for a, d in labels.items()
-            if d.get("label") or d.get("coords") or d.get("wiki_url")}
+            if d.get("label") or d.get("coords") or d.get("wiki_url")
+            or d.get("osm_ref")}
     if todo:
         # the photo position drives the Nominatim viewbox bias (geocode.viewbox_for)
         async with wb_engine.connect() as conn:
@@ -242,6 +310,20 @@ async def execute_geocode(run_id, todo: dict) -> dict:
                             if wc:
                                 wiki_cand = {"url": d["wiki_url"], **wc}
                                 stats["wiki_hits"] += 1
+                    # the author's osmap poi= object: resolve to coords and mint
+                    # it like any OSM candidate (same URI → same fact if Nominatim
+                    # already found it by name; `own` marks it as author-given)
+                    if d.get("osm_ref"):
+                        try:
+                            rt, ri = d["osm_ref"].split(":", 1)
+                            lc = await geocode.nominatim_lookup(rt, int(ri))
+                        except ValueError:
+                            lc = None
+                        if lc and not any(c["osm_type"] == lc["osm_type"]
+                                          and c["osm_id"] == lc["osm_id"]
+                                          for c in cands):
+                            cands = cands + [lc]
+                            stats["osm_links"] = stats.get("osm_links", 0) + 1
                     triples = facts.geocode_facts_for(
                         ann_id, cands, wiki_cand, geo_point=d.get("coords"))
                     seeds = d.get("namesakes") or []
@@ -394,6 +476,12 @@ SELECT ?cand ?p ?o WHERE {{ VALUES ?cand {{ {values} }} GRAPH ?g {{ ?cand ?p ?o 
             own_uris.add(graph.geo_uri(*own[ann_id]["coords"]))
         if own.get(ann_id, {}).get("wiki_url"):
             own_uris.add(own[ann_id]["wiki_url"])
+        if own.get(ann_id, {}).get("osm_ref"):
+            try:
+                rt, ri = own[ann_id]["osm_ref"].split(":", 1)
+                own_uris.add(geocode.osm_uri(rt, int(ri)))
+            except ValueError:
+                pass
         for uri, c in cands.items():
             if uri in own_uris:
                 c["own"] = True
@@ -415,6 +503,15 @@ SELECT ?cand ?p ?o WHERE {{ VALUES ?cand {{ {values} }} GRAPH ?g {{ ?cand ?p ?o 
                           slack=2.0, default_far=2000, assumed_fov=90)
     ann_pie = await _annotation_pie(ann_id, slack=2.0, default_far=2000,
                                     assumed_fov=90)
+    # the pies' radius comes from the photo's estimated farthest object, which
+    # is far too short for THIS map: the cone must reach whatever candidates
+    # are being judged against it, and for a candidate-less mystery rect the
+    # sight-ray is the hunting tool — give it a generous floor so pinning a
+    # distant subject along it is possible at all
+    reach = max(max((c.get("km") or 0 for c in out), default=0) * 1050, 60_000)
+    for p in (pie, ann_pie):
+        if p and reach > p["radius_m"]:
+            p["radius_m"] = round(reach)
     return {"photo": {"lat": photo.lat, "lon": photo.lon,
                       "bearing": photo.compass_angle, "pie": pie},
             "annotation_pie": ann_pie,

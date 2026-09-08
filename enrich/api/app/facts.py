@@ -72,6 +72,10 @@ def facts_for(parsed: ParsedBody, annotation_id: str, photo_id: str) -> list[tup
         out.append((_p("webPage"), iri(u)))
     if parsed.poi_key:
         out.append((_p("poiKey"), lit(parsed.poi_key)))
+    if parsed.osm_ref:
+        # the exact OSM object the author linked (osmap poi=) — geocode resolves
+        # it to an anchorCandidate; strongest identity signal a body can carry
+        out.append((_p("osmRef"), lit(parsed.osm_ref)))
     if parsed.coords:
         lat, lon = parsed.coords
         out.append((_p("embeddedCoords"),

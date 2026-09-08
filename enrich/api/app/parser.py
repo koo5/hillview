@@ -11,7 +11,13 @@ import re
 import urllib.parse
 from dataclasses import dataclass, field
 
-PARSER_VERSION = "7"   # 7: an "id=<key>" segment is a POI key (hv:poiKey) — the author's
+PARSER_VERSION = "9"   # 9: DMS/DDM coordinates parse — 50°10'29.869"N, 14°38'52.907"E
+                       #    (hemisphere letters REQUIRED — they are the guard against
+                       #    prose numbers; the decimal COORD_RE stays letter-optional)
+                       # 8: osmap.vfosnar.cz links parse — poi=type:id is the author's OSM
+                       #    object (hv:osmRef; geocode resolves it to a candidate), the map=
+                       #    centre is fallback coords for poi-less links
+                       # 7: an "id=<key>" segment is a POI key (hv:poiKey) — the author's
                        #    handle tying annotations of one subject together — not a label
                        # 6: wikipedia URL = everything after /wiki/ minus ?query/#fragment
                        #    (mobile share links append ?uselang=en); non-wiki URLs are
@@ -35,6 +41,21 @@ PARSER_VERSION = "7"   # 7: an "id=<key>" segment is a POI key (hv:poiKey) — t
 # TS twin: frontend/src/lib/utils/coordParser.ts (clickable coords in the
 # zoomview) — keep the pattern and semantics in sync both ways.
 COORD_RE = re.compile(r"(-?\d{1,2}[.,]\d{3,})\s*([NnSs])?[,\s]+(-?\d{1,3}[.,]\d{3,})\s*([EeWw])?")
+# degrees-minutes(-seconds): 50°10'29.869"N, 14°38'52.907"E — as copied from
+# vezovevodojemy.cz and most GPS listings. Decimal minutes (DDM) work too:
+# 50°10.4978'N. Hemisphere letters are REQUIRED (that is what keeps "12°C,
+# 1500 m" prose safe). Unicode primes (′ ″) accepted alongside ' and ".
+# TS twin: frontend/src/lib/utils/coordParser.ts (DMS_SRC) — keep in sync.
+DMS_RE = re.compile(
+    "(\\d{1,2})[°º]\\s*"
+    "(\\d{1,2}(?:[.,]\\d+)?)[′']\\s*"
+    "(?:(\\d{1,2}(?:[.,]\\d+)?)\\s*(?:[″\"]|''))?\\s*"
+    "([NnSs])"
+    "[,;\\s]+"
+    "(\\d{1,3})[°º]\\s*"
+    "(\\d{1,2}(?:[.,]\\d+)?)[′']\\s*"
+    "(?:(\\d{1,2}(?:[.,]\\d+)?)\\s*(?:[″\"]|''))?\\s*"
+    "([EeWw])")
 # a wikipedia URL is whatever follows /wiki/ up to whitespace or the segment
 # pipe; the title is that path with its ?query / #fragment dropped (mobile share
 # links append ?uselang=en) and a wrapping ")" removed only when it is unbalanced
@@ -43,6 +64,10 @@ WIKI_RE = re.compile(r"https?://(\w{2,3})(?:\.m)?\.wikipedia\.org/wiki/([^\s|]+)
 URL_RE = re.compile(r"https?://[^\s|]+")
 # a hillview.cz view link — the annotator pointing at a map/photo view
 HILLVIEW_RE = re.compile(r"https?://(?:www\.)?hillview\.cz/\?([^\s|]+)")
+# an osmap.vfosnar.cz share link — state lives in the fragment: poi=way:46934757
+# is the SELECTED OSM object (the author's exact identity claim), map=z/lat/lon
+# is just the viewport centre
+OSMAP_RE = re.compile(r"https?://osmap\.vfosnar\.cz/[^\s|#]*#([^\s|]+)")
 # "id=vcelka": the author's key for the subject itself, shared by every
 # annotation of it (a POI handle; the geocoder treats same-key annotations as
 # namesakes, and it is the hook for an explicit POI link later)
@@ -58,6 +83,26 @@ def _wiki_from_match(m: re.Match) -> tuple[str, str, str]:
     raw = raw.rstrip(".,;")
     title = urllib.parse.unquote(raw).replace("_", " ")
     return lang, title, f"https://{lang}.wikipedia.org/wiki/{raw}"
+
+
+def osmap_link_parts(url: str) -> tuple[str | None, tuple[float, float] | None]:
+    """→ (osm_ref "way:46934757" | None, map-centre (lat, lon) | None) of an
+    osmap link; (None, None) for other URLs. The centre is only where the map
+    was scrolled — callers use it solely when the link carries no poi=."""
+    m = OSMAP_RE.match(url)
+    if not m:
+        return None, None
+    q = urllib.parse.parse_qs(m.group(1), keep_blank_values=True)
+    ref = None
+    pm = re.fullmatch(r"(node|way|relation):(\d+)", (q.get("poi") or [""])[0])
+    if pm:
+        ref = f"{pm.group(1)}:{pm.group(2)}"
+    center = None
+    cm = re.fullmatch(r"[\d.]+/(-?\d{1,2}\.\d+)/(-?\d{1,3}\.\d+)",
+                      (q.get("map") or [""])[0])
+    if cm:
+        center = (float(cm.group(1)), float(cm.group(2)))
+    return ref, center
 
 
 def hillview_link_coords(url: str) -> tuple[float, float] | None:
@@ -103,7 +148,8 @@ class ParsedBody:
     wiki: tuple[str, str] | None = None                  # (lang, title)
     wiki_url: str | None = None
     links: list[str] = field(default_factory=list)       # non-wiki URLs, body order
-    coords_from_link: bool = False                       # coords came from a hillview link
+    coords_from_link: bool = False                       # coords came from a hillview/osmap link
+    osm_ref: str | None = None                           # "way:46934757" from an osmap poi=
     poi_key: str | None = None                           # "id=<key>" segment
     type_guess: str | None = None
     uncertain: bool = False
@@ -126,6 +172,15 @@ def _coords_from_match(m: re.Match) -> tuple[float, float]:
             _hemisphere(_coord_float(m.group(3)), m.group(4), "W"))
 
 
+def _dms_from_match(m: re.Match) -> tuple[float, float]:
+    def val(deg, minutes, seconds, letter, negative):
+        v = (float(deg) + _coord_float(minutes) / 60
+             + (_coord_float(seconds) / 3600 if seconds else 0.0))
+        return round(_hemisphere(v, letter, negative), 7)
+    return (val(m.group(1), m.group(2), m.group(3), m.group(4), "S"),
+            val(m.group(5), m.group(6), m.group(7), m.group(8), "W"))
+
+
 def _segment_role(i: int, seg: str) -> str:
     if POI_KEY_RE.match(seg):
         return "poiKey"
@@ -134,6 +189,8 @@ def _segment_role(i: int, seg: str) -> str:
     # segment 0 is the name slot; it only counts as coords when it is NOTHING
     # but a coordinate pair (embedded coords after a name stay part of the name)
     if COORD_RE.search(seg) and (i > 0 or COORD_RE.fullmatch(seg)):
+        return "coords"
+    if DMS_RE.search(seg) and (i > 0 or DMS_RE.fullmatch(seg)):
         return "coords"
     if URL_RE.search(seg):
         return "url"
@@ -170,6 +227,10 @@ def parse_body(body: str | None) -> ParsedBody:
         m = COORD_RE.search(p)
         if m and result.coords is None:
             result.coords = _coords_from_match(m)
+        if result.coords is None:
+            dm = DMS_RE.search(p)
+            if dm:
+                result.coords = _dms_from_match(dm)
         w = WIKI_RE.search(p)
         if w and result.wiki is None:
             lang, title, url = _wiki_from_match(w)
@@ -178,9 +239,17 @@ def parse_body(body: str | None) -> ParsedBody:
         for u in URL_RE.findall(p):
             if not WIKI_RE.match(u):
                 result.links.append(u.rstrip(".,;)"))
+    for u in result.links:
+        ref, _ = osmap_link_parts(u)
+        if ref and result.osm_ref is None:
+            result.osm_ref = ref
     if result.coords is None:
         for u in result.links:
-            c = hillview_link_coords(u)
+            ref, center = osmap_link_parts(u)
+            # a poi-less osmap link's centre is the best point it offers; with
+            # a poi= the exact object coords come from geocode instead, and a
+            # duplicate geo: pin would outrank the exact object in the picker
+            c = hillview_link_coords(u) or (center if not ref else None)
             if c:
                 result.coords, result.coords_from_link = c, True
                 break

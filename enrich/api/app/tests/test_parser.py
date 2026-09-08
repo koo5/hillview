@@ -150,3 +150,64 @@ def test_type_guess_word_boundaries():
     assert parse_body("Vrchlického sady").type_guess is None    # "vrch" in Vrchlického
     assert parse_body("hrad Bezděz").type_guess == "castle"
     assert parse_body("Bezděz (hrad)").type_guess == "castle"
+
+
+def test_osmap_link_poi_is_the_authors_osm_object():
+    # parser v8: poi=type:id in the fragment is the selected OSM object; the
+    # map= centre must NOT become coords when a poi= is present (a duplicate
+    # geo: pin would outrank the exact object in the anchor picker)
+    p = parse_body("https://osmap.vfosnar.cz/#base=carto&map=19/48.94187/15.72672&poi=way:46934757")
+    assert p.osm_ref == "way:46934757"
+    assert p.coords is None
+    assert p.unnamed
+    assert p.links == ["https://osmap.vfosnar.cz/#base=carto&map=19/48.94187/15.72672&poi=way:46934757"]
+
+
+def test_osmap_link_after_name_and_layers():
+    p = parse_body("hotel occidental praha|https://osmap.vfosnar.cz/#base=cuzk&layers=contours,fody,pistes,hiking,osm-notes&map=16/50.04367/14.43952&poi=way:22540879")
+    assert p.name == "hotel occidental praha"
+    assert p.osm_ref == "way:22540879"
+    assert p.coords is None
+
+
+def test_osmap_poi_node():
+    p = parse_body("https://osmap.vfosnar.cz/#base=carto&map=17/50.08118/14.49946&layers=contours&poi=node:4020587067")
+    assert p.osm_ref == "node:4020587067"
+
+
+def test_osmap_map_centre_is_fallback_coords_without_poi():
+    p = parse_body("https://osmap.vfosnar.cz/#base=carto&map=17/50.08118/14.49946&layers=contours")
+    assert p.osm_ref is None
+    assert p.coords == (50.08118, 14.49946)
+    assert p.coords_from_link
+
+
+def test_osmap_body_coords_beat_the_map_centre():
+    p = parse_body("Vrch | 50.10000N, 14.40000E | https://osmap.vfosnar.cz/#map=17/50.08118/14.49946")
+    assert p.coords == (50.1, 14.4)
+    assert not p.coords_from_link
+
+
+def test_dms_coords_parse():
+    # parser v9: DMS as copied from vezovevodojemy.cz / GPS listings
+    p = parse_body('Vodojem | 50°10\'29.869"N, 14°38\'52.907"E')
+    assert p.coords == (50.1749636, 14.6480297)
+    assert p.roles == ["name", "coords"]
+    # decimal minutes (DDM)
+    p = parse_body("x | 50°10.4978'N 14°38.8818'E")
+    assert p.coords is not None
+    assert abs(p.coords[0] - 50.17496) < 1e-4 and abs(p.coords[1] - 14.64803) < 1e-4
+
+
+def test_dms_bare_pair_in_name_slot_is_coords_not_name():
+    p = parse_body('50°10\'29.869"N, 14°38\'52.907"E |https://example.org/x')
+    assert p.unnamed
+    assert p.coords == (50.1749636, 14.6480297)
+
+
+def test_dms_needs_hemisphere_letters_so_prose_is_safe():
+    p = parse_body("kotel | 12°C, 1500 m")
+    assert p.coords is None
+    # southern/western letters sign the values
+    p = parse_body("x | 33°51'25.4\"S, 151°12'55.1\"E")
+    assert p.coords is not None and p.coords[0] < 0 < p.coords[1]

@@ -130,3 +130,15 @@ def test_label_takes_over_pure_coords_body():
 def test_url_first_body_is_unnamed():
     p = parse_body("https://www.ok1khl.com/view.php?cisloclanku=2026021501")
     assert p.roles == ["url"] and p.unnamed and p.name is None
+
+
+def test_web_urls_appended_when_absent_idempotent_when_present():
+    # curated webPage facts (🔗 attach) graduate as appended URL segments
+    url = "https://vezovevodojemy.cz/?action=diesel.view&table=vodojemy&projector=view&id=60"
+    s, ch = suggest_body("?", "Vodojem Brandýs", ANCHOR, None, [url])
+    assert s == f"Vodojem Brandýs | 50.05422N, 14.46877E | {url}"
+    assert [c["what"] for c in ch] == ["label", "coords", "webpage"]
+    # already in the body (parser strips trailing punctuation) → no change
+    s2, ch2 = suggest_body(s, "Vodojem Brandýs", ANCHOR, None, [url])
+    assert s2 == s
+    assert ch2 == []

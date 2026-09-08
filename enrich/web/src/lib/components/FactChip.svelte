@@ -36,10 +36,15 @@
 		if (q.get('photo')) parts.push(`photo ${q.get('photo')!.replace(/^hillview-/, '').slice(0, 8)}`);
 		return `hillview view · ${parts.join(' · ')}`;
 	}
+	// WKT is lon-first (x y); display it the way humans read coordinates —
+	// lat, lon — with the raw literal preserved in the tooltip
+	const wkt = $derived(/^POINT\((-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)\)$/.exec(fact.value));
 	const display = $derived(
-		fact.value_type === 'uri'
-			? (hillviewView(fact.value) ?? fact.value.replace(/^https?:\/\//, '').slice(0, 46))
-			: fact.value
+		wkt
+			? `${wkt[2]}, ${wkt[1]}`
+			: fact.value_type === 'uri'
+				? (hillviewView(fact.value) ?? fact.value.replace(/^https?:\/\//, '').slice(0, 46))
+				: fact.value
 	);
 
 	// verdict mode: a rejected depictedIn is a negative verdict ("not depicted
@@ -63,7 +68,7 @@
 		{#if fact.value_type === 'uri' && fact.value.startsWith('http') && !fact.value.includes('rdf.hillview.cz')}
 			<a href={fact.value} target="_blank" rel="noreferrer">{display}</a>
 		{:else}
-			<span class="val">{display}</span>
+			<span class="val" title={wkt ? `${fact.value} (WKT, lon lat)` : undefined}>{display}</span>
 		{/if}
 	{/if}
 	{#if interactive}

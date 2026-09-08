@@ -786,6 +786,39 @@
 		return baseProjector().pxPerDeg;
 	}
 
+	// pan/zoom persists per pano across reloads — client-side only (viewport
+	// centre + zoom in OSD viewport coords, so it survives window resizes
+	// gracefully). Best-effort: private windows / cleared site data just fall
+	// back to the fit-to-width home view.
+	const viewKey = (id: string) => `enrich_overlay_view/${id}`;
+	function saveView() {
+		if (!viewer?.viewport || !photo) return;
+		try {
+			const vp = viewer.viewport;
+			const c = vp.getCenter();
+			localStorage.setItem(
+				viewKey(photo.id),
+				JSON.stringify({ z: vp.getZoom(), cx: c.x, cy: c.y })
+			);
+		} catch {
+			/* storage unavailable */
+		}
+	}
+	function restoreView(): boolean {
+		if (!viewer?.viewport || !photo || !OSD) return false;
+		try {
+			const raw = localStorage.getItem(viewKey(photo.id));
+			if (!raw) return false;
+			const v = JSON.parse(raw) as { z: number; cx: number; cy: number };
+			if (!(v.z > 0) || !Number.isFinite(v.cx) || !Number.isFinite(v.cy)) return false;
+			viewer.viewport.zoomTo(v.z, undefined, true);
+			viewer.viewport.panTo(new OSD.Point(v.cx, v.cy), true);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
 	function resetView() {
 		if (viewer?.viewport) viewer.viewport.goHome(true);
 		else {
@@ -896,6 +929,15 @@
 
 	function onCanvasPress(e: OsdPress) {
 		const p = e.position;
+		// handles FIRST: a label pill that strays over a control point must
+		// never steal the grab (the layout also keeps pills off the handles,
+		// but hit priority is the guarantee)
+		const hi = hitHandle(p);
+		if (hi !== null) {
+			selectedSeg = panelOf(hi);
+			press = { kind: 'handle', idx: hi };
+			return;
+		}
 		// a tap on a label pill reveals what the label is claiming
 		const pill = hitSkyLabel(placedPills, p.x, p.y);
 		if (pill) {
@@ -903,9 +945,7 @@
 			press = { kind: 'pill' };
 			return;
 		}
-		const hi = hitHandle(p);
-		if (hi !== null) selectedSeg = panelOf(hi);
-		press = hi !== null ? { kind: 'handle', idx: hi } : null;
+		press = null;
 	}
 
 	function onCanvasDrag(e: OsdDrag) {
@@ -1138,7 +1178,14 @@
 				});
 			}
 			ctx.textBaseline = 'middle';
-			placedPills = layoutSkyLabels(inputs, sw, sh, { pillH: 18, leader: 14 });
+			// keep pills off the warp handles — an overlapped handle can't be seen
+			// or grabbed (hit priority protects the grab; this protects the eye)
+			const proj = baseProjector();
+			const avoid = warp.map((_, i) => {
+				const h = handleBase(i, proj);
+				return { x: toX(h.x), y: toY(h.y), r: HANDLE_HIT };
+			});
+			placedPills = layoutSkyLabels(inputs, sw, sh, { pillH: 18, leader: 14, avoid });
 			paintSkyPills(ctx, placedPills);
 		} else {
 			placedPills = [];
@@ -1320,6 +1367,7 @@
 				}
 				dlog(`osd open ${naturalW}x${naturalH}`);
 				fit();
+				restoreView();
 				draw();
 			});
 			viewer.addHandler('open-failed', (e: { message?: string }) => {
@@ -1331,7 +1379,10 @@
 				}
 			});
 			viewer.addHandler('viewport-change', syncView);
-			viewer.addHandler('animation-finish', syncView);
+			viewer.addHandler('animation-finish', () => {
+				syncView();
+				saveView();
+			});
 			viewer.addHandler('canvas-press', onCanvasPress);
 			viewer.addHandler('canvas-drag', onCanvasDrag);
 			viewer.addHandler('canvas-drag-end', onCanvasRelease);
@@ -1446,6 +1497,8 @@
 				· az {labelInfo.azimuth_deg.toFixed(1)}° · {(labelInfo.distance_m / 1000).toFixed(1)} km
 				· <a href="https://www.openstreetmap.org/?mlat={labelInfo.lat}&mlon={labelInfo.lon}#map=14/{labelInfo.lat}/{labelInfo.lon}" target="_blank" rel="noreferrer">osm ↗</a>
 				· <a href="https://hillview.cz/?lat={labelInfo.lat}&lon={labelInfo.lon}&zoom=14" target="_blank" rel="noreferrer">hillview ↗</a>
+				· <a href="https://osmap.vfosnar.cz/#base=cuzk&map=14/{labelInfo.lat.toFixed(5)}/{labelInfo.lon.toFixed(5)}" target="_blank" rel="noreferrer">osmap ↗</a>
+				· <a href="https://openstreetmap.cz/#map=14/{labelInfo.lat.toFixed(5)}/{labelInfo.lon.toFixed(5)}" target="_blank" rel="noreferrer">osm.cz ↗</a>
 			{/if}
 			<button class="linkish" onclick={() => (labelInfo = null)} aria-label="dismiss">×</button>
 		</span>
@@ -1456,6 +1509,8 @@
 			<span class="mono">{pick.lat.toFixed(5)}, {pick.lon.toFixed(5)}</span> · {(pick.distance_m / 1000).toFixed(2)} km
 			· <a href="https://www.openstreetmap.org/?mlat={pick.lat}&mlon={pick.lon}#map=15/{pick.lat}/{pick.lon}" target="_blank" rel="noreferrer">osm ↗</a>
 			· <a href="https://hillview.cz/?lat={pick.lat}&lon={pick.lon}&zoom=15" target="_blank" rel="noreferrer">hillview ↗</a>
+			· <a href="https://osmap.vfosnar.cz/#base=cuzk&map=15/{pick.lat.toFixed(5)}/{pick.lon.toFixed(5)}" target="_blank" rel="noreferrer">osmap ↗</a>
+			· <a href="https://openstreetmap.cz/#map=15/{pick.lat.toFixed(5)}/{pick.lon.toFixed(5)}" target="_blank" rel="noreferrer">osm.cz ↗</a>
 			<button class="linkish" onclick={() => { pick = null; pickPt = null; draw(); }} aria-label="dismiss">×</button>
 		</span>
 	{/if}

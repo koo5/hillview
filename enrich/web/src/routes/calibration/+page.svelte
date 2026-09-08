@@ -89,10 +89,40 @@
 			}
 			seamsText = k.slice(1, -1).map((v) => v.toFixed(4)).join(', ');
 			model = 'piecewise';
+			saveDraft();
 		} catch (e) {
 			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
 		}
 	}
+	// draft-vs-accepted: the dropdown/seams are a server-side DRAFT — say so
+	// whenever they diverge from what the pano actually has accepted, so a
+	// changed-but-not-accepted projection is never mistaken for saved state
+	const acceptedModel = $derived(
+		data?.accepted
+			? data.accepted.projection === 'rectilinear'
+				? 'rectilinear'
+				: data.accepted.stitch
+					? 'piecewise'
+					: 'linear'
+			: null
+	);
+	const acceptedSeams = $derived.by(() => {
+		try {
+			const st = JSON.parse(data?.accepted?.stitch ?? 'null') as { knots?: number[] } | null;
+			return st?.knots?.slice(1, -1) ?? null;
+		} catch {
+			return null;
+		}
+	});
+	const draftDiffers = $derived(
+		acceptedModel != null &&
+			(model !== acceptedModel ||
+				(model === 'piecewise' &&
+					acceptedSeams != null &&
+					(seams.length !== acceptedSeams.length ||
+						seams.some((v, i) => Math.abs(v - acceptedSeams[i]) > 5e-4))))
+	);
+
 	function fitWith(pts: { x: number; delta: number }[]) {
 		const compass = data?.photo.compass_angle ?? null;
 		if (model === 'rectilinear') return fitRectilinear(pts, compass);
@@ -138,17 +168,26 @@
 	// the include/exclude working set persists per pano in REAL TIME as a
 	// server-side draft (plain mutable RDF in a per-pano draft graph), so it
 	// survives reloads, pano switches, and browser/device changes
-	async function loadDraft(id: string): Promise<Set<string>> {
+	interface Draft {
+		excluded: string[];
+		model: string | null;
+		seams: string | null;
+	}
+	async function loadDraft(id: string): Promise<Draft> {
 		try {
-			const d = await api.get<{ excluded: string[] }>(`/calibrate/draft?photo_id=${id}`);
-			return new Set(d.excluded);
+			return await api.get<Draft>(`/calibrate/draft?photo_id=${id}`);
 		} catch {
-			return new Set();
+			return { excluded: [], model: null, seams: null };
 		}
 	}
 	function saveDraft() {
 		if (!sel) return;
-		api.put(`/calibrate/draft`, { photo_id: sel.id, excluded: [...excluded] }).catch(() => {
+		api.put(`/calibrate/draft`, {
+			photo_id: sel.id,
+			excluded: [...excluded],
+			model,
+			seams: seamsText
+		}).catch(() => {
 			/* draft save is best-effort */
 		});
 	}
@@ -184,7 +223,14 @@
 		} catch (e) {
 			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
 		}
-		excluded = await draft;
+		const d = await draft;
+		excluded = new Set(d.excluded);
+		// the draft's model/seams are the operator's newer working choice — it
+		// overrides the accepted-fit default (the dropdown used to snap back to
+		// the accepted projection on every visit, silently discarding a changed
+		// but not-yet-accepted choice)
+		if (d.model === 'linear' || d.model === 'rectilinear' || d.model === 'piecewise') model = d.model;
+		if (d.seams != null) seamsText = d.seams;
 	}
 
 	// re-pick anchors + rows server-side WITHOUT touching the selection —
@@ -388,7 +434,7 @@
 			</dd>
 		</dl>
 		<p>
-			The include/exclude set is a per-pano <b>draft</b>: every toggle saves it
+			The include/exclude set — and the model/seams choice — is a per-pano <b>draft</b>: every toggle saves it
 			server-side (a mutable draft graph in the store), so it survives reloads, pano
 			switches, and browser/device changes (until you include all).
 		</p>
@@ -467,17 +513,34 @@
 				<label style="font-size:12px; display:flex; align-items:center; gap:4px"
 					title="The pano's stitch OUTPUT projection sets the azimuth↔x law: linear for cylindrical/equirect (f1/f2), atan for rectilinear (f0). Read the .pto p-line f-value — it varies per pano, never assume (docs/pano-source-archaeology.md). Symptom of the wrong model: residuals bow — both ends one sign, middle the other, worst on far APPROVED anchors. Rectilinear needs ≥ 4 included points.">
 					model
-					<select bind:value={model}>
+					<select bind:value={model} onchange={saveDraft} data-testid="calibration-model">
 						<option value="linear">linear — cylindrical/equirect (f1/f2)</option>
 						<option value="rectilinear">rectilinear — f0, Δ = atan(k·(x−x₀))</option>
 						<option value="piecewise">piecewise — stitched: per-panel shift &amp; scale</option>
 					</select>
 				</label>
+				{#if draftDiffers}
+					<span
+						class="pill"
+						style="color:var(--warn); border-color:var(--warn); font-size:10px"
+						data-testid="calibration-draft-pill"
+						title="the model/seams choice is a draft (saved per pano, survives reloads) — the pano's accepted calibration is still {acceptedModel}; press accept fit to replace it"
+						>draft — accepted is {acceptedModel}</span
+					>
+				{:else if data && !data.accepted}
+					<span
+						class="pill"
+						style="font-size:10px"
+						data-testid="calibration-draft-pill"
+						title="this pano has no accepted calibration yet — everything on screen is a live draft; accept fit saves it"
+						>nothing accepted yet</span
+					>
+				{/if}
 				{#if model === 'piecewise'}
 					<label style="font-size:12px; display:flex; align-items:center; gap:4px"
 						title="seam positions as fractions of the width (0..1), comma-separated — the panels between them get their own azimuth shift and scale on top of the linear law. A frame stitched at the wrong focal length shows as a panel with scale ≠ 1. Each panel needs ≥ 2 anchors to fit a scale (1 → shift only, 0 → neutral). Accepting writes calibratedStitch, which the overlay bench seeds its handles from.">
 						seams
-						<input style="width:14em" placeholder="e.g. 0.42, 0.71, 0.9" bind:value={seamsText} data-testid="calibration-seams" />
+						<input style="width:14em" placeholder="e.g. 0.42, 0.71, 0.9" bind:value={seamsText} onchange={saveDraft} data-testid="calibration-seams" />
 						<button onclick={seamsFromOverlay} title="take the seams placed on the overlay bench for this pano (its draft, else its saved fit)">from overlay</button>
 					</label>
 				{/if}

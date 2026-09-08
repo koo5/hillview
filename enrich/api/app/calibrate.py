@@ -308,6 +308,12 @@ def pick_anchor(candidates: list[dict], photo_lon, photo_lat, compass,
     pinned = [c for c in nonrejected if c["candidate"].startswith("geo:") and not borrowed(c)]
     if pinned:
         return pinned[0], "pinned", "coordinates given by the annotator (body / link / pin)"
+    # the exact OSM object the annotator linked (osmap poi=) — an identity claim,
+    # trusted like a pin; `own` comes from the candidates endpoint's osmRef match
+    linked = [c for c in nonrejected if c.get("own")
+              and c["candidate"].startswith("https://www.openstreetmap.org/")]
+    if linked:
+        return linked[0], "osm-link", "the OSM object the annotator's link points at"
     wiki = [c for c in nonrejected if "wikipedia.org" in c["candidate"] and not borrowed(c)]
     if wiki:
         return wiki[0], "wikipedia", "coordinates of the linked wikipedia page"
