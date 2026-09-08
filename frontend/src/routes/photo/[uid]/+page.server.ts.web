@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { backendInternalUrl } from '$lib/config.server';
 import { parsePhotoUidParts } from '$lib/urlUtilsServer';
-import type { PublicPhoto, PhotoAnnotation } from '$lib/photoDisplay';
+import type { PublicPhoto, PhotoAnnotation, PhotoLicenseChange } from '$lib/photoDisplay';
 import { ssrAuthHeaders, viewerIdOf } from '$lib/ssrAuth.server';
 
 export const load: PageServerLoad = async ({ params, fetch, locals }) => {
@@ -14,14 +14,24 @@ export const load: PageServerLoad = async ({ params, fetch, locals }) => {
 
 	const publicUrl = `${backendInternalUrl}/photos/public/${encodeURIComponent(photoUid)}`;
 	const annotationsUrl = `${backendInternalUrl}/annotations/photos/${encodeURIComponent(parts.id)}`;
+	const licenseHistoryUrl = `${backendInternalUrl}/photos/${encodeURIComponent(parts.id)}/license-history`;
 
 	// With the ticket, user_rating and is_own_photo come back resolved for this
 	// visitor. Without it they are null and false, which is what used to make the
 	// page correct itself on the client the moment it had a token.
+	//
+	// The licence trail has to ride in this batch: when the batch is the
+	// visitor's own, createSsrBackedLoad skips the client-side loadPhoto that
+	// used to bring the trail along, and the page showed the licence with no
+	// trail. It is fetched WITHOUT the ticket on purpose — the page renders only
+	// the public fields, and the endpoint authenticates through
+	// get_current_user_optional_with_query, which answers a ticket with a 401
+	// rather than degrading to anonymous.
 	const headers = ssrAuthHeaders(locals);
-	const [publicRes, annotationsRes] = await Promise.all([
+	const [publicRes, annotationsRes, licenseHistoryRes] = await Promise.all([
 		fetch(publicUrl, { headers }),
 		fetch(annotationsUrl, { headers }),
+		fetch(licenseHistoryUrl),
 	]);
 
 	if (publicRes.status === 404) {
@@ -34,6 +44,9 @@ export const load: PageServerLoad = async ({ params, fetch, locals }) => {
 
 	const photo: PublicPhoto = await publicRes.json();
 	const annotations: PhotoAnnotation[] = annotationsRes.ok ? await annotationsRes.json() : [];
+	const licenseHistory: PhotoLicenseChange[] = licenseHistoryRes.ok
+		? ((await licenseHistoryRes.json()).entries ?? [])
+		: [];
 
-	return { photo, annotations, viewer_id: viewerIdOf(photo) };
+	return { photo, annotations, licenseHistory, viewer_id: viewerIdOf(photo) };
 };

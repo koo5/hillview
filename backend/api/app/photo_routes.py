@@ -1271,14 +1271,18 @@ async def edit_photo(
 			)
 
 		changes = {}
+		# Blank is compared as blank on both sides: rows authorized before
+		# upload normalized these hold "" where the edit form's empty field
+		# normalizes to NULL, and every first edit of such a photo reported a
+		# phantom "description" change (and audited it, for a moderator).
 		if payload.title is not None:
 			new_title = payload.title.strip() or None
-			if new_title != photo.title:
+			if new_title != (photo.title or None):
 				changes["title"] = {"old": photo.title, "new": new_title}
 				photo.title = new_title
 		if payload.description is not None:
 			new_description = payload.description.strip() or None
-			if new_description != photo.description:
+			if new_description != (photo.description or None):
 				changes["description"] = {"old": photo.description, "new": new_description}
 				photo.description = new_description
 		if payload.featured is not None and payload.featured != bool(photo.featured):

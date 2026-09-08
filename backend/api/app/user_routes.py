@@ -1773,8 +1773,11 @@ async def authorize_upload(
 			filename=None,  # Will be set by worker after file processing
 			original_filename=auth_request.filename,
 			file_md5=auth_request.file_md5,
-			title=auth_request.title,
-			description=auth_request.description,
+			# The web uploader sends "" for a field the user left empty; store the
+			# absence as NULL so a later edit (which normalizes "" to NULL too)
+			# does not read it as a change.
+			title=(auth_request.title or "").strip() or None,
+			description=(auth_request.description or "").strip() or None,
 			keywords=auth_request.keywords,
 			is_public=auth_request.is_public,
 			featured=auth_request.featured,  # admin-gated above

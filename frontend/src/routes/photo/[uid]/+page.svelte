@@ -34,7 +34,8 @@
 		titleUsesPlace,
 		displayTitle,
 		type PublicPhoto,
-		type PhotoAnnotation
+		type PhotoAnnotation,
+		type PhotoLicenseChange
 	} from '$lib/photoDisplay';
 	import PhotoAnnotations from '$lib/components/PhotoAnnotations.svelte';
 	import PlaceAttribution from '$lib/components/PlaceAttribution.svelte';
@@ -59,7 +60,12 @@
 	import { isModerator } from '$lib/adminNotifications';
 
 	export let data:
-		| { photo?: PublicPhoto; annotations?: PhotoAnnotation[]; viewer_id?: string | null }
+		| {
+				photo?: PublicPhoto;
+				annotations?: PhotoAnnotation[];
+				licenseHistory?: PhotoLicenseChange[];
+				viewer_id?: string | null;
+		  }
 		| undefined = undefined;
 
 	let photo: PublicPhoto | null = data?.photo ?? null;
@@ -82,13 +88,10 @@
 	// copy relies on the earlier grant — so the page shows the trail, not just
 	// the current answer. Empty for the overwhelming majority of photos, where
 	// it renders nothing at all.
-	type LicenseChange = {
-		old_license: string | null;
-		new_license: string | null;
-		actor_was_owner: boolean;
-		created_at: string;
-	};
-	let licenseHistory: LicenseChange[] = [];
+	// Hydrated from the server batch like photo and annotations above: when that
+	// batch is the visitor's own, the client-side load that would otherwise fetch
+	// the trail (see loadPhoto) is skipped, and this is the only copy there is.
+	let licenseHistory: PhotoLicenseChange[] = data?.licenseHistory ?? [];
 	let showLicenseHistory = false;
 
 	$: photoUid = $page.params.uid;
@@ -161,9 +164,6 @@
 				throw new Error(`Failed to load photo: ${response.status}`);
 			}
 			photo = await response.json();
-			if (photo && isAuthenticated) {
-				checkFlagStatus();
-			}
 		} catch (err) {
 			console.error('🢄 Error loading photo:', err);
 			if (!silent) error = handleApiError(err);
@@ -286,6 +286,24 @@
 	async function checkFlagStatus() {
 		if (!photo || !isAuthenticated) return;
 		isFlagged = await fetchIsFlagged(photo as unknown as PhotoData);
+	}
+
+	// Whether THIS visitor flagged the photo is in no batch — the public endpoint
+	// resolves user_rating and is_own_photo for the ticket holder, nothing else —
+	// so it is resolved here, keyed on viewer and photo, rather than inside
+	// loadPhoto: a batch rendered for this very visitor skips that load (see
+	// syncPhotoLoad), and the button then read "Flag" on a photo they had
+	// already flagged. The key also covers a logout (clears) and a login as
+	// someone else (re-asks); a `photo = { ...photo }` after a rating or an edit
+	// keeps the key and asks nothing.
+	let flagStatusFor: string | null = null;
+	$: {
+		const key = $auth.checked && isAuthenticated && photo ? `${$auth.user?.id}/${photo.id}` : null;
+		if (key !== flagStatusFor) {
+			flagStatusFor = key;
+			if (key) checkFlagStatus();
+			else isFlagged = false;
+		}
 	}
 
 	// --- Delete (same pattern as /photos/+page.svelte) ---

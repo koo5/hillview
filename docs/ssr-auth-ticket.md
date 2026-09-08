@@ -92,6 +92,14 @@ to the API through `ssrAuthHeaders`. Every document and `__data.json` response
 gets `Vary: Cookie`, switch on or off; ones rendered with a ticket get
 `Cache-Control: private, no-cache`.
 
+The photo page's batch also carries the licence trail
+(`/photos/{id}/license-history`), fetched **without** the ticket: the page
+renders only its public fields, and that endpoint authenticates through
+`get_current_user_optional_with_query`, which answers a ticket with a 401.
+It has to be in the batch at all because a visitor whose own batch is on
+screen gets no client-side load. The trail used to arrive with that load, so
+a signed-in owner saw their relicensed photo with no trail.
+
 The list endpoints and the public photo endpoint echo `viewer_id`: who the
 batch was filtered for, `null` when anonymous. The loads pass it to the page,
 and `createSsrBackedLoad` fetches only when the batch on screen was not
