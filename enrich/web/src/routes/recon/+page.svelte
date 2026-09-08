@@ -114,6 +114,7 @@
 	// spray, which is what made these clouds look nonsensical
 	let showDense = $state(true);
 	let showMap = $state(true);
+	let showPhotos = $state(false);
 	// …but do NOT mount the viewer until it is actually on screen. A dense cloud is
 	// hundreds of thousands of points and a WebGL context; eagerly loading one per run
 	// visit made the page heavy enough to crash a headless tab.
@@ -809,14 +810,18 @@
 						<label class="mapchk">
 							<input type="checkbox" bind:checked={showMap} /> OSM map
 						</label>
+						<label class="mapchk" title="hang each photograph in its own frustum, at the pose the solve gave it">
+							<input type="checkbox" bind:checked={showPhotos} /> photos
+						</label>
 					</div>
 					<div use:watchCloud>
 						{#if cloudVisible}
-							{#key `${detail.id}-${showDense && !!detail.has_dense_cloud}-${showMap}`}
+							{#key `${detail.id}-${showDense && !!detail.has_dense_cloud}-${showMap}-${showPhotos}`}
 								<ReconCloudViewer
 									runId={detail.id}
 									dense={showDense && !!detail.has_dense_cloud}
 									{showMap}
+									{showPhotos}
 								/>
 							{/key}
 						{:else}

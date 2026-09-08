@@ -779,6 +779,25 @@ this eye-height prior is a *better* scale estimate than the GPS fit it would rep
    Silhouettes and creases darken, flat surfaces stay flat. This is what Potree and
    CloudCompare do, and it costs one fullscreen pass — no normals, no lights, no mesh.
 
+3. **Round sprites, cut with `alphaTest`** rather than blended, so points still write
+   depth and occlude one another. Square points read as a mosaic of tiles; round ones read
+   as a surface.
+
+Two traps found while wiring the controls. The point size had to be given a **pixel
+floor**: on a dense subject cloud the measured spacing is a few millimetres, which lands
+under one pixel at any sane viewing distance, the GPU clamps every sprite to 1 px, and the
+slider appears dead. It is now `max(1.6 x spacing, whatever covers 2.5 px at the framing
+distance)`, and the HUD prints the resulting pixel size. And every `$effect` driving a
+list built asynchronously must **read its reactive value before the loop** — the list is
+empty on the effect's first run, so a read that only happens inside the loop body is never
+tracked and the control silently does nothing. That bug killed three sliders in a row.
+
+**Photos in the frusta.** `/cameras?images=true` now returns each frame's photo URL plus
+`img_w`/`img_h` — the size the *solver* loaded, since `focal_px` is measured in those
+pixels and the frustum's half-angles are `atan(w/2f)` and `atan(h/2f)`. The viewer hangs
+the photograph on the frustum's image plane, which makes a sweep read as what it is: a
+carousel of viewpoints around a place. Sliders control frustum scale and photo opacity.
+
 The real "solid" is still a mesh: we already save per-frame depthmaps and poses in
 `dense.npz`, which is exactly TSDF-fusion input, and that would give a coloured triangle
 mesh the photos can then be projected onto. Neither open3d nor trimesh is installed yet.

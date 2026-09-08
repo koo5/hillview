@@ -16,6 +16,22 @@ test('shot', async ({ page }) => {
 	} else {
 		await expect(page.getByText(/[\d,]+ points/)).toBeVisible({ timeout: 120_000 });
 	}
+	if (process.env.PHOTOS) {
+		await page.getByRole('checkbox', { name: 'photos' }).check();
+		await expect(page.getByText(/\d+ loaded/)).toBeVisible({ timeout: 60_000 });
+		await page.getByTestId('recon-cloud').scrollIntoViewIfNeeded();
+		await page.waitForTimeout(4000);
+	}
+	if (process.env.CAMSIZE) {
+		const sl = page.locator('.hud label', { hasText: 'cameras' }).locator('input');
+		await sl.first().fill(process.env.CAMSIZE);
+		await page.waitForTimeout(1000);
+	}
+	if (process.env.PTSIZE) {
+		const ps = page.locator('.hud label', { hasText: 'points' }).locator('input');
+		await ps.first().fill(process.env.PTSIZE);
+		await page.waitForTimeout(800);
+	}
 	console.log('HUD:', (await page.locator('.hud').first().innerText()).replace(/\n/g, ' | '));
 	// ZOOM=n scrolls the orbit camera out n notches — a subject-scale cloud frames itself
 	// at a few metres, so the OSM map layer around it is only visible zoomed out

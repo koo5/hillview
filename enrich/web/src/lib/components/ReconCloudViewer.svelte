@@ -17,7 +17,8 @@
 		maxPoints = 900000,
 		showCameras = true,
 		showGround = true,
-		showMap = true
+		showMap = true,
+		showPhotos = false
 	}: {
 		runId: string;
 		dense?: boolean;
@@ -25,6 +26,7 @@
 		showCameras?: boolean;
 		showGround?: boolean;
 		showMap?: boolean;
+		showPhotos?: boolean;
 	} = $props();
 
 	let el: HTMLDivElement;
@@ -52,15 +54,58 @@
 	let mapNote = $state('');
 	let camHeight = $state(0);
 	let spacing = 0;
+	let minWorldSize = 0;
+	let pointPx = $state(0);
 	let edl = $state(true);
+	let camScale = $state(1);
+	let photoOpacity = $state(1);
 	let edlStrength = $state(1.0);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let edlPass: any = null;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let camGroups: any[] = [];
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let photoMats: any[] = [];
+	let nPhotosLoaded = $state(0);
 
-	// world-units point size: 1.6x the measured spacing closes the gaps between samples,
-	// which is what turns a point cloud into something that reads as a solid surface
+	// a filled white disc, used as the point sprite's alpha mask
+	function discSprite(THREE: typeof import('three')) {
+		const n = 64;
+		const c = document.createElement('canvas');
+		c.width = c.height = n;
+		const g = c.getContext('2d')!;
+		g.fillStyle = '#fff';
+		g.beginPath();
+		g.arc(n / 2, n / 2, n / 2 - 1, 0, Math.PI * 2);
+		g.fill();
+		const t = new THREE.CanvasTexture(c);
+		t.minFilter = THREE.LinearFilter;
+		return t;
+	}
+
+	// World-units point size. 1.6x the measured spacing is what closes the gaps between
+	// samples, but on a dense subject cloud that spacing is a few millimetres, which lands
+	// UNDER one pixel at any sane viewing distance — the GPU then clamps every sprite to
+	// 1 px and the slider appears dead. So the base size is the larger of "1.6x spacing"
+	// and "whatever covers 2.5 px at the distance the scene is framed from".
 	function pointWorldSize() {
-		return spacing > 0 ? spacing * 1.6 * pointSize : (coreScale / 900) * pointSize;
+		const bySpacing = spacing > 0 ? spacing * 1.6 : coreScale / 900;
+		return Math.max(bySpacing, minWorldSize) * pointSize;
+	}
+
+	// px on screen = worldSize * projFactor / distance, with
+	// projFactor = drawingBufferHeight / (2 tan(fov/2))
+	function projFactor() {
+		if (!renderer || !camera) return 0;
+		const h = renderer.getDrawingBufferSize(new three.Vector2()).y;
+		return h / (2 * Math.tan(((camera.fov / 2) * Math.PI) / 180));
+	}
+
+	function setPointSize() {
+		const world = pointWorldSize();
+		cloud.material.size = world;
+		const dist = camera ? camera.position.distanceTo(controls?.target ?? cloud.position) : 0;
+		pointPx = dist > 0 ? Math.round((world * projFactor()) / dist * 10) / 10 : 0;
 	}
 
 	// Median nearest-neighbour distance, via a uniform grid whose cell is chosen so the
@@ -169,45 +214,95 @@
 		}
 	}
 
+	// One Group per camera, built at UNIT scale and placed by the ENU pose, so the size
+	// slider becomes a scale on each group rather than a rebuild — and a photo texture
+	// never has to be fetched twice.
 	async function loadCameras(THREE: typeof import('three'), size: number) {
-		const r = await fetch(`${apiBase}/recon/runs/${runId}/cameras`);
+		const r = await fetch(
+			`${apiBase}/recon/runs/${runId}/cameras` + (showPhotos ? '?images=true' : '')
+		);
 		if (!r.ok) return null;
 		const d = await r.json();
 		const group = new THREE.Group();
-		const s = size * 0.02;
+		const loader = new THREE.TextureLoader();
+		loader.setCrossOrigin('anonymous');
+		let loaded = 0;
 		for (const f of d.frames) {
 			// `pose` is the RAW solve pose; `pos`/`rot` are the same camera already carried
 			// into metres east/north/up. The cloud is served in ENU, so using `pose` here
 			// drew every frustum in a different coordinate system from the points it
 			// belongs to — cameras floating beside their own scene. A frame without the
 			// ENU pair is skipped rather than drawn in the wrong frame.
-			const r = f.rot;
+			const rot = f.rot;
 			const t = f.pos;
-			if (!r || !t) continue;
+			if (!rot || !t) continue;
 			const m = new THREE.Matrix4();
 			m.set(
-				r[0][0], r[0][1], r[0][2], t[0],
-				r[1][0], r[1][1], r[1][2], t[1],
-				r[2][0], r[2][1], r[2][2], t[2],
+				rot[0][0], rot[0][1], rot[0][2], t[0],
+				rot[1][0], rot[1][1], rot[1][2], t[1],
+				rot[2][0], rot[2][1], rot[2][2], t[2],
 				0, 0, 0, 1
 			);
-			// a small pyramid along +z (camera looks down +z in this convention)
+			const cam = new THREE.Group();
+			cam.applyMatrix4(m);
+
+			// The frustum's true shape: the half-angles are atan(w/2f) and atan(h/2f) in
+			// the pixels the SOLVER loaded, so its image plane at unit depth is exactly
+			// (img_w/f) x (img_h/f). Falls back to a square when the size is unknown.
+			const fp = f.focal_px || 400;
+			const hw = f.img_w ? f.img_w / (2 * fp) : 0.7;
+			const hh = f.img_h ? f.img_h / (2 * fp) : 0.7;
 			const g = new THREE.BufferGeometry();
-			const w = s * 0.7;
 			const v = new Float32Array([
-				0, 0, 0, -w, -w, s, 0, 0, 0, w, -w, s, 0, 0, 0, w, w, s, 0, 0, 0, -w, w, s,
-				-w, -w, s, w, -w, s, w, -w, s, w, w, s, w, w, s, -w, w, s, -w, w, s, -w, -w, s
+				0, 0, 0, -hw, -hh, 1, 0, 0, 0, hw, -hh, 1,
+				0, 0, 0, hw, hh, 1, 0, 0, 0, -hw, hh, 1,
+				-hw, -hh, 1, hw, -hh, 1, hw, -hh, 1, hw, hh, 1,
+				hw, hh, 1, -hw, hh, 1, -hw, hh, 1, -hw, -hh, 1
 			]);
 			g.setAttribute('position', new THREE.BufferAttribute(v, 3));
-			const line = new THREE.LineSegments(
-				g,
-				new THREE.LineBasicMaterial({ color: f.injected ? 0xe0a23a : 0x3987e5 })
+			cam.add(
+				new THREE.LineSegments(
+					g,
+					new THREE.LineBasicMaterial({ color: f.injected ? 0xe0a23a : 0x3987e5 })
+				)
 			);
-			line.applyMatrix4(m);
-			group.add(line);
+
+			if (showPhotos && f.image_url) {
+				const mat = new THREE.MeshBasicMaterial({
+					color: 0xffffff,
+					side: THREE.DoubleSide,
+					transparent: true,
+					opacity: photoOpacity
+				});
+				const mesh = new THREE.Mesh(new THREE.PlaneGeometry(hw * 2, hh * 2), mat);
+				// camera space here is x right, y DOWN, z forward, so the plane's own +y
+				// carries the image's BOTTOM: flipY off puts the texture the right way up
+				mesh.position.set(0, 0, 1);
+				cam.add(mesh);
+				photoMats.push(mat);
+				loader.load(
+					f.image_url,
+					(tex) => {
+						tex.flipY = false;
+						tex.colorSpace = THREE.SRGBColorSpace;
+						mat.map = tex;
+						mat.needsUpdate = true;
+						nPhotosLoaded = ++loaded;
+					},
+					undefined,
+					() => {}
+				);
+			}
+			// a bare frustum is a marker, so it stays small; a frustum carrying its
+			// photograph is meant to be looked at, so it starts three times bigger
+			cam.userData.unit = size * (showPhotos ? 0.06 : 0.02);
+			cam.scale.setScalar(cam.userData.unit * camScale);
+			camGroups.push(cam);
+			group.add(cam);
 		}
 		return group;
 	}
+
 
 	// The map layer: OSM footprints extruded to their tagged height, in the same ENU
 	// metres as the cloud. MASt3R gives its confidence to the near field and almost none
@@ -450,7 +545,13 @@
 				new THREE.PointsMaterial({
 					size: pointWorldSize(),
 					vertexColors: true,
-					sizeAttenuation: true
+					sizeAttenuation: true,
+					// round sprites, cut with alphaTest rather than blending, so they still
+					// write depth and occlude each other: square points read as a mosaic of
+					// tiles, round ones read as a surface
+					map: discSprite(THREE),
+					alphaTest: 0.5,
+					transparent: false
 				})
 			);
 			scene.add(cloud);
@@ -520,6 +621,9 @@
 			// bounding sphere to the vertical FOV, backed off slightly, viewed obliquely so
 			// the structure reads as 3-D on first paint.
 			const dist = (coreRadius / Math.sin((fov / 2) * (Math.PI / 180))) * 1.15;
+			// 2.5 px at the framing distance, so the slider has room in both directions
+			const dbh = (el.clientHeight || 480) * Math.min(devicePixelRatio, 2);
+			minWorldSize = (2.5 * dist * 2 * Math.tan((fov / 2) * (Math.PI / 180))) / dbh;
 			camera.up.set(0, 0, 1);
 			// looking north-east and downwards ~35 degrees: an aerial-oblique reads as a
 			// place, where a level view reads as a smear
@@ -554,6 +658,7 @@
 				}
 			};
 			tick();
+			setPointSize();
 			status = '';
 
 			ro = new ResizeObserver(() => {
@@ -576,7 +681,23 @@
 	});
 
 	$effect(() => {
-		if (cloud && three) cloud.material.size = pointWorldSize();
+		// same trap as below: `cloud` is null on the first run, so pointSize must be read
+		// unconditionally or the effect never subscribes to it
+		void pointSize;
+		if (cloud && three) setPointSize();
+	});
+
+	// NB: read the reactive value BEFORE the loop. Both of these lists are empty on the
+	// effect's first run (the cameras load asynchronously), so a read that only happens
+	// inside the loop body is never tracked and the slider silently does nothing.
+	$effect(() => {
+		const k = camScale;
+		for (const c of camGroups) c.scale.setScalar((c.userData.unit || 1) * k);
+	});
+
+	$effect(() => {
+		const o = photoOpacity;
+		for (const m of photoMats) m.opacity = o;
 	});
 
 	onDestroy(() => {
@@ -586,6 +707,12 @@
 		controls?.dispose?.();
 		cloud?.geometry?.dispose?.();
 		cloud?.material?.dispose?.();
+		for (const m of photoMats) {
+			m.map?.dispose?.();
+			m.dispose?.();
+		}
+		photoMats = [];
+		camGroups = [];
 		edlPass?.target?.dispose?.();
 		edlPass?.material?.dispose?.();
 		renderer?.dispose?.();
@@ -601,10 +728,22 @@
 		{:else}
 			<span class="muted">{nPoints.toLocaleString()} points{dense ? ' (dense)' : ''}</span>
 			<span class="muted">~{extentM} m across · grid 5 m · ↑ north · Z up</span>
-			<label>
-				size
-				<input type="range" min="0.2" max="4" step="0.1" bind:value={pointSize} />
+			<label title="point diameter; the number is what it works out to on screen right now">
+				points
+				<input type="range" min="0.3" max="6" step="0.1" bind:value={pointSize} />
+				{#if pointPx}<span class="muted small">{pointPx} px</span>{/if}
 			</label>
+			<label title="frustum length; with photos on, this is how big the photographs hang">
+				cameras
+				<input type="range" min="0.2" max="8" step="0.1" bind:value={camScale} />
+			</label>
+			{#if showPhotos}
+				<label title="photo opacity">
+					photo
+					<input type="range" min="0.1" max="1" step="0.05" bind:value={photoOpacity} />
+					<span class="muted small">{nPhotosLoaded} loaded</span>
+				</label>
+			{/if}
 			<label title="eye-dome lighting: shades the cloud by depth discontinuity, so it reads as a surface instead of a spray">
 				<input type="checkbox" bind:checked={edl} /> solid
 			</label>

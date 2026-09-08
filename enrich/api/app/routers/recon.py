@@ -293,8 +293,30 @@ async def cloud_packed(run_id: str, request: Request, max_points: int = 1_500_00
                                  "X-Frame-Of-Reference": "enu-metres" if align else "solve"})
 
 
+async def _frame_images(ids: list[str], size: str) -> dict[str, dict]:
+    """Photo URL + loaded pixel size for each frame, from the mirror.
+
+    The frustum's shape is fixed by `focal_px`, which is measured in the pixels the
+    SOLVER saw — the image resized so its long side is `args.size`. So to hang the actual
+    photograph in the frustum we need those same numbers, not the original dimensions.
+    """
+    if not ids:
+        return {}
+    async with wb_engine.begin() as conn:
+        rows = (await conn.execute(text(
+            "SELECT id, width, height, sizes FROM photo_mirror WHERE id = ANY(:ids)"),
+            {"ids": ids})).mappings().all()
+    out = {}
+    for r in rows:
+        sizes = r["sizes"] or {}
+        url = ((sizes.get(size) or sizes.get("640") or sizes.get("320") or {}) or {}).get("url")
+        out[r["id"]] = {"image_url": url, "width": r["width"], "height": r["height"]}
+    return out
+
+
 @router.get("/recon/runs/{run_id}/cameras")
-async def cameras(run_id: str, enu: bool = True):
+async def cameras(run_id: str, enu: bool = True, images: bool = False,
+                  image_size: str = "320"):
     """Camera poses + focals for drawing frusta, straight from metadata.json.
 
     scene.npz is not uploaded, but metadata.json carries pose_cam2world and focal_px per
@@ -306,8 +328,17 @@ async def cameras(run_id: str, enu: bool = True):
     with open(path) as f:
         md = json.load(f)
     align = _alignment(path) if enu else None
+    frames = md.get("frames") or []
+    imgs = {}
+    long_side = None
+    if images:
+        imgs = await _frame_images([f["id"] for f in frames if f.get("id")], image_size)
+        try:
+            long_side = float((md.get("args") or {}).get("size") or 512)
+        except (TypeError, ValueError):
+            long_side = 512.0
     out = []
-    for fr in (md.get("frames") or []):
+    for fr in frames:
         p = fr.get("pose_cam2world")
         if not p:
             continue
@@ -320,13 +351,22 @@ async def cameras(run_id: str, enu: bool = True):
             # stay orthonormal or it renders as a sheared box
             rot = [[sum(R_[r][k] * rot[k][c] for k in range(3)) for c in range(3)]
                    for r in range(3)]
-        out.append({"idx": fr["idx"], "id": fr.get("id"),
-                    "pos": pos, "rot": rot,
-                    "pose": p,
-                    "focal_px": fr.get("focal_px"),
-                    "session": fr.get("session"),
-                    "captured_at": fr.get("captured_at"),
-                    "injected": bool(fr.get("injected"))})
+        rec = {"idx": fr["idx"], "id": fr.get("id"),
+               "pos": pos, "rot": rot,
+               "pose": p,
+               "focal_px": fr.get("focal_px"),
+               "session": fr.get("session"),
+               "captured_at": fr.get("captured_at"),
+               "injected": bool(fr.get("injected"))}
+        if images:
+            info = imgs.get(fr.get("id")) or {}
+            rec["image_url"] = info.get("image_url")
+            w, h = info.get("width"), info.get("height")
+            if w and h and long_side:
+                k = long_side / max(w, h)
+                # what the solver actually loaded, and therefore the frame focal_px lives in
+                rec["img_w"], rec["img_h"] = round(w * k), round(h * k)
+        out.append(rec)
     return {"frames": out, "frame_of_reference": "enu-metres" if align else "solve",
             "center": md.get("center")}
 
