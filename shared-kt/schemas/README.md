@@ -5,9 +5,9 @@ version, written by the annotation processor when `exportSchema = true`
 (`shared-kt/src/cz/hillview/plugin/PhotoDatabase.kt`).
 
 Nothing reads these at runtime. They exist so that a change to an entity shows
-up as a reviewable diff, and so a future migration can be tested mechanically
-with Room's `MigrationTestHelper` instead of by comparing `CREATE TABLE`s by
-eye.
+up as a reviewable diff, and so that migrations can be tested mechanically with
+Room's `MigrationTestHelper` instead of by comparing `CREATE TABLE`s by eye —
+which `frontend2`'s `PhotoDatabaseMigrationTest` now does, on a device.
 
 ## Why two directories
 
@@ -28,18 +28,22 @@ them.
 
 ## The rule when you change an entity
 
-**Commit the regenerated JSON with the entity change.** Nothing enforces it:
-the export is wired through a processor argument, which Gradle treats as an
-opaque string, so the directory is not a declared task output. It takes no part
-in up-to-date checking or the build cache, deleting a file goes unnoticed, and
-a build that finds the processor up-to-date leaves whatever is on disk. If an
-entity change seems to produce no schema diff, force the processor to run
-(touch the entity, or clean) before believing it.
+**Commit the regenerated JSON with the entity change.**
 
-The proper fix, when it is worth the risk, is the `androidx.room` Gradle plugin
-(`room { schemaDirectory(...) }`), which registers the directory as a real
-output. It is not adopted yet — it needs a version-catalog entry and, the real
-unknown, compatibility with AGP 9.3.1 plus the KMP `androidLibrary` plugin.
+`frontend2/` is now written by the `androidx.room` Gradle plugin
+(`room { schemaDirectory(...) }`), so its directory is a real declared task
+output that takes part in up-to-date checking, and the same plugin stages these
+files into the device test's assets — which is how `MigrationTestHelper` finds
+them. The open question that had kept the plugin unadopted, whether it
+understands AGP 9.3.1 plus the KMP `androidLibrary` plugin, is answered: it
+knows the `com.android.kotlin.multiplatform.library` id by name.
+
+`tauri/` is still the bare kapt argument, and there the old warning stands.
+Gradle treats a processor argument as an opaque string, so that directory is
+not a declared output: it takes no part in up-to-date checking or the build
+cache, deleting a file goes unnoticed, and a build that finds kapt up-to-date
+leaves whatever is on disk. If a Tauri-side schema diff fails to appear, force
+kapt to run (touch the entity, or clean) before believing it.
 
 ## History
 

@@ -5,7 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 /**
- * The castling rule (altLocationFor) and the wire shape (altLocationJson).
+ * The swap rule (altLocationFor) and the wire shape (altLocationJson).
  * The JSON is asserted byte-for-byte because the backend's provenance test
  * reads these exact keys out of the UserComment.
  */

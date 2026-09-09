@@ -113,13 +113,17 @@ class UploadCoalescingBehaviourTest {
         }
 
         val enqueues = count(log, "enqueue photo_upload")
+        // One per SAVE, whatever the scheduler then decides — see the vacuity
+        // guard below for why the enqueue count cannot play this role.
+        val reconciles = count(log, "reconcile [capture]")
         val runs = count(log, "Starting upload work")
         val promotions = count(log, "promoted to foreground")
         val backgroundedRuns = count(log, "promote decision: backgrounded=true")
         val fgsCrashes = count(log, "ForegroundServiceDidNotStartInTimeException")
         Log.i(
             "UploadCoalescing",
-            "captured=$burst burstMs=$burstMs enqueues=$enqueues runs=$runs " +
+            "captured=$burst burstMs=$burstMs reconciles=$reconciles " +
+                "enqueues=$enqueues runs=$runs " +
                 "promotions=$promotions backgroundedRuns=$backgroundedRuns",
         )
 
@@ -131,8 +135,20 @@ class UploadCoalescingBehaviourTest {
         assertEquals("promoted while foreground", 0, promotions)
         assertEquals(0, backgroundedRuns)
 
-        // The per-save triggers all fired (the test isn't vacuous)...
-        assertTrue("per-save triggers missing: enqueues=$enqueues", enqueues >= burst)
+        // The per-save triggers all fired (the test isn't vacuous). Counted as
+        // RECONCILES, not enqueues: reconcile runs once per save and logs its
+        // decision either way, while an enqueue happens only when that decision
+        // is Ensure — `Leave(why=N waiting, already scheduled)` is the
+        // coalescing working, and it logs no enqueue.
+        //
+        // This guard used to read `enqueues >= burst`, which asserted the
+        // NEGATION of the feature: it can only hold when every capture finds
+        // nothing scheduled, i.e. when the burst is too slow to coalesce —
+        // exactly the case the collapse assertion below calls unobservable. The
+        // two bounds could therefore only both pass in a narrow band of burst
+        // speeds, and a loaded emulator failed here against a system behaving
+        // perfectly. Seen at captured=5 reconciles=5 enqueues=4.
+        assertTrue("per-save triggers missing: reconciles=$reconciles", reconciles >= burst)
         // ...and coalescing collapsed them: at most one immediate + one batch
         // run per 15 s window the burst spanned. A regression to per-photo
         // workers shows up as ~$burst runs and fails both bounds.
@@ -144,7 +160,10 @@ class UploadCoalescingBehaviourTest {
         // — seen live at burstMs=72705 — and then runs == enqueues is the
         // CORRECT behaviour, not a regression.
         if (windows < burst) {
-            assertTrue("no coalescing: runs=$runs enqueues=$enqueues", runs < enqueues)
+            // Fewer worker runs than captures is the collapse itself. Against
+            // `enqueues` it compared the wrong pair: every enqueue does become a
+            // run, so runs == enqueues is normal and proves nothing.
+            assertTrue("no coalescing: runs=$runs for $burst captures", runs < burst)
         } else {
             Log.i("hv-UploadCoalescing", "burst too slow to observe coalescing (windows=$windows) — collapse assertion skipped")
         }

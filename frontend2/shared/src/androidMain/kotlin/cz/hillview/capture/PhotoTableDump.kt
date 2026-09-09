@@ -279,7 +279,7 @@ internal fun photoTableCsv(rows: List<PhotoEntity>): String {
             row.path,
             row.latitude.toString(),
             row.longitude.toString(),
-            row.altitude.toString(),
+            row.altitude?.toString(),
             row.bearing.toString(),
             row.pitch?.toString(),
             row.capturedAt.toString(),

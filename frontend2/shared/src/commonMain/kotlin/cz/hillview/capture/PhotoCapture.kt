@@ -602,7 +602,7 @@ fun altLocationJson(a: AltLocation): String {
 }
 
 /**
- * Which stream rides along as the alternative — the castling rule.
+ * Which stream rides along as the alternative — the swap rule.
  *
  * Two streams exist: the receiver's fix and the map's centre. One is
  * primary (what the photo records), and the OTHER is worth keeping when

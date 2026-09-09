@@ -78,6 +78,24 @@ class PhotoTableCsvTest {
     }
 
     /**
+     * The altitude a photo never had and the altitude that happens to BE zero
+     * are different facts, and the column has to keep them apart: an ellipsoid
+     * height is legitimately 0 or below (see PhotoEntity.altitude, where the
+     * old non-null 0.0 sentinel threw both away).
+     */
+    @Test
+    fun anUnknownAltitudeIsEmptyAndAMeasuredZeroIsNot() {
+        val altitudeOf = { entity: PhotoEntity ->
+            lines(photoTableCsv(listOf(entity)))[1]
+                .split(",")[PHOTO_DUMP_COLUMNS.indexOf("altitude")]
+        }
+        assertEquals("231.5", altitudeOf(photo()))
+        assertEquals("", altitudeOf(photo().copy(altitude = null)))
+        assertEquals("0.0", altitudeOf(photo().copy(altitude = 0.0)))
+        assertEquals("-61.4", altitudeOf(photo().copy(altitude = -61.4)))
+    }
+
+    /**
      * The JSON columns are the reason quoting matters: they are full of
      * commas and quotes, and an unquoted one would shift every later column
      * on that row.

@@ -22,7 +22,21 @@ data class PhotoEntity(
     val path: String,
     val latitude: Double,
     val longitude: Double,
-    val altitude: Double = 0.0,
+    /**
+     * Metres above the WGS84 ellipsoid — what Android's Location reports (v21).
+     *
+     * Nullable on purpose, like [pitch] and unlike [bearing], which keeps 0.0
+     * as its unset value. It used to be a non-null Double defaulting to 0.0,
+     * with "> 0" as the absent test everywhere it was read, and that test is
+     * wrong twice over: it collapses a genuine sea-level fix into "unknown",
+     * and it throws away every NEGATIVE altitude — which an ellipsoid height
+     * legitimately is across whole regions where the geoid sits below the
+     * ellipsoid (southern India reaches about -100 m), so a photo taken well
+     * above sea level there reported a negative height and lost it. Nothing
+     * caught it because in the fast-write path there is no file EXIF for the
+     * worker to fall back to: the altitude was simply gone.
+     */
+    val altitude: Double? = null,
     val bearing: Double = 0.0,
     val capturedAt: Long,
     val accuracy: Double,

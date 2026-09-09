@@ -197,7 +197,9 @@ object PhotoUtils {
     fun createPhotoEntityFromFile(file: File, fileHash: String, idPrefix: String = "device"): PhotoEntity {
         var latitude = 0.0
         var longitude = 0.0
-        var altitude = 0.0
+        // Null, not 0.0: a file with no GPSAltitude must reach the table as
+        // "unknown", or the upload would start claiming sea level for it.
+        var altitude: Double? = null
         var bearing = 0.0
         var width = 0
         var height = 0
@@ -349,7 +351,8 @@ object PhotoUtils {
         return Pair(0.0, 0.0)
     }
     
-    private fun extractAltitude(exif: ExifInterface): Double {
+    /** Null when the file carries no readable altitude — see PhotoEntity.altitude. */
+    private fun extractAltitude(exif: ExifInterface): Double? {
         // Method 1: Built-in getAltitude (most reliable)
         val builtIn = exif.getAltitude(Double.NaN)
         if (!builtIn.isNaN()) {
@@ -358,7 +361,7 @@ object PhotoUtils {
         }
 
         // Method 2: Manual parsing
-        val altitudeStr = exif.getAttribute(ExifInterface.TAG_GPS_ALTITUDE) ?: return 0.0
+        val altitudeStr = exif.getAttribute(ExifInterface.TAG_GPS_ALTITUDE) ?: return null
         val altitudeRefStr = exif.getAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF)
 
         return try {
@@ -371,10 +374,10 @@ object PhotoUtils {
             altitude
         } catch (e: NumberFormatException) {
             Log.w(TAG, "Failed to parse altitude: invalid number format in $altitudeStr")
-            0.0
+            null
         } catch (e: IllegalArgumentException) {
             Log.w(TAG, "Failed to parse altitude: invalid rational format")
-            0.0
+            null
         }
     }
     

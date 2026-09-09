@@ -217,7 +217,7 @@ interface SimplePhotoDao {
         photoId: String,
         latitude: Double,
         longitude: Double,
-        altitude: Double,
+        altitude: Double?,
         bearing: Double,
         refinedAt: Long,
     ): Int

@@ -505,6 +505,145 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-09-09 — the altitude that was never sent
+
+- **`photos.altitude` is nullable (table v21).** It was a non-null `Double`
+  defaulting to `0.0`, and both readers that send it to the server — the
+  authorize request and the upload `metadata` blob — guarded it as
+  `if (photo.altitude > 0)`. That test is wrong twice.
+  - **A measured zero read as "unknown".** The sentinel and a real sea-level
+    fix were the same value, the same collapse `pitch` was made nullable to
+    avoid in v19.
+  - **Every negative altitude was dropped, silently.** Android's
+    `Location.altitude` is height above the WGS84 ELLIPSOID, not sea level,
+    and that is legitimately negative across whole regions where the geoid
+    sits below the ellipsoid — southern India reaches about -100 m, so a photo
+    taken 40 m above the sea there reports about -60 m and lost it. The
+    guard's comment says an omitted key falls back to the file's EXIF
+    worker-side, which is exactly what the fast-write default does not have:
+    no EXIF, no fallback, altitude gone.
+  - **What the fix touches.** `PhotoEntity.altitude: Double?`, both send-site
+    guards, `applyRefinedStamp` (the refiner already interpolated a nullable
+    altitude and pinched it through a non-null parameter), `PhotoUtils`
+    EXIF import (a file with no `GPSAltitude` now reaches the table as null
+    rather than claiming sea level), and the CSV column.
+  - **MIGRATION_20_21 is the first photos migration that is not an ADD
+    COLUMN**: SQLite cannot drop a NOT NULL in place, so the table is rebuilt
+    the way `MIGRATION_9_10` rebuilt bearings. `NULLIF(altitude, 0.0)` is what
+    makes it a no-op for existing rows — a stored 0.0 was the absent sentinel
+    and has never been sent, so carrying it across as a real 0.0 would start
+    claiming sea level for every row that never had a fix.
+  - **Verified on the emulator, not on a phone.** Both apps compile, both host
+    suites are green (606), and `:shared:connectedAndroidDeviceTest` passes
+    whole (282) on `Medium_Phone_API_36` — the migration test below, the EXIF
+    writer and the upload claim race included.
+  - **The behaviour suite's failures are NOT this change.** All of them fail
+    identically with this work stashed, which is the only way to tell a
+    regression from a flake and is worth the two minutes every time.
+    (`DevicePhotosBehaviourTest.aCaptureShowsUpAsACard…` failed once and passed
+    on retry — a real flake.) The other two are written up below; the suite now
+    finishes 18 of 19.
+
+## 2026-09-09 — neither "load-dependent" test was load-dependent
+
+Chasing the two standing `:androidApp:connectedDebugAndroidTest` failures on a
+2-core/200%-quota emulator. The tempting fix was a rule — skip under host load,
+or downgrade failures to warnings. Both would have been wrong, and the reason is
+worth keeping: **a load gate would have made a genuinely broken assertion
+invisible on exactly the machines that expose it.**
+
+- **`UploadCoalescingBehaviourTest` asserted the NEGATION of its own feature —
+  FIXED.** Its vacuity guard read `enqueues >= burst`, counting
+  `enqueue photo_upload` log lines and wanting one per capture. But
+  `decideUploadSchedule` returns `Leave(why=N waiting, already scheduled)` when
+  a capture arrives and work is already queued — that IS the coalescing, and it
+  logs no enqueue. So the guard could only pass when every capture found nothing
+  scheduled, i.e. when the burst was too slow to coalesce, which is precisely
+  the case the collapse assertion twelve lines below calls unobservable and
+  skips. The two bounds could both hold only in a narrow band of burst speeds.
+  - The guard now counts `reconcile [capture]`, which is logged once per save
+    whatever the decision. Measured across two runs: `reconciles` pinned at 5
+    while `burstMs` moved 21480 → 33586 and `enqueues` swung 2 → 4. The stable
+    number is the one a vacuity guard wants.
+  - The collapse assertion also compared the wrong pair (`runs < enqueues`);
+    every enqueue becomes a run, so those are equal in healthy operation. Now
+    `runs < burst`, which is the property in plain words.
+  - A false lead worth recording: the first hypothesis was logcat ring-buffer
+    eviction, since the test clears the buffer but then reads it up to two
+    minutes later at 256 KiB. Growing it to 16 MiB changed nothing. What
+    settled it was the test's own counter line, not the pass/fail — **record the
+    conditions on every run, and never gate on them.**
+
+- **`theNoFixHatchFollowsTheMapAsWell` is failing on what looks like an APP
+  bug: `hasFix` never ages. OPEN, and worth more than the test.**
+  - The pane offers the hatch on `state.ready && !manualClaimed &&
+    !mapPositionWithoutFix && !state.hasFix`. Instrumented at the moment of
+    failure, the first three are all satisfied — `claimed=false hatchFlag=false
+    status='ready' shutterEnabled=true` — and NEITHER action renders, so
+    `hasFix` is stuck true.
+  - `hasFix` is written in exactly ONE place: `onLocation`, when a location
+    ARRIVES (PhotoCapture.android.kt:437). Nothing ages it on a timer,
+    `engine.location` is a StateFlow so it re-emits only on change, and
+    GeoEngine's silence watchdog re-REQUESTS location without touching
+    `_location`. So once a fix has landed and the provider goes quiet, the gate
+    stays open indefinitely.
+  - **That is precisely the case the hatch exists for.** "Shooting underground"
+    means the fixes stop arriving. On this reading a phone that loses signal
+    never sees "No GPS fix — capture at the map position instead"; it keeps a
+    live-looking gate around a fix that may be hours old. `staleFixWarning` is
+    a pure function of `nowMs` and so does age correctly, which is probably why
+    this has gone unnoticed: the WARNING appears while the HATCH does not.
+  - Three fixes were tried and all failed, which is the evidence for the above:
+    resetting the session election in `@Before` (the flags were already clean),
+    growing the wait, and injecting a deliberately stale fix so `onLocation`
+    would recompute (fused in mock mode does not deliver a location older than
+    the one it last delivered, so it never arrived). All reverted; the test is
+    untouched and still failing.
+  - **Resolved at the level of the RULE, not yet the code** — see the position
+    section and the new "Derived, not stored" section of `docs/one-state.md`
+    (2026-09-09). The decision went further than aging `hasFix`: the shutter
+    gates on camera readiness only; freshness and accuracy inform and never
+    refuse; the state holds two records, `lastFix` (session) and `lastPan`
+    (persisted), plus the claim, and the stamp is a four-row table over them
+    with two words, `gps` and `map` — the original's contract; a blank first
+    run writes `null` and means it. The hatch and its flag go; the claim is
+    the only button. The readers still embodying the old shape are listed
+    under **Status** there.
+    This test starts passing when the offer is derived from freshness rather
+    than from the stored boolean.
+
+
+- **`MigrationTestHelper` is wired up** (`PhotoDatabaseMigrationTest`, in
+  `androidDeviceTest`). The migrations now run against the REAL exported
+  schemas on real SQLite, and `runMigrationsAndValidate` compares the result
+  with what Room generated from the entities — a migration that drifts from
+  `PhotoEntity` fails there instead of on a phone at the next open. Three
+  cases: the 0.0 sentinel becomes null while a negative measurement survives,
+  the photos rebuild does not cascade `edits` away, and the whole v14→v21
+  chain validates.
+  - **What it took.** The `androidx.room` Gradle plugin replaces the bare
+    `ksp { arg("room.schemaLocation", …) }`, because the helper reads the
+    schema JSONs from the test APK's ASSETS and only the plugin stages them
+    there. Plus `room-testing` on `androidDeviceTest`, and the migration list
+    lifted out of `addMigrations(…)` into `PhotoDatabase.MIGRATIONS` so the
+    builder and the test cannot disagree about which migrations exist.
+  - **The unknown that had blocked it is answered.** The plugin does
+    understand AGP 9.3.1 plus the KMP `androidLibrary` plugin: it knows the
+    `com.android.kotlin.multiplatform.library` id by name and registers
+    `copyRoomSchemasToAndroidTestAssetsAndroidDeviceTest` for it. Verified by
+    unzipping the test APK — all eight `PhotoDatabase` schemas are in there.
+  - **Bonus:** the schema directory is now a declared task output, closing the
+    KNOWN HOLE the build file warned about (a deleted JSON went unnoticed).
+    Only `frontend2` gets this; the Tauri plugin still uses the kapt argument.
+  - **It fails when it should.** A passing new test proves nothing until it has
+    been made to fail, so both halves were mutation-checked on the emulator.
+    Dropping `NULLIF` from the copy fails the altitude case with "the 0.0
+    sentinel must not become a real sea-level claim expected null, but
+    was:<0.0>". Leaving `idx_photos_path` out of the rebuild fails all three
+    with Room's own "Migration didn't properly handle: photos" — which is the
+    schema-drift alarm that is the whole reason to have this test, and it was
+    the failure mode I could most easily have shipped by eye.
+
 ## 2026-09-08 — the photo index
 
 - **The photos table is written out beside the photos** (user-raised: "in all
@@ -778,7 +917,7 @@ the chain stopped. See `GeoDebugText.kt`.
 ## Closed on 2026-08-28
 
 - **Position's second stream (`alt_location`).** The one-state rule's open
-  half is closed: two streams, castled on confirmation, the other riding
+  half is closed: two streams, swapped on confirmation, the other riding
   along — see the table in [one-state.md](one-state.md). Room v20 (both
   apps' schemas exported, hashes match); the backend already synthesizes
   the field into the UserComment provenance. Device-verified in all three

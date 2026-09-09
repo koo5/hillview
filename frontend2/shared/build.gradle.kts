@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.kotlinxSerialization)
     // Room annotation processing for the shared-kt PhotoDatabase (android target).
     alias(libs.plugins.ksp)
+    alias(libs.plugins.androidxRoom)
 }
 
 kotlin {
@@ -126,6 +127,7 @@ kotlin {
         getByName("androidDeviceTest").dependencies {
             implementation(libs.androidx.test.runner)
             implementation(libs.androidx.test.junit)
+            implementation(libs.androidx.room.testing)
         }
         jvmTest.dependencies {
             implementation(libs.compose.uiTest)
@@ -146,23 +148,20 @@ kotlin {
 // (the value Room checks at runtime); 2.6.1 just also writes the defaults that
 // 2.8.4 omits.
 //
-// KNOWN HOLE: a processor argument is an opaque string to Gradle, so the schema
-// directory is NOT a declared task output. It takes no part in up-to-date
-// checks or the build cache: delete the JSON and nothing notices it is gone,
-// and a build that finds KSP up-to-date leaves whatever is on disk. Treat the
-// files as "written when KSP last ran", not as a build guarantee — if an entity
-// change ever appears to produce no schema diff, force KSP (touch the entity,
-// or clean) before believing it.
+// This is the `androidx.room` Gradle plugin, not the bare KSP argument the
+// Tauri plugin still uses, and it buys two things the argument cannot. The
+// directory becomes a real declared task output, so it takes part in
+// up-to-date checks instead of being an opaque string Gradle cannot see past
+// (delete a JSON under the old wiring and nothing noticed it was gone). And it
+// stages the schemas into the DEVICE TEST's assets, which is the only way
+// MigrationTestHelper can find them — see PhotoDatabaseMigrationTest.
 //
-// The fix, when it is worth it: the `androidx.room` Gradle plugin
-// (`room { schemaDirectory(...) }`), which registers the directory properly.
-// Not adopted yet — it needs a version-catalog entry and, the real unknown,
-// compatibility with AGP 9.3.1 + the KMP androidLibrary plugin, both new.
-ksp {
-    arg(
-        "room.schemaLocation",
-        rootDir.resolve("../shared-kt/schemas/frontend2").absolutePath,
-    )
+// It does work with AGP 9.3.1 + the KMP androidLibrary plugin, which was the
+// open question that kept it unadopted: the plugin's AndroidPluginIntegration
+// knows the `com.android.kotlin.multiplatform.library` id by name, and
+// registers copyRoomSchemasToAndroidTestAssetsAndroidDeviceTest for it.
+room {
+    schemaDirectory(rootDir.resolve("../shared-kt/schemas/frontend2").absolutePath)
 }
 
 dependencies {
