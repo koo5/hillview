@@ -166,6 +166,20 @@ def self_test():
     return worst < 1.0
 
 
+def verdict(r):
+    """The composite verdict: a link has to be self-consistent AND agree with where GPS
+    and the compass say the two cameras were. Either alone is cheap to fool."""
+    if r["inlier_frac"] <= 0.5 or r["cheirality_frac"] <= 0.8:
+        return "no-geometry"
+    d = r["baseline_dir_err_deg"]
+    y = r["rel_yaw_err_deg"]
+    if d is not None and d > 90:
+        return "contradicts-gps"
+    if y is not None and y > 60:
+        return "contradicts-compass"
+    return "verified"
+
+
 def chain_report(rows, frames, json_path=None):
     """Where does a walk stop being one walk?
 
@@ -317,6 +331,8 @@ def main():
         print("no pairs with enough correspondences")
         return
 
+    for r in rows:
+        r["verdict"] = verdict(r)
     if a.chain:
         chain_report(rows, frames, a.json)
         return
@@ -339,21 +355,7 @@ def main():
             print(f"      {r['i']:3d}-{r['j']:3d}  n={r['n']:5d} inliers {r['inlier_frac']:.2f} "
                   f" gps {r['gps_dist_m']:5.1f} m  baseline dir err {r['baseline_dir_err_deg']}"
                   f"  rel-yaw err {r['rel_yaw_err_deg']}  {r['date_i']} <-> {r['date_j']}")
-    # The composite verdict: a link has to be self-consistent AND agree with where GPS
-    # and the compass say the two cameras were. Either alone is cheap to fool.
-    def verdict(r):
-        if r["inlier_frac"] <= 0.5 or r["cheirality_frac"] <= 0.8:
-            return "no-geometry"
-        d = r["baseline_dir_err_deg"]
-        y = r["rel_yaw_err_deg"]
-        if d is not None and d > 90:
-            return "contradicts-gps"
-        if y is not None and y > 60:
-            return "contradicts-compass"
-        return "verified"
     from collections import Counter
-    for r in rows:
-        r["verdict"] = verdict(r)
     print("\n  verdicts:", dict(Counter(r["verdict"] for r in rows)))
     if xs.any():
         print("  cross-session verdicts:",

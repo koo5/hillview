@@ -851,6 +851,59 @@ to diagnose that optimisation — it was the joint solve's own reprojection numb
 the links look worthless. And a geometric check with a sign ambiguity needs a synthetic
 control, because on real data a mirrored answer is indistinguishable from a wrong match.
 
+### A walk is several spans, and the GPS is on trial too (2026-09-09)
+
+The user, on `newest-2026-09-08`: "i expect it to fall apart into a few spans again, which
+we'll have to tie together with gps." It does, and the numbers say how.
+
+Two independent signals find the breaks. The **two-view chain** (`recon_verify_links.py
+--chain`) reports where consecutive frames stop agreeing on an epipolar geometry: after
+frame 29 (31 matches, under the bridge, contradicting the compass) and after 33. The
+**solve's own step** — the distance between consecutive solved cameras — jumps to 31 m at
+16→17 and 24 m at 33→34 against a 1.5 m walking pace. They disagree about the staircase
+at 16: matches survive it (the steps overlap visually), but the solver's scale did not
+transfer across it. Both signals are right about different things, so break detection is
+their union.
+
+`recon_spans.py` then fits each span on its own: gravity pinned from the whole run's
+cameras, yaw + scale + translation fitted to the horizontal GPS, **iteratively
+reweighted** so a frame whose GPS sits far from where the span's own shape puts it loses
+its vote and is named. The span's shape comes from the solve and is trusted; the GPS is
+the thing on trial.
+
+| | scale (m per solve unit) | GPS residual, trusted frames |
+| --- | --- | --- |
+| one fit over the whole walk | 1 | **7.5 m** median, 15 m p90 |
+| span 0, frames 0-16 | 0.805 | 0.6 m |
+| span 1, frames 17-29 | 0.917 | 1.3 m |
+| span 2, frames 30-33 (under the bridge) | 1.512 | 0.6 m, but four frames fit four parameters |
+| span 3, frames 34-49 | 1.108 | 0.7 m |
+
+Four spans, four scales, and the solver's scale nearly doubled in the dark under the
+bridge. Fitted per span, the walk sits on its GPS to under a metre where one fit left it
+seven off. The frames the fit refuses to trust are 17, 18 and 27 in the middle span and 34
+at the far end — the first frame back in the open.
+
+One thing the data does *not* show: the user remembers the GPS "wandering off across the
+street for quite a few frames" after the bridge, and on the far side (34-49) only frame 34
+sits more than 2 m from the solved track. Either the manual overrides already cleaned it,
+or the wander is the 17-18-27 group. Worth settling by eye, since it decides how much the
+robust fit is actually earning.
+
+**Where this goes.** Per-span similarity to GPS is a pose graph with one node per span and
+only GPS priors. The verified cross-span links are the other edges, and the structures-
+before-mud weighting the user asked for is the per-node weight. That is the build.
+
+**Two passes for structures and foliage.** Also from the user: solve on structure, then
+"pile on the foliage without giving it a big say in geometry". That is the right shape
+and the machinery is almost there. Pass one is the solve with the semantic mask on, so
+poses and scale come from built surface only. Pass two is dense extraction with the
+vegetation tier *lifted* but sky and movers still out, unprojecting the same depthmaps
+through the same poses — foliage appears in the cloud, carrying a class flag, and has no
+vote in the geometry because the geometry is already fixed. Nothing is re-solved. The
+one gap is the artifact: the packed cloud has no per-point class byte, so the first
+version is a separate `dense_soft.ply` and a toggle in the viewer.
+
 ### What the DEM is for, and what it is not (2026-09-09)
 
 The user's framing, and it is the right one: the elevation model is "something i'd use to
