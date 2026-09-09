@@ -471,6 +471,49 @@ test('a layer toggle keeps the viewpoint', async ({ page }) => {
 	expect(await page.evaluate(([a, b]) => a === b, [first, third])).toBe(true);
 });
 
+test('fly mode takes the controls and hands them back', async ({ page }) => {
+	// Orbit is for judging from outside; fly is for being inside. The toggle must not
+	// rebuild the viewer, keys must not leak to the page, and orbit must come back level.
+	const N = 300;
+	const buf = Buffer.alloc(N * 15);
+	for (let i = 0; i < N; i++) {
+		buf.writeFloatLE(Math.cos(i) * 3, i * 15);
+		buf.writeFloatLE(Math.sin(i) * 3, i * 15 + 4);
+		buf.writeFloatLE(i / 100, i * 15 + 8);
+	}
+	await page.route('**/cloud.bin*', async (route) =>
+		route.fulfill({ body: buf, contentType: 'application/octet-stream' })
+	);
+	await page.route('**/recon/runs/*/cameras*', async (route) =>
+		route.fulfill({ json: { frames: [] } })
+	);
+	await page.route('**/recon/runs/*/map', async (route) =>
+		route.fulfill({ json: { buildings: [], walls: [], roads: [] } })
+	);
+	await page.goto('/recon?run=walk_dense');
+	await mountCloud(page);
+	const stage = page.getByTestId('recon-cloud');
+	await expect(stage.locator('canvas')).toBeVisible({ timeout: 20_000 });
+	const canvas = await stage.locator('canvas').elementHandle();
+
+	await page.getByTestId('recon-mode-fly').click();
+	await expect(stage).toHaveAttribute('data-mode', 'fly');
+	await expect(page.getByTestId('recon-fly-hint')).toContainText('click the view');
+	// thrust without a pointer lock (headless chromium will not grant one): must be
+	// harmless, and the arrow keys must not scroll the page out from under the viewer
+	const y0 = await page.evaluate(() => window.scrollY);
+	await page.keyboard.down('ArrowUp');
+	await page.waitForTimeout(300);
+	await page.keyboard.up('ArrowUp');
+	expect(await page.evaluate(() => window.scrollY)).toBe(y0);
+
+	await page.getByTestId('recon-mode-orbit').click();
+	await expect(stage).toHaveAttribute('data-mode', 'orbit');
+	// same canvas throughout: the mode switch is a controller swap, not a remount
+	const after = await stage.locator('canvas').elementHandle();
+	expect(await page.evaluate(([a, b]) => a === b, [canvas, after])).toBe(true);
+});
+
 test('renders the point cloud and its camera frusta', async ({ page }) => {
 	// WebGL runs on swiftshader here (see playwright.config.ts), same as the terrain viewer.
 	// The cloud arrives as packed [float32 xyz][uint8 rgb]; this pins the decode contract,

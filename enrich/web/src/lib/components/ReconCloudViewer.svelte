@@ -53,6 +53,17 @@
 	let nBuildings = $state(0);
 	let mapNote = $state('');
 	let camHeight = $state(0);
+	// Orbit is for judging a model from outside; fly is for being IN it -- Descent-style
+	// six degrees of freedom, no gravity, no up: pitch and yaw are about the camera's own
+	// axes, roll is on Q/E, and there is momentum. Pointer lock so the mouse is a look
+	// axis rather than a cursor.
+	let mode = $state<'orbit' | 'fly'>('orbit');
+	let flySpeed = $state(1); // multiplier on a scene-sized base speed
+	let locked = $state(false);
+	const keys = new Set<string>();
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let vel: any = null; // THREE.Vector3, camera-local velocity
+	let lastT = 0;
 	let spacing = 0;
 	let minWorldSize = 0;
 	let pointPx = $state(0);
@@ -523,6 +534,92 @@
 		return { target, quadScene, quadCam, material };
 	}
 
+	// One frame of flight. Thrust along the camera's local axes with inertia (Descent
+	// coasts), look from pointer-lock deltas, roll on Q/E, L to level the wings.
+	function flyStep(THREE: typeof import('three'), dt: number) {
+		if (!camera || !vel) return;
+		const base = (coreScale || 10) * 0.35 * flySpeed; // units per second at full thrust
+		const acc = base * 4;
+		const thrust = new THREE.Vector3(
+			(keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) -
+				(keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0),
+			(keys.has('KeyR') || keys.has('Space') ? 1 : 0) -
+				(keys.has('KeyF') || keys.has('ShiftLeft') || keys.has('ShiftRight') ? 1 : 0),
+			(keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) -
+				(keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
+		);
+		vel.addScaledVector(thrust, acc * dt);
+		vel.multiplyScalar(Math.pow(0.02, dt)); // damping: ~98% gone in a second
+		if (vel.length() > base) vel.setLength(base);
+		const step = vel.clone().multiplyScalar(dt).applyQuaternion(camera.quaternion);
+		camera.position.add(step);
+		const rollRate = 1.6; // rad/s
+		if (keys.has('KeyQ')) camera.rotateZ(rollRate * dt);
+		if (keys.has('KeyE')) camera.rotateZ(-rollRate * dt);
+		if (keys.has('KeyL')) levelWings(THREE);
+	}
+
+	// Roll back to horizontal without changing where the camera points: rebuild the
+	// orientation from the current forward vector and world up (Z, this is ENU).
+	function levelWings(THREE: typeof import('three')) {
+		const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+		if (Math.abs(fwd.z) > 0.999) return;
+		const target = camera.position.clone().add(fwd);
+		camera.up.set(0, 0, 1);
+		camera.lookAt(target);
+	}
+
+	function onLook(e: MouseEvent) {
+		if (mode !== 'fly' || !locked || !camera) return;
+		const sens = 0.0022;
+		camera.rotateY(-e.movementX * sens); // yaw about the camera's own up
+		camera.rotateX(-e.movementY * sens); // pitch about its own right
+	}
+
+	function onKeyDown(e: KeyboardEvent) {
+		if (mode !== 'fly') return;
+		if (e.code === 'Escape') return; // browser releases the lock itself
+		keys.add(e.code);
+		if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code))
+			e.preventDefault();
+	}
+	function onKeyUp(e: KeyboardEvent) {
+		keys.delete(e.code);
+	}
+	function onWheel(e: WheelEvent) {
+		if (mode !== 'fly') return;
+		e.preventDefault();
+		flySpeed = Math.min(20, Math.max(0.05, flySpeed * (e.deltaY < 0 ? 1.25 : 0.8)));
+	}
+	function onLockChange() {
+		locked = document.pointerLockElement === renderer?.domElement;
+		if (!locked) keys.clear();
+	}
+
+	function setMode(m: 'orbit' | 'fly') {
+		if (m === mode || !camera || !controls) return;
+		mode = m;
+		if (m === 'fly') {
+			controls.enabled = false;
+			vel?.set(0, 0, 0);
+			lastT = 0;
+		} else {
+			if (document.pointerLockElement) document.exitPointerLock();
+			keys.clear();
+			// hand orbit a target ahead of wherever flight ended, and level the view so the
+			// orbit does not inherit a roll it cannot undo
+			levelWings(three);
+			const fwd = new three.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+			controls.target.copy(camera.position).addScaledVector(fwd, (coreScale || 10) * 0.6);
+			controls.enabled = true;
+			controls.update();
+		}
+	}
+
+	function onStageClick() {
+		if (mode === 'fly' && renderer && !locked) renderer.domElement.requestPointerLock?.();
+	}
+
 	onMount(async () => {
 		try {
 			const THREE = await import('three');
@@ -693,9 +790,14 @@
 			controls.update();
 
 			edlPass = makeEdl(THREE, w, h);
+			vel = new THREE.Vector3();
 			const tick = () => {
 				raf = requestAnimationFrame(tick);
-				controls.update();
+				const now = performance.now();
+				const dt = Math.min(0.1, (now - (lastT || now)) / 1000);
+				lastT = now;
+				if (mode === 'fly') flyStep(THREE, dt);
+				else controls.update();
 				if (edl && edlPass) {
 					edlPass.material.uniforms.uStrength.value = edlStrength;
 					edlPass.material.uniforms.uNear.value = camera.near;
@@ -714,6 +816,13 @@
 			setPointSize();
 			mounted = true;
 			status = '';
+
+			renderer.domElement.addEventListener('click', onStageClick);
+			renderer.domElement.addEventListener('mousemove', onLook);
+			renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
+			document.addEventListener('pointerlockchange', onLockChange);
+			window.addEventListener('keydown', onKeyDown);
+			window.addEventListener('keyup', onKeyUp);
 
 			ro = new ResizeObserver(() => {
 				if (!renderer) return;
@@ -767,6 +876,10 @@
 
 	onDestroy(() => {
 		disposed = true;
+		document.removeEventListener('pointerlockchange', onLockChange);
+		window.removeEventListener('keydown', onKeyDown);
+		window.removeEventListener('keyup', onKeyUp);
+		if (document.pointerLockElement) document.exitPointerLock?.();
 		ro?.disconnect();
 		cancelAnimationFrame(raf);
 		controls?.dispose?.();
@@ -786,7 +899,7 @@
 </script>
 
 <div class="wrap">
-	<div class="stage" bind:this={el} data-testid="recon-cloud"></div>
+	<div class="stage" class:flying={mode === 'fly'} bind:this={el} data-testid="recon-cloud" data-mode={mode}></div>
 	<div class="hud">
 		{#if status}
 			<span class="muted">{status}</span>
@@ -833,9 +946,26 @@
 			{#if mapNote}
 				<span class="muted small">{mapNote}</span>
 			{/if}
-			<span class="muted small"
-				>drag to orbit · scroll to zoom · blue = cameras · orange = map</span
-			>
+			<span class="seg">
+				<button class:on={mode === 'orbit'} onclick={() => setMode('orbit')}
+					data-testid="recon-mode-orbit">orbit</button
+				>
+				<button class:on={mode === 'fly'} onclick={() => setMode('fly')}
+					title="Descent-style: click the view to grab the mouse, WASD + R/F to move, Q/E roll, L to level, scroll for speed, Esc to release"
+					data-testid="recon-mode-fly">fly</button
+				>
+			</span>
+			{#if mode === 'fly'}
+				<span class="muted small" data-testid="recon-fly-hint">
+					{locked
+						? `WASD move · R/F up/down · Q/E roll · L level · scroll speed ×${flySpeed.toFixed(2)} · Esc to release`
+						: 'click the view to take the controls'}
+				</span>
+			{:else}
+				<span class="muted small"
+					>drag to orbit · scroll to zoom · blue = cameras · orange = map</span
+				>
+			{/if}
 		{/if}
 	</div>
 </div>
@@ -845,6 +975,9 @@
 		display: flex;
 		flex-direction: column;
 		gap: 6px;
+	}
+	.stage.flying {
+		cursor: crosshair;
 	}
 	.stage {
 		width: 100%;
