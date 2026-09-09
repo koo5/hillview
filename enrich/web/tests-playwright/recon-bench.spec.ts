@@ -131,6 +131,8 @@ test('ranks runs by structure, not by the GPS residual', async ({ page }) => {
 	await page.goto('/recon');
 	const rows = page.getByTestId('recon-run-row');
 	await expect(rows).toHaveCount(3);
+	// most recent first is the default now; the structure ranking is a toggle away
+	await page.getByTestId('recon-sort-structure').click();
 	// structure order: masktest 0.71 < walk_dense 2.55 < board_jan 560
 	await expect(rows.nth(0)).toHaveAttribute('data-run', 'masktest');
 	await expect(rows.nth(1)).toHaveAttribute('data-run', 'walk_dense');
@@ -373,6 +375,54 @@ test('hovering a recovered camera names its frame and lights its link', async ({
 	await expect(page.locator('path[stroke="#e0a23a"]').first()).toBeVisible();
 });
 
+// The viewer is lazy-mounted (IntersectionObserver): a page visit must not eagerly build
+// a WebGL context. Below the fold it offers a button instead; take it when offered.
+async function mountCloud(page: Page) {
+	const btn = page.getByRole('button', { name: 'load point cloud' });
+	const stage = page.getByTestId('recon-cloud');
+	await expect(btn.or(stage).first()).toBeVisible({ timeout: 20_000 });
+	// Scrolling the button into view is itself what mounts the viewer (the observer
+	// fires), so a click here races the button's own disappearance. Scroll, give the
+	// observer a beat, and only click if the button is still there.
+	if (await btn.isVisible().catch(() => false)) {
+		await btn.scrollIntoViewIfNeeded();
+		await page.waitForTimeout(400);
+		if (await btn.isVisible().catch(() => false)) await btn.click({ timeout: 3000 }).catch(() => {});
+	}
+	await expect(stage).toBeVisible({ timeout: 20_000 });
+}
+
+test('a queued run shows its frames before it is solved', async ({ page }) => {
+	// A run takes hours. Whether it was worth starting is visible in its frames long
+	// before an artifact comes back, so the detail must serve them from the row.
+	await page.route('**/api/recon/runs/*', async (route) => {
+		const id = new URL(route.request().url()).pathname.split('/').pop()!;
+		const r = RUNS.find((x) => x.id === id) ?? RUNS[0];
+		await route.fulfill({
+			json: {
+				...runRow(r),
+				status: 'queued',
+				frames_pending: true,
+				frames: [0, 1, 2].map((i) => ({
+					idx: i, id: `bbbbbbbb-0000-0000-0000-00000000000${i}`, pending: true,
+					captured_at: `2026-08-19 16:41:0${i}.000000`, camera: 'exif:Ulefone|Armor 22|',
+					compass_angle: 90 + i, gps: [50.1, 14.5 + i * 0.0001], thumb: null
+				})),
+				pairs: [], worst_pairs: [],
+				geo: { center: [50.1, 14.5], frames: [0, 1, 2].map((i) => ({
+					idx: i, id: 'x', gps: [50.1, 14.5 + i * 0.0001], recovered_gps: null }))
+				}
+			}
+		});
+	});
+	await page.route('**/tile/**', async (route) => route.abort());
+	await page.goto('/recon?run=walk_dense');
+	await expect(page.getByTestId('recon-frames-pending')).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByTestId('recon-frame-strip').locator('button')).toHaveCount(3);
+	// and the track map draws the selected cluster from GPS alone
+	await expect(page.getByTestId('recon-track-expand')).toBeVisible();
+});
+
 test('a layer toggle keeps the viewpoint', async ({ page }) => {
 	// Layers used to be remounted through a {#key}, which threw away the orbit camera:
 	// every checkbox tick sent you back to the default framing, so the toggles were
@@ -404,6 +454,7 @@ test('a layer toggle keeps the viewpoint', async ({ page }) => {
 	);
 
 	await page.goto('/recon?run=walk_dense');
+	await mountCloud(page);
 	const canvas = page.getByTestId('recon-cloud').locator('canvas');
 	await expect(canvas).toBeVisible({ timeout: 20_000 });
 	const first = await canvas.elementHandle();
@@ -464,6 +515,7 @@ test('renders the point cloud and its camera frusta', async ({ page }) => {
 	);
 
 	await page.goto('/recon?run=walk_dense');
+	await mountCloud(page);
 	const stage = page.getByTestId('recon-cloud');
 	await expect(stage).toBeVisible();
 	// a canvas means three.js got a GL context, not just that the div exists

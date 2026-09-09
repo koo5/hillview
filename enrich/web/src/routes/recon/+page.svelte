@@ -49,6 +49,7 @@
 		} | null;
 	};
 	type Run = {
+		enqueued_at?: string | null;
 		id: string;
 		name: string;
 		source: string;
@@ -76,6 +77,11 @@
 	};
 	type Frame = {
 		idx: number;
+		thumb?: string | null;
+		pending?: boolean;
+		captured_at?: string | null;
+		camera?: string | null;
+		compass_angle?: number | null;
 		id: string;
 		focal_px: number;
 		base_focal_px: number;
@@ -85,6 +91,7 @@
 		injected?: boolean;
 	};
 	type Detail = Run & {
+		frames_pending?: boolean;
 		frames: Frame[];
 		pairs: Pair[];
 		worst_pairs: { i: number; j: number; metric: string; median_px: number; n_corres: number }[];
@@ -220,10 +227,15 @@
 		}
 	}
 
-	// runs sorted by structure, not by date: the whole point is that this ordering
-	// differs from the GPS one, so the list itself should show the structure ranking.
+	// Most recent first by default: with a queue of multi-hour jobs, the question the
+	// list answers most often is "what did I just start, and how is it doing". The
+	// structure ranking — the ordering that deliberately differs from the GPS one — is a
+	// toggle away, and the tests pin it.
+	let sortBy = $state<'recent' | 'structure'>('recent');
 	const sorted = $derived(
-		[...runs].sort((a, b) => (rp(a) ?? Infinity) - (rp(b) ?? Infinity))
+		sortBy === 'structure'
+			? [...runs].sort((a, b) => (rp(a) ?? Infinity) - (rp(b) ?? Infinity))
+			: [...runs].sort((a, b) => (b.enqueued_at ?? '').localeCompare(a.enqueued_at ?? ''))
 	);
 	function rp(r: Run): number | null {
 		return r.metrics?.reproj_px?.median ?? null;
@@ -481,6 +493,15 @@
 
 <div class="cols">
 	<div class="runlist card">
+		<div class="seg listsort">
+			<button class:on={sortBy === 'recent'} onclick={() => (sortBy = 'recent')}
+				data-testid="recon-sort-recent">recent</button
+			>
+			<button class:on={sortBy === 'structure'} onclick={() => (sortBy = 'structure')}
+				title="ranked by reprojection error, best first"
+				data-testid="recon-sort-structure">structure</button
+			>
+		</div>
 		<table>
 			<thead>
 				<tr><th>run</th><th class="num">frames</th><th class="num">reproj px</th></tr>
@@ -755,17 +776,47 @@
 			{/if}
 
 			<div class="card">
-				<h3>Frames</h3>
+				<div class="secthead">
+					<h3>Frames</h3>
+					{#if detail.frames_pending}
+						<span class="st" data-testid="recon-frames-pending"
+							>selected, not yet solved — judge the cluster here before the hours are spent</span
+						>
+					{/if}
+				</div>
+				<div class="strip" data-testid="recon-frame-strip">
+					{#each detail.frames as f (f.idx)}
+						<button
+							class="thumbbtn"
+							class:sel={selFrame === f.idx}
+							title="frame {f.idx} · {f.captured_at ?? ''}"
+							onclick={() => (selFrame = selFrame === f.idx ? null : f.idx)}
+						>
+							{#if f.thumb}
+								<img src={f.thumb} alt="frame {f.idx}" loading="lazy" />
+							{:else}
+								<span class="muted small">{f.idx}</span>
+							{/if}
+							<span class="idx">{f.idx}</span>
+						</button>
+					{/each}
+				</div>
 				<div class="tblwrap">
 					<table>
 						<thead>
 							<tr>
 								<th class="num">#</th>
 								<th>photo</th>
-								<th class="num">reproj px</th>
-								<th class="num">epipolar px</th>
-								<th class="num">GPS resid m</th>
-								<th class="num">focal px</th>
+								{#if detail.frames_pending}
+									<th>captured</th>
+									<th>camera</th>
+									<th class="num">compass</th>
+								{:else}
+									<th class="num">reproj px</th>
+									<th class="num">epipolar px</th>
+									<th class="num">GPS resid m</th>
+									<th class="num">focal px</th>
+								{/if}
 							</tr>
 						</thead>
 						<tbody>
@@ -781,10 +832,16 @@
 												>impostor</span
 											>{/if}
 									</td>
-									<td class="num">{fmtPx(f.reproj_px)}</td>
-									<td class="num">{fmtPx(f.epipolar_px)}</td>
-									<td class="num">{f.residual_m ?? '—'}</td>
-									<td class="num">{f.focal_px?.toFixed(0) ?? '—'}</td>
+									{#if detail.frames_pending}
+										<td>{f.captured_at?.slice(0, 19) ?? '—'}</td>
+										<td class="small">{f.camera ?? '—'}</td>
+										<td class="num">{f.compass_angle?.toFixed(0) ?? '—'}°</td>
+									{:else}
+										<td class="num">{fmtPx(f.reproj_px)}</td>
+										<td class="num">{fmtPx(f.epipolar_px)}</td>
+										<td class="num">{f.residual_m ?? '—'}</td>
+										<td class="num">{f.focal_px?.toFixed(0) ?? '—'}</td>
+									{/if}
 								</tr>
 							{/each}
 						</tbody>
@@ -979,6 +1036,45 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
+	}
+	.listsort {
+		padding: 6px 8px 2px;
+	}
+	.strip {
+		display: flex;
+		gap: 4px;
+		overflow-x: auto;
+		padding: 6px 2px 8px;
+	}
+	.thumbbtn {
+		position: relative;
+		flex: 0 0 auto;
+		padding: 0;
+		border: 2px solid transparent;
+		border-radius: 5px;
+		background: none;
+		cursor: pointer;
+		line-height: 0;
+	}
+	.thumbbtn img {
+		height: 84px;
+		width: auto;
+		border-radius: 3px;
+		display: block;
+	}
+	.thumbbtn.sel {
+		border-color: #e0a23a;
+	}
+	.thumbbtn .idx {
+		position: absolute;
+		left: 3px;
+		bottom: 3px;
+		font-size: 10px;
+		line-height: 1;
+		padding: 1px 4px;
+		border-radius: 3px;
+		background: rgba(0, 0, 0, 0.6);
+		color: #eee;
 	}
 	.mapchk {
 		display: inline-flex;

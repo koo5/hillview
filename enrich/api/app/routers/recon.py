@@ -172,6 +172,41 @@ async def get_run(run_id: str):
                               for i in sorted(by_idx)]}
         except (OSError, json.JSONDecodeError, KeyError):
             geo = None
+    # No artifacts yet? The row still knows its frames. Serve them in the same shape,
+    # flagged pending, and give the track map their GPS so the cluster can be judged
+    # on the map before a single pair has been matched.
+    meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
+    pending = meta.get("frames")
+    if not frames and not pending and meta.get("spec") and row["status"] in ("queued", "running"):
+        # runs enqueued before the frame list was kept on the row: the selection is a
+        # deterministic query over the mirror, so re-running its spec reproduces it
+        try:
+            sp = meta["spec"]
+            req = EnqueueRequest(lat=sp["center"][0], lon=sp["center"][1],
+                                 radius_m=sp.get("radius_m", 300), limit=sp.get("limit", 24),
+                                 offset=sp.get("offset", 0), stride=sp.get("stride", 1),
+                                 after=sp.get("after"), before=sp.get("before"),
+                                 inject=sp.get("inject") or [], params=sp.get("params") or {})
+            pending = [_pending_frame(i, f) for i, f in enumerate(await _select_frames(req))]
+        except Exception as e:                   # a bad old spec must not 500 the page
+            out["frames_note"] = f"could not re-derive frames: {type(e).__name__}: {e}"
+    if not frames and pending:
+        frames = [dict(f, pending=True) for f in pending]
+        out["frames_pending"] = True
+        if geo is None:
+            geo = {"center": (meta.get("spec") or {}).get("center"),
+                   "frames": [{"idx": f["idx"], "id": f["id"],
+                               "captured_at": f.get("captured_at"),
+                               "gps": f.get("gps"), "recovered_gps": None,
+                               "focal_px": None} for f in pending]}
+    # a thumbnail per frame, for every run: "is this cluster worth solving" and "which
+    # frame drifted" are both questions you answer by looking at the photograph
+    ids = [f["id"] for f in frames if f.get("id")]
+    if ids:
+        imgs = await _frame_images(ids, "320")
+        for f in frames:
+            info = imgs.get(f.get("id")) or {}
+            f["thumb"] = info.get("image_url")
     out["frames"] = frames
     out["pairs"] = pairs
     out["worst_pairs"] = worst
@@ -897,6 +932,14 @@ def _manifest_frame(r) -> dict:
     }
 
 
+def _pending_frame(idx: int, f: dict) -> dict:
+    return {"idx": idx, "id": f["id"], "captured_at": f.get("captured_at"),
+            "gps": [f.get("lat"), f.get("lon")],
+            "compass_angle": f.get("compass_angle"),
+            "camera": f.get("camera"), "session": f.get("session"),
+            "injected": bool(f.get("injected"))}
+
+
 @router.post("/recon/runs")
 async def enqueue(req: EnqueueRequest):
     from .. import actors
@@ -931,7 +974,14 @@ async def enqueue(req: EnqueueRequest):
             "  finished_at = NULL "
             "RETURNING id"),
             {"name": name, "params": json.dumps(params), "nf": len(frames),
-             "cap": captured, "meta": json.dumps({"spec": spec})})).scalar_one()
+             "cap": captured,
+             # The frame list travels in the message, but it is ALSO kept on the row:
+             # a run takes hours, and whether it was worth starting is visible in its
+             # frames long before any artifact comes back. Compact on purpose — the
+             # full manifest (URLs, anon boxes, EXIF) is the worker's business.
+             "meta": json.dumps({"spec": spec,
+                                 "frames": [_pending_frame(i, f)
+                                            for i, f in enumerate(frames)]})})).scalar_one()
 
     # The manifest travels in the message (it is selection output, not a secret), but the
     # callback URL and token do NOT: the worker reads those from its own environment, so a
