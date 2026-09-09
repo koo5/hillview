@@ -61,6 +61,43 @@
 	let flySpeed = $state(1); // multiplier on a scene-sized base speed
 	let locked = $state(false);
 	const keys = new Set<string>();
+	// Bindings are by PHYSICAL key (event.code), so the WASD cluster is the same four keys
+	// under any layout -- a Colemak board just prints W A R S on them. What a layout changes
+	// is the labels, and the few keys outside the cluster that are chosen by letter.
+	type Layout = 'qwerty' | 'colemak';
+	const LAYOUTS: Record<Layout, { label: string; keys: Record<string, string> }> = {
+		qwerty: {
+			label: 'W A S D · R/F up/down · Q/E roll · L level',
+			keys: { fwd: 'KeyW', left: 'KeyA', back: 'KeyS', right: 'KeyD',
+				up: 'KeyR', down: 'KeyF', rollL: 'KeyQ', rollR: 'KeyE', level: 'KeyL' }
+		},
+		colemak: {
+			// same physical cluster (caps read W A R S), up/down on the keys above and
+			// below it that read P and T, roll on Q and F, level on the key that reads L
+			label: 'W A R S · P/T up/down · Q/F roll · L level',
+			keys: { fwd: 'KeyW', left: 'KeyA', back: 'KeyS', right: 'KeyD',
+				up: 'KeyR', down: 'KeyF', rollL: 'KeyQ', rollR: 'KeyE', level: 'KeyU' }
+		}
+	};
+	let layout = $state<Layout>('qwerty');
+	try {
+		const saved = localStorage.getItem('recon.fly.layout');
+		if (saved === 'colemak' || saved === 'qwerty') layout = saved;
+	} catch {
+		/* storage may be unavailable; qwerty it is */
+	}
+	function setLayout(l: Layout) {
+		layout = l;
+		try {
+			localStorage.setItem('recon.fly.layout', l);
+		} catch {
+			/* fine */
+		}
+	}
+	const K = $derived(LAYOUTS[layout].keys);
+	function down(action: keyof typeof LAYOUTS.qwerty.keys) {
+		return keys.has(K[action]);
+	}
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let vel: any = null; // THREE.Vector3, camera-local velocity
 	let lastT = 0;
@@ -541,12 +578,12 @@
 		const base = (coreScale || 10) * 0.35 * flySpeed; // units per second at full thrust
 		const acc = base * 4;
 		const thrust = new THREE.Vector3(
-			(keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) -
-				(keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0),
-			(keys.has('KeyR') || keys.has('Space') ? 1 : 0) -
-				(keys.has('KeyF') || keys.has('ShiftLeft') || keys.has('ShiftRight') ? 1 : 0),
-			(keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) -
-				(keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0)
+			(down('right') || keys.has('ArrowRight') ? 1 : 0) -
+				(down('left') || keys.has('ArrowLeft') ? 1 : 0),
+			(down('up') || keys.has('Space') ? 1 : 0) -
+				(down('down') || keys.has('ShiftLeft') || keys.has('ShiftRight') ? 1 : 0),
+			(down('back') || keys.has('ArrowDown') ? 1 : 0) -
+				(down('fwd') || keys.has('ArrowUp') ? 1 : 0)
 		);
 		vel.addScaledVector(thrust, acc * dt);
 		vel.multiplyScalar(Math.pow(0.02, dt)); // damping: ~98% gone in a second
@@ -554,9 +591,9 @@
 		const step = vel.clone().multiplyScalar(dt).applyQuaternion(camera.quaternion);
 		camera.position.add(step);
 		const rollRate = 1.6; // rad/s
-		if (keys.has('KeyQ')) camera.rotateZ(rollRate * dt);
-		if (keys.has('KeyE')) camera.rotateZ(-rollRate * dt);
-		if (keys.has('KeyL')) levelWings(THREE);
+		if (down('rollL')) camera.rotateZ(rollRate * dt);
+		if (down('rollR')) camera.rotateZ(-rollRate * dt);
+		if (down('level')) levelWings(THREE);
 	}
 
 	// Roll back to horizontal without changing where the camera points: rebuild the
@@ -956,9 +993,17 @@
 				>
 			</span>
 			{#if mode === 'fly'}
+				<span class="seg" title="which keycaps the hint names; the bindings are by physical key">
+					<button class:on={layout === 'qwerty'} onclick={() => setLayout('qwerty')}
+						data-testid="recon-layout-qwerty">qwerty</button
+					>
+					<button class:on={layout === 'colemak'} onclick={() => setLayout('colemak')}
+						data-testid="recon-layout-colemak">colemak</button
+					>
+				</span>
 				<span class="muted small" data-testid="recon-fly-hint">
 					{locked
-						? `WASD move · R/F up/down · Q/E roll · L level · scroll speed ×${flySpeed.toFixed(2)} · Esc to release`
+						? `${LAYOUTS[layout].label} · scroll speed ×${flySpeed.toFixed(2)} · Esc to release`
 						: 'click the view to take the controls'}
 				</span>
 			{:else}

@@ -858,12 +858,20 @@ we'll have to tie together with gps." It does, and the numbers say how.
 
 Two independent signals find the breaks. The **two-view chain** (`recon_verify_links.py
 --chain`) reports where consecutive frames stop agreeing on an epipolar geometry: after
-frame 29 (31 matches, under the bridge, contradicting the compass) and after 33. The
-**solve's own step** — the distance between consecutive solved cameras — jumps to 31 m at
-16→17 and 24 m at 33→34 against a 1.5 m walking pace. They disagree about the staircase
-at 16: matches survive it (the steps overlap visually), but the solver's scale did not
-transfer across it. Both signals are right about different things, so break detection is
-their union.
+frame 29 (31 matches, contradicting the compass) and after 33. The **solve's own step** —
+the distance between consecutive solved cameras — jumps to 31 m at 16→17 and 24 m at
+33→34 against a 1.5 m walking pace. Both signals are right about different things, so
+break detection is their union.
+
+*Corrected the same day, from the photographer:* this run's 50 frames are the sidewalk
+approach only. Frame 29 is "a swipe to the left and back" — a camera sweep, and the chain
+breaks on it because a sweep is a burst of frames sharing almost nothing with their
+neighbours. The literal staircase begins *after* frame 49; the underpass, the manual
+locations and the bad first GPS fix on the far side are all beyond this run. An earlier
+draft of this section attributed the breaks to the stairs and the bridge. It was wrong,
+and the lesson is the one the pending-frames view exists for: look at the photographs
+before naming what broke. The section after frame 49 is queued as its own run,
+`newest-stairs-bridge`.
 
 `recon_spans.py` then fits each span on its own: gravity pinned from the whole run's
 cameras, yaw + scale + translation fitted to the horizontal GPS, **iteratively
@@ -884,11 +892,30 @@ bridge. Fitted per span, the walk sits on its GPS to under a metre where one fit
 seven off. The frames the fit refuses to trust are 17, 18 and 27 in the middle span and 34
 at the far end — the first frame back in the open.
 
-One thing the data does *not* show: the user remembers the GPS "wandering off across the
-street for quite a few frames" after the bridge, and on the far side (34-49) only frame 34
-sits more than 2 m from the solved track. Either the manual overrides already cleaned it,
-or the wander is the 17-18-27 group. Worth settling by eye, since it decides how much the
-robust fit is actually earning.
+The GPS wander the photographer remembers is not in this run either — it is on the far
+side of the bridge, after frame 49. Within these 50 frames the frames the fit distrusts
+(17, 18, 27, 34) are the sweep bursts, where a fresh scale meets stale GPS.
+
+**Manual locations have a machine-readable signature.** Following the timeline past
+frame 49 with the photographer's markers — down the stairs at 17:44:30, fifteen metres
+under the bridge at 17:44:49 with the GPS still reporting the entrance, manual locations
+until 17:45:40, then the first fix "incorrectly on the other side of the street" — the
+mirror shows exactly that, without being told:
+
+| time | altitude | compass | GPS step |
+| --- | --- | --- | --- |
+| 17:44:03 – 17:44:48 | 252 m, constant | swinging 247 → 356 → 108 on the stairs | 0.1 – 1.5 m |
+| 17:44:50 – 17:45:40 | **absent** | **frozen at 14°** | blocks: 16.6, 0, 0, 10.1, 1.1, 0, 0, 0, 7.5, 0 … |
+| 17:45:41 | 252 m, back | 14° | **66.9 m** |
+
+The manual block is unmistakable: no altitude (a hand-placed point has none), a compass
+that stopped updating along with the GPS, and positions that move in jumps of five to
+seventeen metres with several frames parked on each — a person placing waypoints, not a
+receiver. And the first real fix after it lands 67 m from the last waypoint. So a span
+fitter can *know* which frames are manual and weight them as rough, and can expect the
+first fix after a manual block to be the worst GPS point in the walk. `newest-stairs-bridge`
+and `newest-bridge-exit` are queued to cover this stretch, deliberately overlapping so the
+join is a verified cross-span link rather than a guess.
 
 **Where this goes.** Per-span similarity to GPS is a pose graph with one node per span and
 only GPS priors. The verified cross-span links are the other edges, and the structures-
