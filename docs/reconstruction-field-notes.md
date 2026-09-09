@@ -851,6 +851,72 @@ to diagnose that optimisation — it was the joint solve's own reprojection numb
 the links look worthless. And a geometric check with a sign ambiguity needs a synthetic
 control, because on real data a mirrored answer is indistinguishable from a wrong match.
 
+### What the DEM is for, and what it is not (2026-09-09)
+
+The user's framing, and it is the right one: the elevation model is "something i'd use to
+align things at long distances, not something that will reliably tell us if there was a
+real staircase or not". Formalised, that is a statement about spatial frequency. The
+workbench has Czech LiDAR at 2 m and 10 m over Prague plus worldwide GLO-30, and none of
+those can see a 30 cm step in a pavement. What they *can* see is the low-frequency half,
+and that half happens to contain the one thing a span cannot know about itself: **no photo
+in this corpus carries a GPS altitude**, so a run's vertical datum is entirely
+unobservable from inside.
+
+`scripts/enrich/recon_dem_check.py` splits the comparison into three parts, in decreasing
+order of how much to believe them: the **offset** (one free parameter per span, and the DEM
+simply supplies it), the **tilt** along the track (a real drift, correctable), and the
+**residual** after removing both — which is where a staircase would live and is precisely
+where the DEM has nothing to say.
+
+Against the 10 m bare-earth DTM, assuming a 1.5 m eye height:
+
+| run | tilt over the track | residual sd | real relief |
+| --- | --- | --- | --- |
+| `dense-spotA-2026-08-19` | +0.17 m over 39 m | **0.05 m** | 0.1 m |
+| `newest-2026-09-08` | +3.97 m over 87 m | 0.62 m | 2.5 m |
+| `walk_jizni` | +1.81 m over 112 m | 2.20 m | 1.1 m |
+| `prosek-b-tight-aug06` | **+10.43 m** over 111 m | 4.08 m | 5.1 m |
+
+Spot A agrees with Czech LiDAR to five centimetres, which is the first time anything has
+confirmed that run from outside itself. And Prosek B drifts ten metres vertically over a
+hundred-metre track where the ground really moves five — a defect no internal metric had
+flagged, found by exactly the long-baseline comparison the DEM is good for.
+
+Caveats worth keeping: the DTM is bare earth, so a raised verge or a kerb shows up as
+residual; the eye height is assumed, not measured; and a 10 m cell smooths a hilltop edge
+badly, which is some of what Prosek B's residual is made of.
+
+### Masking has to be a ladder, because a lot of the corpus is mud and hedge
+
+"buildings are a more reliable signal than mud, there's got to be some prioritization, but
+a lot of areas are gonna be just mud and vegetation." Right on both halves, and the second
+half is what makes a binary mask wrong.
+
+The Mapillary Vistas classes sort into three groups for this purpose. **BUILT** — facades,
+walls, fences, poles, signs, kerbs, road markings, manholes — holds still and carries
+texture on a plane, and is never masked because it is the signal. **SOFT** — Terrain,
+Mountain, Ground — is bare earth: static and so geometrically legitimate, but self-similar
+and texture-poor. **TRANSIENT** is the rest, and it comes in two tiers.
+
+So `semantic_mask.load_mask` is a ladder, not a budget:
+
+1. always mask sky, people, riders, vehicles, animals, water, snow — transient or at
+   infinity, never worth a correspondence;
+2. then vegetation, **but only if enough BUILT surface remains to match on**.
+
+Measured on two Prosek frames, that ladder does the right thing in both directions. The
+hilltop frame with the city on the horizon has 20% built surface (a gravel path and distant
+facades), so its 46% vegetation goes and 79% of the frame is masked. The dry-meadow frame
+has 2% built surface and 84% *Terrain*, so its hedge is kept and only the 2% of sky goes —
+because a frame with nothing in it does not fail loudly, it drifts, and drifting is the
+failure that has cost this project the most.
+
+Note that dry grass classifies as **Terrain**, not Vegetation, so it was never in the mask
+preset — and the meadow made of it is the run whose neighbouring frames disagree about the
+ground by 75 cm and which drifts 10 m vertically against the DEM. Masking is not the answer
+there. Nothing in that frame is reliable, and the honest response is to weight the whole
+frame down, or to get the span linked to a better-conditioned one.
+
 ### The ground-agreement metric, and what three new areas look like (2026-09-09)
 
 Three runs on fresh areas, chosen by scoring all 577 recent Prague capture sessions on the

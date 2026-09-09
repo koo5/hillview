@@ -685,9 +685,11 @@ def main():
                          "people, vehicles, water, snow) using the pics project's "
                          "Mask2Former-Mapillary segmentation — see semantic_mask.py. "
                          "Supersedes --mask_vegetation, which is the colour-only fallback")
-    ap.add_argument("--semantic_budget", type=float, default=0.65,
-                    help="if the full semantic mask would cover more than this fraction of "
-                         "a frame, mask only the sky there instead")
+    ap.add_argument("--semantic_budget", type=float, default=0.12,
+                    help="minimum fraction of BUILT surface (facade, kerb, pole, sign, road "
+                         "marking) a frame must have before its vegetation is masked too. "
+                         "Below it the hedge is the only texture there is, and keeping it "
+                         "beats a frame with nothing in it")
     ap.add_argument("--mask_vegetation", action="store_true",
                     help="drop correspondences on green-dominant pixels (foliage, living "
                          "grass) — the one cheap image statistic that predicts solve quality")
@@ -775,7 +777,7 @@ def main():
             if a.semantic_mask:                               # Mask2Former transient set
                 stem = sem.get(os.path.abspath(paths[i]))
                 if stem:
-                    sm, info = _sem.load_mask(stem, (H2, W2), budget=a.semantic_budget)
+                    sm, info = _sem.load_mask(stem, (H2, W2), built_floor=a.semantic_budget)
                     if sm.any():
                         m = sm if m is None else (m | sm)
                         ns += 1

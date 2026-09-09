@@ -109,13 +109,56 @@ def ensure_masks(paths, log=print, infer_res=None):
     return {p: os.path.join(cache, keys[p]) for p in paths}
 
 
-def load_mask(stem, shape, budget=0.65, log=print, name=""):
-    """One boolean mask at (H, W), honouring the mask budget.
+# Mapillary Vistas classes, sorted by how much a reconstruction should trust them.
+#
+# BUILT is the stuff that holds still and carries texture on a plane: facades, kerbs,
+# poles, signs, road markings. Never masked — it is the signal.
+#
+# SOFT is bare ground: mud, dirt, dry grass, hillside. Static, so geometrically legitimate,
+# but self-similar and texture-poor, and it is what the Prosek meadow is made of — the run
+# whose neighbouring frames disagree about the ground by 75 cm. Masking it is usually
+# wrong because there is nothing behind it, so it is kept and merely known about.
+#
+# The two TRANSIENT tiers are the ones this module removes, and they are removed in order.
+BUILT = {
+    "Building", "Wall", "Fence", "Bridge", "Tunnel", "Guard Rail", "Barrier",
+    "Pole", "Utility Pole", "Traffic Sign (Front)", "Traffic Sign (Back)",
+    "Traffic Sign Frame", "Traffic Light", "Street Light", "Banner", "Billboard",
+    "Curb", "Curb Cut", "Road", "Sidewalk", "Pedestrian Area", "Service Lane",
+    "Bike Lane", "Crosswalk - Plain", "Lane Marking - Crosswalk",
+    "Lane Marking - General", "Manhole", "Catch Basin", "Junction Box", "Rail Track",
+    "Bike Rack", "Bench", "Trash Can", "Mailbox", "Fire Hydrant", "Phone Booth",
+    "Parking", "CCTV Camera", "Bridge",
+}
+SOFT = {"Terrain", "Mountain", "Ground", "Pothole"}
 
-    `mask.png` is everything in the preset; `sky.png` is its sky part. When the full mask
-    would cover more than `budget` of the frame, drop back to sky-only — a frame that is
-    four-fifths hedge still has a fifth worth matching on, and blanking it entirely just
-    removes the frame from the solve without saying so.
+
+def class_fracs(stem):
+    """{class name: pixel fraction} from the cached inference record, or {}."""
+    p = f"{stem}.polygons.json"
+    if not os.path.exists(p):
+        return {}
+    try:
+        with open(p) as f:
+            d = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return {c["name"]: c["frac"] for c in (d.get("stats") or {}).get("class_pixel_fracs", [])}
+
+
+def load_mask(stem, shape, built_floor=0.12, log=print, name=""):
+    """One boolean mask at (H, W), chosen by a LADDER rather than a single budget.
+
+    Masking is not free: every pixel removed is a pixel the matcher cannot use, and a lot
+    of this corpus is mud and hedge with nothing else in it. So the rungs are:
+
+      always   sky, people, riders, vehicles, animals, water, snow — transient or at
+               infinity, and never worth a correspondence
+      then     vegetation, but ONLY if enough BUILT surface remains to match on
+
+    A frame that is a hedge and a dirt path keeps its hedge, because the alternative is a
+    frame with nothing in it, and a frame with nothing in it does not fail loudly — it
+    drifts, which is the failure that has cost this project the most.
     """
     from PIL import Image
     H, W = shape
@@ -126,13 +169,27 @@ def load_mask(stem, shape, budget=0.65, log=print, name=""):
             return np.zeros((H, W), bool)
         return np.asarray(Image.open(p).convert("L").resize((W, H), Image.NEAREST)) > 127
 
-    full = read(".mask.png")
-    frac = float(full.mean())
-    if frac <= budget:
-        return full, {"masked_frac": round(frac, 4), "mode": "full"}
     sky = read(".sky.png")
-    return sky, {"masked_frac": round(float(sky.mean()), 4), "mode": "sky-only",
-                 "full_would_be": round(frac, 4)}
+    rest = read(".rest.png")
+    veg = read(".vegetation.png")
+    movers = rest & ~veg
+    base = sky | movers
+
+    fr = class_fracs(stem)
+    built = round(sum(v for k, v in fr.items() if k in BUILT), 4)
+    soft = round(sum(v for k, v in fr.items() if k in SOFT), 4)
+    info = {"built_frac": built, "soft_frac": soft,
+            "sky_frac": round(float(sky.mean()), 4),
+            "mover_frac": round(float(movers.mean()), 4),
+            "veg_frac": round(float(veg.mean()), 4)}
+    if built >= built_floor:
+        info["rung"] = "sky+movers+vegetation"
+        m = base | veg
+    else:
+        info["rung"] = "sky+movers (kept vegetation: only %.0f%% built surface)" % (100 * built)
+        m = base
+    info["masked_frac"] = round(float(m.mean()), 4)
+    return m, info
 
 
 def main():
