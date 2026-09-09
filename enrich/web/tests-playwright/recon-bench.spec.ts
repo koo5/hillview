@@ -421,6 +421,27 @@ test('the frames table sorts by a clicked column', async ({ page }) => {
 	await expect(firstCell()).toHaveText('0');
 });
 
+test('a running run shows its pace, its ETA and a slowdown warning', async ({ page }) => {
+	// No magic timeout: the worker reads the solver's own progress bars and the bench
+	// shows rate and ETA, and says so when a run falls well below its own early pace.
+	await page.route('**/api/recon/runs', async (route) => {
+		if (route.request().method() !== 'GET') return route.fallback();
+		const rows = RUNS.map(runRow);
+		rows[1] = {
+			...rows[1], status: 'running',
+			meta: { stage: 'solving',
+				progress: { done: 416, total: 948, bar: 1, s_per_it: 86.7, eta_s: 46140 },
+				warning: "5.1x slower than this run's own early pace (17 s/it) — another solve on the box?" }
+		};
+		await route.fulfill({ json: { runs: rows, queue: { messages: 0, consumers: 1 } } });
+	});
+	await page.goto('/recon');
+	const row = page.getByTestId('recon-run-row').filter({ hasText: 'walk_dense' });
+	await expect(row).toContainText('416/948');
+	await expect(row).toContainText('ETA 12.8 h');
+	await expect(row.getByTestId('recon-run-warning')).toContainText('5.1x slower');
+});
+
 test('a queued run shows its frames before it is solved', async ({ page }) => {
 	// A run takes hours. Whether it was worth starting is visible in its frames long
 	// before an artifact comes back, so the detail must serve them from the row.

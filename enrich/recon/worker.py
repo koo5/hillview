@@ -36,9 +36,12 @@ or under the systemd memory ceiling:  ./run_worker.sh
 """
 import json
 import os
+import re
 import socket
+import queue
 import subprocess
 import sys
+import threading
 import time
 
 import remoulade
@@ -165,12 +168,81 @@ def _chain(rundir: str) -> dict:
     return recon_verify_links.chain_summary(rows, frames)
 
 
-# A CPU solve of a win-12 cluster took over ten hours. The old six-hour limit did not stop
-# it -- remoulade's TimeLimitExceeded unwinds the ACTOR THREAD, and the solve is a
-# subprocess, which kept running as an orphan while the worker started the next message
-# beside it. Two solves on one box then ran at a tenth of the speed (see run_worker.sh).
-# The limit is now generous and configurable, and every exit path kills the child.
-TIME_LIMIT_MS = int(float(os.getenv("RECON_TIME_LIMIT_H", "30")) * 3600 * 1000)
+# There is no magic wall-clock number. A CPU solve of a win-12 cluster is a ten-hour job
+# when healthy, and the old six-hour limit killed exactly such a run -- badly: remoulade's
+# TimeLimitExceeded unwinds the ACTOR THREAD, and the solve is a subprocess, which ran on
+# as an orphan beside the next job. What decides whether a run should live is whether it
+# is still PRODUCING, so the worker reads the solver's own progress bars and judges by
+# rate: it posts rate and ETA to the bench, warns when the pace falls well below the run's
+# own early pace (two solves sharing a box read as a 10x slowdown), and kills only when no
+# progress line has arrived for STALL_KILL_MIN. The actor limit that remains is a ceiling
+# no healthy run reaches.
+TIME_LIMIT_MS = int(float(os.getenv("RECON_TIME_LIMIT_H", "168")) * 3600 * 1000)
+STALL_WARN_MIN = float(os.getenv("RECON_STALL_WARN_MIN", "20"))
+STALL_KILL_MIN = float(os.getenv("RECON_STALL_KILL_MIN", "120"))
+SLOW_FACTOR = float(os.getenv("RECON_SLOW_FACTOR", "3.0"))
+
+# tqdm's bar, as reconstruct.py prints it:  " 44%|████▍     | 416/948 [5:56:40<12:49:01, 86.73s/it]"
+_PROGRESS = re.compile(r"(\d+)/(\d+) \[(\d+(?::\d+)+)<(\d+(?::\d+)+|\?), +([\d.]+)(s/it|it/s)")
+
+
+class Progress:
+    """Productivity of the running solve, read off its own progress bars.
+
+    A solve prints several bars in sequence (the pair sweep, then two optimiser
+    passes), so a new bar is detected when the total changes or the count resets, and
+    the baseline pace is measured per bar from its first few iterations."""
+
+    def __init__(self):
+        self.done = self.total = 0
+        self.s_per_it = None
+        self.baseline = None          # median s/it over the bar's first samples
+        self.samples = []
+        self.last_line_at = time.monotonic()
+        self.last_progress_at = time.monotonic()
+        self.bars = 0
+        self.warning = None
+
+    def feed(self, line: str) -> None:
+        self.last_line_at = time.monotonic()
+        m = _PROGRESS.search(line)
+        if not m:
+            return
+        done, total = int(m.group(1)), int(m.group(2))
+        rate = float(m.group(5))
+        s_per_it = rate if m.group(6) == "s/it" else (1.0 / rate if rate else None)
+        if total != self.total or done < self.done:
+            self.bars += 1
+            self.samples, self.baseline = [], None
+        if done > self.done:
+            self.last_progress_at = time.monotonic()
+        self.done, self.total, self.s_per_it = done, total, s_per_it
+        if s_per_it is not None and self.baseline is None:
+            self.samples.append(s_per_it)
+            if len(self.samples) >= 20:
+                self.baseline = sorted(self.samples)[len(self.samples) // 2]
+        self.warning = None
+        if self.baseline and s_per_it and s_per_it > SLOW_FACTOR * self.baseline:
+            self.warning = (f"{s_per_it / self.baseline:.1f}x slower than this run's own early "
+                            f"pace ({self.baseline:.0f} s/it) — another solve on the box?")
+
+    def stalled_min(self) -> float:
+        return (time.monotonic() - self.last_progress_at) / 60.0
+
+    def eta_s(self):
+        if not self.s_per_it or not self.total:
+            return None
+        return int((self.total - self.done) * self.s_per_it)
+
+    def meta(self) -> dict:
+        d = {"done": self.done, "total": self.total, "bar": self.bars,
+             "s_per_it": None if self.s_per_it is None else round(self.s_per_it, 1),
+             "eta_s": self.eta_s()}
+        w = self.warning
+        st = self.stalled_min()
+        if st > STALL_WARN_MIN and self.total:
+            w = f"no progress for {st:.0f} min" + (f"; {w}" if w else "")
+        return {"progress": d, "warning": w}
 
 
 @remoulade.actor(queue_name="recon", time_limit=TIME_LIMIT_MS, max_retries=0)
@@ -215,19 +287,45 @@ def reconstruct_cluster(payload: dict) -> None:
         with open(log_path, "w") as lf:
             proc = subprocess.Popen(cmd, cwd=ENRICH_SCRIPTS, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True, bufsize=1)
+            # A reader thread, because `for line in proc.stdout` blocks: a solve that has
+            # gone silent could never be noticed from inside its own read loop.
+            q: "queue.Queue[str | None]" = queue.Queue()
+
+            def _reader():
+                for line in proc.stdout:
+                    q.put(line)
+                q.put(None)
+            threading.Thread(target=_reader, daemon=True).start()
             last_post, stage = 0.0, "starting"
-            for line in proc.stdout:
-                lf.write(line)
-                lf.flush()
-                print(f"  | {line.rstrip()}", flush=True)
-                stage = _stage_for(line) or stage
+            prog = Progress()
+            while True:
+                try:
+                    line = q.get(timeout=30)
+                except queue.Empty:
+                    line = ""
+                if line is None:
+                    break
+                if line:
+                    lf.write(line)
+                    lf.flush()
+                    print(f"  | {line.rstrip()}", flush=True)
+                    stage = _stage_for(line) or stage
+                    prog.feed(line)
+                if prog.total and prog.stalled_min() > STALL_KILL_MIN:
+                    _kill(proc)
+                    raise RuntimeError(
+                        f"stalled: no progress for {prog.stalled_min():.0f} min at "
+                        f"{prog.done}/{prog.total} (bar {prog.bars})")
                 now = time.monotonic()
                 if now - last_post > PROGRESS_EVERY_S:
                     last_post = now
+                    pm = prog.meta()
+                    if pm["warning"]:
+                        print(f"  WARNING {pm['warning']}", flush=True)
                     _post({"result_id": rid, "status": "running",
                            "worker": socket.gethostname(),
                            "meta": {"stage": stage,
-                                    "elapsed_s": round(time.time() - t0)}})
+                                    "elapsed_s": round(time.time() - t0), **pm}})
             code = proc.wait()
         if code != 0:
             status = "error"

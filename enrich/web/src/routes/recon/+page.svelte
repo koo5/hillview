@@ -76,7 +76,7 @@
 		captured_on: string | null;
 		params: Record<string, unknown>;
 		metrics: Metrics | null;
-		meta: Record<string, unknown> | null;
+		meta?: { stage?: string; rundir?: string; elapsed_s?: number; warning?: string | null; progress?: { done: number; total: number; bar?: number; s_per_it?: number | null; eta_s?: number | null } | null; [k: string]: unknown } | null;
 		has_cloud: boolean;
 		has_dense_cloud?: boolean;
 		has_topdown: boolean;
@@ -283,6 +283,11 @@
 	}
 	function ep(r: Run): number | null {
 		return r.metrics?.epipolar_px?.median ?? null;
+	}
+	function fmtEta(sec: number): string {
+		if (sec < 90) return `${Math.round(sec)} s`;
+		if (sec < 5400) return `${Math.round(sec / 60)} min`;
+		return `${(sec / 3600).toFixed(1)} h`;
 	}
 	function fmtPx(v: number | null | undefined): string {
 		if (v == null) return '—';
@@ -562,8 +567,15 @@
 								{#if r.status !== 'done'}
 									<span class="st" class:bad={r.status === 'error'}
 										>{r.status}{#if r.status === 'running' && r.meta?.stage}
-											· {r.meta.stage}{/if}</span
+											· {r.meta.stage}{/if}{#if r.status === 'running' && r.meta?.progress?.total}
+											· {r.meta.progress.done}/{r.meta.progress.total}{#if r.meta.progress.eta_s != null}
+												· ETA {fmtEta(r.meta.progress.eta_s)}{/if}{/if}</span
 									>
+									{#if r.meta?.warning}
+										<span class="st warn" title={r.meta.warning} data-testid="recon-run-warning"
+											>⚠ {r.meta.warning}</span
+										>
+									{/if}
 								{:else}
 									{r.captured_on ?? ''}
 								{/if}
@@ -1120,6 +1132,15 @@
 	}
 	th.sortable:hover {
 		text-decoration: underline;
+	}
+	.st.warn {
+		color: #e0a23a;
+		max-width: 26em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		display: inline-block;
+		vertical-align: bottom;
 	}
 	.listsort {
 		padding: 6px 8px 2px;
