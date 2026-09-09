@@ -121,7 +121,18 @@ anonymised at all, and person detection sometimes genuinely fails. Two consequen
    **withdrawn** on this basis, and the cache's prose stays where it is, on disk.
 
 The analyzer's future is a dedicated box running local models, keeping the messy details
-local. Whether that stays in the per-photo JSON files or moves to a local store is open.
+local. Decided later the same day: the free-text JSON files stay as they are, for now on
+the prod server with the workbench holding a copy; when the box exists, inference moves
+off cloud too.
+
+**What a cheap VL model is for, and what it is not.** Pressed on the list of things I
+hoped a small model could answer, the user narrowed it, correctly: class fractions are
+better answered by the Mapillary segmenter; people and car counts are meaningless because
+the model sees photos already doodled over, and the detector's own results are in
+`detected_objects`; pose is doubtful. Distance classes, yes — the data shows they
+stratify. And the high-level "is this frame usable" verdict is expected from the
+expensive operator model, not from a cheap one. That is the division of labour: the
+bench's tiles, thumbnails, chain and DEM checks exist to feed *that* judgement.
 Local inference already running on this box — the `pics` Mask2Former segmentation, MASt3R —
 is consistent with the policy.
 
