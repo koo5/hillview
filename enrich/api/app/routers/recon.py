@@ -994,6 +994,87 @@ async def enqueue(req: EnqueueRequest):
     return {"queued": str(rid), "name": name, "n_frames": len(frames)}
 
 
+@router.delete("/recon/runs/{run_id}")
+async def cancel_run(run_id: str):
+    """Mark a run cancelled. Its queue message is not reachable from here — RabbitMQ has
+    no by-message delete — so the worker checks this status on its first callback and
+    stops; and `purge_queue` + `requeue` below is how the operator re-shapes the queue
+    right now. Cancelling a running run is a request, not an interrupt: the worker
+    notices at its next progress post."""
+    rid = str(uuid.UUID(run_id))
+    async with wb_engine.begin() as conn:
+        n = (await conn.execute(text(
+            "UPDATE recon_runs SET status = 'cancelled', finished_at = now() "
+            "WHERE id = CAST(:id AS uuid) AND status IN ('queued', 'running')"),
+            {"id": rid})).rowcount
+    return {"cancelled": bool(n)}
+
+
+@router.post("/recon/runs/{run_id}/requeue")
+async def requeue_run(run_id: str):
+    """Re-send a run to the broker from its stored selection spec. With `purge_queue`
+    this is how the queue gets reordered: purge, then requeue the survivors in the
+    order wanted. The selection is replayed, so the frames are whatever the mirror says
+    now — which for a run enqueued an hour ago is the same thing."""
+    from .. import actors
+    if not actors.init_broker():
+        raise HTTPException(503, "no RABBITMQ_URL configured")
+    rid = str(uuid.UUID(run_id))
+    async with wb_engine.connect() as conn:
+        row = (await conn.execute(text(
+            "SELECT name, meta, params FROM recon_runs WHERE id = CAST(:id AS uuid)"),
+            {"id": rid})).mappings().first()
+    if not row or not (row["meta"] or {}).get("spec"):
+        raise HTTPException(404, "run has no stored selection spec")
+    sp = row["meta"]["spec"]
+    req = EnqueueRequest(lat=sp["center"][0], lon=sp["center"][1],
+                         radius_m=sp.get("radius_m", 300), limit=sp.get("limit", 24),
+                         offset=sp.get("offset", 0), stride=sp.get("stride", 1),
+                         after=sp.get("after"), before=sp.get("before"),
+                         inject=sp.get("inject") or [], params=sp.get("params") or {})
+    frames = await _select_frames(req)
+    if len(frames) < 2:
+        raise HTTPException(422, "selection no longer yields 2+ frames")
+    async with wb_engine.begin() as conn:
+        await conn.execute(text(
+            "UPDATE recon_runs SET status = 'queued', error = NULL, enqueued_at = now(), "
+            "  finished_at = NULL, n_frames = :nf, "
+            "  meta = COALESCE(meta, '{}'::jsonb) || CAST(:m AS jsonb) "
+            "WHERE id = CAST(:id AS uuid)"),
+            {"id": rid, "nf": len(frames),
+             "m": json.dumps({"frames": [_pending_frame(i, f) for i, f in enumerate(frames)]})})
+    actors.reconstruct_cluster.send({
+        "result_id": rid, "name": row["name"], "center": sp["center"],
+        "params": row["params"] or {}, "frames": frames,
+    })
+    return {"requeued": rid, "n_frames": len(frames)}
+
+
+@router.post("/recon/purge_queue")
+async def purge_queue():
+    """Drop every READY message on the recon queue, via the management API.
+
+    Two things to know before leaning on it. RabbitMQ's purge leaves UNACKED messages
+    alone — the jobs being solved, and also the one message each worker has PREFETCHED
+    and is holding for next — so the first job or two in line survive a purge and must
+    not be requeued on top of themselves. And the compose image is the non-management
+    one, so unless the plugin is enabled this returns 502 and the operator does it from
+    the host:  docker exec enrich_rabbitmq rabbitmqctl purge_queue recon
+    """
+    import httpx
+    url = os.getenv("RABBITMQ_MGMT_URL", "http://rabbitmq:15672")
+    user, pw = os.getenv("RABBITMQ_USER", "enrich"), os.getenv("RABBITMQ_PASSWORD", "enrich")
+    try:
+        async with httpx.AsyncClient(timeout=15, auth=(user, pw)) as c:
+            resp = await c.delete(f"{url}/api/queues/%2F/recon/contents")
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"management API unreachable ({e}); purge from the host: "
+                                 "docker exec enrich_rabbitmq rabbitmqctl purge_queue recon")
+    if resp.status_code not in (200, 204):
+        raise HTTPException(502, f"purge failed: {resp.status_code} {resp.text[:200]}")
+    return {"purged": True}
+
+
 @router.post("/recon/preview")
 async def preview_selection(req: EnqueueRequest):
     """What would be selected, without enqueueing — the cluster is the decision that
@@ -1109,6 +1190,12 @@ async def result(result_json: str = Form(...),
         rid = str(uuid.UUID(str(d["result_id"])))
     except (KeyError, TypeError, ValueError):
         raise HTTPException(422, "result_id must be a uuid")
+    # a cancelled run's worker learns it here, on its next progress post, and stops
+    async with wb_engine.connect() as conn:
+        st = (await conn.execute(text(
+            "SELECT status FROM recon_runs WHERE id = CAST(:id AS uuid)"), {"id": rid})).scalar()
+    if st == "cancelled" and d.get("status") == "running":
+        return {"ok": True, "cancelled": True}
 
     uploads = {"metadata": metadata, "metrics": metrics, "cloud": cloud,
                "dense_cloud": dense_cloud,

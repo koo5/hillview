@@ -80,14 +80,25 @@ def ram_gate(required_gb: float = REQUIRED_GB,
         time.sleep(10)
 
 
+class Cancelled(Exception):
+    """The bench cancelled this run; raised out of a progress post to stop the solve."""
+
+
 def _post(payload: dict, files: dict | None = None) -> None:
     import requests
     try:
-        requests.post(CALLBACK_URL,
-                      data={"result_json": json.dumps(payload)},
-                      files=files or None,
-                      headers={"X-Worker-Token": WORKER_TOKEN},
-                      timeout=300)
+        r = requests.post(CALLBACK_URL,
+                          data={"result_json": json.dumps(payload)},
+                          files=files or None,
+                          headers={"X-Worker-Token": WORKER_TOKEN},
+                          timeout=300)
+        try:
+            if r.json().get("cancelled"):
+                raise Cancelled()
+        except (ValueError, AttributeError):
+            pass
+    except Cancelled:
+        raise
     except Exception as e:                              # never let reporting kill the job
         print(f"  callback failed: {type(e).__name__}: {e}", flush=True)
 
@@ -159,6 +170,7 @@ def reconstruct_cluster(payload: dict) -> None:
 
     t0 = time.time()
     status, error, metrics = "done", None, None
+    proc = None
     try:
         ram_gate()
         print(f"  $ {' '.join(cmd)}", flush=True)
@@ -187,6 +199,14 @@ def reconstruct_cluster(payload: dict) -> None:
             with open(log_path) as lf:
                 tail = "".join(lf.readlines()[-12:]).strip()
             error = f"reconstruct.py exited {code}\n{tail}"
+    except Cancelled:
+        # the bench said stop; kill the subprocess if one is up and report nothing more
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        print(f"  {rid} cancelled by the bench", flush=True)
+        return
     except Exception as e:
         status, error = "error", f"{type(e).__name__}: {e}"
         print(f"  FAILED: {error}", flush=True)
