@@ -851,6 +851,45 @@ to diagnose that optimisation — it was the joint solve's own reprojection numb
 the links look worthless. And a geometric check with a sign ambiguity needs a synthetic
 control, because on real data a mirrored answer is indistinguishable from a wrong match.
 
+### The ground-agreement metric, and what three new areas look like (2026-09-09)
+
+Three runs on fresh areas, chosen by scoring all 577 recent Prague capture sessions on the
+properties that predicted quality: frame count, shooting interval, and how non-collinear
+the camera track is.
+
+| run | what it is | reprojection median |
+| --- | --- | --- |
+| `dense-spotA-2026-08-19` | plaza, hard surface, textured object at 1-3 m | **1.34 px** |
+| `newest-2026-09-08` | gravel path at dusk between bushes | 9.48 px |
+| `prosek-b-tight-aug06` | dry meadow on a hilltop, distant city vista | 9.50 px |
+
+Rendered from their own camera poses, the two new ones fail in ways reprojection error
+barely distinguishes. The gravel path comes out as a **staircase of tiles**: each frame
+lays its patch of path at its own height and they stack. The meadow reconstructs its near
+ground displaced from where the photograph puts it, and the city vista is simply absent.
+
+**So the metric had to be physical.** `scripts/enrich/recon_ground_split.py` asks two
+questions of every run:
+
+1. how high is each camera above *its own* floor — a phone is held at 1.4-1.7 m, so this
+   is a scale check that needs no GPS;
+2. where two neighbouring frames see the **same patch of ground**, do they agree on its
+   height?
+
+| run | camera height (sd) | neighbours disagree by |
+| --- | --- | --- |
+| `dense-spotA-2026-08-19` | 1.24 m (0.12) | **0.9 cm** median, 11 cm p90 |
+| `newest-2026-09-08` | 1.83 m (0.21) | **29 cm** median, 93 cm p90 |
+| `prosek-b-tight-aug06` | 1.76 m (0.38) | **75 cm** median, 2.6 m max |
+
+That separates the runs by a factor of 80 where reprojection error separates them by 7, and
+it says what is wrong in centimetres of pavement rather than pixels. It also reads the scale
+error straight off: spot A is ~20% small, the two walks ~15% large.
+
+A single "consensus floor" only means something for a capture that stood still — a walk
+climbs and descends, and its floor is *supposed* to move. The neighbour-agreement test works
+for both, which is why it is the one to keep.
+
 ### Visual assessment: rendering the model from a camera's own pose (2026-09-08)
 
 The sharpest test of a solve there is. Take frame i's solved pose and focal, render the
