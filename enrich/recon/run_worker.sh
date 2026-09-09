@@ -22,8 +22,14 @@ MEM_MAX="${RECON_MEM_MAX:-16G}"
 # A second worker on the same queue is a supported thing when the box has the headroom --
 # the jobs are hours long and independent. Each unit carries its own ceiling, so N workers
 # means N x MEM_MAX worst case: check `free` before raising N.
-#   RECON_UNIT=enrich-recon-2 RECON_MEM_MAX=10G ./run_worker.sh
+#   RECON_UNIT=enrich-recon-2 RECON_MEM_MAX=10G RECON_THREADS=8 ./run_worker.sh   (and 8 on the first)
 UNIT="${RECON_UNIT:-enrich-recon}"
+# Threads per worker. MEASURED 2026-09-09: two workers each left at torch's default
+# (one OpenMP thread per core) ran at 140-170 s per pair against 17 s for one worker
+# alone -- a ten-fold slowdown, not the two-fold the core split predicts, because
+# OpenMP barriers spin when 32 threads share 16 cores. Two workers only make sense
+# with THREADS set to a share of nproc each; the default leaves one worker the box.
+THREADS="${RECON_THREADS:-$(nproc)}"
 
 if [ ! -x "$VENV_PY" ]; then
 	echo "error: no python at $VENV_PY (set RECON_PYTHON)" >&2
@@ -49,9 +55,12 @@ systemd-run --user --unit="$UNIT" \
   --setenv=RECON_RUNS_DIR="${RECON_RUNS_DIR:-$HERE/../../scripts/enrich/runs/bench}" \
   --setenv=RECON_REQUIRED_GB="${RECON_REQUIRED_GB:-8}" \
   --setenv=RECON_PROGRESS_EVERY_S="${RECON_PROGRESS_EVERY_S:-30}" \
+  --setenv=OMP_NUM_THREADS="$THREADS" \
+  --setenv=MKL_NUM_THREADS="$THREADS" \
+  --setenv=TORCH_NUM_THREADS="$THREADS" \
   ${MAST3R_REPO:+--setenv=MAST3R_REPO="$MAST3R_REPO"} \
   ${MAST3R_CKPT:+--setenv=MAST3R_CKPT="$MAST3R_CKPT"} \
   "$VENV_PY" -m remoulade worker --threads 1
 
-echo "$UNIT started (MemoryHigh=$MEM_HIGH, MemoryMax=$MEM_MAX)"
+echo "$UNIT started (MemoryHigh=$MEM_HIGH, MemoryMax=$MEM_MAX, threads=$THREADS)"
 systemctl --user status "$UNIT" --no-pager | head -6
