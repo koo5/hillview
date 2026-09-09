@@ -36,6 +36,10 @@ def main():
     ap.add_argument("metadata", help="path to a run's metadata.json")
     ap.add_argument("--dsm", default="/dem/cuzk/dtm10.vrt")
     ap.add_argument("--eye", type=float, default=1.5, help="assumed camera height, m")
+    ap.add_argument("--geoid", type=float, default=float(os.getenv("TERRAIN_GEOID_OFFSET_M", "44.5")),
+                    help="phone GPS altitude is ELLIPSOIDAL (WGS84) and the DTM is orthometric; "
+                         "in Prague the difference is ~44.5 m. Without this the offset row reads "
+                         "as a 45 m datum error that is not there")
     ap.add_argument("--renderer", default="/work/renderer.py")
     a = ap.parse_args()
 
@@ -63,7 +67,12 @@ def main():
           f"(cell {grid.cell_size_m(lat0):.1f} m)")
 
     # the solve says the camera is this far above the DEM's ground, in DEM datum terms
-    resid = (cams[ok, 2] + alt0) - (ground[ok] + a.eye)
+    has_alt = any(f.get("altitude") is not None for f in frames)
+    # alt0 is the mean GPS altitude when the photos carry one (August 2026 onward, ~90% of
+    # captures) and 0 when they do not; only in the first case is there a geoid to remove
+    datum = alt0 - (a.geoid if has_alt and alt0 else 0.0)
+    resid = (cams[ok, 2] + datum) - (ground[ok] + a.eye)
+    print(f"  GPS altitude: {'present, mean %.1f m ellipsoidal -> %.1f m orthometric' % (alt0, datum) if has_alt and alt0 else 'ABSENT (datum unobservable from inside)'}")
     kx = 111320.0 * math.cos(math.radians(lat0))
     e = (lon[ok] - lon0) * kx
     n = (lat[ok] - lat0) * 110540.0

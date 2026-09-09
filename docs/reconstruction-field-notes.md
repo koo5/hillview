@@ -858,9 +858,17 @@ align things at long distances, not something that will reliably tell us if ther
 real staircase or not". Formalised, that is a statement about spatial frequency. The
 workbench has Czech LiDAR at 2 m and 10 m over Prague plus worldwide GLO-30, and none of
 those can see a 30 cm step in a pavement. What they *can* see is the low-frequency half,
-and that half happens to contain the one thing a span cannot know about itself: **no photo
-in this corpus carries a GPS altitude**, so a run's vertical datum is entirely
-unobservable from inside.
+and that half contains the thing a span knows least about itself: its vertical datum.
+
+**Correction on altitude.** I had written that no photo in this corpus carries a GPS
+altitude. That was true of every run I had looked at — all of them June and July 2026 —
+and false of the corpus: 27,208 of 70,576 photos carry one, and from **August 2026 it is
+90%, September 96%**. Phone altitude is *ellipsoidal* (WGS84) and the DTM is orthometric,
+so the two differ by the geoid undulation, ~44.5 m in Prague (`TERRAIN_GEOID_OFFSET_M`
+already knows this). Applied, spot A's GPS datum sits **0.36 m** from LiDAR, Prosek B's
+4.2 m, the newest walk's 4.0 m. So for recent captures the datum is observable to a few
+metres from GPS alone, and the DEM refines it rather than supplying it from nothing. The
+June and July runs still have no altitude, and their datum still comes only from the DEM.
 
 `scripts/enrich/recon_dem_check.py` splits the comparison into three parts, in decreasing
 order of how much to believe them: the **offset** (one free parameter per span, and the DEM
@@ -870,12 +878,12 @@ where the DEM has nothing to say.
 
 Against the 10 m bare-earth DTM, assuming a 1.5 m eye height:
 
-| run | tilt over the track | residual sd | real relief |
-| --- | --- | --- | --- |
-| `dense-spotA-2026-08-19` | +0.17 m over 39 m | **0.05 m** | 0.1 m |
-| `newest-2026-09-08` | +3.97 m over 87 m | 0.62 m | 2.5 m |
-| `walk_jizni` | +1.81 m over 112 m | 2.20 m | 1.1 m |
-| `prosek-b-tight-aug06` | **+10.43 m** over 111 m | 4.08 m | 5.1 m |
+| run | GPS datum vs LiDAR | tilt over the track | residual sd | real relief |
+| --- | --- | --- | --- | --- |
+| `dense-spotA-2026-08-19` | +0.36 m | +0.17 m over 39 m | **0.05 m** | 0.1 m |
+| `newest-2026-09-08` | -3.99 m | +3.97 m over 87 m | 0.62 m | 2.5 m |
+| `walk_jizni` | no altitude | +1.81 m over 112 m | 2.20 m | 1.1 m |
+| `prosek-b-tight-aug06` | +4.22 m | **+10.43 m** over 111 m | 4.08 m | 5.1 m |
 
 Spot A agrees with Czech LiDAR to five centimetres, which is the first time anything has
 confirmed that run from outside itself. And Prosek B drifts ten metres vertically over a
