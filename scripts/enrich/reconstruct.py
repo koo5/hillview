@@ -680,6 +680,14 @@ def main():
     ap.add_argument("--min_conf", type=float, default=1.5, help="dense-point confidence threshold")
     ap.add_argument("--mask_anon", action="store_true",
                     help="correspondence-mask anonymization doodle boxes (drop matches inside them)")
+    ap.add_argument("--semantic_mask", action="store_true",
+                    help="drop correspondences on the transient classes (vegetation, sky, "
+                         "people, vehicles, water, snow) using the pics project's "
+                         "Mask2Former-Mapillary segmentation — see semantic_mask.py. "
+                         "Supersedes --mask_vegetation, which is the colour-only fallback")
+    ap.add_argument("--semantic_budget", type=float, default=0.65,
+                    help="if the full semantic mask would cover more than this fraction of "
+                         "a frame, mask only the sky there instead")
     ap.add_argument("--mask_vegetation", action="store_true",
                     help="drop correspondences on green-dominant pixels (foliage, living "
                          "grass) — the one cheap image statistic that predicts solve quality")
@@ -742,11 +750,19 @@ def main():
     model = AsymmetricMASt3R.from_pretrained(MAST3R_CKPT).to(a.device).eval()
 
     imgs = load_images(paths, size=a.size, verbose=True)
-    if a.mask_solocator or a.mask_anon or a.mask_vegetation:
+    if a.mask_solocator or a.mask_anon or a.mask_vegetation or a.semantic_mask:
         # Correspondence-level masks, built in the EXACT loaded frame MASt3R matches on (same
         # coords as the cached xy correspondences). Keyed by PATH: convert_dust3r_pairs_naming
         # remaps each img's 'instance' to paths[idx], which is what the corres cache keys on.
-        ng = na = nv = 0
+        ng = na = nv = ns = 0
+        sem = {}
+        if a.semantic_mask:
+            # Inference is ~40 s a frame and cached by image content, so a re-run of the
+            # same cluster is free. It runs BEFORE the loop so one subprocess covers every
+            # frame and pays the model load once.
+            import semantic_mask as _sem
+            sem = {os.path.abspath(k): v
+                   for k, v in _sem.ensure_masks(paths, log=log).items()}
         for im in imgs:
             i = im["idx"]; p = sub[i]
             H2, W2 = int(im["true_shape"][0][0]), int(im["true_shape"][0][1])
@@ -756,6 +772,14 @@ def main():
                 gm = green_overlay_mask(rgb)
                 if gm is not None:
                     m = gm.copy(); ng += 1
+            if a.semantic_mask:                               # Mask2Former transient set
+                stem = sem.get(os.path.abspath(paths[i]))
+                if stem:
+                    sm, info = _sem.load_mask(stem, (H2, W2), budget=a.semantic_budget)
+                    if sm.any():
+                        m = sm if m is None else (m | sm)
+                        ns += 1
+                    log(f"  semantic mask {i:3d}: {info}")
             if a.mask_vegetation:                             # foliage / living grass
                 vm = vegetation_mask(rgb)
                 if vm is not None:
@@ -775,7 +799,7 @@ def main():
         if CORR_MASKS:
             install_corr_masking()
             log(f"correspondence-masking: green overlay on {ng}, anon boxes on {na}, "
-                f"vegetation on {nv} frame(s)")
+                f"vegetation on {nv}, semantic on {ns} frame(s)")
     if a.pairs == "complete":
         pairs = make_pairs(imgs, scene_graph="complete", prefilter=None, symmetrize=True)
         log(f"pairing=complete -> {len(pairs)} directed pairs")
