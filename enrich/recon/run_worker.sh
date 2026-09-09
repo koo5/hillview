@@ -38,6 +38,12 @@ fi
 
 systemctl --user stop "$UNIT" 2>/dev/null || true
 systemctl --user reset-failed "$UNIT" 2>/dev/null || true
+# `stop` returns before a transient unit is unloaded; start too soon and systemd-run says
+# "already loaded or has a fragment file" and there is NO worker. Wait for it to go.
+for _ in $(seq 1 60); do
+  systemctl --user show "$UNIT" -p LoadState 2>/dev/null | grep -q "LoadState=not-found" && break
+  sleep 0.5
+done
 
 # Restart=on-failure + max_retries=0 on the actor: a killed reconstruction is NOT retried
 # automatically. A 50-minute job that died on memory pressure would just die again, and

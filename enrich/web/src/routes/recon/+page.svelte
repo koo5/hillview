@@ -76,7 +76,7 @@
 		captured_on: string | null;
 		params: Record<string, unknown>;
 		metrics: Metrics | null;
-		meta?: { stage?: string; rundir?: string; elapsed_s?: number; warning?: string | null; progress?: { done: number; total: number; bar?: number; s_per_it?: number | null; eta_s?: number | null } | null; [k: string]: unknown } | null;
+		meta?: { stage?: string; rundir?: string; elapsed_s?: number; warning?: string | null; progress?: { done: number; total: number; bar?: number; s_per_it?: number | null; eta_s?: number | null; cpu_s?: number; wall_s?: number } | null; [k: string]: unknown } | null;
 		has_cloud: boolean;
 		has_dense_cloud?: boolean;
 		has_topdown: boolean;
@@ -559,7 +559,7 @@
 						data-run={r.name}
 						class:sel={detail?.id === r.id}
 						onclick={() => select(r)}
-						title="{r.n_pairs} pairs · GPS residual {r.metrics?.gps_residual_m?.med_resid ?? '—'} m"
+						title="{r.n_pairs} pairs · GPS residual {r.metrics?.gps_residual_m?.med_resid ?? '—'} m{r.meta?.progress?.cpu_s != null ? ` · cpu ${fmtEta(r.meta.progress.cpu_s)} / wall ${fmtEta(r.meta.progress.wall_s ?? 0)}` : ''}"
 					>
 						<td>
 							<b>{r.name}</b>
