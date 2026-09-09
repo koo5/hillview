@@ -306,6 +306,73 @@ test('previews the cluster before it can be enqueued', async ({ page }) => {
 	expect((enqueued as { limit: number }).limit).toBe(5);
 });
 
+const GEO_FRAMES = [
+	{ idx: 0, gps: [50.1, 14.5], recovered_gps: [50.1001, 14.5001] },
+	{ idx: 1, gps: [50.1005, 14.5005], recovered_gps: [50.1004, 14.5008] },
+	{ idx: 2, gps: [50.101, 14.501], recovered_gps: [50.1012, 14.5009] }
+];
+
+async function stubGeo(page: Page) {
+	await page.route('**/api/recon/runs/*', async (route) => {
+		const id = new URL(route.request().url()).pathname.split('/').pop()!;
+		const r = RUNS.find((x) => x.id === id) ?? RUNS[0];
+		await route.fulfill({
+			json: {
+				...runRow(r),
+				frames: GEO_FRAMES.map((f) => ({
+					id: `aaaaaaaa-0000-0000-0000-00000000000${f.idx}`,
+					idx: f.idx,
+					focal_px: 405,
+					base_focal_px: 400,
+					reproj_px: 1.2,
+					epipolar_px: 0.3,
+					residual_m: 0.4
+				})),
+				pairs: PAIRS,
+				worst_pairs: [],
+				geo: { frames: GEO_FRAMES }
+			}
+		});
+	});
+	await page.route('**/tile/**', async (route) => route.abort());
+}
+
+test('the track map goes fullscreen and comes back', async ({ page }) => {
+	// It is the view that shows a solve folding, so it has to be usable at full size --
+	// and a fixed overlay with no way out is a trap, hence the Escape half.
+	await stubGeo(page);
+	await page.goto('/recon?run=walk_dense');
+	const btn = page.getByTestId('recon-track-expand');
+	await expect(btn).toBeVisible({ timeout: 20_000 });
+	const small = (await page.locator('.leaflet-container').boundingBox())!.height;
+	await btn.click();
+	await expect
+		.poll(async () => (await page.locator('.leaflet-container').boundingBox())!.height)
+		.toBeGreaterThan(small + 200);
+	await page.keyboard.press('Escape');
+	await expect
+		.poll(async () => (await page.locator('.leaflet-container').boundingBox())!.height)
+		.toBeLessThan(small + 50);
+});
+
+test('hovering a recovered camera names its frame and lights its link', async ({ page }) => {
+	await stubGeo(page);
+	await page.goto('/recon?run=walk_dense');
+	await expect(page.getByTestId('recon-track-expand')).toBeVisible({ timeout: 20_000 });
+	const dots = page.locator('path.leaflet-interactive');
+	await expect(dots.first()).toBeVisible();
+	// move the real mouse to the marker's centre rather than locator.hover(): leaflet
+	// paints into one SVG, so playwright's actionability checks can sit forever waiting
+	// for a <path> it considers obscured by its own siblings
+	// dispatch the DOM event leaflet actually listens for, rather than driving the real
+	// mouse: leaflet paints every marker into one SVG, and playwright's actionability
+	// checks can wait forever on a <path> it thinks its own siblings obscure
+	await dots.last().dispatchEvent('mouseover');
+	await expect(page.locator('.hoverbox')).toContainText(/frame \d/);
+	// and the link for that frame lights up
+	await expect(page.locator('path[stroke="#e0a23a"]').first()).toBeVisible();
+});
+
 test('a layer toggle keeps the viewpoint', async ({ page }) => {
 	// Layers used to be remounted through a {#key}, which threw away the orbit camera:
 	// every checkbox tick sent you back to the default framing, so the toggles were

@@ -166,6 +166,64 @@ def self_test():
     return worst < 1.0
 
 
+def chain_report(rows, frames, json_path=None):
+    """Where does a walk stop being one walk?
+
+    A sliding-window solve is a chain: frame i is tied to i+1 and little else. If one link
+    in that chain is weak, everything downstream of it is only held in place by GPS, and
+    the reconstruction is free to fold there. Watching walk_jizni, the first five frames
+    march forward and the sixth jumps back -- which is what a broken link looks like from
+    the outside.
+
+    The link strength is not the correspondence COUNT. Prosek showed pairs with 3,000+
+    correspondences sitting at 92 px, so what matters is how many of them fit one epipolar
+    geometry: count x inlier fraction, the number of matches that actually agree.
+    """
+    import numpy as np
+    by = {(r["i"], r["j"]): r for r in rows}
+    n = len(frames)
+    links = []
+    for i in range(n - 1):
+        r = by.get((i, i + 1)) or by.get((i + 1, i))
+        links.append((i, r))
+    good = [int(round(r["n"] * r["inlier_frac"])) for _, r in links if r]
+    med = float(np.median(good)) if good else 0.0
+    # a break is an order of magnitude below the run's own typical link, or no link at all
+    thr = max(30.0, med / 10.0)
+    print(f"consecutive-frame chain over {n} frames; typical link {med:.0f} agreeing "
+          f"matches, break threshold {thr:.0f}")
+    breaks = []
+    for i, r in links:
+        g = int(round(r["n"] * r["inlier_frac"])) if r else 0
+        mark = ""
+        if g < thr:
+            mark = "   <-- BREAK"
+            breaks.append(i)
+        if r:
+            print(f"  {i:3d}->{i+1:<3d} matches {r['n']:5d}  inliers {r['inlier_frac']:.2f}"
+                  f"  agreeing {g:5d}  {r['verdict']}{mark}")
+        else:
+            print(f"  {i:3d}->{i+1:<3d} no cached pair{mark}")
+    if not breaks:
+        print("\nno break: the chain holds all the way through")
+    else:
+        print(f"\n{len(breaks)} break(s) after frame(s): {breaks}")
+        spans, start = [], 0
+        for b in breaks:
+            spans.append((start, b))
+            start = b + 1
+        spans.append((start, n - 1))
+        print("suggested spans, to solve separately and then register as sessions:")
+        for s0, s1 in spans:
+            print(f"  frames {s0}-{s1}  ({s1 - s0 + 1} frames)")
+    if json_path:
+        json.dump({"breaks": breaks,
+                   "links": [{"i": i, "agreeing": (int(round(r["n"] * r["inlier_frac"]))
+                                                   if r else 0)} for i, r in links]},
+                  open(json_path, "w"), indent=1)
+        print("wrote", json_path)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir", nargs="?")
@@ -175,6 +233,8 @@ def main():
     ap.add_argument("--thr-px", type=float, default=2.0,
                     help="Sampson inlier threshold, in pixels of the loaded frame")
     ap.add_argument("--max-points", type=int, default=3000)
+    ap.add_argument("--chain", action="store_true",
+                    help="report only the CONSECUTIVE-frame chain, and where it breaks")
     a = ap.parse_args()
     if a.self_test:
         raise SystemExit(0 if self_test() else 1)
@@ -255,6 +315,10 @@ def main():
 
     if not rows:
         print("no pairs with enough correspondences")
+        return
+
+    if a.chain:
+        chain_report(rows, frames, a.json)
         return
     fr = np.array([r["inlier_frac"] for r in rows])
     xs = np.array([r["cross_session"] for r in rows])

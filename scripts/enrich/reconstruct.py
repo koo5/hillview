@@ -861,6 +861,25 @@ def main():
             cc = d_confs[i].reshape(H, W) if d_confs[i].size == H * W else d_confs[i]
             render_conf(cc, os.path.join(a.out, f"conf_{i:03d}_{sub[i]['id'][:8]}.png"))
         msk = [c > a.min_conf for c in d_confs]
+        # Correspondence masking keeps masked pixels out of the MATCHING; it does nothing
+        # about the dense cloud, which happily emits a point for every confident pixel --
+        # so the anonymisation doodles painted over people and number plates were still
+        # being reconstructed, in full colour, in every masked run. Exclude them here too:
+        # we do not want that geometry and we certainly do not want it on show.
+        if CORR_MASKS:
+            nmask = 0
+            for i, m in enumerate(msk):
+                cm = CORR_MASKS.get(paths[i])
+                if cm is None:
+                    continue
+                flat = cm.ravel()
+                if flat.size != m.size:
+                    log(f"  dense mask skip for frame {i}: {flat.size} vs {m.size} px")
+                    continue
+                m &= ~flat
+                nmask += 1
+            if nmask:
+                log(f"dense: masked pixels excluded from the cloud on {nmask} frame(s)")
         dpts = np.concatenate([p[m] for p, m in zip(d_pts3d, msk)]) if d_pts3d else np.zeros((0, 3))
         dcols = np.concatenate([np.asarray(r).reshape(-1, 3)[m] for r, m in zip(rgb, msk)])
         log(f"dense: {len(dpts)} points (conf>{a.min_conf}) in {time.time()-td0:.0f}s")

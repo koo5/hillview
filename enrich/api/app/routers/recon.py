@@ -292,7 +292,16 @@ async def cloud_packed(run_id: str, request: Request, max_points: int = 1_500_00
             align = _alignment(await _artifact(run_id, "metadata_path"))
         except (HTTPException, OSError, json.JSONDecodeError):
             align = None
-    cache = f"{src}.{max_points}{'.enu' if align else ''}.bin"
+    # The cache key MUST carry the alignment. It did not, and re-grounding a run then left
+    # a stale ENU cloud on disk beside freshly-rotated cameras — the frusta flew off on
+    # their own path while the points stayed where the old fit had put them, which is
+    # exactly what it looked like from the outside.
+    tag = ""
+    if align:
+        import hashlib
+        tag = ".enu-" + hashlib.md5(
+            json.dumps(align, sort_keys=True, default=list).encode()).hexdigest()[:10]
+    cache = f"{src}.{max_points}{tag}.bin"
     if not os.path.exists(cache):
         _write_atomic(cache, _ply_to_packed(src, max_points, align))
     return FileResponse(cache, media_type="application/octet-stream",
@@ -504,6 +513,22 @@ async def realign(run_id: str, dry_run: bool = False):
                        "roll_correction_deg": round(correction, 2)}
     md["ground"] = ev
     _write_atomic(md_path, json.dumps(md, indent=2).encode())
+    # every packed cloud cached under the OLD alignment is now wrong; the key change makes
+    # them unreachable, so remove them rather than leave dead megabytes behind
+    import glob as _glob
+    removed = 0
+    for col in ("cloud_path", "dense_cloud_path"):
+        try:
+            p = await _artifact(run_id, col)
+        except HTTPException:
+            continue
+        for f in _glob.glob(f"{p}.*.bin"):
+            try:
+                os.remove(f)
+                removed += 1
+            except OSError:
+                pass
+    out["stale_caches_removed"] = removed
     return out
 
 

@@ -11,15 +11,27 @@ was right to 0.4 deg. The correlation with how collinear the track is, is exact.
 Gravity is the missing constraint, and there are two cheap estimates of it that need no
 new sensor data:
 
-  A. **the phones' own down axis.** People hold a phone roughly upright, so the mean of
-     the camera y-axes is close to gravity. Biased by however far the photographer tilted
-     the phone down, and that bias only cancels when the headings cover the circle.
+  A. **the cameras' RIGHT axis, which is pitch-invariant.** A phone held upright has no
+     ROLL, and no roll means its right axis is horizontal *whatever the pitch* — so gravity
+     is the direction perpendicular to every camera's right axis, the smallest singular
+     vector of the stack of them. This is the estimate to trust: the capture app's EXIF
+     orientation is reliable in this corpus (the phone is upright unless it was held nearly
+     flat), and unlike the down axis it carries no pitch bias. Measured on the bench, the
+     right-axis tilt has a standard deviation of only 2.4-6.2 degrees, and on the walks it
+     lands 4-8 degrees from vertical where the down axis is 9-19 degrees out.
+
+     It has one degeneracy: if every camera shares a heading, all the right axes are the
+     same vector and the perpendicular direction is a whole plane, not a direction. The
+     singular-value ratio detects that and the estimate is refused.
   B. **the dominant planar surface under the cameras.** The ground is flat, so its normal
      is up. Unbiased where there is a floor to see, useless where there is not.
 
+  C. the mean DOWN axis, kept only as a sign check and a last resort. It is what A used to
+     be before the pitch bias was understood.
+
 They are independent, so their disagreement is the honest error bar. This module computes
-both, prefers B when it has real support and agrees with A, and refuses to guess when they
-disagree wildly — a wrong up is worse than a known-bad one.
+all three, prefers B when it has real support and A does not contradict it, falls back to A,
+and refuses to guess when they disagree wildly — a wrong up is worse than a known-bad one.
 """
 import math
 
@@ -90,9 +102,30 @@ def estimate_up(points: np.ndarray, cam_pos: np.ndarray, cam_rot: np.ndarray,
     g_phone = downs.mean(0)
     ln = np.linalg.norm(g_phone)
     up_phone = -g_phone / ln if ln > 1e-6 else None
-    # how consistently the phone was held: a big spread means A is worthless
+    # how consistently the phone was held: a big spread means C is worthless
     phone_spread = float(np.degrees(
         np.arccos(np.clip(downs @ (g_phone / max(ln, 1e-9)), -1, 1))).std()) if ln > 1e-6 else None
+
+    # A: the pitch-invariant one. Gravity is orthogonal to every camera's right axis.
+    rights = cam_rot[:, :, 0]
+    rights = rights / np.linalg.norm(rights, axis=1, keepdims=True)
+    up_right, right_sv_ratio, right_tilt = None, 0.0, None
+    if len(rights) >= 3:
+        sv = np.linalg.svd(rights, compute_uv=False)
+        _, _, vt = np.linalg.svd(rights)
+        cand = vt[2] / np.linalg.norm(vt[2])
+        # the null direction is only a DIRECTION when the headings spread: all-parallel
+        # right axes leave a whole plane perpendicular to them
+        right_sv_ratio = float(sv[1] / max(sv[2], 1e-9))
+        if up_phone is not None and cand @ up_phone < 0:
+            cand = -cand
+        right_tilt = float(np.degrees(np.arcsin(np.clip(np.abs(rights @ cand), -1, 1))).std())
+        # s2/s3 near 1 is the degenerate case -- every camera at the same heading, all
+        # right axes the same vector, and the perpendicular direction a whole plane. Well
+        # spread headings push s3 down to the tilt noise and the ratio up. Measured on the
+        # bench, real captures land at 3-5 and the gate only has to exclude ~1.
+        if right_sv_ratio > 2.0:
+            up_right = cand
 
     up_plane, inliers, frac = None, 0, 0.0
     if len(points) > 500 and len(cam_pos) > 1:
@@ -116,25 +149,36 @@ def estimate_up(points: np.ndarray, cam_pos: np.ndarray, cam_rot: np.ndarray,
                     n = -n
                 up_plane = n
 
-    disagree = None
-    if up_plane is not None and up_phone is not None:
-        disagree = float(np.degrees(math.acos(max(-1.0, min(1.0, float(up_plane @ up_phone))))))
+    def between(a, b):
+        if a is None or b is None:
+            return None
+        return float(np.degrees(math.acos(max(-1.0, min(1.0, float(a @ b))))))
 
-    # The decision. B when it has real support and A does not contradict it; otherwise A
-    # if the phone was held consistently; otherwise nothing, and the caller keeps the
-    # GPS-only fit rather than being handed a guess.
-    if up_plane is not None and frac > 0.05 and inliers > 2000 and (disagree is None or disagree < 30):
+    disagree = between(up_plane, up_right if up_right is not None else up_phone)
+
+    # The decision. B when it has real support and A does not contradict it; otherwise A,
+    # the pitch-invariant estimate; otherwise C; otherwise nothing at all, and the caller
+    # keeps its GPS-only fit rather than being handed a guess.
+    if (up_plane is not None and frac > 0.05 and inliers > 2000
+            and (disagree is None or disagree < 25)):
         up, src = up_plane, "ground-plane"
+    elif up_right is not None:
+        up, src = up_right, "camera-right-axis"
     elif up_phone is not None and (phone_spread or 99) < 20:
         up, src = up_phone, "phone-down"
     else:
         up, src = None, "none"
     return {"up": None if up is None else up.tolist(), "up_source": src,
             "up_plane": None if up_plane is None else up_plane.tolist(),
+            "up_right": None if up_right is None else up_right.tolist(),
             "up_phone": None if up_phone is None else up_phone.tolist(),
             "plane_inliers": int(inliers), "plane_inlier_frac": round(float(frac), 4),
             "phone_spread_deg": None if phone_spread is None else round(phone_spread, 2),
-            "disagreement_deg": None if disagree is None else round(disagree, 2)}
+            "right_axis_tilt_sd_deg": None if right_tilt is None else round(right_tilt, 2),
+            "right_axis_sv_ratio": round(right_sv_ratio, 2),
+            "plane_vs_right_deg": None if disagree is None else round(disagree, 2),
+            "right_vs_phone_deg": (None if between(up_right, up_phone) is None
+                                   else round(between(up_right, up_phone), 2))}
 
 
 def _rot_a_to_b(a: np.ndarray, b: np.ndarray) -> np.ndarray:
