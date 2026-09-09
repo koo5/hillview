@@ -12,25 +12,31 @@
 #   ./run_worker.sh                              # start (or restart) the unit
 #   journalctl --user -u enrich-recon -f         # logs
 #   systemctl --user stop enrich-recon           # stop
+#   RECON_UNIT=enrich-recon-2 ./run_worker.sh    # a second worker on the same queue
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 VENV_PY="${RECON_PYTHON:-$HERE/../../scripts/enrich/.venv/bin/python}"
 MEM_HIGH="${RECON_MEM_HIGH:-12G}"
 MEM_MAX="${RECON_MEM_MAX:-16G}"
+# A second worker on the same queue is a supported thing when the box has the headroom --
+# the jobs are hours long and independent. Each unit carries its own ceiling, so N workers
+# means N x MEM_MAX worst case: check `free` before raising N.
+#   RECON_UNIT=enrich-recon-2 RECON_MEM_MAX=10G ./run_worker.sh
+UNIT="${RECON_UNIT:-enrich-recon}"
 
 if [ ! -x "$VENV_PY" ]; then
 	echo "error: no python at $VENV_PY (set RECON_PYTHON)" >&2
 	exit 1
 fi
 
-systemctl --user stop enrich-recon 2>/dev/null || true
-systemctl --user reset-failed enrich-recon 2>/dev/null || true
+systemctl --user stop "$UNIT" 2>/dev/null || true
+systemctl --user reset-failed "$UNIT" 2>/dev/null || true
 
 # Restart=on-failure + max_retries=0 on the actor: a killed reconstruction is NOT retried
 # automatically. A 50-minute job that died on memory pressure would just die again, and
 # the run row already carries the error for the bench to show.
-systemd-run --user --unit=enrich-recon \
+systemd-run --user --unit="$UNIT" \
   --working-directory="$HERE" \
   -p MemoryHigh="$MEM_HIGH" \
   -p MemoryMax="$MEM_MAX" \
@@ -47,5 +53,5 @@ systemd-run --user --unit=enrich-recon \
   ${MAST3R_CKPT:+--setenv=MAST3R_CKPT="$MAST3R_CKPT"} \
   "$VENV_PY" -m remoulade worker --threads 1
 
-echo "enrich-recon unit started (MemoryHigh=$MEM_HIGH, MemoryMax=$MEM_MAX)"
-systemctl --user status enrich-recon --no-pager | head -6
+echo "$UNIT started (MemoryHigh=$MEM_HIGH, MemoryMax=$MEM_MAX)"
+systemctl --user status "$UNIT" --no-pager | head -6

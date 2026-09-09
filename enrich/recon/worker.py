@@ -101,6 +101,7 @@ FLAG_PARAMS = {"win": "--win", "pairs": "--pairs", "pair_dist": "--pair_dist",
                "min_conf": "--min_conf"}
 BOOL_PARAMS = {"dense": "--dense", "mask_anon": "--mask_anon",
                "mask_solocator": "--mask_solocator",
+               "mask_vegetation": "--mask_vegetation",
                "shared_intrinsics": "--shared_intrinsics"}
 
 # lines worth reporting as progress — reconstruct.py only prints, so this is the interface

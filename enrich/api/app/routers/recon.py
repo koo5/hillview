@@ -41,7 +41,7 @@ WORKER_TOKEN = os.getenv("ENRICH_WORKER_TOKEN", "dev-worker-token")
 # left here is solver and masking behaviour. Mirrored in the worker (defense both ends).
 ALLOWED_PARAMS = {"win", "pairs", "pair_dist", "pair_dang", "size",
                   "niter1", "niter2", "dense", "min_conf",
-                  "mask_anon", "mask_solocator", "shared_intrinsics"}
+                  "mask_anon", "mask_solocator", "mask_vegetation", "shared_intrinsics"}
 
 # Where the archived experiment runs live. Import copies out of here; nothing writes to it.
 ARCHIVE_ROOT = os.getenv(

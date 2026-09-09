@@ -257,6 +257,49 @@ def green_overlay_mask(rgb):
     return m
 
 
+def vegetation_mask(rgb, min_frac=0.02, max_frac=0.75):
+    """rgb: uint8 (H,W,3). Bool mask of green-dominant pixels — foliage and living grass.
+
+    WHY. Pooled over 625 frames and 20 runs on the bench, the green fraction of a frame is
+    the only cheap image statistic that predicts how well it solves. By quartile the least
+    vegetated frames come in at 3.1 px median reprojection and the most vegetated at 42.6 —
+    a 14x spread from three colour channels and no model. Sky fraction, gradient energy and
+    brightness all showed nothing (|rho| <= 0.07 within run).
+
+    LIMITS, because this is a proxy and not a segmenter. It sees GREEN, so it catches summer
+    foliage and living grass and misses the dry August meadow at Prosek and the gravel path
+    at dusk, which solve just as badly. And a green sign or a green car is masked too, which
+    is harmless (both are unreliable to match on anyway) but is not what the name says.
+
+    Returns None when there is too little to bother with, or so much that masking would
+    leave nothing to match on — a frame that is 80% hedge needs dropping, not masking.
+    """
+    a = rgb.astype(np.float32)
+    R, G, Bb = a[..., 0], a[..., 1], a[..., 2]
+    tot = R + G + Bb
+    # RELATIVE green, not absolute. The first version used G > R + 8 with a G > 40 floor and
+    # missed exactly the pixels that matter: a hedge in shade is (30, 45, 25), plenty green
+    # but nowhere near bright, so the dark half of every tree escaped while its sunlit rim
+    # was masked. Normalising by total intensity is what makes the test survive shade.
+    green = (G / np.maximum(tot, 1.0) > 0.375) & (G > R) & (G > Bb) & (tot > 45)
+    frac = float(green.mean())
+    if frac < min_frac or frac > max_frac:
+        return None
+    # open once to drop single-pixel speckle, then dilate: a matcher grabs the BOUNDARY of a
+    # leaf as readily as the leaf, so the mask has to overshoot slightly
+    m = green
+    for _ in range(1):
+        e = m.copy()
+        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            e &= np.roll(np.roll(m, dy, 0), dx, 1)
+        m = e
+    out = m.copy()
+    for dy in (-2, -1, 0, 1, 2):
+        for dx in (-2, -1, 0, 1, 2):
+            out |= np.roll(np.roll(m, dy, 0), dx, 1)
+    return out
+
+
 def crop_solocator_bar(img, top_frac=0.15):
     """If the Solocator overlay is present, CROP off the fixed top compass/GPS bar — cleaner
     than painting (removes the bar AND its boundary, no artificial edge for the matcher to grab).
@@ -637,6 +680,9 @@ def main():
     ap.add_argument("--min_conf", type=float, default=1.5, help="dense-point confidence threshold")
     ap.add_argument("--mask_anon", action="store_true",
                     help="correspondence-mask anonymization doodle boxes (drop matches inside them)")
+    ap.add_argument("--mask_vegetation", action="store_true",
+                    help="drop correspondences on green-dominant pixels (foliage, living "
+                         "grass) — the one cheap image statistic that predicts solve quality")
     ap.add_argument("--mask_solocator", action="store_true",
                     help="gray out Solocator overlay (green marks + top bar) on Solocator-origin photos")
     ap.add_argument("--out", default=os.path.join(HERE, "runs", "recon"))
@@ -696,11 +742,11 @@ def main():
     model = AsymmetricMASt3R.from_pretrained(MAST3R_CKPT).to(a.device).eval()
 
     imgs = load_images(paths, size=a.size, verbose=True)
-    if a.mask_solocator or a.mask_anon:
+    if a.mask_solocator or a.mask_anon or a.mask_vegetation:
         # Correspondence-level masks, built in the EXACT loaded frame MASt3R matches on (same
         # coords as the cached xy correspondences). Keyed by PATH: convert_dust3r_pairs_naming
         # remaps each img's 'instance' to paths[idx], which is what the corres cache keys on.
-        ng = na = 0
+        ng = na = nv = 0
         for im in imgs:
             i = im["idx"]; p = sub[i]
             H2, W2 = int(im["true_shape"][0][0]), int(im["true_shape"][0][1])
@@ -710,6 +756,10 @@ def main():
                 gm = green_overlay_mask(rgb)
                 if gm is not None:
                     m = gm.copy(); ng += 1
+            if a.mask_vegetation:                             # foliage / living grass
+                vm = vegetation_mask(rgb)
+                if vm is not None:
+                    m = vm if m is None else (m | vm); nv += 1
             if a.mask_anon and p.get("anon_saved"):           # anonymization doodle boxes
                 W1, H1 = p["saved_wh"]
                 am = np.zeros((H2, W2), bool); hit = False
@@ -724,7 +774,8 @@ def main():
                 save_mask_overlay(rgb, m, os.path.join(a.out, f"mask_{i:03d}_{p['id'][:8]}.png"))
         if CORR_MASKS:
             install_corr_masking()
-            log(f"correspondence-masking: green overlay on {ng}, anon boxes on {na} frame(s)")
+            log(f"correspondence-masking: green overlay on {ng}, anon boxes on {na}, "
+                f"vegetation on {nv} frame(s)")
     if a.pairs == "complete":
         pairs = make_pairs(imgs, scene_graph="complete", prefilter=None, symmetrize=True)
         log(f"pairing=complete -> {len(pairs)} directed pairs")
