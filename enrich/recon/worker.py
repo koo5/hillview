@@ -174,12 +174,16 @@ def _chain(rundir: str) -> dict:
 # as an orphan beside the next job. What decides whether a run should live is whether it
 # is still PRODUCING, so the worker reads the solver's own progress bars and judges by
 # rate: it posts rate and ETA to the bench, warns when the pace falls well below the run's
-# own early pace (two solves sharing a box read as a 10x slowdown), and kills only when no
-# progress line has arrived for STALL_KILL_MIN. The actor limit that remains is a ceiling
-# no healthy run reaches.
-TIME_LIMIT_MS = int(float(os.getenv("RECON_TIME_LIMIT_H", "168")) * 3600 * 1000)
-STALL_WARN_MIN = float(os.getenv("RECON_STALL_WARN_MIN", "20"))
-STALL_KILL_MIN = float(os.getenv("RECON_STALL_KILL_MIN", "120"))
+# own early pace (two solves sharing a box read as a 10x slowdown), and kills only when
+# the solve has BURNED CPU without producing -- STALL_KILL_MIN of the child's own CPU time
+# since its last progress line, not wall time. The VM this runs on can be paused: on
+# resume the guest clocks jump forward, and a wall-clock stall check would kill a healthy
+# solve the moment it came back. A paused solve accrues no CPU; a spinning one does. Wall
+# time is still reported, next to CPU time, so the operator can tell paused from stuck.
+# The actor limit that remains is a ceiling no healthy run reaches, pauses included.
+TIME_LIMIT_MS = int(float(os.getenv("RECON_TIME_LIMIT_H", "720")) * 3600 * 1000)
+STALL_WARN_MIN = float(os.getenv("RECON_STALL_WARN_MIN", "20"))       # wall, warn only
+STALL_KILL_CPU_MIN = float(os.getenv("RECON_STALL_KILL_CPU_MIN", "120"))  # CPU, kill
 SLOW_FACTOR = float(os.getenv("RECON_SLOW_FACTOR", "3.0"))
 
 # tqdm's bar, as reconstruct.py prints it:  " 44%|████▍     | 416/948 [5:56:40<12:49:01, 86.73s/it]"
@@ -193,7 +197,7 @@ class Progress:
     passes), so a new bar is detected when the total changes or the count resets, and
     the baseline pace is measured per bar from its first few iterations."""
 
-    def __init__(self):
+    def __init__(self, pid=None):
         self.done = self.total = 0
         self.s_per_it = None
         self.baseline = None          # median s/it over the bar's first samples
@@ -202,6 +206,28 @@ class Progress:
         self.last_progress_at = time.monotonic()
         self.bars = 0
         self.warning = None
+        self.pid = pid
+        self.cpu_at_progress = self.cpu_s()
+        self.wall0 = time.time()
+
+    def cpu_s(self) -> float:
+        """The child's cumulative CPU seconds, children included. 0 if it is gone."""
+        if not self.pid:
+            return 0.0
+        try:
+            import psutil
+            p = psutil.Process(self.pid)
+            t = p.cpu_times()
+            tot = t.user + t.system
+            for c in p.children(recursive=True):
+                try:
+                    ct = c.cpu_times()
+                    tot += ct.user + ct.system
+                except psutil.Error:
+                    pass
+            return float(tot)
+        except Exception:
+            return 0.0
 
     def feed(self, line: str) -> None:
         self.last_line_at = time.monotonic()
@@ -216,6 +242,7 @@ class Progress:
             self.samples, self.baseline = [], None
         if done > self.done:
             self.last_progress_at = time.monotonic()
+            self.cpu_at_progress = self.cpu_s()
         self.done, self.total, self.s_per_it = done, total, s_per_it
         if s_per_it is not None and self.baseline is None:
             self.samples.append(s_per_it)
@@ -227,7 +254,13 @@ class Progress:
                             f"pace ({self.baseline:.0f} s/it) — another solve on the box?")
 
     def stalled_min(self) -> float:
+        """Wall minutes since the last progress line. Jumps across a VM pause: warn only."""
         return (time.monotonic() - self.last_progress_at) / 60.0
+
+    def stalled_cpu_min(self) -> float:
+        """CPU minutes the solve has burned since its last progress line. This is the
+        stall that means something: it does not move while the VM is paused."""
+        return max(0.0, self.cpu_s() - self.cpu_at_progress) / 60.0
 
     def eta_s(self):
         if not self.s_per_it or not self.total:
@@ -235,13 +268,17 @@ class Progress:
         return int((self.total - self.done) * self.s_per_it)
 
     def meta(self) -> dict:
+        cpu = self.cpu_s()
         d = {"done": self.done, "total": self.total, "bar": self.bars,
              "s_per_it": None if self.s_per_it is None else round(self.s_per_it, 1),
-             "eta_s": self.eta_s()}
+             "eta_s": self.eta_s(),
+             "cpu_s": round(cpu), "wall_s": round(time.time() - self.wall0)}
         w = self.warning
-        st = self.stalled_min()
+        st, sc = self.stalled_min(), self.stalled_cpu_min()
         if st > STALL_WARN_MIN and self.total:
-            w = f"no progress for {st:.0f} min" + (f"; {w}" if w else "")
+            w = (f"no progress for {st:.0f} min wall / {sc:.0f} min cpu"
+                 + (" — paused, not stuck" if sc < st / 4 else "")
+                 + (f"; {w}" if w else ""))
         return {"progress": d, "warning": w}
 
 
@@ -297,7 +334,7 @@ def reconstruct_cluster(payload: dict) -> None:
                 q.put(None)
             threading.Thread(target=_reader, daemon=True).start()
             last_post, stage = 0.0, "starting"
-            prog = Progress()
+            prog = Progress(pid=proc.pid)
             while True:
                 try:
                     line = q.get(timeout=30)
@@ -311,11 +348,12 @@ def reconstruct_cluster(payload: dict) -> None:
                     print(f"  | {line.rstrip()}", flush=True)
                     stage = _stage_for(line) or stage
                     prog.feed(line)
-                if prog.total and prog.stalled_min() > STALL_KILL_MIN:
+                if prog.total and prog.stalled_cpu_min() > STALL_KILL_CPU_MIN:
                     _kill(proc)
                     raise RuntimeError(
-                        f"stalled: no progress for {prog.stalled_min():.0f} min at "
-                        f"{prog.done}/{prog.total} (bar {prog.bars})")
+                        f"stalled: {prog.stalled_cpu_min():.0f} min of CPU without progress "
+                        f"({prog.stalled_min():.0f} min wall) at {prog.done}/{prog.total} "
+                        f"(bar {prog.bars})")
                 now = time.monotonic()
                 if now - last_post > PROGRESS_EVERY_S:
                     last_post = now
