@@ -710,8 +710,16 @@ points lie within 5.3 m of the origin and below camera height. The depthmap for 
 facing the Congress Centre *does* predict the building; the confidence map for the same
 frame is dark violet over the entire building and bright only on the bench and the
 pavement around it. `--min_conf 1.5` then deletes it. So the "dense" layer is a subject
-scanner, and the far field never survives the threshold. Queued `spotA-lowconf-0p3` to
-find out what `min_conf 0.3` keeps.
+scanner, and the far field never survives the threshold.
+
+**And lowering the threshold does not rescue it.** `spotA-lowconf-0p3` re-ran the same 46
+frames at `min_conf 0.3` (identical solve: 1.35 px against 1.33). It yields 2,707,345 dense
+points instead of 2,489,259 — 8.8% more — and extends the cloud's reach from 8.4 to 17.1
+solve units, about 6 m to 13 m. The Congress Centre wall starts at 14 m. So the confidence
+MASt3R assigns to the building is not merely below 1.5, it is below 0.3: near zero. The
+depth is predicted and the model does not believe it, and no threshold turns disbelief into
+data. Whatever fills the far field here, it is not this network at this baseline — which is
+the argument for the map layer, stated as a measurement.
 
 **Baseline was never the limit here.** Median pair baseline 2.76 m, p90 4.60 m, max 10.15 m
 — a 20 %-error depth horizon of 228 m at the median. Everything visible from this plaza is
@@ -765,10 +773,10 @@ alone. `sparse_global_alignment` optimises everything jointly, so 326 bad cross-
 links drag the good geometry down with them. Adding sessions did not add information, it
 subtracted it.
 
-**2. A real cross-session link does exist.** Exactly one, between 2026-06-15 and
-2026-08-06, at **0.57 px over 3,884 correspondences** with a 0.57 m baseline. One verified
-link out of 163 undirected attempts. So the answer to "can visits be linked at all" is yes,
-rarely.
+**2. Cross-session links exist in numbers — this section first said otherwise, and was
+wrong.** See the correction below: judged on their own two-view evidence rather than
+through the broken joint solve, **25 of 83** cross-session pairs verify, across all four
+dates including a nine-month gap.
 
 **3. Thickness is NOT the gate.** The obvious fix — require plenty of correspondences before
 trusting a cross-session pair — does not separate them:
@@ -789,11 +797,59 @@ depths, so they mix "this match is wrong" with "this solve is wrong". That is pr
 the next step cannot be another joint solve.
 
 **So the architecture follows from the measurement.** Solve each session alone, where the
-solver already works. Verify each candidate cross-session link **pairwise and independently
-of any global solve** — a two-view essential-matrix fit with an inlier ratio and a relative
-pose to check against GPS, which we do not have yet. Register the surviving links with a
-pose graph. That is the "submap pose-graph + verified loop closures" line in the open
-threads, and this run is the evidence that the verification half is the hard half.
+solver already works. Verify each candidate cross-session link pairwise and independently
+of any global solve. Register the surviving links with a pose graph.
+
+### Correction, same day: the links are there. The SOLVE was the problem.
+
+The tool the section above says we need is now written — `scripts/enrich/recon_verify_links.py`
+— and it says something different from what the joint solve's numbers implied.
+
+For each pair it normalises the cached correspondences by that frame's intrinsics, RANSACs
+an essential matrix, keeps the inlier fraction, decomposes it, picks the (R, t) with the
+most points in front of both cameras, and then checks the recovered baseline **direction**
+against the direction GPS puts between the cameras and the recovered **relative yaw**
+against the compass difference. Nothing in that touches the global solve. Orientation comes
+from the compass, deliberately, because using the solved pose would import the very solve
+being questioned.
+
+It has a `--self-test` that synthesises two cameras with a known baseline, and it earns its
+place: the first version reported almost every link as contradicting GPS, because the
+cheirality check used `t` where it needed `-R^T t` — camera 2's centre in camera 1's frame,
+not the essential matrix's translation. Every recovered baseline came out roughly reversed,
+which on real data is invisible and merely looks like bad data. Sign fixed, self-test at
+0.00 deg.
+
+Calibrated on two controls first:
+
+| run | pairs judged | median inlier fraction | verified |
+| --- | --- | --- | --- |
+| `dense-spotA-2026-08-19` (best solve on the bench) | 174 | **0.997** | 173 |
+| `dense-prosek-aug06` (good single-session walk) | 134 | 0.966 | 101 |
+| `fuse-prosek-5sessions`, within-session | 29 | 0.783 | 13 |
+| `fuse-prosek-5sessions`, cross-session | 83 | 0.481 | **25** |
+
+Verified cross-session links by date pair, out of those judged:
+
+| dates | verified / judged |
+| --- | --- |
+| 2025-11-02 ↔ 2026-06-15 | 3 / 6 |
+| 2025-11-02 ↔ 2026-07-10 | 1 / 7 |
+| 2025-11-02 ↔ 2026-08-06 | 4 / 10 |
+| 2026-06-15 ↔ 2026-07-10 | 6 / 20 |
+| 2026-06-15 ↔ 2026-08-06 | 5 / 17 |
+| 2026-07-10 ↔ 2026-08-06 | 6 / 21 |
+
+So visits nine months apart *do* link, and roughly a third of the candidate cross-session
+pairs stand up on their own evidence. **The matching was not the failure. The monolithic
+solve was.** Which flips the reading of the fusion run: 25 good links were present and
+`sparse_global_alignment` still tore the geometry apart, so the next attempt is a pose graph
+over verified links and per-session submaps, not a better matcher.
+
+Two lessons worth keeping. A metric computed *inside* a broken optimisation cannot be used
+to diagnose that optimisation — it was the joint solve's own reprojection numbers that made
+the links look worthless. And a geometric check with a sign ambiguity needs a synthetic
+control, because on real data a mirrored answer is indistinguishable from a wrong match.
 
 ### Visual assessment: rendering the model from a camera's own pose (2026-09-08)
 
