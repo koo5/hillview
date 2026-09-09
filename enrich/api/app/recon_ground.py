@@ -192,7 +192,8 @@ def _rot_a_to_b(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.eye(3) + vx + vx @ vx * ((1 - c) / (s * s))
 
 
-def gravity_alignment(cams: np.ndarray, gps_enu: np.ndarray, up_solve: np.ndarray):
+def gravity_alignment(cams: np.ndarray, gps_enu: np.ndarray, up_solve: np.ndarray,
+                      weights=None):
     """Similarity solve->ENU with up_solve pinned to +Z, everything else fitted to GPS.
 
     Only the HORIZONTAL components drive the yaw, scale and translation: phone GPS
@@ -205,18 +206,22 @@ def gravity_alignment(cams: np.ndarray, gps_enu: np.ndarray, up_solve: np.ndarra
     up = up / np.linalg.norm(up)
     R0 = _rot_a_to_b(up, np.array([0.0, 0.0, 1.0]))
     a = (R0 @ cams.T).T
-    ac, bc = a.mean(0), gps_enu.mean(0)
+    # weighted: a frame's vote on yaw, scale and centroid is its weight, so a rough
+    # (manual) location steers less and a distrusted one not at all
+    w = np.ones(len(a)) if weights is None else np.asarray(weights, float)
+    w = w / max(float(w.sum()), 1e-9)
+    ac, bc = (w[:, None] * a).sum(0), (w[:, None] * gps_enu).sum(0)
     A, B = a - ac, gps_enu - bc
     # 2-D Procrustes in the horizontal plane
-    num = float((A[:, 0] * B[:, 1] - A[:, 1] * B[:, 0]).sum())
-    den = float((A[:, 0] * B[:, 0] + A[:, 1] * B[:, 1]).sum())
+    num = float((w * (A[:, 0] * B[:, 1] - A[:, 1] * B[:, 0])).sum())
+    den = float((w * (A[:, 0] * B[:, 0] + A[:, 1] * B[:, 1])).sum())
     yaw = math.atan2(num, den)
     cy, sy = math.cos(yaw), math.sin(yaw)
     Rz = np.array([[cy, -sy, 0.0], [sy, cy, 0.0], [0.0, 0.0, 1.0]])
     rot = Rz @ R0
     ra = (Rz @ A.T).T
-    denom = float((A[:, :2] ** 2).sum())
-    s = float((ra[:, :2] * B[:, :2]).sum() / denom) if denom > 1e-12 else 1.0
+    denom = float((w[:, None] * A[:, :2] ** 2).sum())
+    s = float((w[:, None] * ra[:, :2] * B[:, :2]).sum() / denom) if denom > 1e-12 else 1.0
     # NB: `ac` is already levelled by R0, so the centroid must be carried by Rz alone —
     # applying `rot` (= Rz @ R0) to it would level it twice, which silently throws the
     # whole cluster tens of metres sideways.

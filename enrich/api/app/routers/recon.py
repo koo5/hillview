@@ -84,7 +84,10 @@ SUMMARY_KEYS = ("reproj_px", "epipolar_px", "reproj_px_median_of_pairs",
                 "n_pairs_within_session", "n_pairs_cross_session",
                 "n_corres_within_session", "n_corres_cross_session",
                 "within_session_reproj_px", "cross_session_reproj_px",
-                "within_session_epipolar_px", "cross_session_epipolar_px")
+                "within_session_epipolar_px", "cross_session_epipolar_px",
+                # the physical checks the worker attaches: ground agreement in cm and
+                # the two-view chain with its breaks -- see docs/reconstruction-field-notes.md
+                "ground_split", "chain")
 
 
 def _artifact_abspath(rel: str) -> str:

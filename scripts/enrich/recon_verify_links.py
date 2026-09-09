@@ -238,6 +238,97 @@ def chain_report(rows, frames, json_path=None):
         print("wrote", json_path)
 
 
+def judge(run_dir, min_corres=60, thr_px=2.0, max_points=3000):
+    """Every cached undirected pair, judged on its own two-view evidence -> list of dicts
+    (with `verdict`). This is the library entry; main() prints around it."""
+    meta = json.load(open(os.path.join(run_dir, "metadata.json")))
+    frames = meta["frames"]
+    keys = rm.frame_keys(meta)
+    cps = rm.canon_paths(run_dir, keys)
+    H, W, _ = rm.read_frame_geometry(cps)
+    scene = np.load(os.path.join(run_dir, "scene.npz"))
+    focals = scene["focals"].astype(np.float64).ravel()
+    K = (scene["intrinsics"].astype(np.float64) if "intrinsics" in scene.files
+         else rm.intrinsics(focals, W, H))
+    Kinv = np.linalg.inv(K)
+    corres = rm.read_corres(run_dir, keys)
+    lat0, lon0 = meta["center"]
+    kx = 111320.0 * math.cos(math.radians(lat0))
+    ky = 110540.0
+    gps = np.array([[(f["gps"][1] - lon0) * kx, (f["gps"][0] - lat0) * ky, 0.0]
+                    for f in frames])
+    sess = [f.get("session") for f in frames]
+    rows, seen = [], set()
+    for (i, j), (xy1, xy2, confs) in sorted(corres.items()):
+        if (j, i) in seen:
+            continue
+        seen.add((i, j))
+        if len(xy1) < min_corres:
+            continue
+        sel = (np.linspace(0, len(xy1) - 1, min(max_points, len(xy1))).astype(int)
+               if len(xy1) > max_points else slice(None))
+        p1, p2 = xy1[sel], xy2[sel]
+        x1 = (np.concatenate([p1, np.ones((len(p1), 1))], 1) @ Kinv[i].T)[:, :3]
+        x2 = (np.concatenate([p2, np.ones((len(p2), 1))], 1) @ Kinv[j].T)[:, :3]
+        x1 /= x1[:, 2:3]
+        x2 /= x2[:, 2:3]
+        thr = thr_px / float(np.mean([focals[i], focals[j]]))
+        E, inl = ransac_E(x1, x2, thr)
+        if E is None or inl.sum() < 8:
+            continue
+        R, t, cheir = decompose(E, x1, x2, inl)
+        g = gps[j] - gps[i]
+        gnorm = float(np.linalg.norm(g[:2]))
+        ang = yaw_err = None
+        bi, bj = frames[i].get("compass_angle"), frames[j].get("compass_angle")
+        if gnorm > 1.0 and t is not None and bi is not None:
+            tw = cam2world_from_heading(bi) @ (-R.T @ t)
+            tw2 = tw[:2] / max(np.linalg.norm(tw[:2]), 1e-9)
+            g2 = g[:2] / gnorm
+            ang = float(np.degrees(math.acos(max(-1.0, min(1.0, float(tw2 @ g2))))))
+        if bi is not None and bj is not None and R is not None:
+            fwd = R.T @ np.array([0.0, 0.0, 1.0])
+            yaw_E = math.degrees(math.atan2(fwd[0], fwd[2]))
+            yaw_err = abs(((bj - bi) - yaw_E + 180) % 360 - 180)
+        r = {"i": i, "j": j, "n": int(len(xy1)),
+             "inlier_frac": round(float(inl.mean()), 4),
+             "n_inliers": int(inl.sum()),
+             "cheirality_frac": round(cheir / max(int(inl.sum()), 1), 3),
+             "gps_dist_m": round(gnorm, 1),
+             "baseline_dir_err_deg": None if ang is None else round(ang, 1),
+             "rel_yaw_err_deg": None if yaw_err is None else round(yaw_err, 1),
+             "cross_session": bool(sess[i] and sess[j] and sess[i] != sess[j]),
+             "date_i": (frames[i].get("captured_at") or "")[:10],
+             "date_j": (frames[j].get("captured_at") or "")[:10]}
+        r["verdict"] = verdict(r)
+        rows.append(r)
+    return rows, frames
+
+
+def chain_summary(rows, frames):
+    """The chain report as a dict: breaks and the suggested spans."""
+    by = {(r["i"], r["j"]): r for r in rows}
+    n = len(frames)
+    links = []
+    for i in range(n - 1):
+        r = by.get((i, i + 1)) or by.get((i + 1, i))
+        links.append(int(round(r["n"] * r["inlier_frac"])) if r else 0)
+    med = float(np.median([g for g in links if g])) if any(links) else 0.0
+    thr = max(30.0, med / 10.0)
+    breaks = [i for i, g in enumerate(links) if g < thr]
+    spans, start = [], 0
+    for b in breaks:
+        spans.append([start, b])
+        start = b + 1
+    spans.append([start, n - 1])
+    from collections import Counter
+    return {"typical_link": round(med), "break_threshold": round(thr), "breaks": breaks,
+            "spans": spans, "links": links,
+            "verdicts": dict(Counter(r["verdict"] for r in rows)),
+            "n_cross_session": sum(1 for r in rows if r["cross_session"]),
+            "n_cross_verified": sum(1 for r in rows if r["cross_session"] and r["verdict"] == "verified")}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir", nargs="?")
@@ -255,84 +346,12 @@ def main():
     if not a.run_dir:
         raise SystemExit("need a run_dir (or --self-test)")
 
-    meta = json.load(open(os.path.join(a.run_dir, "metadata.json")))
-    frames = meta["frames"]
-    keys = rm.frame_keys(meta)
-    cps = rm.canon_paths(a.run_dir, keys)
-    H, W, _ = rm.read_frame_geometry(cps)
-    scene = np.load(os.path.join(a.run_dir, "scene.npz"))
-    focals = scene["focals"].astype(np.float64).ravel()
-    K = (scene["intrinsics"].astype(np.float64) if "intrinsics" in scene.files
-         else rm.intrinsics(focals, W, H))
-    Kinv = np.linalg.inv(K)
-    corres = rm.read_corres(a.run_dir, keys)
-
-    lat0, lon0 = meta["center"]
-    kx = 111320.0 * math.cos(math.radians(lat0))
-    ky = 110540.0
-    gps = np.array([[(f["gps"][1] - lon0) * kx, (f["gps"][0] - lat0) * ky, 0.0]
-                    for f in frames])
-    sess = [f.get("session") for f in frames]
-
-    rows = []
-    seen = set()
-    for (i, j), (xy1, xy2, confs) in sorted(corres.items()):
-        if (j, i) in seen:
-            continue
-        seen.add((i, j))
-        if len(xy1) < a.min_corres:
-            continue
-        sel = (np.linspace(0, len(xy1) - 1, min(a.max_points, len(xy1))).astype(int)
-               if len(xy1) > a.max_points else slice(None))
-        p1, p2 = xy1[sel], xy2[sel]
-        x1 = (np.concatenate([p1, np.ones((len(p1), 1))], 1) @ Kinv[i].T)[:, :3]
-        x2 = (np.concatenate([p2, np.ones((len(p2), 1))], 1) @ Kinv[j].T)[:, :3]
-        x1 /= x1[:, 2:3]
-        x2 /= x2[:, 2:3]
-        thr = a.thr_px / float(np.mean([focals[i], focals[j]]))
-        E, inl = ransac_E(x1, x2, thr)
-        if E is None or inl.sum() < 8:
-            continue
-        R, t, cheir = decompose(E, x1, x2, inl)
-        # baseline direction, ours vs what GPS says. Both are directions only: an
-        # essential matrix has no scale, and that is fine -- the question is whether the
-        # two views are looking at the same place from where GPS says they were.
-        g = gps[j] - gps[i]
-        gnorm = float(np.linalg.norm(g[:2]))
-        ang = yaw_err = None
-        bi, bj = frames[i].get("compass_angle"), frames[j].get("compass_angle")
-        if gnorm > 1.0 and t is not None and bi is not None:
-            # Orient by the COMPASS, not by the solved pose. Using the pose would import
-            # the very solve this check exists to be independent of -- and on a fused run
-            # that solve is broken. The compass is biased by tens of degrees, which is
-            # fine: the signal being tested is 0 vs 180.
-            tw = cam2world_from_heading(bi) @ (-R.T @ t)
-            tw2 = tw[:2] / max(np.linalg.norm(tw[:2]), 1e-9)
-            g2 = g[:2] / gnorm
-            ang = float(np.degrees(math.acos(max(-1.0, min(1.0, float(tw2 @ g2))))))
-        if bi is not None and bj is not None and R is not None:
-            # relative yaw from the essential matrix vs relative yaw from the compass:
-            # a second independent check, and one the compass BIAS cancels out of
-            fwd = R.T @ np.array([0.0, 0.0, 1.0])
-            yaw_E = math.degrees(math.atan2(fwd[0], fwd[2]))
-            yaw_err = abs(((bj - bi) - yaw_E + 180) % 360 - 180)
-        rows.append({"i": i, "j": j, "n": int(len(xy1)),
-                     "inlier_frac": round(float(inl.mean()), 4),
-                     "n_inliers": int(inl.sum()),
-                     "cheirality_frac": round(cheir / max(int(inl.sum()), 1), 3),
-                     "gps_dist_m": round(gnorm, 1),
-                     "baseline_dir_err_deg": None if ang is None else round(ang, 1),
-                     "rel_yaw_err_deg": None if yaw_err is None else round(yaw_err, 1),
-                     "cross_session": bool(sess[i] and sess[j] and sess[i] != sess[j]),
-                     "date_i": (frames[i].get("captured_at") or "")[:10],
-                     "date_j": (frames[j].get("captured_at") or "")[:10]})
+    rows, frames = judge(a.run_dir, a.min_corres, a.thr_px, a.max_points)
 
     if not rows:
         print("no pairs with enough correspondences")
         return
 
-    for r in rows:
-        r["verdict"] = verdict(r)
     if a.chain:
         chain_report(rows, frames, a.json)
         return

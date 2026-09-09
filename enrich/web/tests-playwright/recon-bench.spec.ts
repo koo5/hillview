@@ -392,6 +392,35 @@ async function mountCloud(page: Page) {
 	await expect(stage).toBeVisible({ timeout: 20_000 });
 }
 
+test('the frames table sorts by a clicked column', async ({ page }) => {
+	// "which frame drifted" should be one click, not a scan down fifty rows
+	await page.route('**/api/recon/runs/*', async (route) => {
+		const id = new URL(route.request().url()).pathname.split('/').pop()!;
+		const r = RUNS.find((x) => x.id === id) ?? RUNS[0];
+		await route.fulfill({
+			json: {
+				...runRow(r),
+				frames: [0.8, 42.5, 3.1].map((e, i) => ({
+					id: `cccccccc-0000-0000-0000-00000000000${i}`, idx: i, focal_px: 400,
+					base_focal_px: 400, reproj_px: e, epipolar_px: e / 2, residual_m: 0.5
+				})),
+				pairs: PAIRS, worst_pairs: [], geo: null
+			}
+		});
+	});
+	await page.goto('/recon?run=walk_dense');
+	const hdr = page.getByTestId('recon-frames-sort-reproj');
+	await expect(hdr).toBeVisible({ timeout: 20_000 });
+	const firstCell = () => page.locator('table').filter({ has: hdr }).locator('tbody tr').first().locator('td').first();
+	await expect(firstCell()).toHaveText('0');
+	await hdr.click(); // descending: worst first
+	await expect(firstCell()).toHaveText('1');
+	await hdr.click(); // ascending
+	await expect(firstCell()).toHaveText('0');
+	await hdr.click(); // off: back to capture order
+	await expect(firstCell()).toHaveText('0');
+});
+
 test('a queued run shows its frames before it is solved', async ({ page }) => {
 	// A run takes hours. Whether it was worth starting is visible in its frames long
 	// before an artifact comes back, so the detail must serve them from the row.

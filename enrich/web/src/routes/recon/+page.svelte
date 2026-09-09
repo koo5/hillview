@@ -26,6 +26,22 @@
 		reproj_coverage?: number | null;
 		n_behind_camera?: number | null;
 		gps_residual_m?: { med_resid: number; mean_resid: number; max_resid: number } | null;
+		ground_split?: {
+			camera_height_m: number | null;
+			camera_height_sd_m?: number;
+			stationary?: boolean;
+			neighbour_step_cm?: { median: number; p90: number; max: number; n: number } | null;
+			error?: string;
+		} | null;
+		chain?: {
+			typical_link: number;
+			breaks: number[];
+			spans: [number, number][];
+			verdicts: Record<string, number>;
+			n_cross_session: number;
+			n_cross_verified: number;
+			error?: string;
+		} | null;
 		gps_residual_informative?: boolean;
 		pp_source?: string;
 		pose_source?: string;
@@ -120,6 +136,31 @@
 	// dense by default where it exists: the sparse cloud is anchor points only and reads as
 	// spray, which is what made these clouds look nonsensical
 	let showDense = $state(true);
+	// Frames table sort: click a header to cycle asc / desc / off. "Which frame drifted"
+	// is a scan down the reprojection column otherwise, and fifty rows is a long scan.
+	type FrameKey = 'idx' | 'reproj_px' | 'epipolar_px' | 'residual_m' | 'focal_px' | 'captured_at';
+	let frameSort = $state<{ key: FrameKey; dir: 1 | -1 } | null>(null);
+	function cycleFrameSort(key: FrameKey) {
+		if (!frameSort || frameSort.key !== key) frameSort = { key, dir: -1 };
+		else if (frameSort.dir === -1) frameSort = { key, dir: 1 };
+		else frameSort = null;
+	}
+	function sortArrow(key: FrameKey) {
+		return frameSort?.key === key ? (frameSort.dir === -1 ? ' ▼' : ' ▲') : '';
+	}
+	const sortedFrames = $derived.by(() => {
+		const fs = detail?.frames ?? [];
+		if (!frameSort) return fs;
+		const { key, dir } = frameSort;
+		return [...fs].sort((a, b) => {
+			const va = (a as Record<string, unknown>)[key];
+			const vb = (b as Record<string, unknown>)[key];
+			if (va == null && vb == null) return 0;
+			if (va == null) return 1; // nulls last either way
+			if (vb == null) return -1;
+			return (va < vb ? -1 : va > vb ? 1 : 0) * dir;
+		});
+	});
 	let showMap = $state(true);
 	let showPhotos = $state(false);
 	// …but do NOT mount the viewer until it is actually on screen. A dense cloud is
@@ -588,6 +629,31 @@
 							{/if}
 						</span>
 					</div>
+					{#if m.ground_split && !m.ground_split.error}
+						<div class="stat" data-testid="recon-stat-ground"
+							title="where two neighbouring frames see the same patch of ground, how far apart do they put it? A flat plaza solves to under a centimetre; a staircase of tiles reads as tens">
+							<span class="lbl">ground agreement</span>
+							<span class="val"
+								>{m.ground_split.neighbour_step_cm?.median?.toFixed(1) ?? '—'}<small>cm</small></span
+							>
+							<span class="ctx">
+								p90 {m.ground_split.neighbour_step_cm?.p90?.toFixed(0) ?? '—'} cm · camera
+								{m.ground_split.camera_height_m?.toFixed(2) ?? '—'} m above its floor
+							</span>
+						</div>
+					{/if}
+					{#if m.chain && !m.chain.error}
+						<div class="stat" data-testid="recon-stat-chain"
+							title="consecutive frames judged on their own two-view geometry, independent of the solve; a break is a link an order of magnitude weaker than the run's typical one">
+							<span class="lbl">chain</span>
+							<span class="val">{m.chain.spans?.length ?? 1}<small>span{(m.chain.spans?.length ?? 1) === 1 ? '' : 's'}</small></span>
+							<span class="ctx">
+								{#if m.chain.breaks?.length}breaks after {m.chain.breaks.join(', ')}{:else}holds throughout{/if}
+								{#if m.chain.n_cross_session}
+									· {m.chain.n_cross_verified}/{m.chain.n_cross_session} cross-session links verified{/if}
+							</span>
+						</div>
+					{/if}
 					<div class="stat" data-testid="recon-stat-coverage">
 						<span class="lbl">coverage</span>
 						<span class="val"
@@ -805,22 +871,32 @@
 					<table>
 						<thead>
 							<tr>
-								<th class="num">#</th>
+								<th class="num sortable" onclick={() => cycleFrameSort('idx')}>#{sortArrow('idx')}</th>
 								<th>photo</th>
 								{#if detail.frames_pending}
-									<th>captured</th>
+									<th class="sortable" onclick={() => cycleFrameSort('captured_at')}
+										>captured{sortArrow('captured_at')}</th
+									>
 									<th>camera</th>
 									<th class="num">compass</th>
 								{:else}
-									<th class="num">reproj px</th>
-									<th class="num">epipolar px</th>
-									<th class="num">GPS resid m</th>
-									<th class="num">focal px</th>
+									<th class="num sortable" onclick={() => cycleFrameSort('reproj_px')}
+										data-testid="recon-frames-sort-reproj">reproj px{sortArrow('reproj_px')}</th
+									>
+									<th class="num sortable" onclick={() => cycleFrameSort('epipolar_px')}
+										>epipolar px{sortArrow('epipolar_px')}</th
+									>
+									<th class="num sortable" onclick={() => cycleFrameSort('residual_m')}
+										>GPS resid m{sortArrow('residual_m')}</th
+									>
+									<th class="num sortable" onclick={() => cycleFrameSort('focal_px')}
+										>focal px{sortArrow('focal_px')}</th
+									>
 								{/if}
 							</tr>
 						</thead>
 						<tbody>
-							{#each detail.frames as f (f.idx)}
+							{#each sortedFrames as f (f.idx)}
 								<tr
 									class:sel={selFrame === f.idx}
 									onclick={() => (selFrame = selFrame === f.idx ? null : f.idx)}
@@ -1036,6 +1112,14 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 4px;
+	}
+	th.sortable {
+		cursor: pointer;
+		user-select: none;
+		white-space: nowrap;
+	}
+	th.sortable:hover {
+		text-decoration: underline;
 	}
 	.listsort {
 		padding: 6px 8px 2px;

@@ -138,6 +138,23 @@ def _stage_for(line: str) -> str | None:
     return None
 
 
+def _ground_split(rundir: str) -> dict:
+    import importlib
+    import recon_ground_split
+    recon_ground_split = importlib.reload(recon_ground_split)
+    d = recon_ground_split.analyse(rundir, log=lambda *a: None)
+    d.pop("frames", None)          # per-frame rows stay in the run dir, not the row
+    return d
+
+
+def _chain(rundir: str) -> dict:
+    import importlib
+    import recon_verify_links
+    recon_verify_links = importlib.reload(recon_verify_links)
+    rows, frames = recon_verify_links.judge(rundir, min_corres=1)
+    return recon_verify_links.chain_summary(rows, frames)
+
+
 @remoulade.actor(queue_name="recon", time_limit=6 * 60 * 60 * 1000, max_retries=0)
 def reconstruct_cluster(payload: dict) -> None:
     rid = payload["result_id"]
@@ -224,6 +241,16 @@ def reconstruct_cluster(payload: dict) -> None:
             import importlib
             recon_metrics = importlib.reload(recon_metrics)
             metrics = recon_metrics.measure(rundir)
+            # The physical checks ride along in metrics.json so the bench shows them for
+            # every run without an operator running scripts by hand: ground agreement
+            # (camera height, neighbour disagreement in cm) and the two-view chain
+            # (breaks, spans, verdicts). Each is its own try: neither may sink the run.
+            for name, fn in (("ground_split", _ground_split), ("chain", _chain)):
+                try:
+                    metrics[name] = fn(rundir)
+                except Exception as e:
+                    metrics[name] = {"error": f"{type(e).__name__}: {e}"}
+                    print(f"  {name} failed: {metrics[name]['error']}", flush=True)
             with open(os.path.join(rundir, "metrics.json"), "w") as f:
                 json.dump(metrics, f, indent=1)
             recon_metrics.print_summary(metrics)

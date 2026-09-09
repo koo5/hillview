@@ -21,12 +21,25 @@ import os
 import numpy as np
 
 
+def analyse(run_dir, stride=3, log=print):
+    """The measurement as a dict; see the module docstring for what the numbers mean."""
+    a = argparse.Namespace(run_dir=run_dir, stride=stride, json=None)
+    return _run(a, log)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
     ap.add_argument("--json")
     ap.add_argument("--stride", type=int, default=3, help="pixel stride, for memory")
     a = ap.parse_args()
+    out = _run(a, print)
+    if a.json:
+        json.dump(out, open(a.json, "w"), indent=1)
+        print("wrote", a.json)
+
+
+def _run(a, print):
     z = np.load(os.path.join(a.run_dir, "dense.npz"), allow_pickle=True)
     md = json.load(open(os.path.join(a.run_dir, "metadata.json")))
     al = md["alignment"]
@@ -75,7 +88,7 @@ def main():
     have = [r for r in rows if r["floor"] is not None]
     if not have:
         print("no frame has ground beneath it")
-        return
+        return {"camera_height_m": None, "frames": rows}
     ch = np.array([r["cam_height"] for r in have])
     print(f"{len(have)}/{n} frames with a floor beneath them")
     print(f"camera height above ITS OWN floor: median {np.median(ch):.2f} m  sd {ch.std():.2f} m"
@@ -122,13 +135,15 @@ def main():
               f"   max {d.max()*100:5.1f} cm")
         worst = sorted(steps, key=lambda x: -abs(x[1]))[:6]
         print("  worst: " + "  ".join(f"{k}->{k+1}:{v*100:+.0f}cm" for k, v in worst))
-    if a.json:
-        json.dump({"camera_height_m": float(np.median(ch)),
-                   "camera_height_sd_m": float(ch.std()),
-                   "neighbour_step_cm": ([float(np.median(np.abs([x[1] for x in steps])) * 100)]
-                                         if steps else None),
-                   "frames": rows}, open(a.json, "w"), indent=1)
-        print("wrote", a.json)
+    d = np.abs([x[1] for x in steps]) if steps else np.array([])
+    return {"camera_height_m": round(float(np.median(ch)), 3),
+            "camera_height_sd_m": round(float(ch.std()), 3),
+            "stationary": bool(static),
+            "neighbour_step_cm": ({"median": round(float(np.median(d)) * 100, 1),
+                                   "p90": round(float(np.percentile(d, 90)) * 100, 1),
+                                   "max": round(float(d.max()) * 100, 1), "n": int(len(d))}
+                                  if len(d) else None),
+            "frames": rows}
 
 
 if __name__ == "__main__":

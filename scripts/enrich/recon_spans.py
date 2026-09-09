@@ -34,20 +34,56 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
 import recon_ground as rg   # noqa: E402  the same gravity + constrained fit the API uses
 
 
-def robust_fit(cams, gps, up, iters=6, k=2.5):
+def gps_prior_weights(frames):
+    """How much to believe each frame's GPS before looking at the solve.
+
+    Two rules, both read straight off the data (measured on newest-2026-09-08, 17:44-17:46):
+
+    MANUAL BLOCK. A hand-placed location has no altitude, and the compass froze along
+    with the GPS, so a run of frames with altitude absent and one repeated heading is a
+    person placing waypoints. Rough, so a third of a vote -- and never a "trusted" frame.
+
+    FIRST FIX AFTER. The first real fix after a manual block landed 66.9 m from the last
+    waypoint. The receiver is re-acquiring; that frame gets no vote at all.
+    """
+    n = len(frames)
+    alt = [f.get("altitude") for f in frames]
+    hdg = [f.get("compass_angle") for f in frames]
+    has_alt = sum(a is not None for a in alt)
+    w = np.ones(n)
+    tags = [""] * n
+    if 0 < has_alt < n:                     # only meaningful where altitude is usually there
+        manual = np.zeros(n, bool)
+        for i in range(n):
+            if alt[i] is not None:
+                continue
+            near = [hdg[j] for j in range(max(0, i - 2), min(n, i + 3)) if hdg[j] is not None]
+            frozen = len(near) >= 3 and max(near) - min(near) < 0.5
+            manual[i] = frozen
+        for i in range(n):
+            if manual[i]:
+                w[i], tags[i] = 0.3, "manual"
+            elif i > 0 and manual[i - 1]:
+                w[i], tags[i] = 0.0, "first-fix-after-manual"
+    return w, tags
+
+
+def robust_fit(cams, gps, up, prior=None, iters=6, k=2.5):
     """gravity_alignment, iterated with weights: a frame further than k x MAD from the
-    fitted track is downweighted to zero on the next pass. Returns (s, R, t, weights)."""
-    w = np.ones(len(cams))
+    fitted track is downweighted to zero on the next pass. `prior` (0..1 per frame) caps
+    the vote a frame can ever have. Returns (s, R, t, weights, residuals)."""
+    prior = np.ones(len(cams)) if prior is None else np.asarray(prior, float)
+    w = prior.copy()
     for _ in range(iters):
-        keep = w > 0.5
+        keep = w > 0.2
         if keep.sum() < 3:
             break
-        s, R, t = rg.gravity_alignment(cams[keep], gps[keep], up)
+        s, R, t = rg.gravity_alignment(cams[keep], gps[keep], up, weights=w[keep])
         fit = (s * (R @ cams.T)).T + t
         res = np.linalg.norm(fit[:, :2] - gps[:, :2], axis=1)
         mad = np.median(np.abs(res - np.median(res))) * 1.4826 or 1e-6
         thr = np.median(res) + k * mad
-        w_new = (res <= max(thr, 2.0)).astype(float)   # never reject on sub-2 m noise
+        w_new = (res <= max(thr, 2.0)).astype(float) * prior   # never reject on sub-2 m noise
         if np.array_equal(w_new, w):
             break
         w = w_new
@@ -90,15 +126,19 @@ def main():
         if len(idx) < 3:
             print(f"  span {si}: frames {a0}-{a1}, too short to fit")
             continue
-        s, R, t, w, res = robust_fit(cams[idx], gps[idx], up)
-        rej = idx[w < 0.5]
-        kept = res[w >= 0.5]
-        print(f"  span {si}: frames {a0}-{a1} ({len(idx)})  scale {s:.3f} m/unit  "
-              f"GPS residual on trusted frames median {np.median(kept):.1f} m p90 {np.percentile(kept, 90):.1f} m"
+        pw, ptags = gps_prior_weights([frames[i] for i in idx])
+        s, R, t, w, res = robust_fit(cams[idx], gps[idx], up, prior=pw)
+        rej = idx[w < 0.2]
+        trusted = res[w >= 0.99]
+        manual = [int(i) for i, tg in zip(idx, ptags) if tg == "manual"]
+        kept_txt = (f"GPS residual on trusted frames median {np.median(trusted):.1f} m "
+                    f"p90 {np.percentile(trusted, 90):.1f} m" if len(trusted) else "no fully-trusted frames")
+        print(f"  span {si}: frames {a0}-{a1} ({len(idx)})  scale {s:.3f} m/unit  {kept_txt}"
+              + (f"   manual on {len(manual)}" if manual else "")
               + (f"   GPS DISTRUSTED on {len(rej)} frame(s): {rej.tolist()}" if len(rej) else ""))
         out.append({"span": si, "frames": [int(a0), int(a1)], "scale_units_per_m": float(s),
                     "R": R.tolist(), "t": t.tolist(),
-                    "gps_distrusted": rej.tolist(),
+                    "gps_distrusted": rej.tolist(), "manual": manual,
                     "residual_m": {int(i): round(float(r), 2) for i, r in zip(idx, res)}})
     if a.json:
         json.dump({"up": up.tolist(), "up_source": ev["up_source"], "spans": out}, open(a.json, "w"), indent=1)
