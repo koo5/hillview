@@ -911,6 +911,35 @@ has 2% built surface and 84% *Terrain*, so its hedge is kept and only the 2% of 
 because a frame with nothing in it does not fail loudly, it drifts, and drifting is the
 failure that has cost this project the most.
 
+**How much of the corpus really is mud and hedge?** Segmenting 54 frames sampled across
+six runs, less than expected — but concentrated exactly where it hurts.
+
+| class | share of all pixels | tier |
+| --- | --- | --- |
+| Sidewalk | 31.1% | built |
+| Vegetation | 19.8% | transient |
+| Terrain | 9.5% | soft |
+| Road | 8.6% | built |
+| Sky | 8.4% | transient |
+| Building | 5.7% | built |
+| Traffic Sign, Wall, Fence, Billboard, Bench, kerb, markings | ~15% | built |
+
+Built surface is **68% of the median frame**, and 91% of frames clear the 12% floor, so the
+ladder runs in full mode nearly everywhere. The exception is a single run:
+`prosek-b-tight-aug06` at 16.7% built, 40.1% Terrain, 24.9% vegetation — and its vegetation
+survives the ladder on five of its eight sampled frames. It is also the worst run by every
+independent measure: 75 cm of neighbour ground disagreement, 10 m of vertical drift against
+LiDAR, 9.5 px reprojection.
+
+So "a lot of areas are gonna be just mud and vegetation" is not true of the corpus, which
+is dominated by pavement walks — but it is true of the **hilltop viewpoint**, which is
+disproportionately the kind of place this project exists to photograph.
+
+One caution the census raises on its own terms: *Sidewalk* is a third of all pixels and I
+have it filed as reliable, yet spot A's slab pavement reconstructs to 0.9 cm while the
+newest run's plain asphalt path staircases by 29 cm. Class alone does not settle
+reliability; texture within the class does, and that is not measured yet.
+
 Note that dry grass classifies as **Terrain**, not Vegetation, so it was never in the mask
 preset — and the meadow made of it is the run whose neighbouring frames disagree about the
 ground by 75 cm and which drifts 10 m vertically against the DEM. Masking is not the answer
