@@ -50,6 +50,16 @@ export interface PhotoAnnotation {
 	event_type?: string;
 }
 
+/** One row of a photo's licence trail as GET /photos/{id}/license-history
+ *  returns it to an anonymous caller — the public part of the audit: which
+ *  grant, from when, and whether the rights-holder made the change. */
+export interface PhotoLicenseChange {
+	old_license: string | null;
+	new_license: string | null;
+	actor_was_owner: boolean;
+	created_at: string;
+}
+
 export type AnnotationBodySegment =
 	| { kind: 'text'; value: string }
 	| { kind: 'link'; value: string };
