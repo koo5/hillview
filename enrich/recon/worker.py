@@ -138,6 +138,16 @@ def _stage_for(line: str) -> str | None:
     return None
 
 
+def _kill(proc) -> None:
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        proc.kill()
+        proc.wait(timeout=10)
+    except Exception:
+        pass
+
+
 def _ground_split(rundir: str) -> dict:
     import importlib
     import recon_ground_split
@@ -155,7 +165,15 @@ def _chain(rundir: str) -> dict:
     return recon_verify_links.chain_summary(rows, frames)
 
 
-@remoulade.actor(queue_name="recon", time_limit=6 * 60 * 60 * 1000, max_retries=0)
+# A CPU solve of a win-12 cluster took over ten hours. The old six-hour limit did not stop
+# it -- remoulade's TimeLimitExceeded unwinds the ACTOR THREAD, and the solve is a
+# subprocess, which kept running as an orphan while the worker started the next message
+# beside it. Two solves on one box then ran at a tenth of the speed (see run_worker.sh).
+# The limit is now generous and configurable, and every exit path kills the child.
+TIME_LIMIT_MS = int(float(os.getenv("RECON_TIME_LIMIT_H", "30")) * 3600 * 1000)
+
+
+@remoulade.actor(queue_name="recon", time_limit=TIME_LIMIT_MS, max_retries=0)
 def reconstruct_cluster(payload: dict) -> None:
     rid = payload["result_id"]
     name = payload.get("name") or rid[:8]
@@ -218,15 +236,21 @@ def reconstruct_cluster(payload: dict) -> None:
             error = f"reconstruct.py exited {code}\n{tail}"
     except Cancelled:
         # the bench said stop; kill the subprocess if one is up and report nothing more
-        try:
-            proc.kill()
-        except Exception:
-            pass
+        _kill(proc)
         print(f"  {rid} cancelled by the bench", flush=True)
         return
-    except Exception as e:
+    except BaseException as e:
+        # BaseException on purpose: remoulade's time limit and a SIGTERM both arrive as
+        # exceptions that are not Exception subclasses in every version, and whichever way
+        # this thread dies the solve must die with it or it runs on as an orphan
+        _kill(proc)
         status, error = "error", f"{type(e).__name__}: {e}"
         print(f"  FAILED: {error}", flush=True)
+        if not isinstance(e, Exception):
+            _post({"result_id": rid, "status": "error", "error": error,
+                   "worker": socket.gethostname(),
+                   "meta": {"stage": "killed", "elapsed_s": round(time.time() - t0)}})
+            raise
 
     # Metrics are the point of a run, so compute them here rather than making the bench
     # do it: the cache they need lives on this box and is never uploaded.
