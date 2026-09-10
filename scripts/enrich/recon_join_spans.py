@@ -114,6 +114,32 @@ def ransac_similarity(P, Q, thr, iters=300, seed=0):
     return best, best_inl
 
 
+def fit_yaw_similarity(P, Q, w=None):
+    """Similarity Q ≈ s·Rz(θ)·P + t with the rotation CONSTRAINED to a turn about vertical.
+
+    Both spans are already gravity-pinned to ENU, so whatever else is wrong between them,
+    the relative rotation is a turn on the spot. A free 3-D fit does not know that: on the
+    bridge join it asked for a 50° tilt, which would tip a solved staircase on its side to
+    buy a slightly better point residual. Horizontal Procrustes gives the turn; the vertical
+    is then a scale and an offset, fitted separately."""
+    P = np.asarray(P, float); Q = np.asarray(Q, float)
+    if w is None:
+        w = np.ones(len(P))
+    w = np.asarray(w, float); w = w / max(w.sum(), 1e-12)
+    mp = (w[:, None] * P).sum(0); mq = (w[:, None] * Q).sum(0)
+    A2 = (P - mp)[:, :2]; B2 = (Q - mq)[:, :2]
+    # complex-number form of the 2-D similarity: one scale, one angle, closed form
+    num = (w * (A2[:, 0] * B2[:, 0] + A2[:, 1] * B2[:, 1])).sum()
+    den = (w * (A2[:, 0] * B2[:, 1] - A2[:, 1] * B2[:, 0])).sum()
+    theta = math.atan2(den, num)
+    var = (w * (A2 ** 2).sum(1)).sum()
+    s = float(math.hypot(num, den) / max(var, 1e-12))
+    c, sn = math.cos(theta), math.sin(theta)
+    R = np.array([[c, -sn, 0.0], [sn, c, 0.0], [0.0, 0.0, 1.0]])
+    t = mq - s * (R @ mp)
+    return s, R, t, math.degrees(theta)
+
+
 def irls_similarity(P, Q, w0=None, iters=8):
     w = np.ones(len(P)) if w0 is None else np.asarray(w0, float).copy()
     sim = umeyama(P, Q, w)
@@ -164,6 +190,43 @@ class Run:
 
     def cam_centres(self):
         return self.poses[:, :3, 3]
+
+    def enu_headings(self):
+        """Each frame's recovered compass heading (degrees clockwise from north) in ENU,
+        beside the heading its phone recorded. The camera looks down +Z in the solve frame;
+        the alignment's R carries that into east/north/up."""
+        if not self.to_enu:
+            return []
+        R = self.to_enu[1]
+        out = []
+        for i, f in enumerate(self.frames):
+            fwd = R @ (self.poses[i][:3, :3] @ np.array([0.0, 0.0, 1.0]))
+            if abs(fwd[0]) < 1e-9 and abs(fwd[1]) < 1e-9:
+                continue                      # pointing straight up or down: no heading
+            hdg = math.degrees(math.atan2(fwd[0], fwd[1])) % 360.0
+            c = f.get("compass_angle")
+            out.append((hdg, None if c is None else float(c) % 360.0))
+        return out
+
+    def compass_offset(self):
+        """How far this span's recovered headings sit from what the phone's compass said:
+        circular median of (compass - recovered), with the spread that qualifies it.
+
+        Two spans of one walk share one compass bias, so a DIFFERENCE between their offsets
+        is a difference in how the two solves are turned — an independent opinion on the
+        relative yaw, owing nothing to the geometry that joins them or to the GPS that
+        aligned them."""
+        d = [(c - h) for h, c in self.enu_headings() if c is not None]
+        if len(d) < 3:
+            return None
+        v = np.array([[math.cos(math.radians(x)), math.sin(math.radians(x))] for x in d])
+        m = v.mean(0)
+        mean = math.degrees(math.atan2(m[1], m[0])) % 360.0
+        R_ = float(np.linalg.norm(m))          # 1 = perfect agreement, 0 = uniform noise
+        # circular spread, in degrees, from the resultant length
+        spread = math.degrees(math.sqrt(max(0.0, -2.0 * math.log(max(R_, 1e-9)))))
+        return dict(offset_deg=mean, n=len(d), concentration=round(R_, 3),
+                    spread_deg=round(spread, 1))
 
     def points_for(self, i, xy):
         """Matched pixels (col,row) of frame i -> 3-D in this run's world, via its depth.
@@ -339,7 +402,69 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
                        for v in ("verified", "weak", "contradicts", "no-geometry")}
     out["pairs"] = [_public(x) for x in rows]
     _drop_arrays(rows)
-    # the GPS join, for comparison: A.to_enu^-1 ∘ B.to_enu maps B's solve frame into A's
+    # WHO IS RIGHT ABOUT THE TURN. Each span was already aligned to ENU against its own
+    # GPS, so the GPS answer to "how should B be turned relative to A" is: not at all.
+    # Geometry has just given a different answer. The compass is the third opinion, and it
+    # owes nothing to either — so it is the one that can settle it. Both spans of a walk
+    # share one hard-iron bias, so the DIFFERENCE of their compass offsets is the relative
+    # yaw the phone thinks is needed.
+    if A.to_enu and B.to_enu:
+        gsim = compose(compose(A.to_enu, sim), invert(B.to_enu))   # B's ENU frame -> A's
+        Rg = gsim[1]
+        yaw_geo = math.degrees(math.atan2(Rg[1, 0], Rg[0, 0]))
+        # what is left after taking the yaw out is tilt: if it is large, one of the two
+        # spans has its gravity wrong, and no yaw fix will save the join
+        cz, sz = math.cos(math.radians(yaw_geo)), math.sin(math.radians(yaw_geo))
+        Rz = np.array([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]])
+        tilt = rot_angle_deg(Rz.T @ Rg)
+        ca, cb = A.compass_offset(), B.compass_offset()
+        yaw_compass = None
+        if ca and cb:
+            yaw_compass = ((ca["offset_deg"] - cb["offset_deg"] + 180) % 360) - 180
+        # The gravity-safe join: the same points, fitted in ENU with the rotation held to a
+        # turn about vertical. This is what actually gets applied — a join may correct where
+        # a span points, never which way is down.
+        P_enu = apply(B.to_enu, P); Q_enu = apply(A.to_enu, Q)
+        ys, yR, yt, ytheta = fit_yaw_similarity(P_enu, Q_enu, w)
+        yres = np.linalg.norm((ys * (P_enu @ yR.T) + yt) - Q_enu, axis=1)
+        free_res = np.linalg.norm(apply(compose(A.to_enu, sim), P) - Q_enu, axis=1)
+        out["yaw_only_join"] = dict(
+            yaw_deg=round(ytheta, 2), scale=round(float(ys), 4), t=[float(x) for x in yt],
+            R=yR.tolist(),
+            residual_m=dict(median=round(float(np.median(yres)), 3),
+                            p90=round(float(np.percentile(yres, 90)), 3)),
+            free_rotation_residual_m=dict(median=round(float(np.median(free_res)), 3),
+                                          p90=round(float(np.percentile(free_res, 90)), 3)))
+        out["turn"] = dict(
+            yaw_geometric_deg=round(yaw_geo, 1), tilt_geometric_deg=round(tilt, 1),
+            yaw_gravity_safe_deg=round(ytheta, 1),
+            yaw_gps_deg=0.0, yaw_compass_deg=(None if yaw_compass is None else round(yaw_compass, 1)),
+            compass_A=ca, compass_B=cb,
+            scale_ratio=round(float(gsim[0]), 4))
+        # the verdict, and the reason for it
+        sup = (out.get("consensus") or {}).get("pairs_in_consensus", 0)
+        strong = sup >= 6 and out["verdicts"].get("verified", 0) >= 3
+        if yaw_compass is None:
+            out["turn"]["trust"] = "geometry" if strong else "gps"
+            out["turn"]["why"] = ("no compass on these frames; "
+                                  + ("geometry is well supported" if strong
+                                     else "geometry is thin, so keep the GPS orientation"))
+        else:
+            d_geo = abs(((yaw_geo - yaw_compass + 180) % 360) - 180)
+            d_gps = abs(((0.0 - yaw_compass + 180) % 360) - 180)
+            out["turn"]["compass_favours"] = "geometry" if d_geo < d_gps else "gps"
+            out["turn"]["deg_from_compass"] = dict(geometric=round(d_geo, 1), gps=round(d_gps, 1))
+            if d_geo < d_gps and (strong or d_gps - d_geo > 15):
+                out["turn"]["trust"] = "geometry"
+                out["turn"]["why"] = (f"compass sits {d_geo:.0f}° from the geometric turn and "
+                                      f"{d_gps:.0f}° from the GPS one")
+            elif d_gps <= d_geo:
+                out["turn"]["trust"] = "gps"
+                out["turn"]["why"] = (f"compass backs the GPS orientation ({d_gps:.0f}° vs "
+                                      f"{d_geo:.0f}°); geometry does not get to turn the span")
+            else:
+                out["turn"]["trust"] = "gps"
+                out["turn"]["why"] = "geometry leans the compass's way but is too thin to act on"
     if A.to_enu and B.to_enu:
         gps = compose(invert(A.to_enu), B.to_enu)
         dR = rot_angle_deg(gps[1].T @ sim[1])
@@ -388,6 +513,17 @@ def summarize(res, A, B, log=print):
         log(f"  GPS join differs by {g['rot_deg_vs_geometric']:.1f}°, scale ×{g['scale_ratio_vs_geometric']:.3f}, "
             f"cameras displaced median {g['camera_displacement_m']['median']:.2f} m "
             f"(max {g['camera_displacement_m']['max']:.2f} m)")
+    y = res.get("yaw_only_join")
+    if y:
+        log(f"  gravity-safe fit (yaw only): {y['yaw_deg']:+.1f}°, scale {y['scale']:.3f}, "
+            f"residual median {y['residual_m']['median']:.2f} m "
+            f"(a free rotation would give {y['free_rotation_residual_m']['median']:.2f} m)")
+    t = res.get("turn")
+    if t:
+        log(f"  the turn: geometry {t['yaw_geometric_deg']:+.1f}° (tilt {t['tilt_geometric_deg']:.1f}°), "
+            f"GPS 0.0°, compass "
+            + ("n/a" if t["yaw_compass_deg"] is None else f"{t['yaw_compass_deg']:+.1f}°")
+            + f" -> TRUST {t['trust'].upper()}: {t['why']}")
     sf = res.get("shared_frames")
     if sf:
         log(f"  {sf['n']} shared photos{' (HELD OUT of the fit)' if sf.get('held_out') else ''}: "
@@ -421,6 +557,11 @@ def main():
                          "alignment placing it in the FIRST run's ENU frame, through the API "
                          "(the GPS fit is kept as alignment_gps)")
     ap.add_argument("--api", default=os.getenv("RECON_API", "http://127.0.0.1:8070/api/recon"))
+    ap.add_argument("--use-compass-yaw", action="store_true",
+                    help="turn the span by the COMPASS's yaw instead of the geometry's, "
+                         "keeping the fitted scale (for a join too thin to trust for angle)")
+    ap.add_argument("--force-geometry", action="store_true",
+                    help="apply the geometric join even where the compass backs the GPS one")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
     if a.self_test:
@@ -450,13 +591,32 @@ def main():
             if res.get("status") != "ok" or not sim or not A.to_enu:
                 print(f"  {B.name}: not applied ({res.get('status', 'no join')})")
                 continue
-            # B solve coords -> A solve coords -> ENU. Both spans already share the
-            # parent's centre, so the result is directly comparable to the other spans.
-            comp = compose(A.to_enu, (sim["scale"], np.array(sim["R"]), np.array(sim["t"])))
+            turn = res.get("turn") or {}
+            if turn.get("trust") == "gps" and not a.force_geometry:
+                print(f"  {B.name}: NOT applied — {turn.get('why')}")
+                continue
+            # What gets written is the GRAVITY-SAFE join composed onto B's own ENU
+            # alignment: a turn on the spot, a scale, a shift. Never a tilt — down was
+            # settled by the reconstruction and the phone, not by a point residual.
+            y = res.get("yaw_only_join")
+            if not y or not B.to_enu:
+                print(f"  {B.name}: not applied (no gravity-safe fit)")
+                continue
+            corr = (y["scale"], np.array(y["R"]), np.array(y["t"]))
+            src = f"geometric-join:{A.name[:8]}"
+            if a.use_compass_yaw and (turn.get("yaw_compass_deg") is not None):
+                th = math.radians(turn["yaw_compass_deg"])
+                c_, s_ = math.cos(th), math.sin(th)
+                Rz = np.array([[c_, -s_, 0.0], [s_, c_, 0.0], [0.0, 0.0, 1.0]])
+                # keep the fitted scale and re-centre so the span does not also translate
+                cB = apply(B.to_enu, B.cam_centres()).mean(0)
+                corr = (y["scale"], Rz, cB - y["scale"] * (Rz @ cB))
+                src = f"compass-yaw-join:{A.name[:8]}"
+            comp = compose(corr, B.to_enu)
             body = {"scale_units_per_m": float(comp[0]), "R": comp[1].tolist(),
                     "t": comp[2].tolist(),
-                    "alt0": float((A.meta.get("alignment") or {}).get("alt0") or 0.0),
-                    "source": f"geometric-join:{A.name[:8]}"}
+                    "alt0": float((B.meta.get("alignment") or {}).get("alt0") or 0.0),
+                    "source": src}
             rid = os.path.basename(B.dir.rstrip("/"))
             import urllib.request
             req = urllib.request.Request(f"{a.api}/runs/{rid}/alignment",

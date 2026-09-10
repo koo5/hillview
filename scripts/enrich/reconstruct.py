@@ -731,6 +731,14 @@ def main():
     ap.add_argument("--n", type=int, default=8)
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--win", type=int, default=3, help="sliding-window half-size for pairs")
+    ap.add_argument("--adaptive_pairs", action="store_true",
+                    help="after measuring the window's links, reach further around the WEAK "
+                         "ones (a swing aside to read a sign breaks the chain locally). "
+                         "Costs a forward pass per added pair, which the shared cache keeps")
+    ap.add_argument("--adaptive_reach", type=int, default=10,
+                    help="how many frames beyond the window to reach around a weak link")
+    ap.add_argument("--adaptive_frac", type=float, default=0.35,
+                    help="a consecutive link below this fraction of the median link is weak")
     ap.add_argument("--pairs", default="swin", choices=["swin", "complete", "bearing"],
                     help="pairing strategy: time-window / exhaustive / spatial+bearing-overlap")
     ap.add_argument("--pair_dist", type=float, default=80, help="bearing mode: max pair distance (m)")
@@ -915,6 +923,59 @@ def main():
         log(f"pairing={sg} -> {len(pairs)} directed pairs")
     if not pairs:
         raise SystemExit("no pairs survived the pairing filter — loosen --pair_dist/--pair_dang")
+
+    # ADAPTIVE PAIRING. A sliding window assumes the walk is a chain: frame i overlaps
+    # i+1 and that is that. Real walking is not like that — swing aside to read a sign,
+    # swing back, and frames i..i+3 look at something else entirely while i and i+4 are
+    # the pair that actually sees the same wall. A fixed window either misses that link
+    # or pays for a wide window everywhere. So: compute the window's correspondences
+    # first (cheap now, the forward passes are content-addressed and shared), find the
+    # consecutive links that came out weak, and reach further ONLY there.
+    if a.adaptive_pairs and a.pairs != "complete":
+        import mast3r.cloud_opt.sparse_ga as _SGA
+        base = _SGA.convert_dust3r_pairs_naming(imgs, [(p1.copy(), p2.copy()) for p1, p2 in pairs])
+        log(f"adaptive pairing: measuring {len(base)} window pairs first…")
+        res_paths, _ = _SGA.forward_mast3r(base, model,
+                                           cache_path=(shared_cache or cache),
+                                           subsample=8, desc_conf="desc_conf",
+                                           device=a.device)
+        strength = {}
+        for (i1, i2), (_pp, pc) in res_paths.items():
+            try:
+                import torch as _t
+                (_score, csum, cnt), _ = _t.load(pc)
+            except Exception:
+                continue
+            k = tuple(sorted((CONTENT_KEY.get(i1, i1), CONTENT_KEY.get(i2, i2))))
+            strength[k] = max(strength.get(k, 0.0), float(csum))
+        def link(i, j):
+            return strength.get(tuple(sorted((CONTENT_KEY[paths[i]], CONTENT_KEY[paths[j]]))), 0.0)
+        adj = [link(i, i + 1) for i in range(len(paths) - 1)]
+        good = [x for x in adj if x > 0]
+        typical = float(np.median(good)) if good else 0.0
+        thr = typical * a.adaptive_frac
+        weak = [i for i, x in enumerate(adj) if x < thr]
+        log(f"adaptive pairing: typical consecutive link {typical:.0f}, "
+            f"threshold {thr:.0f} -> {len(weak)} weak link(s) {weak[:12]}")
+        have = {(p1["idx"], p2["idx"]) for p1, p2 in base}
+        extra = []
+        for i in weak:
+            # reach forward from BOTH ends of the weak link: the sign-reading detour is
+            # bridged either by i -> i+k or by (i+1-k) -> i+1
+            for a0 in (i, i + 1):
+                for k in range(2, a.adaptive_reach + 1):
+                    for b0 in (a0 + k, a0 - k):
+                        if 0 <= b0 < len(imgs) and (a0, b0) not in have and (b0, a0) not in have:
+                            extra.append((imgs[a0], imgs[b0]))
+                            extra.append((imgs[b0], imgs[a0]))
+                            have.add((a0, b0))
+        if extra:
+            pairs = pairs + extra
+            log(f"adaptive pairing: +{len(extra)} directed pairs around the weak links "
+                f"-> {len(pairs)} total")
+        else:
+            log("adaptive pairing: nothing to add")
+
     log("running sparse_global_alignment…")
     tr = time.time()
     cache = os.path.join(a.out, "cache")

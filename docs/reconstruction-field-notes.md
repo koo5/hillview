@@ -925,6 +925,56 @@ any degradation at 768 or 1024 belongs to resolution. Both are requeued. At 768 
 rate on this CPU is about 2.5 min per directed pair, so 22 frames is roughly six hours and the
 46-frame version is about fifteen — a GPU job, not a CPU one.
 
+### A join may turn a span, never tip it — and the compass gets a vote (2026-09-10)
+
+Two corrections to the join, both from the user, both right.
+
+**First: a join is a turn on the spot.** Each span is already gravity-pinned to ENU, so the
+only rotation that should ever be needed between two spans is a yaw. A free 3-D similarity
+does not know that, and on the bridge join it asked for a **50° tilt** — buying half a metre
+of point residual by tipping a solved staircase onto its side. `fit_yaw_similarity` now fits
+the join in ENU with the rotation held to a turn about vertical. It costs residual and is
+worth it:
+
+| fit | yaw | scale | residual median |
+|---|---|---|---|
+| free rotation | -56.4° with 50.2° of tilt | 0.640 | 0.38 m |
+| gravity-safe | -53.0° | 0.650 | 0.89 m |
+
+That residual gap is itself a diagnostic: when holding the tilt to zero wrecks the fit, either
+one span's gravity is wrong or the join is not real.
+
+**Second: the compass gets a vote, and it is the deciding one.** Each span was aligned to ENU
+against its own GPS, so GPS's answer to "how should this span be turned" is always *not at
+all*. Geometry now disagrees. The compass owes nothing to either: two spans of one walk share
+one hard-iron bias, so the difference between their compass offsets is an independent estimate
+of the relative yaw. On the bridge walk:
+
+| source | turn it wants |
+|---|---|
+| GPS | 0° |
+| geometry, gravity-safe | -53° |
+| compass | -82° |
+
+The compass sits 26° from geometry and 82° from GPS, so GPS is the outlier and the geometric
+join is applied. Where the compass instead backs GPS, `--apply` refuses to turn the span and
+says why; `--use-compass-yaw` turns it by the compass's angle while keeping the fitted scale,
+for a join too thin to trust for angle but good enough for distance. Nothing is overwritten:
+the GPS fit is kept as `alignment_gps` and `alignment_source` records which opinion won.
+
+### Reaching past a weak link, because walking is not a chain (2026-09-10)
+
+A sliding window assumes frame *i* overlaps *i+1* and little else. Swing aside to read a sign
+and swing back, and frames *i..i+3* look at something else entirely while *i* and *i+4* are the
+pair that sees the same wall. A fixed window either misses that link or pays for a wide window
+along the whole walk — and `spotA-win12` showed a wide window is not free.
+
+`--adaptive_pairs` measures the window's links first (the forward passes are shared and
+content-addressed, so this is nearly free on a re-run), calls a consecutive link weak when it
+carries less than `--adaptive_frac` of the median link, and then reaches out to
+`--adaptive_reach` frames from **both ends** of each weak link. Only there. The cost is one
+forward pass per added pair and nothing at all where the walk is behaving.
+
 ### Spans join better through geometry than through GPS (2026-09-10)
 
 `recon_join_spans.py` registers two separately solved runs without using GPS at all. For every

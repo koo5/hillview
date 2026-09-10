@@ -115,12 +115,14 @@ FLAG_PARAMS = {"win": "--win", "pairs": "--pairs", "pair_dist": "--pair_dist",
                "semantic_budget": "--semantic_budget",
                "pair_dang": "--pair_dang", "size": "--size",
                "niter1": "--niter1", "niter2": "--niter2",
-               "min_conf": "--min_conf"}
+               "min_conf": "--min_conf",
+               "adaptive_reach": "--adaptive_reach", "adaptive_frac": "--adaptive_frac"}
 BOOL_PARAMS = {"dense": "--dense", "mask_anon": "--mask_anon",
                "mask_solocator": "--mask_solocator",
                "mask_vegetation": "--mask_vegetation",
                "semantic_mask": "--semantic_mask",
-               "shared_intrinsics": "--shared_intrinsics"}
+               "shared_intrinsics": "--shared_intrinsics",
+               "adaptive_pairs": "--adaptive_pairs"}
 
 # lines worth reporting as progress — reconstruct.py only prints, so this is the interface
 STAGE_MARKERS = (
