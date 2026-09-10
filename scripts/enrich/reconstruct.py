@@ -341,21 +341,51 @@ def map_box_to_loaded(box, W1, H1, size=512, patch=16):
             min(W2, int(round(x2 * r - cl))), min(H2, int(round(y2 * r - ct)))), (W2, H2)
 
 
-def install_corr_masking():
-    """Wrap MASt3R-SfM's forward_mast3r so that, after correspondences are computed/cached, any
-    correspondence whose endpoint falls in a CORR_MASKS region is dropped (no pixel painting)."""
+CONTENT_KEY = {}   # {image path: content key} -- what the shared cache is addressed by
+
+
+def content_key(path, size):
+    """The forward pass depends on exactly two things we control: the bytes of the saved image
+    and the load size (dust3r resizes the long side to `size`, then centre-crops to a multiple
+    of 16). So that is the key. Two runs that stage the same photo at the same size share the
+    pass, whatever their run ids, frame numbers, masks or pairings are."""
+    import hashlib
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        h.update(f.read())
+    h.update(f"|size={size}|v1".encode())
+    return h.hexdigest()
+
+
+def install_shared_cache(shared_dir):
+    """Route MASt3R-SfM's per-pair FORWARD passes and raw correspondences into `shared_dir`,
+    addressed by image CONTENT, while everything downstream of the pairing (canonical views,
+    which aggregate over whichever pairs THIS run has, and the masked correspondences) stays in
+    the run-local cache. Also applies the correspondence masks: after a pair's correspondences
+    are computed or found in the shared cache, any endpoint in a CORR_MASKS region is dropped,
+    and the masked copy is written to the run-local cache -- never back into the shared file,
+    which an unmasked run may read next.
+
+    Why content-addressed and not per-run: splitting a walk into span runs re-solves subsets of
+    the same frames, and a resolution or masking A/B re-stages the same photos. Per-run caches
+    recomputed every forward pass each time (40 min for a 50-frame walk on this CPU)."""
     import mast3r.cloud_opt.sparse_ga as SGA
-    if getattr(SGA, "_corr_mask_installed", False):
+    if getattr(SGA, "_shared_cache_installed", False):
         return
     import torch as _t
-    orig = SGA.forward_mast3r
+    orig_hash = SGA.hash_md5
+    orig_forward = SGA.forward_mast3r
+
+    def keyed(s):
+        return CONTENT_KEY.get(s) or orig_hash(s)
 
     def patched(pairs, model, cache_path, desc_conf='desc_conf', device='cuda', subsample=8, **kw):
-        out = orig(pairs, model, cache_path, desc_conf=desc_conf, device=device,
-                   subsample=subsample, **kw)
+        fwd_root = shared_dir or cache_path
+        out = orig_forward(pairs, model, fwd_root, desc_conf=desc_conf, device=device,
+                           subsample=subsample, **kw)
         res_paths = out[0]   # forward_mast3r returns (res_paths_dict, cache_path)
         ndrop = ntot = 0
-        for (i1, i2), ((p1, p2), pc) in res_paths.items():
+        for (i1, i2), ((p1, p2), pc) in list(res_paths.items()):
             m1, m2 = CORR_MASKS.get(i1), CORR_MASKS.get(i2)
             if m1 is None and m2 is None:
                 continue
@@ -383,14 +413,24 @@ def install_corr_masking():
                 cf = confs[keep] * 0
             else:
                 cf = confs[keep]
-            _t.save(((score[0], float(cf.sum()), int(len(cf))), (xy1[keep], xy2[keep], cf)), pc)
+            pm = os.path.join(cache_path, f"corres_masked_conf={desc_conf}_{subsample=}",
+                              f"{keyed(i1)}-{keyed(i2)}.pth")
+            os.makedirs(os.path.dirname(pm), exist_ok=True)
+            _t.save(((score[0], float(cf.sum()), int(len(cf))), (xy1[keep], xy2[keep], cf)), pm)
+            res_paths[(i1, i2)] = ((p1, p2), pm)
         if ntot:
             CORR_STATS["dropped"] += ndrop; CORR_STATS["total"] += ntot
             log(f"  corr-mask: dropped {ndrop}/{ntot} correspondences landing in masked regions")
-        return out
+        return res_paths, cache_path
 
+    SGA.hash_md5 = keyed
     SGA.forward_mast3r = patched
-    SGA._corr_mask_installed = True
+    SGA._shared_cache_installed = True
+
+
+def install_corr_masking():
+    """Kept for callers: masking now rides with the shared-cache wrapper."""
+    install_shared_cache(None)
 
 
 def download(sub, imgdir, mask_anon=False, mask_solocator=False):
@@ -517,8 +557,10 @@ def render_conf(conf, path):
     Image.fromarray(np.stack([H, S, V], -1), "HSV").convert("RGB").save(path)
 
 
-def pair_count_matrix(cache_path, paths):
-    """Read the per-pair correspondence counts (post-masking) from the corres cache → N×N matrix."""
+def pair_count_matrix(cache_path, paths, shared_cache=None):
+    """Read the per-pair correspondence counts (post-masking) from the corres caches → N×N
+    matrix. A masked pair's counts live in the run-local `corres_masked_*` copy, which wins
+    over the raw pair in the shared cache."""
     import glob as _g
     import torch as _t
     try:
@@ -526,14 +568,20 @@ def pair_count_matrix(cache_path, paths):
     except Exception:
         from dust3r.utils.misc import hash_md5
     n = len(paths)
-    h2i = {hash_md5(p): i for i, p in enumerate(paths)}
+    h2i = {(CONTENT_KEY.get(p) or hash_md5(p)): i for i, p in enumerate(paths)}
     mat = np.zeros((n, n), int)
-    for f in _g.glob(os.path.join(cache_path, "corres_conf=*", "*.pth")):
+    seen = set()
+    files = _g.glob(os.path.join(cache_path, "corres_masked_conf=*", "*.pth"))
+    for root in (shared_cache, cache_path):
+        if root:
+            files += _g.glob(os.path.join(root, "corres_conf=*", "*.pth"))
+    for f in files:
         name = os.path.splitext(os.path.basename(f))[0]
-        if "-" not in name:
+        if "-" not in name or name in seen:
             continue
         h1, h2 = name.split("-", 1)
         if h1 in h2i and h2 in h2i:
+            seen.add(name)
             try:
                 score, _ = _t.load(f, map_location="cpu")
             except Exception:
@@ -686,6 +734,11 @@ def main():
     ap.add_argument("--before", default="", help="keep captures <= this (YYYY-MM-DD HH:MM:SS)")
     ap.add_argument("--inject", default="", help="comma-sep photo id-prefixes to add as impostors")
     ap.add_argument("--dense", action="store_true", help="also extract+save the DENSE point cloud")
+    ap.add_argument("--cache", default=os.getenv("RECON_SHARED_CACHE",
+                                                 os.path.join(HERE, "runs", "shared_cache")),
+                    help="content-addressed SHARED cache for forward passes + raw correspondences "
+                         "(a photo staged at the same size in another run is a cache hit); "
+                         "'' keeps everything in <out>/cache")
     ap.add_argument("--min_conf", type=float, default=1.5, help="dense-point confidence threshold")
     ap.add_argument("--mask_anon", action="store_true",
                     help="correspondence-mask anonymization doodle boxes (drop matches inside them)")
@@ -760,6 +813,13 @@ def main():
     # its optimization loop. The MASt3R forward passes manage no_grad internally.
     model = AsymmetricMASt3R.from_pretrained(MAST3R_CKPT).to(a.device).eval()
 
+    CONTENT_KEY.update({p: content_key(p, a.size) for p in paths})
+    shared_cache = os.path.abspath(a.cache) if a.cache else None
+    install_shared_cache(shared_cache)
+    if shared_cache:
+        n_hit = sum(os.path.isdir(os.path.join(shared_cache, "forward", CONTENT_KEY[p])) for p in paths)
+        log(f"shared cache {shared_cache}: {n_hit}/{len(paths)} frames have forward passes there")
+
     imgs = load_images(paths, size=a.size, verbose=True)
     if a.mask_solocator or a.mask_anon or a.mask_vegetation or a.semantic_mask:
         # Correspondence-level masks, built in the EXACT loaded frame MASt3R matches on (same
@@ -808,7 +868,6 @@ def main():
                 CORR_MASKS[paths[i]] = m
                 save_mask_overlay(rgb, m, os.path.join(a.out, f"mask_{i:03d}_{p['id'][:8]}.png"))
         if CORR_MASKS:
-            install_corr_masking()
             log(f"correspondence-masking: green overlay on {ng}, anon boxes on {na}, "
                 f"vegetation on {nv}, semantic on {ns} frame(s)")
     if a.pairs == "complete":
@@ -958,7 +1017,7 @@ def main():
     # correspondence-count connectivity (post-masking) → matrix image + summary
     pair_stats = {}
     try:
-        mat = pair_count_matrix(cache, paths)
+        mat = pair_count_matrix(cache, paths, shared_cache)
         render_pair_matrix(mat, os.path.join(a.out, "pairs_matrix.png"))
         sym = mat + mat.T
         deg = (sym > 0).sum(1)                       # how many frames each frame connects to

@@ -18,9 +18,11 @@ it as a subprocess fixes all of that, makes cancellation a kill, and turns its p
 progress into a capturable log.
 
 WHAT COMES BACK. Only the sparse layer (metadata/metrics/points.ply/renders/log, ~16 MB).
-The run dir and its 1.8-2.7 GB forward-pass cache stay here: regenerable, and needed only
-to re-solve — which is exactly what recon_resolve.py does when intrinsics must be
-recovered.
+The run dir stays here, and so does the forward-pass cache — since 2026-09-10 in the
+content-addressed scripts/enrich/runs/shared_cache (reconstruct.py --cache, env
+RECON_SHARED_CACHE), where a photo staged at the same size by another run is a hit. The
+run dir keeps only the run-specific parts (canonical views, masked correspondences);
+recon_resolve.py re-solves from those when intrinsics must be recovered.
 
 Environment:
     RABBITMQ_URL         default enrich:enrich@127.0.0.1:5672

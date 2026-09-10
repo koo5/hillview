@@ -906,6 +906,47 @@ them just spread their error further. The hypothesis is withdrawn. The render-an
 check still flags them, which is what a frame-level gate would act on: drop or
 down-weight the frames the leave-one-out test rejects, rather than link them harder.
 
+### One forward pass per photo-and-size, shared across runs (2026-09-10)
+
+Splitting a walk into span runs, the resolution trio, the masking A/Bs: every one of them
+re-staged the same photos and paid MASt3R's pairwise forward passes again, because the cache
+under each run dir was keyed by the run-local image path (`hash_md5("<rundir>/imgs/NNN_id.jpg")`).
+A 50-frame walk is ~700 directed pairs at 35 s each on this CPU: forty minutes per re-run before
+a single optimiser step, and 53 GB of caches that were mostly copies of each other.
+
+Now `reconstruct.py --cache` (default `scripts/enrich/runs/shared_cache`, env
+`RECON_SHARED_CACHE`) routes the per-pair **forward passes and raw correspondences** into one
+directory addressed by **image content**: `md5(jpeg bytes + "|size=<load size>|v1")`. The forward
+pass depends on exactly those two things (bytes, and dust3r's resize-to-`size`), so anything
+else about the run (id, frame order, pairing window, masks, iterations) is irrelevant to the
+key. It is done by rebinding `sparse_ga.hash_md5` for the staged paths and wrapping
+`forward_mast3r` so it runs against the shared root and returns the run-local root for
+everything after it.
+
+What stays run-local, and why:
+
+- **canonical views** (`canon_views/`) aggregate over whichever pairs *this* run has, so a
+  child span with a different neighbour set gets different canonical depth. Keyed by content
+  too, but under the run dir.
+- **masked correspondences**: the old wrapper rewrote a masked pair's correspondence file in
+  place, which is exactly what must not happen in a shared cache (an unmasked run would read
+  the hedge-less version next). The masked copy now goes to `<run>/cache/corres_masked_*/` and
+  the pair's entry in the result dict is pointed at it; the shared raw file is never touched.
+- `pair_count_matrix` reads the masked copies first, then the shared raw ones.
+
+Migration: `oneoff/scripts/2026-09-10_1030_shared_cache_migrate.py` hardlinked the existing
+per-run caches in (4914 forward files, 27 GB reachable, zero extra disk). One compromise was
+needed: because of the in-place rewrite, an anon-masked run's correspondences differ from raw
+only inside the painted doodle boxes, and no run wants matches there, so those went in as raw.
+Correspondences from vegetation- or semantic-masked runs stayed out; their forward files went in.
+The first re-staging of spot A reported `46/46 frames have forward passes there`, and the
+content keys were byte-identical to the original staging (the JPEG re-encode is deterministic).
+
+Retention is now a question about one directory, not twenty-three: the per-run `cache/forward`
+and `cache/corres_conf=*` dirs of finished runs are hardlinks of what the shared cache holds and
+can be removed without losing anything. The shared cache itself grows by roughly 70 MB per
+directed pair at 512 px and can be pruned by atime when disk asks for it.
+
 ### The disk filled up, and the bench said "queue unknown" (2026-09-10)
 
 Root hit 100%. Every request 500'd, the runs list showed nothing, and the only words on
