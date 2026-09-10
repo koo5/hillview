@@ -466,6 +466,34 @@ test('a running run shows its pace, its ETA and a slowdown warning', async ({ pa
 	await expect(row.getByTestId('recon-run-warning')).toContainText('5.1x slower');
 });
 
+test('a broken walk offers to split, and its spans overlay as a group', async ({ page }) => {
+	let splitCalled = false;
+	await page.route('**/api/recon/runs/*/split', async (route) => {
+		splitCalled = true;
+		await route.fulfill({ json: { parent: 'x', queued: [], skipped: [] } });
+	});
+	await page.route('**/api/recon/runs/*', async (route) => {
+		const id = new URL(route.request().url()).pathname.split('/').pop()!;
+		const r = RUNS.find((x) => x.id === id) ?? RUNS[0];
+		const base = runRow(r);
+		await route.fulfill({
+			json: {
+				...base,
+				metrics: { ...base.metrics, chain: { typical_link: 5000, breaks: [16, 33],
+					spans: [[0, 16], [17, 33], [34, 49]], verdicts: {}, n_cross_session: 0, n_cross_verified: 0 } },
+				frames: [], pairs: [], worst_pairs: [], geo: null,
+				group: { parent: r.id, members: [] }
+			}
+		});
+	});
+	await page.goto('/recon?run=walk_dense');
+	const btn = page.getByTestId('recon-split');
+	await expect(btn).toBeVisible({ timeout: 20_000 });
+	await expect(btn).toContainText('3 spans');
+	await btn.click();
+	await expect.poll(() => splitCalled).toBe(true);
+});
+
 test('a queued run shows its frames before it is solved', async ({ page }) => {
 	// A run takes hours. Whether it was worth starting is visible in its frames long
 	// before an artifact comes back, so the detail must serve them from the row.

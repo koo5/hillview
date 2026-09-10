@@ -851,6 +851,43 @@ to diagnose that optimisation — it was the joint solve's own reprojection numb
 the links look worthless. And a geometric check with a sign ambiguity needs a synthetic
 control, because on real data a mirrored answer is indistinguishable from a wrong match.
 
+### Breaking up broken sessions: the decision, and the first implementation (2026-09-10)
+
+The question was whether and how to split a walk that has fallen apart into spans. The
+evidence says *whether* is settled: the five-session fusion showed that frames which
+cannot see each other must not be solved together, because the joint optimiser spreads
+the bad links' error over the good geometry — and a single walk with a swipe, a
+staircase or an underpass in it has the same shape in miniature. `newest-2026-09-08`
+fitted per span sits on its GPS to under a metre where one fit left it seven off.
+
+*How*, for now:
+
+1. **Where to cut.** The union of two signals. The two-view chain (`--chain`) breaks
+   where consecutive frames stop sharing an epipolar geometry; the solve's own step
+   breaks where the solver restarted its scale. They disagree about a staircase — matches
+   survive it, scale does not — so both are needed. The chain is available before any
+   solve; the step only after one.
+2. **Solve each span alone.** `POST /recon/runs/{id}/split` enqueues one child run per
+   span, by explicit frame ids, with the parent's centre so every span lands in the same
+   metres-east/north/up frame. Spans under four frames are skipped. Each child is a
+   well-connected cluster, which is what the solver is good at.
+3. **Register spans by GPS, for now.** Each child gets the gravity-pinned, weighted GPS
+   fit with the manual-location priors. That is a pose graph with one node per span and
+   GPS priors only. Verified cross-span links and a real graph solve are the next step,
+   and the machinery for the links exists.
+4. **See it as one thing.** The bench shows a split run's spans as a group; tick a span
+   to overlay it in the parent's viewer, tinted, luminance from the photo and hue from
+   the span, so you can tell whose pavement is whose and whether the GPS registration
+   put them where they belong.
+
+What this costs today: the forward passes are recomputed per child, because MASt3R's
+cache is keyed by the run-local image path. A content-addressed image directory and a
+shared cache would make a split — and the resolution trio, the A/Bs, every re-solve of
+the same photos — nearly free. It is the obvious next infrastructure change, and it has
+to account for correspondence masking rewriting cache entries in place.
+
+First subject: `newest-2026-09-08`, split at 16, 29 and 33 into four children.
+
 ### A walk is several spans, and the GPS is on trial too (2026-09-09)
 
 The user, on `newest-2026-09-08`: "i expect it to fall apart into a few spans again, which

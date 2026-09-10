@@ -210,6 +210,16 @@ async def get_run(run_id: str):
         for f in frames:
             info = imgs.get(f.get("id")) or {}
             f["thumb"] = info.get("image_url")
+    # the group this run belongs to: its spans (children), or its siblings via the parent
+    parent = meta.get("parent")
+    async with wb_engine.connect() as conn:
+        kids = (await conn.execute(text(
+            "SELECT id, name, status, meta->'span' AS span, "
+            "  round((metrics->'reproj_px'->>'median')::numeric, 2) AS reproj "
+            "FROM recon_runs WHERE meta->>'parent' = :p ORDER BY (meta->'span'->>0)::int"),
+            {"p": parent or rid})).mappings().all()
+    out["group"] = {"parent": parent or rid,
+                    "members": [dict(k) | {"id": str(k["id"])} for k in kids]}
     out["frames"] = frames
     out["pairs"] = pairs
     out["worst_pairs"] = worst
@@ -671,6 +681,12 @@ class EnqueueRequest(BaseModel):
     per_session: int | None = None   # cap per session, strided so coverage is kept
     max_sessions: int | None = None  # keep the largest N sessions
     params: dict = {}
+    # An explicit frame list overrides the spatial/temporal selection. This is how a
+    # span of a broken walk becomes its own run: the parent's chain report names the
+    # frames, and they are solved alone rather than beside the frames they cannot see.
+    frame_ids: list[str] | None = None
+    parent: str | None = None        # run id this was split from, for grouping
+    span: list[int] | None = None    # [first, last] frame index in the parent
 
 
 def _sessionize(rows, gap_s: float) -> list[str]:
@@ -779,6 +795,20 @@ def _ts(v: str | None, field: str) -> datetime.datetime | None:
         return datetime.datetime.fromisoformat(v)
     except ValueError:
         raise HTTPException(422, f"{field}: expected an ISO timestamp, got {v!r}")
+
+
+async def _select_frames_by_ids(ids: list[str]) -> list[dict]:
+    """The named frames, in capture order, in the same manifest shape as the selector."""
+    async with wb_engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT id, ST_Y(geometry) AS lat, ST_X(geometry) AS lon, altitude, "
+            "  compass_angle, captured_at, width, height, title, original_filename, "
+            "  detected_objects, owner_id, client_public_key_id, "
+            "  exif_data AS exif, "
+            "  COALESCE(sizes->'full'->>'url', sizes->'1024'->>'url') AS full_url "
+            "FROM photo_mirror WHERE id = ANY(:ids) AND deleted = false "
+            "ORDER BY captured_at, id"), {"ids": ids})).mappings().all()
+    return [_manifest_frame(r) for r in rows]
 
 
 async def _select_frames(req: EnqueueRequest) -> list[dict]:
@@ -949,7 +979,8 @@ async def enqueue(req: EnqueueRequest):
     if not actors.init_broker():
         raise HTTPException(503, "no RABBITMQ_URL configured")
     params = {k: v for k, v in (req.params or {}).items() if k in ALLOWED_PARAMS}
-    frames = await _select_frames(req)
+    frames = (await _select_frames_by_ids(req.frame_ids) if req.frame_ids
+              else await _select_frames(req))
     if len(frames) < 2:
         raise HTTPException(422, f"selected {len(frames)} frame(s); need >= 2")
 
@@ -962,7 +993,10 @@ async def enqueue(req: EnqueueRequest):
     spec = {"center": [req.lat, req.lon], "radius_m": req.radius_m,
             "limit": req.limit, "offset": req.offset, "stride": req.stride,
             "after": req.after, "before": req.before, "inject": req.inject,
-            "params": params}
+            "params": params, "frame_ids": req.frame_ids}
+    extra = {}
+    if req.parent:
+        extra = {"parent": req.parent, "span": req.span}
 
     async with wb_engine.begin() as conn:
         rid = (await conn.execute(text(
@@ -982,7 +1016,7 @@ async def enqueue(req: EnqueueRequest):
              # a run takes hours, and whether it was worth starting is visible in its
              # frames long before any artifact comes back. Compact on purpose — the
              # full manifest (URLs, anon boxes, EXIF) is the worker's business.
-             "meta": json.dumps({"spec": spec,
+             "meta": json.dumps({"spec": spec, **extra,
                                  "frames": [_pending_frame(i, f)
                                             for i, f in enumerate(frames)]})})).scalar_one()
 
@@ -1076,6 +1110,67 @@ async def purge_queue():
     if resp.status_code not in (200, 204):
         raise HTTPException(502, f"purge failed: {resp.status_code} {resp.text[:200]}")
     return {"purged": True}
+
+
+class SplitRequest(BaseModel):
+    spans: list[list[int]] | None = None   # [[first, last], ...]; default: the chain report's
+    min_frames: int = 4
+    params: dict | None = None             # override the parent's params
+
+
+@router.post("/recon/runs/{run_id}/split")
+async def split_run(run_id: str, req: SplitRequest):
+    """Break a run into spans and enqueue each as its own run.
+
+    The lesson of the fusion runs: frames that cannot see each other must not be solved
+    together, because the joint optimiser spreads the bad links' error over the good
+    geometry. The chain report already says where a walk breaks. Each span is solved
+    ALONE here -- a well-connected cluster, which is what the solver is good at -- with
+    the parent's centre, so every span lands in the same metres-east/north/up frame and
+    the group can be overlaid. Registration between spans is GPS-only for now; verified
+    cross-span links and a pose graph refine it later.
+    """
+    rid = str(uuid.UUID(run_id))
+    async with wb_engine.connect() as conn:
+        row = (await conn.execute(text(
+            "SELECT name, params, meta, metrics FROM recon_runs WHERE id = CAST(:id AS uuid)"),
+            {"id": rid})).mappings().first()
+    if not row:
+        raise HTTPException(404, "run not found")
+    meta = row["meta"] or {}
+    frames = meta.get("frames") or []
+    if not frames:
+        # runs enqueued before the frame list was kept on the row: the solved artifact
+        # has it, with the same idx numbering the chain report used
+        try:
+            with open(await _artifact(rid, "metadata_path")) as f:
+                frames = [{"idx": fr["idx"], "id": fr["id"]} for fr in json.load(f)["frames"]]
+        except (HTTPException, OSError, KeyError, json.JSONDecodeError):
+            raise HTTPException(400, "run has no frame list on its row and no metadata artifact")
+    spans = req.spans or ((row["metrics"] or {}).get("chain") or {}).get("spans")
+    if not spans:
+        raise HTTPException(400, "no spans given and the run has no chain report")
+    centre = (meta.get("spec") or {}).get("center")
+    if not centre:
+        try:
+            with open(await _artifact(rid, "metadata_path")) as f:
+                centre = json.load(f).get("center")
+        except (HTTPException, OSError, json.JSONDecodeError):
+            centre = None
+    if not centre:
+        raise HTTPException(400, "run has no centre")
+    params = req.params if req.params is not None else (row["params"] or {})
+    out, skipped = [], []
+    for k, (a0, a1) in enumerate(spans):
+        ids = [f["id"] for f in frames if a0 <= f["idx"] <= a1]
+        if len(ids) < req.min_frames:
+            skipped.append({"span": k, "frames": [a0, a1], "n": len(ids)})
+            continue
+        child = EnqueueRequest(lat=centre[0], lon=centre[1], name=f"{row['name']}#s{k}",
+                               frame_ids=ids, parent=rid, span=[a0, a1], params=params)
+        r = await enqueue(child)
+        out.append({"span": k, "frames": [a0, a1], **r})
+    return {"parent": rid, "queued": out, "skipped": skipped}
 
 
 @router.post("/recon/preview")

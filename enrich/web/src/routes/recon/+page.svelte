@@ -108,6 +108,10 @@
 	};
 	type Detail = Run & {
 		frames_pending?: boolean;
+		group?: {
+			parent: string;
+			members: { id: string; name: string; status: string; span: [number, number] | null; reproj: number | null }[];
+		};
 		frames: Frame[];
 		pairs: Pair[];
 		worst_pairs: { i: number; j: number; metric: string; median_px: number; n_corres: number }[];
@@ -163,6 +167,32 @@
 	});
 	let showMap = $state(true);
 	let showPhotos = $state(false);
+	// group members overlaid in the cloud viewer, by run id
+	let overlay = $state<Record<string, boolean>>({});
+	const TINTS = [0xff6b6b, 0x4dd0e1, 0xffd54f, 0xba68c8, 0x81c784, 0xff8a65, 0x64b5f6, 0xf06292];
+	const extraRuns = $derived(
+		(detail?.group?.members ?? [])
+			.filter((m) => m.id !== detail?.id && overlay[m.id] && m.status === 'done')
+			.map((m, i) => ({ id: m.id, tint: TINTS[i % TINTS.length], label: m.name }))
+	);
+	let splitting = $state(false);
+	async function splitIntoSpans() {
+		if (!detail?.metrics?.chain?.spans?.length) return;
+		splitting = true;
+		try {
+			const r = await fetch(`${apiBase}/recon/runs/${detail.id}/split`, {
+				method: 'POST', headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ params: detail.params ?? {} })
+			});
+			if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+			await loadRuns();
+			await loadDetail(detail.id);
+		} catch (e) {
+			err = e instanceof Error ? e.message : String(e);
+		} finally {
+			splitting = false;
+		}
+	}
 	// …but do NOT mount the viewer until it is actually on screen. A dense cloud is
 	// hundreds of thousands of points and a WebGL context; eagerly loading one per run
 	// visit made the page heavy enough to crash a headless tab.
@@ -664,6 +694,12 @@
 								{#if m.chain.n_cross_session}
 									· {m.chain.n_cross_verified}/{m.chain.n_cross_session} cross-session links verified{/if}
 							</span>
+							{#if m.chain.breaks?.length && !detail.group?.members?.length}
+								<button class="tiny" disabled={splitting} onclick={splitIntoSpans}
+									title="enqueue each span as its own run, solved alone; the group overlays in the viewer"
+									data-testid="recon-split">split into {m.chain.spans.length} spans</button
+								>
+							{/if}
 						</div>
 					{/if}
 					<div class="stat" data-testid="recon-stat-coverage">
@@ -937,6 +973,37 @@
 				</div>
 			</div>
 
+			{#if detail.group?.members?.length}
+				<div class="card" data-testid="recon-group">
+					<h3>Spans</h3>
+					<p class="muted small">
+						This walk was split at its chain breaks and each span solved alone, in the same
+						metres-east/north/up frame. Tick a span to overlay it, tinted, in the cloud below.
+					</p>
+					<div class="tblwrap">
+						<table>
+							<thead><tr><th></th><th>span</th><th>frames</th><th>status</th><th class="num">reproj px</th></tr></thead>
+							<tbody>
+								{#each detail.group.members as mbr, i (mbr.id)}
+									<tr>
+										<td>
+											{#if mbr.id !== detail.id && mbr.status === 'done'}
+												<input type="checkbox" bind:checked={overlay[mbr.id]}
+													style="accent-color: #{TINTS[i % TINTS.length].toString(16).padStart(6, '0')}" />
+											{/if}
+										</td>
+										<td><a href="/recon?run={encodeURIComponent(mbr.name)}">{mbr.name}</a></td>
+										<td>{mbr.span ? `${mbr.span[0]}–${mbr.span[1]}` : '—'}</td>
+										<td>{mbr.status}</td>
+										<td class="num">{mbr.reproj ?? '—'}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				</div>
+			{/if}
+
 			{#if detail.has_cloud}
 				<div class="card">
 					<div class="secthead">
@@ -970,6 +1037,7 @@
 									dense={showDense && !!detail.has_dense_cloud}
 									{showMap}
 									{showPhotos}
+									{extraRuns}
 								/>
 							{/key}
 						{:else}
@@ -1180,6 +1248,11 @@
 		border-radius: 3px;
 		background: rgba(0, 0, 0, 0.6);
 		color: #eee;
+	}
+	button.tiny {
+		font-size: 11px;
+		padding: 1px 7px;
+		margin-top: 4px;
 	}
 	.mapchk {
 		display: inline-flex;

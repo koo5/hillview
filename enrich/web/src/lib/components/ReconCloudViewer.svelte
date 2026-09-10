@@ -18,7 +18,8 @@
 		showCameras = true,
 		showGround = true,
 		showMap = true,
-		showPhotos = false
+		showPhotos = false,
+		extraRuns = []
 	}: {
 		runId: string;
 		dense?: boolean;
@@ -27,6 +28,9 @@
 		showGround?: boolean;
 		showMap?: boolean;
 		showPhotos?: boolean;
+		// other runs to draw in the same ENU frame, each tinted: the spans of a broken
+		// walk, solved alone, overlaid to see how the GPS-only registration holds them
+		extraRuns?: { id: string; tint: number; label?: string }[];
 	} = $props();
 
 	let el: HTMLDivElement;
@@ -123,6 +127,92 @@
 	let sceneOffset: any = null;
 	let sceneSize = 1;
 	let mounted = $state(false);
+
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let extraGroups: Record<string, any> = {};
+
+	async function loadExtra(THREE: typeof import('three'), run: { id: string; tint: number }) {
+		const url = `${apiBase}/recon/runs/${run.id}/cloud.bin?max_points=${Math.floor(maxPoints / 2)}&dense=true`;
+		const res = await fetch(url);
+		if (!res.ok) return null;
+		const buf = await res.arrayBuffer();
+		const n = Math.floor(buf.byteLength / 15);
+		const dv = new DataView(buf);
+		const pos = new Float32Array(n * 3);
+		const col = new Float32Array(n * 3);
+		const tint = new THREE.Color(run.tint);
+		let k = 0;
+		for (let i = 0; i < n; i++) {
+			const o = i * 15;
+			const x = dv.getFloat32(o, true), y = dv.getFloat32(o + 4, true), z = dv.getFloat32(o + 8, true);
+			if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+			if (Math.abs(x) > 1e6 || Math.abs(y) > 1e6 || Math.abs(z) > 1e6) continue;
+			pos[k * 3] = x; pos[k * 3 + 1] = y; pos[k * 3 + 2] = z;
+			// keep the photo's luminance, take the span's hue: the overlay must still read
+			// as pavement and wall, but you must be able to tell whose pavement it is
+			const l = (dv.getUint8(o + 12) * 0.3 + dv.getUint8(o + 13) * 0.59 + dv.getUint8(o + 14) * 0.11) / 255;
+			col[k * 3] = tint.r * (0.35 + 0.65 * l);
+			col[k * 3 + 1] = tint.g * (0.35 + 0.65 * l);
+			col[k * 3 + 2] = tint.b * (0.35 + 0.65 * l);
+			k++;
+		}
+		const g = new THREE.BufferGeometry();
+		g.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, k * 3), 3));
+		g.setAttribute('color', new THREE.BufferAttribute(col.subarray(0, k * 3), 3));
+		const grp = new THREE.Group();
+		grp.add(new THREE.Points(g, new THREE.PointsMaterial({
+			size: pointWorldSize(), vertexColors: true, sizeAttenuation: true,
+			map: discSprite(THREE), alphaTest: 0.5, transparent: false
+		})));
+		// its cameras, in the tint
+		const r = await fetch(`${apiBase}/recon/runs/${run.id}/cameras`);
+		if (r.ok) {
+			const d = await r.json();
+			for (const f of d.frames ?? []) {
+				if (!f.rot || !f.pos) continue;
+				const m = new THREE.Matrix4();
+				m.set(f.rot[0][0], f.rot[0][1], f.rot[0][2], f.pos[0],
+					f.rot[1][0], f.rot[1][1], f.rot[1][2], f.pos[1],
+					f.rot[2][0], f.rot[2][1], f.rot[2][2], f.pos[2], 0, 0, 0, 1);
+				const cam = new THREE.Group();
+				cam.applyMatrix4(m);
+				const fp = f.focal_px || 400;
+				const hw = 0.7 * (400 / fp), hh = 0.93 * (400 / fp);
+				const lg = new THREE.BufferGeometry();
+				lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+					0, 0, 0, -hw, -hh, 1, 0, 0, 0, hw, -hh, 1, 0, 0, 0, hw, hh, 1, 0, 0, 0, -hw, hh, 1,
+					-hw, -hh, 1, hw, -hh, 1, hw, -hh, 1, hw, hh, 1, hw, hh, 1, -hw, hh, 1, -hw, hh, 1, -hw, -hh, 1
+				]), 3));
+				cam.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: run.tint })));
+				cam.userData.unit = sceneSize * 0.02;
+				cam.scale.setScalar(cam.userData.unit * camScale);
+				camGroups.push(cam);
+				grp.add(cam);
+			}
+		}
+		return grp;
+	}
+
+	async function syncExtras() {
+		if (!scene || !three) return;
+		const want = new Set(extraRuns.map((r) => r.id));
+		for (const [id, g] of Object.entries(extraGroups)) {
+			if (!want.has(id)) {
+				scene.remove(g);
+				disposeTree(g);
+				delete extraGroups[id];
+			}
+		}
+		for (const run of extraRuns) {
+			if (extraGroups[run.id]) continue;
+			extraGroups[run.id] = 'loading';
+			const g = await loadExtra(three, run);
+			if (!g || disposed || !scene) { delete extraGroups[run.id]; continue; }
+			g.position.copy(sceneOffset);
+			extraGroups[run.id] = g;
+			scene.add(g);
+		}
+	}
 
 	// --- layer attach/detach, so a toggle never disturbs the camera -----------------
 	async function syncCameras() {
@@ -795,6 +885,7 @@
 			sceneSize = size;
 			if (showCameras) await syncCameras();
 			if (showMap) syncMap();
+			if (extraRuns.length) syncExtras();
 
 			const w = el.clientWidth || 800;
 			const h = el.clientHeight || 480;
@@ -896,6 +987,11 @@
 	$effect(() => {
 		void showMap;
 		if (mounted) syncMap();
+	});
+
+	$effect(() => {
+		void extraRuns.map((r) => r.id).join(',');
+		if (mounted) syncExtras();
 	});
 
 	// NB: read the reactive value BEFORE the loop. Both of these lists are empty on the
