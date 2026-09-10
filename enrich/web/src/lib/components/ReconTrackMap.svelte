@@ -133,8 +133,16 @@
 			}
 		}
 		paintHighlight();
-		if (pts.length && fitOnRender) map.fitBounds(pts, { padding: [30, 30], maxZoom: 18 });
+		if (pts.length && fitOnRender) map.fitBounds(pts, { padding: [30, 30], maxZoom: 18, animate: false });
 		fitOnRender = false;
+		// the centre, as data: the one observable a test (or an operator's script) can
+		// read to know where the map is looking
+		try {
+			const c = map.getCenter();
+			el.dataset.centre = `${c.lat.toFixed(5)},${c.lng.toFixed(5)}`;
+		} catch (e) {
+			el.dataset.centreError = String(e).slice(0, 120);
+		}
 	}
 
 	onMount(async () => {
@@ -150,9 +158,12 @@
 	onDestroy(() => map?.remove());
 
 	$effect(() => {
-		// re-render on a frame change; a selection change only repaints, so the map does
-		// not jump when a frame is picked from the table
+		// A new frame set is a new run: refit the bounds. A selection change only
+		// repaints (below), so the map does not jump when a frame is picked from the
+		// table -- but it must jump when a different run is picked from the list, which
+		// the first version of this forgot, and the map sat on the previous spot.
 		frames;
+		fitOnRender = true;
 		render();
 	});
 

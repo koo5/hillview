@@ -357,6 +357,30 @@ test('the track map goes fullscreen and comes back', async ({ page }) => {
 		.toBeLessThan(small + 50);
 });
 
+test('the track map moves when a different run is picked', async ({ page }) => {
+	// two runs at two places: picking the second must refit the map to it
+	const far = GEO_FRAMES.map((f) => ({ ...f, gps: [f.gps[0] + 0.05, f.gps[1] + 0.05],
+		recovered_gps: [f.recovered_gps[0] + 0.05, f.recovered_gps[1] + 0.05] }));
+	await page.route('**/api/recon/runs/*', async (route) => {
+		const id = new URL(route.request().url()).pathname.split('/').pop()!;
+		const r = RUNS.find((x) => x.id === id) ?? RUNS[0];
+		const g = r.name === 'board_jan' ? far : GEO_FRAMES;
+		await route.fulfill({ json: { ...runRow(r),
+			frames: g.map((f) => ({ id: `aaaaaaaa-0000-0000-0000-00000000000${f.idx}`, idx: f.idx,
+				focal_px: 405, base_focal_px: 400, reproj_px: 1, epipolar_px: 0.3, residual_m: 0.4 })),
+			pairs: PAIRS, worst_pairs: [], geo: { frames: g } } });
+	});
+	await page.route('**/tile/**', async (route) => route.abort());
+	await page.goto('/recon?run=walk_dense');
+	await expect(page.getByTestId('recon-track-expand')).toBeVisible({ timeout: 20_000 });
+	const mapEl = page.locator('.leaflet-container');
+	await expect(mapEl).toHaveAttribute('data-centre', /50\.100\d\d,14\.500\d\d/);
+	await page.getByTestId('recon-run-row').filter({ hasText: 'board_jan' }).click();
+	await expect(page.getByTestId('recon-detail')).toHaveAttribute('data-run', 'board_jan');
+	// the far cluster is 0.05 deg away; the map must be looking there now
+	await expect(mapEl).toHaveAttribute('data-centre', /50\.150\d\d,14\.550\d\d/, { timeout: 5000 });
+});
+
 test('hovering a recovered camera names its frame and lights its link', async ({ page }) => {
 	await stubGeo(page);
 	await page.goto('/recon?run=walk_dense');

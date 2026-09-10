@@ -373,7 +373,16 @@ def install_corr_masking():
                 y = np.clip(xy[:, 1].astype(int), 0, H - 1)
                 keep &= ~m[y, x]
             ntot += len(keep); ndrop += int((~keep).sum())
-            cf = confs[keep]
+            if not keep.any() and len(keep):
+                # Every correspondence of this pair fell in a mask -- a hedge against a
+                # hedge. sparse_ga's matching_check does x.max() on the pair's confs and
+                # an EMPTY tensor crashes it (newest-vegmask died exactly there). Leave
+                # ONE correspondence with confidence 0: the check then fails the pair
+                # honestly, and the solve goes on without it.
+                keep[int(np.argmax(np.asarray(confs)))] = True
+                cf = confs[keep] * 0
+            else:
+                cf = confs[keep]
             _t.save(((score[0], float(cf.sum()), int(len(cf))), (xy1[keep], xy2[keep], cf)), pc)
         if ntot:
             CORR_STATS["dropped"] += ndrop; CORR_STATS["total"] += ntot
