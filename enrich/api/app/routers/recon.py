@@ -211,9 +211,12 @@ async def get_run(run_id: str):
     ids = [f["id"] for f in frames if f.get("id")]
     if ids:
         imgs = await _frame_images(ids, "320")
+        bsrc = await _frame_bearing_sources(ids)
         for f in frames:
             info = imgs.get(f.get("id")) or {}
             f["thumb"] = info.get("image_url")
+            f["bearing_source"] = bsrc.get(f.get("id"))
+            f["bearing_is_compass"] = bearing_is_compass(f["bearing_source"])
     # the group this run belongs to: its spans (children), or its siblings via the parent
     parent = meta.get("parent")
     async with wb_engine.connect() as conn:
@@ -385,6 +388,39 @@ async def cloud_packed(run_id: str, request: Request, max_points: int = 1_500_00
                         headers={"X-Point-Stride": "15",
                                  "X-Cloud": "soft" if soft else "dense" if served_dense else "sparse",
                                  "X-Frame-Of-Reference": "enu-metres" if align else "solve"})
+
+
+# How a photo's stored bearing was obtained, straight from the capture app's UserComment.
+# This matters more than it looks: only the compass sources are a statement about where the
+# CAMERA pointed. `gps-kalman` is the movement-heading mode — the direction the phone was
+# travelling, which on any walk is not where it was aimed — and `map` / `arrow_drag` are a
+# person setting it by hand afterwards. About a third of the corpus is movement heading.
+COMPASS_BEARING_SOURCES = ("compass-true", "compass-magnetic", "absolute-compass")
+
+
+def bearing_is_compass(src: str | None) -> bool:
+    return bool(src) and any(k in src for k in COMPASS_BEARING_SOURCES)
+
+
+async def _frame_bearing_sources(ids: list[str]) -> dict[str, str | None]:
+    """{photo id: bearing_source}, from the capture app's UserComment JSON."""
+    if not ids:
+        return {}
+    async with wb_engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT id, exif_data->'data'->>'UserComment' AS uc FROM photo_mirror "
+            "WHERE id = ANY(:ids)"), {"ids": ids})).mappings().all()
+    out: dict[str, str | None] = {}
+    for r in rows:
+        src = None
+        uc = r["uc"] or ""
+        if uc.startswith("{"):
+            try:
+                src = (json.loads(uc) or {}).get("bearing_source")
+            except json.JSONDecodeError:
+                src = None
+        out[r["id"]] = src
+    return out
 
 
 async def _frame_images(ids: list[str], size: str) -> dict[str, dict]:
@@ -1083,6 +1119,24 @@ def _exif_focal_px(exif: dict | None, long_side_px: int) -> float | None:
     return round(f35 * long_side_px / 36.0) if f35 and f35 > 0 else None
 
 
+def _bearing_source(exif) -> str | None:
+    """The capture app's own note on how this photo's bearing was obtained.
+
+    `exif` may be the whole exif_data object or just its `data` sub-object, depending on
+    which query built the row, so look in both.
+    """
+    if not isinstance(exif, dict):
+        return None
+    uc = (exif.get("data") or {}).get("UserComment") if isinstance(exif.get("data"), dict) else None
+    uc = uc or exif.get("UserComment")
+    if not isinstance(uc, str) or not uc.startswith("{"):
+        return None
+    try:
+        return (json.loads(uc) or {}).get("bearing_source")
+    except json.JSONDecodeError:
+        return None
+
+
 def _manifest_frame(r) -> dict:
     cap = r["captured_at"]
     return {
@@ -1091,6 +1145,9 @@ def _manifest_frame(r) -> dict:
         "altitude": float(r["altitude"]) if r["altitude"] is not None else None,
         "compass_angle": (float(r["compass_angle"])
                           if r["compass_angle"] is not None else None),
+        # WHERE that bearing came from. Only a compass source says where the camera was
+        # AIMED; gps-kalman is the direction of travel and map/arrow_drag are hand-set.
+        "bearing_source": _bearing_source(r["exif"]),
         "captured_at": cap.strftime("%Y-%m-%d %H:%M:%S.%f") if cap else "",
         "full_url": r["full_url"],
         "width": int(r["width"] or 0), "height": int(r["height"] or 0),

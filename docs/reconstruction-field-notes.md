@@ -957,6 +957,53 @@ frame with 6% vertical and 29% vegetation now keeps its hedge. `newest-s0-vegkep
 same 17 frames under the corrected ladder; the forward passes are cached, so it costs only the
 optimiser.
 
+### There is no GPS orientation, and a third of the bearings are not compass (2026-09-10)
+
+Two mistakes of mine, corrected by the user, both about what the data actually says.
+
+**There is no such thing as a GPS orientation here.** GPS measures position. Each span's ENU
+alignment is a fit of its camera POSITIONS to its GPS positions, and that fit carries a yaw as
+a by-product — the turn that best lines up two tracks — which on a short or straight span is
+barely determined at all. Calling it "the GPS orientation" invented a measurement that was
+never taken. It is the **position fit** everywhere now, and its vote is simply the status quo:
+do not turn this span any further.
+
+**And `compass_angle` is not always a compass.** The capture app records `bearing_source` in
+its EXIF UserComment, and it is not decoration:
+
+| bearing_source | photos |
+|---|---|
+| android compass (rotation vector / compass-true) | 30,831 |
+| gps-kalman | 24,654 |
+| map | 1,970 |
+| arrow_drag, web, others | ~2,000 |
+
+`gps-kalman` is the **movement-heading** mode: the direction the phone was travelling, which
+on any walk is not where it was aimed. `map` and `arrow_drag` are a person setting the arrow
+by hand afterwards. Only the compass rows say where the camera pointed. The stairs-and-bridge
+spans are 36 of 60 and 41 of 58 compass, the rest hand-set — so the first "compass says -82°"
+measurement was averaging magnetometer readings together with hand-drawn arrows.
+`bearing_source` now rides on every manifest frame, every run's metadata, and every frame the
+bench serves; archived runs get it from the mirror by photo id.
+
+**With only the compass frames, that walk's compass cannot arbitrate anything.** Its
+per-frame offsets scatter almost uniformly — concentration 0.38 on one span and 0.56 on the
+other, spreads of 79° and 62° — under a bridge, down a staircase, with the spans' own solves
+bent. A circular mean of that is arithmetic, not evidence. So a compass vote is now
+**admissible only** at concentration ≥ 0.6 over ≥ 8 compass-sourced frames, and the geometric
+vote is called strong only when the consensus is a real majority (≥ 60% of the cross pairs
+that could speak, not 8 of 24).
+
+Under those rules the bridge join comes out **unresolved**: the compass is inadmissible, the
+geometry is thin, and nothing is turned. The alignment applied earlier on that basis has been
+reverted to the position fit. `bridge-join-probe` is queued to compute cross pairs between
+frames neither solve shared, which is the evidence this needs.
+
+The same rules on the self-test, where they should fire the other way: spot A solved twice,
+compass admissible over 46+46 frames at ±4°, geometry agreeing to 0.3°, gravity-safe fit
+residual 0.06 m — trust geometry, with the note that both candidates sit inside the compass's
+own error, so it is a lean and not a proof.
+
 ### A join may turn a span, never tip it — and the compass gets a vote (2026-09-10)
 
 Two corrections to the join, both from the user, both right.
@@ -976,23 +1023,14 @@ worth it:
 That residual gap is itself a diagnostic: when holding the tilt to zero wrecks the fit, either
 one span's gravity is wrong or the join is not real.
 
-**Second: the compass gets a vote, and it is the deciding one.** Each span was aligned to ENU
-against its own GPS, so GPS's answer to "how should this span be turned" is always *not at
-all*. Geometry now disagrees. The compass owes nothing to either: two spans of one walk share
-one hard-iron bias, so the difference between their compass offsets is an independent estimate
-of the relative yaw. On the bridge walk:
-
-| source | turn it wants |
-|---|---|
-| GPS | 0° |
-| geometry, gravity-safe | -53° |
-| compass | -82° |
-
-The compass sits 26° from geometry and 82° from GPS, so GPS is the outlier and the geometric
-join is applied. Where the compass instead backs GPS, `--apply` refuses to turn the span and
-says why; `--use-compass-yaw` turns it by the compass's angle while keeping the fitted scale,
-for a join too thin to trust for angle but good enough for distance. Nothing is overwritten:
-the GPS fit is kept as `alignment_gps` and `alignment_source` records which opinion won.
+**Second: the compass gets a vote — when it has earned one.** See the section below, *There
+is no GPS orientation*, which corrects what this section first claimed. In short: the status
+quo is a fit of camera POSITIONS to GPS positions, not an orientation measurement; the compass
+vote must be drawn only from frames whose bearing actually came from a magnetometer; and on
+the bridge walk it turned out to be too scattered to arbitrate at all. `--apply` refuses to
+turn a span unless the evidence supports it, `--use-compass-yaw` turns by the compass angle
+where that is the better of the two, and `--revert` puts a join back. Nothing is overwritten:
+the position fit is kept as `alignment_gps` and `alignment_source` records what won.
 
 ### Reaching past a weak link, because walking is not a chain (2026-09-10)
 

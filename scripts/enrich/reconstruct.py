@@ -58,6 +58,34 @@ def wkt(g):
 BLUR_CONFIDENCE = 0.4  # mirrors backend/worker/detections.py: blurred iff conf is None or >= this
 
 
+def bearing_source(r):
+    """How the capture app obtained this photo's bearing, from its UserComment JSON.
+
+    Only a compass source is a statement about where the camera was AIMED. `gps-kalman` is
+    the movement-heading mode (the direction of travel), and `map` / `arrow_drag` were set
+    by hand on a map afterwards. Roughly a third of the corpus is movement heading, so a
+    bearing has to be read together with this.
+    """
+    ex = r.get("exif_data") or r.get("exif") or {}
+    if not isinstance(ex, dict):
+        return None
+    d = ex.get("data") if isinstance(ex.get("data"), dict) else ex
+    uc = (d or {}).get("UserComment")
+    if not isinstance(uc, str) or not uc.startswith("{"):
+        return None
+    try:
+        return (json.loads(uc) or {}).get("bearing_source")
+    except (ValueError, TypeError):
+        return None
+
+
+COMPASS_BEARING_SOURCES = ("compass-true", "compass-magnetic", "absolute-compass")
+
+
+def bearing_is_compass(src):
+    return bool(src) and any(k in src for k in COMPASS_BEARING_SOURCES)
+
+
 def parse_anon(r):
     """Boxes that were actually BLURRED/anonymized (cars, people, …), (x1,y1,x2,y2) in original px.
     Mirrors the worker's should_blur(): a detection is blurred iff it has no confidence
@@ -132,6 +160,7 @@ def select_cluster(center, radius_m, n, start, maxscan, stride=1, after="", befo
             "e": e, "n": nth, "d": d,
             "alt": float(r["altitude"]) if r.get("altitude") else None,
             "brg": float(r["compass_angle"]) if r.get("compass_angle") else None,
+            "brg_src": bearing_source(r),
             "cap": r.get("captured_at") or r.get("uploaded_at") or "",
             "full": url, "t640": t640,
             "ttl": (r.get("title") or "")[:60],
@@ -175,6 +204,7 @@ def load_manifest(path, center):
             "e": e, "n": nth, "d": math.hypot(e, nth),
             "alt": float(f["altitude"]) if f.get("altitude") is not None else None,
             "brg": float(f["compass_angle"]) if f.get("compass_angle") is not None else None,
+            "brg_src": f.get("bearing_source"),
             "cap": f.get("captured_at") or "",
             "full": f["full_url"], "t640": f.get("thumb_url"),
             "ttl": ("INJECTED:" + title[:50]) if f.get("injected") else title,
@@ -217,6 +247,7 @@ def fetch_by_ids(prefixes, center):
                     "d": math.hypot((lon - lon0) * kx, (lat - lat0) * ky),
                     "alt": float(r["altitude"]) if r.get("altitude") else None,
                     "brg": float(r["compass_angle"]) if r.get("compass_angle") else None,
+            "brg_src": bearing_source(r),
                     "cap": r.get("captured_at") or "", "full": url, "t640": None, "inj": True,
                     "anon": parse_anon(r), "ow": int(r["width"]), "oh": int(r["height"]),
                     "ofn": r.get("original_filename") or "",
@@ -1167,7 +1198,8 @@ def main():
             "cache_key": CONTENT_KEY.get(paths[i]),
             "session": p.get("sess"),
             "gps": [p["lat"], p["lon"]], "altitude": p["alt"],
-            "compass_angle": p["brg"], "captured_at": p["cap"], "title": p["ttl"],
+            "compass_angle": p["brg"], "bearing_source": p.get("brg_src"),
+            "captured_at": p["cap"], "title": p["ttl"],
             "dist_to_center_m": round(p["d"], 1), "source_url": p["full"],
             "focal_px": float(focals[i]),
             "pose_cam2world": poses[i].tolist(),
