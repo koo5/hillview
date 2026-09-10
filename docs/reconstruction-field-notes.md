@@ -906,6 +906,64 @@ them just spread their error further. The hypothesis is withdrawn. The render-an
 check still flags them, which is what a frame-level gate would act on: drop or
 down-weight the frames the leave-one-out test rejects, rather than link them harder.
 
+### The resolution trio was never a resolution test (2026-09-10)
+
+`res-spotA-512/768/1024` came out at 11.03 / 36.03 / 44.90 px and looked like a verdict on
+resolution. It was not. All three selected **12 frames at stride 4** — every fourth photo of
+the walk — and the control says so: the same walk at stride 1 and the same 512 px solves at
+1.33 px. The stride alone cost a factor of eight, and 768 and 1024 were then measured on a
+chain that had already broken.
+
+`res23-spotA-512` settles where the cliff is. Stride 2, 22 frames, and it lands at **1.33 px
+with 1.0 cm neighbour ground agreement and no chain breaks** — indistinguishable from the
+46-frame reference. So halving the frame rate costs nothing here and quartering it destroys
+the solve. The overlap between consecutive frames, not the frame count, is what the matcher
+needs.
+
+That makes the `res23` trio a fair test after all: its 512 control is at reference quality, so
+any degradation at 768 or 1024 belongs to resolution. Both are requeued. At 768 the observed
+rate on this CPU is about 2.5 min per directed pair, so 22 frames is roughly six hours and the
+46-frame version is about fifteen — a GPU job, not a CPU one.
+
+### Spans join better through geometry than through GPS (2026-09-10)
+
+`recon_join_spans.py` registers two separately solved runs without using GPS at all. For every
+cross-run image pair that has cached correspondences, it back-projects the matched pixels
+through **each run's own dense depth**, giving the same physical surface in two solve frames,
+and fits a similarity by RANSAC. The inliers of every such pair are pooled into one weighted
+fit, and each pair is then re-judged against the pooled answer, the way the two-view verifier
+judges a link against its own epipolar geometry.
+
+Self-test: spot A solved twice, once with a 4-frame window and once with 12. The join puts the
+46 shared cameras **6 cm apart** (median; 31 cm worst), and agrees with the GPS join to 0.5°
+and 0.3% of scale — as it should, since spot A is exactly where GPS is healthy.
+
+Then the case that matters. `newest-stairs-bridge` and `newest-bridge-exit` are the two halves
+of the walk that goes down the staircase and under the bridge, solved independently, sharing
+two photos:
+
+| join | rotation | scale | where it puts the other span's cameras |
+|---|---|---|---|
+| geometric | reference | 0.622 | 13 cm from the other solve on the shared photos |
+| GPS-only | 65.9° off | ×0.675 | 14 m away (23 m worst) |
+
+The GPS-only registration of these two spans is wrong by sixty-six degrees. That is the
+manual-location block and the bad first fix on the far side of the bridge, doing exactly what
+was predicted, and it is the strongest argument yet for a geometric pose graph over GPS
+stitching.
+
+**The honest caveat**: all 24 usable cross pairs there touch one of the two shared photos.
+Holding those photos out leaves zero evidence, so the 13 cm figure is not an independent
+validation — it says the fit is self-consistent, not that it is right. `bridge-join-probe`
+(the six boundary frames of each run, paired complete) is queued to compute genuinely new
+cross pairs between frames neither solve shared, which is what turns this into a test.
+
+Per-pair verdicts are gated on conditioning: a pair whose inliers span less than 5% of their
+own range cannot pin a rotation, and is reported `weak` rather than `contradicts`. Even
+between two solves of the same scene, 227 of 964 pairs still disagree with the pooled fit by
+more than 5° or 15% of scale, which is a fact about how much MASt3R's per-frame depth wanders,
+not about the join.
+
 ### One forward pass per photo-and-size, shared across runs (2026-09-10)
 
 Splitting a walk into span runs, the resolution trio, the masking A/Bs: every one of them

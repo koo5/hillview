@@ -186,45 +186,71 @@ class Run:
 
 # ---------- cross correspondences ----------
 def corres_dirs(runs, parent=None):
-    dirs = []
-    for r in ([parent] if parent else []) + [x.dir for x in runs]:
-        dirs += glob.glob(os.path.join(r, "cache", "corres_masked_conf=*"))
+    """Where to look for a pair's correspondences, best first.
+
+    Each entry is (dirs, keymap): `keymap` translates a content key into the spelling
+    those dirs use. A run solved before 2026-09-10 keyed its own cache by the image PATH,
+    so its files are findable only through its own translation — and only for photos that
+    run actually held. That is what makes two archived runs joinable on their overlap.
+    """
+    out = []
+    if parent:
+        pm = json.load(open(os.path.join(parent, "metadata.json")))
+        pk = dict(zip(rm.content_keys(pm, parent), rm.frame_keys(pm)))
+        out.append((glob.glob(os.path.join(parent, "cache", "corres_masked_conf=*"))
+                    + glob.glob(os.path.join(parent, "cache", "corres_conf=*")), pk))
     for r in runs:
-        dirs += glob.glob(os.path.join(r.dir, "cache", "corres_conf=*"))
+        km = {c: k for c, k in zip(r.ckeys, r.keys) if c}
+        out.append((glob.glob(os.path.join(r.dir, "cache", "corres_masked_conf=*"))
+                    + glob.glob(os.path.join(r.dir, "cache", "corres_conf=*")), km))
     shared = rm.shared_cache_dir(runs[0].dir)
     if shared:
-        dirs += glob.glob(os.path.join(shared, "corres_conf=*"))
-    return dirs
+        out.append((glob.glob(os.path.join(shared, "corres_conf=*")), None))
+    return out
 
 
-def find_corres(dirs, k1, k2):
-    """→ (xy1, xy2, conf) for the ordered pair (k1,k2), from whichever cache has it."""
-    for d in dirs:
-        f = os.path.join(d, f"{k1}-{k2}.pth")
-        if os.path.exists(f):
-            _s, (xy1, xy2, c) = rm._load_pth(f)
-            return rm._np(xy1).astype(float), rm._np(xy2).astype(float), rm._np(c).ravel()
-        f = os.path.join(d, f"{k2}-{k1}.pth")
-        if os.path.exists(f):
-            _s, (xy2, xy1, c) = rm._load_pth(f)
-            return rm._np(xy1).astype(float), rm._np(xy2).astype(float), rm._np(c).ravel()
+def find_corres(sources, k1, k2):
+    """→ (xy1, xy2, conf) for the pair of CONTENT keys (k1,k2), from whichever cache has it."""
+    for dirs, keymap in sources:
+        a, b = (k1, k2) if keymap is None else (keymap.get(k1), keymap.get(k2))
+        if a is None or b is None:
+            continue
+        for d in dirs:
+            f = os.path.join(d, f"{a}-{b}.pth")
+            if os.path.exists(f):
+                _s, (xy1, xy2, c) = rm._load_pth(f)
+                return rm._np(xy1).astype(float), rm._np(xy2).astype(float), rm._np(c).ravel()
+            f = os.path.join(d, f"{b}-{a}.pth")
+            if os.path.exists(f):
+                _s, (xy2, xy1, c) = rm._load_pth(f)
+                return rm._np(xy1).astype(float), rm._np(xy2).astype(float), rm._np(c).ravel()
     return None
 
 
 # ---------- the join ----------
-def join_pair(A, B, dirs, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05, log=print):
+def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
+              holdout_shared=False, log=print):
     """Similarity B->A from every cross pair with cached correspondences.
-    Returns dict with the pooled similarity, per-pair rows, and the GPS comparison."""
+    Returns dict with the pooled similarity, per-pair rows, and the GPS comparison.
+
+    `holdout_shared` excludes every pair that touches a photo the two runs SHARE, so the
+    reported shared-camera gap becomes a held-out test: the join is then fitted on other
+    frames entirely, and the shared photos are asked, independently, whether the two solves
+    now agree about where they stood."""
+    shared_ids = set(A.ids) & set(B.ids)
     rows, pooled_P, pooled_Q, pooled_w = [], [], [], []
-    n_cand = n_have = 0
+    n_cand = n_have = n_held = 0
     for i, ka in enumerate(A.ckeys):
         for j, kb in enumerate(B.ckeys):
             if ka is None or kb is None:
                 continue
             if A.ids[i] == B.ids[j]:
                 continue
+            if holdout_shared and (A.ids[i] in shared_ids or B.ids[j] in shared_ids):
+                n_held += 1
+                continue
             n_cand += 1
-            c = find_corres(dirs, ka, kb)
+            c = find_corres(sources, ka, kb)
             if c is None:
                 continue
             n_have += 1
@@ -243,14 +269,23 @@ def join_pair(A, B, dirs, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05, log
             # with depth, and a 5 % of-range residual is about what MASt3R depth is good for
             rng_a = np.median(np.linalg.norm(Pa - A.poses[i][:3, 3], axis=1))
             sim, inl = ransac_similarity(Pb, Pa, thr=rel_thr * rng_a)
+            # How well-conditioned is this pair's own similarity? Points that all sit far
+            # away and close together in angle pin a rotation badly, and calling such a pair
+            # "contradicts" would be blaming it for geometry it never had. Spread relative
+            # to range is the honest gate.
+            spread = float(np.linalg.norm(Pa[inl] - Pa[inl].mean(0), axis=1).std()) if inl.any() else 0.0
             row = dict(a=i, b=j, a_id=A.ids[i][:8], b_id=B.ids[j][:8], n=int(len(Pa)),
-                       inliers=int(inl.sum()), inlier_frac=float(inl.mean()) if len(inl) else 0.0)
+                       inliers=int(inl.sum()), inlier_frac=float(inl.mean()) if len(inl) else 0.0,
+                       spread_over_range=float(spread / max(rng_a, 1e-9)))
             if sim is not None:
                 row.update(scale=float(sim[0]), rot_deg=float(rot_angle_deg(sim[1])))
                 pooled_P.append(Pb[inl]); pooled_Q.append(Pa[inl]); pooled_w.append(conf[inl])
                 row["_sim"] = sim
             rows.append(row)
-    out = dict(n_candidate_pairs=n_cand, n_cached_pairs=n_have, n_usable_pairs=len(rows))
+    out = dict(n_candidate_pairs=n_cand, n_cached_pairs=n_have, n_usable_pairs=len(rows),
+               n_shared_photos=len(shared_ids))
+    if holdout_shared:
+        out["held_out_pairs"] = n_held
     if not pooled_P:
         out.update(status="no usable cross pairs", pairs=[_public(r) for r in rows])
         return out
@@ -268,8 +303,9 @@ def join_pair(A, B, dirs, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05, log
         dR = rot_angle_deg(ps[1].T @ sim[1])
         ds = abs(math.log(ps[0] / sim[0]))
         row["vs_pooled_rot_deg"] = float(dR); row["vs_pooled_scale_ratio"] = float(math.exp(ds))
-        row["verdict"] = ("verified" if (dR < 5 and ds < math.log(1.15) and row["inliers"] >= 30)
-                          else "contradicts" if row["inliers"] >= 30 else "weak")
+        well_posed = row["inliers"] >= 30 and row["spread_over_range"] >= 0.05
+        row["verdict"] = ("verified" if (dR < 5 and ds < math.log(1.15) and well_posed)
+                          else "contradicts" if well_posed else "weak")
     out["verdicts"] = {v: sum(1 for x in rows if x["verdict"] == v)
                        for v in ("verified", "weak", "contradicts", "no-geometry")}
     out["pairs"] = [_public(x) for x in rows]
@@ -289,7 +325,7 @@ def join_pair(A, B, dirs, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05, log
         ca = np.array([A.cam_centres()[i] for i, _ in common])
         cb = apply(sim, np.array([B.cam_centres()[j] for _, j in common]))
         d = np.linalg.norm(ca - cb, axis=1) * A.to_enu[0]
-        out["shared_frames"] = dict(n=len(common), centre_gap_m=dict(
+        out["shared_frames"] = dict(n=len(common), held_out=bool(holdout_shared), centre_gap_m=dict(
             median=float(np.median(d)), p90=float(np.percentile(d, 90)), max=float(d.max())))
     out["status"] = "ok"
     return out
@@ -316,7 +352,8 @@ def summarize(res, A, B, log=print):
             f"(max {g['camera_displacement_m']['max']:.2f} m)")
     sf = res.get("shared_frames")
     if sf:
-        log(f"  {sf['n']} shared photos: centre gap median {sf['centre_gap_m']['median']:.2f} m, "
+        log(f"  {sf['n']} shared photos{' (HELD OUT of the fit)' if sf.get('held_out') else ''}: "
+            f"centre gap median {sf['centre_gap_m']['median']:.2f} m, "
             f"p90 {sf['centre_gap_m']['p90']:.2f} m, max {sf['centre_gap_m']['max']:.2f} m")
 
 
@@ -338,6 +375,9 @@ def main():
     ap.add_argument("--parent", help="run dir whose (masked) correspondence cache to search first")
     ap.add_argument("--json")
     ap.add_argument("--min-corres", type=int, default=60)
+    ap.add_argument("--holdout-shared", action="store_true",
+                    help="fit the join WITHOUT any pair touching a shared photo, so the "
+                         "shared-camera gap is an independent test of the join")
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
     if a.self_test:
@@ -345,18 +385,19 @@ def main():
     if len(a.runs) < 2:
         ap.error("two or more run dirs")
     runs = [Run(r) for r in a.runs]
-    dirs = corres_dirs(runs, a.parent)
+    sources = corres_dirs(runs, a.parent)
     A = runs[0]
     out = {"reference": A.name, "joins": {}}
     for B in runs[1:]:
-        res = join_pair(A, B, dirs, a.min_corres)
+        res = join_pair(A, B, sources, a.min_corres, holdout_shared=a.holdout_shared)
         summarize(res, A, B)
         out["joins"][B.name] = res
     if len(runs) > 2:
         # spans that do not touch the reference may still touch each other
         for x in range(1, len(runs)):
             for y in range(x + 1, len(runs)):
-                res = join_pair(runs[x], runs[y], dirs, a.min_corres)
+                res = join_pair(runs[x], runs[y], sources, a.min_corres,
+                                holdout_shared=a.holdout_shared)
                 summarize(res, runs[x], runs[y])
                 out["joins"][f"{runs[y].name}->{runs[x].name}"] = res
     if a.json:
