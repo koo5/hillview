@@ -19,6 +19,7 @@
 		showGround = true,
 		showMap = true,
 		showPhotos = false,
+		showSoft = false,
 		extraRuns = []
 	}: {
 		runId: string;
@@ -28,6 +29,9 @@
 		showGround?: boolean;
 		showMap?: boolean;
 		showPhotos?: boolean;
+		// the second pass: transient classes (foliage, movers) painted back through the
+		// depth the structures fixed. Drawn, never measured — it has no say in geometry
+		showSoft?: boolean;
 		// other runs to draw in the same ENU frame, each tinted: the spans of a broken
 		// walk, solved alone, overlaid to see how the GPS-only registration holds them
 		extraRuns?: { id: string; tint: number; label?: string }[];
@@ -130,6 +134,66 @@
 
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let extraGroups: Record<string, any> = {};
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	let softGroup: any = null;
+	let nSoft = $state(0);
+
+	async function loadSoft(THREE: typeof import('three')) {
+		const res = await fetch(
+			`${apiBase}/recon/runs/${runId}/cloud.bin?soft=true&max_points=${Math.floor(maxPoints / 2)}`
+		);
+		if (!res.ok) return null;
+		const buf = await res.arrayBuffer();
+		const n = Math.floor(buf.byteLength / 15);
+		const dv = new DataView(buf);
+		const pos = new Float32Array(n * 3);
+		const col = new Float32Array(n * 3);
+		let k = 0;
+		for (let i = 0; i < n; i++) {
+			const o = i * 15;
+			const x = dv.getFloat32(o, true), y = dv.getFloat32(o + 4, true), z = dv.getFloat32(o + 8, true);
+			if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+			if (Math.abs(x) > 1e6 || Math.abs(y) > 1e6 || Math.abs(z) > 1e6) continue;
+			pos[k * 3] = x; pos[k * 3 + 1] = y; pos[k * 3 + 2] = z;
+			// its own colours, pulled back towards grey: the hedge should read as present
+			// without competing with the walls the geometry was actually built on
+			col[k * 3] = 0.55 * dv.getUint8(o + 12) / 255 + 0.12;
+			col[k * 3 + 1] = 0.55 * dv.getUint8(o + 13) / 255 + 0.12;
+			col[k * 3 + 2] = 0.55 * dv.getUint8(o + 14) / 255 + 0.12;
+			k++;
+		}
+		nSoft = k;
+		if (!k) return null;
+		const g = new THREE.BufferGeometry();
+		g.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, k * 3), 3));
+		g.setAttribute('color', new THREE.BufferAttribute(col.subarray(0, k * 3), 3));
+		const grp = new THREE.Group();
+		grp.add(new THREE.Points(g, new THREE.PointsMaterial({
+			size: pointWorldSize(), vertexColors: true, sizeAttenuation: true,
+			map: discSprite(THREE), alphaTest: 0.5, transparent: false
+		})));
+		return grp;
+	}
+
+	async function syncSoft() {
+		if (!scene || !three) return;
+		if (!showSoft) {
+			if (softGroup && softGroup !== 'loading') {
+				scene.remove(softGroup);
+				disposeTree(softGroup);
+			}
+			softGroup = null;
+			nSoft = 0;
+			return;
+		}
+		if (softGroup) return;
+		softGroup = 'loading';
+		const g = await loadSoft(three);
+		if (!g || disposed || !scene || !showSoft) { softGroup = null; return; }
+		g.position.copy(sceneOffset);
+		softGroup = g;
+		scene.add(g);
+	}
 
 	async function loadExtra(THREE: typeof import('three'), run: { id: string; tint: number }) {
 		const url = `${apiBase}/recon/runs/${run.id}/cloud.bin?max_points=${Math.floor(maxPoints / 2)}&dense=true`;
@@ -886,6 +950,7 @@
 			if (showCameras) await syncCameras();
 			if (showMap) syncMap();
 			if (extraRuns.length) syncExtras();
+			if (showSoft) syncSoft();
 
 			const w = el.clientWidth || 800;
 			const h = el.clientHeight || 480;
@@ -994,6 +1059,11 @@
 		if (mounted) syncExtras();
 	});
 
+	$effect(() => {
+		void showSoft;
+		if (mounted) syncSoft();
+	});
+
 	// NB: read the reactive value BEFORE the loop. Both of these lists are empty on the
 	// effect's first run (the cameras load asynchronously), so a read that only happens
 	// inside the loop body is never tracked and the slider silently does nothing.
@@ -1038,6 +1108,7 @@
 			<span class="muted">{status}</span>
 		{:else}
 			<span class="muted">{nPoints.toLocaleString()} points{dense ? ' (dense)' : ''}</span>
+			{#if nSoft}<span class="muted" data-testid="soft-count">+{nSoft.toLocaleString()} foliage</span>{/if}
 			<span class="muted">~{extentM} m across · grid 5 m · ↑ north · Z up</span>
 			<label title="point diameter; the number is what it works out to on screen right now">
 				points

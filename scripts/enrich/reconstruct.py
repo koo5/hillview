@@ -314,6 +314,8 @@ def crop_solocator_bar(img, top_frac=0.15):
 # ---- correspondence-level masking (the principled way: exclude masked pixels from matching,
 #      never paint — painting would add boundary features; cf. DynaSLAM, MASt3R mask_sky) ----
 CORR_MASKS = {}   # {image instance/path: bool ndarray (H,W) at loaded res, True = drop matches}
+ANON_MASKS = {}   # the anonymisation boxes alone: never reconstructed, in either pass
+SOFT_MASKS = {}   # transient classes alone (foliage, sky, movers): no vote, but paintable
 CORR_STATS = {"dropped": 0, "total": 0}   # correspondences dropped by masking (for the report)
 
 
@@ -848,6 +850,7 @@ def main():
             H2, W2 = int(im["true_shape"][0][0]), int(im["true_shape"][0][1])
             rgb = ((im["img"][0].permute(1, 2, 0).cpu().numpy() * 0.5 + 0.5) * 255).clip(0, 255).astype(np.uint8)
             m = None
+            soft = None      # what the second pass may paint back: transients, never anon
             if a.mask_solocator:                              # neon-green overlay marks
                 gm = green_overlay_mask(rgb)
                 if gm is not None:
@@ -858,12 +861,14 @@ def main():
                     sm, info = _sem.load_mask(stem, (H2, W2), built_floor=a.semantic_budget)
                     if sm.any():
                         m = sm if m is None else (m | sm)
+                        soft = sm.copy() if soft is None else (soft | sm)
                         ns += 1
                     log(f"  semantic mask {i:3d}: {info}")
             if a.mask_vegetation:                             # foliage / living grass
                 vm = vegetation_mask(rgb)
                 if vm is not None:
                     m = vm if m is None else (m | vm); nv += 1
+                    soft = vm.copy() if soft is None else (soft | vm)
             if a.mask_anon and p.get("anon_saved"):           # anonymization doodle boxes
                 W1, H1 = p["saved_wh"]
                 am = np.zeros((H2, W2), bool); hit = False
@@ -873,8 +878,11 @@ def main():
                         am[by1:by2, bx1:bx2] = True; hit = True
                 if hit:
                     m = am if m is None else (m | am); na += 1
+                    ANON_MASKS[paths[i]] = am
             if m is not None:
                 CORR_MASKS[paths[i]] = m
+                if soft is not None:
+                    SOFT_MASKS[paths[i]] = soft
                 save_mask_overlay(rgb, m, os.path.join(a.out, f"mask_{i:03d}_{p['id'][:8]}.png"))
         if CORR_MASKS:
             log(f"correspondence-masking: green overlay on {ng}, anon boxes on {na}, "
@@ -947,6 +955,7 @@ def main():
 
     # DENSE extraction (one 3D point per confident pixel, colored from the RGB frames)
     dpts = dcols = None
+    n_soft_points = 0
     if a.dense:
         log("extracting dense point cloud (get_dense_pts3d)…")
         td0 = time.time()
@@ -986,6 +995,38 @@ def main():
         dpts = np.concatenate([p[m] for p, m in zip(d_pts3d, msk)]) if d_pts3d else np.zeros((0, 3))
         dcols = np.concatenate([np.asarray(r).reshape(-1, 3)[m] for r, m in zip(rgb, msk)])
         log(f"dense: {len(dpts)} points (conf>{a.min_conf}) in {time.time()-td0:.0f}s")
+
+        # SECOND PASS. The transient classes were kept out of the matching so they could not
+        # bend the geometry, and out of the first cloud so they could not hide it. But the
+        # poses are settled now, and a hedge that is actually there is worth SEEING. So paint
+        # the soft pixels back through the very same depth, into a separate cloud that no
+        # metric reads: structures decided where the cameras are, foliage just gets to appear.
+        # The anonymisation boxes are never painted back, in either pass.
+        if SOFT_MASKS:
+            soft_pts, soft_cols, nsoft = [], [], 0
+            for i, c in enumerate(d_confs):
+                sm = SOFT_MASKS.get(paths[i])
+                if sm is None:
+                    continue
+                flat = sm.ravel()
+                if flat.size != c.size:
+                    continue
+                keep = (c > a.min_conf) & flat
+                am = ANON_MASKS.get(paths[i])
+                if am is not None and am.size == c.size:
+                    keep &= ~am.ravel()
+                if keep.any():
+                    soft_pts.append(d_pts3d[i][keep])
+                    soft_cols.append(np.asarray(rgb[i]).reshape(-1, 3)[keep])
+                    nsoft += 1
+            if soft_pts:
+                sp = np.concatenate(soft_pts); sc_ = np.concatenate(soft_cols)
+                n_soft_points = int(len(sp))
+                log(f"dense soft pass: {len(sp)} transient-class points on {nsoft} frame(s)")
+                if len(sp) > 2_000_000:
+                    sel = np.linspace(0, len(sp) - 1, 2_000_000).astype(int)
+                    sp, sc_ = sp[sel], sc_[sel]
+                write_ply(os.path.join(a.out, "dense_soft.ply"), sp, sc_)
         # full arrays for later review (compressed)
         np.savez_compressed(os.path.join(a.out, "dense.npz"),
                             points=dpts, colors=dcols,
@@ -1042,6 +1083,7 @@ def main():
         log("pair matrix failed:", e)
 
     stats = dict(n=len(sub), n_real=int(real.sum()), pairs=len(pairs), recon_s=recon_s, npts=len(pts),
+                 n_soft_points=n_soft_points,
                  ndense=(int(len(dpts)) if dpts is not None else 0),
                  scale=float(s), med_resid=float(np.median(rr)),
                  mean_resid=float(rr.mean()), max_resid=float(rr.max()),

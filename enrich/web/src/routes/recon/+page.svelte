@@ -79,6 +79,7 @@
 		meta?: { stage?: string; rundir?: string; elapsed_s?: number; warning?: string | null; progress?: { done: number; total: number; bar?: number; s_per_it?: number | null; eta_s?: number | null; cpu_s?: number; wall_s?: number } | null; [k: string]: unknown } | null;
 		has_cloud: boolean;
 		has_dense_cloud?: boolean;
+		has_soft_cloud?: boolean;
 		has_topdown: boolean;
 		has_pairs_matrix: boolean;
 	};
@@ -167,6 +168,7 @@
 	});
 	let showMap = $state(true);
 	let showPhotos = $state(false);
+	let showSoft = $state(false);
 	// group members overlaid in the cloud viewer, by run id
 	let overlay = $state<Record<string, boolean>>({});
 	const TINTS = [0xff6b6b, 0x4dd0e1, 0xffd54f, 0xba68c8, 0x81c784, 0xff8a65, 0x64b5f6, 0xf06292];
@@ -1025,6 +1027,14 @@
 						<label class="mapchk" title="hang each photograph in its own frustum, at the pose the solve gave it">
 							<input type="checkbox" bind:checked={showPhotos} /> photos
 						</label>
+						{#if detail.has_soft_cloud}
+							<label
+								class="mapchk"
+								title="the second pass: foliage, sky and movers painted back through the depth the structures fixed. Drawn, never measured"
+							>
+								<input type="checkbox" bind:checked={showSoft} data-testid="toggle-soft" /> foliage
+							</label>
+						{/if}
 					</div>
 					<div use:watchCloud>
 						{#if cloudVisible}
@@ -1037,6 +1047,7 @@
 									dense={showDense && !!detail.has_dense_cloud}
 									{showMap}
 									{showPhotos}
+									{showSoft}
 									{extraRuns}
 								/>
 							{/key}

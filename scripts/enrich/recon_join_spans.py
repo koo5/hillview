@@ -238,7 +238,7 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
     frames entirely, and the shared photos are asked, independently, whether the two solves
     now agree about where they stood."""
     shared_ids = set(A.ids) & set(B.ids)
-    rows, pooled_P, pooled_Q, pooled_w = [], [], [], []
+    rows = []
     n_cand = n_have = n_held = 0
     for i, ka in enumerate(A.ckeys):
         for j, kb in enumerate(B.ckeys):
@@ -279,17 +279,41 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
                        spread_over_range=float(spread / max(rng_a, 1e-9)))
             if sim is not None:
                 row.update(scale=float(sim[0]), rot_deg=float(rot_angle_deg(sim[1])))
-                pooled_P.append(Pb[inl]); pooled_Q.append(Pa[inl]); pooled_w.append(conf[inl])
                 row["_sim"] = sim
+                row["_P"] = Pb[inl]; row["_Q"] = Pa[inl]; row["_w"] = conf[inl]
             rows.append(row)
     out = dict(n_candidate_pairs=n_cand, n_cached_pairs=n_have, n_usable_pairs=len(rows),
                n_shared_photos=len(shared_ids))
     if holdout_shared:
         out["held_out_pairs"] = n_held
-    if not pooled_P:
+    fitted = [r for r in rows if r.get("_sim") is not None]
+    if not fitted:
         out.update(status="no usable cross pairs", pairs=[_public(r) for r in rows])
         return out
-    P = np.concatenate(pooled_P); Q = np.concatenate(pooled_Q); w = np.concatenate(pooled_w)
+    # CONSENSUS, not pooling. Averaging every pair's points assumes they all describe the
+    # same transform, and on the bridge join they did not: 14 of 18 well-posed pairs then
+    # disagreed with the pooled answer, which is the estimator telling you it was dragged.
+    # So find the largest set of pairs that agree with each OTHER first -- RANSAC one level
+    # up, over pairs instead of points -- and pool only those. A pair votes for another when
+    # their similarities differ by less than 5 deg and 15 % of scale, and its vote is worth
+    # what its conditioning is worth: a pair that cannot pin a rotation cannot carry an
+    # election either.
+    def agree(x, y):
+        return (rot_angle_deg(y["_sim"][1].T @ x["_sim"][1]) < 5.0
+                and abs(math.log(y["_sim"][0] / x["_sim"][0])) < math.log(1.15))
+
+    cand = [r for r in fitted if r["inliers"] >= 30]
+    support, best = fitted, 0.0
+    for r in cand:
+        sup = [q for q in cand if agree(r, q)]
+        score = sum(min(1.0, q["spread_over_range"] / 0.15) for q in sup)
+        if score > best:
+            best, support = score, sup
+    out["consensus"] = dict(pairs_in_consensus=len(support), pairs_considered=len(cand),
+                            weighted_support=round(float(best), 1))
+    P = np.concatenate([r["_P"] for r in support])
+    Q = np.concatenate([r["_Q"] for r in support])
+    w = np.concatenate([r["_w"] for r in support])
     sim, r = irls_similarity(P, Q, w)
     out["similarity_B_to_A"] = dict(scale=float(sim[0]), R=sim[1].tolist(), t=sim[2].tolist())
     out["pooled_points"] = int(len(P))
@@ -303,12 +327,18 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
         dR = rot_angle_deg(ps[1].T @ sim[1])
         ds = abs(math.log(ps[0] / sim[0]))
         row["vs_pooled_rot_deg"] = float(dR); row["vs_pooled_scale_ratio"] = float(math.exp(ds))
-        well_posed = row["inliers"] >= 30 and row["spread_over_range"] >= 0.05
+        # Calibrated on the self-join (spot A solved twice, 964 pairs): disagreement with
+        # the pooled fit falls off with conditioning, from a 2.5 deg median at spread 0.05
+        # to 1.1 deg at 0.25. At spread >= 0.15, 90 % of pairs agree within 5 deg, so a
+        # pair above that line which still disagrees is saying something; below it, the
+        # pair simply never had the geometry to speak.
+        well_posed = row["inliers"] >= 30 and row["spread_over_range"] >= 0.15
         row["verdict"] = ("verified" if (dR < 5 and ds < math.log(1.15) and well_posed)
                           else "contradicts" if well_posed else "weak")
     out["verdicts"] = {v: sum(1 for x in rows if x["verdict"] == v)
                        for v in ("verified", "weak", "contradicts", "no-geometry")}
     out["pairs"] = [_public(x) for x in rows]
+    _drop_arrays(rows)
     # the GPS join, for comparison: A.to_enu^-1 ∘ B.to_enu maps B's solve frame into A's
     if A.to_enu and B.to_enu:
         gps = compose(invert(A.to_enu), B.to_enu)
@@ -335,6 +365,12 @@ def _public(r):
     return {k: v for k, v in r.items() if not k.startswith("_")}
 
 
+def _drop_arrays(rows):
+    for r in rows:
+        for k in ("_P", "_Q", "_w"):
+            r.pop(k, None)
+
+
 def summarize(res, A, B, log=print):
     log(f"{B.name} -> {A.name}: {res['n_cached_pairs']}/{res['n_candidate_pairs']} cross pairs "
         f"cached, {res['n_usable_pairs']} usable")
@@ -342,7 +378,9 @@ def summarize(res, A, B, log=print):
         log(f"  {res.get('status')}")
         return
     s = res["similarity_B_to_A"]
-    log(f"  pooled similarity from {res['pooled_points']} points: scale {s['scale']:.3f}, "
+    c = res.get("consensus") or {}
+    log(f"  consensus of {c.get('pairs_in_consensus')}/{c.get('pairs_considered')} pairs -> "
+        f"scale {s['scale']:.3f} from {res['pooled_points']} points, "
         f"residual median {res['pooled_residual_units']['median']:.3f} units; "
         f"verdicts {res['verdicts']}")
     g = res.get("gps_join")

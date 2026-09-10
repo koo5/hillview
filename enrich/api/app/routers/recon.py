@@ -145,6 +145,9 @@ async def get_run(run_id: str):
         "has_topdown": bool(row["topdown_path"]),
         "has_pairs_matrix": bool(row["pairs_matrix_path"]),
         "has_dense_cloud": bool(row["dense_cloud_path"]),
+        "has_soft_cloud": bool(row["dense_cloud_path"]) and os.path.exists(
+            os.path.join(os.path.dirname(_artifact_abspath(row["dense_cloud_path"])),
+                         "dense_soft.ply")),
         "has_metrics": bool(row["metrics_path"]),
         "has_log": bool(row["log_path"]),
     }
@@ -318,21 +321,32 @@ def _ply_to_packed(ply_path: str, max_points: int, align=None) -> bytes:
 
 @router.get("/recon/runs/{run_id}/cloud.bin")
 async def cloud_packed(run_id: str, request: Request, max_points: int = 1_500_000,
-                       dense: bool = False, enu: bool = True):
+                       dense: bool = False, enu: bool = True, soft: bool = False):
     """The point cloud in the viewer's format, converted on first request and cached.
 
     Cached beside the artifact because the conversion is a full parse of a many-megabyte
     text file — fine once, not per page load.
     """
     src = None
-    if dense:
+    if soft:
+        # the SECOND pass: transient classes (foliage, sky, movers) painted back through
+        # the depth the structures already fixed. It has no column of its own because it
+        # is not evidence — it lives beside the dense cloud and is served only on request.
+        try:
+            src = os.path.join(os.path.dirname(await _artifact(run_id, "dense_cloud_path")),
+                               "dense_soft.ply")
+        except HTTPException:
+            src = None
+        if not (src and os.path.exists(src)):
+            raise HTTPException(404, "run has no soft (foliage) cloud")
+    if src is None and dense:
         # the real dense cloud, if this run shipped one; falling back silently is what
         # hid the bug for weeks, so say so in a header instead
         try:
             src = await _artifact(run_id, "dense_cloud_path")
         except HTTPException:
             src = None
-    served_dense = src is not None
+    served_dense = src is not None and not soft
     if src is None:
         src = await _artifact(run_id, "cloud_path")
     align = None
@@ -355,7 +369,7 @@ async def cloud_packed(run_id: str, request: Request, max_points: int = 1_500_00
         _write_atomic(cache, _ply_to_packed(src, max_points, align))
     return FileResponse(cache, media_type="application/octet-stream",
                         headers={"X-Point-Stride": "15",
-                                 "X-Cloud": "dense" if served_dense else "sparse",
+                                 "X-Cloud": "soft" if soft else "dense" if served_dense else "sparse",
                                  "X-Frame-Of-Reference": "enu-metres" if align else "solve"})
 
 
@@ -1264,6 +1278,8 @@ RESULT_FILES = {
     "metrics": ("metrics.json", "metrics_path"),
     "cloud": ("points.ply", "cloud_path"),
     "dense_cloud": ("dense.ply", "dense_cloud_path"),
+    # no column: found beside the dense cloud, served only when asked for
+    "soft_cloud": ("dense_soft.ply", None),
     "topdown": ("topdown.png", "topdown_path"),
     "pairs_matrix": ("pairs_matrix.png", "pairs_matrix_path"),
     "log": ("run.log", "log_path"),
@@ -1276,6 +1292,7 @@ async def result(result_json: str = Form(...),
                  metrics: UploadFile | None = File(None),
                  cloud: UploadFile | None = File(None),
                  dense_cloud: UploadFile | None = File(None),
+                 soft_cloud: UploadFile | None = File(None),
                  topdown: UploadFile | None = File(None),
                  pairs_matrix: UploadFile | None = File(None),
                  log: UploadFile | None = File(None),
@@ -1308,7 +1325,7 @@ async def result(result_json: str = Form(...),
         return {"ok": True, "cancelled": True, "reason": "already done"}
 
     uploads = {"metadata": metadata, "metrics": metrics, "cloud": cloud,
-               "dense_cloud": dense_cloud,
+               "dense_cloud": dense_cloud, "soft_cloud": soft_cloud,
                "topdown": topdown, "pairs_matrix": pairs_matrix, "log": log}
     cols: dict[str, str] = {}
     for key, up in uploads.items():
@@ -1317,7 +1334,8 @@ async def result(result_json: str = Form(...),
         fname, col = RESULT_FILES[key]
         rel = os.path.join("recon", rid, fname)
         _write_atomic(_artifact_abspath(rel), await up.read())
-        cols[col] = rel
+        if col:
+            cols[col] = rel
 
     summary = _summary(d.get("metrics") or {}) or None
     running = d.get("status") == "running"
