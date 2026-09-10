@@ -597,11 +597,17 @@ async def realign(run_id: str, dry_run: bool = False):
 
 
 class AlignmentRequest(BaseModel):
-    scale_units_per_m: float
-    R: list[list[float]]
-    t: list[float]
+    scale_units_per_m: float | None = None
+    R: list[list[float]] | None = None
+    t: list[float] | None = None
     alt0: float | None = None
     source: str = "external"
+    # what the alignment was derived from, kept on the run row whether or not it was
+    # applied: the operator judging a joined area later needs the evidence, including
+    # for the joins that were REFUSED and why
+    evidence: dict | None = None
+    reference: str | None = None
+    apply: bool = True
 
 
 @router.post("/recon/runs/{run_id}/alignment")
@@ -615,6 +621,20 @@ async def set_alignment(run_id: str, req: AlignmentRequest):
     `alignment_gps` exactly as realign does, so it stays reversible, and `alignment_source`
     records where the new one came from.
     """
+    rid = str(uuid.UUID(run_id))
+    if req.evidence is not None:
+        # recorded first, and regardless: a refused join is a finding too
+        async with wb_engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE recon_runs SET meta = COALESCE(meta, '{}'::jsonb) || "
+                "  jsonb_build_object('joins', COALESCE(meta->'joins', '{}'::jsonb) || "
+                "  CAST(:j AS jsonb)) WHERE id = CAST(:id AS uuid)"),
+                {"id": rid, "j": json.dumps({(req.reference or req.source): {
+                    **req.evidence, "applied": bool(req.apply and req.R),
+                    "at": datetime.datetime.now(datetime.UTC).isoformat()}})})
+    if not req.apply or not req.R or req.scale_units_per_m is None or req.t is None:
+        return {"ok": True, "recorded": req.evidence is not None, "applied": False}
+
     md_path = await _artifact(run_id, "metadata_path")
     with open(md_path) as f:
         md = json.load(f)
@@ -646,8 +666,8 @@ async def set_alignment(run_id: str, req: AlignmentRequest):
                 os.remove(f); removed += 1
             except OSError:
                 pass
-    return {"ok": True, "source": req.source, "stale_caches_removed": removed,
-            "alignment": md["alignment"]}
+    return {"ok": True, "source": req.source, "applied": True,
+            "stale_caches_removed": removed, "alignment": md["alignment"]}
 
 
 @router.get("/recon/runs/{run_id}/map")

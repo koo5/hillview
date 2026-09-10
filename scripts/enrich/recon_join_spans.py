@@ -418,9 +418,14 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
         Rz = np.array([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]])
         tilt = rot_angle_deg(Rz.T @ Rg)
         ca, cb = A.compass_offset(), B.compass_offset()
-        yaw_compass = None
+        yaw_compass = compass_se = None
         if ca and cb:
             yaw_compass = ((ca["offset_deg"] - cb["offset_deg"] + 180) % 360) - 180
+            # the compass is a vote, not an oracle: a phone heading scatters by tens of
+            # degrees, so carry the standard error of each span's offset and say how
+            # sharply the difference is actually known
+            compass_se = math.hypot(ca["spread_deg"] / math.sqrt(ca["n"]),
+                                    cb["spread_deg"] / math.sqrt(cb["n"]))
         # The gravity-safe join: the same points, fitted in ENU with the rotation held to a
         # turn about vertical. This is what actually gets applied — a join may correct where
         # a span points, never which way is down.
@@ -439,6 +444,7 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
             yaw_geometric_deg=round(yaw_geo, 1), tilt_geometric_deg=round(tilt, 1),
             yaw_gravity_safe_deg=round(ytheta, 1),
             yaw_gps_deg=0.0, yaw_compass_deg=(None if yaw_compass is None else round(yaw_compass, 1)),
+            yaw_compass_se_deg=(None if compass_se is None else round(compass_se, 1)),
             compass_A=ca, compass_B=cb,
             scale_ratio=round(float(gsim[0]), 4))
         # the verdict, and the reason for it
@@ -454,14 +460,19 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
             d_gps = abs(((0.0 - yaw_compass + 180) % 360) - 180)
             out["turn"]["compass_favours"] = "geometry" if d_geo < d_gps else "gps"
             out["turn"]["deg_from_compass"] = dict(geometric=round(d_geo, 1), gps=round(d_gps, 1))
+            se = compass_se or 0.0
+            sep = f" (compass itself is only known to ±{se:.0f}°" + (
+                "; both candidates sit inside that, so this is a lean, not a proof)"
+                if abs(d_geo - d_gps) < 2 * se and min(d_geo, d_gps) < 2 * se else ")")
+            out["turn"]["compass_se_deg"] = round(se, 1)
             if d_geo < d_gps and (strong or d_gps - d_geo > 15):
                 out["turn"]["trust"] = "geometry"
                 out["turn"]["why"] = (f"compass sits {d_geo:.0f}° from the geometric turn and "
-                                      f"{d_gps:.0f}° from the GPS one")
+                                      f"{d_gps:.0f}° from the GPS one" + sep)
             elif d_gps <= d_geo:
                 out["turn"]["trust"] = "gps"
                 out["turn"]["why"] = (f"compass backs the GPS orientation ({d_gps:.0f}° vs "
-                                      f"{d_geo:.0f}°); geometry does not get to turn the span")
+                                      f"{d_geo:.0f}°); geometry does not get to turn the span" + sep)
             else:
                 out["turn"]["trust"] = "gps"
                 out["turn"]["why"] = "geometry leans the compass's way but is too thin to act on"
@@ -592,17 +603,13 @@ def main():
                 print(f"  {B.name}: not applied ({res.get('status', 'no join')})")
                 continue
             turn = res.get("turn") or {}
-            if turn.get("trust") == "gps" and not a.force_geometry:
-                print(f"  {B.name}: NOT applied — {turn.get('why')}")
-                continue
+            refused = turn.get("trust") == "gps" and not a.force_geometry
             # What gets written is the GRAVITY-SAFE join composed onto B's own ENU
             # alignment: a turn on the spot, a scale, a shift. Never a tilt — down was
             # settled by the reconstruction and the phone, not by a point residual.
             y = res.get("yaw_only_join")
-            if not y or not B.to_enu:
-                print(f"  {B.name}: not applied (no gravity-safe fit)")
-                continue
-            corr = (y["scale"], np.array(y["R"]), np.array(y["t"]))
+            refused = refused or not y or not B.to_enu
+            corr = ((y["scale"], np.array(y["R"]), np.array(y["t"])) if y else None)
             src = f"geometric-join:{A.name[:8]}"
             if a.use_compass_yaw and (turn.get("yaw_compass_deg") is not None):
                 th = math.radians(turn["yaw_compass_deg"])
@@ -612,11 +619,16 @@ def main():
                 cB = apply(B.to_enu, B.cam_centres()).mean(0)
                 corr = (y["scale"], Rz, cB - y["scale"] * (Rz @ cB))
                 src = f"compass-yaw-join:{A.name[:8]}"
-            comp = compose(corr, B.to_enu)
-            body = {"scale_units_per_m": float(comp[0]), "R": comp[1].tolist(),
-                    "t": comp[2].tolist(),
-                    "alt0": float((B.meta.get("alignment") or {}).get("alt0") or 0.0),
-                    "source": src}
+            evidence = {k: res.get(k) for k in
+                        ("turn", "yaw_only_join", "consensus", "verdicts", "shared_frames",
+                         "gps_join", "n_cached_pairs", "n_usable_pairs")}
+            body = {"source": src, "reference": A.name, "evidence": evidence,
+                    "apply": not refused}
+            if not refused:
+                comp = compose(corr, B.to_enu)
+                body.update(scale_units_per_m=float(comp[0]), R=comp[1].tolist(),
+                            t=comp[2].tolist(),
+                            alt0=float((B.meta.get("alignment") or {}).get("alt0") or 0.0))
             rid = os.path.basename(B.dir.rstrip("/"))
             import urllib.request
             req = urllib.request.Request(f"{a.api}/runs/{rid}/alignment",
@@ -625,8 +637,12 @@ def main():
                                          method="POST")
             try:
                 with urllib.request.urlopen(req, timeout=60) as r:
-                    print(f"  {B.name}: alignment applied ({json.load(r).get('stale_caches_removed')} "
-                          f"stale cache(s) swept)")
+                    got = json.load(r)
+                    if refused:
+                        print(f"  {B.name}: recorded, NOT applied — {turn.get('why', 'no fit')}")
+                    else:
+                        print(f"  {B.name}: applied ({got.get('stale_caches_removed')} stale "
+                              f"cache(s) swept), evidence recorded")
             except Exception as e:
                 print(f"  {B.name}: apply FAILED {type(e).__name__}: {e}")
     if a.json:
