@@ -230,41 +230,65 @@ class Run:
             hdg = math.degrees(math.atan2(fwd[0], fwd[1])) % 360.0
             c = f.get("compass_angle")
             out.append((hdg, None if c is None else float(c) % 360.0,
-                        bearing_is_compass(f.get("bearing_source"))))
+                        f.get("bearing_source")))
         return out
 
-    def compass_offset(self):
-        """How far this span's recovered headings sit from what the phone's COMPASS said:
-        circular median of (compass - recovered), with the spread that qualifies it.
+    def bearing_offset(self):
+        """How far this span's recovered headings sit from the bearings the photos carry,
+        **per bearing mode**, plus the one estimate worth using and why.
 
-        Two spans of one walk share one compass bias, so a DIFFERENCE between their offsets
-        is a difference in how the two solves are turned — an independent opinion on the
-        relative yaw, owing nothing to the geometry that joins them or to the position fit
-        that aligned them.
+        The app offers three ways to state where the camera pointed and stores whichever the
+        user chose: the compass, a bearing derived from movement with a user-set offset
+        (`gps-kalman`), and a hand-dragged arrow (`arrow_drag` / `map`). All three are that
+        user's answer to the same question, so none is discarded here. What differs is how
+        well each holds up, and that is measurable: the CONCENTRATION of the per-frame
+        offsets says whether the frames of a span agree with each other about the bias.
 
-        Only frames whose bearing actually came from a compass count. The capture app
-        records `bearing_source`, and a third of the corpus reads `gps-kalman` — the
-        direction of TRAVEL, which is not where the camera was aimed — while `map` and
-        `arrow_drag` were set by hand on a map afterwards. Mixing those in is what made
-        the first bridge measurement scatter by 70°.
+        Measured on the stairs-and-bridge walk, the hand-drawn arrows came out at 0.99 and
+        1.00 while the compass on the same frames sat at 0.38 and 0.56 — a magnetometer
+        under a steel bridge against a person who could see where they were pointing. On
+        spot A, in the open, the compass reads 0.96. So the mode is not the point; the
+        agreement is, and it is per span.
+
+        Concentration measures self-consistency, not truth: a straight walk with a bearing
+        set once will look tight whether or not it was set well. It is a floor to clear,
+        not a certificate.
         """
-        d = [(c - h) for (h, c, ok) in self.enu_headings() if c is not None and ok]
-        if len(d) < 3:
+        groups = {}
+        for src, diffs in self._offsets_by_mode().items():
+            if len(diffs) < 3:
+                continue
+            v = np.array([[math.cos(math.radians(x)), math.sin(math.radians(x))] for x in diffs])
+            m = v.mean(0)
+            conc = float(np.linalg.norm(m))
+            groups[src] = dict(
+                offset_deg=math.degrees(math.atan2(m[1], m[0])) % 360.0,
+                n=len(diffs), concentration=round(conc, 3),
+                spread_deg=round(math.degrees(math.sqrt(max(0.0, -2.0 * math.log(max(conc, 1e-9))))), 1),
+                is_compass=bearing_is_compass(src))
+        if not groups:
             return None
-        v = np.array([[math.cos(math.radians(x)), math.sin(math.radians(x))] for x in d])
-        m = v.mean(0)
-        mean = math.degrees(math.atan2(m[1], m[0])) % 360.0
-        R_ = float(np.linalg.norm(m))          # 1 = perfect agreement, 0 = uniform noise
-        # circular spread, in degrees, from the resultant length
-        spread = math.degrees(math.sqrt(max(0.0, -2.0 * math.log(max(R_, 1e-9)))))
-        srcs = sorted({(f.get("bearing_source") or "?") for f in self.frames
-                       if bearing_is_compass(f.get("bearing_source"))})
-        n_other = sum(1 for f in self.frames
-                      if f.get("compass_angle") is not None
-                      and not bearing_is_compass(f.get("bearing_source")))
-        return dict(offset_deg=mean, n=len(d), concentration=round(R_, 3),
-                    spread_deg=round(spread, 1), sources=srcs,
-                    frames_with_other_bearing=n_other)
+        eligible = {k: g for k, g in groups.items() if g["n"] >= 4}
+        if not eligible:
+            return None
+        best = max(eligible, key=lambda k: (eligible[k]["concentration"], eligible[k]["n"]))
+        g = dict(eligible[best])
+        # a second mode with real weight that says something else is a warning, not a tiebreak
+        disagree = [k for k, o in eligible.items()
+                    if k != best and o["n"] >= 8
+                    and abs(((o["offset_deg"] - g["offset_deg"] + 180) % 360) - 180) > 30]
+        g.update(mode=best, modes={k: o for k, o in groups.items()},
+                 disagreeing_modes=disagree,
+                 se_deg=round(g["spread_deg"] / math.sqrt(g["n"]), 1))
+        return g
+
+    def _offsets_by_mode(self):
+        out = {}
+        for (hdg, brg, src) in self.enu_headings():
+            if brg is None:
+                continue
+            out.setdefault(src or "(unrecorded)", []).append(brg - hdg)
+        return out
 
     def points_for(self, i, xy):
         """Matched pixels (col,row) of frame i -> 3-D in this run's world, via its depth.
@@ -447,10 +471,12 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
     # status quo is "no further turn", and it is called the position fit here, never "the
     # GPS orientation" — there is no such thing in this data.
     #
-    # Geometry now proposes a different turn. The compass is the third opinion and the only
-    # one that actually measured where the camera pointed, so it is what can settle it: two
-    # spans of a walk share one hard-iron bias, so the DIFFERENCE of their compass offsets
-    # is the relative yaw the magnetometer implies.
+    # Geometry now proposes a different turn. The BEARINGS are the third opinion, and the
+    # only one that is a statement about where the camera was aimed at all — whichever of
+    # the app's three modes the user was in, that stored value is their answer. Two spans of
+    # one walk carry the same kind of bias, so the DIFFERENCE of their bearing offsets is
+    # the relative yaw the bearings imply. Which mode's offset to believe is decided per
+    # span, by how well its frames agree with each other, not by a ranking fixed in advance.
     if A.to_enu and B.to_enu:
         gsim = compose(compose(A.to_enu, sim), invert(B.to_enu))   # B's ENU frame -> A's
         Rg = gsim[1]
@@ -460,13 +486,15 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
         cz, sz = math.cos(math.radians(yaw_geo)), math.sin(math.radians(yaw_geo))
         Rz = np.array([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]])
         tilt = rot_angle_deg(Rz.T @ Rg)
-        ca, cb = A.compass_offset(), B.compass_offset()
-        # ADMISSIBILITY. A span's compass offset is only worth quoting if its per-frame
-        # headings agree with each other. Concentration is that: 1 means every frame says
-        # the same thing, 0 means the headings are scattered uniformly and the "mean" is an
-        # artefact of arithmetic. On the stairs-and-bridge spans it came out at 0.38 and
-        # 0.56 with spreads of 79° and 62° — under a bridge, down a staircase, with the
-        # solve itself bent — and a mean drawn from that cannot arbitrate anything.
+        ca, cb = A.bearing_offset(), B.bearing_offset()
+        # ADMISSIBILITY. An offset is worth quoting only if the span's frames agree with each
+        # other about it. Concentration is that: 1 means every frame says the same thing, 0
+        # means they are scattered uniformly and the "mean" is an artefact of arithmetic. The
+        # compass on the stairs-and-bridge spans read 0.38 and 0.56 — a magnetometer under a
+        # steel bridge — while the hand-drawn arrows on the same frames read 0.99 and 1.00,
+        # so the mode that speaks here is the arrows. Each span picks its own best mode; if
+        # the two spans end up quoting DIFFERENT modes, the shared-bias argument is weaker
+        # and that is said out loud.
         MIN_CONC, MIN_N = 0.6, 8
         admissible = bool(ca and cb
                           and ca["concentration"] >= MIN_CONC and cb["concentration"] >= MIN_CONC
@@ -474,11 +502,9 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
         yaw_compass = compass_se = None
         if ca and cb and admissible:
             yaw_compass = ((ca["offset_deg"] - cb["offset_deg"] + 180) % 360) - 180
-            # the compass is a vote, not an oracle: a phone heading scatters by tens of
-            # degrees, so carry the standard error of each span's offset and say how
-            # sharply the difference is actually known
-            compass_se = math.hypot(ca["spread_deg"] / math.sqrt(ca["n"]),
-                                    cb["spread_deg"] / math.sqrt(cb["n"]))
+            # a bearing is a vote, not an oracle: carry the standard error of each span's
+            # offset so the difference is quoted only as sharply as it is known
+            compass_se = math.hypot(ca["se_deg"], cb["se_deg"])
         # The gravity-safe join: the same points, fitted in ENU with the rotation held to a
         # turn about vertical. This is what actually gets applied — a join may correct where
         # a span points, never which way is down.
@@ -497,13 +523,16 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
             yaw_geometric_deg=round(yaw_geo, 1), tilt_geometric_deg=round(tilt, 1),
             yaw_gravity_safe_deg=round(ytheta, 1),
             yaw_position_fit_deg=0.0,
-            yaw_compass_deg=(None if yaw_compass is None else round(yaw_compass, 1)),
-            yaw_compass_se_deg=(None if compass_se is None else round(compass_se, 1)),
-            compass_A=ca, compass_B=cb, compass_admissible=admissible,
-            compass_inadmissible_why=(None if admissible or not (ca and cb) else
-                                      f"headings within a span scatter too much to average "
-                                      f"(concentration {ca['concentration']:.2f} and "
-                                      f"{cb['concentration']:.2f}, {MIN_CONC} required)"),
+            yaw_bearings_deg=(None if yaw_compass is None else round(yaw_compass, 1)),
+            yaw_bearings_se_deg=(None if compass_se is None else round(compass_se, 1)),
+            bearings_A=ca, bearings_B=cb, bearings_admissible=admissible,
+            bearing_mode_A=(ca or {}).get("mode"), bearing_mode_B=(cb or {}).get("mode"),
+            mixed_modes=bool(ca and cb and ca.get("mode") != cb.get("mode")),
+            bearings_inadmissible_why=(None if admissible or not (ca and cb) else
+                                       f"bearings within a span scatter too much to average "
+                                       f"(best mode holds at concentration "
+                                       f"{ca['concentration']:.2f} and {cb['concentration']:.2f}, "
+                                       f"{MIN_CONC} required)"),
             scale_ratio=round(float(gsim[0]), 4))
         # the verdict, and the reason for it
         # STRENGTH. Not "how many pairs agreed" but "did the pairs that could speak agree
@@ -517,8 +546,8 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
         out["turn_support"] = dict(pairs_in_consensus=sup, pairs_considered=considered,
                                    fraction=round(sup / considered, 2), strong=strong)
         if yaw_compass is None:
-            lead = ("no compass-sourced bearing on these frames"
-                    if not (ca and cb) else out["turn"]["compass_inadmissible_why"])
+            lead = ("no usable bearing on these frames"
+                    if not (ca and cb) else out["turn"]["bearings_inadmissible_why"])
             out["turn"]["trust"] = "geometry" if strong else "position-fit"
             out["turn"]["why"] = (
                 f"{lead}; "
@@ -529,26 +558,42 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
         else:
             d_geo = abs(((yaw_geo - yaw_compass + 180) % 360) - 180)
             d_fit = abs(((0.0 - yaw_compass + 180) % 360) - 180)
-            out["turn"]["compass_favours"] = "geometry" if d_geo < d_fit else "position-fit"
-            out["turn"]["deg_from_compass"] = dict(geometric=round(d_geo, 1),
-                                                   position_fit=round(d_fit, 1))
+            out["turn"]["bearings_favour"] = "geometry" if d_geo < d_fit else "position-fit"
+            out["turn"]["deg_from_bearings"] = dict(geometric=round(d_geo, 1),
+                                                    position_fit=round(d_fit, 1))
             se = compass_se or 0.0
-            sep = (f" (compass known to ±{se:.0f}° over {ca['n']}+{cb['n']} compass-sourced "
-                   f"frames" + ("; both candidates sit inside that, so this is a lean, not a "
-                                "proof)" if abs(d_geo - d_fit) < 2 * se
-                                and min(d_geo, d_fit) < 2 * se else ")"))
+            # Well-attested bearings are themselves a usable answer, not just a referee. If
+            # both spans quote the same mode, hold it tightly, and geometry is too thin to
+            # fix an angle, then turning the span by the bearings beats leaving it on a
+            # position fit that both other sources disagree with. Scale still comes from the
+            # geometry, which is what a scale can only come from.
+            sharp = bool(ca["concentration"] >= 0.85 and cb["concentration"] >= 0.85
+                         and not out["turn"]["mixed_modes"])
+            sep = (f" ({ca['mode']}/{cb['mode']} bearings, ±{se:.0f}° over "
+                   f"{ca['n']}+{cb['n']} frames"
+                   + ("; MODES DIFFER between the spans, so they may not share a bias"
+                      if out["turn"]["mixed_modes"] else "")
+                   + ("; both candidates sit inside that, so this is a lean, not a proof)"
+                      if abs(d_geo - d_fit) < 2 * se and min(d_geo, d_fit) < 2 * se else ")"))
             out["turn"]["compass_se_deg"] = round(se, 1)
-            if d_geo < d_fit and (strong or d_fit - d_geo > 15):
+            if d_geo < d_fit and not strong and sharp:
+                out["turn"]["trust"] = "bearings"
+                out["turn"]["why"] = (
+                    f"geometry leans the bearings' way but is thin ({sup}/{considered} cross "
+                    f"pairs agree), and the bearings are held tightly, so the span is turned "
+                    f"by the bearings and scaled by the geometry" + sep)
+            elif d_geo < d_fit and (strong or d_fit - d_geo > 15):
                 out["turn"]["trust"] = "geometry"
-                out["turn"]["why"] = (f"compass sits {d_geo:.0f}° from the geometric turn and "
-                                      f"{d_fit:.0f}° from leaving the position fit alone" + sep)
+                out["turn"]["why"] = (f"the bearings sit {d_geo:.0f}° from the geometric turn "
+                                      f"and {d_fit:.0f}° from leaving the position fit alone" + sep)
             elif d_fit <= d_geo:
                 out["turn"]["trust"] = "position-fit"
-                out["turn"]["why"] = (f"compass backs the existing position fit ({d_fit:.0f}° vs "
-                                      f"{d_geo:.0f}°); geometry does not get to turn the span" + sep)
+                out["turn"]["why"] = (f"the bearings back the existing position fit "
+                                      f"({d_fit:.0f}° vs {d_geo:.0f}°); geometry does not get to "
+                                      f"turn the span" + sep)
             else:
                 out["turn"]["trust"] = "position-fit"
-                out["turn"]["why"] = "geometry leans the compass's way but is too thin to act on"
+                out["turn"]["why"] = "geometry leans the bearings' way but is too thin to act on"
     if A.to_enu and B.to_enu:
         gps = compose(invert(A.to_enu), B.to_enu)
         dR = rot_angle_deg(gps[1].T @ sim[1])
@@ -606,8 +651,8 @@ def summarize(res, A, B, log=print):
     t = res.get("turn")
     if t:
         log(f"  the turn: geometry {t['yaw_geometric_deg']:+.1f}° (tilt {t['tilt_geometric_deg']:.1f}°), "
-            f"position fit 0.0°, compass "
-            + ("n/a" if t["yaw_compass_deg"] is None else f"{t['yaw_compass_deg']:+.1f}°")
+            f"position fit 0.0°, bearings "
+            + ("n/a" if t["yaw_bearings_deg"] is None else f"{t['yaw_bearings_deg']:+.1f}°")
             + f" -> TRUST {t['trust'].upper()}: {t['why']}")
     sf = res.get("shared_frames")
     if sf:
@@ -649,7 +694,7 @@ def main():
                          "alignment_gps, and say so in its provenance. For undoing a join "
                          "that later evidence did not support")
     ap.add_argument("--use-compass-yaw", action="store_true",
-                    help="turn the span by the COMPASS's yaw instead of the geometry's, "
+                    help="turn the span by the BEARINGS' yaw instead of the geometry's, "
                          "keeping the fitted scale (for a join too thin to trust for angle)")
     ap.add_argument("--force-geometry", action="store_true",
                     help="apply the geometric join even where the compass backs the GPS one")
@@ -704,7 +749,8 @@ def main():
                 print(f"  {B.name}: not applied ({res.get('status', 'no join')})")
                 continue
             turn = res.get("turn") or {}
-            refused = turn.get("trust") != "geometry" and not a.force_geometry
+            trust = turn.get("trust")
+            refused = trust not in ("geometry", "bearings") and not a.force_geometry
             # What gets written is the GRAVITY-SAFE join composed onto B's own ENU
             # alignment: a turn on the spot, a scale, a shift. Never a tilt — down was
             # settled by the reconstruction and the phone, not by a point residual.
@@ -712,14 +758,15 @@ def main():
             refused = refused or not y or not B.to_enu
             corr = ((y["scale"], np.array(y["R"]), np.array(y["t"])) if y else None)
             src = f"geometric-join:{A.name[:8]}"
-            if a.use_compass_yaw and (turn.get("yaw_compass_deg") is not None):
-                th = math.radians(turn["yaw_compass_deg"])
+            if ((a.use_compass_yaw or trust == "bearings")
+                    and (turn.get("yaw_bearings_deg") is not None)):
+                th = math.radians(turn["yaw_bearings_deg"])
                 c_, s_ = math.cos(th), math.sin(th)
                 Rz = np.array([[c_, -s_, 0.0], [s_, c_, 0.0], [0.0, 0.0, 1.0]])
                 # keep the fitted scale and re-centre so the span does not also translate
                 cB = apply(B.to_enu, B.cam_centres()).mean(0)
                 corr = (y["scale"], Rz, cB - y["scale"] * (Rz @ cB))
-                src = f"compass-yaw-join:{A.name[:8]}"
+                src = f"bearing-yaw-join:{A.name[:8]}"
             evidence = {k: res.get(k) for k in
                         ("turn", "yaw_only_join", "consensus", "verdicts", "shared_frames",
                          "position_fit_join", "n_cached_pairs", "n_usable_pairs")}

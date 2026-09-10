@@ -968,8 +968,13 @@ barely determined at all. Calling it "the GPS orientation" invented a measuremen
 never taken. It is the **position fit** everywhere now, and its vote is simply the status quo:
 do not turn this span any further.
 
-**And `compass_angle` is not always a compass.** The capture app records `bearing_source` in
-its EXIF UserComment, and it is not decoration:
+**And `compass_angle` is not always a compass — but every mode still means the same thing.**
+The app offers three ways to say where the camera pointed and stores whichever the user chose:
+the compass; a bearing derived from movement with a user-set offset (`gps-kalman`, for
+shooting out of a moving car at an angle to travel); and a hand-dragged arrow (`arrow_drag`,
+`map`). All three are that person's answer to the same question, and the stored value is the
+best and only bearing we have for that photo. So none is discarded. What differs is how well
+each holds up, and that is measurable per span. The distribution:
 
 | bearing_source | photos |
 |---|---|
@@ -978,31 +983,44 @@ its EXIF UserComment, and it is not decoration:
 | map | 1,970 |
 | arrow_drag, web, others | ~2,000 |
 
-`gps-kalman` is the **movement-heading** mode: the direction the phone was travelling, which
-on any walk is not where it was aimed. `map` and `arrow_drag` are a person setting the arrow
-by hand afterwards. Only the compass rows say where the camera pointed. The stairs-and-bridge
-spans are 36 of 60 and 41 of 58 compass, the rest hand-set — so the first "compass says -82°"
-measurement was averaging magnetometer readings together with hand-drawn arrows.
-`bearing_source` now rides on every manifest frame, every run's metadata, and every frame the
-bench serves; archived runs get it from the mirror by photo id.
+The first "compass says -82°" measurement mixed magnetometer readings together with hand-drawn
+arrows in one average, which is what made it meaningless. `bearing_source` now rides on every
+manifest frame, every run's metadata and every frame the bench serves; archived runs get it
+from the mirror by photo id.
 
-**With only the compass frames, that walk's compass cannot arbitrate anything.** Its
-per-frame offsets scatter almost uniformly — concentration 0.38 on one span and 0.56 on the
-other, spreads of 79° and 62° — under a bridge, down a staircase, with the spans' own solves
-bent. A circular mean of that is arithmetic, not evidence. So a compass vote is now
-**admissible only** at concentration ≥ 0.6 over ≥ 8 compass-sourced frames, and the geometric
-vote is called strong only when the consensus is a real majority (≥ 60% of the cross pairs
-that could speak, not 8 of 24).
+**Which mode to believe is decided per span, by evidence.** The concentration of a span's
+per-frame offsets says whether its frames agree with each other about the bias. Measured:
 
-Under those rules the bridge join comes out **unresolved**: the compass is inadmissible, the
-geometry is thin, and nothing is turned. The alignment applied earlier on that basis has been
-reverted to the position fit. `bridge-join-probe` is queued to compute cross pairs between
-frames neither solve shared, which is the evidence this needs.
+| span | mode | n | offset | concentration |
+|---|---|---|---|---|
+| stairs-bridge | compass | 36 | 295.6° | 0.38 |
+| stairs-bridge | arrow_drag | 24 | 24.1° | 0.99 |
+| bridge-exit | compass | 41 | 89.5° | 0.56 |
+| bridge-exit | arrow_drag | 17 | 59.1° | 1.00 |
+| spot A | compass | 46 | 9.2° | 0.96 |
 
-The same rules on the self-test, where they should fire the other way: spot A solved twice,
-compass admissible over 46+46 frames at ±4°, geometry agreeing to 0.3°, gravity-safe fit
-residual 0.06 m — trust geometry, with the note that both candidates sit inside the compass's
-own error, so it is a lean and not a proof.
+A magnetometer under a steel bridge against a person who could see where they were pointing —
+and in the open, on spot A, the compass reads 0.96. So the mode is not the point; the agreement
+is. Each span quotes its own best-attested mode, a vote is admissible at concentration ≥ 0.6
+over ≥ 8 frames, and quoting *different* modes on the two spans is flagged, since then they may
+not share a bias. Concentration is self-consistency, not truth: a straight walk with a bearing
+set once looks tight either way. It is a floor to clear, not a certificate.
+
+**Three verdicts, not two.** Geometry is called strong only when its consensus is a real
+majority of the cross pairs that could speak (≥ 60%, not 8 of 24). So:
+
+- **trust geometry** — strong consensus, and the bearings lean its way. Spot A solved twice:
+  bearings ±4° over 46+46 frames, geometry agreeing to 0.3°, gravity-safe residual 0.06 m.
+- **trust bearings** — the bearings are held tightly by both spans in the same mode, and
+  geometry leans the same way but is too thin to fix an angle. The span is turned by the
+  bearings and scaled by the geometry, which is the only thing a scale can come from. The
+  bridge join: geometry -53° from 8 of 24 pairs, bearings -35.1° ±2° over 24+17 arrow-drag
+  frames, position fit 0°. Both disagree with the status quo in the same direction, so the
+  span turns by -35.1°.
+- **trust the position fit** — nothing is turned, and the reason is recorded.
+
+`bridge-join-probe` is still queued to compute cross pairs between frames neither solve shared,
+which is what would let geometry speak for itself there.
 
 ### A join may turn a span, never tip it — and the compass gets a vote (2026-09-10)
 
