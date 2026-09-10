@@ -113,6 +113,29 @@
 			parent: string;
 			members: { id: string; name: string; status: string; span: [number, number] | null; reproj: number | null }[];
 		};
+		joins?: {
+			reference: string;
+			reference_id: string;
+			applied: boolean;
+			at?: string;
+			turn?: {
+				trust?: string;
+				why?: string;
+				yaw_geometric_deg?: number;
+				yaw_gravity_safe_deg?: number;
+				tilt_geometric_deg?: number;
+				yaw_gps_deg?: number;
+				yaw_compass_deg?: number | null;
+				compass_se_deg?: number;
+			};
+			fit?: {
+				yaw_deg?: number;
+				scale?: number;
+				residual_m?: { median?: number };
+				free_rotation_residual_m?: { median?: number };
+			};
+			consensus?: { pairs_in_consensus?: number; pairs_considered?: number };
+		}[];
 		frames: Frame[];
 		pairs: Pair[];
 		worst_pairs: { i: number; j: number; metric: string; median_px: number; n_corres: number }[];
@@ -974,6 +997,64 @@
 					</table>
 				</div>
 			</div>
+
+			{#if detail.joins?.length}
+				<div class="card" data-testid="recon-joins">
+					<h3>Joins</h3>
+					<p class="muted small">
+						How this span was tied to another one, and on whose word. Each span is aligned to
+						ENU against its own GPS, so GPS always votes "do not turn"; the geometry of the
+						frames the two spans share votes separately, and the compass — which owes nothing
+						to either — decides. A join may turn a span and rescale it, never tip it.
+					</p>
+					<div class="tblwrap">
+						<table>
+							<thead>
+								<tr>
+									<th>reference</th><th class="num">GPS</th><th class="num">geometry</th>
+									<th class="num">compass</th><th class="num">applied turn</th>
+									<th class="num">fit resid</th><th>verdict</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each detail.joins as j (j.reference_id)}
+									<tr>
+										<td><a href="/recon?run={encodeURIComponent(j.reference)}">{j.reference}</a></td>
+										<td class="num">0°</td>
+										<td class="num" title="free rotation, before gravity was re-imposed">
+											{j.turn?.yaw_geometric_deg ?? '—'}°{#if j.turn?.tilt_geometric_deg}
+												<span class="muted small"> +{j.turn.tilt_geometric_deg}° tilt</span>
+											{/if}
+										</td>
+										<td class="num">
+											{j.turn?.yaw_compass_deg ?? '—'}°{#if j.turn?.compass_se_deg}
+												<span class="muted small"> ±{j.turn.compass_se_deg}</span>
+											{/if}
+										</td>
+										<td class="num">{j.fit?.yaw_deg ?? '—'}°</td>
+										<td class="num">
+											{j.fit?.residual_m?.median ?? '—'} m
+											{#if j.fit?.free_rotation_residual_m?.median}
+												<span class="muted small">(free {j.fit.free_rotation_residual_m.median})</span>
+											{/if}
+										</td>
+										<td>
+											<span class="pill {j.applied ? 'ok' : ''}"
+												>{j.applied ? `applied · ${j.turn?.trust ?? ''}` : 'refused'}</span
+											>
+										</td>
+									</tr>
+									<tr>
+										<td colspan="7" class="muted small">{j.turn?.why ?? ''}{#if j.consensus}
+												 · consensus of {j.consensus.pairs_in_consensus}/{j.consensus.pairs_considered} cross pairs
+											{/if}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				</div>
+			{/if}
 
 			{#if detail.group?.members?.length}
 				<div class="card" data-testid="recon-group">

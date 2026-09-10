@@ -224,6 +224,19 @@ async def get_run(run_id: str):
             {"p": parent or rid})).mappings().all()
     out["group"] = {"parent": parent or rid,
                     "members": [dict(k) | {"id": str(k["id"])} for k in kids]}
+    # how this run was tied to another one, and by what evidence. Kept whether the join
+    # was applied or refused: an operator judging an area later needs both.
+    joins = meta.get("joins") or {}
+    if joins:
+        async with wb_engine.connect() as conn:
+            names = dict((str(r["id"]), r["name"]) for r in (await conn.execute(text(
+                "SELECT id, name FROM recon_runs WHERE CAST(id AS text) = ANY(:ids)"),
+                {"ids": list(joins.keys())})).mappings().all())
+        out["joins"] = [{"reference": names.get(k, k), "reference_id": k,
+                         "applied": bool(v.get("applied")),
+                         "turn": v.get("turn"), "fit": v.get("yaw_only_join"),
+                         "consensus": v.get("consensus"), "at": v.get("at")}
+                        for k, v in joins.items()]
     out["frames"] = frames
     out["pairs"] = pairs
     out["worst_pairs"] = worst
