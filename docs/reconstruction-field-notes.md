@@ -851,6 +851,22 @@ to diagnose that optimisation — it was the joint solve's own reprojection numb
 the links look worthless. And a geometric check with a sign ambiguity needs a synthetic
 control, because on real data a mirrored answer is indistinguishable from a wrong match.
 
+### The disk filled up, and the bench said "queue unknown" (2026-09-10)
+
+Root hit 100%. Every request 500'd, the runs list showed nothing, and the only words on
+screen were "queue unknown". Pruning the day's docker build cache freed 50 GB. The
+numbers worth knowing: the recon run dirs hold **53 GB**, almost all forward-pass caches
+(1.8-2.7 GB per run, regenerable, and the thing `recon_metrics`/`recon_verify_links`
+re-read), and `~/.cache` holds 13 GB (huggingface weights, uv, bun, playwright browsers).
+
+Two consequences. `GET /health/machine` now reports disk, memory, load and the recon
+queue with thresholds, and the dashboard shows it as a card that turns amber — the
+operator-interface version of the missing symptom. And the caches need a retention rule:
+keep them for runs still being analysed, drop them for runs superseded or older than N
+days, and — better — replace them with a **content-addressed shared cache** so a photo
+pair's forward pass is computed once for every run that ever uses it. That is the same
+change the span-splitting needs, for the same reason.
+
 ### Breaking up broken sessions: the decision, and the first implementation (2026-09-10)
 
 The question was whether and how to split a walk that has fallen apart into spans. The
