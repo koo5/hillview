@@ -573,6 +573,64 @@ test('a layer toggle keeps the viewpoint', async ({ page }) => {
 	expect(await page.evaluate(([a, b]) => a === b, [first, third])).toBe(true);
 });
 
+test('the foliage layer is a second pass, not a second solve', async ({ page }) => {
+	// Vegetation is masked out of MATCHING so it cannot bend the geometry, and out of the
+	// dense cloud so it cannot hide it. The second pass paints it back through the depth
+	// the structures already fixed: a separate cloud, fetched only when asked for, and
+	// arriving without rebuilding the viewer (a toggle must never cost the viewpoint).
+	const N = 300;
+	const buf = Buffer.alloc(N * 15);
+	for (let i = 0; i < N; i++) {
+		buf.writeFloatLE(Math.cos(i) * 3, i * 15);
+		buf.writeFloatLE(Math.sin(i) * 3, i * 15 + 4);
+		buf.writeFloatLE(i / 100, i * 15 + 8);
+	}
+	const asked: string[] = [];
+	await page.route('**/cloud.bin*', async (route) => {
+		asked.push(route.request().url());
+		await route.fulfill({ body: buf, contentType: 'application/octet-stream' });
+	});
+	await page.route('**/recon/runs/*/cameras*', async (route) =>
+		route.fulfill({ json: { frames: [] } })
+	);
+	await page.route('**/recon/runs/*/map', async (route) =>
+		route.fulfill({ json: { buildings: [], walls: [], roads: [] } })
+	);
+	await page.route('**/api/recon/runs/*', async (route) => {
+		if (route.request().method() !== 'GET') return route.fallback();
+		const id = new URL(route.request().url()).pathname.split('/').pop()!;
+		const r = RUNS.find((x) => x.id === id) ?? RUNS[0];
+		await route.fulfill({
+			json: {
+				...runRow(r),
+				has_dense_cloud: true,
+				has_soft_cloud: true,
+				frames: [],
+				pairs: PAIRS,
+				worst_pairs: [],
+				geo: null
+			}
+		});
+	});
+
+	await page.goto('/recon?run=walk_dense');
+	await mountCloud(page);
+	const canvas = page.getByTestId('recon-cloud').locator('canvas');
+	await expect(canvas).toBeVisible({ timeout: 20_000 });
+	const before = await canvas.elementHandle();
+	expect(asked.some((u) => u.includes('soft=true'))).toBe(false);
+
+	await page.getByTestId('toggle-soft').check();
+	await expect(page.getByTestId('soft-count')).toBeVisible({ timeout: 20_000 });
+	expect(asked.some((u) => u.includes('soft=true'))).toBe(true);
+	// same canvas node: the layer went in beside the geometry, it did not replace it
+	const after = await canvas.elementHandle();
+	expect(await page.evaluate(([a, b]) => a === b, [before, after])).toBe(true);
+
+	await page.getByTestId('toggle-soft').uncheck();
+	await expect(page.getByTestId('soft-count')).toBeHidden({ timeout: 10_000 });
+});
+
 test('fly mode takes the controls and hands them back', async ({ page }) => {
 	// Orbit is for judging from outside; fly is for being inside. The toggle must not
 	// rebuild the viewer, keys must not leak to the page, and orbit must come back level.
