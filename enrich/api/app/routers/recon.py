@@ -595,6 +595,60 @@ async def realign(run_id: str, dry_run: bool = False):
     return out
 
 
+class AlignmentRequest(BaseModel):
+    scale_units_per_m: float
+    R: list[list[float]]
+    t: list[float]
+    alt0: float | None = None
+    source: str = "external"
+
+
+@router.post("/recon/runs/{run_id}/alignment")
+async def set_alignment(run_id: str, req: AlignmentRequest):
+    """Replace a run's solve->ENU alignment with one computed elsewhere.
+
+    `realign` re-fits against this run's own GPS. This takes an alignment the caller
+    derived from something better — today, `recon_join_spans.py` registering this span
+    against a reference span through the geometry they share, which on the bridge walk
+    disagreed with the GPS fit by 66 degrees. The original is preserved as
+    `alignment_gps` exactly as realign does, so it stays reversible, and `alignment_source`
+    records where the new one came from.
+    """
+    md_path = await _artifact(run_id, "metadata_path")
+    with open(md_path) as f:
+        md = json.load(f)
+    base = md.get("alignment") or {}
+    if not md.get("alignment_gps") and base.get("R"):
+        md["alignment_gps"] = base
+    md["alignment"] = {"scale_units_per_m": float(req.scale_units_per_m),
+                       "R": req.R, "t": req.t,
+                       "alt0": float(req.alt0 if req.alt0 is not None
+                                     else (base.get("alt0") or 0.0)),
+                       "source": req.source}
+    md["alignment_source"] = req.source
+    _write_atomic(md_path, json.dumps(md, indent=2).encode())
+    import glob as _glob
+    removed = 0
+    for col in ("cloud_path", "dense_cloud_path"):
+        try:
+            p = await _artifact(run_id, col)
+        except HTTPException:
+            continue
+        for f in _glob.glob(f"{p}.*.bin"):
+            try:
+                os.remove(f); removed += 1
+            except OSError:
+                pass
+        # the foliage pass caches beside the dense cloud and has no column of its own
+        for f in _glob.glob(os.path.join(os.path.dirname(p), "dense_soft.ply.*.bin")):
+            try:
+                os.remove(f); removed += 1
+            except OSError:
+                pass
+    return {"ok": True, "source": req.source, "stale_caches_removed": removed,
+            "alignment": md["alignment"]}
+
+
 @router.get("/recon/runs/{run_id}/map")
 async def map_layer(run_id: str, refresh: bool = False):
     """OSM footprints for this run's area, in the SAME metres-east/north/up frame as

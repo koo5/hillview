@@ -416,6 +416,11 @@ def main():
     ap.add_argument("--holdout-shared", action="store_true",
                     help="fit the join WITHOUT any pair touching a shared photo, so the "
                          "shared-camera gap is an independent test of the join")
+    ap.add_argument("--apply", action="store_true",
+                    help="write the geometric join back: every run after the first gets an "
+                         "alignment placing it in the FIRST run's ENU frame, through the API "
+                         "(the GPS fit is kept as alignment_gps)")
+    ap.add_argument("--api", default=os.getenv("RECON_API", "http://127.0.0.1:8070/api/recon"))
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
     if a.self_test:
@@ -438,6 +443,32 @@ def main():
                                 holdout_shared=a.holdout_shared)
                 summarize(res, runs[x], runs[y])
                 out["joins"][f"{runs[y].name}->{runs[x].name}"] = res
+    if a.apply:
+        for B in runs[1:]:
+            res = out["joins"].get(B.name) or {}
+            sim = res.get("similarity_B_to_A")
+            if res.get("status") != "ok" or not sim or not A.to_enu:
+                print(f"  {B.name}: not applied ({res.get('status', 'no join')})")
+                continue
+            # B solve coords -> A solve coords -> ENU. Both spans already share the
+            # parent's centre, so the result is directly comparable to the other spans.
+            comp = compose(A.to_enu, (sim["scale"], np.array(sim["R"]), np.array(sim["t"])))
+            body = {"scale_units_per_m": float(comp[0]), "R": comp[1].tolist(),
+                    "t": comp[2].tolist(),
+                    "alt0": float((A.meta.get("alignment") or {}).get("alt0") or 0.0),
+                    "source": f"geometric-join:{A.name[:8]}"}
+            rid = os.path.basename(B.dir.rstrip("/"))
+            import urllib.request
+            req = urllib.request.Request(f"{a.api}/runs/{rid}/alignment",
+                                         data=json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json"},
+                                         method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=60) as r:
+                    print(f"  {B.name}: alignment applied ({json.load(r).get('stale_caches_removed')} "
+                          f"stale cache(s) swept)")
+            except Exception as e:
+                print(f"  {B.name}: apply FAILED {type(e).__name__}: {e}")
     if a.json:
         json.dump(out, open(a.json, "w"), indent=1)
 
