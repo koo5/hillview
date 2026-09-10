@@ -300,9 +300,14 @@ def reconstruct_cluster(payload: dict) -> None:
     with open(manifest_path, "w") as f:
         json.dump({"frames": frames}, f)
 
-    _post({"result_id": rid, "status": "running", "worker": socket.gethostname(),
-           "n_frames": len(frames),
-           "meta": {"stage": "queued", "rundir": rundir}})
+    try:
+        _post({"result_id": rid, "status": "running", "worker": socket.gethostname(),
+               "n_frames": len(frames),
+               "meta": {"stage": "queued", "rundir": rundir}})
+    except Cancelled:
+        # cancelled (or already done) before it started: a duplicate or stale message
+        print(f"  {rid} '{name}' skipped: the bench says cancelled/done", flush=True)
+        return
 
     cmd = [sys.executable, os.path.join(ENRICH_SCRIPTS, "reconstruct.py"),
            "--manifest", manifest_path, "--out", rundir,

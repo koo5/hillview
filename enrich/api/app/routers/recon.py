@@ -1064,12 +1064,18 @@ async def requeue_run(run_id: str):
     if not row or not (row["meta"] or {}).get("spec"):
         raise HTTPException(404, "run has no stored selection spec")
     sp = row["meta"]["spec"]
-    req = EnqueueRequest(lat=sp["center"][0], lon=sp["center"][1],
-                         radius_m=sp.get("radius_m", 300), limit=sp.get("limit", 24),
-                         offset=sp.get("offset", 0), stride=sp.get("stride", 1),
-                         after=sp.get("after"), before=sp.get("before"),
-                         inject=sp.get("inject") or [], params=sp.get("params") or {})
-    frames = await _select_frames(req)
+    if sp.get("frame_ids"):
+        # a split child (or any explicit-frames run) IS its frame list; the centre/limit
+        # fields only exist to share the parent's origin, and replaying them as a
+        # selection would swap the span for 24 frames around the centre
+        frames = await _select_frames_by_ids(sp["frame_ids"])
+    else:
+        req = EnqueueRequest(lat=sp["center"][0], lon=sp["center"][1],
+                             radius_m=sp.get("radius_m", 300), limit=sp.get("limit", 24),
+                             offset=sp.get("offset", 0), stride=sp.get("stride", 1),
+                             after=sp.get("after"), before=sp.get("before"),
+                             inject=sp.get("inject") or [], params=sp.get("params") or {})
+        frames = await _select_frames(req)
     if len(frames) < 2:
         raise HTTPException(422, "selection no longer yields 2+ frames")
     async with wb_engine.begin() as conn:
@@ -1294,6 +1300,12 @@ async def result(result_json: str = Form(...),
             "SELECT status FROM recon_runs WHERE id = CAST(:id AS uuid)"), {"id": rid})).scalar()
     if st == "cancelled" and d.get("status") == "running":
         return {"ok": True, "cancelled": True}
+    # A run that is already done is not solved again: the broker can hold a second copy of
+    # its message (a requeue of a still-queued run, a redelivery after a worker crash), and
+    # the worker prefetches one message ahead, so a purge does not reach that copy either.
+    # An explicit requeue sets the status back to queued first, so it still passes here.
+    if st == "done" and d.get("status") == "running":
+        return {"ok": True, "cancelled": True, "reason": "already done"}
 
     uploads = {"metadata": metadata, "metrics": metrics, "cloud": cloud,
                "dense_cloud": dense_cloud,

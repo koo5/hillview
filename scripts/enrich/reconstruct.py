@@ -557,10 +557,12 @@ def render_conf(conf, path):
     Image.fromarray(np.stack([H, S, V], -1), "HSV").convert("RGB").save(path)
 
 
-def pair_count_matrix(cache_path, paths, shared_cache=None):
+def pair_count_matrix(cache_path, paths, shared_cache=None, pairs=None):
     """Read the per-pair correspondence counts (post-masking) from the corres caches → N×N
     matrix. A masked pair's counts live in the run-local `corres_masked_*` copy, which wins
-    over the raw pair in the shared cache."""
+    over the raw pair in the shared cache. `pairs` (this run's directed pairs) restricts the
+    count to what the solve actually used: the shared cache also holds pairs a wider-window
+    run computed between the same frames, and those are not this run's connectivity."""
     import glob as _g
     import torch as _t
     try:
@@ -568,7 +570,14 @@ def pair_count_matrix(cache_path, paths, shared_cache=None):
     except Exception:
         from dust3r.utils.misc import hash_md5
     n = len(paths)
-    h2i = {(CONTENT_KEY.get(p) or hash_md5(p)): i for i, p in enumerate(paths)}
+    key = lambda p: CONTENT_KEY.get(p) or hash_md5(p)
+    h2i = {key(p): i for i, p in enumerate(paths)}
+    used = None
+    if pairs is not None:
+        used = set()
+        for a_, b_ in pairs:
+            k1, k2 = key(a_["instance"]), key(b_["instance"])
+            used.add(f"{k1}-{k2}"); used.add(f"{k2}-{k1}")
     mat = np.zeros((n, n), int)
     seen = set()
     files = _g.glob(os.path.join(cache_path, "corres_masked_conf=*", "*.pth"))
@@ -577,7 +586,7 @@ def pair_count_matrix(cache_path, paths, shared_cache=None):
             files += _g.glob(os.path.join(root, "corres_conf=*", "*.pth"))
     for f in files:
         name = os.path.splitext(os.path.basename(f))[0]
-        if "-" not in name or name in seen:
+        if "-" not in name or name in seen or (used is not None and name not in used):
             continue
         h1, h2 = name.split("-", 1)
         if h1 in h2i and h2 in h2i:
@@ -1017,7 +1026,7 @@ def main():
     # correspondence-count connectivity (post-masking) → matrix image + summary
     pair_stats = {}
     try:
-        mat = pair_count_matrix(cache, paths, shared_cache)
+        mat = pair_count_matrix(cache, paths, shared_cache, pairs)
         render_pair_matrix(mat, os.path.join(a.out, "pairs_matrix.png"))
         sym = mat + mat.T
         deg = (sym > 0).sum(1)                       # how many frames each frame connects to
