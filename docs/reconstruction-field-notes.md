@@ -957,6 +957,69 @@ frame with 6% vertical and 29% vegetation now keeps its hedge. `newest-s0-vegkep
 same 17 frames under the corrected ladder; the forward passes are cached, so it costs only the
 optimiser.
 
+### Smoothing the bearings does not earn its place, and the measure that says so is useful on its own (2026-09-10)
+
+A bearing series is noisy in ways a single frame cannot show, so a smoothing pass is an
+obvious thing to try — and exactly the kind of thing that should be a strategy you can swap
+and re-run, not a fix welded into the pipeline. `bearing_smooth.py` holds several behind one
+name each (`median3/5/9`, `mean5`, `reject40`, `median5+reject40`), none privileged, and
+`recon_join_spans --bearing-smoothing NAME` selects one and records it with the join.
+
+The measure of a strategy is objective: across a span, (bearing − recovered heading) should be
+one constant bias, so the circular **concentration** of those offsets says whether the frames
+agree. Measured over seven series:
+
+| series | mode | n | none | best strategy |
+|---|---|---|---|---|
+| spot A | compass | 46 | 0.956 | reject40, +0.006 |
+| stairs-bridge | compass | 36 | 0.382 | mean5, +0.012 |
+| stairs-bridge | arrow_drag | 24 | 0.991 | median5, +0.006 |
+| bridge-exit | compass | 41 | 0.561 | reject40, +0.006 |
+| bridge-exit | arrow_drag | 17 | 0.997 | none |
+| jižní walk | rotation-vector | 28 | 0.970 | none |
+| prosek aug06 | rotation-vector | 40 | 0.509 | reject40, +0.006 |
+
+Nothing gains more than +0.012, the running medians actively **hurt** the good series (spot A
+loses 0.011 to 0.018, because a median flattens the real turns), and the bad series stay far
+below the 0.6 a vote needs. The conclusion is not "smoothing is badly implemented" but
+"the bad cases are not noisy". A compass under a steel bridge is wrong *systematically*, and
+no local average repairs a bias that varies with where you are standing. Default stays `none`.
+
+The measure turned out to be worth more than the strategies. Concentration is a **per-span
+magnetic interference detector**, and it independently found the site the user already knew
+about: `dense-prosek-aug06` reads 0.509, and Prosek vyhlídka is the hard-iron lookout. Spot A
+in the open reads 0.956. What a systematic error actually needs is a per-span bias estimate,
+which is what `bearing_offset` already computes — and concentration is what says whether that
+bias is real or arithmetic.
+
+### A probe run as connective tissue, and the first triangle (2026-09-10)
+
+`bridge-join-probe` — the last six frames of the stairs span and the first six of the bridge
+span, paired complete — solved at **2.04 px with 5.8 cm ground agreement and no chain breaks**.
+The frames on either side of the break do see the same place; it was the sliding window that
+never asked them to.
+
+That gives a third solve overlapping both spans, and with three runs the joins have to be
+consistent with each other. `recon_join_spans` now closes the triangle:
+
+| path | yaw | scale |
+|---|---|---|
+| bridge-exit → stairs-bridge → probe | -76.5° | — |
+| bridge-exit → probe, direct | -74.3° | — |
+| closure error | **2.2°** | **×0.750** |
+
+So the **rotations are mutually consistent to about two degrees** while the **scales are 25%
+apart**. That is a clean split of the problem: these joins can be believed about orientation
+and cannot be believed about size. It also matches what the stairs span said on its own, where
+the position fit gave 0.43 m per unit and eye height gave 1.755. A short span with a bent GPS
+track is worst exactly at scale, and scale is the one thing bearings can never supply.
+
+One more warning sign, consistent across all three joins: the free 3-D fit keeps asking for
+large tilts (74.7°, 51.8°, 22.8°) between spans that are all gravity-pinned. A rigid rotation
+should not be needed at all. The likely cause is depth that is systematically compressed in a
+dark underpass, which tips a best-fit rotation — another reason the applied join is held to a
+turn about vertical.
+
 ### There is no GPS orientation, and a third of the bearings are not compass (2026-09-10)
 
 Two mistakes of mine, corrected by the user, both about what the data actually says.

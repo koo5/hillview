@@ -964,7 +964,10 @@ def main():
     # consecutive links that came out weak, and reach further ONLY there.
     if a.adaptive_pairs and a.pairs != "complete":
         import mast3r.cloud_opt.sparse_ga as _SGA
-        base = _SGA.convert_dust3r_pairs_naming(imgs, [(p1.copy(), p2.copy()) for p1, p2 in pairs])
+        # NB: convert_dust3r_pairs_naming rewrites each pair's 'instance' to imgs[idx] --
+        # and sparse_global_alignment passes the PATH list there, not the loaded dicts.
+        # Passing the dicts makes 'instance' unhashable and the cache key explodes.
+        base = _SGA.convert_dust3r_pairs_naming(paths, [(p1.copy(), p2.copy()) for p1, p2 in pairs])
         log(f"adaptive pairing: measuring {len(base)} window pairs first…")
         res_paths, _ = _SGA.forward_mast3r(base, model,
                                            cache_path=(shared_cache or cache),

@@ -193,6 +193,7 @@ class Run:
         dense = np.load(os.path.join(rundir, "dense.npz"), allow_pickle=True)
         self.depth = [np.asarray(d, np.float64).ravel() for d in dense["depthmaps"]]
         self.H, self.W, _ = self._hw_from_canon()
+        self.bearing_smoothing = "none"
         al = self.meta.get("alignment") or {}
         # solve -> ENU (metres): p_enu = s·R·p + t, s in metres per unit
         self.to_enu = (float(al["scale_units_per_m"]), np.asarray(al["R"], float),
@@ -283,11 +284,24 @@ class Run:
         return g
 
     def _offsets_by_mode(self):
+        """Per-frame (bearing - recovered heading), grouped by bearing mode.
+
+        `self.bearing_smoothing` names an optional pass over each mode's series before the
+        offsets are taken (see bearing_smooth.py). It is off by default because measured
+        across seven series it earned at most +0.012 of concentration, and cost more than
+        that on the series that were already good: a compass thrown by a steel bridge is
+        wrong systematically, not noisily, and no local average fixes that.
+        """
+        import bearing_smooth as bs
+        rows = [(h, b, s or "(unrecorded)") for (h, b, s) in self.enu_headings()]
         out = {}
-        for (hdg, brg, src) in self.enu_headings():
-            if brg is None:
+        for mode in {r[2] for r in rows}:
+            idx = [i for i, r in enumerate(rows) if r[2] == mode and r[1] is not None]
+            if not idx:
                 continue
-            out.setdefault(src or "(unrecorded)", []).append(brg - hdg)
+            brg = bs.smooth([rows[i][1] for i in idx], self.bearing_smoothing)
+            out[mode] = [bs.circ_diff(brg[k], rows[i][0])
+                         for k, i in enumerate(idx) if brg[k] is not None]
         return out
 
     def points_for(self, i, xy):
@@ -527,6 +541,7 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
             yaw_bearings_se_deg=(None if compass_se is None else round(compass_se, 1)),
             bearings_A=ca, bearings_B=cb, bearings_admissible=admissible,
             bearing_mode_A=(ca or {}).get("mode"), bearing_mode_B=(cb or {}).get("mode"),
+            bearing_smoothing=A.bearing_smoothing,
             mixed_modes=bool(ca and cb and ca.get("mode") != cb.get("mode")),
             bearings_inadmissible_why=(None if admissible or not (ca and cb) else
                                        f"bearings within a span scatter too much to average "
@@ -693,6 +708,11 @@ def main():
                     help="put this run's alignment back to the position fit kept as "
                          "alignment_gps, and say so in its provenance. For undoing a join "
                          "that later evidence did not support")
+    ap.add_argument("--bearing-smoothing", default="none",
+                    help="named pass over each bearing series before offsets are taken "
+                         "(bearing_smooth.py: none, median3/5/9, mean5, reject40, "
+                         "median5+reject40). Measured to be worth nothing so far; kept "
+                         "swappable so the next series can say otherwise")
     ap.add_argument("--use-compass-yaw", action="store_true",
                     help="turn the span by the BEARINGS' yaw instead of the geometry's, "
                          "keeping the fitted scale (for a join too thin to trust for angle)")
@@ -725,6 +745,7 @@ def main():
         ap.error("two or more run dirs")
     runs = [Run(r) for r in a.runs]
     for r in runs:
+        r.bearing_smoothing = a.bearing_smoothing
         fill_bearing_sources(r, a.api)
     sources = corres_dirs(runs, a.parent)
     A = runs[0]
@@ -741,6 +762,45 @@ def main():
                                 holdout_shared=a.holdout_shared)
                 summarize(res, runs[x], runs[y])
                 out["joins"][f"{runs[y].name}->{runs[x].name}"] = res
+    # TRIANGLE CLOSURE. With three or more runs joined pairwise, the estimates have to be
+    # consistent with each other: going A -> C -> B must land where A -> B says. Nothing
+    # else in this pipeline checks a join against anything but its own points, so this is
+    # the one place an error that is systematic within a pair can still be caught.
+    def _yaw(res):
+        y = (res or {}).get("yaw_only_join")
+        return None if not y else (y["yaw_deg"], y["scale"])
+
+    if len(runs) >= 3:
+        out["closures"] = []
+        names = {r.name: r for r in runs}
+        for key, res in list(out["joins"].items()):
+            pass
+        # every ordered triple (a, b, c) where we have b->a, c->b and c->a
+        def joined(x, y):
+            """the recorded join taking y's frame into x's, whichever way it was stored"""
+            direct = out["joins"].get(y.name if x is runs[0] else f"{y.name}->{x.name}")
+            return _yaw(direct)
+
+        for i, A_ in enumerate(runs):
+            for j, B_ in enumerate(runs):
+                for k, C_ in enumerate(runs):
+                    if len({i, j, k}) < 3 or not (i < j < k):
+                        continue
+                    ab, bc, ac = joined(A_, B_), joined(B_, C_), joined(A_, C_)
+                    if not (ab and bc and ac):
+                        continue
+                    yaw_via = ab[0] + bc[0]
+                    d = ((yaw_via - ac[0] + 180) % 360) - 180
+                    out["closures"].append(dict(
+                        via=f"{C_.name[:8]} -> {B_.name[:8]} -> {A_.name[:8]}",
+                        direct=f"{C_.name[:8]} -> {A_.name[:8]}",
+                        yaw_via_deg=round(yaw_via, 1), yaw_direct_deg=round(ac[0], 1),
+                        closure_error_deg=round(d, 1),
+                        scale_ratio=round(ab[1] * bc[1] / max(ac[1], 1e-9), 3)))
+                    print(f"closure {C_.name[:8]} -> {B_.name[:8]} -> {A_.name[:8]}: "
+                          f"{yaw_via:+.1f}° vs {ac[0]:+.1f}° direct "
+                          f"({d:+.1f}° apart, scale ×{ab[1] * bc[1] / max(ac[1], 1e-9):.3f})")
+
     if a.apply:
         for B in runs[1:]:
             res = out["joins"].get(B.name) or {}
