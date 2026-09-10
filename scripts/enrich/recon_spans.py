@@ -156,12 +156,20 @@ def main():
             s0 = float(md["alignment"]["scale_units_per_m"])
             s_eye = s0 * (a.eye / h_med)           # units->m that puts the camera at eye height
             manual_frac = sum(1 for tg in ptags if tg) / max(len(ptags), 1)
-            if manual_frac > 0.5 or abs(math.log(s / s_eye)) > math.log(1.3):
-                scale_note = f"   scale from GPS {s:.3f} REPLACED by eye-height scale {s_eye:.3f} (camera {h_med:.2f} m up in the GPS-only frame)"
+            # Apply it only where the GPS has no baseline to offer -- a mostly-manual span.
+            # Elsewhere just SAY what it would be: on the healthy span above the stairs the
+            # GPS scale (1.14, residual 1.2 m) and the eye-height scale (1.93) disagree by
+            # 70%, and the honest reading is that a phone pointed down a staircase is not
+            # held at 1.5 m. A third, independent scale (riser heights are 15-17 cm; the
+            # DTM over a long enough baseline) is what settles that, not a preference.
+            if manual_frac > 0.5:
+                scale_note = f"   scale from GPS {s:.3f} REPLACED by eye-height scale {s_eye:.3f} (camera {h_med:.2f} m up in the GPS-only frame; span is mostly manual)"
                 s = s_eye
                 t = np.array([t[0], t[1], -s * float((R @ cams[idx].mean(0))[2])])
+            elif abs(math.log(s / s_eye)) > math.log(1.3):
+                scale_note = f"   eye-height scale would be {s_eye:.3f} (camera {h_med:.2f} m up): DISAGREES with GPS by {100*abs(s/s_eye-1):.0f}%"
             else:
-                scale_note = f"   eye-height scale would be {s_eye:.3f}, agrees"
+                scale_note = f"   eye-height scale {s_eye:.3f} agrees"
         rej = idx[w < 0.2]
         trusted = res[w >= 0.99]
         manual = [int(i) for i, tg in zip(idx, ptags) if tg == "manual"]
