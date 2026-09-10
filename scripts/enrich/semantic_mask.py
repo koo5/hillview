@@ -120,16 +120,26 @@ def ensure_masks(paths, log=print, infer_res=None):
 # wrong because there is nothing behind it, so it is kept and merely known about.
 #
 # The two TRANSIENT tiers are the ones this module removes, and they are removed in order.
-BUILT = {
+# Built surface, split by what it does for GEOMETRY rather than by what it is made of.
+# A facade, a fence or a pole stands up out of the scene and pins depth; a road surface
+# lies in the ground plane and does not. The distinction is not pedantic: on the path
+# walk of 2026-09-08 a frame measured 50% "built" and masked its hedges on that basis,
+# but every one of those built pixels was Road, so what was left to match on was a single
+# self-similar plane — and the reconstruction terraced into slabs at range, one per frame.
+BUILT_VERTICAL = {
     "Building", "Wall", "Fence", "Bridge", "Tunnel", "Guard Rail", "Barrier",
     "Pole", "Utility Pole", "Traffic Sign (Front)", "Traffic Sign (Back)",
     "Traffic Sign Frame", "Traffic Light", "Street Light", "Banner", "Billboard",
+    "Bike Rack", "Bench", "Trash Can", "Mailbox", "Fire Hydrant", "Phone Booth",
+    "CCTV Camera",
+}
+BUILT_GROUND = {
     "Curb", "Curb Cut", "Road", "Sidewalk", "Pedestrian Area", "Service Lane",
     "Bike Lane", "Crosswalk - Plain", "Lane Marking - Crosswalk",
     "Lane Marking - General", "Manhole", "Catch Basin", "Junction Box", "Rail Track",
-    "Bike Rack", "Bench", "Trash Can", "Mailbox", "Fire Hydrant", "Phone Booth",
-    "Parking", "CCTV Camera", "Bridge",
+    "Parking",
 }
+BUILT = BUILT_VERTICAL | BUILT_GROUND
 SOFT = {"Terrain", "Mountain", "Ground", "Pothole"}
 
 
@@ -154,11 +164,17 @@ def load_mask(stem, shape, built_floor=0.12, log=print, name=""):
 
       always   sky, people, riders, vehicles, animals, water, snow — transient or at
                infinity, and never worth a correspondence
-      then     vegetation, but ONLY if enough BUILT surface remains to match on
+      then     vegetation, but ONLY if enough surface that STANDS UP remains to match on
 
     A frame that is a hedge and a dirt path keeps its hedge, because the alternative is a
     frame with nothing in it, and a frame with nothing in it does not fail loudly — it
     drifts, which is the failure that has cost this project the most.
+
+    The floor is measured on BUILT_VERTICAL, not on built surface in general. A road fills
+    half the frame and pins nothing: it is one plane, and its gravel is self-similar, so
+    every frame is free to place it at its own depth. Measured on the path walk, gating on
+    total built masked the hedges away and left exactly that, and the path came out as
+    terraced slabs. A facade or a fence is what earns the right to drop the vegetation.
     """
     from PIL import Image
     H, W = shape
@@ -177,16 +193,20 @@ def load_mask(stem, shape, built_floor=0.12, log=print, name=""):
 
     fr = class_fracs(stem)
     built = round(sum(v for k, v in fr.items() if k in BUILT), 4)
+    vert = round(sum(v for k, v in fr.items() if k in BUILT_VERTICAL), 4)
+    ground = round(sum(v for k, v in fr.items() if k in BUILT_GROUND), 4)
     soft = round(sum(v for k, v in fr.items() if k in SOFT), 4)
-    info = {"built_frac": built, "soft_frac": soft,
+    info = {"built_frac": built, "built_vertical_frac": vert, "built_ground_frac": ground,
+            "soft_frac": soft,
             "sky_frac": round(float(sky.mean()), 4),
             "mover_frac": round(float(movers.mean()), 4),
             "veg_frac": round(float(veg.mean()), 4)}
-    if built >= built_floor:
+    if vert >= built_floor:
         info["rung"] = "sky+movers+vegetation"
         m = base | veg
     else:
-        info["rung"] = "sky+movers (kept vegetation: only %.0f%% built surface)" % (100 * built)
+        info["rung"] = ("sky+movers (kept vegetation: %.0f%% of the frame stands up, "
+                        "%.0f%% is ground)" % (100 * vert, 100 * ground))
         m = base
     info["masked_frac"] = round(float(m.mean()), 4)
     return m, info

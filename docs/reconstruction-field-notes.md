@@ -925,6 +925,38 @@ any degradation at 768 or 1024 belongs to resolution. Both are requeued. At 768 
 rate on this CPU is about 2.5 min per directed pair, so 22 frames is roughly six hours and the
 46-frame version is about fifteen — a GPU job, not a CPU one.
 
+### The masking ladder was counting the road as a reason to delete the hedge (2026-09-10)
+
+Rendering the first split span from its own cameras (`newest-2026-09-08#s0`, 4.49 px, 12.7 cm
+ground agreement — a good solve by every number we have) showed the path reconstructed
+faithfully for the first few metres and then breaking into **terraced slabs**, one per frame,
+with black between them. The mask overlay explained it in one look: everything except the path
+was red.
+
+The segmenter's own numbers for that frame:
+
+| class | fraction |
+|---|---|
+| Road | 0.50 |
+| Vegetation | 0.41 |
+| Sky | 0.08 |
+
+The ladder masks vegetation when built surface clears 12%, and this frame read 50% built — so
+the hedges went. But every one of those built pixels was **Road**. What was left to match on
+was a single self-similar plane, and a plane pins nothing: gravel looks like gravel, so each
+frame was free to place the far part of the path at its own depth. Hence one slab per frame.
+The blue fence at the left edge is not even seen as Fence by the segmenter; it comes back as
+Vegetation and was masked with the rest.
+
+So the floor now measures **BUILT_VERTICAL** — facade, wall, fence, pole, sign, bench — and not
+built surface in general, which is split off as BUILT_GROUND. A facade earns the right to drop
+the vegetation; a road does not, because the vegetation is then the only thing in the frame
+that stands up. Checked against the corpus: the Jižní Město street walk reads 19-49% vertical
+and still masks its hedges, the frames under the bridge read 38-60% and still mask, and the
+frame with 6% vertical and 29% vegetation now keeps its hedge. `newest-s0-vegkept` re-runs the
+same 17 frames under the corrected ladder; the forward passes are cached, so it costs only the
+optimiser.
+
 ### A join may turn a span, never tip it — and the compass gets a vote (2026-09-10)
 
 Two corrections to the join, both from the user, both right.
