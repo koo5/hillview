@@ -95,6 +95,8 @@ def main():
     ap.add_argument("metadata")
     ap.add_argument("--breaks", default="", help="comma list: last idx of each span")
     ap.add_argument("--json")
+    ap.add_argument("--run-dir", help="run dir with dense.npz: enables the eye-height scale")
+    ap.add_argument("--eye", type=float, default=1.5, help="assumed phone height above the floor, m")
     a = ap.parse_args()
     md = json.load(open(a.metadata))
     frames = md["frames"]
@@ -120,6 +122,21 @@ def main():
     res0 = np.linalg.norm(fit0[:, :2] - gps[:, :2], axis=1)
     print(f"  one fit over everything: GPS residual median {np.median(res0):.1f} m, p90 {np.percentile(res0, 90):.1f} m")
 
+    # Per-frame camera height above its own floor, from the dense depthmaps. This is the
+    # SCALE the GPS cannot give a span whose positions are hand-placed waypoints: under
+    # the bridge the fit came back at 0.43 m per unit, a 2.6x error, because a block of
+    # frames parked on one waypoint has no baseline at all. A phone is held ~1.5 m up.
+    cam_h = {}
+    if a.run_dir:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import recon_ground_split as gsp
+        try:
+            for r in gsp.analyse(a.run_dir, log=lambda *x: None).get("frames", []):
+                if r.get("cam_height"):
+                    cam_h[r["idx"]] = r["cam_height"]
+        except Exception as e:
+            print(f"  (no eye-height scale: {type(e).__name__}: {e})")
+
     out = []
     for si, (a0, a1) in enumerate(spans):
         idx = np.arange(a0, a1 + 1)
@@ -128,6 +145,23 @@ def main():
             continue
         pw, ptags = gps_prior_weights([frames[i] for i in idx])
         s, R, t, w, res = robust_fit(cams[idx], gps[idx], up, prior=pw)
+        # eye-height scale: the span's own floor says what a solve unit is, and when the
+        # GPS is rough (mostly manual) or the two disagree badly, the floor wins. The
+        # solve's camera height here is in the run's ORIGINAL alignment units (metres of
+        # the GPS-only fit), so the correction is relative to that fit's scale.
+        hs = [cam_h[i] for i in idx if i in cam_h]
+        scale_note = ""
+        if hs:
+            h_med = float(np.median(hs))
+            s0 = float(md["alignment"]["scale_units_per_m"])
+            s_eye = s0 * (a.eye / h_med)           # units->m that puts the camera at eye height
+            manual_frac = sum(1 for tg in ptags if tg) / max(len(ptags), 1)
+            if manual_frac > 0.5 or abs(math.log(s / s_eye)) > math.log(1.3):
+                scale_note = f"   scale from GPS {s:.3f} REPLACED by eye-height scale {s_eye:.3f} (camera {h_med:.2f} m up in the GPS-only frame)"
+                s = s_eye
+                t = np.array([t[0], t[1], -s * float((R @ cams[idx].mean(0))[2])])
+            else:
+                scale_note = f"   eye-height scale would be {s_eye:.3f}, agrees"
         rej = idx[w < 0.2]
         trusted = res[w >= 0.99]
         manual = [int(i) for i, tg in zip(idx, ptags) if tg == "manual"]
@@ -135,7 +169,8 @@ def main():
                     f"p90 {np.percentile(trusted, 90):.1f} m" if len(trusted) else "no fully-trusted frames")
         print(f"  span {si}: frames {a0}-{a1} ({len(idx)})  scale {s:.3f} m/unit  {kept_txt}"
               + (f"   manual on {len(manual)}" if manual else "")
-              + (f"   GPS DISTRUSTED on {len(rej)} frame(s): {rej.tolist()}" if len(rej) else ""))
+              + (f"   GPS DISTRUSTED on {len(rej)} frame(s): {rej.tolist()}" if len(rej) else "")
+              + scale_note)
         out.append({"span": si, "frames": [int(a0), int(a1)], "scale_units_per_m": float(s),
                     "R": R.tolist(), "t": t.tolist(),
                     "gps_distrusted": rej.tolist(), "manual": manual,

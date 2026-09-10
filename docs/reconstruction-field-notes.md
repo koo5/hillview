@@ -851,6 +851,61 @@ to diagnose that optimisation — it was the joint solve's own reprojection numb
 the links look worthless. And a geometric check with a sign ambiguity needs a synthetic
 control, because on real data a mirrored answer is indistinguishable from a wrong match.
 
+### The stairs, the underpass and the hand-placed waypoints, solved (2026-09-10)
+
+`newest-stairs-bridge`, 60 frames from the top of the stairs to the far end of the manual
+block, 6.76 px median. Rendered through its own cameras:
+
+- **the staircase is a smear.** Frame 10, looking down the steps at the bus and the
+  billboard, renders as a diagonal streak with the steps only faintly present at the
+  bottom. Steps are exactly the geometry a per-frame depth network cannot hold across a
+  walk: every riser is a depth discontinuity and the camera pitches with each one.
+- **the underpass is coherent.** Frame 45, sodium light, positioned by nothing but
+  hand-placed waypoints, renders the tiled pavement, the railing and the graffiti wall in
+  perspective and in place. Structure with texture solves in any light.
+
+The manual block is found by the signature written down yesterday, 26 frames without
+altitude and a heading frozen toward 14 degrees, 21 of them tagged and given a third of a
+vote. The chain breaks at 21 and 22 (a single isolated frame at the top of the stairs);
+the solve's own step jumps after 24 and 43. Fitted per span on the union:
+
+| span | frames | GPS residual | scale |
+| --- | --- | --- | --- |
+| above the stairs | 0-21 | 1.2 m | 1.14 |
+| down the stairs, into the tunnel | 25-43 | 5.1 m, 5 manual | 1.36 |
+| the underpass | 44-59 | 1.6 m, all manual | **0.43** |
+
+That last scale is a 2.6x error with a small residual, which is what happens when the
+only positions are blocks of frames parked on one waypoint: no baseline, so any scale fits.
+`recon_spans.py --run-dir` now takes the span's scale from its own floor instead — a
+phone is held about 1.5 m up, and the dense depthmaps say how high each camera sits over
+the pavement beneath it — whenever a span is mostly manual or the two scales disagree by
+more than 30%.
+
+**Vegetation A/B, colour heuristic, first result: negative.** `jizni-vegmask` against
+`dense-jizni-walk`: 4.95 px against 3.82, p90 110 against 43. The green-fraction mask
+removed matches the solve was using and gave nothing back. That was the colour proxy,
+not the segmenter; the segmenter runs on the newer runs and is judged separately.
+
+### Connectivity does NOT cure the second floor (2026-09-10)
+
+The hypothesis from the spot A double floor was that frames 43-45 drifted because the
+sliding window gave them too few pairs. `spotA-win12` tested it: the same 46 frames with
+a window of 12 instead of 4, 948 pairs instead of 348.
+
+| | win 4 | win 12 |
+| --- | --- | --- |
+| reprojection median / p90 | 1.33 / 7.3 px | 1.95 / 18.6 px |
+| neighbour ground agreement, median | 0.9 cm | **0.4 cm** |
+| frames 43, 44, 45 below the consensus floor | -30, -28, -28 cm | **-46, -43, -43 cm** |
+
+The bulk got tighter and the three offenders got *worse*. So the drift of the last three
+frames is not a connectivity problem; it is something about those frames — the end of
+the sweep, where the photographer was probably already turning away — and more pairs to
+them just spread their error further. The hypothesis is withdrawn. The render-and-compare
+check still flags them, which is what a frame-level gate would act on: drop or
+down-weight the frames the leave-one-out test rejects, rather than link them harder.
+
 ### The disk filled up, and the bench said "queue unknown" (2026-09-10)
 
 Root hit 100%. Every request 500'd, the runs list showed nothing, and the only words on
