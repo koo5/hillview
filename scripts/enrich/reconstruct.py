@@ -1055,8 +1055,13 @@ def main():
         "alignment": {"scale_units_per_m": float(s), "R": R.tolist(), "t": t.tolist(),
                       "alt0": float(alt0)},
         "stats": stats,
+        # the caches are addressed by these: forward passes + raw correspondences in
+        # shared_cache, canonical views + masked correspondences under <out>/cache
+        "shared_cache": shared_cache,
+        "pairs": [[int(p1["idx"]), int(p2["idx"])] for p1, p2 in pairs],
         "frames": [{
             "idx": i, "id": p["id"], "injected": bool(p.get("inj")),
+            "cache_key": CONTENT_KEY.get(paths[i]),
             "session": p.get("sess"),
             "gps": [p["lat"], p["lon"]], "altitude": p["alt"],
             "compass_angle": p["brg"], "captured_at": p["cap"], "title": p["ttl"],

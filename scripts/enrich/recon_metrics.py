@@ -90,9 +90,76 @@ def frame_keys(meta):
     reconstruct.py:304). Today's absolute path hashes differently, so rebuild the
     original relative string rather than guessing from the filesystem.
     """
+    if all(f.get("cache_key") for f in meta["frames"]):
+        # since 2026-09-10: content-addressed (md5 of the staged JPEG + load size), and
+        # recorded in the metadata, so nothing has to be rebuilt from path strings
+        return [f["cache_key"] for f in meta["frames"]]
     out = meta["args"]["out"]
     return [hash_md5(os.path.join(out, "imgs", f"{f['idx']:03d}_{f['id'][:8]}.jpg"))
             for f in meta["frames"]]
+
+
+def content_key(path, size):
+    """The shared cache's address for a staged image: md5 of its bytes + the load size.
+    Same definition as reconstruct.py's, kept here so read-only tools need nothing else."""
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        h.update(f.read())
+    h.update(f"|size={size}|v1".encode())
+    return h.hexdigest()
+
+
+def content_keys(meta, rundir):
+    """Cache keys in the SHARED cache, in frame order (None where the staged image is gone).
+
+    A run solved before 2026-09-10 keyed its own cache by the image PATH, which is unique to
+    that run dir — so two runs over the same photos share nothing by name, even though the
+    forward passes are identical. The content key is what unifies them, and the migration
+    hardlinked the old caches in under it, so it works for archived runs too as long as the
+    staged JPEG is still there.
+    """
+    out = []
+    size = int((meta.get("args") or {}).get("size", 512))
+    for f in meta["frames"]:
+        if f.get("cache_key"):
+            out.append(f["cache_key"]); continue
+        p = os.path.join(rundir, "imgs", f"{f['idx']:03d}_{f['id'][:8]}.jpg")
+        out.append(content_key(p, size) if os.path.exists(p) else None)
+    return out
+
+
+def shared_cache_dir(rundir=None):
+    """Where the forward passes and raw correspondences live for runs since 2026-09-10:
+    the run's metadata says, else the env, else the default beside the run dirs."""
+    if rundir:
+        try:
+            sc = json.load(open(os.path.join(rundir, "metadata.json"))).get("shared_cache")
+            if sc:
+                return sc
+        except Exception:
+            pass
+    return os.getenv("RECON_SHARED_CACHE",
+                     os.path.join(os.path.dirname(os.path.abspath(__file__)), "runs", "shared_cache"))
+
+
+def corres_files(rundir, shared=None):
+    """Every correspondence file this run can see, masked copies first so they win over
+    the raw pair in the shared cache. → [(name 'h1-h2', path)] with duplicates removed."""
+    dirs = glob.glob(os.path.join(rundir, "cache", "corres_masked_conf=*"))
+    dirs += glob.glob(os.path.join(rundir, "cache", "corres_conf=*"))
+    if shared is None:
+        shared = shared_cache_dir(rundir)
+    if shared:
+        dirs += glob.glob(os.path.join(shared, "corres_conf=*"))
+    seen, out = set(), []
+    for d in dirs:
+        for f in sorted(glob.glob(os.path.join(d, "*.pth"))):
+            name = os.path.splitext(os.path.basename(f))[0]
+            if "-" not in name or name in seen:
+                continue
+            seen.add(name)
+            out.append((name, f))
+    return out
 
 
 def canon_paths(rundir, keys):
@@ -126,33 +193,30 @@ def read_corres(rundir, keys, conf_thr=CONF_THR):
     """→ {(i, j): (xy1, xy2, confs)} over every cached ordered pair.
 
     Payload is ((score, conf_sum, n), (xy1, xy2, confs)) with xy as int64 (col, row) in
-    the loaded frame — the format install_corr_masking rewrites (reconstruct.py:285).
+    the loaded frame. Pairs come from the run-local caches (masked copies first) and
+    from the shared cache, which may hold pairs between these frames that a wider-window
+    run computed: they are real correspondences between these views, and a caller that
+    wants only the pairs THIS solve used filters by metadata["pairs"].
     """
     idx = {k: i for i, k in enumerate(keys)}
-    dirs = glob.glob(os.path.join(rundir, "cache", "corres_conf=*"))
     out, skipped = {}, 0
-    for d in dirs:
-        for f in glob.glob(os.path.join(d, "*.pth")):
-            name = os.path.splitext(os.path.basename(f))[0]
-            if "-" not in name:
-                continue
-            h1, h2 = name.split("-", 1)
-            if h1 not in idx or h2 not in idx:
-                skipped += 1
-                continue
-            try:
-                _score, (xy1, xy2, confs) = _load_pth(f)
-            except Exception:
-                skipped += 1
-                continue
-            xy1, xy2, confs = _np(xy1), _np(xy2), _np(confs).ravel()
-            if conf_thr > 0:
-                keep = confs >= conf_thr
-                xy1, xy2, confs = xy1[keep], xy2[keep], confs[keep]
-            out[(idx[h1], idx[h2])] = (xy1.astype(np.float64),
-                                       xy2.astype(np.float64), confs)
+    for name, f in corres_files(rundir):
+        h1, h2 = name.split("-", 1)
+        if h1 not in idx or h2 not in idx:
+            continue                       # some other run's frames (the shared cache)
+        try:
+            _score, (xy1, xy2, confs) = _load_pth(f)
+        except Exception:
+            skipped += 1
+            continue
+        xy1, xy2, confs = _np(xy1), _np(xy2), _np(confs).ravel()
+        if conf_thr > 0:
+            keep = confs >= conf_thr
+            xy1, xy2, confs = xy1[keep], xy2[keep], confs[keep]
+        out[(idx[h1], idx[h2])] = (xy1.astype(np.float64),
+                                   xy2.astype(np.float64), confs)
     if skipped:
-        log(f"  note: {skipped} corres file(s) unresolved/unreadable")
+        log(f"  note: {skipped} corres file(s) unreadable")
     return out
 
 
@@ -503,6 +567,10 @@ def measure(rundir, conf_thr=CONF_THR, pps=None):
         K = intrinsics(focals, W, H, pps)
 
     corres = read_corres(rundir, keys, conf_thr)
+    if meta.get("pairs"):
+        # the metric is about the pairs THIS solve used; the shared cache may hold more
+        solved = {tuple(p) for p in meta["pairs"]}
+        corres = {ij: v for ij, v in corres.items() if ij in solved}
     depth_source = "dense.npz"
     depth = read_depthmaps(rundir, n, list(zip(H, W)))
     if depth is None and side is not None and "depthmaps" in side:
