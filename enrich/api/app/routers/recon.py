@@ -510,6 +510,45 @@ async def _overpass(lat: float, lon: float, radius: int) -> dict:
         return r.json()
 
 
+@router.get("/recon/runs/{run_id}/nearby")
+async def nearby_runs(run_id: str, radius_m: float = 300.0):
+    """Other solved runs whose centre is within `radius_m` of this one's.
+
+    The end of this workstream is not one walk: it is every walk through an area, each
+    solved in spans, rendered together so a person or an operator model can see how they
+    sit against each other and against the map. This is the list that feeds that view.
+    Distance is between run CENTRES, which is what a run is anchored on; a long walk may
+    reach outside the circle and still belong in it.
+    """
+    rid = str(uuid.UUID(run_id))
+    async with wb_engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT id, name, status, n_frames, meta->'spec'->'center' AS centre, "
+            "  meta->>'parent' AS parent, "
+            "  dense_cloud_path IS NOT NULL AS has_dense_cloud, "
+            "  round((metrics->'reproj_px'->>'median')::numeric, 2) AS reproj, "
+            "  round((metrics->'ground_split'->'neighbour_step_cm'->>'median')::numeric, 1) "
+            "    AS ground_cm, "
+            "  (meta->'joins') IS NOT NULL AS joined, "
+            "  to_char(finished_at, 'YYYY-MM-DD') AS finished "
+            "FROM recon_runs WHERE status = 'done' AND cloud_path IS NOT NULL"))).mappings().all()
+    me = next((r for r in rows if str(r["id"]) == rid), None)
+    if not me or not me["centre"]:
+        raise HTTPException(404, "run has no centre")
+    lat0, lon0 = float(me["centre"][0]), float(me["centre"][1])
+    kx = 111320.0 * math.cos(math.radians(lat0))
+    out = []
+    for r in rows:
+        if str(r["id"]) == rid or not r["centre"]:
+            continue
+        d = math.hypot((float(r["centre"][1]) - lon0) * kx,
+                       (float(r["centre"][0]) - lat0) * 110540.0)
+        if d <= radius_m:
+            out.append(dict(r) | {"id": str(r["id"]), "distance_m": round(d, 1)})
+    out.sort(key=lambda x: x["distance_m"])
+    return {"centre": [lat0, lon0], "radius_m": radius_m, "runs": out}
+
+
 @router.post("/recon/runs/{run_id}/realign")
 async def realign(run_id: str, dry_run: bool = False):
     """Re-fit the run's solve->ENU alignment with gravity pinned.

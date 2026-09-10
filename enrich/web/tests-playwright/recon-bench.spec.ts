@@ -573,6 +573,44 @@ test('a layer toggle keeps the viewpoint', async ({ page }) => {
 	expect(await page.evaluate(([a, b]) => a === b, [first, third])).toBe(true);
 });
 
+test('other walks in the same place can be drawn together', async ({ page }) => {
+	// One walk is the first case, not the point. Judging a join means seeing every solve
+	// in an area at once, in one metric frame — so the bench has to offer the neighbours
+	// and let them be ticked into the same viewer.
+	await page.route('**/recon/runs/*/nearby*', async (route) =>
+		route.fulfill({
+			json: {
+				centre: [50.1, 14.5],
+				radius_m: 300,
+				runs: [
+					{
+						id: '00000000-0000-4000-8000-0000000000aa',
+						name: 'other-walk',
+						status: 'done',
+						n_frames: 40,
+						distance_m: 53.6,
+						reproj: 9.41,
+						ground_cm: 30.6,
+						joined: true,
+						finished: '2026-09-10',
+						parent: null
+					}
+				]
+			}
+		})
+	);
+	await page.goto('/recon?run=walk_dense');
+	await page.getByTestId('recon-nearby').scrollIntoViewIfNeeded();
+	await page.getByRole('button', { name: 'find other runs here' }).click();
+	const row = page.getByTestId('recon-nearby').locator('tbody tr').first();
+	await expect(row).toContainText('other-walk');
+	await expect(row).toContainText('53.6');
+	// a recorded join is visible without opening the run
+	await expect(row.locator('.pill')).toHaveText('joined');
+	await page.getByTestId('overlay-nearby').check();
+	await expect(page.getByTestId('overlay-nearby')).toBeChecked();
+});
+
 test('the foliage layer is a second pass, not a second solve', async ({ page }) => {
 	// Vegetation is masked out of MATCHING so it cannot bend the geometry, and out of the
 	// dense cloud so it cannot hide it. The second pass paints it back through the depth

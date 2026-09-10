@@ -195,10 +195,41 @@
 	// group members overlaid in the cloud viewer, by run id
 	let overlay = $state<Record<string, boolean>>({});
 	const TINTS = [0xff6b6b, 0x4dd0e1, 0xffd54f, 0xba68c8, 0x81c784, 0xff8a65, 0x64b5f6, 0xf06292];
+	// everything ticked for overlay, from this walk's spans AND from other walks nearby:
+	// the area view is the point of the exercise, one walk is just the first case of it
+	type Nearby = {
+		id: string;
+		name: string;
+		n_frames: number | null;
+		distance_m: number;
+		reproj: number | null;
+		ground_cm: number | null;
+		joined: boolean;
+		finished: string | null;
+		parent: string | null;
+	};
+	let nearby = $state<Nearby[]>([]);
+	let nearbyRadius = $state(300);
+	let nearbyBusy = $state(false);
+	async function loadNearby() {
+		if (!detail) return;
+		nearbyBusy = true;
+		try {
+			const r = await fetch(`${apiBase}/recon/runs/${detail.id}/nearby?radius_m=${nearbyRadius}`);
+			nearby = r.ok ? ((await r.json()).runs ?? []) : [];
+		} catch {
+			nearby = [];
+		} finally {
+			nearbyBusy = false;
+		}
+	}
 	const extraRuns = $derived(
-		(detail?.group?.members ?? [])
-			.filter((m) => m.id !== detail?.id && overlay[m.id] && m.status === 'done')
-			.map((m, i) => ({ id: m.id, tint: TINTS[i % TINTS.length], label: m.name }))
+		[
+			...(detail?.group?.members ?? []).filter(
+				(m) => m.id !== detail?.id && overlay[m.id] && m.status === 'done'
+			),
+			...nearby.filter((n) => overlay[n.id] && !(detail?.group?.members ?? []).some((m) => m.id === n.id))
+		].map((m, i) => ({ id: m.id, tint: TINTS[i % TINTS.length], label: m.name }))
 	);
 	let splitting = $state(false);
 	async function splitIntoSpans() {
@@ -997,6 +1028,70 @@
 					</table>
 				</div>
 			</div>
+
+			{#if detail.has_cloud}
+				<div class="card" data-testid="recon-nearby">
+					<div class="row" style="gap:8px; align-items:baseline">
+						<h3>This area</h3>
+						<label class="muted small">
+							within
+							<input
+								type="number"
+								min="50"
+								max="2000"
+								step="50"
+								bind:value={nearbyRadius}
+								style="width:70px"
+							/> m
+						</label>
+						<button class="tiny" disabled={nearbyBusy} onclick={loadNearby}>
+							{nearbyBusy ? 'looking…' : nearby.length ? 'refresh' : 'find other runs here'}
+						</button>
+					</div>
+					<p class="muted small">
+						Every other solved run centred near this one. Tick to draw it in the same
+						metres-east/north/up frame, tinted: several walks through one place, seen together,
+						is how a join is actually judged.
+					</p>
+					{#if nearby.length}
+						<div class="tblwrap">
+							<table>
+								<thead>
+									<tr>
+										<th></th><th>run</th><th class="num">m away</th><th class="num">frames</th>
+										<th class="num">reproj px</th><th class="num">ground cm</th><th>solved</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each nearby as n, i (n.id)}
+										<tr>
+											<td>
+												<input
+													type="checkbox"
+													bind:checked={overlay[n.id]}
+													data-testid="overlay-nearby"
+													style="accent-color: #{TINTS[i % TINTS.length]
+														.toString(16)
+														.padStart(6, '0')}"
+												/>
+											</td>
+											<td>
+												<a href="/recon?run={encodeURIComponent(n.name)}">{n.name}</a>
+												{#if n.joined}<span class="pill ok" title="this run carries a recorded join">joined</span>{/if}
+											</td>
+											<td class="num">{n.distance_m}</td>
+											<td class="num">{n.n_frames ?? '—'}</td>
+											<td class="num">{n.reproj ?? '—'}</td>
+											<td class="num">{n.ground_cm ?? '—'}</td>
+											<td class="muted small">{n.finished ?? ''}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</div>
+			{/if}
 
 			{#if detail.joins?.length}
 				<div class="card" data-testid="recon-joins">
