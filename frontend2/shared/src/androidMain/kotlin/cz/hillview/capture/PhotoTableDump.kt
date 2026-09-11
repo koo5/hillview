@@ -56,21 +56,12 @@ object PhotoTableDump {
 
     private const val TAG = "hv-PhotoTableDump"
     private const val PREFS = "hillview_photo_dump"
-    private const val PREF_HASH = "last_content_hash"
+    private const val PREF_HASHES = "last_shard_hashes"
+    private const val PREF_SHARDS = "last_shard_count"
+    private const val PREF_FINGERPRINT = "last_table_fingerprint"
     private const val PREF_AT = "last_dump_at"
     private const val PREF_WHERE = "last_dump_where"
     private const val PREF_COUNT = "last_dump_count"
-
-    /** Stable name, rewritten in place: one file to find, not a pile. */
-    const val FILE_NAME = "photos.csv"
-
-    /**
-     * The pulse during a long shoot. An interval run in a pocket never
-     * backgrounds the app, so the capture trigger is the only one that fires
-     * for hours — often enough to bound the loss, rare enough that a run at
-     * 0.2 s does not rewrite the file every shot.
-     */
-    private const val CAPTURE_MIN_INTERVAL_MS = 5 * 60 * 1000L
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writing = Mutex()
@@ -82,6 +73,12 @@ object PhotoTableDump {
      * app is when the file most needs to be current; app start catches up
      * after a crash or a swipe-away that skipped that; and the capture pulse
      * bounds the loss inside a shoot that does neither.
+     *
+     * Only the capture pulse is SPACED. Leaving the app and starting it are
+     * rare and important, and both are already gated by the table
+     * fingerprint, so they cost a single aggregate query when nothing has
+     * happened. Captures arrive by the thousand, so they are the trigger that
+     * has to yield as the table grows.
      */
     fun install(context: Context, captureEvents: cz.hillview.capture.CaptureEvents) {
         val app = context.applicationContext
@@ -92,32 +89,38 @@ object PhotoTableDump {
             },
         )
         scope.launch {
-            captureEvents.captured.collect {
-                requestDump(app, "capture", minIntervalMs = CAPTURE_MIN_INTERVAL_MS)
-            }
+            captureEvents.captured.collect { requestDump(app, "capture", spaced = true) }
         }
     }
 
     /**
      * Write the table out, unless nothing has changed since last time.
      *
-     * The skip is on the CONTENT, not on a dirty flag: every mutation of the
-     * table — a capture, a deletion, an upload landing a server id — changes
-     * the bytes, and nothing has to remember to say so. [force] is the manual
-     * button, which must write even when the content is identical, because
-     * the reason to press it is usually that the file is not there.
+     * Two gates, cheap one first. The FINGERPRINT is a single aggregate row
+     * (SimplePhotoDao.getPhotoTableFingerprint) that answers "did anything
+     * happen" without materializing a row — the difference between a
+     * millisecond and a full table read every time the app is backgrounded.
+     * The CONTENT HASH, per shard, then decides what is actually written; it
+     * is on the bytes rather than on a dirty flag, so nothing has to remember
+     * to announce itself.
+     *
+     * [spaced] adds the size-scaled interval on top (see
+     * [photoDumpIntervalMs]) — the capture pulse's answer to a table with
+     * tens of thousands of rows in it. [force] is the manual button, which
+     * must write even when nothing changed, because the reason to press it is
+     * usually that the file is not there.
      */
     fun requestDump(
         context: Context,
         reason: String,
-        minIntervalMs: Long = 0L,
+        spaced: Boolean = false,
         force: Boolean = false,
     ) {
         val app = context.applicationContext
         scope.launch {
             writing.withLock {
                 try {
-                    dumpNow(app, reason, minIntervalMs, force)
+                    dumpNow(app, reason, spaced, force)
                 } catch (e: Exception) {
                     Log.w(TAG, "dump ($reason) failed", e)
                     EventLog.record("export", "photo table dump FAILED: ${e.message}")
@@ -126,30 +129,66 @@ object PhotoTableDump {
         }
     }
 
-    private fun dumpNow(app: Context, reason: String, minIntervalMs: Long, force: Boolean) {
+    private fun dumpNow(app: Context, reason: String, spaced: Boolean, force: Boolean) {
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
-        if (!force && minIntervalMs > 0 && now - prefs.getLong(PREF_AT, 0L) < minIntervalMs) return
+        val dao = PhotoDatabase.getDatabase(app).photoDao()
 
-        val rows = PhotoDatabase.getDatabase(app).photoDao().getAllPhotos()
-        val csv = photoTableCsv(rows)
-        val hash = csv.hashCode().toString()
-        if (!force && hash == prefs.getString(PREF_HASH, null)) return
+        val fingerprint = dao.getPhotoTableFingerprint()
+        if (!force && fingerprint == prefs.getString(PREF_FINGERPRINT, null)) return
+        val total = dao.getTotalPhotoCount()
+        if (!force && spaced && now - prefs.getLong(PREF_AT, 0L) < photoDumpIntervalMs(total)) return
+
+        val previousHashes = prefs.getString(PREF_HASHES, "").orEmpty()
+            .split(",").filter { it.isNotEmpty() }
+        val previousShards = prefs.getInt(PREF_SHARDS, 0)
+        val shards = shardCount(total)
+        val hashes = mutableListOf<String>()
+        var written = 0
+        var where: String? = prefs.getString(PREF_WHERE, null)
+
+        for (shard in 0 until shards) {
+            // One shard in memory at a time. The whole table would be the
+            // same total work but a far worse peak, and the peak is what
+            // shows up as a stutter on a phone with the camera running.
+            val rows = dao.getPhotosOldestFirst(
+                limit = PHOTO_DUMP_SHARD_ROWS,
+                offset = shard * PHOTO_DUMP_SHARD_ROWS,
+            )
+            val csv = photoTableCsv(rows)
+            val hash = csv.hashCode().toString()
+            hashes += hash
+            // A closed shard's bytes do not change when a photo is taken, so
+            // the usual dump writes exactly one file however large the table
+            // is. Deleting an OLD photo shifts everything after it, and those
+            // shards get rewritten — correct, and rare.
+            if (force || previousHashes.getOrNull(shard) != hash) {
+                where = writeCsv(app, photoDumpFileName(shard), csv)
+                written++
+            }
+        }
+        // The table shrank past a boundary: the tail files now hold rows that
+        // are also in the files before them. Only ones this app recorded
+        // writing are removed.
+        for (shard in shards until previousShards) {
+            deleteCsv(app, photoDumpFileName(shard))
+        }
 
         val previousWhere = prefs.getString(PREF_WHERE, null)
-        val where = writeCsv(app, csv)
         prefs.edit()
-            .putString(PREF_HASH, hash)
+            .putString(PREF_FINGERPRINT, fingerprint)
+            .putString(PREF_HASHES, hashes.joinToString(","))
+            .putInt(PREF_SHARDS, shards)
             .putLong(PREF_AT, now)
             .putString(PREF_WHERE, where)
-            .putInt(PREF_COUNT, rows.size)
+            .putInt(PREF_COUNT, total)
             .apply()
-        Log.i(TAG, "dumped ${rows.size} photos ($reason) -> $where")
-        // Only when the ANSWER changes. A routine dump every five minutes of
-        // a shoot would bury the event log in lines that say the same thing;
-        // a dump that suddenly lands somewhere else — the public folder
+        Log.i(TAG, "dumped $total photos in $shards file(s), $written written ($reason) -> $where")
+        // Only when the ANSWER changes. A routine dump every few minutes of a
+        // shoot would bury the event log in lines that say the same thing; a
+        // dump that suddenly lands somewhere else — the public folder
         // refused, so it went app-private — is exactly what the log is for.
-        if (where != previousWhere) {
+        if (where != null && where != previousWhere) {
             EventLog.record("export", "photo index → $where")
         }
     }
@@ -164,7 +203,7 @@ object PhotoTableDump {
         val app = context.applicationContext
         return writing.withLock {
             try {
-                dumpNow(app, "manual", minIntervalMs = 0L, force = true)
+                dumpNow(app, "manual", spaced = false, force = true)
                 lastDumpLabel(app) ?: "nothing to write"
             } catch (e: Exception) {
                 Log.w(TAG, "manual dump failed", e)
@@ -178,7 +217,10 @@ object PhotoTableDump {
     fun lastDumpLabel(context: Context): String? {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val where = prefs.getString(PREF_WHERE, null) ?: return null
-        return "${prefs.getInt(PREF_COUNT, 0)} photos → $where"
+        val count = prefs.getInt(PREF_COUNT, 0)
+        val shards = prefs.getInt(PREF_SHARDS, 1)
+        val files = if (shards > 1) " (+${shards - 1} more file(s))" else ""
+        return "$count photos → $where$files"
     }
 
     /**
@@ -195,13 +237,13 @@ object PhotoTableDump {
      * app-private directory. It dies with the app, which defeats the point,
      * but a dump that exists while the app does still beats none.
      */
-    private fun writeCsv(app: Context, csv: String): String {
+    private fun writeCsv(app: Context, fileName: String, csv: String): String {
         val bytes = csv.toByteArray(Charsets.UTF_8)
         val folder = PhotoStorage.folderBase
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
-                return writeViaMediaStore(app, folder, bytes)
+                return writeViaMediaStore(app, folder, fileName, bytes)
             } catch (e: Exception) {
                 Log.w(TAG, "MediaStore write failed, trying the file API", e)
             }
@@ -212,7 +254,7 @@ object PhotoTableDump {
                 folder,
             )
             if (!dir.exists()) dir.mkdirs()
-            val file = File(dir, FILE_NAME)
+            val file = File(dir, fileName)
             file.writeBytes(bytes)
             return file.absolutePath
         } catch (e: Exception) {
@@ -220,31 +262,27 @@ object PhotoTableDump {
         }
         val dir = File(app.getExternalFilesDir(null), "PhotoTableDumps")
         if (!dir.exists()) dir.mkdirs()
-        val file = File(dir, FILE_NAME)
+        val file = File(dir, fileName)
         file.writeBytes(bytes)
         return file.absolutePath
     }
 
-    private fun writeViaMediaStore(app: Context, folder: String, bytes: ByteArray): String {
+    private fun writeViaMediaStore(
+        app: Context,
+        folder: String,
+        fileName: String,
+        bytes: ByteArray,
+    ): String {
         val resolver = app.contentResolver
         val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val relativePath = "${Environment.DIRECTORY_DOCUMENTS}/$folder/"
-        // Find the row we wrote last time rather than inserting again — a
+        // Reuse the row we wrote last time rather than inserting again — a
         // second insert of the same name yields "photos (1).csv", and the
-        // point of a stable name is that there is one file to find.
-        val existing = resolver.query(
-            collection,
-            arrayOf(MediaStore.MediaColumns._ID),
-            "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?",
-            arrayOf(relativePath, FILE_NAME),
-            null,
-        )?.use { cursor ->
-            if (cursor.moveToFirst()) ContentUris.withAppendedId(collection, cursor.getLong(0)) else null
-        }
-        val uri: Uri = existing ?: resolver.insert(
+        // point of stable names is that there is a known set of files.
+        val uri: Uri = findInMediaStore(app, relativePath, fileName) ?: resolver.insert(
             collection,
             ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, FILE_NAME)
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
                 put(MediaStore.MediaColumns.MIME_TYPE, "text/csv")
                 put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
             },
@@ -254,8 +292,100 @@ object PhotoTableDump {
         // no CSV at all.
         resolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
             ?: throw IOException("openOutputStream returned null")
-        return "$relativePath$FILE_NAME"
+        return "$relativePath$fileName"
     }
+
+    private fun findInMediaStore(app: Context, relativePath: String, fileName: String): Uri? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        return app.contentResolver.query(
+            collection,
+            arrayOf(MediaStore.MediaColumns._ID),
+            "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?",
+            arrayOf(relativePath, fileName),
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                ContentUris.withAppendedId(collection, cursor.getLong(0))
+            } else {
+                null
+            }
+        }
+    }
+
+    /**
+     * Remove a shard file this app wrote and no longer fills.
+     *
+     * Only reached for an index the previous dump recorded writing, and only
+     * for a name this file generates — the alternative is leaving a file
+     * behind whose rows also appear in the file before it, which is worse
+     * than a gap: a reader has no way to tell which copy is current.
+     * Failures are shrugged off; a stale file is a nuisance, not a loss.
+     */
+    private fun deleteCsv(app: Context, fileName: String) {
+        val folder = PhotoStorage.folderBase
+        val relativePath = "${Environment.DIRECTORY_DOCUMENTS}/$folder/"
+        try {
+            findInMediaStore(app, relativePath, fileName)?.let {
+                app.contentResolver.delete(it, null, null)
+            }
+            File(
+                File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+                    folder,
+                ),
+                fileName,
+            ).delete()
+            File(File(app.getExternalFilesDir(null), "PhotoTableDumps"), fileName).delete()
+        } catch (e: Exception) {
+            Log.w(TAG, "could not remove the now-unused $fileName", e)
+        }
+    }
+}
+
+/**
+ * How many rows go in one file, and therefore how much work the usual dump
+ * does however big the table gets (user-raised: "switch to a new file after
+ * 10k rows perhaps?").
+ *
+ * Sharding is what keeps the file count PROPORTIONAL — one more file per ten
+ * thousand photos — rather than a per-day pile that grows forever whether or
+ * not anything was shot. And because the rows are ordered oldest-first, a new
+ * capture only ever touches the last shard, so the write stays the same size
+ * at ten thousand photos as at a hundred thousand.
+ */
+internal const val PHOTO_DUMP_SHARD_ROWS = 10_000
+
+internal fun shardCount(total: Int): Int =
+    if (total <= 0) 1 else (total + PHOTO_DUMP_SHARD_ROWS - 1) / PHOTO_DUMP_SHARD_ROWS
+
+/**
+ * `photos.csv`, then `photos-2.csv`, `photos-3.csv`.
+ *
+ * The first file keeps the plain name because for almost everyone it is the
+ * only one, and a lone `photos-001.csv` invites the question of where the
+ * rest went.
+ */
+internal fun photoDumpFileName(shard: Int): String =
+    if (shard <= 0) "photos.csv" else "photos-${shard + 1}.csv"
+
+/**
+ * How long the capture pulse waits, by table size (user-raised: "space the
+ * dumps more once it's in thousands of rows").
+ *
+ * The dump costs a table read and a shard write, and both scale with the
+ * table — so the frequency has to come down as the size goes up, or a long
+ * shoot on a well-used phone spends its battery re-describing photos taken
+ * years ago. What is traded away is how much of a shoot could be lost if the
+ * phone dies mid-run without ever being backgrounded; at the sizes where the
+ * interval grows, an hour of captures is a small fraction of what the file
+ * already holds.
+ */
+internal fun photoDumpIntervalMs(photoCount: Int): Long = when {
+    photoCount < 1_000 -> 2 * 60_000L
+    photoCount < 10_000 -> 10 * 60_000L
+    photoCount < 50_000 -> 30 * 60_000L
+    else -> 60 * 60_000L
 }
 
 /**
@@ -271,43 +401,58 @@ object PhotoTableDump {
  * app, not two.
  */
 internal fun photoTableCsv(rows: List<PhotoEntity>): String {
-    val header = "#" + PHOTO_DUMP_COLUMNS.joinToString(",") + "\n"
-    return header + rows.joinToString("") { row ->
-        listOf(
-            row.id,
-            row.filename,
-            row.path,
-            row.latitude.toString(),
-            row.longitude.toString(),
-            row.altitude?.toString(),
-            row.bearing.toString(),
-            row.pitch?.toString(),
-            row.capturedAt.toString(),
-            isoUtc(row.capturedAt),
-            row.accuracy.toString(),
-            row.width.toString(),
-            row.height.toString(),
-            row.fileSize.toString(),
-            row.createdAt.toString(),
-            row.uploadStatus,
-            row.uploadedAt.toString(),
-            row.retryCount.toString(),
-            row.lastUploadAttempt.toString(),
-            row.uploadError,
-            row.fileHash,
-            row.serverPhotoId,
-            if (row.deleted) "1" else "0",
-            row.version.toString(),
-            row.anonymizationOverride,
-            row.bearingSource,
-            row.locationSource,
-            row.locationAgeMs?.toString(),
-            row.exposureJson,
-            row.stampRefinedAt?.toString(),
-            row.license,
-            row.altLocationJson,
-        ).joinToString(",") { escapeCsvCell(it) } + "\n"
+    // Straight into one builder. The obvious spelling — a list of cells per
+    // row, joined — allocates thirty-odd strings and a list for every photo,
+    // which at ten thousand rows is the bulk of the work this does.
+    val out = StringBuilder(64 + rows.size * 220)
+    out.append('#')
+    PHOTO_DUMP_COLUMNS.joinTo(out, ",")
+    out.append('\n')
+    for (row in rows) {
+        out.cell(row.id)
+        out.cell(row.filename)
+        out.cell(row.path)
+        // Nullable, and empty means it: a photo with no position (v22) must
+        // not read as Null Island, and an unknown altitude must not read as
+        // sea level. `?.toString()` and not `.toString()`, which on a null
+        // Double cheerfully writes the word "null".
+        out.cell(row.latitude?.toString())
+        out.cell(row.longitude?.toString())
+        out.cell(row.altitude?.toString())
+        out.cell(row.bearing.toString())
+        out.cell(row.pitch?.toString())
+        out.cell(row.capturedAt.toString())
+        out.cell(isoUtc(row.capturedAt))
+        out.cell(row.accuracy.toString())
+        out.cell(row.width.toString())
+        out.cell(row.height.toString())
+        out.cell(row.fileSize.toString())
+        out.cell(row.createdAt.toString())
+        out.cell(row.uploadStatus)
+        out.cell(row.uploadedAt.toString())
+        out.cell(row.retryCount.toString())
+        out.cell(row.lastUploadAttempt.toString())
+        out.cell(row.uploadError)
+        out.cell(row.fileHash)
+        out.cell(row.serverPhotoId)
+        out.cell(if (row.deleted) "1" else "0")
+        out.cell(row.version.toString())
+        out.cell(row.anonymizationOverride)
+        out.cell(row.bearingSource)
+        out.cell(row.locationSource)
+        out.cell(row.locationAgeMs?.toString())
+        out.cell(row.exposureJson)
+        out.cell(row.stampRefinedAt?.toString())
+        out.cell(row.license)
+        out.cell(row.altLocationJson, last = true)
     }
+    return out.toString()
+}
+
+/** One cell and its separator; [last] ends the row instead. */
+private fun StringBuilder.cell(value: String?, last: Boolean = false) {
+    append(escapeCsvCell(value))
+    append(if (last) '\n' else ',')
 }
 
 /**

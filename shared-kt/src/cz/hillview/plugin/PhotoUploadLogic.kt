@@ -713,8 +713,11 @@ class PhotoUploadLogic(internal val context: Context) {
 			put("version", photo.version)  // Version for re-upload support
 			put("license", license)
 			// Use PhotoEntity geolocation data
-			put("latitude", photo.latitude)
-			put("longitude", photo.longitude)
+			// Absent position, absent keys: the server then stores the photo
+			// with no geometry (UploadAuthorizationRequest takes Optional
+			// lat/lon and builds ST_Point only when both are present).
+			photo.latitude?.let { put("latitude", it) }
+			photo.longitude?.let { put("longitude", it) }
 			// Null is the only "absent" here now — a measured altitude may be
 			// zero, or negative (see PhotoEntity.altitude).
 			photo.altitude?.let { put("altitude", it) }
@@ -849,8 +852,8 @@ class PhotoUploadLogic(internal val context: Context) {
 	 * real measured value can be 0 or below (see PhotoEntity.altitude).
 	 */
 	internal fun buildUploadMetadata(photo: PhotoEntity): String = JSONObject().apply {
-		put("latitude", photo.latitude)
-		put("longitude", photo.longitude)
+		photo.latitude?.let { put("latitude", it) }
+		photo.longitude?.let { put("longitude", it) }
 		photo.altitude?.let { put("altitude", it) }
 		if (photo.bearing != 0.0) put("bearing", photo.bearing)
 		if (photo.accuracy > 0) put("accuracy", photo.accuracy)
@@ -1361,8 +1364,8 @@ class PhotoUploadLogic(internal val context: Context) {
         id: String?,
         filename: String,
         path: String,
-        latitude: Double,
-        longitude: Double,
+        latitude: Double?,
+        longitude: Double?,
         altitude: Double?,
         bearing: Double?,
         capturedAt: Long,

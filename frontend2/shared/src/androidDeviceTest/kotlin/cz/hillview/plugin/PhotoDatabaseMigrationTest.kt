@@ -94,11 +94,58 @@ class PhotoDatabaseMigrationTest {
         }
     }
 
+    /**
+     * MIGRATION_21_22: the (0.0, 0.0) PAIR was the EXIF import path's "no
+     * GPS tags" and becomes null; a single zero coordinate is a real place
+     * (the equator, the meridian) and stays.
+     */
+    @Test
+    fun nullIslandBecomesNoPositionAndRealZeroesSurvive() {
+        helper.createDatabase(DB, 21).use { db ->
+            insertPhotoAt(db, "island", 0.0, 0.0)
+            insertPhotoAt(db, "equator", 0.0, 14.4)
+            insertPhotoAt(db, "meridian", 51.5, 0.0)
+            insertPhotoAt(db, "prague", 50.1, 14.4)
+        }
+
+        val db = helper.runMigrationsAndValidate(DB, 22, true, *PhotoDatabase.MIGRATIONS)
+
+        db.query("SELECT id, latitude, longitude FROM photos ORDER BY id").use { c ->
+            val seen = mutableMapOf<String, Pair<Double?, Double?>>()
+            while (c.moveToNext()) {
+                seen[c.getString(0)] =
+                    (if (c.isNull(1)) null else c.getDouble(1)) to (if (c.isNull(2)) null else c.getDouble(2))
+            }
+            assertEquals(null to null, seen["island"])
+            assertEquals(0.0 to 14.4, seen["equator"])
+            assertEquals(51.5 to 0.0, seen["meridian"])
+            assertEquals(50.1 to 14.4, seen["prague"])
+        }
+    }
+
     /** Every step from the oldest schema Room still has, in one go. */
     @Test
     fun theWholeChainRunsAndMatchesTheEntities() {
         helper.createDatabase(DB, 14).close()
-        helper.runMigrationsAndValidate(DB, 21, true, *PhotoDatabase.MIGRATIONS)
+        helper.runMigrationsAndValidate(DB, 22, true, *PhotoDatabase.MIGRATIONS)
+    }
+
+    /** Same column list as v20; the shape a v21 row takes too. */
+    private fun insertPhotoAt(
+        db: androidx.sqlite.db.SupportSQLiteDatabase, id: String, lat: Double, lon: Double,
+    ) {
+        db.execSQL(
+            """
+            INSERT INTO photos (
+                id, filename, path, latitude, longitude, altitude, bearing,
+                capturedAt, accuracy, width, height, fileSize, createdAt,
+                uploadStatus, uploadedAt, retryCount, lastUploadAttempt,
+                uploadError, fileHash, deleted, version, uploadHoldUntil
+            ) VALUES (?, ?, ?, ?, ?, 100.0, 137.5, 1, 4.2, 4, 4, 16, 1,
+                      'pending', 0, 0, 0, '', 'hash-$id', 0, 1, 0)
+            """.trimIndent(),
+            arrayOf<Any>(id, "$id.jpg", "/tmp/$id.jpg", lat, lon),
+        )
     }
 
     private companion object {

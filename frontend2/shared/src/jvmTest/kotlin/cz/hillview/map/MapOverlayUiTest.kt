@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.v2.runComposeUiTest
@@ -44,7 +45,10 @@ class MapOverlayUiTest {
         val trackingWanted: Boolean = false,
         val trackingPhase: TrackingPhase = TrackingPhase.Inactive,
         val compassUnavailable: Boolean = false,
+        val mapOrientation: Double = 0.0,
+        val mapPositionElected: Boolean = false,
     ) {
+        var northReset = 0
         var hunterToggled = 0
         var toggledSource: String? = null
         var filtersOpened = 0
@@ -86,8 +90,40 @@ class MapOverlayUiTest {
                 onToggleTracking = { h.trackingToggled++ },
                 onSelectBearingMode = { h.pickedMode = it },
                 onZoom = { h.zoomDelta = it },
+                mapOrientation = h.mapOrientation,
+                mapPositionElected = h.mapPositionElected,
+                onResetNorth = { h.northReset++ },
             )
         }
+    }
+
+    /**
+     * A rotated map does not look wrong — it looks like a different place —
+     * so the badge that says otherwise has to be impossible to miss (user:
+     * "map rotation keeps fooling me"). It carries the angle in figures, and
+     * it is not there at all when the map is north-up.
+     */
+    @Test
+    fun aTurnedMapSaysSoAndSaysByHowMuch() = runComposeUiTest {
+        val h = Harness(mapOrientation = 42.0)
+        overlay(h)
+        onNodeWithTag("reset-north-btn").assertIsDisplayed()
+        onNodeWithText("42°", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithTag("reset-north-btn").performClick()
+        assertEquals(1, h.northReset)
+    }
+
+    /** Ten degrees the other way is still ten degrees, not three hundred and fifty. */
+    @Test
+    fun aTurnTheOtherWayReadsAsASmallAngle() = runComposeUiTest {
+        overlay(Harness(mapOrientation = 350.0))
+        onNodeWithText("10°", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun aNorthUpMapShowsNoAlarm() = runComposeUiTest {
+        overlay(Harness())
+        onNodeWithTag("reset-north-btn").assertDoesNotExist()
     }
 
     /**
@@ -229,6 +265,45 @@ class MapOverlayUiTest {
         onNodeWithTag("track-location-btn").performClick()
         assertEquals(1, h.locationToggled)
     }
+
+    /**
+     * Half-lit says "your fix is only an alternate now", so it may not
+     * appear until the claim that makes that true. A pan alone parks the
+     * map; it does not demote the fix (user-caught, 2026-09-11).
+     */
+    @Test
+    fun panningAloneDoesNotDemoteTheLocationButton() = runComposeUiTest {
+        overlay(Harness(locationTracking = LocationTracking.Background))
+        assertEquals("active", locationButtonState())
+    }
+
+    @Test
+    fun anAcceptedClaimDemotesIt() = runComposeUiTest {
+        overlay(
+            Harness(
+                locationTracking = LocationTracking.Background,
+                mapPositionElected = true,
+            ),
+        )
+        assertEquals("background", locationButtonState())
+    }
+
+    @Test
+    fun followingAndOffReadAsThemselves() = runComposeUiTest {
+        overlay(Harness(locationTracking = LocationTracking.Active))
+        assertEquals("active", locationButtonState())
+    }
+
+    @Test
+    fun noTrackingReadsAsOffWhateverIsElected() = runComposeUiTest {
+        overlay(Harness(locationTracking = LocationTracking.Off, mapPositionElected = true))
+        assertEquals("off", locationButtonState())
+    }
+
+    private fun androidx.compose.ui.test.ComposeUiTest.locationButtonState(): String =
+        onNodeWithTag("track-location-btn")
+            .fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription]
 
     @Test
     fun theLeafBadgeOnlyAppearsUnderPowerSaving() = runComposeUiTest {

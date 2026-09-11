@@ -90,8 +90,12 @@ class SharedStackUploadPipeline(
                     id = null,
                     filename = upload.filename,
                     path = upload.filePath,
-                    latitude = upload.latitude ?: 0.0,
-                    longitude = upload.longitude ?: 0.0,
+                    // Null stays null: a capture with no position (blank first
+                    // run, docs/one-state.md) is registered WITHOUT one, and
+                    // uploads without one. `?: 0.0` here used to be Null
+                    // Island waiting for the gate to be lifted.
+                    latitude = upload.latitude,
+                    longitude = upload.longitude,
                     altitude = upload.altitude,
                     bearing = upload.bearing,
                     capturedAt = upload.capturedAtMs ?: System.currentTimeMillis(),

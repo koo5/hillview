@@ -32,10 +32,17 @@ class AltLocationTest {
         assertNull(altLocationFor(manualElected = false, exploring = false, fix = fix, mapPosition = map))
     }
 
-    /** The no-fix hatch: the map is elected, but there is no fix to keep. */
+    /**
+     * No fix: the map centre is the PRIMARY (docs/one-state.md, "The
+     * position side"), so there is no other stream to keep — in every
+     * tracking mode, claimed or not. It would otherwise ride along as its
+     * own alternative.
+     */
     @Test
-    fun theNoFixHatchHasNothingToKeep() {
+    fun withNoFixTheMapPositionIsPrimaryAndNothingRidesAlong() {
         assertNull(altLocationFor(manualElected = true, exploring = false, fix = null, mapPosition = map))
+        assertNull(altLocationFor(manualElected = false, exploring = true, fix = null, mapPosition = map))
+        assertNull(altLocationFor(manualElected = false, exploring = false, fix = null, mapPosition = map))
     }
 
     @Test

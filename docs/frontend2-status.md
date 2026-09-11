@@ -505,6 +505,147 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-09-11
+
+- **The location button announced a demotion a whole state early**
+  (user-caught: "when i pan the map, i get the pill, so far so good, but the
+  location tracking button turns mild-blue already. Mild-blue is supposed to
+  indicate that location tracking is running in background and feeding into
+  alt_location").
+  - Right on both counts. Half-lit was driven by
+    `LocationTracking.Background` alone, and that covers TWO situations here:
+    exploring (panned away, prompt up, nothing claimed — the FIX is still
+    what a photo records, with the map centre as the alternate) and claimed
+    (the map centre records, the fix is the alternate). Only the second is a
+    demotion.
+  - **Why it was wrong here and right in the original.** The original
+    castles the streams on the pan itself — `enterBackgroundTracking()` calls
+    `setElectedLocationSource('manual')` in the same breath as it stops
+    following (Map.svelte) — so "parked" and "the fix is demoted" are one
+    event, and one colour truthfully means both. frontend2 deliberately waits
+    for the pill's accepted claim, which puts a whole state between them. The
+    colour rule was ported; the state it reads was not the same state.
+  - `fixRole(tracking, mapPositionElected)` names the fix's ROLE — Off,
+    Primary, Alternate — and the button renders that. The accessibility
+    description follows it, which incidentally restores the original's
+    vocabulary: "background" now means what its CSS class means.
+  - Nothing is lost by the pan no longer showing on the button: the claim
+    pill stays up until it is answered (no timeout, deliberately) and the
+    blue GPS dot shows where the receiver says you are.
+  - NOT phone-verified — no device reachable from this machine.
+
+## 2026-09-10 — the bearing arrow arms before it moves
+
+- **One touch could hand-set the heading, on an invisible target**
+  (user-raised: "theres some weird hard to pinpoint handler maybe on the
+  green perimeter circle? ... we should make bearing harder to accidentally
+  override, lets say youd have to long-press the arrow (with some animation)
+  first").
+  - **What the handler was.** The arrow's own. Its tip sits at 1.3× the range
+    circle's radius and its grab band runs from 0.6× the tip out to the tip
+    plus a finger's slack — so the GREEN range ring falls in the middle of
+    it, and in car mode with tracking on the band is the whole annulus rather
+    than the arrow line. Nothing draws that band. A press inside it called
+    `updateBearing` immediately AND stood compass tracking down, so a finger
+    aimed at the map near the arrow silently swapped a measured heading for a
+    hand-set one. Hard to pinpoint is exactly right: an invisible control
+    that fires on contact is only ever found by triggering it.
+  - **The grab is the WHOLE RING** now, at the arrow's tip radius, in every
+    mode (user, same day: "it has to be the whole circle, i cant chase the
+    arrow around"). It was the arrow line itself outside car mode, so setting
+    a heading meant first finding a moving target. What a drag MEANS still
+    differs by mode: car adjusts the mount offset by the angle travelled,
+    everything else points the arrow at the finger. `mountOffsetDrag` is
+    named for that now, having previously doubled as "the hit area is the
+    ring".
+  - **The press is not consumed until it arms.** The ring is a wide band
+    across the middle of the map; swallowing every touch on it would cost a
+    pan and every marker tap underneath. osmdroid hands each overlay every
+    event regardless of what it returned last time, so the hold can be timed
+    without claiming anything. The abandon slop is the PLATFORM's touch slop,
+    so the instant the map decides this is a pan, the arrow decides the hold
+    is over — one gesture cannot be both. The armed UP is consumed, which
+    also swallows the tap a photo marker under the finger would otherwise
+    receive.
+  - **The gate** (`ArrowArming`, commonMain and tested): the arrow must be
+    HELD for 450 ms before a drag moves anything. Arming itself points the
+    arrow at the press point in absolute mode — someone who held the ring at
+    south meant south, and making them drag a hair to commit it would be a
+    second gesture for one intention. A press that goes nowhere
+    now does nothing at all, and a finger sliding ACROSS the arrow abandons
+    the attempt rather than arming at the end of its travel. The arming lives
+    exactly as long as the finger — the shutter's grammar, and no mode left
+    behind to be surprised by later.
+  - **Standing tracking down moved to the arming moment**, which was the
+    worst of the accidental override: the compass went off and stayed off.
+  - **It says so now.** The handle ring is drawn in every mode, not just car
+    mode, so the one control that can override the compass is visible.
+    During the hold a ring closes on the FINGER from both sides and meets
+    itself as control is granted, with the platform long-press haptic at
+    that instant, and a ghost arrow fades in where the release will send the
+    real one — without it, a press anywhere on the ring would teleport the
+    arrow to a spot the user was only resting on.
+  - The arming decision is made by a posted callback, NOT in `draw()`: it
+    stands tracking down, and a state write from inside a draw pass
+    recomposes the screen that is drawing — the same trap the arrow-stamp
+    note in `MapScreen` describes.
+  - A DELIBERATE divergence from the original, which sets the bearing the
+    moment the arrow SVG is grabbed (docs/tauri-map-ui-contract.md, "Arrow
+    grab zones", now annotated).
+  - Panning and marker taps over the ring are UNAFFECTED, which they would
+    not have been under the first cut of this: it consumed the press to time
+    the hold, and a ring-wide dead band across the map is too high a price
+    for a gesture nobody makes most of the time.
+  - NOT phone-verified — no device reachable from this machine.
+
+## 2026-09-10
+
+- **The photo index pays its way as the table grows** (user-raised: "i'm
+  worried that saving thousands of rows is gonna lag the ui/system load? but
+  at the same time, we dont want to pollute user docs with infinite number of
+  per-day csvs... Space the dumps more once it's in thousands of rows, and
+  switch to a new file after 10k rows perhaps?"). Three changes, each aimed at
+  a different part of the cost.
+  - **Sharded at 10 000 rows**, oldest first: `photos.csv`, then
+    `photos-2.csv`. Only shards whose bytes changed are written, so a new
+    capture rewrites ONE file whatever the table holds. The direction is the
+    whole trick — newest-first would shift every row's position on every shot,
+    dirtying every shard. `SimplePhotoDao.getPhotosOldestFirst` orders by
+    `createdAt, id`, the id breaking ties so two photos in one millisecond
+    cannot swap between dumps and dirty a closed shard for nothing.
+    This also answers the "infinite per-day CSVs" half: the file count tracks
+    the PHOTOS (one more per ten thousand), not the calendar.
+  - **A cheap fingerprint gate.** `getPhotoTableFingerprint()` is one
+    aggregate row — count, max createdAt / uploadedAt / lastUploadAttempt, sum
+    version / deleted — asked before any row is materialized. Backgrounding
+    the app with nothing new now costs a query instead of a full table read.
+    A pure metadata edit that moves none of those (a licence change) slips
+    until the next real change; the per-shard content hash still decides what
+    is written, so the cost of that miss is staleness, never a wrong file.
+  - **The capture pulse is size-scaled** (`photoDumpIntervalMs`): 2 min under
+    a thousand photos, 10 min under ten thousand, 30 min under fifty, an hour
+    beyond. Only the capture trigger is spaced — leaving the app and starting
+    it are rare, important, and already cheap thanks to the fingerprint.
+  - Peak memory is now one shard, not the whole table: shards are read with
+    the paged query rather than `getAllPhotos()`. And the CSV is built into a
+    single StringBuilder; the obvious spelling allocated a list plus thirty-odd
+    strings per photo, which at ten thousand rows was most of the work.
+  - NOT phone-verified — no device reachable from this machine.
+
+- **The off-north badge is now an alarm** (user-raised: "when map is not
+  north-up, and the northing button appears, can we make it really screaming
+  red or something? map rotation keeps fooling me"). It was ordinary chrome
+  with a red glyph in it, and it kept being missed — which is the failure that
+  matters, because a rotated map does not look wrong, it looks like a
+  different PLACE, and every judgement made from it is quietly off by the
+  rotation. It is now filled red, larger than its neighbours, breathing
+  (colour AND size, because sunlight kills the colour shift and a short glance
+  can miss a full cycle), and it carries the angle in figures — "off north" and
+  "off north by how much" are different questions. `offNorthDeg` is one
+  function for both the appearing and the number, signed, so 350° reads as 10°
+  the other way rather than as most of a turn. The animation only exists while
+  the map is turned; a north-up map composes none of it.
+
 ## 2026-09-09 — the altitude that was never sent
 
 - **`photos.altitude` is nullable (table v21).** It was a non-null `Double`
@@ -607,8 +748,28 @@ invisible on exactly the machines that expose it.**
     (persisted), plus the claim, and the stamp is a four-row table over them
     with two words, `gps` and `map` — the original's contract; a blank first
     run writes `null` and means it. The hatch and its flag go; the claim is
-    the only button. The readers still embodying the old shape are listed
-    under **Status** there.
+    the only button. **Coded up 2026-09-09** (the Status block there says what
+    moved): `FixState`/`lastFix` in the holder, the map adapter's
+    `observeFixes` writer, `stampFix` into the pane and its own subscription
+    deleted, `stampPosition` in commonMain with `StampPositionTest`,
+    `shutterEnabled(ready)`, hatch + flag + `manual` gone, photos table v22
+    with nullable coordinates and Null Island carried to null, upload omits
+    an absent position. Behaviour tests restated to the new contract; the
+    two "no fix" rows there are `Assume`d on an empty `lastFix`, because that
+    record is process-lifetime and any earlier class's injected fix fills it
+    — the rows are pinned unconditionally on the host instead. Verified on
+    the emulator: host 304 + desktop 306 green, `:shared:` device suite 286
+    green (incl. the v22 migration case: Null Island → null, real zeroes
+    kept), behaviour suite 20 with 0 failures and 1 visible skip (the geo
+    no-fix row, behind a sibling's injected fix). Two things learned on the
+    device: the connected-test task UNINSTALLS the app after each run, so
+    every behaviour run is a fresh install (`run-as` finds no package at
+    boot) and any "app data persists on the emulator" assumption is stale;
+    and the overlay's post-open hint owns the location rows for 4 s, so a
+    behaviour test must not race it for the map-position note — that wording
+    is pinned on the host (`CameraOverlayUiTest`), where the hint never
+    fires. Not phone-verified. Awaiting the user's verdict on whether it is
+    what they wanted.
     This test starts passing when the offer is derived from freshness rather
     than from the stored boolean.
 

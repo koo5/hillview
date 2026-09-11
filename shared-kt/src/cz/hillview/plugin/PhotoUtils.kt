@@ -195,10 +195,11 @@ object PhotoUtils {
      * @return PhotoEntity with extracted metadata
      */
     fun createPhotoEntityFromFile(file: File, fileHash: String, idPrefix: String = "device"): PhotoEntity {
-        var latitude = 0.0
-        var longitude = 0.0
-        // Null, not 0.0: a file with no GPSAltitude must reach the table as
-        // "unknown", or the upload would start claiming sea level for it.
+        // Null, not 0.0 (v22): a file with no GPS tags must reach the table as
+        // "no position", not as Null Island — and the same for altitude, or
+        // the upload would start claiming sea level for it.
+        var latitude: Double? = null
+        var longitude: Double? = null
         var altitude: Double? = null
         var bearing = 0.0
         var width = 0
@@ -209,9 +210,10 @@ object PhotoUtils {
             val exif = ExifInterface(file.path)
 
             // Extract GPS coordinates
-            val coords = extractGpsCoordinates(exif)
-            latitude = coords.first
-            longitude = coords.second
+            extractGpsCoordinates(exif)?.let { (lat, lng) ->
+                latitude = lat
+                longitude = lng
+            }
 
             // Extract altitude
             altitude = extractAltitude(exif)
@@ -312,7 +314,8 @@ object PhotoUtils {
         return null
     }
     
-    private fun extractGpsCoordinates(exif: ExifInterface): Pair<Double, Double> {
+    /** Null when the file carries no readable position — see PhotoEntity.latitude. */
+    private fun extractGpsCoordinates(exif: ExifInterface): Pair<Double, Double>? {
         // Method 1: Use built-in getLatLong (most reliable)
         val latLong = FloatArray(2)
         @Suppress("DEPRECATION")
@@ -348,7 +351,7 @@ object PhotoUtils {
         }
 
         Log.v(TAG, "No GPS coordinates found")
-        return Pair(0.0, 0.0)
+        return null
     }
     
     /** Null when the file carries no readable altitude — see PhotoEntity.altitude. */

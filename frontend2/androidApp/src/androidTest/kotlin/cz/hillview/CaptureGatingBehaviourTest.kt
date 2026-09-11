@@ -11,18 +11,25 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.math.abs
 import org.koin.core.context.GlobalContext
 
 /**
- * The capture gating flow — camera-capture.test.ts plus the item-13
- * resolution in docs/app-behaviour-scenarios.md: the shutter requires a
- * location fix as protection for first-time users, but the requirement is
- * liftable ("I start the app when I'm somewhere underground, and I position
- * the map manually"), and lifting it is a deliberate act each visit.
+ * What a capture records for a position, and the shutter that never waits
+ * for one (2026-09-09, docs/one-state.md "The position side").
+ *
+ * This was the capture GATING flow — camera-capture.test.ts plus the item-13
+ * resolution: the shutter required a fix, liftable by hand. The gate is
+ * gone: with no fix the map centre is recorded, tagged `map`, and a fix is
+ * recorded as `gps` with its age; the pill's claim is the only act that
+ * elects the map over a fix. The stamp table itself is pinned on the host
+ * (StampPositionTest); this is the same table driven through the real
+ * pane, the real pipeline and the real Room row.
  *
  * The Appium original's permission-dialog choreography is not portable:
  * GrantPermissionRule pre-grants, which is the point — this layer tests the
@@ -58,62 +65,96 @@ class CaptureGatingBehaviourTest {
             .setLocationTracking(cz.hillview.map.LocationTracking.Off)
     }
 
+    private val mapState: cz.hillview.map.MapStateHolder
+        get() = GlobalContext.get().get()
+
     /**
-     * Phone-in-hand regression: an ACCEPTED claim (the exploration pill's
-     * "Capture here") must open the gate exactly like the local lift does —
-     * it used to leave the shutter shut, honoring only the lift.
+     * Phone-in-hand regression, kept: an ACCEPTED claim (the exploration
+     * pill's "Capture here") stamps the map position — it used to leave the
+     * shutter shut, honouring only the pane's own lift. The shutter is live
+     * regardless now; what the claim decides is the WORD and the position.
      */
     @Test
-    fun anAcceptedClaimOpensTheGateWithoutAFix() {
+    fun anAcceptedClaimStampsTheMapPositionTaggedMap() {
         GlobalContext.get().get<cz.hillview.map.MapSession>().claimManualPosition()
         compose.openCaptureAndAwaitCamera()
-
         compose.waitUntil(10_000) { compose.shutterIsEnabled() }
-        // And the lift row must not double-offer while the claim stands.
-        assertEquals(
-            0,
-            compose.onAllNodesWithTag("capture-use-map-position")
-                .fetchSemanticsNodes().size,
-        )
+        // The lift row is gone for good, claim or no claim.
+        assertEquals(0, compose.onAllNodesWithTag("capture-use-map-position").fetchSemanticsNodes().size)
+
+        val spatial = mapState.spatial.value
+        val photo = compose.captureOnePhoto()
+        compose.dismissAutoUploadPromptIfShown()
+        assertEquals(spatial.latitude, photo.latitude!!, 1e-6)
+        assertEquals(spatial.longitude, photo.longitude!!, 1e-6)
+        assertEquals("map", photo.locationSource)
     }
 
+    /**
+     * Rows 3 and 4 of the table, no fix: a PLACED map → the map centre,
+     * `map`, no button pressed; a map nobody has placed (the blank first
+     * run, `SpatialState.ts` null) → no position at all, and no pretending.
+     * Which row this device is on depends on its persisted map state, so
+     * the test reads that and asserts the row it is actually in — both are
+     * the contract, and the overlay has a note for each.
+     *
+     * The precondition is a fix-less SESSION, and `lastFix` is
+     * process-lifetime state that any earlier class's injected fix would
+     * have filled — so this says so and stands aside rather than inheriting
+     * a fix and asserting the wrong row. (The host test pins every row
+     * unconditionally; this is the same table through the real pane, the
+     * real pipeline and the real Room row.)
+     */
     @Test
-    fun gateShutsWithoutFixLiftsByHandAndOpensOnAFix() {
+    fun withNoFixTheShutterIsLiveAndThePhotoRecordsTheMapPositionOrNone() {
+        Assume.assumeTrue(
+            "a fix from an earlier test is in the session — these rows need none",
+            mapState.lastFix.value == null,
+        )
         compose.openCaptureAndAwaitCamera()
+        compose.waitUntil(10_000) { compose.shutterIsEnabled() }
+        assertTrue("the shutter must not wait for a fix", compose.shutterIsEnabled())
+        assertEquals(0, compose.onAllNodesWithTag("capture-use-map-position").fetchSemanticsNodes().size)
 
-        // Shut: camera ready, no fix, no photo. Anchored on the gate's own
-        // signals — the escape hatch offered, the shutter disabled. (The
-        // status strip stopped wording the fix state in round 5; the pill
-        // owns it now.)
-        compose.waitUntil(10_000) {
-            compose.onAllNodesWithTag("capture-use-map-position")
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        assertFalse("shutter must be gated while there is no fix", compose.shutterIsEnabled())
+        // Which row: has anyone placed the map on this device? (Every run
+        // here is a fresh install — the connected-test task uninstalls the
+        // app afterwards — but the map places itself on first open, so this
+        // is read rather than assumed.) The overlay's note for the row is
+        // NOT asserted here: the post-open hint owns the overlay for 4 s
+        // after the camera comes ready, so a wait on the note races it;
+        // the wording is pinned on the host instead (CameraOverlayUiTest),
+        // where the hint never fires.
+        val placed = mapState.spatial.value.ts != null
 
-        // The position the lift will copy — read through the same live
-        // holder the capture pane reads, before touching anything.
-        val spatial = GlobalContext.get().get<cz.hillview.map.MapStateHolder>()
-            .spatial.value
-
-        // Lifted: the deliberate act opens the shutter, and the capture
-        // geotags from the map position, not from any fix.
-        compose.liftGateToMapPosition()
+        val spatial = mapState.spatial.value
         val photo = compose.captureOnePhoto()
-        assertEquals(spatial.latitude, photo.latitude, 1e-6)
-        assertEquals(spatial.longitude, photo.longitude, 1e-6)
-
         compose.dismissAutoUploadPromptIfShown()
+        if (placed) {
+            assertEquals(spatial.latitude, photo.latitude!!, 1e-6)
+            assertEquals(spatial.longitude, photo.longitude!!, 1e-6)
+            assertEquals("map", photo.locationSource)
+        } else {
+            // Row 4: the one no-position case, carried as null the whole way
+            // (v22) rather than as Null Island.
+            assertEquals(null, photo.latitude)
+            assertEquals(null, photo.longitude)
+            assertEquals(null, photo.locationSource)
+        }
+    }
 
-        // Withdrawn: requiring GPS again shuts the gate on the spot.
-        runCatching { compose.onNodeWithTag("capture-manual-location").performScrollTo() }
-        compose.onNodeWithTag("capture-manual-location").performClick()
-        compose.waitUntil(5_000) { !compose.shutterIsEnabled() }
-
-        // A fix opens it with no lift involved — the gate state IS the
-        // assertion, not the wording.
+    /** Row 1: a fix, once it exists, is the position — `gps`, with an age. */
+    @Test
+    fun aFixIsRecordedAsGpsWhenItArrives() {
+        compose.openCaptureAndAwaitCamera()
         gps.inject(50.0755, 14.4378)
-        compose.waitUntil(15_000) { compose.shutterIsEnabled() }
-        assertTrue("a fresh fix must open the gate", compose.shutterIsEnabled())
+        compose.waitUntil(15_000) {
+            mapState.lastFix.value?.let { abs(it.latitude - 50.0755) < 1e-6 } == true
+        }
+        val photo = compose.captureOnePhoto()
+        compose.dismissAutoUploadPromptIfShown()
+        assertEquals(50.0755, photo.latitude!!, 1e-6)
+        assertEquals(14.4378, photo.longitude!!, 1e-6)
+        assertEquals("gps", photo.locationSource)
+        assertTrue("a gps stamp carries its age", photo.locationAgeMs != null)
     }
 }

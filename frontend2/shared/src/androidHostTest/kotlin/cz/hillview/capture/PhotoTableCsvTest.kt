@@ -91,6 +91,11 @@ class PhotoTableCsvTest {
         }
         assertEquals("231.5", altitudeOf(photo()))
         assertEquals("", altitudeOf(photo().copy(altitude = null)))
+        // And a photo with NO position (v22) has empty coordinate cells, not
+        // Null Island — the reader must be able to tell "none" from "0, 0".
+        val cells = lines(photoTableCsv(listOf(photo().copy(latitude = null, longitude = null))))[1].split(",")
+        assertEquals("", cells[PHOTO_DUMP_COLUMNS.indexOf("latitude")])
+        assertEquals("", cells[PHOTO_DUMP_COLUMNS.indexOf("longitude")])
         assertEquals("0.0", altitudeOf(photo().copy(altitude = 0.0)))
         assertEquals("-61.4", altitudeOf(photo().copy(altitude = -61.4)))
     }

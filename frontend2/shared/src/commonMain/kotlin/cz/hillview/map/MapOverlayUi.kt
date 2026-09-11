@@ -1,6 +1,12 @@
 package cz.hillview.map
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -9,6 +15,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,8 +43,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
@@ -176,6 +185,8 @@ fun MapOverlayUi(
     onRevertToGps: () -> Unit = {},
     mapOrientation: Double = 0.0,
     onResetNorth: () -> Unit = {},
+    /** Whether the map position has been CLAIMED — see [fixRole]. */
+    mapPositionElected: Boolean = false,
 ) {
     val chromeTone = chromeToneFor(
         settings.tileProviderKey,
@@ -205,23 +216,13 @@ fun MapOverlayUi(
             // needle appears only once the map is off north, points at true
             // north, and puts it back — the badge every map app uses, which
             // means nobody has to be taught it.
-            if (kotlin.math.abs(normalizeBearing(mapOrientation).let {
-                    if (it > 180) it - 360 else it
-                }) >= 1.0
-            ) {
-                ControlSurface(Modifier.padding(top = 8.dp)) {
-                    TextButton(
-                        onClick = onResetNorth,
-                        modifier = Modifier.size(44.dp).testTag("reset-north-btn"),
-                    ) {
-                        Text(
-                            "↑N",
-                            color = Color(0xFFD93025),
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.rotate(-mapOrientation.toFloat()),
-                        )
-                    }
-                }
+            val offNorth = offNorthDeg(mapOrientation)
+            if (kotlin.math.abs(offNorth) >= 1.0) {
+                ResetNorthButton(
+                    offNorthDeg = offNorth,
+                    mapOrientation = mapOrientation,
+                    onClick = onResetNorth,
+                )
             }
         }
 
@@ -231,7 +232,7 @@ fun MapOverlayUi(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             LocationButton(
-                tracking = locationTracking,
+                role = fixRole(locationTracking, mapPositionElected),
                 flash = locationFlash,
                 loading = locationLoading,
                 powerSaving = powerSavingActive,
@@ -436,6 +437,74 @@ fun MapOverlayUi(
     }
 }
 
+/**
+ * The "you are not facing north" alarm.
+ *
+ * It used to be an ordinary chrome button with a red glyph in it, and it kept
+ * being missed (user: "map rotation keeps fooling me") — which is the failure
+ * that matters, because a rotated map does not look wrong. It looks like a
+ * different place, and every judgement made from it is quietly off by the
+ * rotation. So this is now the loudest thing on the map: filled red, larger
+ * than its neighbours, breathing so the eye catches it in peripheral vision,
+ * and carrying the angle in figures because "off north" is not the same
+ * question as "off north by how much".
+ *
+ * It costs nothing when the map is north-up, which is almost always: the
+ * caller does not compose it at all below one degree, so the animation only
+ * runs while there is something to shout about.
+ */
+@Composable
+private fun ResetNorthButton(
+    offNorthDeg: Double,
+    mapOrientation: Double,
+    onClick: () -> Unit,
+) {
+    val pulse = rememberInfiniteTransition(label = "off-north")
+    val beat by pulse.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "off-north-beat",
+    )
+    Surface(
+        // Two channels, because either alone can be missed: a phone in
+        // sunlight loses the colour shift, a glance too short to see a full
+        // cycle still catches the size change.
+        color = lerp(Color(0xFFC5000B), Color(0xFFFF5252), beat),
+        contentColor = Color.White,
+        shape = RoundedCornerShape(4.dp),
+        shadowElevation = 6.dp,
+        modifier = Modifier
+            .padding(top = 8.dp)
+            .scale(1f + 0.07f * beat),
+    ) {
+        TextButton(
+            onClick = onClick,
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier.size(52.dp).testTag("reset-north-btn"),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "↑N",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    // Points at TRUE north, so the badge doubles as the
+                    // compass rose the rotated map no longer has.
+                    modifier = Modifier.rotate(-mapOrientation.toFloat()),
+                )
+                Text(
+                    "${kotlin.math.abs(offNorthDeg).roundToInt()}°",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun ControlSurface(
     modifier: Modifier = Modifier,
@@ -615,16 +684,18 @@ private fun PanelSeparator() {
  */
 @Composable
 private fun LocationButton(
-    tracking: LocationTracking,
+    role: FixRole,
     flash: Boolean,
     loading: Boolean,
     powerSaving: Boolean,
     onClick: () -> Unit,
 ) {
-    val fill = when (tracking) {
-        LocationTracking.Active -> ACTIVE_BLUE
-        LocationTracking.Background -> ACTIVE_BLUE.copy(alpha = 0.5f)
-        LocationTracking.Off -> LocalChromeTone.current.panel
+    // Half-lit means the fix has been DEMOTED to alt_location, not merely
+    // that the map stopped following — see fixRole.
+    val fill = when (role) {
+        FixRole.Primary -> ACTIVE_BLUE
+        FixRole.Alternate -> ACTIVE_BLUE.copy(alpha = 0.5f)
+        FixRole.Off -> LocalChromeTone.current.panel
     }
     Box {
         Surface(
@@ -636,17 +707,17 @@ private fun LocationButton(
                 LocalChromeTone.current.border ?: Color(0xFFDDDDDD),
             ),
             modifier = Modifier
-                .alpha(if (tracking == LocationTracking.Off) 0.6f else 1f)
+                .alpha(if (role == FixRole.Off) 0.6f else 1f)
                 // Which of the three states this is in must be readable from
                 // outside, not just inferable from a colour. The original
                 // carries it as `active`/`background` classes, which is what
                 // its suite asserts on; this is the same fact by another
                 // name, and it is what a screen reader announces too.
                 .semantics {
-                    stateDescription = when (tracking) {
-                        LocationTracking.Off -> "off"
-                        LocationTracking.Active -> "active"
-                        LocationTracking.Background -> "background"
+                    stateDescription = when (role) {
+                        FixRole.Off -> "off"
+                        FixRole.Primary -> "active"
+                        FixRole.Alternate -> "background"
                     }
                 }
                 .testTag("track-location-btn"),
@@ -662,7 +733,7 @@ private fun LocationButton(
                     Text(
                         text = "◎",
                         color = if (flash) Color(0xFF34D399) else {
-                            if (tracking == LocationTracking.Off) LocalChromeTone.current.ink
+                            if (role == FixRole.Off) LocalChromeTone.current.ink
                             else Color.White
                         },
                         style = MaterialTheme.typography.titleMedium,

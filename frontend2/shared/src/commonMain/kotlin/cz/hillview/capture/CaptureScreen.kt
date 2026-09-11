@@ -102,9 +102,6 @@ fun CaptureScreen(
     val sessionManager: cz.hillview.auth.SessionManager = org.koin.compose.koinInject()
     val sessionState by sessionManager.state.collectAsState()
 
-    // The lifted-gate state now lives on the session (see
-    // MapSession.mapPositionWithoutFix) — it decides what reaches the tracking
-    // tables, so it has to be answerable while this pane is closed.
     // The LIVE map state — the same holder the always-mounted map pane
     // renders, so follow-me and the claim move the camera the user is
     // looking at (a store write would go behind the mounted map's back).
@@ -114,17 +111,21 @@ fun CaptureScreen(
     val session: cz.hillview.map.MapSession = org.koin.compose.koinInject()
     val locationTracking by session.locationTracking.collectAsState()
     val manualClaimed by session.manualPositionClaimed.collectAsState()
-    val mapPositionWithoutFix by session.mapPositionWithoutFix.collectAsState()
     val manualElected by session.manualPositionElected.collectAsState()
+    // The two position records, for the overlay's "what would a capture
+    // stamp" readout — the same records the pane is handed below.
+    val spatialNow by mapState.spatial.collectAsState()
+    val fixNow by mapState.lastFix.collectAsState()
 
     // A claimed manual position (accepted on the map) overrides the fix:
-    // captures geotag from the map centre, tagged "manual" — and the
-    // degraded shutter tone says so out loud.
-    // Two deliberate acts elect the map position, and nothing else does: the
-    // pill's accepted claim and the no-fix escape hatch below. The session
-    // combines them into one answer; this only mirrors it onto the capture
-    // object so a shutter press knows what to stamp. A stale fix quietly
-    // taking over used to be a third, unspoken act.
+    // captures geotag from the map centre, tagged "map" — and the degraded
+    // shutter tone says so out loud. ONE deliberate act elects the map
+    // position over a fix, the pill's accepted claim; this only mirrors it
+    // onto the capture object so a shutter press knows what to stamp. (The
+    // no-fix escape hatch that used to be a second act is gone: with no fix
+    // the map centre is simply what a photo records, no button needed —
+    // docs/one-state.md, "The position side". A stale fix quietly taking
+    // over was once a third, unspoken act.)
     LaunchedEffect(manualElected) {
         capture.manualLocationElected = manualElected
     }
@@ -144,6 +145,14 @@ fun CaptureScreen(
         mapState.spatial.collect { s ->
             capture.manualLocation = ManualLocation(s.latitude, s.longitude, s.ts)
         }
+    }
+    // The other record: the receiver's latest fix, from the one state — the
+    // pane's ONLY source of a fix. It used to keep its own subscription to
+    // the engine's stream for this (the allowlisted "second stream" in
+    // OneStateArchitectureTest), which is how it came to own a private
+    // "has fix" that could never go stale.
+    LaunchedEffect(Unit) {
+        mapState.lastFix.collect { capture.stampFix = it }
     }
     // The capture stamp bearing IS the map's bearing state (Tauri:
     // locationData.bearing = bearingState.bearing): car mode's
@@ -486,7 +495,16 @@ fun CaptureScreen(
                 suppressHint = showBearingHint,
                 state = state,
                 bearingMode = mapSettings.bearingMode,
-                overridePosition = if (capture.manualLocationElected) capture.manualLocation else null,
+                // What a capture would stamp when it is NOT the fix: the map
+                // centre, live — while claimed over a fix, and whenever there
+                // is no fix (the table in docs/one-state.md). A blank first
+                // run has no map position either, and shows as none.
+                overridePosition = if (manualElected || fixNow == null) {
+                    spatialNow.takeIf { it.ts != null }
+                        ?.let { ManualLocation(it.latitude, it.longitude, it.ts) }
+                } else {
+                    null
+                },
                 opacityLevel = mapSettings.cameraOverlayOpacity,
                 onCycleOpacity = {
                     mapSettingsRepo.update {
@@ -963,36 +981,16 @@ fun CaptureScreen(
                 }
             }
 
-            // The gate's escape hatch: shooting underground means positioning
-            // the map by hand first and capturing against that.
-            //
-            // The OFFER is only made while the gate is actually shut, but the
-            // resulting state stays on screen for as long as it is in effect —
-            // including after a fix arrives. It used to vanish with the fix
-            // while still being the elected position, so the label's promise
-            // ("tap to require GPS again") had no button to tap, and a
-            // coordinate marked hours ago could come back silently.
-            if (state.ready && !manualClaimed) {
-                if (mapPositionWithoutFix) {
-                    GlassAction(
-                        text = "Using map position" +
-                            (capture.manualLocation?.let {
-                                " (${fmt(it.latitude)}, ${fmt(it.longitude)})"
-                            } ?: "") +
-                            " — tap to require GPS again",
-                        tag = "capture-manual-location",
-                    ) {
-                        session.setMapPositionWithoutFix(false)
-                    }
-                } else if (!state.hasFix) {
-                    GlassAction(
-                        text = "No GPS fix — capture at the map position instead",
-                        tag = "capture-use-map-position",
-                    ) {
-                        session.setMapPositionWithoutFix(true)
-                    }
-                }
-            }
+            // There is no longer an escape hatch here ("No GPS fix — capture
+            // at the map position instead", tags capture-use-map-position /
+            // capture-manual-location, 2026-08 → 2026-09-09). With no fix
+            // the map centre IS what a photo records, and the overlay's
+            // location rows say so; the only button that elects the map
+            // position is the claim, above, which exists to override a fix.
+            // Removed rather than hidden because its offer condition read a
+            // stored "has fix" that could never go false once a fix had
+            // landed, so it never appeared in the one situation it was built
+            // for — see docs/one-state.md, "What went wrong".
 
             // A recording says so, out loud and on-pane. It used to say
             // nothing at all (user-caught: "video recording isn't indicated
@@ -1013,12 +1011,11 @@ fun CaptureScreen(
             // does. A tap stops a running run. The graded ladder is this
             // port's take on the original's fixed slow/fast pair.
             var clusterOrigin by remember { mutableStateOf(Offset.Zero) }
-            val gateOpen =
-                shutterEnabled(state.ready, state.hasFix, manualElected)
-            // The location gate (see shutterEnabled): no fix, no photo —
-            // unless deliberately lifted (the local lift OR the pill's
-            // accepted claim; phone-in-hand find: the claim used to leave
-            // the gate shut).
+            // Camera readiness is the only gate (see shutterEnabled). The
+            // location gate — no fix, no photo, unless lifted — is gone:
+            // every capture has a position to record, or records none and
+            // says so, and the age travels with it.
+            val gateOpen = shutterEnabled(state.ready)
             val tappable = shutterPressDoesSomething(
                 recording = state.recording,
                 repeating = repeating,

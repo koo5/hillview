@@ -37,7 +37,7 @@ data class SensorSnapshot(
      */
     val pitchDeg: Float? = null,
     val capturedAtMs: Long,
-    /** EXIF provenance: "gps" or "manual" (map-positioned, gate lifted). */
+    /** EXIF provenance: "gps" or "map" (the map centre — claimed over a fix, or standing in for none); null with no position. */
     val locationSource: String? = null,
     /** Age of the location fix at capture time, or null without a fix. */
     val locationAgeMs: Long? = null,
@@ -83,6 +83,16 @@ data class CaptureState(
     /** Camera bound and ready to shoot. */
     val ready: Boolean = false,
     val capturing: Boolean = false,
+    /**
+     * A fix exists this session — EVER, not fresh. This is a mirror of the
+     * one state's `lastFix != null`, and it has no clock in it, which is
+     * what makes it safe to store. Freshness is derived at read from
+     * [fixAtMs] and a clock (see staleFixWarning) and is never kept as a
+     * boolean: a stored "fresh" was true at the instant a fix arrived and
+     * was never asked again, so the gate and the no-fix offer read a
+     * minute-old fix as fresh while the overlay counted its age up beside
+     * them (docs/one-state.md, "Derived, not stored").
+     */
     val hasFix: Boolean = false,
     /** Latest fix, so the screen can keep the map in step while tracking. */
     val fixLatitude: Double? = null,
@@ -612,11 +622,15 @@ fun altLocationJson(a: AltLocation): String {
  * has, and the rule extends to it symmetrically: the un-claimed map
  * position rides along, tagged so nobody mistakes it for a measurement.
  *
- * - claimed (or the no-fix hatch): primary = map, alt = the live fix,
- *   `gps-background` — the original's exact case;
- * - exploring, unclaimed: primary = fix, alt = the map position,
- *   `map-unclaimed`;
- * - following: the streams are one stream; nothing to keep.
+ * - claimed: primary = map, alt = the live fix, `gps-background` — the
+ *   original's exact case;
+ * - exploring, unclaimed, a fix present: primary = fix, alt = the map
+ *   position, `map-unclaimed`;
+ * - following: the streams are one stream; nothing to keep;
+ * - no fix: the map centre IS the primary (docs/one-state.md, "The position
+ *   side"), so there is no other stream to keep — whatever the tracking
+ *   mode. The old no-fix hatch reached this row through `manualElected`;
+ *   now it is simply the row a missing fix lands in.
  */
 fun altLocationFor(
     manualElected: Boolean,
@@ -624,9 +638,60 @@ fun altLocationFor(
     fix: AltLocation?,
     mapPosition: AltLocation?,
 ): AltLocation? = when {
+    fix == null -> null
     manualElected -> fix
     exploring -> mapPosition
     else -> null
+}
+
+/** The primary position a capture records, and the word that says which stream it was. */
+data class StampPosition(
+    val latitude: Double,
+    val longitude: Double,
+    /** `gps` or `map` — the original's contract; see docs/one-state.md. */
+    val source: String,
+    val altitude: Double? = null,
+    val accuracyM: Float? = null,
+    /** Age of the fix at the shutter; null for a map position, which has no age. */
+    val fixAgeMs: Long? = null,
+)
+
+/**
+ * WHICH record a photo takes its position from — the table in
+ * docs/one-state.md, "The position side", and nothing else:
+ *
+ *   fix | pan | claimed | primary
+ *   yes | any | no      | fix, `gps`
+ *   yes | yes | yes     | pan, `map`
+ *   no  | yes | —       | pan, `map`
+ *   no  | no  | —       | none — null, and meant
+ *
+ * A "pan" is the map centre once someone has put the map somewhere:
+ * [ManualLocation.atMs] is null on a blank first run (SpatialState.ts), and
+ * that is the one case a photo records no position. A claim with no such
+ * pan cannot happen (the pill claims a placed map) and falls through to the
+ * fix rather than to nothing.
+ *
+ * No arbitration on freshness, deliberately: a stale fix is still the fix,
+ * its age rides along in [StampPosition.fixAgeMs] and downstream filters.
+ * Which stream is primary is decided in the UI, where it can be seen and
+ * withdrawn; this function only reports the decision.
+ */
+fun stampPosition(
+    fix: cz.hillview.map.FixState?,
+    fixAgeMs: Long?,
+    pan: ManualLocation?,
+    claimed: Boolean,
+): StampPosition? {
+    val placed = pan?.takeIf { it.atMs != null }
+    return when {
+        claimed && placed != null -> StampPosition(placed.latitude, placed.longitude, "map")
+        fix != null -> StampPosition(
+            fix.latitude, fix.longitude, "gps", fix.altitude, fix.accuracyM, fixAgeMs,
+        )
+        placed != null -> StampPosition(placed.latitude, placed.longitude, "map")
+        else -> null
+    }
 }
 
 /**
@@ -649,13 +714,17 @@ data class StampBearing(
 )
 
 /**
- * The shutter requires a location fix — a photo mapping app's photos must
- * land somewhere, and first-time users have to be walked into using it
- * right. The requirement is liftable, deliberately: someone starting the
- * app underground can position the map by hand and shoot against that.
+ * The shutter's only gate is camera readiness (2026-09-09).
+ *
+ * It used to require a fix or a lifted gate: "a photo mapping app's photos
+ * must land somewhere". They still do — with no fix the map centre is what
+ * a photo records, tagged `map`, and its age and provenance travel with it
+ * so downstream can filter. Refusing the press protected nothing the stamp
+ * does not now say outright, and it read a stored "fresh" that could never
+ * go false (see CaptureState.hasFix), so the protection was not even real.
+ * docs/one-state.md, "The position side" and "Derived, not stored".
  */
-fun shutterEnabled(ready: Boolean, hasFix: Boolean, mapPositionElected: Boolean): Boolean =
-    ready && (hasFix || mapPositionElected)
+fun shutterEnabled(ready: Boolean): Boolean = ready
 
 /**
  * Whether a press on the shutter does anything at all — what the button's
@@ -679,15 +748,28 @@ interface PhotoCapture {
     val state: CaptureState
 
     /**
-     * The map position a capture is stamped with while it is elected — see
-     * [manualLocationElected]. Tagged location_source "manual".
+     * The map centre, live — the position's other record. A capture is
+     * stamped with it while it is elected over a fix ([manualLocationElected])
+     * and whenever there is no fix at all; tagged location_source "map"
+     * either way. Its [ManualLocation.atMs] is null only on a blank first
+     * run (nobody has put the map anywhere), which is the one case a photo
+     * records no position.
      */
     var manualLocation: ManualLocation?
 
     /**
-     * True while the user has said "I am at the map position", by either of
-     * the two deliberate acts that mean it: the pill's accepted claim, or the
-     * no-fix escape hatch in the capture pane.
+     * The receiver's latest fix, pushed live by the capture screen from the
+     * one state's `lastFix` — the same shape as [stampBearing]. Null until
+     * the first fix of the session. The pane reads no location of its own:
+     * this is where its fix comes from, and the only place.
+     */
+    var stampFix: cz.hillview.map.FixState?
+
+    /**
+     * True while the user has said "I am at the map position, not at my fix"
+     * through the pill's accepted claim — the ONE deliberate act that elects
+     * the map position over a fix. (The capture pane's no-fix hatch used to
+     * be a second; it went when a missing fix stopped needing a button.)
      *
      * It replaced a rule that let a merely STALE fix hand over to the map
      * position with nothing said. An election has to be something the user

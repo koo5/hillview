@@ -149,28 +149,29 @@ means it — and it is the ONLY case with no position: a blank first run
 before any fix or pan. (`alt_location`'s own source words, `gps-background`
 and `map-unclaimed`, are the backend's existing shape and stay.)
 
+The button that REPORTS this reads the claim, not the pan: half-lit means
+the fix has been demoted to `alt_location`, which is the second row and only
+that (`fixRole`). It used to read `LocationTracking` alone, which is the
+original's rule — there the pan IS the swap, so one colour can truthfully
+mean both. Here it announced a demotion a whole state early.
+
 The capture pane reads the two records, `exploring` and the claim as
 mirrors of the state, exactly as it reads the bearing. It samples no stream
 of its own and decides nothing; the shutter's only gate is camera readiness.
 
-**Status (decided 2026-09-09; readers not yet moved).** Today one
-`SpatialState` holds one position with a `source` and `ts`, the fix
-overwrites it in following mode and a pan overwrites it otherwise, so
-neither record is recoverable once the other has written — which is why the
-capture pane keeps a private `lastLocation`, the allowlisted "second
-stream" in `OneStateArchitectureTest`. Under this section that subscription
-goes: `lastFix` lives in the state, the allowlist entry shrinks to the Stats
-liveness line and the device-pose sensor, and the doc's "three exceptions"
-become the truth again. Still embodying the old shape: `shutterEnabled`
-(gates on `hasFix`), the no-fix offer in `CaptureScreen` (offered on
-`!hasFix`; under this rule there is no hatch, the claim is the only
-button), `MapSession.mapPositionWithoutFix` (the hatch's flag — deleted),
-the snapshot's position selection in `PhotoCapture.android.kt`, the
-`manual` word it writes, and the upload pipeline's `?: 0.0` for a null
-coordinate, which the last row makes reachable on purpose and which must
-therefore carry `null` honestly. The tracking tables' `manual` is a
-separate vocabulary (beside `android`, `gps-kalman`) that pics reads; it is
-not touched by this.
+**Status: moved, 2026-09-09.** `MapStateHolder.lastFix` (a `FixState`,
+session-scoped) is written by the map's adapter for every fix
+(`observeFixes`), whatever the tracking mode; `SpatialState` remains the
+persisted map centre. The capture pane reads both through `stampFix` and
+`manualLocation`, and its own location subscription is gone — the
+`OneStateArchitectureTest` allowlist entry for it no longer names a fix
+stream, so the "three exceptions" above are the truth again. The stamp is
+`stampPosition` (commonMain, `StampPositionTest` pins the four rows);
+`shutterEnabled` is camera readiness; the no-fix hatch, its
+`mapPositionWithoutFix` flag and the `manual` word are deleted; the photos
+table carries `null` coordinates (v22, with the old Null-Island `(0, 0)`
+carried across as null) and the upload omits an absent position, which the
+server already accepted. Not yet phone-verified.
 
 ## Derived, not stored
 

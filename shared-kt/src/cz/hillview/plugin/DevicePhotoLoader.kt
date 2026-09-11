@@ -72,8 +72,11 @@ class DevicePhotoLoader(private val context: Context) {
                 return emptyList()
             }
 
-            // Convert PhotoEntity to PhotoData format
-            val photos = photoEntities.map { photoEntity ->
+            // Convert PhotoEntity to PhotoData format. A row with no position
+            // (v22, null lat/lon) has nowhere on the map to be, so it is not
+            // a marker; it is still a photo — the device-photos list and the
+            // upload queue carry it, this loader just cannot draw it.
+            val photos = photoEntities.mapNotNull { photoEntity ->
                 convertToPhotoData(photoEntity, source)
             }
 
@@ -86,7 +89,9 @@ class DevicePhotoLoader(private val context: Context) {
         }
     }
 
-    private fun convertToPhotoData(photoEntity: PhotoEntity, source: SourceConfig): PhotoData {
+    private fun convertToPhotoData(photoEntity: PhotoEntity, source: SourceConfig): PhotoData? {
+        val lat = photoEntity.latitude ?: return null
+        val lng = photoEntity.longitude ?: return null
         // content:// URIs stay as-is, file paths get file:// prefix
         val fileUrl = if (PhotoUtils.isContentUri(photoEntity.path)) {
             photoEntity.path
@@ -109,8 +114,8 @@ class DevicePhotoLoader(private val context: Context) {
             source_type = source.type,
             filename = photoEntity.filename,
             coord = LatLng(
-                lat = photoEntity.latitude,
-                lng = photoEntity.longitude
+                lat = lat,
+                lng = lng
             ),
             bearing = photoEntity.bearing,
             altitude = photoEntity.altitude,

@@ -6,30 +6,23 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * The location gate on the shutter. The web app asserts "implies
- * cameraReady && locationData"; the lift exists because the requirement is
- * hand-holding for first-time users, not physics — someone underground can
- * position the map manually and shoot against that.
+ * The shutter's gate is camera readiness and nothing else (2026-09-09).
+ * The web app asserts "implies cameraReady && locationData"; that second
+ * half is gone here — with no fix the map centre is what a photo records,
+ * and the provenance says so, which is what the refusal used to protect.
  */
 class ShutterGateTest {
 
     @Test
-    fun noFixMeansNoShutter() {
-        assertFalse(shutterEnabled(ready = true, hasFix = false, mapPositionElected = false))
+    fun aReadyCameraIsTheWholeGate() {
+        assertTrue(shutterEnabled(ready = true))
+        assertFalse(shutterEnabled(ready = false))
     }
 
-    @Test
-    fun aFixOpensTheGate() {
-        assertTrue(shutterEnabled(ready = true, hasFix = true, mapPositionElected = false))
-    }
-
-    @Test
-    fun liftingTheGateOpensItWithoutAFix() {
-        assertTrue(shutterEnabled(ready = true, hasFix = false, mapPositionElected = true))
-    }
-
-    // The call site passes `armed || claimed` — an accepted pill claim is a
-    // manual position too (phone-in-hand find: the claim left the gate shut).
+    // (The three cases this used to assert — no fix shuts it, a fix opens
+    // it, the lift opens it without a fix — are not the contract any more.
+    // What replaced them is the stamp table in AltLocationTest and the
+    // behaviour test that captures with the GPS mocked silent.)
 
     @Test
     fun aStaleFixWarnsUnlessAManualPositionStandsIn() {
@@ -40,13 +33,8 @@ class ShutterGateTest {
         assertTrue(staleFixWarning(fixAt, fixAt + FIX_FRESH_MS + 1, manualAvailable = false))
         // A manual position would take over instead: nothing to warn about.
         assertFalse(staleFixWarning(fixAt, fixAt + FIX_FRESH_MS + 1, manualAvailable = true))
-        // No fix at all is the gate's business, not the warning's.
+        // No fix at all is not "stale": there is nothing to be stale.
         assertFalse(staleFixWarning(null, 5_000_000, manualAvailable = false))
-    }
-
-    @Test
-    fun nothingOpensAGateOnAnUnreadyCamera() {
-        assertFalse(shutterEnabled(ready = false, hasFix = true, mapPositionElected = true))
     }
 
     // --- and what the gate may NOT do ---
@@ -375,8 +363,8 @@ class CaptureToneTest {
     }
 
     @Test
-    fun aManualPositionSoundsTheWarning() {
-        assertEquals(CaptureTone.Degraded, captureTone("manual", null))
+    fun aMapPositionSoundsTheWarning() {
+        assertEquals(CaptureTone.Degraded, captureTone("map", null))
     }
 
     @Test

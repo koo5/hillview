@@ -223,32 +223,25 @@ fun ComposeTestRule.openCaptureAndAwaitCamera() {
 }
 
 /**
- * Open the shutter by WHATEVER stands: a live fix, a standing claim, or —
- * failing both — the manual lift. For tests that need capture to work and
- * don't assert the gate's semantics (that's CaptureGatingBehaviourTest's
- * job, which uses the strict [liftGateToMapPosition]).
+ * Wait for the shutter. Camera readiness is its only gate now (2026-09-09):
+ * a missing fix no longer shuts it, the map centre is recorded instead, so
+ * there is no lift to perform here. Kept as a helper because every capture
+ * test starts this way, and because the name says what the caller needs.
  */
 fun ComposeTestRule.ensureCaptureReady() {
-    waitUntil(15_000) {
-        shutterIsEnabled() ||
-            onAllNodesWithTag("capture-use-map-position").fetchSemanticsNodes().isNotEmpty()
-    }
-    if (!shutterIsEnabled()) {
-        runCatching { onNodeWithTag("capture-use-map-position").performScrollTo() }
-        onNodeWithTag("capture-use-map-position").performClick()
-        waitUntil(5_000) { shutterIsEnabled() }
-    }
+    waitUntil(15_000) { shutterIsEnabled() }
 }
 
-/** The item-13 escape hatch: no fix → capture at the map position instead. */
-fun ComposeTestRule.liftGateToMapPosition() {
-    waitUntil(10_000) {
-        onAllNodesWithTag("capture-use-map-position").fetchSemanticsNodes().isNotEmpty()
-    }
-    // The capture pane's controls scroll now that it shares the screen
-    // with the map — bring the target into view before tapping.
-    runCatching { onNodeWithTag("capture-use-map-position").performScrollTo() }
-    onNodeWithTag("capture-use-map-position").performClick()
+/**
+ * The one deliberate act that elects the map position: the pill's accepted
+ * claim, through the session it lives in. (The item-13 escape hatch — "No
+ * GPS fix → capture at the map position instead", a button on the capture
+ * pane — used to be a second act and is gone: with no fix the map centre is
+ * what a photo records, no button needed. docs/one-state.md.)
+ */
+fun ComposeTestRule.claimMapPosition() {
+    org.koin.core.context.GlobalContext.get().get<cz.hillview.map.MapSession>()
+        .claimManualPosition()
     waitUntil(5_000) { shutterIsEnabled() }
 }
 

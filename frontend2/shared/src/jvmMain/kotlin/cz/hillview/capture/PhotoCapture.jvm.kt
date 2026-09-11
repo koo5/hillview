@@ -23,6 +23,7 @@ private class DesktopPhotoCapture : PhotoCapture {
     override var ecoPreviewFps: Float? = null
     override var focusInfinity: Boolean = false
     override var stampBearing: StampBearing? = null
+    override var stampFix: cz.hillview.map.FixState? = null
 
     override fun selectResolution(resolution: CaptureResolution?) {}
 
