@@ -542,8 +542,26 @@ the chain stopped. See `GeoDebugText.kt`.
     in as many words. It needs the run to outlive the screen, which means
     moving it off the activity's lifetime and onto a service's — a different
     size of job, and the user's own read is that Android will fight it.
-  - Verified on the emulator: locking scrims the app and hides the bars, a
-    short nudge on the knob leaves it locked, a full sweep opens it.
+  - **The first cut of the slider could not be grabbed** (user-caught, same
+    day), and the way it failed is worth keeping. `detectHorizontalDragGestures`
+    spends the first few millimetres NOT consuming, waiting to see whether the
+    drag is really horizontal — and the scrim it sits in consumes everything it
+    is left, which is its whole job. A neighbour consuming during that window
+    cancels the detector. So a fast flick unlocked, because one event clears
+    slop outright, and a human-speed drag did nothing at all. The gesture now
+    claims the pointer on the DOWN, which removes the window; the grab is still
+    targeted, with 16 dp of slack round the knob so it need not be hunted for.
+  - **And the emulator test had certified it.** `adb shell input swipe` at 700
+    ms jumps past slop in a single event, so the automated check exercised
+    exactly the speed that worked. Repeating it at 2.5 s reproduced the fault
+    at once — a reminder that an injected swipe is not a finger, and that the
+    duration is part of the test.
+  - Two other faults fixed with it: the knob's offset was animated during the
+    drag, so it eased toward the finger rather than staying under it, and the
+    track width was assigned from inside the layout's content, which churns
+    the very `pointerInput` key it feeds.
+  - Verified on the emulator at HUMAN speed: the knob tracks a 3 s drag, a
+    half-track drag snaps back and leaves it locked, a full sweep opens it.
 
 - **The map's controls now know which edges are the screen's**
   (user-raised: "some controls are rightfully moved off the edge of the

@@ -2,9 +2,9 @@ package cz.hillview.lock
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
@@ -53,7 +54,7 @@ fun ControlsLockScrim(
     onUnlock: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    BoxWithConstraints(
+    Box(
         modifier
             .fillMaxSize()
             // Not fully opaque: what the app is doing has to stay legible
@@ -92,6 +93,16 @@ fun ControlsLockScrim(
 /**
  * Drag the knob the width of the track to unlock.
  *
+ * The gesture is handled explicitly rather than through
+ * `detectHorizontalDragGestures`, and the reason is the scrim it sits in.
+ * That scrim consumes every touch it is left, which is its whole job — but a
+ * slop-based detector spends the first few millimetres of a drag NOT
+ * consuming, waiting to see whether the drag is really horizontal, and a
+ * neighbour consuming during that window cancels it. The visible effect was
+ * exact: a fast flick unlocked (one event clears slop outright) and a
+ * human-speed drag did nothing at all, which is the speed every real attempt
+ * uses. Claiming the pointer on the DOWN removes the window.
+ *
  * It snaps back when released short, so a partial accident undoes itself;
  * only a sweep that lands opens the lock.
  */
@@ -101,15 +112,28 @@ private fun UnlockSlider(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
-    var drag by remember { mutableStateOf(0f) }
-    var trackPx by remember { mutableStateOf(0f) }
     val knobPx = with(density) { KNOB.toPx() }
-    val offset by animateFloatAsState(unlockKnobOffset(drag, trackPx), label = "unlock-knob")
+    // Slack around the knob, so it can be found by a thumb without being
+    // hunted for — the grab is still TARGETED (the rest of the track does
+    // nothing), just not a pixel test.
+    val grabSlackPx = with(density) { 16.dp.toPx() }
+    var trackPx by remember { mutableStateOf(0f) }
+    var drag by remember { mutableStateOf(0f) }
+    var dragging by remember { mutableStateOf(false) }
+    // Animated only on the way BACK. During the drag the knob is under a
+    // finger, and a knob that eases toward the finger reads as a knob that
+    // is not being held.
+    val settled by animateFloatAsState(drag, label = "unlock-knob")
+    val knobOffset = if (dragging) drag else settled
 
-    BoxWithConstraints(
+    Box(
         modifier
             .fillMaxWidth()
             .height(KNOB)
+            // Measured, not written during composition: assigning state from
+            // inside a layout's content is how a pointerInput key ends up
+            // churning, which restarts the very gesture it is keyed on.
+            .onSizeChanged { trackPx = (it.width - knobPx).coerceAtLeast(0f) }
             .background(Color.White.copy(alpha = 0.18f), RoundedCornerShape(KNOB / 2))
             .testTag("controls-unlock-slider")
             .semantics {
@@ -118,10 +142,41 @@ private fun UnlockSlider(
                 } else {
                     "unlock 0%"
                 }
+            }
+            .pointerInput(trackPx, knobPx, grabSlackPx) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val knobStart = drag - grabSlackPx
+                    val knobEnd = drag + knobPx + grabSlackPx
+                    if (down.position.x < knobStart || down.position.x > knobEnd) {
+                        // Not on the knob. The scrim behind will eat it.
+                        return@awaitEachGesture
+                    }
+                    down.consume()
+                    dragging = true
+                    val startX = down.position.x
+                    val startDrag = drag
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            drag = unlockKnobOffset(
+                                startDrag + (change.position.x - startX),
+                                trackPx,
+                            )
+                            change.consume()
+                            if (!change.pressed) break
+                        }
+                    } finally {
+                        dragging = false
+                        val reached = unlockReached(drag, trackPx)
+                        drag = 0f
+                        if (reached) onUnlock()
+                    }
+                }
             },
         contentAlignment = Alignment.CenterStart,
     ) {
-        trackPx = (with(density) { maxWidth.toPx() } - knobPx).coerceAtLeast(0f)
         Text(
             "slide to unlock",
             style = MaterialTheme.typography.labelLarge,
@@ -130,22 +185,10 @@ private fun UnlockSlider(
         )
         Box(
             Modifier
-                .offset { IntOffset(offset.roundToInt(), 0) }
+                .offset { IntOffset(knobOffset.roundToInt(), 0) }
                 .size(KNOB)
                 .background(Color.White.copy(alpha = 0.92f), RoundedCornerShape(KNOB / 2))
-                .testTag("controls-unlock-knob")
-                .pointerInput(trackPx) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            if (unlockReached(drag, trackPx)) onUnlock()
-                            drag = 0f
-                        },
-                        onDragCancel = { drag = 0f },
-                    ) { change, amount ->
-                        change.consume()
-                        drag = unlockKnobOffset(drag + amount, trackPx)
-                    }
-                },
+                .testTag("controls-unlock-knob"),
             contentAlignment = Alignment.Center,
         ) {
             Text("🔓", style = MaterialTheme.typography.titleMedium)
