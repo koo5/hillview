@@ -1,6 +1,12 @@
 package cz.hillview.map
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
@@ -9,13 +15,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeContentPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.safeGestures
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,8 +48,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
@@ -176,15 +190,46 @@ fun MapOverlayUi(
     onRevertToGps: () -> Unit = {},
     mapOrientation: Double = 0.0,
     onResetNorth: () -> Unit = {},
+    /** Whether the map position has been CLAIMED — see [fixRole]. */
+    mapPositionElected: Boolean = false,
+    /** Which of this panel's edges are the screen's — see [PanelEdges]. */
+    edges: PanelEdges = PanelEdges.AllScreen,
 ) {
     val chromeTone = chromeToneFor(
         settings.tileProviderKey,
         androidx.compose.foundation.isSystemInDarkTheme(),
     )
     androidx.compose.runtime.CompositionLocalProvider(LocalChromeTone provides chromeTone) {
-    Box(Modifier.fillMaxSize().safeContentPadding()) {
+    // System insets for the edges that actually touch the screen, and none
+    // for the one the split divider is on. Window insets are not clipped to
+    // where a composable sits, so the blanket version spent a gesture strip's
+    // worth of map against the divider — dead space at an edge no system
+    // gesture can reach.
+    // A gutter is bought with map, so only the controls that are expensive
+    // to hit by accident take one, and only where the edge is the screen's.
+    val gutterTop = if (edges.top) CRITICAL_EDGE_GUTTER else 0.dp
+    val gutterEnd = if (edges.end) CRITICAL_EDGE_GUTTER else 0.dp
+    // safeDrawing, NOT safeContent. The difference is the system's GESTURE
+    // strips, and those are about swipes: a tap at the very edge of the
+    // screen works fine, it is a horizontal drag from there that the back
+    // gesture takes. Insetting every control by a gesture strip cost 30 dp of
+    // map down each side on this phone — enough to read a town name in
+    // (user-caught, 2026-09-11, pointing at "Velvary" beside the zoom
+    // buttons). The controls that DO want that clearance ask for it by name
+    // below.
+    Box(
+        Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(screenInsetSides(edges))),
+    ) {
         // Top-left: zoom, where Leaflet keeps it (44dp touch targets).
-        Column(Modifier.align(Alignment.TopStart).padding(8.dp)) {
+        // Flush, both edges, both orientations: a stray tap here zooms a
+        // level and the next one puts it back, so there is nothing worth
+        // spending map on (user, 2026-09-11: "since zoom isnt critical, it
+        // can, in portrait, sit flush to the left edge of screen"). The
+        // system insets still hold it off the status bar and the gesture
+        // strips; what is gone is the decorative margin on top of them.
+        Column(Modifier.align(Alignment.TopStart)) {
             ControlSurface {
                 TextButton(
                     onClick = { onZoom(1.0) },
@@ -205,33 +250,35 @@ fun MapOverlayUi(
             // needle appears only once the map is off north, points at true
             // north, and puts it back — the badge every map app uses, which
             // means nobody has to be taught it.
-            if (kotlin.math.abs(normalizeBearing(mapOrientation).let {
-                    if (it > 180) it - 360 else it
-                }) >= 1.0
-            ) {
-                ControlSurface(Modifier.padding(top = 8.dp)) {
-                    TextButton(
-                        onClick = onResetNorth,
-                        modifier = Modifier.size(44.dp).testTag("reset-north-btn"),
-                    ) {
-                        Text(
-                            "↑N",
-                            color = Color(0xFFD93025),
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.rotate(-mapOrientation.toFloat()),
-                        )
-                    }
-                }
+            val offNorth = offNorthDeg(mapOrientation)
+            if (kotlin.math.abs(offNorth) >= 1.0) {
+                ResetNorthButton(
+                    offNorthDeg = offNorth,
+                    mapOrientation = mapOrientation,
+                    onClick = onResetNorth,
+                )
             }
         }
 
         // Top-right pair: location, then compass.
         Row(
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 8.dp),
+            // The one gutter the user called critical: a mis-tap on the
+            // screen's edge here turns tracking off. Against the divider
+            // there is nothing to mis-tap into, so in portrait it sits at the
+            // top of the panel.
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                // The one control that keeps clear of the gesture strips as
+                // well, because it is the one where the slip is expensive:
+                // a back-swipe that starts on this button and is read as a
+                // tap turns tracking off. The system's own number rather
+                // than a guess at it.
+                .windowInsetsPadding(WindowInsets.safeGestures.only(screenInsetSides(edges)))
+                .padding(top = gutterTop, end = gutterEnd),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             LocationButton(
-                tracking = locationTracking,
+                role = fixRole(locationTracking, mapPositionElected),
                 flash = locationFlash,
                 loading = locationLoading,
                 powerSaving = powerSavingActive,
@@ -260,7 +307,10 @@ fun MapOverlayUi(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
-                .padding(top = 68.dp, bottom = 60.dp, end = 2.dp),
+                // Clearances, not edge gutters: the band must not reach
+                // into the tracking row above or the hunter row below, and
+                // both of those move with the gutters now.
+                .padding(top = gutterTop + TRACKING_ROW_RESERVE, bottom = HUNTER_ROW_RESERVE),
             contentAlignment = Alignment.CenterEnd,
         ) {
             val perTab = ((maxHeight - 4.dp - 2.dp * (sources.size - 1)) /
@@ -284,7 +334,11 @@ fun MapOverlayUi(
         // Bottom-right hunter grid: the toggle owns the corner, the button
         // panel grows left.
         Column(
-            modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 4.dp, end = 6.dp),
+            // No gutter at all, by request: the hunter toggle and the two
+            // toolbars that unfold from it sit where the system insets put
+            // them and no further. They are the app's own corner, and a
+            // mis-tap on one costs a toggle.
+            modifier = Modifier.align(Alignment.BottomEnd),
             horizontalAlignment = Alignment.End,
         ) {
             Row(verticalAlignment = Alignment.Bottom) {
@@ -351,7 +405,7 @@ fun MapOverlayUi(
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 76.dp)
+                    .padding(top = gutterTop + TRACKING_ROW_RESERVE + 8.dp)
                     .background(LocalChromeTone.current.panel, RoundedCornerShape(20.dp))
                     .testTag("map-position-prompt"),
                 verticalAlignment = Alignment.CenterVertically,
@@ -373,7 +427,7 @@ fun MapOverlayUi(
         }
 
         Column(
-            modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
+            modifier = Modifier.align(Alignment.BottomStart),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             // The geo debug readout, stacked on the same anchor so it shares
@@ -434,6 +488,115 @@ fun MapOverlayUi(
         }
     }
     }
+}
+
+/**
+ * The "you are not facing north" alarm.
+ *
+ * It used to be an ordinary chrome button with a red glyph in it, and it kept
+ * being missed (user: "map rotation keeps fooling me") — which is the failure
+ * that matters, because a rotated map does not look wrong. It looks like a
+ * different place, and every judgement made from it is quietly off by the
+ * rotation. So this is now the loudest thing on the map: filled red, larger
+ * than its neighbours, breathing so the eye catches it in peripheral vision,
+ * and carrying the angle in figures because "off north" is not the same
+ * question as "off north by how much".
+ *
+ * It costs nothing when the map is north-up, which is almost always: the
+ * caller does not compose it at all below one degree, so the animation only
+ * runs while there is something to shout about.
+ */
+@Composable
+private fun ResetNorthButton(
+    offNorthDeg: Double,
+    mapOrientation: Double,
+    onClick: () -> Unit,
+) {
+    val pulse = rememberInfiniteTransition(label = "off-north")
+    val beat by pulse.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "off-north-beat",
+    )
+    Surface(
+        // Two channels, because either alone can be missed: a phone in
+        // sunlight loses the colour shift, a glance too short to see a full
+        // cycle still catches the size change.
+        color = lerp(Color(0xFFC5000B), Color(0xFFFF5252), beat),
+        contentColor = Color.White,
+        shape = RoundedCornerShape(4.dp),
+        shadowElevation = 6.dp,
+        modifier = Modifier
+            .padding(top = 8.dp)
+            .scale(1f + 0.07f * beat),
+    ) {
+        TextButton(
+            onClick = onClick,
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier.size(52.dp).testTag("reset-north-btn"),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "↑N",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    // Points at TRUE north, so the badge doubles as the
+                    // compass rose the rotated map no longer has.
+                    modifier = Modifier.rotate(-mapOrientation.toFloat()),
+                )
+                Text(
+                    "${kotlin.math.abs(offNorthDeg).roundToInt()}°",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * How far a CRITICAL control keeps from an edge that is the screen's, on top
+ * of the system insets.
+ *
+ * Critical is the whole test, and it is about the cost of the mis-tap rather
+ * than about the control's importance. Tracking is the one that qualifies: a
+ * stray touch there turns the compass or the receiver off, and nothing on
+ * screen necessarily says so afterwards. Zoom, the north badge, the hunter
+ * corner and the debug readout are all undone by tapping again, so they sit
+ * flush and give the middle of the map back.
+ *
+ * Zero at the divider in any case — there is nothing to mis-swipe into.
+ */
+private val CRITICAL_EDGE_GUTTER = 8.dp
+
+/** The tracking row's own height plus a gap — what must stay clear below it. */
+private val TRACKING_ROW_RESERVE = 52.dp
+
+/** The hunter toggle row's height plus a gap, likewise. */
+private val HUNTER_ROW_RESERVE = 56.dp
+
+/**
+ * The inset sides worth applying: the screen's edges only.
+ *
+ * Used for both inset families here — the panel's own edges do not change
+ * when the question does.
+ *
+ * Window insets describe the WINDOW, and Compose does not clip them to where
+ * a composable sits — so asking for all of them inside a half-screen panel
+ * pads the divider side against a system gesture that cannot happen there.
+ */
+private fun screenInsetSides(edges: PanelEdges): WindowInsetsSides {
+    val sides = buildList {
+        if (edges.top) add(WindowInsetsSides.Top)
+        if (edges.bottom) add(WindowInsetsSides.Bottom)
+        if (edges.start) add(WindowInsetsSides.Start)
+        if (edges.end) add(WindowInsetsSides.End)
+    }
+    return sides.reduce { a, b -> a + b }
 }
 
 @Composable
@@ -615,16 +778,26 @@ private fun PanelSeparator() {
  */
 @Composable
 private fun LocationButton(
-    tracking: LocationTracking,
+    role: FixRole,
     flash: Boolean,
     loading: Boolean,
     powerSaving: Boolean,
     onClick: () -> Unit,
 ) {
-    val fill = when (tracking) {
-        LocationTracking.Active -> ACTIVE_BLUE
-        LocationTracking.Background -> ACTIVE_BLUE.copy(alpha = 0.5f)
-        LocationTracking.Off -> LocalChromeTone.current.panel
+    // Half-lit means the fix has been DEMOTED to alt_location, not merely
+    // that the map stopped following — see fixRole.
+    //
+    // The per-fix flash is on the FILL now, not on the glyph. It used to
+    // colour the text, which an emoji ignores — Android draws those from the
+    // colour font whatever the paint says — so the flash would have gone
+    // silently missing the moment the glyph became 📍. A whole button
+    // blinking green is also simply easier to catch out of the corner of an
+    // eye than a small mark inside one.
+    val fill = when {
+        flash -> Color(0xFF34D399)
+        role == FixRole.Primary -> ACTIVE_BLUE
+        role == FixRole.Alternate -> ACTIVE_BLUE.copy(alpha = 0.5f)
+        else -> LocalChromeTone.current.panel
     }
     Box {
         Surface(
@@ -636,17 +809,21 @@ private fun LocationButton(
                 LocalChromeTone.current.border ?: Color(0xFFDDDDDD),
             ),
             modifier = Modifier
-                .alpha(if (tracking == LocationTracking.Off) 0.6f else 1f)
+                // No fade when off. It was 60% opacity, which made the one
+                // control that says whether the app knows where you are the
+                // faintest thing on the map, and put it out of step with
+                // every other control up here (user, 2026-09-11). Off is
+                // already said by the fill: chrome instead of blue.
                 // Which of the three states this is in must be readable from
                 // outside, not just inferable from a colour. The original
                 // carries it as `active`/`background` classes, which is what
                 // its suite asserts on; this is the same fact by another
                 // name, and it is what a screen reader announces too.
                 .semantics {
-                    stateDescription = when (tracking) {
-                        LocationTracking.Off -> "off"
-                        LocationTracking.Active -> "active"
-                        LocationTracking.Background -> "background"
+                    stateDescription = when (role) {
+                        FixRole.Off -> "off"
+                        FixRole.Primary -> "active"
+                        FixRole.Alternate -> "background"
                     }
                 }
                 .testTag("track-location-btn"),
@@ -659,13 +836,19 @@ private fun LocationButton(
                         color = ACTIVE_BLUE,
                     )
                 } else {
+                    // The app's own word for a fix: the capture pill has
+                    // shown 📍 for one since it was written. It replaces ◎,
+                    // which was this port tracing the original's LocateFixed
+                    // LINE ICON into a geometric character and so standing
+                    // alone beside 🧭 and 📷 (user, 2026-09-11). No colour:
+                    // an emoji ignores it, and the fill says the state.
                     Text(
-                        text = "◎",
-                        color = if (flash) Color(0xFF34D399) else {
-                            if (tracking == LocationTracking.Off) LocalChromeTone.current.ink
-                            else Color.White
-                        },
-                        style = MaterialTheme.typography.titleMedium,
+                        text = "📍",
+                        // Sized like the zoom glyphs next to it, not like a
+                        // caption. A 60x44 dp button with a small glyph in
+                        // the middle of it reads as a mis-render rather than
+                        // as an icon (user, 2026-09-11).
+                        style = MaterialTheme.typography.headlineSmall,
                     )
                 }
             }

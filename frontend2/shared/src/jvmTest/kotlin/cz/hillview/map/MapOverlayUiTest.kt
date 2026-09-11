@@ -11,6 +11,8 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.v2.runComposeUiTest
@@ -44,7 +46,11 @@ class MapOverlayUiTest {
         val trackingWanted: Boolean = false,
         val trackingPhase: TrackingPhase = TrackingPhase.Inactive,
         val compassUnavailable: Boolean = false,
+        val mapOrientation: Double = 0.0,
+        val mapPositionElected: Boolean = false,
+        val edges: PanelEdges = PanelEdges.AllScreen,
     ) {
+        var northReset = 0
         var hunterToggled = 0
         var toggledSource: String? = null
         var filtersOpened = 0
@@ -86,8 +92,41 @@ class MapOverlayUiTest {
                 onToggleTracking = { h.trackingToggled++ },
                 onSelectBearingMode = { h.pickedMode = it },
                 onZoom = { h.zoomDelta = it },
+                mapOrientation = h.mapOrientation,
+                mapPositionElected = h.mapPositionElected,
+                edges = h.edges,
+                onResetNorth = { h.northReset++ },
             )
         }
+    }
+
+    /**
+     * A rotated map does not look wrong — it looks like a different place —
+     * so the badge that says otherwise has to be impossible to miss (user:
+     * "map rotation keeps fooling me"). It carries the angle in figures, and
+     * it is not there at all when the map is north-up.
+     */
+    @Test
+    fun aTurnedMapSaysSoAndSaysByHowMuch() = runComposeUiTest {
+        val h = Harness(mapOrientation = 42.0)
+        overlay(h)
+        onNodeWithTag("reset-north-btn").assertIsDisplayed()
+        onNodeWithText("42°", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithTag("reset-north-btn").performClick()
+        assertEquals(1, h.northReset)
+    }
+
+    /** Ten degrees the other way is still ten degrees, not three hundred and fifty. */
+    @Test
+    fun aTurnTheOtherWayReadsAsASmallAngle() = runComposeUiTest {
+        overlay(Harness(mapOrientation = 350.0))
+        onNodeWithText("10°", useUnmergedTree = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun aNorthUpMapShowsNoAlarm() = runComposeUiTest {
+        overlay(Harness())
+        onNodeWithTag("reset-north-btn").assertDoesNotExist()
     }
 
     /**
@@ -228,6 +267,106 @@ class MapOverlayUiTest {
         overlay(h)
         onNodeWithTag("track-location-btn").performClick()
         assertEquals(1, h.locationToggled)
+    }
+
+    /**
+     * Half-lit says "your fix is only an alternate now", so it may not
+     * appear until the claim that makes that true. A pan alone parks the
+     * map; it does not demote the fix (user-caught, 2026-09-11).
+     */
+    @Test
+    fun panningAloneDoesNotDemoteTheLocationButton() = runComposeUiTest {
+        overlay(Harness(locationTracking = LocationTracking.Background))
+        assertEquals("active", locationButtonState())
+    }
+
+    @Test
+    fun anAcceptedClaimDemotesIt() = runComposeUiTest {
+        overlay(
+            Harness(
+                locationTracking = LocationTracking.Background,
+                mapPositionElected = true,
+            ),
+        )
+        assertEquals("background", locationButtonState())
+    }
+
+    @Test
+    fun followingAndOffReadAsThemselves() = runComposeUiTest {
+        overlay(Harness(locationTracking = LocationTracking.Active))
+        assertEquals("active", locationButtonState())
+    }
+
+    @Test
+    fun noTrackingReadsAsOffWhateverIsElected() = runComposeUiTest {
+        overlay(Harness(locationTracking = LocationTracking.Off, mapPositionElected = true))
+        assertEquals("off", locationButtonState())
+    }
+
+    private fun androidx.compose.ui.test.ComposeUiTest.locationButtonState(): String =
+        onNodeWithTag("track-location-btn")
+            .fetchSemanticsNode()
+            .config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription]
+
+    /**
+     * A gutter is bought with map, so only a control whose mis-tap is
+     * expensive takes one. Tracking qualifies: a stray touch turns the
+     * compass or the receiver off and nothing necessarily says so. Zoom does
+     * not — the next tap undoes it — so it sits flush in both orientations
+     * (user, 2026-09-11).
+     */
+    @Test
+    fun zoomSitsFlushInBothOrientations() = runComposeUiTest {
+        overlay(Harness(edges = PanelEdges.mapPanel(portrait = true)))
+        val portrait = onNodeWithTag("zoom-in-btn").getUnclippedBoundsInRoot()
+        assertEquals(0f, portrait.top.value, "portrait: the divider is above it")
+        assertEquals(0f, portrait.left.value, "portrait: a stray zoom costs a tap to undo")
+    }
+
+    @Test
+    fun zoomSitsFlushInLandscapeToo() = runComposeUiTest {
+        overlay(Harness(edges = PanelEdges.mapPanel(portrait = false)))
+        val bounds = onNodeWithTag("zoom-in-btn").getUnclippedBoundsInRoot()
+        assertEquals(0f, bounds.top.value)
+        assertEquals(0f, bounds.left.value, "landscape: the divider is beside it")
+    }
+
+    /**
+     * The tracking pair is the one that pays for a gutter, and only at the
+     * edges that are the SCREEN's: in portrait the divider is above it, so
+     * the top gutter goes and the end gutter stays.
+     */
+    @Test
+    fun trackingKeepsItsGutterOnlyWhereTheScreenIs() = runComposeUiTest {
+        overlay(Harness(edges = PanelEdges.mapPanel(portrait = true)))
+        val portrait = onNodeWithTag("track-location-btn").getUnclippedBoundsInRoot()
+        val root = onRoot().getUnclippedBoundsInRoot()
+        assertEquals(0f, portrait.top.value, "the divider above needs no gutter")
+        assertTrue(
+            root.right.value - portrait.right.value > 0f,
+            "the screen edge beside it still does",
+        )
+    }
+
+    @Test
+    fun trackingKeepsItsTopGutterWhenTheScreenIsAboveIt() = runComposeUiTest {
+        overlay(Harness(edges = PanelEdges.mapPanel(portrait = false)))
+        val bounds = onNodeWithTag("track-location-btn").getUnclippedBoundsInRoot()
+        assertTrue(bounds.top.value > 0f, "landscape: the status bar is above it")
+    }
+
+    /**
+     * The hunter corner is the app's own and cheap to mis-tap, so it takes no
+     * gutter at all in either orientation — the system insets are the whole
+     * of its margin (user, 2026-09-11).
+     */
+    @Test
+    fun theHunterToggleSitsInTheCorner() = runComposeUiTest {
+        overlay(Harness(edges = PanelEdges.mapPanel(portrait = true)))
+        val root = onRoot().getUnclippedBoundsInRoot()
+        val toggle = onNodeWithTag("hunter-mode-toggle").getUnclippedBoundsInRoot()
+        assertEquals(root.right.value, toggle.right.value, "flush to the far edge")
+        assertEquals(root.bottom.value, toggle.bottom.value, "and to the bottom")
     }
 
     @Test

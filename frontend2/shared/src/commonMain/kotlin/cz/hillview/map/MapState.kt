@@ -59,6 +59,70 @@ data class BearingState(
 /** OFF / ACTIVE / BACKGROUND, mutually exclusive (see the contract). */
 enum class LocationTracking { Off, Active, Background }
 
+/** What the receiver's fix is currently FOR. */
+enum class FixRole {
+    /** No fixes at all. */
+    Off,
+
+    /** The fix is what a photo records. */
+    Primary,
+
+    /** The map position is what a photo records; the fix rides along as
+     *  `alt_location`, tagged `gps-background`. */
+    Alternate,
+}
+
+/**
+ * What the location button is saying, which is a question about the
+ * ELECTION and not about whether the map is following.
+ *
+ * The distinction only exists here. The original castles the two position
+ * streams the moment the map is panned (`enterBackgroundTracking` →
+ * `setElectedLocationSource('manual')`), so there "panned" and "the fix is
+ * demoted" are one event and one colour can mean both. frontend2 waits for
+ * the pill's accepted claim, which puts a whole state between them —
+ * exploring, where the map is parked but the FIX IS STILL WHAT A PHOTO
+ * RECORDS. The button inherited the original's rule and so went half-lit on
+ * the pan, announcing a demotion that had not happened (user-caught,
+ * 2026-09-11).
+ *
+ * That the map is parked is not lost by this: the claim pill stays up until
+ * it is answered, and the blue GPS dot shows where the receiver says you
+ * are.
+ */
+fun fixRole(tracking: LocationTracking, mapPositionElected: Boolean): FixRole = when {
+    tracking == LocationTracking.Off -> FixRole.Off
+    mapPositionElected -> FixRole.Alternate
+    else -> FixRole.Primary
+}
+
+/**
+ * The receiver's latest fix — the position's SECOND stream, given a home in
+ * the one state (docs/one-state.md, "The position side"). Until 2026-09-09
+ * this lived only in the capture pane's private subscription, because a
+ * fix moving the map and a pan moving it both overwrote [SpatialState] and
+ * neither was recoverable once the other had written.
+ *
+ * Session-scoped, deliberately: a measurement does not survive a relaunch,
+ * because its age would be a day and its `gps` word a lie. [SpatialState]
+ * is the other record — the map centre, persisted, as the map is.
+ *
+ * [elapsedRealtimeNanos] is the point of carrying the whole record rather
+ * than a lat/lng pair: the stamp's fix age is measured against the
+ * monotonic clock, and a pair would silently lose it. [atMs] is the same
+ * instant on the wall clock, for the overlay's readout and the CSV.
+ */
+data class FixState(
+    val latitude: Double,
+    val longitude: Double,
+    val altitude: Double? = null,
+    val accuracyM: Float? = null,
+    /** Wall-clock ms of the fix. */
+    val atMs: Long,
+    /** Monotonic ns of the fix — what fix age at the shutter is measured from. */
+    val elapsedRealtimeNanos: Long,
+)
+
 /**
  * Holds map state and enforces the update rules the Svelte app relies on.
  * Kept out of Compose so the rules are testable and can't drift into
@@ -83,6 +147,11 @@ class MapStateHolder(
 
     private val _bearing = MutableStateFlow(initialBearing)
     val bearing: StateFlow<BearingState> = _bearing.asStateFlow()
+
+    // Not persisted and not in the constructor: see FixState — a fix is a
+    // measurement of THIS session, and every run starts with none.
+    private val _lastFix = MutableStateFlow<FixState?>(null)
+    val lastFix: StateFlow<FixState?> = _lastFix.asStateFlow()
 
     // The last election handed to the sink, so we push on CHANGE only: these
     // funnels run at sensor rate, the election does not.
@@ -122,6 +191,18 @@ class MapStateHolder(
             elect("android", bearing = false)
         }
         return true
+    }
+
+    /**
+     * The fix funnel. Every fix the engine publishes lands here, whatever
+     * the tracking mode — following also moves the map through
+     * [updateSpatial], exploring does not, but the RECORD is kept either
+     * way, which is what lets a photo be stamped from the fix while the map
+     * is parked somewhere else. No election and no table row: the engine
+     * already records its own stream at full rate.
+     */
+    fun updateFix(fix: FixState) {
+        _lastFix.value = fix
     }
 
     /**
@@ -225,6 +306,19 @@ class MapStateHolder(
 }
 
 fun normalizeBearing(bearing: Double): Double = ((bearing % 360) + 360) % 360
+
+/**
+ * How far off north a map orientation is, signed, in (-180, 180].
+ *
+ * The signed form is what a reader wants: 350° and 10° are both ten degrees
+ * off, and the map's own "is it turned at all" test has to treat them the
+ * same. One function so the badge that appears and the number it shows can
+ * never disagree about the answer.
+ */
+fun offNorthDeg(mapOrientation: Double): Double {
+    val normalized = normalizeBearing(mapOrientation)
+    return if (normalized > 180) normalized - 360 else normalized
+}
 
 /** Shortest angular distance, signed, in (-180, 180]. */
 fun angularDistance(from: Double, to: Double): Double {

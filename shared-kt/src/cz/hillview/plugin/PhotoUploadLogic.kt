@@ -713,9 +713,14 @@ class PhotoUploadLogic(internal val context: Context) {
 			put("version", photo.version)  // Version for re-upload support
 			put("license", license)
 			// Use PhotoEntity geolocation data
-			put("latitude", photo.latitude)
-			put("longitude", photo.longitude)
-			if (photo.altitude > 0) put("altitude", photo.altitude)
+			// Absent position, absent keys: the server then stores the photo
+			// with no geometry (UploadAuthorizationRequest takes Optional
+			// lat/lon and builds ST_Point only when both are present).
+			photo.latitude?.let { put("latitude", it) }
+			photo.longitude?.let { put("longitude", it) }
+			// Null is the only "absent" here now — a measured altitude may be
+			// zero, or negative (see PhotoEntity.altitude).
+			photo.altitude?.let { put("altitude", it) }
 			if (photo.bearing != 0.0) put("compass_angle", photo.bearing)
 			capturedAt?.let { put("captured_at", it) }
 		}
@@ -839,15 +844,17 @@ class PhotoUploadLogic(internal val context: Context) {
 	 * path writes no EXIF at all, and a re-upload after a table-side
 	 * refinement carries the refined values with no file rewrite.
 	 *
-	 * Guards mirror the authorize-upload JSON: bearing 0.0 and altitude/
-	 * accuracy 0.0 are this table's "absent" sentinels (PhotoEntity predates
-	 * nullability here), and an omitted key falls back to EXIF worker-side —
-	 * so a sentinel must be OMITTED, never sent as a real 0.
+	 * Guards mirror the authorize-upload JSON: bearing 0.0 and accuracy 0.0
+	 * are this table's "absent" sentinels (PhotoEntity predates nullability
+	 * for those two), and an omitted key falls back to EXIF worker-side — so a
+	 * sentinel must be OMITTED, never sent as a real 0. altitude is no longer
+	 * one of them: it is nullable, because unlike a bearing or an accuracy its
+	 * real measured value can be 0 or below (see PhotoEntity.altitude).
 	 */
 	internal fun buildUploadMetadata(photo: PhotoEntity): String = JSONObject().apply {
-		put("latitude", photo.latitude)
-		put("longitude", photo.longitude)
-		if (photo.altitude > 0) put("altitude", photo.altitude)
+		photo.latitude?.let { put("latitude", it) }
+		photo.longitude?.let { put("longitude", it) }
+		photo.altitude?.let { put("altitude", it) }
 		if (photo.bearing != 0.0) put("bearing", photo.bearing)
 		if (photo.accuracy > 0) put("accuracy", photo.accuracy)
 		// Millisecond ISO — the whole reason the clock-calibration work can
@@ -1357,8 +1364,8 @@ class PhotoUploadLogic(internal val context: Context) {
         id: String?,
         filename: String,
         path: String,
-        latitude: Double,
-        longitude: Double,
+        latitude: Double?,
+        longitude: Double?,
         altitude: Double?,
         bearing: Double?,
         capturedAt: Long,
@@ -1401,7 +1408,7 @@ class PhotoUploadLogic(internal val context: Context) {
             path = path,
             latitude = latitude,
             longitude = longitude,
-            altitude = altitude ?: 0.0,
+            altitude = altitude,
             bearing = bearing ?: 0.0,
             capturedAt = capturedAt,
             accuracy = accuracy,

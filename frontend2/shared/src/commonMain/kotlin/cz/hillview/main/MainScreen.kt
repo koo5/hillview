@@ -47,6 +47,7 @@ import cz.hillview.core.ui.rememberScreenAngleDeg
 import cz.hillview.map.MapScreen
 import cz.hillview.map.MapSession
 import cz.hillview.map.MapStateHolder
+import cz.hillview.map.PanelEdges
 import cz.hillview.settings.MapSettingsRepository
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -215,6 +216,11 @@ fun MainScreen(
                 }
             }
         }
+        // Read through a State, not captured: this content is MOVABLE — one
+        // instance that travels between the portrait Column and the landscape
+        // Row — so a value captured when it was created would describe the
+        // orientation it was born in forever.
+        val portraitNow = rememberUpdatedState(portrait)
         val mapPanel = remember {
             movableContentOf {
                 MapScreen(
@@ -223,6 +229,7 @@ fun MainScreen(
                     stateHolder = stateHolder,
                     stateStore = koinInject(),
                     session = session,
+                    edges = PanelEdges.mapPanel(portraitNow.value),
                 )
             }
         }
@@ -312,7 +319,13 @@ fun MainScreen(
             // session, and its state — recording or not — is worth seeing at
             // a glance. Toggles back to the map, exactly like 📷.
             FloatingControl(
-                label = "🛰",
+                // 🎞, not 🛰 (user, 2026-09-11). A satellite says GPS, which
+                // is the half of this mode that is not the point — every
+                // activity here uses GPS. Film says "pictures being taken on
+                // something else", which is the half that distinguishes it,
+                // and unlike 👣 it cannot be read as the compass's walking
+                // mode.
+                label = "🎞",
                 tag = "external-camera-button",
                 active = activity == "external",
                 onClick = {
@@ -400,7 +413,7 @@ fun MainScreen(
                         onOpenCaptureGuide()
                     }
                     // (External camera moved OUT of the menu to a floating
-                    // 🛰 button beside 📷 — it is an activity you toggle,
+                    // 🎞 button beside 📷 — it is an activity you toggle,
                     // not a page you visit.)
                     if (CLOCK_VIDEO_IN_MENU) {
                         MenuLink("Clock video", "menu-clock-video") {

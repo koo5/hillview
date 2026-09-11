@@ -230,6 +230,9 @@ class StampRefiner private constructor(private val context: Context) {
 		// rows and the photo keeps (and has uploaded) its at-the-time stamp.
 		val row = database.photoDao().getPhotoById(photoId)
 			?: return RefineResult(photoId, "gone", 0)
+		// A row with NO position (v22) gets one here if the tracking tables
+		// bracket the shutter — the refiner is the one path that can position
+		// a photo taken before the first fix.
 		val newLat = refinedLat ?: row.latitude
 		val newLon = refinedLon ?: row.longitude
 		val newAlt = refinedAlt ?: row.altitude
@@ -239,8 +242,12 @@ class StampRefiner private constructor(private val context: Context) {
 		)
 		if (updated == 0) return RefineResult(photoId, "upload-won", 0)
 
-		val moved = if (refinedLat != null) {
-			distanceMeters(row.latitude, row.longitude, newLat, newLon)
+		// "Moved" needs a before AND an after: a row that had no position
+		// (v22) was positioned, not moved, and reports no distance.
+		val moved = if (refinedLat != null && refinedLon != null &&
+			row.latitude != null && row.longitude != null
+		) {
+			distanceMeters(row.latitude, row.longitude, refinedLat, refinedLon)
 		} else null
 		val turned = if (refinedBearing != null) {
 			angularDiffDeg(row.bearing, newBearing)

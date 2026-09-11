@@ -61,9 +61,9 @@ class GeoElectionBehaviourTest {
     @After
     fun withdrawEverythingThisTestElected() {
         gps.remove()
-        // Both routes are session-long; leaving one standing would arrange
-        // the next test class behind its back.
-        session.setMapPositionWithoutFix(false)
+        // The claim is session-long; leaving it standing would arrange the
+        // next test class behind its back. (The no-fix hatch's flag used to
+        // be reset here too; it no longer exists.)
         session.setLocationTracking(LocationTracking.Off)
     }
 
@@ -88,16 +88,6 @@ class GeoElectionBehaviourTest {
         compose.waitForIdle()
     }
 
-    /** The coordinates the capture pane prints on the hatch's own button. */
-    private fun hatchLabelPosition(): Pair<Double, Double>? {
-        val node = compose.onAllNodesWithTag("capture-manual-location")
-            .fetchSemanticsNodes().firstOrNull() ?: return null
-        val text = node.config.getOrNull(SemanticsProperties.Text)
-            ?.joinToString(" ") { it.text } ?: return null
-        val match = Regex("""\(([-\d.]+), ([-\d.]+)\)""").find(text) ?: return null
-        return match.groupValues[1].toDouble() to match.groupValues[2].toDouble()
-    }
-
     /**
      * Item 0e, fixed 2026-08-08 and unguarded until now: the stamp position
      * was read ONCE at the electing moment, so claiming at A, panning to B and
@@ -117,47 +107,41 @@ class GeoElectionBehaviourTest {
         val photo = compose.captureOnePhoto()
         compose.dismissAutoUploadPromptIfShown()
 
-        assertEquals(atShutter.latitude, photo.latitude, 1e-3)
-        assertEquals(atShutter.longitude, photo.longitude, 1e-3)
+        assertEquals(atShutter.latitude, photo.latitude!!, 1e-3)
+        assertEquals(atShutter.longitude, photo.longitude!!, 1e-3)
         // Belt and braces: the failure mode is stamping the OLD centre, and
         // 0.05° is far enough that the tolerance above cannot hide it.
         assertTrue(
             "the stamp followed the claim's original position, not the map",
-            abs(photo.latitude - claimedAt.latitude) > 0.01,
+            abs(photo.latitude!! - claimedAt.latitude) > 0.01,
         )
     }
 
     /**
-     * Item 7 / 0d: the no-fix hatch sets the same flag the pill does, so the
-     * position it captures at must follow the map exactly the same way — and
-     * the button says which position that is, so the label has to move too.
+     * Item 7 / 0d, restated for the rule that replaced the hatch: with no
+     * fix, the position a capture records is the map centre, LIVE — it
+     * follows a pan the same way a claim does, and no button is involved.
+     * The precondition is a fix-less session; see the same guard in
+     * CaptureGatingBehaviourTest for why it is an assumption, not a wait.
      */
     @Test
-    fun theNoFixHatchFollowsTheMapAsWell() {
+    fun withNoFixTheStampFollowsTheMapAsWell() {
+        org.junit.Assume.assumeTrue(
+            "a fix from an earlier test is in the session — this row needs none",
+            mapState.lastFix.value == null,
+        )
         compose.openCaptureAndAwaitCamera()
-        // A fix injected by another test lingers in the fused cache; the gate
-        // shuts again on its own once it ages past FIX_FRESH_MS, and the
-        // offer is only made while it is shut.
-        compose.waitUntil(30_000) {
-            compose.onAllNodesWithTag("capture-use-map-position")
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.liftGateToMapPosition()
+        compose.waitUntil(15_000) { compose.shutterIsEnabled() }
 
         val before = mapState.spatial.value
         panTo(before.latitude + 0.05, before.longitude + 0.05)
         val atShutter = mapState.spatial.value
 
-        compose.waitUntil(10_000) {
-            hatchLabelPosition()?.let { abs(it.first - atShutter.latitude) < 1e-3 } == true
-        }
-        val labelled = hatchLabelPosition()!!
-        assertEquals(atShutter.longitude, labelled.second, 1e-3)
-
         val photo = compose.captureOnePhoto()
         compose.dismissAutoUploadPromptIfShown()
-        assertEquals(atShutter.latitude, photo.latitude, 1e-3)
-        assertEquals(atShutter.longitude, photo.longitude, 1e-3)
+        assertEquals(atShutter.latitude, photo.latitude!!, 1e-3)
+        assertEquals(atShutter.longitude, photo.longitude!!, 1e-3)
+        assertEquals("map", photo.locationSource)
     }
 
     /**

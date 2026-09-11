@@ -68,7 +68,7 @@ fun CaptureGuideScreen(onBack: () -> Unit) {
 
         Section("Location & the info panel")
         Entry("The panel (top left)", "Compass heading, position, altitude, accuracy — plus camera state and upload tallies. Tap its LEFT EDGE (the grip mark) to cycle the backdrop; taps on the rest pass through to focus.")
-        Entry("No GPS?", "The shutter stays off without a fix. \"Capture at the map position instead\" stamps photos from wherever you put the map — deliberately, and the shutter sound changes so you notice.")
+        Entry("No GPS?", "The shutter still works. Without a fix, photos are stamped from wherever you put the map, and the panel says so; the shutter sound changes so you notice. When a fix exists and you want the map position instead, accept the claim on the map. A stale fix is still used — its age is recorded with the photo, so you can sort it out later.")
         Entry("Counts", "The badge on the shutter counts the current run; the bottom-right corner counts this session's photos and shows saves in flight.")
     }
 }

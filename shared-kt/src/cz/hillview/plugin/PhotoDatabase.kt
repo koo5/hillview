@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     // GeoTrackingDatabase in v18 — see that file for why. What is left here is
     // durable and low-rate: a capture and the edits that belong to it.
     entities = [PhotoEntity::class, EditEntity::class],
-    version = 20,
+    version = 22,
     // Schemas are exported per app (they compile these entities with different
     // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
     // docs/geo-election-test-todo.md item 6. Both agree on the identityHash;
@@ -323,6 +323,195 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_20_21 = object : Migration(20, 21) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// altitude becomes NULLABLE (see PhotoEntity.altitude). Every
+				// other photos migration has been an ALTER TABLE ADD COLUMN;
+				// this one cannot be, because SQLite has no way to drop a NOT
+				// NULL constraint in place — the column has to be rebuilt, the
+				// same copy-and-rename MIGRATION_9_10 did for bearings.
+				//
+				// NULLIF(altitude, 0.0) is what makes this a no-op for
+				// existing rows rather than a change of meaning: 0.0 WAS the
+				// absent sentinel, tested as "> 0" by both readers, so a
+				// stored 0.0 has never once been sent to the server. Carrying
+				// it across as a real 0.0 would start claiming sea level for
+				// every row that simply never had a fix.
+				//
+				// The drop is safe for `edits`, which references photos(id) ON
+				// DELETE CASCADE: Room touches PRAGMA foreign_keys only in the
+				// generated onOpen (which runs after migrations) and in
+				// clearAllTables, so enforcement is at SQLite's per-connection
+				// default of OFF here and the implicit DELETE FROM fires no
+				// cascade. Were that ever to change, the rename below would
+				// fail on the dangling reference and the whole migration would
+				// roll back — loudly, not silently.
+				database.execSQL("""
+					CREATE TABLE photos_new (
+						id TEXT NOT NULL,
+						filename TEXT NOT NULL,
+						path TEXT NOT NULL,
+						latitude REAL NOT NULL,
+						longitude REAL NOT NULL,
+						altitude REAL,
+						bearing REAL NOT NULL,
+						capturedAt INTEGER NOT NULL,
+						accuracy REAL NOT NULL,
+						width INTEGER NOT NULL,
+						height INTEGER NOT NULL,
+						fileSize INTEGER NOT NULL,
+						createdAt INTEGER NOT NULL,
+						uploadStatus TEXT NOT NULL,
+						uploadedAt INTEGER NOT NULL,
+						retryCount INTEGER NOT NULL,
+						lastUploadAttempt INTEGER NOT NULL,
+						uploadError TEXT NOT NULL,
+						fileHash TEXT NOT NULL,
+						serverPhotoId TEXT,
+						deleted INTEGER NOT NULL,
+						version INTEGER NOT NULL,
+						anonymizationOverride TEXT,
+						bearingSource TEXT,
+						locationSource TEXT,
+						locationAgeMs INTEGER,
+						exposureJson TEXT,
+						uploadHoldUntil INTEGER NOT NULL,
+						stampRefinedAt INTEGER,
+						license TEXT,
+						pitch REAL,
+						altLocationJson TEXT,
+						PRIMARY KEY(id)
+					)
+				""")
+				database.execSQL("""
+					INSERT INTO photos_new (
+						id, filename, path, latitude, longitude, altitude, bearing,
+						capturedAt, accuracy, width, height, fileSize, createdAt,
+						uploadStatus, uploadedAt, retryCount, lastUploadAttempt,
+						uploadError, fileHash, serverPhotoId, deleted, version,
+						anonymizationOverride, bearingSource, locationSource,
+						locationAgeMs, exposureJson, uploadHoldUntil, stampRefinedAt,
+						license, pitch, altLocationJson
+					)
+					SELECT
+						id, filename, path, latitude, longitude, NULLIF(altitude, 0.0), bearing,
+						capturedAt, accuracy, width, height, fileSize, createdAt,
+						uploadStatus, uploadedAt, retryCount, lastUploadAttempt,
+						uploadError, fileHash, serverPhotoId, deleted, version,
+						anonymizationOverride, bearingSource, locationSource,
+						locationAgeMs, exposureJson, uploadHoldUntil, stampRefinedAt,
+						license, pitch, altLocationJson
+					FROM photos
+				""")
+				database.execSQL("DROP TABLE photos")
+				database.execSQL("ALTER TABLE photos_new RENAME TO photos")
+
+				// The indices go with the old table; recreate all five exactly
+				// as PhotoEntity declares them, or Room's identity check fails
+				// on the next open.
+				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_created_at ON photos (createdAt)")
+				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_upload_status_created_at ON photos (uploadStatus, createdAt)")
+				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_location ON photos (latitude, longitude)")
+				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_file_hash ON photos (fileHash)")
+				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_path ON photos (path)")
+			}
+		}
+
+		private val MIGRATION_21_22 = object : Migration(21, 22) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// latitude and longitude become NULLABLE (see PhotoEntity),
+				// the same rebuild MIGRATION_20_21 did for altitude — SQLite
+				// cannot drop a NOT NULL in place. Same foreign-key reasoning
+				// as there: enforcement is off during migrations, so dropping
+				// the parent does not cascade `edits`.
+				//
+				// The (0.0, 0.0) PAIR is carried across as null. It was never
+				// a place: the shutter gate kept a capture from ever having
+				// no position, and the only writer of (0, 0) was the EXIF
+				// import path defaulting a file with no GPS tags. A single
+				// zero coordinate with a real other one is left alone — the
+				// equator and the meridian are real, Null Island is not.
+				database.execSQL("""
+					CREATE TABLE photos_new (
+						id TEXT NOT NULL,
+						filename TEXT NOT NULL,
+						path TEXT NOT NULL,
+						latitude REAL,
+						longitude REAL,
+						altitude REAL,
+						bearing REAL NOT NULL,
+						capturedAt INTEGER NOT NULL,
+						accuracy REAL NOT NULL,
+						width INTEGER NOT NULL,
+						height INTEGER NOT NULL,
+						fileSize INTEGER NOT NULL,
+						createdAt INTEGER NOT NULL,
+						uploadStatus TEXT NOT NULL,
+						uploadedAt INTEGER NOT NULL,
+						retryCount INTEGER NOT NULL,
+						lastUploadAttempt INTEGER NOT NULL,
+						uploadError TEXT NOT NULL,
+						fileHash TEXT NOT NULL,
+						serverPhotoId TEXT,
+						deleted INTEGER NOT NULL,
+						version INTEGER NOT NULL,
+						anonymizationOverride TEXT,
+						bearingSource TEXT,
+						locationSource TEXT,
+						locationAgeMs INTEGER,
+						exposureJson TEXT,
+						uploadHoldUntil INTEGER NOT NULL,
+						stampRefinedAt INTEGER,
+						license TEXT,
+						pitch REAL,
+						altLocationJson TEXT,
+						PRIMARY KEY(id)
+					)
+				""")
+				database.execSQL("""
+					INSERT INTO photos_new (
+						id, filename, path, latitude, longitude, altitude, bearing,
+						capturedAt, accuracy, width, height, fileSize, createdAt,
+						uploadStatus, uploadedAt, retryCount, lastUploadAttempt,
+						uploadError, fileHash, serverPhotoId, deleted, version,
+						anonymizationOverride, bearingSource, locationSource,
+						locationAgeMs, exposureJson, uploadHoldUntil, stampRefinedAt,
+						license, pitch, altLocationJson
+					)
+					SELECT
+						id, filename, path,
+						CASE WHEN latitude = 0.0 AND longitude = 0.0 THEN NULL ELSE latitude END,
+						CASE WHEN latitude = 0.0 AND longitude = 0.0 THEN NULL ELSE longitude END,
+						altitude, bearing,
+						capturedAt, accuracy, width, height, fileSize, createdAt,
+						uploadStatus, uploadedAt, retryCount, lastUploadAttempt,
+						uploadError, fileHash, serverPhotoId, deleted, version,
+						anonymizationOverride, bearingSource, locationSource,
+						locationAgeMs, exposureJson, uploadHoldUntil, stampRefinedAt,
+						license, pitch, altLocationJson
+					FROM photos
+				""")
+				database.execSQL("DROP TABLE photos")
+				database.execSQL("ALTER TABLE photos_new RENAME TO photos")
+				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_created_at ON photos (createdAt)")
+				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_upload_status_created_at ON photos (uploadStatus, createdAt)")
+				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_location ON photos (latitude, longitude)")
+				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_file_hash ON photos (fileHash)")
+				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_path ON photos (path)")
+			}
+		}
+
+		/**
+		 * Every migration, in one list, so the runtime builder and
+		 * PhotoDatabaseMigrationTest cannot disagree about which ones exist.
+		 */
+		internal val MIGRATIONS = arrayOf(
+			MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
+			MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
+			MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
+			MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
+		)
+
         fun getDatabase(context: Context): PhotoDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -330,7 +519,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                     PhotoDatabase::class.java,
                     "hillview_photos_database"
                 )
-                    .addMigrations(MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20)
+                    .addMigrations(*MIGRATIONS)
                     .build()
                 INSTANCE = instance
                 instance

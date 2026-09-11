@@ -57,6 +57,7 @@ actual fun MapScreen(
     stateStore: MapStateStore,
     session: MapSession,
     showControls: Boolean,
+    edges: PanelEdges,
 ) {
     val context = LocalContext.current
     val mapSettings by settings.settings.collectAsState()
@@ -106,12 +107,15 @@ actual fun MapScreen(
     val trackingPhase by session.bearingPhase.collectAsState()
     val locationTracking by session.locationTracking.collectAsState()
     var locationFlash by remember { mutableStateOf(false) }
-    // The last fix, HELD — not only applied to the map centre. In BACKGROUND
-    // tracking the fix callback deliberately stops writing spatial state
-    // (exploring must not be yanked back), which used to mean the fix went
-    // nowhere at all and the receiver's position vanished from the map the
-    // moment you panned. The GPS dot (GpsMarkerOverlay) is where it goes.
-    var lastFix by remember { mutableStateOf<GeoPoint?>(null) }
+    // The last fix is a RECORD in the one state now (MapStateHolder.lastFix,
+    // 2026-09-09), not a copy held here. In BACKGROUND tracking the fix
+    // callback deliberately stops writing spatial state (exploring must not
+    // be yanked back), which used to mean the fix went nowhere at all and the
+    // receiver's position vanished from the map the moment you panned; a
+    // composition-local copy fixed that for the GPS dot only, while the
+    // capture pane kept ANOTHER copy for the stamp. Both now read the state.
+    val lastFixState by state.lastFix.collectAsState()
+    val lastFix = lastFixState?.let { GeoPoint(it.latitude, it.longitude) }
     // A pan happened and no manual position is claimed: exploration is
     // free, and this offers the two exits — claim this position, or snap
     // back to the fix. No timeout: reading a map takes as long as it
@@ -218,13 +222,22 @@ actual fun MapScreen(
         }
     }
 
-    // GPS: runs in ACTIVE and BACKGROUND, only ACTIVE moves the map. Also
-    // keyed on the permission so a grant mid-session arms the listener the
-    // button optimistically asked for.
+    // The fix RECORD: every fix the engine publishes, whatever the tracking
+    // mode, into the one state through its funnel. This is the writer for
+    // the position's second stream — the capture pane stamps from it, the
+    // GPS dot draws from it, and nothing else subscribes to the engine for a
+    // fix. Runs for the life of this always-mounted pane.
+    LaunchedEffect(Unit) {
+        controller.observeFixes { fix ->
+            locationFlash = true
+            state.updateFix(fix)
+        }
+    }
+    // Follow-me: runs in ACTIVE and BACKGROUND, only ACTIVE moves the map.
+    // Also keyed on the permission so a grant mid-session arms the listener
+    // the button optimistically asked for.
     LaunchedEffect(locationTracking, locationPermission.granted) {
         controller.setLocationEnabled(locationTracking != LocationTracking.Off) { lat, lon ->
-            locationFlash = true
-            lastFix = GeoPoint(lat, lon)
             if (locationTracking == LocationTracking.Active) {
                 state.updateSpatial(
                     latitude = lat, longitude = lon,
@@ -255,10 +268,12 @@ actual fun MapScreen(
     LaunchedEffect(bearing.source) {
         controller.publishBearingElection(bearing.source)
     }
-    // Location: the map position when the user has said so — through the
-    // pill's accepted claim or the capture pane's no-fix hatch — otherwise the
-    // fix stream. Electing it also writes it, or the election would point at a
-    // source with no rows.
+    // Location: the map position when the user has said so through the
+    // pill's accepted claim, otherwise the fix stream. (The capture pane's
+    // no-fix hatch used to be a second way in; it is gone — with no fix the
+    // map centre is recorded without an election, docs/one-state.md.)
+    // Electing it also writes it, or the election would point at a source
+    // with no rows.
     LaunchedEffect(manualPositionElected, spatial.latitude, spatial.longitude) {
         controller.publishLocationElection(
             manualElected = manualPositionElected,
@@ -279,8 +294,12 @@ actual fun MapScreen(
     val gpsOverlay = remember { GpsMarkerOverlay() }
     val arrowOverlay = remember { BearingArrowOverlay() }
     // Arrow drag: walking sets the bearing outright, car adjusts the mount
-    // offset by the angle travelled.
-    arrowOverlay.onDragStart = {
+    // offset by the angle travelled. Neither happens on contact — the arrow
+    // has to be HELD first (ArrowArming), and this fires at that moment
+    // rather than at the touch. Standing the compass down was the worst of
+    // the accidental override: a finger aimed past the arrow switched
+    // tracking off and left a hand-set bearing in its place.
+    arrowOverlay.onArmed = {
         if (mapSettings.bearingMode == BearingMode.Walking && trackingWanted) {
             session.setBearingTrackingWanted(false)
         }
@@ -416,7 +435,10 @@ actual fun MapScreen(
                 arrowStamp[0] = System.currentTimeMillis()
                 arrowStamp[1] = bearing.bearing.toRawBits()
                 arrowOverlay.tipRadiusPx = arrowTipPx
-                arrowOverlay.fullCircleHitArea =
+                // The ring is grabbable in every mode; this decides only
+                // what a drag MEANS — car mode adjusts the mount offset by
+                // the angle travelled, everything else points the arrow.
+                arrowOverlay.mountOffsetDrag =
                     mapSettings.bearingMode == BearingMode.Car && trackingWanted
 
                 markerOverlay.viewBearing = bearing.bearing
@@ -638,6 +660,8 @@ actual fun MapScreen(
                 positionPrompt = false
                 session.setLocationTracking(LocationTracking.Active)
             },
+            mapPositionElected = manualPositionElected,
+            edges = edges,
             mapOrientation = spatial.orientation,
             onResetNorth = {
                 state.updateSpatial(
@@ -839,6 +863,7 @@ private class MapSensorController(private val context: Context) {
     private var compassJob: Job? = null
     private var carJob: Job? = null
     private var fixJob: Job? = null
+    private var recordJob: Job? = null
 
     /**
      * The engine's heading BEFORE election, for the debug readout: the
@@ -964,6 +989,37 @@ private class MapSensorController(private val context: Context) {
         wantLocation = enabled
         if (enabled) this.onFix = onFix
         syncLocation()
+    }
+
+    /**
+     * The fix as a RECORD, for the one state — unconditional, unlike
+     * [setLocationEnabled], which is follow-me's gated interest. The engine's
+     * platform Location carries elapsedRealtimeNanos, and the record keeps it
+     * (FixState): the stamp's fix age is measured against the monotonic
+     * clock, and handing the state a lat/lng pair would silently lose that.
+     * Idempotent; ends with [release].
+     */
+    fun observeFixes(onRecord: (cz.hillview.map.FixState) -> Unit) {
+        if (recordJob != null) return
+        recordJob = scope.launch {
+            engine.location.collect { fix ->
+                if (fix == null) return@collect
+                onRecord(
+                    cz.hillview.map.FixState(
+                        latitude = fix.latitude,
+                        longitude = fix.longitude,
+                        altitude = fix.takeIf { it.hasAltitude() }?.altitude,
+                        accuracyM = fix.takeIf { it.hasAccuracy() }?.accuracy,
+                        // The wall-clock instant OF THE FIX, not of its arrival
+                        // here: age at arrival is subtracted so a fix the
+                        // engine seeded from a cache reads as old as it is.
+                        atMs = System.currentTimeMillis() -
+                            (android.os.SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1_000_000,
+                        elapsedRealtimeNanos = fix.elapsedRealtimeNanos,
+                    ),
+                )
+            }
+        }
     }
 
     /**

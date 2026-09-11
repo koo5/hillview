@@ -20,9 +20,34 @@ data class PhotoEntity(
     val id: String,
     val filename: String,
     val path: String,
-    val latitude: Double,
-    val longitude: Double,
-    val altitude: Double = 0.0,
+    /**
+     * Nullable (v22) — and null MEANS "this photo records no position": the
+     * one case a capture has nothing to stamp, a blank first run before any
+     * fix or any pan (docs/one-state.md, "The position side"). Before v22
+     * that case could not reach this table at all (the shutter refused the
+     * press), and a file imported with no GPS EXIF was written at (0.0, 0.0)
+     * — Null Island — which the v22 migration carries across as null. The
+     * upload omits an absent position and the server keeps the photo without
+     * a geometry; the device-photo loader skips it (nothing to draw); the
+     * refiner may later give it one from the tracking tables.
+     */
+    val latitude: Double?,
+    val longitude: Double?,
+    /**
+     * Metres above the WGS84 ellipsoid — what Android's Location reports (v21).
+     *
+     * Nullable on purpose, like [pitch] and unlike [bearing], which keeps 0.0
+     * as its unset value. It used to be a non-null Double defaulting to 0.0,
+     * with "> 0" as the absent test everywhere it was read, and that test is
+     * wrong twice over: it collapses a genuine sea-level fix into "unknown",
+     * and it throws away every NEGATIVE altitude — which an ellipsoid height
+     * legitimately is across whole regions where the geoid sits below the
+     * ellipsoid (southern India reaches about -100 m), so a photo taken well
+     * above sea level there reported a negative height and lost it. Nothing
+     * caught it because in the fast-write path there is no file EXIF for the
+     * worker to fall back to: the altitude was simply gone.
+     */
+    val altitude: Double? = null,
     val bearing: Double = 0.0,
     val capturedAt: Long,
     val accuracy: Double,
@@ -61,7 +86,7 @@ data class PhotoEntity(
     // rewrite. Null on rows from before v15 or from writers that don't know
     // them; the worker then falls back to the file's EXIF, as it always has.
     val bearingSource: String? = null,
-    /** "gps" or "manual" (map-positioned) — same vocabulary as the EXIF provenance. */
+    /** "gps" or "map" (the map centre) — same vocabulary as the EXIF provenance; null when the photo records no position. */
     val locationSource: String? = null,
     /** Age of the GPS fix at the shutter, ms. */
     val locationAgeMs: Long? = null,

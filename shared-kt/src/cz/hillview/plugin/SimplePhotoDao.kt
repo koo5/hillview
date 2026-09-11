@@ -15,6 +15,43 @@ interface SimplePhotoDao {
     @Query("SELECT * FROM photos ORDER BY createdAt DESC LIMIT :limit OFFSET :offset")
     fun getPhotosPaginated(limit: Int, offset: Int): List<PhotoEntity>
 
+    /**
+     * OLDEST first, for the photo-index dump (frontend2's PhotoTableDump).
+     *
+     * The direction is the whole point. Newest-first means every new capture
+     * shifts every row's position, so a file sharded by position would have
+     * every shard change on every shot; oldest-first appends at the tail, so
+     * only the last shard moves. `id` breaks ties because two photos can
+     * share a millisecond, and a pair that swapped between dumps would dirty
+     * a closed shard for no reason.
+     */
+    @Query("SELECT * FROM photos ORDER BY createdAt ASC, id ASC LIMIT :limit OFFSET :offset")
+    fun getPhotosOldestFirst(limit: Int, offset: Int): List<PhotoEntity>
+
+    /**
+     * "Has anything happened to this table?" in one cheap row.
+     *
+     * The dump's fast exit. Reading every row to find out nothing changed is
+     * the expensive way to ask, and on a table of tens of thousands it is
+     * expensive enough to matter every time the app is backgrounded. These
+     * aggregates move for the mutations that count: a capture or an import
+     * (count, max createdAt), a deletion (count, sum deleted), an upload
+     * landing (max uploadedAt / lastUploadAttempt), a re-upload (sum version).
+     * A pure metadata edit that touches none of them — a licence change —
+     * slips through until the next real change; the content hash downstream
+     * still decides what is actually written, so the cost of that miss is
+     * staleness, never a wrong file.
+     */
+    @Query("""
+        SELECT COUNT(*) || ':' || IFNULL(MAX(createdAt), 0)
+            || ':' || IFNULL(MAX(uploadedAt), 0)
+            || ':' || IFNULL(MAX(lastUploadAttempt), 0)
+            || ':' || IFNULL(SUM(version), 0)
+            || ':' || IFNULL(SUM(deleted), 0)
+        FROM photos
+    """)
+    fun getPhotoTableFingerprint(): String
+
     @Query("""
         SELECT * FROM photos
         WHERE latitude BETWEEN :minLat AND :maxLat
@@ -215,9 +252,9 @@ interface SimplePhotoDao {
     """)
     fun applyRefinedStamp(
         photoId: String,
-        latitude: Double,
-        longitude: Double,
-        altitude: Double,
+        latitude: Double?,
+        longitude: Double?,
+        altitude: Double?,
         bearing: Double,
         refinedAt: Long,
     ): Int

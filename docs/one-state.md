@@ -48,9 +48,11 @@ sample ride along under its name.
 ## Readers
 
 The map arrow, the capture pill, what a photo is stamped with, the viewer's
-ring and its neighbours, the external-camera pane, the marker fade. All of
-them read the state. None of them samples hardware to answer a question the
-state already answers.
+ring and its neighbours, the external-camera pane, the marker fade, and the
+fix's freshness. All of them read the state. None of them samples hardware
+to answer a question the state already answers, and none of them keeps a
+stored copy of an answer that has a clock in it (see "Derived, not
+stored").
 
 ## The hardware boundary
 
@@ -94,34 +96,103 @@ Each of these cost a debugging session, and each is the same mistake:
 - The external-camera service configured the engine **Off** on the way out
   while MainScreen was configuring capture on the way in. Whoever went second
   won, so the capture pane's compass worked or did not, at random.
+- The capture pane's **`hasFix`** was a boolean computed once, at the
+  instant a fix arrived, and never asked again — while the overlay's stale
+  warning derived the same question live from `fixAtMs` and a clock. Two
+  answers to "is there a fresh fix", disagreeing in public: the warning
+  counted the fix's age up past a minute while the gate and the no-fix offer
+  still read it as fresh. So the offer built for losing signal could never
+  appear once signal was lost. This is the pitch bug in the time dimension:
+  a stored value derived from a timestamp is a copy of the state at an
+  instant, and a copy is a second state. (Found 2026-09-09 by a test that
+  believed the doc; see "Derived, not stored".)
 
-## The position side: two streams, castled on confirmation
+## The position side: two records, one claim
 
-Position has two streams — the receiver's fix and the map's centre — and a
-photo records ONE of them as primary. The original swaps them (the user's
-word: castles them) the moment the map is panned; frontend2 swaps them only
-when the pan is CONFIRMED, through the pill's accepted claim or the no-fix
-hatch (`MapSession.manualPositionElected`). Panning by itself is
-exploration and changes nothing a photo records.
+Position is two records in the state, each a position and the time it was
+set:
 
-Whichever stream is not primary rides along as `alt_location` — the
-original's field, same JSON, synthesized by the backend into the UserComment
-provenance — so a reviewer can promote it later. `altLocationFor` is the
-rule:
+- **`lastFix`** — the receiver's latest. Session-scoped: a measurement does
+  not survive a relaunch, because its age would be a day and its `gps` word
+  a lie. Carries `elapsedRealtimeNanos`, which is what the stamp's age is
+  measured against.
+- **`lastPan`** — the map centre, and when a person last put it there.
+  Persisted, as the map is.
 
-| state | primary | `alt_location` |
-| --- | --- | --- |
-| following (map = fix) | fix, `gps` | none — one stream |
-| exploring, prompt up, unclaimed | fix, `gps` | map centre, `map-unclaimed` |
-| claimed | map centre, `manual` | live fix, `gps-background` |
-| no-fix hatch | map centre, `manual` | none — no fix exists |
+And one bit of intent, the claim (`MapSession.manualPositionClaimed`): the
+user has said the map centre is where they are, overriding the fix. The
+original swaps the streams the moment the map is panned; frontend2 swaps only on the claim. Panning by itself is
+exploration and changes nothing a photo records — *while there is a fix to
+record*. When there is no fix, the map centre is not an alternative, it is
+the only position there is, and it is what a photo records. Nothing is
+refused, and nothing decides freshness for the user: the age is on the
+stamp and downstream filters on it (see "Derived, not stored").
 
-The claimed row is the original's exact case. The unclaimed row is one the
-original never has (it would already have swapped), and the rule extends to
-it symmetrically, tagged so nobody mistakes an unconfirmed pan for a
-measurement. The capture pane reads `exploring` and `manualLocationElected`
-as mirrors of session state, exactly as it reads the bearing — it samples
-no stream of its own.
+The stamp picks by this table and nothing else. `altLocationFor` is the
+rule; the other record rides along as `alt_location` — the original's
+field, same JSON, synthesized by the backend into the UserComment
+provenance — so a reviewer can promote it later:
+
+| `lastFix` | `lastPan` | claimed | primary | `alt_location` |
+| --- | --- | --- | --- | --- |
+| yes | any | no | fix, `gps` | pan, if exploring |
+| yes | yes | yes | pan, `map` | fix |
+| no | yes | — | pan, `map` | none |
+| no | no | — | none — `null`, and meant | none |
+
+Two words, `gps` and `map`, which is the original's contract exactly. The
+row says the rest: a `map` primary with a fix in `alt_location` is a
+confirmed override; a `map` primary with none is the map standing in for a
+receiver that has said nothing this session. The last row is the doc's own
+null rule applied to position — a writer with no value writes `null` and
+means it — and it is the ONLY case with no position: a blank first run
+before any fix or pan. (`alt_location`'s own source words, `gps-background`
+and `map-unclaimed`, are the backend's existing shape and stay.)
+
+The button that REPORTS this reads the claim, not the pan: half-lit means
+the fix has been demoted to `alt_location`, which is the second row and only
+that (`fixRole`). It used to read `LocationTracking` alone, which is the
+original's rule — there the pan IS the swap, so one colour can truthfully
+mean both. Here it announced a demotion a whole state early.
+
+The capture pane reads the two records, `exploring` and the claim as
+mirrors of the state, exactly as it reads the bearing. It samples no stream
+of its own and decides nothing; the shutter's only gate is camera readiness.
+
+**Status: moved, 2026-09-09.** `MapStateHolder.lastFix` (a `FixState`,
+session-scoped) is written by the map's adapter for every fix
+(`observeFixes`), whatever the tracking mode; `SpatialState` remains the
+persisted map centre. The capture pane reads both through `stampFix` and
+`manualLocation`, and its own location subscription is gone — the
+`OneStateArchitectureTest` allowlist entry for it no longer names a fix
+stream, so the "three exceptions" above are the truth again. The stamp is
+`stampPosition` (commonMain, `StampPositionTest` pins the four rows);
+`shutterEnabled` is camera readiness; the no-fix hatch, its
+`mapPositionWithoutFix` flag and the `manual` word are deleted; the photos
+table carries `null` coordinates (v22, with the old Null-Island `(0, 0)`
+carried across as null) and the upload omits an absent position, which the
+server already accepted. Not yet phone-verified.
+
+## Derived, not stored
+
+This page is mostly about WHERE a value comes from. `hasFix` was about WHEN
+a value is true, and the rule is the same: a boolean derived from a
+timestamp and then stored is a copy of the state at one instant, and every
+reader of the copy is reading a second state, displaced in time instead of
+in source.
+
+So freshness is derived at read, never stored. `fixAtMs` (and the
+monotonic `elapsedRealtimeNanos` the stamp needs) live in the state; "is it
+fresh" is a function of them and a clock, computed by whoever asks, with
+ONE definition. The overlay's `staleFixWarning(fixAtMs, nowMs, …)` is that
+function's shape. Anything that wants to know "have we ever had a fix" may
+keep a boolean, because that question has no time in it.
+
+Freshness and accuracy INFORM — the pill, the warning, the readout — and
+never refuse. Both are recorded on the stamp (`location_age_ms`, the EXIF
+positioning error, the upload metadata), which is what makes refusing
+unnecessary: downstream can filter on a number the app would otherwise have
+had to guess a threshold for.
 
 ## "In front" has one computation
 

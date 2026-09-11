@@ -453,11 +453,14 @@ private fun PhotoCard(
                         "Date",
                         "${formatLocalDate(card.capturedAtMs)} ${formatLocalTime(card.capturedAtMs)}",
                     )
-                    if (card.latitude != 0.0 || card.longitude != 0.0) {
-                        Detail(
-                            "Location",
-                            "${fmt6(card.latitude)}, ${fmt6(card.longitude)}",
-                        )
+                    // Null means no position (v22); the (0,0) test this used
+                    // to make was the old Null-Island sentinel.
+                    val lat = card.latitude
+                    val lon = card.longitude
+                    if (lat != null && lon != null) {
+                        Detail("Location", "${fmt6(lat)}, ${fmt6(lon)}")
+                    } else {
+                        Detail("Location", "none")
                     }
                     card.bearingDeg?.let { Detail("Bearing", "${fmt1(it)}°") }
                     Detail("Dimensions", "${card.width} × ${card.height}")

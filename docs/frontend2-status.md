@@ -505,6 +505,472 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-09-11
+
+- **The map's controls now know which edges are the screen's**
+  (user-raised: "some controls are rightfully moved off the edge of the
+  screen to lower the chances of accidental touches, but i dont know if we
+  had any reason to take it so far as to offset them all... My goal is to
+  free up reasonable amount of space in the center of the map panel").
+  - **The distinction that was missing.** The map panel is half a split: the
+    bottom half in portrait, the right half in landscape. So exactly one of
+    its edges is the app's own DIVIDER and the rest are the screen's. A
+    gutter at a screen edge buys something — a mis-swipe there leaves the app
+    or fires a system gesture. A gutter at the divider buys nothing: the
+    divider runs the whole width or height of the split and can be taken hold
+    of anywhere along it. `PanelEdges.mapPanel(portrait)` is that fact, and
+    MainScreen is where it is known.
+  - **Window insets were the bigger waste.** `safeContentPadding()` covered
+    the whole overlay, and Compose does not clip window insets to where a
+    composable sits — so a gesture strip's worth of map was held back at the
+    divider, against a system gesture that cannot happen there. Now only the
+    screen's sides are asked for (`screenInsetSides`).
+  - **A gutter goes to CRITICAL controls only**, 8 dp, and only at an edge
+    that is the screen's. Critical is about what the mis-tap COSTS, not about
+    the control's importance: tracking qualifies, because a stray touch turns
+    the compass or the receiver off and nothing on screen necessarily says so
+    afterwards. It loses its 16 dp top in portrait (the divider is above it)
+    and keeps its end gutter in both.
+  - **Everything else sits flush** — zoom and the north badge (user: "since
+    zoom isnt critical, it can, in portrait, sit flush to the left edge of
+    screen"), the hunter toggle with the two toolbars that unfold from it,
+    and the debug readout. All are undone by tapping again, and the system
+    insets still hold them off the status bar and the gesture strips; what is
+    gone is the decorative margin on top of those.
+  - The right-edge source tabs' top and bottom are CLEARANCES, not gutters —
+    they keep out of the tracking row and the hunter row — so they are now
+    derived from the same constants rather than being two hardcoded numbers
+    that had to be kept in step by hand.
+  - `movableContentOf` needed care: the map panel is ONE instance that travels
+    between the portrait Column and the landscape Row, so the orientation is
+    read through a `rememberUpdatedState` rather than captured, which would
+    have frozen it at whichever orientation the app started in.
+  - NOT phone-verified — no device reachable from this machine.
+  - **safeDrawing, not safeContent — found on the emulator.** "Flush" still
+    left 30 dp of map down each side: `safeContent` includes the system's
+    GESTURE strips, and every control was being held off them. That is the
+    wrong inset family for a tap target — a tap at the very edge works, it is
+    a horizontal DRAG from there that the back gesture takes. The user caught
+    it by reading a town name in the gap ("can you read the Valva on the map
+    left of the zoom buttons"; it was Velvary, beside the zoom column). The
+    overlay now insets by `safeDrawing`, and the tracking pair asks for
+    `safeGestures` BY NAME, being the one control where a swipe read as a tap
+    is expensive.
+  - **The jvm UI tests could not have caught this**: Compose on the desktop
+    reports zero window insets, so every inset bug renders as a perfect
+    layout there. The screenshot is the only instrument for this class of
+    fault, which is an argument for taking one.
+  - **The location button loses its fade and gains its glyph** (user: "let's
+    drop the opacity, or get it in line with the other controls... let's make
+    the icon inside the button normal-sized, not super-tiny"). It was drawn
+    at 60% opacity when off, which made the one control that says whether the
+    app knows where you are the faintest thing on the map and put it out of
+    step with its neighbours; "off" is already said by the fill being chrome
+    rather than blue. The ◎ moves from `titleMedium` to `headlineSmall`, the
+    weight of the zoom glyphs beside it.
+  - Verified on the emulator (Medium_Phone_API_36, gesture navigation, 420
+    dpi) in both orientations; not on a phone.
+  - **Two glyphs that were out of family.** The original's controls are ONE
+    set — lucide line icons (Camera, Menu, LocateFixed, Compass, Leaf, Zap) —
+    and this port lost that by reaching for an emoji per control, then
+    tracing `LocateFixed` into the geometric `◎` where no emoji fitted. That
+    is why the location and compass buttons could not match (user,
+    2026-09-11). Within the emoji house style the answer is 📍, which is
+    already the app's own word for a fix: the capture pill has shown it for
+    one since it was written.
+    - The per-fix FLASH moved to the button's fill. It coloured the glyph,
+      and an emoji ignores that — Android draws those from the colour font
+      whatever the paint says — so the flash would have gone silently missing
+      the moment the glyph changed. A whole button blinking green is easier
+      to catch anyway.
+    - The external-camera activity is 🎞, not 🛰. A satellite says GPS, which
+      is the half of that mode that is not the point — every activity here
+      uses GPS. Film says "pictures being taken on something else", which is
+      the half that distinguishes it. 👣 was the first suggestion and the
+      user rejected it for a good reason: it would read as the compass's
+      WALKING mode.
+    - The real fix, if the mixed style ever grates enough: draw these few as
+      vector paths and have one set again, as the original does. Not
+      attempted; it is a different size of job from picking a character.
+
+- **The location button announced a demotion a whole state early**
+  (user-caught: "when i pan the map, i get the pill, so far so good, but the
+  location tracking button turns mild-blue already. Mild-blue is supposed to
+  indicate that location tracking is running in background and feeding into
+  alt_location").
+  - Right on both counts. Half-lit was driven by
+    `LocationTracking.Background` alone, and that covers TWO situations here:
+    exploring (panned away, prompt up, nothing claimed — the FIX is still
+    what a photo records, with the map centre as the alternate) and claimed
+    (the map centre records, the fix is the alternate). Only the second is a
+    demotion.
+  - **Why it was wrong here and right in the original.** The original
+    castles the streams on the pan itself — `enterBackgroundTracking()` calls
+    `setElectedLocationSource('manual')` in the same breath as it stops
+    following (Map.svelte) — so "parked" and "the fix is demoted" are one
+    event, and one colour truthfully means both. frontend2 deliberately waits
+    for the pill's accepted claim, which puts a whole state between them. The
+    colour rule was ported; the state it reads was not the same state.
+  - `fixRole(tracking, mapPositionElected)` names the fix's ROLE — Off,
+    Primary, Alternate — and the button renders that. The accessibility
+    description follows it, which incidentally restores the original's
+    vocabulary: "background" now means what its CSS class means.
+  - Nothing is lost by the pan no longer showing on the button: the claim
+    pill stays up until it is answered (no timeout, deliberately) and the
+    blue GPS dot shows where the receiver says you are.
+  - NOT phone-verified — no device reachable from this machine.
+
+## 2026-09-10 — the bearing arrow arms before it moves
+
+- **One touch could hand-set the heading, on an invisible target**
+  (user-raised: "theres some weird hard to pinpoint handler maybe on the
+  green perimeter circle? ... we should make bearing harder to accidentally
+  override, lets say youd have to long-press the arrow (with some animation)
+  first").
+  - **What the handler was.** The arrow's own. Its tip sits at 1.3× the range
+    circle's radius and its grab band runs from 0.6× the tip out to the tip
+    plus a finger's slack — so the GREEN range ring falls in the middle of
+    it, and in car mode with tracking on the band is the whole annulus rather
+    than the arrow line. Nothing draws that band. A press inside it called
+    `updateBearing` immediately AND stood compass tracking down, so a finger
+    aimed at the map near the arrow silently swapped a measured heading for a
+    hand-set one. Hard to pinpoint is exactly right: an invisible control
+    that fires on contact is only ever found by triggering it.
+  - **The grab is the WHOLE RING** now, at the arrow's tip radius, in every
+    mode (user, same day: "it has to be the whole circle, i cant chase the
+    arrow around"). It was the arrow line itself outside car mode, so setting
+    a heading meant first finding a moving target. What a drag MEANS still
+    differs by mode: car adjusts the mount offset by the angle travelled,
+    everything else points the arrow at the finger. `mountOffsetDrag` is
+    named for that now, having previously doubled as "the hit area is the
+    ring".
+  - **The press is not consumed until it arms.** The ring is a wide band
+    across the middle of the map; swallowing every touch on it would cost a
+    pan and every marker tap underneath. osmdroid hands each overlay every
+    event regardless of what it returned last time, so the hold can be timed
+    without claiming anything. The abandon slop is the PLATFORM's touch slop,
+    so the instant the map decides this is a pan, the arrow decides the hold
+    is over — one gesture cannot be both. The armed UP is consumed, which
+    also swallows the tap a photo marker under the finger would otherwise
+    receive.
+  - **The gate** (`ArrowArming`, commonMain and tested): the arrow must be
+    HELD for 450 ms before a drag moves anything. Arming itself points the
+    arrow at the press point in absolute mode — someone who held the ring at
+    south meant south, and making them drag a hair to commit it would be a
+    second gesture for one intention. A press that goes nowhere
+    now does nothing at all, and a finger sliding ACROSS the arrow abandons
+    the attempt rather than arming at the end of its travel. The arming lives
+    exactly as long as the finger — the shutter's grammar, and no mode left
+    behind to be surprised by later.
+  - **Standing tracking down moved to the arming moment**, which was the
+    worst of the accidental override: the compass went off and stayed off.
+  - **It says so now.** The handle ring is drawn in every mode, not just car
+    mode, so the one control that can override the compass is visible.
+    During the hold a ring closes on the FINGER from both sides and meets
+    itself as control is granted, with the platform long-press haptic at
+    that instant, and a ghost arrow fades in where the release will send the
+    real one — without it, a press anywhere on the ring would teleport the
+    arrow to a spot the user was only resting on.
+  - The arming decision is made by a posted callback, NOT in `draw()`: it
+    stands tracking down, and a state write from inside a draw pass
+    recomposes the screen that is drawing — the same trap the arrow-stamp
+    note in `MapScreen` describes.
+  - A DELIBERATE divergence from the original, which sets the bearing the
+    moment the arrow SVG is grabbed (docs/tauri-map-ui-contract.md, "Arrow
+    grab zones", now annotated).
+  - Panning and marker taps over the ring are UNAFFECTED, which they would
+    not have been under the first cut of this: it consumed the press to time
+    the hold, and a ring-wide dead band across the map is too high a price
+    for a gesture nobody makes most of the time.
+  - NOT phone-verified — no device reachable from this machine.
+
+## 2026-09-10
+
+- **The photo index pays its way as the table grows** (user-raised: "i'm
+  worried that saving thousands of rows is gonna lag the ui/system load? but
+  at the same time, we dont want to pollute user docs with infinite number of
+  per-day csvs... Space the dumps more once it's in thousands of rows, and
+  switch to a new file after 10k rows perhaps?"). Three changes, each aimed at
+  a different part of the cost.
+  - **Sharded at 10 000 rows**, oldest first: `photos.csv`, then
+    `photos-2.csv`. Only shards whose bytes changed are written, so a new
+    capture rewrites ONE file whatever the table holds. The direction is the
+    whole trick — newest-first would shift every row's position on every shot,
+    dirtying every shard. `SimplePhotoDao.getPhotosOldestFirst` orders by
+    `createdAt, id`, the id breaking ties so two photos in one millisecond
+    cannot swap between dumps and dirty a closed shard for nothing.
+    This also answers the "infinite per-day CSVs" half: the file count tracks
+    the PHOTOS (one more per ten thousand), not the calendar.
+  - **A cheap fingerprint gate.** `getPhotoTableFingerprint()` is one
+    aggregate row — count, max createdAt / uploadedAt / lastUploadAttempt, sum
+    version / deleted — asked before any row is materialized. Backgrounding
+    the app with nothing new now costs a query instead of a full table read.
+    A pure metadata edit that moves none of those (a licence change) slips
+    until the next real change; the per-shard content hash still decides what
+    is written, so the cost of that miss is staleness, never a wrong file.
+  - **The capture pulse is size-scaled** (`photoDumpIntervalMs`): 2 min under
+    a thousand photos, 10 min under ten thousand, 30 min under fifty, an hour
+    beyond. Only the capture trigger is spaced — leaving the app and starting
+    it are rare, important, and already cheap thanks to the fingerprint.
+  - Peak memory is now one shard, not the whole table: shards are read with
+    the paged query rather than `getAllPhotos()`. And the CSV is built into a
+    single StringBuilder; the obvious spelling allocated a list plus thirty-odd
+    strings per photo, which at ten thousand rows was most of the work.
+  - NOT phone-verified — no device reachable from this machine.
+
+- **The off-north badge is now an alarm** (user-raised: "when map is not
+  north-up, and the northing button appears, can we make it really screaming
+  red or something? map rotation keeps fooling me"). It was ordinary chrome
+  with a red glyph in it, and it kept being missed — which is the failure that
+  matters, because a rotated map does not look wrong, it looks like a
+  different PLACE, and every judgement made from it is quietly off by the
+  rotation. It is now filled red, larger than its neighbours, breathing
+  (colour AND size, because sunlight kills the colour shift and a short glance
+  can miss a full cycle), and it carries the angle in figures — "off north" and
+  "off north by how much" are different questions. `offNorthDeg` is one
+  function for both the appearing and the number, signed, so 350° reads as 10°
+  the other way rather than as most of a turn. The animation only exists while
+  the map is turned; a north-up map composes none of it.
+
+## 2026-09-09 — the altitude that was never sent
+
+- **`photos.altitude` is nullable (table v21).** It was a non-null `Double`
+  defaulting to `0.0`, and both readers that send it to the server — the
+  authorize request and the upload `metadata` blob — guarded it as
+  `if (photo.altitude > 0)`. That test is wrong twice.
+  - **A measured zero read as "unknown".** The sentinel and a real sea-level
+    fix were the same value, the same collapse `pitch` was made nullable to
+    avoid in v19.
+  - **Every negative altitude was dropped, silently.** Android's
+    `Location.altitude` is height above the WGS84 ELLIPSOID, not sea level,
+    and that is legitimately negative across whole regions where the geoid
+    sits below the ellipsoid — southern India reaches about -100 m, so a photo
+    taken 40 m above the sea there reports about -60 m and lost it. The
+    guard's comment says an omitted key falls back to the file's EXIF
+    worker-side, which is exactly what the fast-write default does not have:
+    no EXIF, no fallback, altitude gone.
+  - **What the fix touches.** `PhotoEntity.altitude: Double?`, both send-site
+    guards, `applyRefinedStamp` (the refiner already interpolated a nullable
+    altitude and pinched it through a non-null parameter), `PhotoUtils`
+    EXIF import (a file with no `GPSAltitude` now reaches the table as null
+    rather than claiming sea level), and the CSV column.
+  - **MIGRATION_20_21 is the first photos migration that is not an ADD
+    COLUMN**: SQLite cannot drop a NOT NULL in place, so the table is rebuilt
+    the way `MIGRATION_9_10` rebuilt bearings. `NULLIF(altitude, 0.0)` is what
+    makes it a no-op for existing rows — a stored 0.0 was the absent sentinel
+    and has never been sent, so carrying it across as a real 0.0 would start
+    claiming sea level for every row that never had a fix.
+  - **Verified on the emulator, not on a phone.** Both apps compile, both host
+    suites are green (606), and `:shared:connectedAndroidDeviceTest` passes
+    whole (282) on `Medium_Phone_API_36` — the migration test below, the EXIF
+    writer and the upload claim race included.
+  - **The behaviour suite's failures are NOT this change.** All of them fail
+    identically with this work stashed, which is the only way to tell a
+    regression from a flake and is worth the two minutes every time.
+    (`DevicePhotosBehaviourTest.aCaptureShowsUpAsACard…` failed once and passed
+    on retry — a real flake.) The other two are written up below; the suite now
+    finishes 18 of 19.
+
+## 2026-09-09 — neither "load-dependent" test was load-dependent
+
+Chasing the two standing `:androidApp:connectedDebugAndroidTest` failures on a
+2-core/200%-quota emulator. The tempting fix was a rule — skip under host load,
+or downgrade failures to warnings. Both would have been wrong, and the reason is
+worth keeping: **a load gate would have made a genuinely broken assertion
+invisible on exactly the machines that expose it.**
+
+- **`UploadCoalescingBehaviourTest` asserted the NEGATION of its own feature —
+  FIXED.** Its vacuity guard read `enqueues >= burst`, counting
+  `enqueue photo_upload` log lines and wanting one per capture. But
+  `decideUploadSchedule` returns `Leave(why=N waiting, already scheduled)` when
+  a capture arrives and work is already queued — that IS the coalescing, and it
+  logs no enqueue. So the guard could only pass when every capture found nothing
+  scheduled, i.e. when the burst was too slow to coalesce, which is precisely
+  the case the collapse assertion twelve lines below calls unobservable and
+  skips. The two bounds could both hold only in a narrow band of burst speeds.
+  - The guard now counts `reconcile [capture]`, which is logged once per save
+    whatever the decision. Measured across two runs: `reconciles` pinned at 5
+    while `burstMs` moved 21480 → 33586 and `enqueues` swung 2 → 4. The stable
+    number is the one a vacuity guard wants.
+  - The collapse assertion also compared the wrong pair (`runs < enqueues`);
+    every enqueue becomes a run, so those are equal in healthy operation. Now
+    `runs < burst`, which is the property in plain words.
+  - A false lead worth recording: the first hypothesis was logcat ring-buffer
+    eviction, since the test clears the buffer but then reads it up to two
+    minutes later at 256 KiB. Growing it to 16 MiB changed nothing. What
+    settled it was the test's own counter line, not the pass/fail — **record the
+    conditions on every run, and never gate on them.**
+
+- **`theNoFixHatchFollowsTheMapAsWell` is failing on what looks like an APP
+  bug: `hasFix` never ages. OPEN, and worth more than the test.**
+  - The pane offers the hatch on `state.ready && !manualClaimed &&
+    !mapPositionWithoutFix && !state.hasFix`. Instrumented at the moment of
+    failure, the first three are all satisfied — `claimed=false hatchFlag=false
+    status='ready' shutterEnabled=true` — and NEITHER action renders, so
+    `hasFix` is stuck true.
+  - `hasFix` is written in exactly ONE place: `onLocation`, when a location
+    ARRIVES (PhotoCapture.android.kt:437). Nothing ages it on a timer,
+    `engine.location` is a StateFlow so it re-emits only on change, and
+    GeoEngine's silence watchdog re-REQUESTS location without touching
+    `_location`. So once a fix has landed and the provider goes quiet, the gate
+    stays open indefinitely.
+  - **That is precisely the case the hatch exists for.** "Shooting underground"
+    means the fixes stop arriving. On this reading a phone that loses signal
+    never sees "No GPS fix — capture at the map position instead"; it keeps a
+    live-looking gate around a fix that may be hours old. `staleFixWarning` is
+    a pure function of `nowMs` and so does age correctly, which is probably why
+    this has gone unnoticed: the WARNING appears while the HATCH does not.
+  - Three fixes were tried and all failed, which is the evidence for the above:
+    resetting the session election in `@Before` (the flags were already clean),
+    growing the wait, and injecting a deliberately stale fix so `onLocation`
+    would recompute (fused in mock mode does not deliver a location older than
+    the one it last delivered, so it never arrived). All reverted; the test is
+    untouched and still failing.
+  - **Resolved at the level of the RULE, not yet the code** — see the position
+    section and the new "Derived, not stored" section of `docs/one-state.md`
+    (2026-09-09). The decision went further than aging `hasFix`: the shutter
+    gates on camera readiness only; freshness and accuracy inform and never
+    refuse; the state holds two records, `lastFix` (session) and `lastPan`
+    (persisted), plus the claim, and the stamp is a four-row table over them
+    with two words, `gps` and `map` — the original's contract; a blank first
+    run writes `null` and means it. The hatch and its flag go; the claim is
+    the only button. **Coded up 2026-09-09** (the Status block there says what
+    moved): `FixState`/`lastFix` in the holder, the map adapter's
+    `observeFixes` writer, `stampFix` into the pane and its own subscription
+    deleted, `stampPosition` in commonMain with `StampPositionTest`,
+    `shutterEnabled(ready)`, hatch + flag + `manual` gone, photos table v22
+    with nullable coordinates and Null Island carried to null, upload omits
+    an absent position. Behaviour tests restated to the new contract; the
+    two "no fix" rows there are `Assume`d on an empty `lastFix`, because that
+    record is process-lifetime and any earlier class's injected fix fills it
+    — the rows are pinned unconditionally on the host instead. Verified on
+    the emulator: host 304 + desktop 306 green, `:shared:` device suite 286
+    green (incl. the v22 migration case: Null Island → null, real zeroes
+    kept), behaviour suite 20 with 0 failures and 1 visible skip (the geo
+    no-fix row, behind a sibling's injected fix). Two things learned on the
+    device: the connected-test task UNINSTALLS the app after each run, so
+    every behaviour run is a fresh install (`run-as` finds no package at
+    boot) and any "app data persists on the emulator" assumption is stale;
+    and the overlay's post-open hint owns the location rows for 4 s, so a
+    behaviour test must not race it for the map-position note — that wording
+    is pinned on the host (`CameraOverlayUiTest`), where the hint never
+    fires. Not phone-verified. Awaiting the user's verdict on whether it is
+    what they wanted.
+    This test starts passing when the offer is derived from freshness rather
+    than from the stored boolean.
+
+
+- **`MigrationTestHelper` is wired up** (`PhotoDatabaseMigrationTest`, in
+  `androidDeviceTest`). The migrations now run against the REAL exported
+  schemas on real SQLite, and `runMigrationsAndValidate` compares the result
+  with what Room generated from the entities — a migration that drifts from
+  `PhotoEntity` fails there instead of on a phone at the next open. Three
+  cases: the 0.0 sentinel becomes null while a negative measurement survives,
+  the photos rebuild does not cascade `edits` away, and the whole v14→v21
+  chain validates.
+  - **What it took.** The `androidx.room` Gradle plugin replaces the bare
+    `ksp { arg("room.schemaLocation", …) }`, because the helper reads the
+    schema JSONs from the test APK's ASSETS and only the plugin stages them
+    there. Plus `room-testing` on `androidDeviceTest`, and the migration list
+    lifted out of `addMigrations(…)` into `PhotoDatabase.MIGRATIONS` so the
+    builder and the test cannot disagree about which migrations exist.
+  - **The unknown that had blocked it is answered.** The plugin does
+    understand AGP 9.3.1 plus the KMP `androidLibrary` plugin: it knows the
+    `com.android.kotlin.multiplatform.library` id by name and registers
+    `copyRoomSchemasToAndroidTestAssetsAndroidDeviceTest` for it. Verified by
+    unzipping the test APK — all eight `PhotoDatabase` schemas are in there.
+  - **Bonus:** the schema directory is now a declared task output, closing the
+    KNOWN HOLE the build file warned about (a deleted JSON went unnoticed).
+    Only `frontend2` gets this; the Tauri plugin still uses the kapt argument.
+  - **It fails when it should.** A passing new test proves nothing until it has
+    been made to fail, so both halves were mutation-checked on the emulator.
+    Dropping `NULLIF` from the copy fails the altitude case with "the 0.0
+    sentinel must not become a real sea-level claim expected null, but
+    was:<0.0>". Leaving `idx_photos_path` out of the rebuild fails all three
+    with Room's own "Migration didn't properly handle: photos" — which is the
+    schema-drift alarm that is the whole reason to have this test, and it was
+    the failure mode I could most easily have shipped by eye.
+
+## 2026-09-08 — the photo index
+
+- **The photos table is written out beside the photos** (user-raised: "in all
+  cases, we should do some periodic photos table dump into a public folder, so
+  that in case of app uninstall, photos that survive it aren't useless").
+  `PhotoTableDump` (androidMain) + `photoTableCsv`.
+  - **The gap.** The stamp — position, heading, pitch, exposure, licence —
+    lives in the photos TABLE, in the app's private database. A photo in DCIM
+    survives an uninstall; the row that gives it meaning does not. With the
+    fast-write default (`writeExif = false`) the surviving JPEG is a picture
+    of somewhere, at some time, pointing some way.
+  - **Unconditional, no setting.** A safety net with a switch is one people
+    discover they had turned off. Deliberately unlike the geo-tracking export
+    next door, which is opt-in and asks for a folder: a location history that
+    outlives the app is a privacy decision to put to the user; a manifest of
+    the photos they took and are publishing is the same data as the photos.
+  - **Where: `Documents/<folder>/photos.csv`, not DCIM.** Beside the photos is
+    the obvious answer and the wrong one — MediaProvider allows only images
+    and video under DCIM, so a `.csv` there is refused. Documents takes any
+    type, survives uninstall, is reachable to a file manager, and carries the
+    same folder name as the photos. MediaStore first (no permission, API 29+,
+    and it UPDATES the existing row so the name stays stable rather than
+    becoming "photos (1).csv"), then the file API, then app-private as a last
+    resort that at least exists while the app does.
+  - **When:** app start (catches up after a crash, like the geo dump), leaving
+    the app, and a five-minute pulse while shooting — an interval run in a
+    pocket never backgrounds the app, so without the pulse the only trigger
+    for hours would be the one that does not fire. Plus "Write it now" in
+    Settings.
+  - **The skip is on CONTENT, not a dirty flag.** The CSV is built, hashed and
+    compared with the last one written; every mutation of the table — a
+    capture, a deletion, an upload landing a server id — changes the bytes,
+    and nothing has to remember to announce itself. The manual button forces,
+    because the usual reason to press it is that the file is missing.
+  - Every column, in entity order, with `capturedAt` repeated as readable
+    UTC. Leaving a column out is a decision made on behalf of someone who can
+    no longer recover it. `PhotoTableCsvTest` parses a row back with an
+    ordinary RFC 4180 reader.
+  - NOT yet phone-verified — no device reachable from this machine. What to
+    check: `Documents/Hillview2/photos.csv` after backgrounding the app, and
+    that it is still there after an uninstall.
+
+- **The EXIF default is unchanged, and the question is still open.** The user
+  is undecided; nothing here decides it. What the original does is worth
+  putting on the record for whenever it IS decided: the Tauri app writes EXIF
+  ALWAYS, and can afford to because it holds the JPEG bytes in memory and
+  splices an APP1 segment in before writing the file
+  (`device_photos.rs` → `create_exif_segment_structured`). frontend2 is off by
+  default because CameraX writes the file itself and `ExifInterface` has no
+  surgical patch, so a pass means copying the whole 4–25 MB file per shot.
+  The third option neither default considers is to do what the original does —
+  splice the segment into the bytes — which would make the choice moot. Not
+  attempted; it means owning JPEG segment surgery on the capture path.
+
+## 2026-09-08 — the recording indicator
+
+- **A recording says so** (user-caught: "video recording isn't indicated in
+  any way?"). It was not: the shutter stayed blue 📷 while recording, so the
+  button that STOPS a recording looked exactly like the button that takes a
+  photo, and `recordingStartedAtMs` — whose doc comment already promised "for
+  the elapsed readout" — was rendered nowhere.
+  - The shutter goes red with ⏺ and "Stop", symmetric with a run's green
+    "Stop".
+  - `● REC 0:12` above it, on dark glass, blinking once a second. The blink
+    and the clock come off ONE ticker so they cannot disagree, and the dot
+    fades rather than disappearing — a glyph that comes and goes shifts the
+    text beside it twice a second, which reads as a fault. The dot-and-
+    elapsed shape is the app's own, from the clock-video recorder in both
+    apps; the period is the original's `blink 1s step-start`. Its own
+    composable, so the ticker does not recompose the pane and its preview
+    twice a second.
+  - **Found while wiring it: the location gate could trap a recording.** The
+    gesture tested `gateOpen` before the stop branches, so a fix lost
+    mid-recording answered every press with "no GPS fix" and left the
+    recording running — and the same trap held a repeating run. Stopping now
+    comes first, in the gesture and in the accessibility click, and the rule
+    is a named function (`shutterPressDoesSomething`) with the trap as a
+    test. The gate withholds captures; it has no business withholding exits.
+  - NOT yet phone-verified — no device reachable from this machine.
+
 ## 2026-09-06
 
 - **The interval ladder goes sub-second, and becomes the scale it reads**
@@ -698,7 +1164,7 @@ the chain stopped. See `GeoDebugText.kt`.
 ## Closed on 2026-08-28
 
 - **Position's second stream (`alt_location`).** The one-state rule's open
-  half is closed: two streams, castled on confirmation, the other riding
+  half is closed: two streams, swapped on confirmation, the other riding
   along — see the table in [one-state.md](one-state.md). Room v20 (both
   apps' schemas exported, hashes match); the backend already synthesizes
   the field into the UserComment provenance. Device-verified in all three
