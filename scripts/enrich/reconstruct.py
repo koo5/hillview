@@ -62,10 +62,12 @@ def bearing_source(r):
     """How the capture app obtained this photo's bearing, from its UserComment JSON.
 
     Every mode is the user's best shot at the real bearing, and the stored value is the only
-    bearing that photo has: the compass; a movement-derived bearing the user adjusts relative
-    to the vehicle's travel (`gps-kalman`); an arrow dragged by hand (`arrow_drag`, `map`).
-    The mode is recorded because the error CHARACTER differs, not because one of them is the
-    truth — so a bearing is read together with this, and never filtered by it.
+    bearing that photo has. The app switches between them on purpose: walking mode reads the
+    compass per frame; car mode takes the GPS travel direction and adds a shooting offset the
+    user sets once, which is how you photograph sideways out of a moving car (`gps-kalman`);
+    and the arrow can be dragged by hand (`arrow_drag`, `map`). The mode is recorded because
+    the error CHARACTER differs, not because one of them is the truth — so a bearing is read
+    together with this, and never filtered by it.
     """
     ex = r.get("exif_data") or r.get("exif") or {}
     if not isinstance(ex, dict):

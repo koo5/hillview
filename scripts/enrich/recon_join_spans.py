@@ -239,12 +239,13 @@ class Run:
         """How far this span's recovered headings sit from the bearings the photos carry,
         **per bearing mode**, plus the one estimate worth using and why.
 
-        The app offers three ways to state where the camera pointed and stores whichever the
-        user chose: the compass, a bearing derived from movement with a user-set offset
-        (`gps-kalman`), and a hand-dragged arrow (`arrow_drag` / `map`). All three are that
-        user's answer to the same question, so none is discarded here. What differs is how
-        well each holds up, and that is measurable: the CONCENTRATION of the per-frame
-        offsets says whether the frames of a span agree with each other about the bias.
+        The app switches modes on purpose: walking mode reads the compass per frame, car mode
+        takes the GPS travel direction plus a shooting offset the user sets once (`gps-kalman`,
+        which is how you photograph sideways out of a moving car), and the arrow can be
+        dragged by hand (`arrow_drag` / `map`). All are that user's best shot at the real
+        bearing, so none is discarded here. What differs is how well each holds up, and that
+        is measurable: the CONCENTRATION of the per-frame offsets says whether the frames of a
+        span agree with each other about the bias.
 
         Measured on the stairs-and-bridge walk, the hand-drawn arrows came out at 0.99 and
         1.00 while the compass on the same frames sat at 0.38 and 0.56 — a magnetometer
@@ -252,8 +253,12 @@ class Run:
         spot A, in the open, the compass reads 0.96. So the mode is not the point; the
         agreement is, and it is per span.
 
-        Concentration measures self-consistency, not truth: a straight walk with a bearing
-        set once will look tight whether or not it was set well. It is a floor to clear,
+        Concentration measures self-consistency, not truth, and the modes differ in how
+        easily they earn it: a car-mode span holds ONE offset over a travel direction by
+        construction, so it concentrates tightly whether or not the offset was set well —
+        and its travel direction is worst exactly where the vehicle is slow, stopped or
+        turning. A straight walk with an arrow set once is the same trap. It is a floor to
+        clear,
         not a certificate.
         """
         groups = {}

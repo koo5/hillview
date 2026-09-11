@@ -392,15 +392,19 @@ async def cloud_packed(run_id: str, request: Request, max_points: int = 1_500_00
 
 # How a photo's stored bearing was obtained, straight from the capture app's UserComment.
 # Every mode is the user's best shot at the REAL bearing of the shot, and the stored value
-# is the only bearing that photo has: the compass reading; a bearing derived from movement
-# that the user adjusts relative to the vehicle's travel (`gps-kalman`), which is how you
-# shoot sideways from a moving car; and an arrow dragged by hand on a map (`arrow_drag`,
-# `map`). None is a lesser claim than the others and none is discarded.
+# is the only bearing that photo has. The app switches between them deliberately:
 #
-# The mode is recorded because the ERROR CHARACTER differs — systematic offset, hard iron,
-# how much the person was concentrating — not because one mode is the truth. Which to
-# believe is decided per span, by how well that mode's frames agree with each other
-# (recon_join_spans.bearing_offset), never by a ranking fixed here.
+#   walking mode  the compass, read per frame
+#   car mode      the GPS travel direction plus a SHOOTING OFFSET the user sets once —
+#                 how you photograph sideways out of a moving car (`gps-kalman`)
+#   by hand       an arrow dragged on a map (`arrow_drag`, `map`)
+#
+# None is a lesser claim than the others and none is discarded. The mode is recorded
+# because the ERROR CHARACTER differs, and differs usefully: a compass frame carries hard
+# iron and per-frame noise, while a car-mode frame carries a constant offset over a travel
+# direction that is only as good as the vehicle's motion — poor when slow, stopped or
+# turning, which GPS speed would reveal. Which mode to believe is decided per span by how
+# well its own frames agree (recon_join_spans.bearing_offset), never by a ranking here.
 COMPASS_BEARING_SOURCES = ("compass-true", "compass-magnetic", "absolute-compass")
 
 
