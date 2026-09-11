@@ -80,11 +80,13 @@ fun MainScreen(
     onOpenCaptureGuide: () -> Unit = {},
     onOpenUploadStatus: () -> Unit = {},
     onOpenEventLog: () -> Unit = {},
+    onOpenLockSettings: () -> Unit = {},
     settingsRepo: MapSettingsRepository = koinInject(),
     session: MapSession = koinInject(),
     sessionManager: SessionManager = koinInject(),
     stateHolder: MapStateHolder = koinInject(),
     devicePose: DevicePoseState = koinInject(),
+    controlsLock: cz.hillview.lock.ControlsLock = koinInject(),
 ) {
     val mapSettings by settingsRepo.settings.collectAsState()
     val activity = mapSettings.mainActivity
@@ -318,6 +320,18 @@ fun MainScreen(
             // it is a thing you switch INTO and out of, several times a
             // session, and its state — recording or not — is worth seeing at
             // a glance. Toggles back to the map, exactly like 📷.
+            //
+            // One tap before the phone goes in a pocket, so the lock has to
+            // be here rather than two menus deep. Unlocking is the
+            // deliberate act (the slider); locking is the cheap one.
+            FloatingControl(
+                label = "🔒",
+                tag = "lock-controls-button",
+                onClick = {
+                    menuOpen = false
+                    controlsLock.lock()
+                },
+            )
             FloatingControl(
                 // 🎞, not 🛰 (user, 2026-09-11). A satellite says GPS, which
                 // is the half of this mode that is not the point — every
@@ -411,6 +425,10 @@ fun MainScreen(
                     MenuLink("Capture guide", "menu-capture-guide") {
                         menuOpen = false
                         onOpenCaptureGuide()
+                    }
+                    MenuLink("Lock controls", "menu-lock-settings") {
+                        menuOpen = false
+                        onOpenLockSettings()
                     }
                     // (External camera moved OUT of the menu to a floating
                     // 🎞 button beside 📷 — it is an activity you toggle,

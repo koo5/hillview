@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation3.runtime.NavKey
@@ -14,6 +16,10 @@ import androidx.savedstate.serialization.SavedStateConfiguration
 import cz.hillview.auth.ui.LoginScreen
 import cz.hillview.clockvideo.ClockVideoScreen
 import cz.hillview.core.theme.HillviewTheme
+import cz.hillview.lock.ApplyControlsLock
+import cz.hillview.lock.ControlsLock
+import cz.hillview.lock.ControlsLockScrim
+import cz.hillview.lock.LockSettingsScreen
 import cz.hillview.main.MainScreen
 import cz.hillview.nav.CaptureGuideKey
 import cz.hillview.nav.UploadStatusKey
@@ -24,8 +30,10 @@ import cz.hillview.nav.DevicePhotosKey
 import cz.hillview.nav.HomeKey
 import cz.hillview.nav.LoginKey
 import cz.hillview.nav.MainKey
+import cz.hillview.nav.LockSettingsKey
 import cz.hillview.nav.MapKey
 import cz.hillview.nav.SettingsKey
+import cz.hillview.settings.lockOptions
 import cz.hillview.settings.ui.SettingsScreen
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
@@ -46,6 +54,7 @@ private val navSavedStateConfig = SavedStateConfiguration {
             subclass(SettingsKey::class)
             subclass(DevicePhotosKey::class)
             subclass(MapKey::class)
+            subclass(LockSettingsKey::class)
         }
     }
 }
@@ -53,7 +62,20 @@ private val navSavedStateConfig = SavedStateConfiguration {
 @Composable
 @Preview
 fun App() {
-    HillviewTheme {
+    val controlsLock: ControlsLock = org.koin.compose.koinInject()
+    val settingsRepo: cz.hillview.settings.MapSettingsRepository = org.koin.compose.koinInject()
+    val locked by controlsLock.locked.collectAsState()
+    val appSettings by settingsRepo.settings.collectAsState()
+    val lockOptions = appSettings.lockOptions()
+
+    // The window effects and the theme both live OUTSIDE the nav display, so
+    // locking survives whatever screen happens to be on top — a lock that
+    // came off because a settings page was open would protect nothing.
+    ApplyControlsLock(active = locked, options = lockOptions)
+    HillviewTheme(
+        darkTheme = androidx.compose.foundation.isSystemInDarkTheme() ||
+            (locked && lockOptions.darkTheme),
+    ) {
         val backStack = rememberNavBackStack(navSavedStateConfig, MainKey)
         // The ONE way off a screen. NavDisplay throws the moment the back
         // stack is empty, and a bare removeLastOrNull() gets there on the
@@ -72,8 +94,10 @@ fun App() {
                 onOpenCaptureGuide = { backStack.add(CaptureGuideKey) },
                 onOpenUploadStatus = { backStack.add(UploadStatusKey) },
                 onOpenEventLog = { backStack.add(EventLogKey) },
+                onOpenLockSettings = { backStack.add(LockSettingsKey) },
             )
         }
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
         NavDisplay(
             backStack = backStack,
             onBack = { pop() },
@@ -83,6 +107,9 @@ fun App() {
                 entry<HomeKey> { main() }
                 entry<MapKey> { main() }
                 entry<CaptureKey> { main() }
+                entry<LockSettingsKey> {
+                    LockSettingsScreen(onBack = { pop() })
+                }
                 entry<SettingsKey> {
                     SettingsScreen(
                         onBack = { pop() },
@@ -123,5 +150,11 @@ fun App() {
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background),
         )
+        // Over EVERYTHING, including whatever screen the back stack has on
+        // top. The pocket does not know which screen is showing.
+        if (locked) {
+            ControlsLockScrim(onUnlock = { controlsLock.unlock() })
+        }
+        }
     }
 }

@@ -507,6 +507,44 @@ the chain stopped. See `GeoDebugText.kt`.
 
 ## 2026-09-11
 
+- **Lock controls, for shooting from a pocket** (user-raised: "for when they
+  literally want to keep interval-shooting from their front pocket").
+  - **The gap underneath it.** A pocket run dies at the screen timeout today.
+    Nothing in the capture pane holds the screen awake, and CameraX unbinds
+    at `onStop`, so the display sleeping ends the shoot. Keeping the screen on
+    is therefore not one of the lock's options, it is the mechanism the lock
+    exists to make bearable.
+  - **The scrim is the WHOLE window** (user: "nothing else than the unlock
+    slider will be responsive"). A pocket touches everywhere, so guarding one
+    strip guards one strip. Touches are swallowed in the MAIN pointer pass,
+    not the initial one, so the slider still gets its events first — children
+    are dispatched before their parent there, and swallowing early would lock
+    the unlock.
+  - **A slider, not a hold.** The user's call and the better one: sustained
+    pressure on one spot is exactly what a pocket applies, while one long
+    deliberate sweep along a line is what it cannot produce. The knob must
+    travel 92% of the track, and a short drag snaps back. The track is inset
+    48 dp from both edges, because a horizontal drag that STARTS at a screen
+    edge is the system's back gesture rather than ours.
+  - **Four settings on a page of their own**, since every one is a trade
+    against particular hardware and habits: dim the screen (with a level),
+    black theme while locked (free on an AMOLED, counterproductive on an LCD
+    — the user's distinction, and why it is off by default), hide the system
+    bars, and pin the screen. Screen pinning is Android's lock task mode and
+    is the ONLY thing that reaches home and recents, which nothing this app
+    draws can; it is off by default because the system asks before it starts
+    and some phones refuse it outright.
+  - The effects and the theme live OUTSIDE the NavDisplay, so a lock survives
+    whatever screen is on top. The lock itself is session-scoped: one that
+    persisted would greet whoever relaunched the app with a locked screen and
+    no run behind it.
+  - **The seam for screen-off is left, not built.** The settings page says so
+    in as many words. It needs the run to outlive the screen, which means
+    moving it off the activity's lifetime and onto a service's — a different
+    size of job, and the user's own read is that Android will fight it.
+  - Verified on the emulator: locking scrims the app and hides the bars, a
+    short nudge on the knob leaves it locked, a full sweep opens it.
+
 - **The map's controls now know which edges are the screen's**
   (user-raised: "some controls are rightfully moved off the edge of the
   screen to lower the chances of accidental touches, but i dont know if we

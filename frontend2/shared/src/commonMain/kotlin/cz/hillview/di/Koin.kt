@@ -58,6 +58,9 @@ val appModule = module {
         )
     }
     single { cz.hillview.capture.CaptureEvents() }
+    // Locked-for-the-pocket, one per process: the scrim is drawn at the app
+    // root and the button that sets it is a panel away.
+    single { cz.hillview.lock.ControlsLock() }
     // "How is the phone being held" — ONE home, written by the capture
     // engine's pose sensor (the app's only OrientationEventListener), read by
     // the floating camera button. See DevicePoseState.
