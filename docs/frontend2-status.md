@@ -570,6 +570,28 @@ the chain stopped. See `GeoDebugText.kt`.
     weight of the zoom glyphs beside it.
   - Verified on the emulator (Medium_Phone_API_36, gesture navigation, 420
     dpi) in both orientations; not on a phone.
+  - **Two glyphs that were out of family.** The original's controls are ONE
+    set — lucide line icons (Camera, Menu, LocateFixed, Compass, Leaf, Zap) —
+    and this port lost that by reaching for an emoji per control, then
+    tracing `LocateFixed` into the geometric `◎` where no emoji fitted. That
+    is why the location and compass buttons could not match (user,
+    2026-09-11). Within the emoji house style the answer is 📍, which is
+    already the app's own word for a fix: the capture pill has shown it for
+    one since it was written.
+    - The per-fix FLASH moved to the button's fill. It coloured the glyph,
+      and an emoji ignores that — Android draws those from the colour font
+      whatever the paint says — so the flash would have gone silently missing
+      the moment the glyph changed. A whole button blinking green is easier
+      to catch anyway.
+    - The external-camera activity is 🎞, not 🛰. A satellite says GPS, which
+      is the half of that mode that is not the point — every activity here
+      uses GPS. Film says "pictures being taken on something else", which is
+      the half that distinguishes it. 👣 was the first suggestion and the
+      user rejected it for a good reason: it would read as the compass's
+      WALKING mode.
+    - The real fix, if the mixed style ever grates enough: draw these few as
+      vector paths and have one set again, as the original does. Not
+      attempted; it is a different size of job from picking a character.
 
 - **The location button announced a demotion a whole state early**
   (user-caught: "when i pan the map, i get the pill, so far so good, but the

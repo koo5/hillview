@@ -786,10 +786,18 @@ private fun LocationButton(
 ) {
     // Half-lit means the fix has been DEMOTED to alt_location, not merely
     // that the map stopped following — see fixRole.
-    val fill = when (role) {
-        FixRole.Primary -> ACTIVE_BLUE
-        FixRole.Alternate -> ACTIVE_BLUE.copy(alpha = 0.5f)
-        FixRole.Off -> LocalChromeTone.current.panel
+    //
+    // The per-fix flash is on the FILL now, not on the glyph. It used to
+    // colour the text, which an emoji ignores — Android draws those from the
+    // colour font whatever the paint says — so the flash would have gone
+    // silently missing the moment the glyph became 📍. A whole button
+    // blinking green is also simply easier to catch out of the corner of an
+    // eye than a small mark inside one.
+    val fill = when {
+        flash -> Color(0xFF34D399)
+        role == FixRole.Primary -> ACTIVE_BLUE
+        role == FixRole.Alternate -> ACTIVE_BLUE.copy(alpha = 0.5f)
+        else -> LocalChromeTone.current.panel
     }
     Box {
         Surface(
@@ -828,12 +836,14 @@ private fun LocationButton(
                         color = ACTIVE_BLUE,
                     )
                 } else {
+                    // The app's own word for a fix: the capture pill has
+                    // shown 📍 for one since it was written. It replaces ◎,
+                    // which was this port tracing the original's LocateFixed
+                    // LINE ICON into a geometric character and so standing
+                    // alone beside 🧭 and 📷 (user, 2026-09-11). No colour:
+                    // an emoji ignores it, and the fill says the state.
                     Text(
-                        text = "◎",
-                        color = if (flash) Color(0xFF34D399) else {
-                            if (role == FixRole.Off) LocalChromeTone.current.ink
-                            else Color.White
-                        },
+                        text = "📍",
                         // Sized like the zoom glyphs next to it, not like a
                         // caption. A 60x44 dp button with a small glyph in
                         // the middle of it reads as a mis-render rather than
