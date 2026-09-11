@@ -562,6 +562,22 @@ the chain stopped. See `GeoDebugText.kt`.
     the very `pointerInput` key it feeds.
   - Verified on the emulator at HUMAN speed: the knob tracks a 3 s drag, a
     half-track drag snaps back and leaves it locked, a full sweep opens it.
+  - **The button moved to the opposite corner** (user, same day: "lets maybe
+    just shift the lock button into the top right corner, away from the
+    activity buttons"). It was the third of four in the floating row, which
+    put the two presses that cost the most next to each other: reaching for
+    🎞 and hitting 🔒 costs a scrim and a deliberate slider, and reaching for
+    🔒 and hitting 🎞 ends the shoot. It stays one tap — it is pressed as the
+    phone goes into the pocket — just a screen's width away from the rest.
+  - **Which needed the corner to belong to the WINDOW, not to a panel.** The
+    screen's top-right is inside the photo panel in portrait and inside the
+    map panel in landscape, and both had something there already: the
+    viewer's ↗ chip and the map's location/compass pair. So `PanelEdges`
+    gained `ownsWindowTopEnd` (top && end — true for exactly one panel at a
+    time, which the test asserts) and a single `WINDOW_CORNER_RESERVE`, and
+    each panel steps aside by it only when it is the one underneath. The
+    capture pane needed nothing: its Leaf already starts 52 dp down, which
+    was the original's provision for the debug toggles in that corner.
 
 - **The map's controls now know which edges are the screen's**
   (user-raised: "some controls are rightfully moved off the edge of the

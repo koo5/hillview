@@ -522,7 +522,8 @@ fun CaptureScreen(
 
         // The Leaf — the original's power-saving-button: a translucent
         // circle below the top-right corner (that corner belongs to the
-        // debug toggles there). Lower preview fps, and the map only catches
+        // debug toggles there; here, in portrait, it belongs to the window's
+        // lock button, which the 52 dp already clears). Lower preview fps, and the map only catches
         // up after each capture instead of chasing every fix. Tap toggles;
         // the shutter's one-finger grammar tunes it: hold 300 ms, the fps
         // slider unfolds beneath, slide onto it, release to set (and arm

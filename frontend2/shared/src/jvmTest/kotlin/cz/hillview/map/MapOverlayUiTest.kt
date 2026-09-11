@@ -356,6 +356,34 @@ class MapOverlayUiTest {
     }
 
     /**
+     * The window's lock button sits in the screen's top-right corner, which
+     * in landscape is inside THIS panel. The tracking pair steps aside by the
+     * button's width there and by nothing at all in portrait, where the photo
+     * panel is the one underneath it.
+     */
+    @Test
+    fun theTrackingPairYieldsTheWindowsCornerOnlyWhenItIsUnderIt() = runComposeUiTest {
+        overlay(Harness(edges = PanelEdges.mapPanel(portrait = false)))
+        val root = onRoot().getUnclippedBoundsInRoot()
+        val compass = onNodeWithTag("compass-button").getUnclippedBoundsInRoot()
+        assertTrue(
+            root.right.value - compass.right.value >= WINDOW_CORNER_RESERVE.value,
+            "landscape: clear of the lock button, not under it",
+        )
+    }
+
+    @Test
+    fun inPortraitTheTrackingPairKeepsOnlyItsGutter() = runComposeUiTest {
+        overlay(Harness(edges = PanelEdges.mapPanel(portrait = true)))
+        val root = onRoot().getUnclippedBoundsInRoot()
+        val compass = onNodeWithTag("compass-button").getUnclippedBoundsInRoot()
+        assertTrue(
+            root.right.value - compass.right.value < WINDOW_CORNER_RESERVE.value,
+            "portrait: the corner is the photo panel's problem, not this one's",
+        )
+    }
+
+    /**
      * The hunter corner is the app's own and cheap to mis-tap, so it takes no
      * gutter at all in either orientation — the system insets are the whole
      * of its margin (user, 2026-09-11).

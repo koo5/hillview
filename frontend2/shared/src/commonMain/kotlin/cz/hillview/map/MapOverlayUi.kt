@@ -209,6 +209,11 @@ fun MapOverlayUi(
     // to hit by accident take one, and only where the edge is the screen's.
     val gutterTop = if (edges.top) CRITICAL_EDGE_GUTTER else 0.dp
     val gutterEnd = if (edges.end) CRITICAL_EDGE_GUTTER else 0.dp
+    // The window's lock button sits in the screen's top-right corner, above
+    // every panel. In landscape this panel is what is under it, so the
+    // tracking pair steps aside by the button's width; in portrait the photo
+    // panel is under it and this costs nothing here.
+    val cornerReserve = if (edges.ownsWindowTopEnd) WINDOW_CORNER_RESERVE else 0.dp
     // safeDrawing, NOT safeContent. The difference is the system's GESTURE
     // strips, and those are about swipes: a tap at the very edge of the
     // screen works fine, it is a horizontal drag from there that the back
@@ -274,7 +279,7 @@ fun MapOverlayUi(
                 // tap turns tracking off. The system's own number rather
                 // than a guess at it.
                 .windowInsetsPadding(WindowInsets.safeGestures.only(screenInsetSides(edges)))
-                .padding(top = gutterTop, end = gutterEnd),
+                .padding(top = gutterTop, end = gutterEnd + cornerReserve),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             LocationButton(

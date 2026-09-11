@@ -203,6 +203,11 @@ fun MainScreen(
         // `activity` is passed as a parameter, not captured: a remembered
         // lambda would otherwise keep the value it was created with.
         val currentOnOpenSettings by rememberUpdatedState(onOpenSettings)
+        // Read through a State, not captured: both panels below are MOVABLE
+        // — one instance each, travelling between the portrait Column and
+        // the landscape Row — so a value captured when one was created would
+        // describe the orientation it was born in forever.
+        val portraitNow = rememberUpdatedState(portrait)
         val photoPanel = remember {
             movableContentOf { activity: String ->
                 when (activity) {
@@ -214,15 +219,16 @@ fun MainScreen(
                     // Named "gallery" for historical reasons only — it is
                     // the VIEWER: the photo you are facing from where the map
                     // says you stand. See docs/tauri-viewer-ui-contract.md.
-                    else -> cz.hillview.viewer.ViewerPane()
+                    // The window's top-right corner is the lock button's
+                    // in portrait, where this panel is the top half; in
+                    // landscape it is the map's. The pane's own corner chip
+                    // yields accordingly instead of sitting under it.
+                    else -> cz.hillview.viewer.ViewerPane(
+                        edges = PanelEdges.photoPanel(portraitNow.value),
+                    )
                 }
             }
         }
-        // Read through a State, not captured: this content is MOVABLE — one
-        // instance that travels between the portrait Column and the landscape
-        // Row — so a value captured when it was created would describe the
-        // orientation it was born in forever.
-        val portraitNow = rememberUpdatedState(portrait)
         val mapPanel = remember {
             movableContentOf {
                 MapScreen(
@@ -320,18 +326,6 @@ fun MainScreen(
             // it is a thing you switch INTO and out of, several times a
             // session, and its state — recording or not — is worth seeing at
             // a glance. Toggles back to the map, exactly like 📷.
-            //
-            // One tap before the phone goes in a pocket, so the lock has to
-            // be here rather than two menus deep. Unlocking is the
-            // deliberate act (the slider); locking is the cheap one.
-            FloatingControl(
-                label = "🔒",
-                tag = "lock-controls-button",
-                onClick = {
-                    menuOpen = false
-                    controlsLock.lock()
-                },
-            )
             FloatingControl(
                 // 🎞, not 🛰 (user, 2026-09-11). A satellite says GPS, which
                 // is the half of this mode that is not the point — every
@@ -349,6 +343,32 @@ fun MainScreen(
                             mainActivity = if (activity == "external") "view" else "external",
                         )
                     }
+                },
+            )
+        }
+
+        // The lock, alone in the opposite corner (user, 2026-09-11: "lets
+        // maybe just shift the lock button into the top right corner, away
+        // from the activity buttons").
+        //
+        // It stays ONE tap, because it is pressed as the phone goes into a
+        // pocket and a run is already going. But one tap beside the activity
+        // buttons is one tap away from the two presses that cost the most:
+        // reaching for 🎞 and hitting 🔒 costs a scrim and a deliberate
+        // slider, and reaching for 🔒 and hitting 🎞 ends the shoot. Putting
+        // the width of the screen between them is the cheapest separation
+        // there is, and the corner is otherwise the app's least-used.
+        //
+        // The corner belongs to the window now rather than to whichever
+        // panel is under it — see PanelEdges.ownsWindowTopEnd, which is how
+        // the panel that IS under it keeps clear.
+        Box(Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+            FloatingControl(
+                label = "🔒",
+                tag = "lock-controls-button",
+                onClick = {
+                    menuOpen = false
+                    controlsLock.lock()
                 },
             )
         }

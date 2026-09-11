@@ -43,8 +43,45 @@ class PanelEdgesTest {
     }
 
     @Test
+    fun thePhotoPanelIsTheMirrorImage() {
+        val portrait = PanelEdges.photoPanel(portrait = true)
+        assertFalse(portrait.bottom, "the divider is below the photo panel in portrait")
+        assertTrue(portrait.top && portrait.start && portrait.end)
+
+        val landscape = PanelEdges.photoPanel(portrait = false)
+        assertFalse(landscape.end, "the divider is beside the photo panel in landscape")
+        assertTrue(landscape.top && landscape.start && landscape.bottom)
+    }
+
+    /**
+     * The window's top-right corner is the lock button's, so exactly one
+     * panel has to yield it — and it flips with the orientation. Two would
+     * mean a hole in the wrong pane; none would mean the button sits on top
+     * of a control.
+     */
+    @Test
+    fun exactlyOnePanelOwnsTheWindowsTopRightCorner() {
+        for (portrait in listOf(true, false)) {
+            val owners = listOf(
+                PanelEdges.mapPanel(portrait),
+                PanelEdges.photoPanel(portrait),
+            ).count { it.ownsWindowTopEnd }
+            assertEquals(1, owners, "portrait=$portrait")
+        }
+    }
+
+    @Test
+    fun inPortraitTheCornerIsThePhotoPanelsAndInLandscapeTheMaps() {
+        assertTrue(PanelEdges.photoPanel(portrait = true).ownsWindowTopEnd)
+        assertFalse(PanelEdges.mapPanel(portrait = true).ownsWindowTopEnd)
+        assertTrue(PanelEdges.mapPanel(portrait = false).ownsWindowTopEnd)
+        assertFalse(PanelEdges.photoPanel(portrait = false).ownsWindowTopEnd)
+    }
+
+    @Test
     fun aPanelThatOwnsTheWindowHasNoDivider() {
         val e = PanelEdges.AllScreen
         assertTrue(e.top && e.start && e.end && e.bottom)
+        assertTrue(e.ownsWindowTopEnd, "and it is under the lock button too")
     }
 }
