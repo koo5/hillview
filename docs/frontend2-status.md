@@ -546,6 +546,30 @@ the chain stopped. See `GeoDebugText.kt`.
     read through a `rememberUpdatedState` rather than captured, which would
     have frozen it at whichever orientation the app started in.
   - NOT phone-verified — no device reachable from this machine.
+  - **safeDrawing, not safeContent — found on the emulator.** "Flush" still
+    left 30 dp of map down each side: `safeContent` includes the system's
+    GESTURE strips, and every control was being held off them. That is the
+    wrong inset family for a tap target — a tap at the very edge works, it is
+    a horizontal DRAG from there that the back gesture takes. The user caught
+    it by reading a town name in the gap ("can you read the Valva on the map
+    left of the zoom buttons"; it was Velvary, beside the zoom column). The
+    overlay now insets by `safeDrawing`, and the tracking pair asks for
+    `safeGestures` BY NAME, being the one control where a swipe read as a tap
+    is expensive.
+  - **The jvm UI tests could not have caught this**: Compose on the desktop
+    reports zero window insets, so every inset bug renders as a perfect
+    layout there. The screenshot is the only instrument for this class of
+    fault, which is an argument for taking one.
+  - **The location button loses its fade and gains its glyph** (user: "let's
+    drop the opacity, or get it in line with the other controls... let's make
+    the icon inside the button normal-sized, not super-tiny"). It was drawn
+    at 60% opacity when off, which made the one control that says whether the
+    app knows where you are the faintest thing on the map and put it out of
+    step with its neighbours; "off" is already said by the fill being chrome
+    rather than blue. The ◎ moves from `titleMedium` to `headlineSmall`, the
+    weight of the zoom glyphs beside it.
+  - Verified on the emulator (Medium_Phone_API_36, gesture navigation, 420
+    dpi) in both orientations; not on a phone.
 
 - **The location button announced a demotion a whole state early**
   (user-caught: "when i pan the map, i get the pill, so far so good, but the

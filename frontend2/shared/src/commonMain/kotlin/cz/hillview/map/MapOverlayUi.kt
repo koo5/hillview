@@ -25,7 +25,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeContent
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.safeGestures
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -208,10 +209,18 @@ fun MapOverlayUi(
     // to hit by accident take one, and only where the edge is the screen's.
     val gutterTop = if (edges.top) CRITICAL_EDGE_GUTTER else 0.dp
     val gutterEnd = if (edges.end) CRITICAL_EDGE_GUTTER else 0.dp
+    // safeDrawing, NOT safeContent. The difference is the system's GESTURE
+    // strips, and those are about swipes: a tap at the very edge of the
+    // screen works fine, it is a horizontal drag from there that the back
+    // gesture takes. Insetting every control by a gesture strip cost 30 dp of
+    // map down each side on this phone — enough to read a town name in
+    // (user-caught, 2026-09-11, pointing at "Velvary" beside the zoom
+    // buttons). The controls that DO want that clearance ask for it by name
+    // below.
     Box(
         Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeContent.only(screenInsetSides(edges))),
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(screenInsetSides(edges))),
     ) {
         // Top-left: zoom, where Leaflet keeps it (44dp touch targets).
         // Flush, both edges, both orientations: a stray tap here zooms a
@@ -259,6 +268,12 @@ fun MapOverlayUi(
             // top of the panel.
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                // The one control that keeps clear of the gesture strips as
+                // well, because it is the one where the slip is expensive:
+                // a back-swipe that starts on this button and is read as a
+                // tap turns tracking off. The system's own number rather
+                // than a guess at it.
+                .windowInsetsPadding(WindowInsets.safeGestures.only(screenInsetSides(edges)))
                 .padding(top = gutterTop, end = gutterEnd),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -567,6 +582,9 @@ private val HUNTER_ROW_RESERVE = 56.dp
 /**
  * The inset sides worth applying: the screen's edges only.
  *
+ * Used for both inset families here — the panel's own edges do not change
+ * when the question does.
+ *
  * Window insets describe the WINDOW, and Compose does not clip them to where
  * a composable sits — so asking for all of them inside a half-screen panel
  * pads the divider side against a system gesture that cannot happen there.
@@ -783,7 +801,11 @@ private fun LocationButton(
                 LocalChromeTone.current.border ?: Color(0xFFDDDDDD),
             ),
             modifier = Modifier
-                .alpha(if (role == FixRole.Off) 0.6f else 1f)
+                // No fade when off. It was 60% opacity, which made the one
+                // control that says whether the app knows where you are the
+                // faintest thing on the map, and put it out of step with
+                // every other control up here (user, 2026-09-11). Off is
+                // already said by the fill: chrome instead of blue.
                 // Which of the three states this is in must be readable from
                 // outside, not just inferable from a colour. The original
                 // carries it as `active`/`background` classes, which is what
@@ -812,7 +834,11 @@ private fun LocationButton(
                             if (role == FixRole.Off) LocalChromeTone.current.ink
                             else Color.White
                         },
-                        style = MaterialTheme.typography.titleMedium,
+                        // Sized like the zoom glyphs next to it, not like a
+                        // caption. A 60x44 dp button with a small glyph in
+                        // the middle of it reads as a mis-render rather than
+                        // as an icon (user, 2026-09-11).
+                        style = MaterialTheme.typography.headlineSmall,
                     )
                 }
             }
