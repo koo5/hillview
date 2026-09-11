@@ -72,6 +72,10 @@ export interface Candidate {
 	lon?: number;
 	displayName?: string;
 	osmType?: string;
+	// borrowed from namesake annotation(s) — same label / id= key on another photo
+	seeded_from?: { annotation_id: string; label?: string | null; photo_title?: string | null }[];
+	// this annotation's own body coords / wikipedia page (even if also seeded)
+	own?: boolean;
 	km?: number;
 	bearing_offset?: number;
 	// the photo's own view pie (matching bench) — drawn when selected/hovered

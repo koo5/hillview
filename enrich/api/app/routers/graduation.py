@@ -44,11 +44,13 @@ def _coord_seg(lat: float, lon: float) -> str:
 
 def suggest_body(body: str | None, label: str | None,
                  anchor: tuple[float, float] | None,
-                 wiki_url: str | None) -> tuple[str, list[dict]]:
+                 wiki_url: str | None,
+                 web_urls: list[str] | None = None) -> tuple[str, list[dict]]:
     """→ (suggested_body, changes). Edits the body's `|`-segments in place:
     the name segment is replaced by the approved label, the coords segment by
     the approved anchor (appended if absent), a wikipedia-anchor URL appended
-    when no wiki segment exists. Every other segment — context, non-wiki URLs,
+    when no wiki segment exists, curated web pages (🔗 attach) appended when
+    the body doesn't carry them. Every other segment — context, non-wiki URLs,
     anything the parser doesn't model — is preserved verbatim, so the
     suggestion is exactly the semantic delta and untouched aspects never
     reformat. Segments are addressed by their PARSER role — this function never
@@ -58,7 +60,7 @@ def suggest_body(body: str | None, label: str | None,
     roles = list(p.roles) if p.roles else ["name"]
     changes: list[dict] = []
 
-    if label and label != p.name:
+    if label and label != p.name and label != segs[0]:
         # a curated label is a certain one — uncertainty markers don't carry over
         changes.append({"what": "label", "from": segs[0] or "?", "to": label})
         segs[0] = label
@@ -83,6 +85,12 @@ def suggest_body(body: str | None, label: str | None,
         changes.append({"what": "wiki", "from": None, "to": wiki_url})
         segs.append(wiki_url)
 
+    for u in web_urls or []:
+        # the parser strips trailing punctuation off links; compare like-for-like
+        if u not in p.links and u.rstrip(".,;)") not in p.links:
+            changes.append({"what": "webpage", "from": None, "to": u})
+            segs.append(u)
+
     return " | ".join(segs), changes
 
 
@@ -93,7 +101,7 @@ async def _approved_context() -> tuple[dict, dict, dict]:
     res = await graph.store.query(f"""{graph.PREFIXES}
 SELECT ?s ?p ?v ?f ?decidedAt WHERE {{
   GRAPH ?f {{ ?s ?p ?v }}
-  FILTER(?p IN (hv:labelText, hv:anchorCandidate, hv:wikipediaPage))
+  FILTER(?p IN (hv:labelText, hv:anchorCandidate, hv:wikipediaPage, hv:webPage, hv:proposedBody))
   GRAPH <{graph.GRAPH_CURATION}> {{
     ?f hv:status hv:approved .
     OPTIONAL {{ ?f hv:decidedAt ?decidedAt }}
@@ -118,6 +126,12 @@ SELECT ?s ?p ?v ?f ?decidedAt WHERE {{
             d["label"] = val
         elif pred == "wikipediaPage":
             d["wiki"] = val
+        elif pred == "webPage":
+            d.setdefault("webs", []).append(val)
+        elif pred == "proposedBody":
+            # the operator's free-text body edit — wins over the composed
+            # suggestion verbatim (updating bodies is graduation's core)
+            d["proposed_body"] = val
         else:
             d.setdefault("anchors", []).append(val)
 
@@ -158,7 +172,12 @@ def _build_item(r, d: dict, coords_map: dict, meta_facts: dict) -> dict:
             if not wiki_url and WIKI_URL_RE.match(a):
                 wiki_url = a
             break
-    suggested, changes = suggest_body(r.body, d.get("label"), anchor, wiki_url)
+    suggested, changes = suggest_body(r.body, d.get("label"), anchor, wiki_url,
+                                      sorted(d.get("webs", [])))
+    if d.get("proposed_body") is not None:
+        suggested = d["proposed_body"]
+        changes = ([{"what": "body", "from": r.body, "to": suggested}]
+                   if suggested != (r.body or "") else [])
     return {"annotation_id": r.id, "photo_id": r.photo_id, "sizes": r.sizes,
             "current_body": r.body, "suggested_body": suggested,
             "changes": changes, "facts": d["facts"],

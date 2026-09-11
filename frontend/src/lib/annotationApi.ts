@@ -21,7 +21,7 @@ export interface AnnotationData {
 	is_current: boolean;
 	superseded_by: string | null;
 	created_at: string | null;
-	event_type: string; // 'created' | 'updated' | 'deleted'
+	event_type: string; // 'created' | 'updated' | 'deleted' | 'hidden'
 	owner_username: string | null;
 }
 
@@ -51,6 +51,14 @@ export async function updateAnnotation(annotationId: string, data: AnnotationCre
 export async function deleteAnnotation(annotationId: string): Promise<void> {
 	const res = await http.delete(`/annotations/${annotationId}`);
 	if (!res.ok) throw new Error(`Failed to delete annotation: ${res.status}`);
+}
+
+// Moderator-only: hides the annotation from viewers and counts, but keeps it
+// synced to the enrichment workbench as a calibration anchor.
+export async function hideAnnotation(annotationId: string): Promise<AnnotationData> {
+	const res = await http.post(`/annotations/${annotationId}/hide`, {});
+	if (!res.ok) throw new Error(`Failed to hide annotation: ${res.status}`);
+	return res.json();
 }
 
 // Target-space conversion lives in $zoomview/annotationTargets (extracted

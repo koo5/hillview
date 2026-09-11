@@ -19,6 +19,18 @@ from .routers import (annotations, calibrate, facts, geocode, graduation, health
 async def lifespan(app: FastAPI):
     applied = await db.init_schema()
     print(f"schema applied: {applied}", flush=True)
+    # every `runs` row is driven by this process (background tasks: geocode,
+    # sync; the rest request-scoped), so a row still 'running' at startup died
+    # with the previous process — typically uvicorn --reload on a code edit —
+    # and would otherwise sit as "running" forever, holding no lock
+    from sqlalchemy import text
+    async with db.wb_engine.begin() as conn:
+        orphaned = (await conn.execute(text(
+            "UPDATE runs SET status = 'failed', finished_at = now(), "
+            "error = 'orphaned: the API process restarted while this job was running' "
+            "WHERE status = 'running' RETURNING kind"))).all()
+    if orphaned:
+        print(f"orphaned runs marked failed: {[k for (k,) in orphaned]}", flush=True)
     yield
     await graph.store.aclose()
     await db.wb_engine.dispose()

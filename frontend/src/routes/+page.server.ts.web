@@ -2,6 +2,7 @@ import type { PageServerLoad } from './$types';
 import { backendInternalUrl } from '$lib/config.server';
 import { parsePhotoUid, parsePhotoUidParts } from '$lib/urlUtilsServer';
 import type { PublicPhoto, PhotoAnnotation } from '$lib/photoDisplay';
+import { ssrAuthHeaders } from '$lib/ssrAuth.server';
 
 // The map homepage renders for every visitor; when the URL carries a ?photo=
 // param we additionally fetch that photo (unauthenticated) so crawlers get
@@ -9,7 +10,7 @@ import type { PublicPhoto, PhotoAnnotation } from '$lib/photoDisplay';
 // /photos/public endpoint and PublicPhoto shape as the /photo/[uid] detail
 // route, so both emit identical head tags via the shared photoDisplay helpers.
 // Any failure falls back to the default site card — the map must still load.
-export const load: PageServerLoad = async ({ url, fetch }) => {
+export const load: PageServerLoad = async ({ url, fetch, locals }) => {
 	const photoUid = parsePhotoUid(url.searchParams.get('photo'));
 	const parts = photoUid ? parsePhotoUidParts(photoUid) : null;
 	if (!photoUid || !parts || parts.source !== 'hillview') {
@@ -20,9 +21,14 @@ export const load: PageServerLoad = async ({ url, fetch }) => {
 	const annotationsUrl = `${backendInternalUrl}/annotations/photos/${encodeURIComponent(parts.id)}`;
 
 	try {
+		// The ticket buys little here — these fetches feed head tags, and the
+		// crawlers they exist for never carry one — but sending it keeps hidden
+		// content hidden: a photo this visitor hid should not title their tab.
+		// No viewer_id is returned: nothing on this page corrects itself client-side.
+		const headers = ssrAuthHeaders(locals);
 		const [publicRes, annotationsRes] = await Promise.all([
-			fetch(publicUrl),
-			fetch(annotationsUrl),
+			fetch(publicUrl, { headers }),
+			fetch(annotationsUrl, { headers }),
 		]);
 
 		if (!publicRes.ok) {

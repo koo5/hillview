@@ -15,6 +15,7 @@ class EmptyDevicePhotoBrowser : DevicePhotoBrowser {
 
     override suspend fun retryUploads() {}
     override suspend fun retryUpload(id: String) {}
+    override suspend fun setAnonymization(id: String, value: String?) {}
 
     override suspend fun changeLicense(id: String, license: String) {}
 }

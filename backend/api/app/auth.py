@@ -16,6 +16,7 @@ from sqlalchemy.future import select
 from pydantic import BaseModel, ConfigDict
 
 from common.utc import utcnow, utc_plus_timedelta, utc_from_timestamp
+from common.jwt_utils import decode_jwt_unverified
 from common.database import get_db
 from common.models import User, TokenBlacklist, UserRole
 from jwt_service import (  # noqa: F401 - re-exported
@@ -120,6 +121,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
 # Models
 class Token(BaseModel):
+	# DO NOT RENAME OR RESTRUCTURE the four fields below. Installed Android builds
+	# parse this response with per-field regexes over the raw body
+	# (performTokenRefresh in shared-kt AuthenticationManager.kt), so a rename does not fail
+	# loudly — it silently stops those devices refreshing and their sessions die.
+	# Adding fields is safe: each pattern requires a quote immediately before the
+	# name it wants. See docs/todo/kotlin-auth-response-regex-parsing.md.
 	access_token: str
 	refresh_token: Optional[str] = None
 	token_type: str
@@ -130,6 +137,12 @@ class Token(BaseModel):
 	# hand-rolled dict using datetime.isoformat(), which would emit "+00:00".
 	expires_at: datetime
 	refresh_token_expires_at: Optional[datetime] = None
+	# Read-only ticket for the web frontend's server renderer, and its expiry.
+	# Declared here because a response_model STRIPS anything it does not name — a
+	# field minted in the route but missing from this model never reaches the
+	# client at all. Optional so Android, which has no SSR, can ignore it.
+	ssr_token: Optional[str] = None
+	ssr_token_expires_at: Optional[datetime] = None
 
 class TokenData(BaseModel):
 	username: Optional[str] = None
@@ -215,6 +228,45 @@ async def authenticate_user(db: AsyncSession, username: str, password: str):
 	logger.info(f"Authentication successful for user: {username}, id: {user.id}")
 	return user
 
+# ------------------------------------------------------------
+# SSR read-only ticket.
+#
+# The web frontend server-renders a handful of routes and has no session of its
+# own, so the browser mirrors this ticket into a cookie and the renderer forwards
+# it here (see jwt_service.create_ssr_read_token). It is accepted ONLY by
+# get_current_user_optional_ssr, which the endpoints SSR actually calls opt into
+# by name. Everything else — get_current_user and both plain optional
+# dependencies — rejects it below.
+#
+# An allowlist, not a denylist, and deliberately so: several write endpoints
+# authenticate through get_current_user_optional (contact, push registration),
+# so a ticket accepted by the shared dependency would be a write credential. This
+# way a new write endpoint cannot inherit the allowance by accident.
+# ------------------------------------------------------------
+SSR_READ_TOKEN_TYPE = "ssr_read"
+
+
+def is_ssr_read_token(claims: Optional[dict]) -> bool:
+	"""True if these claims belong to an SSR read ticket rather than an access token."""
+	return bool(claims) and claims.get("type") == SSR_READ_TOKEN_TYPE
+
+
+def is_dead_ssr_ticket(token: str) -> bool:
+	"""True if a token that has already FAILED validation was an SSR ticket.
+
+	Decides how to fail, never whether to trust. Once validate_token has said no,
+	the SSR dependencies still have to choose between "anonymous" and "401", and
+	the verified claims are gone. An unverified look at the type claim answers
+	that, and forging it buys nothing: the ticket is dead either way, and
+	"anonymous" is what a caller gets with no token at all.
+
+	Why it matters: the cookie can outlive its ticket (a client clock behind the
+	server, a key rotation), and without this the strict fallthrough turned that
+	into a 401 — which the photo page renders as an error page.
+	"""
+	return is_ssr_read_token(decode_jwt_unverified(token))
+
+
 async def get_current_user(
 	token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)
 ):
@@ -234,6 +286,12 @@ async def get_current_user(
 	token_data_dict = validate_token(token)
 	if not token_data_dict:
 		logger.warning("Token validation failed")
+		raise credentials_exception
+
+	# The SSR ticket authenticates nothing here. This rejection is what makes it
+	# read-only, so it is the one line in this file that must not be relaxed.
+	if is_ssr_read_token(token_data_dict):
+		logger.warning("SSR read ticket presented to an authenticated endpoint; rejecting")
 		raise credentials_exception
 
 	username = token_data_dict["username"]
@@ -492,6 +550,10 @@ async def get_current_user_optional(
 		if not token_data_dict:
 			return None
 
+		# Read-only ticket: not a credential here (see SSR_READ_TOKEN_TYPE).
+		if is_ssr_read_token(token_data_dict):
+			return None
+
 		user_id = token_data_dict.get("sub")
 		if user_id is None:
 			return None
@@ -599,6 +661,12 @@ async def get_current_user_optional_with_query(
 				logger.warning("Invalid token in Authorization header")
 				raise credentials_exception
 
+			# Read-only ticket: valid, but not here (see SSR_READ_TOKEN_TYPE). The
+			# endpoints that do accept it depend on get_current_user_optional_ssr.
+			if is_ssr_read_token(token_data_dict):
+				logger.warning("SSR read ticket presented to an endpoint that does not accept it")
+				raise credentials_exception
+
 			user_id = token_data_dict.get("sub")
 			if user_id is None:
 				logger.warning("Token missing user ID")
@@ -683,6 +751,85 @@ async def get_current_user_optional_with_query(
 	# No token provided - anonymous access allowed
 	return None
 
+async def _user_for_ssr_ticket(token: str, claims: dict, db: AsyncSession) -> Optional[User]:
+	"""Resolve an SSR read ticket to its user, or None.
+
+	None rather than 401 on every failure: a stale ticket must degrade to the
+	anonymous render, never break the page. The renderer serves crawlers too, and
+	an expired cookie turning /bestof into an error page is exactly the shape that
+	got it classified as a soft 404 once.
+	"""
+	user_id = claims.get("sub")
+	if not user_id:
+		return None
+
+	if await is_token_blacklisted(token, db):
+		return None
+
+	# Checked here, unlike in the plain optional dependencies: this ticket lives as
+	# long as the refresh token, so a logout or a reuse-detection revocation
+	# elsewhere has to stop it rendering signed-in HTML straight away.
+	if await is_session_revoked(claims.get("sid"), db):
+		logger.info("SSR ticket for a revoked session; rendering anonymously")
+		return None
+
+	if is_user_force_logged_out(user_id):
+		return None
+
+	result = await db.execute(select(User).where(User.id == user_id))
+	user = result.scalars().first()
+	if user is None or not user.is_active:
+		return None
+
+	return user
+
+
+async def get_current_user_optional_ssr(
+	request: Request,
+	token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)),
+	db: AsyncSession = Depends(get_db)
+) -> Optional[User]:
+	"""get_current_user_optional_with_query, plus the SSR read ticket.
+
+	Depended on by exactly the read endpoints the frontend's server renderer calls.
+	Keeping the allowance on those endpoints rather than in the shared dependency is
+	what stops a future write endpoint inheriting it — see SSR_READ_TOKEN_TYPE.
+	"""
+	if token:
+		claims = validate_token(token)
+		if is_ssr_read_token(claims):
+			return await _user_for_ssr_ticket(token, claims, db)
+		if claims is None and is_dead_ssr_ticket(token):
+			logger.info("SSR ticket failed validation (expired, or another key); rendering anonymously")
+			return None
+
+	return await get_current_user_optional_with_query(request, token, db)
+
+
+async def get_current_user_optional_soft_ssr(
+	token: Optional[str] = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)),
+	db: AsyncSession = Depends(get_db)
+) -> Optional[User]:
+	"""get_current_user_optional (the forgiving one), plus the SSR read ticket.
+
+	The two flavours differ in what a bad credential means, and endpoints must keep
+	the one they had. `_with_query` treats a present-but-invalid token as a 401;
+	`get_current_user_optional` shrugs and serves the anonymous view. Annotation
+	listing has always been the second kind, so an installed app whose access token
+	expired keeps seeing annotations instead of an error where it used to see data.
+	"""
+	if token:
+		claims = validate_token(token)
+		if is_ssr_read_token(claims):
+			return await _user_for_ssr_ticket(token, claims, db)
+		# The forgiving fallthrough would answer None anyway; said here so the
+		# promise holds by construction rather than by the other flavour's manners.
+		if claims is None and is_dead_ssr_ticket(token):
+			return None
+
+	return await get_current_user_optional(token, db)
+
+
 def require_role(required_role: str):
 	"""Dependency factory for role-based access control."""
 	async def role_checker(current_user: User = Depends(get_current_active_user)):
@@ -748,18 +895,23 @@ async def delete_users_by_usernames(db: AsyncSession, usernames: list[str]) -> d
 		user_ids = [row[0] for row in user_ids_result.fetchall()]
 
 		if user_ids:
-			# First, get all photos to delete their files
+			# Capture each photo's `sizes` while attached, then end the read
+			# transaction BEFORE the file sweep. The sweep can be long (clear-database
+			# wipes tens of thousands), and it must not run inside an open transaction
+			# or the idle-txn guardrail would kill this very operation. Files are
+			# deleted best-effort here (as before): the DB rows go regardless, and
+			# clear-database's wholesale directory sweep is the local catch-all.
 			photos_query = select(Photo).where(Photo.owner_id.in_(user_ids))
 			photos_result = await db.execute(photos_query)
-			photos_to_delete = photos_result.scalars().all()
+			all_sizes = [photo.sizes for photo in photos_result.scalars().all()]
+			await db.rollback()  # end the read snapshot; nothing written yet
 
-			# Delete photo files from filesystem
-			if photos_to_delete:
-				from photos import delete_all_user_photo_files
-				deleted_files_count = await delete_all_user_photo_files(photos_to_delete)
-				logger.info(f"Deleted {deleted_files_count}/{len(photos_to_delete)} photo files for users: {usernames}")
+			if all_sizes:
+				from photos import delete_photo_files_for_sizes
+				deleted_files_count = await delete_photo_files_for_sizes(all_sizes)
+				logger.info(f"Deleted {deleted_files_count}/{len(all_sizes)} photo files for users: {usernames}")
 
-			# Delete photos from database
+			# Now the DB deletes, in a fresh short write transaction.
 			photo_delete_stmt = delete(Photo).where(Photo.owner_id.in_(user_ids))
 			photo_result = await db.execute(photo_delete_stmt)
 			summary["photos_deleted"] = photo_result.rowcount

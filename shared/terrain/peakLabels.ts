@@ -62,6 +62,9 @@ export interface PeakMark {
 	v: number;
 	distance_m: number;
 	azimuth_deg: number;
+	/** the feature's own position — so a label can be correlated with a map */
+	lat?: number;
+	lon?: number;
 	ele?: number | null;
 	ele_estimated?: boolean;
 	prominence?: number | null;
@@ -355,6 +358,8 @@ export function explainPeak(
 		v: (row + 0.5) / meta.height,
 		distance_m: distanceM,
 		azimuth_deg: bearingDeg,
+		lat: peak.lat,
+		lon: peak.lon,
 		ele: peak.ele,
 		ele_estimated: peak.ele_estimated,
 		prominence: peak.prominence,
@@ -541,6 +546,10 @@ export interface SkyLayoutOptions {
 	minGapX?: number;
 	/** slat angle in degrees, 0..90; default 45 */
 	angleDeg?: number;
+	/** screen-space keep-clear circles (drag handles and other grabbable
+	 * chrome): a pill that would cover one is skipped, like a pill-pill
+	 * collision — the control stays visible and grabbable */
+	avoid?: { x: number; y: number; r: number }[];
 }
 
 export const SKY_LABEL_ANGLE_DEG = 45;
@@ -558,6 +567,21 @@ function slatsOverlap(a: SkyLabel, b: SkyLabel, gap: number): boolean {
 	// a's band spans across ∈ [−pillH, 0]; b's spans [across − pillH, across]
 	const acrossOverlap = across < a.pillH + gap && across > -(b.pillH + gap);
 	return alongOverlap && acrossOverlap;
+}
+
+/** Does the slat rectangle come within `gap` of a circle? The circle's centre
+ * is rotated into the slat frame (axis u ∈ [0, pillW], normal ∈ [−pillH, 0])
+ * and measured against the nearest point of that rect. */
+function slatCoversCircle(l: SkyLabel, c: { x: number; y: number; r: number }, gap: number): boolean {
+	const cos = Math.cos(l.angle);
+	const sin = Math.sin(l.angle);
+	const dx = c.x - l.ox;
+	const dy = c.y - l.oy;
+	const along = dx * cos - dy * sin;
+	const across = dx * sin + dy * cos;
+	const na = Math.min(Math.max(along, 0), l.pillW);
+	const nn = Math.min(Math.max(across, -l.pillH), 0);
+	return Math.hypot(along - na, across - nn) <= c.r + gap;
 }
 
 /** Extra input fields (kind, class, mark, …) ride through to the placed
@@ -580,6 +604,7 @@ export function layoutSkyLabels<T extends SkyLabelInput>(
 		// nothing of a slat that starts above the top edge would show
 		if (c.oy - pillH * Math.cos(angle) < 2) continue;
 		if (placed.some((p) => Math.abs(p.cx - c.cx) < minGapX || slatsOverlap(p, c, gap))) continue;
+		if (opts.avoid?.some((k) => slatCoversCircle(c, k, gap))) continue;
 		placed.push(c);
 	}
 	return placed;

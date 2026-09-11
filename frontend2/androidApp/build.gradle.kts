@@ -68,6 +68,30 @@ android {
             "HILLVIEW_GOOGLE_CLIENT_ID",
             "\"${System.getenv("HILLVIEW_GOOGLE_CLIENT_ID") ?: ""}\"",
         )
+        // Build identity (cz.hillview.BuildInfo: Settings footer + `hv-build`
+        // logcat line). Derived from git CONTENT — commit, and for a dirty tree
+        // the hash of `git status` + `git diff HEAD` — never from the clock:
+        // with the configuration cache on, a config-time timestamp would be
+        // frozen in the cache entry and lie. providers.exec outputs are
+        // configuration inputs, so a changed tree re-runs configuration and
+        // re-stamps. (An untracked file's CONTENT is not in the hash — its
+        // path is; `git add -N` it to be safe.)
+        fun git(vararg args: String): String =
+            providers.exec { commandLine("git", *args); isIgnoreExitValue = true }
+                .standardOutput.asText.map { it.trim() }.get()
+        val gitSha = git("rev-parse", "--short=8", "HEAD")
+        val gitCommitTime = git("log", "-1", "--format=%cI")
+        val gitDirty = git("status", "--porcelain").isNotBlank()
+        val gitDirtyHash = if (gitDirty) {
+            providers.exec {
+                commandLine("sh", "-c", "(git status --porcelain; git diff HEAD) | sha1sum | cut -c1-8")
+                isIgnoreExitValue = true
+            }.standardOutput.asText.map { it.trim() }.get()
+        } else ""
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
+        buildConfigField("String", "GIT_COMMIT_TIME", "\"$gitCommitTime\"")
+        buildConfigField("boolean", "GIT_DIRTY", "$gitDirty")
+        buildConfigField("String", "GIT_DIRTY_HASH", "\"$gitDirtyHash\"")
     }
     packaging {
         resources {

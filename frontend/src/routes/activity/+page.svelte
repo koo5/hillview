@@ -4,6 +4,7 @@
 	import { auth } from '$lib/auth.svelte';
 	import { http, handleApiError } from '$lib/http';
 	import { createSsrBackedLoad } from '$lib/ssrBackedLoad';
+	import { trackLoad } from '$lib/pageLoading';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { ACTIVITY_NOTIFICATION_REFRESH_EVENT } from '$lib/notificationRouteUtils';
 	import { constructPhotoMapUrl, constructUserProfileUrl } from '$lib/urlUtils';
@@ -46,6 +47,7 @@
 		photos?: ActivityPhoto[];
 		has_more?: boolean;
 		next_cursor?: string | null;
+		viewer_id?: string | null;
 	} | undefined = undefined;
 
 	// Group a flat photo list by date → user. When appending (load-more),
@@ -113,8 +115,11 @@
 	// identical list only flashes the spinner (and for crawlers, blocked from
 	// /api/ by robots.txt, it rendered an error page — Google read /bestof,
 	// which had the same shape, as a soft 404).
-	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void loadActivityData());
-	$: syncLoad($auth);
+	const syncLoad = createSsrBackedLoad(
+		data?.photos ? (data.viewer_id ?? null) : false,
+		() => void trackLoad(() => loadActivityData())
+	);
+	$: syncLoad({ ...$auth, userId: $auth.user?.id ?? null });
 
 	async function loadActivityData(cursor?: string, userInitiated = false) {
 		try {

@@ -82,6 +82,7 @@ actual fun MapScreen(
     // viewer pane reads the same two flags to decide what you can turn to,
     // so they are shared state now (see MapFilterState).
     val filters: MapFilterState = org.koin.compose.koinInject()
+    val viewerHolder: cz.hillview.viewer.ViewerStateHolder = org.koin.compose.koinInject()
     val hunterMode by filters.hunterMode.collectAsState()
 
     // Session-only, exactly as in the Svelte app — but held in MapSession
@@ -105,6 +106,12 @@ actual fun MapScreen(
     val trackingPhase by session.bearingPhase.collectAsState()
     val locationTracking by session.locationTracking.collectAsState()
     var locationFlash by remember { mutableStateOf(false) }
+    // The last fix, HELD — not only applied to the map centre. In BACKGROUND
+    // tracking the fix callback deliberately stops writing spatial state
+    // (exploring must not be yanked back), which used to mean the fix went
+    // nowhere at all and the receiver's position vanished from the map the
+    // moment you panned. The GPS dot (GpsMarkerOverlay) is where it goes.
+    var lastFix by remember { mutableStateOf<GeoPoint?>(null) }
     // A pan happened and no manual position is claimed: exploration is
     // free, and this offers the two exits — claim this position, or snap
     // back to the fix. No timeout: reading a map takes as long as it
@@ -143,6 +150,22 @@ actual fun MapScreen(
     // The front photo: what the gallery would show and the marker drawn as
     // selected. Recomputed from bearing + range, or set by tapping.
     var selectedPhotoId by remember { mutableStateOf<String?>(null) }
+    // ONE front-photo rule. The map used to run its own (frontPhoto():
+    // in-range nearest-bearing) beside the viewer's derivation, and the two
+    // could disagree at the edges — the viewer's ring applies the hunter and
+    // filter rules, the map's pass did not — which is exactly the bug shape
+    // one-state.md exists to prevent. The enlarged marker now IS the
+    // viewer's front photo.
+    //
+    // Collected only while the view activity is up: outside it this effect
+    // holds no subscription, so the viewer derivation stays dark (its
+    // WhileSubscribed gate) and the marker keeps its last id for the pin —
+    // the same double gate the original has (optimizedMarkers.ts:88,:309).
+    val selectionFollows = mapSettings.mainActivity == "view"
+    LaunchedEffect(selectionFollows) {
+        if (!selectionFollows) return@LaunchedEffect
+        viewerHolder.state.collect { selectedPhotoId = it.front?.id }
+    }
     // Published by the marker overlay after each draw that moved anything.
     var markerPositions by remember {
         mutableStateOf<List<Pair<String, Pair<Float, Float>>>>(emptyList())
@@ -201,6 +224,7 @@ actual fun MapScreen(
     LaunchedEffect(locationTracking, locationPermission.granted) {
         controller.setLocationEnabled(locationTracking != LocationTracking.Off) { lat, lon ->
             locationFlash = true
+            lastFix = GeoPoint(lat, lon)
             if (locationTracking == LocationTracking.Active) {
                 state.updateSpatial(
                     latitude = lat, longitude = lon,
@@ -252,6 +276,7 @@ actual fun MapScreen(
     val markerOverlay = remember { PhotoMarkerOverlay() }
     markerOverlay.onDrawn = { markerPositions = it }
     val rangeOverlay = remember { RangeCircleOverlay() }
+    val gpsOverlay = remember { GpsMarkerOverlay() }
     val arrowOverlay = remember { BearingArrowOverlay() }
     // Arrow drag: walking sets the bearing outright, car adjusts the mount
     // offset by the angle travelled.
@@ -348,6 +373,7 @@ actual fun MapScreen(
                     applied.providerKey = mapSettings.tileProviderKey
                 }
                 if (rangeOverlay !in view.overlays) view.overlays.add(rangeOverlay)
+                if (gpsOverlay !in view.overlays) view.overlays.add(gpsOverlay)
                 if (markerOverlay !in view.overlays) view.overlays.add(markerOverlay)
                 // Late, so it draws on top — and so its touch handler gets
                 // refusal before the map pans.
@@ -371,6 +397,16 @@ actual fun MapScreen(
                 }.takeIf { it > 0 } ?: spatial.range
                 rangeOverlay.centre = centre
                 rangeOverlay.radiusPx = ringPx
+                // Read the circle's ground meaning back into the one state,
+                // so the viewer's ring culls against what the circle SHOWS.
+                // Only on real change: this block runs per recomposition.
+                if (kotlin.math.abs(rangeMeters - spatial.range) > spatial.range * 0.01) {
+                    state.updateRange(rangeMeters)
+                }
+                gpsOverlay.position = lastFix
+                // ACTIVE and BACKGROUND alike, as the original keeps it —
+                // "keep the pulsing GPS marker alive in BACKGROUND too".
+                gpsOverlay.visible = locationTracking != LocationTracking.Off
                 // Tip at 1.3x the ring, as in the original — just outside it.
                 arrowTipPx = ringPx * 1.3f
                 arrowOverlay.bearingDeg = bearing.bearing
@@ -387,15 +423,17 @@ actual fun MapScreen(
                 markerOverlay.onPhotoTapped = { photo ->
                     // Turning the view to the photo IS the selection — the
                     // bearing carries the photo id, exactly as the original
-                    // does via updateBearingWithPhoto.
-                    photo.bearingDeg?.let { photoBearing ->
-                        state.updateBearing(
-                            bearing = photoBearing,
-                            source = "marker_click",
-                            photoUid = photo.id,
-                            now = System.currentTimeMillis(),
-                        )
-                    }
+                    // does via updateBearingWithPhoto. A heading-less photo
+                    // (grey plus-marker) cannot turn the view, but the tap
+                    // still selects it: the current bearing is rewritten with
+                    // the photo id attached and the viewer fronts it (see
+                    // deriveViewerState's heading-less rule).
+                    state.updateBearing(
+                        bearing = photo.bearingDeg ?: state.bearing.value.bearing,
+                        source = "marker_click",
+                        photoUid = photo.id,
+                        now = System.currentTimeMillis(),
+                    )
                     selectedPhotoId = photo.id
                     // Tapping a greyed-out photo un-greys the set, like the
                     // original's overrideFilters flip.
@@ -408,17 +446,10 @@ actual fun MapScreen(
                 val visible = markers
                 val anyFeatured = visible.any { it.featured }
 
-                // The front photo follows the view unless the user picked
-                // one; a bearing whose source is a tap keeps that choice.
-                val inRange = { m: PhotoMarker ->
-                    centre.distanceToAsDouble(GeoPoint(m.latitude, m.longitude)) <= rangeMeters
-                }
-                selectedPhotoId = if (bearing.photoUid != null) {
-                    bearing.photoUid
-                } else {
-                    frontPhoto(visible, bearing.bearing, { it.id }, { it.bearingDeg }, inRange)?.id
-                }
-                markerOverlay.selectedId = selectedPhotoId
+                // Selection styling only in the view activity — the
+                // original's capture gate. The id itself arrives from the
+                // viewer's derivation (see selectedPhotoId above).
+                markerOverlay.selectedId = if (selectionFollows) selectedPhotoId else null
                 markerOverlay.markers = visible.map { marker ->
                     // Two wash-out reasons compose: the backend's analysis
                     // filter verdict (unless overridden), and the

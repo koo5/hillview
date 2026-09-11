@@ -11,6 +11,7 @@ export interface PhotoSourceOptions {
     maxPhotos?: number;
     picks?: Set<PhotoId>;
     queryOptionsJson?: string | null;  // Pre-serialized analysis filters, null if no active filters
+    streamInactivityTimeoutMs?: number;  // Stream watchdog; defaults to STREAM_INACTIVITY_TIMEOUT_MS
 }
 
 const doLog = false;

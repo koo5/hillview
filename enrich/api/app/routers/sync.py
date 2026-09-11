@@ -25,11 +25,12 @@ async def sync_run(req: SyncRequest = SyncRequest()):
         raise HTTPException(409, "a sync is already running")
 
     async def _job():
-        async with sync_mod.sync_lock:
-            try:
-                await sync_mod.run_sync(req.mode)
-            except Exception as e:
-                print(f"sync {req.mode} failed: {e}", flush=True)
+        # sync_and_derive takes the sync lock itself (sync + parse), then chains
+        # the scoped geocode run outside it
+        try:
+            await sync_mod.sync_and_derive(req.mode)
+        except Exception as e:
+            print(f"sync {req.mode} failed: {e}", flush=True)
 
     asyncio.create_task(_job())
     return {"started": req.mode}

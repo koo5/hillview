@@ -211,7 +211,14 @@ PROFILES = {
 #
 # Driving a browser wants an h2 origin either way — plain HTTP/1.1 starves chunk
 # loads into the stalled-request flake class.
-WEB_SUFFIXES = ("local", "ygg")
+#
+# ygg first: it is the canonical origin, the one name that works from anywhere.
+# `local` is the fallback for a box that cannot reach its own ygg name, which is
+# every VM — their ygg names are terminated on jj, and ygg does not run inside
+# them. The reachable_locally flag is what makes this ordering safe, and it means
+# a box that later CAN resolve its own ygg name starts preferring it with no
+# change here.
+WEB_SUFFIXES = ("ygg", "local")
 
 
 def profile_for(hostname, leg):

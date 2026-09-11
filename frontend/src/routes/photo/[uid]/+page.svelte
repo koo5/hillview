@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import { onMount } from 'svelte';
+	import { trackLoad } from '$lib/pageLoading';
+	import { createSsrBackedLoad } from '$lib/ssrBackedLoad';
 	import { HILLVIEW_BASE_URL } from '$lib/urlUtilsServer';
 	import {
 		EyeOff,
@@ -33,7 +34,8 @@
 		titleUsesPlace,
 		displayTitle,
 		type PublicPhoto,
-		type PhotoAnnotation
+		type PhotoAnnotation,
+		type PhotoLicenseChange
 	} from '$lib/photoDisplay';
 	import PhotoAnnotations from '$lib/components/PhotoAnnotations.svelte';
 	import PlaceAttribution from '$lib/components/PlaceAttribution.svelte';
@@ -57,7 +59,14 @@
 	import { openAnonymizationModalForServerPhoto } from '$lib/components/anonymization-modal/anonymizationModal.svelte.js';
 	import { isModerator } from '$lib/adminNotifications';
 
-	export let data: { photo?: PublicPhoto; annotations?: PhotoAnnotation[] } | undefined = undefined;
+	export let data:
+		| {
+				photo?: PublicPhoto;
+				annotations?: PhotoAnnotation[];
+				licenseHistory?: PhotoLicenseChange[];
+				viewer_id?: string | null;
+		  }
+		| undefined = undefined;
 
 	let photo: PublicPhoto | null = data?.photo ?? null;
 	let annotations: PhotoAnnotation[] = data?.annotations ?? [];
@@ -79,13 +88,10 @@
 	// copy relies on the earlier grant — so the page shows the trail, not just
 	// the current answer. Empty for the overwhelming majority of photos, where
 	// it renders nothing at all.
-	type LicenseChange = {
-		old_license: string | null;
-		new_license: string | null;
-		actor_was_owner: boolean;
-		created_at: string;
-	};
-	let licenseHistory: LicenseChange[] = [];
+	// Hydrated from the server batch like photo and annotations above: when that
+	// batch is the visitor's own, the client-side load that would otherwise fetch
+	// the trail (see loadPhoto) is skipped, and this is the only copy there is.
+	let licenseHistory: PhotoLicenseChange[] = data?.licenseHistory ?? [];
 	let showLicenseHistory = false;
 
 	$: photoUid = $page.params.uid;
@@ -97,12 +103,22 @@
 		loadPhoto();
 	}
 
-	// SSR runs unauthenticated so user-specific fields (user_rating, is_own_photo)
-	// come back null/false. When we hydrated from SSR data, re-fetch once under
-	// the client's auth token to pick those up, without flashing the spinner.
-	onMount(() => {
-		if (data?.photo) loadPhoto(true);
-	});
+	// User-specific fields (user_rating, is_own_photo) are only right if the server
+	// resolved them for the visitor now looking at the page. It does when it has
+	// their SSR ticket, and then this re-fetch is skipped — that gap is what let a
+	// rating shortcut fire against a stale `user_rating: null`. Without a ticket
+	// (expired, revoked, or the flag off) the batch is anonymous and we correct it,
+	// silently so no spinner flashes over content already drawn.
+	//
+	// Same policy helper as the list pages rather than an onMount check, because it
+	// waits for `checked`: at mount a signed-in visitor still reads as anonymous,
+	// would match an anonymous batch, and would skip the correction it needs. It
+	// also means logging in or out while the page is open re-resolves the fields.
+	const syncPhotoLoad = createSsrBackedLoad(
+		data?.photo ? (data.viewer_id ?? null) : false,
+		() => void trackLoad(() => loadPhoto(true))
+	);
+	$: syncPhotoLoad({ ...$auth, userId: $auth.user?.id ?? null });
 
 	function setStatus(message: string, isError = false, timeoutMs = 3000) {
 		statusMessage = message;
@@ -116,13 +132,25 @@
 	}
 
 
+	// Which photo a full load is currently fetching, so a silent correction can
+	// stand down. Builds with no server load (Tauri, `bun run dev`) have no batch
+	// to correct, so there both the uid watcher above and syncPhotoLoad want to
+	// fetch — the watcher immediately, syncPhotoLoad once auth settles — and the
+	// page would open every photo with two requests for the same thing.
+	let fullLoadInFlightFor: string | null = null;
+
 	async function loadPhoto(silent = false) {
 		if (!photoUid) {
 			error = 'Photo not found';
 			loading = false;
 			return;
 		}
+		// A correction has nothing to add while a full load of the same photo is
+		// running: that one fetches under the client's own token and lands resolved
+		// for this visitor, which is exactly what the correction was going to do.
+		if (silent && fullLoadInFlightFor === photoUid) return;
 		if (!silent) {
+			fullLoadInFlightFor = photoUid;
 			loading = true;
 			annotations = [];
 		}
@@ -136,9 +164,6 @@
 				throw new Error(`Failed to load photo: ${response.status}`);
 			}
 			photo = await response.json();
-			if (photo && isAuthenticated) {
-				checkFlagStatus();
-			}
 		} catch (err) {
 			console.error('🢄 Error loading photo:', err);
 			if (!silent) error = handleApiError(err);
@@ -146,7 +171,10 @@
 				return;
 			}
 		} finally {
-			if (!silent) loading = false;
+			if (!silent) {
+				loading = false;
+				fullLoadInFlightFor = null;
+			}
 		}
 
 		// Annotations load independently — a failure here must not hide the photo.
@@ -258,6 +286,24 @@
 	async function checkFlagStatus() {
 		if (!photo || !isAuthenticated) return;
 		isFlagged = await fetchIsFlagged(photo as unknown as PhotoData);
+	}
+
+	// Whether THIS visitor flagged the photo is in no batch — the public endpoint
+	// resolves user_rating and is_own_photo for the ticket holder, nothing else —
+	// so it is resolved here, keyed on viewer and photo, rather than inside
+	// loadPhoto: a batch rendered for this very visitor skips that load (see
+	// syncPhotoLoad), and the button then read "Flag" on a photo they had
+	// already flagged. The key also covers a logout (clears) and a login as
+	// someone else (re-asks); a `photo = { ...photo }` after a rating or an edit
+	// keeps the key and asks nothing.
+	let flagStatusFor: string | null = null;
+	$: {
+		const key = $auth.checked && isAuthenticated && photo ? `${$auth.user?.id}/${photo.id}` : null;
+		if (key !== flagStatusFor) {
+			flagStatusFor = key;
+			if (key) checkFlagStatus();
+			else isFlagged = false;
+		}
 	}
 
 	// --- Delete (same pattern as /photos/+page.svelte) ---

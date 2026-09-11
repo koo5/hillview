@@ -861,6 +861,15 @@ class PhotoUploadLogic(internal val context: Context) {
 		// anyway. Null stays absent rather than becoming 0 — see
 		// PhotoEntity.pitch.
 		photo.pitch?.let { put("pitch", it) }
+		// The original's alt_location: the backend synthesizes it into the
+		// UserComment provenance (test_background_location_provenance.py).
+		photo.altLocationJson?.let {
+			try {
+				put("alt_location", JSONObject(it))
+			} catch (e: Exception) {
+				Log.w(TAG, "altLocationJson on ${photo.id} is not valid JSON, dropping: $it")
+			}
+		}
 		// The stamp was interpolated after the fact (StampRefiner) — the
 		// lat/lon/bearing above are the refined values, not the live ones.
 		if (photo.stampRefinedAt != null) put("refined", true)
@@ -1369,6 +1378,8 @@ class PhotoUploadLogic(internal val context: Context) {
         license: String? = null,
         /** Camera elevation at the shutter — see PhotoEntity.pitch. */
         pitch: Double? = null,
+        /** The other position stream, as JSON — see PhotoEntity.altLocationJson. */
+        altLocationJson: String? = null,
         // The refiner's upload gate (PhotoEntity.uploadHoldUntil): non-zero
         // keeps the drain off the row until then, so refinement wins the
         // race against an expedited upload.
@@ -1406,6 +1417,7 @@ class PhotoUploadLogic(internal val context: Context) {
             exposureJson = exposureJson,
             license = license,
             pitch = pitch,
+            altLocationJson = altLocationJson,
             uploadHoldUntil = uploadHoldUntil,
         )
 

@@ -68,6 +68,12 @@
 		return chainTip(chain).event_type !== 'deleted';
 	}
 
+	// A hidden chain is live-but-not-shown: invisible to viewers and counts,
+	// but still a normal annotation to the enrichment workbench.
+	function isHidden(chain: AnnotationEvent[]): boolean {
+		return chainTip(chain).event_type === 'hidden';
+	}
+
 	// --- Undo (moderator action; only the current tip of a chain is undoable) ---
 	let undoTarget: AnnotationEvent | null = null;
 	let undoReason = '';
@@ -144,9 +150,11 @@
 								<div class="chain-head">
 									<span
 										class="status"
-										class:live={isLive(chain)}
+										class:live={isLive(chain) && !isHidden(chain)}
+										class:hidden={isHidden(chain)}
+										data-hidden={isHidden(chain)}
 										data-testid="photo-annotation-history-status"
-									>{isLive(chain) ? 'Current' : 'Removed'}</span>
+									>{!isLive(chain) ? 'Removed' : isHidden(chain) ? 'Hidden' : 'Current'}</span>
 									{#if zoom}
 										<a class="zoom-link" href={zoom} data-testid="photo-annotation-history-zoom" title="Open the photo zoomed to this annotation"><Crosshair size={12} /> zoom to spot</a>
 									{/if}
@@ -335,6 +343,11 @@
 		background: #dcfce7;
 	}
 
+	.status.hidden {
+		color: #b45309;
+		background: #fef3c7;
+	}
+
 	.zoom-link {
 		display: inline-flex;
 		align-items: center;
@@ -417,6 +430,11 @@
 	.type-deleted {
 		background: #fee2e2;
 		color: #b91c1c;
+	}
+
+	.type-hidden {
+		background: #fef3c7;
+		color: #b45309;
 	}
 
 	.event-main {

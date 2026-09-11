@@ -2,6 +2,7 @@
 import os
 import shutil
 import logging
+import anyio
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -79,6 +80,44 @@ def _delete_size(size_info: Dict[str, Any]) -> bool:
 	return success
 
 
+def _delete_photo_sizes_sync(sizes) -> bool:
+	"""Delete every size variant (and its DZI pyramid) for one photo's `sizes` dict.
+
+	Pure and synchronous: no DB, no ORM, no event loop — safe to run in a worker
+	thread (see delete_photo_files / delete_photo_files_for_sizes). File deletion is
+	blocking (os.remove, shutil.rmtree, and boto3 for cdn pools), so it must never run
+	on the event loop: on a large delete it would freeze every other request, and
+	inside an open transaction it would sit "idle in transaction" long enough for the
+	idle-txn guardrail to kill it.
+	"""
+	if not sizes:
+		return True
+	success = True
+	for size_info in sizes.values():
+		if not _delete_size(size_info):
+			success = False
+	return success
+
+
+async def delete_photo_files_for_sizes(all_sizes: List[Dict[str, Any]]) -> int:
+	"""Delete files for many photos from their captured `sizes` dicts, off the event
+	loop. Session-independent by design: the caller captures the dicts, ends its read
+	transaction, and only then calls this — so the (possibly long) sweep holds no
+	transaction. Returns how many photos had all their files deleted."""
+	def _run() -> int:
+		deleted = 0
+		for sizes in all_sizes:
+			try:
+				if _delete_photo_sizes_sync(sizes):
+					deleted += 1
+				else:
+					logger.error("Failed to delete some files for a photo")
+			except Exception as e:
+				logger.error(f"Exception deleting photo files: {e}")
+		return deleted
+	return await anyio.to_thread.run_sync(_run)
+
+
 async def delete_photo_files(photo) -> bool:
 	"""
 	Delete physical files for a photo from its storage pool(s).
@@ -104,17 +143,11 @@ async def delete_photo_files(photo) -> bool:
 	Returns:
 		True if successful, False otherwise.
 	"""
+	# Capture sizes before the thread hop: after a caller ends its transaction the
+	# ORM object may be expired, and the worker thread must not touch the session.
+	sizes = photo.sizes
 	try:
-		if not photo.sizes:
-			logger.debug(f"Photo {str(photo.id)} has no sizes to delete")
-			return True
-
-		success = True
-		for size_info in photo.sizes.values():
-			if not _delete_size(size_info):
-				success = False
-		return success
-
+		return await anyio.to_thread.run_sync(_delete_photo_sizes_sync, sizes)
 	except Exception as e:
 		logger.warning(f"Error deleting files for photo {str(photo.id)}: {str(e)}")
 		return False
@@ -132,16 +165,10 @@ async def delete_all_user_photo_files(photos: List) -> int:
 		Number of photos whose files were successfully deleted.
 		If this doesn't equal len(photos), some deletions failed.
 	"""
-	deleted_count = 0
-	for photo in photos:
-		try:
-			success = await delete_photo_files(photo)
-			if success:
-				deleted_count += 1
-			else:
-				logger.error(f"Failed to delete files for photo {str(photo.id)}")
-		except Exception as e:
-			logger.error(f"Exception deleting files for photo {str(photo.id)}: {str(e)}")
-
+	# Capture sizes now, while the ORM objects are still attached, then delete off the
+	# event loop. Callers that must be guardrail-safe end their read transaction
+	# before the sweep; see delete_photo_files_for_sizes.
+	all_sizes = [photo.sizes for photo in photos]
+	deleted_count = await delete_photo_files_for_sizes(all_sizes)
 	logger.info(f"Deleted files for {deleted_count}/{len(photos)} photos")
 	return deleted_count

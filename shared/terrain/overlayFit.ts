@@ -587,6 +587,12 @@ export function skylinePolylines(
 			cur = [];
 			continue;
 		}
+		// a 360° pano wraps: +180° projects to the right edge, the next column
+		// (−180°) to the left — start a new run instead of a line across the image
+		if (cur.length && Math.abs(pt.x - cur[cur.length - 1].x) > proj.W / 2) {
+			if (cur.length > 1) runs.push(cur);
+			cur = [];
+		}
 		cur.push(pt);
 	}
 	if (cur.length > 1) runs.push(cur);

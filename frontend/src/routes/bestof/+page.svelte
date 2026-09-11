@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { auth } from '$lib/auth.svelte';
 	import { createSsrBackedLoad } from '$lib/ssrBackedLoad';
+	import { trackLoad } from '$lib/pageLoading';
 	import { http, handleApiError } from '$lib/http';
 	import StandardHeaderWithAlert from '$lib/components/StandardHeaderWithAlert.svelte';
 	import StandardBody from '$lib/components/StandardBody.svelte';
@@ -46,7 +47,7 @@
 	}
 
 	export let data:
-		| { photos?: BestOfPhoto[]; has_more?: boolean; page?: number }
+		| { photos?: BestOfPhoto[]; has_more?: boolean; page?: number; viewer_id?: string | null }
 		| undefined = undefined;
 
 	// Which page of the ranking was server-rendered. Only the web build paginates
@@ -74,9 +75,13 @@
 
 	// Who needs a fetch and who keeps the server-rendered batch — see
 	// createSsrBackedLoad (an anonymous visitor keeps it; that is what stopped
-	// crawlers rendering this page as a soft 404).
-	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void loadPhotos());
-	$: syncLoad($auth);
+	// crawlers rendering this page as a soft 404). trackLoad marks the page as
+	// "not your view yet" while the signed-in batch replaces the anonymous one.
+	const syncLoad = createSsrBackedLoad(
+		data?.photos ? (data.viewer_id ?? null) : false,
+		() => void trackLoad(() => loadPhotos())
+	);
+	$: syncLoad({ ...$auth, userId: $auth.user?.id ?? null });
 
 	/** `append` distinguishes a lazy-loaded continuation from the initial load. */
 	async function loadPhotos(page = pageNo, append = false, userInitiated = false) {

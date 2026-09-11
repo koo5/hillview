@@ -46,6 +46,8 @@ export interface WorkerConfigData {
     queryOptionsJson: string | null;
     maxPhotosInArea: number;
     expectedWorkerVersion?: string;
+    // Override for the stream watchdog (STREAM_INACTIVITY_TIMEOUT_MS); tests use it.
+    streamInactivityTimeoutMs?: number;
 }
 
 // Worker message types

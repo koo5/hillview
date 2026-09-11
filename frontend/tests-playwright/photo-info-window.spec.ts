@@ -1,6 +1,6 @@
 import { T } from './helpers/timeouts';
 import { test, expect } from './fixtures';
-import { loginAsTestUser } from './helpers/testUsers';
+import { loginAsTestUser, recreateTestUsers } from './helpers/testUsers';
 import { uploadPhoto, testPhotos } from './helpers/photoUpload';
 import { ensureSourceEnabled } from './helpers/sourceHelpers';
 
@@ -66,15 +66,24 @@ test.describe('Photo info window (i key)', () => {
   test('shows EXIF for the hillview photo in front and mirrors into the zoom view', async ({ page, testUsers }) => {
     // Inject deterministic curated EXIF into the public-photo response the window
     // fetches — the test-asset JPEGs carry only a GPS direction, no camera tags.
+    // Shaped like a pipeline pano: aperture varies within the bracket (range),
+    // ISO is the same within each position but not across them (mixed), and
+    // the source-frame count is reported. Real pixel dimensions ride along on the
+    // same record (the local photo's sizes.full is only a rendition).
     await page.route('**/photos/public/**', route =>
       route.fulfill({
         json: {
+          width: 66897,
+          height: 5133,
           exif: {
             focal_length: 24,
             focal_length_35mm: 36,
-            f_number: 2.8,
+            f_number_range: [8, 11],
             iso: 200,
+            iso_mixed: true,
             exposure_time: 0.004,
+            frames: 6,
+            positions: 2,
             make: 'Canon',
             model: 'Canon EOS R6',
             lens: 'RF24-70mm F2.8 L IS USM',
@@ -100,10 +109,12 @@ test.describe('Photo info window (i key)', () => {
 
     // Curated EXIF, rendered precisely by the formatters.
     await expect(mapWin).toContainText('24 mm (36 mm eq.)');
-    await expect(mapWin).toContainText('ƒ/2.8');
-    await expect(mapWin).toContainText('ISO 200');
+    await expect(mapWin).toContainText('ƒ/8–11');
+    await expect(mapWin).toContainText('ISO 200 + other');
     await expect(mapWin).toContainText('1/250 s');
+    await expect(mapWin.locator('[data-testid="photo-info-frames"]')).toHaveText('6 (2 positions)');
     await expect(mapWin).toContainText('Canon EOS R6');
+    await expect(mapWin).toContainText('66897 × 5133');
     // Base metadata comes off the local photo object (no fetch needed).
     await expect(mapWin).toContainText('Bearing');
 
@@ -120,5 +131,45 @@ test.describe('Photo info window (i key)', () => {
     await expect(zoomWin).not.toBeVisible();
     // The zoom view itself stays open — only the info window closed.
     await expect(osd).toBeVisible();
+  });
+
+  test('the map and zoom-view toolbar buttons drive the same window', async ({ page, testUsers }) => {
+    // uploads dedupe per user by MD5 and the EXIF test above already uploaded
+    // testPhotos[0] as this user: a fresh user, as in zoomview-print.spec
+    await recreateTestUsers();
+    await loginAsTestUser(page, testUsers.passwords.test);
+    await uploadPhoto(page, testPhotos[0]);
+
+    await page.goto(AT_PHOTO);
+    // also opens hunter mode, where the map's Info button lives
+    await ensureSourceEnabled(page, 'hillview', true);
+
+    const mapBtn = page.getByTestId('photo-info-toggle');
+    const mapWin = page.locator(MAP_INFO_WINDOW);
+    await expect(mapBtn).toBeVisible({ timeout: T(10000) });
+    await expect(mapWin).not.toBeVisible();
+
+    await mapBtn.click();
+    await expect(mapWin).toBeVisible({ timeout: T(5000) });
+    await expect(mapBtn).toHaveClass(/active/);
+
+    // The zoom view's own toolbar button reflects the shared store...
+    const mainPhoto = page.locator('[data-testid="main-photo"]').first();
+    await mainPhoto.waitFor({ state: 'visible', timeout: T(30000) });
+    await mainPhoto.click();
+    const osd = page.locator('[data-testid="osd-viewer-overlay"]');
+    await osd.waitFor({ state: 'visible', timeout: T(15000) });
+    const zoomBtn = page.getByTestId('osd-photo-info-toggle');
+    await expect(zoomBtn).toHaveClass(/active/);
+    await expect(osd.locator(INFO_WINDOW)).toBeVisible({ timeout: T(5000) });
+
+    // ...and closes it, leaving the zoom view itself open.
+    await zoomBtn.click();
+    await expect(osd.locator(INFO_WINDOW)).not.toBeVisible();
+    await expect(zoomBtn).not.toHaveClass(/active/);
+    await expect(osd).toBeVisible();
+
+    await zoomBtn.click();
+    await expect(osd.locator(INFO_WINDOW)).toBeVisible({ timeout: T(5000) });
   });
 });

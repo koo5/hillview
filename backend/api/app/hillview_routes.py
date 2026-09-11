@@ -12,13 +12,14 @@ from sqlalchemy import select, Float, case, literal, case, literal
 from geoalchemy2.functions import ST_MakeEnvelope, ST_Within, ST_X, ST_Y
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from common.database import get_db
+from common.database import get_db, SessionLocal
 from common.models import Photo, User
 from common.utc import format_utc
 from hidden_content_filters import apply_hidden_content_filters
 from auth import get_current_user_optional_with_query
 from rate_limiter import general_rate_limiter
 from internal_guard import require_internal_ip
+import debug_delays
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
@@ -32,6 +33,18 @@ MAX_TIMELINE_USERS = int(os.getenv("MAX_HILLVIEW_TIMELINE_USERS", "20"))
 
 from sqlalchemy import or_, and_, func
 
+# Grant identifier (what a client sends, what Photo.legal_rights stores) →
+# the public licence name every read returns.
+#
+# KNOWN DEBT — the name 'arr' undersells its modality. A 'full1' photo is
+# published as all-rights-reserved PLUS the same OpenStreetMap mapping grant
+# that 'ccbysa4+osm' carries: Hillview holds full rights and grants it on the
+# contributor's behalf. A truer name would mirror the other ('arr+osm'), but
+# 'arr' is a public READ value that shipped clients compare against (the
+# web/Tauri app's grantIdForLicense and label table), so renaming it is a
+# compatibility project — enumerated under "Known debt: the public licence
+# name `arr`" in docs/todo/content-license-model-draft.md. Decision
+# 2026-09-07: keep the id; fix the prose wherever the modality is described.
 LEGAL_RIGHTS_TO_LICENSE = {
 	'full1': 'arr',
 	'ccbysa4+osm': 'ccbysa4+osm',
@@ -44,6 +57,11 @@ LEGAL_RIGHTS_TO_LICENSE = {
 ALLOWED_LICENSES = frozenset(LEGAL_RIGHTS_TO_LICENSE)
 
 def legal_rights_to_license(legal_rights: Optional[str]) -> str:
+	# Defensive default for a row with no recorded grant. Since 'arr' also
+	# implies the OSM mapping grant (see the note above), this default now
+	# advertises a grant nobody made — acceptable only because migration 016
+	# backfilled every row and uploads require a grant, so a real photo never
+	# gets here.
 	if not legal_rights:
 		return 'arr'
 	return LEGAL_RIGHTS_TO_LICENSE.get(legal_rights, legal_rights)
@@ -541,7 +559,6 @@ async def get_hillview_images(
 	picks: str = Query(None, description="Comma-separated list of picked photo IDs"),
 	max_photos: int = Query(400, description="Maximum number of photos to return", ge=1),
 	analysis_filters: Optional[AnalysisFilters] = Depends(parse_analysis_filters),
-	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
 	"""Get Hillview images from database filtered by bounding box area"""
@@ -566,21 +583,27 @@ async def get_hillview_images(
 
 		current_user_id = current_user.id if current_user else None
 
-		# Get picked photos first (they have priority)
-		picked_photos = await query_picked_photos(db, bbox, picked_ids, current_user_id)
-		log.info(f"Found {len(picked_photos)} picked photos in bounds")
+		# Both reads in one short session, closed before the stream starts. The
+		# StreamingResponse below lives as long as the client stays connected, and a
+		# session taken from Depends(get_db) would sit idle in its read transaction,
+		# holding a pooled connection, for that whole time — which is what
+		# idle_in_transaction_session_timeout will (rightly) kill once it is set.
+		async with SessionLocal() as db:
+			# Get picked photos first (they have priority)
+			picked_photos = await query_picked_photos(db, bbox, picked_ids, current_user_id)
+			log.info(f"Found {len(picked_photos)} picked photos in bounds")
 
-		# Get regular photos up to the limit minus picked photos
-		remaining_limit = effective_max_photos - len(picked_photos)
-		regular_photos = []
-		if remaining_limit > 0:
-			regular_photos = await query_photos_in_bounds(
-				db, bbox, current_user_id,
-				exclude_ids=picked_ids,
-				limit=remaining_limit,
-				analysis_filters=analysis_filters
-			)
-			log.info(f"Found {len(regular_photos)} regular photos")
+			# Get regular photos up to the limit minus picked photos
+			remaining_limit = effective_max_photos - len(picked_photos)
+			regular_photos = []
+			if remaining_limit > 0:
+				regular_photos = await query_photos_in_bounds(
+					db, bbox, current_user_id,
+					exclude_ids=picked_ids,
+					limit=remaining_limit,
+					analysis_filters=analysis_filters
+				)
+				log.info(f"Found {len(regular_photos)} regular photos")
 
 		# Combine picked photos first, then regular photos
 		filtered_photos = picked_photos + regular_photos
@@ -589,6 +612,10 @@ async def get_hillview_images(
 		# Create generator for EventSource streaming
 		async def generate_stream():
 			try:
+				# Debug knob: `POST /api/internal/debug/delays {"name": "hillview_stream", ...}`
+				# makes this source slow so the clients' per-source loading can be
+				# observed (the map must fill in from the other sources meanwhile).
+				await debug_delays.sleep_for("hillview_stream")
 				# Send the data as a single event with proper type field
 				data = {
 					'type': 'photos',

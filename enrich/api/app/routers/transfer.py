@@ -117,7 +117,7 @@ async def _datapoints(target_photo_id: str, target_w: int) -> list[dict]:
     of a calibrated-donor annotation onto this target — the warp observations."""
     async with wb_engine.connect() as conn:
         rows = (await conn.execute(text(
-            "SELECT m.projection, a.target, a.photo_id, p.compass_angle "
+            "SELECT m.projection, m.annotation_id AS id, a.target, a.photo_id, p.compass_angle "
             "FROM match_results m "
             "JOIN annotation_mirror a ON a.id = m.annotation_id "
             "JOIN photo_mirror p ON p.id = a.photo_id "
@@ -125,13 +125,15 @@ async def _datapoints(target_photo_id: str, target_w: int) -> list[dict]:
             "AND m.params ? 'transfer_id' AND m.projection IS NOT NULL"),
             {"tid": target_photo_id})).all()
     cals: dict[str, dict | None] = {}
+    from ..geometry import effective_targets
+    targets = await effective_targets(rows)
     dps = []
     for r in rows:
         proj = r.projection or {}
         bbox = proj.get("bbox")
         if not bbox or int(proj.get("h_inliers") or 0) < CONF_INLIERS:
             continue
-        rect = _rect_of(r.target)
+        rect = _rect_of(targets[r.id])
         if not rect:
             continue
         if r.photo_id not in cals:
@@ -255,9 +257,11 @@ async def bench(target: str, donors: str | None = None):
                 "ORDER BY (target->'selector'->'geometry'->>'x')::float NULLS LAST"),
                 {"id": did})).all()
         cal = await _donor_cal(did, ph.compass_angle)
+        from ..geometry import effective_targets
+        targets = await effective_targets(anns)
         ann_out = []
         for a in anns:
-            rect = _rect_of(a.target)
+            rect = _rect_of(targets[a.id])
             az = _azimuth(rect, cal) if (rect and cal) else None
             t = transfers_by_ann.get(a.id)
             entry = {"id": a.id, "body": a.body, "rect": rect, "origin": a.origin,
@@ -312,6 +316,12 @@ async def _donor_of(annotation_id: str):
     return row
 
 
+async def _donor_rect(donor):
+    """The donor's rect as the workbench means it (approved reshape over mirror)."""
+    from ..geometry import effective_target
+    return _rect_of(await effective_target(donor.id, donor.target))
+
+
 class CoarseRequest(BaseModel):
     target: str
     annotation_ids: list[str]
@@ -329,7 +339,7 @@ async def coarse(req: CoarseRequest):
     queued, skipped = [], []
     for aid in req.annotation_ids:
         donor = await _donor_of(aid)
-        rect = _rect_of(donor.target)
+        rect = await _donor_rect(donor)
         cal = await _donor_cal(donor.photo_id, donor.compass_angle)
         if not rect or not cal:
             skipped.append({"annotation_id": aid, "reason": "no rect or bearing"})
@@ -360,7 +370,7 @@ async def sweep(req: SweepRequest):
     big, distinctive one). The winning window's projection becomes the first
     azimuth↦x datapoint; everything after uses predicted windows."""
     donor = await _donor_of(req.annotation_id)
-    rect = _rect_of(donor.target)
+    rect = await _donor_rect(donor)
     cal = await _donor_cal(donor.photo_id, donor.compass_angle)
     if not rect or not cal:
         raise HTTPException(422, "annotation has no rect or its pano no bearing")
@@ -399,7 +409,7 @@ async def refine(req: TransferIdRequest):
     if not best or best["h_inliers"] < CONF_INLIERS:
         raise HTTPException(422, "no confident coarse result to refine from")
     donor = await _donor_of(t.annotation_id)
-    rect = _rect_of(donor.target)
+    rect = await _donor_rect(donor)
     window, context = _refine_specs(rect, best["bbox"])
     rid = await enqueue_pair(t.annotation_id, t.target_photo_id, window=window,
                              context=context,

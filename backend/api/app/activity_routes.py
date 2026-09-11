@@ -15,7 +15,7 @@ from common.database import get_db
 from common.models import Photo, User
 from hillview_routes import legal_rights_to_license
 from common.utc import format_utc
-from auth import get_current_user_optional_with_query
+from auth import get_current_user_optional_ssr
 from hidden_content_filters import apply_hidden_content_filters
 from rate_limiter import general_rate_limiter
 
@@ -41,7 +41,7 @@ async def get_recent_activity(
 	limit: int = 20,
 	cursor: Optional[str] = None,
 	db: AsyncSession = Depends(get_db),
-	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
+	current_user: Optional[User] = Depends(get_current_user_optional_ssr)
 ):
 	"""Get recent photos across all users with cursor-based pagination for activity feed."""
 	# Apply rate limiting with optional user context (better limits for authenticated users)
@@ -128,7 +128,13 @@ async def get_recent_activity(
 		return {
 			"photos": activity_data,
 			"has_more": has_more,
-			"next_cursor": next_cursor if has_more else None
+			"next_cursor": next_cursor if has_more else None,
+			# Who this batch was filtered for — null when anonymous. The frontend's
+			# server renderer passes it to the page, which refetches unless it
+			# matches the signed-in user. Saying "authenticated: true" would not be
+			# enough: a document restored from back/forward cache after an account
+			# switch has to be recognised as somebody else's.
+			"viewer_id": current_user.id if current_user else None
 		}
 
 	except HTTPException:

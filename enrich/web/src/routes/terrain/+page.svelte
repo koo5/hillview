@@ -29,6 +29,7 @@
 			| (TerrainMeta & {
 					attribution?: string;
 					max_distance_m?: number;
+					refraction_k?: number;
 					eye_elevation_m?: number;
 					eye_source?: string;
 					ground_m?: number;
@@ -55,10 +56,14 @@
 	let dsmStack = $state<'auto' | 'glo30' | 'cuzk'>('auto');
 	let stepDeg = $state(0.025); // worker default (2x the renderer's 0.05)
 	let eyeHeight = $state(2);
-	// renderer default 100 km; uint16 depth at 4 m steps caps out at 262 km.
-	// Beyond ~100 km also mind DEM coverage: the auto GLO-30 bbox is CZ +
-	// margin (TERRAIN_AUTO_DEM_BBOX) — terrain outside it renders as sky.
-	let maxKm = $state(100);
+	// default 180 km (the API fills the same when a caller says nothing);
+	// uint16 depth at 4 m steps caps out at 262 km. GLO-30 is fetched on
+	// demand, so distance, not DEM coverage, is the only limit.
+	let maxKm = $state(180);
+	// atmospheric refraction coefficient: 0.13 = standard atmosphere; a hazy
+	// inversion "looms" far ridges — 0.5–0.7 was needed for Ďáblice východ
+	// (far range 0.3° above the standard-k skyline while the 25 km horizon fit)
+	let refractionK = $state(0.13);
 	// 0.005° is sector-only (full 360° at ×10 = 72k columns, beyond GPU
 	// texture limits); rendered ±18° around this center azimuth
 	let sectorAz = $state(0);
@@ -77,9 +82,12 @@
 			p.az_step_deg = stepDeg;
 			p.elev_step_deg = stepDeg;
 		}
-		if (eyeHeight !== 2 && Number.isFinite(eyeHeight)) p.observer_height_m = eyeHeight;
-		if (maxKm !== 100 && Number.isFinite(maxKm))
+		// per-photo mode passes the form value as the DEFAULT (server resolves fact
+		// › OSM › default); off = explicit for every photo
+		if (!perPhotoHeight && Number.isFinite(eyeHeight)) p.observer_height_m = eyeHeight;
+		if (Number.isFinite(maxKm))
 			p.max_distance_m = Math.round(Math.min(260, Math.max(1, maxKm)) * 1000);
+		if (Number.isFinite(refractionK) && refractionK !== 0.13) p.refraction_k = Math.min(0.95, Math.max(0, refractionK));
 		return p;
 	}
 
@@ -170,6 +178,104 @@
 		}
 	}
 
+	// batch: every calibrated pano without a finished render, same params as
+	// the form (each gets its own calibrated view wedge server-side)
+	interface BatchPreview {
+		candidates: {
+			photo_id: string;
+			title: string | null;
+			observer_height?: { height_m: number | null; source: 'fact' | 'osm' | 'default'; osm: { name: string | null; kind: string; height_source?: string | null } | null };
+		}[];
+		skipped_rendered: number;
+		skipped_pending: number;
+	}
+	let batch = $state<BatchPreview | null>(null);
+	let batchHeights = $state<BatchPreview | null>(null);
+	let batchHeightsBusy = $state(false);
+	async function loadBatchHeights() {
+		batchHeightsBusy = true;
+		try {
+			batchHeights = await api.get<BatchPreview>(`/terrain/batch?scope=calibrated&heights=true&default_height_m=${eyeHeight}`);
+		} catch (e) {
+			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+		} finally {
+			batchHeightsBusy = false;
+		}
+	}
+
+	// eye height per pano: curated hv:observerHeight fact › OSM tower/viewpoint
+	// height at the position › the form value. Off = the form value for all
+	// (the blanket override); an explicit value still wins per photo via ⚓.
+	let perPhotoHeight = $state(true);
+	interface ObserverHeight {
+		height_m: number | null;
+		source: 'fact' | 'osm' | 'default';
+		fact?: string;
+		fact_status?: string;
+		osm: { height_m: number | null; height_source: string | null; name: string | null; kind: string; distance_m: number; osm: string; wikidata?: string | null } | null;
+	}
+	let eyeInfo = $state<ObserverHeight | null>(null);
+	let eyeTimer: ReturnType<typeof setTimeout> | null = null;
+	$effect(() => {
+		const id = photoId.trim();
+		void eyeHeight;
+		if (eyeTimer) clearTimeout(eyeTimer);
+		if (!/^[0-9a-f-]{36}$/.test(id)) {
+			eyeInfo = null;
+			return;
+		}
+		eyeTimer = setTimeout(async () => {
+			try {
+				eyeInfo = await api.get<ObserverHeight>(`/terrain/observer-height?photo_id=${id}&default_m=${eyeHeight}`);
+			} catch {
+				eyeInfo = null;
+			}
+		}, 400);
+	});
+	async function pinEyeHeight() {
+		const id = photoId.trim();
+		if (!id || !Number.isFinite(eyeHeight)) return;
+		busy = true;
+		try {
+			await api.post('/terrain/observer-height', { photo_id: id, height_m: eyeHeight, note: 'from terrain bench' });
+			eyeInfo = await api.get<ObserverHeight>(`/terrain/observer-height?photo_id=${id}&default_m=${eyeHeight}`);
+		} catch (e) {
+			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+		} finally {
+			busy = false;
+		}
+	}
+	let batchMsg = $state<string | null>(null);
+	async function loadBatch() {
+		try {
+			batch = await api.get<BatchPreview>('/terrain/batch?scope=calibrated');
+		} catch {
+			batch = null;
+		}
+	}
+	async function enqueueBatch() {
+		if (!batch?.candidates.length) return;
+		const n = batch.candidates.length;
+		if (!confirm(`Enqueue ${n} terrain render${n === 1 ? '' : 's'} (calibrated panos without a terrain) with the current settings?`)) return;
+		busy = true;
+		batchMsg = null;
+		try {
+			const r = await api.post<{ queued: { title: string | null }[] }>('/terrain/batch', {
+				scope: 'calibrated',
+				params: renderParams(),
+				per_photo_height: perPhotoHeight,
+				default_height_m: eyeHeight
+			});
+			batchMsg = `queued ${r.queued.length}: ${r.queued.map((q) => q.title ?? '?').slice(0, 6).join(' · ')}${r.queued.length > 6 ? '…' : ''}`;
+			await load();
+			await loadBatch();
+		} catch (e) {
+			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function enqueue() {
 		busy = true;
 		try {
@@ -177,7 +283,9 @@
 				...(photoId
 					? { photo_id: photoId }
 					: { lat: parseFloat(adhocLat), lon: parseFloat(adhocLon) }),
-				params: renderParams()
+				params: renderParams(),
+				per_photo_height: perPhotoHeight,
+				default_height_m: eyeHeight
 			};
 			await api.post('/terrain/enqueue', body);
 			await load();
@@ -211,6 +319,7 @@
 
 	onMount(async () => {
 		await load();
+		loadBatch();
 		// deep links: /terrain?render=<id> selects that render (a prefix of
 		// the uuid is enough — the rows show the first 8 chars); /terrain?
 		// photo=<id> pre-fills the enqueue form and selects that photo's
@@ -239,7 +348,7 @@
 				<h4>what this page does</h4>
 				<p>
 					Renders a synthetic depth panorama — what the terrain <i>should</i> look like —
-					from a chosen viewpoint, out to 100 km, and views it with live fog, peak labels,
+					from a chosen viewpoint, out to 180 km by default, and views it with live fog, peak labels,
 					and click-to-coordinates (a click on sky snaps to the horizon).
 				</p>
 				<h4>viewpoint</h4>
@@ -347,6 +456,35 @@
 					<em>m above ground</em>
 				</span>
 			</label>
+			<label class="field" title="curated per-photo height (⚓ below) › OSM tower / viewpoint height at the position › the value above. Off: the value above for every photo.">
+				<span>eye per pano</span>
+				<span class="pair">
+					<input type="checkbox" data-testid="terrain-per-photo-height" bind:checked={perPhotoHeight} />
+					<em>fact › OSM tower › form</em>
+				</span>
+			</label>
+			{#if eyeInfo && photoId}
+				<div class="muted" style="font-size:11px; line-height:1.4" data-testid="terrain-eye-info">
+					{#if !perPhotoHeight}
+						this photo: <b>{eyeHeight} m</b> (per-pano off — form value)
+					{:else if eyeInfo.source === 'fact'}
+						this photo: <b>{eyeInfo.height_m} m</b> — curated ({eyeInfo.fact_status})
+					{:else if eyeInfo.source === 'osm' && eyeInfo.osm}
+						this photo: <b>{eyeInfo.height_m} m</b> — {eyeInfo.osm.kind} “{eyeInfo.osm.name ?? eyeInfo.osm.osm}” {eyeInfo.osm.distance_m} m away ({eyeInfo.osm.height_source})
+					{:else if eyeInfo.osm}
+						this photo: <b>{eyeInfo.height_m ?? eyeHeight} m</b> — form value; {eyeInfo.osm.kind} “{eyeInfo.osm.name ?? eyeInfo.osm.osm}” is {eyeInfo.osm.distance_m} m away but has no height in OSM{eyeInfo.osm.wikidata ? ` or Wikidata (${eyeInfo.osm.wikidata})` : ''} — pin one
+					{:else}
+						this photo: <b>{eyeInfo.height_m ?? eyeHeight} m</b> — form value (no curated height, no tower / viewpoint within 40 m)
+					{/if}
+					{#if eyeInfo.source !== 'fact' && eyeInfo.osm && perPhotoHeight}<span> · </span>{/if}
+					<button
+						style="font-size:10px; padding:0 6px"
+						data-testid="terrain-pin-eye"
+						disabled={busy}
+						onclick={pinEyeHeight}
+						title="save the eye height field as this photo's curated observer height (overrides OSM and the form from now on; ✗ the fact on the photo page to drop it)">⚓ pin the form value ({eyeHeight} m) as this photo's height</button>
+				</div>
+			{/if}
 			<label class="field">
 				<span>max distance</span>
 				<span class="pair">
@@ -357,9 +495,24 @@
 						step="5"
 						data-testid="terrain-max-km"
 						bind:value={maxKm}
-						title="how far the horizon march goes. Depth encoding caps at 262 km; beyond ~100 km check the DEM bbox covers that far (TERRAIN_AUTO_DEM_BBOX) — terrain outside it renders as sky"
+						title="how far the horizon march goes (default 180 km). Depth encoding caps at 262 km; GLO-30 tiles are fetched on demand, so coverage is not a limit — terrain outside it renders as sky"
 					/>
 					<em>km · ≤ 262</em>
+				</span>
+			</label>
+			<label class="field">
+				<span>refraction k</span>
+				<span class="pair">
+					<input
+						type="number"
+						min="0"
+						max="0.95"
+						step="0.01"
+						data-testid="terrain-refraction-k"
+						bind:value={refractionK}
+						title="atmospheric refraction coefficient in the curvature term: 0.13 = standard air. Under a hazy inversion far ridges 'loom' well above the standard skyline (the 25 km horizon still fits) — try 0.4–0.7; Ďáblice východ needed ≈0.6. Per render; re-render to change."
+					/>
+					<em>0.13 = standard · looming ≈ 0.5+</em>
 				</span>
 			</label>
 			<div class="row">
@@ -368,6 +521,42 @@
 				</button>
 				<button data-testid="terrain-refresh" onclick={load} title="refresh list">↻</button>
 			</div>
+			<div class="row">
+				<button
+					data-testid="terrain-batch"
+					onclick={enqueueBatch}
+					disabled={busy || !batch?.candidates.length}
+					title={batch
+						? `calibrated panos with no finished render: ${batch.candidates.length}` +
+							(batch.skipped_rendered ? ` · ${batch.skipped_rendered} already rendered` : '') +
+							(batch.skipped_pending ? ` · ${batch.skipped_pending} queued/rendering` : '') +
+							' — each gets its own calibrated view wedge; DEM/resolution/eye/distance from the form above'
+						: 'loading…'}
+				>
+					⛰ batch: {batch ? `${batch.candidates.length} calibrated pano${batch.candidates.length === 1 ? '' : 's'} without a terrain` : '…'}
+				</button>
+			</div>
+			{#if batch?.candidates.length}
+				<div class="muted" style="font-size:11px">
+					<button style="font-size:10px; padding:0 6px" data-testid="terrain-batch-heights" disabled={batchHeightsBusy} onclick={loadBatchHeights}>
+						{batchHeightsBusy ? '…' : batchHeights ? '↻ eye heights' : 'preview eye heights'}
+					</button>
+					{#if batchHeights}
+						<table style="margin-top:4px; font-size:11px">
+							<tbody>
+								{#each batchHeights.candidates as c (c.photo_id)}
+									<tr>
+										<td><a href="/photos/{c.photo_id}">{c.title ?? c.photo_id.slice(0, 8)}</a></td>
+										<td class="mono" style="text-align:right">{c.observer_height?.height_m ?? '—'} m</td>
+										<td class="muted">{c.observer_height?.source === 'osm' ? `${c.observer_height.osm?.kind} ${c.observer_height.osm?.name ?? ''} (${c.observer_height.osm?.height_source ?? 'OSM'})` : c.observer_height?.source === 'fact' ? 'curated' : c.observer_height?.osm ? `form — ${c.observer_height.osm.kind} ${c.observer_height.osm.name ?? ''} here has no height, pin one` : 'form'}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+				</div>
+			{/if}
+			{#if batchMsg}<div class="muted" style="font-size:11px">{batchMsg}</div>{/if}
 		</div>
 		<input
 			class="filter"
@@ -384,7 +573,7 @@
 							(r.photo_id ? r.photo_id.slice(0, 8) : `${r.lat.toFixed(4)}, ${r.lon.toFixed(4)}`)}
 						<small
 							>{new Date(r.enqueued_at).toLocaleString()} · <code class="rid" title={r.id}>{r.id.slice(0, 8)}</code>{#if r.meta?.max_distance_m}
-								{' · '}{Math.round(r.meta.max_distance_m / 1000)} km{/if}{#if r.meta?.eye_elevation_m}
+								{' · '}{Math.round(r.meta.max_distance_m / 1000)} km{/if}{#if r.meta?.refraction_k != null && r.meta.refraction_k !== 0.13}{' · '}k {r.meta.refraction_k}{/if}{#if r.meta?.eye_elevation_m}
 								{' · '}<span
 									title={`eye ${r.meta.eye_elevation_m.toFixed(1)} m — ${r.meta.eye_source ?? '?'}` +
 										(r.meta.ground_m != null ? ` (ground ${r.meta.ground_m} m)` : '')}

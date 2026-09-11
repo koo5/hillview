@@ -131,6 +131,10 @@ kotlin {
             implementation(libs.compose.uiTest)
             implementation(compose.desktop.currentOs)
             implementation(libs.junit)
+            // Dispatchers.Main on desktop, which collectAsStateWithLifecycle
+            // needs — without it any screen that collects with a lifecycle
+            // cannot be composed in a jvm test at all.
+            implementation(libs.kotlinx.coroutines.swing)
         }
     }
 }
@@ -179,4 +183,12 @@ tasks.named<Test>("jvmTest") {
     inputs.dir(layout.projectDirectory.dir("src"))
         .withPathSensitivity(PathSensitivity.RELATIVE)
         .withPropertyName("sourceTreeForArchitectureTest")
+    // UploadFunnelArchitectureTest walks these two as well: the upload stack
+    // lives in shared-kt, and the app module has the WorkManager wiring.
+    inputs.dir(layout.projectDirectory.dir("../../shared-kt/src"))
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+        .withPropertyName("sharedKtTreeForArchitectureTest")
+    inputs.dir(layout.projectDirectory.dir("../androidApp/src"))
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+        .withPropertyName("appTreeForArchitectureTest")
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { api } from '$lib/api';
 	import type { RunRow } from '$lib/types';
 	import Help from '$lib/components/Help.svelte';
@@ -7,11 +7,36 @@
 	let runs = $state<RunRow[]>([]);
 	let kind = $state('');
 
+	// while anything is running, keep the list live (geocode runs update their
+	// stats per annotation: done/total, the label being looked up, recent hits)
+	let timer: ReturnType<typeof setTimeout> | null = null;
 	async function load() {
 		const p = kind ? `?kind=${kind}` : '';
 		runs = await api.get<RunRow[]>(`/runs${p}`);
+		if (timer) clearTimeout(timer);
+		if (runs.some((r) => r.status === 'running')) timer = setTimeout(load, 3000);
 	}
 	onMount(load);
+	onDestroy(() => timer && clearTimeout(timer));
+
+	// a running geocode run's stats carry live detail — say it in words; other
+	// stats stay raw JSON (dropping the bulky live arrays once finished)
+	function progress(r: RunRow): string | null {
+		const st = r.stats as Record<string, unknown> | null;
+		if (!st || !('done' in st) || !('annotations' in st)) return null;
+		const cur = st.current as { label?: string | null; wiki?: boolean; coords?: boolean } | null | undefined;
+		const head = `${st.done}/${st.annotations} · ${st.candidates ?? 0} candidates · ${st.wiki_hits ?? 0} wiki · ${st.errors ?? 0} errors`;
+		return r.status === 'running' && cur
+			? `${head} · now: ${cur.label ?? '(wiki page)'}${cur.wiki ? ' +wiki' : ''}${cur.coords ? ' +pin' : ''}`
+			: head;
+	}
+	function statsText(r: RunRow): string {
+		const st = r.stats as Record<string, unknown> | null;
+		if (!st) return '';
+		const { current, recent, error_detail, ...rest } = st;
+		void current; void recent; void error_detail;
+		return JSON.stringify(rest);
+	}
 	$effect(() => {
 		void kind;
 		load();
@@ -71,7 +96,10 @@
 				<td><span class="pill {r.status === 'succeeded' ? 'ok' : r.status === 'failed' ? 'bad' : 'running'}">{r.status}</span></td>
 				<td class="muted">{fmt(r.started_at)}</td>
 				<td class="muted">{dur(r)}</td>
-				<td class="mono" style="font-size:11px; max-width:420px">{JSON.stringify(r.stats)}</td>
+				<td class="mono" style="font-size:11px; max-width:420px">
+					{#if progress(r)}<div data-testid="run-progress" style={r.status === 'running' ? 'color:var(--accent)' : ''}>{progress(r)}</div>{/if}
+					<span class="muted">{statsText(r)}</span>
+				</td>
 				<td class="mono muted" style="font-size:11px">{r.graph_iri ? r.graph_iri.split('/').pop() : ''}</td>
 			</tr>
 		{/each}

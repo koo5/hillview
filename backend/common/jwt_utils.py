@@ -97,6 +97,22 @@ def validate_jwt_token(
 		logger.info(f"JWT validation failed: {e}")
 		return None
 
+def decode_jwt_unverified(token: str) -> Optional[Dict[str, Any]]:
+	"""
+	Read a JWT's claims WITHOUT verifying signature or expiry.
+
+	For deciding how to fail, never whether to trust: the caller has already had
+	validate_jwt_token say no and only wants to know what kind of token it was
+	looking at. Nothing returned from here may authenticate anything.
+
+	Returns:
+		Decoded payload, or None if the string is not even a well-formed JWT
+	"""
+	try:
+		return jwt.decode(token, options={"verify_signature": False})
+	except jwt.InvalidTokenError:
+		return None
+
 def extract_bearer_token(authorization_header: Optional[str]) -> Optional[str]:
 	"""
 	Extract JWT token from Authorization header.

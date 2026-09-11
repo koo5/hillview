@@ -463,7 +463,21 @@ looking:
 The Stats line counts registrations per session, which is the first number to
 look at if it happens again.
 
-**The remap table was investigated and left alone.** UPRIGHT mode keys a
+**The remap table is CORRECT; the model that doubted it was wrong (settled
+2026-09-04).** Both modes — plain UPRIGHT and the A22 landscape workaround —
+were tested and vetted on real devices in the Tauri app, and both live in
+`shared-kt` (`EnhancedSensorService`), which BOTH apps compile: the vetting
+carries to frontend2 unchanged. So the offline model below is wrong
+somewhere (most likely in how it maps a physical pose to the
+DeviceOrientation class, or in the roll-flip interaction), and the episode
+is kept only as a warning about the instrument, not about the code. Do not
+"fix" the remap on the strength of a model.
+
+(frontend2 has so far been exercised only on an A22 with the workaround on;
+the no-workaround path is vetted in Tauri and is the same shared code, so
+this is a coverage note, not a doubt.)
+
+**The original investigation, for the record.** UPRIGHT mode keys a
 coordinate remap on a four-state device-orientation class
 (`remapCoordinatesForOrientation`), and when the attitude sample freezes that
 remap is the only live input into the heading — which is why a frozen sensor
@@ -490,6 +504,221 @@ them. The two ages are the diagnosis — the map
 writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
+
+## 2026-09-06
+
+- **The interval ladder goes sub-second, and becomes the scale it reads**
+  (user-raised: "can we try to support modes faster than 1s? can we improve
+  the slider? i think it should draw exactly where, on the vertical scale, is
+  the gesture currently landing + highlight the current span + draw the
+  seconds label right inside there").
+  - **Rungs** (`IntervalLadder.kt`): cancel, 0.2 / 0.3 / 0.5 / 0.75 s, then
+    1…15 s, then VIDEO. Not evenly spaced in time, deliberately: below a
+    second the useful differences are proportional, not absolute. The state
+    is now an INDEX into that list, and the run loop takes milliseconds.
+  - **What the fast end promises.** Nothing, and it says so. A full-res JPEG
+    takes a few hundred ms to issue on a mid-range phone, so 0.2 s is a
+    request. The run loop already handles it: absolute timeline, wait for the
+    previous shot rather than drop the beat, count each late one as
+    "interval behind" in the capture stats. Asking for 0.2 s therefore gives
+    "as fast as it can" plus an honest counter.
+  - **The ladder is the catch zone.** The old control drew a 280 dp rotated
+    Material slider beside the button while the gesture read `pos.x <
+    circle.left` over the whole pane — one picture, a different hit-box.
+    Now the zone itself carries the bands, at pane height, so what is drawn
+    is what is read. Three consequences fall out: the head can no longer be
+    clipped (it was, at common splits — the 2026-08-22 entry), the shutter
+    cluster no longer grows by ~280 dp and carries the button ~115 dp up the
+    pane out from under the finger holding it, and every rung gets a band the
+    size it is actually selected at.
+  - **Mapping is FLOOR, not round.** Each rung owns one equal band, which is
+    the band drawn. The old mapping rounded against the interval COUNT, so
+    the two end stops had half-height bands — harmless while the scale was
+    invisible, a lie the moment it is drawn.
+  - **What it draws:** every rung labelled small at the left while the bands
+    are at least 14 dp; the hovered band filled with its label centred inside
+    it; a line across the zone at the finger's exact height. Filled neutral
+    while the thumb is still on the button, run-green or video-red once the
+    finger is in the zone and a release would act.
+  - **The bottom rung says "cancel", not "single"** (user-caught, same day).
+    It was wrong twice over: a plain tap is what takes a single shot, and
+    that rung does not take one. Releasing there is the same act as
+    releasing back over the button — the original's release-over-nothing —
+    so it gets the same word, and the release hint's two ways of saying it
+    collapse into one.
+  - NOT yet phone-verified — no device reachable from this machine. The pure
+    parts (rung list, labels, band mapping, band colours) are covered by
+    `IntervalLadderTest`.
+
+## 2026-09-04
+
+- **The camera button rotates with the phone again** (user-raised: "in
+  tauri, the camera button in main screen would rotate to indicate
+  understood photo orientation"). The original's floating camera toggle
+  turns with `relativeOrientationExif`, so its icon stays upright in the
+  world and shows the orientation the next photo will be given
+  (`Main.svelte`, `deviceOrientationExif.ts`). Ported as ONE state:
+  - `DevicePoseState` (commonMain, koin single) is the twin of the
+    original's `deviceOrientationExif` store. Degrees, not EXIF codes —
+    this capture path already speaks degrees, and an EXIF code is the
+    JPEG's business. `null` = nothing is sensing it, which is what the
+    original's reset-to-1-on-unmount amounts to.
+  - The ONE writer is the capture engine's existing
+    `MyDeviceOrientationSensor` — the app's only pose listener, which is
+    there because CameraX must be told where "up" is. It kept a private
+    `@Volatile deviceOrientation` copy as well; that copy is gone, and the
+    shutter reads the state like everyone else. Two copies of a
+    hardware-derived fact is exactly how a reader ends up registering its
+    own listener.
+  - The second input is the DISPLAY's rotation, `rememberScreenAngleDeg`
+    (the original's `screenOrientationAngle`). The two turn in opposite
+    senses, so under auto-rotate they cancel and the icon sits still; it
+    is under a rotation lock — the normal state when shooting — that the
+    icon is the only thing that moves.
+  - `devicePoseUiRotation` is that subtraction as arithmetic instead of
+    the original's 16-row table; `DevicePoseRotationTest` checks it
+    against every row of that table, in the original's own terms.
+  - One deliberate divergence: the turn takes the SHORT way round
+    (`nextRotationTarget`). The original animates the CSS value, so
+    180° → -90° sweeps three quarters of a turn backwards. The phone did
+    not do that.
+  - NOT yet phone-verified — no device was reachable from this machine,
+    and the emulator cannot pose a phone convincingly. What to look for on
+    an A22: turn auto-rotate OFF, open capture, turn the phone; the 📷
+    icon should follow the horizon within ~0.3 s and sit upright again
+    once the camera closes.
+- **The architecture test greps CODE, not prose** (`kotlinCodeOnly`, in
+  `jvmTest/.../arch/`). The new patterns are `OrientationEventListener`
+  and `MyDeviceOrientationSensor(` — names that the rule's own
+  explanations have to say out loud, which would otherwise fail the test
+  they document. Comments and string literals are blanked before matching;
+  proved to still fire by adding a listener under `androidMain` and
+  watching the build go red.
+
+## 2026-09-03
+
+- **Settings tidy-up.** Wi-Fi only sits directly under Auto-upload again
+  (the geo export and GPS-interval controls had been inserted between
+  them); the two DCIM storage targets are listed together (display order
+  only — `PhotoStorage.chain` keeps the enum order for fallback); each
+  licence radio carries a label and a two-sentence explainer
+  (`LicenseInfo`, next to `ALLOWED_LICENSES`), and "About these licenses"
+  opens the web app's /licensing page. The full1 wording separates the
+  GRANT (full, to Hillview) from what Hillview does with it today:
+  publishes the photo as all-rights-reserved PLUS the same OSM mapping
+  grant the CC option carries (user, 2026-09-03 — the read-side name
+  'arr' undersells this). 2026-09-07: the web app's /licensing page, its
+  label table, the JSON-LD comments and both licence docs now say the
+  same; the id 'arr' itself is KEPT by decision (shipped clients compare
+  against it — compatibility project, not an edit), with the debt written
+  up under "Known debt" in docs/todo/content-license-model-draft.md. The
+  device-photos per-photo picker shows the same labels.
+- **API URL is a combobox** (`serverPresets`: Production =
+  `HILLVIEW_API_URL` = https://api.hillview.cz/api, Local dev = the
+  platform default) under ▾ on the field; anything else is typed. Still
+  the FULL …/api URL either way — the production API has its own host,
+  which is why it is never derived from the web root.
+- **Hiding photos — what current Android actually does** (AOSP
+  MediaProvider `FileUtils.isDirectoryHidden`, checked 2026-09-03): a
+  directory is hidden from the media collections when its name starts
+  with "." OR it contains `.nomedia`; hidden status is inherited by
+  subdirectories; `.nomedia` in a top-level default directory (DCIM,
+  Pictures…) or in DCIM/Camera is DELETED by the provider, so only a
+  subfolder can be hidden. On a MediaStore insert the provider rewrites a
+  hidden name to "_" + name (`sanitizeDisplayName(rewriteHiddenFileName)`),
+  which is the `_.Hillview2` we saw. Google Photos reads the same index, so
+  a hidden folder is neither shown nor backed up. Android's own advice
+  for media "that provide value to the user only within your app" is
+  app-specific external storage (Android/data/<pkg>/files), which the
+  index never touches. So the three honest options are: app-private
+  folder (invisible, gone on uninstall), a hidden DCIM subfolder
+  (dot-name or `.nomedia`, both equally supported), or visible.
+- **Hidden means a direct file write** (decided after the research
+  below): `PhotoStorage.chain(preferred, hideFromGallery)` leaves the
+  MediaStore target out while hiding is on, `outputOptions` refuses
+  MediaStore+hidden as the safety net, the MediaStore option's note says
+  so, and the switch text says what it is (a second, hidden folder for
+  NEW photos; earlier ones stay). Device test `hidingLeavesTheMediaStoreOut`
+  added (compiled, not run — needs a device).
+- **GPS fix interval control hidden** (`GPS_INTERVAL_SETTING_LIVE` in
+  SettingsScreen.kt) until the value reaches the hardware; the persisted
+  setting and the BindGeoToActivity seam stay.
+- **Clock video is out of the ⋮ menu** (`CLOCK_VIDEO_IN_MENU` in
+  MainScreen.kt, a lab tool for the pics pipeline); screen, route and
+  callback stay wired.
+- **OPEN — the GPS fix interval setting never reaches the hardware.**
+  `GeoEngine.startLocation` constructs `PreciseLocationService` without an
+  interval, and the service hard-codes 1 s (`UPDATE_INTERVAL` /
+  `FASTEST_INTERVAL`, shared-kt). The slider therefore only drives the
+  restart-on-change branch of `applyConfig` and the event-log line
+  ("fixes Nms"); `mapOnlyGeoConfig`'s 2 s is equally nominal — every
+  activity gets 1 s fixes. Fix = an interval parameter on
+  `PreciseLocationService` (default 1000, so the Tauri plugin is
+  byte-for-byte unchanged) passed from `startLocation`. Two more things
+  the fix must know: the view activity ignores the setting by design
+  (`mapOnlyGeoConfig`), and the external-camera SERVICE claims
+  `externalCameraConfig()` with the default, so the engine's min-of-claims
+  merge pins external mode at 1 s whatever the setting says — pass the
+  setting to the service's claim too. Eco mode is camera-only
+  (`ecoFps` → preview duty in PhotoCapture); it never touches geo.
+- **"Hide from gallery" is a folder choice, not a flag.** It saves NEW
+  captures into `DCIM/.Hillview2` (or the private folder's `.Hillview2`),
+  which the media scanner skips, and skips the explicit post-save scan.
+  Photos already taken stay where they were, and the Device photos list
+  is database-driven, so nothing disappears. With the MediaStore target it
+  cannot apply, and MediaProvider renames the folder to `_.Hillview2` on
+  the way in — so hide+MediaStore currently lands photos in a THIRD
+  folder, visible. What the switch should MEAN is an open decision; the
+  Tauri version (dot-folder plus a `.nomedia` marker) was experimentation,
+  not a template.
+
+## 2026-08-29
+
+- **Anonymization options** on Device photos (the original's modal: auto /
+  none, custom noted): an edit → the drain applies it → targeted re-upload.
+  Device-verified end to end.
+- **Crash on Back (field: "back button, or an accidental gesture around
+  it").** Reproduced: `IllegalArgumentException: NavDisplay backstack cannot
+  be empty` — a system back gesture followed by a tap on "← Back" while the
+  pop animation still runs; the leaving screen is still touchable, pops a
+  second time, and nav3 throws on the empty stack. Every pop now goes
+  through one guard that never removes the root. (The event-log theory was a
+  false lead; CrashLog from the same day would have said so in one line.)
+- **"Shutter dead until restart" (field report, not reproduced here).** The
+  gesture loop calls the camera from inside `pointerInput`; an exception
+  escaping it killed the handler until a key changed, which after a run none
+  does. The loop now survives any exception, and a press that is ignored
+  says why in the status line (`⚠️ press ignored: …`) — so if it recurs the
+  phone names the cause. Emulator note: uiautomator dumps go blind (root
+  node only, "Skipping invisible child") while a Compose dialog is up and
+  after some capture sequences; taps still land, screenshots still work.
+- The local backend had lost its test users (401 everywhere, two jvm tests
+  "failing"); `POST /api/debug/recreate-test-users` fixed it.
+
+## Closed on 2026-08-28
+
+- **Position's second stream (`alt_location`).** The one-state rule's open
+  half is closed: two streams, castled on confirmation, the other riding
+  along — see the table in [one-state.md](one-state.md). Room v20 (both
+  apps' schemas exported, hashes match); the backend already synthesizes
+  the field into the UserComment provenance. Device-verified in all three
+  states.
+- **Viewer: inline pinch-zoom + ↗ to the web app.** This pane zooms and no
+  more; the original's promotion threshold (1.15) now decides inline-stays
+  vs snap-back, and the zoom view lives in the web app behind an unobtrusive
+  chip (server photos only, the share URL's deep-link shape). Verified by a
+  Compose test that pinches — adb cannot — which needed
+  `kotlinx-coroutines-swing` in jvmTest for a desktop `Dispatchers.Main`;
+  every lifecycle-collecting screen is now composable in a jvm test.
+- **Motion shoots default to Sports** — interval runs and video — only from
+  Auto, only for the shoot's lifetime.
+- **Upload: one scheduler, one drain**, as a fence
+  ([upload-one-funnel.md](upload-one-funnel.md) + `UploadFunnelArchitectureTest`).
+
+Emulator notes from the session: it needs `-no-window -gpu
+swiftshader_indirect` from a shell without a display, and its system_server
+can die once after a headless boot (DeadSystemException) — relaunch the app
+and carry on. Never run a Gradle build beside it on this box.
 
 ## The rule the geo bugs keep breaking (2026-08-20)
 
@@ -554,6 +783,10 @@ live there. The track itself still works while partly clipped — the gesture
 has pointer capture, so stops above the pane edge remain reachable by
 sliding to the top of the screen — but a shorter track at small pane heights
 would be the proper follow-up if it bothers anyone in practice.
+
+**Closed 2026-09-06, the other way round:** not a shorter track but no
+separate track at all. The ladder IS the catch zone, so it is exactly as
+tall as the pane and cannot be clipped. See the 2026-09-06 entry.
 
 ## Deferred decisions
 

@@ -104,6 +104,14 @@ const MockEventSource = vi.fn().mockImplementation(function(this: any, url: stri
 
   mockEventSourceInstances.set(url, instance);
 
+  // `manual-…` sources never emit on their own: the test drives them through
+  // emitPhotos / completeStream / failStream, which is how per-source timing
+  // (fast source, slow source, hung source) is expressed.
+  if (url.includes('manual-')) {
+    queueMicrotask(() => instance.onopen?.(new Event('open')));
+    return instance;
+  }
+
   // Use queueMicrotask for test-friendly async handling
   queueMicrotask(() => {
     if (instance.onopen) {
@@ -183,6 +191,39 @@ Object.assign(MockEventSource, {
 // EventSource must be global — StreamSourceLoader reads it at call time
 globalThis.EventSource = MockEventSource as any;
 
+// ─── Manual stream control (for `manual-…` sources) ─────────────────────────
+function findInstance(urlPart: string): MockEventSourceInstance {
+  const matches = Array.from(mockEventSourceInstances.entries()).filter(([url]) => url.includes(urlPart));
+  if (matches.length === 0) throw new Error(`no EventSource instance for ${urlPart}`);
+  // The most recently created one is the live one (an earlier one may have been cancelled)
+  return matches[matches.length - 1][1];
+}
+
+async function waitForInstance(urlPart: string, timeout = 2000): Promise<MockEventSourceInstance> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    const hit = Array.from(mockEventSourceInstances.keys()).some(url => url.includes(urlPart));
+    if (hit) return findInstance(urlPart);
+    await new Promise(r => setTimeout(r, 5));
+  }
+  throw new Error(`Timeout waiting for EventSource ${urlPart}`);
+}
+
+function emitPhotos(urlPart: string, photos: PhotoData[]): void {
+  findInstance(urlPart).onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'photos', photos }) }));
+}
+
+function completeStream(urlPart: string): void {
+  findInstance(urlPart).onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'stream_complete' }) }));
+}
+
+function failStream(urlPart: string): void {
+  const instance = findInstance(urlPart);
+  instance.readyState = 2; // CLOSED
+  instance.onerror?.(new Event('error'));
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 // Test data
 const createTestPhoto = (id: string, lat: number, lng: number, bearing: number = 0): PhotoData => ({
   id,
@@ -252,42 +293,46 @@ describe('New Worker Integration Tests', () => {
       id
     };
     logToWorker(msg);
+    const sentAt = mockPostMessage.mock.calls.length;
     handleMessage(msg);
 
-    // Wait for processing to complete
-    await waitForPhotosUpdate();
-
-    // Return the last postMessage call that contains photosUpdate
-    const photosUpdateCalls = mockPostMessage.mock.calls
-      .filter(call => call[0]?.type === 'photosUpdate');
-
-    if (photosUpdateCalls.length > 0) {
-      return photosUpdateCalls[photosUpdateCalls.length - 1][0];
-    }
-
-    throw new Error('No photosUpdate received');
+    // Wait for the SETTLED publish (complete: true) issued after this send.
+    // Sources publish partial updates (complete: false) as each one lands, so
+    // "any photosUpdate" would race the loaders and return a partial set.
+    return await waitForPhotosUpdate(sentAt);
   };
 
-  const waitForPhotosUpdate = async (timeout = 5000): Promise<void> => {
+  /** Resolve with the first photosUpdate at index >= `from` matching `pred`. */
+  const waitForUpdate = async (
+    from: number,
+    pred: (m: any) => boolean,
+    timeout = 5000
+  ): Promise<any> => {
     const startTime = Date.now();
-
     while (Date.now() - startTime < timeout) {
-      // Check if we got a photosUpdate message
-      const hasPhotosUpdate = mockPostMessage.mock.calls
-        .some(call => call[0]?.type === 'photosUpdate');
-
-      if (hasPhotosUpdate) {
-        // Give the internal queue time to process completion messages
-        await new Promise(resolve => setTimeout(resolve, 50));
-        return;
-      }
-
-      // Wait a bit before checking again
+      const hit = mockPostMessage.mock.calls
+        .slice(from)
+        .map(call => call[0])
+        .find(m => m?.type === 'photosUpdate' && pred(m));
+      if (hit) return hit;
       await new Promise(resolve => setTimeout(resolve, 10));
     }
-
     throw new Error('Timeout waiting for photosUpdate');
   };
+
+  /** The settled publish: waits for `complete: true`, then lets completion messages drain. */
+  const waitForPhotosUpdate = async (from = 0, timeout = 5000): Promise<any> => {
+    await waitForUpdate(from, m => m.complete === true, timeout);
+    // Give the internal queue time to process completion messages
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const completes = mockPostMessage.mock.calls
+      .slice(from)
+      .map(call => call[0])
+      .filter(m => m?.type === 'photosUpdate' && m.complete === true);
+    return completes[completes.length - 1];
+  };
+
+  const ids = (update: any): string[] => update.photos_in_area.map((p: PhotoData) => p.id);
 
   it('should handle config updates with stream sources', async () => {
     const sources = [
@@ -619,5 +664,149 @@ describe('New Worker Integration Tests', () => {
     expect(photoIds2).not.toContain('photo1');
     expect(photoIds2).not.toContain('photo2');
     expect(photoIds2).not.toContain('photo3');
+  });
+
+  // ─── Incremental per-source loading ───────────────────────────────────────
+  // Sources load concurrently and each publishes as it lands (complete: false),
+  // then one settled publish (complete: true) when every source is done.
+  describe('incremental per-source loading', () => {
+    const bounds = createTestBounds(50.4, 49.9, 9.9, 10.4);
+    const p = (id: string, bearing = 0) => createTestPhoto(id, 50.1 + Math.random() * 0.2, 10.1 + Math.random() * 0.2, bearing);
+
+    /** Fire-and-forget send; returns the postMessage index to wait from. */
+    const send = (type: string, data: any): number => {
+      const sentAt = mockPostMessage.mock.calls.length;
+      const msg = { frontendMessageId: `frontend_${messageId++}`, type, data };
+      logToWorker(msg);
+      handleMessage(msg);
+      return sentAt;
+    };
+
+    const partialsSince = (from: number) => mockPostMessage.mock.calls.slice(from).map(c => c[0])
+      .filter(m => m?.type === 'photosUpdate' && m.complete === false);
+
+    it('publishes a fast source before a slow one completes, then the merged set', async () => {
+      await sendMessage('configUpdated', { config: { sources: [createStreamSource('manual-fast'), createStreamSource('manual-slow')] } });
+
+      const sentAt = send('areaUpdated', { area: bounds, range: 1000 });
+      await waitForInstance('manual-fast');
+      await waitForInstance('manual-slow');
+
+      emitPhotos('manual-fast', [p('fast1'), p('fast2')]);
+      completeStream('manual-fast');
+
+      const partial = await waitForUpdate(sentAt, m => m.photos_in_area.length > 0);
+      expect(partial.complete).toBe(false);
+      expect(ids(partial).sort()).toEqual(['fast1', 'fast2']);
+      // The slow stream is still open — nothing waited for it.
+      expect(findInstance('manual-slow').close).not.toHaveBeenCalled();
+
+      emitPhotos('manual-slow', [p('slow1')]);
+      completeStream('manual-slow');
+
+      const settled = await waitForPhotosUpdate(sentAt);
+      expect(ids(settled).sort()).toEqual(['fast1', 'fast2', 'slow1']);
+    });
+
+    it('a failing source neither blanks nor blocks the others', async () => {
+      await sendMessage('configUpdated', { config: { sources: [createStreamSource('manual-ok'), createStreamSource('manual-bad')] } });
+
+      const sentAt = send('areaUpdated', { area: bounds, range: 1000 });
+      await waitForInstance('manual-ok');
+      await waitForInstance('manual-bad');
+
+      emitPhotos('manual-ok', [p('ok1')]);
+      completeStream('manual-ok');
+      failStream('manual-bad');
+
+      const settled = await waitForPhotosUpdate(sentAt);
+      expect(ids(settled)).toEqual(['ok1']);
+    });
+
+    it('a hung stream is cut off by the watchdog and the worker keeps serving', async () => {
+      await sendMessage('configUpdated', {
+        config: { sources: [createStreamSource('manual-hung'), createStreamSource('source1')], streamInactivityTimeoutMs: 150 }
+      });
+
+      // manual-hung never answers; source1 auto-completes. The area must still settle.
+      const first = await sendMessage('areaUpdated', { area: bounds, range: 1000 });
+      expect(ids(first)).toContain('photo1');
+
+      // Not wedged: the next area is served too (manual-hung hangs again, watchdog again).
+      const second = await sendMessage('areaUpdated', { area: createTestBounds(50.5, 49.8, 9.8, 10.5), range: 1000 });
+      expect(ids(second)).toContain('photo1');
+    });
+
+    it('a newer area supersedes the one still loading and drops its late batches', async () => {
+      await sendMessage('configUpdated', { config: { sources: [createStreamSource('manual-a')] } });
+
+      send('areaUpdated', { area: bounds, range: 1000 });
+      const stale = await waitForInstance('manual-a');
+
+      const sentAt2 = send('areaUpdated', { area: createTestBounds(50.45, 49.95, 9.95, 10.45), range: 1000 });
+      // The superseded loader is cancelled …
+      await new Promise(r => setTimeout(r, 20));
+      expect(stale.close).toHaveBeenCalled();
+      const live = await waitForInstance('manual-a');
+      expect(live).not.toBe(stale);
+
+      // … and a batch it still had in flight is ignored.
+      stale.onmessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'photos', photos: [p('stale1')] }) }));
+      emitPhotos('manual-a', [p('live1')]);
+      completeStream('manual-a');
+
+      const settled = await waitForPhotosUpdate(sentAt2);
+      expect(ids(settled)).toEqual(['live1']);
+    });
+
+    it('an unsupported source type fails alone and the area still settles', async () => {
+      const bogus = { ...createStreamSource('bogus'), type: 'bogus' as any };
+      await sendMessage('configUpdated', { config: { sources: [bogus, createStreamSource('source1')] } });
+
+      const first = await sendMessage('areaUpdated', { area: bounds, range: 1000 });
+      expect(ids(first)).toContain('photo1');
+      // Not wedged either.
+      const second = await sendMessage('areaUpdated', { area: createTestBounds(50.5, 49.8, 9.8, 10.5), range: 1000 });
+      expect(ids(second)).toContain('photo1');
+    });
+
+    it('throttles partial publishes but never the settled one', async () => {
+      await sendMessage('configUpdated', { config: { sources: [createStreamSource('manual-chatty')] } });
+
+      const sentAt = send('areaUpdated', { area: bounds, range: 1000 });
+      await waitForInstance('manual-chatty');
+
+      // Five batches back-to-back: the first publishes immediately, the rest
+      // collapse into one pending trailing publish that the completion supersedes.
+      for (let i = 0; i < 5; i++) emitPhotos('manual-chatty', [p(`c${i}`)]);
+      completeStream('manual-chatty');
+
+      const settled = await waitForPhotosUpdate(sentAt);
+      expect(ids(settled).sort()).toEqual(['c0', 'c1', 'c2', 'c3', 'c4']);
+      expect(partialsSince(sentAt)).toHaveLength(1);
+      await new Promise(r => setTimeout(r, 350));
+      // No stray partial after completion.
+      expect(partialsSince(sentAt)).toHaveLength(1);
+    });
+
+    it('the settled set does not depend on which source answered first', async () => {
+      const a = [p('a1'), p('a2'), p('a3')];
+      const b = [p('b1'), p('b2'), p('b3')];
+      const run = async (firstSrc: string, firstPhotos: PhotoData[], secondSrc: string, secondPhotos: PhotoData[]) => {
+        await sendMessage('configUpdated', { config: { sources: [createStreamSource('manual-x'), createStreamSource('manual-y')], maxPhotosInArea: 4 } });
+        const sentAt = send('areaUpdated', { area: bounds, range: 1000 });
+        await waitForInstance('manual-x');
+        await waitForInstance('manual-y');
+        emitPhotos(firstSrc, firstPhotos); completeStream(firstSrc);
+        await waitForUpdate(sentAt, m => m.photos_in_area.length > 0);
+        emitPhotos(secondSrc, secondPhotos); completeStream(secondSrc);
+        return ids(await waitForPhotosUpdate(sentAt));
+      };
+      const xFirst = await run('manual-x', a, 'manual-y', b);
+      reset({ postMessage: mockPostMessage }); start(); mockEventSourceInstances.clear();
+      const yFirst = await run('manual-y', b, 'manual-x', a);
+      expect(xFirst).toEqual(yFirst);
+      expect(xFirst).toHaveLength(4);
+    });
   });
 });

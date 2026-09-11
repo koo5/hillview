@@ -55,6 +55,14 @@ private val navSavedStateConfig = SavedStateConfiguration {
 fun App() {
     HillviewTheme {
         val backStack = rememberNavBackStack(navSavedStateConfig, MainKey)
+        // The ONE way off a screen. NavDisplay throws the moment the back
+        // stack is empty, and a bare removeLastOrNull() gets there on the
+        // second of two pops: a double-tapped "← Back", or the button and
+        // the system back gesture landing together (the gesture lives
+        // along the same edge as the button) — [Main, X] → [Main] → [] →
+        // crash, from any screen. Field-caught on the Uploads screen; the
+        // root entry is never popped here, so the second pop is a no-op.
+        val pop: () -> Unit = { if (backStack.size > 1) backStack.removeLastOrNull() }
         val main: @Composable () -> Unit = {
             MainScreen(
                 onOpenSettings = { backStack.add(SettingsKey) },
@@ -68,7 +76,7 @@ fun App() {
         }
         NavDisplay(
             backStack = backStack,
-            onBack = { backStack.removeLastOrNull() },
+            onBack = { pop() },
             entryProvider = entryProvider {
                 entry<MainKey> { main() }
                 // Legacy aliases — see navSavedStateConfig.
@@ -77,38 +85,38 @@ fun App() {
                 entry<CaptureKey> { main() }
                 entry<SettingsKey> {
                     SettingsScreen(
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { pop() },
                         onOpenLogin = { backStack.add(LoginKey) },
                     )
                 }
                 entry<DevicePhotosKey> {
                     cz.hillview.devicephotos.DevicePhotosScreen(
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { pop() },
                     )
                 }
                 entry<LoginKey> {
                     LoginScreen(
-                        onBack = { backStack.removeLastOrNull() },
-                        onLoggedIn = { backStack.removeLastOrNull() },
+                        onBack = { pop() },
+                        onLoggedIn = { pop() },
                     )
                 }
                 entry<EventLogKey> {
                     cz.hillview.diag.EventLogScreen(
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { pop() },
                     )
                 }
                 entry<UploadStatusKey> {
                     cz.hillview.upload.ui.UploadStatusScreen(
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { pop() },
                     )
                 }
                 entry<CaptureGuideKey> {
                     cz.hillview.help.CaptureGuideScreen(
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { pop() },
                     )
                 }
                 entry<ClockVideoKey> {
-                    ClockVideoScreen(onBack = { backStack.removeLastOrNull() })
+                    ClockVideoScreen(onBack = { pop() })
                 }
             },
             modifier = Modifier

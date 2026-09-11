@@ -60,6 +60,14 @@
 					<a href={c.candidate} target="_blank" rel="noreferrer" style="font-size:12px" title={c.candidate}>
 						{candidateLabel(c)}
 					</a>
+					{#if c.seeded_from?.length && !c.own}
+						<div class="muted" style="font-size:10px" data-testid="candidate-seeded-from">
+							from
+							{#each c.seeded_from as s, i (s.annotation_id)}
+								{i ? ' · ' : ''}<a href="/annotations/{s.annotation_id}" title="namesake annotation — same label or id= key on another photo">{s.label ?? s.annotation_id.slice(0, 8)}</a>{#if s.photo_title}{' on '}{s.photo_title}{/if}
+							{/each}
+						</div>
+					{/if}
 				</td>
 				<td class="mono">{c.km ?? ''}</td>
 				<td

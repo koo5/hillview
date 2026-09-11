@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { convertPanoramaxItem } from './PanoramaxSourceLoader';
+import { convertPanoramaxItem, isOwnInstanceItem } from './PanoramaxSourceLoader';
 
 describe('convertPanoramaxItem', () => {
 	const source = { id: 'panoramax', type: 'panoramax' };
@@ -22,6 +22,19 @@ describe('convertPanoramaxItem', () => {
 			hd: { href: 'https://example.com/hd.jpg' }
 		}
 	};
+
+	it('flags an unoriented item (no view:azimuth, no pers:yaw)', () => {
+		const { 'view:azimuth': _, ...props } = baseItem.properties;
+		const result = convertPanoramaxItem({ ...baseItem, properties: props }, source)!;
+		expect(result.bearing).toBe(0);
+		expect(result.has_bearing).toBe(false);
+	});
+
+	it('an azimuth of exactly 0 is a heading', () => {
+		const result = convertPanoramaxItem({ ...baseItem, properties: { ...baseItem.properties, 'view:azimuth': 0 } }, source)!;
+		expect(result.bearing).toBe(0);
+		expect(result.has_bearing).toBeUndefined();
+	});
 
 	it('builds uid from source.id + item.id', () => {
 		const result = convertPanoramaxItem(baseItem, source);
@@ -144,5 +157,85 @@ describe('convertPanoramaxItem', () => {
 			assets: { thumb: { href: 'https://example.com/thumb.jpg' } }
 		};
 		expect(convertPanoramaxItem(item, source)?.url).toBe('https://example.com/thumb.jpg');
+	});
+});
+describe('isOwnInstanceItem', () => {
+	const foreignItem = {
+		id: 'ba7c08c3-6415-4044-9894-a8c1d0e59986',
+		links: [
+			{ rel: 'via', href: 'https://panoramax.openstreetmap.fr', type: 'application/json' }
+		],
+		assets: {
+			hd: { href: 'https://panoramax.openstreetmap.fr/api/pictures/x/hd.jpg' }
+		}
+	};
+
+	it('keeps items whose via link points at a foreign instance', () => {
+		expect(isOwnInstanceItem(foreignItem)).toBe(false);
+	});
+
+	it('drops items whose via link points at our instance', () => {
+		const item = {
+			...foreignItem,
+			links: [{ rel: 'via', href: 'https://panoramax.hillview.cz', instance_name: 'hillview' }]
+		};
+		expect(isOwnInstanceItem(item)).toBe(true);
+	});
+
+	it('matches via hrefs regardless of trailing slash and case', () => {
+		const item = {
+			...foreignItem,
+			links: [{ rel: 'via', href: 'https://Panoramax.Hillview.CZ/' }]
+		};
+		expect(isOwnInstanceItem(item)).toBe(true);
+	});
+
+	it('does not treat a foreign host merely containing our prefix as ours', () => {
+		const item = {
+			...foreignItem,
+			links: [{ rel: 'via', href: 'https://panoramax.hillview.cz.evil.example' }]
+		};
+		expect(isOwnInstanceItem(item)).toBe(false);
+	});
+
+	it('via link is authoritative: no asset fallback when via is present', () => {
+		// foreign via + our asset host: trust the via link
+		const item = {
+			...foreignItem,
+			links: [{ rel: 'via', href: 'https://panoramax.openstreetmap.fr' }],
+			assets: { hd: { href: 'https://pics.hillview.cz/opt/2048/u/p.webp' } }
+		};
+		expect(isOwnInstanceItem(item)).toBe(false);
+	});
+
+	it('falls back to asset-URL prefixes when no via link exists', () => {
+		const item = {
+			id: 'x',
+			assets: { hd: { href: 'https://pics.hillview.cz/opt/2048/u/p.webp' } }
+		};
+		expect(isOwnInstanceItem(item)).toBe(true);
+	});
+
+	it('asset fallback recognizes every configured pics/CDN host', () => {
+		for (const prefix of [
+			'https://pics.hillview.cz/',
+			'https://pics2.hillview.cz/',
+			'https://pics4.t3.storage.dev/'
+		]) {
+			const item = { id: 'x', assets: { thumb: { href: `${prefix}opt/640/u/p.webp` } } };
+			expect(isOwnInstanceItem(item)).toBe(true);
+		}
+	});
+
+	it('keeps items with neither via link nor recognizable assets', () => {
+		const item = {
+			id: 'x',
+			assets: { hd: { href: 'https://cdn.elsewhere.example/p.jpg' } }
+		};
+		expect(isOwnInstanceItem(item)).toBe(false);
+	});
+
+	it('tolerates items with no links and no assets', () => {
+		expect(isOwnInstanceItem({ id: 'x' })).toBe(false);
 	});
 });

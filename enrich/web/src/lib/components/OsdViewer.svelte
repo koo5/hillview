@@ -46,6 +46,7 @@
 		viewHeight = 380,
 		onrectclick,
 		editable = false,
+		drawing = false,
 		ondraw,
 		onedit,
 		ondelete
@@ -65,6 +66,10 @@
 		// drawing mode: enables the rectangle tool; a finished rect is reported as
 		// a NORMALIZED annotation target for the caller to persist
 		editable?: boolean;
+		// drawing mode: the rectangle tool is armed and captures the pointer —
+		// annotorious cannot select existing shapes while it is on, which is why
+		// this is a separate mode from `editable`
+		drawing?: boolean;
 		ondraw?: (target: Record<string, unknown>) => void;
 		// existing rect moved/resized (id = the rect's id) → normalized target;
 		// and delete. The caller routes by id (native → save, mirrored → revert).
@@ -327,7 +332,12 @@
 	// toggle drawing (new rects) + editing of existing rects live, without
 	// remounting (keeps the current zoom/pan)
 	$effect(() => {
-		annotator?.setDrawingEnabled?.(editable);
+		// annotorious 3 emits updateAnnotation for a moved/resized shape only when
+		// the shape is DESELECTED — leaving edit mode with the shape still selected
+		// used to drop the edit silently. Deselect first: that fires the commit
+		// (→ onedit) before editing is switched off.
+		if (!editable) annotator?.setSelected?.();
+		annotator?.setDrawingEnabled?.(drawing && !editable);
 		annotator?.setUserSelectAction?.(() =>
 			editable ? UserSelectAction.EDIT : UserSelectAction.SELECT
 		);
@@ -336,6 +346,12 @@
 	onDestroy(() => {
 		if (labelRaf) cancelAnimationFrame(labelRaf);
 		resizeObserver?.disconnect();
+		// same commit on teardown (navigating away mid-edit)
+		try {
+			annotator?.setSelected?.();
+		} catch {
+			/* nothing selected / already torn down */
+		}
 		annotator?.destroy();
 		viewer?.destroy();
 	});

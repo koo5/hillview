@@ -15,7 +15,7 @@ export interface AnnotationEvent {
 	user_id: string;
 	username: string | null;
 	actor_role: string | null;
-	event_type: 'created' | 'updated' | 'deleted' | string;
+	event_type: 'created' | 'updated' | 'deleted' | 'hidden' | string;
 	body: string | null;
 	target: unknown;
 	is_current: boolean;
@@ -59,6 +59,7 @@ export function bodyPreview(ev: AnnotationEvent): string {
 export function undoLabel(ev: AnnotationEvent): string {
 	if (ev.event_type === 'created') return 'Remove this annotation';
 	if (ev.event_type === 'deleted') return 'Restore this annotation';
+	if (ev.event_type === 'hidden') return 'Unhide this annotation';
 	return 'Revert this edit';
 }
 

@@ -41,7 +41,7 @@
 		return `/photo/hillview-${ev.photo_id}`;
 	}
 
-	const FILTERS = ['all', 'created', 'updated', 'deleted'] as const;
+	const FILTERS = ['all', 'created', 'updated', 'deleted', 'hidden'] as const;
 	type Filter = (typeof FILTERS)[number];
 
 	let events: AnnotationEvent[] = [];
@@ -369,6 +369,11 @@
 	.type-deleted {
 		background: #fee2e2;
 		color: #b91c1c;
+	}
+
+	.type-hidden {
+		background: #fef3c7;
+		color: #b45309;
 	}
 
 	.event-main {

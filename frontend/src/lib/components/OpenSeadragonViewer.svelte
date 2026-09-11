@@ -39,13 +39,15 @@
 		createAnnotation,
 		updateAnnotation,
 		deleteAnnotation,
+		hideAnnotation,
 		targetToPixels,
 		targetToNormalized,
 		type AnnotationData,
 	} from '$lib/annotationApi';
+	import { isModerator } from '$lib/adminNotifications';
 	import { Origin, UserSelectAction, type DrawingStyle } from '@annotorious/core';
 	import { fetchDetections, type DetectedObject } from '$lib/detectionApi';
-	import { showAnnotations, showDetections, showPhotoInfoWindow, showTerrainOverlay } from '$lib/data.svelte.js';
+	import { showAnnotations, showDetections, showPhotoInfoWindow, showTerrainOverlay, togglePhotoInfoWindow } from '$lib/data.svelte.js';
 	import {
 		createOverlayProjector,
 		effectiveFit,
@@ -86,7 +88,7 @@
 		dropdownMenuState,
 		type DropdownMenuItem,
 	} from '$lib/components/dropdown-menu/dropdownMenu.svelte';
-	import { MapPin, MoreVertical, Mountain, Printer, Share, Tags } from 'lucide-svelte';
+	import { Info, MapPin, MoreVertical, Mountain, Printer, Share, Tags } from 'lucide-svelte';
 	import { constructUserProfileUrl } from '$lib/urlUtilsServer';
 	import { myGoto } from '$lib/navigation.svelte';
 	import { buildTileSource } from '$zoomview/tileSource';
@@ -2154,6 +2156,44 @@
 		}
 	}
 
+	async function hideEditingAnnotation() {
+		if (!editingAnnotation || !annotator) return;
+
+		// Create path: shape isn't persisted yet — nothing to hide (the button
+		// isn't rendered in that state either)
+		if (pendingNewAnnotation) return;
+
+		const dbId = editingAnnotation.id;
+		const uiId = dbToUi.get(dbId);
+		console.log('[OSD] hideEditingAnnotation — dbId:', dbId, 'uiId:', uiId);
+		try {
+			await hideAnnotation(dbId);
+			// Same cleanup as delete: the hidden row is no longer displayed here
+			// (it stays a calibration anchor in the enrichment workbench)
+			if (uiId) {
+				uiToDb.delete(uiId);
+				try { annotator.removeAnnotation(uiId); } catch (_) {}
+			}
+			dbToUi.delete(dbId);
+			annotations = annotations.filter((a) => a.id !== dbId);
+			rebuildParsedAnnotations();
+			scheduleDrawLabels();
+			// Close panel
+			editingAnnotation = null;
+			editBody = '';
+			originalW3cSnapshot = null;
+			originalDbId = null;
+		} catch (e) {
+			console.error('[OSD] hideEditingAnnotation — failed:', e);
+			showError('Failed to hide annotation');
+			// Close panel so the user isn't stuck — annotation remains on canvas
+			editingAnnotation = null;
+			editBody = '';
+			originalW3cSnapshot = null;
+			originalDbId = null;
+		}
+	}
+
 	function autofocus(node: HTMLElement) { node.focus(); (node as HTMLInputElement).select?.(); }
 
 	function handleKeydown(e: KeyboardEvent) {
@@ -2290,6 +2330,16 @@
 			aria-expanded={displayMenuOpen}
 		>
 			<MoreVertical size={18} aria-hidden="true" />
+		</button>
+		<button
+			class="toolbar-btn toolbar-btn-info"
+			class:active={$showPhotoInfoWindow}
+			onclick={togglePhotoInfoWindow}
+			title={$showPhotoInfoWindow ? 'Hide photo info' : 'Show photo info'}
+			aria-pressed={$showPhotoInfoWindow}
+			data-testid="osd-photo-info-toggle"
+		>
+			<Info size={16} aria-hidden="true" /><span class="toolbar-btn-label">Info</span>
 		</button>
 		{#if terrainOverlay}
 			<!-- only where there is something to show: most photos have no
@@ -2428,6 +2478,9 @@
 			/>
 			<div class="edit-body-actions">
 				<button class="edit-body-btn delete" onclick={deleteEditingAnnotation} data-testid="osd-edit-body-delete">Delete</button>
+				{#if $isModerator && !pendingNewAnnotation}
+					<button class="edit-body-btn hide" onclick={hideEditingAnnotation} data-testid="osd-edit-body-hide" title="Hide from viewers (kept as a calibration anchor)">Hide</button>
+				{/if}
 				<div style="flex:1"></div>
 				<button class="edit-body-btn cancel" onclick={cancelEditBody} data-testid="osd-edit-body-cancel">Cancel</button>
 				<button class="edit-body-btn save" onclick={saveEditBody} data-testid="osd-edit-body-save">Save</button>
@@ -2685,6 +2738,22 @@
 		padding: 0 0 0 0.5em;
 	}
 
+	.toolbar-btn-info {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+	}
+
+	.toolbar-btn-info.active {
+		border-color: #3b82f6;
+		background: rgba(59,130,246,0.75);
+		color: #fff;
+	}
+
+	.toolbar-btn-info.active:hover {
+		background: rgba(59,130,246,0.9);
+	}
+
 	.toolbar-btn-terrain {
 		display: inline-flex;
 		align-items: center;
@@ -2890,6 +2959,13 @@
 	}
 
 	.edit-body-btn.delete:hover { background: #c82333; }
+
+	.edit-body-btn.hide {
+		background: #b45309;
+		color: #fff;
+	}
+
+	.edit-body-btn.hide:hover { background: #92400e; }
 
 	.text-modal-overlay {
 		position: absolute;

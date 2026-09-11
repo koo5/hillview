@@ -110,8 +110,9 @@ actual fun platformModule(): Module = module {
     // by content hash (an uploaded capture shows once, as its backend self).
     single<cz.hillview.map.PhotoMarkerSource> {
         val tokenStore = get<TokenStore>()
+        val mapSettings = get<cz.hillview.settings.MapSettingsRepository>()
         cz.hillview.map.CompositeMarkerSource(
-            listOf(
+            sources = listOf(
                 cz.hillview.map.DeviceMarkerSource(androidContext(), get()),
                 cz.hillview.map.StreamMarkerSource(
                     source = cz.hillview.plugin.SourceConfig(
@@ -141,13 +142,15 @@ actual fun platformModule(): Module = module {
                     freshToken = { tokenStore.freshAccessToken() },
                 ),
                 // Panoramax queries its public instance directly (original:
-                // type panoramax, api.panoramax.xyz, default OFF).
+                // type panoramax, api.panoramax.xyz). Default ON now that
+                // sources load independently and the budget is cross-source
+                // — a persisted toggle still wins.
                 cz.hillview.map.PanoramaxMarkerSource(
                     source = cz.hillview.plugin.SourceConfig(
                         id = "panoramax",
                         name = "Panoramax",
                         type = "panoramax",
-                        enabled = false,
+                        enabled = true,
                         color = "#33aa88",
                         url = "https://api.panoramax.xyz",
                     ),
@@ -156,6 +159,13 @@ actual fun platformModule(): Module = module {
                     freshToken = { tokenStore.freshAccessToken() },
                 ),
             ),
+            // The fetches and the publish loop outlive any screen.
+            scope = kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+            ),
+            // The Tauri worker's cross-source grid cap, from shared-kt.
+            cull = cz.hillview.map.SharedMarkerCuller(),
+            maxPhotos = { mapSettings.settings.value.maxPhotos },
         )
     }
     single<TokenStore> { AuthManagerTokenStore(androidContext()) }

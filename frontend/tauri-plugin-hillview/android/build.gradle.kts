@@ -128,6 +128,9 @@ dependencies {
     implementation("com.google.firebase:firebase-messaging-ktx")
 
     testImplementation("junit:junit:4.13.2")
+    // Virtual-time coroutine tests (PhotoOperations concurrency, PartialPublishGate);
+    // pinned to the coroutines version above.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.4")
     // Mockito 5.x runs the inline mock-maker by default (so Kotlin's default-final
     // classes are mockable) and handles JDK 17+ self-attach properly. Source/target
     // Java 1.8 above is for our own bytecode; the test JVM runs newer.

@@ -112,3 +112,28 @@ describe('isCoordsOnly', () => {
 		expect(isCoordsOnly('Petřín')).toBe(false);
 	});
 });
+
+// parser v9 twin: DMS/DDM (test_dms_* in test_parser.py)
+describe('DMS coordinates', () => {
+	it('parses DMS with seconds', () => {
+		const c = firstCoords('50°10\'29.869"N, 14°38\'52.907"E');
+		expect(c?.lat).toBe(50.1749636);
+		expect(c?.lon).toBe(14.6480297);
+	});
+	it('parses decimal minutes (DDM)', () => {
+		const c = firstCoords("50°10.4978'N 14°38.8818'E");
+		expect(c?.lat).toBeCloseTo(50.17496, 4);
+		expect(c?.lon).toBeCloseTo(14.64803, 4);
+	});
+	it('requires hemisphere letters (prose stays prose)', () => {
+		expect(firstCoords('12°C, 1500 m')).toBeNull();
+	});
+	it('signs southern/western values', () => {
+		const c = firstCoords('33°51\'25.4"S, 151°12\'55.1"E');
+		expect(c!.lat).toBeLessThan(0);
+		expect(c!.lon).toBeGreaterThan(0);
+	});
+	it('is a coords-only segment for the name-slot rule', () => {
+		expect(isCoordsOnly('50°10\'29.869"N, 14°38\'52.907"E')).toBe(true);
+	});
+});

@@ -23,7 +23,7 @@ from common.database import get_db
 from common.models import User, UserPublicKey, Photo, UserRole
 from common.utc import utcnow, format_utc, utc_from_timestamp, utc_plus_timedelta
 from photos import delete_all_user_photo_files
-from jwt_service import create_upload_authorization_token, REFRESH_TOKEN_EXPIRE_MINUTES
+from jwt_service import create_upload_authorization_token, create_ssr_read_token, REFRESH_TOKEN_EXPIRE_MINUTES
 from auth import (
 	authenticate_user, create_access_token, create_refresh_token, get_current_active_user,
 	get_password_hash, Token, UserCreate, UserOut, UserOAuth, RefreshTokenRequest,
@@ -155,6 +155,10 @@ def store_oauth_session(tokens: Dict[str, Any], user_info: Dict[str, Any]) -> st
         'expires_at': expires_at,
         'token_expires_at': tokens['expires_at'],
         'refresh_token_expires_at': tokens.get('refresh_token_expires_at'),
+        # The SSR read ticket rides along so the polling response can carry it —
+        # the web popup flow collects its tokens here, not from /auth/oauth.
+        'ssr_token': tokens.get('ssr_token'),
+        'ssr_token_expires_at': tokens.get('ssr_token_expires_at'),
         'user_info': user_info,
         'created_at': utcnow()
     }
@@ -273,12 +277,18 @@ async def login_for_access_token(
 		data={"sub": user.username, "user_id": user.id, "sid": sid, "jti": new_refresh_jti()}
 	)
 
+	ssr_token, ssr_expires = create_ssr_read_token(
+		data={"sub": user.id, "username": user.username, "sid": sid}
+	)
+
 	return {
 		"access_token": access_token,
 		"refresh_token": refresh_token,
+		"ssr_token": ssr_token,
 		"token_type": "bearer",
 		"expires_at": expires,
-		"refresh_token_expires_at": refresh_expires
+		"refresh_token_expires_at": refresh_expires,
+		"ssr_token_expires_at": ssr_expires
 	}
 
 @router.post("/auth/logout")
@@ -440,6 +450,12 @@ async def refresh_access_token(
 			data={"sub": user.username, "user_id": user.id, "sid": session_family, "jti": new_refresh_jti()}
 		)
 
+		# Reissued on every refresh so the cookie the client mirrors it into keeps
+		# tracking the session rather than aging out mid-session.
+		ssr_token, ssr_expires = create_ssr_read_token(
+			data={"sub": user.id, "username": user.username, "sid": session_family}
+		)
+
 		# Log successful refresh
 		await security_audit.log_event(
 			db=db,
@@ -455,9 +471,13 @@ async def refresh_access_token(
 		return {
 			"access_token": access_token,
 			"refresh_token": new_refresh_token,
+			"ssr_token": ssr_token,
 			"token_type": "bearer",
 			"expires_at": expires,
-			"refresh_token_expires_at": new_refresh_expires.isoformat() if hasattr(new_refresh_expires, 'isoformat') else new_refresh_expires
+			"refresh_token_expires_at": new_refresh_expires.isoformat() if hasattr(new_refresh_expires, 'isoformat') else new_refresh_expires,
+			# Handed over as a datetime, not isoformat(): the Token model then emits
+			# the Z-terminated form its docstring insists on.
+			"ssr_token_expires_at": ssr_expires
 		}
 
 	except HTTPException:
@@ -791,7 +811,9 @@ async def oauth_callback(
 			'access_token': jwt_token,
 			'refresh_token': refresh_token,
 			'expires_at': expires_at,
-			'refresh_token_expires_at': refresh_token_expires_at
+			'refresh_token_expires_at': refresh_token_expires_at,
+			'ssr_token': jwt_result.get("ssr_token"),
+			'ssr_token_expires_at': jwt_result.get("ssr_token_expires_at")
 		}
 
 		if polling_session_id:
@@ -803,6 +825,8 @@ async def oauth_callback(
 					'refresh_token': refresh_token,
 					'token_expires_at': expires_at,
 					'refresh_token_expires_at': refresh_token_expires_at,
+					'ssr_token': tokens['ssr_token'],
+					'ssr_token_expires_at': tokens['ssr_token_expires_at'],
 					'user_info': user_info,
 					'status': 'completed'
 				})
@@ -960,19 +984,14 @@ async def oauth_callback(
 
 		return RedirectResponse(deep_link_url)
 	else:
-		# Web app: existing behavior (redirect to dashboard)
-		# Note: For web app, you might want to set cookies here
+		# Web app: existing behavior (redirect to dashboard).
+		# No cookie is set here. An "auth_token" cookie used to be written on this
+		# branch and never read by anything — it could not be, since in production the
+		# API answers on api.hillview.cz and the site is hillview.cz, so a cookie set
+		# here never reaches the frontend origin. The SSR read ticket solves that
+		# properly: the browser mirrors it into a cookie on its own origin.
 		log.info("Web OAuth callback, redirecting to dashboard")
-		response = RedirectResponse("/")
-		response.set_cookie(
-			"auth_token",
-			jwt_token,
-			httponly=True,
-			secure=True,
-			samesite="lax",
-			expires=expires_at
-		)
-		return response
+		return RedirectResponse("/")
 
 @router.get("/auth/oauth-status/{session_id}")
 async def get_oauth_status(
@@ -1020,6 +1039,8 @@ async def get_oauth_status(
 	refresh_token = session.get('refresh_token')
 	token_expires_at = session['token_expires_at']
 	refresh_token_expires_at = session.get('refresh_token_expires_at')
+	ssr_token = session.get('ssr_token')
+	ssr_token_expires_at = session.get('ssr_token_expires_at')
 	user_info = session['user_info']
 
 	# Log successful OAuth completion
@@ -1054,6 +1075,13 @@ async def get_oauth_status(
 
 	if refresh_token_expires_at:
 		response_data["refresh_token_expires_at"] = refresh_token_expires_at if isinstance(refresh_token_expires_at, str) else refresh_token_expires_at.isoformat()
+
+	# Same fields the Token model would emit, so completeAuthentication stores the
+	# ticket from this path too; without it login mirrors no cookie until the
+	# first refresh.
+	if ssr_token and ssr_token_expires_at:
+		response_data["ssr_token"] = ssr_token
+		response_data["ssr_token_expires_at"] = ssr_token_expires_at if isinstance(ssr_token_expires_at, str) else ssr_token_expires_at.isoformat()
 
 	return response_data
 
@@ -1285,12 +1313,18 @@ async def oauth_user_to_tokens(db: AsyncSession, provider: str, oauth_id: str, e
 		data={"sub": user.username, "user_id": user.id, "sid": sid, "jti": new_refresh_jti()}
 	)
 
+	ssr_token, ssr_expires = create_ssr_read_token(
+		data={"sub": user.id, "username": user.username, "sid": sid}
+	)
+
 	return {
 		"access_token": access_token,
 		"refresh_token": refresh_token,
+		"ssr_token": ssr_token,
 		"token_type": "bearer",
 		"expires_at": expires,
 		"refresh_token_expires_at": refresh_expires.isoformat() if hasattr(refresh_expires, 'isoformat') else refresh_expires,
+		"ssr_token_expires_at": ssr_expires.isoformat() if hasattr(ssr_expires, 'isoformat') else ssr_expires,
 		"user_info": {
 			"user_id": user.id,
 			"username": user.username,
@@ -1428,28 +1462,39 @@ async def delete_user_account(
 	# Apply user profile rate limiting
 	await rate_limit_user_profile(request, current_user.id)
 
+	user_id = current_user.id
 	try:
-		# First, get all user's photos and delete their files before CASCADE deletes DB records
-		# Get all user's photos to delete their files
+		# Files MUST be gone before we report the account deleted — a user must never be
+		# told "deleted" while their photos still dangle. So: capture the files, delete
+		# them, and only then remove the account. The sweep runs off the event loop and
+		# outside any transaction (the read snapshot is ended first): a big account
+		# could otherwise freeze the API and, inside an open transaction, be killed by
+		# the idle-txn guardrail mid-deletion.
 		photos_result = await db.execute(
-			select(Photo).where(Photo.owner_id == current_user.id)
+			select(Photo).where(Photo.owner_id == user_id)
 		)
-		user_photos = photos_result.scalars().all()
+		all_sizes = [photo.sizes for photo in photos_result.scalars().all()]
+		await db.rollback()  # end the read snapshot before the (possibly long) sweep
 
-		# Delete photo files from filesystem - must succeed before DB deletion
-		if user_photos:
-			deleted_count = await delete_all_user_photo_files(user_photos)
-			if deleted_count != len(user_photos):
-				# Some file deletions failed - abort user deletion
+		if all_sizes:
+			from photos import delete_photo_files_for_sizes
+			deleted_count = await delete_photo_files_for_sizes(all_sizes)
+			if deleted_count != len(all_sizes):
+				# Some file deletions failed — abort, account stays intact so the user
+				# can retry. Never report success with files still on disk.
 				raise HTTPException(
 					status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-					detail=f"Failed to delete all photo files ({deleted_count}/{len(user_photos)} succeeded). User deletion aborted."
+					detail=f"Failed to delete all photo files ({deleted_count}/{len(all_sizes)} succeeded). User deletion aborted."
 				)
-			log.info(f"Successfully deleted {deleted_count} photo files for user {current_user.id}")
+			log.info(f"Successfully deleted {deleted_count} photo files for user {user_id}")
 
-		# Now delete the user - CASCADE constraint will delete database records
-		await db.delete(current_user)
-		await db.commit()
+		# Files are gone; now remove the user. DB-level ON DELETE CASCADE
+		# (Photo.owner_id) clears the rest. Re-fetch: the object from the read above
+		# was expired by the rollback.
+		user = await db.get(User, user_id)
+		if user is not None:
+			await db.delete(user)
+			await db.commit()
 
 		return {"message": "Account successfully deleted"}
 	except Exception as e:
@@ -1728,8 +1773,11 @@ async def authorize_upload(
 			filename=None,  # Will be set by worker after file processing
 			original_filename=auth_request.filename,
 			file_md5=auth_request.file_md5,
-			title=auth_request.title,
-			description=auth_request.description,
+			# The web uploader sends "" for a field the user left empty; store the
+			# absence as NULL so a later edit (which normalizes "" to NULL too)
+			# does not read it as a change.
+			title=(auth_request.title or "").strip() or None,
+			description=(auth_request.description or "").strip() or None,
 			keywords=auth_request.keywords,
 			is_public=auth_request.is_public,
 			featured=auth_request.featured,  # admin-gated above

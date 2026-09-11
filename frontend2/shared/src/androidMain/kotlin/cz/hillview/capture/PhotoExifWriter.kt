@@ -69,7 +69,9 @@ object PhotoExifWriter {
         // Tauri shape ignore what they don't know.
         val locationSource = snapshot.locationSource
         val exposure = snapshot.exposure
-        if (locationSource != null || snapshot.bearingSource != null || exposure != null) {
+        if (locationSource != null || snapshot.bearingSource != null || exposure != null ||
+            snapshot.altLocation != null
+        ) {
             val fields = buildList {
                 locationSource?.let { add("\"location_source\":\"$it\"") }
                 snapshot.bearingSource?.let { add("\"bearing_source\":\"$it\"") }
@@ -84,6 +86,9 @@ object PhotoExifWriter {
                 // owned the shot. Same serialization the photos table
                 // carries — one shape wherever the stamp travels.
                 exposure?.let { add("\"exposure\":${exposureProvenanceJson(it)}") }
+                // The original's alt_location, same key, same shape — the
+                // Rust writer puts it here too (photo_exif.rs:193).
+                snapshot.altLocation?.let { add("\"alt_location\":${altLocationJson(it)}") }
             }
             exif.setAttribute(
                 ExifInterface.TAG_USER_COMMENT,

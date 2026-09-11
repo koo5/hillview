@@ -26,7 +26,7 @@ from common.models import (
 from auth import require_admin, require_moderator
 from push_notifications import create_notification_for_user
 
-ANNOTATION_EVENT_TYPES = ('created', 'updated', 'deleted')
+ANNOTATION_EVENT_TYPES = ('created', 'updated', 'deleted', 'hidden')
 
 
 def _role_str(role) -> Optional[str]:
@@ -458,11 +458,13 @@ def _undo_message(action: str, reason: Optional[str]) -> tuple:
 		'undo_create': 'An annotation you added was removed',
 		'undo_update': 'An edit you made was reverted',
 		'undo_delete': 'An annotation you deleted was restored',
+		'undo_hide': 'An annotation you hid was restored',
 	}
 	defaults = {
 		'undo_create': 'A moderator removed an annotation you created.',
 		'undo_update': 'A moderator reverted an edit you made to an annotation.',
 		'undo_delete': 'A moderator restored an annotation you had deleted.',
+		'undo_hide': 'A moderator restored an annotation you had hidden.',
 	}
 	title = titles.get(action, 'An annotation of yours was moderated')
 	clean = reason.strip() if reason and reason.strip() else None
@@ -526,6 +528,15 @@ async def undo_annotation_event(
 		action = 'undo_delete'
 		new = PhotoAnnotation(photo_id=photo_id, user_id=moderator_id,
 			body=pred.body, target=pred.target, is_current=True, event_type='updated')
+	elif et == 'hidden':
+		if pred is None:
+			raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No prior version to restore")
+		# 'updated' is what resurfaces the chain; carrying source_annotation_id
+		# keeps graduation-package idempotency alive across an unhide.
+		action = 'undo_hide'
+		new = PhotoAnnotation(photo_id=photo_id, user_id=moderator_id,
+			body=pred.body, target=pred.target, is_current=True, event_type='updated',
+			source_annotation_id=pred.source_annotation_id)
 	else:
 		raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot undo event_type '{et}'")
 
@@ -583,8 +594,10 @@ def _activity_summary(kind: str, event_type: str, count: int, ctx: dict) -> str:
 		verb = 'deleted' if event_type == 'delete' else event_type
 		return f"{verb} {ctx['owner']}'s photo" if count == 1 else f'{verb} {count} photos'
 	if kind == 'annotation':
-		# event_type is already past tense: created / updated / deleted
-		return f'{event_type} an annotation' if count == 1 else f'{event_type} {count} annotations'
+		# event_type is already past tense: created / updated / deleted — except
+		# 'hidden', which reads wrong as a verb ("hidden an annotation")
+		verb = 'hid' if event_type == 'hidden' else event_type
+		return f'{verb} an annotation' if count == 1 else f'{verb} {count} annotations'
 	if kind == 'flag':
 		return f"flagged a {ctx['source']} photo" if count == 1 else f'flagged {count} photos'
 	if kind == 'upload':

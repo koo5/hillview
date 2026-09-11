@@ -192,12 +192,20 @@ def _worker_main(worker_idx, job_queue, result_queue, phase_queue, threads=1):
 				result = _run_photo_processing(**job["args"])
 				result_queue.put((job_id, "ok", result))
 			except Exception as e:  # noqa: BLE001 — ship type+msg back for routing
+				exc_type = type(e).__name__
 				result_queue.put((job_id, "error", {
-					"type": type(e).__name__,
+					"type": exc_type,
 					"msg": str(e),
 					"tb": traceback.format_exc(),
 				}))
-				logger.error(f"[worker {worker_idx}] job {job_id} failed: {e}")
+				if exc_type in _EXC_TYPES:
+					# Expected, user-facing failure (missing GPS etc.) — one line.
+					logger.error(f"[worker {worker_idx}] job {job_id} failed: {exc_type}: {e}")
+				else:
+					# A bug, not a bad photo: the traceback is the only thing that
+					# locates it, and it never leaves this process otherwise.
+					logger.error(f"[worker {worker_idx}] job {job_id} failed with unexpected "
+								 f"{exc_type}: {e}\n{traceback.format_exc()}")
 			finally:
 				with _child_inflight_lock:
 					_child_inflight -= 1
@@ -382,8 +390,14 @@ def _fail_job(job_id, exc):
 
 
 def _reconstruct_exc(payload):
-	cls = _EXC_TYPES.get(payload.get("type"), RuntimeError)
-	msg = payload.get("msg") or payload.get("type") or "processing failed"
+	name = payload.get("type")
+	msg = payload.get("msg") or name or "processing failed"
+	cls = _EXC_TYPES.get(name)
+	if cls is None:
+		# Unmapped type (KeyError, TypeError, …): it can't be re-raised as
+		# itself, so carry its name in the message — a bare KeyError str()s to
+		# just the key, and "Unexpected error: 'data'" tells nobody anything.
+		return RuntimeError(f"{name}: {msg}" if name else msg)
 	try:
 		return cls(msg)
 	except Exception:

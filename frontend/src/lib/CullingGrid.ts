@@ -84,9 +84,13 @@ export class CullingGrid {
         // Create grid to store photos by cell
         const cellGrid = new Map<CellKey, CellPhotos>();
 
-        // Sort sources by priority (device first, mapillary last)
+        // Sort sources by priority (device first, mapillary last). Equal
+        // priorities tie-break on id: the input map's insertion order is the
+        // order sources *arrived* in, and the culled set must not depend on
+        // that (sources now load concurrently and publish as they land).
         const sortedSourceIds = Array.from(photosPerSource.keys()).sort((a, b) => {
-            return this.getSourcePriority(a) - this.getSourcePriority(b);
+            const byPriority = this.getSourcePriority(a) - this.getSourcePriority(b);
+            return byPriority !== 0 ? byPriority : (a < b ? -1 : a > b ? 1 : 0);
         });
 
         // Populate grid cells with photos from each source (by priority order)

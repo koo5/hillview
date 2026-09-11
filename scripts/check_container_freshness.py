@@ -50,16 +50,31 @@ FRONTEND_TARGET = {
 
 TARGETS = {3000: FRONTEND_TARGET}
 
-# Hosts whose origin is a Caddy vhost proxying into the built frontend container
+# Hosts whose origin is a Caddy vhost fronting the built frontend container
 # rather than the dev server. Keyed by host because they answer on :443, which no
 # port rule can distinguish from any other https origin — and these are exactly
-# the profiles that serve compiled output, so skipping them would disable this
-# check precisely where it is needed. Keep in sync with scripts/host_profiles.py.
-CADDY_FRONTEND_HOSTS = {
-	"hv.jj.internal",
-	"hv.dev4.local",
-	"hv.dev4.jj.internal",
-}
+# the profiles that serve compiled output, so missing one disables this check
+# precisely where it is needed.
+#
+# DERIVED from the profiles, not listed: as a hand-written set it had already
+# fallen behind, naming only jj and dev4 while dev4-2 and dev4-3 existed.
+def _caddy_frontend_hosts():
+	try:
+		sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+		from host_profiles import PROFILES
+	except ImportError:
+		return set()
+	hosts = set()
+	for profile in PROFILES.values():
+		backend = profile.get("frontend_env", {}).get("VITE_BACKEND", "") or ""
+		if backend.startswith("https://"):  # https => behind a Caddy vhost
+			host = urllib.parse.urlparse(backend).hostname
+			if host:
+				hosts.add(host)
+	return hosts
+
+
+CADDY_FRONTEND_HOSTS = _caddy_frontend_hosts()
 
 MAX_LISTED = 12
 
@@ -245,7 +260,12 @@ def main():
 
 	target, _url = resolve_target()
 	if target is None:
-		return 0
+		# No Playwright target here — but "was this image built for the config it
+		# is running under?" is true or false regardless of whether anything
+		# tests it, and the interactive-only profiles (frontend_url: None) are
+		# exactly where a stale bundle goes unnoticed. So still check the bundle;
+		# only the source-staleness half depends on knowing the target.
+		return 1 if (check_baked_origin(FRONTEND_TARGET["container"]) and opts.strict) else 0
 
 	container = target["container"]
 	built_at = image_built_at(container)

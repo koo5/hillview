@@ -61,7 +61,8 @@ async def _annotation_ray(ann_id: str) -> dict | None:
             "WHERE a.id = :id"), {"id": ann_id})).first()
     if not row or row.lat is None:
         return None
-    rx = rect_x(row.target)
+    from ..geometry import effective_target
+    rx = rect_x(await effective_target(ann_id, row.target))
     if rx is None:
         return None
     cal = await _calibration_for(row.photo_id)

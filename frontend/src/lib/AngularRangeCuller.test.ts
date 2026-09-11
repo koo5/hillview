@@ -21,6 +21,25 @@ describe('AngularRangeCuller', () => {
         ...overrides
     });
 
+    describe('Heading-less photos', () => {
+        it('stay out of the range set — they cannot be bucketed or turned to', () => {
+            const culler = new AngularRangeCuller();
+            const photos = [
+                createPhotoData({ id: 'north', uid: 'test-north', bearing: 0 }),
+                createPhotoData({ id: 'unknown', uid: 'test-unknown', bearing: 0, has_bearing: false }),
+            ];
+            const result = culler.cullPhotosInRange(photos, center, 1000, 10);
+            expect(result.map(p => p.id)).toEqual(['north']);
+        });
+
+        it('unless explicitly picked', () => {
+            const culler = new AngularRangeCuller();
+            const photos = [createPhotoData({ id: 'unknown', uid: 'test-unknown', bearing: 0, has_bearing: false })];
+            const result = culler.cullPhotosInRange(photos, center, 1000, 10, new Set(['test-unknown']));
+            expect(result.map(p => p.id)).toEqual(['unknown']);
+        });
+    });
+
     describe('Angular distribution', () => {
         it('should distribute photos across angular buckets within range', () => {
             const culler = new AngularRangeCuller();

@@ -50,6 +50,14 @@ export interface BasePhotoData {
     filename: string;
     url: string;
     bearing: number;
+    /**
+     * Whether `bearing` was actually recorded. The converters default a missing
+     * heading to 0, so without this a photo with no heading looks like one shot
+     * due north. undefined = true (every source that records headings).
+     * Heading-less photos draw grey without an arrow and stay out of range
+     * navigation (same rule as frontend2's viewer ring).
+     */
+    has_bearing?: boolean;
     pitch?: number;
     altitude: number;
     sizes?: Record<string, PhotoSize>;

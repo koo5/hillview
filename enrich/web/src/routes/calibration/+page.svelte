@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
-	import { fitPiecewise, fitRectilinear, fitSummary, residual } from '$lib/theilsen';
+	import { fitPiecewise, fitRectilinear, fitSummary, residual, unwrapDeltas } from '$lib/theilsen';
 	import CalibScatter from '$lib/components/CalibScatter.svelte';
 	import Help from '$lib/components/Help.svelte';
 	import PhotoThumb from '$lib/components/PhotoThumb.svelte';
@@ -21,6 +21,8 @@
 		body: string;
 		rect_x: number | null;
 		rule: string;
+		// the picker's reasoning for this row (calibrate.pick_anchor)
+		why?: string;
 		anchor: { candidate: string; displayName?: string; status: string } | null;
 		azimuth: number | null;
 		delta: number | null;
@@ -28,10 +30,25 @@
 		usable: boolean;
 	}
 	interface CalData {
+		// FOV prior the server used to unwrap Δ (accepted calibration, else null → aspect guess)
+		unwrap_prior_fov?: number | null;
+		// the calibration facts this pano currently has (newest / approved run)
+		accepted?: {
+			centre_bearing: number;
+			fov: number;
+			rms?: number | null;
+			projection?: string | null;
+			x0?: number | null;
+			stitch?: string | null;
+			run: string;
+			approved: boolean;
+		} | null;
 		photo: {
 			id: string;
 			title: string | null;
 			compass_angle: number | null;
+			width?: number | null;
+			height?: number | null;
 			sizes: Record<string, { url?: string }> | null;
 		};
 		rows: CalRow[];
@@ -72,10 +89,40 @@
 			}
 			seamsText = k.slice(1, -1).map((v) => v.toFixed(4)).join(', ');
 			model = 'piecewise';
+			saveDraft();
 		} catch (e) {
 			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
 		}
 	}
+	// draft-vs-accepted: the dropdown/seams are a server-side DRAFT — say so
+	// whenever they diverge from what the pano actually has accepted, so a
+	// changed-but-not-accepted projection is never mistaken for saved state
+	const acceptedModel = $derived(
+		data?.accepted
+			? data.accepted.projection === 'rectilinear'
+				? 'rectilinear'
+				: data.accepted.stitch
+					? 'piecewise'
+					: 'linear'
+			: null
+	);
+	const acceptedSeams = $derived.by(() => {
+		try {
+			const st = JSON.parse(data?.accepted?.stitch ?? 'null') as { knots?: number[] } | null;
+			return st?.knots?.slice(1, -1) ?? null;
+		} catch {
+			return null;
+		}
+	});
+	const draftDiffers = $derived(
+		acceptedModel != null &&
+			(model !== acceptedModel ||
+				(model === 'piecewise' &&
+					acceptedSeams != null &&
+					(seams.length !== acceptedSeams.length ||
+						seams.some((v, i) => Math.abs(v - acceptedSeams[i]) > 5e-4))))
+	);
+
 	function fitWith(pts: { x: number; delta: number }[]) {
 		const compass = data?.photo.compass_angle ?? null;
 		if (model === 'rectilinear') return fitRectilinear(pts, compass);
@@ -89,12 +136,25 @@
 	// (distinct from an anchor that exists but was rejected or judged out of view)
 	const noAnchorRows = $derived(unusableRows.filter((r) => r.rule === 'none'));
 	const includedRows = $derived(usableRows.filter((r) => !excluded.has(r.annotation_id)));
-	const fit = $derived(fitWith(includedRows.map((r) => ({ x: r.rect_x!, delta: r.delta! }))));
+	// Δ unwrapped across ±180 for wide panos (mirror of the server's
+	// calibrate.unwrap_deltas) — over ALL usable rows so the scatter, the fit
+	// and the residuals agree; annotation_id → unwrapped Δ
+	const unwrapped = $derived.by(() => {
+		const pts = usableRows.map((r) => ({ id: r.annotation_id, x: r.rect_x!, delta: r.delta! }));
+		const n = unwrapDeltas(pts, data?.photo.width ?? null, data?.photo.height ?? null, data?.unwrap_prior_fov ?? null);
+		return { n, delta: new Map(pts.map((p) => [p.id, p.delta])) };
+	});
+	const fit = $derived.by(() => {
+		const f = fitWith(includedRows.map((r) => ({ x: r.rect_x!, delta: unwrapped.delta.get(r.annotation_id)! })));
+		if (!f) return f;
+		f.unwrapped = includedRows.filter((r) => unwrapped.delta.get(r.annotation_id) !== r.delta).length;
+		return f;
+	});
 	const scatterPoints = $derived(
 		usableRows.map((r) => ({
 			id: r.annotation_id,
 			x: r.rect_x!,
-			delta: r.delta!,
+			delta: unwrapped.delta.get(r.annotation_id) ?? r.delta!,
 			label: r.body,
 			included: !excluded.has(r.annotation_id)
 		}))
@@ -102,23 +162,32 @@
 
 	function rowResidual(r: CalRow): number | null {
 		if (!fit || excluded.has(r.annotation_id) || r.rect_x == null || r.delta == null) return null;
-		return residual({ x: r.rect_x, delta: r.delta }, fit);
+		return residual({ x: r.rect_x, delta: unwrapped.delta.get(r.annotation_id) ?? r.delta }, fit);
 	}
 
 	// the include/exclude working set persists per pano in REAL TIME as a
 	// server-side draft (plain mutable RDF in a per-pano draft graph), so it
 	// survives reloads, pano switches, and browser/device changes
-	async function loadDraft(id: string): Promise<Set<string>> {
+	interface Draft {
+		excluded: string[];
+		model: string | null;
+		seams: string | null;
+	}
+	async function loadDraft(id: string): Promise<Draft> {
 		try {
-			const d = await api.get<{ excluded: string[] }>(`/calibrate/draft?photo_id=${id}`);
-			return new Set(d.excluded);
+			return await api.get<Draft>(`/calibrate/draft?photo_id=${id}`);
 		} catch {
-			return new Set();
+			return { excluded: [], model: null, seams: null };
 		}
 	}
 	function saveDraft() {
 		if (!sel) return;
-		api.put(`/calibrate/draft`, { photo_id: sel.id, excluded: [...excluded] }).catch(() => {
+		api.put(`/calibrate/draft`, {
+			photo_id: sel.id,
+			excluded: [...excluded],
+			model,
+			seams: seamsText
+		}).catch(() => {
 			/* draft save is best-effort */
 		});
 	}
@@ -135,10 +204,33 @@
 		try {
 			data = await api.get<CalData>(`/panos/${p.id}/calibration`);
 			err = null;
+			// start from the model the pano was accepted with (a rectilinear or
+			// stitched pano used to snap back to linear on every visit)
+			const acc = data.accepted;
+			if (acc?.stitch) {
+				try {
+					const st = JSON.parse(acc.stitch) as { knots?: number[] };
+					if (st.knots && st.knots.length >= 3) {
+						seamsText = st.knots.slice(1, -1).map((v) => v.toFixed(4)).join(', ');
+						model = 'piecewise';
+					}
+				} catch {
+					/* unreadable stitch → keep the projection-based choice below */
+				}
+			}
+			if (model !== 'piecewise' || !acc?.stitch)
+				model = acc?.projection === 'rectilinear' ? 'rectilinear' : acc?.stitch ? 'piecewise' : 'linear';
 		} catch (e) {
 			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
 		}
-		excluded = await draft;
+		const d = await draft;
+		excluded = new Set(d.excluded);
+		// the draft's model/seams are the operator's newer working choice — it
+		// overrides the accepted-fit default (the dropdown used to snap back to
+		// the accepted projection on every visit, silently discarding a changed
+		// but not-yet-accepted choice)
+		if (d.model === 'linear' || d.model === 'rectilinear' || d.model === 'piecewise') model = d.model;
+		if (d.seams != null) seamsText = d.seams;
 	}
 
 	// re-pick anchors + rows server-side WITHOUT touching the selection —
@@ -157,13 +249,17 @@
 		}
 	}
 	// Anchors come from anchorCandidate facts, which only a GEOCODE run mints —
-	// parse alone leaves freshly-imported annotations with rule "none". Scoped to
+	// freshly-synced annotations have NO facts until parsed — geocode alone then
+	// finds no labels/coords and mints nothing (rule stays "none"). So: parse
+	// this pano's bodies first (local, idempotent), then geocode them. Scoped to
 	// this pano so it never turns into an all-current external-lookup sweep.
 	let geocoding = $state<string | null>(null);
 	async function geocodePano() {
 		if (!sel || geocoding) return;
-		geocoding = 'starting…';
+		geocoding = 'parsing…';
 		try {
+			await api.post('/parse/run', { scope: 'photo', photo_id: sel.id, note: 'from calibration bench' });
+			geocoding = 'geocoding…';
 			const res = await api.post<{ run_id: string; annotations: number }>('/geocode/run', {
 				scope: 'photo',
 				photo_id: sel.id,
@@ -172,11 +268,11 @@
 			// the run is a background task; poll it, then re-pick anchors
 			for (;;) {
 				await new Promise((r) => setTimeout(r, 1500));
-				const run = await api.get<{ status: string; stats: { done?: number } | null; error: string | null }>(
+				const run = await api.get<{ status: string; stats: { done?: number; current?: { label?: string | null } | null } | null; error: string | null }>(
 					`/runs/${res.run_id}`
 				);
 				if (run.status === 'running') {
-					geocoding = `${run.stats?.done ?? 0}/${res.annotations}…`;
+					geocoding = `${run.stats?.done ?? 0}/${res.annotations}${run.stats?.current?.label ? ` · ${run.stats.current.label}` : ''}…`;
 					continue;
 				}
 				if (run.status === 'failed') err = `geocode run failed: ${run.error ?? ''}`;
@@ -338,7 +434,7 @@
 			</dd>
 		</dl>
 		<p>
-			The include/exclude set is a per-pano <b>draft</b>: every toggle saves it
+			The include/exclude set — and the model/seams choice — is a per-pano <b>draft</b>: every toggle saves it
 			server-side (a mutable draft graph in the store), so it survives reloads, pano
 			switches, and browser/device changes (until you include all).
 		</p>
@@ -394,10 +490,17 @@
 			</div>
 
 			<div class="row" style="margin:8px 0">
-				<div class="stat"><div class="n">{f1(fit?.fov)}°</div><div class="l">FOV</div></div>
+				<div class="stat"><div class="n">{f1(fit?.fov)}°</div><div class="l">FOV{#if fit?.unwrapped}<span class="muted" title="Δ crossed ±180° inside the image: these anchors were unwrapped by ±360° before fitting (wide pano with the compass off-centre)"> · {fit.unwrapped} unwrapped</span>{/if}</div></div>
+
 				<div class="stat"><div class="n">{f1(fit?.centre_bearing)}°</div><div class="l">centre bearing</div></div>
 				<div class="stat"><div class="n">{f1(fit?.centre_bias)}°</div><div class="l">bias vs compass</div></div>
 				<div class="stat"><div class="n">{f1(fit?.rms)}°</div><div class="l">RMS ({fit?.n ?? 0} pts)</div></div>
+				{#if data?.accepted}
+					<div class="stat" data-testid="calibration-accepted" title="the calibration facts this pano has now (run {data.accepted.run.split('/').pop()?.slice(0, 8)}); the model selector starts from it">
+						<div class="n" style="font-size:13px">{data.accepted.projection ?? (data.accepted.stitch ? 'piecewise' : 'linear')} · {f1(data.accepted.centre_bearing)}° · FOV {f1(data.accepted.fov)}°{data.accepted.rms != null ? ` · rms ${f1(data.accepted.rms)}°` : ''}</div>
+						<div class="l">accepted{data.accepted.approved ? ' ✓' : ''}</div>
+					</div>
+				{/if}
 				{#if fit?.model === 'rectilinear'}
 					<div class="stat"><div class="n">{fit.x0?.toFixed(3)}</div><div class="l">x₀ (proj centre)</div></div>
 				{/if}
@@ -410,17 +513,34 @@
 				<label style="font-size:12px; display:flex; align-items:center; gap:4px"
 					title="The pano's stitch OUTPUT projection sets the azimuth↔x law: linear for cylindrical/equirect (f1/f2), atan for rectilinear (f0). Read the .pto p-line f-value — it varies per pano, never assume (docs/pano-source-archaeology.md). Symptom of the wrong model: residuals bow — both ends one sign, middle the other, worst on far APPROVED anchors. Rectilinear needs ≥ 4 included points.">
 					model
-					<select bind:value={model}>
+					<select bind:value={model} onchange={saveDraft} data-testid="calibration-model">
 						<option value="linear">linear — cylindrical/equirect (f1/f2)</option>
 						<option value="rectilinear">rectilinear — f0, Δ = atan(k·(x−x₀))</option>
 						<option value="piecewise">piecewise — stitched: per-panel shift &amp; scale</option>
 					</select>
 				</label>
+				{#if draftDiffers}
+					<span
+						class="pill"
+						style="color:var(--warn); border-color:var(--warn); font-size:10px"
+						data-testid="calibration-draft-pill"
+						title="the model/seams choice is a draft (saved per pano, survives reloads) — the pano's accepted calibration is still {acceptedModel}; press accept fit to replace it"
+						>draft — accepted is {acceptedModel}</span
+					>
+				{:else if data && !data.accepted}
+					<span
+						class="pill"
+						style="font-size:10px"
+						data-testid="calibration-draft-pill"
+						title="this pano has no accepted calibration yet — everything on screen is a live draft; accept fit saves it"
+						>nothing accepted yet</span
+					>
+				{/if}
 				{#if model === 'piecewise'}
 					<label style="font-size:12px; display:flex; align-items:center; gap:4px"
 						title="seam positions as fractions of the width (0..1), comma-separated — the panels between them get their own azimuth shift and scale on top of the linear law. A frame stitched at the wrong focal length shows as a panel with scale ≠ 1. Each panel needs ≥ 2 anchors to fit a scale (1 → shift only, 0 → neutral). Accepting writes calibratedStitch, which the overlay bench seeds its handles from.">
 						seams
-						<input style="width:14em" placeholder="e.g. 0.42, 0.71, 0.9" bind:value={seamsText} data-testid="calibration-seams" />
+						<input style="width:14em" placeholder="e.g. 0.42, 0.71, 0.9" bind:value={seamsText} onchange={saveDraft} data-testid="calibration-seams" />
 						<button onclick={seamsFromOverlay} title="take the seams placed on the overlay bench for this pano (its draft, else its saved fit)">from overlay</button>
 					</label>
 				{/if}
@@ -431,7 +551,7 @@
 				</button>
 				<button onclick={geocodePano} disabled={!!geocoding}
 					title="run the geocoder over THIS pano's annotations: mints anchorCandidate facts (body coords → geo: pin, wiki link → Wikipedia coords, label → Nominatim), then recalcs. Needed after new annotations arrive — parse alone gives them no anchor.">
-					{geocoding ? `⌖ ${geocoding}` : '⌖ geocode pano'}
+					{geocoding ? `⌖ ${geocoding}` : '⌖ parse + geocode pano'}
 				</button>
 				<button onclick={() => autoKick(10)} title="iteratively exclude worst residuals > 10°">auto-kick &gt;10°</button>
 				<button onclick={includeAll} disabled={excluded.size === 0}>include all</button>
@@ -466,7 +586,10 @@
 									</div>
 								{/if}
 							</td>
-							<td><span class="pill {r.rule === 'approved' ? 'ok' : ''}" style="font-size:10px">{r.rule}</span></td>
+							<td>
+								<span class="pill {r.rule === 'approved' ? 'ok' : ''}" style="font-size:10px" title={r.why}>{r.rule}</span>
+								{#if r.why}<div class="muted" style="font-size:10px; max-width:260px; line-height:1.3" data-testid="calibration-why">{r.why}</div>{/if}
+							</td>
 							<td class="mono">{r.km}</td>
 							<td class="mono">{f1(r.delta)}</td>
 							<td class="mono" style={res != null && Math.abs(res) > 10 ? 'color:var(--warn)' : ''}>
@@ -483,9 +606,10 @@
 				</p>
 				{#if noAnchorRows.length}
 					<p class="muted" style="font-size:12px">
-						{noAnchorRows.length} of those have <b>no located candidate at all</b> — run
+						{noAnchorRows.length} of those have <b>no located candidate at all</b> (nothing
+						parsed/geocoded yet, or nothing found) — run
 						<button onclick={geocodePano} disabled={!!geocoding} style="font-size:11px">
-							{geocoding ? `⌖ ${geocoding}` : '⌖ geocode pano'}
+							{geocoding ? `⌖ ${geocoding}` : '⌖ parse + geocode pano'}
 						</button>
 						to mint anchors for them.
 					</p>

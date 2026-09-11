@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import { apiBase } from '$lib/config';
@@ -128,13 +128,15 @@
 		void page.params.id;
 		placement = null;
 		poiErr = null;
-		drawing = false;
+		mode = 'view';
 		editMsg = null;
 		load();
 	});
 
-	// draw a new workbench-native annotation on this photo (for triangulation etc.)
-	let drawing = $state(false);
+	// rect editing has two modes because annotorious 3 cannot select existing
+	// shapes while its drawing tool is armed: 'draw' creates workbench-native
+	// rects, 'adjust' moves/resizes/deletes existing ones
+	let mode = $state<'view' | 'draw' | 'adjust'>('view');
 	let drawBusy = $state(false);
 	let editMsg = $state<string | null>(null);
 	async function saveDrawnRect(target: Record<string, unknown>) {
@@ -151,6 +153,11 @@
 	// an existing rect was moved/resized. Native (workbench-drawn) → save in place;
 	// mirrored (hillview) → can't persist here (the mirror faithfully copies the
 	// source, and reconcile would revert it), so revert with a note.
+	// leaving the page mid-edit: drop out of edit mode first so a still-selected
+	// moved rect is committed (OsdViewer deselects on editable=false)
+	beforeNavigate(() => {
+		if (mode !== 'view') mode = 'view';
+	});
 	async function saveEditedRect(id: string, target: Record<string, unknown>) {
 		const a = data?.annotations.find((x) => x.id === id);
 		if (!a) return; // transient/unknown id — ignore
@@ -335,19 +342,36 @@
 	{#if (pyramid || stripUrl) && p.width && p.height}
 		<div class="row" style="justify-content:space-between; align-items:center; margin-bottom:4px">
 			<span class="muted" style="font-size:11px">
-				{#if drawing}<b style="color:var(--accent, #6ca4ff)">editing</b> — drag empty space for a new rect, or move/resize a rect (Del removes){drawBusy ? ' · saving…' : ''}{:else}click a rect to open its annotation{/if}
+				{#if mode === 'draw'}<b style="color:var(--accent, #6ca4ff)">drawing</b> — drag on the image to create a new rect (saved as a workbench annotation){drawBusy ? ' · saving…' : ''}
+				{:else if mode === 'adjust'}<b style="color:var(--accent, #6ca4ff)">adjusting</b> — click a rect to select it (zoom in on hairline rects), drag it or its handles, Del removes; the change is saved when you click elsewhere or press ✓ done{drawBusy ? ' · saving…' : ''}
+				{:else}click a rect to open its annotation{/if}
 			</span>
-			<button
-				class:primary={drawing}
-				style="font-size:12px"
-				title="edit mode: draw new rects, and move/resize/delete existing ones (workbench-drawn rects save; hillview rects revert)"
-				onclick={() => {
-					drawing = !drawing;
-					editMsg = null;
-				}}
-			>
-				{drawing ? '✓ done editing' : '✎ edit rects'}
-			</button>
+			<span class="row" style="gap:6px">
+				<button
+					class:primary={mode === 'draw'}
+					style="font-size:12px"
+					data-testid="rects-draw"
+					title="draw new rects (workbench-native annotations)"
+					onclick={() => {
+						mode = mode === 'draw' ? 'view' : 'draw';
+						editMsg = null;
+					}}
+				>
+					{mode === 'draw' ? '✓ done drawing' : '✎ draw rects'}
+				</button>
+				<button
+					class:primary={mode === 'adjust'}
+					style="font-size:12px"
+					data-testid="rects-adjust"
+					title="move / resize / delete existing rects (workbench-drawn ones save in place; a hillview rect becomes a reshape proposal that graduates back)"
+					onclick={() => {
+						mode = mode === 'adjust' ? 'view' : 'adjust';
+						editMsg = null;
+					}}
+				>
+					{mode === 'adjust' ? '✓ done adjusting' : '⤢ adjust rects'}
+				</button>
+			</span>
 		</div>
 		{#if editMsg}<div class="muted" style="font-size:11px; color:var(--warn, #e0a23a); margin-bottom:4px">{editMsg}</div>{/if}
 		{#key p.id}
@@ -360,16 +384,17 @@
 				rects={osdRects}
 				marks={osdMarks}
 				viewHeight={340}
-				editable={drawing}
+				editable={mode === 'adjust'}
+				drawing={mode === 'draw'}
 				ondraw={saveDrawnRect}
 				onedit={saveEditedRect}
 				ondelete={deleteRect}
-				onrectclick={(id) => (drawing ? null : goto(`/annotations/${id}`))}
+				onrectclick={(id) => (mode === 'view' ? goto(`/annotations/${id}`) : null)}
 			/>
 		{/key}
 		<p class="muted" style="font-size:11px; margin:3px 0 0">
-			{rectAnns.length} annotation rects · {protos.length} proto-annotations — in edit mode,
-			draw new rects or adjust workbench-drawn ones (then label / relate to a POI on the detail page)
+			{rectAnns.length} annotation rects · {protos.length} proto-annotations — ✎ draw new rects, or ⤢ adjust
+			existing ones (a moved hillview rect becomes a reshape proposal and counts on every bench right away)
 		</p>
 	{/if}
 

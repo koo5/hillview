@@ -332,7 +332,10 @@ async def apply_package(filename: str, req: ApplyRequest,
                 body=head.body,             # target-only op: keep the body
                 target=op.get("target"),
                 is_current=True,
-                event_type='updated',
+                # hidden-tip chains stay hidden across graduation ops (the
+                # workbench treats hidden annotations as normal ones)
+                event_type=('hidden' if head.event_type == 'hidden' else 'updated'),
+                source_annotation_id=head.source_annotation_id,
             )
             db.add(new_ann)
             await db.flush()
@@ -362,7 +365,8 @@ async def apply_package(filename: str, req: ApplyRequest,
             body=suggested,
             target=head.target,
             is_current=True,
-            event_type='updated',
+            event_type=('hidden' if head.event_type == 'hidden' else 'updated'),
+            source_annotation_id=head.source_annotation_id,
         )
         db.add(new_ann)
         await db.flush()  # populate new_ann.id

@@ -22,7 +22,7 @@
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import { apiBase } from '$lib/config';
-	import { azimuthForColumn, parseDepthBlob, type TerrainMeta } from '$terrain/depthPanoViewer';
+	import { azimuthForColumn, parseDepthBlob, pickFromDepthOrHorizon, type TerrainMeta, type TerrainPick } from '$terrain/depthPanoViewer';
 	import {
 		hitSkyLabel,
 		labelEvidence,
@@ -105,6 +105,8 @@
 	const liveKey = (id: string) => `overlay-fit-live:${id}`;
 	let lastSync = '';
 	let lastTs = 0; // saved_at of the newest state written or applied here
+	// render the saved fit / draft was made against — preferred over the newest
+	let preferRender: string | null = null;
 	/** canonical alignment serialization WITHOUT identity/timestamp — echo
 	 * detection must ignore saved_at, since every local write re-stamps it */
 	const bareOf = (f: Record<string, unknown>) => {
@@ -186,6 +188,25 @@
 	// the depth buffer (projectPeaks) exactly like the viewer — named anchors
 	// make the manual fit tractable
 	let showLabels = $state(true);
+	// the photo's own annotations as alignment evidence: a tick at each rect's
+	// x on the pano (cyan) and, where the annotation has an anchor, a tick at
+	// that anchor's azimuth under the current fit (magenta) — the two coincide
+	// when the fit is right (same rows as the calibration bench, effective rect)
+	let showAnns = $state(true);
+	interface CalRow {
+		annotation_id: string;
+		body: string;
+		rect_x: number | null;
+		azimuth: number | null;
+		km: number | null;
+		rule: string;
+		usable: boolean;
+	}
+	let annRows = $state<CalRow[]>([]);
+	// click anywhere on the pano: the direction it looks under the current fit,
+	// resolved through the depth buffer to a place (or the horizon there)
+	let pick = $state<(TerrainPick & { elev_deg: number }) | null>(null);
+	let pickPt: { x: number; y: number } | null = null;
 	let showPlaces = $state(true);
 	let peaks: Peak[] = [];
 	let marks = $state<PeakMark[]>([]);
@@ -221,7 +242,7 @@
 	// how far the baked document reaches (labels), km — the ceiling of the
 	// zoom view's fog slider. 150 unless changed; the fog slider is the
 	// DEFAULT the viewer opens with
-	const DEFAULT_MAX_VIS_KM = 150;
+	const DEFAULT_MAX_VIS_KM = 180; // matches the default render range
 	let maxVisKm = $state(DEFAULT_MAX_VIS_KM);
 	// handle positions (fractions of the width). Equally spaced by default;
 	// double-click the pano to put a seam exactly where the stitch has one,
@@ -395,6 +416,7 @@
 	});
 
 	async function load() {
+		preferRender = null;
 		err = null;
 		photo = null;
 		render = null;
@@ -419,6 +441,15 @@
 			const pd = await api.get<{ photo: PhotoInfo }>(`/photos/${photoId}`);
 			photo = pd.photo;
 			dlog(`photo ok "${photo.title}" pie=${JSON.stringify(photo.pie)}`);
+			try {
+				annRows = (await api.get<{ rows: CalRow[] }>(`/panos/${photoId}/calibration`)).rows.filter(
+					(r) => r.rect_x != null
+				);
+			} catch {
+				annRows = [];
+			}
+			pick = null;
+			pickPt = null;
 			pieDefaults();
 			// restore order: pie defaults → saved fit → draft (newest working
 			// state wins; fog applies later — the render load below resets
@@ -429,10 +460,12 @@
 			};
 			try {
 				const sf = await api.get<{
+					render_id?: string | null;
 					fit: OverlayFit | null;
 					fact?: string;
 					approved?: boolean;
 				}>(`/terrain/overlay-fit?photo_id=${photoId}`);
+				if (sf.render_id) preferRender = sf.render_id;
 				if (sf.fit) {
 					applyFit(sf.fit);
 					savedFit = sf.fit;
@@ -483,9 +516,8 @@
 			const rs = await api.get<{ renders: RenderRow[] }>(
 				`/terrain/renders?photo_id=${photoId}`
 			);
-			const done = rs.renders.find(
-				(r) => r.status === 'done' && r.meta && 'width' in r.meta
-			);
+			const isDone = (r: RenderRow) => r.status === 'done' && !!r.meta && 'width' in r.meta;
+			const done = (preferRender && rs.renders.find((r) => r.id === preferRender && isDone(r))) || rs.renders.find(isDone);
 			if (!done) {
 				status = '';
 				err = 'no finished render for this photo — enqueue one on the terrain bench first';
@@ -585,6 +617,9 @@
 	 * visibility_km (null = full) for the caller to apply once the render's
 	 * fog range is known */
 	function applyFitState(f: OverlayFit): number | null {
+		// a fit made against a specific render (e.g. a refraction test) opens on it
+		const rid = (f as { render_id?: string | null }).render_id;
+		if (rid) preferRender = rid;
 		proj = f.projection as typeof proj;
 		fovDeg = f.fov_deg;
 		bearingOffset = +wrapDelta(f.centre_bearing - (photo?.pie?.bearing ?? 0)).toFixed(2);
@@ -623,9 +658,14 @@
 			hwarp = st.hwarp.slice();
 			hscale = st.hscale.slice();
 		} else {
-			warp = warp.map(() => 0);
-			hwarp = warp.map(() => 0);
-			hscale = warp.map(() => 1);
+			// no stitch in the accepted calibration → a clean two-handle model;
+			// keeping the current handle COUNT here left hand-placed seams alive
+			// across "defaults"
+			warp = [0, 0];
+			hwarp = [0, 0];
+			hscale = [1, 1];
+			knots = uniformKnots(2);
+			selectedSeg = null;
 		}
 		visLog = visLogMax;
 		maxVisKm = DEFAULT_MAX_VIS_KM;
@@ -746,6 +786,39 @@
 		return baseProjector().pxPerDeg;
 	}
 
+	// pan/zoom persists per pano across reloads — client-side only (viewport
+	// centre + zoom in OSD viewport coords, so it survives window resizes
+	// gracefully). Best-effort: private windows / cleared site data just fall
+	// back to the fit-to-width home view.
+	const viewKey = (id: string) => `enrich_overlay_view/${id}`;
+	function saveView() {
+		if (!viewer?.viewport || !photo) return;
+		try {
+			const vp = viewer.viewport;
+			const c = vp.getCenter();
+			localStorage.setItem(
+				viewKey(photo.id),
+				JSON.stringify({ z: vp.getZoom(), cx: c.x, cy: c.y })
+			);
+		} catch {
+			/* storage unavailable */
+		}
+	}
+	function restoreView(): boolean {
+		if (!viewer?.viewport || !photo || !OSD) return false;
+		try {
+			const raw = localStorage.getItem(viewKey(photo.id));
+			if (!raw) return false;
+			const v = JSON.parse(raw) as { z: number; cx: number; cy: number };
+			if (!(v.z > 0) || !Number.isFinite(v.cx) || !Number.isFinite(v.cy)) return false;
+			viewer.viewport.zoomTo(v.z, undefined, true);
+			viewer.viewport.panTo(new OSD.Point(v.cx, v.cy), true);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
 	function resetView() {
 		if (viewer?.viewport) viewer.viewport.goHome(true);
 		else {
@@ -830,8 +903,41 @@
 		preventDefaultAction: boolean;
 	};
 
+	/** a quick click (no drag) anywhere on the pano that is not a label or a
+	 * handle: what direction is that under the current fit, and what is there */
+	function onCanvasClick(e: { position: OsdPt; quick: boolean }) {
+		if (!e.quick || !photo || !render?.meta || !depth || !(baseW > 0)) return;
+		const p = e.position;
+		if (hitSkyLabel(placedPills, p.x, p.y) || hitHandle(p) !== null) return;
+		const xb = (p.x - tx) / z;
+		const yb = (p.y - ty) / z;
+		if (xb < 0 || xb > baseW || yb < 0 || yb > baseH) return;
+		const meta = render.meta;
+		const ray = createOverlayProjector(liveFit(), baseW, baseH).unproject(xb, yb);
+		const step = meta.az_step_deg ?? (meta.width > 1 ? (meta.az_end - meta.az_start) / (meta.width - 1) : 0);
+		if (!(step > 0)) return;
+		const col = Math.round(((((ray.azimuth_deg - meta.az_start) % 360) + 360) % 360) / step);
+		const span = meta.elev_max_deg - meta.elev_min_deg;
+		const row = Math.round(((meta.elev_max_deg - ray.elev_deg) / span) * (meta.height - 1));
+		const got = pickFromDepthOrHorizon(meta, depth, col, Math.min(meta.height - 1, Math.max(0, row)));
+		dlog(`pick az=${ray.azimuth_deg.toFixed(2)} el=${ray.elev_deg.toFixed(2)} col=${col} row=${row} → ${got ? `${got.lat.toFixed(5)},${got.lon.toFixed(5)} ${(got.distance_m / 1000).toFixed(2)} km` : 'nothing'}`);
+		pick = got ? { ...got, elev_deg: ray.elev_deg } : null;
+		pickPt = { x: xb, y: yb };
+		if (!got) status = `az ${ray.azimuth_deg.toFixed(2)}° · el ${ray.elev_deg.toFixed(2)}° — outside the render (${meta.az_start.toFixed(0)}–${meta.az_end.toFixed(0)}°) or sky with no terrain below`;
+		draw();
+	}
+
 	function onCanvasPress(e: OsdPress) {
 		const p = e.position;
+		// handles FIRST: a label pill that strays over a control point must
+		// never steal the grab (the layout also keeps pills off the handles,
+		// but hit priority is the guarantee)
+		const hi = hitHandle(p);
+		if (hi !== null) {
+			selectedSeg = panelOf(hi);
+			press = { kind: 'handle', idx: hi };
+			return;
+		}
 		// a tap on a label pill reveals what the label is claiming
 		const pill = hitSkyLabel(placedPills, p.x, p.y);
 		if (pill) {
@@ -839,9 +945,7 @@
 			press = { kind: 'pill' };
 			return;
 		}
-		const hi = hitHandle(p);
-		if (hi !== null) selectedSeg = panelOf(hi);
-		press = hi !== null ? { kind: 'handle', idx: hi } : null;
+		press = null;
 	}
 
 	function onCanvasDrag(e: OsdDrag) {
@@ -928,6 +1032,70 @@
 		ctx.stroke();
 		ctx.setLineDash([]);
 
+		if (showAnns && annRows.length) {
+			ctx.font = '10px system-ui, sans-serif';
+			ctx.textAlign = 'center';
+			for (const r of annRows) {
+				const xb = r.rect_x! * W;
+				const y = hyBase(xb);
+				const sx = toX(xb), sy = toY(y);
+				// pano side: where the annotator drew the rect
+				ctx.strokeStyle = 'rgba(80,220,255,0.95)';
+				ctx.lineWidth = 1.5;
+				ctx.beginPath();
+				ctx.moveTo(sx, sy - 14);
+				ctx.lineTo(sx, sy + 4);
+				ctx.stroke();
+				// names only once zoomed in — at fit zoom 80 labels on a thin
+				// strip are noise; the ticks alone still show the alignment
+				if (z >= 2.5) {
+					const label = (r.body || '?').split('|')[0].trim().slice(0, 22) || '?';
+					ctx.fillStyle = 'rgba(0,0,0,0.6)';
+					const tw = ctx.measureText(label).width;
+					ctx.fillRect(sx - tw / 2 - 2, sy + 5, tw + 4, 12);
+					ctx.fillStyle = 'rgba(80,220,255,0.95)';
+					ctx.fillText(label, sx, sy + 15);
+				}
+				// terrain side: where its anchor lands under the current fit
+				if (r.azimuth != null) {
+					const p = projector.projectAzimuth(r.azimuth, 0);
+					if (p) {
+						const ax = toX(p.x), ay = toY(p.y);
+						ctx.strokeStyle = 'rgba(255,110,220,0.95)';
+						ctx.beginPath();
+						ctx.moveTo(ax, ay - 14);
+						ctx.lineTo(ax, ay + 4);
+						ctx.stroke();
+						// the connector is a "nudge this way" hint — only when the two
+						// ticks are reasonably close; an anchor that wraps to the far
+						// end of a 360° strip would otherwise draw a line across it
+						if (Math.abs(p.x - xb) < W * 0.25) {
+							ctx.strokeStyle = 'rgba(255,110,220,0.55)';
+							ctx.setLineDash([3, 3]);
+							ctx.beginPath();
+							ctx.moveTo(sx, sy - 10);
+							ctx.lineTo(ax, ay - 10);
+							ctx.stroke();
+							ctx.setLineDash([]);
+						}
+					}
+				}
+			}
+			ctx.textAlign = 'start';
+		}
+		if (pickPt) {
+			const px = toX(pickPt.x), py = toY(pickPt.y);
+			ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+			ctx.lineWidth = 1.5;
+			ctx.beginPath();
+			ctx.moveTo(px - 10, py); ctx.lineTo(px + 10, py);
+			ctx.moveTo(px, py - 10); ctx.lineTo(px, py + 10);
+			ctx.stroke();
+			ctx.beginPath();
+			ctx.arc(px, py, 5, 0, Math.PI * 2);
+			ctx.stroke();
+		}
+
 		const meta = render.meta;
 		if (showCurve) {
 			const sky = skylineFor(meta, depth, visCutoffM);
@@ -951,6 +1119,7 @@
 				ctx.strokeStyle = color;
 				ctx.beginPath();
 				let pen = false;
+				let prevX = 0;
 				for (let c = 0; c < meta.width; c++) {
 					const elev = curve[c];
 					if (elev === null) {
@@ -963,9 +1132,13 @@
 						pen = false;
 						continue;
 					}
+					// a 360° strip wraps: the column at +180° sits at the right edge
+					// and the next one, at −180°, at the left — never join those
+					if (pen && Math.abs(pt.x - prevX) > W / 2) pen = false;
 					if (pen) ctx.lineTo(toX(pt.x), toY(pt.y));
 					else ctx.moveTo(toX(pt.x), toY(pt.y));
 					pen = true;
+					prevX = pt.x;
 				}
 				ctx.stroke();
 			}
@@ -1005,7 +1178,14 @@
 				});
 			}
 			ctx.textBaseline = 'middle';
-			placedPills = layoutSkyLabels(inputs, sw, sh, { pillH: 18, leader: 14 });
+			// keep pills off the warp handles — an overlapped handle can't be seen
+			// or grabbed (hit priority protects the grab; this protects the eye)
+			const proj = baseProjector();
+			const avoid = warp.map((_, i) => {
+				const h = handleBase(i, proj);
+				return { x: toX(h.x), y: toY(h.y), r: HANDLE_HIT };
+			});
+			placedPills = layoutSkyLabels(inputs, sw, sh, { pillH: 18, leader: 14, avoid });
 			paintSkyPills(ctx, placedPills);
 		} else {
 			placedPills = [];
@@ -1064,6 +1244,8 @@
 		void selectedSeg;
 		void showCurve;
 		void showLabels;
+		void showAnns;
+		void annRows;
 		void showPlaces;
 		void marks;
 		void visLog;
@@ -1156,7 +1338,9 @@
 				tileSources: source,
 				// bench overrides: fine wheel steps (this is a 0.01° tool);
 				// double-click is seam add/remove, not zoom; no touch flick;
-				// edge-clamped pans and no zoom-out past the fit (the old
+				// pans may run past the image edges (labels sit above the
+				// skyline, i.e. above the top edge of a thin pano — keep ≥30 %
+				// of the image in view); no zoom-out past the fit (the old
 				// clampPan); no keyboard nav — r rotates and f flips, which
 				// would break the affine view mirror (ctrl+z still bubbles to
 				// the window handler)
@@ -1169,7 +1353,7 @@
 					flickEnabled: false
 				},
 				constrainDuringPan: true,
-				visibilityRatio: 1,
+				visibilityRatio: 0.3,
 				minZoomImageRatio: 1,
 				maxZoomPixelRatio: 8,
 				keyboardNavEnabled: false,
@@ -1183,6 +1367,7 @@
 				}
 				dlog(`osd open ${naturalW}x${naturalH}`);
 				fit();
+				restoreView();
 				draw();
 			});
 			viewer.addHandler('open-failed', (e: { message?: string }) => {
@@ -1194,13 +1379,17 @@
 				}
 			});
 			viewer.addHandler('viewport-change', syncView);
-			viewer.addHandler('animation-finish', syncView);
+			viewer.addHandler('animation-finish', () => {
+				syncView();
+				saveView();
+			});
 			viewer.addHandler('canvas-press', onCanvasPress);
 			viewer.addHandler('canvas-drag', onCanvasDrag);
 			viewer.addHandler('canvas-drag-end', onCanvasRelease);
 			viewer.addHandler('canvas-release', onCanvasRelease);
 			viewer.addHandler('canvas-pinch', onCanvasRelease);
 			viewer.addHandler('canvas-double-click', (e: OsdPress) => onStageDblClick(e.position));
+			viewer.addHandler('canvas-click', onCanvasClick);
 		});
 		return {
 			destroy: () => {
@@ -1303,7 +1492,26 @@
 	{#if labelInfo}
 		<span class="info" data-testid="overlay-label-evidence" title="tap a label to see what it claims">
 			<b>{labelInfo.name}</b> · {labelInfo.class} — {labelEvidence(labelInfo)}
+			{#if labelInfo.lat != null && labelInfo.lon != null}
+				· <span class="mono">{labelInfo.lat.toFixed(5)}, {labelInfo.lon.toFixed(5)}</span>
+				· az {labelInfo.azimuth_deg.toFixed(1)}° · {(labelInfo.distance_m / 1000).toFixed(1)} km
+				· <a href="https://www.openstreetmap.org/?mlat={labelInfo.lat}&mlon={labelInfo.lon}#map=14/{labelInfo.lat}/{labelInfo.lon}" target="_blank" rel="noreferrer">osm ↗</a>
+				· <a href="https://hillview.cz/?lat={labelInfo.lat}&lon={labelInfo.lon}&zoom=14" target="_blank" rel="noreferrer">hillview ↗</a>
+				· <a href="https://osmap.vfosnar.cz/#base=cuzk&map=14/{labelInfo.lat.toFixed(5)}/{labelInfo.lon.toFixed(5)}" target="_blank" rel="noreferrer">osmap ↗</a>
+				· <a href="https://openstreetmap.cz/#map=14/{labelInfo.lat.toFixed(5)}/{labelInfo.lon.toFixed(5)}" target="_blank" rel="noreferrer">osm.cz ↗</a>
+			{/if}
 			<button class="linkish" onclick={() => (labelInfo = null)} aria-label="dismiss">×</button>
+		</span>
+	{/if}
+	{#if pick}
+		<span class="info" data-testid="overlay-pick" title="what the clicked pixel looks at under the current fit, resolved through the depth buffer (a sky click snaps to the horizon in that direction)">
+			📍 az {pick.azimuth_deg.toFixed(2)}° · el {pick.elev_deg.toFixed(2)}° ·
+			<span class="mono">{pick.lat.toFixed(5)}, {pick.lon.toFixed(5)}</span> · {(pick.distance_m / 1000).toFixed(2)} km
+			· <a href="https://www.openstreetmap.org/?mlat={pick.lat}&mlon={pick.lon}#map=15/{pick.lat}/{pick.lon}" target="_blank" rel="noreferrer">osm ↗</a>
+			· <a href="https://hillview.cz/?lat={pick.lat}&lon={pick.lon}&zoom=15" target="_blank" rel="noreferrer">hillview ↗</a>
+			· <a href="https://osmap.vfosnar.cz/#base=cuzk&map=15/{pick.lat.toFixed(5)}/{pick.lon.toFixed(5)}" target="_blank" rel="noreferrer">osmap ↗</a>
+			· <a href="https://openstreetmap.cz/#map=15/{pick.lat.toFixed(5)}/{pick.lon.toFixed(5)}" target="_blank" rel="noreferrer">osm.cz ↗</a>
+			<button class="linkish" onclick={() => { pick = null; pickPt = null; draw(); }} aria-label="dismiss">×</button>
 		</span>
 	{/if}
 	{#if err}<span class="err">{err}</span>{/if}
@@ -1313,6 +1521,7 @@
 	<section class="controls">
 		<label><input type="checkbox" bind:checked={showCurve} /> skyline</label>
 		<label><input type="checkbox" bind:checked={showLabels} /> labels</label>
+		<label title="the photo's annotations: cyan tick = where the rect was drawn, magenta tick = where its anchor lands under this fit — they coincide when the fit is right"><input type="checkbox" bind:checked={showAnns} data-testid="overlay-show-anns" /> annotations ({annRows.length})<span class="info" style="margin-left:4px">names when zoomed ≥ 2.5×</span></label>
 		{#if showLabels}
 			<label title="include settlement names (city/town/village/district)">
 				<input type="checkbox" bind:checked={showPlaces} /> places
@@ -1422,7 +1631,7 @@
 				{#if !photo}—{:else if !savedFit}never saved{:else if dirty}unsaved changes{:else}saved ✓{/if}
 			</span>
 			{#if saveMsg}<span class="info">{saveMsg}</span>{/if}
-			{#if draftState}<span class="info">{draftState}</span>{/if}
+			<span class="info draft" data-testid="overlay-draft-state">{draftState}</span>
 		</span>
 		<span class="group">
 			<label
@@ -1466,6 +1675,9 @@
 	.pick { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem; }
 	.info { font-size: 12px; opacity: 0.7; }
 	.info.state { opacity: 0.9; }
+	/* "draft ✓" / "synced 12:34:56" flips several times per fit — a fixed box
+	   keeps the graduate checkbox from jumping */
+	.info.draft { display: inline-block; width: 10em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 	.panel-editor { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; margin-left: 6px; }
 	.panel-editor .num { width: 5.5em; }
 	.info.state.dirty { color: #f2d55c; }

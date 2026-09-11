@@ -3,7 +3,14 @@ package cz.hillview.viewer
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,9 +28,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import kotlin.math.roundToInt
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
@@ -49,6 +65,15 @@ private const val SNAP_MS = 300
 private val SNAP_EASING = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
 
 /**
+ * The original's PINCH_PROMOTE_SCALE: a pinch that ends at or below this was
+ * incidental and snaps back to 1x. Above it the original PROMOTES into the
+ * full zoom view; here (user-decided) the zoom simply stays inline — this
+ * pane zooms, and no more. The way to the real zoom view is the ↗ link.
+ */
+private const val PINCH_PROMOTE_SCALE = 1.15f
+private const val MAX_ZOOM = 4f
+
+/**
  * The viewer pane: the photo you are facing, with the four you can turn to
  * one swipe away. See docs/tauri-viewer-ui-contract.md — this is its layout
  * and gestures; the rules behind it are ViewerRules/ViewerState.
@@ -60,6 +85,8 @@ private val SNAP_EASING = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
 fun ViewerPane(
     modifier: Modifier = Modifier,
     holder: ViewerStateHolder = org.koin.compose.koinInject(),
+    settingsRepo: cz.hillview.settings.UploadSettingsRepository = org.koin.compose.koinInject(),
+    mapState: cz.hillview.map.MapStateHolder = org.koin.compose.koinInject(),
 ) {
     val state by holder.state.collectAsStateWithLifecycle()
 
@@ -73,6 +100,16 @@ fun ViewerPane(
         // neighbours sit exactly one pane-width or -height away, as in the
         // original's 300%-wide grid offset by -100%.
         val travel = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+
+        // The FRONT slot's inline zoom: scale about the pane's centre plus a
+        // translation, both cleared by any turn. Only the front zooms — the
+        // neighbours are laid out but not interactive, as in the original.
+        val zoom = remember { Animatable(1f) }
+        var pan by remember { mutableStateOf(Offset.Zero) }
+        suspend fun resetZoom() {
+            pan = Offset.Zero
+            zoom.snapTo(1f)
+        }
 
         val density = androidx.compose.ui.platform.LocalDensity.current
         val startThresholdPx = with(density) { DRAG_START_THRESHOLD.toPx() }
@@ -109,6 +146,7 @@ fun ViewerPane(
         suspend fun fastForward() {
             val p = pending.value ?: return
             pending.value = null
+            resetZoom()
             holder.turnTo(p.second)
             // Also cancels the in-flight animateTo — its coroutine skips the
             // turn it would have applied, which fastForward just did.
@@ -126,6 +164,7 @@ fun ViewerPane(
             // returning and turnTo there must be no window where a
             // fast-forward could apply the same turn twice.
             pending.value = null
+            resetZoom()
             holder.turnTo(photo)
             travel.snapTo(Offset.Zero)
         }
@@ -211,11 +250,122 @@ fun ViewerPane(
                 // Every slot is PANE-SIZED, including the neighbours: the
                 // swipe reveals an image already loaded at display size,
                 // which is what the original's 300% grid buys.
-                Slot(state.front, travel.value, Offset.Zero, width, "front")
+                Slot(
+                    state.front, travel.value, Offset.Zero, width, "front",
+                    zoom = zoom.value,
+                    pan = pan,
+                    // Pointer events reach this CHILD before the swipe
+                    // handler on the parent. It consumes only while
+                    // pinching or while zoomed in — so a one-finger drag at
+                    // 1x falls through and swipes, a second finger landing
+                    // mid-swipe cancels the swipe and zooms (the original's
+                    // "pinch pre-empts"), and a one-finger drag while zoomed
+                    // pans the photo instead of turning away from it.
+                    gesture = Modifier
+                        .pointerInput(width, height) {
+                            // One loop for pinch, pan AND the double-tap
+                            // that undoes them: a separate tap detector
+                            // never saw a tap, because this loop had
+                            // already consumed its events on the way past.
+                            var lastTapAt = 0L
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                var pinching = false
+                                var moved = false
+                                var upAt = 0L
+                                val slop = viewConfiguration.touchSlop
+                                do {
+                                    val event = awaitPointerEvent()
+                                    upAt = event.changes.firstOrNull()?.uptimeMillis ?: upAt
+                                    if (event.changes.count { it.pressed } >= 2) pinching = true
+                                    if (!moved && event.changes.any {
+                                            (it.position - down.position).getDistance() > slop
+                                        }
+                                    ) {
+                                        moved = true
+                                    }
+                                    // A tap is never consumed — only a
+                                    // pinch, or a drag while zoomed in.
+                                    if (pinching || (zoom.value > 1f && moved)) {
+                                        val s = zoom.value
+                                        val s2 = (s * event.calculateZoom()).coerceIn(1f, MAX_ZOOM)
+                                        // Zoom about the fingers, not the
+                                        // centre: keep the image point under
+                                        // the centroid where it is. With the
+                                        // transform origin at the pane's
+                                        // centre c and translation t, the
+                                        // screen point q shows image point
+                                        // c + (q - c - t) / s.
+                                        val c = Offset(width / 2f, height / 2f)
+                                        val q = event.calculateCentroid()
+                                        var t = if (q.isSpecified) {
+                                            q - c - (q - c - pan) * (s2 / s)
+                                        } else {
+                                            pan
+                                        }
+                                        t += event.calculatePan()
+                                        // Nothing past the pane's edge.
+                                        val maxX = (s2 - 1f) * width / 2f
+                                        val maxY = (s2 - 1f) * height / 2f
+                                        pan = Offset(t.x.coerceIn(-maxX, maxX), t.y.coerceIn(-maxY, maxY))
+                                        scope.launch { zoom.snapTo(s2) }
+                                        event.changes.forEach { it.consume() }
+                                    }
+                                } while (event.changes.any { it.pressed })
+                                when {
+                                    // Double-tap: back to 1x, the way out of
+                                    // a zoom without turning away from the
+                                    // photo. The interval is the platform's
+                                    // own double-tap timeout.
+                                    !pinching && !moved &&
+                                        upAt - lastTapAt <= viewConfiguration.doubleTapTimeoutMillis -> {
+                                        lastTapAt = 0L
+                                        scope.launch {
+                                            pan = Offset.Zero
+                                            zoom.animateTo(1f, tween(SNAP_MS, easing = SNAP_EASING))
+                                        }
+                                    }
+                                    !pinching && !moved -> lastTapAt = upAt
+                                    // An incidental pinch snaps back; a real
+                                    // one stays. The original's exact
+                                    // threshold.
+                                    zoom.value <= PINCH_PROMOTE_SCALE && zoom.value > 1f -> {
+                                        scope.launch {
+                                            pan = Offset.Zero
+                                            zoom.animateTo(1f, tween(SNAP_MS, easing = SNAP_EASING))
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                )
                 Slot(state.left, travel.value, Offset(-width.toFloat(), 0f), width, "left")
                 Slot(state.right, travel.value, Offset(width.toFloat(), 0f), width, "right")
                 Slot(state.up, travel.value, Offset(0f, -height.toFloat()), width, "up")
                 Slot(state.down, travel.value, Offset(0f, height.toFloat()), width, "down")
+            }
+
+            // The way out to everything this pane does not do — the zoom
+            // view above all. Unobtrusive by design (user-decided): a small
+            // glass chip in the corner, and only for photos that HAVE a page.
+            val front = state.front
+            val settings by settingsRepo.settings.collectAsState()
+            val mapZoom by mapState.spatial.collectAsState()
+            val webUrl = front?.let { photoWebUrl(settings.webUrl, it, mapZoom.zoom) }
+            if (webUrl != null) {
+                val uriHandler = LocalUriHandler.current
+                Text(
+                    "↗",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(10.dp)
+                        .background(Color(0x66000000), CircleShape)
+                        .clickable { uriHandler.openUri(webUrl) }
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .testTag("viewer-open-web"),
+                )
             }
 
             // The chevrons duplicate every direction that exists. Each tap
@@ -245,6 +395,9 @@ private fun Slot(
     home: Offset,
     containerWidthPx: Int,
     tag: String,
+    zoom: Float = 1f,
+    pan: Offset = Offset.Zero,
+    gesture: Modifier = Modifier,
 ) {
     if (photo == null) return
     val rendition = remember(photo, containerWidthPx) { photo.pickRendition(containerWidthPx) }
@@ -257,6 +410,10 @@ private fun Slot(
                     (home.y + travel.y).toInt(),
                 )
             }
+            .then(gesture)
+            // The zoom, readable: for a screen reader, and for the UI test
+            // that pinches this slot (adb cannot).
+            .semantics { stateDescription = "zoom ${(zoom * 100).roundToInt() / 100f}x" }
             .testTag("viewer-slot-$tag"),
         contentAlignment = Alignment.Center,
     ) {
@@ -264,7 +421,15 @@ private fun Slot(
             coil3.compose.AsyncImage(
                 model = rendition.url,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize().testTag("viewer-photo-$tag"),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = zoom
+                        scaleY = zoom
+                        translationX = pan.x
+                        translationY = pan.y
+                    }
+                    .testTag("viewer-photo-$tag"),
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,
             )
         }

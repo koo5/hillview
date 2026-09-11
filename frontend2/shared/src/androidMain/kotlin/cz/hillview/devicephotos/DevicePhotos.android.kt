@@ -27,6 +27,10 @@ import kotlinx.coroutines.withContext
  * Tauri route reads through cmd.get_device_photos.
  */
 class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
+    // The edit/anonymization logic lives with the drain in shared-kt; this
+    // is the same instance shape the Tauri plugin's commands use.
+    private val logic by lazy { cz.hillview.plugin.PhotoUploadLogic(context) }
+
 
     override suspend fun page(page: Int, pageSize: Int, filter: PhotoFilter): DevicePhotosPage =
         withContext(Dispatchers.IO) {
@@ -56,6 +60,7 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
                     // is retried, so it is worth saying so on the card.
                     fileMissing = !locatorExists(context, it.path),
                     license = it.license,
+                    anonymization = logic.getPhotoAnonymizationState(it.id)?.state ?: "auto",
                 )
             }
             val total = if (filter.status == null) {
@@ -114,6 +119,22 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
         withContext(Dispatchers.IO) {
             PhotoUploadManager(context).startManualUpload(id)
         }
+    }
+
+    override suspend fun setAnonymization(id: String, value: String?) = withContext(Dispatchers.IO) {
+        // The same edit the Tauri plugin's create_edit command records; the
+        // drain's processPendingEdits turns it into a re-upload (override
+        // set, version bumped, status back to pending).
+        val action = org.json.JSONObject()
+            .put("action", "set_anonymization_override")
+            .put("value", value?.let { org.json.JSONArray(it) } ?: org.json.JSONObject.NULL)
+        logic.createEdit(id, action)
+        EventLog.record("upload", "anonymization -> ${value ?: "auto"} for $id, re-upload queued")
+        // Targeted: the edit is applied at the top of the drain, so the row
+        // is pending by the time the targeted fetch looks for it. The force
+        // path bypasses the gate deliberately — an explicit "upload THIS
+        // again" is not automatic uploading.
+        PhotoUploadManager(context).startManualUpload(id)
     }
 
     override suspend fun changeLicense(id: String, license: String) = withContext(Dispatchers.IO) {

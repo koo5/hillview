@@ -1,5 +1,6 @@
 package cz.hillview.geo
 
+import cz.hillview.arch.kotlinCodeOnly
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.fail
@@ -29,6 +30,12 @@ class OneStateArchitectureTest {
         ".orientation.collect",
         ".orientation.value",
         ".location.collect",
+        // The DEVICE POSE sensor (portrait/landscape/inverted), whose one
+        // published home is DevicePoseState. Both spellings, because the
+        // tempting shortcut for a second reader is either the shared-kt
+        // wrapper or the platform class it wraps.
+        "MyDeviceOrientationSensor(",
+        "OrientationEventListener",
     )
 
     /**
@@ -41,17 +48,21 @@ class OneStateArchitectureTest {
         "geo/GeoActivityBinding.android.kt" to "hands the engine the activity's claim",
         // Writer adapters exist to turn samples into funnel calls.
         "map/MapScreen.android.kt" to "MapSensorController — the compass/car writer",
-        // Two things, and the second is an OPEN QUESTION, not a blessing:
+        // Two things:
         //   1. the Stats liveness line — asks whether the hardware is alive,
         //      which the state cannot answer (a frozen sample and a still
         //      phone look identical in it);
-        //   2. the fix stream, which the stamp still takes its position
-        //      from. The original stamps $spatialState and records the live
-        //      fix as alt_location; this port has no alt_location yet. See
-        //      "The position side" in docs/one-state.md.
+        //   2. the fix stream, as the position's SECOND stream. Which one a
+        //      photo records is decided by session state the pane mirrors
+        //      (manualLocationElected, exploring), and the other rides along
+        //      as alt_location — see "The position side" in
+        //      docs/one-state.md. The pane never decides; it applies.
         // An allowlist entry that understates what a file does is how a
         // violation hides in plain sight, so this one spells it out.
-        "capture/PhotoCapture.android.kt" to "Stats liveness line + the fix stream (open)",
+        "capture/PhotoCapture.android.kt" to
+            "Stats liveness line + the fix stream (the second position stream) " +
+            "+ the device-pose sensor, which exists to aim CameraX and " +
+            "publishes to DevicePoseState",
         // Claims the engine so tracking outlives the pane it was started
         // from, and reads fixes for its own status line.
         "external/ExternalCameraService.kt" to "foreground-service claim",
@@ -65,7 +76,11 @@ class OneStateArchitectureTest {
             .filterNot { it.path.contains("Test") }
             .filterNot { f -> allowed.keys.any { f.path.replace('\\', '/').endsWith(it) } }
             .mapNotNull { f ->
-                val hits = f.readText().let { text -> sideChannels.filter(text::contains) }
+                // Comments and string literals do not talk to hardware, and
+                // the rule has to be explainable in the files it governs —
+                // see kotlinCodeOnly.
+                val code = kotlinCodeOnly(f.readText())
+                val hits = sideChannels.filter(code::contains)
                 if (hits.isEmpty()) null else "${f.relativeTo(src)} -> ${hits.joinToString()}"
             }
             .toList()

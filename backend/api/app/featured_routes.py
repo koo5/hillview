@@ -18,8 +18,8 @@ from geoalchemy2.functions import ST_X, ST_Y, ST_Point
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
 from common.database import get_db
-from common.models import Photo, PhotoAnnotation
-from annotation_routes import PLACEHOLDER_BODIES
+from common.models import Photo
+from annotation_routes import effective_annotation_count_subquery
 from rate_limiter import general_rate_limiter, get_client_ip
 
 logger = logging.getLogger(__name__)
@@ -48,22 +48,9 @@ except Exception as e:
 
 
 def _annotated_count_subquery():
-    """Count of current, non-deleted, non-placeholder annotations per photo."""
-    return (
-        select(
-            PhotoAnnotation.photo_id,
-            func.count(PhotoAnnotation.id).label('annotation_count')
-        )
-        .where(
-            and_(
-                PhotoAnnotation.is_current == True,
-                PhotoAnnotation.event_type != 'deleted',
-                func.lower(func.trim(func.coalesce(PhotoAnnotation.body, ''))).notin_(PLACEHOLDER_BODIES),
-            )
-        )
-        .group_by(PhotoAnnotation.photo_id)
-        .subquery('featured_annotations')
-    )
+    """Count of effective annotations per photo — delegates to the shared
+    helper so the definition of "effective" can't drift from bestof/counts."""
+    return effective_annotation_count_subquery()
 
 
 def _geolocate_ip(ip: str) -> Optional[tuple[float, float]]:

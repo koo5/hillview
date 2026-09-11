@@ -64,7 +64,7 @@ stop asking (`release(owner)`); they never turn it off, because more than one
 owner exists — the visible activity, and the external-camera foreground
 service that outlives it. What runs is the union of live claims.
 
-Two exceptions, both narrow, both stated at their call site:
+Three exceptions, all narrow, all stated at their call site:
 
 - **Diagnostics** — the Stats dialog's liveness line, the geo debug readout.
   These ask *is the hardware alive*, which the state cannot answer by
@@ -72,6 +72,8 @@ Two exceptions, both narrow, both stated at their call site:
   Nothing a photo records may come from here.
 - **The writer adapter** — `MapSensorController` subscribes to the engine to
   turn samples into funnel calls. That is what a writer is.
+- **The device-pose sensor** — a different question and a different sensor;
+  see "The device pose is its own state" below.
 
 ## What went wrong when this was violated
 
@@ -93,39 +95,97 @@ Each of these cost a debugging session, and each is the same mistake:
   while MainScreen was configuring capture on the way in. Whoever went second
   won, so the capture pane's compass worked or did not, at random.
 
-## The position side (open)
+## The position side: two streams, castled on confirmation
 
-The orientation half is closed: everything a photo records about heading now
-comes from `bearing`. The position half is not, and the divergence is worth
-knowing before someone "fixes" it casually.
+Position has two streams — the receiver's fix and the map's centre — and a
+photo records ONE of them as primary. The original swaps them (the user's
+word: castles them) the moment the map is panned; frontend2 swaps them only
+when the pan is CONFIRMED, through the pill's accepted claim or the no-fix
+hatch (`MapSession.manualPositionElected`). Panning by itself is
+exploration and changes nothing a photo records.
 
-The original builds a capture's `locationData` from `$bearingState &&
-$spatialState` (CameraCapture.svelte:1182-1190) — the one state — and reads
-the raw `gpsLocation` store only for the power-saving and background paths.
-When the map is not following (exploring with tracking in the background),
-the live fix is recorded as `alt_location` beside the elected position, so
-the row says where the user said they were AND what the receiver thought.
+Whichever stream is not primary rides along as `alt_location` — the
+original's field, same JSON, synthesized by the backend into the UserComment
+provenance — so a reviewer can promote it later. `altLocationFor` is the
+rule:
 
-frontend2 stamps the raw fix as the primary position instead, with a separate
-branch for an accepted manual claim. Usually identical — a following map
-writes its position from that same fix — but they part exactly when it
-matters: while exploring, or when a claim is pending. Aligning it needs
-`alt_location` ported first (the concept does not exist here yet), which is
-why this is written down rather than done in passing.
+| state | primary | `alt_location` |
+| --- | --- | --- |
+| following (map = fix) | fix, `gps` | none — one stream |
+| exploring, prompt up, unclaimed | fix, `gps` | map centre, `map-unclaimed` |
+| claimed | map centre, `manual` | live fix, `gps-background` |
+| no-fix hatch | map centre, `manual` | none — no fix exists |
+
+The claimed row is the original's exact case. The unclaimed row is one the
+original never has (it would already have swapped), and the rule extends to
+it symmetrically, tagged so nobody mistakes an unconfirmed pan for a
+measurement. The capture pane reads `exploring` and `manualLocationElected`
+as mirrors of session state, exactly as it reads the bearing — it samples
+no stream of its own.
+
+## "In front" has one computation
+
+The PICK is one state — a tapped or navigated-to photo rides in
+`bearing.photoUid`, written through the funnel like everything else — and
+the ANSWER "which photo is in front" has one computation: the viewer's
+derivation (`deriveViewerState`). The map's enlarged marker is a READER of
+it (`MapScreen` collects the holder's `front` while the view activity is
+up), not a second computation; the map's own copy of the rule
+(`frontPhoto`) is deleted. Outside the view activity both are dark — the
+viewer by WhileSubscribed, the marker styling by the original's capture
+gate — so the map's collector doubles as the subscription switch.
+
+One consequence, deliberate: the enlarged marker now obeys the same hunter
+and filter rules the viewer does, because it IS the viewer's answer. A
+marker the viewer would not front no longer enlarges.
+
+## The device pose is its own state
+
+"Which way am I facing" and "which way up is the phone" are different
+questions, and the original keeps them in different stores —
+`mapState.ts` for the first, `deviceOrientationExif.ts` for the second. This
+port does the same, and for the reason that matters here: a pose is not a
+heading, and folding it into `bearing` would put portrait-vs-landscape into
+the bearing election.
+
+The rule it does share is the one this page is about. The pose has ONE home,
+`DevicePoseState`, and ONE writer: the capture engine's
+`MyDeviceOrientationSensor`, which exists because CameraX has to be told
+where "up" is. Everything else reads it — the JPEG's orientation, and the
+floating camera button, whose icon turns so it stays upright in the world and
+thereby shows the orientation the next photo will be understood to have
+(the original: "icon rotates with `relativeOrientationExif`").
+
+The second input is the DISPLAY's own rotation (`rememberScreenAngleDeg`, the
+original's `screenOrientationAngle`). The two turn in opposite senses, so
+under auto-rotate they cancel and the icon sits still; under a rotation lock —
+the normal state for someone out shooting — the icon is the only thing that
+moves. `devicePoseUiRotation` is that subtraction, and it is checked against
+every row of the original's table.
+
+`null` means nothing is sensing the pose, because the sensor runs only while
+the camera is bound. That is the original's shape too: it mounts the listener
+with the camera view and resets the store on unmount.
 
 ## Auditing it
 
-These greps are the whole audit. Both should return only the boundary and the
-two documented exceptions:
+These greps are the whole audit. Each should return only the boundary and the
+documented exceptions:
 
 ```bash
 # reads of raw hardware outside the engine
 grep -rn "GeoEngine.get(\|\.orientation\.collect\|\.location\.collect" \
     frontend2/shared/src --include=*.kt | grep -v geo/GeoEngine.kt
 
+# a second device-pose listener (the one home is DevicePoseState)
+grep -rn "OrientationEventListener\|MyDeviceOrientationSensor(" \
+    frontend2/shared/src --include=*.kt
+
 # writers — every one must be a funnel call
 grep -rn "updateBearing(\|updateSpatial(" frontend2/shared/src --include=*.kt
 ```
 
-`OneStateArchitectureTest` runs the first of these as a test, so a new side
-channel fails the build rather than waiting to become a bug report.
+`OneStateArchitectureTest` runs the first two as a test, so a new side
+channel fails the build rather than waiting to become a bug report. It greps
+the source with comments and string literals blanked out (`kotlinCodeOnly`),
+which is what lets a rule be explained in the file it governs.

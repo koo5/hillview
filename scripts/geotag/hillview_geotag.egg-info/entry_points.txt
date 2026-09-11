@@ -1,3 +1,0 @@
-[console_scripts]
-hillview-geotag = geo_tag_photos:main
-hillview-qr-time-correction = qr_time_correction:main

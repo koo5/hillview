@@ -23,7 +23,7 @@ export class AngularRangeCuller {
      *
      * @param picks - Set of photo IDs that must always be included (e.g., currently selected photo)
      */
-    cullPhotosInRange<T extends { bearing: number; coord: { lat: number; lng: number }; id: string; uid: string }>(
+    cullPhotosInRange<T extends { bearing: number; has_bearing?: boolean; coord: { lat: number; lng: number }; id: string; uid: string }>(
         photosInArea: T[],
         center: { lat: number; lng: number },
         range: number,
@@ -67,6 +67,10 @@ export class AngularRangeCuller {
         for (const photo of photosInArea) {
             // Skip already picked photos
             if (pickedUids.has(photo.uid)) continue;
+            // A photo with no recorded heading cannot be bucketed by direction
+            // and could not be turned to afterwards; picks (an explicit
+            // selection) are the exception, handled above.
+            if (photo.has_bearing === false) continue;
 
             const distance = calculateDistance(center.lat, center.lng, photo.coord.lat, photo.coord.lng);
 

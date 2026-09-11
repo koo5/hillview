@@ -55,3 +55,25 @@ export async function forceLogoutUser(username: string, clear = false): Promise<
 export async function setAccessTtl(username: string, seconds: number, clear = false): Promise<void> {
     await postDebug('set-access-ttl', { username, seconds, clear });
 }
+
+/**
+ * Set an artificial delay (seconds) on a named backend hot path, e.g.
+ * 'hillview_stream' / 'mapillary_stream' (the photo streams) or
+ * 'auth_refresh'. 0 clears it. Unlike armFault this slows a request that
+ * then SUCCEEDS — the knob for "one source is slow, the others must not wait".
+ */
+export async function setDelay(name: string, seconds: number): Promise<void> {
+    await postDebug('delays', { name, seconds });
+}
+
+/** Clear every configured delay. */
+export async function clearDelays(): Promise<void> {
+    const res = await fetch(`${BACKEND_URL}/api/internal/debug/delays`);
+    if (!res.ok) {
+        throw new Error(`list delays failed (${res.status}): ${await res.text()}`);
+    }
+    const { delays } = await res.json() as { delays: Record<string, number> };
+    for (const name of Object.keys(delays || {})) {
+        await setDelay(name, 0);
+    }
+}

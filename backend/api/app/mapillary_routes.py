@@ -16,11 +16,12 @@ from sqlalchemy import text
 import httpx
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'common'))
-from common.database import get_db
+from common.database import get_db, SessionLocal
 from common.models import User
 from cache_service import MapillaryCacheService
 from rate_limiter import general_rate_limiter
 from auth import get_current_user_optional_with_query
+import debug_delays
 from hidden_content_filters import filter_mapillary_photos_list
 from mock_mapillary import mock_mapillary_service
 from debug_utils import debug_only
@@ -249,6 +250,14 @@ clients = {}
 
 router = APIRouter(prefix="/api/mapillary", tags=["mapillary"])
 
+# SSE keepalive cadence. This is a protocol contract with the client, not a tuning
+# guess: the client abandons a stream after STREAM_INACTIVITY_TIMEOUT_MS (60s, in
+# photoWorkerConstants.ts) of silence, and the ticker in generate_stream emits on
+# this cadence regardless of what the producer is doing. The one thing it cannot
+# cover is an event loop that is itself blocked (synchronous I/O on the loop) —
+# that is a separate defect, not something to paper over with a shorter interval.
+STREAM_HEARTBEAT_S = 10
+
 async def fetch_mapillary_data(
 	top_left_lat: float,
 	top_left_lon: float,
@@ -283,7 +292,6 @@ async def stream_mapillary_images(
 	bottom_right_lon: float = Query(..., description="Bottom right longitude"),
 	client_id: str = Query(..., description="Client ID"),
 	max_photos: int = Query(MAX_PHOTOS_PER_REQUEST, description="Maximum photos to return (capped by server limit)", ge=1),
-	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
 	"""Stream Mapillary images with Server-Sent Events"""
@@ -303,7 +311,7 @@ async def stream_mapillary_images(
 	if bottom_right_lon == 180:
 		bottom_right_lon = -180
 
-	async def generate_stream(db_session: AsyncSession, user: Optional[User] = None):
+	async def produce_events(emit, user: Optional[User] = None):
 		request_id = datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
 		# Mock data overrides the env gates so the test suite can exercise the
 		# cache+live pipeline without ENABLE_MAPILLARY_LIVE/CACHE being set.
@@ -311,17 +319,20 @@ async def stream_mapillary_images(
 		cache_enabled = ENABLE_MAPILLARY_CACHE or mock_active
 		live_enabled = ENABLE_MAPILLARY_LIVE or mock_active
 		log.info(f"Stream generator started for request {request_id} from client {client_id} (cache_enabled={cache_enabled}, live_enabled={live_enabled}, mock_active={mock_active})")
+		# Debug knob, see hillview_routes.generate_stream: a slow Mapillary must not
+		# hold back the other sources' markers.
+		await debug_delays.sleep_for("mapillary_stream")
 
 		# Check if any Mapillary functionality is enabled
 		if not cache_enabled and not live_enabled:
 			log.info("Mapillary functionality disabled - both cache and live API are disabled")
-			yield f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n"
-			yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': 0, 'total_all_photos': 0})}\n\n"
+			await emit(f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n")
+			await emit(f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': 0, 'total_all_photos': 0})}\n\n")
 			return
 
 		if top_left_lat == bottom_right_lat or top_left_lon == bottom_right_lon:
-			yield f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n"
-			yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': 0, 'total_all_photos': 0})}\n\n"
+			await emit(f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n")
+			await emit(f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': 0, 'total_cached_photos': 0, 'total_all_photos': 0})}\n\n")
 			return
 		for l in [top_left_lat, bottom_right_lat]:
 			if l < -90 or l > 90:
@@ -355,7 +366,9 @@ async def stream_mapillary_images(
 		try:
 			if cache_enabled or live_enabled:
 
-				cache_service = MapillaryCacheService(db_session)
+				# A session factory, not a session: this generator lives as long as the
+				# client stays connected, and nothing in it may hold a transaction that long.
+				cache_service = MapillaryCacheService(SessionLocal)
 
 				if cache_enabled:
 
@@ -416,12 +429,12 @@ async def stream_mapillary_images(
 						check_photos_for_expired_urls(sorted_cached, "cache")
 
 						log.info(f"Streaming {cached_photo_count} cached photos to client {client_id}")
-						yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_cached})}\n\n"
+						await emit(f"data: {json.dumps({'type': 'photos', 'photos': sorted_cached})}\n\n")
 
 				else:
 					cached_photo_count = 0
 					log.info("Cache miss: No cached photos found for bbox")
-					yield f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n"
+					await emit(f"data: {json.dumps({'type': 'photos', 'photos': []})}\n\n")
 
 				# Calculate uncached regions (or use full area if cache was ignored due to poor distribution)
 				# if cache_ignored_due_to_distribution:
@@ -484,15 +497,11 @@ async def stream_mapillary_images(
 						region_fully_fetched = False
 						while True:
 							log.info(f"Query Mapillary for region {region.id} ...")
-							fetch_task = asyncio.create_task(fetch_mapillary_data(
+							# Heartbeats are the harness's job now (see generate_stream), so this
+							# is a plain await instead of the old poll-and-heartbeat loop.
+							mapillary_response = await fetch_mapillary_data(
 								region_bbox[0], region_bbox[1], region_bbox[2], region_bbox[3], limit=effective_max_photos
-							))
-							while not fetch_task.done():
-								done, _ = await asyncio.wait({fetch_task}, timeout=10)
-								if not done:
-									log.debug(f"Sending heartbeat while waiting for Mapillary API (region {region.id})")
-									yield ": heartbeat\n\n"
-							mapillary_response = fetch_task.result()
+							)
 
 							event['inputs'].append({
 								'bbox': region_bbox,
@@ -540,9 +549,11 @@ async def stream_mapillary_images(
 							for photo in stream_photos:
 								streamed_photo_ids.add(photo.get('id'))
 
-							# Apply hidden content filtering for streaming
+							# Apply hidden content filtering for streaming — a short session of
+							# its own, closed before the next await on Mapillary.
 							if user:
-								stream_photos = await filter_mapillary_photos_list(stream_photos, user.id, db_session)
+								async with SessionLocal() as db:
+									stream_photos = await filter_mapillary_photos_list(stream_photos, user.id, db)
 
 							total_photos_so_far = cached_photo_count + total_photo_count
 							if total_photos_so_far + len(stream_photos) > effective_max_photos:
@@ -564,7 +575,7 @@ async def stream_mapillary_images(
 							check_photos_for_expired_urls(sorted_batch, "live")
 
 							# Region has more data if API indicates more pages available (regardless of our limit)
-							yield f"data: {json.dumps({'type': 'photos', 'photos': sorted_batch})}\n\n"
+							await emit(f"data: {json.dumps({'type': 'photos', 'photos': sorted_batch})}\n\n")
 
 							# Check if we've reached the photo limit for streaming
 							if total_photos_so_far >= effective_max_photos:
@@ -589,11 +600,11 @@ async def stream_mapillary_images(
 						else:
 							log.info(f"Region {region.id} processing stopped due to limits but may have more data: cached {len(region_photos)} photos so far")
 
-						yield f"data: {json.dumps({'type': 'region_complete', 'region': region.id, 'photos_count': len(region_photos)})}\n\n"
+						await emit(f"data: {json.dumps({'type': 'region_complete', 'region': region.id, 'photos_count': len(region_photos)})}\n\n")
 
 					except Exception as e:
 						log.error(f"Error streaming region {region_bbox}: {str(e)}", exc_info=True)
-						yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+						await emit(f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n")
 
 			else:
 				log.warning(f"Invalid configuration state: cache={ENABLE_MAPILLARY_CACHE}, live={ENABLE_MAPILLARY_LIVE}")
@@ -601,21 +612,88 @@ async def stream_mapillary_images(
 			# Send final summary
 			total_all_photos = cached_photo_count + total_photo_count
 			log.info(f"Stream complete for client {client_id}: {total_all_photos} total photos ({cached_photo_count} cached + {total_photo_count} live)")
-			yield f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': total_photo_count, 'total_cached_photos': cached_photo_count, 'total_all_photos': total_all_photos})}\n\n"
+			await emit(f"data: {json.dumps({'type': 'stream_complete', 'total_live_photos': total_photo_count, 'total_cached_photos': cached_photo_count, 'total_all_photos': total_all_photos})}\n\n")
 
 		except Exception as e:
 			log.error(f"Stream error for request {request_id}: {str(e)}", exc_info=True)
-			yield f"data: {json.dumps({'type': 'error', 'message': f'Stream error: {str(e)}'})}\n\n"
+			await emit(f"data: {json.dumps({'type': 'error', 'message': f'Stream error: {str(e)}'})}\n\n")
 
 		finally:
 			log.info(f"Stream generator finished for request {request_id} from client {client_id}")
 
 			# todo: save event to db
 
+
+	# --- Heartbeats from a timer, not from the work ---
+	# produce_events runs as its own task and hands finished SSE chunks to a queue; a
+	# second task drops a `: heartbeat` comment into the same queue every
+	# STREAM_HEARTBEAT_S seconds regardless of what the producer is doing. This
+	# generator only drains the queue, so a database write waiting on a lock, a slow
+	# Mapillary page or the debug delay can no longer go silent. Before this, the
+	# heartbeat was hand-interleaved around the Mapillary fetch only; the cache writes
+	# either side of it were silent, the client's watchdog read that silence as a dead
+	# stream and disconnected, and that disconnect is what used to cancel the write
+	# mid-statement (see docs/db-session-cancellation.md).
+	async def generate_stream(user: Optional[User] = None):
+		# maxsize=1 is backpressure, and it is load-bearing on disconnect. Starlette
+		# (uvicorn ASGI 2.3) cancels the task iterating this generator when the client
+		# goes away, but it does NOT aclose() the generator, so the finally below —
+		# which cancels the producer — only runs at generator finalization, which is
+		# deferred (that same deferral is what let the original transaction strand
+		# persist; see docs/db-session-cancellation.md). Until then the producer runs
+		# on its own. With an unbounded queue it would run the whole stream to
+		# completion into a dead socket; bounded at 1 it produces at most one more
+		# event, then blocks on put() — holding no session there (each cache write
+		# committed and closed its own session before emitting) — until finalization
+		# cancels it. So wasted work after a disconnect is bounded by one event, not
+		# by the stream's length. Correctness never depended on this: no transaction
+		# is held across any await regardless.
+		queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+		done = object()
+
+		async def emit(chunk: str) -> None:
+			await queue.put(chunk)
+
+		async def produce() -> None:
+			try:
+				await produce_events(emit, user)
+			except Exception as e:  # produce_events reports its own errors; this is the last resort
+				log.error(f"Stream producer crashed for client {client_id}: {e!r}", exc_info=True)
+			finally:
+				await queue.put(done)
+
+		async def tick() -> None:
+			# Coalesce: only enqueue a heartbeat when nothing else is already waiting.
+			# A pending data chunk serves the same keepalive purpose, and if the
+			# consumer is wedged on a client that has stopped reading, adding more
+			# heartbeats would not help — this bounds the queue to the producer's
+			# own (finite) output plus at most one heartbeat, so a silent reader
+			# cannot grow it without limit. empty()+put_nowait is atomic here: no
+			# await between them, single-threaded loop.
+			while True:
+				await asyncio.sleep(STREAM_HEARTBEAT_S)
+				if queue.empty():
+					queue.put_nowait(": heartbeat\n\n")
+
+		producer = asyncio.create_task(produce())
+		ticker = asyncio.create_task(tick())
+		try:
+			while True:
+				chunk = await queue.get()
+				if chunk is done:
+					break
+				yield chunk
+		finally:
+			# Client gone or stream complete: stop both. Plain cancel(), not awaited —
+			# inside the cancel scope of a disconnected response every await raises,
+			# and the tasks finish cancelling on their own.
+			ticker.cancel()
+			producer.cancel()
+
 	try:
 		log.debug(f"Creating StreamingResponse for client {client_id}")
 		response = StreamingResponse(
-			generate_stream(db, current_user),
+			generate_stream(current_user),
 			media_type="text/event-stream",
 			headers={
 				"Cache-Control": "no-cache, no-store, must-revalidate",
@@ -641,14 +719,13 @@ async def stream_mapillary_images(
 @router.get("/stats")
 async def get_cache_stats(
 	request: Request,
-	db: AsyncSession = Depends(get_db),
 	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
 ):
 	"""Get cache statistics. DISUSED - kept for potential debugging purposes."""
 	# Apply rate limiting with optional user context (better limits for authenticated users)
 	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
 
-	cache_service = MapillaryCacheService(db)
+	cache_service = MapillaryCacheService(SessionLocal)
 	cache_stats = await cache_service.get_cache_stats()
 	api_stats = api_manager.get_stats()
 

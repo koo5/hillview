@@ -427,6 +427,15 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 photoOperations.setPicks(currentPicks)
                 photoOperations.setQueryOptionsJson(areaData.queryOptionsJson)
 
+                // Sources load concurrently and each one's photos are published as
+                // they land (complete=false), through the same merge+cull the settled
+                // publish uses; the gate throttles the partials and the settled
+                // publish (complete=true) supersedes whatever is pending. Its scope
+                // is the process's, so aborting the area drops a pending partial too.
+                val gate = PartialPublishGate(scope = processInfo.cancellationScope) { complete ->
+                    if (!processInfo.abortFlag.get()) publishArea(areaData, complete)
+                }
+
                 // Process area photos with per-source loading status callbacks
                 val sourcesPhotosInArea = photoOperations.processArea(
                 processId = message.processId,
@@ -436,6 +445,14 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                 authTokenProvider = authTokenProvider,
                 onSourceLoadingStatus = { sourceId, isLoading, progress, error ->
                     sendLoadingStatusEvent(sourceId, isLoading, progress, error)
+                },
+                onSourcePhotos = { sourceId, photos ->
+                    // A superseded area's late arrivals are dropped here (and again
+                    // in the gate's publish); the newer area's own loads replace them.
+                    if (!processInfo.abortFlag.get()) {
+                        this@PhotoWorkerService.sourcesPhotosInArea[sourceId] = photos
+                        gate.arrived()
+                    }
                 }
             )
 
@@ -443,6 +460,9 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
                     // Update persistent state with new photos from area processing
                     this@PhotoWorkerService.sourcesPhotosInArea.putAll(sourcesPhotosInArea)
 
+                    // The settled publish (merge + cull + send live in publishArea now)
+                    gate.settle()
+                    /* Previously inline:
                     // Apply culling if photos exceed maxPhotos (picks are always included)
                     val totalPhotos = this@PhotoWorkerService.sourcesPhotosInArea.values.sumOf { it.size }
                     val finalPhotos = if (totalPhotos > areaData.maxPhotos) {
@@ -459,6 +479,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
 
                     // Send photos update to frontend like new.worker.ts does
                     sendPhotosUpdate(finalPhotos, this@PhotoWorkerService.sourcesPhotosInArea.toMap(), areaData.bounds, areaData.range, areaData.generation)
+                    */
                 }
 
             } catch (error: Exception) {
@@ -474,6 +495,26 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
 
         // Store the job for potential cancellation
         activeProcesses[message.processId] = job
+    }
+
+    /**
+     * Merge the per-source state, cull it to the area's budget (picks always
+     * included) and send it — for a partial (complete=false) publish while
+     * sources are still landing and for the settled one alike, so the marker
+     * set is a pure function of the per-source contents whenever it goes out.
+     */
+    private suspend fun publishArea(areaData: AreaData, complete: Boolean) {
+        val snapshot = this@PhotoWorkerService.sourcesPhotosInArea.toMap()
+        val totalPhotos = snapshot.values.sumOf { it.size }
+        val finalPhotos = if (totalPhotos > areaData.maxPhotos) {
+            if (doLog) Log.d(TAG, "PhotoWorkerService: Applying culling - $totalPhotos photos > ${areaData.maxPhotos} limit, picks: ${currentPicks.size}")
+            val culledPhotos = CullingGrid(areaData.bounds).cullPhotos(snapshot, areaData.maxPhotos, currentPicks)
+            if (doLog) Log.d(TAG, "PhotoWorkerService: Grid culling complete - ${culledPhotos.size} photos selected")
+            culledPhotos
+        } else {
+            snapshot.values.flatten()
+        }
+        sendPhotosUpdate(finalPhotos, snapshot, areaData.bounds, areaData.range, areaData.generation, complete)
     }
 
     /**
@@ -599,7 +640,10 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
         sourcesPhotosInArea: Map<String, List<PhotoData>>,
         bounds: Bounds? = null,
         range: Double? = null,
-        generation: Int? = null
+        generation: Int? = null,
+        // false = a partial publish while sources are still loading; true = the
+        // settled set (also every non-area publish: config, removals)
+        complete: Boolean = true
     ) {
         try {
             // Apply angular range culling if bounds and range are available (picks are always included)
@@ -625,6 +669,7 @@ class PhotoWorkerService(private val context: Context, private val plugin: Examp
             eventData.put("photos_in_area", serializePhotoDataList(photos))
             eventData.put("photos_in_range", serializePhotoDataList(photosInRange))
             eventData.put("timestamp", System.currentTimeMillis())
+            eventData.put("complete", complete)
             generation?.let { eventData.put("generation", it) }
             photoOperations.lastDeviceQueryStartedAt?.let { eventData.put("device_query_started_at", it) }
 

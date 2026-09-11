@@ -11,7 +11,22 @@ import re
 import urllib.parse
 from dataclasses import dataclass, field
 
-PARSER_VERSION = "4"   # 4: southern/western coords parse — S/W letters and leading
+PARSER_VERSION = "9"   # 9: DMS/DDM coordinates parse — 50°10'29.869"N, 14°38'52.907"E
+                       #    (hemisphere letters REQUIRED — they are the guard against
+                       #    prose numbers; the decimal COORD_RE stays letter-optional)
+                       # 8: osmap.vfosnar.cz links parse — poi=type:id is the author's OSM
+                       #    object (hv:osmRef; geocode resolves it to a candidate), the map=
+                       #    centre is fallback coords for poi-less links
+                       # 7: an "id=<key>" segment is a POI key (hv:poiKey) — the author's
+                       #    handle tying annotations of one subject together — not a label
+                       # 6: wikipedia URL = everything after /wiki/ minus ?query/#fragment
+                       #    (mobile share links append ?uselang=en); non-wiki URLs are
+                       #    kept as links (hv:webPage); a hillview.cz link carrying only
+                       #    lat/lon(/zoom) counts as the body's coordinates; a wiki-only
+                       #    body takes the page title as its (proposed) label
+                       # 5: wikipedia titles keep balanced parens — "…_(Čáslav)" no
+                       #    longer loses its ")" (a bare wrapping ")" is still left out)
+                       # 4: southern/western coords parse — S/W letters and leading
                        #    minus both sign the value; lon accepts 3 integer digits
                        #    (100-180°); pattern mirrored in the frontend TS twin
                        # 3: decimal-comma coords ("50,0620061, 14,8864855") parse; per-
@@ -26,8 +41,85 @@ PARSER_VERSION = "4"   # 4: southern/western coords parse — S/W letters and le
 # TS twin: frontend/src/lib/utils/coordParser.ts (clickable coords in the
 # zoomview) — keep the pattern and semantics in sync both ways.
 COORD_RE = re.compile(r"(-?\d{1,2}[.,]\d{3,})\s*([NnSs])?[,\s]+(-?\d{1,3}[.,]\d{3,})\s*([EeWw])?")
-WIKI_RE = re.compile(r"https?://(\w{2,3})\.wikipedia\.org/wiki/([^\s|)]+)")
-URL_RE = re.compile(r"https?://")
+# degrees-minutes(-seconds): 50°10'29.869"N, 14°38'52.907"E — as copied from
+# vezovevodojemy.cz and most GPS listings. Decimal minutes (DDM) work too:
+# 50°10.4978'N. Hemisphere letters are REQUIRED (that is what keeps "12°C,
+# 1500 m" prose safe). Unicode primes (′ ″) accepted alongside ' and ".
+# TS twin: frontend/src/lib/utils/coordParser.ts (DMS_SRC) — keep in sync.
+DMS_RE = re.compile(
+    "(\\d{1,2})[°º]\\s*"
+    "(\\d{1,2}(?:[.,]\\d+)?)[′']\\s*"
+    "(?:(\\d{1,2}(?:[.,]\\d+)?)\\s*(?:[″\"]|''))?\\s*"
+    "([NnSs])"
+    "[,;\\s]+"
+    "(\\d{1,3})[°º]\\s*"
+    "(\\d{1,2}(?:[.,]\\d+)?)[′']\\s*"
+    "(?:(\\d{1,2}(?:[.,]\\d+)?)\\s*(?:[″\"]|''))?\\s*"
+    "([EeWw])")
+# a wikipedia URL is whatever follows /wiki/ up to whitespace or the segment
+# pipe; the title is that path with its ?query / #fragment dropped (mobile share
+# links append ?uselang=en) and a wrapping ")" removed only when it is unbalanced
+# — titles legitimately contain "(…)", commas, dots, anything
+WIKI_RE = re.compile(r"https?://(\w{2,3})(?:\.m)?\.wikipedia\.org/wiki/([^\s|]+)")
+URL_RE = re.compile(r"https?://[^\s|]+")
+# a hillview.cz view link — the annotator pointing at a map/photo view
+HILLVIEW_RE = re.compile(r"https?://(?:www\.)?hillview\.cz/\?([^\s|]+)")
+# an osmap.vfosnar.cz share link — state lives in the fragment: poi=way:46934757
+# is the SELECTED OSM object (the author's exact identity claim), map=z/lat/lon
+# is just the viewport centre
+OSMAP_RE = re.compile(r"https?://osmap\.vfosnar\.cz/[^\s|#]*#([^\s|]+)")
+# "id=vcelka": the author's key for the subject itself, shared by every
+# annotation of it (a POI handle; the geocoder treats same-key annotations as
+# namesakes, and it is the hook for an explicit POI link later)
+POI_KEY_RE = re.compile(r"^id\s*=\s*([\w.-]+)$", re.I)
+
+
+def _wiki_from_match(m: re.Match) -> tuple[str, str, str]:
+    """→ (lang, title, canonical url) from a WIKI_RE match."""
+    lang, raw = m.group(1), m.group(2)
+    raw = raw.split("#")[0].split("?")[0]
+    while raw.endswith(")") and raw.count(")") > raw.count("("):
+        raw = raw[:-1]
+    raw = raw.rstrip(".,;")
+    title = urllib.parse.unquote(raw).replace("_", " ")
+    return lang, title, f"https://{lang}.wikipedia.org/wiki/{raw}"
+
+
+def osmap_link_parts(url: str) -> tuple[str | None, tuple[float, float] | None]:
+    """→ (osm_ref "way:46934757" | None, map-centre (lat, lon) | None) of an
+    osmap link; (None, None) for other URLs. The centre is only where the map
+    was scrolled — callers use it solely when the link carries no poi=."""
+    m = OSMAP_RE.match(url)
+    if not m:
+        return None, None
+    q = urllib.parse.parse_qs(m.group(1), keep_blank_values=True)
+    ref = None
+    pm = re.fullmatch(r"(node|way|relation):(\d+)", (q.get("poi") or [""])[0])
+    if pm:
+        ref = f"{pm.group(1)}:{pm.group(2)}"
+    center = None
+    cm = re.fullmatch(r"[\d.]+/(-?\d{1,2}\.\d+)/(-?\d{1,3}\.\d+)",
+                      (q.get("map") or [""])[0])
+    if cm:
+        center = (float(cm.group(1)), float(cm.group(2)))
+    return ref, center
+
+
+def hillview_link_coords(url: str) -> tuple[float, float] | None:
+    """A hillview.cz link whose query is nothing but lat/lon (zoom allowed)
+    points at a place, so its position IS the annotator's coordinates. With
+    anything else on it (photo=…, bearing=…) the lat/lon is just the map centre
+    of some view — kept as a link for the operator, not as coordinates."""
+    m = HILLVIEW_RE.match(url)
+    if not m:
+        return None
+    q = urllib.parse.parse_qs(m.group(1), keep_blank_values=True)
+    if not {"lat", "lon"} <= set(q) or not set(q) <= {"lat", "lon", "zoom"}:
+        return None
+    try:
+        return float(q["lat"][0]), float(q["lon"][0])
+    except (ValueError, IndexError):
+        return None
 
 # cheap keyword type heuristic (optional hint; not authoritative)
 TYPE_KEYWORDS = {
@@ -55,6 +147,10 @@ class ParsedBody:
     coords: tuple[float, float] | None = None            # (lat, lon)
     wiki: tuple[str, str] | None = None                  # (lang, title)
     wiki_url: str | None = None
+    links: list[str] = field(default_factory=list)       # non-wiki URLs, body order
+    coords_from_link: bool = False                       # coords came from a hillview/osmap link
+    osm_ref: str | None = None                           # "way:46934757" from an osmap poi=
+    poi_key: str | None = None                           # "id=<key>" segment
     type_guess: str | None = None
     uncertain: bool = False
     oops: bool = False
@@ -76,12 +172,25 @@ def _coords_from_match(m: re.Match) -> tuple[float, float]:
             _hemisphere(_coord_float(m.group(3)), m.group(4), "W"))
 
 
+def _dms_from_match(m: re.Match) -> tuple[float, float]:
+    def val(deg, minutes, seconds, letter, negative):
+        v = (float(deg) + _coord_float(minutes) / 60
+             + (_coord_float(seconds) / 3600 if seconds else 0.0))
+        return round(_hemisphere(v, letter, negative), 7)
+    return (val(m.group(1), m.group(2), m.group(3), m.group(4), "S"),
+            val(m.group(5), m.group(6), m.group(7), m.group(8), "W"))
+
+
 def _segment_role(i: int, seg: str) -> str:
+    if POI_KEY_RE.match(seg):
+        return "poiKey"
     if WIKI_RE.search(seg):
         return "wiki"
     # segment 0 is the name slot; it only counts as coords when it is NOTHING
     # but a coordinate pair (embedded coords after a name stay part of the name)
     if COORD_RE.search(seg) and (i > 0 or COORD_RE.fullmatch(seg)):
+        return "coords"
+    if DMS_RE.search(seg) and (i > 0 or DMS_RE.fullmatch(seg)):
         return "coords"
     if URL_RE.search(seg):
         return "url"
@@ -111,20 +220,49 @@ def parse_body(body: str | None) -> ParsedBody:
         result.oops = True
 
     for p in parts:
+        k = POI_KEY_RE.match(p)
+        if k and result.poi_key is None:
+            result.poi_key = k.group(1)
+            continue
         m = COORD_RE.search(p)
         if m and result.coords is None:
             result.coords = _coords_from_match(m)
+        if result.coords is None:
+            dm = DMS_RE.search(p)
+            if dm:
+                result.coords = _dms_from_match(dm)
         w = WIKI_RE.search(p)
         if w and result.wiki is None:
-            result.wiki = (w.group(1), urllib.parse.unquote(w.group(2)).replace("_", " "))
-            result.wiki_url = w.group(0)
+            lang, title, url = _wiki_from_match(w)
+            result.wiki = (lang, title)
+            result.wiki_url = url
+        for u in URL_RE.findall(p):
+            if not WIKI_RE.match(u):
+                result.links.append(u.rstrip(".,;)"))
+    for u in result.links:
+        ref, _ = osmap_link_parts(u)
+        if ref and result.osm_ref is None:
+            result.osm_ref = ref
+    if result.coords is None:
+        for u in result.links:
+            ref, center = osmap_link_parts(u)
+            # a poi-less osmap link's centre is the best point it offers; with
+            # a poi= the exact object coords come from geocode instead, and a
+            # duplicate geo: pin would outrank the exact object in the picker
+            c = hillview_link_coords(u) or (center if not ref else None)
+            if c:
+                result.coords, result.coords_from_link = c, True
+                break
 
     if len(parts) > 1 and result.roles[1] == "context":
         result.context = parts[1] or None
 
     if parts and result.roles[0] != "name":
-        # first segment is a wiki URL / pure coordinates — no name to extract
+        # first segment is a wiki URL / pure coordinates — no name to extract;
+        # a wikipedia page title is the next best name (proposed like any label)
         result.unnamed = True
+        if result.wiki and not any(r == "name" for r in result.roles):
+            result.name = result.wiki[1]
     else:
         name = name0.rstrip("?").replace("(?)", "").strip()
         result.uncertain = name0.endswith("?") or "(?)" in name0

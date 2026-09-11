@@ -4,6 +4,7 @@ import asyncio
 import httpx
 import logging
 
+from common.database import SessionLocal
 from common.models import PushRegistration, Notification, User, UserPublicKey
 from common.utc import utcnow
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +25,7 @@ class NotificationDict(TypedDict, total=False):
 	expires_at: Optional[datetime]
 
 
-async def _unregister_stale_endpoints(db: AsyncSession, endpoints: List[str]) -> int:
+async def _unregister_stale_endpoints(endpoints: List[str]) -> int:
 	"""Delete `push_registrations` rows whose `push_endpoint` matches an
 	endpoint Firebase flagged as stale (UnregisteredError / SenderIdMismatch /
 	NotFound). Called from the send paths so prod stays clean of tokens
@@ -35,8 +36,9 @@ async def _unregister_stale_endpoints(db: AsyncSession, endpoints: List[str]) ->
 	if not endpoints:
 		return 0
 	stmt = sa_delete(PushRegistration).where(PushRegistration.push_endpoint.in_(endpoints))
-	result = await db.execute(stmt)
-	await db.commit()
+	async with SessionLocal() as db:
+		result = await db.execute(stmt)
+		await db.commit()
 	count = result.rowcount or 0
 	logger.info(f"Unregistered {count} stale push endpoint(s)")
 	return count
@@ -80,8 +82,10 @@ async def create_notification_for_user(
 	await db.commit()
 	await db.refresh(notification)
 
-	# Send push notification to user's registered devices
-	await send_push_to_user(user_id, db, notif)
+	# Send push in its own short sessions — never across the caller's session (see
+	# send_push_to_user): the FCM call can take seconds, and holding a connection or a
+	# read-transaction open across it is the anti-pattern this codebase is unwinding.
+	await send_push_to_user(user_id, notif)
 
 	return notification.id
 
@@ -117,58 +121,73 @@ async def create_notification_for_client(
 	await db.commit()
 	await db.refresh(notification)
 
-	# Send push notification to this specific client
-	await send_push_to_client(client_key_id, db, notif)
+	# Send push in its own short session (see send_push_to_client).
+	await send_push_to_client(client_key_id, notif)
 
 	return notification.id
 
 
-async def send_push_to_user(user_id: str, db: AsyncSession, notif: NotificationDict):
-	"""Send push notification to all registered devices for a user."""
-	# Get all client_key_ids for the user
-	user_keys_query = select(UserPublicKey.key_id).where(
-		UserPublicKey.user_id == user_id,
-		UserPublicKey.is_active == True
-	)
-	user_keys_result = await db.execute(user_keys_query)
-	client_key_ids = [row[0] for row in user_keys_result.fetchall()]
+async def send_push_to_user(user_id: str, notif: NotificationDict):
+	"""Send push notification to all registered devices for a user.
+
+	Opens its own short sessions and never accepts a caller's session: each
+	send_push_to_client below makes an FCM call that can take seconds, and this
+	must not hold the caller's connection or a read-transaction open across it.
+	"""
+	# Get all client_key_ids for the user (short session, closed before any FCM call)
+	async with SessionLocal() as db:
+		user_keys_query = select(UserPublicKey.key_id).where(
+			UserPublicKey.user_id == user_id,
+			UserPublicKey.is_active == True
+		)
+		user_keys_result = await db.execute(user_keys_query)
+		client_key_ids = [row[0] for row in user_keys_result.fetchall()]
 
 	if not client_key_ids:
 		return
 
 	# Send push to each client_key_id
 	for client_key_id in client_key_ids:
-		await send_push_to_client(client_key_id, db, notif)
+		await send_push_to_client(client_key_id, notif)
 
 
-async def send_push_to_client(client_key_id: str, db: AsyncSession, notif: NotificationDict):
-	"""Send push notification to a specific client device."""
+async def send_push_to_client(client_key_id: str, notif: NotificationDict):
+	"""Send push notification to a specific client device.
+
+	Reads the registration in a short session and closes it BEFORE the FCM/UnifiedPush
+	call: the network send must not run with a session (and its autobegun read
+	transaction) held open — that is the "idle in transaction across a network call"
+	anti-pattern. Stale-endpoint cleanup afterwards opens its own short session.
+	"""
 	if not push_toggle.is_enabled():
 		logger.info(f"push_toggle disabled — skipping send to {client_key_id}")
 		return
 
-	# Get push registration for this client key
-	registration_query = select(PushRegistration).where(
-		PushRegistration.client_key_id == client_key_id
-	)
-	result = await db.execute(registration_query)
-	registration = result.scalar_one_or_none()
+	# Read the registration, then let the session go before the network call.
+	async with SessionLocal() as db:
+		registration_query = select(PushRegistration).where(
+			PushRegistration.client_key_id == client_key_id
+		)
+		result = await db.execute(registration_query)
+		registration = result.scalar_one_or_none()
 
 	if not registration:
 		return
+	# Snapshot the field: the ORM object is now detached (its session is closed).
+	push_endpoint = registration.push_endpoint
 
 	# Send push to the registered endpoint
 	async with httpx.AsyncClient(timeout=30.0) as client:
 		try:
 			# Check if this is an FCM token or UnifiedPush URL
-			if registration.push_endpoint.startswith('fcm:'):
+			if push_endpoint.startswith('fcm:'):
 				if not is_fcm_configured():
 					logger.warning("FCM not configured")
 					return
 
 				# Send via FCM with notification content and route
 				fcm_result = await send_fcm_push(
-					fcm_token=registration.push_endpoint,
+					fcm_token=push_endpoint,
 					title=notif['title'],
 					body=notif['body'],
 					route=notif.get('route')
@@ -181,14 +200,14 @@ async def send_push_to_client(client_key_id: str, db: AsyncSession, notif: Notif
 				# Firebase says this token is dead — remove the
 				# registration so we don't keep sending to it.
 				if fcm_result.get('stale'):
-					await _unregister_stale_endpoints(db, [registration.push_endpoint])
+					await _unregister_stale_endpoints([push_endpoint])
 
 				logger.warning(f"FCM failed for {client_key_id}")
 				return
 
 			# UnifiedPush HTTP endpoint - send poke to trigger fetch
 			response = await client.post(
-				registration.push_endpoint,
+				push_endpoint,
 				json={
 					"content": "activity_update",
 					"encrypted": False
@@ -392,7 +411,7 @@ async def _send_activity_broadcast_notification_impl(
 	# table stays bounded in size.
 	stale_tokens = fcm_result.get('stale_tokens') or []
 	if stale_tokens:
-		await _unregister_stale_endpoints(db, stale_tokens)
+		await _unregister_stale_endpoints(stale_tokens)
 
 	# Send UnifiedPush concurrently
 	unified_push_results = await send_unified_push_batch(unified_push_endpoints)

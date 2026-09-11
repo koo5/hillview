@@ -48,6 +48,13 @@
                     closed testing program
                 </MyExternalLink>.
             </p>
+
+            <p class="brave-testing-link">
+                Feeling brave and want to try development builds, or taste the brand-new, faster, better, native android app? Grab them on the
+                <MyExternalLink href="https://hillview.cz/downloads/">
+                    development downloads
+                </MyExternalLink> page.
+            </p>
         </div>
     </div>
 </StandardBody>
@@ -99,6 +106,14 @@
         border-top: 1px solid rgba(255, 255, 255, 0.2);
         font-size: 0.9rem;
         opacity: 0.8;
+    }
+
+    .brave-testing-link {
+        margin-top: 2rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+        font-size: 0.7rem;
+        opacity: 0.7;
     }
 
     @media (max-width: 768px) {
