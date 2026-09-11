@@ -61,10 +61,11 @@ BLUR_CONFIDENCE = 0.4  # mirrors backend/worker/detections.py: blurred iff conf 
 def bearing_source(r):
     """How the capture app obtained this photo's bearing, from its UserComment JSON.
 
-    Only a compass source is a statement about where the camera was AIMED. `gps-kalman` is
-    the movement-heading mode (the direction of travel), and `map` / `arrow_drag` were set
-    by hand on a map afterwards. Roughly a third of the corpus is movement heading, so a
-    bearing has to be read together with this.
+    Every mode is the user's best shot at the real bearing, and the stored value is the only
+    bearing that photo has: the compass; a movement-derived bearing the user adjusts relative
+    to the vehicle's travel (`gps-kalman`); an arrow dragged by hand (`arrow_drag`, `map`).
+    The mode is recorded because the error CHARACTER differs, not because one of them is the
+    truth — so a bearing is read together with this, and never filtered by it.
     """
     ex = r.get("exif_data") or r.get("exif") or {}
     if not isinstance(ex, dict):

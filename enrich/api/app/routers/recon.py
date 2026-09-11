@@ -391,10 +391,16 @@ async def cloud_packed(run_id: str, request: Request, max_points: int = 1_500_00
 
 
 # How a photo's stored bearing was obtained, straight from the capture app's UserComment.
-# This matters more than it looks: only the compass sources are a statement about where the
-# CAMERA pointed. `gps-kalman` is the movement-heading mode — the direction the phone was
-# travelling, which on any walk is not where it was aimed — and `map` / `arrow_drag` are a
-# person setting it by hand afterwards. About a third of the corpus is movement heading.
+# Every mode is the user's best shot at the REAL bearing of the shot, and the stored value
+# is the only bearing that photo has: the compass reading; a bearing derived from movement
+# that the user adjusts relative to the vehicle's travel (`gps-kalman`), which is how you
+# shoot sideways from a moving car; and an arrow dragged by hand on a map (`arrow_drag`,
+# `map`). None is a lesser claim than the others and none is discarded.
+#
+# The mode is recorded because the ERROR CHARACTER differs — systematic offset, hard iron,
+# how much the person was concentrating — not because one mode is the truth. Which to
+# believe is decided per span, by how well that mode's frames agree with each other
+# (recon_join_spans.bearing_offset), never by a ranking fixed here.
 COMPASS_BEARING_SOURCES = ("compass-true", "compass-magnetic", "absolute-compass")
 
 

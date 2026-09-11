@@ -42,8 +42,9 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import recon_metrics as rm       # noqa: E402
 
-# Only these say where the camera was AIMED. `gps-kalman` is the movement-heading mode
-# (direction of travel), `map` and `arrow_drag` are hand-set on a map afterwards.
+# Which mode produced a bearing. NOT a ranking: every mode is the user's best shot at the
+# real bearing, and this only marks the magnetometer ones so a span can report what it is
+# quoting. What decides which mode to believe is the agreement of its own frames.
 COMPASS_BEARING_SOURCES = ("compass-true", "compass-magnetic", "absolute-compass")
 
 
@@ -486,11 +487,12 @@ def join_pair(A, B, sources, min_corres=60, conf_thr=rm.CONF_THR, rel_thr=0.05,
     # GPS orientation" — there is no such thing in this data.
     #
     # Geometry now proposes a different turn. The BEARINGS are the third opinion, and the
-    # only one that is a statement about where the camera was aimed at all — whichever of
-    # the app's three modes the user was in, that stored value is their answer. Two spans of
-    # one walk carry the same kind of bias, so the DIFFERENCE of their bearing offsets is
-    # the relative yaw the bearings imply. Which mode's offset to believe is decided per
-    # span, by how well its frames agree with each other, not by a ranking fixed in advance.
+    # only one that was ever a measurement of orientation at all — whichever of the app's
+    # three modes the user was in, that stored value is their best shot at the real bearing.
+    # Two spans of one walk carry the same kind of bias, so the DIFFERENCE of their bearing
+    # offsets is the relative yaw the bearings imply. Which mode's offset to believe is
+    # decided per span, by how well its frames agree with each other, never by a ranking
+    # fixed in advance.
     if A.to_enu and B.to_enu:
         gsim = compose(compose(A.to_enu, sim), invert(B.to_enu))   # B's ENU frame -> A's
         Rg = gsim[1]
