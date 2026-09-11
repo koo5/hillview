@@ -423,7 +423,13 @@ def install_shared_cache(shared_dir):
             if m1 is None and m2 is None:
                 continue
             try:
-                score, (xy1, xy2, confs) = _t.load(pc)
+                # map_location, because on a GPU box forward_mast3r saves the
+                # correspondences as CUDA tensors (sparse_ga hands extract_correspondences
+                # the solve device). np.asarray on one of those raises, so without this
+                # every masked run dies here the moment --device is cuda. Loading to CPU
+                # also keeps the masked copy we write below device-free, so a run dir
+                # stays readable on a machine with no GPU at all.
+                score, (xy1, xy2, confs) = _t.load(pc, map_location="cpu")
             except Exception:
                 continue
             a1, a2 = np.asarray(xy1), np.asarray(xy2)
@@ -778,6 +784,12 @@ def main():
     ap.add_argument("--niter1", type=int, default=300)
     ap.add_argument("--niter2", type=int, default=300)
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--tf32", action="store_true",
+                    help="allow TF32 on CUDA (faster, ~10 mantissa bits). Off by default so "
+                         "a GPU run can be compared against the CPU reference honestly")
+    ap.add_argument("--require_curope", action=argparse.BooleanOptionalAction, default=True,
+                    help="on CUDA, refuse to run if the compiled RoPE2D kernel is missing "
+                         "(it only warns and falls back, which on rented hardware is money)")
     ap.add_argument("--maxscan", type=int, default=0)
     ap.add_argument("--stride", type=int, default=1, help="subsample step in capture order")
     ap.add_argument("--after", default="", help="keep captures >= this (YYYY-MM-DD HH:MM:SS)")
@@ -849,7 +861,8 @@ def main():
     paths = download(sub, os.path.join(a.out, "imgs"),
                      mask_anon=a.mask_anon, mask_solocator=a.mask_solocator)
 
-    log("loading MASt3R model (cpu)…")
+    # NB the "loading MASt3R" prefix is a progress marker the worker greps for
+    log(f"loading MASt3R model ({a.device})…")
     for p in (MAST3R_REPO, os.path.join(MAST3R_REPO, "dust3r"),
               os.path.join(MAST3R_REPO, "dust3r", "croco")):
         if p not in sys.path:
@@ -859,6 +872,37 @@ def main():
     from mast3r.cloud_opt.sparse_ga import sparse_global_alignment
     from dust3r.image_pairs import make_pairs
     from dust3r.utils.image import load_images
+
+    # WHAT THIS BOX IS, recorded in the log and (via vars(a)) in metadata.json. A run
+    # solved on a GPU is not bit-identical to one solved here, and the first thing anyone
+    # comparing two runs will want to know is which machine, which kernel, which precision.
+    if a.device.startswith("cuda"):
+        # TF32 is on by default for convolutions on Ada, which silently drops the DPT head
+        # and the patch embedding to ~10 mantissa bits. Off unless asked for, so that the
+        # CPU-vs-GPU comparison is about the port and not about precision.
+        torch.backends.cudnn.allow_tf32 = bool(a.tf32)
+        torch.backends.cuda.matmul.allow_tf32 = bool(a.tf32)
+        try:
+            name = torch.cuda.get_device_name(0)
+            free, total = torch.cuda.mem_get_info()
+            log(f"  device: {name}, {total / 2**30:.0f} GiB ({free / 2**30:.0f} free), "
+                f"torch {torch.__version__}, tf32={bool(a.tf32)}")
+        except Exception as e:
+            raise SystemExit(f"--device {a.device} but CUDA is not usable: "
+                             f"{type(e).__name__}: {e}")
+    # Did the CUDA RoPE kernel load? dust3r only prints a warning and falls back, so a
+    # rented GPU can quietly run the slow path for hours and look completely normal.
+    try:
+        from models.curope import cuRoPE2D           # noqa: F401
+        rope = "curope"
+    except Exception:
+        rope = "pytorch-fallback"
+    log(f"  RoPE2D: {rope}")
+    if rope != "curope" and a.device.startswith("cuda") and a.require_curope:
+        raise SystemExit(
+            "--device cuda but the CUDA RoPE2D kernel is missing, so this run would take "
+            "the slow fallback path on rented hardware. Build it "
+            "(dust3r/croco/models/curope) or pass --no_require_curope.")
     # NB: do NOT globally disable grad — sparse_scene_optimizer needs autograd for
     # its optimization loop. The MASt3R forward passes manage no_grad internally.
     model = AsymmetricMASt3R.from_pretrained(MAST3R_CKPT).to(a.device).eval()

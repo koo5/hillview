@@ -62,6 +62,48 @@ REQUIRED_GB = float(os.getenv("RECON_REQUIRED_GB", "8"))
 RAM_GATE_TIMEOUT_S = float(os.getenv("RECON_RAM_GATE_TIMEOUT_S", "900"))
 PROGRESS_EVERY_S = float(os.getenv("RECON_PROGRESS_EVERY_S", "30"))
 
+# Which device this WORKER's box can offer. Deliberately an environment fact and not a
+# queue parameter: the device describes the hardware the job lands on, not the experiment.
+# A CPU-only box handed device=cuda dies; a rented GPU handed device=cpu burns money in
+# silence; and requeue replays a run's stored params, so an embedded device would follow a
+# run onto whichever machine picks it up next. Same reasoning as CALLBACK_URL and
+# WORKER_TOKEN, which also come from here and never from the message.
+#   auto  - probe once, use cuda if torch sees it          (default)
+#   cpu / cuda / cuda:N - force it
+DEVICE = os.getenv("RECON_DEVICE", "auto")
+_RESOLVED_DEVICE: str | None = None
+
+
+def resolve_device() -> str:
+    """The device to pass to reconstruct.py, probed once per worker process.
+
+    The probe is a SUBPROCESS on purpose. This module is imported by a long-lived
+    remoulade worker and deliberately never imports torch (see the note at the top);
+    importing it here to ask about CUDA would pull ~2 GB into a process that is meant to
+    stay small between jobs.
+    """
+    global _RESOLVED_DEVICE
+    if _RESOLVED_DEVICE is not None:
+        return _RESOLVED_DEVICE
+    if DEVICE != "auto":
+        _RESOLVED_DEVICE = DEVICE
+        return _RESOLVED_DEVICE
+    out = "cpu"
+    try:
+        r = subprocess.run(
+            [sys.executable, "-c",
+             "import torch;print('cuda' if torch.cuda.is_available() else 'cpu')"],
+            capture_output=True, text=True, timeout=120)
+        if r.returncode == 0 and r.stdout.strip() in ("cuda", "cpu"):
+            out = r.stdout.strip()
+        else:
+            print(f"  device probe failed ({r.returncode}): {r.stderr[-300:]}", flush=True)
+    except Exception as e:
+        print(f"  device probe failed: {type(e).__name__}: {e}", flush=True)
+    _RESOLVED_DEVICE = out
+    print(f"  device: {out} (RECON_DEVICE={DEVICE})", flush=True)
+    return out
+
 broker = RabbitmqBroker(url=f"amqp://{RABBITMQ_URL}?timeout=15", confirm_delivery=True)
 remoulade.set_broker(broker)
 
@@ -305,15 +347,17 @@ def reconstruct_cluster(payload: dict) -> None:
     try:
         _post({"result_id": rid, "status": "running", "worker": socket.gethostname(),
                "n_frames": len(frames),
-               "meta": {"stage": "queued", "rundir": rundir}})
+               "meta": {"stage": "queued", "rundir": rundir,
+                        "device": resolve_device()}})
     except Cancelled:
         # cancelled (or already done) before it started: a duplicate or stale message
         print(f"  {rid} '{name}' skipped: the bench says cancelled/done", flush=True)
         return
 
+    device = resolve_device()
     cmd = [sys.executable, os.path.join(ENRICH_SCRIPTS, "reconstruct.py"),
            "--manifest", manifest_path, "--out", rundir,
-           "--center", f"{lat},{lon}"]
+           "--center", f"{lat},{lon}", "--device", device]
     for key, flag in FLAG_PARAMS.items():
         if params.get(key) is not None:
             cmd += [flag, str(params[key])]
