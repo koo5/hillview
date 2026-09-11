@@ -1246,7 +1246,7 @@ async def cancel_run(run_id: str):
 
 
 @router.post("/recon/runs/{run_id}/requeue")
-async def requeue_run(run_id: str):
+async def requeue_run(run_id: str, force: bool = False):
     """Re-send a run to the broker from its stored selection spec. With `purge_queue`
     this is how the queue gets reordered: purge, then requeue the survivors in the
     order wanted. The selection is replayed, so the frames are whatever the mirror says
@@ -1261,6 +1261,14 @@ async def requeue_run(run_id: str):
             {"id": rid})).mappings().first()
     if not row or not (row["meta"] or {}).get("spec"):
         raise HTTPException(404, "run has no stored selection spec")
+    # A finished run put back on the queue is almost always a mistake -- and an expensive
+    # one, because requeue CLEARS status and finished_at, so the solve that already
+    # succeeded looks queued while a worker spends hours reproducing it. It happened:
+    # four overnight runs were re-sent while reordering the queue. Say no unless asked
+    # twice.
+    if row["status"] == "done" and not force:
+        raise HTTPException(409, f"'{row['name']}' is already done; pass force=true to "
+                                 f"solve it again (its artifacts will be overwritten)")
     sp = row["meta"]["spec"]
     if sp.get("frame_ids"):
         # a split child (or any explicit-frames run) IS its frame list; the centre/limit
