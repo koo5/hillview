@@ -57,6 +57,7 @@ actual fun MapScreen(
     stateStore: MapStateStore,
     session: MapSession,
     showControls: Boolean,
+    edges: PanelEdges,
 ) {
     val context = LocalContext.current
     val mapSettings by settings.settings.collectAsState()
@@ -660,6 +661,7 @@ actual fun MapScreen(
                 session.setLocationTracking(LocationTracking.Active)
             },
             mapPositionElected = manualPositionElected,
+            edges = edges,
             mapOrientation = spatial.orientation,
             onResetNorth = {
                 state.updateSpatial(

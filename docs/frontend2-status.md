@@ -507,6 +507,41 @@ the chain stopped. See `GeoDebugText.kt`.
 
 ## 2026-09-11
 
+- **The map's controls now know which edges are the screen's**
+  (user-raised: "some controls are rightfully moved off the edge of the
+  screen to lower the chances of accidental touches, but i dont know if we
+  had any reason to take it so far as to offset them all... My goal is to
+  free up reasonable amount of space in the center of the map panel").
+  - **The distinction that was missing.** The map panel is half a split: the
+    bottom half in portrait, the right half in landscape. So exactly one of
+    its edges is the app's own DIVIDER and the rest are the screen's. A
+    gutter at a screen edge buys something — a mis-swipe there leaves the app
+    or fires a system gesture. A gutter at the divider buys nothing: the
+    divider runs the whole width or height of the split and can be taken hold
+    of anywhere along it. `PanelEdges.mapPanel(portrait)` is that fact, and
+    MainScreen is where it is known.
+  - **Window insets were the bigger waste.** `safeContentPadding()` covered
+    the whole overlay, and Compose does not clip window insets to where a
+    composable sits — so a gesture strip's worth of map was held back at the
+    divider, against a system gesture that cannot happen there. Now only the
+    screen's sides are asked for (`screenInsetSides`).
+  - **One gutter constant, 8 dp, at screen edges and nothing at the divider.**
+    The tracking pair loses its 16 dp top in portrait (the divider is above
+    it) and keeps its end gutter in both, which is the one the user called
+    critical: a mis-tap there turns tracking off. Zoom likewise.
+  - **The hunter corner takes no gutter at all**, by request — the toggle and
+    the two toolbars that unfold from it sit where the system insets put them
+    and no further.
+  - The right-edge source tabs' top and bottom are CLEARANCES, not gutters —
+    they keep out of the tracking row and the hunter row — so they are now
+    derived from the same constants rather than being two hardcoded numbers
+    that had to be kept in step by hand.
+  - `movableContentOf` needed care: the map panel is ONE instance that travels
+    between the portrait Column and the landscape Row, so the orientation is
+    read through a `rememberUpdatedState` rather than captured, which would
+    have frozen it at whichever orientation the app started in.
+  - NOT phone-verified — no device reachable from this machine.
+
 - **The location button announced a demotion a whole state early**
   (user-caught: "when i pan the map, i get the pill, so far so good, but the
   location tracking button turns mild-blue already. Mild-blue is supposed to

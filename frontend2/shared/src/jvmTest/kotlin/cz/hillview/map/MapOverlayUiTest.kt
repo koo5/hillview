@@ -47,6 +47,7 @@ class MapOverlayUiTest {
         val compassUnavailable: Boolean = false,
         val mapOrientation: Double = 0.0,
         val mapPositionElected: Boolean = false,
+        val edges: PanelEdges = PanelEdges.AllScreen,
     ) {
         var northReset = 0
         var hunterToggled = 0
@@ -92,6 +93,7 @@ class MapOverlayUiTest {
                 onZoom = { h.zoomDelta = it },
                 mapOrientation = h.mapOrientation,
                 mapPositionElected = h.mapPositionElected,
+                edges = h.edges,
                 onResetNorth = { h.northReset++ },
             )
         }
@@ -304,6 +306,48 @@ class MapOverlayUiTest {
         onNodeWithTag("track-location-btn")
             .fetchSemanticsNode()
             .config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription]
+
+    /**
+     * The gutter is for the SCREEN's edges. In portrait the map panel's top
+     * edge is the app's own split divider, which can be grabbed anywhere
+     * along its length, so there is nothing to keep clear of and the top
+     * controls sit flush against it (user, 2026-09-11). The left edge IS the
+     * screen there, so it keeps its gutter.
+     */
+    @Test
+    fun inPortraitTheTopIsFlushAndTheSideIsNot() = runComposeUiTest {
+        overlay(Harness(edges = PanelEdges.mapPanel(portrait = true)))
+        val bounds = onNodeWithTag("zoom-in-btn").getUnclippedBoundsInRoot()
+        assertEquals(0f, bounds.top.value, "the divider above needs no gutter")
+        assertTrue(bounds.left.value > 0f, "the screen edge beside does")
+    }
+
+    /** Landscape swaps which edge is which, and the layout swaps with it. */
+    @Test
+    fun inLandscapeTheSideIsFlushAndTheTopIsNot() = runComposeUiTest {
+        overlay(Harness(edges = PanelEdges.mapPanel(portrait = false)))
+        val bounds = onNodeWithTag("zoom-in-btn").getUnclippedBoundsInRoot()
+        assertEquals(0f, bounds.left.value, "the divider beside needs no gutter")
+        assertTrue(bounds.top.value > 0f, "the status bar above means the top does")
+    }
+
+    /**
+     * The hunter corner is the app's own and a mis-tap there costs a toggle,
+     * so it takes no gutter at all in either orientation — the system insets
+     * are the whole of its margin (user, 2026-09-11).
+     */
+    @Test
+    fun theHunterToggleSitsInTheCorner() = runComposeUiTest {
+        for (portrait in listOf(true, false)) {
+            overlay(Harness(edges = PanelEdges.mapPanel(portrait)))
+            val root = onNodeWithTag("zoom-in-btn").getUnclippedBoundsInRoot()
+            val toggle = onNodeWithTag("hunter-mode-toggle").getUnclippedBoundsInRoot()
+            assertTrue(
+                toggle.right.value > root.right.value,
+                "portrait=$portrait: the toggle owns the far corner",
+            )
+        }
+    }
 
     @Test
     fun theLeafBadgeOnlyAppearsUnderPowerSaving() = runComposeUiTest {

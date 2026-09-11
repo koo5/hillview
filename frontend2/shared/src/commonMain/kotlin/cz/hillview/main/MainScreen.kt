@@ -47,6 +47,7 @@ import cz.hillview.core.ui.rememberScreenAngleDeg
 import cz.hillview.map.MapScreen
 import cz.hillview.map.MapSession
 import cz.hillview.map.MapStateHolder
+import cz.hillview.map.PanelEdges
 import cz.hillview.settings.MapSettingsRepository
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -215,6 +216,11 @@ fun MainScreen(
                 }
             }
         }
+        // Read through a State, not captured: this content is MOVABLE — one
+        // instance that travels between the portrait Column and the landscape
+        // Row — so a value captured when it was created would describe the
+        // orientation it was born in forever.
+        val portraitNow = rememberUpdatedState(portrait)
         val mapPanel = remember {
             movableContentOf {
                 MapScreen(
@@ -223,6 +229,7 @@ fun MainScreen(
                     stateHolder = stateHolder,
                     stateStore = koinInject(),
                     session = session,
+                    edges = PanelEdges.mapPanel(portraitNow.value),
                 )
             }
         }

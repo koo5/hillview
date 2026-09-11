@@ -22,7 +22,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeContentPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeContent
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -187,15 +191,34 @@ fun MapOverlayUi(
     onResetNorth: () -> Unit = {},
     /** Whether the map position has been CLAIMED — see [fixRole]. */
     mapPositionElected: Boolean = false,
+    /** Which of this panel's edges are the screen's — see [PanelEdges]. */
+    edges: PanelEdges = PanelEdges.AllScreen,
 ) {
     val chromeTone = chromeToneFor(
         settings.tileProviderKey,
         androidx.compose.foundation.isSystemInDarkTheme(),
     )
     androidx.compose.runtime.CompositionLocalProvider(LocalChromeTone provides chromeTone) {
-    Box(Modifier.fillMaxSize().safeContentPadding()) {
+    // System insets for the edges that actually touch the screen, and none
+    // for the one the split divider is on. Window insets are not clipped to
+    // where a composable sits, so the blanket version spent a gesture strip's
+    // worth of map against the divider — dead space at an edge no system
+    // gesture can reach.
+    val gutterTop = if (edges.top) EDGE_GUTTER else 0.dp
+    val gutterStart = if (edges.start) EDGE_GUTTER else 0.dp
+    val gutterEnd = if (edges.end) EDGE_GUTTER else 0.dp
+    val gutterBottom = if (edges.bottom) EDGE_GUTTER else 0.dp
+    Box(
+        Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeContent.only(screenInsetSides(edges))),
+    ) {
         // Top-left: zoom, where Leaflet keeps it (44dp touch targets).
-        Column(Modifier.align(Alignment.TopStart).padding(8.dp)) {
+        Column(
+            Modifier
+                .align(Alignment.TopStart)
+                .padding(top = gutterTop, start = gutterStart),
+        ) {
             ControlSurface {
                 TextButton(
                     onClick = { onZoom(1.0) },
@@ -228,7 +251,13 @@ fun MapOverlayUi(
 
         // Top-right pair: location, then compass.
         Row(
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 16.dp, end = 8.dp),
+            // The one gutter the user called critical: a mis-tap on the
+            // screen's edge here turns tracking off. Against the divider
+            // there is nothing to mis-tap into, so in portrait it sits at the
+            // top of the panel.
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = gutterTop, end = gutterEnd),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             LocationButton(
@@ -261,7 +290,10 @@ fun MapOverlayUi(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
-                .padding(top = 68.dp, bottom = 60.dp, end = 2.dp),
+                // Clearances, not edge gutters: the band must not reach
+                // into the tracking row above or the hunter row below, and
+                // both of those move with the gutters now.
+                .padding(top = gutterTop + TRACKING_ROW_RESERVE, bottom = HUNTER_ROW_RESERVE),
             contentAlignment = Alignment.CenterEnd,
         ) {
             val perTab = ((maxHeight - 4.dp - 2.dp * (sources.size - 1)) /
@@ -285,7 +317,11 @@ fun MapOverlayUi(
         // Bottom-right hunter grid: the toggle owns the corner, the button
         // panel grows left.
         Column(
-            modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 4.dp, end = 6.dp),
+            // No gutter at all, by request: the hunter toggle and the two
+            // toolbars that unfold from it sit where the system insets put
+            // them and no further. They are the app's own corner, and a
+            // mis-tap on one costs a toggle.
+            modifier = Modifier.align(Alignment.BottomEnd),
             horizontalAlignment = Alignment.End,
         ) {
             Row(verticalAlignment = Alignment.Bottom) {
@@ -352,7 +388,7 @@ fun MapOverlayUi(
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 76.dp)
+                    .padding(top = gutterTop + TRACKING_ROW_RESERVE + 8.dp)
                     .background(LocalChromeTone.current.panel, RoundedCornerShape(20.dp))
                     .testTag("map-position-prompt"),
                 verticalAlignment = Alignment.CenterVertically,
@@ -374,7 +410,9 @@ fun MapOverlayUi(
         }
 
         Column(
-            modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = gutterStart, bottom = gutterBottom),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             // The geo debug readout, stacked on the same anchor so it shares
@@ -503,6 +541,37 @@ private fun ResetNorthButton(
             }
         }
     }
+}
+
+/**
+ * How far a control keeps from an edge that is the SCREEN's, on top of the
+ * system insets. Small on purpose: the insets already hold the system's
+ * gestures off, and this is only the margin that makes a corner tap feel
+ * deliberate rather than like an edge swipe. Zero at the divider.
+ */
+private val EDGE_GUTTER = 8.dp
+
+/** The tracking row's own height plus a gap — what must stay clear below it. */
+private val TRACKING_ROW_RESERVE = 52.dp
+
+/** The hunter toggle row's height plus a gap, likewise. */
+private val HUNTER_ROW_RESERVE = 56.dp
+
+/**
+ * The inset sides worth applying: the screen's edges only.
+ *
+ * Window insets describe the WINDOW, and Compose does not clip them to where
+ * a composable sits — so asking for all of them inside a half-screen panel
+ * pads the divider side against a system gesture that cannot happen there.
+ */
+private fun screenInsetSides(edges: PanelEdges): WindowInsetsSides {
+    val sides = buildList {
+        if (edges.top) add(WindowInsetsSides.Top)
+        if (edges.bottom) add(WindowInsetsSides.Bottom)
+        if (edges.start) add(WindowInsetsSides.Start)
+        if (edges.end) add(WindowInsetsSides.End)
+    }
+    return sides.reduce { a, b -> a + b }
 }
 
 @Composable

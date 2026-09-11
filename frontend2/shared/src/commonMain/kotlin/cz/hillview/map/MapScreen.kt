@@ -23,4 +23,11 @@ expect fun MapScreen(
      * cz.hillview.pip.
      */
     showControls: Boolean = true,
+    /**
+     * Which of this panel's edges are the screen's rather than the app's own
+     * split divider — see [PanelEdges]. It decides where the map's controls
+     * keep a gutter and where they sit flush, which is how the middle of the
+     * map is kept for the map.
+     */
+    edges: PanelEdges = PanelEdges.AllScreen,
 )
