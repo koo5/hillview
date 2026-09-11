@@ -12,6 +12,7 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.v2.runComposeUiTest
@@ -308,45 +309,64 @@ class MapOverlayUiTest {
             .config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription]
 
     /**
-     * The gutter is for the SCREEN's edges. In portrait the map panel's top
-     * edge is the app's own split divider, which can be grabbed anywhere
-     * along its length, so there is nothing to keep clear of and the top
-     * controls sit flush against it (user, 2026-09-11). The left edge IS the
-     * screen there, so it keeps its gutter.
+     * A gutter is bought with map, so only a control whose mis-tap is
+     * expensive takes one. Tracking qualifies: a stray touch turns the
+     * compass or the receiver off and nothing necessarily says so. Zoom does
+     * not — the next tap undoes it — so it sits flush in both orientations
+     * (user, 2026-09-11).
      */
     @Test
-    fun inPortraitTheTopIsFlushAndTheSideIsNot() = runComposeUiTest {
+    fun zoomSitsFlushInBothOrientations() = runComposeUiTest {
         overlay(Harness(edges = PanelEdges.mapPanel(portrait = true)))
-        val bounds = onNodeWithTag("zoom-in-btn").getUnclippedBoundsInRoot()
-        assertEquals(0f, bounds.top.value, "the divider above needs no gutter")
-        assertTrue(bounds.left.value > 0f, "the screen edge beside does")
+        val portrait = onNodeWithTag("zoom-in-btn").getUnclippedBoundsInRoot()
+        assertEquals(0f, portrait.top.value, "portrait: the divider is above it")
+        assertEquals(0f, portrait.left.value, "portrait: a stray zoom costs a tap to undo")
     }
 
-    /** Landscape swaps which edge is which, and the layout swaps with it. */
     @Test
-    fun inLandscapeTheSideIsFlushAndTheTopIsNot() = runComposeUiTest {
+    fun zoomSitsFlushInLandscapeToo() = runComposeUiTest {
         overlay(Harness(edges = PanelEdges.mapPanel(portrait = false)))
         val bounds = onNodeWithTag("zoom-in-btn").getUnclippedBoundsInRoot()
-        assertEquals(0f, bounds.left.value, "the divider beside needs no gutter")
-        assertTrue(bounds.top.value > 0f, "the status bar above means the top does")
+        assertEquals(0f, bounds.top.value)
+        assertEquals(0f, bounds.left.value, "landscape: the divider is beside it")
     }
 
     /**
-     * The hunter corner is the app's own and a mis-tap there costs a toggle,
-     * so it takes no gutter at all in either orientation — the system insets
-     * are the whole of its margin (user, 2026-09-11).
+     * The tracking pair is the one that pays for a gutter, and only at the
+     * edges that are the SCREEN's: in portrait the divider is above it, so
+     * the top gutter goes and the end gutter stays.
+     */
+    @Test
+    fun trackingKeepsItsGutterOnlyWhereTheScreenIs() = runComposeUiTest {
+        overlay(Harness(edges = PanelEdges.mapPanel(portrait = true)))
+        val portrait = onNodeWithTag("track-location-btn").getUnclippedBoundsInRoot()
+        val root = onRoot().getUnclippedBoundsInRoot()
+        assertEquals(0f, portrait.top.value, "the divider above needs no gutter")
+        assertTrue(
+            root.right.value - portrait.right.value > 0f,
+            "the screen edge beside it still does",
+        )
+    }
+
+    @Test
+    fun trackingKeepsItsTopGutterWhenTheScreenIsAboveIt() = runComposeUiTest {
+        overlay(Harness(edges = PanelEdges.mapPanel(portrait = false)))
+        val bounds = onNodeWithTag("track-location-btn").getUnclippedBoundsInRoot()
+        assertTrue(bounds.top.value > 0f, "landscape: the status bar is above it")
+    }
+
+    /**
+     * The hunter corner is the app's own and cheap to mis-tap, so it takes no
+     * gutter at all in either orientation — the system insets are the whole
+     * of its margin (user, 2026-09-11).
      */
     @Test
     fun theHunterToggleSitsInTheCorner() = runComposeUiTest {
-        for (portrait in listOf(true, false)) {
-            overlay(Harness(edges = PanelEdges.mapPanel(portrait)))
-            val root = onNodeWithTag("zoom-in-btn").getUnclippedBoundsInRoot()
-            val toggle = onNodeWithTag("hunter-mode-toggle").getUnclippedBoundsInRoot()
-            assertTrue(
-                toggle.right.value > root.right.value,
-                "portrait=$portrait: the toggle owns the far corner",
-            )
-        }
+        overlay(Harness(edges = PanelEdges.mapPanel(portrait = true)))
+        val root = onRoot().getUnclippedBoundsInRoot()
+        val toggle = onNodeWithTag("hunter-mode-toggle").getUnclippedBoundsInRoot()
+        assertEquals(root.right.value, toggle.right.value, "flush to the far edge")
+        assertEquals(root.bottom.value, toggle.bottom.value, "and to the bottom")
     }
 
     @Test

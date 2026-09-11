@@ -204,21 +204,23 @@ fun MapOverlayUi(
     // where a composable sits, so the blanket version spent a gesture strip's
     // worth of map against the divider — dead space at an edge no system
     // gesture can reach.
-    val gutterTop = if (edges.top) EDGE_GUTTER else 0.dp
-    val gutterStart = if (edges.start) EDGE_GUTTER else 0.dp
-    val gutterEnd = if (edges.end) EDGE_GUTTER else 0.dp
-    val gutterBottom = if (edges.bottom) EDGE_GUTTER else 0.dp
+    // A gutter is bought with map, so only the controls that are expensive
+    // to hit by accident take one, and only where the edge is the screen's.
+    val gutterTop = if (edges.top) CRITICAL_EDGE_GUTTER else 0.dp
+    val gutterEnd = if (edges.end) CRITICAL_EDGE_GUTTER else 0.dp
     Box(
         Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeContent.only(screenInsetSides(edges))),
     ) {
         // Top-left: zoom, where Leaflet keeps it (44dp touch targets).
-        Column(
-            Modifier
-                .align(Alignment.TopStart)
-                .padding(top = gutterTop, start = gutterStart),
-        ) {
+        // Flush, both edges, both orientations: a stray tap here zooms a
+        // level and the next one puts it back, so there is nothing worth
+        // spending map on (user, 2026-09-11: "since zoom isnt critical, it
+        // can, in portrait, sit flush to the left edge of screen"). The
+        // system insets still hold it off the status bar and the gesture
+        // strips; what is gone is the decorative margin on top of them.
+        Column(Modifier.align(Alignment.TopStart)) {
             ControlSurface {
                 TextButton(
                     onClick = { onZoom(1.0) },
@@ -410,9 +412,7 @@ fun MapOverlayUi(
         }
 
         Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = gutterStart, bottom = gutterBottom),
+            modifier = Modifier.align(Alignment.BottomStart),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             // The geo debug readout, stacked on the same anchor so it shares
@@ -544,12 +544,19 @@ private fun ResetNorthButton(
 }
 
 /**
- * How far a control keeps from an edge that is the SCREEN's, on top of the
- * system insets. Small on purpose: the insets already hold the system's
- * gestures off, and this is only the margin that makes a corner tap feel
- * deliberate rather than like an edge swipe. Zero at the divider.
+ * How far a CRITICAL control keeps from an edge that is the screen's, on top
+ * of the system insets.
+ *
+ * Critical is the whole test, and it is about the cost of the mis-tap rather
+ * than about the control's importance. Tracking is the one that qualifies: a
+ * stray touch there turns the compass or the receiver off, and nothing on
+ * screen necessarily says so afterwards. Zoom, the north badge, the hunter
+ * corner and the debug readout are all undone by tapping again, so they sit
+ * flush and give the middle of the map back.
+ *
+ * Zero at the divider in any case — there is nothing to mis-swipe into.
  */
-private val EDGE_GUTTER = 8.dp
+private val CRITICAL_EDGE_GUTTER = 8.dp
 
 /** The tracking row's own height plus a gap — what must stay clear below it. */
 private val TRACKING_ROW_RESERVE = 52.dp

@@ -525,13 +525,18 @@ the chain stopped. See `GeoDebugText.kt`.
     composable sits — so a gesture strip's worth of map was held back at the
     divider, against a system gesture that cannot happen there. Now only the
     screen's sides are asked for (`screenInsetSides`).
-  - **One gutter constant, 8 dp, at screen edges and nothing at the divider.**
-    The tracking pair loses its 16 dp top in portrait (the divider is above
-    it) and keeps its end gutter in both, which is the one the user called
-    critical: a mis-tap there turns tracking off. Zoom likewise.
-  - **The hunter corner takes no gutter at all**, by request — the toggle and
-    the two toolbars that unfold from it sit where the system insets put them
-    and no further.
+  - **A gutter goes to CRITICAL controls only**, 8 dp, and only at an edge
+    that is the screen's. Critical is about what the mis-tap COSTS, not about
+    the control's importance: tracking qualifies, because a stray touch turns
+    the compass or the receiver off and nothing on screen necessarily says so
+    afterwards. It loses its 16 dp top in portrait (the divider is above it)
+    and keeps its end gutter in both.
+  - **Everything else sits flush** — zoom and the north badge (user: "since
+    zoom isnt critical, it can, in portrait, sit flush to the left edge of
+    screen"), the hunter toggle with the two toolbars that unfold from it,
+    and the debug readout. All are undone by tapping again, and the system
+    insets still hold them off the status bar and the gesture strips; what is
+    gone is the decorative margin on top of those.
   - The right-edge source tabs' top and bottom are CLEARANCES, not gutters —
     they keep out of the tracking row and the hunter row — so they are now
     derived from the same constants rather than being two hardcoded numbers
