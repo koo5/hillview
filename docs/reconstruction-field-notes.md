@@ -1003,6 +1003,35 @@ frame with 6% vertical and 29% vegetation now keeps its hedge. `newest-s0-vegkep
 same 17 frames under the corrected ladder; the forward passes are cached, so it costs only the
 optimiser.
 
+### Cross-walk joining has no evidence to work from, and "the same cell" is not "the same ground" (2026-09-11)
+
+The plan's first risk was that every join so far had shared a parent run's cache, so
+cross-walk joining was unproven. It is now disproven in the cheapest possible way.
+`xwalk-prosek-jun` and `xwalk-prosek-aug` were solved independently, no shared parent, two
+walks selected from the same 100 m cell on 15 June and 6 August. The join reports:
+
+    0/900 cross pairs cached, 0 usable
+
+Not a bad join — **no join at all**. Nothing ever asked MASt3R to compare a June frame with
+an August one, so no correspondence between them exists, and the joiner can only consume
+pairs that something computed. Area assembly therefore needs a **retrieval and pairing stage**
+before it needs a better estimator. The workaround already exists and is proven:
+`bridge-join-probe` was a small run over the boundary frames of two spans, paired complete,
+and it put 25 new cross pairs into the shared cache for the joiner to read.
+
+**And a second lesson, from my own botched selection.** Those two walks never come within
+26 m of each other. Median nearest-neighbour distance between their frames is 42.9 m, the
+worst is 64.2 m, and **not one of the 30 frames has a partner within 10 m**. They pass through
+one 100 m grid cell on different paths. So the run above did not test a revisit at all; it
+tested two disjoint walks, which of course share nothing.
+
+That makes the corpus census in the plan — 1,499 cells revisited by two or more walks — an
+overestimate of what is joinable, possibly a large one. A cell is 100 m across and a walk
+crossing its corner counts. The number that matters is *frames from different walks standing
+within a few metres of each other, looking the same way*, and it has to be measured with a
+distance join, not a grid. `walk_frames` (sessionised at 10-minute gaps, 64,201 frames in
+1,051 walks, GIST-indexed) is materialised in the workbench DB for exactly that.
+
 ### Smoothing the bearings does not earn its place, and the measure that says so is useful on its own (2026-09-10)
 
 A bearing series is noisy in ways a single frame cannot show, so a smoothing pass is an
