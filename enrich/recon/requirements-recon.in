@@ -8,9 +8,23 @@
 # --system-site-packages and sees it. That also stops the image carrying two ~3 GB copies
 # of torch, one here and one in the segmentation environment.
 #
+# ...but absent from the .in file is not enough: kornia DEPENDS on torch, so a plain
+# compile resolves it from PyPI, whose torch 2.12.x is the cu130 build, and drags in
+# fifteen nvidia-*-cu13 wheels with it. The venv then shadows the system cu126 torch and
+# curope refuses to compile: "detected CUDA version (12.6) mismatches the version that was
+# used to compile PyTorch (13.0)". So the whole CUDA stack is kept OUT of the lock with
+# --no-emit-package, and the venvs (built --system-site-packages) use the one torch the
+# Dockerfile installed. Anything satisfied by the environment is never downloaded, so
+# --require-hashes stays happy.
+#
 # Regenerate after edits, with the repo's cooloff convention (scripts/enrich/README.md):
+#   EXCL=""; for p in torch triton cuda-bindings cuda-pathfinder cuda-toolkit \
+#       nvidia-cublas nvidia-cuda-cupti nvidia-cuda-nvrtc nvidia-cuda-runtime \
+#       nvidia-cudnn-cu13 nvidia-cufft nvidia-cufile nvidia-curand nvidia-cusolver \
+#       nvidia-cusparse nvidia-cusparselt-cu13 nvidia-nccl-cu13 nvidia-nvjitlink \
+#       nvidia-nvshmem-cu13 nvidia-nvtx; do EXCL="$EXCL --no-emit-package $p"; done
 #   uv pip compile --generate-hashes --python-version 3.12 \
-#       --exclude-newer "$(date -d '6 weeks ago' +%F)" \
+#       --exclude-newer "$(date -d '6 weeks ago' +%F)" $EXCL \
 #       requirements-recon.in -o requirements-recon.txt
 numpy==2.4.4
 pillow==12.2.0
