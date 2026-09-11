@@ -1257,7 +1257,7 @@ async def requeue_run(run_id: str, force: bool = False):
     rid = str(uuid.UUID(run_id))
     async with wb_engine.connect() as conn:
         row = (await conn.execute(text(
-            "SELECT name, meta, params FROM recon_runs WHERE id = CAST(:id AS uuid)"),
+            "SELECT name, meta, params, status FROM recon_runs WHERE id = CAST(:id AS uuid)"),
             {"id": rid})).mappings().first()
     if not row or not (row["meta"] or {}).get("spec"):
         raise HTTPException(404, "run has no stored selection spec")
