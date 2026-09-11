@@ -87,6 +87,9 @@ services:
       - PEAKS_DEM_PATH=${PEAKS_DEM_PATH:-/dem/glo30.vrt}
       # archived reconstruct.py runs, for POST /api/recon/import (read-only)
       - RECON_ARCHIVE_DIR=/recon-archive
+      # only affects the generated docs/openapi links; routes stay at /api/... and the
+      # proxy strips the prefix before us
+      - ENRICH_ROOT_PATH=${ENRICH_BASE_PATH:-}
     ports:
       - "127.0.0.1:${ENRICH_API_HOST_PORT:-8070}:8070"
     volumes:
@@ -155,6 +158,11 @@ services:
       # frontend/src/lib/zoomview (see web/Dockerfile + its .dockerignore)
       context: ..
       dockerfile: enrich/web/Dockerfile
+      args:
+        # empty by default; set ENRICH_BASE_PATH=/some-prefix to serve the whole
+        # workbench under one, which is how it hides behind a route rather than
+        # relying on the proxy's auth alone
+        BASE_PATH: ${ENRICH_BASE_PATH:-}
     container_name: enrich_web
     restart: unless-stopped
     mem_limit: 512m

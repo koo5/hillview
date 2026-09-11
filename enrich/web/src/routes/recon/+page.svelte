@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
@@ -346,7 +347,7 @@
 			const r = await api.post<{ queued: string; name: string }>('/recon/runs', body());
 			previewed = null;
 			await loadRuns();
-			goto(`/recon?run=${encodeURIComponent(r.name)}`, { noScroll: true });
+			goto(`${base}/recon?run=${encodeURIComponent(r.name)}`, { noScroll: true });
 		} catch (e) {
 			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
 		} finally {
@@ -405,7 +406,7 @@
 	}
 
 	function select(r: Run) {
-		goto(`/recon?run=${encodeURIComponent(r.name)}`, { noScroll: true, keepFocus: true });
+		goto(`${base}/recon?run=${encodeURIComponent(r.name)}`, { noScroll: true, keepFocus: true });
 	}
 
 	// URL is the state: ?run=<name> deep-links a run (shareable next to the field notes)
@@ -1007,7 +1008,7 @@
 								>
 									<td class="num">{f.idx}</td>
 									<td>
-										<a href="/photos/{f.id}" title="open the photo record">{f.id.slice(0, 8)}</a>
+										<a href="{base}/photos/{f.id}" title="open the photo record">{f.id.slice(0, 8)}</a>
 										{#if f.injected}<span class="st" title="injected impostor — excluded from the GPS alignment fit"
 												>impostor</span
 											>{/if}
@@ -1076,7 +1077,7 @@
 												/>
 											</td>
 											<td>
-												<a href="/recon?run={encodeURIComponent(n.name)}">{n.name}</a>
+												<a href="{base}/recon?run={encodeURIComponent(n.name)}">{n.name}</a>
 												{#if n.joined}<span class="pill ok" title="this run carries a recorded join">joined</span>{/if}
 											</td>
 											<td class="num">{n.distance_m}</td>
@@ -1114,7 +1115,7 @@
 							<tbody>
 								{#each detail.joins as j (j.reference_id)}
 									<tr>
-										<td><a href="/recon?run={encodeURIComponent(j.reference)}">{j.reference}</a></td>
+										<td><a href="{base}/recon?run={encodeURIComponent(j.reference)}">{j.reference}</a></td>
 										<td class="num">0°</td>
 										<td class="num" title="free rotation, before gravity was re-imposed">
 											{j.turn?.yaw_geometric_deg ?? '—'}°{#if j.turn?.tilt_geometric_deg}
@@ -1170,7 +1171,7 @@
 													style="accent-color: #{TINTS[i % TINTS.length].toString(16).padStart(6, '0')}" />
 											{/if}
 										</td>
-										<td><a href="/recon?run={encodeURIComponent(mbr.name)}">{mbr.name}</a></td>
+										<td><a href="{base}/recon?run={encodeURIComponent(mbr.name)}">{mbr.name}</a></td>
 										<td>{mbr.span ? `${mbr.span[0]}–${mbr.span[1]}` : '—'}</td>
 										<td>{mbr.status}</td>
 										<td class="num">{mbr.reproj ?? '—'}</td>

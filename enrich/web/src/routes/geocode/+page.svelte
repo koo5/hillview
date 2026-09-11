@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { onMount, onDestroy } from 'svelte';
 	import { api, ApiError } from '$lib/api';
 	import { localStorageSharedStore } from '$lib/svelte-shared-store';
@@ -182,13 +183,13 @@
 			</div>
 		{/if}
 		{#if geo.running && st.current}
-			<div class="muted">now: <a href="/annotations/{st.current.annotation_id}">{st.current.label ?? '(no label)'}</a>{st.current.wiki ? ' · wiki' : ''}{st.current.coords ? ' · pin' : ''}</div>
+			<div class="muted">now: <a href="{base}/annotations/{st.current.annotation_id}">{st.current.label ?? '(no label)'}</a>{st.current.wiki ? ' · wiki' : ''}{st.current.coords ? ' · pin' : ''}</div>
 		{/if}
 		{#if st.recent?.length}
 			<div class="muted" style="margin-top:4px">
 				recent:
 				{#each st.recent as o (o.annotation_id)}
-					<a href="/annotations/{o.annotation_id}" title={`${o.hits} nominatim hit(s)${o.wiki_tried ? (o.wiki ? ', wiki coords found' : ', wiki page has no coords') : ''}${o.pin ? ', body coords → pin' : ''}`}
+					<a href="{base}/annotations/{o.annotation_id}" title={`${o.hits} nominatim hit(s)${o.wiki_tried ? (o.wiki ? ', wiki coords found' : ', wiki page has no coords') : ''}${o.pin ? ', body coords → pin' : ''}`}
 						>{o.label ?? '(wiki)'}</a
 					><span class="mono" style="font-size:10px"> {o.hits}{o.wiki ? 'w' : ''}{o.pin ? 'p' : ''}</span>{' '}
 				{/each}
@@ -247,7 +248,7 @@
 			<div class="row" style="margin-bottom:6px">
 				<b>{label(sel)}</b>
 				<span class="mono muted" style="font-size:11px">{sel.id.slice(0, 8)}</span>
-				<a href="/annotations/{sel.id}">detail</a>
+				<a href="{base}/annotations/{sel.id}">detail</a>
 				<a href={sel.web_url} target="_blank" rel="noreferrer">hillview ↗</a>
 			</div>
 			<CandidateMap
