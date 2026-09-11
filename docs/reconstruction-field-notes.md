@@ -906,6 +906,52 @@ them just spread their error further. The hypothesis is withdrawn. The render-an
 check still flags them, which is what a frame-level gate would act on: drop or
 down-weight the frames the leave-one-out test rejects, rather than link them harder.
 
+### The fair resolution test: 768 is nine times worse than 512 (2026-09-11)
+
+`res23-spotA-512` and `res23-spotA-768` are the same 22 frames of the gold walk, same window,
+same masking, differing only in the size `load_images` resizes the long side to. The 512
+control lands at reference quality, so unlike the strided trio the framing is not a confound.
+
+| size | reproj px | normalised to a 512-sized frame | epipolar px |
+|---|---|---|---|
+| 512 | 1.33 | 1.33 | 0.52 |
+| 768 | 18.11 | 12.07 | 7.21 |
+
+Normalising matters and still leaves a factor of nine: a 768-long frame is 1.5× the linear
+size, so an identical geometric error would read 1.5× larger in pixels, not 13×. MASt3R is
+trained at 512 and 768 is out of distribution; raising the load size of the same model does
+not buy detail, it loses the matcher.
+
+This is the question the GPU was going to be rented to answer at 1024 over 46 frames, about
+fifteen hours of CPU. It now has a cheap negative answer from a fair 22-frame test. The GPU's
+value is throughput of experiments — and of the masking pass, which is 18 s a frame on CPU —
+not this hypothesis. If high resolution is to help sidewalks it will have to come from a model
+trained for it, or from tiling, not from the `--size` flag.
+
+### Reaching past a weak link found the right frames and did not help (2026-09-11)
+
+`newest-win4-adaptive` against `newest-win4`, same 50 frames, same window of 4, the only
+difference being `--adaptive_pairs` with a reach of 10. The mechanism did exactly what it was
+built to do: it measured the 380 window pairs first, put the typical consecutive link at
+19,716 and the weak threshold at 6,901, and found six weak links at frames 26, 27, 29, 30, 31
+and 33 — which is precisely the stretch where the camera was swung aside and back. It then
+added 196 directed pairs reaching out from both ends of each.
+
+The result got *worse*: 7.26 px against 6.48, the same chain breaks at 29 and 33, and the
+median match count per connected pair fell from 8,634 to 5,716 while connected pairs rose from
+190 to 288. The extra pairs exist and carry few matches.
+
+The reading is not that the strategy is wrong but that this walk is not the case it was built
+for. Reaching bridges a break when frames on either side still see the same surface. Here
+frames 25 and 34 were paired — well within reach — and still did not match, which says the
+swing genuinely lost the overlap rather than the window being too narrow. A negative result
+worth keeping: on this walk, splitting is the right answer and no amount of reaching will
+replace it.
+
+Two new areas landed at the same time and neither is usable: `northedge-2026-08-27` at 21.88 px
+with breaks at 1, 24, 26 and 45, and `letnany-2026-07-08` at 29.34 px with breaks at 22, 25,
+31 and 42. The corpus is mostly not gold walks.
+
 ### The resolution trio was never a resolution test (2026-09-10)
 
 `res-spotA-512/768/1024` came out at 11.03 / 36.03 / 44.90 px and looked like a verdict on
