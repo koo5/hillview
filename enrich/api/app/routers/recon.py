@@ -43,7 +43,8 @@ ALLOWED_PARAMS = {"win", "pairs", "pair_dist", "pair_dang", "size",
                   "niter1", "niter2", "dense", "min_conf",
                   "mask_anon", "mask_solocator", "mask_vegetation", "semantic_mask",
                   "semantic_budget", "shared_intrinsics",
-                  "adaptive_pairs", "adaptive_reach", "adaptive_frac"}
+                  "adaptive_pairs", "adaptive_reach", "adaptive_frac",
+                  "tiles", "tile_overlap", "tile_pairs"}
 
 # Where the archived experiment runs live. Import copies out of here; nothing writes to it.
 ARCHIVE_ROOT = os.getenv(
@@ -300,26 +301,50 @@ def _apply_enu(x, y, z, s, R, t):
 
 
 def _ply_to_packed(ply_path: str, max_points: int, align=None) -> bytes:
-    """ASCII PLY -> packed little-endian [float32 x,y,z][uint8 r,g,b] per point.
+    """PLY -> packed little-endian [float32 x,y,z][uint8 r,g,b] per point.
 
-    The viewer cannot eat the PLY directly at these sizes: reconstruct.py writes ASCII, so
-    a 700 k-point sparse cloud is ~65 MB and a dense one runs to hundreds. Packed, a point
-    costs 15 bytes instead of ~90, and gzip takes it further. Points beyond max_points are
-    dropped by even stride rather than truncation, so a downsampled cloud still covers the
-    whole scene instead of half of it.
+    The viewer cannot eat the PLY directly at these sizes. Runs solved before 2026-09-12
+    are ASCII, at ~90 bytes a point, so a 700 k-point sparse cloud is ~65 MB and a dense
+    one runs to hundreds; after that date they are binary little-endian in the very layout
+    this function emits, so the conversion is a stride and an optional transform. Either is
+    accepted. Points beyond max_points are dropped by even stride rather than truncation,
+    so a downsampled cloud still covers the whole scene instead of half of it.
     """
     import struct
-    header, pts = True, []
-    n_declared = 0
-    with open(ply_path) as f:
-        for line in f:
-            if header:
-                if line.startswith("element vertex"):
-                    n_declared = int(line.split()[-1])
-                elif line.startswith("end_header"):
-                    header = False
-                continue
-            pts.append(line)
+
+    with open(ply_path, "rb") as f:
+        n_declared, binary = 0, False
+        while True:
+            line = f.readline()
+            if not line:
+                return b""
+            if line.startswith(b"format"):
+                binary = b"binary_little_endian" in line
+            elif line.startswith(b"element vertex"):
+                n_declared = int(line.split()[-1])
+            elif line.strip() == b"end_header":
+                break
+        body = f.read()
+
+    if binary:
+        import numpy as np
+        rec = np.frombuffer(body, dtype=np.dtype(
+            [("x", "<f4"), ("y", "<f4"), ("z", "<f4"),
+             ("red", "u1"), ("green", "u1"), ("blue", "u1")]),
+            count=min(n_declared, len(body) // 15))
+        step = max(1, -(-len(rec) // max_points)) if max_points else 1
+        sel = rec[::step]
+        if not align:
+            # already the wire format: no per-point work at all
+            return sel.tobytes()
+        out = bytearray()
+        for r in sel:
+            x, y, z = _apply_enu(float(r["x"]), float(r["y"]), float(r["z"]), *align)
+            out += struct.pack("<fff3B", x, y, z,
+                               int(r["red"]), int(r["green"]), int(r["blue"]))
+        return bytes(out)
+
+    pts = body.splitlines()
     n = n_declared or len(pts)
     # ceil, not floor: floor(715532/400000) == 1 leaves the cap unenforced
     step = max(1, -(-n // max_points)) if max_points else 1

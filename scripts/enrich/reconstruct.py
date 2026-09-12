@@ -513,6 +513,124 @@ def download(sub, imgdir, mask_anon=False, mask_solocator=False):
     return paths
 
 
+# ---------- tiling ----------
+def tile_frames(sub, paths, outdir, grid, overlap, log=log):
+    """Cut every staged frame into an R x C grid of overlapping tiles, each written as its
+    own image, and return (tile_paths, tile_sub) shaped exactly like the inputs.
+
+    WHY TILES ARE IMAGES. MASt3R is trained at a 512 long side, and a 1920x2560 phone frame
+    reaches it downscaled five times over — 96 % of the pixels gone before matching starts.
+    Raising --size does not help, it leaves the training distribution: measured at 768 the
+    same 22 frames go from 1.33 px to 18.11 px. A crop, by contrast, is an ordinary image of
+    a smaller field of view at native detail, which is squarely in distribution.
+
+    Measured on one brandys pair: a 512x512 native crop covering 5.3 % of the frame returned
+    5,056 correspondences where the whole-frame pass puts about 288 on that same ground, and
+    each one is located to about one native pixel rather than five.
+
+    Making tiles ordinary images means the rest of the pipeline needs no notion of them: the
+    content-addressed cache keys them by bytes, masking runs per tile, the solver sees a
+    bigger set of ordinary views. Only PAIRING has to know (see tile_pairs), and only the
+    merge back to one camera, which is not attempted here.
+
+    Each tile carries its parent's sensors and the geometry of its own crop, including the
+    principal point the crop actually has — which is NOT its centre, and which the solver's
+    own estimate will assume it is. That assumption is the thing to measure first.
+    """
+    R, C = grid
+    os.makedirs(outdir, exist_ok=True)
+    tpaths, tsub = [], []
+    for i, (p, src) in enumerate(zip(sub, paths)):
+        im = Image.open(src).convert("RGB")
+        W, H = im.size
+        # overlapping grid: each tile is 1/R (1/C) of the frame, grown by `overlap` on each
+        # side, so neighbouring tiles share a margin for the merge to work with later
+        tw, th = W / C, H / R
+        ow, oh = tw * overlap, th * overlap
+        for r in range(R):
+            for c in range(C):
+                x0 = max(0, int(round(c * tw - ow)));  x1 = min(W, int(round((c + 1) * tw + ow)))
+                y0 = max(0, int(round(r * th - oh)));  y1 = min(H, int(round((r + 1) * th + oh)))
+                tp = os.path.join(outdir, f"{i:03d}_{p['id'][:8]}_r{r}c{c}.jpg")
+                if not os.path.exists(tp):
+                    im.crop((x0, y0, x1, y1)).save(tp, "JPEG", quality=92)
+                q = dict(p)
+                q["parent_idx"] = i
+                q["tile"] = [r, c]
+                q["tile_box"] = [x0, y0, x1, y1]
+                q["parent_wh"] = [W, H]
+                # the crop's true principal point, in ITS OWN pixels: the parent's centre
+                # shifted by the crop origin. Recorded, not yet enforced.
+                q["tile_pp"] = [W / 2.0 - x0, H / 2.0 - y0]
+                tpaths.append(tp)
+                tsub.append(q)
+    log(f"tiling: {len(paths)} frames x {R}x{C} (overlap {overlap:.0%}) -> {len(tpaths)} tiles")
+    return tpaths, tsub
+
+
+def tile_pairs(imgs, tsub, mode, frame_pairs):
+    """Expand pairs of FRAMES into pairs of TILES.
+
+    `frame_pairs` is whatever the ordinary rule produced over parent frames (sliding window,
+    complete, bearing-gated). This only decides which tiles of those two frames to compare,
+    and the modes are deliberately kept side by side so the choice is measured rather than
+    argued:
+
+      all         every tile against every tile. The honest baseline and the only mode that
+                  cannot miss a match; costs tiles-squared per frame pair (3x3 -> 81x).
+      neighbours  same grid position and its eight neighbours, which is where the content
+                  goes when the camera moves half a metre (9 of 9 at 3x3, 9 of 16 at 4x4).
+      same        same grid position only. Cheapest, and wrong the moment the camera turns.
+
+    Tiles of ONE frame are never paired with each other: they share a camera, so their
+    relationship is a fact of the crop, not something to discover by matching.
+    """
+    by_parent = {}
+    for k, q in enumerate(tsub):
+        by_parent.setdefault(q["parent_idx"], []).append(k)
+    out = []
+    seen = set()
+    for a_, b_ in frame_pairs:
+        ia, ib = a_["idx"], b_["idx"]
+        if ia == ib:
+            continue
+        for ka in by_parent.get(ia, []):
+            ra, ca = tsub[ka]["tile"]
+            for kb in by_parent.get(ib, []):
+                rb, cb = tsub[kb]["tile"]
+                if mode == "same" and (ra, ca) != (rb, cb):
+                    continue
+                if mode == "neighbours" and (abs(ra - rb) > 1 or abs(ca - cb) > 1):
+                    continue
+                if (ka, kb) in seen:
+                    continue
+                seen.add((ka, kb))
+                out.append((imgs[ka], imgs[kb]))
+    return out
+
+
+def tile_consistency(poses, tsub, scale_units_per_m):
+    """Tiles of one frame share a camera, so their recovered centres should coincide. How far
+    they do not is a direct read on whether treating a crop as an ordinary view worked —
+    and it needs no merge to measure."""
+    by_parent = {}
+    for k, q in enumerate(tsub):
+        by_parent.setdefault(q["parent_idx"], []).append(k)
+    spreads = []
+    for idxs in by_parent.values():
+        if len(idxs) < 2:
+            continue
+        cs = np.array([poses[k][:3, 3] for k in idxs])
+        spreads.append(float(np.linalg.norm(cs - cs.mean(0), axis=1).max()))
+    if not spreads:
+        return {}
+    sp = np.array(spreads) * float(scale_units_per_m or 1.0)
+    return {"n_frames_measured": len(spreads),
+            "tile_centre_spread_m": {"median": round(float(np.median(sp)), 3),
+                                     "p90": round(float(np.percentile(sp, 90)), 3),
+                                     "max": round(float(sp.max()), 3)}}
+
+
 # ---------- geometry ----------
 def umeyama(src, dst):
     """Similarity transform (scale s, rot R, trans t) mapping src->dst (Nx3). Returns s,R,t."""
@@ -531,16 +649,34 @@ def umeyama(src, dst):
     return s, R, t
 
 
-def write_ply(path, pts, cols):
-    pts = np.asarray(pts); cols = np.asarray(cols)
-    cols = np.clip(cols * (255 if cols.max() <= 1.01 else 1), 0, 255).astype(np.uint8)
-    with open(path, "w") as f:
-        f.write("ply\nformat ascii 1.0\n")
-        f.write(f"element vertex {len(pts)}\n")
-        f.write("property float x\nproperty float y\nproperty float z\n")
-        f.write("property uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n")
-        for (x, y, z), (r, g, b) in zip(pts, cols):
-            f.write(f"{x:.4f} {y:.4f} {z:.4f} {int(r)} {int(g)} {int(b)}\n")
+# Binary, because these files leave the machine. ASCII spends about 90 bytes on a point
+# that binary stores in 15, and a 60-frame dense run ships two of them: 146 MB of PLY
+# becomes about 48. On a rented box billed for bandwidth that is the difference worth
+# having, and nothing reads these by eye. Readers on both sides take either format.
+PLY_HEADER = ("ply\nformat binary_little_endian 1.0\n"
+              "element vertex {n}\n"
+              "property float x\nproperty float y\nproperty float z\n"
+              "property uchar red\nproperty uchar green\nproperty uchar blue\n"
+              "end_header\n")
+
+
+def write_ply(path, pts, cols, binary=True):
+    pts = np.asarray(pts, dtype=np.float32)
+    cols = np.asarray(cols)
+    cols = np.clip(cols * (255 if cols.size and cols.max() <= 1.01 else 1), 0, 255).astype(np.uint8)
+    if not binary:
+        with open(path, "w") as f:
+            f.write(PLY_HEADER.format(n=len(pts)).replace("binary_little_endian", "ascii"))
+            for (x, y, z), (r, g, b) in zip(pts, cols):
+                f.write(f"{x:.4f} {y:.4f} {z:.4f} {int(r)} {int(g)} {int(b)}\n")
+        return
+    rec = np.empty(len(pts), dtype=np.dtype([("x", "<f4"), ("y", "<f4"), ("z", "<f4"),
+                                             ("red", "u1"), ("green", "u1"), ("blue", "u1")]))
+    rec["x"], rec["y"], rec["z"] = pts[:, 0], pts[:, 1], pts[:, 2]
+    rec["red"], rec["green"], rec["blue"] = cols[:, 0], cols[:, 1], cols[:, 2]
+    with open(path, "wb") as f:
+        f.write(PLY_HEADER.format(n=len(pts)).encode("ascii"))
+        f.write(rec.tobytes())
 
 
 def topdown_png(path, pts, cols, cams, size=900):
@@ -771,6 +907,18 @@ def main():
     ap.add_argument("--n", type=int, default=8)
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--win", type=int, default=3, help="sliding-window half-size for pairs")
+    ap.add_argument("--tiles", default="",
+                    help="cut every frame into an RxC grid of overlapping tiles and solve "
+                         "them as ordinary views, e.g. 3x3. Native detail reaches the "
+                         "matcher this way; raising --size does not (768 measured 9x worse "
+                         "than 512 on the same frames). Off by default")
+    ap.add_argument("--tile_overlap", type=float, default=0.15,
+                    help="how far each tile is grown beyond its cell, as a fraction of the "
+                         "cell, so neighbours share a margin")
+    ap.add_argument("--tile_pairs", default="neighbours",
+                    choices=["all", "neighbours", "same"],
+                    help="which tiles of a paired frame to compare: all (tiles-squared, the "
+                         "baseline that cannot miss), neighbours (same cell +/- 1), same")
     ap.add_argument("--adaptive_pairs", action="store_true",
                     help="after measuring the window's links, reach further around the WEAK "
                          "ones (a swing aside to read a sign breaks the chain locally). "
@@ -863,6 +1011,21 @@ def main():
         raise SystemExit("need >=2 images")
     paths = download(sub, os.path.join(a.out, "imgs"),
                      mask_anon=a.mask_anon, mask_solocator=a.mask_solocator)
+
+    # Tiles replace frames as the unit the solver sees. Done here, right after staging, so
+    # everything downstream — content-addressed cache, masking, pairing, solve, dense
+    # extraction — treats them as ordinary images and needs no notion of tiling at all.
+    frame_sub, frame_paths, tile_grid = sub, paths, None
+    if a.tiles:
+        try:
+            R, C = (int(x) for x in a.tiles.lower().split("x"))
+        except ValueError:
+            raise SystemExit(f"--tiles wants RxC, e.g. 3x3 (got {a.tiles!r})")
+        if R < 1 or C < 1 or R * C < 2:
+            raise SystemExit("--tiles must describe at least two tiles")
+        tile_grid = (R, C)
+        paths, sub = tile_frames(frame_sub, frame_paths, os.path.join(a.out, "tiles"),
+                                 tile_grid, a.tile_overlap)
 
     # NB the "loading MASt3R" prefix is a progress marker the worker greps for
     log(f"loading MASt3R model ({a.device})…")
@@ -999,6 +1162,26 @@ def main():
         sg = f"swin-{win}-noncyclic"
         pairs = make_pairs(imgs, scene_graph=sg, prefilter=None, symmetrize=True)
         log(f"pairing={sg} -> {len(pairs)} directed pairs")
+    if tile_grid:
+        # the rule above ran over TILES as if they were frames, which is not what it means;
+        # redo it over parent frames and expand. Tiles of one frame are never paired.
+        seen_parent, parent_imgs = {}, []
+        for im in imgs:
+            pi = sub[im["idx"]]["parent_idx"]
+            if pi not in seen_parent:
+                seen_parent[pi] = dict(im)
+                seen_parent[pi]["idx"] = pi
+                parent_imgs.append(seen_parent[pi])
+        parent_imgs.sort(key=lambda x: x["idx"])
+        if a.pairs == "complete":
+            fp = make_pairs(parent_imgs, scene_graph="complete", prefilter=None, symmetrize=True)
+        else:
+            w = min(a.win, len(parent_imgs) - 1)
+            fp = make_pairs(parent_imgs, scene_graph=f"swin-{w}-noncyclic",
+                            prefilter=None, symmetrize=True)
+        pairs = tile_pairs(imgs, sub, a.tile_pairs, fp)
+        log(f"tile pairing={a.tile_pairs}: {len(fp)} frame pairs -> {len(pairs)} tile pairs")
+
     if not pairs:
         raise SystemExit("no pairs survived the pairing filter — loosen --pair_dist/--pair_dang")
 
@@ -1170,9 +1353,14 @@ def main():
                     sp, sc_ = sp[sel], sc_[sel]
                 write_ply(os.path.join(a.out, "dense_soft.ply"), sp, sc_)
         # full arrays for later review (compressed)
+        # float16 depth and byte colours: this file is an archive for re-joining later,
+        # not a measurement, and both are lossless enough for that at a quarter the size.
+        # float16 holds ~3 significant digits, which on a 30 m depth is centimetres.
         np.savez_compressed(os.path.join(a.out, "dense.npz"),
-                            points=dpts, colors=dcols,
-                            depthmaps=np.array(d_depths, dtype=object),
+                            points=np.asarray(dpts, np.float32),
+                            colors=np.clip(np.asarray(dcols) * (255 if np.size(dcols) and np.max(dcols) <= 1.01 else 1), 0, 255).astype(np.uint8),
+                            depthmaps=np.array([np.asarray(d, np.float16) for d in d_depths],
+                                               dtype=object),
                             poses=poses, focals=focals)
         # cap ascii ply at ~2M pts so it stays openable; keep full set in dense.npz
         if len(dpts) > 2_000_000:
@@ -1230,7 +1418,11 @@ def main():
                  scale=float(s), med_resid=float(np.median(rr)),
                  mean_resid=float(rr.mean()), max_resid=float(rr.max()),
                  corr_dropped=CORR_STATS["dropped"], corr_total=CORR_STATS["total"],
-                 n_masked=len(CORR_MASKS), pair_stats=pair_stats, impostor_resid=inj_resid, topdown=td)
+                 n_masked=len(CORR_MASKS), pair_stats=pair_stats, impostor_resid=inj_resid, topdown=td,
+                 tiles=(dict(grid=list(tile_grid), overlap=a.tile_overlap, mode=a.tile_pairs,
+                             n_frames=len(frame_sub),
+                             **tile_consistency(poses, sub, s))
+                        if tile_grid else None))
     report_html(a.out, sub, (lat0, lon0), cam_ll_gps, cam_ll_rec, resid, stats)
 
     # comprehensive metadata for later review: every input + every recovered quantity
@@ -1246,6 +1438,8 @@ def main():
         "frames": [{
             "idx": i, "id": p["id"], "injected": bool(p.get("inj")),
             "cache_key": CONTENT_KEY.get(paths[i]),
+            **({k: p[k] for k in ("parent_idx", "tile", "tile_box", "parent_wh", "tile_pp")
+                if k in p}),
             "session": p.get("sess"),
             "gps": [p["lat"], p["lon"]], "altitude": p["alt"],
             "compass_angle": p["brg"], "bearing_source": p.get("brg_src"),

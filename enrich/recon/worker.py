@@ -158,7 +158,9 @@ FLAG_PARAMS = {"win": "--win", "pairs": "--pairs", "pair_dist": "--pair_dist",
                "pair_dang": "--pair_dang", "size": "--size",
                "niter1": "--niter1", "niter2": "--niter2",
                "min_conf": "--min_conf",
-               "adaptive_reach": "--adaptive_reach", "adaptive_frac": "--adaptive_frac"}
+               "adaptive_reach": "--adaptive_reach", "adaptive_frac": "--adaptive_frac",
+               "tiles": "--tiles", "tile_overlap": "--tile_overlap",
+               "tile_pairs": "--tile_pairs"}
 BOOL_PARAMS = {"dense": "--dense", "mask_anon": "--mask_anon",
                "mask_solocator": "--mask_solocator",
                "mask_vegetation": "--mask_vegetation",

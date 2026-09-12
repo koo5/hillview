@@ -39,18 +39,27 @@ import numpy as np
 
 
 def read_ply_xyz(path: str, max_points: int = 400_000) -> np.ndarray:
-    """Positions only, from the ASCII PLY reconstruct.py writes, strided to a budget."""
+    """Positions only, strided to a budget. Takes either PLY reconstruct.py has written:
+    ASCII for everything solved before 2026-09-12, binary little-endian after."""
     with open(path, "rb") as f:
-        header, n = [], 0
+        n, binary = 0, False
         while True:
             line = f.readline()
             if not line:
                 return np.zeros((0, 3))
-            header.append(line)
+            if line.startswith(b"format"):
+                binary = b"binary_little_endian" in line
             if line.startswith(b"element vertex"):
                 n = int(line.split()[-1])
             if line.strip() == b"end_header":
                 break
+        if binary:
+            rec = np.frombuffer(f.read(n * 15), dtype=np.dtype(
+                [("x", "<f4"), ("y", "<f4"), ("z", "<f4"),
+                 ("red", "u1"), ("green", "u1"), ("blue", "u1")]), count=n)
+            step = max(1, n // max_points)
+            sel = rec[::step]
+            return np.stack([sel["x"], sel["y"], sel["z"]], axis=1).astype(np.float64)
         step = max(1, n // max_points)
         out = []
         for i, line in enumerate(f):
