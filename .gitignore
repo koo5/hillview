@@ -42,3 +42,6 @@ scripts/enrich/pair_67c6c4b9_4b8cac8a.jpg
 scripts/enrich/pano_calibration.html
 scripts/enrich/r2_match_6ed01a83.html
 scripts/enrich/runs/
+
+# staged by enrich/recon/build.sh at image-build time (copies of other trees)
+enrich/recon/vendor/

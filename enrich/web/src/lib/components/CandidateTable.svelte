@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { api } from '$lib/api';
 	import type { Candidate } from '$lib/types';
 	import { candidateLabel, candidateKind } from '$lib/candidateLabel';
@@ -64,7 +65,7 @@
 						<div class="muted" style="font-size:10px" data-testid="candidate-seeded-from">
 							from
 							{#each c.seeded_from as s, i (s.annotation_id)}
-								{i ? ' · ' : ''}<a href="/annotations/{s.annotation_id}" title="namesake annotation — same label or id= key on another photo">{s.label ?? s.annotation_id.slice(0, 8)}</a>{#if s.photo_title}{' on '}{s.photo_title}{/if}
+								{i ? ' · ' : ''}<a href="{base}/annotations/{s.annotation_id}" title="namesake annotation — same label or id= key on another photo">{s.label ?? s.annotation_id.slice(0, 8)}</a>{#if s.photo_title}{' on '}{s.photo_title}{/if}
 							{/each}
 						</div>
 					{/if}

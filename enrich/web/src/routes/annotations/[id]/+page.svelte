@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import type { AnnotationRow, Candidate, CandidatesResponse } from '$lib/types';
@@ -533,7 +534,7 @@
 			</dl>
 		</Help>
 		{#if currentLabel && currentLabel !== ann.body}<b>{currentLabel}</b>{/if}
-		<a href="/annotations">← back to list</a>
+		<a href="{base}/annotations">← back to list</a>
 		<div style="flex:1"></div>
 		<button onclick={editLabel} title="set the curated label (labelText fact)">✎ label</button>
 		<button
@@ -564,7 +565,7 @@
 						/>
 					{/key}
 				{:else}
-					<a href="/photos/{ann.photo_id}">
+					<a href="{base}/photos/{ann.photo_id}">
 						<PhotoThumb sizes={ann.sizes} size={340} alt={ann.photo_title ?? ''} />
 					</a>
 				{/if}
@@ -572,7 +573,7 @@
 					<tbody>
 						<tr>
 							<td class="muted">photo</td>
-							<td><a href="/photos/{ann.photo_id}" class="mono">{ann.photo_id.slice(0, 8)} →</a></td>
+							<td><a href="{base}/photos/{ann.photo_id}" class="mono">{ann.photo_id.slice(0, 8)} →</a></td>
 						</tr>
 						{#if ann.photo_title}<tr><td class="muted">title</td><td>{ann.photo_title}</td></tr>{/if}
 						{#if ann.place_name}<tr><td class="muted">place</td><td>{ann.place_name}</td></tr>{/if}
@@ -600,7 +601,7 @@
 			<div class="card mono" style="font-size:13px">{ann.body || '(empty)'}</div>
 			{#if proposedBody}
 				<div class="card" style="font-size:12px; border-color:var(--warn)" data-testid="proposed-body">
-					<span class="muted">pending body edit (lands via <a href="/graduation">graduation</a>):</span>
+					<span class="muted">pending body edit (lands via <a href="{base}/graduation">graduation</a>):</span>
 					<div class="mono" style="font-size:12px; margin-top:3px">{proposedBody.value}</div>
 					<div style="margin-top:4px"><FactChip fact={proposedBody} interactive onchange={load} /></div>
 				</div>
@@ -615,7 +616,7 @@
 								<td class="muted mono" style="font-size:11px">{h.depth}</td>
 								<td class="mono" style="font-size:12px">
 									{#if h.id === ann.id}<b>{h.body}</b>{:else}
-										<a href="/annotations/{h.id}">{h.body || '(empty)'}</a>{/if}
+										<a href="{base}/annotations/{h.id}">{h.body || '(empty)'}</a>{/if}
 								</td>
 								<td class="muted" style="font-size:11px">{h.event_type}</td>
 							</tr>
@@ -644,7 +645,7 @@
 						<b>Parsed from the body</b> — a pure-text pass over the annotation body: label,
 						context, embedded wikipedia link / coordinates, an osmap.vfosnar.cz link's
 						poi= object (osmRef) or map centre, a cheap type guess. No external calls. Re-runnable via <i>re-parse</i> above or in bulk from the
-						<a href="/annotations">annotations bench</a>.
+						<a href="{base}/annotations">annotations bench</a>.
 					</p>
 					<p>
 						<b>Anchor candidates</b> — from a geocode run: the label is sent to
@@ -661,8 +662,8 @@
 						real-world anchor — one per annotation: a previously approved one is demoted
 						to rejected, noted "superseded" (same as label edits) — the same act as
 						picking it on the
-						<a href="/geocode">geocode bench's map</a> (two views of the same facts).
-						Every fact links to the run that produced it — see <a href="/runs">runs</a>.
+						<a href="{base}/geocode">geocode bench's map</a> (two views of the same facts).
+						Every fact links to the run that produced it — see <a href="{base}/runs">runs</a>.
 					</p>
 				</div>
 			{/if}
@@ -789,7 +790,7 @@
 				<div class="card" style="font-size:12px; padding:8px 10px" data-testid="namesakes">
 					{#each nms.namesakes as n (n.annotation_id)}
 						<div data-testid="namesake-row" style="margin:3px 0">
-							<a href="/annotations/{n.annotation_id}">{n.label ?? '(unnamed)'}</a>
+							<a href="{base}/annotations/{n.annotation_id}">{n.label ?? '(unnamed)'}</a>
 							{#if n.photo_title}<span class="muted"> on {n.photo_title}</span>{/if}
 							{#if n.same_photo}
 								<span class="pill" style="font-size:10px; margin-left:5px" title="same-photo namesakes are never seeded (that's the transfer bench's job)">same photo</span>
@@ -888,18 +889,18 @@
 	<h2 style="margin-top:16px">
 		POI / triangulation
 		{#if depictsFacts.length}
-			<a href="/triangulate?poi={depictsFacts[0].value.split('/').pop()}" style="font-size:13px; margin-left:10px; text-transform:none">triangulate →</a>
+			<a href="{base}/triangulate?poi={depictsFacts[0].value.split('/').pop()}" style="font-size:13px; margin-left:10px; text-transform:none">triangulate →</a>
 		{/if}
 	</h2>
 	<p class="muted" style="font-size:12px; margin:2px 0 8px">
 		If this annotation and others depict the SAME real-world thing, relate them to one POI —
-		then their sight-rays triangulate its location on the <a href="/triangulate">Triangulate</a> page.
+		then their sight-rays triangulate its location on the <a href="{base}/triangulate">Triangulate</a> page.
 	</p>
 	{#if depictsFacts.length}
 		<div class="card" style="font-size:12px">
 			depicts:
 			{#each depictsFacts as f (f.value)}
-				<a href="/triangulate?poi={f.value.split('/').pop()}" class="mono">
+				<a href="{base}/triangulate?poi={f.value.split('/').pop()}" class="mono">
 					{pois.find((p) => f.value.endsWith(p.poi_id))?.label ?? f.value.split('/').pop()?.slice(0, 8)}
 				</a>{' '}
 			{/each}
@@ -926,7 +927,7 @@
 
 	<h2 style="margin-top:16px">
 		Matching
-		<a href="/matching?annotation={ann.id}" style="font-size:13px; margin-left:10px; text-transform:none">
+		<a href="{base}/matching?annotation={ann.id}" style="font-size:13px; margin-left:10px; text-transform:none">
 			matching bench →
 		</a>
 	</h2>
@@ -936,7 +937,7 @@
 			<tbody>
 				{#each matchResults.slice(0, 8) as m (m.id)}
 					<tr>
-						<td><a href="/photos/{m.photo_id}" class="mono" style="font-size:12px">{m.photo_id.slice(0, 8)}</a></td>
+						<td><a href="{base}/photos/{m.photo_id}" class="mono" style="font-size:12px">{m.photo_id.slice(0, 8)}</a></td>
 						<td style="font-size:12px">
 							{m.status}
 							{#if m.stale_rect}

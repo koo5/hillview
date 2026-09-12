@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
@@ -26,6 +27,22 @@
 		reproj_coverage?: number | null;
 		n_behind_camera?: number | null;
 		gps_residual_m?: { med_resid: number; mean_resid: number; max_resid: number } | null;
+		ground_split?: {
+			camera_height_m: number | null;
+			camera_height_sd_m?: number;
+			stationary?: boolean;
+			neighbour_step_cm?: { median: number; p90: number; max: number; n: number } | null;
+			error?: string;
+		} | null;
+		chain?: {
+			typical_link: number;
+			breaks: number[];
+			spans: [number, number][];
+			verdicts: Record<string, number>;
+			n_cross_session: number;
+			n_cross_verified: number;
+			error?: string;
+		} | null;
 		gps_residual_informative?: boolean;
 		pp_source?: string;
 		pose_source?: string;
@@ -49,6 +66,7 @@
 		} | null;
 	};
 	type Run = {
+		enqueued_at?: string | null;
 		id: string;
 		name: string;
 		source: string;
@@ -59,8 +77,10 @@
 		captured_on: string | null;
 		params: Record<string, unknown>;
 		metrics: Metrics | null;
-		meta: Record<string, unknown> | null;
+		meta?: { stage?: string; rundir?: string; elapsed_s?: number; warning?: string | null; progress?: { done: number; total: number; bar?: number; s_per_it?: number | null; eta_s?: number | null; cpu_s?: number; wall_s?: number } | null; [k: string]: unknown } | null;
 		has_cloud: boolean;
+		has_dense_cloud?: boolean;
+		has_soft_cloud?: boolean;
 		has_topdown: boolean;
 		has_pairs_matrix: boolean;
 	};
@@ -75,6 +95,11 @@
 	};
 	type Frame = {
 		idx: number;
+		thumb?: string | null;
+		pending?: boolean;
+		captured_at?: string | null;
+		camera?: string | null;
+		compass_angle?: number | null;
 		id: string;
 		focal_px: number;
 		base_focal_px: number;
@@ -84,6 +109,34 @@
 		injected?: boolean;
 	};
 	type Detail = Run & {
+		frames_pending?: boolean;
+		group?: {
+			parent: string;
+			members: { id: string; name: string; status: string; span: [number, number] | null; reproj: number | null }[];
+		};
+		joins?: {
+			reference: string;
+			reference_id: string;
+			applied: boolean;
+			at?: string;
+			turn?: {
+				trust?: string;
+				why?: string;
+				yaw_geometric_deg?: number;
+				yaw_gravity_safe_deg?: number;
+				tilt_geometric_deg?: number;
+				yaw_gps_deg?: number;
+				yaw_compass_deg?: number | null;
+				compass_se_deg?: number;
+			};
+			fit?: {
+				yaw_deg?: number;
+				scale?: number;
+				residual_m?: { median?: number };
+				free_rotation_residual_m?: { median?: number };
+			};
+			consensus?: { pairs_in_consensus?: number; pairs_considered?: number };
+		}[];
 		frames: Frame[];
 		pairs: Pair[];
 		worst_pairs: { i: number; j: number; metric: string; median_px: number; n_corres: number }[];
@@ -109,7 +162,111 @@
 	let metric = $state<'reproj' | 'epipolar'>('reproj');
 	let selPair = $state<string | null>(null);
 	let selFrame = $state<number | null>(null);
-	let showDense = $state(false);
+	// dense by default where it exists: the sparse cloud is anchor points only and reads as
+	// spray, which is what made these clouds look nonsensical
+	let showDense = $state(true);
+	// Frames table sort: click a header to cycle asc / desc / off. "Which frame drifted"
+	// is a scan down the reprojection column otherwise, and fifty rows is a long scan.
+	type FrameKey = 'idx' | 'reproj_px' | 'epipolar_px' | 'residual_m' | 'focal_px' | 'captured_at';
+	let frameSort = $state<{ key: FrameKey; dir: 1 | -1 } | null>(null);
+	function cycleFrameSort(key: FrameKey) {
+		if (!frameSort || frameSort.key !== key) frameSort = { key, dir: -1 };
+		else if (frameSort.dir === -1) frameSort = { key, dir: 1 };
+		else frameSort = null;
+	}
+	function sortArrow(key: FrameKey) {
+		return frameSort?.key === key ? (frameSort.dir === -1 ? ' ▼' : ' ▲') : '';
+	}
+	const sortedFrames = $derived.by(() => {
+		const fs = detail?.frames ?? [];
+		if (!frameSort) return fs;
+		const { key, dir } = frameSort;
+		return [...fs].sort((a, b) => {
+			const va = (a as Record<string, unknown>)[key];
+			const vb = (b as Record<string, unknown>)[key];
+			if (va == null && vb == null) return 0;
+			if (va == null) return 1; // nulls last either way
+			if (vb == null) return -1;
+			return (va < vb ? -1 : va > vb ? 1 : 0) * dir;
+		});
+	});
+	let showMap = $state(true);
+	let showPhotos = $state(false);
+	let showSoft = $state(false);
+	// group members overlaid in the cloud viewer, by run id
+	let overlay = $state<Record<string, boolean>>({});
+	const TINTS = [0xff6b6b, 0x4dd0e1, 0xffd54f, 0xba68c8, 0x81c784, 0xff8a65, 0x64b5f6, 0xf06292];
+	// everything ticked for overlay, from this walk's spans AND from other walks nearby:
+	// the area view is the point of the exercise, one walk is just the first case of it
+	type Nearby = {
+		id: string;
+		name: string;
+		n_frames: number | null;
+		distance_m: number;
+		reproj: number | null;
+		ground_cm: number | null;
+		joined: boolean;
+		finished: string | null;
+		parent: string | null;
+	};
+	let nearby = $state<Nearby[]>([]);
+	let nearbyRadius = $state(300);
+	let nearbyBusy = $state(false);
+	async function loadNearby() {
+		if (!detail) return;
+		nearbyBusy = true;
+		try {
+			const r = await fetch(`${apiBase}/recon/runs/${detail.id}/nearby?radius_m=${nearbyRadius}`);
+			nearby = r.ok ? ((await r.json()).runs ?? []) : [];
+		} catch {
+			nearby = [];
+		} finally {
+			nearbyBusy = false;
+		}
+	}
+	const extraRuns = $derived(
+		[
+			...(detail?.group?.members ?? []).filter(
+				(m) => m.id !== detail?.id && overlay[m.id] && m.status === 'done'
+			),
+			...nearby.filter((n) => overlay[n.id] && !(detail?.group?.members ?? []).some((m) => m.id === n.id))
+		].map((m, i) => ({ id: m.id, tint: TINTS[i % TINTS.length], label: m.name }))
+	);
+	let splitting = $state(false);
+	async function splitIntoSpans() {
+		if (!detail?.metrics?.chain?.spans?.length) return;
+		splitting = true;
+		try {
+			const r = await fetch(`${apiBase}/recon/runs/${detail.id}/split`, {
+				method: 'POST', headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ params: detail.params ?? {} })
+			});
+			if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+			await loadRuns();
+			await loadDetail(detail.id);
+		} catch (e) {
+			err = e instanceof Error ? e.message : String(e);
+		} finally {
+			splitting = false;
+		}
+	}
+	// …but do NOT mount the viewer until it is actually on screen. A dense cloud is
+	// hundreds of thousands of points and a WebGL context; eagerly loading one per run
+	// visit made the page heavy enough to crash a headless tab.
+	let cloudVisible = $state(false);
+	function watchCloud(node: HTMLElement) {
+		const io = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((e) => e.isIntersecting)) {
+					cloudVisible = true;
+					io.disconnect();
+				}
+			},
+			{ rootMargin: '200px' }
+		);
+		io.observe(node);
+		return { destroy: () => io.disconnect() };
+	}
 
 	// --- new run ---------------------------------------------------------------
 	// Defaults are the Prosek walk centre — the site every experiment so far used.
@@ -190,7 +347,7 @@
 			const r = await api.post<{ queued: string; name: string }>('/recon/runs', body());
 			previewed = null;
 			await loadRuns();
-			goto(`/recon?run=${encodeURIComponent(r.name)}`, { noScroll: true });
+			goto(`${base}/recon?run=${encodeURIComponent(r.name)}`, { noScroll: true });
 		} catch (e) {
 			err = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
 		} finally {
@@ -198,16 +355,26 @@
 		}
 	}
 
-	// runs sorted by structure, not by date: the whole point is that this ordering
-	// differs from the GPS one, so the list itself should show the structure ranking.
+	// Most recent first by default: with a queue of multi-hour jobs, the question the
+	// list answers most often is "what did I just start, and how is it doing". The
+	// structure ranking — the ordering that deliberately differs from the GPS one — is a
+	// toggle away, and the tests pin it.
+	let sortBy = $state<'recent' | 'structure'>('recent');
 	const sorted = $derived(
-		[...runs].sort((a, b) => (rp(a) ?? Infinity) - (rp(b) ?? Infinity))
+		sortBy === 'structure'
+			? [...runs].sort((a, b) => (rp(a) ?? Infinity) - (rp(b) ?? Infinity))
+			: [...runs].sort((a, b) => (b.enqueued_at ?? '').localeCompare(a.enqueued_at ?? ''))
 	);
 	function rp(r: Run): number | null {
 		return r.metrics?.reproj_px?.median ?? null;
 	}
 	function ep(r: Run): number | null {
 		return r.metrics?.epipolar_px?.median ?? null;
+	}
+	function fmtEta(sec: number): string {
+		if (sec < 90) return `${Math.round(sec)} s`;
+		if (sec < 5400) return `${Math.round(sec / 60)} min`;
+		return `${(sec / 3600).toFixed(1)} h`;
 	}
 	function fmtPx(v: number | null | undefined): string {
 		if (v == null) return '—';
@@ -239,7 +406,7 @@
 	}
 
 	function select(r: Run) {
-		goto(`/recon?run=${encodeURIComponent(r.name)}`, { noScroll: true, keepFocus: true });
+		goto(`${base}/recon?run=${encodeURIComponent(r.name)}`, { noScroll: true, keepFocus: true });
 	}
 
 	// URL is the state: ?run=<name> deep-links a run (shareable next to the field notes)
@@ -459,6 +626,15 @@
 
 <div class="cols">
 	<div class="runlist card">
+		<div class="seg listsort">
+			<button class:on={sortBy === 'recent'} onclick={() => (sortBy = 'recent')}
+				data-testid="recon-sort-recent">recent</button
+			>
+			<button class:on={sortBy === 'structure'} onclick={() => (sortBy = 'structure')}
+				title="ranked by reprojection error, best first"
+				data-testid="recon-sort-structure">structure</button
+			>
+		</div>
 		<table>
 			<thead>
 				<tr><th>run</th><th class="num">frames</th><th class="num">reproj px</th></tr>
@@ -470,7 +646,7 @@
 						data-run={r.name}
 						class:sel={detail?.id === r.id}
 						onclick={() => select(r)}
-						title="{r.n_pairs} pairs · GPS residual {r.metrics?.gps_residual_m?.med_resid ?? '—'} m"
+						title="{r.n_pairs} pairs · GPS residual {r.metrics?.gps_residual_m?.med_resid ?? '—'} m{r.meta?.progress?.cpu_s != null ? ` · cpu ${fmtEta(r.meta.progress.cpu_s)} / wall ${fmtEta(r.meta.progress.wall_s ?? 0)}` : ''}"
 					>
 						<td>
 							<b>{r.name}</b>
@@ -478,8 +654,15 @@
 								{#if r.status !== 'done'}
 									<span class="st" class:bad={r.status === 'error'}
 										>{r.status}{#if r.status === 'running' && r.meta?.stage}
-											· {r.meta.stage}{/if}</span
+											· {r.meta.stage}{/if}{#if r.status === 'running' && r.meta?.progress?.total}
+											· {r.meta.progress.done}/{r.meta.progress.total}{#if r.meta.progress.eta_s != null}
+												· ETA {fmtEta(r.meta.progress.eta_s)}{/if}{/if}</span
 									>
+									{#if r.meta?.warning}
+										<span class="st warn" title={r.meta.warning} data-testid="recon-run-warning"
+											>⚠ {r.meta.warning}</span
+										>
+									{/if}
 								{:else}
 									{r.captured_on ?? ''}
 								{/if}
@@ -545,6 +728,37 @@
 							{/if}
 						</span>
 					</div>
+					{#if m.ground_split && !m.ground_split.error}
+						<div class="stat" data-testid="recon-stat-ground"
+							title="where two neighbouring frames see the same patch of ground, how far apart do they put it? A flat plaza solves to under a centimetre; a staircase of tiles reads as tens">
+							<span class="lbl">ground agreement</span>
+							<span class="val"
+								>{m.ground_split.neighbour_step_cm?.median?.toFixed(1) ?? '—'}<small>cm</small></span
+							>
+							<span class="ctx">
+								p90 {m.ground_split.neighbour_step_cm?.p90?.toFixed(0) ?? '—'} cm · camera
+								{m.ground_split.camera_height_m?.toFixed(2) ?? '—'} m above its floor
+							</span>
+						</div>
+					{/if}
+					{#if m.chain && !m.chain.error}
+						<div class="stat" data-testid="recon-stat-chain"
+							title="consecutive frames judged on their own two-view geometry, independent of the solve; a break is a link an order of magnitude weaker than the run's typical one">
+							<span class="lbl">chain</span>
+							<span class="val">{m.chain.spans?.length ?? 1}<small>span{(m.chain.spans?.length ?? 1) === 1 ? '' : 's'}</small></span>
+							<span class="ctx">
+								{#if m.chain.breaks?.length}breaks after {m.chain.breaks.join(', ')}{:else}holds throughout{/if}
+								{#if m.chain.n_cross_session}
+									· {m.chain.n_cross_verified}/{m.chain.n_cross_session} cross-session links verified{/if}
+							</span>
+							{#if m.chain.breaks?.length && !detail.group?.members?.length}
+								<button class="tiny" disabled={splitting} onclick={splitIntoSpans}
+									title="enqueue each span as its own run, solved alone; the group overlays in the viewer"
+									data-testid="recon-split">split into {m.chain.spans.length} spans</button
+								>
+							{/if}
+						</div>
+					{/if}
 					<div class="stat" data-testid="recon-stat-coverage">
 						<span class="lbl">coverage</span>
 						<span class="val"
@@ -733,36 +947,82 @@
 			{/if}
 
 			<div class="card">
-				<h3>Frames</h3>
+				<div class="secthead">
+					<h3>Frames</h3>
+					{#if detail.frames_pending}
+						<span class="st" data-testid="recon-frames-pending"
+							>selected, not yet solved — judge the cluster here before the hours are spent</span
+						>
+					{/if}
+				</div>
+				<div class="strip" data-testid="recon-frame-strip">
+					{#each detail.frames as f (f.idx)}
+						<button
+							class="thumbbtn"
+							class:sel={selFrame === f.idx}
+							title="frame {f.idx} · {f.captured_at ?? ''}"
+							onclick={() => (selFrame = selFrame === f.idx ? null : f.idx)}
+						>
+							{#if f.thumb}
+								<img src={f.thumb} alt="frame {f.idx}" loading="lazy" />
+							{:else}
+								<span class="muted small">{f.idx}</span>
+							{/if}
+							<span class="idx">{f.idx}</span>
+						</button>
+					{/each}
+				</div>
 				<div class="tblwrap">
 					<table>
 						<thead>
 							<tr>
-								<th class="num">#</th>
+								<th class="num sortable" onclick={() => cycleFrameSort('idx')}>#{sortArrow('idx')}</th>
 								<th>photo</th>
-								<th class="num">reproj px</th>
-								<th class="num">epipolar px</th>
-								<th class="num">GPS resid m</th>
-								<th class="num">focal px</th>
+								{#if detail.frames_pending}
+									<th class="sortable" onclick={() => cycleFrameSort('captured_at')}
+										>captured{sortArrow('captured_at')}</th
+									>
+									<th>camera</th>
+									<th class="num">compass</th>
+								{:else}
+									<th class="num sortable" onclick={() => cycleFrameSort('reproj_px')}
+										data-testid="recon-frames-sort-reproj">reproj px{sortArrow('reproj_px')}</th
+									>
+									<th class="num sortable" onclick={() => cycleFrameSort('epipolar_px')}
+										>epipolar px{sortArrow('epipolar_px')}</th
+									>
+									<th class="num sortable" onclick={() => cycleFrameSort('residual_m')}
+										>GPS resid m{sortArrow('residual_m')}</th
+									>
+									<th class="num sortable" onclick={() => cycleFrameSort('focal_px')}
+										>focal px{sortArrow('focal_px')}</th
+									>
+								{/if}
 							</tr>
 						</thead>
 						<tbody>
-							{#each detail.frames as f (f.idx)}
+							{#each sortedFrames as f (f.idx)}
 								<tr
 									class:sel={selFrame === f.idx}
 									onclick={() => (selFrame = selFrame === f.idx ? null : f.idx)}
 								>
 									<td class="num">{f.idx}</td>
 									<td>
-										<a href="/photos/{f.id}" title="open the photo record">{f.id.slice(0, 8)}</a>
+										<a href="{base}/photos/{f.id}" title="open the photo record">{f.id.slice(0, 8)}</a>
 										{#if f.injected}<span class="st" title="injected impostor — excluded from the GPS alignment fit"
 												>impostor</span
 											>{/if}
 									</td>
-									<td class="num">{fmtPx(f.reproj_px)}</td>
-									<td class="num">{fmtPx(f.epipolar_px)}</td>
-									<td class="num">{f.residual_m ?? '—'}</td>
-									<td class="num">{f.focal_px?.toFixed(0) ?? '—'}</td>
+									{#if detail.frames_pending}
+										<td>{f.captured_at?.slice(0, 19) ?? '—'}</td>
+										<td class="small">{f.camera ?? '—'}</td>
+										<td class="num">{f.compass_angle?.toFixed(0) ?? '—'}°</td>
+									{:else}
+										<td class="num">{fmtPx(f.reproj_px)}</td>
+										<td class="num">{fmtPx(f.epipolar_px)}</td>
+										<td class="num">{f.residual_m ?? '—'}</td>
+										<td class="num">{f.focal_px?.toFixed(0) ?? '—'}</td>
+									{/if}
 								</tr>
 							{/each}
 						</tbody>
@@ -771,21 +1031,217 @@
 			</div>
 
 			{#if detail.has_cloud}
+				<div class="card" data-testid="recon-nearby">
+					<div class="row" style="gap:8px; align-items:baseline">
+						<h3>This area</h3>
+						<label class="muted small">
+							within
+							<input
+								type="number"
+								min="50"
+								max="2000"
+								step="50"
+								bind:value={nearbyRadius}
+								style="width:70px"
+							/> m
+						</label>
+						<button class="tiny" disabled={nearbyBusy} onclick={loadNearby}>
+							{nearbyBusy ? 'looking…' : nearby.length ? 'refresh' : 'find other runs here'}
+						</button>
+					</div>
+					<p class="muted small">
+						Every other solved run centred near this one. Tick to draw it in the same
+						metres-east/north/up frame, tinted: several walks through one place, seen together,
+						is how a join is actually judged.
+					</p>
+					{#if nearby.length}
+						<div class="tblwrap">
+							<table>
+								<thead>
+									<tr>
+										<th></th><th>run</th><th class="num">m away</th><th class="num">frames</th>
+										<th class="num">reproj px</th><th class="num">ground cm</th><th>solved</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each nearby as n, i (n.id)}
+										<tr>
+											<td>
+												<input
+													type="checkbox"
+													bind:checked={overlay[n.id]}
+													data-testid="overlay-nearby"
+													style="accent-color: #{TINTS[i % TINTS.length]
+														.toString(16)
+														.padStart(6, '0')}"
+												/>
+											</td>
+											<td>
+												<a href="{base}/recon?run={encodeURIComponent(n.name)}">{n.name}</a>
+												{#if n.joined}<span class="pill ok" title="this run carries a recorded join">joined</span>{/if}
+											</td>
+											<td class="num">{n.distance_m}</td>
+											<td class="num">{n.n_frames ?? '—'}</td>
+											<td class="num">{n.reproj ?? '—'}</td>
+											<td class="num">{n.ground_cm ?? '—'}</td>
+											<td class="muted small">{n.finished ?? ''}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			{#if detail.joins?.length}
+				<div class="card" data-testid="recon-joins">
+					<h3>Joins</h3>
+					<p class="muted small">
+						How this span was tied to another one, and on whose word. Each span is aligned to
+						ENU against its own GPS, so GPS always votes "do not turn"; the geometry of the
+						frames the two spans share votes separately, and the compass — which owes nothing
+						to either — decides. A join may turn a span and rescale it, never tip it.
+					</p>
+					<div class="tblwrap">
+						<table>
+							<thead>
+								<tr>
+									<th>reference</th><th class="num">GPS</th><th class="num">geometry</th>
+									<th class="num">compass</th><th class="num">applied turn</th>
+									<th class="num">fit resid</th><th>verdict</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each detail.joins as j (j.reference_id)}
+									<tr>
+										<td><a href="{base}/recon?run={encodeURIComponent(j.reference)}">{j.reference}</a></td>
+										<td class="num">0°</td>
+										<td class="num" title="free rotation, before gravity was re-imposed">
+											{j.turn?.yaw_geometric_deg ?? '—'}°{#if j.turn?.tilt_geometric_deg}
+												<span class="muted small"> +{j.turn.tilt_geometric_deg}° tilt</span>
+											{/if}
+										</td>
+										<td class="num">
+											{j.turn?.yaw_compass_deg ?? '—'}°{#if j.turn?.compass_se_deg}
+												<span class="muted small"> ±{j.turn.compass_se_deg}</span>
+											{/if}
+										</td>
+										<td class="num">{j.fit?.yaw_deg ?? '—'}°</td>
+										<td class="num">
+											{j.fit?.residual_m?.median ?? '—'} m
+											{#if j.fit?.free_rotation_residual_m?.median}
+												<span class="muted small">(free {j.fit.free_rotation_residual_m.median})</span>
+											{/if}
+										</td>
+										<td>
+											<span class="pill {j.applied ? 'ok' : ''}"
+												>{j.applied ? `applied · ${j.turn?.trust ?? ''}` : 'refused'}</span
+											>
+										</td>
+									</tr>
+									<tr>
+										<td colspan="7" class="muted small">{j.turn?.why ?? ''}{#if j.consensus}
+												 · consensus of {j.consensus.pairs_in_consensus}/{j.consensus.pairs_considered} cross pairs
+											{/if}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				</div>
+			{/if}
+
+			{#if detail.group?.members?.length}
+				<div class="card" data-testid="recon-group">
+					<h3>Spans</h3>
+					<p class="muted small">
+						This walk was split at its chain breaks and each span solved alone, in the same
+						metres-east/north/up frame. Tick a span to overlay it, tinted, in the cloud below.
+					</p>
+					<div class="tblwrap">
+						<table>
+							<thead><tr><th></th><th>span</th><th>frames</th><th>status</th><th class="num">reproj px</th></tr></thead>
+							<tbody>
+								{#each detail.group.members as mbr, i (mbr.id)}
+									<tr>
+										<td>
+											{#if mbr.id !== detail.id && mbr.status === 'done'}
+												<input type="checkbox" bind:checked={overlay[mbr.id]}
+													style="accent-color: #{TINTS[i % TINTS.length].toString(16).padStart(6, '0')}" />
+											{/if}
+										</td>
+										<td><a href="{base}/recon?run={encodeURIComponent(mbr.name)}">{mbr.name}</a></td>
+										<td>{mbr.span ? `${mbr.span[0]}–${mbr.span[1]}` : '—'}</td>
+										<td>{mbr.status}</td>
+										<td class="num">{mbr.reproj ?? '—'}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				</div>
+			{/if}
+
+			{#if detail.has_cloud}
 				<div class="card">
 					<div class="secthead">
 						<h3>Point cloud</h3>
 						<div class="seg">
 							<button class:on={!showDense} onclick={() => (showDense = false)}>sparse</button>
-							<button class:on={showDense} onclick={() => (showDense = true)}>dense</button>
+							<button
+								class:on={showDense && !!detail.has_dense_cloud}
+								disabled={!detail.has_dense_cloud}
+								title={detail.has_dense_cloud
+									? 'per-pixel depth — the readable one'
+									: 'this run was solved without --dense'}
+								onclick={() => (showDense = true)}>dense</button
+							>
 						</div>
+						<label class="mapchk">
+							<input type="checkbox" bind:checked={showMap} /> OSM map
+						</label>
+						<label class="mapchk" title="hang each photograph in its own frustum, at the pose the solve gave it">
+							<input type="checkbox" bind:checked={showPhotos} /> photos
+						</label>
+						{#if detail.has_soft_cloud}
+							<label
+								class="mapchk"
+								title="the second pass: foliage, sky and movers painted back through the depth the structures fixed. Drawn, never measured"
+							>
+								<input type="checkbox" bind:checked={showSoft} data-testid="toggle-soft" /> foliage
+							</label>
+						{/if}
 					</div>
-					{#key `${detail.id}-${showDense}`}
-						<ReconCloudViewer runId={detail.id} dense={showDense} />
-					{/key}
+					<div use:watchCloud>
+						{#if cloudVisible}
+							<!-- keyed on the run and on which cloud is served, because those change the data the
+									viewer is built from. NOT on the layer toggles: those are handled in
+									place so a checkbox never costs you your viewpoint. -->
+								{#key `${detail.id}-${showDense && !!detail.has_dense_cloud}`}
+								<ReconCloudViewer
+									runId={detail.id}
+									dense={showDense && !!detail.has_dense_cloud}
+									{showMap}
+									{showPhotos}
+									{showSoft}
+									{extraRuns}
+								/>
+							{/key}
+						{:else}
+							<button class="loadcloud" onclick={() => (cloudVisible = true)}
+								>load point cloud</button
+							>
+						{/if}
+					</div>
 					<p class="muted small">
+						In real-world metres, GPS-aligned: <b>Z is up, +Y is north</b>, grid squares are 5 m.
 						Cameras are drawn as frusta from the solved poses — a collapsed run shows them piled
-						together, and an injected impostor (amber) sits where the real ones do not. Dense is
-						only available for runs solved with <code>dense</code>.
+						together, and an injected impostor (amber) sits where the real ones do not.
+						{#if !detail.has_dense_cloud}
+							This run has no dense cloud; the sparse one is anchor points only and reads as
+							spray.
+						{/if}
 					</p>
 				</div>
 			{/if}
@@ -925,6 +1381,74 @@
 		align-items: center;
 		gap: 4px;
 	}
+	th.sortable {
+		cursor: pointer;
+		user-select: none;
+		white-space: nowrap;
+	}
+	th.sortable:hover {
+		text-decoration: underline;
+	}
+	.st.warn {
+		color: #e0a23a;
+		max-width: 26em;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		display: inline-block;
+		vertical-align: bottom;
+	}
+	.listsort {
+		padding: 6px 8px 2px;
+	}
+	.strip {
+		display: flex;
+		gap: 4px;
+		overflow-x: auto;
+		padding: 6px 2px 8px;
+	}
+	.thumbbtn {
+		position: relative;
+		flex: 0 0 auto;
+		padding: 0;
+		border: 2px solid transparent;
+		border-radius: 5px;
+		background: none;
+		cursor: pointer;
+		line-height: 0;
+	}
+	.thumbbtn img {
+		height: 84px;
+		width: auto;
+		border-radius: 3px;
+		display: block;
+	}
+	.thumbbtn.sel {
+		border-color: #e0a23a;
+	}
+	.thumbbtn .idx {
+		position: absolute;
+		left: 3px;
+		bottom: 3px;
+		font-size: 10px;
+		line-height: 1;
+		padding: 1px 4px;
+		border-radius: 3px;
+		background: rgba(0, 0, 0, 0.6);
+		color: #eee;
+	}
+	button.tiny {
+		font-size: 11px;
+		padding: 1px 7px;
+		margin-top: 4px;
+	}
+	.mapchk {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 12px;
+		margin-left: 10px;
+	}
 	.seg button {
 		font-size: 12px;
 		padding: 2px 9px;
@@ -967,6 +1491,12 @@
 	}
 	.err {
 		color: #e06c6c;
+	}
+	.loadcloud {
+		width: 100%;
+		height: 120px;
+		font-size: 13px;
+		opacity: 0.7;
 	}
 	.errbox {
 		font-size: 12px;

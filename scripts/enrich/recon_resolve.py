@@ -50,14 +50,10 @@ def cached_pair_indices(rundir, keys):
     """Ordered (i, j) pairs that were actually solved, read off the corres cache."""
     idx = {k: i for i, k in enumerate(keys)}
     out = set()
-    for d in glob.glob(os.path.join(rundir, "cache", "corres_conf=*")):
-        for f in glob.glob(os.path.join(d, "*.pth")):
-            name = os.path.splitext(os.path.basename(f))[0]
-            if "-" not in name:
-                continue
-            h1, h2 = name.split("-", 1)
-            if h1 in idx and h2 in idx:
-                out.add((idx[h1], idx[h2]))
+    for name, _f in RM.corres_files(rundir):
+        h1, h2 = name.split("-", 1)
+        if h1 in idx and h2 in idx:
+            out.add((idx[h1], idx[h2]))
     return sorted(out)
 
 
@@ -77,7 +73,15 @@ def resolve(rundir, want_depth=False, device="cpu"):
             f"Run this from {HERE} so the run-time relative paths resolve.")
 
     keys = RM.frame_keys(meta)
+    if meta.get("pairs"):
+        # since 2026-09-10 the metadata records the solved pairs; the shared cache can
+        # hold more pairs between these frames than this solve used
+        solved_pairs = [tuple(p) for p in meta["pairs"]]
+    else:
+        solved_pairs = None
     cached = set(cached_pair_indices(rundir, keys))
+    if solved_pairs:
+        cached &= set(solved_pairs)
     if not cached:
         raise SystemExit(f"{rundir}: no resolvable correspondence cache — nothing to re-solve")
 

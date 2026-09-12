@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -478,10 +479,10 @@
 	<div style="flex:1; min-width:520px">
 		{#if sel && data}
 			<div class="row" style="margin-bottom:6px">
-				<a href="/photos/{sel.id}"><PhotoThumb sizes={data.photo.sizes} size={70} /></a>
+				<a href="{base}/photos/{sel.id}"><PhotoThumb sizes={data.photo.sizes} size={70} /></a>
 				<div>
 					<b>{data.photo.title ?? sel.id.slice(0, 8)}</b>
-					<a href="/photos/{sel.id}" style="font-size:12px; margin-left:8px">photo page →</a>
+					<a href="{base}/photos/{sel.id}" style="font-size:12px; margin-left:8px">photo page →</a>
 					<div class="muted" style="font-size:12px">
 						stored compass {f1(data.photo.compass_angle)}° ·
 						{usableRows.length}/{data.rows.length} anchors usable
@@ -579,7 +580,7 @@
 								/>
 							</td>
 							<td style="max-width:260px">
-								<a href="/annotations/{r.annotation_id}" style="font-size:12px">{r.body || '(unnamed)'}</a>
+								<a href="{base}/annotations/{r.annotation_id}" style="font-size:12px">{r.body || '(unnamed)'}</a>
 								{#if r.anchor}
 									<div class="muted" style="font-size:10px">
 										{r.anchor.displayName ?? r.anchor.candidate.replace('https://', '')}

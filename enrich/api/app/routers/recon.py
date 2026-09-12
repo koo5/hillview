@@ -16,6 +16,7 @@ rather than on every list.
 """
 import datetime
 import json
+import math
 import os
 import shutil
 import tempfile
@@ -40,7 +41,10 @@ WORKER_TOKEN = os.getenv("ENRICH_WORKER_TOKEN", "dev-worker-token")
 # left here is solver and masking behaviour. Mirrored in the worker (defense both ends).
 ALLOWED_PARAMS = {"win", "pairs", "pair_dist", "pair_dang", "size",
                   "niter1", "niter2", "dense", "min_conf",
-                  "mask_anon", "mask_solocator", "shared_intrinsics"}
+                  "mask_anon", "mask_solocator", "mask_vegetation", "semantic_mask",
+                  "semantic_budget", "shared_intrinsics",
+                  "adaptive_pairs", "adaptive_reach", "adaptive_frac",
+                  "tiles", "tile_overlap", "tile_pairs", "tile_pin_pp"}
 
 # Where the archived experiment runs live. Import copies out of here; nothing writes to it.
 ARCHIVE_ROOT = os.getenv(
@@ -55,6 +59,7 @@ ARTIFACT_FILES = {
     "metadata_path": "metadata.json",
     "metrics_path": "metrics.json",
     "cloud_path": "points.ply",
+    "dense_cloud_path": "dense.ply",
     "topdown_path": "topdown.png",
     "pairs_matrix_path": "pairs_matrix.png",
 }
@@ -73,7 +78,18 @@ SUMMARY_KEYS = ("reproj_px", "epipolar_px", "reproj_px_median_of_pairs",
                 "n_injected", "real_only_reproj_px", "real_only_epipolar_px",
                 "impostors",
                 # how far this cluster's baseline can actually constrain depth
-                "depth_horizon")
+                "depth_horizon",
+                # multi-session fusion: whether cross-visit pairs were even attempted, and
+                # how they compare with pairs inside one visit. Without these in the row,
+                # the one question the bench exists to answer needs an artifact fetch.
+                "n_sessions", "sessions",
+                "n_pairs_within_session", "n_pairs_cross_session",
+                "n_corres_within_session", "n_corres_cross_session",
+                "within_session_reproj_px", "cross_session_reproj_px",
+                "within_session_epipolar_px", "cross_session_epipolar_px",
+                # the physical checks the worker attaches: ground agreement in cm and
+                # the two-view chain with its breaks -- see docs/reconstruction-field-notes.md
+                "ground_split", "chain")
 
 
 def _artifact_abspath(rel: str) -> str:
@@ -99,6 +115,7 @@ async def list_runs(limit: int = 100):
             "cloud_path IS NOT NULL AS has_cloud, "
             "topdown_path IS NOT NULL AS has_topdown, "
             "pairs_matrix_path IS NOT NULL AS has_pairs_matrix, "
+            "dense_cloud_path IS NOT NULL AS has_dense_cloud, "
             "metrics_path IS NOT NULL AS has_metrics, "
             "worker, enqueued_at, finished_at "
             "FROM recon_runs ORDER BY enqueued_at DESC, name LIMIT :lim"),
@@ -129,6 +146,10 @@ async def get_run(run_id: str):
         "has_cloud": bool(row["cloud_path"]),
         "has_topdown": bool(row["topdown_path"]),
         "has_pairs_matrix": bool(row["pairs_matrix_path"]),
+        "has_dense_cloud": bool(row["dense_cloud_path"]),
+        "has_soft_cloud": bool(row["dense_cloud_path"]) and os.path.exists(
+            os.path.join(os.path.dirname(_artifact_abspath(row["dense_cloud_path"])),
+                         "dense_soft.ply")),
         "has_metrics": bool(row["metrics_path"]),
         "has_log": bool(row["log_path"]),
     }
@@ -159,6 +180,67 @@ async def get_run(run_id: str):
                               for i in sorted(by_idx)]}
         except (OSError, json.JSONDecodeError, KeyError):
             geo = None
+    # No artifacts yet? The row still knows its frames. Serve them in the same shape,
+    # flagged pending, and give the track map their GPS so the cluster can be judged
+    # on the map before a single pair has been matched.
+    meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
+    pending = meta.get("frames")
+    if not frames and not pending and meta.get("spec") and row["status"] in ("queued", "running"):
+        # runs enqueued before the frame list was kept on the row: the selection is a
+        # deterministic query over the mirror, so re-running its spec reproduces it
+        try:
+            sp = meta["spec"]
+            req = EnqueueRequest(lat=sp["center"][0], lon=sp["center"][1],
+                                 radius_m=sp.get("radius_m", 300), limit=sp.get("limit", 24),
+                                 offset=sp.get("offset", 0), stride=sp.get("stride", 1),
+                                 after=sp.get("after"), before=sp.get("before"),
+                                 inject=sp.get("inject") or [], params=sp.get("params") or {})
+            pending = [_pending_frame(i, f) for i, f in enumerate(await _select_frames(req))]
+        except Exception as e:                   # a bad old spec must not 500 the page
+            out["frames_note"] = f"could not re-derive frames: {type(e).__name__}: {e}"
+    if not frames and pending:
+        frames = [dict(f, pending=True) for f in pending]
+        out["frames_pending"] = True
+        if geo is None:
+            geo = {"center": (meta.get("spec") or {}).get("center"),
+                   "frames": [{"idx": f["idx"], "id": f["id"],
+                               "captured_at": f.get("captured_at"),
+                               "gps": f.get("gps"), "recovered_gps": None,
+                               "focal_px": None} for f in pending]}
+    # a thumbnail per frame, for every run: "is this cluster worth solving" and "which
+    # frame drifted" are both questions you answer by looking at the photograph
+    ids = [f["id"] for f in frames if f.get("id")]
+    if ids:
+        imgs = await _frame_images(ids, "320")
+        bsrc = await _frame_bearing_sources(ids)
+        for f in frames:
+            info = imgs.get(f.get("id")) or {}
+            f["thumb"] = info.get("image_url")
+            f["bearing_source"] = bsrc.get(f.get("id"))
+            f["bearing_is_compass"] = bearing_is_compass(f["bearing_source"])
+    # the group this run belongs to: its spans (children), or its siblings via the parent
+    parent = meta.get("parent")
+    async with wb_engine.connect() as conn:
+        kids = (await conn.execute(text(
+            "SELECT id, name, status, meta->'span' AS span, "
+            "  round((metrics->'reproj_px'->>'median')::numeric, 2) AS reproj "
+            "FROM recon_runs WHERE meta->>'parent' = :p ORDER BY (meta->'span'->>0)::int"),
+            {"p": parent or rid})).mappings().all()
+    out["group"] = {"parent": parent or rid,
+                    "members": [dict(k) | {"id": str(k["id"])} for k in kids]}
+    # how this run was tied to another one, and by what evidence. Kept whether the join
+    # was applied or refused: an operator judging an area later needs both.
+    joins = meta.get("joins") or {}
+    if joins:
+        async with wb_engine.connect() as conn:
+            names = dict((str(r["id"]), r["name"]) for r in (await conn.execute(text(
+                "SELECT id, name FROM recon_runs WHERE CAST(id AS text) = ANY(:ids)"),
+                {"ids": list(joins.keys())})).mappings().all())
+        out["joins"] = [{"reference": names.get(k, k), "reference_id": k,
+                         "applied": bool(v.get("applied")),
+                         "turn": v.get("turn"), "fit": v.get("yaw_only_join"),
+                         "consensus": v.get("consensus"), "at": v.get("at")}
+                        for k, v in joins.items()]
     out["frames"] = frames
     out["pairs"] = pairs
     out["worst_pairs"] = worst
@@ -195,27 +277,74 @@ async def cloud_artifact(run_id: str, request: Request):
     return FileResponse(path, media_type="application/octet-stream")
 
 
-def _ply_to_packed(ply_path: str, max_points: int) -> bytes:
-    """ASCII PLY -> packed little-endian [float32 x,y,z][uint8 r,g,b] per point.
+def _alignment(run_dir_metadata: str):
+    """The run's similarity to GPS-ENU: (scale, R, t) with p_enu = s * (R @ p) + t.
 
-    The viewer cannot eat the PLY directly at these sizes: reconstruct.py writes ASCII, so
-    a 700 k-point sparse cloud is ~65 MB and a dense one runs to hundreds. Packed, a point
-    costs 15 bytes instead of ~90, and gzip takes it further. Points beyond max_points are
-    dropped by even stride rather than truncation, so a downsampled cloud still covers the
-    whole scene instead of half of it.
+    reconstruct.py fits this over the real (non-impostor) cameras, so it is already the
+    map from arbitrary solve coordinates into metres east / north / up. Applying it is
+    what turns an unreadable blob into a scene you can judge: buildings stand up, the
+    ground is flat, north is a direction, and a metre is a metre.
+    """
+    with open(run_dir_metadata) as f:
+        md = json.load(f)
+    a = md.get("alignment") or {}
+    s, R, t = a.get("scale_units_per_m"), a.get("R"), a.get("t")
+    if not s or not R or not t:
+        return None
+    return float(s), R, t
+
+
+def _apply_enu(x, y, z, s, R, t):
+    return (s * (R[0][0] * x + R[0][1] * y + R[0][2] * z) + t[0],
+            s * (R[1][0] * x + R[1][1] * y + R[1][2] * z) + t[1],
+            s * (R[2][0] * x + R[2][1] * y + R[2][2] * z) + t[2])
+
+
+def _ply_to_packed(ply_path: str, max_points: int, align=None) -> bytes:
+    """PLY -> packed little-endian [float32 x,y,z][uint8 r,g,b] per point.
+
+    The viewer cannot eat the PLY directly at these sizes. Runs solved before 2026-09-12
+    are ASCII, at ~90 bytes a point, so a 700 k-point sparse cloud is ~65 MB and a dense
+    one runs to hundreds; after that date they are binary little-endian in the very layout
+    this function emits, so the conversion is a stride and an optional transform. Either is
+    accepted. Points beyond max_points are dropped by even stride rather than truncation,
+    so a downsampled cloud still covers the whole scene instead of half of it.
     """
     import struct
-    header, pts = True, []
-    n_declared = 0
-    with open(ply_path) as f:
-        for line in f:
-            if header:
-                if line.startswith("element vertex"):
-                    n_declared = int(line.split()[-1])
-                elif line.startswith("end_header"):
-                    header = False
-                continue
-            pts.append(line)
+
+    with open(ply_path, "rb") as f:
+        n_declared, binary = 0, False
+        while True:
+            line = f.readline()
+            if not line:
+                return b""
+            if line.startswith(b"format"):
+                binary = b"binary_little_endian" in line
+            elif line.startswith(b"element vertex"):
+                n_declared = int(line.split()[-1])
+            elif line.strip() == b"end_header":
+                break
+        body = f.read()
+
+    if binary:
+        import numpy as np
+        rec = np.frombuffer(body, dtype=np.dtype(
+            [("x", "<f4"), ("y", "<f4"), ("z", "<f4"),
+             ("red", "u1"), ("green", "u1"), ("blue", "u1")]),
+            count=min(n_declared, len(body) // 15))
+        step = max(1, -(-len(rec) // max_points)) if max_points else 1
+        sel = rec[::step]
+        if not align:
+            # already the wire format: no per-point work at all
+            return sel.tobytes()
+        out = bytearray()
+        for r in sel:
+            x, y, z = _apply_enu(float(r["x"]), float(r["y"]), float(r["z"]), *align)
+            out += struct.pack("<fff3B", x, y, z,
+                               int(r["red"]), int(r["green"]), int(r["blue"]))
+        return bytes(out)
+
+    pts = body.splitlines()
     n = n_declared or len(pts)
     # ceil, not floor: floor(715532/400000) == 1 leaves the cap unenforced
     step = max(1, -(-n // max_points)) if max_points else 1
@@ -224,49 +353,511 @@ def _ply_to_packed(ply_path: str, max_points: int) -> bytes:
         p = pts[i].split()
         if len(p) < 6:
             continue
-        out += struct.pack("<fff3B", float(p[0]), float(p[1]), float(p[2]),
+        x, y, z = float(p[0]), float(p[1]), float(p[2])
+        if align:
+            x, y, z = _apply_enu(x, y, z, *align)
+        out += struct.pack("<fff3B", x, y, z,
                            int(float(p[3])), int(float(p[4])), int(float(p[5])))
     return bytes(out)
 
 
 @router.get("/recon/runs/{run_id}/cloud.bin")
 async def cloud_packed(run_id: str, request: Request, max_points: int = 1_500_000,
-                       dense: bool = False):
+                       dense: bool = False, enu: bool = True, soft: bool = False):
     """The point cloud in the viewer's format, converted on first request and cached.
 
     Cached beside the artifact because the conversion is a full parse of a many-megabyte
     text file — fine once, not per page load.
     """
-    col = "cloud_path"
-    path = await _artifact(run_id, col)
-    src = path
-    if dense:
-        cand = os.path.join(os.path.dirname(path), "dense.ply")
-        if os.path.exists(cand):
-            src = cand
-    cache = f"{src}.{max_points}.bin"
+    src = None
+    if soft:
+        # the SECOND pass: transient classes (foliage, sky, movers) painted back through
+        # the depth the structures already fixed. It has no column of its own because it
+        # is not evidence — it lives beside the dense cloud and is served only on request.
+        try:
+            src = os.path.join(os.path.dirname(await _artifact(run_id, "dense_cloud_path")),
+                               "dense_soft.ply")
+        except HTTPException:
+            src = None
+        if not (src and os.path.exists(src)):
+            raise HTTPException(404, "run has no soft (foliage) cloud")
+    if src is None and dense:
+        # the real dense cloud, if this run shipped one; falling back silently is what
+        # hid the bug for weeks, so say so in a header instead
+        try:
+            src = await _artifact(run_id, "dense_cloud_path")
+        except HTTPException:
+            src = None
+    served_dense = src is not None and not soft
+    if src is None:
+        src = await _artifact(run_id, "cloud_path")
+    align = None
+    if enu:
+        try:
+            align = _alignment(await _artifact(run_id, "metadata_path"))
+        except (HTTPException, OSError, json.JSONDecodeError):
+            align = None
+    # The cache key MUST carry the alignment. It did not, and re-grounding a run then left
+    # a stale ENU cloud on disk beside freshly-rotated cameras — the frusta flew off on
+    # their own path while the points stayed where the old fit had put them, which is
+    # exactly what it looked like from the outside.
+    tag = ""
+    if align:
+        import hashlib
+        tag = ".enu-" + hashlib.md5(
+            json.dumps(align, sort_keys=True, default=list).encode()).hexdigest()[:10]
+    cache = f"{src}.{max_points}{tag}.bin"
     if not os.path.exists(cache):
-        _write_atomic(cache, _ply_to_packed(src, max_points))
+        _write_atomic(cache, _ply_to_packed(src, max_points, align))
     return FileResponse(cache, media_type="application/octet-stream",
-                        headers={"X-Point-Stride": "15"})
+                        headers={"X-Point-Stride": "15",
+                                 "X-Cloud": "soft" if soft else "dense" if served_dense else "sparse",
+                                 "X-Frame-Of-Reference": "enu-metres" if align else "solve"})
+
+
+# How a photo's stored bearing was obtained, straight from the capture app's UserComment.
+# Every mode is the user's best shot at the REAL bearing of the shot, and the stored value
+# is the only bearing that photo has. The app switches between them deliberately:
+#
+#   walking mode  the compass, read per frame
+#   car mode      the GPS travel direction plus a SHOOTING OFFSET the user sets once —
+#                 how you photograph sideways out of a moving car (`gps-kalman`)
+#   by hand       an arrow dragged on a map (`arrow_drag`, `map`)
+#
+# None is a lesser claim than the others and none is discarded. The mode is recorded
+# because the ERROR CHARACTER differs, and differs usefully: a compass frame carries hard
+# iron and per-frame noise, while a car-mode frame carries a constant offset over a travel
+# direction that is only as good as the vehicle's motion — poor when slow, stopped or
+# turning, which GPS speed would reveal. Which mode to believe is decided per span by how
+# well its own frames agree (recon_join_spans.bearing_offset), never by a ranking here.
+COMPASS_BEARING_SOURCES = ("compass-true", "compass-magnetic", "absolute-compass")
+
+
+def bearing_is_compass(src: str | None) -> bool:
+    return bool(src) and any(k in src for k in COMPASS_BEARING_SOURCES)
+
+
+async def _frame_bearing_sources(ids: list[str]) -> dict[str, str | None]:
+    """{photo id: bearing_source}, from the capture app's UserComment JSON."""
+    if not ids:
+        return {}
+    async with wb_engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT id, exif_data->'data'->>'UserComment' AS uc FROM photo_mirror "
+            "WHERE id = ANY(:ids)"), {"ids": ids})).mappings().all()
+    out: dict[str, str | None] = {}
+    for r in rows:
+        src = None
+        uc = r["uc"] or ""
+        if uc.startswith("{"):
+            try:
+                src = (json.loads(uc) or {}).get("bearing_source")
+            except json.JSONDecodeError:
+                src = None
+        out[r["id"]] = src
+    return out
+
+
+async def _frame_images(ids: list[str], size: str) -> dict[str, dict]:
+    """Photo URL + loaded pixel size for each frame, from the mirror.
+
+    The frustum's shape is fixed by `focal_px`, which is measured in the pixels the
+    SOLVER saw — the image resized so its long side is `args.size`. So to hang the actual
+    photograph in the frustum we need those same numbers, not the original dimensions.
+    """
+    if not ids:
+        return {}
+    async with wb_engine.begin() as conn:
+        rows = (await conn.execute(text(
+            "SELECT id, width, height, sizes FROM photo_mirror WHERE id = ANY(:ids)"),
+            {"ids": ids})).mappings().all()
+    out = {}
+    for r in rows:
+        sizes = r["sizes"] or {}
+        url = ((sizes.get(size) or sizes.get("640") or sizes.get("320") or {}) or {}).get("url")
+        out[r["id"]] = {"image_url": url, "width": r["width"], "height": r["height"]}
+    return out
 
 
 @router.get("/recon/runs/{run_id}/cameras")
-async def cameras(run_id: str):
+async def cameras(run_id: str, enu: bool = True, images: bool = False,
+                  image_size: str = "320"):
     """Camera poses + focals for drawing frusta, straight from metadata.json.
 
     scene.npz is not uploaded, but metadata.json carries pose_cam2world and focal_px per
-    frame, which is everything a frustum needs.
+    frame, which is everything a frustum needs. In `enu` mode the poses come back in the
+    same metres-east/north/up frame as the cloud, so the two line up and the whole scene
+    can be judged against the real world.
     """
     path = await _artifact(run_id, "metadata_path")
     with open(path) as f:
         md = json.load(f)
-    return {"frames": [{"idx": fr["idx"], "id": fr.get("id"),
-                        "pose": fr.get("pose_cam2world"),
-                        "focal_px": fr.get("focal_px"),
-                        "injected": bool(fr.get("injected"))}
-                       for fr in (md.get("frames") or [])
-                       if fr.get("pose_cam2world")]}
+    align = _alignment(path) if enu else None
+    frames = md.get("frames") or []
+    imgs = {}
+    long_side = None
+    if images:
+        imgs = await _frame_images([f["id"] for f in frames if f.get("id")], image_size)
+        try:
+            long_side = float((md.get("args") or {}).get("size") or 512)
+        except (TypeError, ValueError):
+            long_side = 512.0
+    out = []
+    for fr in frames:
+        p = fr.get("pose_cam2world")
+        if not p:
+            continue
+        pos = [p[0][3], p[1][3], p[2][3]]
+        rot = [[p[r][c] for c in range(3)] for r in range(3)]
+        if align:
+            s_, R_, t_ = align
+            pos = list(_apply_enu(pos[0], pos[1], pos[2], s_, R_, t_))
+            # rotate the orientation too, but WITHOUT the scale: a frustum's axes must
+            # stay orthonormal or it renders as a sheared box
+            rot = [[sum(R_[r][k] * rot[k][c] for k in range(3)) for c in range(3)]
+                   for r in range(3)]
+        rec = {"idx": fr["idx"], "id": fr.get("id"),
+               "pos": pos, "rot": rot,
+               "pose": p,
+               "focal_px": fr.get("focal_px"),
+               "session": fr.get("session"),
+               "captured_at": fr.get("captured_at"),
+               "injected": bool(fr.get("injected"))}
+        if images:
+            info = imgs.get(fr.get("id")) or {}
+            rec["image_url"] = info.get("image_url")
+            w, h = info.get("width"), info.get("height")
+            if w and h and long_side:
+                k = long_side / max(w, h)
+                # what the solver actually loaded, and therefore the frame focal_px lives in
+                rec["img_w"], rec["img_h"] = round(w * k), round(h * k)
+        out.append(rec)
+    return {"frames": out, "frame_of_reference": "enu-metres" if align else "solve",
+            "center": md.get("center")}
+
+
+# ---------------------------------------------------------------- map layer
+# Overpass is the only source of building footprints we have (there is no local OSM
+# import), so the answer is cached next to the run's other artifacts: a spot's map does
+# not change between page loads, and the bench must stay usable when Overpass is slow or
+# rate-limiting. Cache key is the run id, because the ENU frame it is baked into is the
+# run's own.
+OVERPASS_URL = os.getenv("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
+MAP_RADIUS_M = int(os.getenv("RECON_MAP_RADIUS_M", "300"))
+# fallback storey height for footprints tagged with neither height nor building:levels
+DEFAULT_STOREY_M = 3.2
+DEFAULT_BUILDING_H = 7.0
+
+
+def _osm_height(tags: dict) -> tuple[float, str]:
+    """Metres, and where the number came from — the viewer says so, because an extruded
+    default is a guess and must not read as surveyed truth."""
+    h = tags.get("height") or tags.get("building:height")
+    if h:
+        try:
+            return float(str(h).split()[0]), "height"
+        except ValueError:
+            pass
+    lev = tags.get("building:levels")
+    if lev:
+        try:
+            return DEFAULT_STOREY_M * float(str(lev).split(";")[0]), "levels"
+        except ValueError:
+            pass
+    return DEFAULT_BUILDING_H, "default"
+
+
+async def _overpass(lat: float, lon: float, radius: int) -> dict:
+    import httpx
+    q = (f"[out:json][timeout:60];("
+         f'way["building"](around:{radius},{lat},{lon});'
+         f'way["barrier"="retaining_wall"](around:{radius},{lat},{lon});'
+         f'way["highway"](around:{radius},{lat},{lon});'
+         f");out geom;")
+    async with httpx.AsyncClient(timeout=90,
+                                 headers={"User-Agent": "hillview-enrich/0.3"}) as c:
+        r = await c.post(OVERPASS_URL, data={"data": q})
+        r.raise_for_status()
+        return r.json()
+
+
+@router.get("/recon/runs/{run_id}/nearby")
+async def nearby_runs(run_id: str, radius_m: float = 300.0):
+    """Other solved runs whose centre is within `radius_m` of this one's.
+
+    The end of this workstream is not one walk: it is every walk through an area, each
+    solved in spans, rendered together so a person or an operator model can see how they
+    sit against each other and against the map. This is the list that feeds that view.
+    Distance is between run CENTRES, which is what a run is anchored on; a long walk may
+    reach outside the circle and still belong in it.
+    """
+    rid = str(uuid.UUID(run_id))
+    async with wb_engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT id, name, status, n_frames, meta->'spec'->'center' AS centre, "
+            "  meta->>'parent' AS parent, "
+            "  dense_cloud_path IS NOT NULL AS has_dense_cloud, "
+            "  round((metrics->'reproj_px'->>'median')::numeric, 2) AS reproj, "
+            "  round((metrics->'ground_split'->'neighbour_step_cm'->>'median')::numeric, 1) "
+            "    AS ground_cm, "
+            "  (meta->'joins') IS NOT NULL AS joined, "
+            "  to_char(finished_at, 'YYYY-MM-DD') AS finished "
+            "FROM recon_runs WHERE status = 'done' AND cloud_path IS NOT NULL"))).mappings().all()
+    me = next((r for r in rows if str(r["id"]) == rid), None)
+    if not me or not me["centre"]:
+        raise HTTPException(404, "run has no centre")
+    lat0, lon0 = float(me["centre"][0]), float(me["centre"][1])
+    kx = 111320.0 * math.cos(math.radians(lat0))
+    out = []
+    for r in rows:
+        if str(r["id"]) == rid or not r["centre"]:
+            continue
+        d = math.hypot((float(r["centre"][1]) - lon0) * kx,
+                       (float(r["centre"][0]) - lat0) * 110540.0)
+        if d <= radius_m:
+            out.append(dict(r) | {"id": str(r["id"]), "distance_m": round(d, 1)})
+    out.sort(key=lambda x: x["distance_m"])
+    return {"centre": [lat0, lon0], "radius_m": radius_m, "runs": out}
+
+
+@router.post("/recon/runs/{run_id}/realign")
+async def realign(run_id: str, dry_run: bool = False):
+    """Re-fit the run's solve->ENU alignment with gravity pinned.
+
+    The alignment `reconstruct.py` writes is a 7-DoF Umeyama of the camera centres against
+    GPS. Along a straight walk the centres are collinear and the roll about the walk axis
+    is unobservable, so the whole world comes out tipped on its side. This recomputes the
+    fit with up taken from the reconstruction itself (see app/recon_ground.py) and writes
+    it back into metadata.json, keeping the original as `alignment_gps` so the change is
+    reversible and auditable.
+
+    Everything downstream — cloud.bin, /cameras, /map — reads `alignment`, so one call
+    re-grounds the whole run.
+    """
+    import numpy as np
+
+    from .. import recon_ground as rg
+
+    md_path = await _artifact(run_id, "metadata_path")
+    with open(md_path) as f:
+        md = json.load(f)
+    frames = md.get("frames") or []
+    if not frames:
+        raise HTTPException(400, "run has no frames")
+    base = md.get("alignment_gps") or md.get("alignment") or {}
+    if not base.get("R"):
+        raise HTTPException(400, "run has no alignment to re-fit")
+
+    poses = np.array([f["pose_cam2world"] for f in frames], dtype=float)
+    cams = poses[:, :3, 3]
+    rots = poses[:, :3, :3]
+    real = np.array([not f.get("injected") for f in frames])
+
+    lat0, lon0 = md["center"]
+    kx = 111320.0 * math.cos(math.radians(lat0))
+    ky = 110540.0
+    alt0 = float(base.get("alt0") or 0.0)
+    gps = np.array([[(f["gps"][1] - lon0) * kx, (f["gps"][0] - lat0) * ky,
+                     (f["altitude"] - alt0) if f.get("altitude") is not None else 0.0]
+                    for f in frames], dtype=float)
+
+    cloud_path = await _artifact(run_id, "cloud_path")
+    pts = rg.read_ply_xyz(cloud_path)
+    ev = rg.estimate_up(pts, cams[real], rots[real],
+                        float(base.get("scale_units_per_m") or 1.0))
+    if not ev["up"]:
+        return {"ok": False, "reason": "no usable up estimate", "ground": ev}
+
+    s, R, t = rg.gravity_alignment(cams[real], gps[real], np.array(ev["up"], dtype=float))
+    old_up = np.array(base["R"], dtype=float).T @ np.array([0.0, 0.0, 1.0])
+    new_up = np.array(ev["up"], dtype=float)
+    old_up /= np.linalg.norm(old_up)
+    correction = float(np.degrees(math.acos(
+        max(-1.0, min(1.0, float(old_up @ new_up))))))
+    # how badly conditioned the GPS-only fit was, i.e. how much this was needed
+    c = cams[real] - cams[real].mean(0)
+    sv = np.linalg.svd(c, compute_uv=False)
+    linearity = float(sv[1] / sv[0]) if sv[0] > 0 else 0.0
+
+    resid = np.linalg.norm(
+        ((s * (R @ cams[real].T)).T + t)[:, :2] - gps[real][:, :2], axis=1)
+    old = base
+    old_resid = np.linalg.norm(
+        ((old["scale_units_per_m"] * (np.array(old["R"]) @ cams[real].T)).T
+         + np.array(old["t"]))[:, :2] - gps[real][:, :2], axis=1)
+    out = {"ok": True, "ground": ev,
+           "roll_correction_deg": round(correction, 2),
+           "camera_track_linearity": round(linearity, 4),
+           "scale_units_per_m": {"was": old["scale_units_per_m"], "now": s},
+           "gps_residual_m": {"was": round(float(np.median(old_resid)), 3),
+                              "now": round(float(np.median(resid)), 3)},
+           "dry_run": dry_run}
+    if dry_run:
+        return out
+    md.setdefault("alignment_gps", base)
+    md["alignment"] = {"scale_units_per_m": float(s), "R": R.tolist(), "t": t.tolist(),
+                       "alt0": alt0, "up_source": ev["up_source"],
+                       "roll_correction_deg": round(correction, 2)}
+    md["ground"] = ev
+    _write_atomic(md_path, json.dumps(md, indent=2).encode())
+    # every packed cloud cached under the OLD alignment is now wrong; the key change makes
+    # them unreachable, so remove them rather than leave dead megabytes behind
+    import glob as _glob
+    removed = 0
+    for col in ("cloud_path", "dense_cloud_path"):
+        try:
+            p = await _artifact(run_id, col)
+        except HTTPException:
+            continue
+        for f in _glob.glob(f"{p}.*.bin"):
+            try:
+                os.remove(f)
+                removed += 1
+            except OSError:
+                pass
+    out["stale_caches_removed"] = removed
+    return out
+
+
+class AlignmentRequest(BaseModel):
+    scale_units_per_m: float | None = None
+    R: list[list[float]] | None = None
+    t: list[float] | None = None
+    alt0: float | None = None
+    source: str = "external"
+    # what the alignment was derived from, kept on the run row whether or not it was
+    # applied: the operator judging a joined area later needs the evidence, including
+    # for the joins that were REFUSED and why
+    evidence: dict | None = None
+    reference: str | None = None
+    apply: bool = True
+
+
+@router.post("/recon/runs/{run_id}/alignment")
+async def set_alignment(run_id: str, req: AlignmentRequest):
+    """Replace a run's solve->ENU alignment with one computed elsewhere.
+
+    `realign` re-fits against this run's own GPS. This takes an alignment the caller
+    derived from something better — today, `recon_join_spans.py` registering this span
+    against a reference span through the geometry they share, which on the bridge walk
+    disagreed with the GPS fit by 66 degrees. The original is preserved as
+    `alignment_gps` exactly as realign does, so it stays reversible, and `alignment_source`
+    records where the new one came from.
+    """
+    rid = str(uuid.UUID(run_id))
+    if req.evidence is not None:
+        # recorded first, and regardless: a refused join is a finding too
+        async with wb_engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE recon_runs SET meta = COALESCE(meta, '{}'::jsonb) || "
+                "  jsonb_build_object('joins', COALESCE(meta->'joins', '{}'::jsonb) || "
+                "  CAST(:j AS jsonb)) WHERE id = CAST(:id AS uuid)"),
+                {"id": rid, "j": json.dumps({(req.reference or req.source): {
+                    **req.evidence, "applied": bool(req.apply and req.R),
+                    "at": datetime.datetime.now(datetime.UTC).isoformat()}})})
+    if not req.apply or not req.R or req.scale_units_per_m is None or req.t is None:
+        return {"ok": True, "recorded": req.evidence is not None, "applied": False}
+
+    md_path = await _artifact(run_id, "metadata_path")
+    with open(md_path) as f:
+        md = json.load(f)
+    base = md.get("alignment") or {}
+    if not md.get("alignment_gps") and base.get("R"):
+        md["alignment_gps"] = base
+    md["alignment"] = {"scale_units_per_m": float(req.scale_units_per_m),
+                       "R": req.R, "t": req.t,
+                       "alt0": float(req.alt0 if req.alt0 is not None
+                                     else (base.get("alt0") or 0.0)),
+                       "source": req.source}
+    md["alignment_source"] = req.source
+    _write_atomic(md_path, json.dumps(md, indent=2).encode())
+    import glob as _glob
+    removed = 0
+    for col in ("cloud_path", "dense_cloud_path"):
+        try:
+            p = await _artifact(run_id, col)
+        except HTTPException:
+            continue
+        for f in _glob.glob(f"{p}.*.bin"):
+            try:
+                os.remove(f); removed += 1
+            except OSError:
+                pass
+        # the foliage pass caches beside the dense cloud and has no column of its own
+        for f in _glob.glob(os.path.join(os.path.dirname(p), "dense_soft.ply.*.bin")):
+            try:
+                os.remove(f); removed += 1
+            except OSError:
+                pass
+    return {"ok": True, "source": req.source, "applied": True,
+            "stale_caches_removed": removed, "alignment": md["alignment"]}
+
+
+@router.get("/recon/runs/{run_id}/map")
+async def map_layer(run_id: str, refresh: bool = False):
+    """OSM footprints for this run's area, in the SAME metres-east/north/up frame as
+    the cloud and the cameras.
+
+    This is the far half of the model. MASt3R reconstructs what the cameras could see
+    with a real baseline — here, the near field — and gives low confidence to the
+    buildings behind it; the map already knows where those buildings are. Drawing both
+    in one frame is what makes a solve judgeable: the cloud either lands on the map or
+    it does not.
+    """
+    md_path = await _artifact(run_id, "metadata_path")
+    with open(md_path) as f:
+        md = json.load(f)
+    centre = md.get("center")
+    if not centre:
+        raise HTTPException(404, "run has no center")
+    lat0, lon0 = float(centre[0]), float(centre[1])
+
+    rel = os.path.join("recon", str(uuid.UUID(run_id)), "osm.json")
+    cache = _artifact_abspath(rel)
+    raw = None
+    if not refresh and os.path.exists(cache):
+        with open(cache) as f:
+            raw = json.load(f)
+    if raw is None:
+        try:
+            raw = await _overpass(lat0, lon0, MAP_RADIUS_M)
+        except Exception as e:                       # a dead Overpass must not 500 the page
+            raise HTTPException(502, f"overpass unavailable: {type(e).__name__}: {e}")
+        _write_atomic(cache, json.dumps(raw).encode())
+
+    # local ENU metres about the run centre — the same linearisation reconstruct.py uses
+    kx = 111320.0 * math.cos(math.radians(lat0))
+    ky = 110540.0
+
+    def en(p):
+        return [(p["lon"] - lon0) * kx, (p["lat"] - lat0) * ky]
+
+    buildings, walls, roads = [], [], []
+    for e in raw.get("elements", []):
+        g = e.get("geometry") or []
+        if len(g) < 2:
+            continue
+        tags = e.get("tags") or {}
+        ring = [en(p) for p in g]
+        if "building" in tags:
+            h, src = _osm_height(tags)
+            buildings.append({"id": e.get("id"), "ring": ring, "height_m": h,
+                              "height_source": src,
+                              "name": tags.get("name"), "kind": tags["building"]})
+        elif tags.get("barrier") == "retaining_wall":
+            walls.append({"id": e.get("id"), "line": ring})
+        elif tags.get("highway") in ("primary", "secondary", "tertiary", "residential",
+                                     "pedestrian", "living_street", "unclassified"):
+            roads.append({"id": e.get("id"), "line": ring,
+                          "name": tags.get("name"), "kind": tags["highway"]})
+
+    # Ground level in the run's own vertical datum: the cameras sit at U ~ 0 because the
+    # alignment puts them at mean GPS altitude, so the pavement is a person-height below.
+    align = _alignment(md_path)
+    return {"center": [lat0, lon0], "frame_of_reference": "enu-metres",
+            "radius_m": MAP_RADIUS_M, "cached": os.path.exists(cache),
+            "scale_units_per_m": align[0] if align else None,
+            "buildings": buildings, "walls": walls, "roads": roads}
 
 
 @router.get("/recon/runs/{run_id}/topdown")
@@ -293,7 +884,118 @@ class EnqueueRequest(BaseModel):
     after: str | None = None         # capture-time window, 'YYYY-MM-DD HH:MM:SS'
     before: str | None = None
     inject: list[str] = []           # photo ids to add as impostors (Doppelganger test)
+    # --- multi-session selection -------------------------------------------------
+    # Real captures are dirty: a session swings around, and one area accumulates many
+    # independent visits months apart. Fusing those is the open question, so selection
+    # has to be able to say "N frames from each of M sessions" rather than "the first N
+    # frames in time", which would just take one session and stop.
+    session_gap_s: float = 150       # a gap longer than this starts a new session
+    per_session: int | None = None   # cap per session, strided so coverage is kept
+    max_sessions: int | None = None  # keep the largest N sessions
     params: dict = {}
+    # An explicit frame list overrides the spatial/temporal selection. This is how a
+    # span of a broken walk becomes its own run: the parent's chain report names the
+    # frames, and they are solved alone rather than beside the frames they cannot see.
+    frame_ids: list[str] | None = None
+    parent: str | None = None        # run id this was split from, for grouping
+    span: list[int] | None = None    # [first, last] frame index in the parent
+
+
+def _sessionize(rows, gap_s: float) -> list[str]:
+    """Label each row with the capture session it belongs to.
+
+    A session is one continuous capture from one DEVICE: same client key, no gap longer
+    than `gap_s`. Device matters because two people can shoot the same corner at once,
+    and the time gap is what separates "kept walking" from "came back in August".
+    Rows must already be ordered by captured_at.
+    """
+    counters: dict[str, int] = {}
+    last: dict[str, datetime.datetime] = {}
+    labels = []
+    for r in rows:
+        dev = r["client_public_key_id"] or f"owner:{r['owner_id']}"
+        t = r["captured_at"]
+        prev = last.get(dev)
+        if prev is None or t is None or (t - prev).total_seconds() > gap_s:
+            counters[dev] = counters.get(dev, 0) + 1
+        if t is not None:
+            last[dev] = t
+        labels.append(f"{str(dev)[:12]}#{counters[dev]}")
+    return labels
+
+
+def _pick_sessions(rows, labels, per_session: int | None, max_sessions: int | None):
+    """Balance the selection across sessions instead of letting the biggest one win.
+
+    Within a session frames are taken by even stride, not head-truncated: a session's
+    value is its coverage of the place, and the first N frames are only its first few
+    seconds.
+    """
+    groups: dict[str, list] = {}
+    for r, lab in zip(rows, labels):
+        groups.setdefault(lab, []).append(r)
+    order = sorted(groups, key=lambda k: (-len(groups[k]), k))
+    if max_sessions:
+        order = order[:max_sessions]
+    out = []
+    for lab in order:
+        g = groups[lab]
+        if per_session and len(g) > per_session:
+            step = len(g) / per_session
+            g = [g[int(i * step)] for i in range(per_session)]
+        out += [(r, lab) for r in g]
+    out.sort(key=lambda rl: (rl[0]["captured_at"] or datetime.datetime.min, str(rl[0]["id"])))
+    return out
+
+
+# Measured on this box: 204-pair dense runs took 1919 s and 1721 s => ~9 s per directed
+# pair, dominated by the MASt3R forward passes. Rough, but the difference between "20
+# minutes" and "six hours" is the decision the number has to support.
+SECONDS_PER_PAIR = float(os.getenv("RECON_SECONDS_PER_PAIR", "9"))
+
+
+def _estimate_pairs(frames: list[dict], params: dict) -> dict:
+    """How many pairs this selection would actually solve, per pairing mode.
+
+    Worth knowing BEFORE queueing, because the modes differ by orders of magnitude and
+    only some of them can link sessions at all:
+      swin     — sliding window over capture time. Cheap, and structurally UNABLE to pair
+                 two sessions: it only ever connects temporally adjacent frames.
+      complete — every ordered pair. Links everything, cost grows as n².
+      bearing  — complete, then gated on being close together AND pointing a similar way.
+                 This is the one for fusing independent visits to a place.
+    """
+    n = len(frames)
+    mode = str(params.get("pairs") or "swin")
+    win = int(params.get("win") or 4)
+    pair_dist = float(params.get("pair_dist") or 80)
+    pair_dang = float(params.get("pair_dang") or 110)
+    if n < 2:
+        return {"mode": mode, "n_pairs_directed": 0, "est_minutes": 0}
+
+    if mode == "swin":
+        undirected = sum(min(win, n - 1 - i) for i in range(n))
+    elif mode == "complete":
+        undirected = n * (n - 1) // 2
+    else:  # bearing
+        lat0 = sum(f["lat"] for f in frames) / n
+        kx = 111320.0 * math.cos(math.radians(lat0))
+        ky = 110540.0
+        en = [((f["lon"]) * kx, (f["lat"]) * ky) for f in frames]
+        brg = [f.get("compass_angle") for f in frames]
+        undirected = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                if math.hypot(en[i][0] - en[j][0], en[i][1] - en[j][1]) > pair_dist:
+                    continue
+                if brg[i] is not None and brg[j] is not None:
+                    d = abs((brg[i] - brg[j] + 180) % 360 - 180)
+                    if d > pair_dang:
+                        continue
+                undirected += 1
+    directed = undirected * 2
+    return {"mode": mode, "n_pairs_directed": directed,
+            "est_minutes": round(directed * SECONDS_PER_PAIR / 60)}
 
 
 def _ts(v: str | None, field: str) -> datetime.datetime | None:
@@ -305,6 +1007,20 @@ def _ts(v: str | None, field: str) -> datetime.datetime | None:
         return datetime.datetime.fromisoformat(v)
     except ValueError:
         raise HTTPException(422, f"{field}: expected an ISO timestamp, got {v!r}")
+
+
+async def _select_frames_by_ids(ids: list[str]) -> list[dict]:
+    """The named frames, in capture order, in the same manifest shape as the selector."""
+    async with wb_engine.connect() as conn:
+        rows = (await conn.execute(text(
+            "SELECT id, ST_Y(geometry) AS lat, ST_X(geometry) AS lon, altitude, "
+            "  compass_angle, captured_at, width, height, title, original_filename, "
+            "  detected_objects, owner_id, client_public_key_id, "
+            "  exif_data AS exif, "
+            "  COALESCE(sizes->'full'->>'url', sizes->'1024'->>'url') AS full_url "
+            "FROM photo_mirror WHERE id = ANY(:ids) AND deleted = false "
+            "ORDER BY captured_at, id"), {"ids": ids})).mappings().all()
+    return [_manifest_frame(r) for r in rows]
 
 
 async def _select_frames(req: EnqueueRequest) -> list[dict]:
@@ -339,8 +1055,14 @@ async def _select_frames(req: EnqueueRequest) -> list[dict]:
             "lon": req.lon, "lat": req.lat, "rad": req.radius_m,
             "after": _ts(req.after, "after"),
             "before": _ts(req.before, "before")})).mappings().all()
-        picked = list(rows)[req.offset::max(1, req.stride)][:max(0, req.limit)]
-        frames = [_manifest_frame(r) for r in picked]
+        labels = _sessionize(rows, req.session_gap_s)
+        if req.per_session or req.max_sessions:
+            pairs_rl = _pick_sessions(rows, labels, req.per_session, req.max_sessions)
+            pairs_rl = pairs_rl[req.offset::max(1, req.stride)][:max(0, req.limit)]
+            frames = [_manifest_frame(r) | {"session": lab} for r, lab in pairs_rl]
+        else:
+            idx = list(range(len(rows)))[req.offset::max(1, req.stride)][:max(0, req.limit)]
+            frames = [_manifest_frame(rows[i]) | {"session": labels[i]} for i in idx]
         if req.inject:
             inj = (await conn.execute(text(
                 "SELECT id, ST_Y(geometry) AS lat, ST_X(geometry) AS lon, altitude, "
@@ -353,7 +1075,8 @@ async def _select_frames(req: EnqueueRequest) -> list[dict]:
                 {"ids": req.inject})).mappings().all()
             # impostors are excluded from the GPS alignment fit downstream, so they
             # cannot drag the similarity transform toward themselves
-            frames += [_manifest_frame(r) | {"injected": True} for r in inj]
+            frames += [_manifest_frame(r) | {"injected": True, "session": "injected"}
+                       for r in inj]
     return frames
 
 
@@ -431,6 +1154,24 @@ def _exif_focal_px(exif: dict | None, long_side_px: int) -> float | None:
     return round(f35 * long_side_px / 36.0) if f35 and f35 > 0 else None
 
 
+def _bearing_source(exif) -> str | None:
+    """The capture app's own note on how this photo's bearing was obtained.
+
+    `exif` may be the whole exif_data object or just its `data` sub-object, depending on
+    which query built the row, so look in both.
+    """
+    if not isinstance(exif, dict):
+        return None
+    uc = (exif.get("data") or {}).get("UserComment") if isinstance(exif.get("data"), dict) else None
+    uc = uc or exif.get("UserComment")
+    if not isinstance(uc, str) or not uc.startswith("{"):
+        return None
+    try:
+        return (json.loads(uc) or {}).get("bearing_source")
+    except json.JSONDecodeError:
+        return None
+
+
 def _manifest_frame(r) -> dict:
     cap = r["captured_at"]
     return {
@@ -439,6 +1180,9 @@ def _manifest_frame(r) -> dict:
         "altitude": float(r["altitude"]) if r["altitude"] is not None else None,
         "compass_angle": (float(r["compass_angle"])
                           if r["compass_angle"] is not None else None),
+        # WHERE that bearing came from. Only a compass source says where the camera was
+        # AIMED; gps-kalman is the direction of travel and map/arrow_drag are hand-set.
+        "bearing_source": _bearing_source(r["exif"]),
         "captured_at": cap.strftime("%Y-%m-%d %H:%M:%S.%f") if cap else "",
         "full_url": r["full_url"],
         "width": int(r["width"] or 0), "height": int(r["height"] or 0),
@@ -454,13 +1198,22 @@ def _manifest_frame(r) -> dict:
     }
 
 
+def _pending_frame(idx: int, f: dict) -> dict:
+    return {"idx": idx, "id": f["id"], "captured_at": f.get("captured_at"),
+            "gps": [f.get("lat"), f.get("lon")],
+            "compass_angle": f.get("compass_angle"),
+            "camera": f.get("camera"), "session": f.get("session"),
+            "injected": bool(f.get("injected"))}
+
+
 @router.post("/recon/runs")
 async def enqueue(req: EnqueueRequest):
     from .. import actors
     if not actors.init_broker():
         raise HTTPException(503, "no RABBITMQ_URL configured")
     params = {k: v for k, v in (req.params or {}).items() if k in ALLOWED_PARAMS}
-    frames = await _select_frames(req)
+    frames = (await _select_frames_by_ids(req.frame_ids) if req.frame_ids
+              else await _select_frames(req))
     if len(frames) < 2:
         raise HTTPException(422, f"selected {len(frames)} frame(s); need >= 2")
 
@@ -473,7 +1226,10 @@ async def enqueue(req: EnqueueRequest):
     spec = {"center": [req.lat, req.lon], "radius_m": req.radius_m,
             "limit": req.limit, "offset": req.offset, "stride": req.stride,
             "after": req.after, "before": req.before, "inject": req.inject,
-            "params": params}
+            "params": params, "frame_ids": req.frame_ids}
+    extra = {}
+    if req.parent:
+        extra = {"parent": req.parent, "span": req.span}
 
     async with wb_engine.begin() as conn:
         rid = (await conn.execute(text(
@@ -488,7 +1244,14 @@ async def enqueue(req: EnqueueRequest):
             "  finished_at = NULL "
             "RETURNING id"),
             {"name": name, "params": json.dumps(params), "nf": len(frames),
-             "cap": captured, "meta": json.dumps({"spec": spec})})).scalar_one()
+             "cap": captured,
+             # The frame list travels in the message, but it is ALSO kept on the row:
+             # a run takes hours, and whether it was worth starting is visible in its
+             # frames long before any artifact comes back. Compact on purpose — the
+             # full manifest (URLs, anon boxes, EXIF) is the worker's business.
+             "meta": json.dumps({"spec": spec, **extra,
+                                 "frames": [_pending_frame(i, f)
+                                            for i, f in enumerate(frames)]})})).scalar_one()
 
     # The manifest travels in the message (it is selection output, not a secret), but the
     # callback URL and token do NOT: the worker reads those from its own environment, so a
@@ -499,6 +1262,162 @@ async def enqueue(req: EnqueueRequest):
     })
     print(f"recon: enqueued {rid} '{name}' with {len(frames)} frames", flush=True)
     return {"queued": str(rid), "name": name, "n_frames": len(frames)}
+
+
+@router.delete("/recon/runs/{run_id}")
+async def cancel_run(run_id: str):
+    """Mark a run cancelled. Its queue message is not reachable from here — RabbitMQ has
+    no by-message delete — so the worker checks this status on its first callback and
+    stops; and `purge_queue` + `requeue` below is how the operator re-shapes the queue
+    right now. Cancelling a running run is a request, not an interrupt: the worker
+    notices at its next progress post."""
+    rid = str(uuid.UUID(run_id))
+    async with wb_engine.begin() as conn:
+        n = (await conn.execute(text(
+            "UPDATE recon_runs SET status = 'cancelled', finished_at = now() "
+            "WHERE id = CAST(:id AS uuid) AND status IN ('queued', 'running')"),
+            {"id": rid})).rowcount
+    return {"cancelled": bool(n)}
+
+
+@router.post("/recon/runs/{run_id}/requeue")
+async def requeue_run(run_id: str, force: bool = False):
+    """Re-send a run to the broker from its stored selection spec. With `purge_queue`
+    this is how the queue gets reordered: purge, then requeue the survivors in the
+    order wanted. The selection is replayed, so the frames are whatever the mirror says
+    now — which for a run enqueued an hour ago is the same thing."""
+    from .. import actors
+    if not actors.init_broker():
+        raise HTTPException(503, "no RABBITMQ_URL configured")
+    rid = str(uuid.UUID(run_id))
+    async with wb_engine.connect() as conn:
+        row = (await conn.execute(text(
+            "SELECT name, meta, params, status FROM recon_runs WHERE id = CAST(:id AS uuid)"),
+            {"id": rid})).mappings().first()
+    if not row or not (row["meta"] or {}).get("spec"):
+        raise HTTPException(404, "run has no stored selection spec")
+    # A finished run put back on the queue is almost always a mistake -- and an expensive
+    # one, because requeue CLEARS status and finished_at, so the solve that already
+    # succeeded looks queued while a worker spends hours reproducing it. It happened:
+    # four overnight runs were re-sent while reordering the queue. Say no unless asked
+    # twice.
+    if row["status"] == "done" and not force:
+        raise HTTPException(409, f"'{row['name']}' is already done; pass force=true to "
+                                 f"solve it again (its artifacts will be overwritten)")
+    sp = row["meta"]["spec"]
+    if sp.get("frame_ids"):
+        # a split child (or any explicit-frames run) IS its frame list; the centre/limit
+        # fields only exist to share the parent's origin, and replaying them as a
+        # selection would swap the span for 24 frames around the centre
+        frames = await _select_frames_by_ids(sp["frame_ids"])
+    else:
+        req = EnqueueRequest(lat=sp["center"][0], lon=sp["center"][1],
+                             radius_m=sp.get("radius_m", 300), limit=sp.get("limit", 24),
+                             offset=sp.get("offset", 0), stride=sp.get("stride", 1),
+                             after=sp.get("after"), before=sp.get("before"),
+                             inject=sp.get("inject") or [], params=sp.get("params") or {})
+        frames = await _select_frames(req)
+    if len(frames) < 2:
+        raise HTTPException(422, "selection no longer yields 2+ frames")
+    async with wb_engine.begin() as conn:
+        await conn.execute(text(
+            "UPDATE recon_runs SET status = 'queued', error = NULL, enqueued_at = now(), "
+            "  finished_at = NULL, n_frames = :nf, "
+            "  meta = COALESCE(meta, '{}'::jsonb) || CAST(:m AS jsonb) "
+            "WHERE id = CAST(:id AS uuid)"),
+            {"id": rid, "nf": len(frames),
+             "m": json.dumps({"frames": [_pending_frame(i, f) for i, f in enumerate(frames)]})})
+    actors.reconstruct_cluster.send({
+        "result_id": rid, "name": row["name"], "center": sp["center"],
+        "params": row["params"] or {}, "frames": frames,
+    })
+    return {"requeued": rid, "n_frames": len(frames)}
+
+
+@router.post("/recon/purge_queue")
+async def purge_queue():
+    """Drop every READY message on the recon queue, via the management API.
+
+    Two things to know before leaning on it. RabbitMQ's purge leaves UNACKED messages
+    alone — the jobs being solved, and also the one message each worker has PREFETCHED
+    and is holding for next — so the first job or two in line survive a purge and must
+    not be requeued on top of themselves. And the compose image is the non-management
+    one, so unless the plugin is enabled this returns 502 and the operator does it from
+    the host:  docker exec enrich_rabbitmq rabbitmqctl purge_queue recon
+    """
+    import httpx
+    url = os.getenv("RABBITMQ_MGMT_URL", "http://rabbitmq:15672")
+    user, pw = os.getenv("RABBITMQ_USER", "enrich"), os.getenv("RABBITMQ_PASSWORD", "enrich")
+    try:
+        async with httpx.AsyncClient(timeout=15, auth=(user, pw)) as c:
+            resp = await c.delete(f"{url}/api/queues/%2F/recon/contents")
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"management API unreachable ({e}); purge from the host: "
+                                 "docker exec enrich_rabbitmq rabbitmqctl purge_queue recon")
+    if resp.status_code not in (200, 204):
+        raise HTTPException(502, f"purge failed: {resp.status_code} {resp.text[:200]}")
+    return {"purged": True}
+
+
+class SplitRequest(BaseModel):
+    spans: list[list[int]] | None = None   # [[first, last], ...]; default: the chain report's
+    min_frames: int = 4
+    params: dict | None = None             # override the parent's params
+
+
+@router.post("/recon/runs/{run_id}/split")
+async def split_run(run_id: str, req: SplitRequest):
+    """Break a run into spans and enqueue each as its own run.
+
+    The lesson of the fusion runs: frames that cannot see each other must not be solved
+    together, because the joint optimiser spreads the bad links' error over the good
+    geometry. The chain report already says where a walk breaks. Each span is solved
+    ALONE here -- a well-connected cluster, which is what the solver is good at -- with
+    the parent's centre, so every span lands in the same metres-east/north/up frame and
+    the group can be overlaid. Registration between spans is GPS-only for now; verified
+    cross-span links and a pose graph refine it later.
+    """
+    rid = str(uuid.UUID(run_id))
+    async with wb_engine.connect() as conn:
+        row = (await conn.execute(text(
+            "SELECT name, params, meta, metrics FROM recon_runs WHERE id = CAST(:id AS uuid)"),
+            {"id": rid})).mappings().first()
+    if not row:
+        raise HTTPException(404, "run not found")
+    meta = row["meta"] or {}
+    frames = meta.get("frames") or []
+    if not frames:
+        # runs enqueued before the frame list was kept on the row: the solved artifact
+        # has it, with the same idx numbering the chain report used
+        try:
+            with open(await _artifact(rid, "metadata_path")) as f:
+                frames = [{"idx": fr["idx"], "id": fr["id"]} for fr in json.load(f)["frames"]]
+        except (HTTPException, OSError, KeyError, json.JSONDecodeError):
+            raise HTTPException(400, "run has no frame list on its row and no metadata artifact")
+    spans = req.spans or ((row["metrics"] or {}).get("chain") or {}).get("spans")
+    if not spans:
+        raise HTTPException(400, "no spans given and the run has no chain report")
+    centre = (meta.get("spec") or {}).get("center")
+    if not centre:
+        try:
+            with open(await _artifact(rid, "metadata_path")) as f:
+                centre = json.load(f).get("center")
+        except (HTTPException, OSError, json.JSONDecodeError):
+            centre = None
+    if not centre:
+        raise HTTPException(400, "run has no centre")
+    params = req.params if req.params is not None else (row["params"] or {})
+    out, skipped = [], []
+    for k, (a0, a1) in enumerate(spans):
+        ids = [f["id"] for f in frames if a0 <= f["idx"] <= a1]
+        if len(ids) < req.min_frames:
+            skipped.append({"span": k, "frames": [a0, a1], "n": len(ids)})
+            continue
+        child = EnqueueRequest(lat=centre[0], lon=centre[1], name=f"{row['name']}#s{k}",
+                               frame_ids=ids, parent=rid, span=[a0, a1], params=params)
+        r = await enqueue(child)
+        out.append({"span": k, "frames": [a0, a1], **r})
+    return {"parent": rid, "queued": out, "skipped": skipped}
 
 
 @router.post("/recon/preview")
@@ -532,7 +1451,20 @@ async def preview_selection(req: EnqueueRequest):
                             - datetime.datetime.fromisoformat(caps[0])).total_seconds())
         except ValueError:
             span_s = None
+    # per-session breakdown: the unit a real capture actually comes in
+    sess: dict[str, list] = {}
+    for f in frames:
+        sess.setdefault(f.get("session") or "?", []).append(f)
+    sessions = []
+    for lab, fl in sorted(sess.items(), key=lambda kv: -len(kv[1])):
+        caps = sorted(f["captured_at"] for f in fl if f.get("captured_at"))
+        sessions.append({"session": lab, "n": len(fl),
+                         "first": caps[0][:19] if caps else None,
+                         "last": caps[-1][:19] if caps else None})
     return {"n_frames": len(frames),
+            "pairing": _estimate_pairs(frames, req.params or {}),
+            "sessions": sessions,
+            "n_sessions": len(sessions),
             # the three axes, reported separately so a warning can say WHICH one failed
             "single_camera": len(cams) == 1,
             "same_dimensions": len(dims) == 1,
@@ -572,6 +1504,9 @@ RESULT_FILES = {
     "metadata": ("metadata.json", "metadata_path"),
     "metrics": ("metrics.json", "metrics_path"),
     "cloud": ("points.ply", "cloud_path"),
+    "dense_cloud": ("dense.ply", "dense_cloud_path"),
+    # no column: found beside the dense cloud, served only when asked for
+    "soft_cloud": ("dense_soft.ply", None),
     "topdown": ("topdown.png", "topdown_path"),
     "pairs_matrix": ("pairs_matrix.png", "pairs_matrix_path"),
     "log": ("run.log", "log_path"),
@@ -583,6 +1518,8 @@ async def result(result_json: str = Form(...),
                  metadata: UploadFile | None = File(None),
                  metrics: UploadFile | None = File(None),
                  cloud: UploadFile | None = File(None),
+                 dense_cloud: UploadFile | None = File(None),
+                 soft_cloud: UploadFile | None = File(None),
                  topdown: UploadFile | None = File(None),
                  pairs_matrix: UploadFile | None = File(None),
                  log: UploadFile | None = File(None),
@@ -601,8 +1538,21 @@ async def result(result_json: str = Form(...),
         rid = str(uuid.UUID(str(d["result_id"])))
     except (KeyError, TypeError, ValueError):
         raise HTTPException(422, "result_id must be a uuid")
+    # a cancelled run's worker learns it here, on its next progress post, and stops
+    async with wb_engine.connect() as conn:
+        st = (await conn.execute(text(
+            "SELECT status FROM recon_runs WHERE id = CAST(:id AS uuid)"), {"id": rid})).scalar()
+    if st == "cancelled" and d.get("status") == "running":
+        return {"ok": True, "cancelled": True}
+    # A run that is already done is not solved again: the broker can hold a second copy of
+    # its message (a requeue of a still-queued run, a redelivery after a worker crash), and
+    # the worker prefetches one message ahead, so a purge does not reach that copy either.
+    # An explicit requeue sets the status back to queued first, so it still passes here.
+    if st == "done" and d.get("status") == "running":
+        return {"ok": True, "cancelled": True, "reason": "already done"}
 
     uploads = {"metadata": metadata, "metrics": metrics, "cloud": cloud,
+               "dense_cloud": dense_cloud, "soft_cloud": soft_cloud,
                "topdown": topdown, "pairs_matrix": pairs_matrix, "log": log}
     cols: dict[str, str] = {}
     for key, up in uploads.items():
@@ -611,7 +1561,8 @@ async def result(result_json: str = Form(...),
         fname, col = RESULT_FILES[key]
         rel = os.path.join("recon", rid, fname)
         _write_atomic(_artifact_abspath(rel), await up.read())
-        cols[col] = rel
+        if col:
+            cols[col] = rel
 
     summary = _summary(d.get("metrics") or {}) or None
     running = d.get("status") == "running"
@@ -644,7 +1595,22 @@ async def result(result_json: str = Form(...),
         await conn.execute(text(
             f"UPDATE recon_runs SET {', '.join(sets)} "
             f"WHERE id = CAST(:id AS uuid){where}"), args)
+
+    # Ground the new run immediately. The alignment the worker computed is a GPS-only
+    # Umeyama, whose roll is unobservable along a straight walk — measured on the bench,
+    # every run but the one shot in a circle came back tipped by 54 to 170 degrees. Doing
+    # it here means a run is never SEEN in the wrong orientation. It must never break the
+    # callback, though: the artifacts are already stored and the run is already done.
+    if not running and d.get("status", "done") == "done" and "cloud" in cols_touched(cols):
+        try:
+            await realign(rid)
+        except Exception as e:
+            print(f"realign after result failed for {rid}: {type(e).__name__}: {e}")
     return {"ok": True}
+
+
+def cols_touched(cols: dict) -> set:
+    return {"cloud" if c == "cloud_path" else c for c in cols}
 
 
 # "Queued with zero consumers" is silent otherwise — the recon worker is a host process

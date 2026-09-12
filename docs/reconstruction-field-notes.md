@@ -682,6 +682,1083 @@ cloud and hundreds of MB dense — not openable in a browser. The API converts t
 artifact, with a `max_points` cap applied by even stride so a downsampled cloud still spans the
 whole scene. Frusta come from `metadata.json`'s `pose_cam2world` (scene.npz is not uploaded).
 
+## Spot A, Vyšehrad plaza (2026-09-08) — the first map-correlated run
+
+`dense-spotA-2026-08-19`: 46 frames, 2 min 11 s, on the plaza outside Kongresové centrum
+Praha. It is the best-solved cluster on the bench — **1.33 px median reprojection, 7.31 px
+p90** — and it is also the run that shows most clearly what MASt3R will and will not give us.
+
+**The capture is an object sweep, not a scene sweep.** Three stills at 16:39, then a
+continuous 45-second rotation, one frame per second, 360° of heading, from a standing
+position that wandered 8.4 m × 8.4 m. Every frame is dominated by a mosaic art bench at
+1–3 m. Median solved depth is 2.77 m.
+
+**The three detached stills are 28× worse than the sweep.** Per-frame reprojection median:
+
+| frames | n | median reproj | worst |
+| --- | --- | --- | --- |
+| the three 16:39–16:41 stills | 3 | 35.09 px | 62.50 px |
+| the 45-second sweep | 43 | 1.26 px | 7.22 px |
+
+Frames 0 and 1 got 8 and 10 pairs where sweep frames got 16, because `swin` links only
+temporal neighbours and they have almost none. This is the cross-session problem in
+miniature, inside a single visit, eighty seconds wide: *pairing, not appearance, is what
+isolates a frame.*
+
+**The dense cloud contains the bench and nothing else — by construction.** All 2.49 M dense
+points lie within 5.3 m of the origin and below camera height. The depthmap for a frame
+facing the Congress Centre *does* predict the building; the confidence map for the same
+frame is dark violet over the entire building and bright only on the bench and the
+pavement around it. `--min_conf 1.5` then deletes it. So the "dense" layer is a subject
+scanner, and the far field never survives the threshold.
+
+**And lowering the threshold does not rescue it.** `spotA-lowconf-0p3` re-ran the same 46
+frames at `min_conf 0.3` (identical solve: 1.35 px against 1.33). It yields 2,707,345 dense
+points instead of 2,489,259 — 8.8% more — and extends the cloud's reach from 8.4 to 17.1
+solve units, about 6 m to 13 m. The Congress Centre wall starts at 14 m. So the confidence
+MASt3R assigns to the building is not merely below 1.5, it is below 0.3: near zero. The
+depth is predicted and the model does not believe it, and no threshold turns disbelief into
+data. Whatever fills the far field here, it is not this network at this baseline — which is
+the argument for the map layer, stated as a measurement.
+
+**Baseline was never the limit here.** Median pair baseline 2.76 m, p90 4.60 m, max 10.15 m
+— a 20 %-error depth horizon of 228 m at the median. Everything visible from this plaza is
+inside it. What kills the far field is confidence, not geometry.
+
+**The sparse cloud does reach the buildings, but mostly as ray smear.** 17.8 % of it lies
+beyond 6 m, up to 15.8 m tall. Radial spread within a 5° bearing band is the test: bands at
+240–245° are tight (p10–p90 spread / median = 0.23 at ~32 m, a real surface), bands at
+210–235° spread by 1.2–2.6× their own median. Two of the three planes RANSAC finds pass
+within 1.8–2.5 m of the camera centroid — those are the smear fan, not walls. Fit planes to
+this and you will fit the fan.
+
+**Scale is set by GPS noise when the camera stands still.** The alignment's
+`baseline_ratio` is 0.79 and the GPS residual is 1.3 m median over a cluster whose real
+spread is a few metres — so the metres this run reports are a ratio of two noisy numbers.
+The map is the fix: OSM footprints give absolute scale that a stationary capture cannot.
+
+### The compass error is a sinusoid, and one sweep measures it
+
+Comparing the phone's `compass_angle` with the solved optical axis in ENU, over 46 frames
+covering the full circle:
+
+| model fitted to (compass − solved yaw) | rms residual |
+| --- | --- |
+| constant offset only | 17.05° |
+| offset + one cycle (hard iron) | 7.89° |
+| offset + one + two cycles (soft iron) | 7.61° |
+
+The one-cycle term has amplitude 21.1° at phase 75°, and it halves the heading error on its
+own. The second harmonic adds 3.1°, so this device's distortion is dominated by hard iron.
+**A single rotation sweep, reconstructed, yields a compass calibration for its whole
+session** — which is the "pre-adjust the viewpoints" idea in its cheapest form, and it needs
+no map at all, only a solve that covers enough headings.
+
+### Fusing five visits to Prosek: it does not work, and the reason is specific (2026-09-08)
+
+The open question since June: *can independent sessions from one area be used together?*
+`fuse-prosek-5sessions` is the first controlled attempt, against a matched single-session
+control at the same place.
+
+| run | frames | sessions | pairing | per-pair reproj p10 / median | corres/pair |
+| --- | --- | --- | --- | --- | --- |
+| `dense-prosek-aug06` | 40 | 1 | `swin` | **1.12 / 12.13 px** | 2,572 |
+| `fuse-prosek-5sessions` | 40 | 5 (3 devices, 2025-11 to 2026-08) | `bearing`, 30 m / 50 deg | 70 / 364 px (cross), 144 px (within) | **59** cross |
+
+Three things to take from it.
+
+**1. It is not a partial failure, it is contamination.** The fusion run's *within-session*
+pairs are also wrecked — 144 px per-pair median, against 12 px for the same place solved
+alone. `sparse_global_alignment` optimises everything jointly, so 326 bad cross-session
+links drag the good geometry down with them. Adding sessions did not add information, it
+subtracted it.
+
+**2. Cross-session links exist in numbers — this section first said otherwise, and was
+wrong.** See the correction below: judged on their own two-view evidence rather than
+through the broken joint solve, **25 of 83** cross-session pairs verify, across all four
+dates including a nine-month gap.
+
+**3. Thickness is NOT the gate.** The obvious fix — require plenty of correspondences before
+trusting a cross-session pair — does not separate them:
+
+| min correspondences | pairs kept | their median reproj |
+| --- | --- | --- |
+| none | 326 | 364 px |
+| 500 | 88 | 101 px |
+| 1000 | 64 | 96 px |
+| 3000 | 7 | 92 px |
+
+A pair with 3,151 correspondences sits at 7,697 px. This is the Doppelganger lesson again:
+the board was rejected while carrying 1,012 correspondences. Confidence and correctness are
+different things, and no count threshold turns one into the other.
+
+*Caveat on those numbers:* they are computed from the broken joint solve's own poses and
+depths, so they mix "this match is wrong" with "this solve is wrong". That is precisely why
+the next step cannot be another joint solve.
+
+**So the architecture follows from the measurement.** Solve each session alone, where the
+solver already works. Verify each candidate cross-session link pairwise and independently
+of any global solve. Register the surviving links with a pose graph.
+
+### Correction, same day: the links are there. The SOLVE was the problem.
+
+The tool the section above says we need is now written — `scripts/enrich/recon_verify_links.py`
+— and it says something different from what the joint solve's numbers implied.
+
+For each pair it normalises the cached correspondences by that frame's intrinsics, RANSACs
+an essential matrix, keeps the inlier fraction, decomposes it, picks the (R, t) with the
+most points in front of both cameras, and then checks the recovered baseline **direction**
+against the direction GPS puts between the cameras and the recovered **relative yaw**
+against the compass difference. Nothing in that touches the global solve. Orientation comes
+from the compass, deliberately, because using the solved pose would import the very solve
+being questioned.
+
+It has a `--self-test` that synthesises two cameras with a known baseline, and it earns its
+place: the first version reported almost every link as contradicting GPS, because the
+cheirality check used `t` where it needed `-R^T t` — camera 2's centre in camera 1's frame,
+not the essential matrix's translation. Every recovered baseline came out roughly reversed,
+which on real data is invisible and merely looks like bad data. Sign fixed, self-test at
+0.00 deg.
+
+Calibrated on two controls first:
+
+| run | pairs judged | median inlier fraction | verified |
+| --- | --- | --- | --- |
+| `dense-spotA-2026-08-19` (best solve on the bench) | 174 | **0.997** | 173 |
+| `dense-prosek-aug06` (good single-session walk) | 134 | 0.966 | 101 |
+| `fuse-prosek-5sessions`, within-session | 29 | 0.783 | 13 |
+| `fuse-prosek-5sessions`, cross-session | 83 | 0.481 | **25** |
+
+Verified cross-session links by date pair, out of those judged:
+
+| dates | verified / judged |
+| --- | --- |
+| 2025-11-02 ↔ 2026-06-15 | 3 / 6 |
+| 2025-11-02 ↔ 2026-07-10 | 1 / 7 |
+| 2025-11-02 ↔ 2026-08-06 | 4 / 10 |
+| 2026-06-15 ↔ 2026-07-10 | 6 / 20 |
+| 2026-06-15 ↔ 2026-08-06 | 5 / 17 |
+| 2026-07-10 ↔ 2026-08-06 | 6 / 21 |
+
+So visits nine months apart *do* link, and roughly a third of the candidate cross-session
+pairs stand up on their own evidence. **The matching was not the failure. The monolithic
+solve was.** Which flips the reading of the fusion run: 25 good links were present and
+`sparse_global_alignment` still tore the geometry apart, so the next attempt is a pose graph
+over verified links and per-session submaps, not a better matcher.
+
+Two lessons worth keeping. A metric computed *inside* a broken optimisation cannot be used
+to diagnose that optimisation — it was the joint solve's own reprojection numbers that made
+the links look worthless. And a geometric check with a sign ambiguity needs a synthetic
+control, because on real data a mirrored answer is indistinguishable from a wrong match.
+
+### The stairs, the underpass and the hand-placed waypoints, solved (2026-09-10)
+
+`newest-stairs-bridge`, 60 frames from the top of the stairs to the far end of the manual
+block, 6.76 px median. Rendered through its own cameras:
+
+- **the staircase is a smear.** Frame 10, looking down the steps at the bus and the
+  billboard, renders as a diagonal streak with the steps only faintly present at the
+  bottom. Steps are exactly the geometry a per-frame depth network cannot hold across a
+  walk: every riser is a depth discontinuity and the camera pitches with each one.
+- **the underpass is coherent.** Frame 45, sodium light, positioned by nothing but
+  hand-placed waypoints, renders the tiled pavement, the railing and the graffiti wall in
+  perspective and in place. Structure with texture solves in any light.
+
+The manual block is found by the signature written down yesterday, 26 frames without
+altitude and a heading frozen toward 14 degrees, 21 of them tagged and given a third of a
+vote. The chain breaks at 21 and 22 (a single isolated frame at the top of the stairs);
+the solve's own step jumps after 24 and 43. Fitted per span on the union:
+
+| span | frames | GPS residual | scale |
+| --- | --- | --- | --- |
+| above the stairs | 0-21 | 1.2 m | 1.14 |
+| down the stairs, into the tunnel | 25-43 | 5.1 m, 5 manual | 1.36 |
+| the underpass | 44-59 | 1.6 m, all manual | **0.43** |
+
+That last scale is a 2.6x error with a small residual, which is what happens when the
+only positions are blocks of frames parked on one waypoint: no baseline, so any scale fits.
+`recon_spans.py --run-dir` now takes the span's scale from its own floor instead — a
+phone is held about 1.5 m up, and the dense depthmaps say how high each camera sits over
+the pavement beneath it — whenever a span is mostly manual or the two scales disagree by
+more than 30%.
+
+**Vegetation A/B, colour heuristic, first result: negative.** `jizni-vegmask` against
+`dense-jizni-walk`: 4.95 px against 3.82, p90 110 against 43. The green-fraction mask
+removed matches the solve was using and gave nothing back. That was the colour proxy,
+not the segmenter; the segmenter runs on the newer runs and is judged separately.
+
+### Connectivity does NOT cure the second floor (2026-09-10)
+
+The hypothesis from the spot A double floor was that frames 43-45 drifted because the
+sliding window gave them too few pairs. `spotA-win12` tested it: the same 46 frames with
+a window of 12 instead of 4, 948 pairs instead of 348.
+
+| | win 4 | win 12 |
+| --- | --- | --- |
+| reprojection median / p90 | 1.33 / 7.3 px | 1.95 / 18.6 px |
+| neighbour ground agreement, median | 0.9 cm | **0.4 cm** |
+| frames 43, 44, 45 below the consensus floor | -30, -28, -28 cm | **-46, -43, -43 cm** |
+
+The bulk got tighter and the three offenders got *worse*. So the drift of the last three
+frames is not a connectivity problem; it is something about those frames — the end of
+the sweep, where the photographer was probably already turning away — and more pairs to
+them just spread their error further. The hypothesis is withdrawn. The render-and-compare
+check still flags them, which is what a frame-level gate would act on: drop or
+down-weight the frames the leave-one-out test rejects, rather than link them harder.
+
+### The fair resolution test: 768 is nine times worse than 512 (2026-09-11)
+
+`res23-spotA-512` and `res23-spotA-768` are the same 22 frames of the gold walk, same window,
+same masking, differing only in the size `load_images` resizes the long side to. The 512
+control lands at reference quality, so unlike the strided trio the framing is not a confound.
+
+| size | reproj px | normalised to a 512-sized frame | epipolar px |
+|---|---|---|---|
+| 512 | 1.33 | 1.33 | 0.52 |
+| 768 | 18.11 | 12.07 | 7.21 |
+
+Normalising matters and still leaves a factor of nine: a 768-long frame is 1.5× the linear
+size, so an identical geometric error would read 1.5× larger in pixels, not 13×. MASt3R is
+trained at 512 and 768 is out of distribution; raising the load size of the same model does
+not buy detail, it loses the matcher.
+
+This is the question the GPU was going to be rented to answer at 1024 over 46 frames, about
+fifteen hours of CPU. It now has a cheap negative answer from a fair 22-frame test. The GPU's
+value is throughput of experiments — and of the masking pass, which is 18 s a frame on CPU —
+not this hypothesis. If high resolution is to help sidewalks it will have to come from a model
+trained for it, or from tiling, not from the `--size` flag.
+
+### Reaching past a weak link found the right frames and did not help (2026-09-11)
+
+`newest-win4-adaptive` against `newest-win4`, same 50 frames, same window of 4, the only
+difference being `--adaptive_pairs` with a reach of 10. The mechanism did exactly what it was
+built to do: it measured the 380 window pairs first, put the typical consecutive link at
+19,716 and the weak threshold at 6,901, and found six weak links at frames 26, 27, 29, 30, 31
+and 33 — which is precisely the stretch where the camera was swung aside and back. It then
+added 196 directed pairs reaching out from both ends of each.
+
+The result got *worse*: 7.26 px against 6.48, the same chain breaks at 29 and 33, and the
+median match count per connected pair fell from 8,634 to 5,716 while connected pairs rose from
+190 to 288. The extra pairs exist and carry few matches.
+
+The reading is not that the strategy is wrong but that this walk is not the case it was built
+for. Reaching bridges a break when frames on either side still see the same surface. Here
+frames 25 and 34 were paired — well within reach — and still did not match, which says the
+swing genuinely lost the overlap rather than the window being too narrow. A negative result
+worth keeping: on this walk, splitting is the right answer and no amount of reaching will
+replace it.
+
+Two new areas landed at the same time and neither is usable: `northedge-2026-08-27` at 21.88 px
+with breaks at 1, 24, 26 and 45, and `letnany-2026-07-08` at 29.34 px with breaks at 22, 25,
+31 and 42. The corpus is mostly not gold walks.
+
+### The resolution trio was never a resolution test (2026-09-10)
+
+`res-spotA-512/768/1024` came out at 11.03 / 36.03 / 44.90 px and looked like a verdict on
+resolution. It was not. All three selected **12 frames at stride 4** — every fourth photo of
+the walk — and the control says so: the same walk at stride 1 and the same 512 px solves at
+1.33 px. The stride alone cost a factor of eight, and 768 and 1024 were then measured on a
+chain that had already broken.
+
+`res23-spotA-512` settles where the cliff is. Stride 2, 22 frames, and it lands at **1.33 px
+with 1.0 cm neighbour ground agreement and no chain breaks** — indistinguishable from the
+46-frame reference. So halving the frame rate costs nothing here and quartering it destroys
+the solve. The overlap between consecutive frames, not the frame count, is what the matcher
+needs.
+
+That makes the `res23` trio a fair test after all: its 512 control is at reference quality, so
+any degradation at 768 or 1024 belongs to resolution. Both are requeued. At 768 the observed
+rate on this CPU is about 2.5 min per directed pair, so 22 frames is roughly six hours and the
+46-frame version is about fifteen — a GPU job, not a CPU one.
+
+### The masking ladder was counting the road as a reason to delete the hedge (2026-09-10)
+
+Rendering the first split span from its own cameras (`newest-2026-09-08#s0`, 4.49 px, 12.7 cm
+ground agreement — a good solve by every number we have) showed the path reconstructed
+faithfully for the first few metres and then breaking into **terraced slabs**, one per frame,
+with black between them. The mask overlay explained it in one look: everything except the path
+was red.
+
+The segmenter's own numbers for that frame:
+
+| class | fraction |
+|---|---|
+| Road | 0.50 |
+| Vegetation | 0.41 |
+| Sky | 0.08 |
+
+The ladder masks vegetation when built surface clears 12%, and this frame read 50% built — so
+the hedges went. But every one of those built pixels was **Road**. What was left to match on
+was a single self-similar plane, and a plane pins nothing: gravel looks like gravel, so each
+frame was free to place the far part of the path at its own depth. Hence one slab per frame.
+The blue fence at the left edge is not even seen as Fence by the segmenter; it comes back as
+Vegetation and was masked with the rest.
+
+So the floor now measures **BUILT_VERTICAL** — facade, wall, fence, pole, sign, bench — and not
+built surface in general, which is split off as BUILT_GROUND. A facade earns the right to drop
+the vegetation; a road does not, because the vegetation is then the only thing in the frame
+that stands up. Checked against the corpus: the Jižní Město street walk reads 19-49% vertical
+and still masks its hedges, the frames under the bridge read 38-60% and still mask, and the
+frame with 6% vertical and 29% vegetation now keeps its hedge. `newest-s0-vegkept` re-runs the
+same 17 frames under the corrected ladder; the forward passes are cached, so it costs only the
+optimiser.
+
+### Cross-walk joining has no evidence to work from, and "the same cell" is not "the same ground" (2026-09-11)
+
+The plan's first risk was that every join so far had shared a parent run's cache, so
+cross-walk joining was unproven. It is now disproven in the cheapest possible way.
+`xwalk-prosek-jun` and `xwalk-prosek-aug` were solved independently, no shared parent, two
+walks selected from the same 100 m cell on 15 June and 6 August. The join reports:
+
+    0/900 cross pairs cached, 0 usable
+
+Not a bad join — **no join at all**. Nothing ever asked MASt3R to compare a June frame with
+an August one, so no correspondence between them exists, and the joiner can only consume
+pairs that something computed. Area assembly therefore needs a **retrieval and pairing stage**
+before it needs a better estimator. The workaround already exists and is proven:
+`bridge-join-probe` was a small run over the boundary frames of two spans, paired complete,
+and it put 25 new cross pairs into the shared cache for the joiner to read.
+
+**And a second lesson, from my own botched selection.** Those two walks never come within
+26 m of each other. Median nearest-neighbour distance between their frames is 42.9 m, the
+worst is 64.2 m, and **not one of the 30 frames has a partner within 10 m**. They pass through
+one 100 m grid cell on different paths. So the run above did not test a revisit at all; it
+tested two disjoint walks, which of course share nothing.
+
+That makes the corpus census in the plan — 1,499 cells revisited by two or more walks — an
+overestimate of what is joinable, possibly a large one. A cell is 100 m across and a walk
+crossing its corner counts. The number that matters is *frames from different walks standing
+within a few metres of each other, looking the same way*, and it has to be measured with a
+distance join, not a grid. `walk_frames` (sessionised at 10-minute gaps, 64,201 frames in
+1,051 walks, GIST-indexed) is materialised in the workbench DB for exactly that.
+
+### Smoothing the bearings does not earn its place, and the measure that says so is useful on its own (2026-09-10)
+
+A bearing series is noisy in ways a single frame cannot show, so a smoothing pass is an
+obvious thing to try — and exactly the kind of thing that should be a strategy you can swap
+and re-run, not a fix welded into the pipeline. `bearing_smooth.py` holds several behind one
+name each (`median3/5/9`, `mean5`, `reject40`, `median5+reject40`), none privileged, and
+`recon_join_spans --bearing-smoothing NAME` selects one and records it with the join.
+
+The measure of a strategy is objective: across a span, (bearing − recovered heading) should be
+one constant bias, so the circular **concentration** of those offsets says whether the frames
+agree. Measured over seven series:
+
+| series | mode | n | none | best strategy |
+|---|---|---|---|---|
+| spot A | compass | 46 | 0.956 | reject40, +0.006 |
+| stairs-bridge | compass | 36 | 0.382 | mean5, +0.012 |
+| stairs-bridge | arrow_drag | 24 | 0.991 | median5, +0.006 |
+| bridge-exit | compass | 41 | 0.561 | reject40, +0.006 |
+| bridge-exit | arrow_drag | 17 | 0.997 | none |
+| jižní walk | rotation-vector | 28 | 0.970 | none |
+| prosek aug06 | rotation-vector | 40 | 0.509 | reject40, +0.006 |
+
+Nothing gains more than +0.012, the running medians actively **hurt** the good series (spot A
+loses 0.011 to 0.018, because a median flattens the real turns), and the bad series stay far
+below the 0.6 a vote needs. The conclusion is not "smoothing is badly implemented" but
+"the bad cases are not noisy". A compass under a steel bridge is wrong *systematically*, and
+no local average repairs a bias that varies with where you are standing. Default stays `none`.
+
+The measure turned out to be worth more than the strategies. Concentration is a **per-span
+magnetic interference detector**, and it independently found the site the user already knew
+about: `dense-prosek-aug06` reads 0.509, and Prosek vyhlídka is the hard-iron lookout. Spot A
+in the open reads 0.956. What a systematic error actually needs is a per-span bias estimate,
+which is what `bearing_offset` already computes — and concentration is what says whether that
+bias is real or arithmetic.
+
+### A probe run as connective tissue, and the first triangle (2026-09-10)
+
+`bridge-join-probe` — the last six frames of the stairs span and the first six of the bridge
+span, paired complete — solved at **2.04 px with 5.8 cm ground agreement and no chain breaks**.
+The frames on either side of the break do see the same place; it was the sliding window that
+never asked them to.
+
+That gives a third solve overlapping both spans, and with three runs the joins have to be
+consistent with each other. `recon_join_spans` now closes the triangle:
+
+| path | yaw | scale |
+|---|---|---|
+| bridge-exit → stairs-bridge → probe | -76.5° | — |
+| bridge-exit → probe, direct | -74.3° | — |
+| closure error | **2.2°** | **×0.750** |
+
+So the **rotations are mutually consistent to about two degrees** while the **scales are 25%
+apart**. That is a clean split of the problem: these joins can be believed about orientation
+and cannot be believed about size. It also matches what the stairs span said on its own, where
+the position fit gave 0.43 m per unit and eye height gave 1.755. A short span with a bent GPS
+track is worst exactly at scale, and scale is the one thing bearings can never supply.
+
+One more warning sign, consistent across all three joins: the free 3-D fit keeps asking for
+large tilts (74.7°, 51.8°, 22.8°) between spans that are all gravity-pinned. A rigid rotation
+should not be needed at all. The likely cause is depth that is systematically compressed in a
+dark underpass, which tips a best-fit rotation — another reason the applied join is held to a
+turn about vertical.
+
+### There is no GPS orientation, and a third of the bearings are not compass (2026-09-10)
+
+Two mistakes of mine, corrected by the user, both about what the data actually says.
+
+**There is no such thing as a GPS orientation here.** GPS measures position. Each span's ENU
+alignment is a fit of its camera POSITIONS to its GPS positions, and that fit carries a yaw as
+a by-product — the turn that best lines up two tracks — which on a short or straight span is
+barely determined at all. Calling it "the GPS orientation" invented a measurement that was
+never taken. It is the **position fit** everywhere now, and its vote is simply the status quo:
+do not turn this span any further.
+
+**And `compass_angle` is not always a compass — but every mode still means the same thing.**
+The app offers three ways to say where the camera pointed and stores whichever the user chose:
+the compass; a bearing derived from movement with a user-set offset (`gps-kalman`, for
+shooting out of a moving car at an angle to travel); and a hand-dragged arrow (`arrow_drag`,
+`map`). All three are that person's answer to the same question, and the stored value is the
+best and only bearing we have for that photo. So none is discarded. What differs is how well
+each holds up, and that is measurable per span. The distribution:
+
+| bearing_source | photos |
+|---|---|
+| android compass (rotation vector / compass-true) | 30,831 |
+| gps-kalman | 24,654 |
+| map | 1,970 |
+| arrow_drag, web, others | ~2,000 |
+
+The first "compass says -82°" measurement mixed magnetometer readings together with hand-drawn
+arrows in one average, which is what made it meaningless. `bearing_source` now rides on every
+manifest frame, every run's metadata and every frame the bench serves; archived runs get it
+from the mirror by photo id.
+
+**Which mode to believe is decided per span, by evidence.** The concentration of a span's
+per-frame offsets says whether its frames agree with each other about the bias. Measured:
+
+| span | mode | n | offset | concentration |
+|---|---|---|---|---|
+| stairs-bridge | compass | 36 | 295.6° | 0.38 |
+| stairs-bridge | arrow_drag | 24 | 24.1° | 0.99 |
+| bridge-exit | compass | 41 | 89.5° | 0.56 |
+| bridge-exit | arrow_drag | 17 | 59.1° | 1.00 |
+| spot A | compass | 46 | 9.2° | 0.96 |
+
+A magnetometer under a steel bridge against a person who could see where they were pointing —
+and in the open, on spot A, the compass reads 0.96. So the mode is not the point; the agreement
+is. Each span quotes its own best-attested mode, a vote is admissible at concentration ≥ 0.6
+over ≥ 8 frames, and quoting *different* modes on the two spans is flagged, since then they may
+not share a bias. Concentration is self-consistency, not truth: a straight walk with a bearing
+set once looks tight either way. It is a floor to clear, not a certificate.
+
+**Three verdicts, not two.** Geometry is called strong only when its consensus is a real
+majority of the cross pairs that could speak (≥ 60%, not 8 of 24). So:
+
+- **trust geometry** — strong consensus, and the bearings lean its way. Spot A solved twice:
+  bearings ±4° over 46+46 frames, geometry agreeing to 0.3°, gravity-safe residual 0.06 m.
+- **trust bearings** — the bearings are held tightly by both spans in the same mode, and
+  geometry leans the same way but is too thin to fix an angle. The span is turned by the
+  bearings and scaled by the geometry, which is the only thing a scale can come from. The
+  bridge join: geometry -53° from 8 of 24 pairs, bearings -35.1° ±2° over 24+17 arrow-drag
+  frames, position fit 0°. Both disagree with the status quo in the same direction, so the
+  span turns by -35.1°.
+- **trust the position fit** — nothing is turned, and the reason is recorded.
+
+`bridge-join-probe` is still queued to compute cross pairs between frames neither solve shared,
+which is what would let geometry speak for itself there.
+
+### A join may turn a span, never tip it — and the compass gets a vote (2026-09-10)
+
+Two corrections to the join, both from the user, both right.
+
+**First: a join is a turn on the spot.** Each span is already gravity-pinned to ENU, so the
+only rotation that should ever be needed between two spans is a yaw. A free 3-D similarity
+does not know that, and on the bridge join it asked for a **50° tilt** — buying half a metre
+of point residual by tipping a solved staircase onto its side. `fit_yaw_similarity` now fits
+the join in ENU with the rotation held to a turn about vertical. It costs residual and is
+worth it:
+
+| fit | yaw | scale | residual median |
+|---|---|---|---|
+| free rotation | -56.4° with 50.2° of tilt | 0.640 | 0.38 m |
+| gravity-safe | -53.0° | 0.650 | 0.89 m |
+
+That residual gap is itself a diagnostic: when holding the tilt to zero wrecks the fit, either
+one span's gravity is wrong or the join is not real.
+
+**Second: the compass gets a vote — when it has earned one.** See the section below, *There
+is no GPS orientation*, which corrects what this section first claimed. In short: the status
+quo is a fit of camera POSITIONS to GPS positions, not an orientation measurement; the compass
+vote must be drawn only from frames whose bearing actually came from a magnetometer; and on
+the bridge walk it turned out to be too scattered to arbitrate at all. `--apply` refuses to
+turn a span unless the evidence supports it, `--use-compass-yaw` turns by the compass angle
+where that is the better of the two, and `--revert` puts a join back. Nothing is overwritten:
+the position fit is kept as `alignment_gps` and `alignment_source` records what won.
+
+### Reaching past a weak link, because walking is not a chain (2026-09-10)
+
+A sliding window assumes frame *i* overlaps *i+1* and little else. Swing aside to read a sign
+and swing back, and frames *i..i+3* look at something else entirely while *i* and *i+4* are the
+pair that sees the same wall. A fixed window either misses that link or pays for a wide window
+along the whole walk — and `spotA-win12` showed a wide window is not free.
+
+`--adaptive_pairs` measures the window's links first (the forward passes are shared and
+content-addressed, so this is nearly free on a re-run), calls a consecutive link weak when it
+carries less than `--adaptive_frac` of the median link, and then reaches out to
+`--adaptive_reach` frames from **both ends** of each weak link. Only there. The cost is one
+forward pass per added pair and nothing at all where the walk is behaving.
+
+### Spans join better through geometry than through GPS (2026-09-10)
+
+`recon_join_spans.py` registers two separately solved runs without using GPS at all. For every
+cross-run image pair that has cached correspondences, it back-projects the matched pixels
+through **each run's own dense depth**, giving the same physical surface in two solve frames,
+and fits a similarity by RANSAC. The inliers of every such pair are pooled into one weighted
+fit, and each pair is then re-judged against the pooled answer, the way the two-view verifier
+judges a link against its own epipolar geometry.
+
+Self-test: spot A solved twice, once with a 4-frame window and once with 12. The join puts the
+46 shared cameras **6 cm apart** (median; 31 cm worst), and agrees with the GPS join to 0.5°
+and 0.3% of scale — as it should, since spot A is exactly where GPS is healthy.
+
+Then the case that matters. `newest-stairs-bridge` and `newest-bridge-exit` are the two halves
+of the walk that goes down the staircase and under the bridge, solved independently, sharing
+two photos:
+
+| join | rotation | scale | where it puts the other span's cameras |
+|---|---|---|---|
+| geometric | reference | 0.622 | 13 cm from the other solve on the shared photos |
+| GPS-only | 65.9° off | ×0.675 | 14 m away (23 m worst) |
+
+The GPS-only registration of these two spans is wrong by sixty-six degrees. That is the
+manual-location block and the bad first fix on the far side of the bridge, doing exactly what
+was predicted, and it is the strongest argument yet for a geometric pose graph over GPS
+stitching.
+
+**The honest caveat**: all 24 usable cross pairs there touch one of the two shared photos.
+Holding those photos out leaves zero evidence, so the 13 cm figure is not an independent
+validation — it says the fit is self-consistent, not that it is right. `bridge-join-probe`
+(the six boundary frames of each run, paired complete) is queued to compute genuinely new
+cross pairs between frames neither solve shared, which is what turns this into a test.
+
+Per-pair verdicts are gated on conditioning: a pair whose inliers span less than 5% of their
+own range cannot pin a rotation, and is reported `weak` rather than `contradicts`. Even
+between two solves of the same scene, 227 of 964 pairs still disagree with the pooled fit by
+more than 5° or 15% of scale, which is a fact about how much MASt3R's per-frame depth wanders,
+not about the join.
+
+### One forward pass per photo-and-size, shared across runs (2026-09-10)
+
+Splitting a walk into span runs, the resolution trio, the masking A/Bs: every one of them
+re-staged the same photos and paid MASt3R's pairwise forward passes again, because the cache
+under each run dir was keyed by the run-local image path (`hash_md5("<rundir>/imgs/NNN_id.jpg")`).
+A 50-frame walk is ~700 directed pairs at 35 s each on this CPU: forty minutes per re-run before
+a single optimiser step, and 53 GB of caches that were mostly copies of each other.
+
+Now `reconstruct.py --cache` (default `scripts/enrich/runs/shared_cache`, env
+`RECON_SHARED_CACHE`) routes the per-pair **forward passes and raw correspondences** into one
+directory addressed by **image content**: `md5(jpeg bytes + "|size=<load size>|v1")`. The forward
+pass depends on exactly those two things (bytes, and dust3r's resize-to-`size`), so anything
+else about the run (id, frame order, pairing window, masks, iterations) is irrelevant to the
+key. It is done by rebinding `sparse_ga.hash_md5` for the staged paths and wrapping
+`forward_mast3r` so it runs against the shared root and returns the run-local root for
+everything after it.
+
+What stays run-local, and why:
+
+- **canonical views** (`canon_views/`) aggregate over whichever pairs *this* run has, so a
+  child span with a different neighbour set gets different canonical depth. Keyed by content
+  too, but under the run dir.
+- **masked correspondences**: the old wrapper rewrote a masked pair's correspondence file in
+  place, which is exactly what must not happen in a shared cache (an unmasked run would read
+  the hedge-less version next). The masked copy now goes to `<run>/cache/corres_masked_*/` and
+  the pair's entry in the result dict is pointed at it; the shared raw file is never touched.
+- `pair_count_matrix` reads the masked copies first, then the shared raw ones.
+
+Migration: `oneoff/scripts/2026-09-10_1030_shared_cache_migrate.py` hardlinked the existing
+per-run caches in (4914 forward files, 27 GB reachable, zero extra disk). One compromise was
+needed: because of the in-place rewrite, an anon-masked run's correspondences differ from raw
+only inside the painted doodle boxes, and no run wants matches there, so those went in as raw.
+Correspondences from vegetation- or semantic-masked runs stayed out; their forward files went in.
+The first re-staging of spot A reported `46/46 frames have forward passes there`, and the
+content keys were byte-identical to the original staging (the JPEG re-encode is deterministic).
+
+Retention is now a question about one directory, not twenty-three: the per-run `cache/forward`
+and `cache/corres_conf=*` dirs of finished runs are hardlinks of what the shared cache holds and
+can be removed without losing anything. The shared cache itself grows by roughly 70 MB per
+directed pair at 512 px and can be pruned by atime when disk asks for it.
+
+### The disk filled up, and the bench said "queue unknown" (2026-09-10)
+
+Root hit 100%. Every request 500'd, the runs list showed nothing, and the only words on
+screen were "queue unknown". Pruning the day's docker build cache freed 50 GB. The
+numbers worth knowing: the recon run dirs hold **53 GB**, almost all forward-pass caches
+(1.8-2.7 GB per run, regenerable, and the thing `recon_metrics`/`recon_verify_links`
+re-read), and `~/.cache` holds 13 GB (huggingface weights, uv, bun, playwright browsers).
+
+Two consequences. `GET /health/machine` now reports disk, memory, load and the recon
+queue with thresholds, and the dashboard shows it as a card that turns amber — the
+operator-interface version of the missing symptom. And the caches need a retention rule:
+keep them for runs still being analysed, drop them for runs superseded or older than N
+days, and — better — replace them with a **content-addressed shared cache** so a photo
+pair's forward pass is computed once for every run that ever uses it. That is the same
+change the span-splitting needs, for the same reason.
+
+### Breaking up broken sessions: the decision, and the first implementation (2026-09-10)
+
+The question was whether and how to split a walk that has fallen apart into spans. The
+evidence says *whether* is settled: the five-session fusion showed that frames which
+cannot see each other must not be solved together, because the joint optimiser spreads
+the bad links' error over the good geometry — and a single walk with a swipe, a
+staircase or an underpass in it has the same shape in miniature. `newest-2026-09-08`
+fitted per span sits on its GPS to under a metre where one fit left it seven off.
+
+*How*, for now:
+
+1. **Where to cut.** The union of two signals. The two-view chain (`--chain`) breaks
+   where consecutive frames stop sharing an epipolar geometry; the solve's own step
+   breaks where the solver restarted its scale. They disagree about a staircase — matches
+   survive it, scale does not — so both are needed. The chain is available before any
+   solve; the step only after one.
+2. **Solve each span alone.** `POST /recon/runs/{id}/split` enqueues one child run per
+   span, by explicit frame ids, with the parent's centre so every span lands in the same
+   metres-east/north/up frame. Spans under four frames are skipped. Each child is a
+   well-connected cluster, which is what the solver is good at.
+3. **Register spans by GPS, for now.** Each child gets the gravity-pinned, weighted GPS
+   fit with the manual-location priors. That is a pose graph with one node per span and
+   GPS priors only. Verified cross-span links and a real graph solve are the next step,
+   and the machinery for the links exists.
+4. **See it as one thing.** The bench shows a split run's spans as a group; tick a span
+   to overlay it in the parent's viewer, tinted, luminance from the photo and hue from
+   the span, so you can tell whose pavement is whose and whether the GPS registration
+   put them where they belong.
+
+What this costs today: the forward passes are recomputed per child, because MASt3R's
+cache is keyed by the run-local image path. A content-addressed image directory and a
+shared cache would make a split — and the resolution trio, the A/Bs, every re-solve of
+the same photos — nearly free. It is the obvious next infrastructure change, and it has
+to account for correspondence masking rewriting cache entries in place.
+
+First subject: `newest-2026-09-08`, split at 16, 29 and 33 into four children.
+
+### A walk is several spans, and the GPS is on trial too (2026-09-09)
+
+The user, on `newest-2026-09-08`: "i expect it to fall apart into a few spans again, which
+we'll have to tie together with gps." It does, and the numbers say how.
+
+Two independent signals find the breaks. The **two-view chain** (`recon_verify_links.py
+--chain`) reports where consecutive frames stop agreeing on an epipolar geometry: after
+frame 29 (31 matches, contradicting the compass) and after 33. The **solve's own step** —
+the distance between consecutive solved cameras — jumps to 31 m at 16→17 and 24 m at
+33→34 against a 1.5 m walking pace. Both signals are right about different things, so
+break detection is their union.
+
+*Corrected the same day, from the photographer:* this run's 50 frames are the sidewalk
+approach only. Frame 29 is "a swipe to the left and back" — a camera sweep, and the chain
+breaks on it because a sweep is a burst of frames sharing almost nothing with their
+neighbours. The literal staircase begins *after* frame 49; the underpass, the manual
+locations and the bad first GPS fix on the far side are all beyond this run. An earlier
+draft of this section attributed the breaks to the stairs and the bridge. It was wrong,
+and the lesson is the one the pending-frames view exists for: look at the photographs
+before naming what broke. The section after frame 49 is queued as its own run,
+`newest-stairs-bridge`.
+
+`recon_spans.py` then fits each span on its own: gravity pinned from the whole run's
+cameras, yaw + scale + translation fitted to the horizontal GPS, **iteratively
+reweighted** so a frame whose GPS sits far from where the span's own shape puts it loses
+its vote and is named. The span's shape comes from the solve and is trusted; the GPS is
+the thing on trial.
+
+| | scale (m per solve unit) | GPS residual, trusted frames |
+| --- | --- | --- |
+| one fit over the whole walk | 1 | **7.5 m** median, 15 m p90 |
+| span 0, frames 0-16 | 0.805 | 0.6 m |
+| span 1, frames 17-29 | 0.917 | 1.3 m |
+| span 2, frames 30-33 (under the bridge) | 1.512 | 0.6 m, but four frames fit four parameters |
+| span 3, frames 34-49 | 1.108 | 0.7 m |
+
+Four spans, four scales, and the solver's scale nearly doubled in the dark under the
+bridge. Fitted per span, the walk sits on its GPS to under a metre where one fit left it
+seven off. The frames the fit refuses to trust are 17, 18 and 27 in the middle span and 34
+at the far end — the first frame back in the open.
+
+The GPS wander the photographer remembers is not in this run either — it is on the far
+side of the bridge, after frame 49. Within these 50 frames the frames the fit distrusts
+(17, 18, 27, 34) are the sweep bursts, where a fresh scale meets stale GPS.
+
+**Manual locations have a machine-readable signature.** Following the timeline past
+frame 49 with the photographer's markers — down the stairs at 17:44:30, fifteen metres
+under the bridge at 17:44:49 with the GPS still reporting the entrance, manual locations
+until 17:45:40, then the first fix "incorrectly on the other side of the street" — the
+mirror shows exactly that, without being told:
+
+| time | altitude | compass | GPS step |
+| --- | --- | --- | --- |
+| 17:44:03 – 17:44:48 | 252 m, constant | swinging 247 → 356 → 108 on the stairs | 0.1 – 1.5 m |
+| 17:44:50 – 17:45:40 | **absent** | **frozen at 14°** | blocks: 16.6, 0, 0, 10.1, 1.1, 0, 0, 0, 7.5, 0 … |
+| 17:45:41 | 252 m, back | 14° | **66.9 m** |
+
+The manual block is unmistakable: no altitude (a hand-placed point has none), a compass
+that stopped updating along with the GPS, and positions that move in jumps of five to
+seventeen metres with several frames parked on each — a person placing waypoints, not a
+receiver. And the first real fix after it lands 67 m from the last waypoint. So a span
+fitter can *know* which frames are manual and weight them as rough, and can expect the
+first fix after a manual block to be the worst GPS point in the walk. `newest-stairs-bridge`
+and `newest-bridge-exit` are queued to cover this stretch, deliberately overlapping so the
+join is a verified cross-span link rather than a guess.
+
+**Where this goes.** Per-span similarity to GPS is a pose graph with one node per span and
+only GPS priors. The verified cross-span links are the other edges, and the structures-
+before-mud weighting the user asked for is the per-node weight. That is the build.
+
+**Two passes for structures and foliage.** Also from the user: solve on structure, then
+"pile on the foliage without giving it a big say in geometry". That is the right shape
+and the machinery is almost there. Pass one is the solve with the semantic mask on, so
+poses and scale come from built surface only. Pass two is dense extraction with the
+vegetation tier *lifted* but sky and movers still out, unprojecting the same depthmaps
+through the same poses — foliage appears in the cloud, carrying a class flag, and has no
+vote in the geometry because the geometry is already fixed. Nothing is re-solved. The
+one gap is the artifact: the packed cloud has no per-point class byte, so the first
+version is a separate `dense_soft.ply` and a toggle in the viewer.
+
+### What the DEM is for, and what it is not (2026-09-09)
+
+The user's framing, and it is the right one: the elevation model is "something i'd use to
+align things at long distances, not something that will reliably tell us if there was a
+real staircase or not". Formalised, that is a statement about spatial frequency. The
+workbench has Czech LiDAR at 2 m and 10 m over Prague plus worldwide GLO-30, and none of
+those can see a 30 cm step in a pavement. What they *can* see is the low-frequency half,
+and that half contains the thing a span knows least about itself: its vertical datum.
+
+**Correction on altitude.** I had written that no photo in this corpus carries a GPS
+altitude. That was true of every run I had looked at — all of them June and July 2026 —
+and false of the corpus: 27,208 of 70,576 photos carry one, and from **August 2026 it is
+90%, September 96%**. Phone altitude is *ellipsoidal* (WGS84) and the DTM is orthometric,
+so the two differ by the geoid undulation, ~44.5 m in Prague (`TERRAIN_GEOID_OFFSET_M`
+already knows this). Applied, spot A's GPS datum sits **0.36 m** from LiDAR, Prosek B's
+4.2 m, the newest walk's 4.0 m. So for recent captures the datum is observable to a few
+metres from GPS alone, and the DEM refines it rather than supplying it from nothing. The
+June and July runs still have no altitude, and their datum still comes only from the DEM.
+
+`scripts/enrich/recon_dem_check.py` splits the comparison into three parts, in decreasing
+order of how much to believe them: the **offset** (one free parameter per span, and the DEM
+simply supplies it), the **tilt** along the track (a real drift, correctable), and the
+**residual** after removing both — which is where a staircase would live and is precisely
+where the DEM has nothing to say.
+
+Against the 10 m bare-earth DTM, assuming a 1.5 m eye height:
+
+| run | GPS datum vs LiDAR | tilt over the track | residual sd | real relief |
+| --- | --- | --- | --- | --- |
+| `dense-spotA-2026-08-19` | +0.36 m | +0.17 m over 39 m | **0.05 m** | 0.1 m |
+| `newest-2026-09-08` | -3.99 m | +3.97 m over 87 m | 0.62 m | 2.5 m |
+| `walk_jizni` | no altitude | +1.81 m over 112 m | 2.20 m | 1.1 m |
+| `prosek-b-tight-aug06` | +4.22 m | **+10.43 m** over 111 m | 4.08 m | 5.1 m |
+
+Spot A agrees with Czech LiDAR to five centimetres, which is the first time anything has
+confirmed that run from outside itself. And Prosek B drifts ten metres vertically over a
+hundred-metre track where the ground really moves five — a defect no internal metric had
+flagged, found by exactly the long-baseline comparison the DEM is good for.
+
+Caveats worth keeping: the DTM is bare earth, so a raised verge or a kerb shows up as
+residual; the eye height is assumed, not measured; and a 10 m cell smooths a hilltop edge
+badly, which is some of what Prosek B's residual is made of.
+
+### Masking has to be a ladder, because a lot of the corpus is mud and hedge
+
+"buildings are a more reliable signal than mud, there's got to be some prioritization, but
+a lot of areas are gonna be just mud and vegetation." Right on both halves, and the second
+half is what makes a binary mask wrong.
+
+The Mapillary Vistas classes sort into three groups for this purpose. **BUILT** — facades,
+walls, fences, poles, signs, kerbs, road markings, manholes — holds still and carries
+texture on a plane, and is never masked because it is the signal. **SOFT** — Terrain,
+Mountain, Ground — is bare earth: static and so geometrically legitimate, but self-similar
+and texture-poor. **TRANSIENT** is the rest, and it comes in two tiers.
+
+So `semantic_mask.load_mask` is a ladder, not a budget:
+
+1. always mask sky, people, riders, vehicles, animals, water, snow — transient or at
+   infinity, never worth a correspondence;
+2. then vegetation, **but only if enough BUILT surface remains to match on**.
+
+Measured on two Prosek frames, that ladder does the right thing in both directions. The
+hilltop frame with the city on the horizon has 20% built surface (a gravel path and distant
+facades), so its 46% vegetation goes and 79% of the frame is masked. The dry-meadow frame
+has 2% built surface and 84% *Terrain*, so its hedge is kept and only the 2% of sky goes —
+because a frame with nothing in it does not fail loudly, it drifts, and drifting is the
+failure that has cost this project the most.
+
+**How much of the corpus really is mud and hedge?** Segmenting 54 frames sampled across
+six runs, less than expected — but concentrated exactly where it hurts.
+
+| class | share of all pixels | tier |
+| --- | --- | --- |
+| Sidewalk | 31.1% | built |
+| Vegetation | 19.8% | transient |
+| Terrain | 9.5% | soft |
+| Road | 8.6% | built |
+| Sky | 8.4% | transient |
+| Building | 5.7% | built |
+| Traffic Sign, Wall, Fence, Billboard, Bench, kerb, markings | ~15% | built |
+
+Built surface is **68% of the median frame**, and 91% of frames clear the 12% floor, so the
+ladder runs in full mode nearly everywhere. The exception is a single run:
+`prosek-b-tight-aug06` at 16.7% built, 40.1% Terrain, 24.9% vegetation — and its vegetation
+survives the ladder on five of its eight sampled frames. It is also the worst run by every
+independent measure: 75 cm of neighbour ground disagreement, 10 m of vertical drift against
+LiDAR, 9.5 px reprojection.
+
+So "a lot of areas are gonna be just mud and vegetation" is not true of the corpus, which
+is dominated by pavement walks — but it is true of the **hilltop viewpoint**, which is
+disproportionately the kind of place this project exists to photograph.
+
+One caution the census raises on its own terms: *Sidewalk* is a third of all pixels and I
+have it filed as reliable, yet spot A's slab pavement reconstructs to 0.9 cm while the
+newest run's plain asphalt path staircases by 29 cm. Class alone does not settle
+reliability; texture within the class does, and that is not measured yet.
+
+Note that dry grass classifies as **Terrain**, not Vegetation, so it was never in the mask
+preset — and the meadow made of it is the run whose neighbouring frames disagree about the
+ground by 75 cm and which drifts 10 m vertically against the DEM. Masking is not the answer
+there. Nothing in that frame is reliable, and the honest response is to weight the whole
+frame down, or to get the span linked to a better-conditioned one.
+
+### The ground-agreement metric, and what three new areas look like (2026-09-09)
+
+Three runs on fresh areas, chosen by scoring all 577 recent Prague capture sessions on the
+properties that predicted quality: frame count, shooting interval, and how non-collinear
+the camera track is.
+
+| run | what it is | reprojection median |
+| --- | --- | --- |
+| `dense-spotA-2026-08-19` | plaza, hard surface, textured object at 1-3 m | **1.34 px** |
+| `newest-2026-09-08` | gravel path at dusk between bushes | 9.48 px |
+| `prosek-b-tight-aug06` | dry meadow on a hilltop, distant city vista | 9.50 px |
+
+Rendered from their own camera poses, the two new ones fail in ways reprojection error
+barely distinguishes. The gravel path comes out as a **staircase of tiles**: each frame
+lays its patch of path at its own height and they stack. The meadow reconstructs its near
+ground displaced from where the photograph puts it, and the city vista is simply absent.
+
+**So the metric had to be physical.** `scripts/enrich/recon_ground_split.py` asks two
+questions of every run:
+
+1. how high is each camera above *its own* floor — a phone is held at 1.4-1.7 m, so this
+   is a scale check that needs no GPS;
+2. where two neighbouring frames see the **same patch of ground**, do they agree on its
+   height?
+
+| run | camera height (sd) | neighbours disagree by |
+| --- | --- | --- |
+| `dense-spotA-2026-08-19` | 1.24 m (0.12) | **0.9 cm** median, 11 cm p90 |
+| `newest-2026-09-08` | 1.83 m (0.21) | **29 cm** median, 93 cm p90 |
+| `prosek-b-tight-aug06` | 1.76 m (0.38) | **75 cm** median, 2.6 m max |
+
+That separates the runs by a factor of 80 where reprojection error separates them by 7, and
+it says what is wrong in centimetres of pavement rather than pixels. It also reads the scale
+error straight off: spot A is ~20% small, the two walks ~15% large.
+
+A single "consensus floor" only means something for a capture that stood still — a walk
+climbs and descends, and its floor is *supposed* to move. The neighbour-agreement test works
+for both, which is why it is the one to keep.
+
+### Visual assessment: rendering the model from a camera's own pose (2026-09-08)
+
+The sharpest test of a solve there is. Take frame i's solved pose and focal, render the
+fused cloud through it, and put the result beside frame i's actual photograph. If the pose
+and the depth are right, the render lands on the photo pixel for pixel.
+
+Done for `dense-spotA-2026-08-19`:
+
+- **frames 8 and 27 are near-perfect.** The mosaic bench matches tile for tile, and so does
+  the pavement, including which slab is the beige one and where the cracked one is. That is
+  a genuinely good reconstruction.
+- **frame 44 is visibly wrong.** The bench sits right and high of where the photo puts it,
+  with colour fringing that says two surfaces slightly apart. Frame 44 is one of the three
+  the ground analysis flagged as sitting 28 cm low.
+
+So the eyeball and the numbers agree, which is the point of doing both.
+
+**And that turns into a machine test.** `scripts/enrich/recon_frame_check.py` does it
+leave-one-out: fuse the dense points of every frame EXCEPT i, render through i's pose, and
+find the 2-D shift that best matches i's photograph (correlated on the image gradient, so
+exposure does not matter). Leaving the frame's own points out is the whole trick — include
+them and every frame agrees with itself perfectly, which is exactly why reprojection error
+is blind to this.
+
+On spot A the median frame needs **2.0 px** of shift and the worst need 22-33:
+
+| frame | shift needed |
+| --- | --- |
+| 0 | 33 px |
+| 16 | 28 px |
+| 1, 44 | 24 px |
+| 2, 15, 45 | 23 px |
+| median of all 46 | **2.0 px** |
+
+Every frame the floor analysis flagged (0, 43, 44, 45) is in the list, and it finds more
+besides. It says which way each drifted, too, which a scalar error never can.
+
+### The world was tipped over, and GPS could never have told us (2026-09-08)
+
+The user looked at `walk_dense` and said the model had "made up an orientation about 90
+roll against the actual ground". Measured, it was **76 degrees**. Every run on the bench
+was tipped except one:
+
+| run | camera-track linearity | roll error |
+| --- | --- | --- |
+| dense-spotA-2026-08-19 | 0.854 (a circle) | **0.4 deg** |
+| walk_jizni | 0.432 (a curved walk) | 3.8 deg |
+| dense-jizni-walk | 0.111 | 54.5 deg |
+| walk_dense | 0.093 | 76.2 deg |
+| dense-prosek-walk | 0.069 (a straight line) | 79.2 deg |
+| walk_dense_masked | — | 170.2 deg (upside down) |
+
+The correlation with how collinear the camera track is, is exact, and the mechanism is not
+subtle. `reconstruct.py` aligns a solve to the world with a 7-DoF Umeyama fit of the camera
+centres against GPS. **Rotation about the walk axis is unobservable when the centres are
+collinear**, and it is worse than that here: *no photo in these clusters has an altitude*,
+so every GPS target lies in one horizontal plane and the fit has no vertical information at
+all. It lays the reconstruction into that plane whichever way it likes, and a 180-degree
+roll fits exactly as well as none — which is how a run ends up upside down.
+
+**Gravity is the missing constraint, and two cheap estimates of it need no new sensor.**
+The phones' own down axis (people hold a phone roughly upright) and the normal of the
+dominant planar surface under the cameras (the ground is flat). They are independent, so
+their disagreement is the honest error bar. `enrich/api/app/recon_ground.py` computes both,
+prefers the plane when it has real support and the phones do not contradict it, and returns
+nothing rather than a guess when they disagree by more than 30 degrees.
+
+`POST /api/recon/runs/{id}/realign` then re-fits with up pinned to +Z and only yaw, scale
+and translation fitted to GPS — **horizontal components only**, because letting a missing
+altitude into the fit is what pulled the world out of plumb in the first place. The
+original is kept as `alignment_gps`, so the change is reversible. It costs almost nothing:
+
+| run | GPS residual before | after |
+| --- | --- | --- |
+| walk_dense | 2.91 m | 3.17 m |
+| dense-prosek-walk | 7.61 m | 7.38 m |
+| dense-jizni-walk | 1.77 m | 1.73 m |
+| dense-spotA | 1.305 m | 1.305 m |
+
+Three degrees of freedom of pure noise-fitting, removed for a quarter of a metre. New runs
+are realigned automatically when their result lands, so a run is never *seen* in the wrong
+orientation.
+
+**What it does not fix.** After the correction the phone-down check on the straight-walk
+runs still reads 18-19 degrees off vertical, and their dense clouds' dominant near-camera
+plane sits ~76 degrees from their sparse clouds'. One of those two surfaces is the floor and
+the other is a wall, and no amount of geometry decides which — that is the semantic layer's
+job, and it is the clearest argument yet for it.
+
+### There really are two floors, and they belong to specific frames (2026-09-08)
+
+The user: "the model is still kinda split between multiple ideas of where the ground is
+... reviewing the source photos reveals, to a human, that there were no double floors."
+
+Correct, and it is measurable. Unprojecting each frame's own depthmap and taking the median
+height of its ground points, spot A's 46 frames agree to a standard deviation of 7.5 cm —
+except four:
+
+| frame | its floor | offset from consensus |
+| --- | --- | --- |
+| 43 | -1.537 m | **-30 cm** |
+| 45 | -1.521 m | -28 cm |
+| 44 | -1.515 m | -28 cm |
+| 0 | -1.340 m | -10 cm |
+
+Consensus is -1.237 m. Pooled over all frames, the histogram has a main peak at -1.27 and a
+clear secondary at -1.56 with about 5% of the mass — that is the second floor, and it is
+those three frames. A cross-section through the plaza shows it as a distinct band.
+
+Frames 43-45 are the last three of the sweep and frame 0 is the first detached still, which
+are **exactly the frames with the fewest pairs and the worst reprojection error** (frame 0:
+62.5 px, frame 43: 7.2 px, against a 1.26 px median for the rest). So the double floor and
+the reprojection tail are the same defect seen twice: weakly-connected frames drift, and
+their drift shows up as a slab of pavement 28 cm below the real one.
+
+Three ways to attack it, in increasing order of ambition:
+
+1. **Report it.** Per-frame ground height against the consensus is a structure metric that
+   says something physical, unlike a pixel count. It flags the same frames as reprojection
+   error but tells you what went wrong.
+2. **Correct it post hoc.** Snap each frame's ground to the consensus plane, either by
+   translating that frame or by rescaling its depth. Which of the two is right is decided
+   by whether the offset grows with distance; for these frames the cameras are also ~15 cm
+   high, so it is partly pose and partly depth.
+3. **Constrain the solve.** Assert that the pixels which are *ground* lie on one surface,
+   and let that tie down the per-frame depth scale during the global alignment. This is the
+   hybrid in its purest form: the network cannot know the plaza is one plane, the map and a
+   segmentation can, and the optimiser can use it once told.
+
+### Grounding the solve, and making it read as solid (2026-09-08)
+
+**The vertical datum was wrong, and the fix is local.** The alignment puts the cameras at
+mean GPS altitude, so a run's height is only as good as phone GPS altitude — and the
+viewer's floor was the 5th percentile of the *whole* cloud, which at a clifftop is the
+valley. Measured camera height above that floor:
+
+| run | old floor (global p5) | floor under the cameras |
+| --- | --- | --- |
+| dense-spotA-2026-08-19 | 1.70 m | 1.15 m |
+| dense-jizni-walk | 2.39 m | ~1.3 m |
+| walk_jizni | 5.23 m | ~2.7 m |
+| dense-prosek-walk | **13.04 m** | 1.25 m |
+
+The estimator is cheap: cloud points within 3 m in plan of some camera and 0.3–4 m below
+it, low quartile. The viewer now draws its grid and the OSM map on that instead. Prosek
+stopped floating thirteen metres in the air.
+
+The residual is a **scale** signal, and a free one: a phone is held at 1.4–1.7 m, so a run
+reporting 1.15 m is ~25 % small and one reporting 2.7 m is ~1.8× large. For a stationary
+capture, where GPS scatter (1.3 m median residual here) is larger than the real baseline,
+this eye-height prior is a *better* scale estimate than the GPS fit it would replace.
+
+**Making a point cloud look solid, without meshing it.** Two changes, no new data:
+
+1. **Point size from measured spacing**, not from scene extent. Median nearest-neighbour
+   distance over a 4,000-point sample (uniform grid hash), sprite drawn at 1.6× that. The
+   gaps close, so the samples read as a surface.
+2. **Eye-dome lighting.** Render to an offscreen target with a depth texture, then shade
+   each pixel by how much nearer it is than its eight neighbours, in log eye-depth.
+   Silhouettes and creases darken, flat surfaces stay flat. This is what Potree and
+   CloudCompare do, and it costs one fullscreen pass — no normals, no lights, no mesh.
+
+3. **Round sprites, cut with `alphaTest`** rather than blended, so points still write
+   depth and occlude one another. Square points read as a mosaic of tiles; round ones read
+   as a surface.
+
+Two traps found while wiring the controls. The point size had to be given a **pixel
+floor**: on a dense subject cloud the measured spacing is a few millimetres, which lands
+under one pixel at any sane viewing distance, the GPU clamps every sprite to 1 px, and the
+slider appears dead. It is now `max(1.6 x spacing, whatever covers 2.5 px at the framing
+distance)`, and the HUD prints the resulting pixel size. And every `$effect` driving a
+list built asynchronously must **read its reactive value before the loop** — the list is
+empty on the effect's first run, so a read that only happens inside the loop body is never
+tracked and the control silently does nothing. That bug killed three sliders in a row.
+
+**Photos in the frusta.** `/cameras?images=true` now returns each frame's photo URL plus
+`img_w`/`img_h` — the size the *solver* loaded, since `focal_px` is measured in those
+pixels and the frustum's half-angles are `atan(w/2f)` and `atan(h/2f)`. The viewer hangs
+the photograph on the frustum's image plane, which makes a sweep read as what it is: a
+carousel of viewpoints around a place. Sliders control frustum scale and photo opacity.
+
+The real "solid" is still a mesh: we already save per-frame depthmaps and poses in
+`dense.npz`, which is exactly TSDF-fusion input, and that would give a coloured triangle
+mesh the photos can then be projected onto. Neither open3d nor trimesh is installed yet.
+
+### Map layer in the viewer
+
+`GET /api/recon/runs/{id}/map` serves OSM footprints, retaining walls and roads for the
+run's area in the *same* metres-east/north/up frame as the cloud and the cameras, extruded
+by `height`, else `building:levels × 3.2 m`, else a 7 m default — and it says which of the
+three each building used, because a guessed height must not render as surveyed truth.
+Overpass answers are cached next to the run's other artifacts.
+
+Projecting those footprints back into the photographs (`oneoff` proj scripts) shows the
+GPS-derived alignment is already close: building base outlines land on the real building
+bases. That is the encouraging half of the result — map correlation is a refinement
+problem here, not a search problem.
+
+**Bug found while doing it:** the viewer drew camera frusta from `pose`, the *raw solve*
+pose, while the cloud came back in ENU. Every frustum was in a different coordinate system
+from the points it belonged to. Fixed to use the `pos`/`rot` the same endpoint already
+returns in ENU.
+
 ## Open threads / next experiments
 
 - **What is the warped tail made of?** ✅✅ **Answered, and it has a fix.** See "The tail is a

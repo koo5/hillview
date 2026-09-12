@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -476,14 +477,14 @@
 {#if !target}
 	<p class="muted">
 		Enter the id of the pano to annotate (the big new one), e.g. from its
-		<a href="/photos">photo page</a>.
+		<a href="{base}/photos">photo page</a>.
 	</p>
 {:else if bench}
 	<div class="row" style="align-items:flex-start; gap:16px">
 		<div class="xfer-list">
 			{#each bench.donors as d (d.photo.id)}
 				<div class="donor-head">
-					<a href="/photos/{d.photo.id}">{d.photo.title ?? d.photo.id.slice(0, 8)}</a>
+					<a href="{base}/photos/{d.photo.id}">{d.photo.title ?? d.photo.id.slice(0, 8)}</a>
 					<span class="muted" style="font-size:11px">
 						{d.annotations.length} ann ·
 						{d.calibration?.calibrated ? 'calibrated' : '⚠ compass only'}
@@ -519,7 +520,7 @@
 				{@const t = selEntry.transfer}
 				<div class="row" style="align-items:baseline; gap:10px; margin-bottom:4px">
 					<b>{label(selEntry)}</b>
-					<a class="mono muted" style="font-size:11px" href="/annotations/{selEntry.id}">
+					<a class="mono muted" style="font-size:11px" href="{base}/annotations/{selEntry.id}">
 						{selEntry.id.slice(0, 8)}
 					</a>
 					{#if selEntry.azimuth != null}
@@ -549,7 +550,7 @@
 					{:else}
 						<button onclick={reopenSel} disabled={busy}>↺ reopen</button>
 						{#if t.status === 'accepted' && t.accepted_annotation_id}
-							<a href="/annotations/{t.accepted_annotation_id}" style="font-size:12px">clone ↗</a>
+							<a href="{base}/annotations/{t.accepted_annotation_id}" style="font-size:12px">clone ↗</a>
 						{/if}
 					{/if}
 				</div>

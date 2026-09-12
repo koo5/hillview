@@ -58,6 +58,37 @@ def wkt(g):
 BLUR_CONFIDENCE = 0.4  # mirrors backend/worker/detections.py: blurred iff conf is None or >= this
 
 
+def bearing_source(r):
+    """How the capture app obtained this photo's bearing, from its UserComment JSON.
+
+    Every mode is the user's best shot at the real bearing, and the stored value is the only
+    bearing that photo has. The app switches between them on purpose: walking mode reads the
+    compass per frame; car mode takes the GPS travel direction and adds a shooting offset the
+    user sets once, which is how you photograph sideways out of a moving car (`gps-kalman`);
+    and the arrow can be dragged by hand (`arrow_drag`, `map`). The mode is recorded because
+    the error CHARACTER differs, not because one of them is the truth — so a bearing is read
+    together with this, and never filtered by it.
+    """
+    ex = r.get("exif_data") or r.get("exif") or {}
+    if not isinstance(ex, dict):
+        return None
+    d = ex.get("data") if isinstance(ex.get("data"), dict) else ex
+    uc = (d or {}).get("UserComment")
+    if not isinstance(uc, str) or not uc.startswith("{"):
+        return None
+    try:
+        return (json.loads(uc) or {}).get("bearing_source")
+    except (ValueError, TypeError):
+        return None
+
+
+COMPASS_BEARING_SOURCES = ("compass-true", "compass-magnetic", "absolute-compass")
+
+
+def bearing_is_compass(src):
+    return bool(src) and any(k in src for k in COMPASS_BEARING_SOURCES)
+
+
 def parse_anon(r):
     """Boxes that were actually BLURRED/anonymized (cars, people, …), (x1,y1,x2,y2) in original px.
     Mirrors the worker's should_blur(): a detection is blurred iff it has no confidence
@@ -132,6 +163,7 @@ def select_cluster(center, radius_m, n, start, maxscan, stride=1, after="", befo
             "e": e, "n": nth, "d": d,
             "alt": float(r["altitude"]) if r.get("altitude") else None,
             "brg": float(r["compass_angle"]) if r.get("compass_angle") else None,
+            "brg_src": bearing_source(r),
             "cap": r.get("captured_at") or r.get("uploaded_at") or "",
             "full": url, "t640": t640,
             "ttl": (r.get("title") or "")[:60],
@@ -175,12 +207,17 @@ def load_manifest(path, center):
             "e": e, "n": nth, "d": math.hypot(e, nth),
             "alt": float(f["altitude"]) if f.get("altitude") is not None else None,
             "brg": float(f["compass_angle"]) if f.get("compass_angle") is not None else None,
+            "brg_src": f.get("bearing_source"),
             "cap": f.get("captured_at") or "",
             "full": f["full_url"], "t640": f.get("thumb_url"),
             "ttl": ("INJECTED:" + title[:50]) if f.get("injected") else title,
             "anon": [tuple(b) for b in (f.get("anon_boxes") or [])],
             "ow": int(f.get("width") or 0), "oh": int(f.get("height") or 0),
             "ofn": f.get("original_filename") or "",
+            # capture session (device + time-gap), assigned upstream. Carried through to
+            # metadata so the metrics can separate WITHIN-session pairs from CROSS-session
+            # ones — the whole question when fusing independent visits to one place.
+            "sess": f.get("session"),
             **({"inj": True} if f.get("injected") else {}),
         })
     if len(out) < 2:
@@ -213,6 +250,7 @@ def fetch_by_ids(prefixes, center):
                     "d": math.hypot((lon - lon0) * kx, (lat - lat0) * ky),
                     "alt": float(r["altitude"]) if r.get("altitude") else None,
                     "brg": float(r["compass_angle"]) if r.get("compass_angle") else None,
+            "brg_src": bearing_source(r),
                     "cap": r.get("captured_at") or "", "full": url, "t640": None, "inj": True,
                     "anon": parse_anon(r), "ow": int(r["width"]), "oh": int(r["height"]),
                     "ofn": r.get("original_filename") or "",
@@ -253,6 +291,49 @@ def green_overlay_mask(rgb):
     return m
 
 
+def vegetation_mask(rgb, min_frac=0.02, max_frac=0.75):
+    """rgb: uint8 (H,W,3). Bool mask of green-dominant pixels — foliage and living grass.
+
+    WHY. Pooled over 625 frames and 20 runs on the bench, the green fraction of a frame is
+    the only cheap image statistic that predicts how well it solves. By quartile the least
+    vegetated frames come in at 3.1 px median reprojection and the most vegetated at 42.6 —
+    a 14x spread from three colour channels and no model. Sky fraction, gradient energy and
+    brightness all showed nothing (|rho| <= 0.07 within run).
+
+    LIMITS, because this is a proxy and not a segmenter. It sees GREEN, so it catches summer
+    foliage and living grass and misses the dry August meadow at Prosek and the gravel path
+    at dusk, which solve just as badly. And a green sign or a green car is masked too, which
+    is harmless (both are unreliable to match on anyway) but is not what the name says.
+
+    Returns None when there is too little to bother with, or so much that masking would
+    leave nothing to match on — a frame that is 80% hedge needs dropping, not masking.
+    """
+    a = rgb.astype(np.float32)
+    R, G, Bb = a[..., 0], a[..., 1], a[..., 2]
+    tot = R + G + Bb
+    # RELATIVE green, not absolute. The first version used G > R + 8 with a G > 40 floor and
+    # missed exactly the pixels that matter: a hedge in shade is (30, 45, 25), plenty green
+    # but nowhere near bright, so the dark half of every tree escaped while its sunlit rim
+    # was masked. Normalising by total intensity is what makes the test survive shade.
+    green = (G / np.maximum(tot, 1.0) > 0.375) & (G > R) & (G > Bb) & (tot > 45)
+    frac = float(green.mean())
+    if frac < min_frac or frac > max_frac:
+        return None
+    # open once to drop single-pixel speckle, then dilate: a matcher grabs the BOUNDARY of a
+    # leaf as readily as the leaf, so the mask has to overshoot slightly
+    m = green
+    for _ in range(1):
+        e = m.copy()
+        for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            e &= np.roll(np.roll(m, dy, 0), dx, 1)
+        m = e
+    out = m.copy()
+    for dy in (-2, -1, 0, 1, 2):
+        for dx in (-2, -1, 0, 1, 2):
+            out |= np.roll(np.roll(m, dy, 0), dx, 1)
+    return out
+
+
 def crop_solocator_bar(img, top_frac=0.15):
     """If the Solocator overlay is present, CROP off the fixed top compass/GPS bar — cleaner
     than painting (removes the bar AND its boundary, no artificial edge for the matcher to grab).
@@ -267,6 +348,8 @@ def crop_solocator_bar(img, top_frac=0.15):
 # ---- correspondence-level masking (the principled way: exclude masked pixels from matching,
 #      never paint — painting would add boundary features; cf. DynaSLAM, MASt3R mask_sky) ----
 CORR_MASKS = {}   # {image instance/path: bool ndarray (H,W) at loaded res, True = drop matches}
+ANON_MASKS = {}   # the anonymisation boxes alone: never reconstructed, in either pass
+SOFT_MASKS = {}   # transient classes alone (foliage, sky, movers): no vote, but paintable
 CORR_STATS = {"dropped": 0, "total": 0}   # correspondences dropped by masking (for the report)
 
 
@@ -294,26 +377,62 @@ def map_box_to_loaded(box, W1, H1, size=512, patch=16):
             min(W2, int(round(x2 * r - cl))), min(H2, int(round(y2 * r - ct)))), (W2, H2)
 
 
-def install_corr_masking():
-    """Wrap MASt3R-SfM's forward_mast3r so that, after correspondences are computed/cached, any
-    correspondence whose endpoint falls in a CORR_MASKS region is dropped (no pixel painting)."""
+CONTENT_KEY = {}   # {image path: content key} -- what the shared cache is addressed by
+
+
+def content_key(path, size):
+    """The forward pass depends on exactly two things we control: the bytes of the saved image
+    and the load size (dust3r resizes the long side to `size`, then centre-crops to a multiple
+    of 16). So that is the key. Two runs that stage the same photo at the same size share the
+    pass, whatever their run ids, frame numbers, masks or pairings are."""
+    import hashlib
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        h.update(f.read())
+    h.update(f"|size={size}|v1".encode())
+    return h.hexdigest()
+
+
+def install_shared_cache(shared_dir):
+    """Route MASt3R-SfM's per-pair FORWARD passes and raw correspondences into `shared_dir`,
+    addressed by image CONTENT, while everything downstream of the pairing (canonical views,
+    which aggregate over whichever pairs THIS run has, and the masked correspondences) stays in
+    the run-local cache. Also applies the correspondence masks: after a pair's correspondences
+    are computed or found in the shared cache, any endpoint in a CORR_MASKS region is dropped,
+    and the masked copy is written to the run-local cache -- never back into the shared file,
+    which an unmasked run may read next.
+
+    Why content-addressed and not per-run: splitting a walk into span runs re-solves subsets of
+    the same frames, and a resolution or masking A/B re-stages the same photos. Per-run caches
+    recomputed every forward pass each time (40 min for a 50-frame walk on this CPU)."""
     import mast3r.cloud_opt.sparse_ga as SGA
-    if getattr(SGA, "_corr_mask_installed", False):
+    if getattr(SGA, "_shared_cache_installed", False):
         return
     import torch as _t
-    orig = SGA.forward_mast3r
+    orig_hash = SGA.hash_md5
+    orig_forward = SGA.forward_mast3r
+
+    def keyed(s):
+        return CONTENT_KEY.get(s) or orig_hash(s)
 
     def patched(pairs, model, cache_path, desc_conf='desc_conf', device='cuda', subsample=8, **kw):
-        out = orig(pairs, model, cache_path, desc_conf=desc_conf, device=device,
-                   subsample=subsample, **kw)
+        fwd_root = shared_dir or cache_path
+        out = orig_forward(pairs, model, fwd_root, desc_conf=desc_conf, device=device,
+                           subsample=subsample, **kw)
         res_paths = out[0]   # forward_mast3r returns (res_paths_dict, cache_path)
         ndrop = ntot = 0
-        for (i1, i2), ((p1, p2), pc) in res_paths.items():
+        for (i1, i2), ((p1, p2), pc) in list(res_paths.items()):
             m1, m2 = CORR_MASKS.get(i1), CORR_MASKS.get(i2)
             if m1 is None and m2 is None:
                 continue
             try:
-                score, (xy1, xy2, confs) = _t.load(pc)
+                # map_location, because on a GPU box forward_mast3r saves the
+                # correspondences as CUDA tensors (sparse_ga hands extract_correspondences
+                # the solve device). np.asarray on one of those raises, so without this
+                # every masked run dies here the moment --device is cuda. Loading to CPU
+                # also keeps the masked copy we write below device-free, so a run dir
+                # stays readable on a machine with no GPU at all.
+                score, (xy1, xy2, confs) = _t.load(pc, map_location="cpu")
             except Exception:
                 continue
             a1, a2 = np.asarray(xy1), np.asarray(xy2)
@@ -326,15 +445,34 @@ def install_corr_masking():
                 y = np.clip(xy[:, 1].astype(int), 0, H - 1)
                 keep &= ~m[y, x]
             ntot += len(keep); ndrop += int((~keep).sum())
-            cf = confs[keep]
-            _t.save(((score[0], float(cf.sum()), int(len(cf))), (xy1[keep], xy2[keep], cf)), pc)
+            if not keep.any() and len(keep):
+                # Every correspondence of this pair fell in a mask -- a hedge against a
+                # hedge. sparse_ga's matching_check does x.max() on the pair's confs and
+                # an EMPTY tensor crashes it (newest-vegmask died exactly there). Leave
+                # ONE correspondence with confidence 0: the check then fails the pair
+                # honestly, and the solve goes on without it.
+                keep[int(np.argmax(np.asarray(confs)))] = True
+                cf = confs[keep] * 0
+            else:
+                cf = confs[keep]
+            pm = os.path.join(cache_path, f"corres_masked_conf={desc_conf}_{subsample=}",
+                              f"{keyed(i1)}-{keyed(i2)}.pth")
+            os.makedirs(os.path.dirname(pm), exist_ok=True)
+            _t.save(((score[0], float(cf.sum()), int(len(cf))), (xy1[keep], xy2[keep], cf)), pm)
+            res_paths[(i1, i2)] = ((p1, p2), pm)
         if ntot:
             CORR_STATS["dropped"] += ndrop; CORR_STATS["total"] += ntot
             log(f"  corr-mask: dropped {ndrop}/{ntot} correspondences landing in masked regions")
-        return out
+        return res_paths, cache_path
 
+    SGA.hash_md5 = keyed
     SGA.forward_mast3r = patched
-    SGA._corr_mask_installed = True
+    SGA._shared_cache_installed = True
+
+
+def install_corr_masking():
+    """Kept for callers: masking now rides with the shared-cache wrapper."""
+    install_shared_cache(None)
 
 
 def download(sub, imgdir, mask_anon=False, mask_solocator=False):
@@ -375,6 +513,174 @@ def download(sub, imgdir, mask_anon=False, mask_solocator=False):
     return paths
 
 
+# ---------- tiling ----------
+def tile_frames(sub, paths, outdir, grid, overlap, log=log):
+    """Cut every staged frame into an R x C grid of overlapping tiles, each written as its
+    own image, and return (tile_paths, tile_sub) shaped exactly like the inputs.
+
+    WHY TILES ARE IMAGES. MASt3R is trained at a 512 long side, and a 1920x2560 phone frame
+    reaches it downscaled five times over — 96 % of the pixels gone before matching starts.
+    Raising --size does not help, it leaves the training distribution: measured at 768 the
+    same 22 frames go from 1.33 px to 18.11 px. A crop, by contrast, is an ordinary image of
+    a smaller field of view at native detail, which is squarely in distribution.
+
+    Measured on one brandys pair: a 512x512 native crop covering 5.3 % of the frame returned
+    5,056 correspondences where the whole-frame pass puts about 288 on that same ground, and
+    each one is located to about one native pixel rather than five.
+
+    Making tiles ordinary images means the rest of the pipeline needs no notion of them: the
+    content-addressed cache keys them by bytes, masking runs per tile, the solver sees a
+    bigger set of ordinary views. Only PAIRING has to know (see tile_pairs), and only the
+    merge back to one camera, which is not attempted here.
+
+    Each tile carries its parent's sensors and the geometry of its own crop, including the
+    principal point the crop actually has — which is NOT its centre, and which the solver's
+    own estimate will assume it is. That assumption is the thing to measure first.
+    """
+    R, C = grid
+    os.makedirs(outdir, exist_ok=True)
+    tpaths, tsub = [], []
+    for i, (p, src) in enumerate(zip(sub, paths)):
+        im = Image.open(src).convert("RGB")
+        W, H = im.size
+        # overlapping grid: each tile is 1/R (1/C) of the frame, grown by `overlap` on each
+        # side, so neighbouring tiles share a margin for the merge to work with later
+        tw, th = W / C, H / R
+        ow, oh = tw * overlap, th * overlap
+        for r in range(R):
+            for c in range(C):
+                x0 = max(0, int(round(c * tw - ow)));  x1 = min(W, int(round((c + 1) * tw + ow)))
+                y0 = max(0, int(round(r * th - oh)));  y1 = min(H, int(round((r + 1) * th + oh)))
+                tp = os.path.join(outdir, f"{i:03d}_{p['id'][:8]}_r{r}c{c}.jpg")
+                if not os.path.exists(tp):
+                    im.crop((x0, y0, x1, y1)).save(tp, "JPEG", quality=92)
+                q = dict(p)
+                q["parent_idx"] = i
+                q["tile"] = [r, c]
+                q["tile_box"] = [x0, y0, x1, y1]
+                q["parent_wh"] = [W, H]
+                # the crop's true principal point, in ITS OWN pixels: the parent's centre
+                # shifted by the crop origin. Recorded, not yet enforced.
+                q["tile_pp"] = [W / 2.0 - x0, H / 2.0 - y0]
+                tpaths.append(tp)
+                tsub.append(q)
+    log(f"tiling: {len(paths)} frames x {R}x{C} (overlap {overlap:.0%}) -> {len(tpaths)} tiles")
+    return tpaths, tsub
+
+
+def tile_pairs(imgs, tsub, mode, frame_pairs):
+    """Expand pairs of FRAMES into pairs of TILES.
+
+    `frame_pairs` is whatever the ordinary rule produced over parent frames (sliding window,
+    complete, bearing-gated). This only decides which tiles of those two frames to compare,
+    and the modes are deliberately kept side by side so the choice is measured rather than
+    argued:
+
+      all         every tile against every tile. The honest baseline and the only mode that
+                  cannot miss a match; costs tiles-squared per frame pair (3x3 -> 81x).
+      neighbours  same grid position and its eight neighbours, which is where the content
+                  goes when the camera moves half a metre (9 of 9 at 3x3, 9 of 16 at 4x4).
+      same        same grid position only. Cheapest, and wrong the moment the camera turns.
+
+    Tiles of ONE frame are never paired with each other: they share a camera, so their
+    relationship is a fact of the crop, not something to discover by matching.
+    """
+    by_parent = {}
+    for k, q in enumerate(tsub):
+        by_parent.setdefault(q["parent_idx"], []).append(k)
+    out = []
+    seen = set()
+    for a_, b_ in frame_pairs:
+        ia, ib = a_["idx"], b_["idx"]
+        if ia == ib:
+            continue
+        for ka in by_parent.get(ia, []):
+            ra, ca = tsub[ka]["tile"]
+            for kb in by_parent.get(ib, []):
+                rb, cb = tsub[kb]["tile"]
+                if mode == "same" and (ra, ca) != (rb, cb):
+                    continue
+                if mode == "neighbours" and (abs(ra - rb) > 1 or abs(ca - cb) > 1):
+                    continue
+                if (ka, kb) in seen:
+                    continue
+                seen.add((ka, kb))
+                out.append((imgs[ka], imgs[kb]))
+    return out
+
+
+def map_point_to_loaded(pt, W1, H1, size=512, patch=16):
+    """A point in saved-image pixels -> the same point in the frame load_images() produces
+    (long side resized to `size`, then centre-cropped to a multiple of `patch`). Same
+    transform map_box_to_loaded applies, for a single point."""
+    r = size / max(W1, H1)
+    W, H = round(W1 * r), round(H1 * r)
+    cx, cy = W // 2, H // 2
+    cl = cx - ((2 * cx) // patch) * patch / 2
+    ct = cy - ((2 * cy) // patch) * patch / 2
+    return (pt[0] * r - cl, pt[1] * r - ct)
+
+
+def install_tile_intrinsics(pp_by_path, log=log):
+    """Pin each tile's principal point instead of letting the solver estimate it.
+
+    A crop is an ordinary pinhole image, but its principal point is NOT at its centre — it
+    is wherever the parent's optical axis fell, which the crop box tells us exactly. The
+    solver assumes centred and then optimises from there, and the archive says that matters:
+    on masktest the true principal points sat 4-6 px off centre and alone moved the solve
+    from 0.71 px to 3.57 px. For a tile the offset is not a few pixels but a large fraction
+    of the frame, so there is nothing to estimate and everything to get wrong.
+
+    `sparse_scene_optimizer` takes `pps` in pixels and normalises them itself, so the
+    cleanest intervention is to substitute the rows we know before it runs, and to turn off
+    opt_pp so the optimiser cannot drift away from a value that is a fact about the crop.
+    """
+    import mast3r.cloud_opt.sparse_ga as SGA
+    if getattr(SGA, "_tile_pp_installed", False):
+        return
+    import torch as _t
+    orig = SGA.sparse_scene_optimizer
+
+    def patched(imgs, subsample, imsizes, pps, base_focals, *args, **kw):
+        n = 0
+        for i, im in enumerate(imgs):
+            pp = pp_by_path.get(im)
+            if pp is None:
+                continue
+            pps[i] = _t.tensor(pp, dtype=pps.dtype, device=pps.device)
+            n += 1
+        if n:
+            kw["opt_pp"] = False
+            log(f"  tile intrinsics: pinned the principal point on {n}/{len(imgs)} views "
+                f"(opt_pp off)")
+        return orig(imgs, subsample, imsizes, pps, base_focals, *args, **kw)
+
+    SGA.sparse_scene_optimizer = patched
+    SGA._tile_pp_installed = True
+
+
+def tile_consistency(poses, tsub, scale_units_per_m):
+    """Tiles of one frame share a camera, so their recovered centres should coincide. How far
+    they do not is a direct read on whether treating a crop as an ordinary view worked —
+    and it needs no merge to measure."""
+    by_parent = {}
+    for k, q in enumerate(tsub):
+        by_parent.setdefault(q["parent_idx"], []).append(k)
+    spreads = []
+    for idxs in by_parent.values():
+        if len(idxs) < 2:
+            continue
+        cs = np.array([poses[k][:3, 3] for k in idxs])
+        spreads.append(float(np.linalg.norm(cs - cs.mean(0), axis=1).max()))
+    if not spreads:
+        return {}
+    sp = np.array(spreads) * float(scale_units_per_m or 1.0)
+    return {"n_frames_measured": len(spreads),
+            "tile_centre_spread_m": {"median": round(float(np.median(sp)), 3),
+                                     "p90": round(float(np.percentile(sp, 90)), 3),
+                                     "max": round(float(sp.max()), 3)}}
+
+
 # ---------- geometry ----------
 def umeyama(src, dst):
     """Similarity transform (scale s, rot R, trans t) mapping src->dst (Nx3). Returns s,R,t."""
@@ -393,16 +699,34 @@ def umeyama(src, dst):
     return s, R, t
 
 
-def write_ply(path, pts, cols):
-    pts = np.asarray(pts); cols = np.asarray(cols)
-    cols = np.clip(cols * (255 if cols.max() <= 1.01 else 1), 0, 255).astype(np.uint8)
-    with open(path, "w") as f:
-        f.write("ply\nformat ascii 1.0\n")
-        f.write(f"element vertex {len(pts)}\n")
-        f.write("property float x\nproperty float y\nproperty float z\n")
-        f.write("property uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n")
-        for (x, y, z), (r, g, b) in zip(pts, cols):
-            f.write(f"{x:.4f} {y:.4f} {z:.4f} {int(r)} {int(g)} {int(b)}\n")
+# Binary, because these files leave the machine. ASCII spends about 90 bytes on a point
+# that binary stores in 15, and a 60-frame dense run ships two of them: 146 MB of PLY
+# becomes about 48. On a rented box billed for bandwidth that is the difference worth
+# having, and nothing reads these by eye. Readers on both sides take either format.
+PLY_HEADER = ("ply\nformat binary_little_endian 1.0\n"
+              "element vertex {n}\n"
+              "property float x\nproperty float y\nproperty float z\n"
+              "property uchar red\nproperty uchar green\nproperty uchar blue\n"
+              "end_header\n")
+
+
+def write_ply(path, pts, cols, binary=True):
+    pts = np.asarray(pts, dtype=np.float32)
+    cols = np.asarray(cols)
+    cols = np.clip(cols * (255 if cols.size and cols.max() <= 1.01 else 1), 0, 255).astype(np.uint8)
+    if not binary:
+        with open(path, "w") as f:
+            f.write(PLY_HEADER.format(n=len(pts)).replace("binary_little_endian", "ascii"))
+            for (x, y, z), (r, g, b) in zip(pts, cols):
+                f.write(f"{x:.4f} {y:.4f} {z:.4f} {int(r)} {int(g)} {int(b)}\n")
+        return
+    rec = np.empty(len(pts), dtype=np.dtype([("x", "<f4"), ("y", "<f4"), ("z", "<f4"),
+                                             ("red", "u1"), ("green", "u1"), ("blue", "u1")]))
+    rec["x"], rec["y"], rec["z"] = pts[:, 0], pts[:, 1], pts[:, 2]
+    rec["red"], rec["green"], rec["blue"] = cols[:, 0], cols[:, 1], cols[:, 2]
+    with open(path, "wb") as f:
+        f.write(PLY_HEADER.format(n=len(pts)).encode("ascii"))
+        f.write(rec.tobytes())
 
 
 def topdown_png(path, pts, cols, cams, size=900):
@@ -461,8 +785,12 @@ def render_conf(conf, path):
     Image.fromarray(np.stack([H, S, V], -1), "HSV").convert("RGB").save(path)
 
 
-def pair_count_matrix(cache_path, paths):
-    """Read the per-pair correspondence counts (post-masking) from the corres cache → N×N matrix."""
+def pair_count_matrix(cache_path, paths, shared_cache=None, pairs=None):
+    """Read the per-pair correspondence counts (post-masking) from the corres caches → N×N
+    matrix. A masked pair's counts live in the run-local `corres_masked_*` copy, which wins
+    over the raw pair in the shared cache. `pairs` (this run's directed pairs) restricts the
+    count to what the solve actually used: the shared cache also holds pairs a wider-window
+    run computed between the same frames, and those are not this run's connectivity."""
     import glob as _g
     import torch as _t
     try:
@@ -470,14 +798,27 @@ def pair_count_matrix(cache_path, paths):
     except Exception:
         from dust3r.utils.misc import hash_md5
     n = len(paths)
-    h2i = {hash_md5(p): i for i, p in enumerate(paths)}
+    key = lambda p: CONTENT_KEY.get(p) or hash_md5(p)
+    h2i = {key(p): i for i, p in enumerate(paths)}
+    used = None
+    if pairs is not None:
+        used = set()
+        for a_, b_ in pairs:
+            k1, k2 = key(a_["instance"]), key(b_["instance"])
+            used.add(f"{k1}-{k2}"); used.add(f"{k2}-{k1}")
     mat = np.zeros((n, n), int)
-    for f in _g.glob(os.path.join(cache_path, "corres_conf=*", "*.pth")):
+    seen = set()
+    files = _g.glob(os.path.join(cache_path, "corres_masked_conf=*", "*.pth"))
+    for root in (shared_cache, cache_path):
+        if root:
+            files += _g.glob(os.path.join(root, "corres_conf=*", "*.pth"))
+    for f in files:
         name = os.path.splitext(os.path.basename(f))[0]
-        if "-" not in name:
+        if "-" not in name or name in seen or (used is not None and name not in used):
             continue
         h1, h2 = name.split("-", 1)
         if h1 in h2i and h2 in h2i:
+            seen.add(name)
             try:
                 score, _ = _t.load(f, map_location="cpu")
             except Exception:
@@ -616,6 +957,30 @@ def main():
     ap.add_argument("--n", type=int, default=8)
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--win", type=int, default=3, help="sliding-window half-size for pairs")
+    ap.add_argument("--tiles", default="",
+                    help="cut every frame into an RxC grid of overlapping tiles and solve "
+                         "them as ordinary views, e.g. 3x3. Native detail reaches the "
+                         "matcher this way; raising --size does not (768 measured 9x worse "
+                         "than 512 on the same frames). Off by default")
+    ap.add_argument("--tile_overlap", type=float, default=0.15,
+                    help="how far each tile is grown beyond its cell, as a fraction of the "
+                         "cell, so neighbours share a margin")
+    ap.add_argument("--tile_pin_pp", default=1, type=int,
+                    help="pin each tile's principal point from its crop box instead of "
+                         "letting the solver estimate a centred one (1=on). A tile's "
+                         "principal point is a fact about the crop, not a quantity to fit")
+    ap.add_argument("--tile_pairs", default="neighbours",
+                    choices=["all", "neighbours", "same"],
+                    help="which tiles of a paired frame to compare: all (tiles-squared, the "
+                         "baseline that cannot miss), neighbours (same cell +/- 1), same")
+    ap.add_argument("--adaptive_pairs", action="store_true",
+                    help="after measuring the window's links, reach further around the WEAK "
+                         "ones (a swing aside to read a sign breaks the chain locally). "
+                         "Costs a forward pass per added pair, which the shared cache keeps")
+    ap.add_argument("--adaptive_reach", type=int, default=10,
+                    help="how many frames beyond the window to reach around a weak link")
+    ap.add_argument("--adaptive_frac", type=float, default=0.35,
+                    help="a consecutive link below this fraction of the median link is weak")
     ap.add_argument("--pairs", default="swin", choices=["swin", "complete", "bearing"],
                     help="pairing strategy: time-window / exhaustive / spatial+bearing-overlap")
     ap.add_argument("--pair_dist", type=float, default=80, help="bearing mode: max pair distance (m)")
@@ -624,15 +989,39 @@ def main():
     ap.add_argument("--niter1", type=int, default=300)
     ap.add_argument("--niter2", type=int, default=300)
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--tf32", action="store_true",
+                    help="allow TF32 on CUDA (faster, ~10 mantissa bits). Off by default so "
+                         "a GPU run can be compared against the CPU reference honestly")
+    ap.add_argument("--require_curope", action=argparse.BooleanOptionalAction, default=True,
+                    help="on CUDA, refuse to run if the compiled RoPE2D kernel is missing "
+                         "(it only warns and falls back, which on rented hardware is money)")
     ap.add_argument("--maxscan", type=int, default=0)
     ap.add_argument("--stride", type=int, default=1, help="subsample step in capture order")
     ap.add_argument("--after", default="", help="keep captures >= this (YYYY-MM-DD HH:MM:SS)")
     ap.add_argument("--before", default="", help="keep captures <= this (YYYY-MM-DD HH:MM:SS)")
     ap.add_argument("--inject", default="", help="comma-sep photo id-prefixes to add as impostors")
     ap.add_argument("--dense", action="store_true", help="also extract+save the DENSE point cloud")
+    ap.add_argument("--cache", default=os.getenv("RECON_SHARED_CACHE",
+                                                 os.path.join(HERE, "runs", "shared_cache")),
+                    help="content-addressed SHARED cache for forward passes + raw correspondences "
+                         "(a photo staged at the same size in another run is a cache hit); "
+                         "'' keeps everything in <out>/cache")
     ap.add_argument("--min_conf", type=float, default=1.5, help="dense-point confidence threshold")
     ap.add_argument("--mask_anon", action="store_true",
                     help="correspondence-mask anonymization doodle boxes (drop matches inside them)")
+    ap.add_argument("--semantic_mask", action="store_true",
+                    help="drop correspondences on the transient classes (vegetation, sky, "
+                         "people, vehicles, water, snow) using the pics project's "
+                         "Mask2Former-Mapillary segmentation — see semantic_mask.py. "
+                         "Supersedes --mask_vegetation, which is the colour-only fallback")
+    ap.add_argument("--semantic_budget", type=float, default=0.12,
+                    help="minimum fraction of BUILT surface (facade, kerb, pole, sign, road "
+                         "marking) a frame must have before its vegetation is masked too. "
+                         "Below it the hedge is the only texture there is, and keeping it "
+                         "beats a frame with nothing in it")
+    ap.add_argument("--mask_vegetation", action="store_true",
+                    help="drop correspondences on green-dominant pixels (foliage, living "
+                         "grass) — the one cheap image statistic that predicts solve quality")
     ap.add_argument("--mask_solocator", action="store_true",
                     help="gray out Solocator overlay (green marks + top bar) on Solocator-origin photos")
     ap.add_argument("--out", default=os.path.join(HERE, "runs", "recon"))
@@ -677,7 +1066,39 @@ def main():
     paths = download(sub, os.path.join(a.out, "imgs"),
                      mask_anon=a.mask_anon, mask_solocator=a.mask_solocator)
 
-    log("loading MASt3R model (cpu)…")
+    # Tiles replace frames as the unit the solver sees. Done here, right after staging, so
+    # everything downstream — content-addressed cache, masking, pairing, solve, dense
+    # extraction — treats them as ordinary images and needs no notion of tiling at all.
+    frame_sub, frame_paths, tile_grid, tile_pp_by_path = sub, paths, None, {}
+    if a.tiles:
+        try:
+            R, C = (int(x) for x in a.tiles.lower().split("x"))
+        except ValueError:
+            raise SystemExit(f"--tiles wants RxC, e.g. 3x3 (got {a.tiles!r})")
+        if R < 1 or C < 1 or R * C < 2:
+            raise SystemExit("--tiles must describe at least two tiles")
+        tile_grid = (R, C)
+        if a.shared_intrinsics:
+            # Incompatible by construction: shared_intrinsics collapses every view onto ONE
+            # focal and ONE principal point, and the whole point of a tile is that its
+            # principal point is somewhere else. Tiles of one frame do share a focal, but
+            # tiles of different cells do not share a principal point, and the solver has no
+            # way to express that. Refusing loudly beats solving something meaningless.
+            log("tiling: --shared_intrinsics is incompatible with tiles (every tile has its "
+                "own principal point) — disabling it for this run")
+            a.shared_intrinsics = False
+        paths, sub = tile_frames(frame_sub, frame_paths, os.path.join(a.out, "tiles"),
+                                 tile_grid, a.tile_overlap)
+        if a.tile_pin_pp:
+            # the crop's principal point, carried into the frame the solver will see.
+            # Installed further down, once mast3r is importable.
+            tile_pp_by_path = {}
+            for pth, q in zip(paths, sub):
+                x0, y0, x1, y1 = q["tile_box"]
+                tile_pp_by_path[pth] = map_point_to_loaded(q["tile_pp"], x1 - x0, y1 - y0, a.size)
+
+    # NB the "loading MASt3R" prefix is a progress marker the worker greps for
+    log(f"loading MASt3R model ({a.device})…")
     for p in (MAST3R_REPO, os.path.join(MAST3R_REPO, "dust3r"),
               os.path.join(MAST3R_REPO, "dust3r", "croco")):
         if p not in sys.path:
@@ -685,27 +1106,90 @@ def main():
     import torch
     from mast3r.model import AsymmetricMASt3R
     from mast3r.cloud_opt.sparse_ga import sparse_global_alignment
+    if tile_pp_by_path:
+        install_tile_intrinsics(tile_pp_by_path)
     from dust3r.image_pairs import make_pairs
     from dust3r.utils.image import load_images
+
+    # WHAT THIS BOX IS, recorded in the log and (via vars(a)) in metadata.json. A run
+    # solved on a GPU is not bit-identical to one solved here, and the first thing anyone
+    # comparing two runs will want to know is which machine, which kernel, which precision.
+    if a.device.startswith("cuda"):
+        # TF32 is on by default for convolutions on Ada, which silently drops the DPT head
+        # and the patch embedding to ~10 mantissa bits. Off unless asked for, so that the
+        # CPU-vs-GPU comparison is about the port and not about precision.
+        torch.backends.cudnn.allow_tf32 = bool(a.tf32)
+        torch.backends.cuda.matmul.allow_tf32 = bool(a.tf32)
+        try:
+            name = torch.cuda.get_device_name(0)
+            free, total = torch.cuda.mem_get_info()
+            log(f"  device: {name}, {total / 2**30:.0f} GiB ({free / 2**30:.0f} free), "
+                f"torch {torch.__version__}, tf32={bool(a.tf32)}")
+        except Exception as e:
+            raise SystemExit(f"--device {a.device} but CUDA is not usable: "
+                             f"{type(e).__name__}: {e}")
+    # Did the CUDA RoPE kernel load? dust3r only prints a warning and falls back, so a
+    # rented GPU can quietly run the slow path for hours and look completely normal.
+    try:
+        from models.curope import cuRoPE2D           # noqa: F401
+        rope = "curope"
+    except Exception:
+        rope = "pytorch-fallback"
+    log(f"  RoPE2D: {rope}")
+    if rope != "curope" and a.device.startswith("cuda") and a.require_curope:
+        raise SystemExit(
+            "--device cuda but the CUDA RoPE2D kernel is missing, so this run would take "
+            "the slow fallback path on rented hardware. Build it "
+            "(dust3r/croco/models/curope) or pass --no_require_curope.")
     # NB: do NOT globally disable grad — sparse_scene_optimizer needs autograd for
     # its optimization loop. The MASt3R forward passes manage no_grad internally.
     model = AsymmetricMASt3R.from_pretrained(MAST3R_CKPT).to(a.device).eval()
 
+    CONTENT_KEY.update({p: content_key(p, a.size) for p in paths})
+    shared_cache = os.path.abspath(a.cache) if a.cache else None
+    install_shared_cache(shared_cache)
+    if shared_cache:
+        n_hit = sum(os.path.isdir(os.path.join(shared_cache, "forward", CONTENT_KEY[p])) for p in paths)
+        log(f"shared cache {shared_cache}: {n_hit}/{len(paths)} frames have forward passes there")
+
     imgs = load_images(paths, size=a.size, verbose=True)
-    if a.mask_solocator or a.mask_anon:
+    if a.mask_solocator or a.mask_anon or a.mask_vegetation or a.semantic_mask:
         # Correspondence-level masks, built in the EXACT loaded frame MASt3R matches on (same
         # coords as the cached xy correspondences). Keyed by PATH: convert_dust3r_pairs_naming
         # remaps each img's 'instance' to paths[idx], which is what the corres cache keys on.
-        ng = na = 0
+        ng = na = nv = ns = 0
+        sem = {}
+        if a.semantic_mask:
+            # Inference is ~40 s a frame and cached by image content, so a re-run of the
+            # same cluster is free. It runs BEFORE the loop so one subprocess covers every
+            # frame and pays the model load once.
+            import semantic_mask as _sem
+            sem = {os.path.abspath(k): v
+                   for k, v in _sem.ensure_masks(paths, log=log).items()}
         for im in imgs:
             i = im["idx"]; p = sub[i]
             H2, W2 = int(im["true_shape"][0][0]), int(im["true_shape"][0][1])
             rgb = ((im["img"][0].permute(1, 2, 0).cpu().numpy() * 0.5 + 0.5) * 255).clip(0, 255).astype(np.uint8)
             m = None
+            soft = None      # what the second pass may paint back: transients, never anon
             if a.mask_solocator:                              # neon-green overlay marks
                 gm = green_overlay_mask(rgb)
                 if gm is not None:
                     m = gm.copy(); ng += 1
+            if a.semantic_mask:                               # Mask2Former transient set
+                stem = sem.get(os.path.abspath(paths[i]))
+                if stem:
+                    sm, info = _sem.load_mask(stem, (H2, W2), built_floor=a.semantic_budget)
+                    if sm.any():
+                        m = sm if m is None else (m | sm)
+                        soft = sm.copy() if soft is None else (soft | sm)
+                        ns += 1
+                    log(f"  semantic mask {i:3d}: {info}")
+            if a.mask_vegetation:                             # foliage / living grass
+                vm = vegetation_mask(rgb)
+                if vm is not None:
+                    m = vm if m is None else (m | vm); nv += 1
+                    soft = vm.copy() if soft is None else (soft | vm)
             if a.mask_anon and p.get("anon_saved"):           # anonymization doodle boxes
                 W1, H1 = p["saved_wh"]
                 am = np.zeros((H2, W2), bool); hit = False
@@ -715,12 +1199,15 @@ def main():
                         am[by1:by2, bx1:bx2] = True; hit = True
                 if hit:
                     m = am if m is None else (m | am); na += 1
+                    ANON_MASKS[paths[i]] = am
             if m is not None:
                 CORR_MASKS[paths[i]] = m
+                if soft is not None:
+                    SOFT_MASKS[paths[i]] = soft
                 save_mask_overlay(rgb, m, os.path.join(a.out, f"mask_{i:03d}_{p['id'][:8]}.png"))
         if CORR_MASKS:
-            install_corr_masking()
-            log(f"correspondence-masking: green overlay on {ng}, anon boxes on {na} frame(s)")
+            log(f"correspondence-masking: green overlay on {ng}, anon boxes on {na}, "
+                f"vegetation on {nv}, semantic on {ns} frame(s)")
     if a.pairs == "complete":
         pairs = make_pairs(imgs, scene_graph="complete", prefilter=None, symmetrize=True)
         log(f"pairing=complete -> {len(pairs)} directed pairs")
@@ -747,8 +1234,84 @@ def main():
         sg = f"swin-{win}-noncyclic"
         pairs = make_pairs(imgs, scene_graph=sg, prefilter=None, symmetrize=True)
         log(f"pairing={sg} -> {len(pairs)} directed pairs")
+    if tile_grid:
+        # the rule above ran over TILES as if they were frames, which is not what it means;
+        # redo it over parent frames and expand. Tiles of one frame are never paired.
+        seen_parent, parent_imgs = {}, []
+        for im in imgs:
+            pi = sub[im["idx"]]["parent_idx"]
+            if pi not in seen_parent:
+                seen_parent[pi] = dict(im)
+                seen_parent[pi]["idx"] = pi
+                parent_imgs.append(seen_parent[pi])
+        parent_imgs.sort(key=lambda x: x["idx"])
+        if a.pairs == "complete":
+            fp = make_pairs(parent_imgs, scene_graph="complete", prefilter=None, symmetrize=True)
+        else:
+            w = min(a.win, len(parent_imgs) - 1)
+            fp = make_pairs(parent_imgs, scene_graph=f"swin-{w}-noncyclic",
+                            prefilter=None, symmetrize=True)
+        pairs = tile_pairs(imgs, sub, a.tile_pairs, fp)
+        log(f"tile pairing={a.tile_pairs}: {len(fp)} frame pairs -> {len(pairs)} tile pairs")
+
     if not pairs:
         raise SystemExit("no pairs survived the pairing filter — loosen --pair_dist/--pair_dang")
+
+    # ADAPTIVE PAIRING. A sliding window assumes the walk is a chain: frame i overlaps
+    # i+1 and that is that. Real walking is not like that — swing aside to read a sign,
+    # swing back, and frames i..i+3 look at something else entirely while i and i+4 are
+    # the pair that actually sees the same wall. A fixed window either misses that link
+    # or pays for a wide window everywhere. So: compute the window's correspondences
+    # first (cheap now, the forward passes are content-addressed and shared), find the
+    # consecutive links that came out weak, and reach further ONLY there.
+    if a.adaptive_pairs and a.pairs != "complete":
+        import mast3r.cloud_opt.sparse_ga as _SGA
+        # NB: convert_dust3r_pairs_naming rewrites each pair's 'instance' to imgs[idx] --
+        # and sparse_global_alignment passes the PATH list there, not the loaded dicts.
+        # Passing the dicts makes 'instance' unhashable and the cache key explodes.
+        base = _SGA.convert_dust3r_pairs_naming(paths, [(p1.copy(), p2.copy()) for p1, p2 in pairs])
+        log(f"adaptive pairing: measuring {len(base)} window pairs first…")
+        res_paths, _ = _SGA.forward_mast3r(base, model,
+                                           cache_path=(shared_cache or cache),
+                                           subsample=8, desc_conf="desc_conf",
+                                           device=a.device)
+        strength = {}
+        for (i1, i2), (_pp, pc) in res_paths.items():
+            try:
+                import torch as _t
+                (_score, csum, cnt), _ = _t.load(pc)
+            except Exception:
+                continue
+            k = tuple(sorted((CONTENT_KEY.get(i1, i1), CONTENT_KEY.get(i2, i2))))
+            strength[k] = max(strength.get(k, 0.0), float(csum))
+        def link(i, j):
+            return strength.get(tuple(sorted((CONTENT_KEY[paths[i]], CONTENT_KEY[paths[j]]))), 0.0)
+        adj = [link(i, i + 1) for i in range(len(paths) - 1)]
+        good = [x for x in adj if x > 0]
+        typical = float(np.median(good)) if good else 0.0
+        thr = typical * a.adaptive_frac
+        weak = [i for i, x in enumerate(adj) if x < thr]
+        log(f"adaptive pairing: typical consecutive link {typical:.0f}, "
+            f"threshold {thr:.0f} -> {len(weak)} weak link(s) {weak[:12]}")
+        have = {(p1["idx"], p2["idx"]) for p1, p2 in base}
+        extra = []
+        for i in weak:
+            # reach forward from BOTH ends of the weak link: the sign-reading detour is
+            # bridged either by i -> i+k or by (i+1-k) -> i+1
+            for a0 in (i, i + 1):
+                for k in range(2, a.adaptive_reach + 1):
+                    for b0 in (a0 + k, a0 - k):
+                        if 0 <= b0 < len(imgs) and (a0, b0) not in have and (b0, a0) not in have:
+                            extra.append((imgs[a0], imgs[b0]))
+                            extra.append((imgs[b0], imgs[a0]))
+                            have.add((a0, b0))
+        if extra:
+            pairs = pairs + extra
+            log(f"adaptive pairing: +{len(extra)} directed pairs around the weak links "
+                f"-> {len(pairs)} total")
+        else:
+            log("adaptive pairing: nothing to add")
+
     log("running sparse_global_alignment…")
     tr = time.time()
     cache = os.path.join(a.out, "cache")
@@ -789,6 +1352,7 @@ def main():
 
     # DENSE extraction (one 3D point per confident pixel, colored from the RGB frames)
     dpts = dcols = None
+    n_soft_points = 0
     if a.dense:
         log("extracting dense point cloud (get_dense_pts3d)…")
         td0 = time.time()
@@ -806,13 +1370,69 @@ def main():
             cc = d_confs[i].reshape(H, W) if d_confs[i].size == H * W else d_confs[i]
             render_conf(cc, os.path.join(a.out, f"conf_{i:03d}_{sub[i]['id'][:8]}.png"))
         msk = [c > a.min_conf for c in d_confs]
+        # Correspondence masking keeps masked pixels out of the MATCHING; it does nothing
+        # about the dense cloud, which happily emits a point for every confident pixel --
+        # so the anonymisation doodles painted over people and number plates were still
+        # being reconstructed, in full colour, in every masked run. Exclude them here too:
+        # we do not want that geometry and we certainly do not want it on show.
+        if CORR_MASKS:
+            nmask = 0
+            for i, m in enumerate(msk):
+                cm = CORR_MASKS.get(paths[i])
+                if cm is None:
+                    continue
+                flat = cm.ravel()
+                if flat.size != m.size:
+                    log(f"  dense mask skip for frame {i}: {flat.size} vs {m.size} px")
+                    continue
+                m &= ~flat
+                nmask += 1
+            if nmask:
+                log(f"dense: masked pixels excluded from the cloud on {nmask} frame(s)")
         dpts = np.concatenate([p[m] for p, m in zip(d_pts3d, msk)]) if d_pts3d else np.zeros((0, 3))
         dcols = np.concatenate([np.asarray(r).reshape(-1, 3)[m] for r, m in zip(rgb, msk)])
         log(f"dense: {len(dpts)} points (conf>{a.min_conf}) in {time.time()-td0:.0f}s")
+
+        # SECOND PASS. The transient classes were kept out of the matching so they could not
+        # bend the geometry, and out of the first cloud so they could not hide it. But the
+        # poses are settled now, and a hedge that is actually there is worth SEEING. So paint
+        # the soft pixels back through the very same depth, into a separate cloud that no
+        # metric reads: structures decided where the cameras are, foliage just gets to appear.
+        # The anonymisation boxes are never painted back, in either pass.
+        if SOFT_MASKS:
+            soft_pts, soft_cols, nsoft = [], [], 0
+            for i, c in enumerate(d_confs):
+                sm = SOFT_MASKS.get(paths[i])
+                if sm is None:
+                    continue
+                flat = sm.ravel()
+                if flat.size != c.size:
+                    continue
+                keep = (c > a.min_conf) & flat
+                am = ANON_MASKS.get(paths[i])
+                if am is not None and am.size == c.size:
+                    keep &= ~am.ravel()
+                if keep.any():
+                    soft_pts.append(d_pts3d[i][keep])
+                    soft_cols.append(np.asarray(rgb[i]).reshape(-1, 3)[keep])
+                    nsoft += 1
+            if soft_pts:
+                sp = np.concatenate(soft_pts); sc_ = np.concatenate(soft_cols)
+                n_soft_points = int(len(sp))
+                log(f"dense soft pass: {len(sp)} transient-class points on {nsoft} frame(s)")
+                if len(sp) > 2_000_000:
+                    sel = np.linspace(0, len(sp) - 1, 2_000_000).astype(int)
+                    sp, sc_ = sp[sel], sc_[sel]
+                write_ply(os.path.join(a.out, "dense_soft.ply"), sp, sc_)
         # full arrays for later review (compressed)
+        # float16 depth and byte colours: this file is an archive for re-joining later,
+        # not a measurement, and both are lossless enough for that at a quarter the size.
+        # float16 holds ~3 significant digits, which on a 30 m depth is centimetres.
         np.savez_compressed(os.path.join(a.out, "dense.npz"),
-                            points=dpts, colors=dcols,
-                            depthmaps=np.array(d_depths, dtype=object),
+                            points=np.asarray(dpts, np.float32),
+                            colors=np.clip(np.asarray(dcols) * (255 if np.size(dcols) and np.max(dcols) <= 1.01 else 1), 0, 255).astype(np.uint8),
+                            depthmaps=np.array([np.asarray(d, np.float16) for d in d_depths],
+                                               dtype=object),
                             poses=poses, focals=focals)
         # cap ascii ply at ~2M pts so it stays openable; keep full set in dense.npz
         if len(dpts) > 2_000_000:
@@ -849,7 +1469,7 @@ def main():
     # correspondence-count connectivity (post-masking) → matrix image + summary
     pair_stats = {}
     try:
-        mat = pair_count_matrix(cache, paths)
+        mat = pair_count_matrix(cache, paths, shared_cache, pairs)
         render_pair_matrix(mat, os.path.join(a.out, "pairs_matrix.png"))
         sym = mat + mat.T
         deg = (sym > 0).sum(1)                       # how many frames each frame connects to
@@ -865,11 +1485,16 @@ def main():
         log("pair matrix failed:", e)
 
     stats = dict(n=len(sub), n_real=int(real.sum()), pairs=len(pairs), recon_s=recon_s, npts=len(pts),
+                 n_soft_points=n_soft_points,
                  ndense=(int(len(dpts)) if dpts is not None else 0),
                  scale=float(s), med_resid=float(np.median(rr)),
                  mean_resid=float(rr.mean()), max_resid=float(rr.max()),
                  corr_dropped=CORR_STATS["dropped"], corr_total=CORR_STATS["total"],
-                 n_masked=len(CORR_MASKS), pair_stats=pair_stats, impostor_resid=inj_resid, topdown=td)
+                 n_masked=len(CORR_MASKS), pair_stats=pair_stats, impostor_resid=inj_resid, topdown=td,
+                 tiles=(dict(grid=list(tile_grid), overlap=a.tile_overlap, mode=a.tile_pairs,
+                             n_frames=len(frame_sub),
+                             **tile_consistency(poses, sub, s))
+                        if tile_grid else None))
     report_html(a.out, sub, (lat0, lon0), cam_ll_gps, cam_ll_rec, resid, stats)
 
     # comprehensive metadata for later review: every input + every recovered quantity
@@ -878,10 +1503,19 @@ def main():
         "alignment": {"scale_units_per_m": float(s), "R": R.tolist(), "t": t.tolist(),
                       "alt0": float(alt0)},
         "stats": stats,
+        # the caches are addressed by these: forward passes + raw correspondences in
+        # shared_cache, canonical views + masked correspondences under <out>/cache
+        "shared_cache": shared_cache,
+        "pairs": [[int(p1["idx"]), int(p2["idx"])] for p1, p2 in pairs],
         "frames": [{
             "idx": i, "id": p["id"], "injected": bool(p.get("inj")),
+            "cache_key": CONTENT_KEY.get(paths[i]),
+            **({k: p[k] for k in ("parent_idx", "tile", "tile_box", "parent_wh", "tile_pp")
+                if k in p}),
+            "session": p.get("sess"),
             "gps": [p["lat"], p["lon"]], "altitude": p["alt"],
-            "compass_angle": p["brg"], "captured_at": p["cap"], "title": p["ttl"],
+            "compass_angle": p["brg"], "bearing_source": p.get("brg_src"),
+            "captured_at": p["cap"], "title": p["ttl"],
             "dist_to_center_m": round(p["d"], 1), "source_url": p["full"],
             "focal_px": float(focals[i]),
             "pose_cam2world": poses[i].tolist(),
