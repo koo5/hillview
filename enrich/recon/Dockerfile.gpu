@@ -92,6 +92,18 @@ RUN cd /opt/mast3r/dust3r/croco/models/curope \
     && /opt/recon/bin/python setup.py build_ext --inplace \
     && /opt/recon/bin/python -c "import sys; sys.path.insert(0, '/opt/mast3r/dust3r/croco'); from models.curope import cuRoPE2D; print('curope OK')"
 
+# ...and again in pow3r's own croco. Its dust3r is a different tree at a different commit,
+# so the kernel compiled above is invisible to it: without this a pow3r run prints one
+# warning and takes the pure-PyTorch RoPE path, slowly, on hardware billed by the second —
+# and the entrypoint's curope check would not catch it, because that checks mast3r's tree.
+RUN if [ -d /opt/pow3r/dust3r/croco/models/curope ]; then \
+        cd /opt/pow3r/dust3r/croco/models/curope \
+        && grep -q "^all_cuda_archs = cuda.get_gencode_flags()" setup.py \
+        && sed -i "s|^all_cuda_archs = cuda.get_gencode_flags().*|all_cuda_archs = ['-gencode', 'arch=compute_${CUDA_ARCH},code=sm_${CUDA_ARCH}']|" setup.py \
+        && /opt/recon/bin/python setup.py build_ext --inplace \
+        && /opt/recon/bin/python -c "import sys; sys.path.insert(0, '/opt/pow3r/dust3r/croco'); from models.curope import cuRoPE2D; print('pow3r curope OK')"; \
+    else echo "pow3r has no croco tree; nothing to build"; fi
+
 # Mask2Former weights, baked so a disposable instance does not re-download them per rental.
 ENV HF_HOME=/opt/hf
 RUN HF_HUB_DISABLE_TELEMETRY=1 /opt/seg/bin/python -c "\
