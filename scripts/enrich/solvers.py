@@ -187,32 +187,57 @@ def solve_pow3r(paths, pairs, cache, model, *, device, niter1, niter2,
     resolver = resolver.to(device).eval()
 
     def landscape(view):
-        """Pow3R's patch embed (ManyAR_PatchEmbed) asserts the BUFFER is landscape and
-        reads the real orientation from true_shape, transposing portrait entries back
-        itself. MASt3R's config tolerates a portrait buffer, so this never came up before —
-        and a phone held upright produces nothing else. Transpose the tensor, leave
-        true_shape alone, and the model sees the original image; the heads then emit their
-        maps in that same original orientation, so nothing has to be undone afterwards.
+        """Pow3R, as shipped, only takes landscape input: its patch embed asserts the buffer
+        is landscape, and — the part that is easy to miss — an intrinsics prior generates a
+        ray map from `true_shape`, so transposing only the image leaves the rays portrait
+        and the assertion fires anyway. Every frame in this corpus is a phone held upright.
+
+        So rotate the WHOLE view by 90 degrees and be consistent about it: the image, its
+        true_shape, and the K built for it. A rot90 is a proper rotation, not a transpose,
+        so no handedness is flipped; and because every frame rotates the same way, the
+        reconstruction simply comes out rolled about each camera's optical axis by a
+        constant, which the gravity-pinned realign already removes — it estimates up from
+        the reconstruction itself rather than assuming it.
         """
         import torch as _t
         v = dict(view)
         img = v["img"]
-        if img.shape[-2] > img.shape[-1]:          # H > W, portrait buffer
-            v["img"] = img.swapaxes(-1, -2) if isinstance(img, _t.Tensor) else img
-        return v
+        if img.shape[-2] <= img.shape[-1]:
+            return v, False
+        v["img"] = _t.rot90(img, k=1, dims=(-2, -1)) if isinstance(img, _t.Tensor) else img
+        ts = np.asarray(v["true_shape"])
+        v["true_shape"] = ts[:, ::-1].copy() if ts.ndim == 2 else ts[::-1].copy()
+        return v, True
+
+    def K_for(i, rotated):
+        """The intrinsics prior, in whatever frame the view ended up in. Batched and a
+        tensor, because add_intrinsics branches on K.ndim and its batched path ends in
+        torch.stack — a bare numpy 3x3 fails both ways, and both failures were found by
+        running it rather than by reading it."""
+        if not exif_focals or exif_focals[i] in (None, 0):
+            return None
+        import torch as _t
+        h, w = (int(x) for x in imgs[i]["true_shape"][0])
+        if rotated:
+            h, w = w, h
+        f = float(exif_focals[i])
+        return _t.tensor([[[f, 0, w / 2.0], [0, f, h / 2.0], [0, 0, 1.0]]],
+                         dtype=_t.float32, device=device)
 
     view1, view2, pred1, pred2 = [], [], [], []
     import torch
     n_rot = sum(1 for im in imgs if im["img"].shape[-2] > im["img"].shape[-1])
     if n_rot:
-        log(f"  pow3r: {n_rot}/{len(imgs)} frames are portrait; passing them transposed, "
-            f"which is what ManyAR_PatchEmbed expects")
+        log(f"  pow3r: {n_rot}/{len(imgs)} frames are portrait; rotating the whole view "
+            f"90 degrees, which is the only orientation this model takes. The constant "
+            f"roll that leaves is what the gravity-pinned realign already removes")
     with torch.no_grad():
         for a_, b_ in pairs:
             ia, ib = a_["idx"], b_["idx"]
+            va, ra = landscape(imgs[ia])
+            vb, rb = landscape(imgs[ib])
             (v1, v2), pr = resolver.inference_with_info(
-                landscape(imgs[ia]), landscape(imgs[ib]),
-                K1=K_for(ia), K2=K_for(ib), ret_views=True)
+                va, vb, K1=K_for(ia, ra), K2=K_for(ib, rb), ret_views=True)
             # DUSt3R's aligner names the second pointmap differently from Pow3R's head
             p2 = dict(pr[1])
             if "pts3d_in_other_view" not in p2:
