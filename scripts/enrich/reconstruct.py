@@ -209,6 +209,9 @@ def load_manifest(path, center):
             "brg": float(f["compass_angle"]) if f.get("compass_angle") is not None else None,
             "brg_src": f.get("bearing_source"),
             "cap": f.get("captured_at") or "",
+            # the focal the camera recorded, in pixels of the 512-long-side frame. Ground
+            # truth wherever EXIF survived, and the prior a pow3r solve conditions on.
+            "exif_focal": f.get("exif_focal_px_512"),
             "full": f["full_url"], "t640": f.get("thumb_url"),
             "ttl": ("INJECTED:" + title[:50]) if f.get("injected") else title,
             "anon": [tuple(b) for b in (f.get("anon_boxes") or [])],
@@ -626,6 +629,31 @@ def tile_pairs(imgs, tsub, mode, frame_pairs):
     return out
 
 
+def stack_depths(depths):
+    """Per-frame depth as ONE float16 array when the frames agree on size, which they do
+    unless a run mixes aspect ratios. dtype=object over a uniform list is a trap: numpy
+    flattens it into an array of Python objects, one pointer per pixel, and the file comes
+    out three times LARGER than float32 rather than four times smaller."""
+    arrs = [np.asarray(d, dtype=np.float16).ravel() for d in depths]
+    if arrs and all(a.shape == arrs[0].shape for a in arrs):
+        return np.stack(arrs)
+    out = np.empty(len(arrs), dtype=object)
+    for i, a in enumerate(arrs):
+        out[i] = a
+    return out
+
+
+def intrinsics_from_focals(focals, n, imgs):
+    """A K per view from a focal and a centred principal point. Only reached by a backend
+    that does not report intrinsics of its own; MASt3R's optimiser fits principal points
+    and reporting them matters (masktest: 0.71 px with the true pps, 3.57 px centred)."""
+    K = np.zeros((n, 3, 3), dtype=np.float64)
+    for i in range(n):
+        h, w = (int(v) for v in imgs[i]["true_shape"][0]) if i < len(imgs) else (0, 0)
+        K[i] = [[float(focals[i]), 0, w / 2.0], [0, float(focals[i]), h / 2.0], [0, 0, 1.0]]
+    return K
+
+
 def map_point_to_loaded(pt, W1, H1, size=512, patch=16):
     """A point in saved-image pixels -> the same point in the frame load_images() produces
     (long side resized to `size`, then centre-cropped to a multiple of `patch`). Same
@@ -974,6 +1002,16 @@ def main():
     ap.add_argument("--n", type=int, default=8)
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--win", type=int, default=3, help="sliding-window half-size for pairs")
+    ap.add_argument("--solver", default="mast3r", choices=["mast3r", "pow3r"],
+                    help="which model does the solve. mast3r is MASt3R-SfM, the only "
+                         "backend that emits CORRESPONDENCES (which the reprojection and "
+                         "epipolar metrics, the two-view verifier and the span joiner all "
+                         "read). pow3r regresses pointmaps instead and takes camera "
+                         "intrinsics as a prior, which is the channel MASt3R lacks")
+    ap.add_argument("--pow3r_hi_res", action="store_true",
+                    help="pow3r only: use its own AsymmetricSliding resolver, whose "
+                         "per-window intrinsics tell the network where each crop sits. "
+                         "This is what --tiles cannot do with MASt3R")
     ap.add_argument("--tiles", default="",
                     help="cut every frame into an RxC grid of overlapping tiles and solve "
                          "them as ordinary views, e.g. 3x3. Native detail reaches the "
@@ -1160,7 +1198,10 @@ def main():
             "(dust3r/croco/models/curope) or pass --no_require_curope.")
     # NB: do NOT globally disable grad — sparse_scene_optimizer needs autograd for
     # its optimization loop. The MASt3R forward passes manage no_grad internally.
-    model = AsymmetricMASt3R.from_pretrained(MAST3R_CKPT).to(a.device).eval()
+    import solvers
+    ckpt = MAST3R_CKPT if a.solver == "mast3r" else (
+        os.getenv("POW3R_CKPT") or os.path.join(MAST3R_REPO, "checkpoints", "pow3r.pth"))
+    model = solvers.load_model(a.solver, ckpt, a.device, log=log)
 
     CONTENT_KEY.update({p: content_key(p, a.size) for p in paths})
     shared_cache = os.path.abspath(a.cache) if a.cache else None
@@ -1332,27 +1373,23 @@ def main():
     log("running sparse_global_alignment…")
     tr = time.time()
     cache = os.path.join(a.out, "cache")
-    scene = sparse_global_alignment(
-        paths, pairs, cache, model,
-        lr1=0.07, niter1=a.niter1, lr2=0.01, niter2=a.niter2,
-        device=a.device, matching_conf_thr=5.0,
-        shared_intrinsics=a.shared_intrinsics)
+    import solvers
+    sol = solvers.BACKENDS[a.solver](
+        paths, pairs, cache, model, device=a.device,
+        niter1=a.niter1, niter2=a.niter2, shared_intrinsics=a.shared_intrinsics,
+        want_dense=bool(a.dense), min_conf=a.min_conf, log=log,
+        exif_focals=[p.get("exif_focal") for p in sub],
+        hi_res=bool(a.pow3r_hi_res), crop_res=(384, a.size))
+    scene = sol.notes.get("scene")
     recon_s = time.time() - tr
-    log(f"reconstruction done in {recon_s:.0f}s")
+    log(f"reconstruction done in {recon_s:.0f}s (solver={sol.backend}"
+        + ("" if sol.emits_correspondences else
+           ", NO correspondences: reproj/epipolar metrics, the two-view verifier and the "
+           "span joiner have nothing to read for this run") + ")")
 
     # extract
-    poses = scene.get_im_poses().detach().cpu().numpy()        # N x 4x4 cam2world
-    focals = scene.get_focals().detach().cpu().numpy().ravel()
-    pts_l = scene.get_sparse_pts3d()
-    cols_l = scene.get_pts3d_colors()
-    def cat(x):
-        import numpy as _np, torch as _t
-        if isinstance(x, (list, tuple)):
-            x = [xx.detach().cpu().numpy() if hasattr(xx, "detach") else _np.asarray(xx) for xx in x]
-            x = [xx.reshape(-1, 3) for xx in x]
-            return _np.concatenate(x, 0) if x else _np.zeros((0, 3))
-        return x.detach().cpu().numpy().reshape(-1, 3) if hasattr(x, "detach") else _np.asarray(x).reshape(-1, 3)
-    pts = cat(pts_l); cols = cat(cols_l)
+    poses, focals = sol.poses, sol.focals
+    pts, cols = sol.points, sol.colors
     cams = poses[:, :3, 3]                                       # camera centers
     log(f"{len(pts)} sparse points, {len(cams)} cameras, focals={np.round(focals,1)}")
 
@@ -1361,7 +1398,8 @@ def main():
     # guessed at the image centre biases it by more than a good solve's whole error
     # (masktest: 0.71 px true vs 3.57 px with centre-pp). Runs saved before this line
     # need recon_resolve.py to recover them.
-    K_full = scene.intrinsics.detach().cpu().numpy()
+    K_full = (sol.intrinsics if sol.intrinsics is not None
+              else intrinsics_from_focals(focals, poses.shape[0], imgs))
     np.savez(os.path.join(a.out, "scene.npz"),
              poses=poses, focals=focals, points=pts, colors=cols, cams=cams,
              intrinsics=K_full)
@@ -1373,8 +1411,13 @@ def main():
     if a.dense:
         log("extracting dense point cloud (get_dense_pts3d)…")
         td0 = time.time()
-        d_pts3d, d_depths, d_confs = scene.get_dense_pts3d(clean_depth=True)
-        rgb = scene.imgs                                          # list of (H,W,3) in [0,1]
+        d_pts3d, d_depths, d_confs = sol.dense_pts, sol.dense_depths, sol.dense_confs
+        if d_pts3d is None:
+            raise SystemExit(f"solver {sol.backend} returned no dense layer")
+        # the loaded RGB, which every backend has in its own place
+        rgb = (scene.imgs if scene is not None and hasattr(scene, "imgs")
+               else [((im["img"][0].permute(1, 2, 0).cpu().numpy() * 0.5 + 0.5))
+                     for im in imgs])
         def tn(x): return x.detach().cpu().numpy() if hasattr(x, "detach") else np.asarray(x)
         d_pts3d = [tn(p).reshape(-1, 3) for p in d_pts3d]
         d_confs = [tn(c).ravel() for c in d_confs]
@@ -1445,12 +1488,35 @@ def main():
         # float16 depth and byte colours: this file is an archive for re-joining later,
         # not a measurement, and both are lossless enough for that at a quarter the size.
         # float16 holds ~3 significant digits, which on a 30 m depth is centimetres.
+        # points are NOT stored: they are depth x intrinsics x pose, and on a two-frame
+        # run they were two thirds of this file while nothing read them back.
         np.savez_compressed(os.path.join(a.out, "dense.npz"),
-                            points=np.asarray(dpts, np.float32),
                             colors=np.clip(np.asarray(dcols) * (255 if np.size(dcols) and np.max(dcols) <= 1.01 else 1), 0, 255).astype(np.uint8),
-                            depthmaps=np.array([np.asarray(d, np.float16) for d in d_depths],
-                                               dtype=object),
+                            depthmaps=stack_depths(d_depths),
                             poses=poses, focals=focals)
+
+        # THE JOIN KIT, and the reason it exists: dense.npz stays on the worker and dies
+        # with a rented instance, so without this, joining two runs after the box is
+        # destroyed means re-solving them. Depth at float16 plus poses and intrinsics is
+        # everything recon_join_spans reads — measured at 0.176 MB a frame compressed,
+        # about 12.5 GB for the whole corpus, against 1.52 MB a frame for the full arrays.
+        np.savez_compressed(os.path.join(a.out, "joinkit.npz"),
+                            depthmaps=stack_depths(d_depths),
+                            poses=np.asarray(poses, np.float32),
+                            intrinsics=np.asarray(K_full, np.float32),
+                            focals=np.asarray(focals, np.float32),
+                            cache_keys=np.array([CONTENT_KEY.get(pp, "") for pp in paths]),
+                            ids=np.array([pp["id"] for pp in sub]),
+                            # the loaded (H, W) per frame, EXPLICITLY. Deriving it from the
+                            # principal point is wrong the moment the solver moves that
+                            # point off centre: on a two-frame run it recovered 508x387 for
+                            # a 512x384 frame, which silently scrambles every depth lookup.
+                            shapes=np.array([[int(im["true_shape"][0][0]),
+                                              int(im["true_shape"][0][1])] for im in imgs],
+                                            dtype=np.int32))
+        log(f"join kit: {os.path.getsize(os.path.join(a.out, 'joinkit.npz')) / 1e6:.2f} MB "
+            f"for {len(d_depths)} frames — depth, poses and intrinsics, which is what a "
+            f"later join needs and all it needs")
         # cap ascii ply at ~2M pts so it stays openable; keep full set in dense.npz
         if len(dpts) > 2_000_000:
             sel = np.linspace(0, len(dpts) - 1, 2_000_000).astype(int)
@@ -1508,6 +1574,8 @@ def main():
                  mean_resid=float(rr.mean()), max_resid=float(rr.max()),
                  corr_dropped=CORR_STATS["dropped"], corr_total=CORR_STATS["total"],
                  n_masked=len(CORR_MASKS), pair_stats=pair_stats, impostor_resid=inj_resid, topdown=td,
+                 solver=sol.backend, emits_correspondences=sol.emits_correspondences,
+                 solver_notes={k: v for k, v in sol.notes.items() if k != "scene"},
                  tiles=(dict(grid=list(tile_grid), overlap=a.tile_overlap, mode=a.tile_pairs,
                              n_frames=len(frame_sub), n_tiles=len(sub),
                              detail_vs_whole_frame=round(float(np.median([

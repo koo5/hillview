@@ -187,12 +187,27 @@ class Run:
         self.ids = [f["id"] for f in self.frames]
         self.keys = rm.frame_keys(self.meta)          # this run's own cache (canon views)
         self.ckeys = rm.content_keys(self.meta, rundir)  # the shared cache
-        scene = np.load(os.path.join(rundir, "scene.npz"))
-        self.poses = scene["poses"].astype(np.float64)            # cam2world, solve units
-        self.K = (scene["intrinsics"].astype(np.float64) if "intrinsics" in scene.files
-                  else rm.intrinsics(scene["focals"].astype(np.float64).ravel(), *self._hw()[::-1]))
-        dense = np.load(os.path.join(rundir, "dense.npz"), allow_pickle=True)
-        self.depth = [np.asarray(d, np.float64).ravel() for d in dense["depthmaps"]]
+        # THE JOIN KIT FIRST. scene.npz and dense.npz live in the run dir, which on a
+        # rented box is destroyed with the instance; joinkit.npz is the artifact that comes
+        # home, and it carries exactly what a join reads. Preferring it is what makes a
+        # join possible after the machine that solved it is gone.
+        kit = os.path.join(rundir, "joinkit.npz")
+        if os.path.exists(kit):
+            z = np.load(kit, allow_pickle=True)
+            self.poses = z["poses"].astype(np.float64)
+            self.K = z["intrinsics"].astype(np.float64)
+            self.depth = [np.asarray(d, np.float64).ravel() for d in z["depthmaps"]]
+            self.source = "joinkit.npz"
+            if "shapes" in z.files:
+                self._shapes = np.asarray(z["shapes"], int)
+        else:
+            scene = np.load(os.path.join(rundir, "scene.npz"))
+            self.poses = scene["poses"].astype(np.float64)        # cam2world, solve units
+            self.K = (scene["intrinsics"].astype(np.float64) if "intrinsics" in scene.files
+                      else rm.intrinsics(scene["focals"].astype(np.float64).ravel(), *self._hw()[::-1]))
+            dense = np.load(os.path.join(rundir, "dense.npz"), allow_pickle=True)
+            self.depth = [np.asarray(d, np.float64).ravel() for d in dense["depthmaps"]]
+            self.source = "scene.npz + dense.npz"
         self.H, self.W, _ = self._hw_from_canon()
         self.bearing_smoothing = "none"
         al = self.meta.get("alignment") or {}
@@ -204,6 +219,10 @@ class Run:
         return self._hw_from_canon()[:2]
 
     def _hw_from_canon(self):
+        # the kit says so outright; anything else is an inference that can be wrong
+        sh = getattr(self, "_shapes", None)
+        if sh is not None and len(sh) == len(self.frames):
+            return sh[:, 0], sh[:, 1], np.full(len(sh), np.nan)
         H, W, bf = rm.read_frame_geometry(rm.canon_paths(self.dir, self.keys))
         if (H == 0).any():
             # no canonical views (a run whose cache is gone): infer from the depth size + K

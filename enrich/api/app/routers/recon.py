@@ -1507,6 +1507,8 @@ RESULT_FILES = {
     "dense_cloud": ("dense.ply", "dense_cloud_path"),
     # no column: found beside the dense cloud, served only when asked for
     "soft_cloud": ("dense_soft.ply", None),
+    # depth, poses and intrinsics — what a later join needs once the worker is gone
+    "join_kit": ("joinkit.npz", None),
     "topdown": ("topdown.png", "topdown_path"),
     "pairs_matrix": ("pairs_matrix.png", "pairs_matrix_path"),
     "log": ("run.log", "log_path"),
@@ -1520,6 +1522,7 @@ async def result(result_json: str = Form(...),
                  cloud: UploadFile | None = File(None),
                  dense_cloud: UploadFile | None = File(None),
                  soft_cloud: UploadFile | None = File(None),
+                 join_kit: UploadFile | None = File(None),
                  topdown: UploadFile | None = File(None),
                  pairs_matrix: UploadFile | None = File(None),
                  log: UploadFile | None = File(None),
@@ -1552,7 +1555,7 @@ async def result(result_json: str = Form(...),
         return {"ok": True, "cancelled": True, "reason": "already done"}
 
     uploads = {"metadata": metadata, "metrics": metrics, "cloud": cloud,
-               "dense_cloud": dense_cloud, "soft_cloud": soft_cloud,
+               "dense_cloud": dense_cloud, "soft_cloud": soft_cloud, "join_kit": join_kit,
                "topdown": topdown, "pairs_matrix": pairs_matrix, "log": log}
     cols: dict[str, str] = {}
     for key, up in uploads.items():
