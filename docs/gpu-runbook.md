@@ -5,7 +5,7 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
 
 ## Already done, so the rental clock does not pay for it
 
-- **The payload image is built and published.** `hillview-recon-gpu:4687a163`, 16.8 GB,
+- **The payload image is built and published.** `hillview-recon-gpu:4c8799f5`, 16.8 GB,
   exported to 7.6 GB compressed with a SHA-256 beside it, served from the VPS over HTTPS
   with range requests so a partial pull resumes. Verified inside the image: both virtual
   environments import, torch is the **cu126** build that matches the base image, the CUDA
@@ -15,7 +15,7 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
   Nothing large ever leaves the house.
 - **The workbench runs on the VPS** with its mirror loaded to 2026-09-10 17:33 — 75,766
   photos, including all four new areas — behind a secret path prefix and basic auth.
-- **Eleven runs are queued and waiting for a consumer.** See below.
+- **Twelve runs are queued and waiting for a consumer.** See below.
 - **The worker token is a real one**, in `~/hillview/enrich/.env` on the VPS at mode 600,
   and an unauthenticated callback is refused with 403.
 
@@ -33,7 +33,8 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
 | `obelisk-complete` | 182 | Exhaustive pairing where it should win outright — 7,505 revisit pairs in a 25 m rotation. If complete does not beat window-8 here, it will not anywhere. |
 | `brandys-bearing` | 334 | Distance-gated pairing against 11,938 revisit pairs a window cannot see. |
 | `brandys-adaptive` | 334 | Reaching past weak links, on the case it was designed for. |
-| `obelisk-tiles2x2` | 182 | First tiled solve. Watch `stats.tiles.tile_centre_spread_m`: tiles of one frame share a camera and must land in one place. |
+| `obelisk-tiles2x2-pinned` | 182 | First tiled solve, with each tile's principal point pinned from its crop box. |
+| `obelisk-tiles2x2-freepp` | 182 | The same with the principal point estimated, because a two-frame toy test could only separate them by 0.330 m against 0.294 m and that is too thin to conclude from. Watch `stats.tiles.tile_centre_spread_m` on both: tiles of one frame share a camera and must land in one place. |
 
 Re-order with `POST /api/recon/purge_queue` then requeue in the order wanted; a finished run
 refuses requeue unless forced.
@@ -56,10 +57,10 @@ The published segment is in `~/.recon-pub-segment` on the VPS (mode 600, deliber
 written into anything the web server serves). With `BASE=https://robust1.ueueeu.eu/<segment>`:
 
 ```sh
-curl -fL -O "$BASE/hillview-recon-gpu-4687a163.tar.zst"
-curl -fL -O "$BASE/hillview-recon-gpu-4687a163.tar.zst.sha256"
-sha256sum -c hillview-recon-gpu-4687a163.tar.zst.sha256   # refuse to continue if this fails
-zstd -d -c hillview-recon-gpu-4687a163.tar.zst | docker load
+curl -fL -O "$BASE/hillview-recon-gpu-4c8799f5.tar.zst"
+curl -fL -O "$BASE/hillview-recon-gpu-4c8799f5.tar.zst.sha256"
+sha256sum -c hillview-recon-gpu-4c8799f5.tar.zst.sha256   # refuse to continue if this fails
+zstd -d -c hillview-recon-gpu-4c8799f5.tar.zst | docker load
 ```
 
 The checkpoint is **not** in the image, deliberately: `torch.load` executes what it contains,
@@ -96,7 +97,7 @@ docker run -d --name recon --gpus all \
   -e RECON_CALLBACK_URL='http://127.0.0.1:8070/api/recon/result' \
   -e ENRICH_WORKER_TOKEN='<from ~/hillview/enrich/.env on the VPS>' \
   -v /workspace/runs:/runs \
-  hillview-recon-gpu:4687a163
+  hillview-recon-gpu:4c8799f5
 ```
 
 The entrypoint refuses to start in any state that would quietly waste rent: no GPU visible
