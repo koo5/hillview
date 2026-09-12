@@ -5,14 +5,22 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
 
 ## Already done, so the rental clock does not pay for it
 
-- **The payload image is built and published.** `hillview-recon-gpu:3e2bd058`, 16.8 GB,
+- **The payload image is built and published.** `hillview-recon-gpu:c6a70823`, 16.8 GB,
   exported to 7.6 GB compressed with a SHA-256 beside it, served from the VPS over HTTPS
   with range requests so a partial pull resumes. Verified inside the image: both virtual
   environments import, torch is the **cu126** build that matches the base image, the CUDA
   RoPE kernel compiled, and the tiling and binary-PLY code is present.
-- **The checkpoint is published beside it**, 2.6 GB, pulled by the VPS straight from Naver
-  and verified as `e28f91b488554653e2b46ddae9c78c1143e0bcb2e27d3e26cdb0b717f1568eb2`.
-  Nothing large ever leaves the house.
+- **Two checkpoints are published beside it**, both pulled by the VPS straight from Naver
+  so nothing large leaves the house, both non-commercial licensed, and both loaded with
+  `weights_only=False`, which executes what they contain:
+  - `mast3r.pth`, 2.6 GB, `e28f91b4…68eb2`
+  - `pow3r.pth`, 2.1 GB, `b766fbf8…d624f` — for the second solver, below
+- **The image carries three solvers' code**: MASt3R at its pinned commit, plus Pow3R
+  (`25d7bb6`) and MUSt3R (`0c0d76b`), each with its own dust3r submodule. Only one family
+  goes on `sys.path` per run, because pow3r tracks naver/dust3r main while mast3r pins an
+  older one and mixing them produces a wrong number rather than an error. The CUDA RoPE
+  kernel is compiled in **both** croco trees; without that a Pow3R run would print one
+  warning and take the pure-PyTorch path on hardware billed by the second.
 - **The workbench runs on the VPS** with its mirror loaded to 2026-09-10 17:33 — 75,766
   photos, including all four new areas — behind a secret path prefix and basic auth.
 - **Fourteen runs are queued and waiting for a consumer.** See below.
@@ -53,6 +61,31 @@ and must land in one place.
 Re-order with `POST /api/recon/purge_queue` then requeue in the order wanted; a finished run
 refuses requeue unless forced.
 
+### A second solver is available, and unverified
+
+`--solver pow3r` (param `solver`) swaps MASt3R-SfM for Pow3R pointmap regression with
+DUSt3R-style global alignment. It matters because Pow3R takes camera intrinsics as a
+**prior**, and its `--pow3r_hi_res` mode is a sliding window whose per-window intrinsics
+tell the network where each crop sits — the channel MASt3R does not have, and the reason
+our own `--tiles` can only assert a crop's principal point downstream to the optimiser.
+
+Two things to know before spending rent on it:
+
+- **It has never met real weights.** The backend is written from the published API and says
+  so in its own log line. Treat the first run as a debugging session, not a measurement.
+- **It emits no correspondences.** The reprojection and epipolar metrics, the two-view
+  verifier and the span joiner all read the correspondence cache and will find nothing; the
+  run logs that too. What still works is the physical half: ground split, elevation offset
+  and tilt, GPS residual, render-and-compare, and the join kit.
+
+### The join kit
+
+Every dense run now writes `joinkit.npz` — depth at float16, poses, intrinsics and the
+loaded frame shapes — and uploads it. 0.205 MB a frame. It exists because `dense.npz` and
+`scene.npz` stay in the run dir and die with the instance, so without it, joining two runs
+after the box is destroyed means re-solving them. `recon_join_spans` prefers it, and that
+path is tested by deleting `scene.npz`, `dense.npz` and the cache and joining anyway.
+
 ## On the day
 
 ### 1. Rent
@@ -71,10 +104,10 @@ The published segment is in `~/.recon-pub-segment` on the VPS (mode 600, deliber
 written into anything the web server serves). With `BASE=https://robust1.ueueeu.eu/<segment>`:
 
 ```sh
-curl -fL -O "$BASE/hillview-recon-gpu-3e2bd058.tar.zst"
-curl -fL -O "$BASE/hillview-recon-gpu-3e2bd058.tar.zst.sha256"
-sha256sum -c hillview-recon-gpu-3e2bd058.tar.zst.sha256   # refuse to continue if this fails
-zstd -d -c hillview-recon-gpu-3e2bd058.tar.zst | docker load
+curl -fL -O "$BASE/hillview-recon-gpu-c6a70823.tar.zst"
+curl -fL -O "$BASE/hillview-recon-gpu-c6a70823.tar.zst.sha256"
+sha256sum -c hillview-recon-gpu-c6a70823.tar.zst.sha256   # refuse to continue if this fails
+zstd -d -c hillview-recon-gpu-c6a70823.tar.zst | docker load
 ```
 
 The checkpoint is **not** in the image, deliberately: `torch.load` executes what it contains,
@@ -127,11 +160,12 @@ docker run -d --name recon --gpus all \
   -e RECON_DEVICE=auto \
   -e RECON_CKPT_URL="$BASE/mast3r.pth" \
   -e RECON_CKPT_SHA256=e28f91b488554653e2b46ddae9c78c1143e0bcb2e27d3e26cdb0b717f1568eb2 \
+  -e POW3R_CKPT=/runs/pow3r.pth   # only if you intend to run --solver pow3r \
   -e RABBITMQ_URL="$(cat ~/.recon-amqp | cut -d= -f2-)"  # the scoped recon-worker user \
   -e RECON_CALLBACK_URL='http://127.0.0.1:8070/api/recon/result' \
   -e ENRICH_WORKER_TOKEN='<from ~/hillview/enrich/.env on the VPS>' \
   -v /workspace/runs:/runs \
-  hillview-recon-gpu:3e2bd058
+  hillview-recon-gpu:c6a70823
 ```
 
 The entrypoint refuses to start in any state that would quietly waste rent: no GPU visible
