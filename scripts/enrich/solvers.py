@@ -168,11 +168,15 @@ def solve_pow3r(paths, pairs, cache, model, *, device, niter1, niter2,
     imgs = load_images(paths, size=size, verbose=False)
 
     def K_for(i):
+        """The intrinsics prior, BATCHED. add_intrinsics branches on K.ndim: a bare 3x3
+        takes a path that unpacks true_shape as (H, W), but load_images hands out a
+        batched [[H, W]], so that path raises. A (1, 3, 3) takes the per-view branch,
+        which is the one that matches how the views are shaped here."""
         if not exif_focals or exif_focals[i] in (None, 0):
             return None
         h, w = (int(v) for v in imgs[i]["true_shape"][0])
         f = float(exif_focals[i])
-        return np.array([[f, 0, w / 2.0], [0, f, h / 2.0], [0, 0, 1.0]], dtype=np.float32)
+        return np.array([[[f, 0, w / 2.0], [0, f, h / 2.0], [0, 0, 1.0]]], dtype=np.float32)
 
     resolver = model if not hi_res else P.AsymmetricSliding(
         crop_res, bootstrap_depth="c2f_both", fix_rays="full", sparsify_depth=1.1)
