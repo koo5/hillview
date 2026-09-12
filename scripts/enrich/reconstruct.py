@@ -514,7 +514,7 @@ def download(sub, imgdir, mask_anon=False, mask_solocator=False):
 
 
 # ---------- tiling ----------
-def tile_frames(sub, paths, outdir, grid, overlap, log=log):
+def tile_frames(sub, paths, outdir, grid, overlap, size_hint=512, log=log):
     """Cut every staged frame into an R x C grid of overlapping tiles, each written as its
     own image, and return (tile_paths, tile_sub) shaped exactly like the inputs.
 
@@ -564,7 +564,24 @@ def tile_frames(sub, paths, outdir, grid, overlap, log=log):
                 q["tile_pp"] = [W / 2.0 - x0, H / 2.0 - y0]
                 tpaths.append(tp)
                 tsub.append(q)
-    log(f"tiling: {len(paths)} frames x {R}x{C} (overlap {overlap:.0%}) -> {len(tpaths)} tiles")
+    # SAY WHAT THE GRID BOUGHT. A tile only reaches native detail if its own long side is
+    # within the load size; otherwise load_images downscales it too, and a coarse grid buys
+    # far less than it looks. On a 1920x2560 frame at size 512: a 2x2 grid is 1.5x the
+    # whole-frame detail, 3x3 is 2.3x, 4x5 is 3.1x, and native needs about 35 tiles. Runs
+    # that do not report this get misread as "tiling did not help".
+    if tsub:
+        pw, ph = tsub[0]["parent_wh"]
+        whole = size_hint / max(pw, ph)
+        gains = []
+        for q in tsub:
+            x0, y0, x1, y1 = q["tile_box"]
+            gains.append(min(1.0, size_hint / max(x1 - x0, y1 - y0)) / whole)
+        g = float(np.median(gains))
+        log(f"tiling: {len(paths)} frames x {R}x{C} (overlap {overlap:.0%}) -> {len(tpaths)} "
+            f"tiles, each at {g:.1f}x the whole-frame detail "
+            f"({'native' if g * whole >= 0.99 else f'{g * whole:.2f} of native'})")
+    else:
+        log(f"tiling: {len(paths)} frames x {R}x{C} -> {len(tpaths)} tiles")
     return tpaths, tsub
 
 
@@ -1088,7 +1105,7 @@ def main():
                 "own principal point) — disabling it for this run")
             a.shared_intrinsics = False
         paths, sub = tile_frames(frame_sub, frame_paths, os.path.join(a.out, "tiles"),
-                                 tile_grid, a.tile_overlap)
+                                 tile_grid, a.tile_overlap, size_hint=a.size)
         if a.tile_pin_pp:
             # the crop's principal point, carried into the frame the solver will see.
             # Installed further down, once mast3r is importable.
@@ -1492,7 +1509,12 @@ def main():
                  corr_dropped=CORR_STATS["dropped"], corr_total=CORR_STATS["total"],
                  n_masked=len(CORR_MASKS), pair_stats=pair_stats, impostor_resid=inj_resid, topdown=td,
                  tiles=(dict(grid=list(tile_grid), overlap=a.tile_overlap, mode=a.tile_pairs,
-                             n_frames=len(frame_sub),
+                             n_frames=len(frame_sub), n_tiles=len(sub),
+                             detail_vs_whole_frame=round(float(np.median([
+                                 min(1.0, a.size / max(q["tile_box"][2] - q["tile_box"][0],
+                                                       q["tile_box"][3] - q["tile_box"][1]))
+                                 / (a.size / max(*q["parent_wh"])) for q in sub])), 2),
+                             pinned_pp=bool(a.tile_pin_pp),
                              **tile_consistency(poses, sub, s))
                         if tile_grid else None))
     report_html(a.out, sub, (lat0, lon0), cam_ll_gps, cam_ll_rec, resid, stats)
