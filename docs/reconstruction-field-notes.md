@@ -1003,6 +1003,44 @@ frame with 6% vertical and 29% vegetation now keeps its hedge. `newest-s0-vegkep
 same 17 frames under the corrected ladder; the forward passes are cached, so it costs only the
 optimiser.
 
+### Tiling is the published method, and MASt3R is the wrong model for it (2026-09-12)
+
+Tiling got built because raising `--size` does not work: 768 measured nine times worse than
+512 on the same 22 frames, normalised for frame size, because the model is trained at 512.
+The premise measured well — a native 512×512 crop covering 5.3% of a brandys frame returned
+5,056 correspondences where the whole-frame pass puts about 288 on that ground, 17.5× the
+density, each match located to about one native pixel instead of five.
+
+Then the user pointed at Naver's own 3-D foundation model page, and **Pow3R** (CVPR 2025)
+turns out to do high resolution exactly this way: "fixed resolution crops of original images
+in a sliding window pattern", stitched by median scale in the overlaps and blended by
+confidence. The geometry is the published approach, not a workaround.
+
+**It also names the ceiling precisely.** In Pow3R "the per-window camera intrinsics encode
+the crop position through the focal length and principal point, allowing the network to
+understand where each crop sits in the original image." MASt3R has no such channel. Our
+tiles go to a network that believes every crop is a centred view, so the crop's true
+principal point can only be asserted afterwards, to the optimiser — which is what
+`--tile_pin_pp` does, and it moved the tile-centre disagreement only from 0.330 m to
+0.294 m on a two-frame test. The pointmaps were already regressed on the wrong premise; no
+downstream pinning repairs that. That is a much sharper diagnosis than "the approximation
+costs 29 cm".
+
+**Pow3R is not a drop-in.** It outputs pointmaps and depth only, no descriptors and no
+correspondences, and this pipeline is built on MASt3R's matching head feeding
+`sparse_global_alignment`. Adopting it means a second pipeline, not a swap. Its released
+checkpoint is also 512-trained; native resolution comes from the window plus the priors.
+Reported gain from supplying intrinsics: multi-view depth relative error 3.64 → 3.20.
+
+**MUSt3R** (CVPR 2025) is the other lead and attacks the other wall: multi-view rather than
+pairwise, thousands of pointmaps. Every pairing strategy here exists because MASt3R-SfM
+costs pairs; a multi-view network changes the question rather than the price.
+
+What decides it is one measurement, now queued on the reference cluster: tiling at native
+detail against the 1.33 px those same 22 frames already reach. Beat it and MASt3R tiling is
+worth pursuing. Fail and the ceiling is the centred-crop assumption, and the price of
+fixing it is a second pipeline.
+
 ### Cross-walk joining has no evidence to work from, and "the same cell" is not "the same ground" (2026-09-11)
 
 The plan's first risk was that every join so far had shared a parent run's cache, so
