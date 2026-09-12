@@ -21,11 +21,22 @@ is one call, and there is now more than one model worth making it with:
 WHAT A BACKEND MUST RETURN. A Solution, in the same arrays reconstruct.py already writes,
 so scene.npz / dense.npz / metadata.json keep their shape and nothing downstream changes.
 
-WHAT IS AND IS NOT TESTED. The mast3r backend is the code that produced every archived
-run, moved here unchanged. The pow3r backend is written against the real API in
-naver/pow3r (AsymmetricSliding.inference_with_info, priors via add_intrinsics/add_depth/
-add_relpose, pointmaps under 'pts3d'/'pts3d2' with 'conf'/'conf2') but has NOT been run
-against the weights — see POW3R_UNVERIFIED below, which is deliberately loud.
+WHAT IS TESTED. The mast3r backend is the code that produced every archived run, moved
+here unchanged. The pow3r backend has been run against the real checkpoint on CPU, two
+frames, and it solves: focals came out 411.5 and 402.0 px where MASt3R recovered 409.9 and
+387.4 on the same pair.
+
+AND WHAT THAT RUN TAUGHT, which reading the API would not have:
+
+  * Pow3R only takes LANDSCAPE input, and every frame in this corpus is a phone held
+    upright. Transposing just the image is not enough — an intrinsics prior builds a ray
+    map from `true_shape`, so the rays stay portrait and the assertion fires anyway. The
+    whole view rotates together now.
+  * The prior is not a nicety, it is the difference between a solve and noise. Without it
+    the same pair returned focals of 0.8 and 3.6 px. With it, the numbers above. That is
+    Pow3R's headline claim, confirmed on our own frames.
+  * `add_intrinsics` branches on K.ndim and its batched path ends in torch.stack, so K has
+    to be both batched and a tensor. A bare numpy 3x3 fails two different ways.
 
 Both checkpoints are non-commercial licensed (NAVER), and both are loaded with
 weights_only=False, which executes what they contain. Fetch them from a route you control
@@ -93,10 +104,12 @@ class Solution:
     notes: dict = field(default_factory=dict)
 
 
-POW3R_UNVERIFIED = (
-    "the pow3r backend has never been run against real weights: it is written from the "
-    "published API, so treat the first run as a debugging session, not a measurement"
+POW3R_NOTE = (
+    "pow3r: verified on CPU against the real checkpoint (2 frames, focals 411.5/402.0 px "
+    "against MASt3R's 409.9/387.4). Never yet run at scale or on a GPU, and it emits no "
+    "correspondences, so the match-based metrics and tools have nothing to read"
 )
+POW3R_UNVERIFIED = POW3R_NOTE      # the old name, kept so nothing breaks mid-flight
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +172,7 @@ def solve_pow3r(paths, pairs, cache, model, *, device, niter1, niter2,
     nothing. The physical checks — ground split, elevation offset and tilt, GPS residual,
     render-and-compare — do not care, and carry the quality judgement instead.
     """
-    log(f"  pow3r: {POW3R_UNVERIFIED}")
+    log(f"  {POW3R_NOTE}")
     from dust3r.cloud_opt import GlobalAlignerMode, global_aligner
     from dust3r.utils.image import load_images
     from pow3r.model import inference as P
@@ -267,7 +280,7 @@ def solve_pow3r(paths, pairs, cache, model, *, device, niter1, niter2,
         points=np.concatenate([p[k] for p, k in zip(pts, keep)]) if pts else np.zeros((0, 3)),
         colors=np.concatenate([c[k] for c, k in zip(cols, keep)]) if cols else np.zeros((0, 3)),
         emits_correspondences=False, backend="pow3r",
-        notes={"scene": scene, "unverified": POW3R_UNVERIFIED,
+        notes={"scene": scene, "note": POW3R_NOTE,
                "hi_res": bool(hi_res), "priors": "intrinsics" if exif_focals else "none"})
     if want_dense:
         sol.dense_pts = pts
