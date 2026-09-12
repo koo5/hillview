@@ -45,6 +45,7 @@ from distill import (
 
 # Environment variable to control image fetching
 FETCH_IMAGES = os.environ.get("ANALYZER_FETCH_IMAGES", "false").lower() == "true"
+VERSION = 0
 
 
 def get_image_url(photo: Photo) -> str | None:
@@ -287,7 +288,6 @@ async def main_loop(
 ):
 	"""Main processing loop."""
 	datadir.mkdir(parents=True, exist_ok=True)
-	seen: set[str] = set()
 
 	print(f"Analyzer started")
 	print(f"  Model: {model}")
@@ -299,26 +299,31 @@ async def main_loop(
 
 	while True:
 		async with SessionLocal() as db:
-			# Count remaining unanalyzed photos
-			count_result = await db.execute(
-				select(func.count(Photo.id))
-				.where(Photo.processing_status == 'completed')
-				.where(Photo.deleted == False)
-				.where(Photo.analysis.is_(None))
-			)
-			remaining = count_result.scalar()
-			print(f"[{datetime.now().strftime('%H:%M:%S')}] Remaining photos to analyze: {remaining}")
+			# # Count remaining unanalyzed photos
+			# count_result = await db.execute(
+			# 	select(func.count(Photo.id))
+			# 	.where(Photo.processing_status == 'completed')
+			# 	.where(Photo.deleted == False)
+			# 	.where(Photo.analysis.is_(None))
+			# )
+			# remaining = count_result.scalar()
+			# print(f"[{datetime.now().strftime('%H:%M:%S')}] Remaining photos to analyze: {remaining}")
 
-			# Query: photos without analysis, completed processing, oldest first
 			result = await db.execute(
 				select(Photo)
 				.where(Photo.processing_status == 'completed')
 				.where(Photo.deleted == False)
 
-				.where(Photo.analysis.is_(None))
-#				.order_by(Photo.analysis.is_(None).desc())
+				# uhh what's the syntax?
+				.where(or(
+					Photo.analysis.is_(None),
+					Photo.analysis_version != VERSION)
+				))
+				.order_by(Photo.analysis(asc)) # go through all without any analysis first, only then update those with old analysis_version
 
-				.where(Photo.id.notin_(seen))
+				# analysis_next_retry would be something like 0 by default, and max(type) for nonretriable errors (provider keeps returning same junk perhaps over multiple days, as evidenced by the photo's json file). We'd clear analysis_next_retry manually when we update analyzer algo version.
+				.where(now > Photo.analysis_next_retry)
+
 				.order_by(Photo.uploaded_at.desc())
 				.limit(1)
 				.with_for_update(skip_locked=True)
@@ -326,7 +331,6 @@ async def main_loop(
 			photo = result.scalars().first()
 
 			if photo:
-				seen.add(photo.id)
 				await process_photo_and_update_db(photo, datadir, model, verbose, db, dry_run=dry_run)
 				print(f"{len(seen)} photos processed in this session, ~{remaining-1} remaining.")
 				await asyncio.sleep(1)
@@ -335,42 +339,10 @@ async def main_loop(
 				if once:
 					print("No photos to analyze.")
 					break
+
 				print(f"[{datetime.now().strftime('%H:%M:%S')}] No photos to analyze, sleeping {sleep_interval}s...")
 				await asyncio.sleep(sleep_interval)
 
-	print("INITIAL LOOP FINISHED")
-	await asyncio.sleep(5)
-	while True:
-		print(f"[{datetime.now().strftime('%H:%M:%S')}] Still no photos to analyze, sleeping {sleep_interval}s...")
-		await asyncio.sleep(sleep_interval)
-		while True:
-			async with SessionLocal() as db:
-				# Count remaining unanalyzed photos
-				count_result = await db.execute(
-					select(func.count(Photo.id))
-					.where(Photo.processing_status == 'completed')
-					.where(Photo.deleted == False)
-					.where(Photo.analysis.is_(None))
-				)
-				remaining = count_result.scalar()
-				print(f"[{datetime.now().strftime('%H:%M:%S')}] Remaining photos to analyze: {remaining}")
-
-				# Query: photos without analysis, completed processing, oldest first
-				result = await db.execute(
-					select(Photo)
-					.where(Photo.processing_status == 'completed')
-					.where(Photo.deleted == False)
-					.where(Photo.analysis.is_(None))
-					.order_by(Photo.uploaded_at.desc())
-					.limit(1)
-					.with_for_update(skip_locked=True)
-				)
-				photo = result.scalars().first()
-
-				if photo:
-					await process_photo_and_update_db(photo, datadir, model, verbose, db, dry_run=dry_run)
-				else:
-					break
 
 
 def main():
