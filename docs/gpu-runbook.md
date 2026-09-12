@@ -18,6 +18,12 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
 - **Twelve runs are queued and waiting for a consumer.** See below.
 - **The worker token is a real one**, in `~/hillview/enrich/.env` on the VPS at mode 600,
   and an unauthenticated callback is refused with 403.
+- **The one-route proxy is already running** on the VPS as a restart-policy container
+  (`callback-proxy`, 127.0.0.1:8075). Verified there: every route but
+  `POST /api/recon/result` answers 404, and a real 2 MB callback with the token returns
+  200 in 188 ms. Tunnel 8075; never 8070.
+- **The published image is checksum-verified on disk**, `b3b33b55…d9529`, and the
+  superseded one has been removed so there is nothing stale to pull by mistake.
 
 ## The queue, in the order it will run
 
