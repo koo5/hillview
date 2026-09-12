@@ -5,7 +5,7 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
 
 ## Already done, so the rental clock does not pay for it
 
-- **The payload image is built and published.** `hillview-recon-gpu:c6a70823`, 16.8 GB,
+- **The payload image is built and published.** `hillview-recon-gpu:841c135b`, 16.8 GB,
   exported to 7.6 GB compressed with a SHA-256 beside it, served from the VPS over HTTPS
   with range requests so a partial pull resumes. Verified inside the image: both virtual
   environments import, torch is the **cu126** build that matches the base image, the CUDA
@@ -69,14 +69,22 @@ DUSt3R-style global alignment. It matters because Pow3R takes camera intrinsics 
 tell the network where each crop sits — the channel MASt3R does not have, and the reason
 our own `--tiles` can only assert a crop's principal point downstream to the optimiser.
 
-Two things to know before spending rent on it:
+It has been run against the real checkpoint on CPU before the rental, two frames, and it
+solves: focals came out 411.5 and 402.0 px where MASt3R recovered 409.9 and 387.4 on the
+same pair. Three things that run taught, which reading the API would not have:
 
-- **It has never met real weights.** The backend is written from the published API and says
-  so in its own log line. Treat the first run as a debugging session, not a measurement.
+- **The intrinsics prior is the difference between a solve and noise.** Without it the same
+  pair returned focals of 0.8 and 3.6 px. So Pow3R's headline claim holds on our frames —
+  and it means a run wants `exif_focal_px_512`, which the bench already records per frame.
+- **Pow3R only takes landscape input**, and every frame here is a phone held upright. The
+  whole view is rotated 90° now, image and `true_shape` and K together, which leaves a
+  constant roll that the gravity-pinned realign already removes.
 - **It emits no correspondences.** The reprojection and epipolar metrics, the two-view
   verifier and the span joiner all read the correspondence cache and will find nothing; the
   run logs that too. What still works is the physical half: ground split, elevation offset
   and tilt, GPS residual, render-and-compare, and the join kit.
+
+Still untested: at scale, and on a GPU.
 
 ### The join kit
 
@@ -104,10 +112,10 @@ The published segment is in `~/.recon-pub-segment` on the VPS (mode 600, deliber
 written into anything the web server serves). With `BASE=https://robust1.ueueeu.eu/<segment>`:
 
 ```sh
-curl -fL -O "$BASE/hillview-recon-gpu-c6a70823.tar.zst"
-curl -fL -O "$BASE/hillview-recon-gpu-c6a70823.tar.zst.sha256"
-sha256sum -c hillview-recon-gpu-c6a70823.tar.zst.sha256   # refuse to continue if this fails
-zstd -d -c hillview-recon-gpu-c6a70823.tar.zst | docker load
+curl -fL -O "$BASE/hillview-recon-gpu-841c135b.tar.zst"
+curl -fL -O "$BASE/hillview-recon-gpu-841c135b.tar.zst.sha256"
+sha256sum -c hillview-recon-gpu-841c135b.tar.zst.sha256   # refuse to continue if this fails
+zstd -d -c hillview-recon-gpu-841c135b.tar.zst | docker load
 ```
 
 The checkpoint is **not** in the image, deliberately: `torch.load` executes what it contains,
@@ -165,7 +173,7 @@ docker run -d --name recon --gpus all \
   -e RECON_CALLBACK_URL='http://127.0.0.1:8070/api/recon/result' \
   -e ENRICH_WORKER_TOKEN='<from ~/hillview/enrich/.env on the VPS>' \
   -v /workspace/runs:/runs \
-  hillview-recon-gpu:c6a70823
+  hillview-recon-gpu:841c135b
 ```
 
 The entrypoint refuses to start in any state that would quietly waste rent: no GPU visible
