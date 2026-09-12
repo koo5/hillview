@@ -64,6 +64,25 @@ RUN git clone ${MAST3R_REPO_URL} /opt/mast3r \
     && git -C /opt/mast3r submodule update --init --recursive \
     && git -C /opt/mast3r/dust3r rev-parse HEAD > /opt/mast3r/.dust3r-commit
 
+# Pow3R and MUSt3R, the other two solvers worth experimenting with, each at a pinned
+# commit with its OWN dust3r submodule. They are not interchangeable: pow3r tracks
+# naver/dust3r main while mast3r pins an older one, so solvers.setup_paths puts exactly one
+# family on sys.path per run. Neither needs a pip install for the model path — pow3r's
+# model imports only torch, numpy, roma, tqdm and its own trees, all of which /opt/recon
+# already has. Their requirements.txt lists demo dependencies (open3d, viser, gradio) that
+# a worker never touches, so they are deliberately not installed.
+ARG POW3R_REPO_URL=https://github.com/naver/pow3r.git
+ARG POW3R_COMMIT=25d7bb6
+ARG MUST3R_REPO_URL=https://github.com/naver/must3r.git
+ARG MUST3R_COMMIT=0c0d76b
+RUN git clone ${POW3R_REPO_URL} /opt/pow3r \
+    && git -C /opt/pow3r checkout ${POW3R_COMMIT} \
+    && git -C /opt/pow3r submodule update --init --recursive \
+    && git clone ${MUST3R_REPO_URL} /opt/must3r \
+    && git -C /opt/must3r checkout ${MUST3R_COMMIT} \
+    && git -C /opt/must3r submodule update --init --recursive \
+    && rm -rf /opt/pow3r/.git /opt/must3r/.git
+
 # The CUDA RoPE2D kernel. Without it dust3r falls back to a pure-PyTorch implementation,
 # prints one warning, and runs — slowly, on hardware you are paying for by the second.
 # The sed is deliberately fail-loud: a silent no-match would build every architecture.

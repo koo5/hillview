@@ -1154,15 +1154,19 @@ def main():
 
     # NB the "loading MASt3R" prefix is a progress marker the worker greps for
     log(f"loading MASt3R model ({a.device})…")
-    for p in (MAST3R_REPO, os.path.join(MAST3R_REPO, "dust3r"),
-              os.path.join(MAST3R_REPO, "dust3r", "croco")):
-        if p not in sys.path:
-            sys.path.insert(0, p)
+    import solvers
+    solvers.setup_paths(a.solver, MAST3R_REPO, log=log)
     import torch
-    from mast3r.model import AsymmetricMASt3R
-    from mast3r.cloud_opt.sparse_ga import sparse_global_alignment
-    if tile_pp_by_path:
+    # The three hooks below patch MASt3R's own sparse_ga: the content-addressed forward
+    # cache, the correspondence masking that rides with it, and the tile principal points.
+    # They are meaningless for a backend that neither matches nor caches, so they are the
+    # solver's business and not the run's.
+    mast3r_hooks = a.solver == "mast3r"
+    if tile_pp_by_path and mast3r_hooks:
         install_tile_intrinsics(tile_pp_by_path)
+    elif tile_pp_by_path:
+        log(f"  tiles: --tile_pin_pp has no effect with solver={a.solver}; its own "
+            f"resolver conditions on each window's intrinsics instead")
     from dust3r.image_pairs import make_pairs
     from dust3r.utils.image import load_images
 
@@ -1198,14 +1202,14 @@ def main():
             "(dust3r/croco/models/curope) or pass --no_require_curope.")
     # NB: do NOT globally disable grad — sparse_scene_optimizer needs autograd for
     # its optimization loop. The MASt3R forward passes manage no_grad internally.
-    import solvers
     ckpt = MAST3R_CKPT if a.solver == "mast3r" else (
         os.getenv("POW3R_CKPT") or os.path.join(MAST3R_REPO, "checkpoints", "pow3r.pth"))
     model = solvers.load_model(a.solver, ckpt, a.device, log=log)
 
     CONTENT_KEY.update({p: content_key(p, a.size) for p in paths})
     shared_cache = os.path.abspath(a.cache) if a.cache else None
-    install_shared_cache(shared_cache)
+    if mast3r_hooks:
+        install_shared_cache(shared_cache)
     if shared_cache:
         n_hit = sum(os.path.isdir(os.path.join(shared_cache, "forward", CONTENT_KEY[p])) for p in paths)
         log(f"shared cache {shared_cache}: {n_hit}/{len(paths)} frames have forward passes there")
@@ -1373,7 +1377,6 @@ def main():
     log("running sparse_global_alignment…")
     tr = time.time()
     cache = os.path.join(a.out, "cache")
-    import solvers
     sol = solvers.BACKENDS[a.solver](
         paths, pairs, cache, model, device=a.device,
         niter1=a.niter1, niter2=a.niter2, shared_intrinsics=a.shared_intrinsics,
@@ -1552,6 +1555,8 @@ def main():
     # correspondence-count connectivity (post-masking) → matrix image + summary
     pair_stats = {}
     try:
+        if not mast3r_hooks:
+            raise RuntimeError(f"solver {a.solver} emits no correspondences")
         mat = pair_count_matrix(cache, paths, shared_cache, pairs)
         render_pair_matrix(mat, os.path.join(a.out, "pairs_matrix.png"))
         sym = mat + mat.T

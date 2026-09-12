@@ -38,6 +38,43 @@ from typing import Any, Optional
 import numpy as np
 
 
+POW3R_REPO = os.getenv("POW3R_REPO", "/opt/pow3r")
+MUST3R_REPO = os.getenv("MUST3R_REPO", "/opt/must3r")
+
+
+def setup_paths(backend, mast3r_repo, log=print):
+    """Put the right model trees on sys.path, and ONLY those.
+
+    Each of these repos vendors its own dust3r as a submodule, at its own commit, and they
+    are not interchangeable — pow3r tracks naver/dust3r main while mast3r pins an older
+    one. Having both importable means `import dust3r` resolves by sys.path order, which is
+    the kind of bug that surfaces as a wrong number rather than an error. So exactly one
+    family is ever on the path.
+    """
+    import sys
+    if backend == "mast3r":
+        trees = [mast3r_repo, os.path.join(mast3r_repo, "dust3r"),
+                 os.path.join(mast3r_repo, "dust3r", "croco")]
+    elif backend == "pow3r":
+        trees = [POW3R_REPO, os.path.join(POW3R_REPO, "dust3r"),
+                 os.path.join(POW3R_REPO, "dust3r", "croco")]
+    else:
+        raise SystemExit(f"unknown solver backend {backend!r}; have {sorted(BACKENDS)}")
+    # the repo and its dust3r are required; croco is only there in some layouts, and
+    # pow3r's own pow3r.tools.path_to_dust3r inserts its dust3r anyway
+    for t in trees[:2]:
+        if not os.path.isdir(t):
+            raise SystemExit(f"solver {backend} needs {t} — is this the right image? "
+                             f"(override with POW3R_REPO / MAST3R_REPO)")
+    trees = [t for t in trees if os.path.isdir(t)]
+    for t in trees:
+        if t not in sys.path:
+            sys.path.insert(0, t)
+    log(f"  solver {backend}: {os.path.basename(trees[0])} + its own dust3r"
+        + ("" if len(trees) > 2 else " (no croco tree; the model may not need one)"))
+    return trees
+
+
 @dataclass
 class Solution:
     """What every backend hands back, in the arrays reconstruct.py already writes."""
