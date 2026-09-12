@@ -44,7 +44,7 @@ ALLOWED_PARAMS = {"win", "pairs", "pair_dist", "pair_dang", "size",
                   "mask_anon", "mask_solocator", "mask_vegetation", "semantic_mask",
                   "semantic_budget", "shared_intrinsics",
                   "adaptive_pairs", "adaptive_reach", "adaptive_frac",
-                  "tiles", "tile_overlap", "tile_pairs"}
+                  "tiles", "tile_overlap", "tile_pairs", "tile_pin_pp"}
 
 # Where the archived experiment runs live. Import copies out of here; nothing writes to it.
 ARCHIVE_ROOT = os.getenv(
