@@ -70,21 +70,24 @@ it from `RECON_CKPT_URL` and verifies the checksum, so it needs no separate step
 ### 3. Open the tunnel, from the trusted side
 
 The workbench accepts nothing inbound. Open it **from the VPS**, so the broker and the
-callback appear on the instance's own loopback, where the worker's defaults already point:
+callback appear on the instance's own loopback, where the worker's defaults already point.
+
+First start the one-route proxy on the VPS, and forward **that**, not 8070:
 
 ```sh
-ssh -N -R 5672:127.0.0.1:5672 -R 8070:127.0.0.1:8070 root@<instance> -p <port>
+nohup python3 ~/hillview/enrich/recon/callback_proxy.py > ~/proxy.log 2>&1 &
+ssh -N -R 5672:127.0.0.1:5672 -R 8070:127.0.0.1:8075 root@<instance> -p <port>
 ```
 
-**The residual risk, stated plainly.** Forwarding 8070 gives the rented box the whole
-workbench API, which is unauthenticated by design and exposes queue purges, run imports,
-artifacts and the photo mirror. The photos are public and the queue is reconstructible, so
-for a first session that is contained — but the hardening is cheap and worth doing before
-this becomes routine: a Caddy listener on 127.0.0.1:8075 that proxies only
-`POST /api/recon/result` to 8070 and 404s everything else, and forward 8075 instead.
+The instance still believes it is talking to 8070 on its own loopback, which is what the
+worker's defaults expect, and it is. Forwarding the API itself would hand an hourly-rented
+machine queue purges, run imports, every artifact and the photo mirror, on an API that is
+unauthenticated by design; the proxy accepts one method on one path, streams the body
+through unbuffered, and answers everything else 404. Verified before the first rental:
+every other route 404s, a valid callback returns 200, and a 2 MB multipart streams in 66 ms.
 
 Give the box its own RabbitMQ user scoped to the `recon` queue rather than `enrich:enrich`,
-which can also read `terrain` and `matcher`.
+which can also read `terrain` and `matcher`. That one is still open.
 
 ### 4. Start the worker
 
