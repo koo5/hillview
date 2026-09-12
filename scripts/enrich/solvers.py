@@ -168,15 +168,17 @@ def solve_pow3r(paths, pairs, cache, model, *, device, niter1, niter2,
     imgs = load_images(paths, size=size, verbose=False)
 
     def K_for(i):
-        """The intrinsics prior, BATCHED. add_intrinsics branches on K.ndim: a bare 3x3
-        takes a path that unpacks true_shape as (H, W), but load_images hands out a
-        batched [[H, W]], so that path raises. A (1, 3, 3) takes the per-view branch,
-        which is the one that matches how the views are shaped here."""
+        """The intrinsics prior, batched AND a torch tensor. Two traps in add_intrinsics,
+        both found by running it: it branches on K.ndim, and the bare 3x3 path unpacks
+        true_shape as (H, W) while load_images hands out a batched [[H, W]]; and the
+        batched path ends in torch.stack, which a numpy K silently fails."""
         if not exif_focals or exif_focals[i] in (None, 0):
             return None
+        import torch as _t
         h, w = (int(v) for v in imgs[i]["true_shape"][0])
         f = float(exif_focals[i])
-        return np.array([[[f, 0, w / 2.0], [0, f, h / 2.0], [0, 0, 1.0]]], dtype=np.float32)
+        return _t.tensor([[[f, 0, w / 2.0], [0, f, h / 2.0], [0, 0, 1.0]]],
+                         dtype=_t.float32, device=device)
 
     resolver = model if not hi_res else P.AsymmetricSliding(
         crop_res, bootstrap_depth="c2f_both", fix_rays="full", sparsify_depth=1.1)
