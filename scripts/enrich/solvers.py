@@ -180,13 +180,33 @@ def solve_pow3r(paths, pairs, cache, model, *, device, niter1, niter2,
         resolver.model = getattr(model, "model", model)
     resolver = resolver.to(device).eval()
 
+    def landscape(view):
+        """Pow3R's patch embed (ManyAR_PatchEmbed) asserts the BUFFER is landscape and
+        reads the real orientation from true_shape, transposing portrait entries back
+        itself. MASt3R's config tolerates a portrait buffer, so this never came up before —
+        and a phone held upright produces nothing else. Transpose the tensor, leave
+        true_shape alone, and the model sees the original image; the heads then emit their
+        maps in that same original orientation, so nothing has to be undone afterwards.
+        """
+        import torch as _t
+        v = dict(view)
+        img = v["img"]
+        if img.shape[-2] > img.shape[-1]:          # H > W, portrait buffer
+            v["img"] = img.swapaxes(-1, -2) if isinstance(img, _t.Tensor) else img
+        return v
+
     view1, view2, pred1, pred2 = [], [], [], []
     import torch
+    n_rot = sum(1 for im in imgs if im["img"].shape[-2] > im["img"].shape[-1])
+    if n_rot:
+        log(f"  pow3r: {n_rot}/{len(imgs)} frames are portrait; passing them transposed, "
+            f"which is what ManyAR_PatchEmbed expects")
     with torch.no_grad():
         for a_, b_ in pairs:
             ia, ib = a_["idx"], b_["idx"]
             (v1, v2), pr = resolver.inference_with_info(
-                imgs[ia], imgs[ib], K1=K_for(ia), K2=K_for(ib), ret_views=True)
+                landscape(imgs[ia]), landscape(imgs[ib]),
+                K1=K_for(ia), K2=K_for(ib), ret_views=True)
             # DUSt3R's aligner names the second pointmap differently from Pow3R's head
             p2 = dict(pr[1])
             if "pts3d_in_other_view" not in p2:
