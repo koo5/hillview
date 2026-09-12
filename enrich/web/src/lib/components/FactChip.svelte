@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { api } from '$lib/api';
 	import type { Fact } from '$lib/types';
 
@@ -62,7 +63,7 @@
 <span class="fact status-{fact.status}" class:verdict title={fact.fact}>
 	{#if verdict}
 		<span class="pred">{verdictLabel}</span>
-		<a class="val" href="/photos/{photoId}">{photoId.slice(0, 8)}</a>
+		<a class="val" href="{base}/photos/{photoId}">{photoId.slice(0, 8)}</a>
 	{:else}
 		<span class="pred">{fact.predicate}</span>
 		{#if fact.value_type === 'uri' && fact.value.startsWith('http') && !fact.value.includes('rdf.hillview.cz')}

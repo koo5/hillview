@@ -90,9 +90,76 @@ def frame_keys(meta):
     reconstruct.py:304). Today's absolute path hashes differently, so rebuild the
     original relative string rather than guessing from the filesystem.
     """
+    if all(f.get("cache_key") for f in meta["frames"]):
+        # since 2026-09-10: content-addressed (md5 of the staged JPEG + load size), and
+        # recorded in the metadata, so nothing has to be rebuilt from path strings
+        return [f["cache_key"] for f in meta["frames"]]
     out = meta["args"]["out"]
     return [hash_md5(os.path.join(out, "imgs", f"{f['idx']:03d}_{f['id'][:8]}.jpg"))
             for f in meta["frames"]]
+
+
+def content_key(path, size):
+    """The shared cache's address for a staged image: md5 of its bytes + the load size.
+    Same definition as reconstruct.py's, kept here so read-only tools need nothing else."""
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        h.update(f.read())
+    h.update(f"|size={size}|v1".encode())
+    return h.hexdigest()
+
+
+def content_keys(meta, rundir):
+    """Cache keys in the SHARED cache, in frame order (None where the staged image is gone).
+
+    A run solved before 2026-09-10 keyed its own cache by the image PATH, which is unique to
+    that run dir — so two runs over the same photos share nothing by name, even though the
+    forward passes are identical. The content key is what unifies them, and the migration
+    hardlinked the old caches in under it, so it works for archived runs too as long as the
+    staged JPEG is still there.
+    """
+    out = []
+    size = int((meta.get("args") or {}).get("size", 512))
+    for f in meta["frames"]:
+        if f.get("cache_key"):
+            out.append(f["cache_key"]); continue
+        p = os.path.join(rundir, "imgs", f"{f['idx']:03d}_{f['id'][:8]}.jpg")
+        out.append(content_key(p, size) if os.path.exists(p) else None)
+    return out
+
+
+def shared_cache_dir(rundir=None):
+    """Where the forward passes and raw correspondences live for runs since 2026-09-10:
+    the run's metadata says, else the env, else the default beside the run dirs."""
+    if rundir:
+        try:
+            sc = json.load(open(os.path.join(rundir, "metadata.json"))).get("shared_cache")
+            if sc:
+                return sc
+        except Exception:
+            pass
+    return os.getenv("RECON_SHARED_CACHE",
+                     os.path.join(os.path.dirname(os.path.abspath(__file__)), "runs", "shared_cache"))
+
+
+def corres_files(rundir, shared=None):
+    """Every correspondence file this run can see, masked copies first so they win over
+    the raw pair in the shared cache. → [(name 'h1-h2', path)] with duplicates removed."""
+    dirs = glob.glob(os.path.join(rundir, "cache", "corres_masked_conf=*"))
+    dirs += glob.glob(os.path.join(rundir, "cache", "corres_conf=*"))
+    if shared is None:
+        shared = shared_cache_dir(rundir)
+    if shared:
+        dirs += glob.glob(os.path.join(shared, "corres_conf=*"))
+    seen, out = set(), []
+    for d in dirs:
+        for f in sorted(glob.glob(os.path.join(d, "*.pth"))):
+            name = os.path.splitext(os.path.basename(f))[0]
+            if "-" not in name or name in seen:
+                continue
+            seen.add(name)
+            out.append((name, f))
+    return out
 
 
 def canon_paths(rundir, keys):
@@ -126,33 +193,30 @@ def read_corres(rundir, keys, conf_thr=CONF_THR):
     """→ {(i, j): (xy1, xy2, confs)} over every cached ordered pair.
 
     Payload is ((score, conf_sum, n), (xy1, xy2, confs)) with xy as int64 (col, row) in
-    the loaded frame — the format install_corr_masking rewrites (reconstruct.py:285).
+    the loaded frame. Pairs come from the run-local caches (masked copies first) and
+    from the shared cache, which may hold pairs between these frames that a wider-window
+    run computed: they are real correspondences between these views, and a caller that
+    wants only the pairs THIS solve used filters by metadata["pairs"].
     """
     idx = {k: i for i, k in enumerate(keys)}
-    dirs = glob.glob(os.path.join(rundir, "cache", "corres_conf=*"))
     out, skipped = {}, 0
-    for d in dirs:
-        for f in glob.glob(os.path.join(d, "*.pth")):
-            name = os.path.splitext(os.path.basename(f))[0]
-            if "-" not in name:
-                continue
-            h1, h2 = name.split("-", 1)
-            if h1 not in idx or h2 not in idx:
-                skipped += 1
-                continue
-            try:
-                _score, (xy1, xy2, confs) = _load_pth(f)
-            except Exception:
-                skipped += 1
-                continue
-            xy1, xy2, confs = _np(xy1), _np(xy2), _np(confs).ravel()
-            if conf_thr > 0:
-                keep = confs >= conf_thr
-                xy1, xy2, confs = xy1[keep], xy2[keep], confs[keep]
-            out[(idx[h1], idx[h2])] = (xy1.astype(np.float64),
-                                       xy2.astype(np.float64), confs)
+    for name, f in corres_files(rundir):
+        h1, h2 = name.split("-", 1)
+        if h1 not in idx or h2 not in idx:
+            continue                       # some other run's frames (the shared cache)
+        try:
+            _score, (xy1, xy2, confs) = _load_pth(f)
+        except Exception:
+            skipped += 1
+            continue
+        xy1, xy2, confs = _np(xy1), _np(xy2), _np(confs).ravel()
+        if conf_thr > 0:
+            keep = confs >= conf_thr
+            xy1, xy2, confs = xy1[keep], xy2[keep], confs[keep]
+        out[(idx[h1], idx[h2])] = (xy1.astype(np.float64),
+                                   xy2.astype(np.float64), confs)
     if skipped:
-        log(f"  note: {skipped} corres file(s) unresolved/unreadable")
+        log(f"  note: {skipped} corres file(s) unreadable")
     return out
 
 
@@ -503,6 +567,10 @@ def measure(rundir, conf_thr=CONF_THR, pps=None):
         K = intrinsics(focals, W, H, pps)
 
     corres = read_corres(rundir, keys, conf_thr)
+    if meta.get("pairs"):
+        # the metric is about the pairs THIS solve used; the shared cache may hold more
+        solved = {tuple(p) for p in meta["pairs"]}
+        corres = {ij: v for ij, v in corres.items() if ij in solved}
     depth_source = "dense.npz"
     depth = read_depthmaps(rundir, n, list(zip(H, W)))
     if depth is None and side is not None and "depthmaps" in side:
@@ -533,10 +601,19 @@ def measure(rundir, conf_thr=CONF_THR, pps=None):
     # that claim is only testable if the impostor's error is compared against the real
     # frames' own baseline rather than averaged into it.
     injected = [bool(f.get("injected")) for f in frames]
+    # Capture session per frame (device + time gap, assigned at selection). Real captures
+    # come in sessions and one place accumulates many independent visits; whether those
+    # FUSE is the open question, and it is only answerable if cross-session pairs are
+    # scored apart from within-session ones rather than averaged together.
+    sessions = [f.get("session") for f in frames]
 
     pairs, ep_all, rp_all, n_corres_total = [], [], [], 0
     # real-real pairs only, so the baseline the impostor is judged against is clean
     ep_real, rp_real = [], []
+    # within- vs cross-session, the multi-session fusion question
+    ep_within, rp_within, ep_cross, rp_cross = [], [], [], []
+    n_pairs_within = n_pairs_cross = 0
+    corres_within = corres_cross = 0
     imp_ep = {i: [] for i, v in enumerate(injected) if v}
     imp_rp = {i: [] for i, v in enumerate(injected) if v}
     imp_corres = {i: 0 for i, v in enumerate(injected) if v}
@@ -550,12 +627,25 @@ def measure(rundir, conf_thr=CONF_THR, pps=None):
         if upm:
             rec["baseline_m"] = round(base / upm, 2)
         rec["degenerate_baseline"] = bool(base < DEGENERATE_BASELINE_FRAC * med_depth)
+        si, sj = sessions[i], sessions[j]
+        cross = bool(si and sj and si != sj)
+        rec_cross = cross
         touches_imp = injected[i] or injected[j]
         if touches_imp:
             rec["impostor_pair"] = True
             for k in (i, j):
                 if injected[k]:
                     imp_corres[k] += int(len(xy1))
+        if si or sj:
+            rec["session_i"], rec["session_j"] = si, sj
+            rec["cross_session"] = rec_cross
+            if not touches_imp:
+                if rec_cross:
+                    n_pairs_cross += 1
+                    corres_cross += int(len(xy1))
+                else:
+                    n_pairs_within += 1
+                    corres_within += int(len(xy1))
         s = _stats(ep)
         if s:
             rec["epipolar"] = s
@@ -568,6 +658,7 @@ def measure(rundir, conf_thr=CONF_THR, pps=None):
                             imp_ep[k].append(ep)
                 else:
                     ep_real.append(ep)
+                    (ep_cross if rec_cross else ep_within).append(ep)
         if depth is not None and depth[i] is not None:
             rp, n_behind = reproj_pair(K[i], K[j], poses[i], poses[j],
                                        depth[i], int(W[i]), xy1, xy2)
@@ -583,6 +674,7 @@ def measure(rundir, conf_thr=CONF_THR, pps=None):
                             imp_rp[k].append(rp)
                 else:
                     rp_real.append(rp)
+                    (rp_cross if rec_cross else rp_within).append(rp)
         pairs.append(rec)
 
     def pooled(chunks):
@@ -631,6 +723,23 @@ def measure(rundir, conf_thr=CONF_THR, pps=None):
         "n_frames": n,
         "n_pairs": len(pairs),
         "n_injected": sum(injected),
+        # --- multi-session fusion ------------------------------------------------
+        # Do independent visits to one place actually link up? Cross-session pairs are
+        # the ones that would fuse them; within-session pairs are the control, since
+        # they share lighting, season and camera settings. A cross/within ratio near 1
+        # means fusion works; a large ratio means the sessions are being stitched by
+        # matches the geometry cannot support. `n_pairs_cross == 0` means the pairing
+        # mode never even offered a cross-session pair — swin cannot, by construction.
+        "sessions": sorted({x for x in sessions if x}),
+        "n_sessions": len({x for x in sessions if x}),
+        "n_pairs_within_session": n_pairs_within,
+        "n_pairs_cross_session": n_pairs_cross,
+        "n_corres_within_session": corres_within,
+        "n_corres_cross_session": corres_cross,
+        "within_session_reproj_px": pooled(rp_within),
+        "cross_session_reproj_px": pooled(rp_cross),
+        "within_session_epipolar_px": pooled(ep_within),
+        "cross_session_epipolar_px": pooled(ep_cross),
         "depth_horizon": depth_horizon(poses, focals, injected, depth, upm, meta),
         # baseline over real-real pairs only — what an impostor is compared against
         "real_only_reproj_px": real_rp if any(injected) else None,
@@ -729,6 +838,23 @@ def print_summary(m):
             # photographing landmarks kilometres away.
             log(f"    (compare {dh['horizon_20pct']} {u} against how far away your SUBJECT "
                 f"is — a solve can be internally honest and still miss the scene entirely)")
+    if m.get("n_sessions", 0) > 1:
+        w = m.get("within_session_reproj_px") or m.get("within_session_epipolar_px")
+        c = m.get("cross_session_reproj_px") or m.get("cross_session_epipolar_px")
+        log(f"  MULTI-SESSION: {m['n_sessions']} sessions, "
+            f"{m['n_pairs_within_session']} within-session pairs / "
+            f"{m['n_pairs_cross_session']} cross-session")
+        if not m["n_pairs_cross_session"]:
+            log("    no cross-session pairs were even attempted — swin pairing only links "
+                "temporally adjacent frames; use pairs=bearing or complete to fuse visits")
+        elif w and c:
+            log(f"    within  reproj {(m.get('within_session_reproj_px') or {}).get('median')} px  "
+                f"epipolar {(m.get('within_session_epipolar_px') or {}).get('median')} px")
+            log(f"    cross   reproj {(m.get('cross_session_reproj_px') or {}).get('median')} px  "
+                f"epipolar {(m.get('cross_session_epipolar_px') or {}).get('median')} px  "
+                f"({m['n_corres_cross_session']:,} corres)")
+            if w.get("median"):
+                log(f"    cross/within ratio = {c['median'] / w['median']:.2f}x")
     if m.get("impostors"):
         base = m.get("real_only_reproj_px") or m.get("real_only_epipolar_px")
         log(f"  IMPOSTOR CONTROL — real frames alone: "
