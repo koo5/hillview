@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { page } from '$app/state';
+	import { base } from '$app/paths';
 
 	let { children } = $props();
 
@@ -20,15 +21,22 @@
 		{ href: '/sparql', label: 'SPARQL' }
 	];
 
+	// The list holds ROUTE paths; the base is applied at render. Both sides of the
+	// comparison get it too, and both get their trailing slash trimmed, because a
+	// prefixed root is served as "/prefix/" while base + "/" spells "/prefix".
+	const trim = (p: string) => p.replace(/\/$/, '') || '/';
+
 	function active(href: string): boolean {
-		return href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(href);
+		const here = trim(page.url.pathname);
+		const full = trim(`${base}${href}`);
+		return href === '/' ? here === full : here.startsWith(full);
 	}
 </script>
 
 <nav class="top">
 	<span class="brand">🛠 Enrichment Workbench</span>
 	{#each links as l (l.href)}
-		<a href={l.href} class:active={active(l.href)}>{l.label}</a>
+		<a href="{base}{l.href}" class:active={active(l.href)}>{l.label}</a>
 	{/each}
 </nav>
 

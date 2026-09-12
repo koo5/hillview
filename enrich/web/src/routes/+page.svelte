@@ -5,6 +5,15 @@
 	import Help from '$lib/components/Help.svelte';
 
 	let health = $state<Health | null>(null);
+	type Machine = {
+		ok: boolean;
+		warnings: string[];
+		disks: { path: string; total_gb: number; free_gb: number; used_pct: number }[];
+		memory: { total_gb: number; available_gb: number } | null;
+		load: { '1m': number; '5m': number; '15m': number; cores: number } | null;
+		recon_queue: { messages?: number; consumers?: number; error?: string } | null;
+	};
+	let machine = $state<Machine | null>(null);
 	let status = $state<SyncStatus | null>(null);
 	let err = $state<string | null>(null);
 	let busy = $state<string | null>(null);
@@ -12,9 +21,10 @@
 
 	async function refresh() {
 		try {
-			[health, status] = await Promise.all([
+			[health, status, machine] = await Promise.all([
 				api.get<Health>('/health'),
-				api.get<SyncStatus>('/sync/status')
+				api.get<SyncStatus>('/sync/status'),
+				api.get<Machine>('/health/machine').catch(() => null)
 			]);
 			err = null;
 		} catch (e) {
@@ -87,6 +97,39 @@
 
 {#if err}<div class="card" style="border-color:var(--bad)">{err}</div>{/if}
 
+<h2>Machine</h2>
+<div class="card" data-testid="machine-card" class:warn={machine && !machine.ok}>
+	{#if machine}
+		{#each machine.warnings as w (w)}
+			<div class="mwarn" data-testid="machine-warning">⚠ {w}</div>
+		{/each}
+		<div class="row" style="gap:14px; flex-wrap:wrap">
+			{#each machine.disks as d (d.path)}
+				<span class="pill {d.free_gb < 20 || d.used_pct > 90 ? 'bad' : 'ok'}" title={d.path}
+					>disk {d.path} · {d.free_gb} GB free · {d.used_pct}%</span
+				>
+			{/each}
+			{#if machine.memory}
+				<span class="pill {machine.memory.available_gb < 4 ? 'bad' : 'ok'}"
+					>RAM · {machine.memory.available_gb} / {machine.memory.total_gb} GB available</span
+				>
+			{/if}
+			{#if machine.load}
+				<span class="pill {machine.load['5m'] > machine.load.cores * 1.5 ? 'bad' : 'ok'}"
+					>load · {machine.load['1m']} / {machine.load['5m']} / {machine.load['15m']} on {machine.load.cores} cores</span
+				>
+			{/if}
+			{#if machine.recon_queue && !machine.recon_queue.error}
+				<span class="pill {machine.recon_queue.messages && !machine.recon_queue.consumers ? 'bad' : 'ok'}"
+					>recon queue · {machine.recon_queue.messages ?? 0} waiting · {machine.recon_queue.consumers ?? 0} worker{(machine.recon_queue.consumers ?? 0) === 1 ? '' : 's'}</span
+				>
+			{/if}
+		</div>
+	{:else}
+		<span class="muted">…</span>
+	{/if}
+</div>
+
 <h2>Services</h2>
 <div class="card row">
 	{#if health}
@@ -151,3 +194,14 @@
 		{/each}
 	</tbody>
 </table>
+
+<style>
+	.card.warn {
+		border-color: #e0a23a;
+	}
+	.mwarn {
+		color: #e0a23a;
+		font-size: 13px;
+		margin-bottom: 6px;
+	}
+</style>

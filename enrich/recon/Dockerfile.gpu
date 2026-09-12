@@ -1,0 +1,106 @@
+# syntax=docker/dockerfile:1.7
+#
+# The recon worker, for a rented GPU box. Containerised twin of run_worker.sh, which stays
+# the host-side option — a vast.ai instance is an unprivileged container with no systemd
+# user session, so the transient-unit launcher does not travel.
+#
+# BUILD: use enrich/recon/build.sh. The build context is THIS directory, not the repo
+# root, because the repo root is 82 GB (64 GB of run dirs, a 12 GB frontend, the 2.6 GB
+# MASt3R clone) and docker would tar all of it before the first instruction ran. The
+# solve's own module set is 436 KB of Python, so build.sh stages it, and the one pics
+# file, into vendor/ and the context stays under a megabyte.
+#
+# Build it where the bandwidth is. The layers below pull ~2.5 GB of CUDA torch and ~850 MB
+# of Mask2Former weights; on a slow link that is an afternoon, on the VPS it is minutes.
+#
+# WHAT IS NOT IN HERE: the 2.6 GiB MASt3R checkpoint. It is loaded with
+# weights_only=False, which means torch.load will execute what it contains, so its
+# provenance has to be yours and not a registry's; and its licence is CC BY-NC-SA with
+# per-dataset terms, which a redistributable image should not test. The entrypoint fetches
+# it from RECON_CKPT_URL and verifies a checksum.
+ARG CUDA_IMAGE=nvidia/cuda:12.6.3-cudnn-devel-ubuntu24.04
+FROM ${CUDA_IMAGE}
+
+# cu126, not cu128: torch 2.12.0 ships cu126, cu130 and cu132 wheels, and cu128 was
+# dropped from the build matrix. For a Blackwell card (5090) build with
+# TORCH_INDEX=.../cu130 and CUDA_ARCH=120.
+ARG TORCH_VERSION=2.12.0
+ARG TORCHVISION_VERSION=0.27.0
+ARG TORCH_INDEX=https://download.pytorch.org/whl/cu126
+# 89 = Ada (RTX 4090). One arch, not all of them: compiling curope for every architecture
+# torch supports turns a two-minute build into tens of minutes.
+ARG CUDA_ARCH=89
+ARG MAST3R_REPO_URL=https://github.com/naver/mast3r.git
+ARG MAST3R_COMMIT=f5209af
+ARG SEG_MODEL=facebook/mask2former-swin-large-mapillary-vistas-semantic
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3.12 python3.12-venv python3.12-dev python3-pip \
+        git curl ca-certificates build-essential ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+
+# Torch once, system-wide. Both venvs below are created --system-site-packages and share
+# it, so the image carries one ~3 GB copy rather than one per environment. It is also the
+# only unhashed install here: the CUDA build is not on PyPI and its hashes are
+# index-specific, so the version is pinned instead.
+RUN pip install --break-system-packages --no-cache-dir --index-url ${TORCH_INDEX} \
+        torch==${TORCH_VERSION} torchvision==${TORCHVISION_VERSION}
+
+# Two environments, because the workbench has two and they disagree about numpy, scipy,
+# opencv, huggingface-hub and safetensors. The solve's versions are the ones every
+# archived run was produced with; the segmenter's are what the pics CLI expects.
+COPY requirements-recon.txt requirements-seg.txt /tmp/
+RUN python3 -m venv --system-site-packages /opt/recon \
+    && /opt/recon/bin/pip install --no-cache-dir --require-hashes -r /tmp/requirements-recon.txt
+RUN python3 -m venv --system-site-packages /opt/seg \
+    && /opt/seg/bin/pip install --no-cache-dir --require-hashes -r /tmp/requirements-seg.txt
+
+# MASt3R + dust3r + croco, at the commits this project has been running.
+RUN git clone ${MAST3R_REPO_URL} /opt/mast3r \
+    && git -C /opt/mast3r checkout ${MAST3R_COMMIT} \
+    && git -C /opt/mast3r submodule update --init --recursive \
+    && git -C /opt/mast3r/dust3r rev-parse HEAD > /opt/mast3r/.dust3r-commit
+
+# The CUDA RoPE2D kernel. Without it dust3r falls back to a pure-PyTorch implementation,
+# prints one warning, and runs — slowly, on hardware you are paying for by the second.
+# The sed is deliberately fail-loud: a silent no-match would build every architecture.
+RUN cd /opt/mast3r/dust3r/croco/models/curope \
+    && grep -q "^all_cuda_archs = cuda.get_gencode_flags()" setup.py \
+    && sed -i "s|^all_cuda_archs = cuda.get_gencode_flags().*|all_cuda_archs = ['-gencode', 'arch=compute_${CUDA_ARCH},code=sm_${CUDA_ARCH}']|" setup.py \
+    && /opt/recon/bin/python setup.py build_ext --inplace \
+    && /opt/recon/bin/python -c "import sys; sys.path.insert(0, '/opt/mast3r/dust3r/croco'); from models.curope import cuRoPE2D; print('curope OK')"
+
+# Mask2Former weights, baked so a disposable instance does not re-download them per rental.
+ENV HF_HOME=/opt/hf
+RUN HF_HUB_DISABLE_TELEMETRY=1 /opt/seg/bin/python -c "\
+from transformers import Mask2FormerForUniversalSegmentation, Mask2FormerImageProcessor; \
+n='${SEG_MODEL}'; Mask2FormerImageProcessor.from_pretrained(n); \
+Mask2FormerForUniversalSegmentation.from_pretrained(n); print('seg model cached')"
+
+# The application. worker.py derives ENRICH_SCRIPTS as ../../scripts/enrich from its own
+# location, so this relative layout is load-bearing — do not flatten it.
+WORKDIR /app
+COPY vendor/scripts-enrich/ /app/scripts/enrich/
+COPY worker.py post_run.py docker-entrypoint.sh /app/enrich/recon/
+# Only the one file the hillview side actually shells out to. The whole pics checkout is
+# on the VPS; the image needs its inference CLI and nothing else. build.sh stages it here.
+COPY vendor/pics/src/tools/semantic_mask_inference.py /opt/pics/src/tools/
+
+# Where everything lives, so nothing depends on a checkout layout that is not here.
+ENV MAST3R_REPO=/opt/mast3r \
+    MAST3R_CKPT=/runs/mast3r.pth \
+    HV_SEMANTIC_PYTHON=/opt/seg/bin/python \
+    HV_PICS_ROOT=/opt/pics \
+    HV_SEMANTIC_CACHE=/runs/semantic_cache \
+    RECON_RUNS_DIR=/runs/bench \
+    RECON_SHARED_CACHE=/runs/shared_cache \
+    RECON_DEVICE=auto \
+    PATH=/opt/recon/bin:$PATH
+
+# /runs is the instance's disk: run dirs, the forward-pass cache, the checkpoint. Sized in
+# tens of GB (a 60-frame run dir is 3.6 GB at 512 px, and roughly four times that at 1024).
+VOLUME ["/runs"]
+ENTRYPOINT ["/app/enrich/recon/docker-entrypoint.sh"]

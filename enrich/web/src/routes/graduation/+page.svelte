@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { api, ApiError } from '$lib/api';
 	import Help from '$lib/components/Help.svelte';
@@ -221,7 +222,7 @@
 			<ul style="margin:4px 0 0 0; padding-left:18px">
 				{#each exportSkipped as s (s.photo_id)}
 					<li>
-						<a href="/terrain/overlay?photo={s.photo_id}" class="mono">{s.photo_id.slice(0, 8)}</a>
+						<a href="{base}/terrain/overlay?photo={s.photo_id}" class="mono">{s.photo_id.slice(0, 8)}</a>
 						{#if s.photo_title}<span class="muted"> {s.photo_title}</span>{/if} — {s.error}
 					</li>
 				{/each}
@@ -237,14 +238,14 @@
 				{#each data.suggestions as s (s.annotation_id)}
 					<tr>
 						<td style="width:76px">
-							<a href="/photos/{s.photo_id}"><PhotoThumb sizes={s.sizes} size={70} /></a>
+							<a href="{base}/photos/{s.photo_id}"><PhotoThumb sizes={s.sizes} size={70} /></a>
 						</td>
 						<td style="white-space:nowrap">
-							<a href="/annotations/{s.annotation_id}" class="mono" style="font-size:12px">
+							<a href="{base}/annotations/{s.annotation_id}" class="mono" style="font-size:12px">
 								{s.annotation_id.slice(0, 8)}
 							</a>
 							<div>
-								<a href="/matching?annotation={s.annotation_id}" class="muted" style="font-size:10px">
+								<a href="{base}/matching?annotation={s.annotation_id}" class="muted" style="font-size:10px">
 									match ↗
 								</a>
 							</div>
@@ -296,10 +297,10 @@
 				{#each data.creates as s (s.annotation_id)}
 					<tr>
 						<td style="width:76px">
-							<a href="/photos/{s.photo_id}"><PhotoThumb sizes={s.sizes} size={70} /></a>
+							<a href="{base}/photos/{s.photo_id}"><PhotoThumb sizes={s.sizes} size={70} /></a>
 						</td>
 						<td style="white-space:nowrap">
-							<a href="/annotations/{s.annotation_id}" class="mono" style="font-size:12px">{s.annotation_id.slice(0, 8)}</a>
+							<a href="{base}/annotations/{s.annotation_id}" class="mono" style="font-size:12px">{s.annotation_id.slice(0, 8)}</a>
 						</td>
 						<td>
 							<div class="mono" style="font-size:12px; color:var(--ok)">{s.suggested_body}</div>
@@ -330,10 +331,10 @@
 				{#each data.target_changes as t (t.annotation_id)}
 					<tr>
 						<td style="width:76px">
-							<a href="/photos/{t.photo_id}"><PhotoThumb sizes={t.sizes} size={70} /></a>
+							<a href="{base}/photos/{t.photo_id}"><PhotoThumb sizes={t.sizes} size={70} /></a>
 						</td>
 						<td style="white-space:nowrap">
-							<a href="/annotations/{t.annotation_id}" class="mono" style="font-size:12px">{t.annotation_id.slice(0, 8)}</a>
+							<a href="{base}/annotations/{t.annotation_id}" class="mono" style="font-size:12px">{t.annotation_id.slice(0, 8)}</a>
 						</td>
 						<td class="mono" style="font-size:11px">
 							<div class="muted" style="text-decoration:line-through">{t.current_rect ?? '—'}</div>
@@ -363,10 +364,10 @@
 				{#each data.overlays as o (o.photo_id)}
 					<tr>
 						<td style="width:76px">
-							<a href="/photos/{o.photo_id}"><PhotoThumb sizes={o.sizes} size={70} /></a>
+							<a href="{base}/photos/{o.photo_id}"><PhotoThumb sizes={o.sizes} size={70} /></a>
 						</td>
 						<td style="white-space:nowrap">
-							<a href="/terrain/overlay?photo={o.photo_id}" class="mono" style="font-size:12px">
+							<a href="{base}/terrain/overlay?photo={o.photo_id}" class="mono" style="font-size:12px">
 								{o.photo_id.slice(0, 8)}
 							</a>
 							{#if o.photo_title}
@@ -405,10 +406,10 @@
 				{#each data.overlays_landed as o (o.photo_id)}
 					<tr>
 						<td style="width:56px">
-							<a href="/photos/{o.photo_id}"><PhotoThumb sizes={o.sizes} size={46} /></a>
+							<a href="{base}/photos/{o.photo_id}"><PhotoThumb sizes={o.sizes} size={46} /></a>
 						</td>
 						<td>
-							<a href="/terrain/overlay?photo={o.photo_id}" class="mono" style="font-size:11px">
+							<a href="{base}/terrain/overlay?photo={o.photo_id}" class="mono" style="font-size:11px">
 								{o.photo_id.slice(0, 8)}
 							</a>
 						</td>
@@ -433,9 +434,9 @@
 				{#each data.landed as s (s.annotation_id)}
 					<tr>
 						<td style="width:56px">
-							<a href="/photos/{s.photo_id}"><PhotoThumb sizes={s.sizes} size={46} /></a>
+							<a href="{base}/photos/{s.photo_id}"><PhotoThumb sizes={s.sizes} size={46} /></a>
 						</td>
-						<td><a href="/annotations/{s.annotation_id}" class="mono" style="font-size:11px">{s.annotation_id.slice(0, 8)}</a></td>
+						<td><a href="{base}/annotations/{s.annotation_id}" class="mono" style="font-size:11px">{s.annotation_id.slice(0, 8)}</a></td>
 						<td class="mono muted" style="font-size:11px">{s.current_body}</td>
 					</tr>
 				{/each}

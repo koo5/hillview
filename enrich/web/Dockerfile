@@ -15,6 +15,10 @@ RUN bun install --frozen-lockfile
 COPY enrich/web/ .
 COPY shared/zoomview /shared/zoomview
 COPY shared/terrain /shared/terrain
+# Serve the whole app under a path prefix. BUILD time, not run time: SvelteKit bakes the
+# base into every emitted asset URL, so it cannot be changed by restarting the container.
+ARG BASE_PATH=""
+ENV BASE_PATH=${BASE_PATH}
 RUN bun run build
 
 FROM oven/bun:1
