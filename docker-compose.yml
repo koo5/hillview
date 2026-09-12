@@ -313,23 +313,23 @@ services:
     # Opt-in via profile: docker compose --profile analyzer up -d --build analyzer
     build:
       context: .
-      dockerfile: scripts/analyzer/Dockerfile
+      dockerfile: backend/analyzer/Dockerfile
     container_name: hillview_analyzer
     profiles: ["analyzer"]
     restart: unless-stopped
     # OOM guard: the analyzer is light (httpx + sqlalchemy, images stay remote),
     # but a leak in a long-running LLM loop shouldn't be able to take the box
-    mem_limit: 1g
+    mem_limit: 2g
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      - OPENROUTER_API_KEY_FILE=/run/secrets/openrouter_api_key
+      - OPENROUTER_API_KEY_FILE=/run/secrets/OPENROUTER_API_KEY
       - ANALYZER_DATA_DIR=/data
       - ANALYZER_FETCH_IMAGES=${ANALYZER_FETCH_IMAGES:-false}
     command: ["python", "analyzer.py", "--verbose", "--model", "${ANALYZER_MODEL:-nvidia/nemotron-nano-12b-v2-vl:free}"]
     volumes:
-      - analyzer_data:/data
+      - ./backend/data/analyzer:/data
     secrets:
-      - openrouter_api_key
+      - OPENROUTER_API_KEY
     depends_on:
       postgres:
         condition: service_healthy
@@ -356,7 +356,7 @@ secrets:
       file: ./secrets/FIREBASE_CONFIG.json
   firebase_credentials:
       file: ./secrets/firebase_credentials
-  openrouter_api_key:
+  OPENROUTER_API_KEY:
       file: ./scripts/analyzer/secrets/OPENROUTER_API_KEY
 
 
