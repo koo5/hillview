@@ -1,0 +1,12 @@
+# allowlist: this Dockerfile builds from the repo root but needs only two trees
+*
+!backend/common
+!backend/analyzer
+backend/common/hillview_common.egg-info
+backend/common/__pycache__
+backend/analyzer/.venv
+backend/analyzer/data
+backend/analyzer/secrets
+backend/analyzer/log_*
+backend/analyzer/hillview_analyzer.egg-info
+backend/analyzer/__pycache__

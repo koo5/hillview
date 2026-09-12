@@ -378,8 +378,8 @@ def main():
 	parser.add_argument(
 		"--datadir",
 		type=Path,
-		default=Path(__file__).parent / "data",
-		help="Directory to store analysis JSON files (default: ./data)"
+		default=Path(os.environ.get("ANALYZER_DATA_DIR", Path(__file__).parent / "data")),
+		help="Directory to store analysis JSON files (default: $ANALYZER_DATA_DIR or ./data)"
 	)
 	parser.add_argument(
 		"--model",
