@@ -22,6 +22,7 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
   (`callback-proxy`, 127.0.0.1:8075). Verified there: every route but
   `POST /api/recon/result` answers 404, and a real 2 MB callback with the token returns
   200 in 188 ms. Tunnel 8075; never 8070.
+- **The box's broker user is scoped and tested** — see the tunnel section.
 - **The published image is checksum-verified on disk**, `b3b33b55…d9529`, and the
   superseded one has been removed so there is nothing stale to pull by mistake.
 
@@ -92,8 +93,25 @@ unauthenticated by design; the proxy accepts one method on one path, streams the
 through unbuffered, and answers everything else 404. Verified before the first rental:
 every other route 404s, a valid callback returns 200, and a 2 MB multipart streams in 66 ms.
 
-Give the box its own RabbitMQ user scoped to the `recon` queue rather than `enrich:enrich`,
-which can also read `terrain` and `matcher`. That one is still open.
+**The box gets its own broker user**, `recon-worker`, no tags and therefore no management
+access, with configure/write/read all restricted to `^recon(\.(DQ|XQ))?$`. Its URL is in
+`~/.recon-amqp` on the VPS at mode 600. Use that, never `enrich:enrich`, which is an
+administrator that can also read `terrain` and `matching`.
+
+Verified before the rental, and two of the checks were wrong the first time, which is worth
+knowing if you ever re-derive these:
+
+- Consuming from `recon` works; consuming from `terrain` or `matching` is refused.
+- **Publishing anywhere is refused.** The first attempt granted write on the default
+  exchange, whose name is the empty string, and that lets a client publish to *any* queue by
+  routing key — the permission is checked on the exchange, not the destination. Write is now
+  denied outright, which a consumer does not need.
+- A passive `queue.declare` is **not** a permission test: RabbitMQ answers it without
+  checking. Neither is a bare `basic.publish`, which is asynchronous, so the server's refusal
+  never reaches the client. Use `basic.get` for read and publisher confirms for write.
+- The real worker was then run against these credentials on CPU: it reached the broker and
+  the callback proxy, consumed a job, and started the solve with the right flags. Nothing in
+  remoulade needed to publish, because the actor is `max_retries=0`.
 
 ### 4. Start the worker
 
@@ -102,7 +120,7 @@ docker run -d --name recon --gpus all \
   -e RECON_DEVICE=auto \
   -e RECON_CKPT_URL="$BASE/mast3r.pth" \
   -e RECON_CKPT_SHA256=e28f91b488554653e2b46ddae9c78c1143e0bcb2e27d3e26cdb0b717f1568eb2 \
-  -e RABBITMQ_URL='enrich:enrich@127.0.0.1:5672' \
+  -e RABBITMQ_URL="$(cat ~/.recon-amqp | cut -d= -f2-)"  # the scoped recon-worker user \
   -e RECON_CALLBACK_URL='http://127.0.0.1:8070/api/recon/result' \
   -e ENRICH_WORKER_TOKEN='<from ~/hillview/enrich/.env on the VPS>' \
   -v /workspace/runs:/runs \
