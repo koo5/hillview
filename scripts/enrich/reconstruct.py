@@ -609,6 +609,56 @@ def tile_pairs(imgs, tsub, mode, frame_pairs):
     return out
 
 
+def map_point_to_loaded(pt, W1, H1, size=512, patch=16):
+    """A point in saved-image pixels -> the same point in the frame load_images() produces
+    (long side resized to `size`, then centre-cropped to a multiple of `patch`). Same
+    transform map_box_to_loaded applies, for a single point."""
+    r = size / max(W1, H1)
+    W, H = round(W1 * r), round(H1 * r)
+    cx, cy = W // 2, H // 2
+    cl = cx - ((2 * cx) // patch) * patch / 2
+    ct = cy - ((2 * cy) // patch) * patch / 2
+    return (pt[0] * r - cl, pt[1] * r - ct)
+
+
+def install_tile_intrinsics(pp_by_path, log=log):
+    """Pin each tile's principal point instead of letting the solver estimate it.
+
+    A crop is an ordinary pinhole image, but its principal point is NOT at its centre — it
+    is wherever the parent's optical axis fell, which the crop box tells us exactly. The
+    solver assumes centred and then optimises from there, and the archive says that matters:
+    on masktest the true principal points sat 4-6 px off centre and alone moved the solve
+    from 0.71 px to 3.57 px. For a tile the offset is not a few pixels but a large fraction
+    of the frame, so there is nothing to estimate and everything to get wrong.
+
+    `sparse_scene_optimizer` takes `pps` in pixels and normalises them itself, so the
+    cleanest intervention is to substitute the rows we know before it runs, and to turn off
+    opt_pp so the optimiser cannot drift away from a value that is a fact about the crop.
+    """
+    import mast3r.cloud_opt.sparse_ga as SGA
+    if getattr(SGA, "_tile_pp_installed", False):
+        return
+    import torch as _t
+    orig = SGA.sparse_scene_optimizer
+
+    def patched(imgs, subsample, imsizes, pps, base_focals, *args, **kw):
+        n = 0
+        for i, im in enumerate(imgs):
+            pp = pp_by_path.get(im)
+            if pp is None:
+                continue
+            pps[i] = _t.tensor(pp, dtype=pps.dtype, device=pps.device)
+            n += 1
+        if n:
+            kw["opt_pp"] = False
+            log(f"  tile intrinsics: pinned the principal point on {n}/{len(imgs)} views "
+                f"(opt_pp off)")
+        return orig(imgs, subsample, imsizes, pps, base_focals, *args, **kw)
+
+    SGA.sparse_scene_optimizer = patched
+    SGA._tile_pp_installed = True
+
+
 def tile_consistency(poses, tsub, scale_units_per_m):
     """Tiles of one frame share a camera, so their recovered centres should coincide. How far
     they do not is a direct read on whether treating a crop as an ordinary view worked —
@@ -915,6 +965,10 @@ def main():
     ap.add_argument("--tile_overlap", type=float, default=0.15,
                     help="how far each tile is grown beyond its cell, as a fraction of the "
                          "cell, so neighbours share a margin")
+    ap.add_argument("--tile_pin_pp", default=1, type=int,
+                    help="pin each tile's principal point from its crop box instead of "
+                         "letting the solver estimate a centred one (1=on). A tile's "
+                         "principal point is a fact about the crop, not a quantity to fit")
     ap.add_argument("--tile_pairs", default="neighbours",
                     choices=["all", "neighbours", "same"],
                     help="which tiles of a paired frame to compare: all (tiles-squared, the "
@@ -1015,7 +1069,7 @@ def main():
     # Tiles replace frames as the unit the solver sees. Done here, right after staging, so
     # everything downstream — content-addressed cache, masking, pairing, solve, dense
     # extraction — treats them as ordinary images and needs no notion of tiling at all.
-    frame_sub, frame_paths, tile_grid = sub, paths, None
+    frame_sub, frame_paths, tile_grid, tile_pp_by_path = sub, paths, None, {}
     if a.tiles:
         try:
             R, C = (int(x) for x in a.tiles.lower().split("x"))
@@ -1024,8 +1078,24 @@ def main():
         if R < 1 or C < 1 or R * C < 2:
             raise SystemExit("--tiles must describe at least two tiles")
         tile_grid = (R, C)
+        if a.shared_intrinsics:
+            # Incompatible by construction: shared_intrinsics collapses every view onto ONE
+            # focal and ONE principal point, and the whole point of a tile is that its
+            # principal point is somewhere else. Tiles of one frame do share a focal, but
+            # tiles of different cells do not share a principal point, and the solver has no
+            # way to express that. Refusing loudly beats solving something meaningless.
+            log("tiling: --shared_intrinsics is incompatible with tiles (every tile has its "
+                "own principal point) — disabling it for this run")
+            a.shared_intrinsics = False
         paths, sub = tile_frames(frame_sub, frame_paths, os.path.join(a.out, "tiles"),
                                  tile_grid, a.tile_overlap)
+        if a.tile_pin_pp:
+            # the crop's principal point, carried into the frame the solver will see.
+            # Installed further down, once mast3r is importable.
+            tile_pp_by_path = {}
+            for pth, q in zip(paths, sub):
+                x0, y0, x1, y1 = q["tile_box"]
+                tile_pp_by_path[pth] = map_point_to_loaded(q["tile_pp"], x1 - x0, y1 - y0, a.size)
 
     # NB the "loading MASt3R" prefix is a progress marker the worker greps for
     log(f"loading MASt3R model ({a.device})…")
@@ -1036,6 +1106,8 @@ def main():
     import torch
     from mast3r.model import AsymmetricMASt3R
     from mast3r.cloud_opt.sparse_ga import sparse_global_alignment
+    if tile_pp_by_path:
+        install_tile_intrinsics(tile_pp_by_path)
     from dust3r.image_pairs import make_pairs
     from dust3r.utils.image import load_images
 
