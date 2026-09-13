@@ -5,7 +5,9 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
 
 ## Already done, so the rental clock does not pay for it
 
-- **The payload image is built and published.** `hillview-recon-gpu:841c135b`, 16.8 GB,
+- **The payload image is built and published.** `hillview-recon-gpu:a150e25c`, 16.8 GB (rebuilt 2026-09-13 on the VPS
+  from commit `a150e25c`, which adds the transitive-expansion pairing mode and the EWKB
+  geometry parser; the build reused every cached layer, only the vendored scripts changed),
   exported to 7.6 GB compressed with a SHA-256 beside it, served from the VPS over HTTPS
   with range requests so a partial pull resumes. Verified inside the image: both virtual
   environments import, torch is the **cu126** build that matches the base image, the CUDA
@@ -23,7 +25,7 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
   warning and take the pure-PyTorch path on hardware billed by the second.
 - **The workbench runs on the VPS** with its mirror loaded to 2026-09-10 17:33 — 75,766
   photos, including all four new areas — behind a secret path prefix and basic auth.
-- **Fourteen runs are queued and waiting for a consumer.** See below.
+- **Fifteen runs are queued and waiting for a consumer.** See below.
 - **The worker token is a real one**, in `~/hillview/enrich/.env` on the VPS at mode 600,
   and an unauthenticated callback is refused with 403.
 - **The one-route proxy is already running** on the VPS as a restart-policy container
@@ -31,7 +33,7 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
   `POST /api/recon/result` answers 404, and a real 2 MB callback with the token returns
   200 in 188 ms. Tunnel 8075; never 8070.
 - **The box's broker user is scoped and tested** — see the tunnel section.
-- **The published image is checksum-verified on disk**, `b3b33b55…d9529`, and the
+- **The published image is checksum-verified on disk**, `e259a717…ccff6`, and the
   superseded one has been removed so there is nothing stale to pull by mistake.
 
 ## The queue, in the order it will run
@@ -52,6 +54,7 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
 | `obelisk-tiles2x2-freepp` | 182 | The same with it estimated. A two-frame toy test could only separate them by 0.330 m against 0.294 m, too thin to conclude from. |
 | `res23-spotA-tiles3x3` | 22 | **The control.** Tiling on the one cluster with a trustworthy baseline: these 22 frames solve at 1.33 px with 1.0 cm ground agreement. 3×3 buys 2.6× detail. |
 | `res23-spotA-tiles7x5` | 22 | The same at **native** detail — 7×5 is where a tile's long side finally fits inside 512. If this does not beat 1.33 px on identical input, the ceiling is MASt3R's centred-crop assumption and Pow3R is the route (see `recon/tasks.txt`). |
+| `brandys-expand` | 334 | **Transitive expansion**, the fourth pairing arm (added 2026-09-13 after reading CityZero's log). Window-8 seeds, then three rounds of: every verified A–B, B–C proposes A–C, kept only within 30 m by GPS, at most 12 new partners per frame per round. Compare against `brandys-w8`, `brandys-bearing` and `brandys-adaptive`: it is the one whose cost follows the graph's real density rather than time or radius. Watch the `expansion round` lines in the log for how many proposals each round made and kept. |
 
 Every tiled run now logs and records what its grid actually bought, as
 `stats.tiles.detail_vs_whole_frame`, because a coarse grid otherwise gets misread as
@@ -137,10 +140,10 @@ The published segment is in `~/.recon-pub-segment` on the VPS (mode 600, deliber
 written into anything the web server serves). With `BASE=https://robust1.ueueeu.eu/<segment>`:
 
 ```sh
-curl -fL -O "$BASE/hillview-recon-gpu-841c135b.tar.zst"
-curl -fL -O "$BASE/hillview-recon-gpu-841c135b.tar.zst.sha256"
-sha256sum -c hillview-recon-gpu-841c135b.tar.zst.sha256   # refuse to continue if this fails
-zstd -d -c hillview-recon-gpu-841c135b.tar.zst | docker load
+curl -fL -O "$BASE/hillview-recon-gpu-a150e25c.tar.zst"
+curl -fL -O "$BASE/hillview-recon-gpu-a150e25c.tar.zst.sha256"
+sha256sum -c hillview-recon-gpu-a150e25c.tar.zst.sha256   # refuse to continue if this fails
+zstd -d -c hillview-recon-gpu-a150e25c.tar.zst | docker load
 ```
 
 The checkpoint is **not** in the image, deliberately: `torch.load` executes what it contains,
@@ -198,7 +201,7 @@ docker run -d --name recon --gpus all \
   -e RECON_CALLBACK_URL='http://127.0.0.1:8070/api/recon/result' \
   -e ENRICH_WORKER_TOKEN='<from ~/hillview/enrich/.env on the VPS>' \
   -v /workspace/runs:/runs \
-  hillview-recon-gpu:841c135b
+  hillview-recon-gpu:a150e25c
 ```
 
 The entrypoint refuses to start in any state that would quietly waste rent: no GPU visible
