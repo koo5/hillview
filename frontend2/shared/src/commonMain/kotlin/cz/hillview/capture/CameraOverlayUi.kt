@@ -191,7 +191,13 @@ private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?)
                 modifier = Modifier.size(12.dp),
                 strokeWidth = 2.dp,
             )
-            MonoText("Getting location...", Modifier.padding(start = 6.dp))
+            // No fix this session and no map position either — the blank
+            // first run. A photo taken now records NO position (and says so
+            // in its provenance); everywhere else the map centre stands in.
+            MonoText(
+                "Waiting for GPS — photos will carry no position",
+                Modifier.padding(start = 6.dp).testTag("no-position-note"),
+            )
         }
         return
     }
@@ -207,9 +213,14 @@ private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?)
         state.fixAltitude?.let { MonoText("⛰️ ${oneDp(it)}m") }
         state.fixAccuracyM?.let { MonoText("🎯 ±${it.toInt()}m") }
     } else {
-        // A claimed position has no altitude and no accuracy to show —
-        // it is where the user says they are, not a measurement.
-        MonoText("(map position)")
+        // A map position has no altitude and no accuracy to show — it is
+        // where the user (or the map) says they are, not a measurement. With
+        // no fix it is what a capture records BY DEFAULT, and the note says
+        // so: the pill informs, and never refuses (docs/one-state.md).
+        MonoText(
+            if (state.hasFix) "(map position)" else "(map position — no GPS fix)",
+            Modifier.testTag("map-position-note"),
+        )
     }
 }
 

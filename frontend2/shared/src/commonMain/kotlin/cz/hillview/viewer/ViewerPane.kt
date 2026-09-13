@@ -84,6 +84,12 @@ private const val MAX_ZOOM = 4f
 @Composable
 fun ViewerPane(
     modifier: Modifier = Modifier,
+    /**
+     * Which of this pane's edges are the screen's. Only the top-right corner
+     * is read here, and only to hand it back: when the pane is the top half
+     * of the split, the window's lock button is sitting in it.
+     */
+    edges: cz.hillview.map.PanelEdges = cz.hillview.map.PanelEdges.AllScreen,
     holder: ViewerStateHolder = org.koin.compose.koinInject(),
     settingsRepo: cz.hillview.settings.UploadSettingsRepository = org.koin.compose.koinInject(),
     mapState: cz.hillview.map.MapStateHolder = org.koin.compose.koinInject(),
@@ -360,7 +366,19 @@ fun ViewerPane(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(10.dp)
+                        // Out from under the window's lock button when this
+                        // pane is the one holding the screen's top-right
+                        // corner, and not one dp further over when it is not.
+                        .padding(
+                            start = 10.dp,
+                            top = 10.dp,
+                            bottom = 10.dp,
+                            end = 10.dp + if (edges.ownsWindowTopEnd) {
+                                cz.hillview.map.WINDOW_CORNER_RESERVE
+                            } else {
+                                0.dp
+                            },
+                        )
                         .background(Color(0x66000000), CircleShape)
                         .clickable { uriHandler.openUri(webUrl) }
                         .padding(horizontal = 10.dp, vertical = 4.dp)

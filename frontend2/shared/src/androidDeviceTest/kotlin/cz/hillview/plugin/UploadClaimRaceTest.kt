@@ -81,7 +81,7 @@ class UploadClaimRaceTest {
 
         assertEquals(0, refined, "applyRefinedStamp must only touch rows still 'pending'")
         val row = assertNotNull(dao.getPhotoById("p1"))
-        assertEquals(50.0, row.latitude, 0.0001, "the at-the-time stamp stands")
+        assertEquals(50.0, row.latitude!!, 0.0001, "the at-the-time stamp stands")
         assertEquals(null, row.stampRefinedAt, "and the row does not claim to be refined")
     }
 
@@ -97,7 +97,7 @@ class UploadClaimRaceTest {
         assertEquals(1, dao.claimForUpload("p1", "pending", 3_000L))
 
         val uploaded = assertNotNull(dao.getPhotoById("p1"))
-        assertEquals(51.0, uploaded.latitude, 0.0001)
+        assertEquals(51.0, uploaded.latitude!!, 0.0001)
         assertEquals(200.0, uploaded.bearing, 0.0001)
         assertNotNull(uploaded.stampRefinedAt, "so the metadata says refined:true")
     }

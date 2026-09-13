@@ -196,9 +196,13 @@ of the parked map, and BACKGROUND rides the live fix along as
 frontend2 added `FIX_FRESH_MS = 15 s` (judged at capture time, from the
 fix's elapsedRealtimeNanos). Effects — deliberately narrow:
 
-1. the location GATE opens only on a fix ≤15 s old (a stale fused seed
-   cannot open it; the map-position lift is the escape hatch);
-2. the shutter tone degrades past 15 s, and `locationAgeMs` is recorded.
+1. ~~the location GATE opens only on a fix ≤15 s old (a stale fused seed
+   cannot open it; the map-position lift is the escape hatch)~~ — gone
+   (2026-09-09): there is no location gate and no hatch. With no fix the
+   map centre is recorded, tagged `map`; the overlay says so instead of
+   refusing. docs/one-state.md, "The position side";
+2. the shutter tone degrades past 15 s, and `locationAgeMs` is recorded —
+   still true, and now the ONLY thing freshness does besides the ⚠️ line.
 
 **Freshness no longer arbitrates (2026-08-08).** It used to: a stale fix
 handed over to the map position silently, so "fresh fixes beat fallback
@@ -206,9 +210,11 @@ manual, a claimed position beats everything" was a third rule on top of the
 two deliberate user acts. That went when the tracking tables started
 recording which source was ELECTED on every row — a silent hand-over makes
 that record a lie, and re-judging the choice afterwards is the whole point of
-keeping it. The map position is now used exactly when the user said so,
-through the pill's accepted claim or the no-fix escape hatch, both of which
-land in `MapSession.manualPositionElected`. See
+keeping it. The map position is now used exactly when the user said so
+through the pill's accepted claim (`MapSession.manualPositionElected`) —
+and, since 2026-09-09, whenever there is no fix at all, which needs no
+saying: the no-fix escape hatch that used to be the second route is gone.
+See
 `memory/geo-tracking-election.md` and `shared-kt`'s BearingEntity.
 
 A photo captured after signal loss (fix once fresh, now old, nothing elected)
