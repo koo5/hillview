@@ -13,6 +13,14 @@ const val ARROW_ARM_HOLD_MS = 450L
 /**
  * The gate in front of manual bearing: hold the arrow, then drag it.
  *
+ * **Only where a bearing is being RECORDED.** The gate costs a deliberate
+ * press before the app will believe a hand-set heading, which is worth it
+ * while photos are being stamped and pure friction while they are being
+ * looked at (user, 2026-09-13: "only needs to require that in capture
+ * activity, not in gallery activity"). A zero [holdMs] is that second case:
+ * the caller arms on the first movement instead of on a timer, which is the
+ * original's behaviour restored — see the divergence note below.
+ *
  * A DELIBERATE divergence from the original, at the user's request
  * (2026-09-10): there, grabbing the arrow SVG sets the bearing on the spot
  * (docs/tauri-map-ui-contract.md, "Arrow grab zones"). That is one touch
@@ -68,6 +76,9 @@ class ArrowArming(private val holdMs: Long = ARROW_ARM_HOLD_MS) {
      */
     fun moved(distancePx: Float, slopPx: Float) {
         if (armed || !pressing) return
+        // With no hold there is nothing to lose by moving — movement is what
+        // arms it — so this cannot abandon what it was never guarding.
+        if (holdMs <= 0L) return
         if (distancePx > slopPx) abandonedFlag = true
     }
 
@@ -88,6 +99,10 @@ class ArrowArming(private val holdMs: Long = ARROW_ARM_HOLD_MS) {
         val at = pressedAtMs ?: return 0f
         if (armed) return 1f
         if (abandonedFlag) return 0f
+        // A hold of zero is served the instant it starts. Said here rather
+        // than left to float arithmetic, which would divide by zero and
+        // reach the same answer by luck.
+        if (holdMs <= 0L) return 1f
         return ((nowMs - at).toFloat() / holdMs).coerceIn(0f, 1f)
     }
 

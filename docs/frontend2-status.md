@@ -505,6 +505,39 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-09-13
+
+- **The hold in front of manual bearing applies only where a bearing is
+  RECORDED** (user: "the bearing circle, which we've made to require the long
+  press to become turnable, only needs to require that in capture activity,
+  not in gallery activity"). The gate buys one thing — that no single touch
+  can change where the app believes you were facing when it stamped a photo —
+  and in the viewer there is no photo being stamped and turning the bearing
+  IS the interaction. So `BearingArrowOverlay.requireHold` follows the
+  activity, through one `isRecordingActivity` that MainScreen's own
+  enter/leave rule now shares. "external" counts as recording: another app's
+  shutter, but this app's record behind it.
+  - **The viewer is back to what the original does** — the ring is taken on
+    contact and the arrow follows the finger (`ArrowArming(holdMs = 0)`, armed
+    by the first movement rather than by a timer). What does NOT come back is
+    the original's tap-to-set: the bearing moves on the first MOVEMENT, never
+    on the press, so a tap still reaches the photo markers under the ring.
+  - **And the band narrows with it**, 36 dp either side down to 18. The wide
+    band was affordable only because landing on it did nothing until the hold
+    was served; where a press inside it is a turn, every dp of it is a dp the
+    map cannot be panned from. 18 is the original's own figure (its ring hit
+    area is a 36 px stroke).
+  - No closing arc and no long-press haptic in the viewer — both announce a
+    wait that is not happening.
+  - **Device-verified on the emulator**, which also caught up the three
+    `MapGestureTest` cases that still asserted the PRE-arming contract (a
+    press on the tip claiming the touch, the far side of the ring belonging
+    to the map). Seven cases now: the press falls through in both modes, the
+    first movement turns the arrow without the hold and pans the map with it,
+    every angle grabs, and 27 dp off the ring is the map's in the viewer.
+    Confirmed by hand too: the same slow drag turns the arrow and stands the
+    compass down in the viewer, and pans the map in capture.
+
 ## 2026-09-11
 
 - **Lock controls, for shooting from a pocket** (user-raised: "for when they
@@ -749,7 +782,8 @@ the chain stopped. See `GeoDebugText.kt`.
     note in `MapScreen` describes.
   - A DELIBERATE divergence from the original, which sets the bearing the
     moment the arrow SVG is grabbed (docs/tauri-map-ui-contract.md, "Arrow
-    grab zones", now annotated).
+    grab zones", now annotated). Narrowed on 2026-09-13 to the recording
+    activities only — see above.
   - Panning and marker taps over the ring are UNAFFECTED, which they would
     not have been under the first cut of this: it consumed the press to time
     the hold, and a ring-wide dead band across the map is too high a price

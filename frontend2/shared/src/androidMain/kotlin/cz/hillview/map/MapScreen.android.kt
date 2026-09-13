@@ -440,6 +440,13 @@ actual fun MapScreen(
                 // the angle travelled, everything else points the arrow.
                 arrowOverlay.mountOffsetDrag =
                     mapSettings.bearingMode == BearingMode.Car && trackingWanted
+                // The hold in front of manual bearing is there to protect a
+                // heading that is about to be RECORDED (ArrowArming). In the
+                // viewer nothing is being recorded and turning the bearing IS
+                // the interaction, so the gate comes off and the ring behaves
+                // as the original's does (user, 2026-09-13).
+                arrowOverlay.requireHold =
+                    cz.hillview.settings.isRecordingActivity(mapSettings.mainActivity)
 
                 markerOverlay.viewBearing = bearing.bearing
                 markerOverlay.onPhotoTapped = { photo ->

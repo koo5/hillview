@@ -130,8 +130,10 @@ fun MainScreen(
     var oldActivity by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(activity) {
         if (oldActivity != activity) {
-            val recording = activity == "capture" || activity == "external"
-            val wasRecording = oldActivity == "capture" || oldActivity == "external"
+            val recording = cz.hillview.settings.isRecordingActivity(activity)
+            val wasRecording = oldActivity?.let {
+                cz.hillview.settings.isRecordingActivity(it)
+            } == true
             when {
                 recording -> session.onEnterRecording()
                 wasRecording -> session.onLeaveRecording()

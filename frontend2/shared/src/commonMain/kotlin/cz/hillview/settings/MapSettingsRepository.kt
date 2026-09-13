@@ -99,6 +99,18 @@ data class MapSettings(
     val lockPinScreen: Boolean = false,
 )
 
+/**
+ * Is this `mainActivity` one that RECORDS — "capture" or "external"?
+ *
+ * The distinction decides more than one thing now (what the geo hardware
+ * runs, whether entering arms tracking, and how hard it is to overrule the
+ * compass by hand), so it is written once. "external" counts: the photos
+ * are taken by another app, but the position and heading behind them are
+ * this app's record, and a stray write poisons them exactly the same.
+ */
+fun isRecordingActivity(activity: String): Boolean =
+    activity == "capture" || activity == "external"
+
 /** The settings half of [cz.hillview.lock.LockOptions]. */
 fun MapSettings.lockOptions(): cz.hillview.lock.LockOptions = cz.hillview.lock.LockOptions(
     dimScreen = lockDimScreen,

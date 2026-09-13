@@ -14,6 +14,44 @@ class ArrowArmingTest {
 
     private fun arming() = ArrowArming(holdMs = 400L)
 
+    /**
+     * The viewer's arming: no hold at all, because nothing is being
+     * recorded there (user, 2026-09-13). The caller arms it on the first
+     * movement, so every rule about earning it has to be OFF, not merely
+     * short — a gate that still abandoned on movement would refuse every
+     * drag instead of allowing every one.
+     */
+    private fun noHold() = ArrowArming(holdMs = 0L)
+
+    @Test
+    fun aZeroHoldIsServedAtOnce() {
+        val a = noHold()
+        a.press(1_000L)
+        assertFalse(a.armed, "still not armed by the press alone")
+        assertTrue(a.advance(1_000L), "and armed by the very first advance")
+        assertTrue(a.armed)
+        assertFalse(a.advance(1_000L), "once, like any other hold")
+    }
+
+    @Test
+    fun movementCannotAbandonAHoldThatDoesNotExist() {
+        val a = noHold()
+        a.press(1_000L)
+        a.moved(500f, 12f)
+        assertFalse(a.abandoned, "movement is how this one is armed, not how it is lost")
+        assertTrue(a.advance(1_000L))
+    }
+
+    @Test
+    fun aZeroHoldShowsNoCharge() {
+        val a = noHold()
+        a.press(1_000L)
+        // Full from the first instant rather than a division by zero: the
+        // overlay reads this to decide whether to draw a closing arc, and
+        // "part-way" would be a lie in a mode with nothing to wait for.
+        assertEquals(1f, a.progress(1_000L))
+    }
+
     @Test
     fun aTouchAloneChangesNothing() {
         val a = arming()

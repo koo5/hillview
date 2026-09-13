@@ -33,10 +33,13 @@ import kotlin.math.sin
  * (user-asked, 2026-09-10: "it has to be the whole circle, i cant chase the
  * arrow around"). It used to be the arrow line itself outside car mode,
  * which meant finding a moving target before you could set a heading. What
- * the ring does once grabbed still differs by mode — see [mountOffsetDrag].
+ * the ring does once grabbed still differs by mode — see [mountOffsetDrag] —
+ * and so does how WIDE it is: [RING_GRAB_DP] where a hold has to be served
+ * and the band is otherwise free, [RING_GRAB_NO_HOLD_DP] where it is not.
  *
  * Landing on the ring is not enough to move anything: the arrow has to be
- * HELD. See [ArrowArming] for why, and for what that diverges from.
+ * HELD — but only while something is being recorded. See [requireHold] and
+ * [ArrowArming] for why, and for what that diverges from.
  */
 class BearingArrowOverlay : Overlay() {
     var bearingDeg: Double = 141.0
@@ -59,7 +62,34 @@ class BearingArrowOverlay : Overlay() {
     var onBearing: ((Double) -> Unit)? = null
     var onBearingDelta: ((Double) -> Unit)? = null
 
-    private val arming = ArrowArming()
+    private var arming = ArrowArming()
+
+    /**
+     * Whether the ring has to be HELD before it turns.
+     *
+     * True while an activity is RECORDING, where a hand-set heading is
+     * about to be written into photos and the hold is what keeps a brush
+     * past the ring from writing one. False in the viewer, where the
+     * bearing is the way you look around and a gate in front of it is
+     * friction for nothing (user, 2026-09-13: "only needs to require that
+     * in capture activity, not in gallery activity"). The viewer is
+     * therefore back to what the original does everywhere: the ring is
+     * taken on contact and the arrow follows the finger.
+     *
+     * What does NOT come back with it is the original's tap-to-set: the
+     * bearing moves on the first MOVEMENT, not on the press, so the ring
+     * still lets a tap through to the markers beneath it. The band is 72 dp
+     * wide and there are photos under it.
+     */
+    var requireHold: Boolean = true
+        set(value) {
+            if (field == value) return
+            field = value
+            // A gesture in flight belongs to the rules it began under; the
+            // fresh arming simply is not pressing, so it ends there.
+            arming = ArrowArming(if (value) ARROW_ARM_HOLD_MS else 0L)
+        }
+
     private var downX = 0f
     private var downY = 0f
 
@@ -141,7 +171,10 @@ class BearingArrowOverlay : Overlay() {
         // down — a state write, and a state write from inside a draw pass
         // recomposes the screen that is drawing, which is the trap the
         // arrow-stamp note in MapScreen already describes.
-        if (!arming.pressing) return
+        // Nothing to charge where nothing is held. In the viewer the arrow
+        // is already following the finger, which is its own feedback, and a
+        // closing arc would promise a wait that is not happening.
+        if (!requireHold || !arming.pressing) return
         val now = System.currentTimeMillis()
         val progress = arming.progress(now)
         if (progress <= 0f) return
@@ -220,7 +253,8 @@ class BearingArrowOverlay : Overlay() {
 
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if (!bearingRingGrabbed(e.x - cx, e.y - cy, tipRadiusPx, RING_GRAB_DP * density)) {
+                val grabDp = if (requireHold) RING_GRAB_DP else RING_GRAB_NO_HOLD_DP
+                if (!bearingRingGrabbed(e.x - cx, e.y - cy, tipRadiusPx, grabDp * density)) {
                     return false
                 }
                 arming.press(System.currentTimeMillis())
@@ -228,11 +262,15 @@ class BearingArrowOverlay : Overlay() {
                 downY = e.y
                 fingerBearing = bearingAt()
                 // A still finger sends no further events, so the moment of
-                // arming has to be scheduled rather than waited for.
+                // arming has to be scheduled rather than waited for. With no
+                // hold there is no moment to schedule: the first MOVE arms
+                // it, and a finger that never moves has asked for nothing.
                 cancelArmTimer(view)
-                armRunnable = Runnable { arm(view) }
-                    .also { view.postDelayed(it, ARROW_ARM_HOLD_MS) }
-                view.postInvalidateOnAnimation()
+                if (requireHold) {
+                    armRunnable = Runnable { arm(view) }
+                        .also { view.postDelayed(it, ARROW_ARM_HOLD_MS) }
+                    view.postInvalidateOnAnimation()
+                }
                 // NOT consumed. The ring is a wide band across the middle of
                 // the map, and swallowing every touch that lands on it would
                 // cost a pan and every marker tap under it. osmdroid hands
@@ -245,15 +283,25 @@ class BearingArrowOverlay : Overlay() {
             MotionEvent.ACTION_MOVE -> {
                 if (!arming.pressing) return false
                 if (!arming.armed) {
-                    // Still earning it. The slop is the PLATFORM's, so the
-                    // instant the map decides this is a pan, this decides the
-                    // hold is over — one gesture cannot be both.
-                    val slop = ViewConfiguration.get(view.context).scaledTouchSlop.toFloat()
-                    arming.moved(hypot(e.x - downX, e.y - downY), slop)
-                    if (arming.abandoned) cancelArmTimer(view)
-                    fingerBearing = bearingAt()
-                    view.postInvalidateOnAnimation()
-                    return false
+                    if (requireHold) {
+                        // Still earning it. The slop is the PLATFORM's, so
+                        // the instant the map decides this is a pan, this
+                        // decides the hold is over — one gesture cannot be
+                        // both.
+                        val slop = ViewConfiguration.get(view.context).scaledTouchSlop.toFloat()
+                        arming.moved(hypot(e.x - downX, e.y - downY), slop)
+                        if (arming.abandoned) cancelArmTimer(view)
+                        fingerBearing = bearingAt()
+                        view.postInvalidateOnAnimation()
+                        return false
+                    }
+                    // Nothing to earn: the first movement IS the grab. Taken
+                    // here rather than on the DOWN so the press itself still
+                    // falls through — the map keeps its taps, and the pan it
+                    // might have started is pre-empted before the platform's
+                    // own slop lets it begin.
+                    arm(view)
+                    if (!arming.armed) return false
                 }
                 val now = bearingAt()
                 if (mountOffsetDrag) {
@@ -284,7 +332,10 @@ class BearingArrowOverlay : Overlay() {
 
     private fun arm(view: MapView) {
         if (!arming.advance(System.currentTimeMillis())) return
-        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        // The buzz says "the hold is served". Where there was no hold it
+        // would be announcing something that did not happen, and the arrow
+        // moving under the finger says the same thing better.
+        if (requireHold) view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         onArmed?.invoke()
         // The press point IS the answer in absolute mode: someone who held
         // the ring at south meant south, and making them drag a hair to
@@ -306,5 +357,14 @@ class BearingArrowOverlay : Overlay() {
          * nothing until the hold is served.
          */
         const val RING_GRAB_DP = 36f
+
+        /**
+         * And half as far where there is no hold to serve, because there the
+         * band is not free any more: a drag that starts inside it is taken
+         * as a turn, so every dp of it is a dp the map cannot be panned from.
+         * This is the original's own figure — its ring hit area is a 36 px
+         * stroke, which is 18 either side of the line.
+         */
+        const val RING_GRAB_NO_HOLD_DP = 18f
     }
 }
