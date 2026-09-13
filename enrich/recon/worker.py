@@ -162,7 +162,8 @@ FLAG_PARAMS = {"win": "--win", "pairs": "--pairs", "pair_dist": "--pair_dist",
                "tiles": "--tiles", "tile_overlap": "--tile_overlap",
                "tile_pairs": "--tile_pairs", "tile_pin_pp": "--tile_pin_pp",
                "expand_rounds": "--expand_rounds", "expand_min": "--expand_min",
-               "expand_dist": "--expand_dist", "expand_per_frame": "--expand_per_frame"}
+               "expand_dist": "--expand_dist", "expand_per_frame": "--expand_per_frame",
+               "gps_acc_floor": "--gps_acc_floor"}
 BOOL_PARAMS = {"dense": "--dense", "mask_anon": "--mask_anon",
                "mask_solocator": "--mask_solocator",
                "mask_vegetation": "--mask_vegetation",

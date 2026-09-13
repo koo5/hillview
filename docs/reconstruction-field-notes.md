@@ -985,6 +985,28 @@ refiner interpolates position between bracketing fixes and stamps the WORSE of t
 fixes' accuracies (user's rule): a point on the line between two uncertain fixes inherits
 the uncertainty of both.
 
+**Wired into the recon side the same day** (the user will supply a dump with the first frames
+that carry it). `location_accuracy_m` is read by all three frame loaders in `reconstruct.py`
+(CSV, manifest, injected), written per frame into `metadata.json`, and served by the API in
+the manifest, the pending-frame list and every run's frames (a "GPS ±m" column on the bench,
+next to the residual: a residual larger than the claimed accuracy is the solve disagreeing
+with the GPS; one smaller is within what the GPS itself admitted). Where it changes a
+decision:
+
+- **The position fit is weighted by 1/acc²** (`gps_weights`; `umeyama` takes weights now,
+  uniform weights reproduce the old estimator exactly). Frames without an accuracy get the
+  median of those that have one; a run with none at all gets the uniform fit every run
+  before this got. `--gps_acc_floor` (default 2 m) clamps optimistic sub-metre claims.
+  `stats.gps_accuracy` records how many frames carried one and the weight ratio. The span
+  joiner inherits this through each run's alignment and needs no change.
+- **The distance gates allow for it.** Bearing pairing and the expansion gate compare
+  `d − acc_i − acc_j` against the radius: a gate must not reject what the GPS could not
+  have separated. The bench's pair estimate applies the same slack. Frames without an
+  accuracy contribute zero slack, so nothing changes for the existing corpus.
+- It never decides which frames to solve. brandys-101's wandering first eighteen frames
+  would, with accuracies, weigh less in the position fit and pair more generously; they
+  would still be solved.
+
 Also fixed on the way: `wkt()` in `reconstruct.py` only parsed WKT, and the September dumps
 write the geometry column as hex EWKB, so a CLI run against `/shared/photos.csv` selected
 zero photos for any area. It now parses both. The other one-off scripts under

@@ -45,7 +45,8 @@ ALLOWED_PARAMS = {"win", "pairs", "pair_dist", "pair_dang", "size",
                   "semantic_budget", "shared_intrinsics",
                   "adaptive_pairs", "adaptive_reach", "adaptive_frac",
                   "tiles", "tile_overlap", "tile_pairs", "tile_pin_pp",
-                  "expand_rounds", "expand_min", "expand_dist", "expand_per_frame"}
+                  "expand_rounds", "expand_min", "expand_dist", "expand_per_frame",
+                  "gps_acc_floor"}
 
 # Where the archived experiment runs live. Import copies out of here; nothing writes to it.
 ARCHIVE_ROOT = os.getenv(
@@ -213,12 +214,14 @@ async def get_run(run_id: str):
     ids = [f["id"] for f in frames if f.get("id")]
     if ids:
         imgs = await _frame_images(ids, "320")
-        bsrc = await _frame_bearing_sources(ids)
+        prov = await _frame_provenance(ids)
         for f in frames:
             info = imgs.get(f.get("id")) or {}
+            pv = prov.get(f.get("id")) or {}
             f["thumb"] = info.get("image_url")
-            f["bearing_source"] = bsrc.get(f.get("id"))
+            f["bearing_source"] = pv.get("bearing_source")
             f["bearing_is_compass"] = bearing_is_compass(f["bearing_source"])
+            f["location_accuracy_m"] = pv.get("location_accuracy_m")
     # the group this run belongs to: its spans (children), or its siblings via the parent
     parent = meta.get("parent")
     async with wb_engine.connect() as conn:
@@ -438,24 +441,20 @@ def bearing_is_compass(src: str | None) -> bool:
     return bool(src) and any(k in src for k in COMPASS_BEARING_SOURCES)
 
 
-async def _frame_bearing_sources(ids: list[str]) -> dict[str, str | None]:
-    """{photo id: bearing_source}, from the capture app's UserComment JSON."""
+async def _frame_provenance(ids: list[str]) -> dict[str, dict]:
+    """{photo id: {bearing_source, location_accuracy_m}}, from the capture app's
+    UserComment JSON in the mirror."""
     if not ids:
         return {}
     async with wb_engine.connect() as conn:
         rows = (await conn.execute(text(
             "SELECT id, exif_data->'data'->>'UserComment' AS uc FROM photo_mirror "
             "WHERE id = ANY(:ids)"), {"ids": ids})).mappings().all()
-    out: dict[str, str | None] = {}
+    out: dict[str, dict] = {}
     for r in rows:
-        src = None
-        uc = r["uc"] or ""
-        if uc.startswith("{"):
-            try:
-                src = (json.loads(uc) or {}).get("bearing_source")
-            except json.JSONDecodeError:
-                src = None
-        out[r["id"]] = src
+        ex = {"UserComment": r["uc"] or ""}
+        out[r["id"]] = {"bearing_source": _bearing_source(ex),
+                        "location_accuracy_m": _location_accuracy(ex)}
     return out
 
 
@@ -984,10 +983,14 @@ def _estimate_pairs(frames: list[dict], params: dict) -> dict:
         ky = 110540.0
         en = [((f["lon"]) * kx, (f["lat"]) * ky) for f in frames]
         brg = [f.get("compass_angle") for f in frames]
+        acc = [float(f.get("location_accuracy_m") or 0.0) for f in frames]
         undirected = 0
         for i in range(n):
             for j in range(i + 1, n):
-                if math.hypot(en[i][0] - en[j][0], en[i][1] - en[j][1]) > pair_dist:
+                # same slack as the solver: a gate must not reject what the GPS could
+                # not have separated
+                if (math.hypot(en[i][0] - en[j][0], en[i][1] - en[j][1])
+                        - acc[i] - acc[j] > pair_dist):
                     continue
                 if brg[i] is not None and brg[j] is not None:
                     d = abs((brg[i] - brg[j] + 180) % 360 - 180)
@@ -1161,22 +1164,40 @@ def _exif_focal_px(exif: dict | None, long_side_px: int) -> float | None:
     return round(f35 * long_side_px / 36.0) if f35 and f35 > 0 else None
 
 
-def _bearing_source(exif) -> str | None:
-    """The capture app's own note on how this photo's bearing was obtained.
+def _user_comment(exif) -> dict:
+    """The capture app's provenance JSON (UserComment), or {}.
 
     `exif` may be the whole exif_data object or just its `data` sub-object, depending on
     which query built the row, so look in both.
     """
     if not isinstance(exif, dict):
-        return None
+        return {}
     uc = (exif.get("data") or {}).get("UserComment") if isinstance(exif.get("data"), dict) else None
     uc = uc or exif.get("UserComment")
     if not isinstance(uc, str) or not uc.startswith("{"):
-        return None
+        return {}
     try:
-        return (json.loads(uc) or {}).get("bearing_source")
+        return json.loads(uc) or {}
     except json.JSONDecodeError:
+        return {}
+
+
+def _bearing_source(exif) -> str | None:
+    """The capture app's own note on how this photo's bearing was obtained."""
+    return _user_comment(exif).get("bearing_source")
+
+
+def _location_accuracy(exif) -> float | None:
+    """The receiver's horizontal accuracy radius at the stamped fix, metres (the worse of the
+    two bracketing fixes for an interpolated stamp). Written since 2026-09-13; older frames
+    have none because the value never left the phone. It weights the solver's position fit
+    and loosens its distance gates — it never decides which frames to solve."""
+    v = _user_comment(exif).get("location_accuracy_m")
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
         return None
+    return v if v > 0 else None
 
 
 def _manifest_frame(r) -> dict:
@@ -1190,6 +1211,7 @@ def _manifest_frame(r) -> dict:
         # WHERE that bearing came from. Only a compass source says where the camera was
         # AIMED; gps-kalman is the direction of travel and map/arrow_drag are hand-set.
         "bearing_source": _bearing_source(r["exif"]),
+        "location_accuracy_m": _location_accuracy(r["exif"]),
         "captured_at": cap.strftime("%Y-%m-%d %H:%M:%S.%f") if cap else "",
         "full_url": r["full_url"],
         "width": int(r["width"] or 0), "height": int(r["height"] or 0),
@@ -1209,6 +1231,7 @@ def _pending_frame(idx: int, f: dict) -> dict:
     return {"idx": idx, "id": f["id"], "captured_at": f.get("captured_at"),
             "gps": [f.get("lat"), f.get("lon")],
             "compass_angle": f.get("compass_angle"),
+            "location_accuracy_m": f.get("location_accuracy_m"),
             "camera": f.get("camera"), "session": f.get("session"),
             "injected": bool(f.get("injected"))}
 
