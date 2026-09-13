@@ -194,6 +194,7 @@ class StampRefiner private constructor(private val context: Context) {
 		var refinedLat: Double? = null
 		var refinedLon: Double? = null
 		var refinedAlt: Double? = null
+		var refinedAccuracy: Double? = null
 		if (wantLocation && androidId != null) {
 			val after = awaitRow(t) { locationDao.getLocationAfter(t, androidId) }
 			val before = locationDao.getLocationAtOrBefore(t, androidId)
@@ -206,6 +207,9 @@ class StampRefiner private constructor(private val context: Context) {
 				if (before.altitude != null && after.altitude != null) {
 					refinedAlt = lerp(before.altitude, after.altitude, f)
 				}
+				// A position between two fixes is no better than the worse
+				// of them — see worseAccuracy.
+				refinedAccuracy = worseAccuracy(before.accuracy, after.accuracy)
 			}
 		}
 		if (wantKalman && kalmanId != null) {
@@ -234,8 +238,9 @@ class StampRefiner private constructor(private val context: Context) {
 		val newLon = refinedLon ?: row.longitude
 		val newAlt = refinedAlt ?: row.altitude
 		val newBearing = refinedBearing ?: row.bearing
+		val newAccuracy = refinedAccuracy ?: row.accuracy
 		val updated = database.photoDao().applyRefinedStamp(
-			photoId, newLat, newLon, newAlt, newBearing, System.currentTimeMillis(),
+			photoId, newLat, newLon, newAlt, newBearing, newAccuracy, System.currentTimeMillis(),
 		)
 		if (updated == 0) return RefineResult(photoId, "upload-won", 0)
 
@@ -250,7 +255,8 @@ class StampRefiner private constructor(private val context: Context) {
 			"refined $photoId: pos ${row.latitude},${row.longitude} -> $newLat,$newLon " +
 				"(${moved?.let { "%.2f m".format(it) } ?: "untouched"}), " +
 				"bearing ${row.bearing} -> $newBearing " +
-				"(${turned?.let { "%.1f°".format(it) } ?: "untouched"})",
+				"(${turned?.let { "%.1f°".format(it) } ?: "untouched"}), " +
+				"accuracy ${row.accuracy} -> $newAccuracy",
 		)
 		return RefineResult(photoId, "applied", 0, moved, turned)
 	}
@@ -276,6 +282,21 @@ internal fun lerp(a: Double, b: Double, f: Double): Double = a + (b - a) * f
 
 internal fun fraction(from: Long, to: Long, at: Long): Double =
 	if (to == from) 0.0 else (at - from).toDouble() / (to - from).toDouble()
+
+/**
+ * The accuracy to stamp on a position interpolated between two fixes: the
+ * WORSE of the two (user, 2026-09-13). A point on the line between two
+ * uncertain fixes inherits the uncertainty of both, and averaging would
+ * claim a precision neither fix had. A fix without an accuracy contributes
+ * nothing — the other one stands; neither having one returns null so the
+ * caller keeps the at-the-time value (0.0 sentinel = none).
+ */
+internal fun worseAccuracy(a: Float?, b: Float?): Double? = when {
+	a != null && b != null -> maxOf(a, b).toDouble()
+	a != null -> a.toDouble()
+	b != null -> b.toDouble()
+	else -> null
+}
 
 /** Mean direction of angles in degrees (vector mean — wraparound-safe). */
 internal fun circularMeanDeg(valuesDeg: List<Double>): Double {

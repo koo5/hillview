@@ -981,8 +981,9 @@ still means "none", and `buildUploadMetadata` already omitted it), and the worke
 field `accuracy` into the UserComment as `location_accuracy_m`, beside `location_source` and
 `location_age_ms` and named like them. The Tauri app had been sending it all along; the server dropped it for
 both. Frames uploaded before this carry no accuracy anywhere but the phone. The stamp
-refiner interpolates position between bracketing fixes and leaves the at-the-time accuracy
-in place, which is the honest choice: it has no better number.
+refiner interpolates position between bracketing fixes and stamps the WORSE of the two
+fixes' accuracies (user's rule): a point on the line between two uncertain fixes inherits
+the uncertainty of both.
 
 Also fixed on the way: `wkt()` in `reconstruct.py` only parsed WKT, and the September dumps
 write the geometry column as hex EWKB, so a CLI run against `/shared/photos.csv` selected

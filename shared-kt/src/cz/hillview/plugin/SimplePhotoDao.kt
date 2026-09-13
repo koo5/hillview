@@ -210,7 +210,8 @@ interface SimplePhotoDao {
     // (0 = lost the race or already gone).
     @Query("""
         UPDATE photos SET latitude = :latitude, longitude = :longitude,
-            altitude = :altitude, bearing = :bearing, stampRefinedAt = :refinedAt
+            altitude = :altitude, bearing = :bearing, accuracy = :accuracy,
+            stampRefinedAt = :refinedAt
         WHERE id = :photoId AND uploadStatus = 'pending' AND deleted = 0
     """)
     fun applyRefinedStamp(
@@ -219,6 +220,7 @@ interface SimplePhotoDao {
         longitude: Double,
         altitude: Double,
         bearing: Double,
+        accuracy: Double,
         refinedAt: Long,
     ): Int
 

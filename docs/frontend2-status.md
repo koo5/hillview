@@ -524,8 +524,10 @@ the chain stopped. See `GeoDebugText.kt`.
   worker dropped it for both clients. Measured on the 334 frames of that
   walk before the fix: zero GPS EXIF tags on any uploaded file, fix ages
   35–1142 ms, nothing that could tell the wandering frames apart. Stamp
-  refinement leaves the at-the-time accuracy in place — it interpolates
-  position between bracketing fixes and has no better accuracy number.
+  refinement stamps the WORSE of the two bracketing fixes' accuracies
+  (user: "for interpolated fixes, it should probably use the worse of the
+  two") — `worseAccuracy`, host-tested; `applyRefinedStamp` gained the
+  column.
   Worker unit tests pass in the worker image; `:shared:compileAndroidMain`
   verified. Recon-side reading of the new key is
   `docs/reconstruction-field-notes.md` (2026-09-13).
