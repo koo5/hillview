@@ -368,17 +368,22 @@ PROVENANCE_KEYS = (
 	# rewrite and carries the whole stamp in the upload metadata instead —
 	# so the synthesized UserComment must say what a written one would.
 	'location_age_ms', 'exposure', 'refined',
-	# The receiver's horizontal accuracy radius, metres. Both apps have sent it
-	# for as long as they have sent latitude, and it went nowhere: there is no
-	# photos column for it and it was not on this list, so the one number that
-	# says how much to trust a fix was dropped at the door. Measured on a
-	# 2026-09-10 walk whose first eighteen frames wander inside a 10 m blob
-	# before a 9.8 m jump: nothing in the stored provenance could tell those
-	# frames apart from the rest. It belongs in the UserComment, where the
-	# recon tooling already reads location_source and location_age_ms.
-	'accuracy',
 	'v',
 )
+
+# Metadata keys that reach the UserComment under a DIFFERENT name, because the
+# wire name does not say what it measures. `accuracy` is the receiver's
+# horizontal accuracy radius in metres; both apps have sent it under that name
+# for as long as they have sent latitude (renaming the wire field would break
+# every older client for nothing), and it went nowhere: no photos column, not
+# on the list above, so the one number that says how much to trust a fix was
+# dropped at the door. Measured on a 2026-09-10 walk whose first eighteen
+# frames wander inside a 10 m blob before a 9.8 m jump: nothing in the stored
+# provenance could tell those frames apart from the rest. In the UserComment it
+# sits beside location_source and location_age_ms and is named like them.
+PROVENANCE_RENAMES = {
+	'accuracy': 'location_accuracy_m',
+}
 
 
 def synthesize_provenance(metadata: Optional[dict]) -> Optional[str]:
@@ -396,6 +401,9 @@ def synthesize_provenance(metadata: Optional[dict]) -> Optional[str]:
 	if not metadata:
 		return None
 	provenance = {k: metadata[k] for k in PROVENANCE_KEYS if metadata.get(k) is not None}
+	for src, dst in PROVENANCE_RENAMES.items():
+		if metadata.get(src) is not None:
+			provenance[dst] = metadata[src]
 	return json.dumps(provenance) if provenance else None
 
 

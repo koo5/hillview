@@ -302,8 +302,10 @@ class TestSynthesizeProvenance:
         assert out["location_age_ms"] == 207
         # The receiver's accuracy radius was sent by both apps and dropped here
         # for as long as the key existed; a wandering first fix is invisible
-        # downstream without it.
-        assert out["accuracy"] == 4.2
+        # downstream without it. It arrives as the wire name `accuracy` and is
+        # stored under a name that says what it measures.
+        assert out["location_accuracy_m"] == 4.2
+        assert "accuracy" not in out
         assert out["refined"] is True
         # Nested, not stringified — a consumer reads exposure.mode directly.
         assert out["exposure"]["mode"] == "sports"
@@ -389,11 +391,12 @@ class TestBrowserMetadataAcceptsProvenance:
         # copies PROVENANCE_KEYS out of the parsed metadata, so a key it
         # knows about that this model does not is dead on arrival.
         BrowserMetadata = self._browser_metadata()
-        from photo_processor import PROVENANCE_KEYS
+        from photo_processor import PROVENANCE_KEYS, PROVENANCE_RENAMES
 
         declared = set(BrowserMetadata.model_fields)
         # 'v' is the pipeline's semantics version, sent by pics, not the app.
-        missing = [k for k in PROVENANCE_KEYS if k not in declared and k != "v"]
+        missing = [k for k in (*PROVENANCE_KEYS, *PROVENANCE_RENAMES)
+                   if k not in declared and k != "v"]
         assert not missing, f"photo_processor reads {missing}, which BrowserMetadata drops"
 
 

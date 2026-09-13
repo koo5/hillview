@@ -517,8 +517,9 @@ the chain stopped. See `GeoDebugText.kt`.
   sentinel, so `buildUploadMetadata` omitted it. Now `PendingUpload.accuracyM`
   carries the snapshot value into `PhotoEntity.accuracy` (no schema change:
   the column existed from the Tauri era), the metadata sends it as before
-  when > 0, and worker-side `accuracy` joined `PROVENANCE_KEYS`, so it
-  lands in the synthesized UserComment beside `location_source` and
+  when > 0, and the worker writes the wire field `accuracy` into the
+  synthesized UserComment as `location_accuracy_m` (user: bare "accuracy"
+  does not say accuracy of what), beside `location_source` and
   `location_age_ms`. The Tauri app had been sending it all along; the
   worker dropped it for both clients. Measured on the 334 frames of that
   walk before the fix: zero GPS EXIF tags on any uploaded file, fix ages

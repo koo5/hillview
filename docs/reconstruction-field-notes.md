@@ -977,9 +977,9 @@ would give it away. Measured over all 334 frames from `/shared/photos.csv`:
 
 **Fixed the same day.** The accuracy now travels with the row: `PendingUpload.accuracyM` in
 frontend2 carries the snapshot's fix accuracy into `PhotoEntity.accuracy` (the 0.0 sentinel
-still means "none", and `buildUploadMetadata` already omitted it), and `accuracy` joined the
-worker's `PROVENANCE_KEYS`, so it lands in the UserComment beside `location_source` and
-`location_age_ms`. The Tauri app had been sending it all along; the server dropped it for
+still means "none", and `buildUploadMetadata` already omitted it), and the worker writes the wire
+field `accuracy` into the UserComment as `location_accuracy_m`, beside `location_source` and
+`location_age_ms` and named like them. The Tauri app had been sending it all along; the server dropped it for
 both. Frames uploaded before this carry no accuracy anywhere but the phone. The stamp
 refiner interpolates position between bracketing fixes and leaves the at-the-time accuracy
 in place, which is the honest choice: it has no better number.
