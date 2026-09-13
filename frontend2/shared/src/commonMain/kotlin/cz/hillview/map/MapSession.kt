@@ -27,9 +27,18 @@ class MapSession {
     /**
      * "I am at the map position, not at my fix" — the Tauri parked-map
      * semantic, but claimable only through an explicit accept: panning by
-     * itself is exploration and never changes what captures record. While
-     * claimed, captures geotag from the (live) map centre, tagged
-     * location_source "manual", and the degraded shutter tone sounds.
+     * itself is exploration and never changes what captures record WHILE
+     * THERE IS A FIX TO RECORD. While claimed, captures geotag from the
+     * (live) map centre, tagged location_source "map", and the degraded
+     * shutter tone sounds.
+     *
+     * This is the ONE way the map position is elected over a fix. There used
+     * to be a second — the capture pane's "No GPS fix — capture at the map
+     * position instead" hatch, with its own flag here — and it is gone
+     * (2026-09-09): with no fix there is nothing to elect the map position
+     * *over*, so the map centre is simply what a photo records, and no
+     * button is needed to say so. See docs/one-state.md, "The position
+     * side: two records, one claim".
      *
      * Session-only, like the rest of tracking: every app start begins with
      * GPS priority.
@@ -38,31 +47,16 @@ class MapSession {
     val manualPositionClaimed: StateFlow<Boolean> = _manualPositionClaimed.asStateFlow()
 
     /**
-     * The capture pane's escape hatch: "No GPS fix — capture at the map
-     * position instead". The same outcome as a claim, reached differently —
-     * there is no fix to accept the map position *over*, so it needs no gate,
-     * and it is withdrawn by its own button rather than by resuming follow-me.
-     *
-     * It lives here rather than in the capture pane because it decides what
-     * gets written to the tracking tables, and that has to be answerable while
-     * the pane is closed.
-     */
-    private val _mapPositionWithoutFix = MutableStateFlow(false)
-    val mapPositionWithoutFix: StateFlow<Boolean> = _mapPositionWithoutFix.asStateFlow()
-
-    /**
-     * Whether the map position is what captures record — by either route.
-     *
-     * One flow, so there is a single answer to "is the map position elected"
-     * and a single publisher of it to the tracking tables. Two ways in, one
-     * way to read it.
+     * Whether the map position is what captures record OVER A FIX — the
+     * claim, and only the claim. Kept as its own flow because it is the
+     * single answer the tracking-table publisher reads; it used to combine
+     * two routes and now mirrors one.
      */
     private val _manualPositionElected = MutableStateFlow(false)
     val manualPositionElected: StateFlow<Boolean> = _manualPositionElected.asStateFlow()
 
     private fun recomputeElection() {
-        _manualPositionElected.value =
-            _manualPositionClaimed.value || _mapPositionWithoutFix.value
+        _manualPositionElected.value = _manualPositionClaimed.value
     }
 
     fun claimManualPosition() {
@@ -71,17 +65,10 @@ class MapSession {
         recomputeElection()
     }
 
-    fun setMapPositionWithoutFix(value: Boolean) {
-        _mapPositionWithoutFix.value = value
-        recomputeElection()
-    }
-
     fun setLocationTracking(value: LocationTracking) {
         _locationTracking.value = value
         // Taking tracking anywhere but BACKGROUND withdraws the claim —
         // ACTIVE means "follow me again", OFF means "no position at all".
-        // The no-fix hatch is left alone: it is about there being nothing to
-        // follow, which resuming follow-me does not change.
         if (value != LocationTracking.Background) {
             _manualPositionClaimed.value = false
         }

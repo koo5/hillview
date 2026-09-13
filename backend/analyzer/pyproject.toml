@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hillview-analyzer"
+version = "1.0.0"
+description = "Photo analysis service for Hillview"
+requires-python = ">=3.12"
+
+dependencies = [
+    "httpx",
+    "python-dotenv",
+    "sqlalchemy>=2.0",
+    "asyncpg",
+    "geoalchemy2",
+]
+
+[tool.setuptools]
+py-modules = [
+    "analyzer",
+    "analyze_photo",
+    "distill",
+]

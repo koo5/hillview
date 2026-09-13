@@ -462,28 +462,34 @@ class MapSessionTest {
         assertTrue(session.manualPositionElected.value)
         session.setLocationTracking(LocationTracking.Active)
         assertFalse(session.manualPositionElected.value)
-
-        // The no-fix hatch reaches the same outcome without the gate.
-        session.setMapPositionWithoutFix(true)
-        assertTrue(session.manualPositionElected.value)
-        session.setMapPositionWithoutFix(false)
-        assertFalse(session.manualPositionElected.value)
+        // (The no-fix hatch used to reach the same election without the
+        // gate; it is gone — with no fix the map centre is recorded with no
+        // election needed. See theFixRecordIsKeptWhateverTheMapDoes.)
     }
 
+    /**
+     * The fix has its own record (docs/one-state.md, "The position side"):
+     * a fix arriving while the map is parked elsewhere is kept, and a pan
+     * does not erase it. Before this the two overwrote one spatial state and
+     * the capture pane kept a private copy to compensate.
+     */
     @Test
-    fun resumingFollowMeDoesNotWithdrawTheNoFixHatch() {
-        // Withdrawing the claim means "follow me again". The hatch is about
-        // there being nothing to follow, so it is withdrawn by its own button
-        // and by nothing else — otherwise entering capture, which re-arms a
-        // clean ACTIVE, would silently shut the gate on a user with no fix.
-        val session = MapSession()
-        session.setMapPositionWithoutFix(true)
-        session.setLocationTracking(LocationTracking.Active)
-        assertTrue(session.mapPositionWithoutFix.value)
-        assertTrue(session.manualPositionElected.value)
-
-        session.onEnterRecording()
-        assertTrue(session.manualPositionElected.value)
+    fun theFixRecordIsKeptWhateverTheMapDoes() {
+        val state = MapStateHolder()
+        assertEquals(null, state.lastFix.value)
+        val fix = FixState(50.0, 14.0, atMs = 1_000L, elapsedRealtimeNanos = 1_000_000_000L)
+        state.updateFix(fix)
+        assertEquals(fix, state.lastFix.value)
+        // A pan moves the map and leaves the fix where it was.
+        state.updateSpatial(latitude = 51.0, longitude = 15.0, source = "map", now = 2_000L)
+        assertEquals(fix, state.lastFix.value)
+        assertEquals(51.0, state.spatial.value.latitude)
+        // And the record is not the map: following writes both, but through
+        // two funnels, so a fix-moved map still has a fix to show for it.
+        val later = fix.copy(latitude = 50.5, atMs = 3_000L, elapsedRealtimeNanos = 3_000_000_000L)
+        state.updateFix(later)
+        assertEquals(later, state.lastFix.value)
+        assertEquals(51.0, state.spatial.value.latitude)
     }
 
     @Test
@@ -494,5 +500,91 @@ class MapSessionTest {
         session.setLocationTracking(LocationTracking.Background)
         session.onEnterRecording()
         assertEquals(LocationTracking.Active, session.locationTracking.value)
+    }
+}
+
+/**
+ * The north badge's one question, asked once. The badge appears on this and
+ * shows this, so a map that is visibly turned can never fail to say by how
+ * much (user: "map rotation keeps fooling me").
+ */
+class OffNorthTest {
+
+    @Test
+    fun northIsZeroFromEitherSide() {
+        assertEquals(0.0, offNorthDeg(0.0))
+        assertEquals(0.0, offNorthDeg(360.0))
+        assertEquals(0.0, offNorthDeg(-720.0))
+    }
+
+    @Test
+    fun aSmallTurnEitherWayIsASmallNumber() {
+        // 350 and 10 are both ten degrees off; the badge must treat them the
+        // same, which an unsigned 0..360 answer cannot.
+        assertEquals(10.0, offNorthDeg(10.0))
+        assertEquals(-10.0, offNorthDeg(350.0))
+        assertEquals(-10.0, offNorthDeg(-10.0))
+    }
+
+    @Test
+    fun theAnswerStaysInsideHalfATurn() {
+        for (degrees in -1080..1080 step 7) {
+            val off = offNorthDeg(degrees.toDouble())
+            assertTrue(off > -180.0 && off <= 180.0, "$degrees gave $off")
+        }
+    }
+
+    @Test
+    fun theOppositeDirectionIsTheEdgeCase() {
+        assertEquals(180.0, offNorthDeg(180.0))
+        assertEquals(180.0, offNorthDeg(-180.0))
+    }
+}
+
+/**
+ * What the location button says, and the divergence that made it lie.
+ *
+ * The original castles the two position streams on the pan itself, so
+ * "parked" and "the fix is demoted" are one event there. Here the castle
+ * waits for the claim, which puts a whole state between them — and the
+ * button, carrying the original's rule, went half-lit on the pan and
+ * announced a demotion that had not happened (user, 2026-09-11).
+ */
+class FixRoleTest {
+
+    @Test
+    fun followingMeansTheFixIsWhatAPhotoRecords() {
+        assertEquals(
+            FixRole.Primary,
+            fixRole(LocationTracking.Active, mapPositionElected = false),
+        )
+    }
+
+    /**
+     * The case that was wrong: panned away, prompt up, nothing claimed. The
+     * map is parked, but a photo still records the FIX — so the button must
+     * not say the fix has been demoted.
+     */
+    @Test
+    fun exploringDoesNotDemoteTheFix() {
+        assertEquals(
+            FixRole.Primary,
+            fixRole(LocationTracking.Background, mapPositionElected = false),
+        )
+    }
+
+    @Test
+    fun anAcceptedClaimIsWhatDemotesIt() {
+        assertEquals(
+            FixRole.Alternate,
+            fixRole(LocationTracking.Background, mapPositionElected = true),
+        )
+    }
+
+    /** No fixes at all outranks any election: there is nothing to elect. */
+    @Test
+    fun offIsOffWhicheverPositionIsElected() {
+        assertEquals(FixRole.Off, fixRole(LocationTracking.Off, mapPositionElected = false))
+        assertEquals(FixRole.Off, fixRole(LocationTracking.Off, mapPositionElected = true))
     }
 }

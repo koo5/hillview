@@ -43,7 +43,10 @@ ALLOWED_PARAMS = {"win", "pairs", "pair_dist", "pair_dang", "size",
                   "niter1", "niter2", "dense", "min_conf",
                   "mask_anon", "mask_solocator", "mask_vegetation", "semantic_mask",
                   "semantic_budget", "shared_intrinsics",
-                  "adaptive_pairs", "adaptive_reach", "adaptive_frac"}
+                  "adaptive_pairs", "adaptive_reach", "adaptive_frac",
+                  "tiles", "tile_overlap", "tile_pairs", "tile_pin_pp",
+                  "expand_rounds", "expand_min", "expand_dist", "expand_per_frame",
+                  "gps_acc_floor"}
 
 # Where the archived experiment runs live. Import copies out of here; nothing writes to it.
 ARCHIVE_ROOT = os.getenv(
@@ -211,12 +214,14 @@ async def get_run(run_id: str):
     ids = [f["id"] for f in frames if f.get("id")]
     if ids:
         imgs = await _frame_images(ids, "320")
-        bsrc = await _frame_bearing_sources(ids)
+        prov = await _frame_provenance(ids)
         for f in frames:
             info = imgs.get(f.get("id")) or {}
+            pv = prov.get(f.get("id")) or {}
             f["thumb"] = info.get("image_url")
-            f["bearing_source"] = bsrc.get(f.get("id"))
+            f["bearing_source"] = pv.get("bearing_source")
             f["bearing_is_compass"] = bearing_is_compass(f["bearing_source"])
+            f["location_accuracy_m"] = pv.get("location_accuracy_m")
     # the group this run belongs to: its spans (children), or its siblings via the parent
     parent = meta.get("parent")
     async with wb_engine.connect() as conn:
@@ -300,26 +305,50 @@ def _apply_enu(x, y, z, s, R, t):
 
 
 def _ply_to_packed(ply_path: str, max_points: int, align=None) -> bytes:
-    """ASCII PLY -> packed little-endian [float32 x,y,z][uint8 r,g,b] per point.
+    """PLY -> packed little-endian [float32 x,y,z][uint8 r,g,b] per point.
 
-    The viewer cannot eat the PLY directly at these sizes: reconstruct.py writes ASCII, so
-    a 700 k-point sparse cloud is ~65 MB and a dense one runs to hundreds. Packed, a point
-    costs 15 bytes instead of ~90, and gzip takes it further. Points beyond max_points are
-    dropped by even stride rather than truncation, so a downsampled cloud still covers the
-    whole scene instead of half of it.
+    The viewer cannot eat the PLY directly at these sizes. Runs solved before 2026-09-12
+    are ASCII, at ~90 bytes a point, so a 700 k-point sparse cloud is ~65 MB and a dense
+    one runs to hundreds; after that date they are binary little-endian in the very layout
+    this function emits, so the conversion is a stride and an optional transform. Either is
+    accepted. Points beyond max_points are dropped by even stride rather than truncation,
+    so a downsampled cloud still covers the whole scene instead of half of it.
     """
     import struct
-    header, pts = True, []
-    n_declared = 0
-    with open(ply_path) as f:
-        for line in f:
-            if header:
-                if line.startswith("element vertex"):
-                    n_declared = int(line.split()[-1])
-                elif line.startswith("end_header"):
-                    header = False
-                continue
-            pts.append(line)
+
+    with open(ply_path, "rb") as f:
+        n_declared, binary = 0, False
+        while True:
+            line = f.readline()
+            if not line:
+                return b""
+            if line.startswith(b"format"):
+                binary = b"binary_little_endian" in line
+            elif line.startswith(b"element vertex"):
+                n_declared = int(line.split()[-1])
+            elif line.strip() == b"end_header":
+                break
+        body = f.read()
+
+    if binary:
+        import numpy as np
+        rec = np.frombuffer(body, dtype=np.dtype(
+            [("x", "<f4"), ("y", "<f4"), ("z", "<f4"),
+             ("red", "u1"), ("green", "u1"), ("blue", "u1")]),
+            count=min(n_declared, len(body) // 15))
+        step = max(1, -(-len(rec) // max_points)) if max_points else 1
+        sel = rec[::step]
+        if not align:
+            # already the wire format: no per-point work at all
+            return sel.tobytes()
+        out = bytearray()
+        for r in sel:
+            x, y, z = _apply_enu(float(r["x"]), float(r["y"]), float(r["z"]), *align)
+            out += struct.pack("<fff3B", x, y, z,
+                               int(r["red"]), int(r["green"]), int(r["blue"]))
+        return bytes(out)
+
+    pts = body.splitlines()
     n = n_declared or len(pts)
     # ceil, not floor: floor(715532/400000) == 1 leaves the cap unenforced
     step = max(1, -(-n // max_points)) if max_points else 1
@@ -412,24 +441,20 @@ def bearing_is_compass(src: str | None) -> bool:
     return bool(src) and any(k in src for k in COMPASS_BEARING_SOURCES)
 
 
-async def _frame_bearing_sources(ids: list[str]) -> dict[str, str | None]:
-    """{photo id: bearing_source}, from the capture app's UserComment JSON."""
+async def _frame_provenance(ids: list[str]) -> dict[str, dict]:
+    """{photo id: {bearing_source, location_accuracy_m}}, from the capture app's
+    UserComment JSON in the mirror."""
     if not ids:
         return {}
     async with wb_engine.connect() as conn:
         rows = (await conn.execute(text(
             "SELECT id, exif_data->'data'->>'UserComment' AS uc FROM photo_mirror "
             "WHERE id = ANY(:ids)"), {"ids": ids})).mappings().all()
-    out: dict[str, str | None] = {}
+    out: dict[str, dict] = {}
     for r in rows:
-        src = None
-        uc = r["uc"] or ""
-        if uc.startswith("{"):
-            try:
-                src = (json.loads(uc) or {}).get("bearing_source")
-            except json.JSONDecodeError:
-                src = None
-        out[r["id"]] = src
+        ex = {"UserComment": r["uc"] or ""}
+        out[r["id"]] = {"bearing_source": _bearing_source(ex),
+                        "location_accuracy_m": _location_accuracy(ex)}
     return out
 
 
@@ -958,10 +983,14 @@ def _estimate_pairs(frames: list[dict], params: dict) -> dict:
         ky = 110540.0
         en = [((f["lon"]) * kx, (f["lat"]) * ky) for f in frames]
         brg = [f.get("compass_angle") for f in frames]
+        acc = [float(f.get("location_accuracy_m") or 0.0) for f in frames]
         undirected = 0
         for i in range(n):
             for j in range(i + 1, n):
-                if math.hypot(en[i][0] - en[j][0], en[i][1] - en[j][1]) > pair_dist:
+                # same slack as the solver: a gate must not reject what the GPS could
+                # not have separated
+                if (math.hypot(en[i][0] - en[j][0], en[i][1] - en[j][1])
+                        - acc[i] - acc[j] > pair_dist):
                     continue
                 if brg[i] is not None and brg[j] is not None:
                     d = abs((brg[i] - brg[j] + 180) % 360 - 180)
@@ -969,8 +998,14 @@ def _estimate_pairs(frames: list[dict], params: dict) -> dict:
                         continue
                 undirected += 1
     directed = undirected * 2
-    return {"mode": mode, "n_pairs_directed": directed,
-            "est_minutes": round(directed * SECONDS_PER_PAIR / 60)}
+    out = {"mode": mode, "n_pairs_directed": directed,
+           "est_minutes": round(directed * SECONDS_PER_PAIR / 60)}
+    if int(params.get("expand_rounds") or 0) > 0:
+        # transitive expansion adds pairs the matcher's own results propose, so the seed
+        # count above is a floor; how far above depends on the graph, which is the point
+        out["note"] = (f"floor: {params['expand_rounds']} expansion round(s) add pairs on top, "
+                       f"at most {int(params.get('expand_per_frame') or 12)} per frame per round")
+    return out
 
 
 def _ts(v: str | None, field: str) -> datetime.datetime | None:
@@ -1129,22 +1164,40 @@ def _exif_focal_px(exif: dict | None, long_side_px: int) -> float | None:
     return round(f35 * long_side_px / 36.0) if f35 and f35 > 0 else None
 
 
-def _bearing_source(exif) -> str | None:
-    """The capture app's own note on how this photo's bearing was obtained.
+def _user_comment(exif) -> dict:
+    """The capture app's provenance JSON (UserComment), or {}.
 
     `exif` may be the whole exif_data object or just its `data` sub-object, depending on
     which query built the row, so look in both.
     """
     if not isinstance(exif, dict):
-        return None
+        return {}
     uc = (exif.get("data") or {}).get("UserComment") if isinstance(exif.get("data"), dict) else None
     uc = uc or exif.get("UserComment")
     if not isinstance(uc, str) or not uc.startswith("{"):
-        return None
+        return {}
     try:
-        return (json.loads(uc) or {}).get("bearing_source")
+        return json.loads(uc) or {}
     except json.JSONDecodeError:
+        return {}
+
+
+def _bearing_source(exif) -> str | None:
+    """The capture app's own note on how this photo's bearing was obtained."""
+    return _user_comment(exif).get("bearing_source")
+
+
+def _location_accuracy(exif) -> float | None:
+    """The receiver's horizontal accuracy radius at the stamped fix, metres (the worse of the
+    two bracketing fixes for an interpolated stamp). Written since 2026-09-13; older frames
+    have none because the value never left the phone. It weights the solver's position fit
+    and loosens its distance gates — it never decides which frames to solve."""
+    v = _user_comment(exif).get("location_accuracy_m")
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
         return None
+    return v if v > 0 else None
 
 
 def _manifest_frame(r) -> dict:
@@ -1158,6 +1211,7 @@ def _manifest_frame(r) -> dict:
         # WHERE that bearing came from. Only a compass source says where the camera was
         # AIMED; gps-kalman is the direction of travel and map/arrow_drag are hand-set.
         "bearing_source": _bearing_source(r["exif"]),
+        "location_accuracy_m": _location_accuracy(r["exif"]),
         "captured_at": cap.strftime("%Y-%m-%d %H:%M:%S.%f") if cap else "",
         "full_url": r["full_url"],
         "width": int(r["width"] or 0), "height": int(r["height"] or 0),
@@ -1177,6 +1231,7 @@ def _pending_frame(idx: int, f: dict) -> dict:
     return {"idx": idx, "id": f["id"], "captured_at": f.get("captured_at"),
             "gps": [f.get("lat"), f.get("lon")],
             "compass_angle": f.get("compass_angle"),
+            "location_accuracy_m": f.get("location_accuracy_m"),
             "camera": f.get("camera"), "session": f.get("session"),
             "injected": bool(f.get("injected"))}
 
@@ -1482,6 +1537,8 @@ RESULT_FILES = {
     "dense_cloud": ("dense.ply", "dense_cloud_path"),
     # no column: found beside the dense cloud, served only when asked for
     "soft_cloud": ("dense_soft.ply", None),
+    # depth, poses and intrinsics — what a later join needs once the worker is gone
+    "join_kit": ("joinkit.npz", None),
     "topdown": ("topdown.png", "topdown_path"),
     "pairs_matrix": ("pairs_matrix.png", "pairs_matrix_path"),
     "log": ("run.log", "log_path"),
@@ -1495,6 +1552,7 @@ async def result(result_json: str = Form(...),
                  cloud: UploadFile | None = File(None),
                  dense_cloud: UploadFile | None = File(None),
                  soft_cloud: UploadFile | None = File(None),
+                 join_kit: UploadFile | None = File(None),
                  topdown: UploadFile | None = File(None),
                  pairs_matrix: UploadFile | None = File(None),
                  log: UploadFile | None = File(None),
@@ -1527,7 +1585,7 @@ async def result(result_json: str = Form(...),
         return {"ok": True, "cancelled": True, "reason": "already done"}
 
     uploads = {"metadata": metadata, "metrics": metrics, "cloud": cloud,
-               "dense_cloud": dense_cloud, "soft_cloud": soft_cloud,
+               "dense_cloud": dense_cloud, "soft_cloud": soft_cloud, "join_kit": join_kit,
                "topdown": topdown, "pairs_matrix": pairs_matrix, "log": log}
     cols: dict[str, str] = {}
     for key, up in uploads.items():

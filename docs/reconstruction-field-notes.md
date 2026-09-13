@@ -906,6 +906,112 @@ them just spread their error further. The hypothesis is withdrawn. The render-an
 check still flags them, which is what a frame-level gate would act on: drop or
 down-weight the frames the leave-one-out test rejects, rather than link them harder.
 
+### CityZero, read properly: a fourth pairing arm, and where GPS accuracy gets lost (2026-09-13)
+
+The user asked whether there was really nothing to learn from
+https://github.com/SomeoneElseSt/CityZero. My first pass said "no code, research log only";
+that was wrong. `wip/` holds the working COLMAP glue and `mapillary/` a complete bulk
+downloader; only the new mapper (from late March 2026) is private, sealed as age-encrypted
+snapshots. No licence is stated anywhere, so it is reference material, not a dependency.
+
+**What transfers.**
+
+- **Transitive query expansion.** After a sparse first round, every verified A–B and B–C
+  proposes A–C; verify, repeat. Their verified pairs roughly doubled per round and the graph
+  got 4× denser for <10 M comparisons where exhaustive was 722 M. This is the arm we did not
+  have between window-8 and exhaustive, and it is now `--expand_rounds N` in
+  `reconstruct.py`: measure the pairs chosen so far (the forward passes are content-addressed,
+  so already-measured pairs are free), build the verified graph from correspondence counts
+  (`--expand_min`, default half the median link), propose two-hop closures scored by their
+  weaker hop, keep at most `--expand_per_frame` per frame per round, match, repeat.
+- **Gate the proposals by distance.** CityZero's own post-mortem for its failed mappers:
+  expansion inflated similarity everywhere, the best-connected pair became two lookalike
+  houses on opposite ends of the district, and every solve initialised on them. That is the
+  false-loop-closure failure this file already flags for area assembly, so the expansion
+  only proposes pairs whose cameras are within `--expand_dist` metres by GPS (default 30).
+- **Their spatial matcher is our bearing mode** (nearest 50 within 100 m; ours is 80 m plus
+  a bearing window). Their number: 11,000 images → ~300 k comparisons, ~27 per image. Our
+  window-8 is ~16 directed per frame. We were never comparing too much; we were comparing the
+  wrong pairs — brandys has 11,938 revisit pairs a window cannot see.
+- **Exhaustive matching only in fringe zones**: sparse inside a box, exhaustive in 50 m
+  buffers along box borders. That is the shape cross-span and cross-walk joining should take.
+  Their caveat is ours: a distant landmark seen from both sides is missed by proximity gating
+  and needs appearance retrieval.
+
+**What confirms choices already made.** Their best-looking solve (502 images, 0.93 px) turned
+out to have every camera stacked in a room-sized area — caught weeks later by a stats query,
+not by the point-cloud viewer. Their highest-inlier pairs were dashcam banners and one
+high-vis motorcyclist. Shared-centre dashcam frames hit COLMAP's panoramic degeneracy, which
+made most of their data "basically useless" to it; our 360° swings and the obelisk rotation
+are that case, and pointmap regression does not need a triangulation baseline. COLMAP's
+pose-prior mapper uses GPS only to fix scale in BA, never to choose pairs or seeds; Pow3R
+takes pose priors as *input*, so GPS + compass as a coarse prior is the experiment their
+tooling could not run. Not transferable: subsampling every Nth frame along straight streets
+(dashcam at speed; every walking measurement we have says denser).
+
+**Mapillary, for later.** The search API returns at most 2,000 images per box and truncates
+silently; their discovery went from 600 k to 3.68 M images for the same city by recursing the
+grid to ~516 k cells. Our backend's Mapillary cache pages one region at a time and holds 0
+photos. When area joining goes to Mapillary, their `mapillary/` CLI is the reference shape:
+parallel discovery with recursive splitting, SQLite, resumable, compass/sequence/pano fields
+kept.
+
+**The brandys wander, and where accuracy goes.** The user asked whether the first ~20 frames
+of brandys-101, whose GPS wanders before snapping onto the path, carry accuracy metadata that
+would give it away. Measured over all 334 frames from `/shared/photos.csv`:
+
+- The jump is frame 17 → 18 (16:15:20.9 → 16:15:22.5): **9.8 m** in 1.5 s, after eighteen
+  frames of ~1 m steps inside a ~10 m blob. Every other step in the first 40 is 0.7–2.4 m.
+- **No accuracy figure reaches the server.** The backend has no accuracy field at all. The
+  KMP app writes the receiver's accuracy into the JPEG's EXIF `GPSHPositioningError`, but the
+  photos row is the canonical stamp ("the upload sends the row, not the file's EXIF" —
+  `shared-kt/.../StampRefiner.kt`) and the row is written with `accuracy = 0.0`. Server-side
+  exiftool found **zero GPS tags on all 334 uploaded files**; lat/lon came from the row. The
+  accuracy exists only in the on-phone JPEGs.
+- What the row *does* carry, via UserComment: `location_source` (gps for all 334),
+  `location_age_ms` (35–1142 ms, p50 575, none over 2 s) and `refined: true` for all. The
+  stamp refiner interpolates the shutter position between the bracketing fixes, so the
+  wander is the receiver's own converging fixes, faithfully interpolated. **Nothing in the
+  metadata distinguishes frames 0–17 from the rest.** The only signal is geometric: the
+  jump, and the fact that it is the first ~20 s of the walk.
+
+**Fixed the same day.** The accuracy now travels with the row: `PendingUpload.accuracyM` in
+frontend2 carries the snapshot's fix accuracy into `PhotoEntity.accuracy` (the 0.0 sentinel
+still means "none", and `buildUploadMetadata` already omitted it), and the worker writes the wire
+field `accuracy` into the UserComment as `location_accuracy_m`, beside `location_source` and
+`location_age_ms` and named like them. The Tauri app had been sending it all along; the server dropped it for
+both. Frames uploaded before this carry no accuracy anywhere but the phone. The stamp
+refiner interpolates position between bracketing fixes and stamps the WORSE of the two
+fixes' accuracies (user's rule): a point on the line between two uncertain fixes inherits
+the uncertainty of both.
+
+**Wired into the recon side the same day** (the user will supply a dump with the first frames
+that carry it). `location_accuracy_m` is read by all three frame loaders in `reconstruct.py`
+(CSV, manifest, injected), written per frame into `metadata.json`, and served by the API in
+the manifest, the pending-frame list and every run's frames (a "GPS ±m" column on the bench,
+next to the residual: a residual larger than the claimed accuracy is the solve disagreeing
+with the GPS; one smaller is within what the GPS itself admitted). Where it changes a
+decision:
+
+- **The position fit is weighted by 1/acc²** (`gps_weights`; `umeyama` takes weights now,
+  uniform weights reproduce the old estimator exactly). Frames without an accuracy get the
+  median of those that have one; a run with none at all gets the uniform fit every run
+  before this got. `--gps_acc_floor` (default 2 m) clamps optimistic sub-metre claims.
+  `stats.gps_accuracy` records how many frames carried one and the weight ratio. The span
+  joiner inherits this through each run's alignment and needs no change.
+- **The distance gates allow for it.** Bearing pairing and the expansion gate compare
+  `d − acc_i − acc_j` against the radius: a gate must not reject what the GPS could not
+  have separated. The bench's pair estimate applies the same slack. Frames without an
+  accuracy contribute zero slack, so nothing changes for the existing corpus.
+- It never decides which frames to solve. brandys-101's wandering first eighteen frames
+  would, with accuracies, weigh less in the position fit and pair more generously; they
+  would still be solved.
+
+Also fixed on the way: `wkt()` in `reconstruct.py` only parsed WKT, and the September dumps
+write the geometry column as hex EWKB, so a CLI run against `/shared/photos.csv` selected
+zero photos for any area. It now parses both. The other one-off scripts under
+`scripts/enrich/` (`locate_all.py`, `pair_match.py`, `r2_match.py`, …) still assume WKT.
+
 ### The fair resolution test: 768 is nine times worse than 512 (2026-09-11)
 
 `res23-spotA-512` and `res23-spotA-768` are the same 22 frames of the gold walk, same window,
@@ -1002,6 +1108,44 @@ and still masks its hedges, the frames under the bridge read 38-60% and still ma
 frame with 6% vertical and 29% vegetation now keeps its hedge. `newest-s0-vegkept` re-runs the
 same 17 frames under the corrected ladder; the forward passes are cached, so it costs only the
 optimiser.
+
+### Tiling is the published method, and MASt3R is the wrong model for it (2026-09-12)
+
+Tiling got built because raising `--size` does not work: 768 measured nine times worse than
+512 on the same 22 frames, normalised for frame size, because the model is trained at 512.
+The premise measured well — a native 512×512 crop covering 5.3% of a brandys frame returned
+5,056 correspondences where the whole-frame pass puts about 288 on that ground, 17.5× the
+density, each match located to about one native pixel instead of five.
+
+Then the user pointed at Naver's own 3-D foundation model page, and **Pow3R** (CVPR 2025)
+turns out to do high resolution exactly this way: "fixed resolution crops of original images
+in a sliding window pattern", stitched by median scale in the overlaps and blended by
+confidence. The geometry is the published approach, not a workaround.
+
+**It also names the ceiling precisely.** In Pow3R "the per-window camera intrinsics encode
+the crop position through the focal length and principal point, allowing the network to
+understand where each crop sits in the original image." MASt3R has no such channel. Our
+tiles go to a network that believes every crop is a centred view, so the crop's true
+principal point can only be asserted afterwards, to the optimiser — which is what
+`--tile_pin_pp` does, and it moved the tile-centre disagreement only from 0.330 m to
+0.294 m on a two-frame test. The pointmaps were already regressed on the wrong premise; no
+downstream pinning repairs that. That is a much sharper diagnosis than "the approximation
+costs 29 cm".
+
+**Pow3R is not a drop-in.** It outputs pointmaps and depth only, no descriptors and no
+correspondences, and this pipeline is built on MASt3R's matching head feeding
+`sparse_global_alignment`. Adopting it means a second pipeline, not a swap. Its released
+checkpoint is also 512-trained; native resolution comes from the window plus the priors.
+Reported gain from supplying intrinsics: multi-view depth relative error 3.64 → 3.20.
+
+**MUSt3R** (CVPR 2025) is the other lead and attacks the other wall: multi-view rather than
+pairwise, thousands of pointmaps. Every pairing strategy here exists because MASt3R-SfM
+costs pairs; a multi-view network changes the question rather than the price.
+
+What decides it is one measurement, now queued on the reference cluster: tiling at native
+detail against the 1.33 px those same 22 frames already reach. Beat it and MASt3R tiling is
+worth pursuing. Fail and the ceiling is the centred-crop assumption, and the price of
+fixing it is a second pipeline.
 
 ### Cross-walk joining has no evidence to work from, and "the same cell" is not "the same ground" (2026-09-11)
 

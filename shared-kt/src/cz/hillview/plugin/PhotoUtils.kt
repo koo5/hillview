@@ -195,9 +195,12 @@ object PhotoUtils {
      * @return PhotoEntity with extracted metadata
      */
     fun createPhotoEntityFromFile(file: File, fileHash: String, idPrefix: String = "device"): PhotoEntity {
-        var latitude = 0.0
-        var longitude = 0.0
-        var altitude = 0.0
+        // Null, not 0.0 (v22): a file with no GPS tags must reach the table as
+        // "no position", not as Null Island — and the same for altitude, or
+        // the upload would start claiming sea level for it.
+        var latitude: Double? = null
+        var longitude: Double? = null
+        var altitude: Double? = null
         var bearing = 0.0
         var width = 0
         var height = 0
@@ -207,9 +210,10 @@ object PhotoUtils {
             val exif = ExifInterface(file.path)
 
             // Extract GPS coordinates
-            val coords = extractGpsCoordinates(exif)
-            latitude = coords.first
-            longitude = coords.second
+            extractGpsCoordinates(exif)?.let { (lat, lng) ->
+                latitude = lat
+                longitude = lng
+            }
 
             // Extract altitude
             altitude = extractAltitude(exif)
@@ -310,7 +314,8 @@ object PhotoUtils {
         return null
     }
     
-    private fun extractGpsCoordinates(exif: ExifInterface): Pair<Double, Double> {
+    /** Null when the file carries no readable position — see PhotoEntity.latitude. */
+    private fun extractGpsCoordinates(exif: ExifInterface): Pair<Double, Double>? {
         // Method 1: Use built-in getLatLong (most reliable)
         val latLong = FloatArray(2)
         @Suppress("DEPRECATION")
@@ -346,10 +351,11 @@ object PhotoUtils {
         }
 
         Log.v(TAG, "No GPS coordinates found")
-        return Pair(0.0, 0.0)
+        return null
     }
     
-    private fun extractAltitude(exif: ExifInterface): Double {
+    /** Null when the file carries no readable altitude — see PhotoEntity.altitude. */
+    private fun extractAltitude(exif: ExifInterface): Double? {
         // Method 1: Built-in getAltitude (most reliable)
         val builtIn = exif.getAltitude(Double.NaN)
         if (!builtIn.isNaN()) {
@@ -358,7 +364,7 @@ object PhotoUtils {
         }
 
         // Method 2: Manual parsing
-        val altitudeStr = exif.getAttribute(ExifInterface.TAG_GPS_ALTITUDE) ?: return 0.0
+        val altitudeStr = exif.getAttribute(ExifInterface.TAG_GPS_ALTITUDE) ?: return null
         val altitudeRefStr = exif.getAttribute(ExifInterface.TAG_GPS_ALTITUDE_REF)
 
         return try {
@@ -371,10 +377,10 @@ object PhotoUtils {
             altitude
         } catch (e: NumberFormatException) {
             Log.w(TAG, "Failed to parse altitude: invalid number format in $altitudeStr")
-            0.0
+            null
         } catch (e: IllegalArgumentException) {
             Log.w(TAG, "Failed to parse altitude: invalid rational format")
-            0.0
+            null
         }
     }
     

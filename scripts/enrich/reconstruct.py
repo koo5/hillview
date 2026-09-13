@@ -49,9 +49,27 @@ def latest_csv(stem, d=DUMP_DIR):
 
 
 def wkt(g):
-    if g and g.upper().startswith("POINT"):
-        lo, la = g[g.index("(") + 1:g.index(")")].split()
+    """(lon, lat) from a PostGIS geometry column however the dump wrote it: WKT
+    ('POINT(lon lat)'), or hex EWKB ('0101000020E6100000' + two little-endian doubles),
+    which is what a plain COPY of the table produces and what /shared/photos.csv has
+    carried since the 2026-09 dumps. Silently returning None here made a whole area
+    'select 0 photos'."""
+    if not g:
+        return None
+    s = g.strip()
+    if s.upper().startswith("POINT"):
+        lo, la = s[s.index("(") + 1:s.index(")")].split()
         return float(lo), float(la)
+    if len(s) >= 42 and all(c in "0123456789abcdefABCDEF" for c in s[:42]):
+        import struct
+        b = bytes.fromhex(s[:50])
+        little = b[0] == 1
+        order = "<" if little else ">"
+        gtype = struct.unpack(order + "I", b[1:5])[0]
+        off = 5 + (4 if gtype & 0x20000000 else 0)          # EWKB SRID flag
+        if (gtype & 0xFF) == 1 and len(b) >= off + 16:       # Point
+            lo, la = struct.unpack(order + "dd", b[off:off + 16])
+            return lo, la
     return None
 
 
@@ -69,17 +87,39 @@ def bearing_source(r):
     the error CHARACTER differs, not because one of them is the truth — so a bearing is read
     together with this, and never filtered by it.
     """
+    return user_comment(r).get("bearing_source")
+
+
+def user_comment(r):
+    """The capture app's provenance JSON (UserComment), or {} when there is none."""
     ex = r.get("exif_data") or r.get("exif") or {}
     if not isinstance(ex, dict):
-        return None
+        return {}
     d = ex.get("data") if isinstance(ex.get("data"), dict) else ex
     uc = (d or {}).get("UserComment")
     if not isinstance(uc, str) or not uc.startswith("{"):
-        return None
+        return {}
     try:
-        return (json.loads(uc) or {}).get("bearing_source")
+        return json.loads(uc) or {}
     except (ValueError, TypeError):
+        return {}
+
+
+def location_accuracy(r):
+    """The receiver's horizontal accuracy radius at the stamped fix, metres, or None.
+
+    Written by the capture apps as `location_accuracy_m` since 2026-09-13 (for an
+    interpolated stamp it is the worse of the two bracketing fixes). Frames uploaded
+    before that have none: the value never left the phone. It is the one number that
+    says how much a frame's GPS deserves to steer the position fit, so it weights that
+    fit and loosens the distance gates; it never decides which frames to solve.
+    """
+    v = user_comment(r).get("location_accuracy_m")
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
         return None
+    return v if v > 0 else None
 
 
 COMPASS_BEARING_SOURCES = ("compass-true", "compass-magnetic", "absolute-compass")
@@ -164,6 +204,7 @@ def select_cluster(center, radius_m, n, start, maxscan, stride=1, after="", befo
             "alt": float(r["altitude"]) if r.get("altitude") else None,
             "brg": float(r["compass_angle"]) if r.get("compass_angle") else None,
             "brg_src": bearing_source(r),
+            "acc": location_accuracy(r),
             "cap": r.get("captured_at") or r.get("uploaded_at") or "",
             "full": url, "t640": t640,
             "ttl": (r.get("title") or "")[:60],
@@ -208,7 +249,12 @@ def load_manifest(path, center):
             "alt": float(f["altitude"]) if f.get("altitude") is not None else None,
             "brg": float(f["compass_angle"]) if f.get("compass_angle") is not None else None,
             "brg_src": f.get("bearing_source"),
+            "acc": (float(f["location_accuracy_m"])
+                    if f.get("location_accuracy_m") not in (None, 0) else None),
             "cap": f.get("captured_at") or "",
+            # the focal the camera recorded, in pixels of the 512-long-side frame. Ground
+            # truth wherever EXIF survived, and the prior a pow3r solve conditions on.
+            "exif_focal": f.get("exif_focal_px_512"),
             "full": f["full_url"], "t640": f.get("thumb_url"),
             "ttl": ("INJECTED:" + title[:50]) if f.get("injected") else title,
             "anon": [tuple(b) for b in (f.get("anon_boxes") or [])],
@@ -250,7 +296,8 @@ def fetch_by_ids(prefixes, center):
                     "d": math.hypot((lon - lon0) * kx, (lat - lat0) * ky),
                     "alt": float(r["altitude"]) if r.get("altitude") else None,
                     "brg": float(r["compass_angle"]) if r.get("compass_angle") else None,
-            "brg_src": bearing_source(r),
+                    "brg_src": bearing_source(r),
+                    "acc": location_accuracy(r),
                     "cap": r.get("captured_at") or "", "full": url, "t640": None, "inj": True,
                     "anon": parse_anon(r), "ow": int(r["width"]), "oh": int(r["height"]),
                     "ofn": r.get("original_filename") or "",
@@ -513,34 +560,287 @@ def download(sub, imgdir, mask_anon=False, mask_solocator=False):
     return paths
 
 
+# ---------- tiling ----------
+def tile_frames(sub, paths, outdir, grid, overlap, size_hint=512, log=log):
+    """Cut every staged frame into an R x C grid of overlapping tiles, each written as its
+    own image, and return (tile_paths, tile_sub) shaped exactly like the inputs.
+
+    WHY TILES ARE IMAGES. MASt3R is trained at a 512 long side, and a 1920x2560 phone frame
+    reaches it downscaled five times over — 96 % of the pixels gone before matching starts.
+    Raising --size does not help, it leaves the training distribution: measured at 768 the
+    same 22 frames go from 1.33 px to 18.11 px. A crop, by contrast, is an ordinary image of
+    a smaller field of view at native detail, which is squarely in distribution.
+
+    Measured on one brandys pair: a 512x512 native crop covering 5.3 % of the frame returned
+    5,056 correspondences where the whole-frame pass puts about 288 on that same ground, and
+    each one is located to about one native pixel rather than five.
+
+    Making tiles ordinary images means the rest of the pipeline needs no notion of them: the
+    content-addressed cache keys them by bytes, masking runs per tile, the solver sees a
+    bigger set of ordinary views. Only PAIRING has to know (see tile_pairs), and only the
+    merge back to one camera, which is not attempted here.
+
+    Each tile carries its parent's sensors and the geometry of its own crop, including the
+    principal point the crop actually has — which is NOT its centre, and which the solver's
+    own estimate will assume it is. That assumption is the thing to measure first.
+    """
+    R, C = grid
+    os.makedirs(outdir, exist_ok=True)
+    tpaths, tsub = [], []
+    for i, (p, src) in enumerate(zip(sub, paths)):
+        im = Image.open(src).convert("RGB")
+        W, H = im.size
+        # overlapping grid: each tile is 1/R (1/C) of the frame, grown by `overlap` on each
+        # side, so neighbouring tiles share a margin for the merge to work with later
+        tw, th = W / C, H / R
+        ow, oh = tw * overlap, th * overlap
+        for r in range(R):
+            for c in range(C):
+                x0 = max(0, int(round(c * tw - ow)));  x1 = min(W, int(round((c + 1) * tw + ow)))
+                y0 = max(0, int(round(r * th - oh)));  y1 = min(H, int(round((r + 1) * th + oh)))
+                tp = os.path.join(outdir, f"{i:03d}_{p['id'][:8]}_r{r}c{c}.jpg")
+                if not os.path.exists(tp):
+                    im.crop((x0, y0, x1, y1)).save(tp, "JPEG", quality=92)
+                q = dict(p)
+                q["parent_idx"] = i
+                q["tile"] = [r, c]
+                q["tile_box"] = [x0, y0, x1, y1]
+                q["parent_wh"] = [W, H]
+                # the crop's true principal point, in ITS OWN pixels: the parent's centre
+                # shifted by the crop origin. Recorded, not yet enforced.
+                q["tile_pp"] = [W / 2.0 - x0, H / 2.0 - y0]
+                tpaths.append(tp)
+                tsub.append(q)
+    # SAY WHAT THE GRID BOUGHT. A tile only reaches native detail if its own long side is
+    # within the load size; otherwise load_images downscales it too, and a coarse grid buys
+    # far less than it looks. On a 1920x2560 frame at size 512: a 2x2 grid is 1.5x the
+    # whole-frame detail, 3x3 is 2.3x, 4x5 is 3.1x, and native needs about 35 tiles. Runs
+    # that do not report this get misread as "tiling did not help".
+    if tsub:
+        pw, ph = tsub[0]["parent_wh"]
+        whole = size_hint / max(pw, ph)
+        gains = []
+        for q in tsub:
+            x0, y0, x1, y1 = q["tile_box"]
+            gains.append(min(1.0, size_hint / max(x1 - x0, y1 - y0)) / whole)
+        g = float(np.median(gains))
+        log(f"tiling: {len(paths)} frames x {R}x{C} (overlap {overlap:.0%}) -> {len(tpaths)} "
+            f"tiles, each at {g:.1f}x the whole-frame detail "
+            f"({'native' if g * whole >= 0.99 else f'{g * whole:.2f} of native'})")
+    else:
+        log(f"tiling: {len(paths)} frames x {R}x{C} -> {len(tpaths)} tiles")
+    return tpaths, tsub
+
+
+def tile_pairs(imgs, tsub, mode, frame_pairs):
+    """Expand pairs of FRAMES into pairs of TILES.
+
+    `frame_pairs` is whatever the ordinary rule produced over parent frames (sliding window,
+    complete, bearing-gated). This only decides which tiles of those two frames to compare,
+    and the modes are deliberately kept side by side so the choice is measured rather than
+    argued:
+
+      all         every tile against every tile. The honest baseline and the only mode that
+                  cannot miss a match; costs tiles-squared per frame pair (3x3 -> 81x).
+      neighbours  same grid position and its eight neighbours, which is where the content
+                  goes when the camera moves half a metre (9 of 9 at 3x3, 9 of 16 at 4x4).
+      same        same grid position only. Cheapest, and wrong the moment the camera turns.
+
+    Tiles of ONE frame are never paired with each other: they share a camera, so their
+    relationship is a fact of the crop, not something to discover by matching.
+    """
+    by_parent = {}
+    for k, q in enumerate(tsub):
+        by_parent.setdefault(q["parent_idx"], []).append(k)
+    out = []
+    seen = set()
+    for a_, b_ in frame_pairs:
+        ia, ib = a_["idx"], b_["idx"]
+        if ia == ib:
+            continue
+        for ka in by_parent.get(ia, []):
+            ra, ca = tsub[ka]["tile"]
+            for kb in by_parent.get(ib, []):
+                rb, cb = tsub[kb]["tile"]
+                if mode == "same" and (ra, ca) != (rb, cb):
+                    continue
+                if mode == "neighbours" and (abs(ra - rb) > 1 or abs(ca - cb) > 1):
+                    continue
+                if (ka, kb) in seen:
+                    continue
+                seen.add((ka, kb))
+                out.append((imgs[ka], imgs[kb]))
+    return out
+
+
+def stack_depths(depths):
+    """Per-frame depth as ONE float16 array when the frames agree on size, which they do
+    unless a run mixes aspect ratios. dtype=object over a uniform list is a trap: numpy
+    flattens it into an array of Python objects, one pointer per pixel, and the file comes
+    out three times LARGER than float32 rather than four times smaller."""
+    arrs = [np.asarray(d, dtype=np.float16).ravel() for d in depths]
+    if arrs and all(a.shape == arrs[0].shape for a in arrs):
+        return np.stack(arrs)
+    out = np.empty(len(arrs), dtype=object)
+    for i, a in enumerate(arrs):
+        out[i] = a
+    return out
+
+
+def intrinsics_from_focals(focals, n, imgs):
+    """A K per view from a focal and a centred principal point. Only reached by a backend
+    that does not report intrinsics of its own; MASt3R's optimiser fits principal points
+    and reporting them matters (masktest: 0.71 px with the true pps, 3.57 px centred)."""
+    K = np.zeros((n, 3, 3), dtype=np.float64)
+    for i in range(n):
+        h, w = (int(v) for v in imgs[i]["true_shape"][0]) if i < len(imgs) else (0, 0)
+        K[i] = [[float(focals[i]), 0, w / 2.0], [0, float(focals[i]), h / 2.0], [0, 0, 1.0]]
+    return K
+
+
+def map_point_to_loaded(pt, W1, H1, size=512, patch=16):
+    """A point in saved-image pixels -> the same point in the frame load_images() produces
+    (long side resized to `size`, then centre-cropped to a multiple of `patch`). Same
+    transform map_box_to_loaded applies, for a single point."""
+    r = size / max(W1, H1)
+    W, H = round(W1 * r), round(H1 * r)
+    cx, cy = W // 2, H // 2
+    cl = cx - ((2 * cx) // patch) * patch / 2
+    ct = cy - ((2 * cy) // patch) * patch / 2
+    return (pt[0] * r - cl, pt[1] * r - ct)
+
+
+def install_tile_intrinsics(pp_by_path, log=log):
+    """Pin each tile's principal point instead of letting the solver estimate it.
+
+    A crop is an ordinary pinhole image, but its principal point is NOT at its centre — it
+    is wherever the parent's optical axis fell, which the crop box tells us exactly. The
+    solver assumes centred and then optimises from there, and the archive says that matters:
+    on masktest the true principal points sat 4-6 px off centre and alone moved the solve
+    from 0.71 px to 3.57 px. For a tile the offset is not a few pixels but a large fraction
+    of the frame, so there is nothing to estimate and everything to get wrong.
+
+    `sparse_scene_optimizer` takes `pps` in pixels and normalises them itself, so the
+    cleanest intervention is to substitute the rows we know before it runs, and to turn off
+    opt_pp so the optimiser cannot drift away from a value that is a fact about the crop.
+    """
+    import mast3r.cloud_opt.sparse_ga as SGA
+    if getattr(SGA, "_tile_pp_installed", False):
+        return
+    import torch as _t
+    orig = SGA.sparse_scene_optimizer
+
+    def patched(imgs, subsample, imsizes, pps, base_focals, *args, **kw):
+        n = 0
+        for i, im in enumerate(imgs):
+            pp = pp_by_path.get(im)
+            if pp is None:
+                continue
+            pps[i] = _t.tensor(pp, dtype=pps.dtype, device=pps.device)
+            n += 1
+        if n:
+            kw["opt_pp"] = False
+            log(f"  tile intrinsics: pinned the principal point on {n}/{len(imgs)} views "
+                f"(opt_pp off)")
+        return orig(imgs, subsample, imsizes, pps, base_focals, *args, **kw)
+
+    SGA.sparse_scene_optimizer = patched
+    SGA._tile_pp_installed = True
+
+
+def tile_consistency(poses, tsub, scale_units_per_m):
+    """Tiles of one frame share a camera, so their recovered centres should coincide. How far
+    they do not is a direct read on whether treating a crop as an ordinary view worked —
+    and it needs no merge to measure."""
+    by_parent = {}
+    for k, q in enumerate(tsub):
+        by_parent.setdefault(q["parent_idx"], []).append(k)
+    spreads = []
+    for idxs in by_parent.values():
+        if len(idxs) < 2:
+            continue
+        cs = np.array([poses[k][:3, 3] for k in idxs])
+        spreads.append(float(np.linalg.norm(cs - cs.mean(0), axis=1).max()))
+    if not spreads:
+        return {}
+    sp = np.array(spreads) * float(scale_units_per_m or 1.0)
+    return {"n_frames_measured": len(spreads),
+            "tile_centre_spread_m": {"median": round(float(np.median(sp)), 3),
+                                     "p90": round(float(np.percentile(sp, 90)), 3),
+                                     "max": round(float(sp.max()), 3)}}
+
+
 # ---------- geometry ----------
-def umeyama(src, dst):
-    """Similarity transform (scale s, rot R, trans t) mapping src->dst (Nx3). Returns s,R,t."""
+def umeyama(src, dst, w=None):
+    """Similarity transform (scale s, rot R, trans t) mapping src->dst (Nx3), optionally
+    weighted per point (w sums to anything; None = uniform). Returns s,R,t."""
     src = np.asarray(src, float); dst = np.asarray(dst, float)
-    mu_s = src.mean(0); mu_d = dst.mean(0)
+    w = np.ones(len(src)) if w is None else np.asarray(w, float)
+    w = w / max(w.sum(), 1e-12)
+    mu_s = (w[:, None] * src).sum(0); mu_d = (w[:, None] * dst).sum(0)
     S = src - mu_s; D = dst - mu_d
-    cov = (D.T @ S) / len(src)
+    cov = (w[:, None] * D).T @ S
     U, d, Vt = np.linalg.svd(cov)
     Sgn = np.eye(3)
     if np.linalg.det(U) * np.linalg.det(Vt) < 0:
         Sgn[2, 2] = -1
     R = U @ Sgn @ Vt
-    var_s = (S ** 2).sum() / len(src)
-    s = np.trace(np.diag(d) @ Sgn) / var_s
+    var_s = (w * (S ** 2).sum(1)).sum()
+    s = np.trace(np.diag(d) @ Sgn) / max(var_s, 1e-12)
     t = mu_d - s * R @ mu_s
     return s, R, t
 
 
-def write_ply(path, pts, cols):
-    pts = np.asarray(pts); cols = np.asarray(cols)
-    cols = np.clip(cols * (255 if cols.max() <= 1.01 else 1), 0, 255).astype(np.uint8)
-    with open(path, "w") as f:
-        f.write("ply\nformat ascii 1.0\n")
-        f.write(f"element vertex {len(pts)}\n")
-        f.write("property float x\nproperty float y\nproperty float z\n")
-        f.write("property uchar red\nproperty uchar green\nproperty uchar blue\nend_header\n")
-        for (x, y, z), (r, g, b) in zip(pts, cols):
-            f.write(f"{x:.4f} {y:.4f} {z:.4f} {int(r)} {int(g)} {int(b)}\n")
+def gps_weights(sub, floor_m):
+    """Per-frame weights for the position fit from the receiver's own accuracy, 1/acc².
+
+    A fix that says "10 m" should steer the alignment a hundredth as hard as one that says
+    "1 m" — that is what the number means. Frames without one get the median of those that
+    have it (nothing is known about them either way); if no frame has one the fit stays
+    uniform, which is what every run before 2026-09-13 gets. The floor stops a phone's
+    optimistic sub-metre claims from owning the fit."""
+    acc = np.array([p.get("acc") or np.nan for p in sub], float)
+    known = ~np.isnan(acc)
+    if not known.any():
+        return None, dict(n_known=0)
+    fill = float(np.median(acc[known]))
+    a = np.where(known, acc, fill)
+    a = np.maximum(a, floor_m)
+    w = 1.0 / a ** 2
+    return w, dict(n_known=int(known.sum()), median_m=round(fill, 1),
+                   p90_m=round(float(np.percentile(acc[known], 90)), 1),
+                   worst_m=round(float(acc[known].max()), 1), floor_m=floor_m,
+                   weight_ratio=round(float(w.max() / w.min()), 1))
+
+
+# Binary, because these files leave the machine. ASCII spends about 90 bytes on a point
+# that binary stores in 15, and a 60-frame dense run ships two of them: 146 MB of PLY
+# becomes about 48. On a rented box billed for bandwidth that is the difference worth
+# having, and nothing reads these by eye. Readers on both sides take either format.
+PLY_HEADER = ("ply\nformat binary_little_endian 1.0\n"
+              "element vertex {n}\n"
+              "property float x\nproperty float y\nproperty float z\n"
+              "property uchar red\nproperty uchar green\nproperty uchar blue\n"
+              "end_header\n")
+
+
+def write_ply(path, pts, cols, binary=True):
+    pts = np.asarray(pts, dtype=np.float32)
+    cols = np.asarray(cols)
+    cols = np.clip(cols * (255 if cols.size and cols.max() <= 1.01 else 1), 0, 255).astype(np.uint8)
+    if not binary:
+        with open(path, "w") as f:
+            f.write(PLY_HEADER.format(n=len(pts)).replace("binary_little_endian", "ascii"))
+            for (x, y, z), (r, g, b) in zip(pts, cols):
+                f.write(f"{x:.4f} {y:.4f} {z:.4f} {int(r)} {int(g)} {int(b)}\n")
+        return
+    rec = np.empty(len(pts), dtype=np.dtype([("x", "<f4"), ("y", "<f4"), ("z", "<f4"),
+                                             ("red", "u1"), ("green", "u1"), ("blue", "u1")]))
+    rec["x"], rec["y"], rec["z"] = pts[:, 0], pts[:, 1], pts[:, 2]
+    rec["red"], rec["green"], rec["blue"] = cols[:, 0], cols[:, 1], cols[:, 2]
+    with open(path, "wb") as f:
+        f.write(PLY_HEADER.format(n=len(pts)).encode("ascii"))
+        f.write(rec.tobytes())
 
 
 def topdown_png(path, pts, cols, cams, size=900):
@@ -771,6 +1071,32 @@ def main():
     ap.add_argument("--n", type=int, default=8)
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--win", type=int, default=3, help="sliding-window half-size for pairs")
+    ap.add_argument("--solver", default="mast3r", choices=["mast3r", "pow3r"],
+                    help="which model does the solve. mast3r is MASt3R-SfM, the only "
+                         "backend that emits CORRESPONDENCES (which the reprojection and "
+                         "epipolar metrics, the two-view verifier and the span joiner all "
+                         "read). pow3r regresses pointmaps instead and takes camera "
+                         "intrinsics as a prior, which is the channel MASt3R lacks")
+    ap.add_argument("--pow3r_hi_res", action="store_true",
+                    help="pow3r only: use its own AsymmetricSliding resolver, whose "
+                         "per-window intrinsics tell the network where each crop sits. "
+                         "This is what --tiles cannot do with MASt3R")
+    ap.add_argument("--tiles", default="",
+                    help="cut every frame into an RxC grid of overlapping tiles and solve "
+                         "them as ordinary views, e.g. 3x3. Native detail reaches the "
+                         "matcher this way; raising --size does not (768 measured 9x worse "
+                         "than 512 on the same frames). Off by default")
+    ap.add_argument("--tile_overlap", type=float, default=0.15,
+                    help="how far each tile is grown beyond its cell, as a fraction of the "
+                         "cell, so neighbours share a margin")
+    ap.add_argument("--tile_pin_pp", default=1, type=int,
+                    help="pin each tile's principal point from its crop box instead of "
+                         "letting the solver estimate a centred one (1=on). A tile's "
+                         "principal point is a fact about the crop, not a quantity to fit")
+    ap.add_argument("--tile_pairs", default="neighbours",
+                    choices=["all", "neighbours", "same"],
+                    help="which tiles of a paired frame to compare: all (tiles-squared, the "
+                         "baseline that cannot miss), neighbours (same cell +/- 1), same")
     ap.add_argument("--adaptive_pairs", action="store_true",
                     help="after measuring the window's links, reach further around the WEAK "
                          "ones (a swing aside to read a sign breaks the chain locally). "
@@ -779,9 +1105,31 @@ def main():
                     help="how many frames beyond the window to reach around a weak link")
     ap.add_argument("--adaptive_frac", type=float, default=0.35,
                     help="a consecutive link below this fraction of the median link is weak")
+    ap.add_argument("--expand_rounds", type=int, default=0,
+                    help="transitive expansion: after measuring the pairs chosen so far, propose "
+                         "A-C wherever A-B and B-C are both verified links, gate the proposal on "
+                         "GPS distance, match it, and repeat this many rounds (0=off). Finds the "
+                         "revisit pairs a window is blind to at a fraction of exhaustive cost; "
+                         "the idea is CityZero's query expansion, the distance gate is what its "
+                         "post-mortem said was missing")
+    ap.add_argument("--expand_min", type=float, default=0,
+                    help="a link counts as verified at this many correspondences; 0 = half the "
+                         "median over the links measured so far")
+    ap.add_argument("--expand_dist", type=float, default=30,
+                    help="expansion: only propose pairs whose cameras are within this many metres "
+                         "(GPS), so a lookalike facade across the district cannot be proposed. "
+                         "0 disables the gate")
+    ap.add_argument("--expand_per_frame", type=int, default=12,
+                    help="expansion: at most this many new partners per frame per round, best-"
+                         "supported first, so a rotation does not propose everything at once")
     ap.add_argument("--pairs", default="swin", choices=["swin", "complete", "bearing"],
                     help="pairing strategy: time-window / exhaustive / spatial+bearing-overlap")
     ap.add_argument("--pair_dist", type=float, default=80, help="bearing mode: max pair distance (m)")
+    ap.add_argument("--gps_acc_floor", type=float, default=2.0,
+                    help="position fit: a frame's GPS accuracy is clamped to at least this many "
+                         "metres before weighting by 1/acc², so optimistic sub-metre claims do "
+                         "not own the fit. Frames without an accuracy get the median of those "
+                         "that have one; no accuracies at all = the uniform fit of old runs")
     ap.add_argument("--pair_dang", type=float, default=110, help="bearing mode: max bearing diff (deg)")
     ap.add_argument("--size", type=int, default=512)
     ap.add_argument("--niter1", type=int, default=300)
@@ -864,15 +1212,52 @@ def main():
     paths = download(sub, os.path.join(a.out, "imgs"),
                      mask_anon=a.mask_anon, mask_solocator=a.mask_solocator)
 
+    # Tiles replace frames as the unit the solver sees. Done here, right after staging, so
+    # everything downstream — content-addressed cache, masking, pairing, solve, dense
+    # extraction — treats them as ordinary images and needs no notion of tiling at all.
+    frame_sub, frame_paths, tile_grid, tile_pp_by_path = sub, paths, None, {}
+    if a.tiles:
+        try:
+            R, C = (int(x) for x in a.tiles.lower().split("x"))
+        except ValueError:
+            raise SystemExit(f"--tiles wants RxC, e.g. 3x3 (got {a.tiles!r})")
+        if R < 1 or C < 1 or R * C < 2:
+            raise SystemExit("--tiles must describe at least two tiles")
+        tile_grid = (R, C)
+        if a.shared_intrinsics:
+            # Incompatible by construction: shared_intrinsics collapses every view onto ONE
+            # focal and ONE principal point, and the whole point of a tile is that its
+            # principal point is somewhere else. Tiles of one frame do share a focal, but
+            # tiles of different cells do not share a principal point, and the solver has no
+            # way to express that. Refusing loudly beats solving something meaningless.
+            log("tiling: --shared_intrinsics is incompatible with tiles (every tile has its "
+                "own principal point) — disabling it for this run")
+            a.shared_intrinsics = False
+        paths, sub = tile_frames(frame_sub, frame_paths, os.path.join(a.out, "tiles"),
+                                 tile_grid, a.tile_overlap, size_hint=a.size)
+        if a.tile_pin_pp:
+            # the crop's principal point, carried into the frame the solver will see.
+            # Installed further down, once mast3r is importable.
+            tile_pp_by_path = {}
+            for pth, q in zip(paths, sub):
+                x0, y0, x1, y1 = q["tile_box"]
+                tile_pp_by_path[pth] = map_point_to_loaded(q["tile_pp"], x1 - x0, y1 - y0, a.size)
+
     # NB the "loading MASt3R" prefix is a progress marker the worker greps for
     log(f"loading MASt3R model ({a.device})…")
-    for p in (MAST3R_REPO, os.path.join(MAST3R_REPO, "dust3r"),
-              os.path.join(MAST3R_REPO, "dust3r", "croco")):
-        if p not in sys.path:
-            sys.path.insert(0, p)
+    import solvers
+    solvers.setup_paths(a.solver, MAST3R_REPO, log=log)
     import torch
-    from mast3r.model import AsymmetricMASt3R
-    from mast3r.cloud_opt.sparse_ga import sparse_global_alignment
+    # The three hooks below patch MASt3R's own sparse_ga: the content-addressed forward
+    # cache, the correspondence masking that rides with it, and the tile principal points.
+    # They are meaningless for a backend that neither matches nor caches, so they are the
+    # solver's business and not the run's.
+    mast3r_hooks = a.solver == "mast3r"
+    if tile_pp_by_path and mast3r_hooks:
+        install_tile_intrinsics(tile_pp_by_path)
+    elif tile_pp_by_path:
+        log(f"  tiles: --tile_pin_pp has no effect with solver={a.solver}; its own "
+            f"resolver conditions on each window's intrinsics instead")
     from dust3r.image_pairs import make_pairs
     from dust3r.utils.image import load_images
 
@@ -908,11 +1293,14 @@ def main():
             "(dust3r/croco/models/curope) or pass --no_require_curope.")
     # NB: do NOT globally disable grad — sparse_scene_optimizer needs autograd for
     # its optimization loop. The MASt3R forward passes manage no_grad internally.
-    model = AsymmetricMASt3R.from_pretrained(MAST3R_CKPT).to(a.device).eval()
+    ckpt = MAST3R_CKPT if a.solver == "mast3r" else (
+        os.getenv("POW3R_CKPT") or os.path.join(MAST3R_REPO, "checkpoints", "pow3r.pth"))
+    model = solvers.load_model(a.solver, ckpt, a.device, log=log)
 
     CONTENT_KEY.update({p: content_key(p, a.size) for p in paths})
     shared_cache = os.path.abspath(a.cache) if a.cache else None
-    install_shared_cache(shared_cache)
+    if mast3r_hooks:
+        install_shared_cache(shared_cache)
     if shared_cache:
         n_hit = sum(os.path.isdir(os.path.join(shared_cache, "forward", CONTENT_KEY[p])) for p in paths)
         log(f"shared cache {shared_cache}: {n_hit}/{len(paths)} frames have forward passes there")
@@ -984,7 +1372,9 @@ def main():
         def keep(a_, b_):
             i, j = a_["idx"], b_["idx"]
             d = math.hypot(sub[i]["e"] - sub[j]["e"], sub[i]["n"] - sub[j]["n"])
-            if d > a.pair_dist:
+            # a gate must not reject what the GPS could not have separated: two fixes
+            # each uncertain by r may be closer than their difference by 2r
+            if d - (sub[i].get("acc") or 0.0) - (sub[j].get("acc") or 0.0) > a.pair_dist:
                 return False
             bi, bj = sub[i]["brg"], sub[j]["brg"]
             if bi is not None and bj is not None:
@@ -999,6 +1389,26 @@ def main():
         sg = f"swin-{win}-noncyclic"
         pairs = make_pairs(imgs, scene_graph=sg, prefilter=None, symmetrize=True)
         log(f"pairing={sg} -> {len(pairs)} directed pairs")
+    if tile_grid:
+        # the rule above ran over TILES as if they were frames, which is not what it means;
+        # redo it over parent frames and expand. Tiles of one frame are never paired.
+        seen_parent, parent_imgs = {}, []
+        for im in imgs:
+            pi = sub[im["idx"]]["parent_idx"]
+            if pi not in seen_parent:
+                seen_parent[pi] = dict(im)
+                seen_parent[pi]["idx"] = pi
+                parent_imgs.append(seen_parent[pi])
+        parent_imgs.sort(key=lambda x: x["idx"])
+        if a.pairs == "complete":
+            fp = make_pairs(parent_imgs, scene_graph="complete", prefilter=None, symmetrize=True)
+        else:
+            w = min(a.win, len(parent_imgs) - 1)
+            fp = make_pairs(parent_imgs, scene_graph=f"swin-{w}-noncyclic",
+                            prefilter=None, symmetrize=True)
+        pairs = tile_pairs(imgs, sub, a.tile_pairs, fp)
+        log(f"tile pairing={a.tile_pairs}: {len(fp)} frame pairs -> {len(pairs)} tile pairs")
+
     if not pairs:
         raise SystemExit("no pairs survived the pairing filter — loosen --pair_dist/--pair_dang")
 
@@ -1057,30 +1467,120 @@ def main():
         else:
             log("adaptive pairing: nothing to add")
 
+    # TRANSITIVE EXPANSION. Window pairing sees a chain; bearing pairing sees a radius; both
+    # are guesses about which frames overlap. The matcher's own output is not a guess: once
+    # A-B and B-C are verified with plenty of correspondences, A-C is the single most likely
+    # unmeasured pair to be real. So measure what we have, propose the two-hop closures,
+    # keep only the ones the GPS says are physically near, match them, repeat. Each round
+    # can only propose pairs adjacent to verified structure, so cost grows with the graph's
+    # real density rather than with n². The distance gate is the lesson from CityZero's
+    # failed mappers: expansion without it made lookalike houses on opposite ends of the
+    # district the best-connected pair in the set, and every solve initialised on them.
+    if a.expand_rounds > 0 and a.pairs != "complete" and not tile_grid:
+        from collections import defaultdict as _dd
+        import mast3r.cloud_opt.sparse_ga as _SGA
+        import torch as _t
+        exp_cache = shared_cache or os.path.join(a.out, "cache")
+        key_of = [CONTENT_KEY.get(p, p) for p in paths]
+        have = set()
+        for p1, p2 in pairs:
+            have.add((p1["idx"], p2["idx"])); have.add((p2["idx"], p1["idx"]))
+
+        def near(i, j):
+            if a.expand_dist <= 0:
+                return True
+            si, sj = sub[i], sub[j]
+            if si.get("e") is None or sj.get("e") is None:
+                return True     # no position to gate on: let the matcher decide
+            slack = (si.get("acc") or 0.0) + (sj.get("acc") or 0.0)
+            return math.hypot(si["e"] - sj["e"], si["n"] - sj["n"]) - slack <= a.expand_dist
+
+        n_added = 0
+        for rnd in range(1, a.expand_rounds + 1):
+            base = _SGA.convert_dust3r_pairs_naming(paths, [(p1.copy(), p2.copy()) for p1, p2 in pairs])
+            log(f"expansion round {rnd}: measuring {len(base)} directed pairs (cached ones are free)…")
+            res_paths, _ = _SGA.forward_mast3r(base, model, cache_path=exp_cache, subsample=8,
+                                               desc_conf="desc_conf", device=a.device)
+            cnt = {}
+            for (i1, i2), (_pp, pc) in res_paths.items():
+                try:
+                    (_score, _csum, n_corr), _ = _t.load(pc)
+                except Exception:
+                    continue
+                k = tuple(sorted((CONTENT_KEY.get(i1, i1), CONTENT_KEY.get(i2, i2))))
+                cnt[k] = max(cnt.get(k, 0), int(n_corr))
+            verified = {}
+            for (i, j) in have:
+                if i < j:
+                    c = cnt.get(tuple(sorted((key_of[i], key_of[j]))), 0)
+                    if c > 0:
+                        verified[(i, j)] = c
+            if not verified:
+                log("expansion: no measured links to expand from")
+                break
+            thr = a.expand_min if a.expand_min > 0 else 0.5 * float(np.median(list(verified.values())))
+            adj = _dd(dict)
+            for (i, j), c in verified.items():
+                if c >= thr:
+                    adj[i][j] = c; adj[j][i] = c
+            # a two-hop proposal is as strong as its weaker hop
+            prop = {}
+            for b, nb in adj.items():
+                ks = list(nb.items())
+                for x in range(len(ks)):
+                    for y in range(x + 1, len(ks)):
+                        (i, ci), (j, cj) = ks[x], ks[y]
+                        if (i, j) in have or not near(i, j):
+                            continue
+                        k = (min(i, j), max(i, j))
+                        s = min(ci, cj)
+                        if s > prop.get(k, 0):
+                            prop[k] = s
+            per = _dd(list)
+            for (i, j), s in prop.items():
+                per[i].append((s, j)); per[j].append((s, i))
+            keep = set()
+            for i, lst in per.items():
+                lst.sort(reverse=True)
+                for s, j in lst[:a.expand_per_frame]:
+                    keep.add((min(i, j), max(i, j)))
+            if not keep:
+                log(f"expansion round {rnd}: {len(prop)} proposals, nothing new -> converged")
+                break
+            extra = []
+            for (i, j) in sorted(keep):
+                extra.append((imgs[i], imgs[j])); extra.append((imgs[j], imgs[i]))
+                have.add((i, j)); have.add((j, i))
+            pairs = pairs + extra
+            n_added += len(extra)
+            log(f"expansion round {rnd}: {len(verified)} measured links, {len(adj)} frames with "
+                f"a verified one (>= {thr:.0f} corres), {len(prop)} two-hop proposals within "
+                f"{a.expand_dist:g} m, kept {len(keep)} -> +{len(extra)} directed pairs, "
+                f"{len(pairs)} total")
+        if n_added:
+            log(f"expansion: +{n_added} directed pairs over the rounds")
+    elif a.expand_rounds > 0:
+        log("expansion: skipped (complete pairing has nothing to add; tiling pairs over frames)")
+
     log("running sparse_global_alignment…")
     tr = time.time()
     cache = os.path.join(a.out, "cache")
-    scene = sparse_global_alignment(
-        paths, pairs, cache, model,
-        lr1=0.07, niter1=a.niter1, lr2=0.01, niter2=a.niter2,
-        device=a.device, matching_conf_thr=5.0,
-        shared_intrinsics=a.shared_intrinsics)
+    sol = solvers.BACKENDS[a.solver](
+        paths, pairs, cache, model, device=a.device,
+        niter1=a.niter1, niter2=a.niter2, shared_intrinsics=a.shared_intrinsics,
+        want_dense=bool(a.dense), min_conf=a.min_conf, log=log,
+        exif_focals=[p.get("exif_focal") for p in sub],
+        hi_res=bool(a.pow3r_hi_res), crop_res=(384, a.size))
+    scene = sol.notes.get("scene")
     recon_s = time.time() - tr
-    log(f"reconstruction done in {recon_s:.0f}s")
+    log(f"reconstruction done in {recon_s:.0f}s (solver={sol.backend}"
+        + ("" if sol.emits_correspondences else
+           ", NO correspondences: reproj/epipolar metrics, the two-view verifier and the "
+           "span joiner have nothing to read for this run") + ")")
 
     # extract
-    poses = scene.get_im_poses().detach().cpu().numpy()        # N x 4x4 cam2world
-    focals = scene.get_focals().detach().cpu().numpy().ravel()
-    pts_l = scene.get_sparse_pts3d()
-    cols_l = scene.get_pts3d_colors()
-    def cat(x):
-        import numpy as _np, torch as _t
-        if isinstance(x, (list, tuple)):
-            x = [xx.detach().cpu().numpy() if hasattr(xx, "detach") else _np.asarray(xx) for xx in x]
-            x = [xx.reshape(-1, 3) for xx in x]
-            return _np.concatenate(x, 0) if x else _np.zeros((0, 3))
-        return x.detach().cpu().numpy().reshape(-1, 3) if hasattr(x, "detach") else _np.asarray(x).reshape(-1, 3)
-    pts = cat(pts_l); cols = cat(cols_l)
+    poses, focals = sol.poses, sol.focals
+    pts, cols = sol.points, sol.colors
     cams = poses[:, :3, 3]                                       # camera centers
     log(f"{len(pts)} sparse points, {len(cams)} cameras, focals={np.round(focals,1)}")
 
@@ -1089,7 +1589,8 @@ def main():
     # guessed at the image centre biases it by more than a good solve's whole error
     # (masktest: 0.71 px true vs 3.57 px with centre-pp). Runs saved before this line
     # need recon_resolve.py to recover them.
-    K_full = scene.intrinsics.detach().cpu().numpy()
+    K_full = (sol.intrinsics if sol.intrinsics is not None
+              else intrinsics_from_focals(focals, poses.shape[0], imgs))
     np.savez(os.path.join(a.out, "scene.npz"),
              poses=poses, focals=focals, points=pts, colors=cols, cams=cams,
              intrinsics=K_full)
@@ -1101,8 +1602,13 @@ def main():
     if a.dense:
         log("extracting dense point cloud (get_dense_pts3d)…")
         td0 = time.time()
-        d_pts3d, d_depths, d_confs = scene.get_dense_pts3d(clean_depth=True)
-        rgb = scene.imgs                                          # list of (H,W,3) in [0,1]
+        d_pts3d, d_depths, d_confs = sol.dense_pts, sol.dense_depths, sol.dense_confs
+        if d_pts3d is None:
+            raise SystemExit(f"solver {sol.backend} returned no dense layer")
+        # the loaded RGB, which every backend has in its own place
+        rgb = (scene.imgs if scene is not None and hasattr(scene, "imgs")
+               else [((im["img"][0].permute(1, 2, 0).cpu().numpy() * 0.5 + 0.5))
+                     for im in imgs])
         def tn(x): return x.detach().cpu().numpy() if hasattr(x, "detach") else np.asarray(x)
         d_pts3d = [tn(p).reshape(-1, 3) for p in d_pts3d]
         d_confs = [tn(c).ravel() for c in d_confs]
@@ -1170,10 +1676,38 @@ def main():
                     sp, sc_ = sp[sel], sc_[sel]
                 write_ply(os.path.join(a.out, "dense_soft.ply"), sp, sc_)
         # full arrays for later review (compressed)
+        # float16 depth and byte colours: this file is an archive for re-joining later,
+        # not a measurement, and both are lossless enough for that at a quarter the size.
+        # float16 holds ~3 significant digits, which on a 30 m depth is centimetres.
+        # points are NOT stored: they are depth x intrinsics x pose, and on a two-frame
+        # run they were two thirds of this file while nothing read them back.
         np.savez_compressed(os.path.join(a.out, "dense.npz"),
-                            points=dpts, colors=dcols,
-                            depthmaps=np.array(d_depths, dtype=object),
+                            colors=np.clip(np.asarray(dcols) * (255 if np.size(dcols) and np.max(dcols) <= 1.01 else 1), 0, 255).astype(np.uint8),
+                            depthmaps=stack_depths(d_depths),
                             poses=poses, focals=focals)
+
+        # THE JOIN KIT, and the reason it exists: dense.npz stays on the worker and dies
+        # with a rented instance, so without this, joining two runs after the box is
+        # destroyed means re-solving them. Depth at float16 plus poses and intrinsics is
+        # everything recon_join_spans reads — measured at 0.176 MB a frame compressed,
+        # about 12.5 GB for the whole corpus, against 1.52 MB a frame for the full arrays.
+        np.savez_compressed(os.path.join(a.out, "joinkit.npz"),
+                            depthmaps=stack_depths(d_depths),
+                            poses=np.asarray(poses, np.float32),
+                            intrinsics=np.asarray(K_full, np.float32),
+                            focals=np.asarray(focals, np.float32),
+                            cache_keys=np.array([CONTENT_KEY.get(pp, "") for pp in paths]),
+                            ids=np.array([pp["id"] for pp in sub]),
+                            # the loaded (H, W) per frame, EXPLICITLY. Deriving it from the
+                            # principal point is wrong the moment the solver moves that
+                            # point off centre: on a two-frame run it recovered 508x387 for
+                            # a 512x384 frame, which silently scrambles every depth lookup.
+                            shapes=np.array([[int(im["true_shape"][0][0]),
+                                              int(im["true_shape"][0][1])] for im in imgs],
+                                            dtype=np.int32))
+        log(f"join kit: {os.path.getsize(os.path.join(a.out, 'joinkit.npz')) / 1e6:.2f} MB "
+            f"for {len(d_depths)} frames — depth, poses and intrinsics, which is what a "
+            f"later join needs and all it needs")
         # cap ascii ply at ~2M pts so it stays openable; keep full set in dense.npz
         if len(dpts) > 2_000_000:
             sel = np.linspace(0, len(dpts) - 1, 2_000_000).astype(int)
@@ -1194,7 +1728,12 @@ def main():
     gps_enu = np.array([[p["e"], p["n"], (p["alt"] - alt0) if p["alt"] is not None else 0.0] for p in sub])
     # Fit the similarity on the REAL cluster only; impostors must not influence the alignment.
     real = np.array([not p.get("inj") for p in sub])
-    s, R, t = umeyama(cams[real], gps_enu[real])
+    gw, gps_acc = gps_weights(sub, a.gps_acc_floor)
+    if gw is not None:
+        log(f"position fit weighted by GPS accuracy: {gps_acc['n_known']}/{len(sub)} frames "
+            f"carry one, median {gps_acc['median_m']} m, worst {gps_acc['worst_m']} m, "
+            f"weight ratio {gps_acc['weight_ratio']}x")
+    s, R, t = umeyama(cams[real], gps_enu[real], None if gw is None else gw[real])
     rec_enu = (s * (R @ cams.T)).T + t
     resid = np.linalg.norm(rec_enu[:, :2] - gps_enu[:, :2], axis=1)   # horizontal residual
     cam_ll_gps = [(p["lat"], p["lon"]) for p in sub]
@@ -1209,6 +1748,8 @@ def main():
     # correspondence-count connectivity (post-masking) → matrix image + summary
     pair_stats = {}
     try:
+        if not mast3r_hooks:
+            raise RuntimeError(f"solver {a.solver} emits no correspondences")
         mat = pair_count_matrix(cache, paths, shared_cache, pairs)
         render_pair_matrix(mat, os.path.join(a.out, "pairs_matrix.png"))
         sym = mat + mat.T
@@ -1230,7 +1771,19 @@ def main():
                  scale=float(s), med_resid=float(np.median(rr)),
                  mean_resid=float(rr.mean()), max_resid=float(rr.max()),
                  corr_dropped=CORR_STATS["dropped"], corr_total=CORR_STATS["total"],
-                 n_masked=len(CORR_MASKS), pair_stats=pair_stats, impostor_resid=inj_resid, topdown=td)
+                 n_masked=len(CORR_MASKS), pair_stats=pair_stats, impostor_resid=inj_resid, topdown=td,
+                 gps_accuracy=gps_acc,
+                 solver=sol.backend, emits_correspondences=sol.emits_correspondences,
+                 solver_notes={k: v for k, v in sol.notes.items() if k != "scene"},
+                 tiles=(dict(grid=list(tile_grid), overlap=a.tile_overlap, mode=a.tile_pairs,
+                             n_frames=len(frame_sub), n_tiles=len(sub),
+                             detail_vs_whole_frame=round(float(np.median([
+                                 min(1.0, a.size / max(q["tile_box"][2] - q["tile_box"][0],
+                                                       q["tile_box"][3] - q["tile_box"][1]))
+                                 / (a.size / max(*q["parent_wh"])) for q in sub])), 2),
+                             pinned_pp=bool(a.tile_pin_pp),
+                             **tile_consistency(poses, sub, s))
+                        if tile_grid else None))
     report_html(a.out, sub, (lat0, lon0), cam_ll_gps, cam_ll_rec, resid, stats)
 
     # comprehensive metadata for later review: every input + every recovered quantity
@@ -1246,9 +1799,12 @@ def main():
         "frames": [{
             "idx": i, "id": p["id"], "injected": bool(p.get("inj")),
             "cache_key": CONTENT_KEY.get(paths[i]),
+            **({k: p[k] for k in ("parent_idx", "tile", "tile_box", "parent_wh", "tile_pp")
+                if k in p}),
             "session": p.get("sess"),
             "gps": [p["lat"], p["lon"]], "altitude": p["alt"],
             "compass_angle": p["brg"], "bearing_source": p.get("brg_src"),
+            "location_accuracy_m": p.get("acc"),
             "captured_at": p["cap"], "title": p["ttl"],
             "dist_to_center_m": round(p["d"], 1), "source_url": p["full"],
             "focal_px": float(focals[i]),

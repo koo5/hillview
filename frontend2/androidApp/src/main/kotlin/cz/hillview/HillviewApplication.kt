@@ -80,6 +80,15 @@ class HillviewApplication : Application() {
             }
         }
 
+        // The photos table, written out beside the photos so that a JPEG
+        // surviving an uninstall is not left meaningless — see PhotoTableDump
+        // for why this is unconditional. After initKoin, which owns the
+        // CaptureEvents it listens to.
+        cz.hillview.capture.PhotoTableDump.install(
+            this,
+            GlobalContext.get().get<cz.hillview.capture.CaptureEvents>(),
+        )
+
         // Lockstep logout: whichever shared-kt AuthenticationManager instance
         // (upload worker, status sync, UI store) declares the session dead,
         // the Compose UI drops to LoggedOut immediately — the same wiring the

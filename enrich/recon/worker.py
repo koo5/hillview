@@ -158,7 +158,12 @@ FLAG_PARAMS = {"win": "--win", "pairs": "--pairs", "pair_dist": "--pair_dist",
                "pair_dang": "--pair_dang", "size": "--size",
                "niter1": "--niter1", "niter2": "--niter2",
                "min_conf": "--min_conf",
-               "adaptive_reach": "--adaptive_reach", "adaptive_frac": "--adaptive_frac"}
+               "adaptive_reach": "--adaptive_reach", "adaptive_frac": "--adaptive_frac",
+               "tiles": "--tiles", "tile_overlap": "--tile_overlap",
+               "tile_pairs": "--tile_pairs", "tile_pin_pp": "--tile_pin_pp",
+               "expand_rounds": "--expand_rounds", "expand_min": "--expand_min",
+               "expand_dist": "--expand_dist", "expand_per_frame": "--expand_per_frame",
+               "gps_acc_floor": "--gps_acc_floor"}
 BOOL_PARAMS = {"dense": "--dense", "mask_anon": "--mask_anon",
                "mask_solocator": "--mask_solocator",
                "mask_vegetation": "--mask_vegetation",
@@ -474,7 +479,7 @@ def reconstruct_cluster(payload: dict) -> None:
     files, handles = {}, []
     for key, fname in (("metadata", "metadata.json"), ("metrics", "metrics.json"),
                        ("cloud", "points.ply"), ("dense_cloud", "dense.ply"),
-                       ("soft_cloud", "dense_soft.ply"),
+                       ("soft_cloud", "dense_soft.ply"), ("join_kit", "joinkit.npz"),
                        ("topdown", "topdown.png"),
                        ("pairs_matrix", "pairs_matrix.png"), ("log", "run.log")):
         p = os.path.join(rundir, fname)

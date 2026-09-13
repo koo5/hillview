@@ -90,14 +90,23 @@ class SharedStackUploadPipeline(
                     id = null,
                     filename = upload.filename,
                     path = upload.filePath,
-                    latitude = upload.latitude ?: 0.0,
-                    longitude = upload.longitude ?: 0.0,
+                    // Null stays null: a capture with no position (blank first
+                    // run, docs/one-state.md) is registered WITHOUT one, and
+                    // uploads without one. `?: 0.0` here used to be Null
+                    // Island waiting for the gate to be lifted.
+                    latitude = upload.latitude,
+                    longitude = upload.longitude,
                     altitude = upload.altitude,
                     bearing = upload.bearing,
                     capturedAt = upload.capturedAtMs ?: System.currentTimeMillis(),
-                    // EXIF GPSHPositioningError carries the real accuracy; the DB
-                    // column mirrors the Tauri AddPhotoArgs default when absent.
-                    accuracy = 0.0,
+                    // The receiver's accuracy radius. 0.0 is this table's
+                    // "absent" sentinel (buildUploadMetadata omits it), so a
+                    // fix without one, or a hand-claimed position, sends
+                    // nothing rather than a fake zero. This used to be a
+                    // constant 0.0 on the theory that EXIF GPSHPositioningError
+                    // carried it — but the fast-write path writes no EXIF and
+                    // the upload sends the row, so it never left the phone.
+                    accuracy = upload.accuracyM?.toDouble() ?: 0.0,
                     width = bounds.outWidth.coerceAtLeast(0),
                     height = bounds.outHeight.coerceAtLeast(0),
                     fileSize = bytes.size.toLong(),
