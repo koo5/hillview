@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
@@ -326,10 +327,10 @@
 		{#if calibrated}<span class="pill ok" style="font-size:11px">calibrated 🧭</span>{/if}
 		{#if p.missing_since}<span class="pill" style="font-size:11px; border-color:var(--bad); color:var(--bad)">missing from source</span>{/if}
 		<div style="flex:1"></div>
-		{#if p.is_pano}<a href="/calibration?pano={p.id}">calibration bench →</a>{/if}
-		{#if p.is_pano}<a href="/transfer?target={p.id}" title="clone annotations from nearby panos onto this one">transfer bench →</a>{/if}
-		{#if p.lat != null && p.lon != null}<a href="/terrain?photo={p.id}" title="synthetic terrain view from this photo's viewpoint">terrain bench →</a>{/if}
-		{#if p.lat != null && p.lon != null}<a href="/terrain/overlay?photo={p.id}" title="overlay the render's skyline onto this photo (experiment)">terrain overlay →</a>{/if}
+		{#if p.is_pano}<a href="{base}/calibration?pano={p.id}">calibration bench →</a>{/if}
+		{#if p.is_pano}<a href="{base}/transfer?target={p.id}" title="clone annotations from nearby panos onto this one">transfer bench →</a>{/if}
+		{#if p.lat != null && p.lon != null}<a href="{base}/terrain?photo={p.id}" title="synthetic terrain view from this photo's viewpoint">terrain bench →</a>{/if}
+		{#if p.lat != null && p.lon != null}<a href="{base}/terrain/overlay?photo={p.id}" title="overlay the render's skyline onto this photo (experiment)">terrain overlay →</a>{/if}
 		<a href={p.web_url} target="_blank" rel="noreferrer">hillview.cz ↗</a>
 	</div>
 	<div class="muted" style="font-size:12px; margin:2px 0 10px">
@@ -389,7 +390,7 @@
 				ondraw={saveDrawnRect}
 				onedit={saveEditedRect}
 				ondelete={deleteRect}
-				onrectclick={(id) => (mode === 'view' ? goto(`/annotations/${id}`) : null)}
+				onrectclick={(id) => (mode === 'view' ? goto(`${base}/annotations/${id}`) : null)}
 			/>
 		{/key}
 		<p class="muted" style="font-size:11px; margin:3px 0 0">
@@ -407,7 +408,7 @@
 				{/each}
 			{:else}
 				<p class="muted" style="font-size:12px">
-					none yet{#if p.is_pano} — <a href="/calibration?pano={p.id}">accept a calibration fit</a>{/if}
+					none yet{#if p.is_pano} — <a href="{base}/calibration?pano={p.id}">accept a calibration fit</a>{/if}
 				</p>
 			{/if}
 
@@ -505,8 +506,8 @@
 					{#each shownAnns as a (a.id)}
 						<tr style={!a.is_current || a.missing ? 'opacity:0.5' : ''}>
 							<td style="max-width:330px">
-								<a href="/annotations/{a.id}" style="font-size:12px">{a.body || '(unnamed)'}</a>
-								<a href="/matching?annotation={a.id}" class="muted" style="font-size:10px" title="matching bench">match ↗</a>
+								<a href="{base}/annotations/{a.id}" style="font-size:12px">{a.body || '(unnamed)'}</a>
+								<a href="{base}/matching?annotation={a.id}" class="muted" style="font-size:10px" title="matching bench">match ↗</a>
 							</td>
 							<td class="mono" style="font-size:11px">
 								{a.rect ? pct(a.rect.x + (a.rect.w ?? 0) / 2) : '—'}
@@ -546,9 +547,9 @@
 					<tbody>
 						{#each data.matches.as_pano as m (m.id)}
 							<tr>
-								<td style="max-width:120px"><a href="/annotations/{m.annotation_id}" style="font-size:11px">{m.body || m.annotation_id.slice(0, 8)}</a></td>
+								<td style="max-width:120px"><a href="{base}/annotations/{m.annotation_id}" style="font-size:11px">{m.body || m.annotation_id.slice(0, 8)}</a></td>
 								<td>
-									<a href="/photos/{m.candidate_id}">
+									<a href="{base}/photos/{m.candidate_id}">
 										<PhotoThumb sizes={m.candidate_sizes ?? null} size={46} />
 									</a>
 								</td>
@@ -570,7 +571,7 @@
 			{#if data.matches.as_candidate.length}
 				<h2>
 					Matched as candidate
-					<a href="/transfer?target={data.photo.id}" style="font-size:12px; font-weight:normal; margin-left:8px"
+					<a href="{base}/transfer?target={data.photo.id}" style="font-size:12px; font-weight:normal; margin-left:8px"
 						title="clone annotations from nearby panos onto this photo">transfer bench →</a>
 				</h2>
 				<table>
@@ -579,8 +580,8 @@
 						{#each data.matches.as_candidate as m (m.id)}
 							<tr>
 								<td style="max-width:140px">
-									<a href="/photos/{m.pano_id}" style="font-size:11px">{m.pano_title ?? m.pano_id?.slice(0, 8)}</a>
-									<div><a href="/annotations/{m.annotation_id}" class="muted" style="font-size:10px">{m.body || m.annotation_id.slice(0, 8)}</a></div>
+									<a href="{base}/photos/{m.pano_id}" style="font-size:11px">{m.pano_title ?? m.pano_id?.slice(0, 8)}</a>
+									<div><a href="{base}/annotations/{m.annotation_id}" class="muted" style="font-size:10px">{m.body || m.annotation_id.slice(0, 8)}</a></div>
 								</td>
 								<td style="font-size:11px">
 									{#if m.status === 'done'}

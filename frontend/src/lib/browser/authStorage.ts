@@ -17,6 +17,12 @@ export interface IndexedDbTokenData {
     refresh_token: string;
     expires_at: number;
     refresh_token_expires?: number;
+    // Read-only ticket for the frontend's server renderer. Stored here rather
+    // than only in its cookie because whoever refreshes must hand it on: the
+    // service worker can refresh with no tab open and cannot write cookies, so a
+    // tab picks it up from here when the auth_changed broadcast arrives.
+    ssr_token?: string;
+    ssr_token_expires?: number;
 }
 
 // Simple broadcast: "auth state changed, check IndexedDB"
@@ -241,12 +247,19 @@ export class AuthStorage {
             const data = await response.json();
             console.log('[AuthStorage] Token refresh successful');
 
+            // ssr_token carried through even though this path may be running in the
+            // service worker, which cannot write its cookie: saving it here is what
+            // lets a tab mirror it when the auth_changed broadcast lands.
             await this.saveTokenData({
                 access_token: data.access_token,
                 refresh_token: data.refresh_token,
                 expires_at: new Date(data.expires_at).getTime(),
                 refresh_token_expires: data.refresh_token_expires_at
                     ? new Date(data.refresh_token_expires_at).getTime()
+                    : undefined,
+                ssr_token: data.ssr_token,
+                ssr_token_expires: data.ssr_token_expires_at
+                    ? new Date(data.ssr_token_expires_at).getTime()
                     : undefined
             });
 

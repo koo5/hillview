@@ -61,7 +61,7 @@ import androidx.compose.ui.unit.dp
 import cz.hillview.core.nowMs
 import kotlin.math.roundToInt
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
 
 // The two glass families every original overlay uses: dark pills for info
@@ -73,18 +73,10 @@ import kotlin.time.TimeSource
 internal val DarkGlass = Color(0xB3000000)
 internal val LightGlass = Color(0x33FFFFFF)
 
-// Same physical track, finer grain: 15 s is the longest useful spacing
-// (the original's slow mode is 10 s) — a 60 s ceiling made every useful
-// value crowd the bottom centimetre of the slider.
-internal const val INTERVAL_MAX_SEC = 15
-
-/**
- * One stop above the fastest interval: VIDEO. Video is a modality of this
- * pane — "almost just a 0-interval photo capture" — so it is chosen the
- * same way a run is: hold the shutter, slide up the ladder, release. Past
- * the top of the seconds is where "even less than zero interval" belongs.
- */
-internal const val LADDER_VIDEO_STOP = INTERVAL_MAX_SEC + 1
+// The ladder itself — its rungs, its labels and the geometry the gesture
+// reads — lives in IntervalLadder.kt. Video is one of its rungs because
+// video is a modality of this pane ("almost just a 0-interval photo
+// capture"), chosen the same way a run is: hold, slide up, release.
 
 /**
  * Session totals for the corner indicator — the original's captureQueue
@@ -110,9 +102,6 @@ fun CaptureScreen(
     val sessionManager: cz.hillview.auth.SessionManager = org.koin.compose.koinInject()
     val sessionState by sessionManager.state.collectAsState()
 
-    // The lifted-gate state now lives on the session (see
-    // MapSession.mapPositionWithoutFix) — it decides what reaches the tracking
-    // tables, so it has to be answerable while this pane is closed.
     // The LIVE map state — the same holder the always-mounted map pane
     // renders, so follow-me and the claim move the camera the user is
     // looking at (a store write would go behind the mounted map's back).
@@ -122,17 +111,21 @@ fun CaptureScreen(
     val session: cz.hillview.map.MapSession = org.koin.compose.koinInject()
     val locationTracking by session.locationTracking.collectAsState()
     val manualClaimed by session.manualPositionClaimed.collectAsState()
-    val mapPositionWithoutFix by session.mapPositionWithoutFix.collectAsState()
     val manualElected by session.manualPositionElected.collectAsState()
+    // The two position records, for the overlay's "what would a capture
+    // stamp" readout — the same records the pane is handed below.
+    val spatialNow by mapState.spatial.collectAsState()
+    val fixNow by mapState.lastFix.collectAsState()
 
     // A claimed manual position (accepted on the map) overrides the fix:
-    // captures geotag from the map centre, tagged "manual" — and the
-    // degraded shutter tone says so out loud.
-    // Two deliberate acts elect the map position, and nothing else does: the
-    // pill's accepted claim and the no-fix escape hatch below. The session
-    // combines them into one answer; this only mirrors it onto the capture
-    // object so a shutter press knows what to stamp. A stale fix quietly
-    // taking over used to be a third, unspoken act.
+    // captures geotag from the map centre, tagged "map" — and the degraded
+    // shutter tone says so out loud. ONE deliberate act elects the map
+    // position over a fix, the pill's accepted claim; this only mirrors it
+    // onto the capture object so a shutter press knows what to stamp. (The
+    // no-fix escape hatch that used to be a second act is gone: with no fix
+    // the map centre is simply what a photo records, no button needed —
+    // docs/one-state.md, "The position side". A stale fix quietly taking
+    // over was once a third, unspoken act.)
     LaunchedEffect(manualElected) {
         capture.manualLocationElected = manualElected
     }
@@ -152,6 +145,14 @@ fun CaptureScreen(
         mapState.spatial.collect { s ->
             capture.manualLocation = ManualLocation(s.latitude, s.longitude, s.ts)
         }
+    }
+    // The other record: the receiver's latest fix, from the one state — the
+    // pane's ONLY source of a fix. It used to keep its own subscription to
+    // the engine's stream for this (the allowlisted "second stream" in
+    // OneStateArchitectureTest), which is how it came to own a private
+    // "has fix" that could never go stale.
+    LaunchedEffect(Unit) {
+        mapState.lastFix.collect { capture.stampFix = it }
     }
     // The capture stamp bearing IS the map's bearing state (Tauri:
     // locationData.bearing = bearingState.bearing): car mode's
@@ -239,9 +240,10 @@ fun CaptureScreen(
         }
     }
 
-    // The last-used interval doubles as the slider's starting position when
-    // the gesture next unfolds it; repeating is the running-run flag.
-    var intervalSec by rememberSaveable { mutableStateOf(0) }
+    // The rung a release would commit to, as an index into INTERVAL_LADDER;
+    // it survives the gesture, so a stopped run remembers its own speed.
+    // repeating is the running-run flag.
+    var intervalIndex by rememberSaveable { mutableStateOf(0) }
     var repeating by rememberSaveable { mutableStateOf(false) }
     var runCount by remember { mutableStateOf(0) }
 
@@ -282,8 +284,9 @@ fun CaptureScreen(
         }
     }
 
-    LaunchedEffect(repeating, intervalSec) {
-        if (!repeating || intervalSec <= 0) {
+    LaunchedEffect(repeating, intervalIndex) {
+        val runRung = INTERVAL_LADDER.getOrNull(intervalIndex) as? LadderRung.Every
+        if (!repeating || runRung == null) {
             // The original zeroes its badge when the run stops.
             runCount = 0
             return@LaunchedEffect
@@ -296,7 +299,7 @@ fun CaptureScreen(
         // only ever slide later, never correct. Targets are computed from
         // the run's start instead, so a slow shot is absorbed rather than
         // added to every shot after it.
-        val interval = intervalSec.seconds
+        val interval = runRung.ms.milliseconds
         val clock = TimeSource.Monotonic.markNow()
         var nextAt = Duration.ZERO
         while (true) {
@@ -358,6 +361,7 @@ fun CaptureScreen(
                 bearingSource = photo.snapshot.bearingSource,
                 locationSource = photo.snapshot.locationSource,
                 locationAgeMs = photo.snapshot.locationAgeMs,
+                accuracyM = photo.snapshot.accuracyM,
                 exposureJson = photo.snapshot.exposure?.let { exposureProvenanceJson(it) },
                 pitchDeg = photo.snapshot.pitchDeg?.toDouble(),
                 altLocationJson = photo.snapshot.altLocation?.let { altLocationJson(it) },
@@ -410,11 +414,20 @@ fun CaptureScreen(
     // Pane-scope, not cluster-scope: the catch-zone wash below and the
     // shutter cluster both need these. What releasing RIGHT NOW would do
     // (null = cancel) used to live only inside the gesture loop
-    // (overSlider), so the one fact the whole gesture turns on was the one
+    // (overLadder), so the one fact the whole gesture turns on was the one
     // fact the screen could not show — and a run kept starting, or not, by
     // surprise (user-raised: "i keep missing it").
-    var sliderVisible by remember { mutableStateOf(false) }
-    var armedStop by remember { mutableStateOf<Int?>(null) }
+    var ladderVisible by remember { mutableStateOf(false) }
+    var armedIndex by remember { mutableStateOf<Int?>(null) }
+    // Where the finger is on the scale RIGHT NOW, whether or not it is over
+    // the catch zone yet: the rung it is level with, and the exact fraction
+    // for the pointer line. Separate from armedIndex because "what I am
+    // pointing at" and "what releasing would do" are different answers while
+    // the thumb is still on the button.
+    var hoverIndex by remember { mutableStateOf(0) }
+    var pointerFraction by remember { mutableStateOf<Float?>(null) }
+    // What releasing would commit to, as a rung — the shutter previews it.
+    val armedRung = armedIndex?.let { INTERVAL_LADDER.getOrNull(it) }
     // Why the last shutter press did nothing, shown briefly in the status
     // line. A press that is silently ignored is indistinguishable from a
     // dead button (field report: "does not react to long press anymore
@@ -428,6 +441,10 @@ fun CaptureScreen(
     }
     var circleBounds by remember { mutableStateOf<Rect?>(null) }
     var paneOrigin by remember { mutableStateOf(Offset.Zero) }
+    // The ladder spans the pane, so the pane's own rect is the scale the
+    // gesture reads. One rect for both, which is the property the old
+    // fixed-height slider did not have.
+    var paneBounds by remember { mutableStateOf<Rect?>(null) }
 
     // The capture pane IS the camera stream — the original's camera-content
     // fills with the video and positions every control absolutely over it
@@ -436,7 +453,10 @@ fun CaptureScreen(
     // a letterboxed preview above a stack of visible controls.)
     Box(
         modifier = Modifier
-            .onGloballyPositioned { paneOrigin = it.positionInRoot() }
+            .onGloballyPositioned {
+                paneOrigin = it.positionInRoot()
+                paneBounds = it.boundsInRoot()
+            }
             .fillMaxSize()
             .background(Color.Black),
     ) {
@@ -476,7 +496,16 @@ fun CaptureScreen(
                 suppressHint = showBearingHint,
                 state = state,
                 bearingMode = mapSettings.bearingMode,
-                overridePosition = if (capture.manualLocationElected) capture.manualLocation else null,
+                // What a capture would stamp when it is NOT the fix: the map
+                // centre, live — while claimed over a fix, and whenever there
+                // is no fix (the table in docs/one-state.md). A blank first
+                // run has no map position either, and shows as none.
+                overridePosition = if (manualElected || fixNow == null) {
+                    spatialNow.takeIf { it.ts != null }
+                        ?.let { ManualLocation(it.latitude, it.longitude, it.ts) }
+                } else {
+                    null
+                },
                 opacityLevel = mapSettings.cameraOverlayOpacity,
                 onCycleOpacity = {
                     mapSettingsRepo.update {
@@ -494,7 +523,8 @@ fun CaptureScreen(
 
         // The Leaf — the original's power-saving-button: a translucent
         // circle below the top-right corner (that corner belongs to the
-        // debug toggles there). Lower preview fps, and the map only catches
+        // debug toggles there; here, in portrait, it belongs to the window's
+        // lock button, which the 52 dp already clears). Lower preview fps, and the map only catches
         // up after each capture instead of chasing every fix. Tap toggles;
         // the shutter's one-finger grammar tunes it: hold 300 ms, the fps
         // slider unfolds beneath, slide onto it, release to set (and arm
@@ -889,37 +919,34 @@ fun CaptureScreen(
             }
         }
 
-        // Bottom-centre stack over the video: hints and gate escapes above
-        // The catch zone, drawn as what it IS: the gesture accepts any
-        // point left of the button (pos.x < circle.left) — the thin track
-        // is a picture, not the hit-box. Nothing said so, and precision-
-        // aiming at the line was the real reason arming kept being missed
-        // (user-caught: "i kept trying to target the track exactly"). While
-        // the slider is open the whole zone wears a wash — neutral until
-        // armed, then the run's green or video's red, so the surface your
-        // finger is somewhere over always shows the state it is setting.
+        // The catch zone, drawn as what it IS: the gesture accepts any point
+        // left of the button (pos.x < circle.left) — the ladder is not a
+        // thin track to aim at. Nothing said so, and precision-aiming at a
+        // line was the real reason arming kept being missed (user-caught:
+        // "i kept trying to target the track exactly").
+        //
+        // Since the zone is the hit-box, the zone is now also the SCALE: the
+        // rungs are its bands, at the size the finger actually selects them,
+        // over the pane's full height. That is one rect for the picture and
+        // the gesture both, where the old rotated slider drew one scale
+        // beside the button and read another.
         val circle = circleBounds
-        if (sliderVisible && circle != null) {
+        if (ladderVisible && circle != null) {
             val zoneWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
                 (circle.left - paneOrigin.x).coerceAtLeast(0f).toDp()
             }
-            val armed = armedStop
-            Box(
-                Modifier
+            IntervalLadder(
+                hoverIndex = hoverIndex,
+                armed = armedIndex != null,
+                pointerFraction = pointerFraction,
+                modifier = Modifier
                     .align(Alignment.CenterStart)
                     .fillMaxHeight()
-                    .width(zoneWidth)
-                    .background(
-                        when {
-                            armed == LADDER_VIDEO_STOP -> Color(0x2EFF5252)
-                            armed != null && armed > 0 -> Color(0x2E4CAF50)
-                            else -> Color(0x14FFFFFF)
-                        },
-                    )
-                    .testTag("interval-catch-zone"),
+                    .width(zoneWidth),
             )
         }
 
+        // Bottom-centre stack over the video: hints and gate escapes above
         // the shutter, as the original stacks its absolute elements above
         // shutter-container (bottom: 6px, centred).
         Column(
@@ -956,55 +983,47 @@ fun CaptureScreen(
                 }
             }
 
-            // The gate's escape hatch: shooting underground means positioning
-            // the map by hand first and capturing against that.
-            //
-            // The OFFER is only made while the gate is actually shut, but the
-            // resulting state stays on screen for as long as it is in effect —
-            // including after a fix arrives. It used to vanish with the fix
-            // while still being the elected position, so the label's promise
-            // ("tap to require GPS again") had no button to tap, and a
-            // coordinate marked hours ago could come back silently.
-            if (state.ready && !manualClaimed) {
-                if (mapPositionWithoutFix) {
-                    GlassAction(
-                        text = "Using map position" +
-                            (capture.manualLocation?.let {
-                                " (${fmt(it.latitude)}, ${fmt(it.longitude)})"
-                            } ?: "") +
-                            " — tap to require GPS again",
-                        tag = "capture-manual-location",
-                    ) {
-                        session.setMapPositionWithoutFix(false)
-                    }
-                } else if (!state.hasFix) {
-                    GlassAction(
-                        text = "No GPS fix — capture at the map position instead",
-                        tag = "capture-use-map-position",
-                    ) {
-                        session.setMapPositionWithoutFix(true)
-                    }
-                }
+            // There is no longer an escape hatch here ("No GPS fix — capture
+            // at the map position instead", tags capture-use-map-position /
+            // capture-manual-location, 2026-08 → 2026-09-09). With no fix
+            // the map centre IS what a photo records, and the overlay's
+            // location rows say so; the only button that elects the map
+            // position is the claim, above, which exists to override a fix.
+            // Removed rather than hidden because its offer condition read a
+            // stored "has fix" that could never go false once a fix had
+            // landed, so it never appeared in the one situation it was built
+            // for — see docs/one-state.md, "What went wrong".
+
+            // A recording says so, out loud and on-pane. It used to say
+            // nothing at all (user-caught: "video recording isn't indicated
+            // in any way?") — the button that stops it looked exactly like
+            // the button that starts a photo, and the only difference a
+            // running recording made was invisible.
+            state.recordingStartedAtMs?.takeIf { state.recording }?.let { startedAt ->
+                RecordingIndicator(startedAtMs = startedAt)
             }
 
             // The shutter, shaped like the original's DualCaptureButton —
             // and driven like it, as ONE gesture. Tap = one shot. Holding
             // 300 ms (the original's "shorter timeout for quicker
-            // response") unfolds the interval slider beside the still-held
-            // thumb; sliding onto it picks an interval live; RELEASING
-            // there starts the repeating run. Releasing back over the
-            // button cancels, as the original's release-over-nothing does.
-            // A tap stops a running run. The continuous slider is this
+            // response") unfolds the interval ladder over the pane beside
+            // the still-held thumb; sliding onto it picks a rung live;
+            // RELEASING there starts the repeating run. Releasing back over
+            // the button cancels, as the original's release-over-nothing
+            // does. A tap stops a running run. The graded ladder is this
             // port's take on the original's fixed slow/fast pair.
-            var sliderZone by remember { mutableStateOf<Rect?>(null) }
             var clusterOrigin by remember { mutableStateOf(Offset.Zero) }
-            val gateOpen =
-                shutterEnabled(state.ready, state.hasFix, manualElected)
-            // The location gate (see shutterEnabled): no fix, no photo —
-            // unless deliberately lifted (the local lift OR the pill's
-            // accepted claim; phone-in-hand find: the claim used to leave
-            // the gate shut).
-            val tappable = gateOpen && (repeating || !state.capturing)
+            // Camera readiness is the only gate (see shutterEnabled). The
+            // location gate — no fix, no photo, unless lifted — is gone:
+            // every capture has a position to record, or records none and
+            // says so, and the age travels with it.
+            val gateOpen = shutterEnabled(state.ready)
+            val tappable = shutterPressDoesSomething(
+                recording = state.recording,
+                repeating = repeating,
+                gateOpen = gateOpen,
+                capturing = state.capturing,
+            )
             Box(
                 Modifier
                     .onGloballyPositioned { clusterOrigin = it.positionInRoot() }
@@ -1033,10 +1052,14 @@ fun CaptureScreen(
                             if (!circle.contains(clusterOrigin + down.position)) {
                                 return@awaitEachGesture
                             }
-                            if (!gateOpen) {
-                                ignoredPress = if (!state.ready) "camera not ready" else "no GPS fix"
-                                return@awaitEachGesture
-                            }
+                            // STOPPING comes before the gate, deliberately.
+                            // The location gate exists to withhold a capture
+                            // that would have no position; it has no business
+                            // withholding the end of one. It used to run
+                            // first, so a fix lost mid-recording left the
+                            // recording unstoppable — every press answered
+                            // "no GPS fix" — and the same trap held a
+                            // repeating run.
                             if (state.recording) {
                                 // Recording behaves exactly like a run: any
                                 // completed press on the button ends it.
@@ -1054,6 +1077,10 @@ fun CaptureScreen(
                                 if (circle.contains(clusterOrigin + up.position)) repeating = false
                                 return@awaitEachGesture
                             }
+                            if (!gateOpen) {
+                                ignoredPress = if (!state.ready) "camera not ready" else "no GPS fix"
+                                return@awaitEachGesture
+                            }
                             if (state.capturing) {
                                 ignoredPress = "previous shot still in flight"
                                 return@awaitEachGesture
@@ -1068,8 +1095,18 @@ fun CaptureScreen(
                             }
                             if (quick == "cancel") return@awaitEachGesture
                             // Long-press reached with the finger still down.
-                            sliderVisible = true
-                            var overSlider = false
+                            // Seed the ladder from where the finger already
+                            // IS, so it opens showing the truth rather than
+                            // the last run's rung — the thumb is on the
+                            // button at the foot of the scale, and that is
+                            // what the bottom band should say.
+                            paneBounds?.let { zone ->
+                                val y = (clusterOrigin + down.position).y
+                                hoverIndex = rungIndexAt(y, zone.top, zone.bottom)
+                                pointerFraction = ladderFractionAt(y, zone.top, zone.bottom)
+                            }
+                            ladderVisible = true
+                            var overLadder = false
                             try {
                                 while (true) {
                                     val event = awaitPointerEvent()
@@ -1077,43 +1114,54 @@ fun CaptureScreen(
                                         ?: event.changes.first()
                                     val pos = clusterOrigin + change.position
                                     // Everything left of the button is the
-                                    // slider's catch zone — a mid-gesture
+                                    // ladder's catch zone — a mid-gesture
                                     // thumb is not a precision instrument.
-                                    overSlider = pos.x < circle.left
-                                    val zone = sliderZone
-                                    if (overSlider && zone != null && zone.height > 0f) {
-                                        intervalSec =
-                                            ((zone.bottom - pos.y) / zone.height * LADDER_VIDEO_STOP)
-                                                .roundToInt().coerceIn(0, LADDER_VIDEO_STOP)
+                                    overLadder = pos.x < circle.left
+                                    // The ladder spans the pane, so the pane
+                                    // is the scale. Height is read whatever
+                                    // the finger's x is: the ladder shows
+                                    // where the gesture is landing even
+                                    // while the thumb is still on the
+                                    // button, so the target is visible
+                                    // BEFORE the slide left commits to it.
+                                    val zone = paneBounds
+                                    if (zone != null && zone.height > 0f) {
+                                        hoverIndex = rungIndexAt(pos.y, zone.top, zone.bottom)
+                                        pointerFraction =
+                                            ladderFractionAt(pos.y, zone.top, zone.bottom)
+                                        if (overLadder) intervalIndex = hoverIndex
                                     }
-                                    armedStop = if (overSlider) intervalSec else null
+                                    armedIndex = if (overLadder) intervalIndex else null
                                     change.consume()
                                     if (event.changes.none { it.pressed }) {
                                         // Released on the ladder: the top
-                                        // stop starts a recording, anything
-                                        // above "single" starts a run.
-                                        if (overSlider && intervalSec == LADDER_VIDEO_STOP) {
+                                        // rung starts a recording, any
+                                        // interval rung starts a run.
+                                        val rung = INTERVAL_LADDER.getOrNull(intervalIndex)
+                                        if (overLadder && rung is LadderRung.Video) {
                                             videoEngaged = engageSportsIfAuto()
                                             capture.startVideo()
-                                        } else if (overSlider && intervalSec > 0) {
+                                        } else if (overLadder && rung is LadderRung.Every) {
                                             repeating = true
                                         }
                                         break
                                     }
                                 }
                             } finally {
-                                // The slider lives exactly as long as the
+                                // The ladder lives exactly as long as the
                                 // finger does, run or no run.
-                                sliderVisible = false
-                                armedStop = null
+                                ladderVisible = false
+                                armedIndex = null
+                                pointerFraction = null
                             }
                           } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
                           } catch (e: Exception) {
                             // Logged where the user can see it; the next
                             // press gets a live handler either way.
-                            sliderVisible = false
-                            armedStop = null
+                            ladderVisible = false
+                            armedIndex = null
+                            pointerFraction = null
                             ignoredPress = "shutter error: ${e.message ?: e::class.simpleName}"
                           }
                         }
@@ -1125,15 +1173,11 @@ fun CaptureScreen(
                         .background(DarkGlass, RoundedCornerShape(40.dp))
                         .padding(4.dp),
                 ) {
-                    if (sliderVisible) {
-                        IntervalSlider(
-                            intervalSec = intervalSec,
-                            enabled = true,
-                            onChange = { intervalSec = it },
-                            onTrackPositioned = { sliderZone = it },
-                        )
-                    }
-
+                    // No slider beside the button any more: the ladder IS
+                    // the catch zone (see IntervalLadder), so the cluster
+                    // keeps its size when the gesture unfolds — it used to
+                    // grow to the slider's 280 dp and carry the button ~115
+                    // dp up the pane, out from under the finger holding it.
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
                         modifier = Modifier
@@ -1141,6 +1185,10 @@ fun CaptureScreen(
                             .clip(CircleShape)
                             .background(
                                 when {
+                                    // Recording outranks the gate: this is
+                                    // the STOP button now, and a fix lost
+                                    // mid-recording must not disguise it.
+                                    state.recording -> Color(0xFFD32F2F)
                                     !gateOpen -> Color(0x802196F3)
                                     repeating -> Color(0xFF4CAF50)
                                     // Armed: wear the colour NOW that the
@@ -1148,14 +1196,14 @@ fun CaptureScreen(
                                     // run's green, video's red. The button
                                     // previews its own future instead of
                                     // leaving it to a label off to the side.
-                                    armedStop == LADDER_VIDEO_STOP -> Color(0xFFD32F2F)
-                                    armedStop != null && armedStop!! > 0 -> Color(0xFF4CAF50)
+                                    armedRung is LadderRung.Video -> Color(0xFFD32F2F)
+                                    armedRung is LadderRung.Every -> Color(0xFF4CAF50)
                                     else -> Color(0xFF2196F3)
                                 },
                             )
                             .onGloballyPositioned { circleBounds = it.boundsInRoot() }
                             // Touch goes through the cluster's pointerInput
-                            // (the gesture spans slider and button); this
+                            // (the gesture spans ladder and button); this
                             // keeps the click/enabled contract for tests
                             // and accessibility.
                             .semantics {
@@ -1163,7 +1211,11 @@ fun CaptureScreen(
                                 if (!tappable) disabled()
                                 onClick(label = null) {
                                     if (!tappable) return@onClick false
-                                    if (repeating) repeating = false else capture.capture()
+                                    when {
+                                        state.recording -> capture.stopVideo()
+                                        repeating -> repeating = false
+                                        else -> capture.capture()
+                                    }
                                     true
                                 }
                             }
@@ -1173,21 +1225,27 @@ fun CaptureScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 when {
-                                    armedStop == LADDER_VIDEO_STOP -> "⏺"
-                                    armedStop != null && armedStop!! > 0 -> "▶"
+                                    state.recording -> "⏺"
+                                    armedRung is LadderRung.Video -> "⏺"
+                                    armedRung is LadderRung.Every -> "▶"
                                     state.capturing && !repeating -> "…"
                                     else -> "📷"
                                 },
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             when {
-                                armedStop == LADDER_VIDEO_STOP -> Text(
+                                state.recording -> Text(
+                                    "Stop",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                )
+                                armedRung is LadderRung.Video -> Text(
                                     "REC",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color.White,
                                 )
-                                armedStop != null && armedStop!! > 0 -> Text(
-                                    "${armedStop}s",
+                                armedRung is LadderRung.Every -> Text(
+                                    armedRung.label,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = Color.White,
                                 )
@@ -1199,24 +1257,27 @@ fun CaptureScreen(
                             }
                         }
                     }
-                    // The release verdict, spelled out while the slider is
+                    // The release verdict, spelled out while the ladder is
                     // open: what letting go does, right under the button
-                    // that is previewing it. This is the line the ladder
-                    // head could not carry (clipped off-pane at common
-                    // splits — the original cause of "i keep missing it").
-                    if (sliderVisible) {
+                    // that is previewing it. This is the line the old
+                    // ladder head could not carry (clipped off-pane at
+                    // common splits — the original cause of "i keep missing
+                    // it"); the ladder itself now names the rung too, in
+                    // the band it is highlighting.
+                    if (ladderVisible) {
                         Text(
                             text = when {
-                                armedStop == LADDER_VIDEO_STOP -> "release: record"
-                                armedStop != null && armedStop!! > 0 ->
-                                    "release: start ${armedStop}s run"
-                                armedStop != null -> "single — release: nothing"
+                                armedRung is LadderRung.Video -> "release: record"
+                                armedRung is LadderRung.Every ->
+                                    "release: start ${armedRung.label} run"
+                                // The bottom rung and the button itself are
+                                // the same act, so they get the same word.
                                 else -> "release: cancel"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = when {
-                                armedStop == LADDER_VIDEO_STOP -> Color(0xFFFF5252)
-                                armedStop != null && armedStop!! > 0 -> Color(0xFF69F0AE)
+                                armedRung is LadderRung.Video -> Color(0xFFFF5252)
+                                armedRung is LadderRung.Every -> Color(0xFF69F0AE)
                                 else -> Color(0xB3FFFFFF)
                             },
                             modifier = Modifier
@@ -1269,7 +1330,7 @@ fun CaptureScreen(
 
 /**
  * The Leaf's fps ladder, unfolding beneath it mid-gesture. A display like
- * [IntervalSlider]: the Leaf's pointerInput drives [t] (0 = bottom =
+ * [IntervalLadder]: the Leaf's pointerInput drives [t] (0 = bottom =
  * capture-only, 1 = top = default) from the held thumb via the reported
  * track bounds.
  */
@@ -1310,91 +1371,6 @@ private fun EcoSlider(
 }
 
 /**
- * Off, then 1…[INTERVAL_MAX_SEC] s. Vertical because it sits beside the
- * shutter. During the one-finger gesture it is a display — the cluster's
- * pointerInput drives the value from the thumb position via
- * [onTrackPositioned]'s reported track bounds (root coords, bottom = 0 s,
- * top = the max).
- */
-/**
- * The ladder's length. Doubled from 140 dp (user-raised: "the scale is a
- * bit hard to use") — 16 stops over 140 dp is ~9 dp each, well under a
- * comfortable thumb increment, and this control is driven by a thumb
- * sliding along it rather than by tapping a knob.
- *
- * ONE constant because the rotated-slider trick needs the box's height and
- * the slider's required width to be the same number; two literals that must
- * agree is a bug waiting for whoever changes one.
- */
-private val INTERVAL_TRACK_LENGTH = 280.dp
-
-@Composable
-private fun IntervalSlider(
-    intervalSec: Int,
-    enabled: Boolean,
-    onChange: (Int) -> Unit,
-    onTrackPositioned: (Rect) -> Unit = {},
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.padding(end = 16.dp),
-    ) {
-        // Compact, and NOT the announcement: at common split positions the
-        // 280 dp track is taller than the capture pane, so this head is
-        // clipped off-pane (device-caught — which is also why the armed
-        // state was invisible when it lived only here). What release does
-        // is said by the shutter cluster, which is always on-pane.
-        Text(
-            text = when (intervalSec) {
-                0 -> "single"
-                LADDER_VIDEO_STOP -> "VIDEO"
-                else -> "${intervalSec}s"
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = if (intervalSec == LADDER_VIDEO_STOP) Color(0xFFFF5252) else Color.White,
-            modifier = Modifier.testTag("capture-interval-value"),
-        )
-        Box(
-            modifier = Modifier
-                // 64 wide (was 48): this ladder is read mid-gesture, at
-                // arm's length, from the corner of the eye — the default
-                // gutter and its hairline track were sized for a control
-                // you look AT (user-raised, same session as doubling the
-                // length: "the track maybe also needed to become a little
-                // wider").
-                .size(width = 64.dp, height = INTERVAL_TRACK_LENGTH)
-                .onGloballyPositioned { onTrackPositioned(it.boundsInRoot()) },
-            contentAlignment = Alignment.Center,
-        ) {
-            // Material has no vertical slider; rotating a horizontal one and
-            // giving it the box's height as its width is the usual trick.
-            Slider(
-                value = intervalSec.toFloat(),
-                onValueChange = { onChange(it.roundToInt()) },
-                valueRange = 0f..LADDER_VIDEO_STOP.toFloat(),
-                enabled = enabled,
-                // A thicker track line, for the same at-a-glance reason as
-                // the wider gutter. Track height pre-rotation IS thickness
-                // post-rotation. 22 dp because the M3 default is ALREADY
-                // 16 dp (measured on device — a first pass at 12 dp made the
-                // track thinner while looking like an improvement in the
-                // diff).
-                track = { sliderState ->
-                    androidx.compose.material3.SliderDefaults.Track(
-                        sliderState = sliderState,
-                        modifier = Modifier.height(22.dp),
-                    )
-                },
-                modifier = Modifier
-                    .requiredWidth(INTERVAL_TRACK_LENGTH)
-                    .rotate(-90f)
-                    .testTag("capture-interval-slider"),
-            )
-        }
-    }
-}
-
-/**
  * The camera-lifecycle line, rendered as a pill row. No fix state here:
  * the pill's own rows carry it (📍 when a fix exists, the spinner when
  * not) — "GPS fix"/"no GPS fix" used to repeat that in words. No bearing
@@ -1426,6 +1402,56 @@ private fun fmt(value: Double): String {
     val rounded = (value * 100_000).roundToInt() / 100_000.0
     return rounded.toString()
 }
+
+/**
+ * "● REC 0:12" while a recording runs, blinking once a second.
+ *
+ * The blink and the clock come off ONE ticker, so the dot and the seconds
+ * cannot disagree about how long this has been going. The dot fades rather
+ * than disappearing — a glyph that comes and goes shifts the text beside it
+ * twice a second, which reads as a fault rather than a heartbeat.
+ *
+ * The dot-and-elapsed shape is the app's own, from the clock-video recorder
+ * in both apps ("● Recording — 12s"); the period is the original's
+ * `blink 1s step-start`.
+ *
+ * Its own composable so the ticker's recomposition stops here, rather than
+ * redrawing the pane and its camera preview twice a second.
+ */
+@Composable
+internal fun RecordingIndicator(startedAtMs: Long) {
+    var now by remember(startedAtMs) { mutableStateOf(nowMs()) }
+    LaunchedEffect(startedAtMs) {
+        while (true) {
+            now = nowMs()
+            delay(RECORDING_BLINK_MS)
+        }
+    }
+    val elapsed = (now - startedAtMs).coerceAtLeast(0L)
+    val lit = (elapsed / RECORDING_BLINK_MS) % 2 == 0L
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(DarkGlass, RoundedCornerShape(20.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .testTag("capture-recording"),
+    ) {
+        Text(
+            "●",
+            color = Color(0xFFFF5252).copy(alpha = if (lit) 1f else 0f),
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(end = 6.dp),
+        )
+        Text(
+            "REC ${formatElapsed(elapsed)}",
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
+}
+
+/** The original's `blink 1s step-start`: half a second lit, half dark. */
+private const val RECORDING_BLINK_MS = 500L
 
 /**
  * A control readable over live video: dark glass backing, light text —

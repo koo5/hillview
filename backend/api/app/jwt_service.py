@@ -51,6 +51,29 @@ def create_refresh_token(data: dict) -> Tuple[str, datetime]:
 
 	return create_jwt_token(to_encode, PRIVATE_KEY, expires_minutes)
 
+def create_ssr_read_token(data: dict) -> Tuple[str, datetime]:
+	"""Create a read-only ticket for the web frontend's server renderer.
+
+	The frontend server has no session of its own — tokens live in the browser's
+	IndexedDB — so it renders every page anonymously and the client corrects it.
+	This ticket is what the browser mirrors into a cookie so the server can render
+	the visitor's own view instead. It is deliberately NOT an access token: only
+	the handful of read endpoints SSR calls accept type "ssr_read" (see
+	get_current_user_optional_ssr in auth.py), so a stolen ticket cannot act on
+	the user's behalf.
+
+	Its lifetime matches the refresh token's so the two die together. A longer one
+	would keep rendering a signed-in page for a session the client can no longer
+	sustain, and the first thing the visitor would see is their own content
+	followed by a logged-out app.
+	"""
+	to_encode = {
+		**data,
+		"type": "ssr_read"
+	}
+
+	return create_jwt_token(to_encode, PRIVATE_KEY, REFRESH_TOKEN_EXPIRE_MINUTES)
+
 def create_upload_authorization_token(data: dict) -> Tuple[str, datetime]:
 	"""Create an upload authorization token for workers."""
 	expires_minutes = 60  # 1 hour

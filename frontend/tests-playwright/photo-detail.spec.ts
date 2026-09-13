@@ -128,11 +128,19 @@ test.describe('Photo Detail Page', () => {
 		await expect(page.getByTestId('photo-edit-form')).toBeVisible({ timeout: T(10000) });
 		await page.getByTestId('photo-edit-license-select').selectOption('full1');
 		await page.getByTestId('photo-edit-save-button').click();
-
-		await page.goto(`/photo/${uid}`);
-		await expect(page.getByTestId('photo-detail-license')).toHaveText('All rights reserved', {
+		// Wait for the save to land before reloading: a navigation while the
+		// PATCH is still in flight has the server-rendered reload reading the
+		// photo before the change committed. The status lists every changed
+		// field, and the form may report more than the licence.
+		await expect(page.getByTestId('photo-detail-status')).toContainText(/^Saved: .*\blicense\b/, {
 			timeout: T(10000)
 		});
+
+		await page.goto(`/photo/${uid}`);
+		await expect(page.getByTestId('photo-detail-license')).toHaveText(
+			'All rights reserved + OSM mapping grant',
+			{ timeout: T(10000) }
+		);
 
 		// Collapsed by default; the trail is a click away.
 		const toggle = page.getByTestId('photo-detail-license-history-toggle');
@@ -143,7 +151,7 @@ test.describe('Photo Detail Page', () => {
 		const history = page.getByTestId('photo-detail-license-history');
 		await expect(history).toBeVisible();
 		await expect(history).toContainText('CC BY-SA 4.0 + OSM mapping grant');
-		await expect(history).toContainText('All rights reserved');
+		await expect(history).toContainText('All rights reserved + OSM mapping grant');
 		await expect(history).toContainText('by the owner');
 	});
 

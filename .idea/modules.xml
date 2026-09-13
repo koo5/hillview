@@ -8,7 +8,6 @@
       <module fileurl="file://$PROJECT_DIR$/.idea/hillview-api.iml" filepath="$PROJECT_DIR$/.idea/hillview-api.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/hillview-backend.iml" filepath="$PROJECT_DIR$/.idea/hillview-backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/hillview-common.iml" filepath="$PROJECT_DIR$/.idea/hillview-common.iml" />
-      <module fileurl="file://$PROJECT_DIR$/.idea/hillview-geotag.iml" filepath="$PROJECT_DIR$/.idea/hillview-geotag.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/hillview-panoramax.iml" filepath="$PROJECT_DIR$/.idea/hillview-panoramax.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/hillview-tests.iml" filepath="$PROJECT_DIR$/.idea/hillview-tests.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/hillview-worker.iml" filepath="$PROJECT_DIR$/.idea/hillview-worker.iml" />

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { api, ApiError } from '$lib/api';
 	import Help from '$lib/components/Help.svelte';
@@ -151,10 +152,10 @@
 		{#each data?.photos ?? [] as p (p.id)}
 			<tr>
 				<td style="width:100px">
-					<a href="/photos/{p.id}"><PhotoThumb sizes={p.sizes} size={90} /></a>
+					<a href="{base}/photos/{p.id}"><PhotoThumb sizes={p.sizes} size={90} /></a>
 				</td>
 				<td style="max-width:340px">
-					<a href="/photos/{p.id}" style="font-size:13px">{p.title ?? p.id.slice(0, 8)}</a>
+					<a href="{base}/photos/{p.id}" style="font-size:13px">{p.title ?? p.id.slice(0, 8)}</a>
 					<div class="muted" style="font-size:11px">
 						<span class="mono">{p.id.slice(0, 8)}</span>
 						{#if p.place_name}· {p.place_name}{/if}
@@ -167,7 +168,7 @@
 					{#if p.calibrated}🧭{/if}
 					{#if p.terrain}
 						<a
-							href="/terrain?photo={p.id}"
+							href="{base}/terrain?photo={p.id}"
 							data-testid="photo-terrain"
 							title="terrain render: {p.terrain}"
 							style={p.terrain === 'done' ? '' : p.terrain === 'error' ? 'color:var(--bad)' : 'opacity:0.45'}
@@ -176,7 +177,7 @@
 					{/if}
 					{#if p.overlay}
 						<a
-							href="/terrain/overlay?photo={p.id}"
+							href="{base}/terrain/overlay?photo={p.id}"
 							data-testid="photo-overlay"
 							class="pill {p.overlay === 'approved' ? 'ok' : ''}"
 							style="font-size:10px"

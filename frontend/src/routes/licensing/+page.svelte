@@ -32,7 +32,7 @@
 			<div class="document-meta">
 				<div class="meta-item">
 					<Calendar size={16} />
-					<span>Last updated: April 2026</span>
+					<span>Last updated: September 2026</span>
 				</div>
 			</div>
 		</header>
@@ -99,12 +99,21 @@
 		<section class="document-section">
 			<h2>
 				<Copyright size={24} />
-				All rights reserved
+				All rights reserved + OSM grant
 			</h2>
 			<p>
-				Some photos on Hillview — typically the founder's seed content — are displayed under
-				all rights reserved. You may view these photos on Hillview, but they are not licensed
-				for copying, redistribution, or reuse without explicit permission.
+				Photos whose contributor granted Hillview full rights instead of a Creative Commons
+				licence — and the founder's seed content — are displayed under all rights reserved,
+				with one deliberate exception: the <strong>OpenStreetMap mapping grant</strong> described
+				in Part 2 above applies to these photos exactly as it does to CC-licensed ones. Hillview
+				holds full rights to them and grants it on the contributor's behalf, so OpenStreetMap
+				mappers may use any Hillview photo as reference for OSM work, and data they extract
+				becomes part of OSM under the ODbL.
+			</p>
+			<p>
+				Beyond that grant, these photos are not licensed for copying, redistribution, or reuse
+				without explicit permission. You may view them on Hillview; anything more needs an
+				arrangement.
 			</p>
 			<p>
 				These photos are still available for licensing by arrangement. If you'd like to use
@@ -172,7 +181,8 @@
 				being a useful reference for OpenStreetMap. The CC BY-SA 4.0 license aligns Hillview
 				with other open-imagery platforms like Mapillary, KartaView, and Panoramax. The
 				additional OSM grant makes Hillview unambiguously usable for OSM mapping — the
-				primary practical use case for geotagged reference photography.
+				primary practical use case for geotagged reference photography. That is why it
+				applies to every Hillview photo, whichever option the contributor chose.
 			</p>
 		</section>
 

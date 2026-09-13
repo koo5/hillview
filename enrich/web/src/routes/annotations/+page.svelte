@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { api, ApiError } from '$lib/api';
 	import { localStorageSharedStore } from '$lib/svelte-shared-store';
 	import type { AnnotationList } from '$lib/types';
@@ -142,7 +143,7 @@
 		{parsing ? 'parsing…' : '⟳ parse all'}
 	</button>
 </div>
-{#if parseMsg}<p class="muted" style="font-size:12px; margin:4px 0">{parseMsg} — next: <a href="/geocode">⟳ run geocode</a> to mint anchor candidates from the new labels/coords</p>{/if}
+{#if parseMsg}<p class="muted" style="font-size:12px; margin:4px 0">{parseMsg} — next: <a href="{base}/geocode">⟳ run geocode</a> to mint anchor candidates from the new labels/coords</p>{/if}
 
 {#if err}<div class="card" style="border-color:var(--bad)">{err}</div>{/if}
 
@@ -152,10 +153,10 @@
 		{#each data?.items ?? [] as a (a.id)}
 			<tr>
 				<td>
-					<a href="/photos/{a.photo_id}" title="photo page"><PhotoThumb sizes={a.sizes} size={90} /></a>
+					<a href="{base}/photos/{a.photo_id}" title="photo page"><PhotoThumb sizes={a.sizes} size={90} /></a>
 				</td>
 				<td style="max-width:300px">
-					<a href="/annotations/{a.id}" class="mono" style="font-size:12px">
+					<a href="{base}/annotations/{a.id}" class="mono" style="font-size:12px">
 						{#each segs(a.body) as s, i (i)}
 							{#if i > 0}<span class="muted"> | </span>{/if}<span>{s}</span>
 						{/each}

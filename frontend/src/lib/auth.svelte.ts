@@ -32,17 +32,25 @@ export async function completeAuthentication(tokenData: {
     expires_at: string;
     token_type?: string;
     refresh_token_expires_at: string;
+    ssr_token?: string;
+    ssr_token_expires_at?: string;
 }, source: 'login' | 'oauth' = 'login'): Promise<boolean> {
         if (doLog) console.log(`🢄[AUTH] Completing ${source} authentication...`);
 
         // Store tokens using the unified TokenManager
         const tokenManager = createTokenManager();
+        // An explicit field list, so anything the server adds has to be named here
+        // to survive. The SSR ticket is the case in point: left off, login stores
+        // no ticket and its cookie first appears at the first refresh, which does
+        // pass the whole response through.
         const tokensToStore = {
             access_token: tokenData.access_token,
             refresh_token: tokenData.refresh_token,
             expires_at: tokenData.expires_at,
             token_type: tokenData.token_type || 'bearer',
-            refresh_token_expires_at: tokenData.refresh_token_expires_at
+            refresh_token_expires_at: tokenData.refresh_token_expires_at,
+            ssr_token: tokenData.ssr_token,
+            ssr_token_expires_at: tokenData.ssr_token_expires_at
         };
 
         if (doLog) console.log('🢄[AUTH] About to store tokens:', JSON.stringify({

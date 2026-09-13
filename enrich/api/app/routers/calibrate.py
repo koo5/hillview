@@ -283,28 +283,41 @@ def _draft_graph(photo_id: str) -> str:
 @router.get("/calibrate/draft")
 async def get_calibration_draft(photo_id: str):
     res = await graph.store.query(f"""{graph.PREFIXES}
-SELECT ?a WHERE {{
-  GRAPH <{_draft_graph(photo_id)}> {{ ?ph hv:calibrationDraftExcludes ?a }}
-}}""")
-    excluded = [b["a"]["value"].rsplit("/", 1)[-1]
-                for b in res["results"]["bindings"]]
-    return {"excluded": excluded}
+SELECT ?p ?o WHERE {{ GRAPH <{_draft_graph(photo_id)}> {{ ?ph ?p ?o }} }}""")
+    excluded, model, seams = [], None, None
+    for b in res["results"]["bindings"]:
+        pred, o = b["p"]["value"], b["o"]["value"]
+        if pred.endswith("calibrationDraftExcludes"):
+            excluded.append(o.rsplit("/", 1)[-1])
+        elif pred.endswith("calibrationDraftModel"):
+            model = o
+        elif pred.endswith("calibrationDraftSeams"):
+            seams = o
+    return {"excluded": excluded, "model": model, "seams": seams}
 
 
 class DraftRequest(BaseModel):
     photo_id: str
     excluded: list[str]
+    # the model dropdown + seams text are working state too — a projection
+    # choice must survive reloads WITHOUT minting an accepted fit
+    model: str | None = None
+    seams: str | None = None
 
 
 @router.put("/calibrate/draft")
 async def put_calibration_draft(req: DraftRequest):
     g = _draft_graph(req.photo_id)
     await graph.store.update(f"DROP SILENT GRAPH <{g}>")
-    if req.excluded:
-        ph = facts.iri(graph.photo_iri(req.photo_id))
-        nt = "".join(
-            f"{ph} {facts._p('calibrationDraftExcludes')} "
-            f"{facts.iri(graph.annotation_iri(a))} .\n"
-            for a in req.excluded)
+    ph = facts.iri(graph.photo_iri(req.photo_id))
+    nt = "".join(
+        f"{ph} {facts._p('calibrationDraftExcludes')} "
+        f"{facts.iri(graph.annotation_iri(a))} .\n"
+        for a in req.excluded)
+    if req.model:
+        nt += f"{ph} {facts._p('calibrationDraftModel')} {facts.lit(req.model)} .\n"
+    if req.seams and req.seams.strip():
+        nt += f"{ph} {facts._p('calibrationDraftSeams')} {facts.lit(req.seams.strip())} .\n"
+    if nt:
         await graph.store.load_turtle(g, nt)
-    return {"excluded": req.excluded}
+    return {"excluded": req.excluded, "model": req.model, "seams": req.seams}

@@ -304,6 +304,110 @@ class LabelRequest(BaseModel):
     note: str | None = None
 
 
+class WebPageRequest(BaseModel):
+    url: str
+    note: str | None = None
+
+
+class BodyRequest(BaseModel):
+    body: str
+    note: str | None = None
+
+
+@router.post("/annotations/{ann_id}/body")
+async def propose_body(ann_id: str, req: BodyRequest):
+    """Free-text body edit, THROUGH graduation (updating bodies is its core):
+    mint + approve an hv:proposedBody fact (superseding a prior one, like
+    labels). The mirrored body stays untouched here — the graduation suggestion
+    carries this text VERBATIM as the suggested body, and the export/apply flow
+    lands it in Hillview with the usual body precondition; the sync then
+    mirrors it back and derives parse+geocode."""
+    from datetime import datetime, timezone
+    body = req.body.strip()
+    if not body:
+        raise HTTPException(422, "empty body")
+    async with wb_engine.connect() as conn:
+        exists = (await conn.execute(text(
+            "SELECT 1 FROM annotation_mirror WHERE id = :id"), {"id": ann_id})).first()
+    if not exists:
+        raise HTTPException(404, "annotation not found")
+
+    triple = (facts.iri(graph.annotation_iri(ann_id)),
+              facts._p("proposedBody"), facts.lit(body))
+    new_fact = graph.fact_iri(facts.fact_hash(*triple))
+    now = datetime.now(timezone.utc).isoformat()
+    res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?f WHERE {{
+  GRAPH ?f {{ <{graph.annotation_iri(ann_id)}> hv:proposedBody ?v }}
+  GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status hv:approved }}
+}}""")
+    prior = [b["f"]["value"] for b in res["results"]["bindings"]
+             if b["f"]["value"] != new_fact]
+
+    run_id = await create_run(kind="body_edit",
+                              params={"annotation_id": ann_id, "body": body},
+                              note=req.note)
+    try:
+        payload = facts.build_triples_payload({ann_id: [triple]}, run_id)
+        for g_iri, nt in payload["fact_graphs"].items():
+            await graph.store.load_turtle(g_iri, nt)
+        await graph.store.load_turtle(graph.GRAPH_META, payload["meta_turtle"])
+        await graph.store.update(facts.curate_update(
+            new_fact, "approved", now, note=req.note))
+        for f in prior:
+            await graph.store.update(facts.curate_update(
+                f, "rejected", now, note="superseded by body edit"))
+        await finish_run(run_id, stats={"fact": new_fact, "superseded": len(prior)},
+                         graph_iri=graph.run_iri(run_id))
+        return {"run_id": str(run_id), "fact": new_fact, "body": body,
+                "superseded": prior}
+    except Exception as e:
+        await fail_run(run_id, f"{type(e).__name__}: {e}")
+        raise HTTPException(500, f"body edit failed: {e}")
+
+
+@router.post("/annotations/{ann_id}/webpage")
+async def attach_webpage(ann_id: str, req: WebPageRequest):
+    """Attach a source web page as curated identity: mint + approve an
+    hv:webPage fact (kind=web_attach run) — graduation appends it to the body
+    as a URL segment, exactly as if the author had written it there (re-parse
+    then re-mints the same fact: idempotent round trip). For wikipedia pages
+    use the 📖 attach verb instead — that one also fetches coordinates."""
+    from datetime import datetime, timezone
+    url = req.url.strip()
+    if not url.lower().startswith(("http://", "https://")) or " " in url or "|" in url:
+        raise HTTPException(422, "need a plain http(s) URL (no spaces or '|')")
+    import re as _re
+    if _re.match(r"https?://\w{2,3}(?:\.m)?\.wikipedia\.org/wiki/", url):
+        raise HTTPException(422, "that's a wikipedia page — use 📖 attach (it also fetches coordinates)")
+    async with wb_engine.connect() as conn:
+        exists = (await conn.execute(text(
+            "SELECT 1 FROM annotation_mirror WHERE id = :id"), {"id": ann_id})).first()
+    if not exists:
+        raise HTTPException(404, "annotation not found")
+
+    triple = (facts.iri(graph.annotation_iri(ann_id)),
+              facts._p("webPage"), facts.iri(url))
+    page_fact = graph.fact_iri(facts.fact_hash(*triple))
+    run_id = await create_run(kind="web_attach",
+                              params={"annotation_id": ann_id, "url": url},
+                              note=req.note)
+    try:
+        payload = facts.build_triples_payload({ann_id: [triple]}, run_id)
+        for g_iri, nt in payload["fact_graphs"].items():
+            await graph.store.load_turtle(g_iri, nt)
+        await graph.store.load_turtle(graph.GRAPH_META, payload["meta_turtle"])
+        await graph.store.update(facts.curate_update(
+            page_fact, "approved",
+            datetime.now(timezone.utc).isoformat(), note=req.note))
+        await finish_run(run_id, stats={"facts": payload["n_facts"], "url": url},
+                         graph_iri=graph.run_iri(run_id))
+        return {"run_id": str(run_id), "url": url, "fact": page_fact}
+    except Exception as e:
+        await fail_run(run_id, f"{type(e).__name__}: {e}")
+        raise HTTPException(500, f"web page attach failed: {e}")
+
+
 @router.post("/annotations/{ann_id}/label")
 async def set_label(ann_id: str, req: LabelRequest):
     """Curated rename: mint an hv:labelText fact and approve it, demoting any

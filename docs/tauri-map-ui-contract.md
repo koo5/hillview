@@ -434,7 +434,13 @@ merge; phone-in-hand review drove this pass.
 - **Arrow grab zones**: `fullCircleHitArea` only in car mode with GPS
   orientation on (drag = angle travelled → mount offset); otherwise only
   the arrow SVG itself is grabbable (drag = jump to angle) and the rest of
-  the disc pans the map.
+  the disc pans the map. **frontend2 diverges twice** (user-asked,
+  2026-09-10): the grab is the WHOLE RING in every mode, not the arrow line
+  ("i cant chase the arrow around"), and it is ARMED by a 450 ms hold rather
+  than taken on contact — see `ArrowArming`. Landing on the ring moves
+  nothing and consumes nothing, so panning and marker taps across it are
+  unchanged. What a drag MEANS is still the original's split: angle
+  travelled in car mode, jump-to-angle otherwise.
 
 frontend2 divergences (deliberate): osmdroid's fling is disabled — its
 glide is essentially unbounded where Leaflet's inertia is short and

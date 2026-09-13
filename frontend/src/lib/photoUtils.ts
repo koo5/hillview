@@ -215,7 +215,11 @@ function panoramaxMapParam(photo: PhotoData | null, zoom: number): string {
 }
 
 const LICENSE_LABELS: Record<string, string> = {
-	'arr': 'All rights reserved',
+	// 'arr' undersells itself: the photo is all-rights-reserved EXCEPT for the
+	// same OSM mapping grant the CC option carries, which Hillview (holding
+	// full rights) grants. The id stays for compatibility — see "Known debt"
+	// in docs/todo/content-license-model-draft.md — so the label says it.
+	'arr': 'All rights reserved + OSM mapping grant',
 	'ccbysa4+osm': 'CC BY-SA 4.0 + OSM mapping grant',
 	'ccbysa4-mapillary': 'CC BY-SA 4.0 (via Mapillary)',
 	'CC-BY-SA-4.0': 'CC BY-SA 4.0',

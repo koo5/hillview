@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -164,12 +165,12 @@
 							onmouseenter={() => (selRay = a.annotation_id)}
 						>
 							<td>
-								<a href="/annotations/{a.annotation_id}" class="mono" style="font-size:11px">{a.annotation_id.slice(0, 8)}</a>
+								<a href="{base}/annotations/{a.annotation_id}" class="mono" style="font-size:11px">{a.annotation_id.slice(0, 8)}</a>
 								{#if a.ray?.body}<span class="muted" style="font-size:11px"> · {a.ray.body}</span>{/if}
 							</td>
 							<td>
 								{#if a.ray}
-									<a href="/photos/{a.ray.photo_id}" class="mono muted" style="font-size:11px">{a.ray.photo_id.slice(0, 8)}</a>
+									<a href="{base}/photos/{a.ray.photo_id}" class="mono muted" style="font-size:11px">{a.ray.photo_id.slice(0, 8)}</a>
 								{/if}
 							</td>
 							<td class="mono" style="font-size:12px">

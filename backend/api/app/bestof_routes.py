@@ -15,7 +15,7 @@ from common.database import get_db
 from common.models import Photo, PhotoAnnotation, PhotoRating, PhotoRatingType, User
 from hillview_routes import legal_rights_to_license
 from common.utc import format_utc
-from auth import get_current_user_optional_with_query
+from auth import get_current_user_optional_ssr
 from hidden_content_filters import apply_hidden_content_filters
 from rate_limiter import general_rate_limiter
 from annotation_routes import effective_annotation_count_subquery, effective_annotation_conditions
@@ -49,7 +49,7 @@ async def get_best_photos(
 	cursor: Optional[str] = None,
 	page: Optional[int] = None,
 	db: AsyncSession = Depends(get_db),
-	current_user: Optional[User] = Depends(get_current_user_optional_with_query)
+	current_user: Optional[User] = Depends(get_current_user_optional_ssr)
 ):
 	"""Get photos ranked by score (likes + annotations + resolution bonus)."""
 	await general_rate_limiter.enforce_rate_limit(request, 'public_read', current_user)
@@ -215,6 +215,9 @@ async def get_best_photos(
 			# Echoed so a caller never has to know or derive the slice size.
 			"page": max(1, page) if paged else None,
 			"page_size": limit,
+			# Who this batch was filtered for — null when anonymous. See the same
+			# field on /activity/recent for why it is an id and not a boolean.
+			"viewer_id": current_user.id if current_user else None,
 		}
 
 	except HTTPException:

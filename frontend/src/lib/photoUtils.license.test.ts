@@ -46,9 +46,9 @@ describe('getLicenseId', () => {
 });
 
 describe('getLicenseLabel', () => {
-    it('maps arr to All rights reserved', () => {
+    it('maps arr to its label — all rights reserved plus the OSM mapping grant', () => {
         const photo = mockPhoto({ source: { id: 'hillview', type: 'stream' }, license: 'arr' });
-        expect(getLicenseLabel(photo)).toBe('All rights reserved');
+        expect(getLicenseLabel(photo)).toBe('All rights reserved + OSM mapping grant');
     });
 
     it('maps ccbysa4+osm to its display label', () => {

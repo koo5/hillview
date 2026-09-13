@@ -288,6 +288,25 @@ class TestPhotoMetadataEdit(BasePhotoTest):
 		assert self._audit_entries_for(photo_id) == [], "A no-op edit must not be audited"
 
 	@pytest.mark.asyncio
+	async def test_blank_description_at_upload_is_not_a_change(self):
+		"""The web uploader sends description "" when nothing was typed. The row
+		must hold NULL, and re-submitting the form's empty field is no change —
+		it used to report "changed: description" on every first edit, because
+		the row held "" and the edit normalized "" to NULL."""
+		photo_id = await self._create_test_photo("mod_edit_blank_desc.jpg", "")
+
+		current = self._public_photo(photo_id)
+		assert current["description"] is None, current
+
+		response = requests.patch(
+			f"{API_URL}/photos/{photo_id}",
+			json={"title": current["title"] or "", "description": ""},
+			headers=self.test_headers,
+		)
+		self.assert_success(response)
+		assert response.json()["changed"] == [], response.json()
+
+	@pytest.mark.asyncio
 	async def test_owner_self_edit_creates_no_audit(self):
 		"""An admin editing their OWN photo is not a moderation action — no audit row."""
 		admin_token = self.get_admin_token()

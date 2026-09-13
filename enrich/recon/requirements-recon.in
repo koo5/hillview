@@ -1,0 +1,47 @@
+# Direct dependencies of the recon SOLVE environment in the GPU image
+# (enrich/recon/Dockerfile.gpu), mirroring scripts/enrich/.venv, which has no lockfile
+# of its own. Versions are the ones that produced every archived run: the GPU port must
+# change ONE variable, the device, or the CPU-vs-GPU comparison proves nothing.
+#
+# TORCH IS DELIBERATELY ABSENT. The CUDA build is not on PyPI, so the Dockerfile installs
+# it once, system-wide, from the CUDA wheel index; this venv is created with
+# --system-site-packages and sees it. That also stops the image carrying two ~3 GB copies
+# of torch, one here and one in the segmentation environment.
+#
+# ...but absent from the .in file is not enough: kornia DEPENDS on torch, so a plain
+# compile resolves it from PyPI, whose torch 2.12.x is the cu130 build, and drags in
+# fifteen nvidia-*-cu13 wheels with it. The venv then shadows the system cu126 torch and
+# curope refuses to compile: "detected CUDA version (12.6) mismatches the version that was
+# used to compile PyTorch (13.0)". So the whole CUDA stack is kept OUT of the lock with
+# --no-emit-package, and the venvs (built --system-site-packages) use the one torch the
+# Dockerfile installed. Anything satisfied by the environment is never downloaded, so
+# --require-hashes stays happy.
+#
+# Regenerate after edits, with the repo's cooloff convention (scripts/enrich/README.md):
+#   EXCL=""; for p in torch triton cuda-bindings cuda-pathfinder cuda-toolkit \
+#       nvidia-cublas nvidia-cuda-cupti nvidia-cuda-nvrtc nvidia-cuda-runtime \
+#       nvidia-cudnn-cu13 nvidia-cufft nvidia-cufile nvidia-curand nvidia-cusolver \
+#       nvidia-cusparse nvidia-cusparselt-cu13 nvidia-nccl-cu13 nvidia-nvjitlink \
+#       nvidia-nvshmem-cu13 nvidia-nvtx; do EXCL="$EXCL --no-emit-package $p"; done
+#   uv pip compile --generate-hashes --python-version 3.12 \
+#       --exclude-newer "$(date -d '6 weeks ago' +%F)" $EXCL \
+#       requirements-recon.in -o requirements-recon.txt
+numpy==2.4.4
+pillow==12.2.0
+psutil==7.2.2
+requests==2.34.2
+scipy==1.17.1
+opencv-python-headless==4.13.0.92
+einops==0.8.2
+roma==1.5.6
+kornia==0.8.2
+huggingface-hub==1.13.0
+safetensors==0.7.0
+tqdm==4.67.3
+# curope is built with `python setup.py build_ext`, so setuptools must be present at
+# image-build time — not optional the way it is in a wheel-only environment.
+setuptools==70.2.0
+# extras: broker.py needs limits, RabbitmqBroker needs amqpstorm (cf. api/pyproject.toml)
+remoulade[rabbitmq,limits]==7.0.0
+# streaming the result upload: 140 MB must not be encoded into RAM twice
+requests-toolbelt==1.0.0

@@ -57,6 +57,7 @@ actual fun MapScreen(
     stateStore: MapStateStore,
     session: MapSession,
     showControls: Boolean,
+    edges: PanelEdges,
 ) {
     val context = LocalContext.current
     val mapSettings by settings.settings.collectAsState()
@@ -82,6 +83,7 @@ actual fun MapScreen(
     // viewer pane reads the same two flags to decide what you can turn to,
     // so they are shared state now (see MapFilterState).
     val filters: MapFilterState = org.koin.compose.koinInject()
+    val viewerHolder: cz.hillview.viewer.ViewerStateHolder = org.koin.compose.koinInject()
     val hunterMode by filters.hunterMode.collectAsState()
 
     // Session-only, exactly as in the Svelte app — but held in MapSession
@@ -105,12 +107,15 @@ actual fun MapScreen(
     val trackingPhase by session.bearingPhase.collectAsState()
     val locationTracking by session.locationTracking.collectAsState()
     var locationFlash by remember { mutableStateOf(false) }
-    // The last fix, HELD — not only applied to the map centre. In BACKGROUND
-    // tracking the fix callback deliberately stops writing spatial state
-    // (exploring must not be yanked back), which used to mean the fix went
-    // nowhere at all and the receiver's position vanished from the map the
-    // moment you panned. The GPS dot (GpsMarkerOverlay) is where it goes.
-    var lastFix by remember { mutableStateOf<GeoPoint?>(null) }
+    // The last fix is a RECORD in the one state now (MapStateHolder.lastFix,
+    // 2026-09-09), not a copy held here. In BACKGROUND tracking the fix
+    // callback deliberately stops writing spatial state (exploring must not
+    // be yanked back), which used to mean the fix went nowhere at all and the
+    // receiver's position vanished from the map the moment you panned; a
+    // composition-local copy fixed that for the GPS dot only, while the
+    // capture pane kept ANOTHER copy for the stamp. Both now read the state.
+    val lastFixState by state.lastFix.collectAsState()
+    val lastFix = lastFixState?.let { GeoPoint(it.latitude, it.longitude) }
     // A pan happened and no manual position is claimed: exploration is
     // free, and this offers the two exits — claim this position, or snap
     // back to the fix. No timeout: reading a map takes as long as it
@@ -149,6 +154,22 @@ actual fun MapScreen(
     // The front photo: what the gallery would show and the marker drawn as
     // selected. Recomputed from bearing + range, or set by tapping.
     var selectedPhotoId by remember { mutableStateOf<String?>(null) }
+    // ONE front-photo rule. The map used to run its own (frontPhoto():
+    // in-range nearest-bearing) beside the viewer's derivation, and the two
+    // could disagree at the edges — the viewer's ring applies the hunter and
+    // filter rules, the map's pass did not — which is exactly the bug shape
+    // one-state.md exists to prevent. The enlarged marker now IS the
+    // viewer's front photo.
+    //
+    // Collected only while the view activity is up: outside it this effect
+    // holds no subscription, so the viewer derivation stays dark (its
+    // WhileSubscribed gate) and the marker keeps its last id for the pin —
+    // the same double gate the original has (optimizedMarkers.ts:88,:309).
+    val selectionFollows = mapSettings.mainActivity == "view"
+    LaunchedEffect(selectionFollows) {
+        if (!selectionFollows) return@LaunchedEffect
+        viewerHolder.state.collect { selectedPhotoId = it.front?.id }
+    }
     // Published by the marker overlay after each draw that moved anything.
     var markerPositions by remember {
         mutableStateOf<List<Pair<String, Pair<Float, Float>>>>(emptyList())
@@ -201,13 +222,22 @@ actual fun MapScreen(
         }
     }
 
-    // GPS: runs in ACTIVE and BACKGROUND, only ACTIVE moves the map. Also
-    // keyed on the permission so a grant mid-session arms the listener the
-    // button optimistically asked for.
+    // The fix RECORD: every fix the engine publishes, whatever the tracking
+    // mode, into the one state through its funnel. This is the writer for
+    // the position's second stream — the capture pane stamps from it, the
+    // GPS dot draws from it, and nothing else subscribes to the engine for a
+    // fix. Runs for the life of this always-mounted pane.
+    LaunchedEffect(Unit) {
+        controller.observeFixes { fix ->
+            locationFlash = true
+            state.updateFix(fix)
+        }
+    }
+    // Follow-me: runs in ACTIVE and BACKGROUND, only ACTIVE moves the map.
+    // Also keyed on the permission so a grant mid-session arms the listener
+    // the button optimistically asked for.
     LaunchedEffect(locationTracking, locationPermission.granted) {
         controller.setLocationEnabled(locationTracking != LocationTracking.Off) { lat, lon ->
-            locationFlash = true
-            lastFix = GeoPoint(lat, lon)
             if (locationTracking == LocationTracking.Active) {
                 state.updateSpatial(
                     latitude = lat, longitude = lon,
@@ -238,10 +268,12 @@ actual fun MapScreen(
     LaunchedEffect(bearing.source) {
         controller.publishBearingElection(bearing.source)
     }
-    // Location: the map position when the user has said so — through the
-    // pill's accepted claim or the capture pane's no-fix hatch — otherwise the
-    // fix stream. Electing it also writes it, or the election would point at a
-    // source with no rows.
+    // Location: the map position when the user has said so through the
+    // pill's accepted claim, otherwise the fix stream. (The capture pane's
+    // no-fix hatch used to be a second way in; it is gone — with no fix the
+    // map centre is recorded without an election, docs/one-state.md.)
+    // Electing it also writes it, or the election would point at a source
+    // with no rows.
     LaunchedEffect(manualPositionElected, spatial.latitude, spatial.longitude) {
         controller.publishLocationElection(
             manualElected = manualPositionElected,
@@ -262,8 +294,12 @@ actual fun MapScreen(
     val gpsOverlay = remember { GpsMarkerOverlay() }
     val arrowOverlay = remember { BearingArrowOverlay() }
     // Arrow drag: walking sets the bearing outright, car adjusts the mount
-    // offset by the angle travelled.
-    arrowOverlay.onDragStart = {
+    // offset by the angle travelled. Neither happens on contact — the arrow
+    // has to be HELD first (ArrowArming), and this fires at that moment
+    // rather than at the touch. Standing the compass down was the worst of
+    // the accidental override: a finger aimed past the arrow switched
+    // tracking off and left a hand-set bearing in its place.
+    arrowOverlay.onArmed = {
         if (mapSettings.bearingMode == BearingMode.Walking && trackingWanted) {
             session.setBearingTrackingWanted(false)
         }
@@ -380,6 +416,12 @@ actual fun MapScreen(
                 }.takeIf { it > 0 } ?: spatial.range
                 rangeOverlay.centre = centre
                 rangeOverlay.radiusPx = ringPx
+                // Read the circle's ground meaning back into the one state,
+                // so the viewer's ring culls against what the circle SHOWS.
+                // Only on real change: this block runs per recomposition.
+                if (kotlin.math.abs(rangeMeters - spatial.range) > spatial.range * 0.01) {
+                    state.updateRange(rangeMeters)
+                }
                 gpsOverlay.position = lastFix
                 // ACTIVE and BACKGROUND alike, as the original keeps it —
                 // "keep the pulsing GPS marker alive in BACKGROUND too".
@@ -393,8 +435,18 @@ actual fun MapScreen(
                 arrowStamp[0] = System.currentTimeMillis()
                 arrowStamp[1] = bearing.bearing.toRawBits()
                 arrowOverlay.tipRadiusPx = arrowTipPx
-                arrowOverlay.fullCircleHitArea =
+                // The ring is grabbable in every mode; this decides only
+                // what a drag MEANS — car mode adjusts the mount offset by
+                // the angle travelled, everything else points the arrow.
+                arrowOverlay.mountOffsetDrag =
                     mapSettings.bearingMode == BearingMode.Car && trackingWanted
+                // The hold in front of manual bearing is there to protect a
+                // heading that is about to be RECORDED (ArrowArming). In the
+                // viewer nothing is being recorded and turning the bearing IS
+                // the interaction, so the gate comes off and the ring behaves
+                // as the original's does (user, 2026-09-13).
+                arrowOverlay.requireHold =
+                    cz.hillview.settings.isRecordingActivity(mapSettings.mainActivity)
 
                 markerOverlay.viewBearing = bearing.bearing
                 markerOverlay.onPhotoTapped = { photo ->
@@ -423,17 +475,10 @@ actual fun MapScreen(
                 val visible = markers
                 val anyFeatured = visible.any { it.featured }
 
-                // The front photo follows the view unless the user picked
-                // one; a bearing whose source is a tap keeps that choice.
-                val inRange = { m: PhotoMarker ->
-                    centre.distanceToAsDouble(GeoPoint(m.latitude, m.longitude)) <= rangeMeters
-                }
-                selectedPhotoId = if (bearing.photoUid != null) {
-                    bearing.photoUid
-                } else {
-                    frontPhoto(visible, bearing.bearing, { it.id }, { it.bearingDeg }, inRange)?.id
-                }
-                markerOverlay.selectedId = selectedPhotoId
+                // Selection styling only in the view activity — the
+                // original's capture gate. The id itself arrives from the
+                // viewer's derivation (see selectedPhotoId above).
+                markerOverlay.selectedId = if (selectionFollows) selectedPhotoId else null
                 markerOverlay.markers = visible.map { marker ->
                     // Two wash-out reasons compose: the backend's analysis
                     // filter verdict (unless overridden), and the
@@ -622,6 +667,8 @@ actual fun MapScreen(
                 positionPrompt = false
                 session.setLocationTracking(LocationTracking.Active)
             },
+            mapPositionElected = manualPositionElected,
+            edges = edges,
             mapOrientation = spatial.orientation,
             onResetNorth = {
                 state.updateSpatial(
@@ -823,6 +870,7 @@ private class MapSensorController(private val context: Context) {
     private var compassJob: Job? = null
     private var carJob: Job? = null
     private var fixJob: Job? = null
+    private var recordJob: Job? = null
 
     /**
      * The engine's heading BEFORE election, for the debug readout: the
@@ -948,6 +996,37 @@ private class MapSensorController(private val context: Context) {
         wantLocation = enabled
         if (enabled) this.onFix = onFix
         syncLocation()
+    }
+
+    /**
+     * The fix as a RECORD, for the one state — unconditional, unlike
+     * [setLocationEnabled], which is follow-me's gated interest. The engine's
+     * platform Location carries elapsedRealtimeNanos, and the record keeps it
+     * (FixState): the stamp's fix age is measured against the monotonic
+     * clock, and handing the state a lat/lng pair would silently lose that.
+     * Idempotent; ends with [release].
+     */
+    fun observeFixes(onRecord: (cz.hillview.map.FixState) -> Unit) {
+        if (recordJob != null) return
+        recordJob = scope.launch {
+            engine.location.collect { fix ->
+                if (fix == null) return@collect
+                onRecord(
+                    cz.hillview.map.FixState(
+                        latitude = fix.latitude,
+                        longitude = fix.longitude,
+                        altitude = fix.takeIf { it.hasAltitude() }?.altitude,
+                        accuracyM = fix.takeIf { it.hasAccuracy() }?.accuracy,
+                        // The wall-clock instant OF THE FIX, not of its arrival
+                        // here: age at arrival is subtracted so a fix the
+                        // engine seeded from a cache reads as old as it is.
+                        atMs = System.currentTimeMillis() -
+                            (android.os.SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1_000_000,
+                        elapsedRealtimeNanos = fix.elapsedRealtimeNanos,
+                    ),
+                )
+            }
+        }
     }
 
     /**

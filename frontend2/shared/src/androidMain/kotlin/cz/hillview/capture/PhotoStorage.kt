@@ -50,9 +50,18 @@ object PhotoStorage {
     fun folderName(hideFromGallery: Boolean) =
         if (hideFromGallery) ".$folderBase" else folderBase
 
-    /** Preferred target first, then the rest — mirrors device_photos.rs. */
-    fun chain(preferred: StorageMode): List<StorageMode> =
-        listOf(preferred) + StorageMode.entries.filter { it != preferred }
+    /**
+     * Preferred target first, then the rest — mirrors device_photos.rs.
+     *
+     * With hiding on, the MediaStore target is left out: the media database
+     * cannot hold a hidden folder — MediaProvider rewrites ".Hillview2" to
+     * "_.Hillview2" on the way in (AOSP FileUtils.sanitizeDisplayName;
+     * seen on API 36) — so a hidden photo is always a direct file write.
+     * Decided 2026-09-03: no point trying hidden files with the media API.
+     */
+    fun chain(preferred: StorageMode, hideFromGallery: Boolean = false): List<StorageMode> =
+        (listOf(preferred) + StorageMode.entries.filter { it != preferred })
+            .filter { !(hideFromGallery && it == StorageMode.MediaStore) }
 
     fun publicDir(hideFromGallery: Boolean): File =
         File(
@@ -80,7 +89,12 @@ object PhotoStorage {
         when (mode) {
             StorageMode.PublicFolder -> fileOptions(publicDir(hideFromGallery), filename)
             StorageMode.PrivateFolder -> fileOptions(privateDir(context, hideFromGallery), filename)
-            StorageMode.MediaStore -> {
+            // chain() already leaves this target out when hiding; this is
+            // the safety net for any other caller.
+            StorageMode.MediaStore -> if (hideFromGallery) {
+                Log.w(TAG, "MediaStore cannot hold a hidden folder — skipped")
+                null
+            } else {
                 val values = ContentValues().apply {
                     put(MediaStore.Images.Media.DISPLAY_NAME, filename)
                     put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")

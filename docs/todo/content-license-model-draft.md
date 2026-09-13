@@ -8,6 +8,9 @@ level. The contributor chooses, for each piece of content they create, between:
 - **`full1`** — full dedication to the Hillview project. Contributor retains
   copyright; grants the Hillview project broad rights including the right to
   include the content in paid / restricted-access tiers in the future.
+  Hillview publishes such photos as all-rights-reserved PLUS the same OSM
+  mapping grant the CC option carries (public licence name `arr`; see "Known
+  debt" below) — so OSM mapping is served by both choices.
 - **`CC`** — commons-compatible. The exact CC variant is the current Hillview
   default (`CC BY-SA 4.0 + OSM grant` for photos; the equivalent for
   annotations). Compatible with Panoramax / OSM-style downstream redistribution.
@@ -16,6 +19,8 @@ Both choices are first-class. Hillview deliberately wants a mix:
 
 - `CC` content keeps Hillview commons-aligned, allows downstream contribution to
   open ecosystems (Panoramax, OSM, Wikidata), and earns goodwill in those spaces.
+  (OSM mapping specifically is served by `full1` too, through Hillview's own
+  grant; what CC adds is redistribution — Panoramax, Wikimedia, anyone.)
 - `full1` content is the **anchor for any future monetization** (paid tiers,
   pack sales, etc.). Without `full1` content existing from day 1, Hillview can
   never paywall anything without retroactively changing terms — the 27crags
@@ -254,3 +259,40 @@ existing policies.
 - [ ] Tests: license-lock transitions, first-filler rule edge cases,
       preference sync, race between pending untrusted submission and trusted
       edit.
+
+## Known debt: the public licence name `arr` (noted 2026-09-07)
+
+What reads as `arr` is not plain all-rights-reserved. A `full1` photo is
+published under all rights reserved PLUS the same OpenStreetMap mapping grant
+that `ccbysa4+osm` carries — Hillview holds full rights and grants it on the
+contributor's behalf. The name undersells that, and it misled at least one
+reader into documenting `arr` as "reuse only by arrangement": the /licensing
+page, the web label table and the JSON-LD comments all said so until this
+date. The prose is fixed; the id is not.
+
+The id stays. A truer name (`arr+osm`, mirroring the other) is an API
+vocabulary change, and `arr` is a READ value that shipped clients compare
+against, so a rename needs a compatibility plan before it needs a patch.
+Known touch points, for whoever plans it:
+
+- Backend: `LEGAL_RIGHTS_TO_LICENSE` and the `None → 'arr'` default in
+  `hillview_routes.py`, its unit test (`tests/unit/test_legal_rights.py`),
+  and every read route that calls `legal_rights_to_license` (photo, hillview,
+  bestof, activity).
+- Web app: `grantIdForLicense` (`'arr' → 'full1'`, the edit form's
+  translation back to a grant), `LICENSE_LABELS`, the two `=== 'arr'` checks
+  in `photoDisplay.ts` (copyright notice tail, JSON-LD acquire path), the
+  unit tests around them and the Playwright photo-detail spec.
+- Shipped clients: Tauri app builds already installed compare against `arr`.
+  An old client seeing a new id would show it raw and could not translate it
+  back to a grant when editing. Needs a transition window with both names
+  served, or a versioned field — not a flag day.
+- Crawlers: JSON-LD `license` / `acquireLicensePage` are URLs, not ids, and
+  the copyright notice is a string, so indexed pages are unaffected.
+- shared-kt / frontend2: pass the id through untouched (a comment in
+  `StreamPhotoLoader.kt` names it); nothing to change but the comment.
+- Storage: `Photo.legal_rights` and the licence-change history store GRANT
+  ids (`full1`), not `arr`, so the photo tables need no migration. Still to
+  check before any rename: caches that persist API reads (the Tauri app's
+  photo cache, service-worker caches) and the enrichment RDF store, in case
+  either recorded the read name as a fact.

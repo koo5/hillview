@@ -14,6 +14,10 @@
  *   -33.8568, 151.2153       southern/western may use a minus or an S/W letter
  * Each number needs 3+ decimal places, so prose numbers ("1938, 1500 m")
  * don't false-positive.
+ *
+ * DMS/DDM (parser v9): 50°10'29.869"N, 14°38'52.907"E and 50°10.4978'N —
+ * hemisphere letters REQUIRED (the guard against prose like "12°C, 1500 m");
+ * unicode primes (′ ″) accepted alongside ' and ".
  */
 
 const COORD_SRC =
@@ -22,6 +26,15 @@ const COORD_SRC =
 const COORD_RE = new RegExp(COORD_SRC);
 const COORD_RE_GLOBAL = new RegExp(COORD_SRC, 'g');
 const COORD_RE_FULL = new RegExp(`^(?:${COORD_SRC})$`);
+
+// DMS_RE in parser.py — group layout: deg, min, sec?, letter × 2
+const DMS_SRC =
+	"(\\d{1,2})[°º]\\s*(\\d{1,2}(?:[.,]\\d+)?)[′']\\s*(?:(\\d{1,2}(?:[.,]\\d+)?)\\s*(?:[″\"]|''))?\\s*([NnSs])" +
+	"[,;\\s]+(\\d{1,3})[°º]\\s*(\\d{1,2}(?:[.,]\\d+)?)[′']\\s*(?:(\\d{1,2}(?:[.,]\\d+)?)\\s*(?:[″\"]|''))?\\s*([EeWw])";
+
+const DMS_RE = new RegExp(DMS_SRC);
+const DMS_RE_GLOBAL = new RegExp(DMS_SRC, 'g');
+const DMS_RE_FULL = new RegExp(`^(?:${DMS_SRC})$`);
 
 export interface CoordMatch {
 	lat: number;
@@ -55,15 +68,35 @@ function toCoordMatch(m: RegExpMatchArray): CoordMatch {
 	};
 }
 
-/** First coordinate pair in `text`, or null. (COORD_RE.search in parser.py.) */
-export function firstCoords(text: string): CoordMatch | null {
-	const m = text.match(COORD_RE);
-	return m ? toCoordMatch(m) : null;
+/** _dms_from_match in parser.py. */
+function toDmsMatch(m: RegExpMatchArray): CoordMatch {
+	const val = (deg: string, min: string, sec: string | undefined, letter: string, neg: string) => {
+		const v = parseFloat(deg) + coordFloat(min) / 60 + (sec ? coordFloat(sec) / 3600 : 0);
+		return Number(hemisphere(v, letter, neg).toFixed(7));
+	};
+	return {
+		lat: val(m[1], m[2], m[3], m[4], 'S'),
+		lon: val(m[5], m[6], m[7], m[8], 'W'),
+		text: m[0],
+		index: m.index ?? 0,
+	};
 }
 
-/** All coordinate pairs in `text`, with offsets. (COORD_RE.finditer.) */
+/** First coordinate pair in `text` (decimal preferred, like parser.py), or null. */
+export function firstCoords(text: string): CoordMatch | null {
+	const m = text.match(COORD_RE);
+	if (m) return toCoordMatch(m);
+	const dm = text.match(DMS_RE);
+	return dm ? toDmsMatch(dm) : null;
+}
+
+/** All coordinate pairs in `text` (decimal + DMS), with offsets, in order. */
 export function findCoords(text: string): CoordMatch[] {
-	return [...text.matchAll(COORD_RE_GLOBAL)].map(toCoordMatch);
+	const dec = [...text.matchAll(COORD_RE_GLOBAL)].map(toCoordMatch);
+	const dms = [...text.matchAll(DMS_RE_GLOBAL)].map(toDmsMatch);
+	// the two patterns cannot overlap (DMS needs °; COORD_RE tolerates none),
+	// so a plain merge-by-offset keeps runs well-formed
+	return [...dec, ...dms].sort((a, b) => a.index - b.index);
 }
 
 /**
@@ -72,7 +105,7 @@ export function findCoords(text: string): CoordMatch[] {
  * counts as coords when it is a bare pair.)
  */
 export function isCoordsOnly(text: string): boolean {
-	return COORD_RE_FULL.test(text);
+	return COORD_RE_FULL.test(text) || DMS_RE_FULL.test(text);
 }
 
 export type CoordRun =

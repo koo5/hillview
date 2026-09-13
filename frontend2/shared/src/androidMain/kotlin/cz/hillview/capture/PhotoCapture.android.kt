@@ -169,8 +169,9 @@ actual fun rememberPhotoCapture(): PhotoCapture {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val uploadSettings: UploadSettingsRepository = org.koin.compose.koinInject()
+    val devicePose: DevicePoseState = org.koin.compose.koinInject()
     val capture = remember(lifecycleOwner) {
-        AndroidPhotoCapture(context.applicationContext, lifecycleOwner, uploadSettings)
+        AndroidPhotoCapture(context.applicationContext, lifecycleOwner, uploadSettings, devicePose)
     }
     DisposableEffect(capture) {
         onDispose { capture.release() }
@@ -189,6 +190,7 @@ private class AndroidPhotoCapture(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
     private val uploadSettings: UploadSettingsRepository,
+    private val devicePose: DevicePoseState,
 ) : PhotoCapture {
 
     override var state by mutableStateOf(CaptureState())
@@ -205,7 +207,6 @@ private class AndroidPhotoCapture(
     // The shared-kt fused service (PRIORITY_HIGH_ACCURACY) — the same
     // location path the Tauri app's capture geotag rides on.
     // Subscriptions to the engine's streams (this pane owns no hardware).
-    private var locationJob: Job? = null
 
     // Geo tracking — the same tables and CSV dumps the Tauri app writes
     // (GeoTrackingManager, shared-kt): the raw feeds, fused fixes and
@@ -398,7 +399,6 @@ private class AndroidPhotoCapture(
     @Volatile private var meterFrames = 0
     @Volatile private var meterConverged = false
 
-    @Volatile private var lastLocation: Location? = null
     @Volatile override var manualLocation: ManualLocation? = null
 
     // Mirrors MapSession.manualPositionElected, pushed in by the screen. This
@@ -424,22 +424,21 @@ private class AndroidPhotoCapture(
             }
         }
 
-    private fun onLocation(location: Location) {
-        lastLocation = location
-        val fixAgeMsAtArrival =
-            (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000
-        // Declination (magnetic → true) is fed inside the engine now, once
-        // per fix, for whichever panes are observing.
-        val age = SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos
-        state = state.copy(
-            hasFix = age < FIX_FRESH_MS * 1_000_000,
-            fixLatitude = location.latitude,
-            fixLongitude = location.longitude,
-            fixAtMs = System.currentTimeMillis() - fixAgeMsAtArrival,
-            fixAltitude = location.takeIf { it.hasAltitude() }?.altitude,
-            fixAccuracyM = location.takeIf { it.hasAccuracy() }?.accuracy,
-        )
-    }
+    @Volatile override var stampFix: cz.hillview.map.FixState? = null
+        set(value) {
+            field = value
+            // The overlay's readouts mirror the record. hasFix is "a fix
+            // exists this session" — no clock in it, so it is safe to keep;
+            // freshness is the overlay's to derive from fixAtMs and now.
+            state = state.copy(
+                hasFix = value != null,
+                fixLatitude = value?.latitude,
+                fixLongitude = value?.longitude,
+                fixAtMs = value?.atMs,
+                fixAltitude = value?.altitude,
+                fixAccuracyM = value?.accuracyM,
+            )
+        }
 
     /** PreciseLocationData → the platform Location the snapshot path reads. */
     private fun asLocation(data: cz.hillview.plugin.PreciseLocationData): Location =
@@ -466,6 +465,16 @@ private class AndroidPhotoCapture(
     // even about the same thing. Both now arrive with the bearing, through
     // stampBearing, from the one state everything else reads.
     // See docs/frontend2-geo-engine-design.md.
+    //
+    // The FIX went the same way on 2026-09-09. This pane collected the
+    // engine's location stream itself (the allowlisted "second stream"),
+    // and from it kept a private lastLocation and a private hasFix — a
+    // boolean judged once at arrival that could never go false, so the
+    // no-fix offer never appeared once a fix had landed and the shutter
+    // gated on a freshness that was not real. The fix is now the one
+    // state's `lastFix`, pushed in through stampFix like the bearing; the
+    // overlay readouts mirror the record, and freshness is derived at read.
+    // docs/one-state.md, "What went wrong" and "Derived, not stored".
 
     // The PURE DEVICE pose (accelerometer tilt), which is emphatically not
     // the screen's orientation. CameraX's default targetRotation is the
@@ -480,15 +489,30 @@ private class AndroidPhotoCapture(
     // `device-orientation` event from this same class) and it filters
     // FLAT_UP/FLAT_DOWN, so pointing at the ground or the sky keeps the last
     // real pose instead of snapping to portrait.
-    @Volatile private var deviceOrientation: DeviceOrientation = DeviceOrientation.PORTRAIT
-
+    //
+    // The pose it reports has ONE home, [DevicePoseState] — this engine is
+    // its only writer, and the floating camera button reads it there to turn
+    // its icon, as the original's rotates with `relativeOrientationExif`. The
+    // engine keeps no private copy: a second copy of a hardware-derived fact
+    // is how a reader ends up registering a second listener, which is the
+    // mistake docs/one-state.md is about.
     private val orientationSensor = MyDeviceOrientationSensor(context) { pose ->
-        deviceOrientation = pose
+        devicePose.set(DeviceOrientation.toDegrees(pose))
         // Settable on an already-bound use case — no rebind, no preview blink.
         val rotation = DeviceOrientation.toSurfaceRotation(pose)
         imageCapture?.targetRotation = rotation
         Log.d(TAG, "device pose $pose (${DeviceOrientation.toDegrees(pose)}°) → targetRotation $rotation")
     }
+
+    /**
+     * The pose to stamp/aim with right now. PORTRAIT while nothing has been
+     * sensed yet, which is where the sensor itself starts and what the
+     * original's store resets to.
+     */
+    private val deviceOrientation: DeviceOrientation
+        get() = devicePose.rotationDeg.value
+            ?.let { DeviceOrientation.fromDegrees(it) }
+            ?: DeviceOrientation.PORTRAIT
 
     // bindToLifecycle already unbinds the camera on STOP; the accelerometer
     // has no such contract, so it gets suspended alongside — the same
@@ -1366,27 +1390,17 @@ private class AndroidPhotoCapture(
         activeRecording?.stop()
     }
 
-    private var gpsStarted = false
     private var orientationStarted = false
 
     /**
-     * Idempotent; called again when location gets granted after the pane is
-     * already up (the soft-degrade path), so GPS joins late.
+     * Idempotent. Only the device-pose sensor is this pane's own now: the
+     * fix arrives through stampFix from the one state, and the map's writer
+     * adapter is what turns the engine's stream into it (so GPS "joining
+     * late" after a permission grant is the engine's and the map's
+     * business, not this pane's).
      */
     @SuppressLint("MissingPermission")
     fun startSensors() {
-        if (hasLocationPermission() && !gpsStarted) {
-            // Fused delivers its current best estimate immediately and
-            // precise fixes on a 1 s cadence; freshness is judged at
-            // capture time (FIX_FRESH_MS), so a stale seed can never
-            // geotag a photo. The stream is the ENGINE's — it publishes the
-            // platform Location itself, so elapsedRealtimeNanos (and with it
-            // the fix age this stamps) survives the hop.
-            locationJob = scope.launch {
-                engine.location.collect { fix -> fix?.let { onLocation(it) } }
-            }
-            gpsStarted = true
-        }
         if (!orientationStarted) {
             // Separate listener from the heading engine's own, on purpose:
             // that one accepts FLAT_UP from ORIENTATION_UNKNOWN, which would
@@ -1510,7 +1524,7 @@ private class AndroidPhotoCapture(
         val settings = uploadSettings.settings.value
         takePictureWithFallback(
             capture = capture,
-            chain = PhotoStorage.chain(settings.storage),
+            chain = PhotoStorage.chain(settings.storage, settings.hideFromGallery),
             filename = filename,
             hideFromGallery = settings.hideFromGallery,
             writeExif = settings.writeExif,
@@ -1696,32 +1710,30 @@ private class AndroidPhotoCapture(
         pose: DeviceOrientation = deviceOrientation,
         exposure: ExposureStamp? = null,
     ): SensorSnapshot {
-        val location = lastLocation
-        val ageMs = location?.let {
+        // The two position records, as the one state holds them — pushed in
+        // by the screen (stampFix, manualLocation), never read from a sensor
+        // here. Which one the photo records is stampPosition's table
+        // (commonMain, unit-tested); this only measures the fix's age on the
+        // monotonic clock and applies the answer. (It used to pick "manual
+        // or the fix" itself, and a missing fix meant a missing position —
+        // the gate made sure that never happened, by refusing the press.)
+        val fix = stampFix
+        val ageMs = fix?.let {
             (SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / 1_000_000
         }
-        // No arbitration here, deliberately. The map position is used exactly
-        // when the user elected it — through the pill's accepted claim or the
-        // no-fix escape hatch — and never because a fix merely went stale. A
-        // silent hand-over would make the election recorded on every row a
-        // lie, and re-judging the choice later is the whole point of recording
-        // it. Which stream is primary is decided in the UI, where it can be
-        // seen and withdrawn; this function only reports the decision.
-        val manual = manualLocation.takeIf { manualLocationElected }
-        // The stream NOT chosen above, kept beside the one that was — see
+        val position = stampPosition(
+            fix = fix, fixAgeMs = ageMs, pan = manualLocation, claimed = manualLocationElected,
+        )
+        // The record NOT chosen, kept beside the one that was — see
         // altLocationFor for the rule and why it has a case the original
         // does not.
         val alt = altLocationFor(
             manualElected = manualLocationElected,
             exploring = exploring,
-            fix = location?.let {
-                AltLocation(
-                    it.latitude, it.longitude, it.time,
-                    it.takeIf { l -> l.hasAccuracy() }?.accuracy,
-                    ALT_SOURCE_GPS_BACKGROUND,
-                )
+            fix = fix?.let {
+                AltLocation(it.latitude, it.longitude, it.atMs, it.accuracyM, ALT_SOURCE_GPS_BACKGROUND)
             },
-            mapPosition = manualLocation?.let {
+            mapPosition = manualLocation?.takeIf { it.atMs != null }?.let {
                 AltLocation(it.latitude, it.longitude, it.atMs, null, ALT_SOURCE_MAP_UNCLAIMED)
             },
         )
@@ -1730,53 +1742,39 @@ private class AndroidPhotoCapture(
         // offset included. Raw compass only as a fallback before the
         // screen pushes the first value.
         val stamp = stampBearing
-        return if (manual != null) {
-            SensorSnapshot(
-                latitude = manual.latitude,
-                longitude = manual.longitude,
-                // No altitude and no claimed accuracy: this is where the
-                // user says they are, not a measurement.
-                bearingDeg = stamp?.magneticDeg?.toFloat(),
-                trueBearingDeg = stamp?.trueDeg,
-                bearingSource = stamp?.source,
-                pitchDeg = stamp?.pitch?.toFloat(),
-                capturedAtMs = capturedAtMs,
-                locationSource = "manual",
-                deviceRotationDeg = DeviceOrientation.toDegrees(pose),
-                exposure = exposure,
-                altLocation = alt,
-            )
-        } else {
-            SensorSnapshot(
-                latitude = location?.latitude,
-                longitude = location?.longitude,
-                altitude = location?.takeIf { it.hasAltitude() }?.altitude,
-                accuracyM = location?.takeIf { it.hasAccuracy() }?.accuracy,
-                bearingDeg = stamp?.magneticDeg?.toFloat(),
-                trueBearingDeg = stamp?.trueDeg,
-                bearingSource = stamp?.source,
-                pitchDeg = stamp?.pitch?.toFloat(),
-                capturedAtMs = capturedAtMs,
-                locationSource = location?.let { "gps" },
-                locationAgeMs = ageMs,
-                deviceRotationDeg = DeviceOrientation.toDegrees(pose),
-                exposure = exposure,
-                altLocation = alt,
-            )
-        }
+        return SensorSnapshot(
+            latitude = position?.latitude,
+            longitude = position?.longitude,
+            // A map position has no altitude and no accuracy: it is where
+            // the map is, not a measurement — stampPosition leaves them null.
+            altitude = position?.altitude,
+            accuracyM = position?.accuracyM,
+            bearingDeg = stamp?.magneticDeg?.toFloat(),
+            trueBearingDeg = stamp?.trueDeg,
+            bearingSource = stamp?.source,
+            pitchDeg = stamp?.pitch?.toFloat(),
+            capturedAtMs = capturedAtMs,
+            // No position at all → no source either: the last row of the
+            // table, and meant.
+            locationSource = position?.source,
+            locationAgeMs = position?.fixAgeMs,
+            deviceRotationDeg = DeviceOrientation.toDegrees(pose),
+            exposure = exposure,
+            altLocation = alt,
+        )
     }
 
     fun release() {
-        // Unsubscribe only — the engine's lifetime belongs to the ACTIVITY
-        // (MainScreen hands it a GeoConfig), not to this pane.
-        locationJob?.cancel()
-        locationJob = null
-        gpsStarted = false
         orientationStarted = false
         analysisUseCase?.clearAnalyzer()
         analysisUseCase = null
         analysisExecutor.shutdown()
         orientationSensor.setRunning(false)
+        // Nothing is sensing the pose any more, so say so rather than leave a
+        // stale one standing: the original's CameraCapture resets its store to
+        // orientation 1 on unmount for the same reason, which is why its
+        // camera button sits upright once the camera is closed.
+        devicePose.set(null)
         lifecycleOwner.lifecycle.removeObserver(orientationLifecycle)
         try {
             shutterSound.release()
@@ -1799,7 +1797,6 @@ private class AndroidPhotoCapture(
         previewUseCase = null
         previewBound = false
         cameraBound = false
-        gpsStarted = false
         orientationStarted = false
         scope.cancel()
     }

@@ -5,6 +5,8 @@ there is no auth. Graduation path: hillview's backend/api/app/auth.py:622
 require_admin() — add as a router-level dependency when this grows real exposure."""
 from contextlib import asynccontextmanager
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -37,7 +39,10 @@ async def lifespan(app: FastAPI):
     await db.hv_engine.dispose()
 
 
-app = FastAPI(title="Hillview Enrichment Workbench", lifespan=lifespan)
+# Behind a prefix route, the proxy strips it before us, so every path stays /api/... —
+# root_path only fixes the URLs the generated docs and openapi.json advertise.
+app = FastAPI(title="Hillview Enrichment Workbench", lifespan=lifespan,
+              root_path=os.getenv("ENRICH_ROOT_PATH", ""))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,

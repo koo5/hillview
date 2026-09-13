@@ -41,7 +41,15 @@ class CDNUploader:
 					endpoint_url=endpoint_url,
 					aws_access_key_id=access_key_id,
 					aws_secret_access_key=secret_access_key,
-					config=Config(s3={'addressing_style': addressing_style}))
+					# Bounded: without these, one unreachable endpoint blocks a delete
+					# for minutes (default 60s connect + 60s read, up to 5 attempts).
+					# A dangling cdn pool must fail fast, not stall the whole sweep.
+					config=Config(
+						s3={'addressing_style': addressing_style},
+						connect_timeout=5,
+						read_timeout=15,
+						retries={'max_attempts': 2, 'mode': 'standard'},
+					))
 				logger.info(f"CDN configured for bucket: {self.bucket_name}")
 			except Exception as e:
 				logger.error(f"Failed to initialize S3 client: {e}")

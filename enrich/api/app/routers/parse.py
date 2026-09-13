@@ -25,7 +25,7 @@ class ParseRequest(BaseModel):
 # every predicate facts.facts_for can emit — only these are the parser's to retire
 PARSER_PREDICATES = ("onPhoto", "labelText", "context", "wikipediaPage", "webPage",
                      "embeddedCoords", "typeGuess", "uncertain", "oopsMarker",
-                     "unnamed", "poiKey")
+                     "unnamed", "poiKey", "osmRef")
 
 
 async def _retire_stale_parser_facts(ann_ids: list[str], emitted: set[str],
@@ -57,6 +57,26 @@ SELECT ?f WHERE {{
     return retired
 
 
+async def _proposed_bodies(ann_ids: list[str]) -> dict[str, str]:
+    """{ann_id: approved hv:proposedBody text} — a pending workbench body edit
+    is the operator's newest statement of the content, so the parser derives
+    from IT rather than the not-yet-landed mirror body. Content addressing
+    makes this safe: when the edit lands, the sync's re-parse re-mints the
+    exact same facts (same triples → same IRIs → curation survives)."""
+    out: dict[str, str] = {}
+    for i in range(0, len(ann_ids), 400):
+        values = " ".join(f"<{graph.annotation_iri(a)}>" for a in ann_ids[i:i + 400])
+        res = await graph.store.query(f"""{graph.PREFIXES}
+SELECT ?ann ?v WHERE {{
+  VALUES ?ann {{ {values} }}
+  GRAPH ?f {{ ?ann hv:proposedBody ?v }}
+  GRAPH <{graph.GRAPH_CURATION}> {{ ?f hv:status hv:approved }}
+}}""")
+        for b in res["results"]["bindings"]:
+            out[b["ann"]["value"].rsplit("/", 1)[-1]] = b["v"]["value"]
+    return out
+
+
 async def parse_annotations(where: str, params: dict, scope: str,
                             photo_id: str | None = None,
                             annotation_ids: list[str] | None = None,
@@ -64,11 +84,14 @@ async def parse_annotations(where: str, params: dict, scope: str,
     """Parse the current annotation rows matching `where` into facts, as one
     annotation_parse run. Content-addressed: re-emitting an unchanged body is a
     no-op on the fact graphs (curation survives). Shared by the endpoint and the
-    post-sync derivation (sync.sync_and_derive)."""
+    post-sync derivation (sync.sync_and_derive). An approved proposedBody (the
+    ✎ body verb) overrides the mirror body for its annotation — the workbench
+    derives from the newest text without waiting for the graduation round trip."""
     async with wb_engine.connect() as conn:
         rows = (await conn.execute(text(
             f"SELECT a.id, a.photo_id, a.body FROM annotation_mirror a WHERE {where}"),
             params)).all()
+    proposed = await _proposed_bodies([r.id for r in rows])
 
     run_id = await create_run(
         kind="annotation_parse",
@@ -77,7 +100,8 @@ async def parse_annotations(where: str, params: dict, scope: str,
                 "parser_version": PARSER_VERSION},
         note=note)
     try:
-        parsed = [{"id": r.id, "photo_id": r.photo_id, "parsed": parse_body(r.body)}
+        parsed = [{"id": r.id, "photo_id": r.photo_id,
+                   "parsed": parse_body(proposed.get(r.id, r.body))}
                   for r in rows]
         payload = facts.build_run_payload(parsed, run_id)
 
@@ -109,6 +133,7 @@ async def parse_annotations(where: str, params: dict, scope: str,
             "uncertain": sum(1 for p in parsed if p["parsed"].uncertain),
             "with_wiki": sum(1 for p in parsed if p["parsed"].wiki_url),
             "with_coords": sum(1 for p in parsed if p["parsed"].coords),
+            "from_proposed_body": len([r for r in rows if r.id in proposed]),
         }
         await finish_run(run_id, stats=stats, graph_iri=graph.run_iri(run_id))
         return {"run_id": str(run_id), "status": "succeeded", "stats": stats}

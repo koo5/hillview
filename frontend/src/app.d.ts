@@ -3,7 +3,15 @@
 declare global {
 	namespace App {
 		// interface Error {}
-		// interface Locals {}
+		interface Locals {
+			/**
+			 * Read-only SSR ticket from the visitor's cookie, when authed rendering
+			 * is switched on. Server loads forward it to the API as a bearer token so
+			 * the page renders this visitor's view; absent means render anonymously.
+			 * See hooks.server.ts and $lib/ssrTicketCookie.ts.
+			 */
+			ssrTicket?: string;
+		}
 		// interface PageData {}
 		// interface PageState {}
 		// interface Platform {}

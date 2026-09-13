@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { base } from '$app/paths';
+	import { apiBase } from '$lib/config';
 	import { onDestroy, onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -352,9 +354,9 @@
 	{#if sel}
 		<b>{label(sel)}</b>
 		<span class="mono muted" style="font-size:11px">{sel.id.slice(0, 8)}</span>
-		<a href="/annotations/{sel.id}">detail</a>
-		<a href="/photos/{sel.photo_id}">pano</a>
-		<a href="/geocode">geocode</a>
+		<a href="{base}/annotations/{sel.id}">detail</a>
+		<a href="{base}/photos/{sel.photo_id}">pano</a>
+		<a href="{base}/geocode">geocode</a>
 	{/if}
 	{#if pickerOpen}
 		<div
@@ -458,7 +460,7 @@
 					<div class="row" style="gap:10px; margin-top:10px; align-items:flex-start">
 						<div style="flex:1; min-width:300px">
 							<div class="muted" style="font-size:11px; margin-bottom:2px">
-								annotation region — <a href="/photos/{selDetail.photo_id}">pano</a>
+								annotation region — <a href="{base}/photos/{selDetail.photo_id}">pano</a>
 							</div>
 							{#key selDetail.id}
 								<OsdViewer
@@ -476,7 +478,7 @@
 						{#if inspectCand && inspectCand.width && inspectCand.height}
 							<div style="flex:1; min-width:300px">
 								<div class="muted" style="font-size:11px; margin-bottom:2px">
-									candidate <a href="/photos/{inspectCand.photo_id}" class="mono">{inspectCand.photo_id.slice(0, 8)}</a>
+									candidate <a href="{base}/photos/{inspectCand.photo_id}" class="mono">{inspectCand.photo_id.slice(0, 8)}</a>
 									{inspectCand.title ?? ''}
 								</div>
 								{#key inspect}
@@ -549,9 +551,9 @@
 								onmouseenter={() => (selCand = c.photo_id)}>
 								<td>
 									<div class="row" style="gap:8px">
-										<a href="/photos/{c.photo_id}" title="photo page"><PhotoThumb sizes={c.sizes} size={110} /></a>
+										<a href="{base}/photos/{c.photo_id}" title="photo page"><PhotoThumb sizes={c.sizes} size={110} /></a>
 										<div>
-											<a href="/photos/{c.photo_id}" class="mono muted" style="font-size:10px">{c.photo_id.slice(0, 8)}</a>
+											<a href="{base}/photos/{c.photo_id}" class="mono muted" style="font-size:10px">{c.photo_id.slice(0, 8)}</a>
 											<button
 												style="font-size:10px; padding:1px 7px; display:block; margin-top:3px; {inspect === c.photo_id ? 'border-color:var(--accent)' : ''}"
 												title="side-by-side compare with the annotation region"
@@ -569,7 +571,7 @@
 											{c.match.inliers}/{c.match.raw_matches} = {Math.round((c.match.ratio ?? 0) * 100)}%
 										</span>
 										{#if c.match.overlay_path}
-											· <a href="/api/matching/overlay/{c.match.id}" target="_blank" rel="noreferrer">overlay</a>
+											· <a href="{apiBase}/matching/overlay/{c.match.id}" target="_blank" rel="noreferrer">overlay</a>
 										{/if}
 									{:else if c.match?.status === 'queued'}
 										<span class="pill running">queued</span>

@@ -131,6 +131,8 @@ test('ranks runs by structure, not by the GPS residual', async ({ page }) => {
 	await page.goto('/recon');
 	const rows = page.getByTestId('recon-run-row');
 	await expect(rows).toHaveCount(3);
+	// most recent first is the default now; the structure ranking is a toggle away
+	await page.getByTestId('recon-sort-structure').click();
 	// structure order: masktest 0.71 < walk_dense 2.55 < board_jan 560
 	await expect(rows.nth(0)).toHaveAttribute('data-run', 'masktest');
 	await expect(rows.nth(1)).toHaveAttribute('data-run', 'walk_dense');
@@ -306,6 +308,410 @@ test('previews the cluster before it can be enqueued', async ({ page }) => {
 	expect((enqueued as { limit: number }).limit).toBe(5);
 });
 
+const GEO_FRAMES = [
+	{ idx: 0, gps: [50.1, 14.5], recovered_gps: [50.1001, 14.5001] },
+	{ idx: 1, gps: [50.1005, 14.5005], recovered_gps: [50.1004, 14.5008] },
+	{ idx: 2, gps: [50.101, 14.501], recovered_gps: [50.1012, 14.5009] }
+];
+
+async function stubGeo(page: Page) {
+	await page.route('**/api/recon/runs/*', async (route) => {
+		const id = new URL(route.request().url()).pathname.split('/').pop()!;
+		const r = RUNS.find((x) => x.id === id) ?? RUNS[0];
+		await route.fulfill({
+			json: {
+				...runRow(r),
+				frames: GEO_FRAMES.map((f) => ({
+					id: `aaaaaaaa-0000-0000-0000-00000000000${f.idx}`,
+					idx: f.idx,
+					focal_px: 405,
+					base_focal_px: 400,
+					reproj_px: 1.2,
+					epipolar_px: 0.3,
+					residual_m: 0.4
+				})),
+				pairs: PAIRS,
+				worst_pairs: [],
+				geo: { frames: GEO_FRAMES }
+			}
+		});
+	});
+	await page.route('**/tile/**', async (route) => route.abort());
+}
+
+test('the track map goes fullscreen and comes back', async ({ page }) => {
+	// It is the view that shows a solve folding, so it has to be usable at full size --
+	// and a fixed overlay with no way out is a trap, hence the Escape half.
+	await stubGeo(page);
+	await page.goto('/recon?run=walk_dense');
+	const btn = page.getByTestId('recon-track-expand');
+	await expect(btn).toBeVisible({ timeout: 20_000 });
+	const small = (await page.locator('.leaflet-container').boundingBox())!.height;
+	await btn.click();
+	await expect
+		.poll(async () => (await page.locator('.leaflet-container').boundingBox())!.height)
+		.toBeGreaterThan(small + 200);
+	await page.keyboard.press('Escape');
+	await expect
+		.poll(async () => (await page.locator('.leaflet-container').boundingBox())!.height)
+		.toBeLessThan(small + 50);
+});
+
+test('the track map moves when a different run is picked', async ({ page }) => {
+	// two runs at two places: picking the second must refit the map to it
+	const far = GEO_FRAMES.map((f) => ({ ...f, gps: [f.gps[0] + 0.05, f.gps[1] + 0.05],
+		recovered_gps: [f.recovered_gps[0] + 0.05, f.recovered_gps[1] + 0.05] }));
+	await page.route('**/api/recon/runs/*', async (route) => {
+		const id = new URL(route.request().url()).pathname.split('/').pop()!;
+		const r = RUNS.find((x) => x.id === id) ?? RUNS[0];
+		const g = r.name === 'board_jan' ? far : GEO_FRAMES;
+		await route.fulfill({ json: { ...runRow(r),
+			frames: g.map((f) => ({ id: `aaaaaaaa-0000-0000-0000-00000000000${f.idx}`, idx: f.idx,
+				focal_px: 405, base_focal_px: 400, reproj_px: 1, epipolar_px: 0.3, residual_m: 0.4 })),
+			pairs: PAIRS, worst_pairs: [], geo: { frames: g } } });
+	});
+	await page.route('**/tile/**', async (route) => route.abort());
+	await page.goto('/recon?run=walk_dense');
+	await expect(page.getByTestId('recon-track-expand')).toBeVisible({ timeout: 20_000 });
+	const mapEl = page.locator('.leaflet-container');
+	await expect(mapEl).toHaveAttribute('data-centre', /50\.100\d\d,14\.500\d\d/);
+	await page.getByTestId('recon-run-row').filter({ hasText: 'board_jan' }).click();
+	await expect(page.getByTestId('recon-detail')).toHaveAttribute('data-run', 'board_jan');
+	// the far cluster is 0.05 deg away; the map must be looking there now
+	await expect(mapEl).toHaveAttribute('data-centre', /50\.150\d\d,14\.550\d\d/, { timeout: 5000 });
+});
+
+test('hovering a recovered camera names its frame and lights its link', async ({ page }) => {
+	await stubGeo(page);
+	await page.goto('/recon?run=walk_dense');
+	await expect(page.getByTestId('recon-track-expand')).toBeVisible({ timeout: 20_000 });
+	const dots = page.locator('path.leaflet-interactive');
+	await expect(dots.first()).toBeVisible();
+	// move the real mouse to the marker's centre rather than locator.hover(): leaflet
+	// paints into one SVG, so playwright's actionability checks can sit forever waiting
+	// for a <path> it considers obscured by its own siblings
+	// dispatch the DOM event leaflet actually listens for, rather than driving the real
+	// mouse: leaflet paints every marker into one SVG, and playwright's actionability
+	// checks can wait forever on a <path> it thinks its own siblings obscure
+	await dots.last().dispatchEvent('mouseover');
+	await expect(page.locator('.hoverbox')).toContainText(/frame \d/);
+	// and the link for that frame lights up
+	await expect(page.locator('path[stroke="#e0a23a"]').first()).toBeVisible();
+});
+
+// The viewer is lazy-mounted (IntersectionObserver): a page visit must not eagerly build
+// a WebGL context. Below the fold it offers a button instead; take it when offered.
+async function mountCloud(page: Page) {
+	const btn = page.getByRole('button', { name: 'load point cloud' });
+	const stage = page.getByTestId('recon-cloud');
+	await expect(btn.or(stage).first()).toBeVisible({ timeout: 20_000 });
+	// Scrolling the button into view is itself what mounts the viewer (the observer
+	// fires), so a click here races the button's own disappearance. Scroll, give the
+	// observer a beat, and only click if the button is still there.
+	if (await btn.isVisible().catch(() => false)) {
+		await btn.scrollIntoViewIfNeeded();
+		await page.waitForTimeout(400);
+		if (await btn.isVisible().catch(() => false)) await btn.click({ timeout: 3000 }).catch(() => {});
+	}
+	await expect(stage).toBeVisible({ timeout: 20_000 });
+}
+
+test('the frames table sorts by a clicked column', async ({ page }) => {
+	// "which frame drifted" should be one click, not a scan down fifty rows
+	await page.route('**/api/recon/runs/*', async (route) => {
+		const id = new URL(route.request().url()).pathname.split('/').pop()!;
+		const r = RUNS.find((x) => x.id === id) ?? RUNS[0];
+		await route.fulfill({
+			json: {
+				...runRow(r),
+				frames: [0.8, 42.5, 3.1].map((e, i) => ({
+					id: `cccccccc-0000-0000-0000-00000000000${i}`, idx: i, focal_px: 400,
+					base_focal_px: 400, reproj_px: e, epipolar_px: e / 2, residual_m: 0.5
+				})),
+				pairs: PAIRS, worst_pairs: [], geo: null
+			}
+		});
+	});
+	await page.goto('/recon?run=walk_dense');
+	const hdr = page.getByTestId('recon-frames-sort-reproj');
+	await expect(hdr).toBeVisible({ timeout: 20_000 });
+	const firstCell = () => page.locator('table').filter({ has: hdr }).locator('tbody tr').first().locator('td').first();
+	await expect(firstCell()).toHaveText('0');
+	await hdr.click(); // descending: worst first
+	await expect(firstCell()).toHaveText('1');
+	await hdr.click(); // ascending
+	await expect(firstCell()).toHaveText('0');
+	await hdr.click(); // off: back to capture order
+	await expect(firstCell()).toHaveText('0');
+});
+
+test('a running run shows its pace, its ETA and a slowdown warning', async ({ page }) => {
+	// No magic timeout: the worker reads the solver's own progress bars and the bench
+	// shows rate and ETA, and says so when a run falls well below its own early pace.
+	await page.route('**/api/recon/runs', async (route) => {
+		if (route.request().method() !== 'GET') return route.fallback();
+		const rows = RUNS.map(runRow);
+		rows[1] = {
+			...rows[1], status: 'running',
+			meta: { stage: 'solving',
+				progress: { done: 416, total: 948, bar: 1, s_per_it: 86.7, eta_s: 46140 },
+				warning: "5.1x slower than this run's own early pace (17 s/it) — another solve on the box?" }
+		};
+		await route.fulfill({ json: { runs: rows, queue: { messages: 0, consumers: 1 } } });
+	});
+	await page.goto('/recon');
+	const row = page.getByTestId('recon-run-row').filter({ hasText: 'walk_dense' });
+	await expect(row).toContainText('416/948');
+	await expect(row).toContainText('ETA 12.8 h');
+	await expect(row.getByTestId('recon-run-warning')).toContainText('5.1x slower');
+});
+
+test('a broken walk offers to split, and its spans overlay as a group', async ({ page }) => {
+	let splitCalled = false;
+	await page.route('**/api/recon/runs/*/split', async (route) => {
+		splitCalled = true;
+		await route.fulfill({ json: { parent: 'x', queued: [], skipped: [] } });
+	});
+	await page.route('**/api/recon/runs/*', async (route) => {
+		const id = new URL(route.request().url()).pathname.split('/').pop()!;
+		const r = RUNS.find((x) => x.id === id) ?? RUNS[0];
+		const base = runRow(r);
+		await route.fulfill({
+			json: {
+				...base,
+				metrics: { ...base.metrics, chain: { typical_link: 5000, breaks: [16, 33],
+					spans: [[0, 16], [17, 33], [34, 49]], verdicts: {}, n_cross_session: 0, n_cross_verified: 0 } },
+				frames: [], pairs: [], worst_pairs: [], geo: null,
+				group: { parent: r.id, members: [] }
+			}
+		});
+	});
+	await page.goto('/recon?run=walk_dense');
+	const btn = page.getByTestId('recon-split');
+	await expect(btn).toBeVisible({ timeout: 20_000 });
+	await expect(btn).toContainText('3 spans');
+	await btn.click();
+	await expect.poll(() => splitCalled).toBe(true);
+});
+
+test('a queued run shows its frames before it is solved', async ({ page }) => {
+	// A run takes hours. Whether it was worth starting is visible in its frames long
+	// before an artifact comes back, so the detail must serve them from the row.
+	await page.route('**/api/recon/runs/*', async (route) => {
+		const id = new URL(route.request().url()).pathname.split('/').pop()!;
+		const r = RUNS.find((x) => x.id === id) ?? RUNS[0];
+		await route.fulfill({
+			json: {
+				...runRow(r),
+				status: 'queued',
+				frames_pending: true,
+				frames: [0, 1, 2].map((i) => ({
+					idx: i, id: `bbbbbbbb-0000-0000-0000-00000000000${i}`, pending: true,
+					captured_at: `2026-08-19 16:41:0${i}.000000`, camera: 'exif:Ulefone|Armor 22|',
+					compass_angle: 90 + i, gps: [50.1, 14.5 + i * 0.0001], thumb: null
+				})),
+				pairs: [], worst_pairs: [],
+				geo: { center: [50.1, 14.5], frames: [0, 1, 2].map((i) => ({
+					idx: i, id: 'x', gps: [50.1, 14.5 + i * 0.0001], recovered_gps: null }))
+				}
+			}
+		});
+	});
+	await page.route('**/tile/**', async (route) => route.abort());
+	await page.goto('/recon?run=walk_dense');
+	await expect(page.getByTestId('recon-frames-pending')).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByTestId('recon-frame-strip').locator('button')).toHaveCount(3);
+	// and the track map draws the selected cluster from GPS alone
+	await expect(page.getByTestId('recon-track-expand')).toBeVisible();
+});
+
+test('a layer toggle keeps the viewpoint', async ({ page }) => {
+	// Layers used to be remounted through a {#key}, which threw away the orbit camera:
+	// every checkbox tick sent you back to the default framing, so the toggles were
+	// useless for exactly the thing they are for, comparing with and without.
+	const N = 300;
+	const buf = Buffer.alloc(N * 15);
+	for (let i = 0; i < N; i++) {
+		buf.writeFloatLE(Math.cos(i) * 3, i * 15);
+		buf.writeFloatLE(Math.sin(i) * 3, i * 15 + 4);
+		buf.writeFloatLE(i / 100, i * 15 + 8);
+	}
+	await page.route('**/cloud.bin*', async (route) =>
+		route.fulfill({ body: buf, contentType: 'application/octet-stream' })
+	);
+	await page.route('**/recon/runs/*/cameras*', async (route) =>
+		route.fulfill({
+			json: {
+				frames: [
+					{
+						idx: 0, id: 'a', focal_px: 400, injected: false,
+						pos: [0, 0, 0], rot: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+					}
+				]
+			}
+		})
+	);
+	await page.route('**/recon/runs/*/map', async (route) =>
+		route.fulfill({ json: { buildings: [], walls: [], roads: [] } })
+	);
+
+	await page.goto('/recon?run=walk_dense');
+	await mountCloud(page);
+	const canvas = page.getByTestId('recon-cloud').locator('canvas');
+	await expect(canvas).toBeVisible({ timeout: 20_000 });
+	const first = await canvas.elementHandle();
+
+	await page.getByRole('checkbox', { name: 'photos' }).check();
+	await page.waitForTimeout(500);
+	const second = await canvas.elementHandle();
+	// same canvas node means the WebGL context, and with it the orbit camera, survived
+	expect(await page.evaluate(([a, b]) => a === b, [first, second])).toBe(true);
+
+	await page.getByRole('checkbox', { name: 'OSM map' }).uncheck();
+	await page.waitForTimeout(300);
+	const third = await canvas.elementHandle();
+	expect(await page.evaluate(([a, b]) => a === b, [first, third])).toBe(true);
+});
+
+test('other walks in the same place can be drawn together', async ({ page }) => {
+	// One walk is the first case, not the point. Judging a join means seeing every solve
+	// in an area at once, in one metric frame — so the bench has to offer the neighbours
+	// and let them be ticked into the same viewer.
+	await page.route('**/recon/runs/*/nearby*', async (route) =>
+		route.fulfill({
+			json: {
+				centre: [50.1, 14.5],
+				radius_m: 300,
+				runs: [
+					{
+						id: '00000000-0000-4000-8000-0000000000aa',
+						name: 'other-walk',
+						status: 'done',
+						n_frames: 40,
+						distance_m: 53.6,
+						reproj: 9.41,
+						ground_cm: 30.6,
+						joined: true,
+						finished: '2026-09-10',
+						parent: null
+					}
+				]
+			}
+		})
+	);
+	await page.goto('/recon?run=walk_dense');
+	await page.getByTestId('recon-nearby').scrollIntoViewIfNeeded();
+	await page.getByRole('button', { name: 'find other runs here' }).click();
+	const row = page.getByTestId('recon-nearby').locator('tbody tr').first();
+	await expect(row).toContainText('other-walk');
+	await expect(row).toContainText('53.6');
+	// a recorded join is visible without opening the run
+	await expect(row.locator('.pill')).toHaveText('joined');
+	await page.getByTestId('overlay-nearby').check();
+	await expect(page.getByTestId('overlay-nearby')).toBeChecked();
+});
+
+test('the foliage layer is a second pass, not a second solve', async ({ page }) => {
+	// Vegetation is masked out of MATCHING so it cannot bend the geometry, and out of the
+	// dense cloud so it cannot hide it. The second pass paints it back through the depth
+	// the structures already fixed: a separate cloud, fetched only when asked for, and
+	// arriving without rebuilding the viewer (a toggle must never cost the viewpoint).
+	const N = 300;
+	const buf = Buffer.alloc(N * 15);
+	for (let i = 0; i < N; i++) {
+		buf.writeFloatLE(Math.cos(i) * 3, i * 15);
+		buf.writeFloatLE(Math.sin(i) * 3, i * 15 + 4);
+		buf.writeFloatLE(i / 100, i * 15 + 8);
+	}
+	const asked: string[] = [];
+	await page.route('**/cloud.bin*', async (route) => {
+		asked.push(route.request().url());
+		await route.fulfill({ body: buf, contentType: 'application/octet-stream' });
+	});
+	await page.route('**/recon/runs/*/cameras*', async (route) =>
+		route.fulfill({ json: { frames: [] } })
+	);
+	await page.route('**/recon/runs/*/map', async (route) =>
+		route.fulfill({ json: { buildings: [], walls: [], roads: [] } })
+	);
+	await page.route('**/api/recon/runs/*', async (route) => {
+		if (route.request().method() !== 'GET') return route.fallback();
+		const id = new URL(route.request().url()).pathname.split('/').pop()!;
+		const r = RUNS.find((x) => x.id === id) ?? RUNS[0];
+		await route.fulfill({
+			json: {
+				...runRow(r),
+				has_dense_cloud: true,
+				has_soft_cloud: true,
+				frames: [],
+				pairs: PAIRS,
+				worst_pairs: [],
+				geo: null
+			}
+		});
+	});
+
+	await page.goto('/recon?run=walk_dense');
+	await mountCloud(page);
+	const canvas = page.getByTestId('recon-cloud').locator('canvas');
+	await expect(canvas).toBeVisible({ timeout: 20_000 });
+	const before = await canvas.elementHandle();
+	expect(asked.some((u) => u.includes('soft=true'))).toBe(false);
+
+	await page.getByTestId('toggle-soft').check();
+	await expect(page.getByTestId('soft-count')).toBeVisible({ timeout: 20_000 });
+	expect(asked.some((u) => u.includes('soft=true'))).toBe(true);
+	// same canvas node: the layer went in beside the geometry, it did not replace it
+	const after = await canvas.elementHandle();
+	expect(await page.evaluate(([a, b]) => a === b, [before, after])).toBe(true);
+
+	await page.getByTestId('toggle-soft').uncheck();
+	await expect(page.getByTestId('soft-count')).toBeHidden({ timeout: 10_000 });
+});
+
+test('fly mode takes the controls and hands them back', async ({ page }) => {
+	// Orbit is for judging from outside; fly is for being inside. The toggle must not
+	// rebuild the viewer, keys must not leak to the page, and orbit must come back level.
+	const N = 300;
+	const buf = Buffer.alloc(N * 15);
+	for (let i = 0; i < N; i++) {
+		buf.writeFloatLE(Math.cos(i) * 3, i * 15);
+		buf.writeFloatLE(Math.sin(i) * 3, i * 15 + 4);
+		buf.writeFloatLE(i / 100, i * 15 + 8);
+	}
+	await page.route('**/cloud.bin*', async (route) =>
+		route.fulfill({ body: buf, contentType: 'application/octet-stream' })
+	);
+	await page.route('**/recon/runs/*/cameras*', async (route) =>
+		route.fulfill({ json: { frames: [] } })
+	);
+	await page.route('**/recon/runs/*/map', async (route) =>
+		route.fulfill({ json: { buildings: [], walls: [], roads: [] } })
+	);
+	await page.goto('/recon?run=walk_dense');
+	await mountCloud(page);
+	const stage = page.getByTestId('recon-cloud');
+	await expect(stage.locator('canvas')).toBeVisible({ timeout: 20_000 });
+	const canvas = await stage.locator('canvas').elementHandle();
+
+	await page.getByTestId('recon-mode-fly').click();
+	await expect(stage).toHaveAttribute('data-mode', 'fly');
+	await expect(page.getByTestId('recon-fly-hint')).toContainText('click the view');
+	// thrust without a pointer lock (headless chromium will not grant one): must be
+	// harmless, and the arrow keys must not scroll the page out from under the viewer
+	const y0 = await page.evaluate(() => window.scrollY);
+	await page.keyboard.down('ArrowUp');
+	await page.waitForTimeout(300);
+	await page.keyboard.up('ArrowUp');
+	expect(await page.evaluate(() => window.scrollY)).toBe(y0);
+
+	await page.getByTestId('recon-mode-orbit').click();
+	await expect(stage).toHaveAttribute('data-mode', 'orbit');
+	// same canvas throughout: the mode switch is a controller swap, not a remount
+	const after = await stage.locator('canvas').elementHandle();
+	expect(await page.evaluate(([a, b]) => a === b, [canvas, after])).toBe(true);
+});
+
 test('renders the point cloud and its camera frusta', async ({ page }) => {
 	// WebGL runs on swiftshader here (see playwright.config.ts), same as the terrain viewer.
 	// The cloud arrives as packed [float32 xyz][uint8 rgb]; this pins the decode contract,
@@ -326,15 +732,31 @@ test('renders the point cloud and its camera frusta', async ({ page }) => {
 	await page.route('**/recon/runs/*/cameras', async (route) =>
 		route.fulfill({
 			json: {
+				// pos/rot are the ENU pair the viewer must draw with; `pose` is the raw
+				// solve pose and is deliberately DIFFERENT here, so a regression back to
+				// it puts the frusta somewhere this test can see.
 				frames: [
-					{ idx: 0, id: 'a', pose: [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]], focal_px: 400, injected: false },
-					{ idx: 1, id: 'b', pose: [[1, 0, 0, 2], [0, 1, 0, 0], [0, 0, 1, 0]], focal_px: 400, injected: true }
+					{
+						idx: 0, id: 'a', focal_px: 400, injected: false,
+						pos: [0, 0, 0], rot: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+						pose: [[1, 0, 0, 99], [0, 1, 0, 99], [0, 0, 1, 99]]
+					},
+					{
+						idx: 1, id: 'b', focal_px: 400, injected: true,
+						pos: [2, 0, 0], rot: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+						pose: [[1, 0, 0, 99], [0, 1, 0, 99], [0, 0, 1, 99]]
+					}
 				]
 			}
 		})
 	);
 
+	await page.route('**/recon/runs/*/map', async (route) =>
+		route.fulfill({ json: { buildings: [], walls: [], roads: [] } })
+	);
+
 	await page.goto('/recon?run=walk_dense');
+	await mountCloud(page);
 	const stage = page.getByTestId('recon-cloud');
 	await expect(stage).toBeVisible();
 	// a canvas means three.js got a GL context, not just that the div exists

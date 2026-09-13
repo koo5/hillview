@@ -63,53 +63,62 @@ async def recreate_test_users():
 async def clear_database():
 	from sqlalchemy import select, text
 	import auth
-	from common.database import get_db
-	from common.models import User
+	from common.database import SessionLocal, engine
+	from common.models import User, Photo
+	from mapillary_routes import clear_mapillary_cache_tables
+	from photos import delete_photo_files_for_sizes
 
-	# Get database session
-	async for db in get_db():
-		# Get all usernames
-		usernames_query = select(User.username)
-		usernames_result = await db.execute(usernames_query)
-		all_usernames = [row[0] for row in usernames_result.fetchall()]
+	# Serialize concurrent clear-database calls with an EXPLICIT session-level advisory
+	# lock. The old serialization was accidental — the sync file sweep blocked the event
+	# loop — and it is gone now that file I/O is threaded; a lock makes the "one wipe at
+	# a time" guarantee real (the dev Postgres is shared across worktrees). Held on a
+	# dedicated session and committed right after acquisition so it lives at SESSION
+	# scope (an xact-scoped lock would drop at the first commit below) and the lock
+	# session itself never sits idle-in-transaction under the guardrail. Blocking on
+	# purpose: a second caller waits rather than racing.
+	CLEAR_DB_LOCK_KEY = 91001
+	# A session-level advisory lock must live on ONE pinned connection: it is tied to the
+	# backend connection, not the transaction, and SQLAlchemy hands a Session's connection
+	# back to the pool on commit — so acquiring on a Session and unlocking later would run
+	# the unlock on a different pooled connection and leak the lock. engine.connect() pins
+	# one connection until close(). Commit right after acquiring so the lock's own
+	# connection is not left idle-in-transaction; the session-level lock persists across
+	# that commit. Returning the connection to the pool does NOT release the lock, so the
+	# explicit unlock in `finally` is mandatory.
+	async with engine.connect() as lock_conn:
+		await lock_conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": CLEAR_DB_LOCK_KEY})
+		await lock_conn.commit()
+		try:
+				# Delete every user and their photos. delete_users_by_usernames sweeps files
+			# off the event loop and outside its write transaction.
+			async with SessionLocal() as db:
+				all_usernames = list((await db.execute(select(User.username))).scalars().all())
+				delete_summary = await auth.delete_users_by_usernames(db, all_usernames)
 
-		# Use the existing safe deletion function to delete all users and their photos
-		delete_summary = await auth.delete_users_by_usernames(db, all_usernames)
+			# Orphaned photos (no owner): capture sizes, end the read txn, sweep, then delete.
+			async with SessionLocal() as db:
+				orphan_sizes = [p.sizes for p in (await db.execute(select(Photo))).scalars().all()]
+				await db.rollback()
+			orphaned_photos_deleted = 0
+			if orphan_sizes:
+				await delete_photo_files_for_sizes(orphan_sizes)
+				async with SessionLocal() as db:
+					orphaned_result = await db.execute(text("DELETE FROM photos"))
+					await db.commit()
+					orphaned_photos_deleted = orphaned_result.rowcount
+				log.info(f"Deleted {orphaned_photos_deleted} orphaned photos from database")
 
-		# Clear any remaining orphaned photos (photos without owners)
-		from common.models import Photo
-		from photos import delete_all_user_photo_files
+			# Cache + system tables (each commits internally).
+			async with SessionLocal() as db:
+				mapillary_deletion_counts = await clear_mapillary_cache_tables(db)
+			async with SessionLocal() as db:
+				system_deletion_counts = await clear_system_tables(db)
 
-		# Get any remaining photos in the database
-		remaining_photos_query = select(Photo)
-		remaining_photos_result = await db.execute(remaining_photos_query)
-		remaining_photos = remaining_photos_result.scalars().all()
-
-		orphaned_photos_deleted = 0
-		if remaining_photos:
-			# Delete the physical files for orphaned photos
-			deleted_files_count = await delete_all_user_photo_files(remaining_photos)
-			log.info(f"Deleted {deleted_files_count}/{len(remaining_photos)} orphaned photo files")
-
-			# Delete orphaned photos from database
-			orphaned_delete_stmt = text("DELETE FROM photos")
-			orphaned_result = await db.execute(orphaned_delete_stmt)
-			orphaned_photos_deleted = orphaned_result.rowcount
-			log.info(f"Deleted {orphaned_photos_deleted} orphaned photos from database")
-
-		# Clear Mapillary cache tables (no foreign key dependencies from other tables)
-		from mapillary_routes import clear_mapillary_cache_tables
-		mapillary_deletion_counts = await clear_mapillary_cache_tables(db)
-
-		# Clear other tables that might not be covered by user deletion
-		system_deletion_counts = await clear_system_tables(db)
-
-		# Final cleanup: remove any remaining files in upload directories
-		# This ensures we clean up files even if database records are inconsistent
-		upload_dirs_cleaned = await cleanup_upload_directories()
-
-		await db.commit()
-		break
+			# Wholesale filesystem sweep, last of all and outside any transaction.
+			upload_dirs_cleaned = await cleanup_upload_directories()
+		finally:
+			await lock_conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": CLEAR_DB_LOCK_KEY})
+			await lock_conn.commit()
 
 	# Same reset rule as recreate-test-users — any test-only opt-in to
 	# real push gets cleared when test state is wiped.
@@ -185,11 +194,11 @@ async def clear_mock_mapillary_data():
 @debug_only
 async def set_featured(photo_id: str, featured: bool):
 	"""Set or unset the featured flag on a photo"""
-	from common.database import get_db
+	from common.database import SessionLocal
 	from common.models import Photo
 	from sqlalchemy import select
 
-	async for db in get_db():
+	async with SessionLocal() as db:
 		result = await db.execute(select(Photo).where(Photo.id == photo_id))
 		photo = result.scalar_one_or_none()
 		if not photo:

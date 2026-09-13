@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import type { AnnotationRow, Candidate, CandidatesResponse } from '$lib/types';
@@ -33,6 +34,21 @@
 		rect_x: number | null;
 		calibrated: boolean;
 		suggestions: Suggestion[];
+	}
+
+	interface Namesake {
+		annotation_id: string;
+		label: string | null;
+		photo_id: string;
+		photo_title: string | null;
+		same_photo: boolean;
+		anchor: { uri: string; lat: number; lon: number; how: string } | null;
+		already: boolean;
+	}
+	interface NamesakesResponse {
+		keys: string[];
+		lends: { uri: string; how: string } | null;
+		namesakes: Namesake[];
 	}
 
 	let ann = $state<AnnotationRow | null>(null);
@@ -70,8 +86,13 @@
 				f.predicate !== 'anchorCandidate' &&
 				f.predicate !== 'depictedIn' &&
 				f.predicate !== 'depicts' &&
+				f.predicate !== 'proposedBody' &&
 				isAboutAnn(f)
 		)
+	);
+	// the operator's free-text body edit, pending its graduation round trip
+	const proposedBody = $derived(
+		(ann?.facts ?? []).find((f) => f.predicate === 'proposedBody' && f.status === 'approved')
 	);
 	const otherFacts = $derived(
 		(ann?.facts ?? []).filter(
@@ -97,6 +118,9 @@
 	const metadataFor = (uri: string) => (ann?.facts ?? []).filter((f) => f.subject === uri);
 
 	let cand = $state<CandidatesResponse | null>(null);
+	let nms = $state<NamesakesResponse | null>(null);
+	let nmsBusy = $state(false);
+	let nmsMsg = $state<string | null>(null);
 	const candByUri = $derived(new Map((cand?.candidates ?? []).map((c) => [c.candidate, c])));
 	let sugg = $state<SuggestResponse | null>(null);
 	let sq = $state('');
@@ -104,6 +128,9 @@
 	let wq = $state('');
 	let wikiBusy = $state(false);
 	let wikiMsg = $state<string | null>(null);
+	let uq = $state('');
+	let urlBusy = $state(false);
+	let urlMsg = $state<string | null>(null);
 	let proposedLabel = $state<string | null>(null);
 	let pin = $state<{ lat: number; lon: number } | null>(null);
 	let anchorBusy = $state(false);
@@ -120,6 +147,11 @@
 			cand = await api.get<CandidatesResponse>(`/annotations/${page.params.id}/candidates`);
 		} catch {
 			cand = null;
+		}
+		try {
+			nms = await api.get<NamesakesResponse>(`/annotations/${page.params.id}/namesakes`);
+		} catch {
+			nms = null;
 		}
 		try {
 			matchResults = await api.get<MatchResult[]>(
@@ -355,6 +387,64 @@
 		}
 	}
 
+	// a namesake has something this annotation doesn't have yet
+	const borrowable = $derived(
+		(nms?.namesakes ?? []).some((n) => n.anchor && !n.already && !n.same_photo)
+	);
+	async function borrowSeeds() {
+		nmsBusy = true;
+		nmsMsg = null;
+		try {
+			await api.post('/geocode/run', {
+				scope: 'annotations',
+				annotation_ids: [page.params.id],
+				note: 'borrow namesake anchors'
+			});
+			for (let i = 0; i < 60; i++) {
+				await new Promise((r) => setTimeout(r, 1000));
+				const st = await api.get<{ running: boolean }>('/geocode/status');
+				if (!st.running) break;
+			}
+			await load();
+		} catch (e) {
+			nmsMsg = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+		} finally {
+			nmsBusy = false;
+		}
+	}
+
+	async function attachUrl() {
+		if (!ann || !uq.trim()) return;
+		urlBusy = true;
+		urlMsg = null;
+		try {
+			await api.post<{ url: string; fact: string }>(`/annotations/${ann.id}/webpage`, {
+				url: uq.trim()
+			});
+			urlMsg = '🔗 attached — graduation appends it to the body as a segment';
+			uq = '';
+			await load();
+		} catch (e) {
+			urlMsg = e instanceof ApiError ? `${e.status}: ${e.message}` : String(e);
+		} finally {
+			urlBusy = false;
+		}
+	}
+
+	async function editBody() {
+		if (!ann) return;
+		const v = prompt(
+			'Body (free text, | separates segments) — lands in Hillview through graduation (export → admin apply → sync mirrors it back and re-derives):',
+			proposedBody?.value ?? ann.body ?? ''
+		);
+		if (v == null || !v.trim()) return;
+		await api.post(`/annotations/${ann.id}/body`, { body: v.trim() });
+		// derive right here — the parser prefers the approved proposal over the
+		// not-yet-landed mirror body (same content-addressed facts either way)
+		await api.post('/parse/run', { scope: 'annotations', annotation_ids: [ann.id] });
+		await load();
+	}
+
 	async function reparse() {
 		if (!ann) return;
 		reparsing = true;
@@ -400,7 +490,9 @@
 				<dd>
 					the approved real-world location; the candidates table lists every persisted
 					candidate nearest-first (✓ one to anchor), suggest queries Nominatim, or click
-					the map to pin an exact point (ideally along the sight-ray)
+					the map to pin an exact point (ideally along the sight-ray). Namesakes —
+					annotations with the same folded name elsewhere — are listed with what they
+					could lend; ⟳ borrow runs geocode, which mints their anchors as candidates
 				</dd>
 				<dt>POI / triangulation</dt>
 				<dd>
@@ -412,6 +504,15 @@
 			</dl>
 			<h4>header verbs</h4>
 			<dl>
+				<dt>✎ body</dt>
+				<dd>
+					propose the full body text (proposedBody fact, approved; supersedes a prior
+					proposal) and parse it immediately — facts derive from the proposal without
+					waiting for the round trip (content-addressed: landing re-mints the same
+					facts). Graduation carries the text to Hillview verbatim; ✗ the pending
+					chip to withdraw it. Run geocode (⌖ on the calibration bench, or 🔄 on the
+					geocode bench) to turn fresh coords/refs into anchor candidates
+				</dd>
 				<dt>✎ label</dt>
 				<dd>
 					set the curated name (labelText fact, approved in one act; demotes the
@@ -425,13 +526,25 @@
 					a candidate (lands highlighted in the candidates table) and offers its title
 					as the name
 				</dd>
+				<dt>🔗 attach</dt>
+				<dd>
+					attach any other source URL as a curated webPage fact — graduation appends
+					it to the body as a segment, exactly as if the author had written it there
+				</dd>
 			</dl>
 		</Help>
 		{#if currentLabel && currentLabel !== ann.body}<b>{currentLabel}</b>{/if}
-		<a href="/annotations">← back to list</a>
+		<a href="{base}/annotations">← back to list</a>
 		<div style="flex:1"></div>
 		<button onclick={editLabel} title="set the curated label (labelText fact)">✎ label</button>
-		<button onclick={reparse} disabled={reparsing}>{reparsing ? 'parsing…' : 're-parse'}</button>
+		<button
+			onclick={editBody}
+			data-testid="edit-body"
+			title="propose the full body text — graduation's set-body op carries it to Hillview verbatim (with the current body as precondition)">✎ body</button>
+		<button
+			onclick={reparse}
+			disabled={reparsing}
+			title="re-run the body parser — a pending ✎ body proposal (approved) is parsed instead of the mirror body">{reparsing ? 'parsing…' : 're-parse'}</button>
 	</div>
 
 	<div class="row" style="align-items:flex-start; gap:20px">
@@ -452,7 +565,7 @@
 						/>
 					{/key}
 				{:else}
-					<a href="/photos/{ann.photo_id}">
+					<a href="{base}/photos/{ann.photo_id}">
 						<PhotoThumb sizes={ann.sizes} size={340} alt={ann.photo_title ?? ''} />
 					</a>
 				{/if}
@@ -460,7 +573,7 @@
 					<tbody>
 						<tr>
 							<td class="muted">photo</td>
-							<td><a href="/photos/{ann.photo_id}" class="mono">{ann.photo_id.slice(0, 8)} →</a></td>
+							<td><a href="{base}/photos/{ann.photo_id}" class="mono">{ann.photo_id.slice(0, 8)} →</a></td>
 						</tr>
 						{#if ann.photo_title}<tr><td class="muted">title</td><td>{ann.photo_title}</td></tr>{/if}
 						{#if ann.place_name}<tr><td class="muted">place</td><td>{ann.place_name}</td></tr>{/if}
@@ -486,6 +599,13 @@
 
 			<h2>Body</h2>
 			<div class="card mono" style="font-size:13px">{ann.body || '(empty)'}</div>
+			{#if proposedBody}
+				<div class="card" style="font-size:12px; border-color:var(--warn)" data-testid="proposed-body">
+					<span class="muted">pending body edit (lands via <a href="{base}/graduation">graduation</a>):</span>
+					<div class="mono" style="font-size:12px; margin-top:3px">{proposedBody.value}</div>
+					<div style="margin-top:4px"><FactChip fact={proposedBody} interactive onchange={load} /></div>
+				</div>
+			{/if}
 
 			{#if (ann.history ?? []).length > 1}
 				<h2>History</h2>
@@ -496,7 +616,7 @@
 								<td class="muted mono" style="font-size:11px">{h.depth}</td>
 								<td class="mono" style="font-size:12px">
 									{#if h.id === ann.id}<b>{h.body}</b>{:else}
-										<a href="/annotations/{h.id}">{h.body || '(empty)'}</a>{/if}
+										<a href="{base}/annotations/{h.id}">{h.body || '(empty)'}</a>{/if}
 								</td>
 								<td class="muted" style="font-size:11px">{h.event_type}</td>
 							</tr>
@@ -523,9 +643,9 @@
 					</p>
 					<p>
 						<b>Parsed from the body</b> — a pure-text pass over the annotation body: label,
-						context, embedded wikipedia link / coordinates, a cheap type guess. No external
-						calls. Re-runnable via <i>re-parse</i> above or in bulk from the
-						<a href="/annotations">annotations bench</a>.
+						context, embedded wikipedia link / coordinates, an osmap.vfosnar.cz link's
+						poi= object (osmRef) or map centre, a cheap type guess. No external calls. Re-runnable via <i>re-parse</i> above or in bulk from the
+						<a href="{base}/annotations">annotations bench</a>.
 					</p>
 					<p>
 						<b>Anchor candidates</b> — from a geocode run: the label is sent to
@@ -542,8 +662,8 @@
 						real-world anchor — one per annotation: a previously approved one is demoted
 						to rejected, noted "superseded" (same as label edits) — the same act as
 						picking it on the
-						<a href="/geocode">geocode bench's map</a> (two views of the same facts).
-						Every fact links to the run that produced it — see <a href="/runs">runs</a>.
+						<a href="{base}/geocode">geocode bench's map</a> (two views of the same facts).
+						Every fact links to the run that produced it — see <a href="{base}/runs">runs</a>.
 					</p>
 				</div>
 			{/if}
@@ -635,6 +755,19 @@
 					{/if}
 				</div>
 			{/if}
+			<div class="row" style="margin-top:6px">
+				<input
+					style="flex:1; min-width:200px"
+					placeholder="https://… — attach a source page (curated webPage fact → body URL segment on graduation)"
+					bind:value={uq}
+					data-testid="attach-webpage-input"
+					onkeydown={(e) => e.key === 'Enter' && attachUrl()}
+				/>
+				<button onclick={attachUrl} disabled={urlBusy} data-testid="attach-webpage">{urlBusy ? '…' : '🔗 attach'}</button>
+			</div>
+			{#if urlMsg}
+				<div class="muted" style="font-size:11px; margin-top:3px">{urlMsg}</div>
+			{/if}
 			<!-- the persisted anchorCandidate facts (geocode runs, 📖 attach, ⚓ set,
 			     pins) — nearest first; the suggestions table below is transient
 			     Nominatim output and never contains a wikipedia candidate -->
@@ -649,6 +782,37 @@
 					onchange={load}
 					emptyText="none yet — ⚓ set a suggestion, 📖 attach a wikipedia page with coordinates, or pin on the map"
 				/>
+			{/if}
+			{#if nms?.namesakes.length}
+				<h3 class="muted" style="font-size:11px; text-transform:uppercase; margin:12px 0 2px">
+					namesakes — same name elsewhere
+				</h3>
+				<div class="card" style="font-size:12px; padding:8px 10px" data-testid="namesakes">
+					{#each nms.namesakes as n (n.annotation_id)}
+						<div data-testid="namesake-row" style="margin:3px 0">
+							<a href="{base}/annotations/{n.annotation_id}">{n.label ?? '(unnamed)'}</a>
+							{#if n.photo_title}<span class="muted"> on {n.photo_title}</span>{/if}
+							{#if n.same_photo}
+								<span class="pill" style="font-size:10px; margin-left:5px" title="same-photo namesakes are never seeded (that's the transfer bench's job)">same photo</span>
+							{:else if !n.anchor}
+								<span class="muted"> — nothing to lend yet (no anchor, body coords or wiki)</span>
+							{:else if n.already}
+								<span class="muted"> — ⚓ their {n.anchor.how} is already a candidate here</span>
+							{:else}
+								<span> — ⚓ lends their {n.anchor.how}</span>
+							{/if}
+						</div>
+					{/each}
+					{#if borrowable}
+						<button
+							data-testid="namesake-geocode"
+							disabled={nmsBusy}
+							style="margin-top:5px"
+							title="re-run geocode for this annotation — namesake anchors are minted as proposed candidates with 'from …' provenance"
+							onclick={borrowSeeds}>{nmsBusy ? 'geocoding…' : '⟳ borrow as candidates'}</button>
+					{/if}
+					{#if nmsMsg}<div class="muted" style="font-size:11px">{nmsMsg}</div>{/if}
+				</div>
 			{/if}
 			{#if sugg}
 				<table style="margin-top:8px">
@@ -725,18 +889,18 @@
 	<h2 style="margin-top:16px">
 		POI / triangulation
 		{#if depictsFacts.length}
-			<a href="/triangulate?poi={depictsFacts[0].value.split('/').pop()}" style="font-size:13px; margin-left:10px; text-transform:none">triangulate →</a>
+			<a href="{base}/triangulate?poi={depictsFacts[0].value.split('/').pop()}" style="font-size:13px; margin-left:10px; text-transform:none">triangulate →</a>
 		{/if}
 	</h2>
 	<p class="muted" style="font-size:12px; margin:2px 0 8px">
 		If this annotation and others depict the SAME real-world thing, relate them to one POI —
-		then their sight-rays triangulate its location on the <a href="/triangulate">Triangulate</a> page.
+		then their sight-rays triangulate its location on the <a href="{base}/triangulate">Triangulate</a> page.
 	</p>
 	{#if depictsFacts.length}
 		<div class="card" style="font-size:12px">
 			depicts:
 			{#each depictsFacts as f (f.value)}
-				<a href="/triangulate?poi={f.value.split('/').pop()}" class="mono">
+				<a href="{base}/triangulate?poi={f.value.split('/').pop()}" class="mono">
 					{pois.find((p) => f.value.endsWith(p.poi_id))?.label ?? f.value.split('/').pop()?.slice(0, 8)}
 				</a>{' '}
 			{/each}
@@ -763,7 +927,7 @@
 
 	<h2 style="margin-top:16px">
 		Matching
-		<a href="/matching?annotation={ann.id}" style="font-size:13px; margin-left:10px; text-transform:none">
+		<a href="{base}/matching?annotation={ann.id}" style="font-size:13px; margin-left:10px; text-transform:none">
 			matching bench →
 		</a>
 	</h2>
@@ -773,7 +937,7 @@
 			<tbody>
 				{#each matchResults.slice(0, 8) as m (m.id)}
 					<tr>
-						<td><a href="/photos/{m.photo_id}" class="mono" style="font-size:12px">{m.photo_id.slice(0, 8)}</a></td>
+						<td><a href="{base}/photos/{m.photo_id}" class="mono" style="font-size:12px">{m.photo_id.slice(0, 8)}</a></td>
 						<td style="font-size:12px">
 							{m.status}
 							{#if m.stale_rect}

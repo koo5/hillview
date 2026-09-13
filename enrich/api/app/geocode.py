@@ -146,6 +146,35 @@ async def wikipedia_coords(lang: str, title: str) -> dict | None:
     return res
 
 
+async def nominatim_lookup(osm_type: str, osm_id: int) -> dict | None:
+    """Resolve ONE OSM object by id (the author's osmap poi= link) → the same
+    shape nominatim_search yields, or None. Cached like the other lookups
+    (failures cache as {} — delete the row to retry)."""
+    key = f"{osm_type[0].upper()}{osm_id}"
+    hit, cached = await _cached("nominatim_lookup", key)
+    if hit:
+        return cached if cached and "lat" in cached else None
+    res = None
+    try:
+        async with _pace:
+            r = await _client.get(f"{NOMINATIM_URL}/lookup", params={
+                "osm_ids": key, "format": "jsonv2", "accept-language": "cs"})
+            await asyncio.sleep(LOOKUP_DELAY)
+        r.raise_for_status()
+        for d in r.json():
+            res = {"lat": float(d["lat"]), "lon": float(d["lon"]),
+                   "display_name": d.get("display_name", ""),
+                   "osm_type": d.get("osm_type", osm_type),
+                   "osm_id": int(d.get("osm_id", osm_id)),
+                   "type": f"{d.get('category', d.get('class', ''))}/{d.get('type', '')}",
+                   "importance": float(d.get("importance") or 0)}
+            break
+    except Exception:
+        res = None
+    await _store("nominatim_lookup", key, res or {})
+    return res
+
+
 def osm_uri(osm_type: str, osm_id: int) -> str:
     return f"https://www.openstreetmap.org/{osm_type}/{osm_id}"
 

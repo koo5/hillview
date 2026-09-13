@@ -1,6 +1,7 @@
 package cz.hillview.settings.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,6 +10,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -16,24 +20,31 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import cz.hillview.core.permissions.rememberNotificationPermissionRequester
-import cz.hillview.settings.ALLOWED_LICENSES
+import cz.hillview.settings.LICENSE_INFO
 import cz.hillview.settings.GPS_INTERVAL_CHOICES_MS
 import cz.hillview.settings.formatGpsInterval
+import cz.hillview.settings.serverPresets
 import cz.hillview.settings.exportGeoTrackingNow
 import cz.hillview.settings.clearTrackingExportFolder
 import cz.hillview.settings.geoAutoExportEnabled
 import cz.hillview.settings.rememberTrackingFolderPicker
+import cz.hillview.settings.dumpPhotoTableNow
+import cz.hillview.settings.photoTableDumpLabel
+import kotlinx.coroutines.launch
 import cz.hillview.settings.setGeoAutoExport
 import cz.hillview.settings.trackingExportFolderLabel
 import cz.hillview.settings.CompassSettingsRepository
@@ -85,20 +96,57 @@ fun SettingsScreen(
         // The field edits RAW text (normalizing per keystroke would fight
         // the cursor); the persisted setting is normalized — trimmed, no
         // trailing slash (a stored slash doubles up in every "$url/path").
+        // A combobox: the two URLs anyone actually switches between sit
+        // under ▾ (serverPresets), and anything else — a LAN address, a
+        // staging host — is typed. Either way it is the FULL …/api URL,
+        // never assembled from a host.
         var serverUrlText by rememberSaveable { mutableStateOf(settings.serverUrl) }
-        OutlinedTextField(
-            value = serverUrlText,
-            onValueChange = { url ->
-                serverUrlText = url
-                repository.update { it.copy(serverUrl = url.trim().trimEnd('/')) }
-            },
-            label = { Text("API URL") },
-            supportingText = { Text("Full API URL incl. /api — applies after an app restart") },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("settings-server-url"),
-        )
+        var serverMenuOpen by remember { mutableStateOf(false) }
+        fun setServerUrl(url: String) {
+            serverUrlText = url
+            repository.update { it.copy(serverUrl = url.trim().trimEnd('/')) }
+        }
+        Box(Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                value = serverUrlText,
+                onValueChange = { setServerUrl(it) },
+                label = { Text("API URL") },
+                supportingText = { Text("Full API URL incl. /api — applies after an app restart") },
+                singleLine = true,
+                trailingIcon = {
+                    IconButton(
+                        onClick = { serverMenuOpen = true },
+                        modifier = Modifier.testTag("settings-server-url-presets"),
+                    ) { Text("▾", style = MaterialTheme.typography.titleLarge) }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings-server-url"),
+            )
+            DropdownMenu(
+                expanded = serverMenuOpen,
+                onDismissRequest = { serverMenuOpen = false },
+            ) {
+                serverPresets().forEach { preset ->
+                    val current = settings.serverUrl.trimEnd('/') == preset.apiUrl.trimEnd('/')
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text((if (current) "✓ " else "") + preset.label)
+                                Text(preset.apiUrl, style = MaterialTheme.typography.bodySmall)
+                            }
+                        },
+                        onClick = {
+                            serverMenuOpen = false
+                            setServerUrl(preset.apiUrl)
+                        },
+                        modifier = Modifier.testTag(
+                            "settings-server-preset-" + preset.label.lowercase().replace(' ', '-'),
+                        ),
+                    )
+                }
+            }
+        }
 
         // The web app, for the viewer's "open in web app" link. Applies
         // live — nothing caches it.
@@ -172,6 +220,25 @@ fun SettingsScreen(
                 // null-check server-side of this switch.
                 enabled = settings.license != null,
                 modifier = Modifier.testTag("settings-auto-upload"),
+            )
+        }
+
+        // Directly under Auto-upload: it qualifies that switch.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Wi-Fi only", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Defer uploads on metered networks",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = settings.wifiOnly,
+                onCheckedChange = { on -> repository.update { it.copy(wifiOnly = on) } },
+                modifier = Modifier.testTag("settings-wifi-only"),
             )
         }
 
@@ -255,7 +322,10 @@ fun SettingsScreen(
         // two knobs that decide what tracking costs — but it is also the
         // RESOLUTION of every stamp downstream, so the trade is stated
         // rather than left for the battery graph to reveal.
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        // HIDDEN (GPS_INTERVAL_SETTING_LIVE) until the value actually reaches
+        // the hardware — today GeoEngine never hands it to
+        // PreciseLocationService, which hard-codes 1 s (status doc, 2026-09-03).
+        if (GPS_INTERVAL_SETTING_LIVE) Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("GPS fix interval", style = MaterialTheme.typography.bodyLarge)
             Text(
                 "How often position is sampled. Longer saves power; it also " +
@@ -309,24 +379,6 @@ fun SettingsScreen(
             }
         }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Wi-Fi only", style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    "Defer uploads on metered networks",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            Switch(
-                checked = settings.wifiOnly,
-                onCheckedChange = { on -> repository.update { it.copy(wifiOnly = on) } },
-                modifier = Modifier.testTag("settings-wifi-only"),
-            )
-        }
-
         Column {
             Text("Upload license", style = MaterialTheme.typography.bodyLarge)
             if (settings.license == null) {
@@ -336,16 +388,35 @@ fun SettingsScreen(
                     modifier = Modifier.testTag("settings-license-unset"),
                 )
             }
-            ALLOWED_LICENSES.forEach { license ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            // Each grant with what it actually is (LicenseInfo): the choice
+            // is made here, on a hill, without the web app's /licensing page
+            // to hand — so its substance sits under the radio.
+            LICENSE_INFO.forEach { license ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     RadioButton(
-                        selected = settings.license == license,
-                        onClick = { repository.update { it.copy(license = license) } },
-                        modifier = Modifier.testTag("settings-license-$license"),
+                        selected = settings.license == license.id,
+                        onClick = { repository.update { it.copy(license = license.id) } },
+                        modifier = Modifier.testTag("settings-license-${license.id}"),
                     )
-                    Text(license, style = MaterialTheme.typography.bodyMedium)
+                    Column(Modifier.weight(1f)) {
+                        Text(license.label, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            license.explainer,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
+            // The long form, where the original's LicenseSelector links too.
+            val uriHandler = LocalUriHandler.current
+            TextButton(
+                onClick = { uriHandler.openUri(settings.webUrl.trimEnd('/') + "/licensing") },
+                modifier = Modifier.testTag("settings-license-info"),
+            ) { Text("About these licenses") }
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -354,7 +425,11 @@ fun SettingsScreen(
                 "If the chosen target is unavailable, the others are tried in order.",
                 style = MaterialTheme.typography.bodySmall,
             )
-            StorageMode.entries.forEach { mode ->
+            // Display order, not the fallback chain (PhotoStorage.chain keeps
+            // the enum's): the two DCIM targets sit together — same folder,
+            // different way in — with the app-private one last.
+            listOf(StorageMode.PublicFolder, StorageMode.MediaStore, StorageMode.PrivateFolder)
+                .forEach { mode ->
                 StorageOption(
                     mode = mode,
                     selected = settings.storage == mode,
@@ -370,9 +445,16 @@ fun SettingsScreen(
         ) {
             Column(Modifier.weight(1f)) {
                 Text("Hide from gallery", style = MaterialTheme.typography.bodyLarge)
+                // What it IS: a second, hidden folder for new photos — the
+                // unit of hiding on Android is the folder (a dot-name or a
+                // .nomedia marker, equally; AOSP FileUtils.isDirectoryHidden).
+                // Always a direct file write: PhotoStorage.chain leaves the
+                // media-database target out while this is on.
                 Text(
-                    "Save into \"${storageFolderName(true)}\" instead of " +
-                        "\"${storageFolderName(false)}\"",
+                    "New photos go to \"${storageFolderName(true)}\" instead of " +
+                        "\"${storageFolderName(false)}\" — gallery apps and photo backup " +
+                        "skip it; file managers show it only with hidden files on. " +
+                        "Photos already taken stay where they are.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -392,7 +474,8 @@ fun SettingsScreen(
                 Text(
                     "For using the files outside Hillview (GPS, heading, provenance " +
                         "tags). Slower per shot — each photo is rewritten whole. " +
-                        "Uploads carry the full stamp either way.",
+                        "Uploads carry the full stamp either way, and so does the " +
+                        "photo index below.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -401,6 +484,44 @@ fun SettingsScreen(
                 onCheckedChange = { on -> repository.update { it.copy(writeExif = on) } },
                 modifier = Modifier.testTag("settings-write-exif"),
             )
+        }
+
+        // Not a switch: the dump always runs. What the screen owes the user
+        // is where it went, so the file can be found — and a way to write it
+        // again when it cannot be. See PhotoIndexExport.
+        Column(Modifier.fillMaxWidth()) {
+            Text("Photo index", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Everything the app knows about your photos — position, heading, " +
+                    "time, licence — written to a CSV file beside them, so photos " +
+                    "that outlive the app are still readable. Rewritten when you " +
+                    "leave the app and as you shoot.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            var indexLabel by remember { mutableStateOf<String?>(null) }
+            var writing by remember { mutableStateOf(false) }
+            // Read after composition rather than during: it is a file-backed
+            // lookup, and re-reading it on every recomposition of a scrolling
+            // settings page is a needless disk touch.
+            LaunchedEffect(Unit) { indexLabel = photoTableDumpLabel() }
+            Text(
+                indexLabel ?: "not written yet",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("settings-photo-index-status"),
+            )
+            val indexScope = rememberCoroutineScope()
+            TextButton(
+                enabled = !writing,
+                onClick = {
+                    writing = true
+                    indexScope.launch {
+                        indexLabel = dumpPhotoTableNow()
+                        writing = false
+                    }
+                },
+                modifier = Modifier.testTag("settings-photo-index-write"),
+            ) { Text(if (writing) "Writing…" else "Write it now") }
         }
 
         Row(
@@ -523,3 +644,11 @@ private fun Property(good: Boolean, text: String) {
         },
     )
 }
+
+/**
+ * The GPS fix interval control is a dummy until GeoEngine passes the value
+ * to PreciseLocationService (it hard-codes 1 s today) — a setting that does
+ * nothing is worse than none. The persisted value and the BindGeoToActivity
+ * seam stay, so wiring the interval and flipping this is the whole return.
+ */
+private const val GPS_INTERVAL_SETTING_LIVE = false

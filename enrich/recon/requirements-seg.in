@@ -1,0 +1,21 @@
+# Direct dependencies of the SEGMENTATION environment in the GPU image, mirroring
+# scripts/enrich/.venv-seg. Separate from the solve environment because the two disagree
+# on numpy, scipy, opencv, huggingface-hub and safetensors, and the solve's versions are
+# the ones every archived run was produced with.
+#
+# It runs the pics project's src/tools/semantic_mask_inference.py, which lazily imports
+# torch, transformers and cv2 and already selects CUDA when it is available — which is
+# why moving it onto the rented GPU turns an 18-minute pre-solve stage into under one.
+#
+# TORCH IS DELIBERATELY ABSENT — see requirements-recon.in.
+#
+#   uv pip compile --generate-hashes --python-version 3.12 \
+#       --exclude-newer "$(date -d '6 weeks ago' +%F)" \
+#       requirements-seg.in -o requirements-seg.txt
+numpy==2.5.3
+scipy==1.18.1
+pillow==12.2.0
+opencv-python-headless==5.0.0.93
+transformers==5.16.1
+huggingface-hub==1.30.0
+safetensors==0.8.0

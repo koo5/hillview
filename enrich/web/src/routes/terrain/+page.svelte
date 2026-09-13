@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths';
 	// Terrain bench: view synthetic depth panoramas rendered from photo
 	// viewpoints. The viewer — WebGL fog, zoom/pan/pinch, click-back geodesy,
 	// peak labels — is the SHARED $terrain/TerrainViewer.svelte, the exact
@@ -546,7 +547,7 @@
 							<tbody>
 								{#each batchHeights.candidates as c (c.photo_id)}
 									<tr>
-										<td><a href="/photos/{c.photo_id}">{c.title ?? c.photo_id.slice(0, 8)}</a></td>
+										<td><a href="{base}/photos/{c.photo_id}">{c.title ?? c.photo_id.slice(0, 8)}</a></td>
 										<td class="mono" style="text-align:right">{c.observer_height?.height_m ?? '—'} m</td>
 										<td class="muted">{c.observer_height?.source === 'osm' ? `${c.observer_height.osm?.kind} ${c.observer_height.osm?.name ?? ''} (${c.observer_height.osm?.height_source ?? 'OSM'})` : c.observer_height?.source === 'fact' ? 'curated' : c.observer_height?.osm ? `form — ${c.observer_height.osm.kind} ${c.observer_height.osm.name ?? ''} here has no height, pin one` : 'form'}</td>
 									</tr>

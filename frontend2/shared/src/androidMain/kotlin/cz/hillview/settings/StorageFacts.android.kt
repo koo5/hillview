@@ -68,9 +68,10 @@ actual fun storageFacts(mode: StorageMode, hideFromGallery: Boolean): StorageFac
             note = if (sdk < Build.VERSION_CODES.Q) {
                 "Not available on this Android version."
             } else if (hideFromGallery) {
-                "Handed to the system media database, which does not accept a " +
-                    "hidden folder — these photos stay visible. Use " +
-                    "DCIM/${cz.hillview.capture.PhotoStorage.folderName(true)} to hide them."
+                // chain() leaves this target out while hiding — say so.
+                "Skipped while \"Hide from gallery\" is on: the media database " +
+                    "cannot hold a hidden folder, so hidden photos are written " +
+                    "directly to DCIM/${cz.hillview.capture.PhotoStorage.folderName(true)} instead."
             } else {
                 "Handed to the system media database — the option that works " +
                     "when writing the file directly does not."

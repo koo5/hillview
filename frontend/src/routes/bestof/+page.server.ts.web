@@ -1,6 +1,7 @@
 import type { PageServerLoad } from './$types';
 import { backendInternalUrl } from '$lib/config.server';
 import { parsePageParam } from '$lib/bestofPaging';
+import { ssrAuthHeaders, viewerIdOf } from '$lib/ssrAuth.server';
 
 /**
  * Server-renders one page of the ranking. ?page=N is the crawlable, shareable
@@ -15,27 +16,34 @@ import { parsePageParam } from '$lib/bestofPaging';
  * so entering at page 5 and scrolling behaves exactly like entering at page 1
  * and scrolling — one way of saying where you are, for readers and crawlers.
  */
-export const load: PageServerLoad = async ({ fetch, url }) => {
+export const load: PageServerLoad = async ({ fetch, url, locals }) => {
 	const page = parsePageParam(url.searchParams.get('page'));
-	const empty = { photos: [], has_more: false, page };
+	// No batch on failure, so the page loads for itself. An empty list tagged as
+	// the anonymous view would satisfy an anonymous visitor's createSsrBackedLoad
+	// and leave them on an empty page with nothing left to try. (A crawler gets a
+	// shell either way; the backend being down is not a page to index.)
+	const unavailable = { page };
 	try {
 		const apiUrl = new URL(`${backendInternalUrl}/bestof/photos`);
 		apiUrl.searchParams.set('page', String(page));
-		const response = await fetch(apiUrl.toString());
+		// Hidden-content filtering is per visitor, so this batch is only right for
+		// the signed-in reader if the ticket goes with it.
+		const response = await fetch(apiUrl.toString(), { headers: ssrAuthHeaders(locals) });
 
 		if (!response.ok) {
 			console.error('bestof SSR: backend returned HTTP', response.status);
-			return empty;
+			return unavailable;
 		}
 
 		const data = await response.json();
 		return {
 			photos: data.photos ?? [],
 			has_more: data.has_more ?? false,
-			page: data.page ?? page
+			page: data.page ?? page,
+			viewer_id: viewerIdOf(data)
 		};
 	} catch (error) {
 		console.error('bestof SSR: failed to fetch:', error);
-		return empty;
+		return unavailable;
 	}
 };

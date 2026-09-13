@@ -43,6 +43,11 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             mainActivity = prefs.getString("main_activity", null) ?: "view",
             splitPercent = prefs.getFloat("split_percent", 50f),
             gpsIntervalMs = prefs.getLong("gps_interval_ms", 1_000L),
+            lockDimScreen = prefs.getBoolean("lock_dim_screen", true),
+            lockBrightness = prefs.getFloat("lock_brightness", 0f),
+            lockDarkTheme = prefs.getBoolean("lock_dark_theme", false),
+            lockHideSystemBars = prefs.getBoolean("lock_hide_system_bars", true),
+            lockPinScreen = prefs.getBoolean("lock_pin_screen", false),
         )
     )
     override val settings: StateFlow<MapSettings> = _settings.asStateFlow()
@@ -71,6 +76,11 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             .putLong("gps_interval_ms", next.gpsIntervalMs.coerceIn(250L, 60_000L))
             .putString("main_activity", next.mainActivity)
             .putFloat("split_percent", next.splitPercent.coerceIn(10f, 90f))
+            .putBoolean("lock_dim_screen", next.lockDimScreen)
+            .putFloat("lock_brightness", next.lockBrightness.coerceIn(0f, 1f))
+            .putBoolean("lock_dark_theme", next.lockDarkTheme)
+            .putBoolean("lock_hide_system_bars", next.lockHideSystemBars)
+            .putBoolean("lock_pin_screen", next.lockPinScreen)
             .apply()
         _settings.value = next
     }

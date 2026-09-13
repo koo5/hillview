@@ -139,8 +139,10 @@ export let cameraOverlayOpacity = staggeredLocalStorageSharedStore('cameraOverla
 export let showCalibrationView = writable(false);
 
 // License identifiers stored on uploaded photos as `legal_rights`:
-//   'full1'   — operator / seed content, full ownership (backfilled by migration, never user-selectable)
-//   'ccbysa4' — CC BY-SA 4.0 granted by the contributor at upload time
+//   'full1'       — full rights granted to Hillview (the seed content, and a contributor's
+//                   choice in the web edit form and in frontend2's settings); published
+//                   as 'arr', which is all rights reserved PLUS the same OSM mapping grant
+//   'ccbysa4+osm' — CC BY-SA 4.0 + OSM mapping grant, granted by the contributor at upload time
 // These stores hold the identifier string the user has consented to for a given upload path.
 // null means "no license selected" — upload is blocked for that path.
 export let autoUploadLicense = localStorageSharedStore<string | null>('autoUploadLicense', null);

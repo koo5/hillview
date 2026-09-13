@@ -7,6 +7,7 @@ import cz.hillview.settings.storageFacts
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.Test
 
@@ -29,6 +30,21 @@ class PhotoStorageTest {
             assertEquals(StorageMode.entries.size, chain.size, "no target may be dropped")
             assertEquals(chain.toSet().size, chain.size, "no target may be tried twice")
         }
+    }
+
+    @Test
+    fun hidingLeavesTheMediaStoreOut() {
+        // The media database cannot hold a hidden folder (MediaProvider
+        // rewrites ".X" to "_.X" on insert), so hidden means a direct write.
+        StorageMode.entries.forEach { preferred ->
+            val chain = PhotoStorage.chain(preferred, hideFromGallery = true)
+            assertFalse(StorageMode.MediaStore in chain, "no hidden folder through the media database")
+            assertEquals(StorageMode.entries.size - 1, chain.size, "only that target may be dropped")
+        }
+        assertNull(
+            PhotoStorage.outputOptions(context, StorageMode.MediaStore, "probe.jpg", hideFromGallery = true),
+            "the safety net for callers that bypass chain()",
+        )
     }
 
     @Test

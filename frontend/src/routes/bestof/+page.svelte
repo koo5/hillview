@@ -47,7 +47,7 @@
 	}
 
 	export let data:
-		| { photos?: BestOfPhoto[]; has_more?: boolean; page?: number }
+		| { photos?: BestOfPhoto[]; has_more?: boolean; page?: number; viewer_id?: string | null }
 		| undefined = undefined;
 
 	// Which page of the ranking was server-rendered. Only the web build paginates
@@ -77,8 +77,11 @@
 	// createSsrBackedLoad (an anonymous visitor keeps it; that is what stopped
 	// crawlers rendering this page as a soft 404). trackLoad marks the page as
 	// "not your view yet" while the signed-in batch replaces the anonymous one.
-	const syncLoad = createSsrBackedLoad(!!data?.photos, () => void trackLoad(() => loadPhotos()));
-	$: syncLoad($auth);
+	const syncLoad = createSsrBackedLoad(
+		data?.photos ? (data.viewer_id ?? null) : false,
+		() => void trackLoad(() => loadPhotos())
+	);
+	$: syncLoad({ ...$auth, userId: $auth.user?.id ?? null });
 
 	/** `append` distinguishes a lazy-loaded continuation from the initial load. */
 	async function loadPhotos(page = pageNo, append = false, userInitiated = false) {

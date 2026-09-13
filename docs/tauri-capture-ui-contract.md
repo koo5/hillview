@@ -164,10 +164,14 @@ last good frame), and the session's first on-screen frame can trail the
 bind by most of a second (never run the beat on a timer). Shutter-pin
 metering goes stale while frozen — accepted. The slow/fast
 pair itself is a
-continuous 0–15 s vertical interval slider driven by the ORIGINAL's
-one-finger grammar — hold 300 ms and it unfolds beside the still-held
-thumb, slide onto it to pick the interval live, release there to start
-the run (release back over the button cancels, tap stops a run); the manual
+graded vertical interval LADDER (0.2 s to 15 s, plus cancel at the foot
+and VIDEO at the head) driven by the ORIGINAL's one-finger grammar —
+hold 300 ms and it unfolds over the pane beside the still-held thumb,
+slide onto it to pick the rung live, release there to start the run
+(release back over the button cancels, tap stops a run). The ladder IS
+the catch zone: its bands are the regions the gesture reads, the band
+under the finger is filled and names itself, and a line marks the exact
+height the finger is at; the manual
 shutter-speed ladder (no original equivalent; added for crisp car shots)
 collapses behind
 a ⚡ button lower-right, expanding upward like the 📷 selector; the
@@ -192,9 +196,13 @@ of the parked map, and BACKGROUND rides the live fix along as
 frontend2 added `FIX_FRESH_MS = 15 s` (judged at capture time, from the
 fix's elapsedRealtimeNanos). Effects — deliberately narrow:
 
-1. the location GATE opens only on a fix ≤15 s old (a stale fused seed
-   cannot open it; the map-position lift is the escape hatch);
-2. the shutter tone degrades past 15 s, and `locationAgeMs` is recorded.
+1. ~~the location GATE opens only on a fix ≤15 s old (a stale fused seed
+   cannot open it; the map-position lift is the escape hatch)~~ — gone
+   (2026-09-09): there is no location gate and no hatch. With no fix the
+   map centre is recorded, tagged `map`; the overlay says so instead of
+   refusing. docs/one-state.md, "The position side";
+2. the shutter tone degrades past 15 s, and `locationAgeMs` is recorded —
+   still true, and now the ONLY thing freshness does besides the ⚠️ line.
 
 **Freshness no longer arbitrates (2026-08-08).** It used to: a stale fix
 handed over to the map position silently, so "fresh fixes beat fallback
@@ -202,9 +210,11 @@ manual, a claimed position beats everything" was a third rule on top of the
 two deliberate user acts. That went when the tracking tables started
 recording which source was ELECTED on every row — a silent hand-over makes
 that record a lie, and re-judging the choice afterwards is the whole point of
-keeping it. The map position is now used exactly when the user said so,
-through the pill's accepted claim or the no-fix escape hatch, both of which
-land in `MapSession.manualPositionElected`. See
+keeping it. The map position is now used exactly when the user said so
+through the pill's accepted claim (`MapSession.manualPositionElected`) —
+and, since 2026-09-09, whenever there is no fix at all, which needs no
+saying: the no-fix escape hatch that used to be the second route is gone.
+See
 `memory/geo-tracking-election.md` and `shared-kt`'s BearingEntity.
 
 A photo captured after signal loss (fix once fresh, now old, nothing elected)

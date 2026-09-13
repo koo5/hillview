@@ -8,8 +8,11 @@ There's no in-app articulation of:
 
 - That photos are **evidence substrate** — a photo with reliable bearing is
   what makes Hunt-mode triangulation and panorama annotation possible later.
-- That the CC-vs-`full1` choice has real downstream consequences for two
-  distinct ecosystems (OSM commons vs Hillview's curated knowledge layer).
+- That the CC-vs-`full1` choice has real downstream consequences. Both feed
+  OSM mapping (Hillview grants the OSM mapping grant on `full1` photos too),
+  but only CC photos can travel on into the wider commons (Panoramax,
+  Wikimedia), while `full1` photos build Hillview's curated knowledge layer
+  and may be paywalled later.
 - That contribution to OSM matters and why anyone should care about it.
 
 Without this articulation, casual contributors treat Hillview as a personal
@@ -51,8 +54,8 @@ Ranked roughly by ROI and ease:
 - **License selector (highest ROI).** This is the moment a user is making a
   conscious choice between CC and `full1`. Embedding 1-2 sentences explaining
   what each choice *enables* downstream is much more actionable than legal
-  text alone. ("CC photos feed the open commons.
-  `full1` photos support Hillview and may be
+  text alone. ("Every photo helps OSM mappers. CC photos can also travel on
+  to the wider open commons; `full1` photos support Hillview and may be
   included in paid tiers later.")
 - **After first photo upload.** A brief one-time message acknowledging the
   contribution and showing what becomes possible. Not intrusive — small
@@ -65,8 +68,9 @@ Ranked roughly by ROI and ease:
   for users who reach this surface - this can be more obvious when annotations
   consistently link to closeup photos.
 - **My Photos page** could surface aggregate stats: "You've contributed N
-  photos which help open mapping; M `full1` photos which build Hillview's
-  curated corpus." Makes contribution feel visible.
+  photos which help open mapping (all of them do); K CC photos free for the
+  wider commons; M `full1` photos which build Hillview's curated corpus."
+  Makes contribution feel visible.
 
 Start with the license selector and the dedicated "Why" page. Those two
 surfaces cover the most cases without requiring big UX changes. Other
