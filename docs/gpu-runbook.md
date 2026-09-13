@@ -5,9 +5,10 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
 
 ## Already done, so the rental clock does not pay for it
 
-- **The payload image is built and published.** `hillview-recon-gpu:a150e25c`, 16.8 GB (rebuilt 2026-09-13 on the VPS
-  from commit `a150e25c`, which adds the transitive-expansion pairing mode and the EWKB
-  geometry parser; the build reused every cached layer, only the vendored scripts changed),
+- **The payload image is built and published.** `hillview-recon-gpu:28773095`, 16.8 GB (rebuilt 2026-09-13 on the VPS
+  from commit `28773095`, which adds the transitive-expansion pairing mode, the EWKB
+  geometry parser and the GPS-accuracy weighting of the position fit; the build reused
+  every cached layer, only the vendored scripts changed),
   exported to 7.6 GB compressed with a SHA-256 beside it, served from the VPS over HTTPS
   with range requests so a partial pull resumes. Verified inside the image: both virtual
   environments import, torch is the **cu126** build that matches the base image, the CUDA
@@ -33,7 +34,7 @@ Written 2026-09-12, before the first rental. Companion to `~/.claude/plans/we-re
   `POST /api/recon/result` answers 404, and a real 2 MB callback with the token returns
   200 in 188 ms. Tunnel 8075; never 8070.
 - **The box's broker user is scoped and tested** — see the tunnel section.
-- **The published image is checksum-verified on disk**, `e259a717…ccff6`, and the
+- **The published image is checksum-verified on disk**, `803462dc…53cdc`, and the
   superseded one has been removed so there is nothing stale to pull by mistake.
 
 ## The queue, in the order it will run
@@ -140,10 +141,10 @@ The published segment is in `~/.recon-pub-segment` on the VPS (mode 600, deliber
 written into anything the web server serves). With `BASE=https://robust1.ueueeu.eu/<segment>`:
 
 ```sh
-curl -fL -O "$BASE/hillview-recon-gpu-a150e25c.tar.zst"
-curl -fL -O "$BASE/hillview-recon-gpu-a150e25c.tar.zst.sha256"
-sha256sum -c hillview-recon-gpu-a150e25c.tar.zst.sha256   # refuse to continue if this fails
-zstd -d -c hillview-recon-gpu-a150e25c.tar.zst | docker load
+curl -fL -O "$BASE/hillview-recon-gpu-28773095.tar.zst"
+curl -fL -O "$BASE/hillview-recon-gpu-28773095.tar.zst.sha256"
+sha256sum -c hillview-recon-gpu-28773095.tar.zst.sha256   # refuse to continue if this fails
+zstd -d -c hillview-recon-gpu-28773095.tar.zst | docker load
 ```
 
 The checkpoint is **not** in the image, deliberately: `torch.load` executes what it contains,
@@ -201,7 +202,7 @@ docker run -d --name recon --gpus all \
   -e RECON_CALLBACK_URL='http://127.0.0.1:8070/api/recon/result' \
   -e ENRICH_WORKER_TOKEN='<from ~/hillview/enrich/.env on the VPS>' \
   -v /workspace/runs:/runs \
-  hillview-recon-gpu:a150e25c
+  hillview-recon-gpu:28773095
 ```
 
 The entrypoint refuses to start in any state that would quietly waste rent: no GPU visible
