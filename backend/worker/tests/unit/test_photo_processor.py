@@ -293,12 +293,17 @@ class TestSynthesizeProvenance:
             "location_source": "gps",
             "bearing_source": "android-compass-true",
             "location_age_ms": 207,
+            "accuracy": 4.2,
             "refined": True,
             "exposure": {"mode": "sports", "iso": 133, "outcome": "ontarget"},
         }))
         assert out["location_source"] == "gps"
         assert out["bearing_source"] == "android-compass-true"
         assert out["location_age_ms"] == 207
+        # The receiver's accuracy radius was sent by both apps and dropped here
+        # for as long as the key existed; a wandering first fix is invisible
+        # downstream without it.
+        assert out["accuracy"] == 4.2
         assert out["refined"] is True
         # Nested, not stringified — a consumer reads exposure.mode directly.
         assert out["exposure"]["mode"] == "sports"

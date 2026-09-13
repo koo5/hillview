@@ -368,6 +368,15 @@ PROVENANCE_KEYS = (
 	# rewrite and carries the whole stamp in the upload metadata instead —
 	# so the synthesized UserComment must say what a written one would.
 	'location_age_ms', 'exposure', 'refined',
+	# The receiver's horizontal accuracy radius, metres. Both apps have sent it
+	# for as long as they have sent latitude, and it went nowhere: there is no
+	# photos column for it and it was not on this list, so the one number that
+	# says how much to trust a fix was dropped at the door. Measured on a
+	# 2026-09-10 walk whose first eighteen frames wander inside a 10 m blob
+	# before a 9.8 m jump: nothing in the stored provenance could tell those
+	# frames apart from the rest. It belongs in the UserComment, where the
+	# recon tooling already reads location_source and location_age_ms.
+	'accuracy',
 	'v',
 )
 

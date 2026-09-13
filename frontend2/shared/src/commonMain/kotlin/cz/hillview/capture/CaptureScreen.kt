@@ -352,6 +352,7 @@ fun CaptureScreen(
                 bearingSource = photo.snapshot.bearingSource,
                 locationSource = photo.snapshot.locationSource,
                 locationAgeMs = photo.snapshot.locationAgeMs,
+                accuracyM = photo.snapshot.accuracyM,
                 exposureJson = photo.snapshot.exposure?.let { exposureProvenanceJson(it) },
                 pitchDeg = photo.snapshot.pitchDeg?.toDouble(),
                 altLocationJson = photo.snapshot.altLocation?.let { altLocationJson(it) },

@@ -505,6 +505,30 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-09-13
+
+- **GPS accuracy finally leaves the phone** (user-raised while reading a
+  walk whose first eighteen frames wander inside a 10 m blob before a
+  9.8 m jump: "shouldn't gps accuracy go into usercomment, at least in
+  frontend2?"). It never had: `SensorSnapshot.accuracyM` went only into
+  the on-device EXIF `GPSHPositioningError`, which the fast-write default
+  does not write and the upload never reads, and `SharedStackUploadPipeline`
+  registered every row with `accuracy = 0.0` — the table's "absent"
+  sentinel, so `buildUploadMetadata` omitted it. Now `PendingUpload.accuracyM`
+  carries the snapshot value into `PhotoEntity.accuracy` (no schema change:
+  the column existed from the Tauri era), the metadata sends it as before
+  when > 0, and worker-side `accuracy` joined `PROVENANCE_KEYS`, so it
+  lands in the synthesized UserComment beside `location_source` and
+  `location_age_ms`. The Tauri app had been sending it all along; the
+  worker dropped it for both clients. Measured on the 334 frames of that
+  walk before the fix: zero GPS EXIF tags on any uploaded file, fix ages
+  35–1142 ms, nothing that could tell the wandering frames apart. Stamp
+  refinement leaves the at-the-time accuracy in place — it interpolates
+  position between bracketing fixes and has no better accuracy number.
+  Worker unit tests pass in the worker image; `:shared:compileAndroidMain`
+  verified. Recon-side reading of the new key is
+  `docs/reconstruction-field-notes.md` (2026-09-13).
+
 ## 2026-09-06
 
 - **The interval ladder goes sub-second, and becomes the scale it reads**

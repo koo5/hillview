@@ -975,6 +975,15 @@ would give it away. Measured over all 334 frames from `/shared/photos.csv`:
   metadata distinguishes frames 0–17 from the rest.** The only signal is geometric: the
   jump, and the fact that it is the first ~20 s of the walk.
 
+**Fixed the same day.** The accuracy now travels with the row: `PendingUpload.accuracyM` in
+frontend2 carries the snapshot's fix accuracy into `PhotoEntity.accuracy` (the 0.0 sentinel
+still means "none", and `buildUploadMetadata` already omitted it), and `accuracy` joined the
+worker's `PROVENANCE_KEYS`, so it lands in the UserComment beside `location_source` and
+`location_age_ms`. The Tauri app had been sending it all along; the server dropped it for
+both. Frames uploaded before this carry no accuracy anywhere but the phone. The stamp
+refiner interpolates position between bracketing fixes and leaves the at-the-time accuracy
+in place, which is the honest choice: it has no better number.
+
 Also fixed on the way: `wkt()` in `reconstruct.py` only parsed WKT, and the September dumps
 write the geometry column as hex EWKB, so a CLI run against `/shared/photos.csv` selected
 zero photos for any area. It now parses both. The other one-off scripts under

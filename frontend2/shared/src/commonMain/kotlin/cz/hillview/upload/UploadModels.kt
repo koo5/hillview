@@ -106,6 +106,15 @@ data class PendingUpload(
     val pitchDeg: Double? = null,
     val locationSource: String? = null,
     val locationAgeMs: Long? = null,
+    /**
+     * The receiver's horizontal accuracy radius at the stamped fix, metres;
+     * null when the fix had none (or the position was claimed by hand).
+     * Rides into PhotoEntity.accuracy and from there into the upload
+     * metadata and the server's UserComment provenance. Until 2026-09-13 it
+     * only ever reached the on-device EXIF, which the fast-write path does
+     * not write and the upload never reads.
+     */
+    val accuracyM: Float? = null,
     val exposureJson: String? = null,
     /** The other position stream, as JSON — see altLocationFor. */
     val altLocationJson: String? = null,
