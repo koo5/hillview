@@ -94,6 +94,31 @@ loaded frame shapes — and uploads it. 0.205 MB a frame. It exists because `den
 after the box is destroyed means re-solving them. `recon_join_spans` prefers it, and that
 path is tested by deleting `scene.npz`, `dense.npz` and the cache and joining anyway.
 
+## Verified before the rental, so the meter does not pay to discover it
+
+A complete round trip through the real path: the real image, the real queue with the scoped
+broker user, the one-route proxy as the callback. A four-frame run solved at **0.89 px with
+0.6 cm** ground agreement, and every artifact landed — including `joinkit.npz` — on the
+extra volume, with the bench serving the run and its dense cloud.
+
+**The evidence drill passes.** Taking only what comes home, `metadata.json` and
+`joinkit.npz`, 641 KB in total, the joiner reads the run, recovers the loaded frame shape
+and back-projects. Joinability survives the instance being destroyed.
+
+**All four entrypoint paths do what they claim:**
+
+| situation | result |
+|---|---|
+| `RECON_DEVICE=cuda` with no GPU | refuses: "no CUDA device visible to torch" |
+| checkpoint with a wrong hash | refuses, printing expected and actual |
+| no checkpoint and no URL | refuses, naming both |
+| `RECON_CKPT_URL` set correctly | fetched 2.6 GB at 125 MB/s, "checkpoint verified", then refused on the tunnel check |
+
+That last line is also the transfer estimate: at the instance's 899 Mbps the image is about
+70 seconds and the checkpoint about 25.
+
+**The second solver is verified too** — see below.
+
 ## On the day
 
 ### 1. Rent
