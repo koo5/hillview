@@ -44,7 +44,8 @@ ALLOWED_PARAMS = {"win", "pairs", "pair_dist", "pair_dang", "size",
                   "mask_anon", "mask_solocator", "mask_vegetation", "semantic_mask",
                   "semantic_budget", "shared_intrinsics",
                   "adaptive_pairs", "adaptive_reach", "adaptive_frac",
-                  "tiles", "tile_overlap", "tile_pairs", "tile_pin_pp"}
+                  "tiles", "tile_overlap", "tile_pairs", "tile_pin_pp",
+                  "expand_rounds", "expand_min", "expand_dist", "expand_per_frame"}
 
 # Where the archived experiment runs live. Import copies out of here; nothing writes to it.
 ARCHIVE_ROOT = os.getenv(
@@ -994,8 +995,14 @@ def _estimate_pairs(frames: list[dict], params: dict) -> dict:
                         continue
                 undirected += 1
     directed = undirected * 2
-    return {"mode": mode, "n_pairs_directed": directed,
-            "est_minutes": round(directed * SECONDS_PER_PAIR / 60)}
+    out = {"mode": mode, "n_pairs_directed": directed,
+           "est_minutes": round(directed * SECONDS_PER_PAIR / 60)}
+    if int(params.get("expand_rounds") or 0) > 0:
+        # transitive expansion adds pairs the matcher's own results propose, so the seed
+        # count above is a floor; how far above depends on the graph, which is the point
+        out["note"] = (f"floor: {params['expand_rounds']} expansion round(s) add pairs on top, "
+                       f"at most {int(params.get('expand_per_frame') or 12)} per frame per round")
+    return out
 
 
 def _ts(v: str | None, field: str) -> datetime.datetime | None:

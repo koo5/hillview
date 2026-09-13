@@ -49,9 +49,27 @@ def latest_csv(stem, d=DUMP_DIR):
 
 
 def wkt(g):
-    if g and g.upper().startswith("POINT"):
-        lo, la = g[g.index("(") + 1:g.index(")")].split()
+    """(lon, lat) from a PostGIS geometry column however the dump wrote it: WKT
+    ('POINT(lon lat)'), or hex EWKB ('0101000020E6100000' + two little-endian doubles),
+    which is what a plain COPY of the table produces and what /shared/photos.csv has
+    carried since the 2026-09 dumps. Silently returning None here made a whole area
+    'select 0 photos'."""
+    if not g:
+        return None
+    s = g.strip()
+    if s.upper().startswith("POINT"):
+        lo, la = s[s.index("(") + 1:s.index(")")].split()
         return float(lo), float(la)
+    if len(s) >= 42 and all(c in "0123456789abcdefABCDEF" for c in s[:42]):
+        import struct
+        b = bytes.fromhex(s[:50])
+        little = b[0] == 1
+        order = "<" if little else ">"
+        gtype = struct.unpack(order + "I", b[1:5])[0]
+        off = 5 + (4 if gtype & 0x20000000 else 0)          # EWKB SRID flag
+        if (gtype & 0xFF) == 1 and len(b) >= off + 16:       # Point
+            lo, la = struct.unpack(order + "dd", b[off:off + 16])
+            return lo, la
     return None
 
 
@@ -1036,6 +1054,23 @@ def main():
                     help="how many frames beyond the window to reach around a weak link")
     ap.add_argument("--adaptive_frac", type=float, default=0.35,
                     help="a consecutive link below this fraction of the median link is weak")
+    ap.add_argument("--expand_rounds", type=int, default=0,
+                    help="transitive expansion: after measuring the pairs chosen so far, propose "
+                         "A-C wherever A-B and B-C are both verified links, gate the proposal on "
+                         "GPS distance, match it, and repeat this many rounds (0=off). Finds the "
+                         "revisit pairs a window is blind to at a fraction of exhaustive cost; "
+                         "the idea is CityZero's query expansion, the distance gate is what its "
+                         "post-mortem said was missing")
+    ap.add_argument("--expand_min", type=float, default=0,
+                    help="a link counts as verified at this many correspondences; 0 = half the "
+                         "median over the links measured so far")
+    ap.add_argument("--expand_dist", type=float, default=30,
+                    help="expansion: only propose pairs whose cameras are within this many metres "
+                         "(GPS), so a lookalike facade across the district cannot be proposed. "
+                         "0 disables the gate")
+    ap.add_argument("--expand_per_frame", type=int, default=12,
+                    help="expansion: at most this many new partners per frame per round, best-"
+                         "supported first, so a rotation does not propose everything at once")
     ap.add_argument("--pairs", default="swin", choices=["swin", "complete", "bearing"],
                     help="pairing strategy: time-window / exhaustive / spatial+bearing-overlap")
     ap.add_argument("--pair_dist", type=float, default=80, help="bearing mode: max pair distance (m)")
@@ -1373,6 +1408,100 @@ def main():
                 f"-> {len(pairs)} total")
         else:
             log("adaptive pairing: nothing to add")
+
+    # TRANSITIVE EXPANSION. Window pairing sees a chain; bearing pairing sees a radius; both
+    # are guesses about which frames overlap. The matcher's own output is not a guess: once
+    # A-B and B-C are verified with plenty of correspondences, A-C is the single most likely
+    # unmeasured pair to be real. So measure what we have, propose the two-hop closures,
+    # keep only the ones the GPS says are physically near, match them, repeat. Each round
+    # can only propose pairs adjacent to verified structure, so cost grows with the graph's
+    # real density rather than with n². The distance gate is the lesson from CityZero's
+    # failed mappers: expansion without it made lookalike houses on opposite ends of the
+    # district the best-connected pair in the set, and every solve initialised on them.
+    if a.expand_rounds > 0 and a.pairs != "complete" and not tile_grid:
+        from collections import defaultdict as _dd
+        import mast3r.cloud_opt.sparse_ga as _SGA
+        import torch as _t
+        exp_cache = shared_cache or os.path.join(a.out, "cache")
+        key_of = [CONTENT_KEY.get(p, p) for p in paths]
+        have = set()
+        for p1, p2 in pairs:
+            have.add((p1["idx"], p2["idx"])); have.add((p2["idx"], p1["idx"]))
+
+        def near(i, j):
+            if a.expand_dist <= 0:
+                return True
+            si, sj = sub[i], sub[j]
+            if si.get("e") is None or sj.get("e") is None:
+                return True     # no position to gate on: let the matcher decide
+            return math.hypot(si["e"] - sj["e"], si["n"] - sj["n"]) <= a.expand_dist
+
+        n_added = 0
+        for rnd in range(1, a.expand_rounds + 1):
+            base = _SGA.convert_dust3r_pairs_naming(paths, [(p1.copy(), p2.copy()) for p1, p2 in pairs])
+            log(f"expansion round {rnd}: measuring {len(base)} directed pairs (cached ones are free)…")
+            res_paths, _ = _SGA.forward_mast3r(base, model, cache_path=exp_cache, subsample=8,
+                                               desc_conf="desc_conf", device=a.device)
+            cnt = {}
+            for (i1, i2), (_pp, pc) in res_paths.items():
+                try:
+                    (_score, _csum, n_corr), _ = _t.load(pc)
+                except Exception:
+                    continue
+                k = tuple(sorted((CONTENT_KEY.get(i1, i1), CONTENT_KEY.get(i2, i2))))
+                cnt[k] = max(cnt.get(k, 0), int(n_corr))
+            verified = {}
+            for (i, j) in have:
+                if i < j:
+                    c = cnt.get(tuple(sorted((key_of[i], key_of[j]))), 0)
+                    if c > 0:
+                        verified[(i, j)] = c
+            if not verified:
+                log("expansion: no measured links to expand from")
+                break
+            thr = a.expand_min if a.expand_min > 0 else 0.5 * float(np.median(list(verified.values())))
+            adj = _dd(dict)
+            for (i, j), c in verified.items():
+                if c >= thr:
+                    adj[i][j] = c; adj[j][i] = c
+            # a two-hop proposal is as strong as its weaker hop
+            prop = {}
+            for b, nb in adj.items():
+                ks = list(nb.items())
+                for x in range(len(ks)):
+                    for y in range(x + 1, len(ks)):
+                        (i, ci), (j, cj) = ks[x], ks[y]
+                        if (i, j) in have or not near(i, j):
+                            continue
+                        k = (min(i, j), max(i, j))
+                        s = min(ci, cj)
+                        if s > prop.get(k, 0):
+                            prop[k] = s
+            per = _dd(list)
+            for (i, j), s in prop.items():
+                per[i].append((s, j)); per[j].append((s, i))
+            keep = set()
+            for i, lst in per.items():
+                lst.sort(reverse=True)
+                for s, j in lst[:a.expand_per_frame]:
+                    keep.add((min(i, j), max(i, j)))
+            if not keep:
+                log(f"expansion round {rnd}: {len(prop)} proposals, nothing new -> converged")
+                break
+            extra = []
+            for (i, j) in sorted(keep):
+                extra.append((imgs[i], imgs[j])); extra.append((imgs[j], imgs[i]))
+                have.add((i, j)); have.add((j, i))
+            pairs = pairs + extra
+            n_added += len(extra)
+            log(f"expansion round {rnd}: {len(verified)} measured links, {len(adj)} frames with "
+                f"a verified one (>= {thr:.0f} corres), {len(prop)} two-hop proposals within "
+                f"{a.expand_dist:g} m, kept {len(keep)} -> +{len(extra)} directed pairs, "
+                f"{len(pairs)} total")
+        if n_added:
+            log(f"expansion: +{n_added} directed pairs over the rounds")
+    elif a.expand_rounds > 0:
+        log("expansion: skipped (complete pairing has nothing to add; tiling pairs over frames)")
 
     log("running sparse_global_alignment…")
     tr = time.time()
