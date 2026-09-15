@@ -812,7 +812,11 @@ the chain stopped. See `GeoDebugText.kt`.
     not have been under the first cut of this: it consumed the press to time
     the hold, and a ring-wide dead band across the map is too high a price
     for a gesture nobody makes most of the time.
-  - NOT phone-verified — no device reachable from this machine.
+  - Device-verified after all, on 2026-09-13, when the gate was narrowed to
+    the recording activities: the press falls through, the hold is what takes
+    the ring, and the same slow drag pans the map in capture. Still emulator,
+    not a phone — the synthesized rotation vector cannot settle anything
+    about the sensors, only about the touch handling, which is all this is.
 
 ## 2026-09-10
 
