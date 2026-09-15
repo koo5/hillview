@@ -505,6 +505,28 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-09-15
+
+- **Backgrounding the app crashed it, on three screens** (user's phone log).
+  `SerializationException: Serializer for subclass 'UploadStatusKey' is not
+  found in the polymorphic scope of 'NavKey'`, thrown from
+  `onSaveInstanceState` as the activity stops. `NavKey` is a library
+  interface, so it cannot be sealed and kotlinx.serialization cannot resolve
+  the polymorphism for us: every key has to be named in App.kt's serializers
+  module. Three were not — EventLog, UploadStatus and CaptureGuide — so those
+  screens worked perfectly until the app went to the background, and then took
+  the process down. Backgrounding mid-upload is exactly when a user is on the
+  upload screen, which is how it was found.
+  - **Registered, and the list is now checked rather than remembered**
+    (`RouteKeyRegistrationTest`, jvmTest). It reads both source files, compares
+    the keys declared in Routes.kt against the `subclass(...)` calls in App.kt,
+    and fails in both directions. Nothing about writing a screen reminds anyone
+    to edit a list in another file, which is why this happened at all — and why
+    a comment saying "remember to register" would not have been enough.
+    Verified by deleting one registration and watching the test fail.
+  - Emulator-verified end to end: each of the three screens opened, backgrounded
+    with HOME, no exception and the process still alive.
+
 ## 2026-09-13
 
 - **GPS accuracy finally leaves the phone** (user-raised while reading a
