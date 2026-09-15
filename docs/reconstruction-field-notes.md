@@ -1007,6 +1007,20 @@ decision:
   would, with accuracies, weigh less in the position fit and pair more generously; they
   would still be solved.
 
+**And published (2026-09-15).** `GET /photos/public/{uid}` now returns
+`location_accuracy_m` at the top level, beside the latitude, longitude, bearing and altitude
+it is the error bar on — rounded to a tenth of a metre, null where absent, and never the 0.0
+sentinel. It is the one positional value the public response carries out of the raw exiftool
+dump, and the exception is principled rather than grudging: a radius cannot narrow where a
+photo was taken, only widen what a reader may believe about a coordinate already served in
+full. Withholding it does not protect anyone, it just guarantees that every outside consumer
+repeats brandys-101 — treating a 10 m blob as eighteen exact positions. Where a position is
+genuinely too revealing the lever is the COORDINATE, coarsened or withheld; the error bar is
+not a privacy control. Prior art is one-sided: Panoramax, which this server federates with,
+carries a horizontal accuracy on its public items; OSM publishes trace dilution of precision;
+Mapillary publishes the raw and reconstructed positions both, which is strictly more. The
+curated `exif` object is unchanged and still carries nothing that locates.
+
 Also fixed on the way: `wkt()` in `reconstruct.py` only parsed WKT, and the September dumps
 write the geometry column as hex EWKB, so a CLI run against `/shared/photos.csv` selected
 zero photos for any area. It now parses both. The other one-off scripts under

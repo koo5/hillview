@@ -14,6 +14,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import cz.hillview.plugin.EventLog
 import cz.hillview.plugin.PhotoDatabase
 import cz.hillview.plugin.PhotoEntity
+import cz.hillview.plugin.accuracyMOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -423,7 +424,13 @@ internal fun photoTableCsv(rows: List<PhotoEntity>): String {
         out.cell(row.pitch?.toString())
         out.cell(row.capturedAt.toString())
         out.cell(isoUtc(row.capturedAt))
-        out.cell(row.accuracy.toString())
+        // Empty where the row records no accuracy, like its nullable
+        // neighbours above — and for the same reason. It used to write the
+        // table's absent sentinel through verbatim, so a reader saw an
+        // accuracy of 0.0 m, which reads as a perfect fix rather than as no
+        // fix quality at all. `accuracyMOrNull` is the same absent test the
+        // upload metadata uses, so the file and the wire agree.
+        out.cell(row.accuracyMOrNull?.toString())
         out.cell(row.width.toString())
         out.cell(row.height.toString())
         out.cell(row.fileSize.toString())
