@@ -716,7 +716,10 @@ async def get_sitemap_photo_ids(
 	"""Public, completed photo identifiers for the XML sitemap (no auth — SEO).
 
 	Returns ``{"total", "photos": [{uid, lastmod, img}, ...]}`` for public,
-	non-deleted, completed hillview photos, newest first. ``img`` is the
+	non-deleted, completed hillview photos, newest first. ``lastmod`` is when
+	the photo PAGE last changed: the upload, or the later of the trigger-kept
+	``content_updated_at`` (metadata edits, annotation events — migration
+	034). Not the rendition/processing timestamps. ``img`` is the
 	preferred rendition URL for the sitemap's ``<image:image>`` entry (may be
 	null). Paginated so the frontend sitemap can be a sitemap-index of
 	fixed-size child pages and never hit the 50k-URLs-per-file limit.
@@ -747,7 +750,8 @@ async def get_sitemap_photo_ids(
 	]
 	total = await db.scalar(select(func.count()).select_from(Photo).where(*conds))
 	rows = (await db.execute(
-		select(Photo.id, Photo.uploaded_at, Photo.sizes)
+		# GREATEST skips NULLs in PostgreSQL, so a never-edited photo yields uploaded_at.
+		select(Photo.id, func.greatest(Photo.uploaded_at, Photo.content_updated_at), Photo.sizes)
 		.where(*conds)
 		.order_by(Photo.uploaded_at.desc())
 		.offset(offset)
