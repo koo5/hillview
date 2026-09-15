@@ -38,6 +38,7 @@
 
 import os
 import sys
+import json
 import math
 import re
 import logging
@@ -1589,6 +1590,61 @@ def _exif_stacks(data: dict) -> list:
 	return stacks
 
 
+def _user_comment(exif_data: Optional[dict]) -> dict:
+	"""The capture app's provenance JSON (UserComment), or ``{}``.
+
+	Written into ``exif_data['data']['UserComment']`` by two routes that agree on
+	the shape: the Android EXIF writer embeds it in the file, and for everything
+	that cannot write EXIF — browser uploads, the fast-write path — the worker
+	synthesizes the same object from the upload metadata. Anything else that ends
+	up in that tag is some other camera's free text, so a value that is not a JSON
+	object is treated as absent rather than parsed hopefully.
+	"""
+	if not isinstance(exif_data, dict):
+		return {}
+	data = exif_data.get('data')
+	uc = data.get('UserComment') if isinstance(data, dict) else None
+	if not isinstance(uc, str) or not uc.startswith('{'):
+		return {}
+	try:
+		parsed = json.loads(uc)
+	except (json.JSONDecodeError, ValueError):
+		return {}
+	return parsed if isinstance(parsed, dict) else {}
+
+
+def _location_accuracy_m(exif_data: Optional[dict]) -> Optional[float]:
+	"""The receiver's horizontal accuracy radius at the stamped fix, metres.
+
+	Published, unlike everything else positional in the dump, because it cannot
+	narrow where a photo was taken — it can only widen what a reader is entitled
+	to believe about a coordinate this response already gives in full. Withholding
+	it does not protect the subject; it just means every consumer treats the
+	position as exact, which is the failure the worker's own provenance note
+	records (a walk whose first eighteen frames wander inside a 10 m blob, with
+	nothing stored able to tell them from the rest). Where a position is genuinely
+	too revealing, the lever is coarsening or withholding the COORDINATE; the
+	error bar is not a privacy control and using it as one gives false comfort.
+	Prior art agrees: Panoramax (which this server federates with) carries a
+	horizontal accuracy on its public items, OSM publishes trace dilution of
+	precision, and Mapillary publishes the raw and reconstructed positions both,
+	which discloses strictly more.
+
+	Absent before 2026-09-13, when the value first reached the server at all.
+	Zero is the capture table's "unknown" sentinel and never a real radius, so it
+	reads as absent here too. Rounded to a tenth of a metre: nobody needs seven
+	significant figures of an error estimate.
+	"""
+	value = _user_comment(exif_data).get('location_accuracy_m')
+	try:
+		metres = float(value)
+	except (TypeError, ValueError):
+		return None
+	if not math.isfinite(metres) or metres <= 0:
+		return None
+	return round(metres, 1)
+
+
 def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
 	"""Extract a small, display-friendly subset of camera/lens EXIF from the raw
 	exiftool dump stored in ``Photo.exif_data`` (worker writes the full tag set
@@ -1597,10 +1653,13 @@ def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
 	``_exif_number`` for the forms accepted).
 
 	Only camera settings are exposed (focal length, aperture, ISO, shutter,
-	exposure compensation, camera make/model, lens). Positional data
-	(GPS/altitude/bearing) is deliberately omitted here — it is already served
+	exposure compensation, camera make/model, lens). Nothing that LOCATES is
+	exposed here — no GPS, altitude or bearing — because it is already served
 	via the response's top-level latitude/longitude/bearing/altitude, and the raw
-	dump can carry more precise/sensitive location than we want to publish.
+	dump can carry more precise/sensitive location than we want to publish. The
+	rule is about locating, not about provenance in general: the accuracy RADIUS
+	of the published position goes out at the top level beside the position it
+	describes (see ``_location_accuracy_m``).
 
 	Exposure triangle (aperture/ISO/shutter): when the pipeline snapshotted the
 	source frames (``pano_frames`` — one stack per pano position — or
@@ -1769,6 +1828,10 @@ async def get_public_photo(
 			"longitude": longitude,
 			"bearing": photo.compass_angle,
 			"altitude": photo.altitude,
+			# The error bar on the two fields above it, not a field of its own
+			# subject — so it sits with the position rather than in `exif`,
+			# which is documented as camera settings.
+			"location_accuracy_m": _location_accuracy_m(photo.exif_data),
 			"width": photo.width,
 			"height": photo.height,
 			"exif": _curate_exif(photo.exif_data),
