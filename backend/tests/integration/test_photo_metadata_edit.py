@@ -17,6 +17,9 @@ The interesting behaviours, all asserted below:
   - licences are per-photo and changeable, and EVERY change is recorded in the
     licence history — including the owner's own, which the moderation audit
     deliberately does not cover
+  - the sitemap's per-photo <lastmod> (GET /api/photos/sitemap-ids) moves on
+    an owner's edit and on an annotation event, and starts out equal to the
+    upload time (photos.content_updated_at, trigger-kept — migration 034)
 """
 
 import pytest
@@ -64,6 +67,13 @@ class TestPhotoMetadataEdit(BasePhotoTest):
 		response = requests.get(f"{API_URL}/photos/public/hillview-{photo_id}")
 		self.assert_success(response, "Public photo should be readable")
 		return response.json()
+
+	def _sitemap_entry(self, photo_id: str) -> dict:
+		"""The photo's sitemap-ids entry, or None when the curation rule leaves it out."""
+		response = requests.get(f"{API_URL}/photos/sitemap-ids")
+		self.assert_success(response, "sitemap-ids should be public")
+		uid = f"hillview-{photo_id}"
+		return next((p for p in response.json()["photos"] if p["uid"] == uid), None)
 
 	def _audit_entries_for(self, photo_id: str) -> list:
 		response = requests.get(
@@ -472,3 +482,47 @@ class TestPhotoMetadataEdit(BasePhotoTest):
 
 if __name__ == "__main__":
 	pytest.main([__file__, "-v"])
+
+	@pytest.mark.asyncio
+	async def test_owner_edit_bumps_sitemap_lastmod(self):
+		"""An owner's own title edit is not audited anywhere, yet must still move
+		the sitemap <lastmod> — that is what the trigger-kept column is for."""
+		photo_id = await self._create_test_photo("sitemap_edit.jpg", "Curated by description")
+
+		before = self._sitemap_entry(photo_id)
+		assert before is not None, "a described photo is curated into the sitemap"
+		uploaded_at = self._public_photo(photo_id)["uploaded_at"]
+		assert before["lastmod"] == uploaded_at, before
+
+		response = requests.patch(
+			f"{API_URL}/photos/{photo_id}",
+			json={"title": "Retitled by owner"},
+			headers=self.test_headers,
+		)
+		self.assert_success(response, "Owner should be able to retitle their own photo")
+
+		after = self._sitemap_entry(photo_id)
+		assert after["lastmod"] > uploaded_at, (after, uploaded_at)
+
+		# A no-op resubmission must not move it again.
+		requests.patch(f"{API_URL}/photos/{photo_id}", json={"title": "Retitled by owner"}, headers=self.test_headers)
+		assert self._sitemap_entry(photo_id)["lastmod"] == after["lastmod"]
+
+	@pytest.mark.asyncio
+	async def test_annotation_bumps_sitemap_lastmod(self):
+		"""A title-less upload joins the sitemap on its first annotation, and its
+		<lastmod> is the annotation's time, not the (older) upload."""
+		photo_id = await self._create_test_photo("sitemap_annotation.jpg", "")
+		assert self._sitemap_entry(photo_id) is None, "nothing to index yet"
+		uploaded_at = self._public_photo(photo_id)["uploaded_at"]
+
+		response = requests.post(
+			f"{API_URL}/annotations/photos/{photo_id}",
+			json={"body": "A hill", "target": {"selector": {"type": "RECTANGLE", "geometry": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}}}},
+			headers=self.test_headers,
+		)
+		assert response.status_code == 201, response.text
+
+		entry = self._sitemap_entry(photo_id)
+		assert entry is not None, "an annotated photo is curated into the sitemap"
+		assert entry["lastmod"] > uploaded_at, (entry, uploaded_at)
