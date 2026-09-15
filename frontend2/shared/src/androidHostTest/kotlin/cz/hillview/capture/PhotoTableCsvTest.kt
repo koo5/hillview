@@ -101,6 +101,28 @@ class PhotoTableCsvTest {
     }
 
     /**
+     * A row that records NO accuracy leaves the cell empty, because the number
+     * it used to write was 0.0 — which reads as a perfect fix, the exact
+     * opposite of what it means. The table's absent sentinel stops at the file
+     * boundary; a reader of the CSV never has to know it exists.
+     *
+     * Unlike altitude, the sentinel costs no measurement on the way in: a
+     * receiver never reports a radius of zero. It only had to stop being
+     * published as one.
+     */
+    @Test
+    fun anAbsentAccuracyIsEmptyRatherThanAPerfectFix() {
+        val accuracyOf = { entity: PhotoEntity ->
+            lines(photoTableCsv(listOf(entity)))[1]
+                .split(",")[PHOTO_DUMP_COLUMNS.indexOf("accuracy")]
+        }
+        assertEquals("4.2", accuracyOf(photo()))
+        assertEquals("", accuracyOf(photo().copy(accuracy = 0.0)))
+        // Sub-metre claims are real and stay; only the sentinel goes.
+        assertEquals("0.5", accuracyOf(photo().copy(accuracy = 0.5)))
+    }
+
+    /**
      * The JSON columns are the reason quoting matters: they are full of
      * commas and quotes, and an unquoted one would shift every later column
      * on that row.

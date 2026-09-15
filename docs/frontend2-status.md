@@ -507,6 +507,24 @@ the chain stopped. See `GeoDebugText.kt`.
 
 ## 2026-09-15
 
+- **The photos-table dump published an absent accuracy as 0.0 m** (user-asked
+  while checking where else the radius travels: "do we save gps accuracy also
+  into the photos table dump and into the geo tracking dump?"). Both carry it —
+  the dump has an `accuracy` column and the geo dump's locations file has
+  `accuracy` and `verticalAccuracy` — but the photos dump wrote the table's
+  absent sentinel through verbatim, so a reader saw a perfect fix where the row
+  meant no fix quality at all. Its nullable neighbours (latitude, longitude,
+  altitude, pitch) already left the cell empty; the geo dump already did too,
+  because `LocationEntity.accuracy` is nullable there.
+  - The absent test now lives in ONE place, `PhotoEntity.accuracyMOrNull`, and
+    the upload metadata reads it through the same property instead of spelling
+    `> 0` out again. The file and the wire cannot disagree.
+  - The column stays non-null in the table, unlike altitude before v21: a
+    receiver never reports a radius of zero, so the sentinel costs no real
+    measurement on the way in. It only had to stop being published as one.
+  - Both apps compile (frontend2 host tests, and the Tauri plugin that shares
+    these files).
+
 - **Backgrounding the app crashed it, on three screens** (user's phone log).
   `SerializationException: Serializer for subclass 'UploadStatusKey' is not
   found in the polymorphic scope of 'NavKey'`, thrown from
