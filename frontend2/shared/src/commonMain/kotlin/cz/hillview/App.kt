@@ -55,6 +55,9 @@ private val navSavedStateConfig = SavedStateConfiguration {
             subclass(DevicePhotosKey::class)
             subclass(MapKey::class)
             subclass(LockSettingsKey::class)
+            subclass(EventLogKey::class)
+            subclass(UploadStatusKey::class)
+            subclass(CaptureGuideKey::class)
         }
     }
 }

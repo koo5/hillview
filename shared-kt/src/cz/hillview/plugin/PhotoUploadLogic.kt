@@ -856,7 +856,7 @@ class PhotoUploadLogic(internal val context: Context) {
 		photo.longitude?.let { put("longitude", it) }
 		photo.altitude?.let { put("altitude", it) }
 		if (photo.bearing != 0.0) put("bearing", photo.bearing)
-		if (photo.accuracy > 0) put("accuracy", photo.accuracy)
+		photo.accuracyMOrNull?.let { put("accuracy", it) }
 		// Millisecond ISO — the whole reason the clock-calibration work can
 		// trust uploads: EXIF DateTimeOriginal is second-granular.
 		PhotoUtils.formatTimestampToIsoMillis(photo.capturedAt)?.let { put("captured_at", it) }

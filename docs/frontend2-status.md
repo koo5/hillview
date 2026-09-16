@@ -505,6 +505,46 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-09-15
+
+- **The photos-table dump published an absent accuracy as 0.0 m** (user-asked
+  while checking where else the radius travels: "do we save gps accuracy also
+  into the photos table dump and into the geo tracking dump?"). Both carry it —
+  the dump has an `accuracy` column and the geo dump's locations file has
+  `accuracy` and `verticalAccuracy` — but the photos dump wrote the table's
+  absent sentinel through verbatim, so a reader saw a perfect fix where the row
+  meant no fix quality at all. Its nullable neighbours (latitude, longitude,
+  altitude, pitch) already left the cell empty; the geo dump already did too,
+  because `LocationEntity.accuracy` is nullable there.
+  - The absent test now lives in ONE place, `PhotoEntity.accuracyMOrNull`, and
+    the upload metadata reads it through the same property instead of spelling
+    `> 0` out again. The file and the wire cannot disagree.
+  - The column stays non-null in the table, unlike altitude before v21: a
+    receiver never reports a radius of zero, so the sentinel costs no real
+    measurement on the way in. It only had to stop being published as one.
+  - Both apps compile (frontend2 host tests, and the Tauri plugin that shares
+    these files).
+
+- **Backgrounding the app crashed it, on three screens** (user's phone log).
+  `SerializationException: Serializer for subclass 'UploadStatusKey' is not
+  found in the polymorphic scope of 'NavKey'`, thrown from
+  `onSaveInstanceState` as the activity stops. `NavKey` is a library
+  interface, so it cannot be sealed and kotlinx.serialization cannot resolve
+  the polymorphism for us: every key has to be named in App.kt's serializers
+  module. Three were not — EventLog, UploadStatus and CaptureGuide — so those
+  screens worked perfectly until the app went to the background, and then took
+  the process down. Backgrounding mid-upload is exactly when a user is on the
+  upload screen, which is how it was found.
+  - **Registered, and the list is now checked rather than remembered**
+    (`RouteKeyRegistrationTest`, jvmTest). It reads both source files, compares
+    the keys declared in Routes.kt against the `subclass(...)` calls in App.kt,
+    and fails in both directions. Nothing about writing a screen reminds anyone
+    to edit a list in another file, which is why this happened at all — and why
+    a comment saying "remember to register" would not have been enough.
+    Verified by deleting one registration and watching the test fail.
+  - Emulator-verified end to end: each of the three screens opened, backgrounded
+    with HOME, no exception and the process still alive.
+
 ## 2026-09-13
 
 - **GPS accuracy finally leaves the phone** (user-raised while reading a
@@ -812,7 +852,11 @@ the chain stopped. See `GeoDebugText.kt`.
     not have been under the first cut of this: it consumed the press to time
     the hold, and a ring-wide dead band across the map is too high a price
     for a gesture nobody makes most of the time.
-  - NOT phone-verified — no device reachable from this machine.
+  - Device-verified after all, on 2026-09-13, when the gate was narrowed to
+    the recording activities: the press falls through, the hold is what takes
+    the ring, and the same slow drag pans the map in capture. Still emulator,
+    not a phone — the synthesized rotation vector cannot settle anything
+    about the sensors, only about the touch handling, which is all this is.
 
 ## 2026-09-10
 
