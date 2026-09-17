@@ -103,8 +103,11 @@ upload trigger) still publishes only after the final bytes exist.
   re-attaches its SurfaceTexture on its own; osmdroid's MapView does NOT
   survive it by default — destroy mode runs onDetach() on every
   onDetachedFromWindow — so `setDestroyMode(false)` and the explicit
-  onDetach() on dispose (rememberMapView). Not yet rotation-tested on a
-  device.
+  onDetach() on dispose (rememberMapView). **Rotation-verified on an
+  emulator 2026-09-17**: a 2 s interval run was taken through
+  portrait → landscape → portrait and kept shooting across both (badge 6 →
+  24 → 45), with the Sports rule still engaged, the preview still streaming,
+  osmdroid still drawing, and no exception either way.
 - Capture pane = the video (round 4): FILL_CENTER preview, every control
   floats over it in the original's absolute spots (pill 60/60, shutter
   pill bottom-centre, 📷 lower-left, ⚡ shutter-speed menu lower-right,
@@ -542,6 +545,14 @@ way.
     settings row ("⚠️ app-private — this copy goes when the app does"). It
     was previously reported as a path, leaving the reader to work out that
     the safety net had quietly stopped being one.
+- **Rotation, finally tested on a device.** The `movableContentOf` split has
+  carried a "not yet rotation-tested" note since 2026-08-19. A 2 s interval
+  run went portrait → landscape → portrait and kept shooting across both
+  (run badge 6 → 24 → 45), with the Sports rule still engaged, the camera
+  still streaming, osmdroid still drawing after being re-parented, and no
+  exception in either direction. That was the bug class the note was about:
+  plain lambdas used to dispose both compositions and take the run, the
+  exposure rule and the camera binding with them.
 - **The interval ladder and the recording indicator were watched too, and
   both do what they claim.** The ladder draws all 21 rungs with the hovered
   band filled, its label centred inside it, and a line at the finger's exact
@@ -774,7 +785,10 @@ way.
     between the portrait Column and the landscape Row, so the orientation is
     read through a `rememberUpdatedState` rather than captured, which would
     have frozen it at whichever orientation the app started in.
-  - NOT phone-verified — no device reachable from this machine.
+  - The re-parenting itself is verified (2026-09-17, emulator): the split
+    turns from a Column into a Row with the run, the rule, the camera
+    binding and the map all intact. The INSET work above is still only
+    screenshot-checked in portrait.
   - **safeDrawing, not safeContent — found on the emulator.** "Flush" still
     left 30 dp of map down each side: `safeContent` includes the system's
     GESTURE strips, and every control was being held off them. That is the
@@ -1163,9 +1177,8 @@ invisible on exactly the machines that expose it.**
     UTC. Leaving a column out is a decision made on behalf of someone who can
     no longer recover it. `PhotoTableCsvTest` parses a row back with an
     ordinary RFC 4180 reader.
-  - NOT yet phone-verified — no device reachable from this machine. What to
-    check: `Documents/Hillview2/photos.csv` after backgrounding the app, and
-    that it is still there after an uninstall.
+  - **Verified on an emulator 2026-09-17** — and it was broken in two ways
+    when first watched; see the 2026-09-17 entry at the top.
 
 - **The EXIF default is unchanged, and the question is still open.** The user
   is undecided; nothing here decides it. What the original does is worth
@@ -1203,7 +1216,9 @@ invisible on exactly the machines that expose it.**
     comes first, in the gesture and in the accessibility click, and the rule
     is a named function (`shutterPressDoesSomething`) with the trap as a
     test. The gate withholds captures; it has no business withholding exits.
-  - NOT yet phone-verified — no device reachable from this machine.
+  - **Verified on an emulator 2026-09-17**: REC and the elapsed clock over a
+    red Stop shutter, the dot alternating between #FF5252 and nothing across
+    sampled frames while the text beside it stays put.
 
 ## 2026-09-06
 
@@ -1246,9 +1261,11 @@ invisible on exactly the machines that expose it.**
     releasing back over the button — the original's release-over-nothing —
     so it gets the same word, and the release hint's two ways of saying it
     collapse into one.
-  - NOT yet phone-verified — no device reachable from this machine. The pure
-    parts (rung list, labels, band mapping, band colours) are covered by
-    `IntervalLadderTest`.
+  - **Verified on an emulator 2026-09-17**: all 21 rungs draw, the hovered
+    band fills with its label centred inside it, the pointer line sits at the
+    finger's height, and the shutter previews the release. One defect found
+    and fixed in the same pass — the top rungs were behind the floating
+    controls.
 
 ## 2026-09-04
 
