@@ -21,6 +21,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -63,6 +64,30 @@ object PhotoTableDump {
     private const val PREF_AT = "last_dump_at"
     private const val PREF_WHERE = "last_dump_where"
     private const val PREF_COUNT = "last_dump_count"
+
+    /**
+     * The media rows this app wrote, one per shard.
+     *
+     * Remembered by URI rather than looked up by name each time, because the
+     * lookup can come back empty for a file that is plainly there: the media
+     * database hides a non-media row from every app but its owner, and an
+     * uninstall ORPHANS ownership. Asking by name then found nothing, so the
+     * dump inserted — and MediaProvider, which never overwrites, handed back
+     * "photos (1).csv". Then "(2)", and so on to "(31)", at which point it
+     * gave up entirely ("Failed to build unique file") and the index fell
+     * back to app-private storage, which is the one place it is useless.
+     * Emulator-caught 2026-09-17, on a device carrying exactly that history.
+     *
+     * Keeping the URI turns MediaProvider's own de-duplication into a CLAIM:
+     * whatever name it gives us the first time is the name we keep writing,
+     * so there is one file per install and the previous install's index —
+     * which describes photos that are still on the phone — is left alone
+     * rather than overwritten by a fresh install's empty table.
+     */
+    private const val PREF_URIS = "last_shard_uris"
+
+    /** Whether the last write landed somewhere that survives an uninstall. */
+    private const val PREF_DURABLE = "last_dump_durable"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writing = Mutex()
@@ -142,11 +167,14 @@ object PhotoTableDump {
 
         val previousHashes = prefs.getString(PREF_HASHES, "").orEmpty()
             .split(",").filter { it.isNotEmpty() }
+        val previousUris = prefs.getString(PREF_URIS, "").orEmpty().split(",")
         val previousShards = prefs.getInt(PREF_SHARDS, 0)
         val shards = shardCount(total)
         val hashes = mutableListOf<String>()
+        val uris = mutableListOf<String>()
         var written = 0
         var where: String? = prefs.getString(PREF_WHERE, null)
+        var durable = prefs.getBoolean(PREF_DURABLE, false)
 
         for (shard in 0 until shards) {
             // One shard in memory at a time. The whole table would be the
@@ -164,8 +192,21 @@ object PhotoTableDump {
             // is. Deleting an OLD photo shifts everything after it, and those
             // shards get rewritten — correct, and rare.
             if (force || previousHashes.getOrNull(shard) != hash) {
-                where = writeCsv(app, photoDumpFileName(shard), csv)
+                val result = writeCsv(
+                    app,
+                    photoDumpFileName(shard),
+                    csv,
+                    previousUris.getOrNull(shard)?.takeIf { it.isNotEmpty() },
+                )
+                where = result.where
+                durable = result.durable
+                uris += result.uri.orEmpty()
                 written++
+            } else {
+                // Carry the claim forward: a shard we did not rewrite still
+                // has the row we wrote it to, and forgetting it here would
+                // make the next write to it start claiming all over again.
+                uris += previousUris.getOrNull(shard).orEmpty()
             }
         }
         // The table shrank past a boundary: the tail files now hold rows that
@@ -179,6 +220,8 @@ object PhotoTableDump {
         prefs.edit()
             .putString(PREF_FINGERPRINT, fingerprint)
             .putString(PREF_HASHES, hashes.joinToString(","))
+            .putString(PREF_URIS, uris.joinToString(","))
+            .putBoolean(PREF_DURABLE, durable)
             .putInt(PREF_SHARDS, shards)
             .putLong(PREF_AT, now)
             .putString(PREF_WHERE, where)
@@ -190,7 +233,18 @@ object PhotoTableDump {
         // dump that suddenly lands somewhere else — the public folder
         // refused, so it went app-private — is exactly what the log is for.
         if (where != null && where != previousWhere) {
-            EventLog.record("export", "photo index → $where")
+            // Landing app-private is not a detail: it is the one destination
+            // that does NOT outlive the app, which is the whole reason this
+            // file exists. Say so rather than reporting a path and letting
+            // the reader work out what it means.
+            EventLog.record(
+                "export",
+                if (durable) {
+                    "photo index → $where"
+                } else {
+                    "photo index → $where — app-private, will NOT survive an uninstall"
+                },
+            )
         }
     }
 
@@ -202,7 +256,15 @@ object PhotoTableDump {
      */
     suspend fun dumpNowForResult(context: Context): String {
         val app = context.applicationContext
-        return writing.withLock {
+        // IO, explicitly. This is a suspend function, which says nothing
+        // about WHICH thread — it inherits the caller's, and the caller is a
+        // button in a Compose screen, so the caller's is the main thread.
+        // Room refuses that outright, so the button threw every time it was
+        // pressed and reported "failed" without ever reaching the writer
+        // (emulator-caught, 2026-09-17: "Cannot access database on the main
+        // thread"). The automatic triggers were never affected — they come
+        // off `scope`, which is IO.
+        return withContext(Dispatchers.IO) { writing.withLock {
             try {
                 dumpNow(app, "manual", spaced = false, force = true)
                 lastDumpLabel(app) ?: "nothing to write"
@@ -211,7 +273,7 @@ object PhotoTableDump {
                 EventLog.record("export", "photo table dump FAILED: ${e.message}")
                 "failed: ${e.message ?: e::class.simpleName}"
             }
-        }
+        } }
     }
 
     /** "1234 photos → Documents/Hillview2/photos.csv" — for the settings row. */
@@ -221,7 +283,16 @@ object PhotoTableDump {
         val count = prefs.getInt(PREF_COUNT, 0)
         val shards = prefs.getInt(PREF_SHARDS, 1)
         val files = if (shards > 1) " (+${shards - 1} more file(s))" else ""
-        return "$count photos → $where$files"
+        val head = "$count photos → $where$files"
+        // The app-private fallback is a path most people cannot reach and
+        // that the system deletes with the app — the exact failure this
+        // feature exists to prevent — so the row says what that means rather
+        // than printing a directory and leaving the reader to notice.
+        return if (prefs.getBoolean(PREF_DURABLE, false)) {
+            head
+        } else {
+            "$head\n\u26a0\ufe0f app-private — this copy goes when the app does."
+        }
     }
 
     /**
@@ -238,13 +309,28 @@ object PhotoTableDump {
      * app-private directory. It dies with the app, which defeats the point,
      * but a dump that exists while the app does still beats none.
      */
-    private fun writeCsv(app: Context, fileName: String, csv: String): String {
+    /**
+     * Where a shard landed, and whether that place outlives the app.
+     * [uri] is the media row to write to next time — see [PREF_URIS].
+     */
+    private data class WriteResult(
+        val where: String,
+        val uri: String?,
+        val durable: Boolean,
+    )
+
+    private fun writeCsv(
+        app: Context,
+        fileName: String,
+        csv: String,
+        remembered: String?,
+    ): WriteResult {
         val bytes = csv.toByteArray(Charsets.UTF_8)
         val folder = PhotoStorage.folderBase
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
-                return writeViaMediaStore(app, folder, fileName, bytes)
+                return writeViaMediaStore(app, folder, fileName, bytes, remembered)
             } catch (e: Exception) {
                 Log.w(TAG, "MediaStore write failed, trying the file API", e)
             }
@@ -257,7 +343,7 @@ object PhotoTableDump {
             if (!dir.exists()) dir.mkdirs()
             val file = File(dir, fileName)
             file.writeBytes(bytes)
-            return file.absolutePath
+            return WriteResult(file.absolutePath, uri = null, durable = true)
         } catch (e: Exception) {
             Log.w(TAG, "public file write failed, falling back to app-private", e)
         }
@@ -265,7 +351,7 @@ object PhotoTableDump {
         if (!dir.exists()) dir.mkdirs()
         val file = File(dir, fileName)
         file.writeBytes(bytes)
-        return file.absolutePath
+        return WriteResult(file.absolutePath, uri = null, durable = false)
     }
 
     private fun writeViaMediaStore(
@@ -273,14 +359,42 @@ object PhotoTableDump {
         folder: String,
         fileName: String,
         bytes: ByteArray,
-    ): String {
+        remembered: String?,
+    ): WriteResult {
         val resolver = app.contentResolver
         val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val relativePath = "${Environment.DIRECTORY_DOCUMENTS}/$folder/"
-        // Reuse the row we wrote last time rather than inserting again — a
-        // second insert of the same name yields "photos (1).csv", and the
-        // point of stable names is that there is a known set of files.
-        val uri: Uri = findInMediaStore(app, relativePath, fileName) ?: resolver.insert(
+
+        // Three ways to reach the row, in order of certainty. The remembered
+        // URI is the only one that is reliable: a name lookup cannot see a
+        // non-media row this app does not own, and an insert never overwrites.
+        val claimed = remembered?.let { saved ->
+            try {
+                val uri = Uri.parse(saved)
+                writeTo(resolver, uri, bytes)
+                uri
+            } catch (e: Exception) {
+                Log.w(TAG, "the remembered index row is gone — claiming another", e)
+                null
+            }
+        }
+        if (claimed != null) {
+            return WriteResult(locator(app, claimed, relativePath, fileName), claimed.toString(), true)
+        }
+
+        val found = findInMediaStore(app, relativePath, fileName)
+        if (found != null) {
+            writeTo(resolver, found, bytes)
+            return WriteResult(locator(app, found, relativePath, fileName), found.toString(), true)
+        }
+
+        // Nothing of ours is there. Insert, and take whatever name comes
+        // back: if the preferred one is occupied by a file this app can no
+        // longer see (the previous install's index, which describes photos
+        // that are still on the phone), MediaProvider hands over a numbered
+        // sibling instead of clobbering it. That is the right outcome and
+        // this remembers it, so the numbering happens ONCE.
+        val inserted = resolver.insert(
             collection,
             ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
@@ -288,12 +402,29 @@ object PhotoTableDump {
                 put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
             },
         ) ?: throw IOException("MediaStore insert returned null")
-        // "wt" truncates: without it a shorter table would leave the tail of
-        // the previous dump behind, and a CSV with a stale tail is worse than
-        // no CSV at all.
+        writeTo(resolver, inserted, bytes)
+        return WriteResult(locator(app, inserted, relativePath, fileName), inserted.toString(), true)
+    }
+
+    /**
+     * "wt" truncates: without it a shorter table would leave the tail of the
+     * previous dump behind, and a CSV with a stale tail is worse than none.
+     */
+    private fun writeTo(resolver: android.content.ContentResolver, uri: Uri, bytes: ByteArray) {
         resolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
             ?: throw IOException("openOutputStream returned null")
-        return "$relativePath$fileName"
+    }
+
+    /** What to tell the user, using the name the file REALLY has. */
+    private fun locator(app: Context, uri: Uri, relativePath: String, fallback: String): String {
+        val name = try {
+            app.contentResolver.query(
+                uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null,
+            )?.use { if (it.moveToFirst()) it.getString(0) else null }
+        } catch (e: Exception) {
+            null
+        }
+        return "$relativePath${name ?: fallback}"
     }
 
     private fun findInMediaStore(app: Context, relativePath: String, fileName: String): Uri? {

@@ -505,6 +505,52 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-09-17 — the photo index, on an emulator at last
+
+The index had been written, sharded, tuned and documented without ever being
+watched. An emulator became available; every claim about it was wrong in some
+way.
+
+- **The "Write it now" button had never once worked.** `dumpNowForResult` is a
+  suspend function, which says nothing about which THREAD — it inherits the
+  caller's, and the caller is a button in a Compose screen. Room refuses the
+  main thread outright, so every press threw `IllegalStateException: Cannot
+  access database on the main thread`, caught its own exception and reported
+  "failed". Fixed with an explicit `withContext(Dispatchers.IO)`. The
+  automatic triggers were never affected: they come off the IO scope.
+- **The index was growing a new file per dump, then stopped writing at all.**
+  The emulator carried `photos.csv` plus `photos (1).csv` … `photos (31).csv`,
+  and was falling back to app-private storage — the one destination that does
+  not survive an uninstall, which is the entire point of the feature.
+  - The chain: `findInMediaStore` asks by RELATIVE_PATH + DISPLAY_NAME, and
+    the media database hides a NON-MEDIA row from every app but its owner.
+    An uninstall orphans ownership, so after a reinstall the lookup came back
+    empty for a file plainly sitting there. The dump then inserted;
+    MediaProvider never overwrites, so it handed back a numbered sibling;
+    nothing remembered the new name, so the next dump repeated the whole
+    dance. At 32 siblings `buildUniqueFile` gives up
+    ("Failed to build unique file"), the insert throws, the File API gets
+    EACCES on a file owned by the previous install's UID, and the index lands
+    app-private.
+  - The fix keeps the media row's URI per shard (`PREF_URIS`) and writes to
+    it. MediaProvider's own de-duplication becomes a CLAIM: whatever name it
+    gives the first time is the name kept, so there is exactly one file per
+    install — and the previous install's index, which describes photos still
+    on the phone, is left alone rather than overwritten by a fresh install's
+    empty table. That turns out to be the RIGHT behaviour, not a compromise.
+  - Landing app-private is now said out loud, in the event log and in the
+    settings row ("⚠️ app-private — this copy goes when the app does"). It
+    was previously reported as a path, leaving the reader to work out that
+    the safety net had quietly stopped being one.
+- **Verified on the emulator (API 36), in this order:** a capture writes
+  `Documents/Hillview2/photos.csv` with every column populated — position,
+  bearing 5.396°, pitch 4.716°, `capturedAtUtc` 2026-09-17T13:40:43Z,
+  accuracy, `bearingSource` android-compass-true, `locationSource` gps,
+  `locationAgeMs` 86; four forced writes leave exactly one file; leaving the
+  app writes, and leaving it again with nothing changed does not; **an
+  uninstall leaves both the 322 JPEGs and the index in place**; and the
+  reinstall claims `photos (1).csv` once and keeps reusing it.
+
 ## 2026-09-15
 
 - **The photos-table dump published an absent accuracy as 0.0 m** (user-asked
