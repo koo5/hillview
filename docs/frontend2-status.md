@@ -542,6 +542,20 @@ way.
     settings row ("⚠️ app-private — this copy goes when the app does"). It
     was previously reported as a path, leaving the reader to work out that
     the safety net had quietly stopped being one.
+- **The interval ladder and the recording indicator were watched too, and
+  both do what they claim.** The ladder draws all 21 rungs with the hovered
+  band filled, its label centred inside it, and a line at the finger's exact
+  height; the shutter previews the release; the bottom rung says "cancel".
+  A recording shows `REC 0:06` on dark glass over a red Stop shutter, and
+  sampling four frames confirms the dot alternates between #FF5252 and
+  nothing while the text beside it does not move.
+  - One defect, found by looking: the ladder ran the pane's FULL height, so
+    its top rungs — VIDEO among them — were drawn behind the Main page's
+    floating controls. It now insets by `FLOATING_CONTROLS_HEIGHT`, named
+    beside the row it measures. The inset is applied to the rect used for
+    the DRAWING and the MAPPING both, computed once: insetting only the
+    picture would restore exactly the disagreement the control was rebuilt
+    to remove.
 - **Verified on the emulator (API 36), in this order:** a capture writes
   `Documents/Hillview2/photos.csv` with every column populated — position,
   bearing 5.396°, pitch 4.716°, `capturedAtUtc` 2026-09-17T13:40:43Z,

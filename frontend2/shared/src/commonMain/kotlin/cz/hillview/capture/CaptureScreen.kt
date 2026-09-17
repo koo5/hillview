@@ -445,6 +445,20 @@ fun CaptureScreen(
     // gesture reads. One rect for both, which is the property the old
     // fixed-height slider did not have.
     var paneBounds by remember { mutableStateOf<Rect?>(null) }
+    // ...minus the corner the Main page's floating controls occupy. The
+    // ladder used to run the pane's full height and put its top rungs —
+    // VIDEO among them — behind the hamburger (emulator-caught 2026-09-17).
+    // Computed here, in ONE place, and used for the drawing AND the mapping:
+    // insetting only the picture would put back exactly the disagreement
+    // between what is drawn and what is read that this control was rebuilt
+    // to remove.
+    val ladderTopInset = cz.hillview.main.FLOATING_CONTROLS_HEIGHT
+    val ladderTopInsetPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+        ladderTopInset.toPx()
+    }
+    val ladderBounds = paneBounds?.let {
+        Rect(it.left, it.top + ladderTopInsetPx, it.right, it.bottom)
+    }
 
     // The capture pane IS the camera stream — the original's camera-content
     // fills with the video and positions every control absolutely over it
@@ -942,6 +956,7 @@ fun CaptureScreen(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .fillMaxHeight()
+                    .padding(top = ladderTopInset)
                     .width(zoneWidth),
             )
         }
@@ -1100,7 +1115,7 @@ fun CaptureScreen(
                             // the last run's rung — the thumb is on the
                             // button at the foot of the scale, and that is
                             // what the bottom band should say.
-                            paneBounds?.let { zone ->
+                            ladderBounds?.let { zone ->
                                 val y = (clusterOrigin + down.position).y
                                 hoverIndex = rungIndexAt(y, zone.top, zone.bottom)
                                 pointerFraction = ladderFractionAt(y, zone.top, zone.bottom)
@@ -1124,7 +1139,7 @@ fun CaptureScreen(
                                     // while the thumb is still on the
                                     // button, so the target is visible
                                     // BEFORE the slide left commits to it.
-                                    val zone = paneBounds
+                                    val zone = ladderBounds
                                     if (zone != null && zone.height > 0f) {
                                         hoverIndex = rungIndexAt(pos.y, zone.top, zone.bottom)
                                         pointerFraction =
