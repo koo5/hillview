@@ -127,7 +127,33 @@ class PhotoDatabaseMigrationTest {
     @Test
     fun theWholeChainRunsAndMatchesTheEntities() {
         helper.createDatabase(DB, 14).close()
-        helper.runMigrationsAndValidate(DB, 22, true, *PhotoDatabase.MIGRATIONS)
+        helper.runMigrationsAndValidate(DB, 23, true, *PhotoDatabase.MIGRATIONS)
+    }
+
+    /**
+     * v23 adds photo_outbox beside a populated photos table.
+     *
+     * A pure addition, so the interesting part is not what survives but that
+     * the table Room then validates against the entity — a hand-written
+     * CREATE TABLE and a generated schema disagreeing about a column type or
+     * a key is exactly the failure this catches, and it would otherwise
+     * surface as a crash on the first launch after an update.
+     */
+    @Test
+    fun theOutboxArrivesAlongsideTheExistingPhotos() {
+        helper.createDatabase(DB, 22).apply {
+            insertPhotoAt(this, "prague", 50.1, 14.4)
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(DB, 23, true, *PhotoDatabase.MIGRATIONS)
+        db.query("SELECT COUNT(*) FROM photos").use {
+            it.moveToFirst()
+            assertEquals(1, it.getInt(0))
+        }
+        db.query("SELECT COUNT(*) FROM photo_outbox").use {
+            it.moveToFirst()
+            assertEquals(0, it.getInt(0))
+        }
     }
 
     /** Same column list as v20; the shape a v21 row takes too. */

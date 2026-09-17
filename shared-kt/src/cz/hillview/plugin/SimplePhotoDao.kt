@@ -111,6 +111,11 @@ interface SimplePhotoDao {
     @Query("""
         SELECT * FROM photos
         WHERE deleted = 0 AND uploadHoldUntil <= :now
+        AND NOT EXISTS (
+            SELECT 1 FROM photo_outbox o
+            WHERE o.photoId = photos.id
+              AND o.kind = 'delete' AND o.valueJson IS NOT NULL
+        )
         AND (id NOT IN (:seen) AND (
             uploadStatus IN ('pending', 'failed') OR
             (uploadStatus = 'uploading' AND lastUploadAttempt < :uploadingStaleThreshold) OR
@@ -145,9 +150,21 @@ interface SimplePhotoDao {
     // (isEligibleNow) so the progress denominator matches what the loop
     // actually attempts; validation drops (missing file / bad hash) are
     // loop-only and just shrink the numerator slightly.
+    // The wanted-deletion gate is the "never uploads" half of deleting a
+    // photo that has not been uploaded yet (see PhotoOutboxEntity): a photo
+    // the user has asked to delete is not a candidate, so the file is never
+    // sent at all and there is nothing to race. Note it does NOT test
+    // dirtiness — a deletion already pushed is still a deletion wanted.
+    // `deleted` next to it is the other thing entirely: what the SERVER says.
     @Query("""
         SELECT * FROM photos
-        WHERE deleted = 0 AND uploadHoldUntil <= :now AND (
+        WHERE deleted = 0 AND uploadHoldUntil <= :now
+          AND NOT EXISTS (
+              SELECT 1 FROM photo_outbox o
+              WHERE o.photoId = photos.id
+                AND o.kind = 'delete' AND o.valueJson IS NOT NULL
+          )
+          AND (
             uploadStatus IN ('pending', 'failed') OR
             (uploadStatus = 'uploading' AND lastUploadAttempt < :uploadingStaleThreshold) OR
             (uploadStatus = 'processing' AND lastUploadAttempt < :processingStaleThreshold)
