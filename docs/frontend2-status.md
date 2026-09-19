@@ -1312,6 +1312,13 @@ invisible on exactly the machines that expose it.**
   proved to still fire by adding a listener under `androidMain` and
   watching the build go red.
 
+## 2026-09-19
+
+- **The GPS fix dot draws over the photo markers** (overlay order in
+  MapScreen.android.kt: range, markers, GPS dot, arrow, rotation). It used
+  to sit under them and vanish in a pile. The dot overlay takes no touches,
+  so marker taps are unchanged. Compiled, not phone-verified.
+
 ## 2026-09-18
 
 - **The shutter gesture has no cancel rung, and the button's side of the
