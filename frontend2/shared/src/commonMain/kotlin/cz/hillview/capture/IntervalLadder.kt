@@ -33,24 +33,14 @@ import androidx.compose.ui.unit.dp
  * the working range, so they get a rung each; below one second the useful
  * differences are proportional rather than absolute, so the stops thin out.
  * The top rung is VIDEO, which is where "even less than zero interval"
- * belongs; the bottom is the way out.
+ * belongs. There is no rung for getting out: the bottom one read
+ * "cancel" (and, before 2026-09-06, wrongly "single") until 2026-09-18,
+ * when the user asked for it to go — the button's own side of the pane
+ * is a capture now (see [CaptureZone]), and the way out is off the pane.
  */
 internal sealed interface LadderRung {
     /** What the ladder band and the shutter both show. */
     val label: String
-
-    /**
-     * The bottom rung: releasing here does nothing at all.
-     *
-     * It read "single" until 2026-09-06, which was wrong twice over
-     * (user-caught): a plain tap is what takes a single shot, and this
-     * rung does not take one. Releasing here is the same act as releasing
-     * back over the button — the original's release-over-nothing — so it
-     * says the same word.
-     */
-    data object Cancel : LadderRung {
-        override val label = "cancel"
-    }
 
     data class Every(val ms: Int) : LadderRung {
         override val label: String get() = formatIntervalMs(ms)
@@ -85,7 +75,6 @@ private val SUB_SECOND_MS = listOf(200, 300, 500, 750)
 
 /** The rungs, bottom (index 0) to top. */
 internal val INTERVAL_LADDER: List<LadderRung> = buildList {
-    add(LadderRung.Cancel)
     SUB_SECOND_MS.forEach { add(LadderRung.Every(it)) }
     (1..INTERVAL_MAX_SEC).forEach { add(LadderRung.Every(it * 1000)) }
     add(LadderRung.Video)
@@ -139,15 +128,51 @@ private val BandLabel = Color(0x8CFFFFFF)
 private val HoverBand = Color(0x33FFFFFF)
 private val RunBand = Color(0x664CAF50)
 private val VideoBand = Color(0x66FF5252)
+// The shutter's own blue, at the ladder's wash strength.
+private val CaptureBand = Color(0x662196F3)
 private val PointerLine = Color(0xE6FFFFFF)
 
 internal fun ladderBandColor(rung: LadderRung, selected: Boolean, armed: Boolean): Color = when {
     !selected -> Color.Transparent
     !armed -> HoverBand
     rung is LadderRung.Video -> VideoBand
-    rung is LadderRung.Every -> RunBand
-    // Armed over "cancel": releasing does nothing, so it wears no promise.
-    else -> HoverBand
+    else -> RunBand
+}
+
+/**
+ * The other half of the catch zone: everything right of the ladder — the
+ * button's own side of the pane. Releasing here takes ONE photo, so the
+ * long press ends the way a tap would; the zone says so, the way the
+ * ladder's bands say what they do.
+ *
+ * Until 2026-09-18 this side meant "cancel" (the original's
+ * release-over-nothing, DualCaptureButton.svelte) and the ladder's bottom
+ * rung said the same word. Both went at the user's request ("remove it
+ * from the bottom and make the right side of the pane show that it means
+ * capture") — a stated divergence from the original. The way out is now
+ * off the pane: a release on the map does nothing.
+ */
+@Composable
+internal fun CaptureZone(armed: Boolean, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .background(if (armed) CaptureBand else BandWash)
+            .testTag("capture-single-zone")
+            .semantics {
+                stateDescription = (if (armed) "armed " else "hover ") + "capture"
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("📷", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "capture",
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.White,
+                modifier = Modifier.testTag("capture-single-zone-label"),
+            )
+        }
+    }
 }
 
 /**

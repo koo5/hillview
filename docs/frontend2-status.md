@@ -1312,6 +1312,23 @@ invisible on exactly the machines that expose it.**
   proved to still fire by adding a listener under `androidMain` and
   watching the build go red.
 
+## 2026-09-18
+
+- **The shutter gesture has no cancel rung, and the button's side of the
+  pane is a capture** (user: "remove it from the bottom and make the right
+  side of the pane show that it means capture"). `INTERVAL_LADDER` now
+  starts at 0.2 s; everything right of the button — the pane minus the
+  ladder — is `CaptureZone`, drawn like the ladder (the hit-box at its
+  size, blue when a release would act, "📷 capture" in the middle), and
+  releasing there takes ONE photo. The verdict line under the button says
+  "release: capture". A stated divergence from the original's
+  release-over-nothing (contract doc updated). The way out is off the
+  pane: a release on the map does nothing, and the verdict says
+  "release: cancel" there. `intervalIndex` is rememberSaveable, not
+  persisted, so dropping the foot rung shifts no stored value. Tests:
+  ladder tests updated, `CaptureZone` render test added. Compiled and jvm
+  tests green; NOT phone-verified.
+
 ## 2026-09-03
 
 - **Settings tidy-up.** Wi-Fi only sits directly under Auto-upload again

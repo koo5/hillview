@@ -164,14 +164,18 @@ last good frame), and the session's first on-screen frame can trail the
 bind by most of a second (never run the beat on a timer). Shutter-pin
 metering goes stale while frozen — accepted. The slow/fast
 pair itself is a
-graded vertical interval LADDER (0.2 s to 15 s, plus cancel at the foot
-and VIDEO at the head) driven by the ORIGINAL's one-finger grammar —
+graded vertical interval LADDER (0.2 s to 15 s, plus VIDEO at the head)
+driven by the ORIGINAL's one-finger grammar —
 hold 300 ms and it unfolds over the pane beside the still-held thumb,
 slide onto it to pick the rung live, release there to start the run
-(release back over the button cancels, tap stops a run). The ladder IS
-the catch zone: its bands are the regions the gesture reads, the band
-under the finger is filled and names itself, and a line marks the exact
-height the finger is at; the manual
+(tap stops a run). DIVERGENCE (user, 2026-09-18): releasing back on the
+button's side of the pane takes ONE photo, where the original's
+release-over-nothing cancelled, and the ladder's cancel rung is gone;
+releasing off the pane is the cancel. The whole pane IS
+the catch zone: the ladder's bands are the regions the gesture reads, the band
+under the finger is filled and names itself, a line marks the exact
+height the finger is at, and the button's side is drawn as the capture
+zone it is; the manual
 shutter-speed ladder (no original equivalent; added for crisp car shots)
 collapses behind
 a ⚡ button lower-right, expanding upward like the 📷 selector; the

@@ -419,6 +419,10 @@ fun CaptureScreen(
     // surprise (user-raised: "i keep missing it").
     var ladderVisible by remember { mutableStateOf(false) }
     var armedIndex by remember { mutableStateOf<Int?>(null) }
+    // The finger is on the button's side of the pane: releasing takes one
+    // photo (CaptureZone). Neither this nor armedIndex = off the pane, the
+    // one release that does nothing.
+    var armedCapture by remember { mutableStateOf(false) }
     // Where the finger is on the scale RIGHT NOW, whether or not it is over
     // the catch zone yet: the rung it is level with, and the exact fraction
     // for the pointer line. Separate from armedIndex because "what I am
@@ -959,6 +963,19 @@ fun CaptureScreen(
                     .padding(top = ladderTopInset)
                     .width(zoneWidth),
             )
+            // The rest of the pane, the button's side: one capture. Drawn
+            // for the same reason the ladder is — the hit-box, at its size.
+            val captureWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
+                ((paneBounds?.right ?: circle.right) - circle.left).coerceAtLeast(0f).toDp()
+            }
+            CaptureZone(
+                armed = armedCapture,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .padding(top = ladderTopInset)
+                    .width(captureWidth),
+            )
         }
 
         // Bottom-centre stack over the video: hints and gate escapes above
@@ -1023,10 +1040,12 @@ fun CaptureScreen(
             // 300 ms (the original's "shorter timeout for quicker
             // response") unfolds the interval ladder over the pane beside
             // the still-held thumb; sliding onto it picks a rung live;
-            // RELEASING there starts the repeating run. Releasing back over
-            // the button cancels, as the original's release-over-nothing
-            // does. A tap stops a running run. The graded ladder is this
-            // port's take on the original's fixed slow/fast pair.
+            // RELEASING there starts the repeating run. Releasing back on
+            // the button's side of the pane takes one photo (CaptureZone —
+            // a divergence, user-asked 2026-09-18: the original's
+            // release-over-nothing cancelled); releasing off the pane is
+            // the cancel. A tap stops a running run. The graded ladder is
+            // this port's take on the original's fixed slow/fast pair.
             var clusterOrigin by remember { mutableStateOf(Offset.Zero) }
             // Camera readiness is the only gate (see shutterEnabled). The
             // location gate — no fix, no photo, unless lifted — is gone:
@@ -1128,10 +1147,16 @@ fun CaptureScreen(
                                     val change = event.changes.firstOrNull { it.id == down.id }
                                         ?: event.changes.first()
                                     val pos = clusterOrigin + change.position
-                                    // Everything left of the button is the
-                                    // ladder's catch zone — a mid-gesture
+                                    // The pane is the catch zone, in two
+                                    // halves: left of the button the
+                                    // ladder, right of it (the button's
+                                    // own side) one capture — a mid-gesture
                                     // thumb is not a precision instrument.
-                                    overLadder = pos.x < circle.left
+                                    // Off the pane, on the map, is the way
+                                    // out: the one release that does nothing.
+                                    val inPane = paneBounds?.contains(pos) ?: true
+                                    overLadder = inPane && pos.x < circle.left
+                                    val overCapture = inPane && !overLadder
                                     // The ladder spans the pane, so the pane
                                     // is the scale. Height is read whatever
                                     // the finger's x is: the ladder shows
@@ -1147,17 +1172,21 @@ fun CaptureScreen(
                                         if (overLadder) intervalIndex = hoverIndex
                                     }
                                     armedIndex = if (overLadder) intervalIndex else null
+                                    armedCapture = overCapture
                                     change.consume()
                                     if (event.changes.none { it.pressed }) {
                                         // Released on the ladder: the top
                                         // rung starts a recording, any
-                                        // interval rung starts a run.
+                                        // interval rung starts a run. On
+                                        // the button's side: one photo.
                                         val rung = INTERVAL_LADDER.getOrNull(intervalIndex)
-                                        if (overLadder && rung is LadderRung.Video) {
-                                            videoEngaged = engageSportsIfAuto()
-                                            capture.startVideo()
-                                        } else if (overLadder && rung is LadderRung.Every) {
-                                            repeating = true
+                                        when {
+                                            overLadder && rung is LadderRung.Video -> {
+                                                videoEngaged = engageSportsIfAuto()
+                                                capture.startVideo()
+                                            }
+                                            overLadder && rung is LadderRung.Every -> repeating = true
+                                            overCapture -> capture.capture()
                                         }
                                         break
                                     }
@@ -1167,6 +1196,7 @@ fun CaptureScreen(
                                 // finger does, run or no run.
                                 ladderVisible = false
                                 armedIndex = null
+                                armedCapture = false
                                 pointerFraction = null
                             }
                           } catch (e: kotlinx.coroutines.CancellationException) {
@@ -1176,6 +1206,7 @@ fun CaptureScreen(
                             // press gets a live handler either way.
                             ladderVisible = false
                             armedIndex = null
+                            armedCapture = false
                             pointerFraction = null
                             ignoredPress = "shutter error: ${e.message ?: e::class.simpleName}"
                           }
@@ -1285,14 +1316,16 @@ fun CaptureScreen(
                                 armedRung is LadderRung.Video -> "release: record"
                                 armedRung is LadderRung.Every ->
                                     "release: start ${armedRung.label} run"
-                                // The bottom rung and the button itself are
-                                // the same act, so they get the same word.
+                                armedCapture -> "release: capture"
+                                // Off the pane: the one release that
+                                // does nothing.
                                 else -> "release: cancel"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = when {
                                 armedRung is LadderRung.Video -> Color(0xFFFF5252)
                                 armedRung is LadderRung.Every -> Color(0xFF69F0AE)
+                                armedCapture -> Color(0xFF90CAF9)
                                 else -> Color(0xB3FFFFFF)
                             },
                             modifier = Modifier
