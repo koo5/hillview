@@ -61,6 +61,7 @@ from common.database import get_db
 from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation, PhotoLicenseHistory, PhotoModerationAudit, UserRole
 from common.config import get_write_pool
 from common.utc import format_utc
+from common.detections import blurred_only
 from auth import get_current_active_user, get_current_user_optional_with_query, get_current_user_optional_ssr
 from hidden_content_filters import apply_hidden_content_filters
 from hillview_routes import ALLOWED_LICENSES, legal_rights_to_license
@@ -1000,6 +1001,16 @@ async def get_photo_detections(
 
 	Accessible for public photos and for the owner's own photos. Used by the
 	frontend debug overlay to visualize what the object detector found.
+
+	Two scopes, and ``scope`` in the response says which one the caller got.
+	The owner and moderators see every recorded detection — that full set is
+	what the blur threshold gets re-tuned from. Everyone else sees only the
+	boxes that were actually blurred: the recorded-but-unblurred band is an
+	index of people the detector saw and the pipeline left visible, which the
+	image itself does not hand out (see ``blurred_only``).
+
+	Moderators get the wider set, not a wider catalogue: a non-public photo is
+	still 404 for anyone but its owner, as before.
 	"""
 	result = await db.execute(
 		select(Photo.detected_objects, Photo.is_public, Photo.owner_id, Photo.width, Photo.height).where(
@@ -1023,9 +1034,13 @@ async def get_photo_detections(
 			detail="Photo not found"
 		)
 
+	is_moderator = current_user is not None and current_user.role in (UserRole.ADMIN, UserRole.MODERATOR)
+	full_scope = is_owner or is_moderator
+
 	return {
 		"photo_id": photo_id,
-		"detected_objects": detected_objects,
+		"detected_objects": detected_objects if full_scope else blurred_only(detected_objects),
+		"scope": "all" if full_scope else "blurred",
 		"width": width,
 		"height": height
 	}
