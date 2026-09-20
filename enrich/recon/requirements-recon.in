@@ -40,7 +40,7 @@ safetensors==0.7.0
 tqdm==4.67.3
 # curope is built with `python setup.py build_ext`, so setuptools must be present at
 # image-build time — not optional the way it is in a wheel-only environment.
-setuptools==70.2.0
+setuptools==83.0.0
 # extras: broker.py needs limits, RabbitmqBroker needs amqpstorm (cf. api/pyproject.toml)
 remoulade[rabbitmq,limits]==7.0.0
 # streaming the result upload: 140 MB must not be encoded into RAM twice
