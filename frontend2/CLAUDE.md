@@ -32,6 +32,12 @@ porting, read it first — `frontend/src/lib/`, especially `mapState.ts`,
 one. Divergences are allowed, but they are DECISIONS: state them at the call
 site and in `docs/frontend2-status.md`, never as silence.
 
+What the original does is already written down control by control in
+`docs/tauri-map-ui-contract.md`, `docs/tauri-capture-ui-contract.md` and
+`docs/tauri-viewer-ui-contract.md`; what it is *supposed* to do, as its test
+suites assert it, in `docs/app-behaviour-scenarios.md`. Port from those, not
+from memory.
+
 ## Logging
 
 Every tag carries the `hv-` prefix (`hv-GeoEngine`, `hv-Sensors`), so the
@@ -71,4 +77,11 @@ questions about sensor fusion or device pose — only a real phone can.
 
 `docs/frontend2-status.md` is the status page: what is done, what is
 deferred, and the findings that cost a session to learn. Read it before
-starting something that sounds like it has been touched before.
+starting something that sounds like it has been touched before. It links
+the design records it grew: `frontend2-rewrite-plan.md`,
+`frontend2-geo-engine-design.md` (the one position/bearing stream — built;
+the reasoning is the valuable part), `frontend2-capture-backlog.md`.
+
+[docs/native-auth.md](../docs/native-auth.md) covers the Credential Manager +
+Google ID-token login — concepts, security reasoning, and where everything
+lives.

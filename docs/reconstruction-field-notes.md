@@ -219,7 +219,7 @@ What gets masked, by what it's *pinned to*:
 
 (Worker side, independent value: `detected_objects` now persists an explicit `"blurred"` bool so the
 debug overlay / threshold tuning needn't re-derive `should_blur`; four schema variants documented in
-`backend/worker/detections.py`.)
+`backend/common/detections.py`.)
 
 ## Walk → world: merging local reconstructions
 

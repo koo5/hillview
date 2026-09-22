@@ -757,12 +757,15 @@
 		}
 	}
 
-	/** Human-readable label for a detection, e.g. "person 83% s1" or "manual". */
+	/** Human-readable label for a detection, e.g. "person 83% s1" or "manual".
+	 *  Sub-threshold boxes are marked: they are recorded but were left visible,
+	 *  and only the owner and moderators are served them at all. */
 	function detectionLabel(obj: DetectedObject): string {
 		const name = obj.class_name ?? 'manual';
 		const conf = typeof obj.confidence === 'number' ? ` ${(obj.confidence * 100).toFixed(0)}%` : '';
 		const scale = typeof obj.scale === 'number' ? ` s${obj.scale}` : '';
-		return `${name}${conf}${scale}`;
+		const kept = obj.blurred === false ? ' unblurred' : '';
+		return `${name}${conf}${scale}${kept}`;
 	}
 
 	/** Scale factors from detection space (original full-res pixels) into the

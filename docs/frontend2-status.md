@@ -103,8 +103,11 @@ upload trigger) still publishes only after the final bytes exist.
   re-attaches its SurfaceTexture on its own; osmdroid's MapView does NOT
   survive it by default — destroy mode runs onDetach() on every
   onDetachedFromWindow — so `setDestroyMode(false)` and the explicit
-  onDetach() on dispose (rememberMapView). Not yet rotation-tested on a
-  device.
+  onDetach() on dispose (rememberMapView). **Rotation-verified on an
+  emulator 2026-09-17**: a 2 s interval run was taken through
+  portrait → landscape → portrait and kept shooting across both (badge 6 →
+  24 → 45), with the Sports rule still engaged, the preview still streaming,
+  osmdroid still drawing, and no exception either way.
 - Capture pane = the video (round 4): FILL_CENTER preview, every control
   floats over it in the original's absolute spots (pill 60/60, shutter
   pill bottom-centre, 📷 lower-left, ⚡ shutter-speed menu lower-right,
@@ -505,6 +508,74 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-09-17 — the photo index, on an emulator at last
+
+The index had been written, sharded, tuned and documented without ever being
+watched. An emulator became available; every claim about it was wrong in some
+way.
+
+- **The "Write it now" button had never once worked.** `dumpNowForResult` is a
+  suspend function, which says nothing about which THREAD — it inherits the
+  caller's, and the caller is a button in a Compose screen. Room refuses the
+  main thread outright, so every press threw `IllegalStateException: Cannot
+  access database on the main thread`, caught its own exception and reported
+  "failed". Fixed with an explicit `withContext(Dispatchers.IO)`. The
+  automatic triggers were never affected: they come off the IO scope.
+- **The index was growing a new file per dump, then stopped writing at all.**
+  The emulator carried `photos.csv` plus `photos (1).csv` … `photos (31).csv`,
+  and was falling back to app-private storage — the one destination that does
+  not survive an uninstall, which is the entire point of the feature.
+  - The chain: `findInMediaStore` asks by RELATIVE_PATH + DISPLAY_NAME, and
+    the media database hides a NON-MEDIA row from every app but its owner.
+    An uninstall orphans ownership, so after a reinstall the lookup came back
+    empty for a file plainly sitting there. The dump then inserted;
+    MediaProvider never overwrites, so it handed back a numbered sibling;
+    nothing remembered the new name, so the next dump repeated the whole
+    dance. At 32 siblings `buildUniqueFile` gives up
+    ("Failed to build unique file"), the insert throws, the File API gets
+    EACCES on a file owned by the previous install's UID, and the index lands
+    app-private.
+  - The fix keeps the media row's URI per shard (`PREF_URIS`) and writes to
+    it. MediaProvider's own de-duplication becomes a CLAIM: whatever name it
+    gives the first time is the name kept, so there is exactly one file per
+    install — and the previous install's index, which describes photos still
+    on the phone, is left alone rather than overwritten by a fresh install's
+    empty table. That turns out to be the RIGHT behaviour, not a compromise.
+  - Landing app-private is now said out loud, in the event log and in the
+    settings row ("⚠️ app-private — this copy goes when the app does"). It
+    was previously reported as a path, leaving the reader to work out that
+    the safety net had quietly stopped being one.
+- **Rotation, finally tested on a device.** The `movableContentOf` split has
+  carried a "not yet rotation-tested" note since 2026-08-19. A 2 s interval
+  run went portrait → landscape → portrait and kept shooting across both
+  (run badge 6 → 24 → 45), with the Sports rule still engaged, the camera
+  still streaming, osmdroid still drawing after being re-parented, and no
+  exception in either direction. That was the bug class the note was about:
+  plain lambdas used to dispose both compositions and take the run, the
+  exposure rule and the camera binding with them.
+- **The interval ladder and the recording indicator were watched too, and
+  both do what they claim.** The ladder draws all 21 rungs with the hovered
+  band filled, its label centred inside it, and a line at the finger's exact
+  height; the shutter previews the release; the bottom rung says "cancel".
+  A recording shows `REC 0:06` on dark glass over a red Stop shutter, and
+  sampling four frames confirms the dot alternates between #FF5252 and
+  nothing while the text beside it does not move.
+  - One defect, found by looking: the ladder ran the pane's FULL height, so
+    its top rungs — VIDEO among them — were drawn behind the Main page's
+    floating controls. It now insets by `FLOATING_CONTROLS_HEIGHT`, named
+    beside the row it measures. The inset is applied to the rect used for
+    the DRAWING and the MAPPING both, computed once: insetting only the
+    picture would restore exactly the disagreement the control was rebuilt
+    to remove.
+- **Verified on the emulator (API 36), in this order:** a capture writes
+  `Documents/Hillview2/photos.csv` with every column populated — position,
+  bearing 5.396°, pitch 4.716°, `capturedAtUtc` 2026-09-17T13:40:43Z,
+  accuracy, `bearingSource` android-compass-true, `locationSource` gps,
+  `locationAgeMs` 86; four forced writes leave exactly one file; leaving the
+  app writes, and leaving it again with nothing changed does not; **an
+  uninstall leaves both the 322 JPEGs and the index in place**; and the
+  reinstall claims `photos (1).csv` once and keeps reusing it.
+
 ## 2026-09-15
 
 - **The photos-table dump published an absent accuracy as 0.0 m** (user-asked
@@ -714,7 +785,10 @@ the chain stopped. See `GeoDebugText.kt`.
     between the portrait Column and the landscape Row, so the orientation is
     read through a `rememberUpdatedState` rather than captured, which would
     have frozen it at whichever orientation the app started in.
-  - NOT phone-verified — no device reachable from this machine.
+  - The re-parenting itself is verified (2026-09-17, emulator): the split
+    turns from a Column into a Row with the run, the rule, the camera
+    binding and the map all intact. The INSET work above is still only
+    screenshot-checked in portrait.
   - **safeDrawing, not safeContent — found on the emulator.** "Flush" still
     left 30 dp of map down each side: `safeContent` includes the system's
     GESTURE strips, and every control was being held off them. That is the
@@ -1103,9 +1177,8 @@ invisible on exactly the machines that expose it.**
     UTC. Leaving a column out is a decision made on behalf of someone who can
     no longer recover it. `PhotoTableCsvTest` parses a row back with an
     ordinary RFC 4180 reader.
-  - NOT yet phone-verified — no device reachable from this machine. What to
-    check: `Documents/Hillview2/photos.csv` after backgrounding the app, and
-    that it is still there after an uninstall.
+  - **Verified on an emulator 2026-09-17** — and it was broken in two ways
+    when first watched; see the 2026-09-17 entry at the top.
 
 - **The EXIF default is unchanged, and the question is still open.** The user
   is undecided; nothing here decides it. What the original does is worth
@@ -1143,7 +1216,9 @@ invisible on exactly the machines that expose it.**
     comes first, in the gesture and in the accessibility click, and the rule
     is a named function (`shutterPressDoesSomething`) with the trap as a
     test. The gate withholds captures; it has no business withholding exits.
-  - NOT yet phone-verified — no device reachable from this machine.
+  - **Verified on an emulator 2026-09-17**: REC and the elapsed clock over a
+    red Stop shutter, the dot alternating between #FF5252 and nothing across
+    sampled frames while the text beside it stays put.
 
 ## 2026-09-06
 
@@ -1186,9 +1261,11 @@ invisible on exactly the machines that expose it.**
     releasing back over the button — the original's release-over-nothing —
     so it gets the same word, and the release hint's two ways of saying it
     collapse into one.
-  - NOT yet phone-verified — no device reachable from this machine. The pure
-    parts (rung list, labels, band mapping, band colours) are covered by
-    `IntervalLadderTest`.
+  - **Verified on an emulator 2026-09-17**: all 21 rungs draw, the hovered
+    band fills with its label centred inside it, the pointer line sits at the
+    finger's height, and the shutter previews the release. One defect found
+    and fixed in the same pass — the top rungs were behind the floating
+    controls.
 
 ## 2026-09-04
 
@@ -1234,6 +1311,30 @@ invisible on exactly the machines that expose it.**
   they document. Comments and string literals are blanked before matching;
   proved to still fire by adding a listener under `androidMain` and
   watching the build go red.
+
+## 2026-09-19
+
+- **The GPS fix dot draws over the photo markers** (overlay order in
+  MapScreen.android.kt: range, markers, GPS dot, arrow, rotation). It used
+  to sit under them and vanish in a pile. The dot overlay takes no touches,
+  so marker taps are unchanged. Compiled, not phone-verified.
+
+## 2026-09-18
+
+- **The shutter gesture has no cancel rung, and the button's side of the
+  pane is a capture** (user: "remove it from the bottom and make the right
+  side of the pane show that it means capture"). `INTERVAL_LADDER` now
+  starts at 0.2 s; everything right of the button — the pane minus the
+  ladder — is `CaptureZone`, drawn like the ladder (the hit-box at its
+  size, blue when a release would act, "📷 capture" in the middle), and
+  releasing there takes ONE photo. The verdict line under the button says
+  "release: capture". A stated divergence from the original's
+  release-over-nothing (contract doc updated). The way out is off the
+  pane: a release on the map does nothing, and the verdict says
+  "release: cancel" there. `intervalIndex` is rememberSaveable, not
+  persisted, so dropping the foot rung shifts no stored value. Tests:
+  ladder tests updated, `CaptureZone` render test added. Compiled and jvm
+  tests green; NOT phone-verified.
 
 ## 2026-09-03
 
