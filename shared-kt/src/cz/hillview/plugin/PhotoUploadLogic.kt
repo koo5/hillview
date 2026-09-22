@@ -99,6 +99,12 @@ class PhotoUploadLogic(internal val context: Context) {
 
 	private val prefs: SharedPreferences by lazy { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 	private val authManager by lazy { AuthenticationManager(context) }
+
+	// What this client owes the SERVER about photos it has already sent:
+	// ratings, deletions, and the tagging kinds to come. A step of THIS drain,
+	// not a schedule of its own — see PhotoOutboxPusher and
+	// docs/upload-one-funnel.md.
+	private val outboxPusher by lazy { PhotoOutboxPusher(context, client, authManager) }
 	private val clientCrypto by lazy { ClientCryptoManager(context) }
 	private val notificationHelper by lazy { NotificationHelper(context) }
 
@@ -154,6 +160,21 @@ class PhotoUploadLogic(internal val context: Context) {
 
 				// Process any pending edits before upload loop
 				processPendingEdits()
+
+				// What is owed to the server about photos already up there.
+				// BEFORE the file loop deliberately: a rating or a deletion
+				// is a few hundred bytes, and making the user wait behind a
+				// queue of 25 MB JPEGs to have a thumbs-up land would be the
+				// wrong way round. Rows for photos not yet uploaded are not
+				// selected at all (the join in getPushable), so this costs
+				// one query when there is nothing to say.
+				getServerUrl()?.let { url ->
+					try {
+						outboxPusher.pushAll(url)
+					} catch (e: Exception) {
+						Log.w(TAG, "outbox push failed; rows stay dirty", e)
+					}
+				}
 
 				// Process photos one at a time with validation on each iteration
 
@@ -337,6 +358,20 @@ class PhotoUploadLogic(internal val context: Context) {
 								serverPhotoId,
 								System.currentTimeMillis()
 							)
+							// The photo now HAS a server id, so anything the
+							// outbox was holding for it can go — and one case
+							// must go now rather than at the next drain: a
+							// deletion asked for while this very file was in
+							// flight. Sent bytes cannot be recalled, so
+							// "delete it before it uploads" becomes "delete it
+							// the moment it lands".
+							getServerUrl()?.let { url ->
+								try {
+									outboxPusher.afterUpload(photo.id, url)
+								} catch (e: Exception) {
+									Log.w(TAG, "post-upload outbox push failed", e)
+								}
+							}
 							if (uploadedCount % RECONNECT_EVERY_N_UPLOADS == 0) {
 								// Drop the pooled edge connection so the next upload
 								// re-load-balances — see RECONNECT_EVERY_N_UPLOADS.
