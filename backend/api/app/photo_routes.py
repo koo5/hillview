@@ -1733,7 +1733,15 @@ def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
 
 	curated = {
 		'focal_length': positive('FocalLength'),
-		'focal_length_35mm': positive('FocalLengthIn35mmFormat'),
+		# FocalLength35efl is exiftool's COMPUTED 35 mm equivalent (focal length x the
+		# sensor's crop factor), and it exists exactly when the camera's own
+		# FocalLengthIn35mmFormat does not: every Ulefone Armor 22 upload writes 0 there
+		# and carries 5.58 here. Falling back to it is what makes the field usable on
+		# phones at all, which is most of this corpus. It stays within this function's
+		# rule -- a lens property, nothing that LOCATES -- and the consumer that needed
+		# it is reconstruction: one focal is solved for a cluster only when the frames
+		# really share one, and that is decided from this number.
+		'focal_length_35mm': positive('FocalLengthIn35mmFormat') or positive('FocalLength35efl'),
 		'exposure_compensation': num('ExposureCompensation'),
 		'make': text('Make'),
 		'model': text('Model'),

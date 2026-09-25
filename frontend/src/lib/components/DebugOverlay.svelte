@@ -19,6 +19,47 @@
 
     let debugPosition: 'left' | 'right' = 'left'; // Default to left to avoid photo thumbnails
 
+    // COPYING A SELECTION OUT, for the recon workbench to paste in.
+    //
+    // One uid per line, because that is what survives a paste into a textarea and what a human
+    // can edit afterwards -- the bench lets you drop frames from the list, and a line each is
+    // what makes that possible without a parser. The uid carries its own source prefix
+    // (`hillview-`, `panoramax-`, `mapillary-`), which the bench already understands, so a mixed
+    // area copies as a mixed selection rather than silently becoming Hillview-only.
+    //
+    // Placeholders are skipped: they are the map's own loading tiles, not photographs.
+    let uidCopyMsg = '';
+    let uidCopyTimer: ReturnType<typeof setTimeout> | null = null;
+
+    async function copyUids(photos: any[], what: string) {
+        const uids = (photos ?? [])
+            .filter(p => p && !p.is_placeholder && p.uid)
+            .map(p => String(p.uid));
+        const text = uids.join('\n');
+        let ok = false;
+        try {
+            if (navigator.clipboard && text) {
+                await navigator.clipboard.writeText(text);
+                ok = true;
+            } else if (text) {
+                // the same fallback shareUtils uses, for contexts without the async clipboard
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                ok = document.execCommand('copy');
+                document.body.removeChild(ta);
+            }
+        } catch (e) {
+            ok = false;
+        }
+        uidCopyMsg = !uids.length ? `no ${what} photos to copy`
+            : ok ? `${uids.length} ${what} uid${uids.length === 1 ? '' : 's'} copied`
+                 : 'copy failed';
+        if (uidCopyTimer) clearTimeout(uidCopyTimer);
+        uidCopyTimer = setTimeout(() => (uidCopyMsg = ''), 4000);
+    }
+
     onMount(() => {
         // Check for debug mode in localStorage or URL params
         const urlParams = new URLSearchParams(window.location.search);
@@ -71,6 +112,20 @@
                             <span class="stat-label">Range Area:</span>
                             <span class="stat-value">{($spatialState.range / 1000)?.toFixed(2)} km</span>
                         </div>
+                    </div>
+                    <!-- THE SELECTION, HANDED TO THE RECON WORKBENCH. Picking which photographs a
+                         reconstruction runs on belongs on a map with the photos drawn on it, and
+                         that map is this one -- the bench had been re-deriving a selection from
+                         lat/lon/radius against its own mirror, which is a second map over second-
+                         hand data. So: pick here, copy the uids, paste them there. -->
+                    <div class="uid-copy">
+                        <button on:click={() => copyUids($visiblePhotos, 'area')}
+                                title="every photo loaded for the current map area, one uid per line"
+                                data-testid="debug-copy-area-uids">copy area uids</button>
+                        <button on:click={() => copyUids($photosInRange, 'range')}
+                                title="only the photos within the range ring, in bearing order"
+                                data-testid="debug-copy-range-uids">copy range uids</button>
+                        {#if uidCopyMsg}<span class="uid-copy-msg">{uidCopyMsg}</span>{/if}
                     </div>
                 </div>
 
@@ -333,6 +388,11 @@
 {/if}
 
 <style>
+    /* the two copy buttons sit under the counts they copy, so what each takes is obvious */
+    .uid-copy { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+    .uid-copy button { font-size: 11px; padding: 2px 6px; cursor: pointer; }
+    .uid-copy-msg { font-size: 11px; opacity: 0.85; }
+
     .debug-overlay {
         position: fixed;
         top: calc(50px + var(--safe-area-inset-top, 0px));
