@@ -158,7 +158,7 @@ data class PhotoEntity(
 
     /**
      * What the DEVICE was measuring at the shutter (v24), as the JSON the
-     * upload metadata sends under `orientation` — roll, the raw and
+     * upload metadata sends under `attitude` — pitch and roll, the raw and
      * corrected compass headings, the fusion that produced them, the
      * quantized device pose and the landscape-workaround flag.
      *
@@ -166,6 +166,15 @@ data class PhotoEntity(
      * beside it, which a manual claim or a car course cannot own. Roll had
      * no column anywhere in the stack before this, so it never left the
      * device, though the sensor service has always computed it.
+     *
+     * SO PITCH APPEARS TWICE ON PURPOSE, and the two are different claims:
+     * [pitch] is what the photo is STAMPED as, and travels as the upload's
+     * top-level `pitch` into `photos.pitch`; `attitude.pitch_deg` here is
+     * what the SENSOR read at that instant. They agree whenever nothing
+     * overrode the stamp, and when something did, only the second one is
+     * still a measurement. Same relation as [bearing] to
+     * `attitude.heading_true_deg`. See docs/recon-capture-metadata.md,
+     * "Pitch has three homes".
      *
      * JSON rather than six columns for the same reason as [altLocationJson]:
      * it is opaque to this table, nothing here reads it, it only travels —

@@ -218,6 +218,9 @@ class ProvenanceObjectsTest {
         accelPeakMps2 = 10.4,
         accelPeakDeviationMps2 = 0.6,
         gyroPeakRadS = 0.12,
+        // Fewer than sampleCount: the neighbouring photo's window had already
+        // stored the rest. See the dedup test below.
+        storedCount = 61,
     )
 
     @Test
@@ -233,6 +236,33 @@ class ProvenanceObjectsTest {
             "\"accel_peak_deviation_mps2\":0.6",
             "\"gyro_peak_rad_s\":0.12",
         ).forEach { assertTrue(it in json, "missing $it in $json") }
+    }
+
+    /**
+     * `stored_count` is how a reader tells a window that ADDED 61 samples from
+     * one that merely spans 104 — the on-device trim (`imuHighWaterMs`) means
+     * consecutive interval shots tile the session instead of each carrying the
+     * same samples over again. Without it on the wire, a server concatenating a
+     * run cannot know whether it is about to count anything twice.
+     */
+    @Test
+    fun theWindowDistinguishesWhatItSpannedFromWhatItStored() {
+        val json = imuWindowJson(window())
+        assertTrue("\"sample_count\":104" in json, json)
+        assertTrue("\"stored_count\":61" in json, json)
+    }
+
+    /**
+     * Zero stored is the NORMAL case in a fast interval run — the previous
+     * photo's window already covered this one — and must survive as a number
+     * rather than vanish the way a null optional would.
+     */
+    @Test
+    fun aWindowThatStoredNothingSaysZeroRatherThanOmittingIt() {
+        val json = imuWindowJson(
+            ImuWindow(sampleCount = 104, startMs = shutterAt, endMs = shutterAt + 1, storedCount = 0),
+        )
+        assertTrue("\"stored_count\":0" in json, json)
     }
 
     @Test

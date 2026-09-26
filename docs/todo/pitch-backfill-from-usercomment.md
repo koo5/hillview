@@ -95,3 +95,41 @@ this is a one-off backfill, and if it does not, this document will be needed aga
 - `backend/api/alembic/versions/` — 032 added `photos.pitch`
 - the recon bench's consumers: `scripts/enrich/recon_params.py` (`level_pitch_deg`,
   `horizon_weight`), and `photos.pitch` is read into each run's frame manifest
+
+## Update 2026-09-26 — the "which client" question, and a correction to the SQL
+
+The recon-capture-metadata work (`docs/recon-capture-metadata.md`) touched this
+area, so the open questions above have partial answers now.
+
+**Which client writes top-level `{"pitch", "roll"}` into a UserComment: nothing
+in this tree.** Checked mechanically — `PROVENANCE_KEYS` in
+`worker/photo_processor.py` contains neither `pitch` nor `roll`, so the
+synthesized UserComment cannot carry them; `frontend/src-tauri/src/photo_exif.rs`
+mentions pitch nowhere; and frontend2's `PhotoExifWriter.kt` mirrors the Rust
+shape. So the 4 807 came from a build or a client outside the current tree, and
+**no in-tree writer reopens that gap today**. The dates in the table above
+(Feb→Sep, a different owner) fit that.
+
+**Pitch's column keeps being filled.** New photos send top-level `pitch` in the
+upload metadata (`PhotoUploadLogic.buildUploadMetadata`), the worker copies it
+into `gps_data`, and it lands in `photos.pitch`. So the backfill stays a one-off
+for the historical 4 807 rather than a recurring sweep.
+
+**But the backfill SQL will NOT pick up roll from new photos, and must not be
+expected to.** Since 2026-09-26 roll reaches the server as `attitude.roll_deg` —
+nested inside a named `attitude` object in the UserComment, with a typed
+projection at the API — not as a top-level `roll`. The query above reads
+`(exif_data->'data'->>'UserComment')::jsonb->>'pitch'`, which is the OLD shape
+only. A migration that wants both eras needs `COALESCE` over both paths:
+
+```sql
+-- the historical shape                 -> ...->>'pitch'
+-- the shape written since 2026-09-26   -> ...->'attitude'->>'pitch_deg'
+```
+
+**The roll decision is unchanged but better informed.** `photos` still has
+`pitch` and no `roll`, so roll is per-photo readable (public detail endpoint) and
+not queryable. That is exactly where pitch sat before alembic 032. The argument
+for adding the column is now slightly stronger, because roll is no longer a value
+stranded on the phone — it arrives on every new capture, in a named field, and
+nothing can read it in bulk.

@@ -334,6 +334,85 @@ concatenate a run into one continuous trajectory — which is the artifact the
 workbench actually wants, and the reason the trim is load-bearing rather than
 tidiness.
 
+## Pitch has three homes — which is which
+
+Raised as a confusing moment, 2026-09-26, and worth settling in writing because
+the confusion is built into stored data and will outlive anyone's memory of it.
+
+| where | what it means | who reads it |
+|---|---|---|
+| `photos.pitch` (alembic 032) | the ELECTED stamp — what the photo claims | the viewer's up/down navigation, the recon bench's frame manifest |
+| `exif_data->'gps'->'pitch'` | the same number one layer earlier, on its way to that column | `docs/todo/pitch-backfill-from-usercomment.md`, `enrich/`'s photo mirror |
+| `attitude.pitch_deg` in the UserComment | what the SENSOR read at that instant | anything reconstructing, via the public detail endpoint |
+
+The first two are one value with two names. The third is a **different claim**
+that happens to carry the same number most of the time, and the distinction is
+the whole point of the user's rule for this work: *"instead of the fake 0f, we
+should still record actual sensor pitch and roll, even when bearing is
+overriden."* When a stamp was overridden by a map placement or a car course, the
+elected pitch is a claim and only `attitude.pitch_deg` is still a measurement.
+It is exactly the relation `bearing` has to `attitude.heading_true_deg`, and it
+is recorded at the call site in `PhotoEntity.pitch` / `PhotoEntity.attitudeJson`.
+
+### Why `gps` is the wrong name, and why it stays
+
+`exif_data->'gps'` is not GPS. It is the geo stamp — latitude, longitude,
+altitude, **bearing**, **pitch** — and the last two are not quantities a
+receiver produces. `docs/one-state.md` says it plainly: "GPS course has no
+pitch, so it writes none." Pitch joined that dict in `ea138734` (2026-08-19)
+because that dict was already the one flowing to `ProcessedPhotoData`, not
+because it belonged there.
+
+It stays anyway, and this is a decision rather than an oversight:
+
+- it is written into `exif_data` on ~78 000 live rows, so renaming is a data
+  migration over every photo to fix a name;
+- the pitch-backfill plan's SQL selects on that exact path, and `enrich/` reads
+  `exif_data` out of its own mirror, so the readers are in two more places than
+  this repo;
+- nothing is WRONG in the data — only the label is. A rename would buy clarity
+  for the next reader at the price of a migration and three coordinated changes,
+  and this table buys the same clarity for free.
+
+So: don't rename it, don't add a fourth home, and when writing something new
+about a camera's pose, put it in `attitude`, which is named for what it measures.
+
+### `alt_location` is a different pattern, and there is no `alt_bearing`
+
+Asked directly, 2026-09-26, so: **`alt_bearing` does not exist.** Nothing in the
+tree mentions it — not the app, not the worker, not the API. `alt_location` does
+exist, and it is position ONLY: `lat, lng, ts, accuracy, source` (`AltLocation`
+in `worker/app.py`), the live GPS fix kept beside a photo whose position came
+from a manual map pan. It carries no bearing and no pitch, so it adds no fourth
+home to the table above.
+
+The two objects look like the same idea — "what the photo did not record" — and
+are not:
+
+| | `alt_location` | `attitude` |
+|---|---|---|
+| exists when | there IS a rejected candidate: a map pan won the election and a fix was available anyway | always, whenever the sensors were live |
+| what it is | the RUNNER-UP for the same slot — same kind of value, different provider | the whole measurement the device made; a heading is one of its ten fields |
+| shape | four numbers and a source label | pose, both headings, two accuracies, fusion, device rotation |
+
+So `attitude` is not `alt_bearing` under another name, and nobody should add
+one. An `alt_bearing` following the existing pattern would be a single
+runner-up number, and `attitude.heading_true_deg` already carries that
+unconditionally — including in exactly the case the pattern exists for, a
+bearing overridden by a manual claim. The gap is filled; it is just not filled
+under an `alt_` name, because what the device measured is not a candidate that
+lost an election.
+
+### What this leaves genuinely open
+
+`roll` now reaches the server — `attitude.roll_deg`, served publicly beside
+pitch — but there is still **no `photos.roll` column**, while pitch has one. So
+roll is per-photo readable and not queryable, which is the state pitch was in
+before alembic 032. That is the open decision already parked in
+`docs/todo/pitch-backfill-from-usercomment.md`, and this work changes its inputs:
+new photos carry roll in a NAMED object with a typed projection, where before it
+never left the phone.
+
 ## Rules that hold across all of it
 
 - **Null is not zero.** A value the device did not measure is absent; `0.0` is
@@ -370,7 +449,7 @@ specs are extracted and diffed, and the worker is checked for a
 | `fix` | 7 |
 | `lens` | 14 |
 | `motion` | 5, one of them the nested `imu_window` |
-| `imu_window` | 6 |
+| `imu_window` | 7 |
 
 **Three drop sites closed, each the same shape as roll's.** `GeoEngine`'s
 `PreciseLocationData` → `Location` conversion silently lost vertical, speed

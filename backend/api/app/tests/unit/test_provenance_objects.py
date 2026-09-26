@@ -178,6 +178,7 @@ def test_the_imu_window_nests_inside_motion():
 			'sample_count': 104,
 			'window_start_ms': 1700000000000,
 			'window_end_ms': 1700000001000,
+			'stored_count': 61,
 			'accel_peak_mps2': 10.4,
 			'accel_peak_deviation_mps2': 0.6,
 			'gyro_peak_rad_s': 0.12,
@@ -187,6 +188,17 @@ def test_the_imu_window_nests_inside_motion():
 	# The bounds are the join key for the samples, which never come through here.
 	assert out['imu_window']['window_start_ms'] == 1700000000000
 	assert out['imu_window']['gyro_peak_rad_s'] == 0.12
+	# What this capture ADDED, as opposed to what it spanned — the on-device
+	# trim makes consecutive interval windows tile rather than repeat, and a
+	# reader concatenating a run needs to know which number is which.
+	assert out['imu_window']['stored_count'] == 61
+
+
+def test_a_window_that_stored_nothing_reports_zero():
+	"""The normal case in a fast interval run: the previous photo's window
+	already covered this one. 0 is a measurement, not an absence."""
+	out = _motion(exif(motion={'imu_window': {'sample_count': 104, 'stored_count': 0}}))
+	assert out == {'imu_window': {'sample_count': 104, 'stored_count': 0}}
 
 
 def test_the_window_rejects_unknown_and_wrongly_typed_inner_keys():
