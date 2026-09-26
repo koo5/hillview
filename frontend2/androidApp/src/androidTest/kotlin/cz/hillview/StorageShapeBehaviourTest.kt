@@ -114,7 +114,7 @@ class StorageShapeBehaviourTest {
         // The matrix cell: which method actually won for this preference on
         // this API level. Runs against several images build the reference.
         Log.i(
-            "StorageShape",
+            "hv-StorageShape",
             "preference=${mode.key} → landed via ${actual ?: "UNRECOGNIZED"} (${photo.path})",
         )
         assertNotNull("unrecognized save location: ${photo.path}", actual)

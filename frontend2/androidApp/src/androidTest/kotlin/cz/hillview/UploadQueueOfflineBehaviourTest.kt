@@ -146,7 +146,7 @@ class UploadQueueOfflineBehaviourTest {
         }
 
         Log.i(
-            "UploadQueueOffline",
+            "hv-UploadQueueOffline",
             "drained: status=${drained.uploadStatus} serverPhotoId=${drained.serverPhotoId}",
         )
         assertTrue(

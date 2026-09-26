@@ -121,7 +121,7 @@ class UploadCoalescingBehaviourTest {
         val backgroundedRuns = count(log, "promote decision: backgrounded=true")
         val fgsCrashes = count(log, "ForegroundServiceDidNotStartInTimeException")
         Log.i(
-            "UploadCoalescing",
+            "hv-UploadCoalescing",
             "captured=$burst burstMs=$burstMs reconciles=$reconciles " +
                 "enqueues=$enqueues runs=$runs " +
                 "promotions=$promotions backgroundedRuns=$backgroundedRuns",
