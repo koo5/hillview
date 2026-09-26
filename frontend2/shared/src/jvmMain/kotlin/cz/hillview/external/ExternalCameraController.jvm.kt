@@ -13,7 +13,7 @@ private class DesktopExternalCameraController : ExternalCameraController {
 
     override fun setRunning(on: Boolean) {}
     override fun openSystemCamera() {}
-    override suspend fun tableCounts(): Pair<Int, Int> = 0 to 0
+    override suspend fun tableCounts() = TrackingCounts()
 }
 
 @Composable

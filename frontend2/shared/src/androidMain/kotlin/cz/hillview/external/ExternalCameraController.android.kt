@@ -59,9 +59,16 @@ private class AndroidExternalCameraController(
         }
     }
 
-    override suspend fun tableCounts(): Pair<Int, Int> = withContext(Dispatchers.IO) {
+    override suspend fun tableCounts(): TrackingCounts = withContext(Dispatchers.IO) {
         val db = GeoTrackingDatabase.getDatabase(context)
-        db.bearingDao().countBearings() to db.locationDao().countLocations()
+        TrackingCounts(
+            bearings = db.bearingDao().countBearings(),
+            locations = db.locationDao().countLocations(),
+            // ImuDao.count() existed from the start and nothing called it, so the
+            // one mode built around continuous inertial logging showed no sign of
+            // whether any was happening.
+            imuSamples = db.imuDao().count(),
+        )
     }
 }
 

@@ -2536,3 +2536,30 @@ second against the inline crash floor).
 The analysis stays in docs/imu-sampling-design.md and is cross-linked rather than
 copied — three places already had versions of the field-count table earlier today,
 which is how they drift.
+
+## 2026-09-26 — the external pane finally shows the inertial data, and that the dump may be off
+
+Asked why the external-camera pane shows no stats about the fast IMU data or the
+dumps. Because nobody added them — and looking turned up something worse than a
+missing readout.
+
+**`ImuDao.count()` existed from the start and nothing called it.** The pane's
+"Recorded:" line had heading rows and location rows and no inertial samples, so the
+one mode built around continuous inertial logging gave no evidence of any happening.
+As of today it also has a SWITCH for that logging, and a toggle with no feedback is
+a toggle you cannot trust. The line now reads
+`… · N inertial samples (R/s)`, the rate derived from the existing once-a-second
+poll — which is also the cheapest way to see on-device whether FASTEST took (a few
+hundred) or the fallback did (a few tens), with no cable.
+
+**And `auto_export` defaults to FALSE.** The tracking tables are cleared five
+minutes back on every dump, and the dump only WRITES a file when auto-export is on.
+So with it off, continuous logging fills a table that is then thrown away — the
+samples never reach a file, and nothing anywhere said so. This is the mode where it
+matters most, because an external camera's frames have no other route to a motion
+record at all. The pane now says so in error colour, with what to do about it.
+
+Counts moved from `Pair<Int, Int>` to a named `TrackingCounts`, because a third
+number in a pair is where readouts start getting mixed up.
+
+No engine logic touched — a readout and a warning.
