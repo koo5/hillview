@@ -205,7 +205,10 @@ magnetometer, gravity and linear acceleration. At capture's 30 ms that is roughl
 **132 wakeups a second, independent of this constant**. So the honest picture after
 batching is 932/s → 133/s, and the last 0.5 belongs to the noise.
 
-The two levers that would move a long interval session, neither of them this one:
+The work that follows from this is parked, with its shapes and risks, in
+[todo/frontend2-battery-work.md](todo/frontend2-battery-work.md) — deliberately
+unstarted, because batching already changed enough logic for one sitting. In
+outline, and not repeated there:
 
 - **The GPS interval setting is a no-op.** `GPS_INTERVAL_SETTING_LIVE = false` in
   `SettingsScreen`, so every activity gets `GPS_INTERVAL_DEFAULT_MS` = 1 s. An

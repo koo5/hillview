@@ -2515,3 +2515,24 @@ The two levers that would actually move an interval session:
 
 And the largest term is probably neither — the camera preview runs for the whole
 session.
+
+## 2026-09-26 — battery work parked, not started
+
+**docs/todo/frontend2-battery-work.md.** Batching changed enough logic for one
+sitting, so the rest is written down instead of built: the GPS interval no-op (the
+cheapest real win), slowing gravity/linear-acceleration, duty-cycling the IMU around
+scheduled shutters, and measuring the preview — which is probably the largest term
+and the least explored.
+
+Each item carries what to WATCH rather than just what to do, because two of them
+have non-obvious traps. Duty-cycling saves `interval - 2×half`, so it is worth
+nothing below a 6 s interval. And a sparser GPS stream widens the bracket
+`StampRefiner` interpolates from, which is a quality trade rather than a free win.
+
+Also recorded as explicitly not worth doing: decimating the IMU rate (it costs the
+feature the window exists for) and raising the batch budget further (0.2 wakeups a
+second against the inline crash floor).
+
+The analysis stays in docs/imu-sampling-design.md and is cross-linked rather than
+copied — three places already had versions of the field-count table earlier today,
+which is how they drift.
