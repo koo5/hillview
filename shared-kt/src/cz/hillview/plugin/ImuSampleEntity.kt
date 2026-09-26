@@ -217,3 +217,63 @@ private fun kindPayload(kind: String, rows: List<ImuSampleEntity>): String {
     return """"$kind":{"t0_ms":${first.timestamp},"t0_ns":${first.elapsedNanos},""" +
         """"dt_us":[$gaps],"x":[${axis { it.x }}],"y":[${axis { it.y }}],"z":[${axis { it.z }}]}"""
 }
+
+/**
+ * One capture's CLAIM on the sample stream: the contiguous range of
+ * `imu_samples` that this exposure, and no other, is responsible for.
+ *
+ * **Why a claim table rather than an owner column on every sample.** Attribution
+ * has to be DATA — inferring it from a high-water mark and a window's nominal
+ * bounds does not work, because the bounds a photo asks for and the samples it
+ * actually adds are different things, and consecutive captures interleave. But
+ * stamping every sample with its owner costs a 6-byte integer per ROW: ~33 KB
+ * per photo in this database and another ~14 characters per row in the CSV dump,
+ * which at continuous rates is tens of megabytes an hour. A claim is one row per
+ * PHOTO — about 24 bytes — for the same exactness. Roughly a thousandth of the
+ * cost, and the user was right to push back on the per-sample version.
+ *
+ * It works because a capture stores its samples in exactly ONE burst: the
+ * pre-shutter summary is read-only (see `GeoEngine.summariseImuWindow`), so the
+ * only writer is the deferred symmetric persist, and those fire in shutter order
+ * on one Handler. So each capture's contribution is a single contiguous range,
+ * and successive ranges tile.
+ *
+ * It also turns a RACE into a condition. The upload path used to wait out the
+ * same deadline as the engine's deferred write and then read the table, with no
+ * ordering between the two — so the post-shutter half was present or absent
+ * depending on which timer fired first. Now it waits for this row to EXIST.
+ */
+@Entity(tableName = "imu_claims")
+data class ImuClaimEntity(
+    /**
+     * The shutter this claim belongs to — `SensorSnapshot.capturedAtMs`, which
+     * the photo row also carries, so no new identifier has to be invented or
+     * threaded through the capture path.
+     */
+    @androidx.room.PrimaryKey val capturedAtMs: Long,
+    /** First sample timestamp this capture stored, inclusive. */
+    val fromMs: Long,
+    /** Last sample timestamp this capture stored, inclusive. */
+    val toMs: Long,
+    /** How many rows that range holds, so a reader can verify it got them all. */
+    val sampleCount: Int,
+)
+
+@Dao
+interface ImuClaimDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insert(claim: ImuClaimEntity)
+
+    @Query("SELECT * FROM imu_claims WHERE capturedAtMs = :capturedAtMs")
+    fun get(capturedAtMs: Long): ImuClaimEntity?
+
+    @Query("SELECT * FROM imu_claims ORDER BY capturedAtMs ASC")
+    fun getAll(): List<ImuClaimEntity>
+
+    /**
+     * Cleared on the same schedule as the samples themselves — a claim on rows
+     * that have been dumped and deleted describes nothing.
+     */
+    @Query("DELETE FROM imu_claims WHERE toMs < :cutoff")
+    fun clearOlderThan(cutoff: Long)
+}

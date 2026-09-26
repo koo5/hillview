@@ -260,11 +260,21 @@ class GeoTrackingManager(private val context: Context) {
 	 * per-row coroutine launch would cost more than the write. Synchronous
 	 * inside one IO launch for the same reason.
 	 */
-	fun storeImuSamples(samples: List<ImuSampleEntity>) {
+	/**
+	 * Store a burst of samples and, optionally, the CLAIM that says which capture
+	 * they belong to.
+	 *
+	 * One call and one coroutine for both, in that order, on purpose: a reader
+	 * waits for the claim to EXIST and then reads the range it names, so it must
+	 * never be able to find a claim whose rows have not landed yet. Two separate
+	 * launches on Dispatchers.IO have no ordering between them.
+	 */
+	fun storeImuSamples(samples: List<ImuSampleEntity>, claim: ImuClaimEntity? = null) {
 		if (samples.isEmpty()) return
 		CoroutineScope(Dispatchers.IO).launch {
 			try {
 				database.imuDao().insertAll(samples)
+				claim?.let { database.imuClaimDao().insert(it) }
 			} catch (e: Exception) {
 				Log.e(TAG, "Failed to store ${samples.size} IMU samples: ${e.message}", e)
 			}
@@ -461,6 +471,18 @@ class GeoTrackingManager(private val context: Context) {
 							imuSamplesToCsv(imu),
 						)
 						Log.i(TAG, "🢄📡 Dumped ${imu.size} IMU samples to $imuAt")
+						// ...and WHO owns which of them. Without this the dumped
+						// samples are one undifferentiated stream and no offline
+						// reader can say which exposure any of them bracket,
+						// which is most of what they are for.
+						val claims = database.imuClaimDao().getAll()
+						if (claims.isNotEmpty()) {
+							val claimsAt = writeExportCsv(
+								"hillview_imu_claims_${now}.csv",
+								imuClaimsToCsv(claims),
+							)
+							Log.i(TAG, "🢄📡 Dumped ${claims.size} IMU claims to $claimsAt")
+						}
 					}
 					EventLog.record(
 						"export",
@@ -483,6 +505,11 @@ class GeoTrackingManager(private val context: Context) {
 				database.bearingDao().clearBearingsOlderThan(cutoff)
 				database.locationDao().clearLocationsOlderThan(cutoff)
 				database.imuDao().clearOlderThan(cutoff)
+				// A claim on rows that have just been deleted describes nothing,
+				// and a stale one would let a late upload pass read an empty
+				// range and report a payload of zero samples as if that were a
+				// measurement.
+				database.imuClaimDao().clearOlderThan(cutoff)
 				Log.i(TAG, "🢄📡 Geo tracking tables cleared")
 			} catch (e: Exception) {
 				Log.e(TAG, "🢄📡 Failed to clear geo tracking tables: ${e.message}", e)
@@ -579,6 +606,22 @@ class GeoTrackingManager(private val context: Context) {
 		val header = "#timestamp,kind,sequence,x,y,z,elapsedNanos\n"
 		val rows = samples.joinToString("\n") {
 			"${it.timestamp},${it.kind},${it.sequence},${it.x},${it.y},${it.z},${it.elapsedNanos}"
+		}
+		return header + rows + "\n"
+	}
+
+	/**
+	 * Which capture owns which samples — the join key for `hillview_imu_*.csv`.
+	 *
+	 * A separate file rather than a column on every sample row: one line per
+	 * PHOTO instead of ~14 characters on every one of a few thousand samples,
+	 * which at continuous rates is tens of megabytes an hour for the same answer.
+	 * Readers resolve columns by header name, so appending here is safe.
+	 */
+	private fun imuClaimsToCsv(claims: List<ImuClaimEntity>): String {
+		val header = "#capturedAtMs,fromMs,toMs,sampleCount\n"
+		val rows = claims.joinToString("\n") {
+			"${it.capturedAtMs},${it.fromMs},${it.toMs},${it.sampleCount}"
 		}
 		return header + rows + "\n"
 	}

@@ -138,13 +138,6 @@ data class ImuWindow(
      * instead of repeating it.
      */
     val storedCount: Int = 0,
-    /**
-     * First millisecond this photo OWNS, or null when a neighbour had already
-     * taken the whole window. Together with [endMs] it bounds the samples this
-     * photo is responsible for — which is what its raw payload carries, so that
-     * consecutive photos in a run tile instead of each repeating the window.
-     */
-    val storedFromMs: Long? = null,
 )
 
 /**
@@ -929,42 +922,11 @@ fun imuWindowJson(w: ImuWindow): String {
         add("\"window_start_ms\":${w.startMs}")
         add("\"window_end_ms\":${w.endMs}")
         add("\"stored_count\":${w.storedCount}")
-        w.storedFromMs?.let { add("\"stored_from_ms\":$it") }
         w.accelPeakMps2?.let { add("\"accel_peak_mps2\":$it") }
         w.accelPeakDeviationMps2?.let { add("\"accel_peak_deviation_mps2\":$it") }
         w.gyroPeakRadS?.let { add("\"gyro_peak_rad_s\":$it") }
     }
     return fields.joinToString(",", prefix = "{", postfix = "}")
-}
-
-/**
- * Read `imu_window.stored_from_ms` back out of a stored `motion` object.
- *
- * The one value in that blob a LATER pass needs: the deferred window read
- * happens in the upload pipeline, which by design cannot ask `GeoEngine`
- * anything (`OneStateArchitectureTest` — the pipeline is not the hardware
- * boundary), and the engine is the only thing that knows where a photo's claim
- * on the sample table begins. So the capture path writes it onto the row and the
- * pipeline reads it back here, rather than the pipeline recomputing a bound it
- * has no way to compute.
- *
- * Tolerant on purpose: a row written before this field existed, a null, a
- * malformed blob and an absent window all read as null, which callers treat as
- * "this photo claims nothing" rather than as an error.
- */
-fun imuStoredFromMs(motionJson: String?): Long? {
-    val text = motionJson ?: return null
-    return try {
-        kotlinx.serialization.json.Json.parseToJsonElement(text)
-            .let { it as? kotlinx.serialization.json.JsonObject }
-            ?.get("imu_window")
-            ?.let { it as? kotlinx.serialization.json.JsonObject }
-            ?.get("stored_from_ms")
-            ?.let { it as? kotlinx.serialization.json.JsonPrimitive }
-            ?.content?.toLongOrNull()
-    } catch (e: Exception) {
-        null
-    }
 }
 
 /**

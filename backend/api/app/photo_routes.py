@@ -1753,10 +1753,6 @@ _IMU_WINDOW_FIELDS: dict = {
 	'window_start_ms': int,
 	'window_end_ms': int,
 	'stored_count': int,
-	# Where this photo's claim on the sample stream BEGINS. With it a reader can
-	# concatenate a run: each photo owns [stored_from_ms, window_end_ms] and
-	# every other sample in its window belongs to a neighbour.
-	'stored_from_ms': int,
 	'accel_peak_mps2': float,
 	'accel_peak_deviation_mps2': float,
 	'gyro_peak_rad_s': float,

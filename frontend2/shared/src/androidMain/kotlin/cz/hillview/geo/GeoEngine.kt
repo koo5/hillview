@@ -185,18 +185,6 @@ data class ImuWindowSummary(
      * interval's worth rather than the window's.
      */
     val storedCount: Int = 0,
-    /**
-     * Timestamp of the FIRST sample this call owns, or null when it stored
-     * nothing because a neighbour had already taken the whole window.
-     *
-     * The photo's claim on the table, and the reason it has to travel: the
-     * samples a photo OWNS run from here to the end of its window, contiguously
-     * (the inline pre-shutter half and the deferred post-shutter half abut), and
-     * every other sample inside its ±window belongs to a neighbour. Without this
-     * bound a later reader can only re-read the whole window, which puts the
-     * same samples in three consecutive photos and undoes the trim.
-     */
-    val storedFromMs: Long? = null,
 )
 
 /**
@@ -837,16 +825,49 @@ class GeoEngine private constructor(private val context: Context) {
      * A method rather than a flow: a few-hundred-hertz buffer is not
      * user-facing state and has no business passing through recomposition.
      */
-    fun persistImuWindow(fromMs: Long, toMs: Long): ImuWindowSummary? {
+    fun persistImuWindow(fromMs: Long, toMs: Long, forCaptureAtMs: Long? = null): ImuWindowSummary? {
         val samples = imuRing.window(fromMs, toMs)
         if (samples.isEmpty()) return null
         // Store only what a neighbour has not already stored; summarise ALL of
         // it. See imuHighWaterMs.
         val fresh = samples.filter { it.timestamp > imuHighWaterMs }
         if (fresh.isNotEmpty()) {
-            geoTracking.storeImuSamples(fresh)
+            // Record WHICH samples this capture is responsible for, as DATA.
+            // Deriving it does not work: the window a photo asks for and the
+            // samples it actually adds are different things, so two consecutive
+            // captures' nominal ranges overlap by seconds. One row per capture
+            // rather than an owner column on every sample — see ImuClaimEntity
+            // for the arithmetic behind that choice. Written in the SAME call as
+            // the samples so a reader cannot see the claim before the rows.
+            geoTracking.storeImuSamples(
+                fresh,
+                forCaptureAtMs?.let {
+                    cz.hillview.plugin.ImuClaimEntity(
+                        capturedAtMs = it,
+                        fromMs = fresh.first().timestamp,
+                        toMs = fresh.last().timestamp,
+                        sampleCount = fresh.size,
+                    )
+                },
+            )
             imuHighWaterMs = fresh.last().timestamp
         }
+        return summariseRingSamples(samples, storedCount = fresh.size)
+    }
+
+    /** READ-ONLY: what the ring holds for a window, storing nothing. */
+    private fun summariseImuRingWindow(fromMs: Long, toMs: Long): ImuWindowSummary? =
+        summariseRingSamples(imuRing.window(fromMs, toMs), storedCount = 0)
+
+    /**
+     * The peaks and bounds of a window. Shared by the storing and the read-only
+     * paths so the two cannot disagree about what "peak" meant.
+     */
+    private fun summariseRingSamples(
+        samples: List<cz.hillview.plugin.ImuSampleEntity>,
+        storedCount: Int,
+    ): ImuWindowSummary? {
+        if (samples.isEmpty()) return null
         val accel = samples.filter { it.kind == "accel" }
         val gyro = samples.filter { it.kind == "gyro" }
         fun magnitude(s: cz.hillview.plugin.ImuSampleEntity) =
@@ -858,9 +879,7 @@ class GeoEngine private constructor(private val context: Context) {
             sampleCount = samples.size,
             startMs = samples.first().timestamp,
             endMs = samples.last().timestamp,
-            /** What this photo actually ADDED to the table — see imuHighWaterMs. */
-            storedCount = fresh.size,
-            storedFromMs = fresh.firstOrNull()?.timestamp,
+            storedCount = storedCount,
             // Raw accelerometer INCLUDES gravity, so this sits near 9.81 on a
             // still phone. Reported as-is, and the deviation below is the
             // gravity-free shake signal derived from it.
@@ -902,7 +921,7 @@ class GeoEngine private constructor(private val context: Context) {
         val readAt = centreAtMs + halfWidthMs + IMU_SETTLE_MARGIN_MS
         val delayMs = (readAt - System.currentTimeMillis()).coerceAtLeast(0)
         handler.postDelayed(
-            { onReady(persistImuWindow(centreAtMs - halfWidthMs, centreAtMs + halfWidthMs)) },
+            { onReady(persistImuWindow(centreAtMs - halfWidthMs, centreAtMs + halfWidthMs, centreAtMs)) },
             delayMs,
         )
     }
@@ -922,7 +941,28 @@ class GeoEngine private constructor(private val context: Context) {
      * docs/recon-capture-metadata.md, "the deferred window".
      */
     fun persistImuWindowBeforeShutter(centreAtMs: Long): ImuWindowSummary? =
-        persistImuWindow(centreAtMs - IMU_WINDOW_HALF_MS, centreAtMs)
+        summariseImuWindowBefore(centreAtMs)
+
+    /**
+     * READ-ONLY summary of the [IMU_WINDOW_HALF_MS] before an exposure.
+     *
+     * It used to STORE that half too, as a floor against the process dying
+     * before the deferred write. That cost more than it bought: two storing
+     * bursts per photo, interleaved with the neighbours' (photo 2's inline write
+     * lands before photo 1's deferred one), so a capture's contribution was two
+     * disjoint ranges with other captures' rows between them — which no single
+     * range can describe, and the derived attribution silently overlapped by
+     * seconds. With the write removed there is exactly ONE burst per capture, it
+     * is contiguous, and successive bursts tile.
+     *
+     * What is lost: if the app dies inside the ~3.15 s after a shutter, that
+     * photo has no samples. It still has this summary, written to the row at
+     * insert, so the peak acceleration and angular rate survive — the shape of
+     * the signal is what goes missing, and only for the last shot before a
+     * crash.
+     */
+    fun summariseImuWindowBefore(centreAtMs: Long): ImuWindowSummary? =
+        summariseImuRingWindow(centreAtMs - IMU_WINDOW_HALF_MS, centreAtMs)
 
     private fun startSensors() {
         startMotionSensors()

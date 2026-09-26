@@ -1898,7 +1898,6 @@ private class AndroidPhotoCapture(
                     accelPeakDeviationMps2 = it.accelPeakDeviationMps2,
                     gyroPeakRadS = it.gyroPeakRadS,
                     storedCount = it.storedCount,
-                    storedFromMs = it.storedFromMs,
                 )
             },
         )

@@ -35,9 +35,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         BearingEntity::class, LocationEntity::class, SourceEntity::class,
-        ImuSampleEntity::class,
+        ImuSampleEntity::class, ImuClaimEntity::class,
     ],
-    version = 3,
+    version = 4,
     // Exported per app into shared-kt/schemas/{frontend2,tauri}/, same as
     // PhotoDatabase — and with the same warning: the export is wired through a
     // processor argument Gradle does not track as an output, so a regenerated
@@ -50,6 +50,7 @@ abstract class GeoTrackingDatabase : RoomDatabase() {
     abstract fun locationDao(): LocationDao
     abstract fun sourceDao(): SourceDao
     abstract fun imuDao(): ImuDao
+    abstract fun imuClaimDao(): ImuClaimDao
 
     companion object {
         @Volatile
@@ -91,7 +92,28 @@ abstract class GeoTrackingDatabase : RoomDatabase() {
             }
         }
 
-        internal val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Which capture owns which samples (ImuClaimEntity). One row per
+                // PHOTO, not per sample: attribution has to be data, and a
+                // 6-byte owner column on every sample row would cost ~33 KB per
+                // photo here and tens of megabytes an hour in the CSV dump for
+                // the same answer.
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS imu_claims (
+                        capturedAtMs INTEGER NOT NULL,
+                        fromMs INTEGER NOT NULL,
+                        toMs INTEGER NOT NULL,
+                        sampleCount INTEGER NOT NULL,
+                        PRIMARY KEY(capturedAtMs)
+                    )
+                    """,
+                )
+            }
+        }
+
+        internal val MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 
         fun getDatabase(context: Context): GeoTrackingDatabase {
             return INSTANCE ?: synchronized(this) {

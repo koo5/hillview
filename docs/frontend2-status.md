@@ -2028,3 +2028,55 @@ photo, and now it does.
   on both the owner and public endpoints, absence staying absent, a malformed
   payload dropped WITHOUT failing the photo, and that the samples never enter the
   UserComment. Alembic `036_photo_imu_samples_url` is applied to dev.
+
+## 2026-09-26 — attribution becomes data, and a race becomes a condition
+
+Follow-up to Phase 5, and a correction to it. Two bugs in what had just been
+committed, both found by tracing what a phone would actually produce rather than
+by a failing test.
+
+**The payloads overlapped.** Attribution was DERIVED: each photo claimed
+`[first sample it stored, capturedAt + 3 s]`. That looks right and is not — a
+capture stored in two bursts (an inline pre-shutter write and a deferred
+post-shutter one) and the bursts interleave ACROSS photos, since photo 2's inline
+write lands before photo 1's deferred one. Traced on a 2 s interval run, two
+consecutive photos' ranges overlapped by three seconds: 44 sample-slots for 32
+distinct samples. The on-device trim was saving phone storage and nothing else.
+
+Fixed two ways. The pre-shutter call is now **read-only**
+(`summariseImuWindowBefore`), so each capture stores exactly ONE contiguous burst.
+And what that burst holds is recorded as a row — **`imu_claims`**, one line per
+photo: `capturedAtMs, fromMs, toMs, sampleCount`. GeoTrackingDatabase v3 → v4.
+
+**DECISION: a claim per photo, not an owner column per sample.** Stamping every
+sample was the first instinct; the user refused it on bytes and was right. Six
+bytes per row is ~33 KB per photo in the tracking database and ~14 more characters
+per row in the CSV dump — tens of megabytes an hour at continuous rates. A claim
+is ~24 bytes per photo for exactly the same answer, about a thousandth of the
+cost. `ImuAttributionTest` (5 tests) is the regression test the derived scheme
+would have failed; it also pins that an unowned continuous flush is not inherited
+by the next capture.
+
+**The window's later half arrived by luck.** The upload pass waited out the SAME
+deadline as the engine's deferred write — `capturedAt + half + settle`, one on the
+engine's Handler and one on `Dispatchers.IO`, with no ordering between them — and
+then read the table. Now it waits for the claim row to EXIST, and the claim is
+written in the same coroutine as the samples and after them, so its presence
+proves they landed. A race became a condition.
+
+Cost of the read-only pre-shutter call: if the app dies inside the ~3.15 s after a
+shutter, that photo has no samples. It keeps the summary, so peak acceleration and
+angular rate survive — the shape of the signal is what is lost, for the last shot
+before a crash only.
+
+Also: `stored_from_ms` was added and then removed again. With a claim table the
+wire needs only the count, and the payload's own `t0_ms` says where it starts. And
+the dump now writes `hillview_imu_claims_<ms>.csv` beside the samples — without it
+the dumped samples are one undifferentiated stream and no offline reader can say
+which exposure any of them bracket.
+
+Verified: 399 jvmTest, 421 androidHostTest, 296 API unit, 145 worker unit, 5
+end-to-end, `:androidApp:assembleDebug`. GeoTrackingDatabase v4 identityHash
+matches across both apps, and both databases' full migration chains were validated
+against the exported schemas on real SQLite (`PhotoDatabaseMigrationTest` is an
+androidDeviceTest and had never run, so 25→26 was unchecked until this).

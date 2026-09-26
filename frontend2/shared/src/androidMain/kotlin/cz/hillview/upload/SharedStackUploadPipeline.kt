@@ -56,28 +56,55 @@ class SharedStackUploadPipeline(
      * or the activity — no gyroscope, or an activity that never asked — and
      * never an error.
      */
+    /**
+     * How long to wait for the engine's deferred write to record its claim.
+     *
+     * Generous because missing it costs the payload and the wait costs nothing
+     * but a coroutine: the write is scheduled on the engine's Handler for the
+     * same instant this pass wakes, so in practice the first poll finds it. A
+     * timeout means the process was busy, the activity went away, or the IMU was
+     * never running — all of which produce a summary and no payload, which is
+     * the honest outcome rather than an error.
+     */
+    private val IMU_CLAIM_WAIT_MS = 5_000L
+    private val IMU_CLAIM_POLL_MS = 100L
+
     private fun scheduleImuWindow(photoId: String, upload: cz.hillview.upload.PendingUpload) {
         val capturedAt = upload.capturedAtMs ?: return
         val half = cz.hillview.geo.IMU_WINDOW_HALF_MS
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
             try {
+                val db = cz.hillview.plugin.GeoTrackingDatabase.getDatabase(context)
+                // WAIT FOR THE CLAIM, not for a clock. This used to sit out the
+                // same deadline the engine's deferred write uses
+                // (capturedAt + half + settle) and then read the table — two
+                // timers, one on the engine's Handler and one here on
+                // Dispatchers.IO, with NO ordering between them. So the
+                // post-shutter half of the window was present or absent by luck.
+                // The claim row is written in the same coroutine as the samples
+                // and after them, so its existence proves they landed.
                 val readAt = capturedAt + half + cz.hillview.geo.IMU_SETTLE_MARGIN_MS
                 kotlinx.coroutines.delay((readAt - System.currentTimeMillis()).coerceAtLeast(0))
-                val samples = cz.hillview.plugin.GeoTrackingDatabase.getDatabase(context)
-                    .imuDao().getInWindow(capturedAt - half, capturedAt + half)
+                var claim = db.imuClaimDao().get(capturedAt)
+                var waited = 0L
+                while (claim == null && waited < IMU_CLAIM_WAIT_MS) {
+                    kotlinx.coroutines.delay(IMU_CLAIM_POLL_MS)
+                    waited += IMU_CLAIM_POLL_MS
+                    claim = db.imuClaimDao().get(capturedAt)
+                }
+                // The FULL window, whoever stored it: the context number, so a
+                // reader can tell "the frame sat in 6 s of quiet" from "we only
+                // kept 2 s of it".
+                val samples = db.imuDao().getInWindow(capturedAt - half, capturedAt + half)
                 val stats = cz.hillview.plugin.summariseImuWindow(samples) ?: return@launch
-                // What this photo OWNS, carried over from the inline pre-shutter
-                // summary the capture path already wrote. This rewrite used to
-                // drop it and let storedCount default to 0, which made the field
-                // read "this photo added nothing" on EVERY photo — and that is
-                // the one number a server needs to concatenate a run without
-                // counting samples twice. The engine is the only thing that can
-                // know it (it owns imuHighWaterMs), so it travels on the row
-                // rather than being recomputed here.
-                val storedFrom = cz.hillview.capture.imuStoredFromMs(upload.motionJson)
-                val owned = storedFrom
-                    ?.let { from -> samples.filter { it.timestamp in from..(capturedAt + half) } }
-                    ?: emptyList()
+                // What this photo OWNS: exactly the range it claimed. Attribution
+                // is data now — derived from the claim, not inferred from a
+                // high-water mark and a nominal window, which overlapped between
+                // consecutive captures by seconds.
+                val owned = claim?.let { c -> db.imuDao().getInWindow(c.fromMs, c.toMs) } ?: emptyList()
+                if (claim == null) {
+                    Log.w(TAG, "no IMU claim for $photoId after ${waited}ms — window summary only, no payload")
+                }
                 val json = cz.hillview.capture.motionProvenanceJson(
                     cz.hillview.capture.SensorSnapshot(
                         capturedAtMs = capturedAt,
@@ -92,7 +119,6 @@ class SharedStackUploadPipeline(
                             accelPeakDeviationMps2 = stats.accelPeakDeviationMps2,
                             gyroPeakRadS = stats.gyroPeakRadS,
                             storedCount = owned.size,
-                            storedFromMs = storedFrom,
                         ),
                     ),
                 )
@@ -114,7 +140,8 @@ class SharedStackUploadPipeline(
                 Log.i(
                     TAG,
                     "IMU window for $photoId: ${stats.sampleCount} samples " +
-                        "${stats.startMs}..${stats.endMs}, owns ${owned.size} from $storedFrom",
+                        "${stats.startMs}..${stats.endMs}, owns ${owned.size} " +
+                        "(claim ${claim?.fromMs}..${claim?.toMs})",
                 )
             } catch (e: Exception) {
                 Log.w(TAG, "could not attach the IMU window to $photoId: ${e.message}")

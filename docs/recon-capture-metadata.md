@@ -350,23 +350,50 @@ existed at the shutter and is gone by the time the photo sends is the same
 drop-site pattern this whole body of work was about closing. The cost is real —
 tens of kilobytes per row in the app's SQLite — and it buys the guarantee.
 
-**2. The payload carries what the photo OWNS, not its whole ±3 s window.**
-This is what makes the tiling actually reach the server, and it needed a bound
-the plan had not identified. `imuHighWaterMs` made the TABLE hold each sample
-once, but a read of `getInWindow(shutter ± 3 s)` returns samples a neighbour
-stored — so without a lower bound each sample would still travel in three
-consecutive photos and the trim would have saved device storage only. The engine
-is the only thing that knows where a photo's claim begins, so `ImuWindowSummary`
-gained `storedFromMs`, it rides the row inside `motion.imu_window` as
-`stored_from_ms`, and the deferred pass reads it back with `imuStoredFromMs`.
+**2. The payload carries what the photo OWNS, and attribution is DATA.**
 
-Which turned up a bug: **`stored_count` was 0 on every photo.** The capture path
-computed it correctly, and then the pipeline's deferred rewrite of `motionJson`
-rebuilt the `ImuWindow` without it and let it default. So the one field a server
-needs in order to concatenate a run without double-counting always said "this
-photo added nothing". The unit tests added earlier the same day covered the
-SERIALIZER, which was never wrong; nothing covered the call site that dropped the
-value. Fixed, and the reader is tolerant of every older row shape.
+The first attempt derived it: each photo took `[first sample it stored,
+capturedAt + 3 s]`. That looks right and is not. A capture stored in TWO bursts —
+an inline pre-shutter write and a deferred post-shutter one — and the bursts
+interleaved ACROSS photos, because photo 2's inline write lands before photo 1's
+deferred one. Traced on a 2 s interval run: the two photos' ranges overlapped by
+three seconds, 44 sample-slots for 32 distinct samples. The trim would have saved
+device storage and nothing else.
+
+Two things fixed it. The pre-shutter call became **read-only**
+(`summariseImuWindowBefore`), so there is exactly ONE storing burst per capture
+and it is contiguous. And which samples that burst holds is now recorded as a
+row: **`imu_claims`**, one line per photo — `capturedAtMs, fromMs, toMs,
+sampleCount`.
+
+Stamping every SAMPLE with its owner was the first instinct and the user was
+right to refuse it: a 6-byte integer per row is ~33 KB per photo in the tracking
+database and another ~14 characters per row in the CSV dump, tens of megabytes an
+hour at continuous rates. A claim is ~24 bytes per photo for the same exactness —
+about a thousandth of the cost. `ImuAttributionTest` is the regression test the
+derived scheme would have failed.
+
+It also turned a RACE into a condition. The upload pass used to wait out the SAME
+deadline as the engine's deferred write — `capturedAt + half + settle`, one on
+the engine's Handler, one on `Dispatchers.IO`, with no ordering between them — and
+then read the table. The post-shutter half of every window was present or absent
+by luck. Now the pass waits for the claim row to EXIST, and the claim is written
+in the same coroutine as the samples and after them, so its presence proves they
+landed.
+
+What the read-only pre-shutter call gives up: if the app dies inside the ~3.15 s
+after a shutter, that photo has no samples. It still has the summary, so the peak
+acceleration and angular rate survive; the shape of the signal is what goes
+missing, and only for the last shot before a crash.
+
+Along the way: **`stored_count` was 0 on every photo.** The capture path computed
+it and the pipeline's deferred rewrite of `motionJson` rebuilt the window record
+without it. So the one field a server needs in order to concatenate a run without
+double-counting always said "this photo added nothing". The tests written earlier
+the same day covered the SERIALIZER, which was never wrong; nothing covered the
+call site that dropped the value. It is exact now — the size of the claimed
+range. `stored_from_ms` was removed again: with a claim table the wire needs only
+the count, and the payload's own `t0_ms` says where it starts.
 
 **3. Deleting is a rename, so that forgetting is impossible.**
 The plan flagged the sweep as "the step most likely to be forgotten and the only
