@@ -2071,9 +2071,19 @@ before a crash only.
 
 Also: `stored_from_ms` was added and then removed again. With a claim table the
 wire needs only the count, and the payload's own `t0_ms` says where it starts. And
-the dump now writes `hillview_imu_claims_<ms>.csv` beside the samples — without it
-the dumped samples are one undifferentiated stream and no offline reader can say
-which exposure any of them bracket.
+the dump now writes `hillview_imu_claims_<ms>.csv` beside the samples.
+
+**Correction, asked the same day** ("what is dumping the claims table good for?"):
+the justification above was wrong, and the code comment repeating it has been
+fixed. Every photo carries `capturedAt`, so slicing the samples CSV by
+`capturedAt ± IMU_WINDOW_HALF_MS` gives that photo's window with no claim
+involved. Claims solve a WIRE problem — keeping one sample out of three
+consecutive photos' payloads — and offline the whole stream is in one file, so
+there is no duplication to avoid. What the dumped claims are actually good for is
+RECONCILIATION: checking that the per-photo payload the server received matches
+what the phone attributed to that exposure. Diagnostic, worth its few dozen bytes
+while the upload path is being verified on real hardware, and a candidate for
+deletion afterwards rather than a permanent part of the export.
 
 Verified: 399 jvmTest, 421 androidHostTest, 296 API unit, 145 worker unit, 5
 end-to-end, `:androidApp:assembleDebug`. GeoTrackingDatabase v4 identityHash
