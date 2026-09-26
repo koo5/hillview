@@ -14,6 +14,7 @@ private class DesktopExternalCameraController : ExternalCameraController {
     override fun setRunning(on: Boolean) {}
     override fun openSystemCamera() {}
     override suspend fun tableCounts() = TrackingCounts()
+    override suspend fun lastDump(): DumpInfo? = null
 }
 
 @Composable

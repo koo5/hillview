@@ -2600,3 +2600,31 @@ minutes of samples that reached no file. The clear is now skipped on failure.
 loads the whole table — ~13 MB of entities and a ~28 MB String at the observed
 row count, which is the steady state. It has not OOMed, but those seconds are what
 made the race reachable.
+
+## 2026-09-26 — dump stats, because "seconds-long" needs a number
+
+A seconds-long dump is a risk, not just a slowness: **the clear is part of the
+dump**, so a dump slower than the interval that triggers it gets skipped by the new
+mutex — and the clear is skipped with it, so the tables grow without bound. That
+failure is completely silent without a duration to look at.
+
+So `dumpAndClear` is timed now. Every dump logs
+`Dump took Nms for R rows (X rows/s), 300s until the next one`, and publishes
+`GeoTrackingManager.lastDump` (a `DumpStats`), which the external pane shows as
+`Last export: R rows in Nms (X rows/s)` — or, when it failed,
+`Last export FAILED after Nms — rows were kept, not cleared`.
+
+The headroom condition, stated plainly: the external service dumps every **5
+minutes**, so the dump has 300 s of room. Nothing observed comes close, but it is
+now measurable instead of assumed.
+
+**And working that out turned up a real waste.** `getAllSamples()` has no lower
+bound while the clear keeps the last five minutes — and the dump interval is *also*
+five minutes. So each dump re-exports the previous dump's retained tail: **every
+sample lands in two files, and every dump is twice the size it needs to be.** True
+of bearings and locations too, and always has been; at 1 653 rows nobody noticed. At
+240 000 it is the cheapest available halving of the dump's cost.
+
+Parked with the fix shape in docs/todo/frontend2-battery-work.md rather than done —
+the retention window cannot simply shrink, because those five minutes are what let a
+capture's deferred window still be read.

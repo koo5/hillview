@@ -19,6 +19,24 @@ import java.util.concurrent.ConcurrentHashMap
 
 private val TAG = hvTag("Geo")
 
+/**
+ * What one `dumpAndClear` cost, for the readout that answers "can the dump keep up
+ * with what the sensors produce?".
+ */
+data class DumpStats(
+	val atMs: Long,
+	val rows: Int,
+	val durationMs: Long,
+	val ok: Boolean,
+)
+
+/**
+ * The external service's dump interval, repeated here ONLY for a log line that
+ * reports headroom. `ExternalCameraService.DUMP_INTERVAL_MS` owns the real
+ * schedule; this is not it.
+ */
+private const val DUMP_INTERVAL_HINT_MS = 5 * 60 * 1000L
+
 
 data class OrientationSensorData(
 	val magneticHeading: Float,  // Compass bearing in degrees from magnetic north (0-360°)
@@ -451,6 +469,17 @@ class GeoTrackingManager(private val context: Context) {
 	 */
 	private val dumpMutex = kotlinx.coroutines.sync.Mutex()
 
+	/**
+	 * What the last dump cost. Published so the UI can show it and so the
+	 * question "can the dump keep up?" has an answer on the device.
+	 *
+	 * It needs one because the clear is PART of the dump: a dump slower than the
+	 * interval that triggers it gets skipped by [dumpMutex], the clear is skipped
+	 * with it, and the table then grows without bound. That failure is silent
+	 * without a duration to look at.
+	 */
+	val lastDump = kotlinx.coroutines.flow.MutableStateFlow<DumpStats?>(null)
+
 	fun dumpAndClear(forceDump: Boolean = false) {
 		val now = System.currentTimeMillis()
 
@@ -472,6 +501,7 @@ class GeoTrackingManager(private val context: Context) {
 			}
 			try {
 				var dumpFailed = false
+				val startedAt = System.currentTimeMillis()
 				if (shouldDump) {
 					try {
 						val sourceIdToName = buildSourceIdToNameMap()
@@ -501,16 +531,34 @@ class GeoTrackingManager(private val context: Context) {
 							)
 							Log.i(TAG, "🢄📡 Dumped ${imu.size} IMU samples to $imuAt")
 						}
+						// TIMED, because a dump that cannot keep up is a silent
+						// failure: the clear is part of the dump, so a dump slower
+						// than its own 5-minute interval would skip (see dumpMutex)
+						// and the table would grow without bound. The headroom is
+						// the thing to watch, not the row count.
+						val rows = bearings.size + locations.size + imu.size
+						val ms = System.currentTimeMillis() - startedAt
+						lastDump.value = DumpStats(startedAt, rows, ms, ok = true)
+						Log.i(
+							TAG,
+							"🢄📡 Dump took ${ms}ms for $rows rows " +
+								"(${if (ms > 0) rows * 1000L / ms else 0} rows/s), " +
+								"${DUMP_INTERVAL_HINT_MS / 1000}s until the next one",
+						)
 						EventLog.record(
 							"export",
 							"${bearings.size} bearings + ${locations.size} locations" +
 								(if (imu.isNotEmpty()) " + ${imu.size} IMU samples" else "") +
-								" → $locationsAt",
+								" in ${ms}ms → $locationsAt",
 						)
 					} catch (e: Exception) {
 						Log.e(TAG, "🢄📡 Failed to dump geo tracking data: ${e.message}", e)
 						EventLog.record("export", "CSV dump FAILED: ${e.message}")
 						dumpFailed = true
+						lastDump.value = DumpStats(
+							atMs = startedAt, rows = 0,
+							durationMs = System.currentTimeMillis() - startedAt, ok = false,
+						)
 					}
 				} else {
 					Log.d(TAG, "🢄📡 Skipping geo data dump (auto_export disabled)")

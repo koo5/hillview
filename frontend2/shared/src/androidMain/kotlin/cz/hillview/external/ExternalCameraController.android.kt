@@ -59,6 +59,11 @@ private class AndroidExternalCameraController(
         }
     }
 
+    override suspend fun lastDump(): DumpInfo? =
+        cz.hillview.plugin.GeoTrackingManager.get(context).lastDump.value?.let {
+            DumpInfo(rows = it.rows, durationMs = it.durationMs, ok = it.ok)
+        }
+
     override suspend fun tableCounts(): TrackingCounts = withContext(Dispatchers.IO) {
         val db = GeoTrackingDatabase.getDatabase(context)
         TrackingCounts(

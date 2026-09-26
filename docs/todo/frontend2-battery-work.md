@@ -109,6 +109,27 @@ per page. And paging by OFFSET over a table that is still being written to at
 800 rows a second will skip or repeat rows; page by `timestamp > last` instead, the
 way the high-water mark already does.
 
+### And the export re-reads what the last one kept
+
+Found while working out whether the dump can keep up. `getAllSamples()` has **no
+lower bound**, while the clear keeps the last five minutes — and the external
+service's `DUMP_INTERVAL_MS` is *also* five minutes. So:
+
+    dump at T        exports everything, then keeps [T-5min, T]  = ~240 000 rows
+    dump at T+5min   exports those 240 000 AGAIN, plus 240 000 new
+
+**Every sample is exported twice, and every dump is twice the size it needs to be.**
+The same is true of bearings and locations and always has been — at 1 653 rows
+nobody noticed. It is the single cheapest way to halve the dump's cost, and it
+compounds with the paging above.
+
+The fix is a lower bound on the export, not a shorter retention: the five minutes
+exist so a capture's deferred window can still be read, and shortening it would
+break that. Export `timestamp > lastExportedMs` and persist that mark, or export
+`< cutoff` and let the retained tail be the next dump's opening rows — the second is
+simpler and keeps each row in exactly one file, which is what a concatenating reader
+wants.
+
 ## Not worth doing
 
 - **Decimating the IMU rate.** The window exists to describe a 1/60 s exposure and

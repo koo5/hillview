@@ -42,7 +42,20 @@ interface ExternalCameraController {
     fun openSystemCamera()
     /** What the tracking tables currently hold. */
     suspend fun tableCounts(): TrackingCounts
+
+    /**
+     * How long the last export took, and how many rows — or null if none has run.
+     *
+     * The pane shows it because "can the dump keep up?" is otherwise unanswerable
+     * on the device. The clear is part of the dump, so a dump slower than the
+     * interval that triggers it gets skipped, the clear with it, and the tables grow
+     * without bound. A duration is the only warning of that.
+     */
+    suspend fun lastDump(): DumpInfo?
 }
+
+/** [ExternalCameraController.lastDump]. */
+data class DumpInfo(val rows: Int, val durationMs: Long, val ok: Boolean)
 
 /**
  * Row counts for the external pane's readout.
@@ -95,8 +108,10 @@ fun ExternalCameraPane(
     // whether FASTEST actually took (a few hundred) or the fallback did (a few
     // tens) — visible on the device without a cable.
     var imuRate by remember { mutableStateOf(0) }
+    var lastDumpInfo by remember { mutableStateOf<DumpInfo?>(null) }
     LaunchedEffect(Unit) {
         while (true) {
+            lastDumpInfo = controller.lastDump()
             val next = controller.tableCounts()
             // Only when the table GREW: a dump clears it, and a negative delta is
             // the export having run, not a rate.
@@ -173,6 +188,21 @@ fun ExternalCameraPane(
         // then thrown away — the samples never reach a file and nothing else
         // anywhere says so. This mode is the one where that matters, because an
         // external camera's frames have no other route to a motion record.
+        lastDumpInfo?.let { d ->
+            val rate = if (d.durationMs > 0) d.rows * 1000L / d.durationMs else 0
+            Text(
+                if (d.ok) {
+                    "Last export: ${d.rows} rows in ${d.durationMs}ms ($rate rows/s)"
+                } else {
+                    "Last export FAILED after ${d.durationMs}ms — rows were kept, not cleared"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (d.ok) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("external-camera-dump-stats"),
+            )
+        }
+
         if (!geoAutoExportEnabled()) {
             Text(
                 "Auto-export is OFF — these rows are cleared every few minutes and " +
