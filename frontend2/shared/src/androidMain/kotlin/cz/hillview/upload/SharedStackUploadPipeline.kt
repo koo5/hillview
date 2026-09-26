@@ -69,6 +69,23 @@ class SharedStackUploadPipeline(
     private val IMU_CLAIM_WAIT_MS = 5_000L
     private val IMU_CLAIM_POLL_MS = 100L
 
+    /**
+     * How long after the shutter a row must stay unuploadable, so the deferred
+     * window can land in it first.
+     *
+     * The sum of what actually has to happen: the window's later half
+     * ([cz.hillview.geo.IMU_WINDOW_HALF_MS]), the engine's settle margin, the
+     * worst-case wait for the claim row, and a second for the two database
+     * writes. Derived rather than picked, so changing the window changes this.
+     *
+     * Bounded and modest on purpose. The refiner's own hold is 60 s when it
+     * applies, so this is not the thing that makes an upload feel slow; it is
+     * only the thing that makes the payload exist.
+     */
+    private val IMU_UPLOAD_HOLD_MS =
+        cz.hillview.geo.IMU_WINDOW_HALF_MS + cz.hillview.geo.IMU_SETTLE_MARGIN_MS +
+            IMU_CLAIM_WAIT_MS + 1_000L
+
     private fun scheduleImuWindow(photoId: String, upload: cz.hillview.upload.PendingUpload) {
         val capturedAt = upload.capturedAtMs ?: return
         val half = cz.hillview.geo.IMU_WINDOW_HALF_MS
@@ -196,6 +213,11 @@ class SharedStackUploadPipeline(
                 val eligible = cz.hillview.plugin.StampRefiner.isEligible(
                     upload.locationSource, upload.bearingSource,
                 )
+                // The deferred IMU window cannot be read until its later half has
+                // happened, so the row must not be uploadable before then. Zero
+                // when there is no shutter time to anchor it to — scheduleImuWindow
+                // gives up on the same condition, so nothing is being waited for.
+                val imuHoldFloor = upload.capturedAtMs?.let { it + IMU_UPLOAD_HOLD_MS } ?: 0L
                 val photoId = uploadLogic.registerCapturedPhoto(
                     id = null,
                     filename = upload.filename,
@@ -232,9 +254,19 @@ class SharedStackUploadPipeline(
                     fixJson = upload.fixJson,
                     lensJson = upload.lensJson,
                     motionJson = upload.motionJson,
-                    uploadHoldUntil = if (eligible) {
-                        System.currentTimeMillis() + cz.hillview.plugin.StampRefiner.UPLOAD_HOLD_MS
-                    } else 0,
+                    // TWO holders, so the later deadline wins. The refiner's
+                    // hold was the only one, and it was conditional on the
+                    // refiner being ELIGIBLE — which meant a photo it did not
+                    // want had no hold at all, and its IMU window (written ~3 s
+                    // later) could never reach an upload. Even when it was
+                    // eligible, the refiner finishes first and used to free the
+                    // row while the window was still pending.
+                    uploadHoldUntil = maxOf(
+                        if (eligible) {
+                            System.currentTimeMillis() + cz.hillview.plugin.StampRefiner.UPLOAD_HOLD_MS
+                        } else 0L,
+                        imuHoldFloor,
+                    ),
                 )
                 if (eligible) {
                     refiner.refineAsync(
@@ -242,6 +274,8 @@ class SharedStackUploadPipeline(
                         upload.capturedAtMs ?: System.currentTimeMillis(),
                         upload.locationSource,
                         upload.bearingSource,
+                        // ...and it must not release below the window's deadline.
+                        holdFloorMs = imuHoldFloor,
                     )
                 }
                 // The IMU window around this exposure, once its later half has

@@ -201,8 +201,18 @@ interface SimplePhotoDao {
 
     // The refiner's hold released early (completion or defeat) — without
     // this the row waits out its deadline before the drain may take it.
-    @Query("UPDATE photos SET uploadHoldUntil = 0 WHERE id = :photoId")
-    fun clearUploadHold(photoId: String)
+    //
+    // FLOOR-AWARE, because the hold has more than one holder. The stamp refiner
+    // and the deferred IMU window both enrich a row after it exists, and their
+    // deadlines differ; a plain `= 0` let whichever finished FIRST free the row
+    // out from under the other, which is how the IMU window ended up missing
+    // from uploads. `notBefore` is the other holders' latest deadline: pass 0
+    // only when nothing else is still filling this row.
+    @Query(
+        "UPDATE photos SET uploadHoldUntil = :notBefore " +
+            "WHERE id = :photoId AND uploadHoldUntil > :notBefore",
+    )
+    fun releaseUploadHold(photoId: String, notBefore: Long)
 
     /**
      * The IMU window's summary, written AFTER the row exists.

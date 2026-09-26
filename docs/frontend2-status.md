@@ -2118,3 +2118,39 @@ Audited every other `registerListener` while here: the engine's other rates are
 `sensorsWanted()` gates on `active.sensors`, which is only true when a claim
 supplied a real rate, so 0 is unreachable. Both IMU configs set `sensors = true`,
 so that same gate does not strand the IMU either.
+
+## 2026-09-26 — the window was landing after the upload had left
+
+The crash fix worked (`IMU ring registered at FASTEST (ACCELEROMETER, GYROSCOPE)`)
+and the claim machinery worked — `owns 4776 (claim 1790442825945..1790442831944)`,
+and `Dumped 1 IMU claims`. But the upload that followed carried
+`"imu_window":{"sample_count":2388,…,"stored_count":0}` and **no `imu_samples` key
+at all**: the capture-time pre-shutter summary, not the deferred rewrite.
+
+`uploadHoldUntil` had ONE holder. It was set to `now + UPLOAD_HOLD_MS` only
+`if (eligible)` — eligibility being the stamp refiner's, nothing to do with the
+IMU — and the refiner cleared it to 0 the moment IT finished. So:
+
+- a photo the refiner did not want had **no hold at all**, and its window, written
+  ~3.15 s after the shutter, could never reach an upload;
+- a photo it did want got freed when the refiner finished, which is earlier than
+  the window's deadline, so the row was claimed and re-read before the window
+  landed.
+
+The drain's re-read-after-claim is correct and stays; what was missing is that the
+row was claimable too early. Now the hold is the LATER of the two deadlines, and
+`clearUploadHold` became `releaseUploadHold(photoId, notBefore)` — floor-aware,
+because a hold with two holders cannot be released by whichever finishes first.
+The refiner is handed the IMU floor and releases to it rather than to 0.
+
+`IMU_UPLOAD_HOLD_MS` is derived, not picked: the window's later half + the
+engine's settle margin + the worst-case claim wait + a second for two database
+writes. Changing the window changes it. For a refiner-eligible photo this is
+strictly FASTER than before (the row frees at ~9 s instead of waiting out the 60 s
+refiner hold when the refiner finishes early); for one the refiner ignored it is
+9 s instead of 0.
+
+Also seen in the log, not an error: `Method exceeds compiler instruction limit:
+17574 in CaptureScreen`. ART declining to optimize one very large composable and
+falling back to the interpreter for it. A performance note about a method that has
+grown too big, worth splitting, and unrelated to correctness.
