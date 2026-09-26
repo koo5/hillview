@@ -152,8 +152,50 @@ const val IMU_UNPRIVILEGED_PERIOD_US = 5_000
 
 const val IMU_WINDOW_HALF_MS = 3_000L
 
-/** Margin past the window's end before reading it — IO and main-thread hops. */
+/**
+ * How long the sensors may hold samples in their hardware FIFO before waking the
+ * application processor — `maxReportLatencyUs` on `registerListener`.
+ *
+ * This is the one large battery lever available. At FASTEST across two sensors the
+ * callback rate is close to a thousand a second, and every one of those was an AP
+ * wakeup; with a FIFO they arrive in bursts and the processor sleeps between them.
+ *
+ * GENEROUS, and the reason is the tiling. A first version derived
+ * [IMU_SETTLE_MARGIN_MS] from this on the theory that a sample still in the FIFO
+ * when a window is read is a sample lost from that window. It is not lost from the
+ * STREAM: consecutive captures tile, so whatever arrives after photo N's read is
+ * past the high-water mark and gets claimed by photo N+1 (user, 2026-09-26: "a
+ * second missing off a 3-second tail doesnt really matter, if it makes it into the
+ * next photo"). Only the very last capture of a session can actually lose a tail,
+ * and a truncated end of a whole series was already accepted.
+ *
+ * So the budget answers to power, not to the window, and the read FLUSHES anyway —
+ * which makes even the re-attribution rare rather than routine.
+ *
+ * A budget larger than the FIFO is not a mistake: the platform delivers as soon as
+ * the buffer fills, so this is a ceiling rather than a promise. Typical FIFOs hold
+ * a few hundred events, which at this rate is a few hundred milliseconds; the
+ * registration logs `fifoMaxEventCount` so the actual depth is visible instead of
+ * assumed.
+ */
+const val IMU_BATCH_LATENCY_MS = 1_000L
+
+/**
+ * How long after a window closes it is safe to read.
+ *
+ * Covers the FLUSH round-trip and handler scheduling — NOT the batch latency. It
+ * was briefly derived from [IMU_BATCH_LATENCY_MS], which coupled the upload hold
+ * (and so every photo's time-to-upload) to a power setting for no benefit: the
+ * flush drains the FIFO before the read, and anything that still slips through
+ * lands on the next capture rather than being lost.
+ */
 const val IMU_SETTLE_MARGIN_MS = 150L
+
+/**
+ * How often the sensor clock is re-anchored to the wall clock. See
+ * `GeoEngine.imuWallClockFor`.
+ */
+const val IMU_CLOCK_RESYNC_MS = 10_000L
 
 /**
  * How often continuous mode drains the ring to the table.
@@ -747,14 +789,57 @@ class GeoEngine private constructor(private val context: Context) {
      */
     @Volatile private var imuHighWaterMs: Long = 0L
 
-    private val imuListener = object : android.hardware.SensorEventListener {
+    /** How many sensors are registered, so a flush knows how many completions to expect. */
+    private var imuSensorCount = 0
+
+    // The sensor clock anchored to the wall clock. Re-taken every
+    // IMU_CLOCK_RESYNC_MS; see imuWallClockFor.
+    @Volatile private var clockSyncWallMs = 0L
+    @Volatile private var clockSyncElapsedNanos = 0L
+
+    /**
+     * The wall-clock millisecond of a sample, derived from the sample's OWN
+     * `SensorEvent.timestamp` rather than read at delivery.
+     *
+     * This is what makes batching possible at all, and it is the change that
+     * would have been easiest to miss. `System.currentTimeMillis()` at callback
+     * time was correct only while every sample was delivered immediately: with a
+     * FIFO, forty samples arrive in one burst and would all have been stamped
+     * with the same millisecond, collapsing 200 ms of motion onto a single
+     * instant. Every downstream number — the window bounds, the `dt_us` deltas,
+     * the high-water mark — is built on this column.
+     *
+     * It is also strictly more accurate WITHOUT batching, which is the tell that
+     * the old way was wrong rather than merely incompatible: delivery time
+     * includes scheduler jitter, while the sensor's own timestamp does not.
+     *
+     * The anchor is re-taken periodically so a long session does not accumulate
+     * drift between the two clocks, and because the wall clock can step (an NTP
+     * correction) while the monotonic one cannot.
+     */
+    private fun imuWallClockFor(eventNanos: Long): Long {
+        val nowElapsed = android.os.SystemClock.elapsedRealtimeNanos()
+        if (clockSyncWallMs == 0L ||
+            nowElapsed - clockSyncElapsedNanos > IMU_CLOCK_RESYNC_MS * 1_000_000
+        ) {
+            clockSyncWallMs = System.currentTimeMillis()
+            clockSyncElapsedNanos = nowElapsed
+        }
+        return clockSyncWallMs + (eventNanos - clockSyncElapsedNanos) / 1_000_000
+    }
+
+    private val imuListener = object : android.hardware.SensorEventListener2 {
+        override fun onFlushCompleted(sensor: android.hardware.Sensor?) {
+            onImuFlushCompleted()
+        }
+
         override fun onSensorChanged(event: android.hardware.SensorEvent) {
             val kind = when (event.sensor.type) {
                 android.hardware.Sensor.TYPE_ACCELEROMETER -> ImuRing.KIND_ACCEL
                 android.hardware.Sensor.TYPE_GYROSCOPE -> ImuRing.KIND_GYRO
                 else -> return
             }
-            val atMs = System.currentTimeMillis()
+            val atMs = imuWallClockFor(event.timestamp)
             imuRing.add(
                 atMs, event.timestamp, kind,
                 event.values[0], event.values[1], event.values[2],
@@ -787,7 +872,12 @@ class GeoEngine private constructor(private val context: Context) {
         val fresh = imuRing.window(imuHighWaterMs + 1, upToMs)
         if (fresh.isEmpty()) return
         geoTracking.storeImuSamples(fresh)
-        imuHighWaterMs = fresh.last().timestamp
+        // MAX, not last: with FIFO batching the ring's insertion order is no
+        // longer time order — two sensors deliver their bursts one after the
+        // other, so the final element can pre-date earlier ones. A high-water mark
+        // taken from `last()` would go BACKWARDS and re-store samples it had
+        // already written.
+        imuHighWaterMs = fresh.maxOf { it.timestamp }
     }
 
     private fun startImuSensors() {
@@ -828,10 +918,16 @@ class GeoEngine private constructor(private val context: Context) {
                 return
             }
         imuRegistered = true
+        // The FIFO depth is the whole question for batching: a latency budget on a
+        // sensor with fifoMaxEventCount == 0 saves nothing, and reading "batching
+        // 200ms" in a log without it would be a false comfort.
         Log.i(
             TAG,
-            "IMU ring registered at ${if (rate == 0) "FASTEST" else "${rate}µs"} " +
-                "(${wanted.joinToString { s -> s.name }})",
+            "IMU ring registered at ${if (rate == 0) "FASTEST" else "${rate}µs"}, " +
+                "batching ${IMU_BATCH_LATENCY_MS}ms (" +
+                wanted.joinToString { s ->
+                    "${s.name} fifo=${s.fifoMaxEventCount}/${s.fifoReservedEventCount}"
+                } + ")",
         )
     }
 
@@ -849,7 +945,14 @@ class GeoEngine private constructor(private val context: Context) {
         wanted: List<android.hardware.Sensor>,
         rateUs: Int,
     ): Int? = try {
-        if (wanted.all { manager.registerListener(imuListener, it, rateUs, handler) }) {
+        // FIVE arguments: the fourth is maxReportLatencyUs, which lets a sensor
+        // with a hardware FIFO buffer samples and wake the application processor
+        // in bursts. The four-argument form was ~1 000 wakeups a second at this
+        // rate. Devices with no FIFO ignore it and behave exactly as before, which
+        // is why the capability is logged rather than assumed.
+        val latencyUs = (IMU_BATCH_LATENCY_MS * 1_000).toInt()
+        if (wanted.all { manager.registerListener(imuListener, it, rateUs, latencyUs, handler) }) {
+            imuSensorCount = wanted.size
             rateUs
         } else {
             Log.w(TAG, "IMU registration refused at ${rateUs}µs")
@@ -905,13 +1008,15 @@ class GeoEngine private constructor(private val context: Context) {
                 forCaptureAtMs?.let {
                     cz.hillview.plugin.ImuClaimEntity(
                         capturedAtMs = it,
-                        fromMs = fresh.first().timestamp,
-                        toMs = fresh.last().timestamp,
+                        // min/max, not first/last: batched bursts interleave,
+                        // so insertion order is not time order.
+                        fromMs = fresh.minOf { it.timestamp },
+                        toMs = fresh.maxOf { it.timestamp },
                         sampleCount = fresh.size,
                     )
                 },
             )
-            imuHighWaterMs = fresh.last().timestamp
+            imuHighWaterMs = fresh.maxOf { it.timestamp }
         }
         return summariseRingSamples(samples, storedCount = fresh.size)
     }
@@ -938,8 +1043,9 @@ class GeoEngine private constructor(private val context: Context) {
         val accelMagnitudes = accel.map(::magnitude)
         return ImuWindowSummary(
             sampleCount = samples.size,
-            startMs = samples.first().timestamp,
-            endMs = samples.last().timestamp,
+            // min/max for the same reason as the claim above.
+            startMs = samples.minOf { it.timestamp },
+            endMs = samples.maxOf { it.timestamp },
             storedCount = storedCount,
             // Raw accelerometer INCLUDES gravity, so this sits near 9.81 on a
             // still phone. Reported as-is, and the deviation below is the
@@ -949,6 +1055,60 @@ class GeoEngine private constructor(private val context: Context) {
                 .maxOfOrNull { kotlin.math.abs(it - STANDARD_GRAVITY) },
             gyroPeakRadS = gyro.map(::magnitude).maxOrNull(),
         )
+    }
+
+    // Outstanding flush, if a deferred read is waiting for the FIFO to drain.
+    // Touched only on the engine's handler thread and in onFlushCompleted, which
+    // the platform delivers on that same handler (it is the one passed to
+    // registerListener).
+    private var flushPending = 0
+    private var afterFlush: (() -> Unit)? = null
+
+    /**
+     * Drain the sensors' FIFOs, then run [action] — or run it anyway if the flush
+     * cannot be requested or never completes.
+     *
+     * This is what makes batching safe rather than merely cheap. A window read at
+     * `shutter + half + settle` would otherwise be missing whatever was still
+     * buffered, and [IMU_SETTLE_MARGIN_MS] alone only makes that unlikely.
+     * `SensorManager.flush` makes it deterministic: the samples are in the ring
+     * before the read, not probably in it.
+     *
+     * The timeout is not belt-and-braces. `flush` returning true does not promise
+     * `onFlushCompleted` ever arrives — a sensor that stops delivering, or a
+     * process backgrounded at the wrong moment, would otherwise strand the
+     * window forever, and a window that never lands is worse than one read
+     * slightly early.
+     */
+    private fun flushImuThen(action: () -> Unit) {
+        val manager = context.getSystemService(Context.SENSOR_SERVICE)
+            as? android.hardware.SensorManager
+        if (!imuRegistered || manager == null || !manager.flush(imuListener)) {
+            action()
+            return
+        }
+        // One completion per registered sensor.
+        flushPending = imuSensorCount
+        afterFlush = action
+        handler.postDelayed({
+            if (afterFlush != null) {
+                Log.w(TAG, "IMU flush did not complete in ${IMU_BATCH_LATENCY_MS * 2}ms — reading anyway")
+                runAfterFlush()
+            }
+        }, IMU_BATCH_LATENCY_MS * 2)
+    }
+
+    private fun onImuFlushCompleted() {
+        if (afterFlush == null) return
+        flushPending--
+        if (flushPending <= 0) runAfterFlush()
+    }
+
+    private fun runAfterFlush() {
+        val action = afterFlush ?: return
+        afterFlush = null
+        flushPending = 0
+        action()
     }
 
     /**
@@ -982,7 +1142,17 @@ class GeoEngine private constructor(private val context: Context) {
         val readAt = centreAtMs + halfWidthMs + IMU_SETTLE_MARGIN_MS
         val delayMs = (readAt - System.currentTimeMillis()).coerceAtLeast(0)
         handler.postDelayed(
-            { onReady(persistImuWindow(centreAtMs - halfWidthMs, centreAtMs + halfWidthMs, centreAtMs)) },
+            {
+                // FLUSH, then read: with batching the window's tail may still be
+                // in the sensors' FIFOs when this fires.
+                flushImuThen {
+                    onReady(
+                        persistImuWindow(
+                            centreAtMs - halfWidthMs, centreAtMs + halfWidthMs, centreAtMs,
+                        ),
+                    )
+                }
+            },
             delayMs,
         )
     }
@@ -1015,6 +1185,12 @@ class GeoEngine private constructor(private val context: Context) {
      * range can describe, and the derived attribution silently overlapped by
      * seconds. With the write removed there is exactly ONE burst per capture, it
      * is contiguous, and successive bursts tile.
+     *
+     * WITH BATCHING this summary can lag: it reads the ring synchronously and up
+     * to [IMU_BATCH_LATENCY_MS] of the most recent samples may still be in the
+     * sensors' FIFOs. Harmless, because it is a summary and it is REPLACED — the
+     * deferred pass flushes, reads the full window and rewrites `motionJson`. The
+     * transient only shows if the process dies before that.
      *
      * What is lost: if the app dies inside the ~3.15 s after a shutter, that
      * photo has no samples. It still has this summary, written to the row at

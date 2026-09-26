@@ -105,28 +105,72 @@ speed it up. Lowering the floor means lowering it everywhere.
 fires no shutters). Changing it needs a foreground service of the right type, the
 way the external mode already has one.
 
-## The battery lever that is not being used
+## Batching — implemented 2026-09-26, and what it forced
 
-**Hardware FIFO batching.** `SensorManager.registerListener` has a five-argument
-form taking `maxReportLatencyUs`. With it, a sensor with a hardware FIFO buffers
-samples and wakes the application processor in bursts instead of per sample — at
-400 Hz that is the difference between ~400 wakeups a second and a handful. We pass
-the four-argument form, so every sample is a wakeup.
+`maxReportLatencyUs` is now passed (`IMU_BATCH_LATENCY_MS`, 1 s). What made this
+more than a one-line change:
 
-This is almost certainly the largest available saving, and the design is already
-compatible with it: samples arrive with their own `SensorEvent.timestamp`, the ring
-is append-only and time-ordered, and nothing assumes callbacks are evenly spaced.
-A burst of forty samples with correct timestamps is indistinguishable downstream
-from forty individual callbacks.
+**The wall clock had to move.** Every sample's `timestamp` was
+`System.currentTimeMillis()` read AT DELIVERY. That is correct only while samples
+arrive one at a time: with a FIFO, forty samples arrive in one callback and would
+all have been stamped with the same millisecond, flattening the timeline that the
+window bounds, the `dt_us` deltas and the high-water mark are all built on.
+`imuWallClockFor` now derives each sample's wall clock from its own
+`SensorEvent.timestamp` against a periodically re-taken anchor. This is strictly
+more accurate WITHOUT batching too — delivery time carries scheduler jitter, the
+sensor's own timestamp does not — which is the tell that the old way was wrong
+rather than merely incompatible.
 
-What to check first, on a real device, because a FIFO that does not exist changes
-nothing: `Sensor.getFifoMaxEventCount()` / `getFifoReservedEventCount()`, or
-`adb shell dumpsys sensorservice`. A latency budget also interacts with the
-deferred window: the read happens at `shutter + half + settle`, so
-`maxReportLatencyUs` must be well under `IMU_SETTLE_MARGIN_MS` or the window's tail
-is still in the FIFO when it is read.
+**Six places assumed insertion order was time order.** Two sensors deliver their
+bursts one after the other, so the last element added can pre-date most of the
+batch. `fresh.last().timestamp` as a high-water mark would have gone BACKWARDS and
+re-stored samples already written; `samples.first()/.last()` as window bounds
+would have been arbitrary. All now `minOf`/`maxOf`, with
+`ImuAttributionTest.aBatchedBurstIsBoundedByTimeNotByArrivalOrder` failing against
+the old form.
 
-Other techniques, ranked by what they cost the data:
+**The read flushes.** `SensorManager.flush` before the deferred persist, awaiting
+`onFlushCompleted` (so the listener is a `SensorEventListener2`) with a timeout
+fallback, because `flush` returning true does not promise the callback ever
+arrives. This makes the tail deterministic rather than probable.
+
+**And the settle margin did NOT have to grow.** The first version derived
+`IMU_SETTLE_MARGIN_MS` from the latency, on the theory that a sample still in the
+FIFO at read time is lost. It is not lost from the STREAM — consecutive captures
+tile, so it is past the high-water mark and gets claimed by the NEXT photo (user:
+"a second missing off a 3-second tail doesnt really matter, if it makes it into the
+next photo"). Only a session's final capture can truly lose a tail, which was
+already accepted. So the latency answers to power, the margin stays at 150 ms, and
+the upload hold is not coupled to a battery setting.
+
+### Verified on a device, and what a device could not verify
+
+    IMU ring registered at FASTEST, batching 1000ms
+      (Goldfish 3-axis Accelerometer fifo=0/0, Goldfish 3-axis Gyroscope fifo=0/0)
+    IMU window: 500 samples 1790456564676..1790456567169 (2493ms span), stored=189
+
+FASTEST and batching coexist, and the timeline holds — 500 samples across 2493 ms
+rather than collapsed onto one instant, which is the regression the clock change
+prevents.
+
+**`fifo=0/0`: the emulator has no hardware FIFO**, so the budget is accepted and
+ignored. A pass proves the registration is valid and the derived clock is sane; it
+does NOT prove any power saving, and it does not exercise a real burst. Only a
+device with a non-zero `fifo=` can, and that log line is where to look.
+
+Two things this run found by reading the log rather than the result:
+
+- **The fallback works.** Before the fix below, the device test logged
+  `IMU registration at 0µs not permitted` and degraded to 200 Hz instead of
+  crashing — the morning's `HIGH_SAMPLING_RATE_SENSORS` guard, demonstrated.
+- **The test APK is its own package** (`cz.hillview.shared.test`) and does not
+  inherit the app's permissions, so every IMU device test had been silently running
+  at the fallback rate — a device suite testing a configuration the product never
+  ships. `shared/src/androidDeviceTest/AndroidManifest.xml` now declares it.
+
+## Other battery levers, still unused
+
+Ranked by what they cost the data:
 
 - **Duty-cycle around scheduled shutters.** Interval capture KNOWS its cadence, so
   the sensors could be registered only around each expected shutter rather than

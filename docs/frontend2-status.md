@@ -2387,3 +2387,60 @@ so 16 000 accelerometer plus 16 000 gyroscope rows would have passed a door the
 producer can never reach. Now one number, checked as a total, with a per-array
 bound kept to fail fast. Two comments still named `stored_from_ms`, removed earlier
 today.
+
+## 2026-09-26 — FIFO batching, and the three things it forced
+
+`maxReportLatencyUs` is now passed (`IMU_BATCH_LATENCY_MS`, 1 s), so a sensor with
+a hardware FIFO buffers samples and wakes the application processor in bursts
+instead of ~1 000 times a second. Full reasoning in
+**docs/imu-sampling-design.md**; what matters here is that it was not a one-line
+change.
+
+**The wall clock had to move off delivery time.** Every sample's `timestamp` was
+`System.currentTimeMillis()` read in the callback — fine while samples arrive
+singly, fatal with a FIFO, where forty arrive together and would all have carried
+one millisecond. That flattens the timeline the window bounds, the `dt_us` deltas
+and the high-water mark all rest on. `imuWallClockFor` derives each sample's wall
+clock from its own `SensorEvent.timestamp`. It is strictly more accurate without
+batching too, which is the tell the old way was wrong rather than merely
+incompatible.
+
+**Six places assumed insertion order was time order.** Two sensors' bursts
+interleave, so the last element added can pre-date most of the batch:
+`fresh.last().timestamp` as a high-water mark would have gone BACKWARDS and
+re-stored samples already written. All `minOf`/`maxOf` now, with a test that fails
+against the old form.
+
+**The read flushes.** `SensorManager.flush` before the deferred persist, awaiting
+`onFlushCompleted` (the listener is a `SensorEventListener2` now) with a timeout,
+because `flush` returning true does not promise the callback arrives.
+
+**The settle margin did NOT grow, and that is the user's correction.** The first
+version derived it from the latency, assuming a sample still in the FIFO is lost.
+It is not lost from the stream — captures tile, so it lands on the NEXT photo
+("a second missing off a 3-second tail doesnt really matter, if it makes it into
+the next photo"). So the latency answers to power, the margin stays 150 ms, and the
+upload hold is not coupled to a battery setting.
+
+### Measured on a device
+
+    IMU ring registered at FASTEST, batching 1000ms (…fifo=0/0, …fifo=0/0)
+    IMU window: 500 samples …564676..…567169 (2493ms span), stored=189
+
+FASTEST and batching coexist, and the timeline holds rather than collapsing — the
+regression the clock change exists to prevent. **`fifo=0/0`: the emulator has no
+FIFO**, so this proves the registration and the clock, NOT any power saving and not
+a real burst. That needs hardware with a non-zero `fifo=`.
+
+Two findings from reading the log rather than the green result:
+
+- **The morning's fallback works.** Before the fix below the run logged
+  `IMU registration at 0µs not permitted` and degraded to 200 Hz instead of
+  crashing.
+- **The test APK is its own package** (`cz.hillview.shared.test`) and inherits none
+  of the app's permissions — so every IMU device test had been silently running at
+  the fallback rate, a device suite exercising a configuration the product never
+  ships. `shared/src/androidDeviceTest/AndroidManifest.xml` now declares it.
+
+401 jvmTest, 433 androidHostTest, 378 connectedAndroidDeviceTest,
+`:androidApp:assembleDebug`.

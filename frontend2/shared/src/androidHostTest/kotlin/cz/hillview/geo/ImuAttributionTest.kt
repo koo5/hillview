@@ -48,6 +48,30 @@ class ImuAttributionTest {
             }
         }
 
+        /** The current high-water mark, for the batching tests. */
+        val highWaterForTest: Long get() = highWater
+
+        /**
+         * A BATCH, as a FIFO delivers it: samples grouped by sensor, so arrival
+         * order is not time order. Mirrors `persistImuWindow`'s bookkeeping over
+         * whatever the ring holds, which is what the real code does.
+         */
+        fun persistBatch(batch: List<Pair<Long, String>>, forCaptureAtMs: Long?) {
+            val rows = batch.map { (ts, kind) ->
+                ImuSampleEntity(ts, kind, 0, 1f, 0f, 9.8f, ts * 1_000_000)
+            }
+            val fresh = rows.filter { it.timestamp > highWater }
+            if (fresh.isEmpty()) return
+            table += fresh
+            // min/max, exactly as GeoEngine does it now.
+            highWater = fresh.maxOf { it.timestamp }
+            forCaptureAtMs?.let {
+                claims += ImuClaimEntity(
+                    it, fresh.minOf { f -> f.timestamp }, fresh.maxOf { f -> f.timestamp }, fresh.size,
+                )
+            }
+        }
+
         /** What the upload pass reads: the claim's range out of the table. */
         fun owned(capturedAtMs: Long): List<Long> {
             val c = claims.firstOrNull { it.capturedAtMs == capturedAtMs } ?: return emptyList()
@@ -127,6 +151,60 @@ class ImuAttributionTest {
         assertTrue(owned.min() > 1_002_000, "inherited the unowned flush's samples")
         // The flushed rows are still in the table -- they are simply nobody's.
         assertTrue(r.table.any { it.timestamp <= 1_002_000 })
+    }
+
+    /**
+     * BATCHED ARRIVAL. With a hardware FIFO the two sensors deliver bursts one
+     * after the other, so the newest sample in a batch is NOT the last one added:
+     * accelerometer 0..200 ms arrives, then gyroscope 0..200 ms, and the final
+     * element pre-dates most of the batch.
+     *
+     * Every bound taken with `first()`/`last()` was wrong the moment batching was
+     * switched on — the claim would have run backwards, and the high-water mark
+     * would have receded and re-stored samples it had already written. This test
+     * fails against that code and passes against min/max.
+     */
+    @Test
+    fun aBatchedBurstIsBoundedByTimeNotByArrivalOrder() {
+        val r = Recorder()
+        // One capture's worth, delivered as two per-sensor bursts.
+        val accel = (0..8).map { 1_000_000L + it * 25 }
+        val gyro = (0..8).map { 1_000_000L + it * 25 }
+        val batch = accel.map { it to "accel" } + gyro.map { it to "gyro" }
+        r.persistBatch(batch, forCaptureAtMs = 1_000_100L)
+
+        val claim = r.claims.single()
+        assertEquals(1_000_000L, claim.fromMs, "claim start must be the EARLIEST sample")
+        assertEquals(1_000_200L, claim.toMs, "claim end must be the LATEST sample")
+        // The last element added was a gyro sample from the start of the window.
+        assertEquals("gyro", r.table.last().kind)
+        assertEquals(1_000_200L, r.table.last().timestamp)
+        // And the high-water mark must not recede below what was stored.
+        assertEquals(claim.toMs, r.highWaterForTest)
+    }
+
+    /**
+     * A second batch after the first must add only what is new, even though its
+     * arrival order again ends mid-window.
+     */
+    @Test
+    fun aSecondBatchDoesNotRestoreWhatTheFirstAlreadyHad() {
+        val r = Recorder()
+        r.persistBatch(
+            (0..4).map { 1_000_000L + it * 25 to "accel" } +
+                (0..4).map { 1_000_000L + it * 25 to "gyro" },
+            forCaptureAtMs = 1_000_050L,
+        )
+        val firstCount = r.table.size
+        // Overlapping window: only the samples past the high-water mark are new.
+        r.persistBatch(
+            (0..8).map { 1_000_000L + it * 25 to "accel" } +
+                (0..8).map { 1_000_000L + it * 25 to "gyro" },
+            forCaptureAtMs = 1_000_200L,
+        )
+        val added = r.table.size - firstCount
+        assertTrue(added > 0, "the later half should have been added")
+        assertEquals(r.table.size, r.table.distinct().size, "a sample was stored twice")
     }
 
     /** A capture whose window the ring could not supply claims nothing at all. */
