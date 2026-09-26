@@ -2628,3 +2628,64 @@ of bearings and locations too, and always has been; at 1 653 rows nobody noticed
 Parked with the fix shape in docs/todo/frontend2-battery-work.md rather than done —
 the retention window cannot simply shrink, because those five minutes are what let a
 capture's deferred window still be read.
+
+## 2026-09-26 — STATE OF PLAY at end of day
+
+24 commits. Read this entry first if you are picking the work back up; the entries
+above are the narrative, this is the position.
+
+### Where the three docs live
+
+- **docs/recon-capture-metadata.md** — the contract. What every provenance field
+  means, the four-list rule (app serializer / `BrowserMetadata` / `PROVENANCE_KEYS`
+  / typed projection), Phases 0–5, and the decisions with their rejected
+  alternatives.
+- **docs/imu-sampling-design.md** — the mechanism. When the sensors run, what each
+  constant is pinned to, and what breaks if the window length or a toggle changes.
+- **docs/todo/frontend2-battery-work.md** — five parked items, scoped and measured,
+  deliberately unstarted.
+
+### Built and verified LOCALLY; nothing deployed
+
+Phases 0–5 are complete. The samples reach the server as a gzipped columnar
+artifact at `photos.imu_samples_url`, verified end to end by
+`backend/tests/integration/test_imu_samples_artifact.py` (6 tests) against the local
+stack — including that the payload never enters the UserComment.
+
+**Deployment order matters: alembic `036` → API → worker.** `photo.imu_samples_url`
+against a table without the column is a hard failure; the reverse order is safe only
+because an old API ignores unknown fields.
+
+**The prod worker is unchanged**, so `inertial` and `imu_samples` are both dropped
+silently at pydantic's door. That is why the phone shows no server-side effect and
+why no error appears anywhere — the documented behaviour, not a fault.
+
+### Confirmed on the real phone
+
+- The startup crash is fixed (`HIGH_SAMPLING_RATE_SENSORS`), and the fallback is
+  demonstrated working.
+- **FIFO batching is real here: `fifo=4500/3000`.** ~800 IMU wakeups a second → ~0.5.
+- `lens.intrinsics_available` is **false**, cross-checked against
+  `dumpsys media.camera`; the derived pinhole (fx 3491.5, fy 3490.8) is
+  self-consistent to 0.02 %.
+- Claims, tiling and the dumps all work; a dump of 257 769 rows completed.
+
+### NOT yet confirmed on hardware — the one open test
+
+**A capture producing a payload.** `IMU window for <id>: N samples A..B` with a ~6 s
+span, and an `imu_samples` key in `Including metadata:` with a non-zero
+`stored_count`. Every trace so far either took no photo or predates the upload-hold
+fix. Take two captures a few seconds apart so the tiling shows.
+
+The pane will also now show inertial counts, a live rate, the last export's cost, and
+a red warning if auto-export is off.
+
+### Tooling
+
+`ast-grep` is installed and cooloff-clean. **kotlin-lsp is blocked until
+2026-09-27** — JetBrains' standalone builds expire, and the only unexpired one was
+12 days old against the 14-day cooloff. Recipe and both traps are in
+STRUCTURAL_TOOLS.md.
+
+`androidDeviceTest` had never been run in this work and found three real defects in
+minutes; it is worth running for anything touching migrations or the upload hold.
