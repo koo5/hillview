@@ -831,6 +831,33 @@ second is fetched only by something that wants it.
   for: saying "this device publishes none" rather than "this app did not look".
   Also now a measured number rather than a hypothetical:
   `rolling_shutter_skew_ns` 31 089 628 — **31.1 ms** of readout per frame.
+
+  **Independently verified against the HAL**, `dumpsys media.camera` on the same
+  device (`/shared/a22_dumpsys_camera.txt`, 2026-09-26). Every value our `lens`
+  object reported matches the HAL's own static characteristics exactly —
+  `sensor.info.physicalSize` [7.38999987, 5.55000019], `pixelArraySize`
+  [4624, 3472], `availableFocalLengths` [5.57999992], `availableApertures`
+  [1.88999999], `focusDistanceCalibration` UNCALIBRATED — and NO intrinsic,
+  distortion or lens-pose key appears anywhere in the dump, for any of the three
+  cameras. So `intrinsics_available: false` is the device's answer and not a
+  mistake in how we asked.
+
+  And the reason is in the capability list:
+  `[BACKWARD_COMPATIBLE MANUAL_SENSOR MANUAL_POST_PROCESSING READ_SENSOR_SETTINGS
+  RAW BURST_CAPTURE CONSTRAINED_HIGH_SPEED_VIDEO]` — no `DEPTH_OUTPUT` and no
+  `LOGICAL_MULTI_CAMERA`, which are the capabilities that make
+  `LENS_INTRINSIC_CALIBRATION` mandatory. Its absence is per spec, so expecting it
+  on an ordinary phone was the wrong expectation; the derived pinhole is the
+  realistic path and it works.
+
+  `sensor.rollingShutterSkew` is correctly absent from that dump too: it is a
+  per-frame RESULT key, not a static characteristic, which is why the app reads it
+  from `TotalCaptureResult` instead.
+
+  Worth noting for later, from the same list: this device advertises **`RAW`**.
+  DNG capture would remove JPEG compression from the reconstruction path
+  entirely — a much larger change than anything here, but the capability is
+  present and nothing currently uses it.
 - **~~A toggle for the external camera's continuous capture.~~ DONE 2026-09-26.** ~100 MB of CSV an
   hour is a user-visible amount of someone's storage, and a multi-hour drive
   deserves an off switch. The config flag exists (`GeoConfig.imuContinuous`);
