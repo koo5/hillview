@@ -139,6 +139,10 @@ fun ExternalCameraPane(
             modifier = Modifier.testTag("external-camera-counts"),
         )
 
+        // The storage switch, above the buttons that start a session rather than
+        // buried after them: it is a decision to make BEFORE recording, not after.
+        ContinuousImuToggle()
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),

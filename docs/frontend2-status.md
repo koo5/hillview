@@ -2254,3 +2254,44 @@ boundary; the rule that names describe what is MEASURED applies to the wire.
 Verified: 401 jvmTest, 430 androidHostTest, 296 API unit, 145 worker unit, 6
 end-to-end, `:androidApp:assembleDebug`. v28 identityHash matches both apps and
 27→28 was validated against the exported schemas on real SQLite.
+
+## 2026-09-26 — the continuous-IMU switch, and what the phone said about lenses
+
+**`lens.intrinsics_available` was already answered** by the log from the real
+device, and filed as unanswered by me — the user caught it. It is **false**: no
+factory `LENS_INTRINSIC_CALIBRATION`, no `LENS_DISTORTION`,
+`focus_distance_calibration` `uncalibrated`.
+
+That vindicates having captured sensor geometry separately from the calibration.
+`focal_length_mm` 5.58 with `sensor_physical_size_mm` [7.39, 5.55] and
+`sensor_pixel_array` [4624, 3472] derive a pinhole model, and it is
+self-consistent to **0.02 %** — fx 3491.5 px against fy 3490.8 px, square pixels,
+which is the check that the three numbers are real rather than placeholders. So a
+solver gets a usable focal prior on a phone that publishes no calibration at all,
+and `intrinsics_available: false` does the job it exists for: distinguishing "this
+device publishes none" from "this app did not look". `rolling_shutter_skew_ns` is
+also a measured 31.1 ms now, not a hypothetical.
+
+**The continuous-IMU toggle** (`ExternalImuSettings`, prefs-backed, default ON).
+
+The interesting part is not the switch, it is that `imuContinuous` has **two
+claimants** — the activity binding and `ExternalCameraService` — and
+`GeoEngine.mergedConfig` resolves it with `any { it.imuContinuous }`. So a switch
+that only told one of them would appear to do nothing: the other's stale `true`
+wins. Both now track the same `StateFlow` and re-claim when it moves, and
+`externalCameraConfig` takes the flag as a PARAMETER rather than reading prefs
+itself, so the two cannot drift apart silently.
+
+Prefs-backed for the reason `CompassSettings` is: the service can be restarted by
+the system without the UI, and the answer has to survive that. Default ON because
+that is what the mode is for — an external camera's frames are not ours to
+bracket, so there is no shutter to build a window around. Off is a storage
+decision, and the UI says the number, because "continuously" sounds free until
+you read "roughly 100 MB of CSV an hour".
+
+Placed ABOVE the buttons that start a session, not after them: it is a decision to
+make before recording. `ContinuousImuToggle` is an expect/actual (the setting is
+Android prefs read by a service, invisible to commonMain), no-op on desktop, same
+convention as `pipSupported()`.
+
+401 jvmTest, 430 androidHostTest, `:androidApp:assembleDebug`.

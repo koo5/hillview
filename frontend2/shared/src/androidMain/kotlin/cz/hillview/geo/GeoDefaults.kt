@@ -1,5 +1,7 @@
 package cz.hillview.geo
 
+import cz.hillview.external.ExternalImuSettings
+
 /**
  * Starting values for each activity's [GeoConfig] — deliberately HERE, next
  * to the call sites that start the engine, and not inside the engine itself.
@@ -42,7 +44,16 @@ fun captureGeoConfig(gpsIntervalMs: Long = GPS_INTERVAL_DEFAULT_MS) = GeoConfig(
  * taken in another app are stamped from this record afterwards. Same rates
  * as capture; the difference is that it keeps running with the screen off.
  */
-fun externalCameraConfig(gpsIntervalMs: Long = GPS_INTERVAL_DEFAULT_MS) = GeoConfig(
+fun externalCameraConfig(
+    gpsIntervalMs: Long = GPS_INTERVAL_DEFAULT_MS,
+    /**
+     * Continuous inertial logging, from `ExternalImuSettings`. A PARAMETER and
+     * not a read inside this function, because both claimants must pass the same
+     * value: `GeoEngine.mergedConfig` resolves this with `any { }`, so one
+     * claimant still saying true would quietly override the other's false.
+     */
+    imuContinuous: Boolean = ExternalImuSettings.DEFAULT_CONTINUOUS,
+) = GeoConfig(
     sensors = true,
     sensorDelayUs = SENSOR_DELAY_NORMAL_US,
     locationIntervalMs = gpsIntervalMs,
@@ -53,7 +64,7 @@ fun externalCameraConfig(gpsIntervalMs: Long = GPS_INTERVAL_DEFAULT_MS) = GeoCon
     // window, so without this the one mode a whole drive might be spent in
     // records no inertial data at all. See GeoConfig.imuContinuous for what it
     // costs and why it is not decimated.
-    imuContinuous = true,
+    imuContinuous = imuContinuous,
     // The sentence above, made true: until 2026-08-19 the sensor service's
     // own lifecycle observer paused the sensors the moment the system camera
     // app came to the front — exactly when this mode needs them. The engine

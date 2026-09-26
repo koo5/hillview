@@ -818,7 +818,20 @@ second is fetched only by something that wants it.
   nobody has measured a long interval run's database against it, and there is no
   pruning of `imuSamplesJson` after a successful upload. A row keeps its window
   forever.
-- **A toggle for the external camera's continuous capture.** ~100 MB of CSV an
+- **`lens.intrinsics_available` is answered: FALSE on a real device**
+  (2026-09-26, the phone under test). No factory `LENS_INTRINSIC_CALIBRATION`
+  and no `LENS_DISTORTION`, and `focus_distance_calibration` is `uncalibrated`.
+  Which turns out to vindicate capturing the sensor geometry SEPARATELY from the
+  calibration: `focal_length_mm` 5.58, `sensor_physical_size_mm` [7.39, 5.55] and
+  `sensor_pixel_array` [4624, 3472] all arrived, and they derive a pinhole model
+  that is self-consistent to 0.02 % — fx = 3491.5 px, fy = 3490.8 px, i.e. square
+  pixels, which is the sanity check that the three numbers are real. So a solver
+  on this phone gets a usable focal length prior without the factory data, and
+  `intrinsics_available: false` is the field doing exactly the job it was added
+  for: saying "this device publishes none" rather than "this app did not look".
+  Also now a measured number rather than a hypothetical:
+  `rolling_shutter_skew_ns` 31 089 628 — **31.1 ms** of readout per frame.
+- **~~A toggle for the external camera's continuous capture.~~ DONE 2026-09-26.** ~100 MB of CSV an
   hour is a user-visible amount of someone's storage, and a multi-hour drive
   deserves an off switch. The config flag exists (`GeoConfig.imuContinuous`);
   what is missing is the control in the external activity that sets it.
