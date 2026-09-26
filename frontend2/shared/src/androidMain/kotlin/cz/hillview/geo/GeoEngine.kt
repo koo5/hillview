@@ -761,6 +761,7 @@ class GeoEngine private constructor(private val context: Context) {
         // Nothing is measuring it any more, so stop claiming a value: a stale
         // gravity vector under a fresh shutter is the `0f` mistake again.
         _motion.value = null
+        Log.i(TAG, "motion sensors unregistered")
     }
 
     // Sized so the DEFERRED read still finds the whole window: 6 s of it plus a
@@ -976,7 +977,15 @@ class GeoEngine private constructor(private val context: Context) {
         (context.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager)
             ?.unregisterListener(imuListener)
         imuRegistered = false
+        imuSensorCount = 0
         imuRing.clear()
+        // Logged because "off" is a CLAIM about power, and a claim about power
+        // has to be checkable from a log. The registration has always logged;
+        // without its counterpart, a device trace showed `imu=false` in the
+        // merged config and nothing at all about the sensors actually stopping —
+        // which is the only thing the external toggle and leaving the capture
+        // pane are supposed to achieve.
+        Log.i(TAG, "IMU ring unregistered (sensors stopped, ring cleared)")
     }
 
     /**

@@ -153,8 +153,23 @@ FASTEST and batching coexist, and the timeline holds — 500 samples across 2493
 rather than collapsed onto one instant, which is the regression the clock change
 prevents.
 
-**`fifo=0/0`: the emulator has no hardware FIFO**, so the budget is accepted and
-ignored. A pass proves the registration is valid and the derived clock is sane; it
+### And then on real hardware (Armor 22, 2026-09-26)
+
+    IMU ring registered at FASTEST, batching 1000ms
+      (ACCELEROMETER fifo=4500/3000, GYROSCOPE fifo=4500/3000)
+
+**A 4 500-event FIFO with 3 000 reserved per sensor.** So batching is real here, not
+merely accepted: at the measured ~400 Hz per sensor a 1 s budget needs 400 events,
+13 % of what is reserved, and the reserved depth could hold **7.5 s** per sensor.
+The IMU stream's wakeups go from roughly 800 a second to about one.
+
+The budget is therefore conservative rather than optimistic, and it is bounded by
+taste rather than by the hardware — the tiling argument means a longer one costs
+nothing but tail re-attribution. There is room to raise it if a measurement ever
+justifies the bother.
+
+**`fifo=0/0` on the emulator**, by contrast, so the budget is accepted and
+ignored there. A pass proves the registration is valid and the derived clock is sane; it
 does NOT prove any power saving, and it does not exercise a real burst. Only a
 device with a non-zero `fifo=` can, and that log line is where to look.
 

@@ -2444,3 +2444,33 @@ Two findings from reading the log rather than the green result:
 
 401 jvmTest, 433 androidHostTest, 378 connectedAndroidDeviceTest,
 `:androidApp:assembleDebug`.
+
+## 2026-09-26 — batching measured on hardware: a 4500-event FIFO
+
+    IMU ring registered at FASTEST, batching 1000ms
+      (ACCELEROMETER fifo=4500/3000, GYROSCOPE fifo=4500/3000)
+
+The question only a device could answer, answered. The Armor 22 has a 4 500-event
+FIFO with **3 000 reserved per sensor**, so batching is real here rather than
+accepted-and-ignored. At the measured ~400 Hz per sensor a 1 s budget needs 400
+events — 13 % of reserved, and the reserved depth could hold 7.5 s. **The IMU
+stream's AP wakeups drop from roughly 800 a second to about one.**
+
+So `IMU_BATCH_LATENCY_MS = 1000` is conservative, limited by taste rather than
+hardware. Raising it costs only tail re-attribution, which the tiling absorbs.
+
+Also confirmed in the same trace: `lens facts: intrinsics=ABSENT ...
+physMm=7.39x5.55 pixels=4624x3472 focusCal=uncalibrated` — matching the
+`dumpsys media.camera` dump exactly, from a completely different code path.
+
+**An observability gap the trace exposed.** Leaving the capture pane produced
+`imu=false` in the merged config and then *nothing at all* about the sensors
+actually stopping, because `stopImuSensors` was silent while its registration
+counterpart had always logged. "Off" is a claim about power, and a claim about
+power has to be checkable from a log — especially since it is the entire point of
+the external toggle. Both stop paths log now (`stopMotionSensors` was asymmetric
+too).
+
+Not yet exercised on hardware: the window and the payload, because that trace took
+no photo. `IMU window for <id>: …` and an `imu_samples` key in the upload metadata
+are still unconfirmed on a device.
