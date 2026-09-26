@@ -141,6 +141,14 @@ data class GeoConfig(
  * follows the StampRefiner's existing "wait for the window to close, then read"
  * pattern and fits inside the upload hold it already takes.
  */
+/**
+ * The fastest IMU period that needs NO permission: 200 Hz, the ceiling Android 12
+ * set for an app without HIGH_SAMPLING_RATE_SENSORS. The fallback rate when
+ * FASTEST is refused — still enough to describe a hand-held wobble, not enough to
+ * resolve a 1/60 s shutter, which is the experiment that wanted full rate.
+ */
+const val IMU_UNPRIVILEGED_PERIOD_US = 5_000
+
 const val IMU_WINDOW_HALF_MS = 3_000L
 
 /** Margin past the window's end before reading it — IO and main-thread hops. */
@@ -798,13 +806,65 @@ class GeoEngine private constructor(private val context: Context) {
         // 1/60 s shutter. This is the one stream whose rate is set by what it is
         // FOR rather than by the activity's power budget — which is exactly why
         // it is behind GeoConfig.imu and off for map viewing.
-        wanted.forEach {
-            manager.registerListener(
-                imuListener, it, android.hardware.SensorManager.SENSOR_DELAY_FASTEST, handler,
-            )
-        }
+        //
+        // FASTEST is 0 µs, and since Android 12 a rate above 200 Hz needs the
+        // NORMAL permission HIGH_SAMPLING_RATE_SENSORS (declared in the app
+        // manifest). Without it registerListener THROWS rather than clamping —
+        // which took the whole app down on startup the first time this reached a
+        // real phone, because this runs from applyConfig on the main thread.
+        //
+        // So it is guarded, and the guard is not only about that permission: no
+        // sensor this engine opens for a NICE-TO-HAVE may be able to kill the
+        // process. An OEM that refuses a rate, a sensor that vanishes under a
+        // policy, a permission a future release renames — each one costs the
+        // user their app for a signal they did not ask for. Degrade to the
+        // fastest rate that needs no permission and say so.
+        val rate = registerImu(manager, wanted, android.hardware.SensorManager.SENSOR_DELAY_FASTEST)
+            ?: registerImu(manager, wanted, IMU_UNPRIVILEGED_PERIOD_US)
+            ?: run {
+                Log.w(TAG, "could not register the IMU at any rate — no windows this session")
+                manager.unregisterListener(imuListener)
+                return
+            }
         imuRegistered = true
-        Log.i(TAG, "IMU ring registered (${wanted.joinToString { s -> s.name }})")
+        Log.i(
+            TAG,
+            "IMU ring registered at ${if (rate == 0) "FASTEST" else "${rate}µs"} " +
+                "(${wanted.joinToString { s -> s.name }})",
+        )
+    }
+
+    /**
+     * Register every IMU sensor at one rate, or report failure without leaving
+     * half of them attached.
+     *
+     * Returns the rate on success and null if any registration was refused or
+     * rejected, having unregistered whatever had already been accepted — a
+     * partial registration would silently produce a window with an accelerometer
+     * and no gyroscope, which reads as "this device has no gyroscope".
+     */
+    private fun registerImu(
+        manager: android.hardware.SensorManager,
+        wanted: List<android.hardware.Sensor>,
+        rateUs: Int,
+    ): Int? = try {
+        if (wanted.all { manager.registerListener(imuListener, it, rateUs, handler) }) {
+            rateUs
+        } else {
+            Log.w(TAG, "IMU registration refused at ${rateUs}µs")
+            manager.unregisterListener(imuListener)
+            null
+        }
+    } catch (e: SecurityException) {
+        // The documented one: HIGH_SAMPLING_RATE_SENSORS missing for a rate
+        // above 200 Hz.
+        Log.w(TAG, "IMU registration at ${rateUs}µs not permitted: ${e.message}")
+        manager.unregisterListener(imuListener)
+        null
+    } catch (e: RuntimeException) {
+        Log.w(TAG, "IMU registration at ${rateUs}µs failed: ${e.message}")
+        manager.unregisterListener(imuListener)
+        null
     }
 
     private fun stopImuSensors() {

@@ -2080,3 +2080,41 @@ end-to-end, `:androidApp:assembleDebug`. GeoTrackingDatabase v4 identityHash
 matches across both apps, and both databases' full migration chains were validated
 against the exported schemas on real SQLite (`PhotoDatabaseMigrationTest` is an
 androidDeviceTest and had never run, so 25→26 was unchecked until this).
+
+## 2026-09-26 — the phone crash: FASTEST needs a permission
+
+First run on a real phone, and the app died on startup:
+
+```
+java.lang.SecurityException: To use the sampling rate of 0 microseconds, app
+needs to declare the normal permission HIGH_SAMPLING_RATE_SENSORS.
+    at cz.hillview.geo.GeoEngine.startImuSensors(GeoEngine.kt:814)
+```
+
+`SENSOR_DELAY_FASTEST` is 0 µs, and since Android 12 any rate above 200 Hz needs
+`HIGH_SAMPLING_RATE_SENSORS` — a NORMAL permission, granted at install with no
+prompt. `registerListener` does not clamp the rate, it THROWS, and
+`startImuSensors` runs from `applyConfig` on the main thread, so the whole process
+went down. Nothing in the host test suites could see it: it needs real hardware,
+and the emulator's synthesized sensors never exercised the path.
+
+Two fixes, because the permission alone is not enough.
+
+- **Declared the permission** in `frontend2/androidApp/src/main/AndroidManifest.xml`.
+  This is the intended answer: the high rate is the point of the window — the
+  shape of the signal across a 1/60 s shutter, which 200 Hz cannot describe.
+- **Guarded the registration.** No sensor this engine opens for a nice-to-have
+  may be able to kill the process. `registerImu` tries FASTEST, falls back to
+  `IMU_UNPRIVILEGED_PERIOD_US` (200 Hz, the ceiling that needs no permission),
+  and gives up with a log if both are refused — catching `SecurityException` and
+  `RuntimeException`, and unregistering partial success so a window can never come
+  back with an accelerometer and no gyroscope while reading as "this device has no
+  gyroscope".
+
+Audited every other `registerListener` while here: the engine's other rates are
+30 ms and 100 ms (33 Hz / 10 Hz), well under the threshold, and
+`EnhancedSensorService` already logs a refusal. `startMotionSensors` registers at
+`active.sensorDelayUs`, which `mergedConfig` can compute as 0 — but
+`sensorsWanted()` gates on `active.sensors`, which is only true when a claim
+supplied a real rate, so 0 is unreachable. Both IMU configs set `sensors = true`,
+so that same gate does not strand the IMU either.

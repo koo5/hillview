@@ -13,6 +13,17 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!-- Accelerometer/gyroscope above 200 Hz, for the IMU window around an
+         exposure (GeoEngine.startImuSensors, SENSOR_DELAY_FASTEST). A NORMAL
+         permission: granted at install, no runtime prompt, no user-visible
+         dialog. Required since Android 12 (API 31) — without it
+         registerListener THROWS SecurityException rather than quietly clamping
+         the rate, which crashed the app on startup the first time this reached
+         a real phone. The high rate is the point: the shape of the signal
+         across a 1/60 s shutter is what the window is for, and 200 Hz cannot
+         describe it. See docs/recon-capture-metadata.md. -->
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+
     <!-- Upload notifications (shared-kt NotificationHelper / PhotoUploadWorker). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
