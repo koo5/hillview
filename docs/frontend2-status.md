@@ -2154,3 +2154,43 @@ Also seen in the log, not an error: `Method exceeds compiler instruction limit:
 17574 in CaptureScreen`. ART declining to optimize one very large composable and
 falling back to the interpreter for it. A performance note about a method that has
 grown too big, worth splitting, and unrelated to correctness.
+
+**Superseded the same day** — see the next entry. The deadline-only version of
+this fix was still a timeout, and the user said so: "this all still seems like a
+race condition waiting to happen." They were right twice over.
+
+## 2026-09-26 — the upload hold gets named holders
+
+The previous entry's fix was a longer timeout wearing a dependency's clothes, and
+the user called it: *"idk, this all still seems like a race condition waiting to
+happen."* It was. The pass started polling for the claim at T+3150, could wait 5 s
+for it, and the hold expired at T+9150 — leaving ~850 ms for two database writes.
+On a busy device the upload still left first, silently. Tuning that margin makes
+the race rarer, not absent.
+
+The second attempt kept one deadline and had each holder release down to the
+OTHER's, which is sound arithmetic while the two deadlines differ. **They were
+equal** (both `UPLOAD_HOLD_MS`), so neither release lowered anything and every
+photo would have waited the full minute. `UploadHoldTest` failed on exactly that
+case before the code shipped — the first time in this whole stretch of work that a
+test, rather than a phone or a hand-trace, caught the bug.
+
+So the holders are NAMED. `photos.uploadHoldReasons` (v27) is a bitmask —
+`UPLOAD_HOLD_REFINER`, `UPLOAD_HOLD_IMU_WINDOW` — each holder clears its own bit
+with `releaseUploadHold(photoId, bit)`, and the drain's selection became
+`(uploadHoldReasons = 0 OR uploadHoldUntil <= :now)`. The row goes as soon as the
+last holder is done, in either order, with no waiting. `uploadHoldUntil` is now
+**crash recovery only**: the escape hatch for a holder that died mid-enrichment.
+
+Two holders cannot be encoded in one deadline. That is the whole lesson, and it
+took two wrong answers to get there.
+
+`UploadHoldTest` (9 tests) pins it: neither holder frees the row alone, either
+order frees it immediately once both are done, a holder clears only its own bit, a
+repeated release is idempotent, a photo the refiner ignores is still held for its
+window, a row nobody owes is claimable at once, and a dead holder still gets freed
+by the deadline.
+
+Verified: 399 jvmTest, 430 androidHostTest, `:androidApp:assembleDebug`,
+PhotoDatabase v27 identityHash matching across both apps, and the 26→27 migration
+validated against the exported schemas on real SQLite.

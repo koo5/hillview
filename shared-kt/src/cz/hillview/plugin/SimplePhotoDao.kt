@@ -110,7 +110,7 @@ interface SimplePhotoDao {
 
     @Query("""
         SELECT * FROM photos
-        WHERE deleted = 0 AND uploadHoldUntil <= :now
+        WHERE deleted = 0 AND (uploadHoldReasons = 0 OR uploadHoldUntil <= :now)
         AND NOT EXISTS (
             SELECT 1 FROM photo_outbox o
             WHERE o.photoId = photos.id
@@ -158,7 +158,7 @@ interface SimplePhotoDao {
     // `deleted` next to it is the other thing entirely: what the SERVER says.
     @Query("""
         SELECT * FROM photos
-        WHERE deleted = 0 AND uploadHoldUntil <= :now
+        WHERE deleted = 0 AND (uploadHoldReasons = 0 OR uploadHoldUntil <= :now)
           AND NOT EXISTS (
               SELECT 1 FROM photo_outbox o
               WHERE o.photoId = photos.id
@@ -208,11 +208,8 @@ interface SimplePhotoDao {
     // out from under the other, which is how the IMU window ended up missing
     // from uploads. `notBefore` is the other holders' latest deadline: pass 0
     // only when nothing else is still filling this row.
-    @Query(
-        "UPDATE photos SET uploadHoldUntil = :notBefore " +
-            "WHERE id = :photoId AND uploadHoldUntil > :notBefore",
-    )
-    fun releaseUploadHold(photoId: String, notBefore: Long)
+    @Query("UPDATE photos SET uploadHoldReasons = uploadHoldReasons & ~:bit WHERE id = :photoId")
+    fun releaseUploadHold(photoId: String, bit: Int)
 
     /**
      * The IMU window's summary, written AFTER the row exists.
@@ -244,7 +241,10 @@ interface SimplePhotoDao {
      * backstop instead of a tight one — a real crash recovers on the next
      * launch rather than by waiting the deadline out.
      */
-    @Query("UPDATE photos SET uploadHoldUntil = 0 WHERE uploadHoldUntil > 0")
+    @Query(
+        "UPDATE photos SET uploadHoldUntil = 0, uploadHoldReasons = 0 " +
+            "WHERE uploadHoldUntil > 0 OR uploadHoldReasons != 0",
+    )
     fun clearAllUploadHolds(): Int
 
     /**

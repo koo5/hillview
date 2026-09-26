@@ -1472,6 +1472,9 @@ class PhotoUploadLogic(internal val context: Context) {
         // keeps the drain off the row until then, so refinement wins the
         // race against an expedited upload.
         uploadHoldUntil: Long = 0,
+        // Which enrichers still owe this row (PhotoEntity.uploadHoldReasons).
+        // The deadline above is only the escape hatch if one of them dies.
+        uploadHoldReasons: Int = 0,
     ): String {
         // Generate ID if not provided (using the hash from Rust)
         val photoId = if (id.isNullOrEmpty()) {
@@ -1511,6 +1514,7 @@ class PhotoUploadLogic(internal val context: Context) {
             lensJson = lensJson,
             motionJson = motionJson,
             uploadHoldUntil = uploadHoldUntil,
+            uploadHoldReasons = uploadHoldReasons,
         )
 
         // Insert into database (will replace if exists due to OnConflictStrategy.REPLACE)

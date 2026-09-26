@@ -5,6 +5,17 @@ import androidx.room.PrimaryKey
 import androidx.room.ColumnInfo
 import androidx.room.Index
 
+/**
+ * [PhotoEntity.uploadHoldReasons] bits — one per enricher that finishes AFTER the
+ * row exists. A row is uploadable once none remain set, or once
+ * [PhotoEntity.uploadHoldUntil] expires, which is crash recovery only.
+ */
+/** The stamp refiner is still interpolating this row's position and bearing. */
+const val UPLOAD_HOLD_REFINER = 1
+
+/** The deferred IMU window around this exposure has not landed yet. */
+const val UPLOAD_HOLD_IMU_WINDOW = 2
+
 @Entity(
     tableName = "photos",
     indices = [
@@ -109,6 +120,24 @@ data class PhotoEntity(
     // early by the refiner (success or defeat). A timestamp, not a status,
     // so a crash mid-refine cannot strand the row: time alone re-arms it.
     val uploadHoldUntil: Long = 0,
+
+    /**
+     * Which enrichers have not finished with this row yet, as a bitmask (v27) —
+     * see [UPLOAD_HOLD_REFINER] and [UPLOAD_HOLD_IMU_WINDOW].
+     *
+     * The hold has more than one holder, and that cannot be expressed as a
+     * deadline. Two enrichers finish at different times and neither may free the
+     * row while the other is still filling it; encoding that in
+     * [uploadHoldUntil] alone means each one releasing to the OTHER's deadline,
+     * which silently does nothing when the two deadlines are equal — and in
+     * practice they were, so every photo waited out the full hold. A UploadHoldTest
+     * case caught exactly that.
+     *
+     * So the deadline is now only CRASH RECOVERY: a row whose enricher died is
+     * freed when it expires. The normal path is each holder clearing its own bit,
+     * and the row is uploadable once no bits remain.
+     */
+    val uploadHoldReasons: Int = 0,
 
     // When the stamp refiner (v16) replaced the at-the-time values with
     // interpolated ones — location interpolated across the bracketing fixes,

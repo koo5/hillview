@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     // GeoTrackingDatabase in v18 — see that file for why. What is left here is
     // durable and low-rate: a capture and the edits that belong to it.
     entities = [PhotoEntity::class, EditEntity::class, PhotoOutboxEntity::class],
-    version = 26,
+    version = 27,
     // Schemas are exported per app (they compile these entities with different
     // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
     // docs/geo-election-test-todo.md item 6. Both agree on the identityHash;
@@ -579,6 +579,22 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_26_27 = object : Migration(26, 27) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// Which enrichers still hold this row's upload (PhotoEntity
+				// .uploadHoldReasons). The hold had one deadline and two holders,
+				// so whichever finished first freed the row out from under the
+				// other — and encoding two holders in one deadline does not work
+				// when their deadlines coincide, which is the normal case.
+				//
+				// 0 on existing rows: nothing is mid-enrichment across an upgrade,
+				// and StartupReconciler clears stale holds at launch anyway.
+				database.execSQL(
+					"ALTER TABLE photos ADD COLUMN uploadHoldReasons INTEGER NOT NULL DEFAULT 0",
+				)
+			}
+		}
+
 		/**
 		 * Every migration, in one list, so the runtime builder and
 		 * PhotoDatabaseMigrationTest cannot disagree about which ones exist.
@@ -589,7 +605,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 			MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
 			MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
 			MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
-			MIGRATION_25_26,
+			MIGRATION_25_26, MIGRATION_26_27,
 		)
 
         fun getDatabase(context: Context): PhotoDatabase {

@@ -134,13 +134,6 @@ class StampRefiner private constructor(private val context: Context) {
 		capturedAtMs: Long,
 		locationSource: String?,
 		bearingSource: String?,
-		/**
-		 * The earliest this row may become uploadable even once refinement is
-		 * done, because something ELSE is still filling it — currently the
-		 * deferred IMU window, whose deadline is later than this one's. Releasing
-		 * to 0 regardless is what made the window miss its upload.
-		 */
-		holdFloorMs: Long = 0L,
 	): Boolean {
 		val wantLocation = locationSource == "gps"
 		val wantCompass = bearingSource?.startsWith("android") == true
@@ -162,7 +155,10 @@ class StampRefiner private constructor(private val context: Context) {
 				// drain — the hold made it skip this row, so without a poke
 				// the photo would wait for the next trigger.
 				try {
-					database.photoDao().releaseUploadHold(photoId, holdFloorMs)
+					// This holder's bit only. Another enricher (the deferred IMU
+					// window) may still be filling the row, and clearing the whole
+					// hold here is what let its payload miss the upload.
+					database.photoDao().releaseUploadHold(photoId, UPLOAD_HOLD_REFINER)
 					PhotoUploadManager(context).startAutomaticUpload("refine")
 				} catch (e: Exception) {
 					Log.w(TAG, "hold release for $photoId failed (deadline will free it)", e)
