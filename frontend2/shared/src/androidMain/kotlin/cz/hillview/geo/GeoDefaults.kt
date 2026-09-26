@@ -66,6 +66,15 @@ fun externalCameraConfig(
     //
     // A capture claim, if one is also live, still sets this through
     // `mergedConfig`'s `any { it.imu }`, so nothing is lost for app photos.
+    //
+    // WHAT THIS REPLACED, because the reasoning matters more than the line: it was
+    // `imu = true`, justified as "photos are taken in this mode too — by another
+    // app, stamped from this record afterwards — so the window is worth keeping
+    // here as well". That contradicted the very next comment, which says nothing
+    // here fires a shutter. Both cannot hold: a photo taken by ANOTHER app does
+    // not trigger our window, so no window was ever built in this mode and the
+    // flag's stated purpose was never real. Its only actual function was feeding
+    // the ring for the continuous flush — which is what it now says.
     imu = imuContinuous,
     // And CONTINUOUSLY, at full rate: nothing here fires a shutter to trigger a
     // window, so without this the one mode a whole drive might be spent in
