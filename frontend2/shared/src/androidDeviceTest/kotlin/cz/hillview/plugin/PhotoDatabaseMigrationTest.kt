@@ -127,7 +127,10 @@ class PhotoDatabaseMigrationTest {
     @Test
     fun theWholeChainRunsAndMatchesTheEntities() {
         helper.createDatabase(DB, 14).close()
-        helper.runMigrationsAndValidate(DB, 23, true, *PhotoDatabase.MIGRATIONS)
+        // PHOTO_DB_VERSION, never a literal: this assertion targeted 23 while the
+        // database moved to 28, so it passed for five versions without validating
+        // any of them.
+        helper.runMigrationsAndValidate(DB, PHOTO_DB_VERSION, true, *PhotoDatabase.MIGRATIONS)
     }
 
     /**

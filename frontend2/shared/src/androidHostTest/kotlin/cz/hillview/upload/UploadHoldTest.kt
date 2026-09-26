@@ -30,17 +30,28 @@ import kotlin.test.assertTrue
 class UploadHoldTest {
 
     /** `photos.uploadHoldUntil` + `uploadHoldReasons`, and the operations on them. */
-    private class Row(reasons: Int, val deadline: Long) {
+    private class Row(reasons: Int, deadline: Long) {
         var reasons: Int = reasons
             private set
 
-        /** `SET uploadHoldReasons = uploadHoldReasons & ~:bit`. */
+        var deadline: Long = deadline
+            private set
+
+        /**
+         * `SET uploadHoldReasons = reasons & ~bit`, plus `uploadHoldUntil = 0`
+         * once no holder is left — see the DAO for why both halves are needed.
+         */
         fun release(bit: Int) {
             reasons = reasons and bit.inv()
+            if (reasons == 0) deadline = 0
         }
 
-        /** `WHERE (uploadHoldReasons = 0 OR uploadHoldUntil <= :now)`. */
-        fun claimableAt(now: Long) = reasons == 0 || deadline <= now
+        /**
+         * `WHERE uploadHoldUntil <= :now` — UNCHANGED from before the bits
+         * existed. The bits decide when the deadline is zeroed, and are never a
+         * second gate; see the DAO for the two wrong turns that proves.
+         */
+        fun claimableAt(now: Long) = deadline <= now
     }
 
     private val shutter = 1_000_000L
@@ -125,6 +136,19 @@ class UploadHoldTest {
     @Test
     fun aRowNobodyOwesIsImmediatelyClaimable() {
         assertTrue(Row(0, deadline = 0).claimableAt(shutter))
+    }
+
+    /**
+     * A hold set as a BARE DEADLINE, with no holder bit, still holds. That is the
+     * older contract (`UploadClaimRaceTest` on a device asserts it), and making
+     * the bits alone authoritative silently voided every such hold — including the
+     * stale ones `StartupReconciler` exists to clean up.
+     */
+    @Test
+    fun aBareDeadlineWithNoHolderStillHolds() {
+        val r = Row(0, deadline)
+        assertFalse(r.claimableAt(deadline - 1), "a bare deadline must still hold")
+        assertTrue(r.claimableAt(deadline))
     }
 
     // --- crash recovery, which is all the deadline is for now ---

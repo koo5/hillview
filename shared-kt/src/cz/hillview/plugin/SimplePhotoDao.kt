@@ -110,7 +110,7 @@ interface SimplePhotoDao {
 
     @Query("""
         SELECT * FROM photos
-        WHERE deleted = 0 AND (uploadHoldReasons = 0 OR uploadHoldUntil <= :now)
+        WHERE deleted = 0 AND uploadHoldUntil <= :now
         AND NOT EXISTS (
             SELECT 1 FROM photo_outbox o
             WHERE o.photoId = photos.id
@@ -158,7 +158,7 @@ interface SimplePhotoDao {
     // `deleted` next to it is the other thing entirely: what the SERVER says.
     @Query("""
         SELECT * FROM photos
-        WHERE deleted = 0 AND (uploadHoldReasons = 0 OR uploadHoldUntil <= :now)
+        WHERE deleted = 0 AND uploadHoldUntil <= :now
           AND NOT EXISTS (
               SELECT 1 FROM photo_outbox o
               WHERE o.photoId = photos.id
@@ -208,7 +208,29 @@ interface SimplePhotoDao {
     // out from under the other, which is how the IMU window ended up missing
     // from uploads. `notBefore` is the other holders' latest deadline: pass 0
     // only when nothing else is still filling this row.
-    @Query("UPDATE photos SET uploadHoldReasons = uploadHoldReasons & ~:bit WHERE id = :photoId")
+    // Clears this holder's bit, and DROPS THE DEADLINE once no holder is left.
+    //
+    // The selection predicate stays exactly what it always was —
+    // `uploadHoldUntil <= :now`. The bits are bookkeeping that decides WHEN the
+    // deadline gets zeroed, never a second gate. Two wrong turns got here:
+    //
+    //   - releasing to 0 on the first finisher freed the row while the other
+    //     holder was still filling it (the IMU payload missed its upload);
+    //   - making the bits authoritative, `reasons = 0 OR deadline <= now`,
+    //     silently voided every hold set as a bare DEADLINE with no bits, which
+    //     UploadClaimRaceTest caught on a device;
+    //   - and `reasons = 0 AND deadline <= now` let a holder that DIED wedge the
+    //     row forever, since its bit never clears.
+    //
+    // One gate, with the bits deciding when it opens, satisfies all three: held
+    // while the deadline stands, freed the moment the last holder is done, and
+    // freed by the deadline alone if a holder never comes back.
+    @Query(
+        "UPDATE photos SET uploadHoldReasons = uploadHoldReasons & ~:bit, " +
+            "uploadHoldUntil = CASE WHEN (uploadHoldReasons & ~:bit) = 0 " +
+            "THEN 0 ELSE uploadHoldUntil END " +
+            "WHERE id = :photoId",
+    )
     fun releaseUploadHold(photoId: String, bit: Int)
 
     /**

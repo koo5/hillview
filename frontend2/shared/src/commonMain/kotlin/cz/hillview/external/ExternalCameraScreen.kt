@@ -139,8 +139,13 @@ fun ExternalCameraPane(
             modifier = Modifier.testTag("external-camera-counts"),
         )
 
-        // The storage switch, above the buttons that start a session rather than
-        // buried after them: it is a decision to make BEFORE recording, not after.
+        // Directly under the row counts, because that is the readout of the thing
+        // it controls. NOT "before you start recording": there is no start
+        // button — MainScreen calls setRunning(activity == "external"), so the
+        // session is already running by the time this pane is on screen and the
+        // header already says "● recording". Which is precisely why flipping this
+        // has to take effect live, and why both claimants of `imuContinuous`
+        // re-claim on change (see ExternalImuSettings).
         ContinuousImuToggle()
 
         Row(

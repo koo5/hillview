@@ -57,9 +57,16 @@ fun externalCameraConfig(
     sensors = true,
     sensorDelayUs = SENSOR_DELAY_NORMAL_US,
     locationIntervalMs = gpsIntervalMs,
-    // Photos are taken in this mode too — by another app, stamped from this
-    // record afterwards — so the window is worth keeping here as well.
-    imu = true,
+    // FOLLOWS the toggle, and must: in this mode nothing fires a shutter, so the
+    // continuous flush below is the ring's ONLY consumer. Left at `true` with the
+    // flush off, the accelerometer and gyroscope would stay registered at
+    // SENSOR_DELAY_FASTEST filling a buffer nobody ever reads — the whole battery
+    // cost of the feature with none of the data. Switching it off has to mean the
+    // sensors stop, not just the writing.
+    //
+    // A capture claim, if one is also live, still sets this through
+    // `mergedConfig`'s `any { it.imu }`, so nothing is lost for app photos.
+    imu = imuContinuous,
     // And CONTINUOUSLY, at full rate: nothing here fires a shutter to trigger a
     // window, so without this the one mode a whole drive might be spent in
     // records no inertial data at all. See GeoConfig.imuContinuous for what it

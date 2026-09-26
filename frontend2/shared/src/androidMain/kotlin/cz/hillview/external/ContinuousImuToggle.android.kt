@@ -42,7 +42,8 @@ actual fun ContinuousImuToggle() {
                 if (on) {
                     "Full rate, for shutter detection. Roughly 100 MB of CSV an hour."
                 } else {
-                    "Off: samples are kept only around this app's own captures."
+                    "Off: the inertial sensors stop. Heading and position are " +
+                        "still recorded as usual."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.testTag("external-imu-continuous-note"),

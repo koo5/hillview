@@ -2289,9 +2289,64 @@ bracket, so there is no shutter to build a window around. Off is a storage
 decision, and the UI says the number, because "continuously" sounds free until
 you read "roughly 100 MB of CSV an hour".
 
-Placed ABOVE the buttons that start a session, not after them: it is a decision to
-make before recording. `ContinuousImuToggle` is an expect/actual (the setting is
-Android prefs read by a service, invisible to commonMain), no-op on desktop, same
-convention as `pipSupported()`.
+Placed directly under the "Recorded: N heading rows · N location rows" line,
+because that is the readout of what it controls. An earlier note here said "above
+the buttons that start a session, a decision to make before recording" — that was
+wrong on both counts: the buttons below it are *Open camera app*, *Float over
+camera* and *Export CSVs now*, none of which start anything, and there IS no start
+button. `MainScreen` calls `setRunning(activity == "external")`, so the session is
+already running when the pane appears and the header already reads "● recording".
+Which is exactly why the switch has to act LIVE, and why the `any { }` merge trap
+above was the whole problem rather than a detail.
+
+`ContinuousImuToggle` is an expect/actual (the setting is Android prefs read by a
+foreground service, invisible to commonMain), no-op on desktop, same convention as
+`pipSupported()`.
 
 401 jvmTest, 430 androidHostTest, `:androidApp:assembleDebug`.
+
+## 2026-09-26 — the emulator finds three things the host tests could not
+
+`androidDeviceTest` had **never been run** in this work — 376 tests sitting there,
+and `PhotoDatabaseMigrationTest` is the only thing that validates a migration
+against real SQLite. Booting the local AVD found three real defects within minutes.
+
+**1. The whole-chain test had gone stale by five versions.**
+`theWholeChainRunsAndMatchesTheEntities` validated 14 → **23** while the database
+went to 28, so it kept passing without ever checking `attitudeJson`, the
+fix/lens/inertial trio, `imuSamplesJson`, `uploadHoldReasons` or the rename. A
+hardcoded target in the test whose whole job is catching drift is the one place
+drift hides. Both databases now expose `PHOTO_DB_VERSION` / `GEO_DB_VERSION`, used
+by the `@Database` annotation AND by the test, so it cannot fall behind again.
+
+**2. A rewritten migration, which would have broken every fresh install.**
+Targeting 28 immediately failed: `no such column: "motionJson"`. The blanket
+`motionJson` → `inertialJson` rename had swept up `MIGRATION_24_25`'s SQL, so a
+fresh chain created the column already named `inertialJson` and then v28's RENAME
+found nothing. It still worked on a device that had the ORIGINAL v25 — which is
+exactly why the hand-written 27→28 sqlite3 check passed: it started at 27. A
+migration is history and must not be edited; restored, with the reason at the line.
+
+**3. My upload-hold change silently voided bare-deadline holds.**
+`UploadClaimRaceTest` asserts that a row with a future `uploadHoldUntil` is
+invisible to the drain. Making the holder bits authoritative
+(`reasons = 0 OR deadline <= now`) broke that for every hold set as a deadline with
+no bits — including the stale ones `StartupReconciler` exists to clear. The obvious
+patch, `AND`, was worse: a holder that DIED would wedge the row forever, since its
+bit never clears.
+
+The rule that satisfies all three cases is simpler than either: **the deadline
+alone decides, exactly as before the bits existed, and the bits only decide when
+the deadline is zeroed.** The last holder to release clears it; a dead holder
+leaves it standing and the deadline frees the row. The selection predicate is back
+to the `uploadHoldUntil <= :now` it always was, so nothing outside this mechanism
+had to learn anything.
+
+Also added `GeoTrackingDatabaseMigrationTest` — that database went to v4
+(`fusedSensorAccuracy`, `imu_samples`, `imu_claims`) with no device test at all. Its
+first version failed too, because my INSERT guessed the v1 column names; reading
+`schemas/…/1.json` showed the heading is `trueHeading` and there is no `elected`
+yet.
+
+401 jvmTest, 431 androidHostTest, **376 connectedAndroidDeviceTest**, 296 API unit,
+`:androidApp:assembleDebug`.

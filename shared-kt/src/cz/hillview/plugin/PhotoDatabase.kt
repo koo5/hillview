@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     // GeoTrackingDatabase in v18 — see that file for why. What is left here is
     // durable and low-rate: a capture and the edits that belong to it.
     entities = [PhotoEntity::class, EditEntity::class, PhotoOutboxEntity::class],
-    version = 28,
+    version = PHOTO_DB_VERSION,
     // Schemas are exported per app (they compile these entities with different
     // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
     // docs/geo-election-test-todo.md item 6. Both agree on the identityHash;
@@ -562,7 +562,14 @@ abstract class PhotoDatabase : RoomDatabase() {
 				// Null on existing rows: taken before any of it was kept.
 				database.execSQL("ALTER TABLE photos ADD COLUMN fixJson TEXT")
 				database.execSQL("ALTER TABLE photos ADD COLUMN lensJson TEXT")
-				database.execSQL("ALTER TABLE photos ADD COLUMN inertialJson TEXT")
+				// `motionJson`, its name AT THE TIME. A migration is history and
+				// must not be rewritten: a blanket motionJson -> inertialJson
+				// rename swept this line up, and then v28's RENAME COLUMN failed
+				// on every FRESH install ("no such column: motionJson") while
+				// still working on a device that had the original v25. The
+				// emulator's whole-chain test caught it; the hand-written 27->28
+				// check did not, because it only ever started at 27.
+				database.execSQL("ALTER TABLE photos ADD COLUMN motionJson TEXT")
 			}
 		}
 
@@ -632,4 +639,16 @@ abstract class PhotoDatabase : RoomDatabase() {
             }
         }
     }
-}
+}/**
+ * The schema version, as a named constant so the MIGRATION TEST can assert it
+ * reaches the current one instead of a literal that silently falls behind.
+ *
+ * It had fallen behind: `theWholeChainRunsAndMatchesTheEntities` validated
+ * 14 -> 23 and kept passing while the database went to 28, so five migrations
+ * (attitudeJson, the fix/lens/inertial trio, imuSamplesJson, uploadHoldReasons,
+ * the inertial rename) were never once validated against the entities. A hardcoded
+ * target in a test whose job is to catch drift is the one place drift hides.
+ */
+const val PHOTO_DB_VERSION = 28
+
+

@@ -8,6 +8,13 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
+ * The schema version, named so its migration test targets the CURRENT one rather
+ * than a literal. `PhotoDatabase`'s equivalent literal had gone stale by five
+ * versions while its "whole chain" test kept passing — see [PHOTO_DB_VERSION].
+ */
+const val GEO_DB_VERSION = 4
+
+/**
  * The sensor record: bearings, locations, and the source lookup they key on.
  *
  * Its own file, deliberately. These tables and `photos` have opposite natures
@@ -37,7 +44,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         BearingEntity::class, LocationEntity::class, SourceEntity::class,
         ImuSampleEntity::class, ImuClaimEntity::class,
     ],
-    version = 4,
+    version = GEO_DB_VERSION,
     // Exported per app into shared-kt/schemas/{frontend2,tauri}/, same as
     // PhotoDatabase — and with the same warning: the export is wired through a
     // processor argument Gradle does not track as an output, so a regenerated
