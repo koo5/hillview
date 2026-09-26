@@ -185,7 +185,8 @@ def test_the_imu_window_nests_inside_motion():
 		},
 	}))
 	assert out['imu_window']['sample_count'] == 104
-	# The bounds are the join key for the samples, which never come through here.
+	# What span the summary covers. The samples themselves travel as their own
+	# gzipped artifact (photos.imu_samples_url), never through this object.
 	assert out['imu_window']['window_start_ms'] == 1700000000000
 	assert out['imu_window']['gyro_peak_rad_s'] == 0.12
 	# What this capture ADDED, as opposed to what it spanned — the on-device

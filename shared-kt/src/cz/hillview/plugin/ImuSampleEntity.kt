@@ -32,10 +32,15 @@ import androidx.room.Query
  * removed from the bearings table.
  *
  * NOTE ON RETENTION: like `bearings` and `locations`, these rows are cleared
- * five minutes back on every dump, and the dump only WRITES a file when
- * tracking auto-export is on. So the raw window survives a session only with
- * export enabled; the per-photo SUMMARY in the upload's `motion` object travels
- * regardless, and is what a server-side reader gets.
+ * five minutes back on every dump. That is safe for an APP photo, whose window
+ * is copied onto its own row (`PhotoEntity.imuSamplesJson`) as soon as it
+ * closes and then uploaded — this table is a staging buffer for it, not its
+ * home.
+ *
+ * WHO READS THE DUMPED CSV: not app photos. The export exists for EXTERNAL
+ * camera frames, where the phone is a sensor logger and the `pics` pipeline
+ * reconciles these logs against frames by time. An app photo needs none of
+ * that, because everything it knows travels in its own upload.
  */
 @Entity(
     tableName = "imu_samples",
@@ -266,9 +271,6 @@ interface ImuClaimDao {
 
     @Query("SELECT * FROM imu_claims WHERE capturedAtMs = :capturedAtMs")
     fun get(capturedAtMs: Long): ImuClaimEntity?
-
-    @Query("SELECT * FROM imu_claims ORDER BY capturedAtMs ASC")
-    fun getAll(): List<ImuClaimEntity>
 
     /**
      * Cleared on the same schedule as the samples themselves — a claim on rows

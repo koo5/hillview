@@ -1472,8 +1472,10 @@ instances closed here.
   camera, synthesized rotation vector). `pics` reads neither the new bearings
   column nor the IMU CSV yet — additive, safe, waiting for a consumer.
 - **The raw samples stop at the device.** The server gets the per-photo
-  `motion.imu_window` SUMMARY; the samples themselves reach a workstation only
-  as `hillview_imu_<ms>.csv`, by hand, and only with tracking auto-export on.
+  `motion.imu_window` SUMMARY and nothing else. (Written here as "the samples
+  reach a workstation as `hillview_imu_<ms>.csv`" — corrected later the same day:
+  nothing looks an APP photo up in the tracking dumps. That export exists for
+  external camera frames, which is why it lands in `a22geo/`.)
   Getting them to the server is **Phase 5** in docs/recon-capture-metadata.md:
   a top-level `imu_samples` metadata field (deliberately NOT in the UserComment
   provenance — it is a bulk artifact, not provenance), gzipped through the
@@ -2073,7 +2075,18 @@ Also: `stored_from_ms` was added and then removed again. With a claim table the
 wire needs only the count, and the payload's own `t0_ms` says where it starts. And
 the dump now writes `hillview_imu_claims_<ms>.csv` beside the samples.
 
-**Correction, asked the same day** ("what is dumping the claims table good for?"):
+**Removed, same day.** ("what is dumping the claims table good for?", then: nobody
+looks up an app photo in the dumps at all — the pipeline reconciles them with
+EXTERNAL photos.) Both are right, and together they leave the export with no
+consumer: claims describe app-photo attribution, `pics` reads the dumps for
+external frames, and an app photo carries everything in its own upload. The
+reconciliation the export was kept for turned out to be doable entirely
+server-side — `motion.imu_window.stored_count` and the payload both arrive, so
+they can be checked against each other with nothing from the phone. That is now an
+assertion in `test_imu_samples_artifact.py` instead of a CSV, which is strictly
+better: automated rather than manual, and it runs on every integration pass.
+
+The original overclaim, for the record:
 the justification above was wrong, and the code comment repeating it has been
 fixed. Every photo carries `capturedAt`, so slicing the samples CSV by
 `capturedAt ± IMU_WINDOW_HALF_MS` gives that photo's window with no claim

@@ -471,34 +471,6 @@ class GeoTrackingManager(private val context: Context) {
 							imuSamplesToCsv(imu),
 						)
 						Log.i(TAG, "🢄📡 Dumped ${imu.size} IMU samples to $imuAt")
-						// ...and the claims, which are DIAGNOSTIC, not analytical.
-						//
-						// An earlier comment here claimed that without them "no
-						// offline reader can say which exposure any of these
-						// samples bracket". That was wrong: every photo carries
-						// capturedAt, so slicing this file by capturedAt ± the
-						// window half answers that question with no claim
-						// involved. Claims exist for a WIRE problem — keeping a
-						// sample out of three consecutive photos' payloads — and
-						// offline the whole stream is in one file, so there is no
-						// duplication to avoid.
-						//
-						// What they are actually good for is RECONCILIATION: the
-						// server receives a per-photo payload trimmed by these
-						// ranges, and this file is the only way to check offline
-						// that the payload matches what the phone attributed to
-						// that exposure. That is worth a few dozen bytes while the
-						// upload path is being verified on real devices; once it
-						// is, this is a candidate for deletion rather than a
-						// permanent part of the export.
-						val claims = database.imuClaimDao().getAll()
-						if (claims.isNotEmpty()) {
-							val claimsAt = writeExportCsv(
-								"hillview_imu_claims_${now}.csv",
-								imuClaimsToCsv(claims),
-							)
-							Log.i(TAG, "🢄📡 Dumped ${claims.size} IMU claims to $claimsAt")
-						}
 					}
 					EventLog.record(
 						"export",
@@ -626,26 +598,6 @@ class GeoTrackingManager(private val context: Context) {
 		return header + rows + "\n"
 	}
 
-	/**
-	 * What each capture attributed to itself — a DIAGNOSTIC export, not a join
-	 * key anyone needs.
-	 *
-	 * Slicing `hillview_imu_*.csv` by a photo's `capturedAt` gives that photo's
-	 * window directly; this file does not make that possible, it makes it
-	 * checkable against what the phone actually shipped to the server. See the
-	 * dump site for the longer version, including the overclaim it replaced.
-	 *
-	 * One line per PHOTO, which is also why the claim is a table rather than an
-	 * owner column on every sample: ~24 bytes a capture against a 6-byte integer
-	 * on each of a few thousand rows.
-	 */
-	private fun imuClaimsToCsv(claims: List<ImuClaimEntity>): String {
-		val header = "#capturedAtMs,fromMs,toMs,sampleCount\n"
-		val rows = claims.joinToString("\n") {
-			"${it.capturedAtMs},${it.fromMs},${it.toMs},${it.sampleCount}"
-		}
-		return header + rows + "\n"
-	}
 
 	private fun escapeCsv(value: String?): String {
 		val str = value ?: ""

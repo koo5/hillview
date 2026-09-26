@@ -176,11 +176,26 @@ a missing one as `None`, and sniffs the file type from the header's prefix.
 
 ## Phase 5 — the samples payload reaches the server · DONE 2026-09-26
 
-Everything above stopped at the device for the raw samples: they reached a
-workstation only as `hillview_imu_<ms>.csv`, by hand, and only when tracking
-auto-export was on. The per-photo `motion.imu_window` summary was all the SERVER
-got. This phase is the rest of it, and it was the user's requirement — "the 6 s
-window really has to travel with the photo".
+Everything above stopped at the device for the raw samples: the per-photo
+`motion.imu_window` summary was all the SERVER got. This phase is the rest of it,
+and it was the user's requirement — "the 6 s window really has to travel with the
+photo".
+
+**And the CSV dump was never the answer for an app photo.** An earlier draft of
+this section said the samples "reached a workstation as `hillview_imu_<ms>.csv`",
+implying that export was the route until Phase 5 replaced it. It was not a route
+at all: nothing looks an app photo up in the tracking dumps. Those exist for
+EXTERNAL camera frames — the phone as a sensor logger, `pics` reconciling the logs
+against frames by time, which is why they land in `a22geo/`. The two consumers are
+disjoint and easy to conflate:
+
+| | app photos (frontend2) | external frames (`pics`) |
+|---|---|---|
+| route | the upload carries everything: `attitude`, `fix`, `lens`, `motion`, and `imu_samples` | the CSV dumps, which are the ONLY route |
+| joined by | nothing — it is all one record | time, against the logs |
+| needs the dumps | no | yes, entirely |
+
+So Phase 5 did not replace an export path; it built the first one.
 
 **Verified end to end** against the live stack, not only in units:
 `backend/tests/integration/test_imu_samples_artifact.py` drives the real secure

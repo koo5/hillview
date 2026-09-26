@@ -898,11 +898,18 @@ fun motionProvenanceJson(s: SensorSnapshot): String? {
 /**
  * What the IMU window around the exposure contained, as the `imu_window` half
  * of the `motion` provenance — everything a reader needs to judge the frame
- * without fetching the samples, plus the bounds to fetch them WITH.
+ * WITHOUT opening the samples.
  *
- *  - `sample_count`, `window_start_ms`, `window_end_ms` — the bounds are the
- *    join key: the samples themselves live in the tracking database and reach a
- *    workstation as `hillview_imu_<ms>.csv`, where they are found by time.
+ * The samples travel with the photo now (Phase 5: `imu_samples`, a gzipped
+ * artifact at `photos.imu_samples_url`), so this is a summary beside them rather
+ * than a pointer to them. It earns its place by being cheap: a reader deciding
+ * whether a frame was steady enough to use should not have to fetch and decode
+ * tens of kilobytes to find out.
+ *
+ *  - `sample_count`, `window_start_ms`, `window_end_ms` — what span this
+ *    summary describes. NOT a lookup key into the tracking CSVs: nothing looks
+ *    an app photo up in those (see `GeoTrackingManager`'s dump — the export
+ *    exists for EXTERNAL camera frames, which have no other route).
  *  - `accel_peak_mps2` — peak RAW accelerometer magnitude, gravity included, so
  *    it sits near 9.81 on a still phone. Reported unaltered because it is what
  *    the sensor said.

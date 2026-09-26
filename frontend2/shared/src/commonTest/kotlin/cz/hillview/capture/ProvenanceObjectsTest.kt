@@ -209,7 +209,7 @@ class ProvenanceObjectsTest {
         assertNull(motionProvenanceJson(snap()))
     }
 
-    // --- the IMU window: the summary that travels, and its join key ---
+    // --- the IMU window: the cheap summary beside the payload ---
 
     private fun window() = ImuWindow(
         sampleCount = 104,
@@ -228,8 +228,9 @@ class ProvenanceObjectsTest {
         val json = imuWindowJson(window())
         listOf(
             "\"sample_count\":104",
-            // The bounds ARE the join key: the samples live in the tracking
-            // database and reach a workstation as a CSV, found by time.
+            // What span the summary covers. Not a lookup key: the samples
+            // travel with the photo (Phase 5), and nothing looks an app photo
+            // up in the tracking CSVs — those exist for external frames.
             "\"window_start_ms\":${shutterAt - 500}",
             "\"window_end_ms\":${shutterAt + 500}",
             "\"accel_peak_mps2\":10.4",

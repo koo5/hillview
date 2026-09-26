@@ -129,6 +129,42 @@ class TestImuSamplesArtifact(BasePhotoTest):
 			assert len(body[kind]["dt_us"]) == len(body[kind]["x"]) - 1
 
 	@pytest.mark.asyncio
+	async def test_the_payload_matches_the_count_the_summary_claims(self):
+		"""The end-to-end self-check, entirely server-side.
+
+		`motion.imu_window.stored_count` is how many samples the device said this
+		photo OWNS, and the payload is supposed to be exactly those. Both arrive
+		here, so the two can be checked against each other with nothing from the
+		phone — which is what made the on-device `imu_claims` CSV export
+		unnecessary: the reconciliation it was added for is this assertion.
+
+		A mismatch means the device's attribution and its payload disagree, which
+		is the failure mode the claim table exists to prevent.
+		"""
+		# The device sends both halves: the summary in `motion.imu_window` and the
+		# payload in `imu_samples`. stored_count is the sample total across
+		# sensors, which is what the payload should hold.
+		expected = sum(len(v["x"]) for v in IMU_SAMPLES.values())
+		photo = await self._upload(self._base_metadata(
+			imu_samples=IMU_SAMPLES,
+			motion={
+				"gravity": [0.0, 0.0, 9.81],
+				"imu_window": {
+					"sample_count": expected,
+					"window_start_ms": 1_700_000_000_000,
+					"window_end_ms": 1_700_000_006_000,
+					"stored_count": expected,
+				},
+			},
+		))
+		stored = (((photo.get("motion") or {}).get("imu_window") or {})).get("stored_count")
+		assert stored == expected, f"the summary did not survive the upload: {photo.get('motion')}"
+
+		body = json.loads(gzip.decompress(requests.get(photo["imu_samples_url"], timeout=30).content))
+		carried = sum(len(v["x"]) for v in body.values())
+		assert carried == stored, f"payload carries {carried} samples, summary claims {stored}"
+
+	@pytest.mark.asyncio
 	async def test_the_samples_never_enter_the_usercomment(self):
 		"""The deliberate PROVENANCE_KEYS omission, verified where it matters.
 
