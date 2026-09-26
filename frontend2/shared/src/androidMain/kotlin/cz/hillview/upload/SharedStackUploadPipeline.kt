@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import cz.hillview.plugin.hvTag
 
 /**
  * Capture → the shared-kt upload stack (see /shared-kt/README.md): registers
@@ -24,7 +25,7 @@ import kotlinx.coroutines.withContext
  * windows, wifi-only, foreground promotion, status sync). Stats come
  * straight from the shared DB's upload-status counts.
  */
-private const val TAG = "hv-SharedStackUpload"
+private val TAG = hvTag("SharedStackUpload")
 
 class SharedStackUploadPipeline(
     private val context: Context,

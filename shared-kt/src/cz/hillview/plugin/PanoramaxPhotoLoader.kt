@@ -33,7 +33,7 @@ class PanoramaxPhotoLoader {
 	}
 
 	companion object {
-		private const val TAG = "hv-PanoramaxPhotoLoader"
+		private val TAG = hvTag("PanoramaxPhotoLoader")
 		private const val doLog = false
 		private const val CONNECTION_TIMEOUT_SECONDS = 30L
 		private const val READ_TIMEOUT_SECONDS = 60L

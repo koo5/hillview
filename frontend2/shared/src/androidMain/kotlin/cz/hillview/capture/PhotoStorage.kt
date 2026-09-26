@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.camera.core.ImageCapture
 import cz.hillview.settings.StorageMode
 import java.io.File
+import cz.hillview.plugin.hvTag
 
 /**
  * Where a capture landed. [locator] is what goes into the DB and upload path:
@@ -35,7 +36,7 @@ data class SavedPhoto(
  * reaches the same DCIM/Hillview folder without any permission.
  */
 object PhotoStorage {
-    private const val TAG = "hv-PhotoStorage"
+    private val TAG = hvTag("PhotoStorage")
 
     /**
      * The folder's base name. "Hillview2" in both build types — this app

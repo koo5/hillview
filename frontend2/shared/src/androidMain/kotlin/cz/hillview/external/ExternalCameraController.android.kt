@@ -16,8 +16,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-ExternalCamera"
+private val TAG = hvTag("ExternalCamera")
 
 private class AndroidExternalCameraController(
     private val context: Context,

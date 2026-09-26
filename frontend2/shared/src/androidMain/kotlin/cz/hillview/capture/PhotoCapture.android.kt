@@ -86,8 +86,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.IOException
 import kotlin.coroutines.resume
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-PhotoCapture"
+private val TAG = hvTag("PhotoCapture")
 
 // The metering window prepareExposure opens between interval shots. The
 // frame minimum is there so a single mid-convergence frame cannot be

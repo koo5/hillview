@@ -9,8 +9,9 @@ import android.provider.MediaStore
 import android.util.Log
 import android.util.Rational
 import cz.hillview.auth.CurrentActivityHolder
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-Pip"
+private val TAG = hvTag("Pip")
 
 actual fun pipSupported(): Boolean {
     val activity = CurrentActivityHolder.activity ?: return false

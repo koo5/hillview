@@ -28,6 +28,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import cz.hillview.plugin.hvTag
 
 /**
  * The photos table, written out beside the photos so they survive the app.
@@ -56,7 +57,7 @@ import java.util.TimeZone
  */
 object PhotoTableDump {
 
-    private const val TAG = "hv-PhotoTableDump"
+    private val TAG = hvTag("PhotoTableDump")
     private const val PREFS = "hillview_photo_dump"
     private const val PREF_HASHES = "last_shard_hashes"
     private const val PREF_SHARDS = "last_shard_count"

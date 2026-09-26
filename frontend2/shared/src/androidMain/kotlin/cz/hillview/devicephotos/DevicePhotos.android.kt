@@ -21,6 +21,7 @@ import cz.hillview.plugin.PhotoUploadManager
 import cz.hillview.plugin.PhotoUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import cz.hillview.plugin.hvTag
 
 /**
  * The screen's data, straight from the shared Room DB — the same rows the
@@ -102,7 +103,7 @@ class DaoDevicePhotoBrowser(private val context: Context) : DevicePhotoBrowser {
                 } catch (e: Exception) {
                     // The row goes regardless: a file we cannot delete is
                     // exactly as unwanted as one we can.
-                    android.util.Log.w("hv-DevicePhotos", "could not delete ${row.path}", e)
+                    android.util.Log.w(hvTag("DevicePhotos"), "could not delete ${row.path}", e)
                 }
             }
         }

@@ -24,8 +24,9 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-GeoEngine"
+private val TAG = hvTag("GeoEngine")
 
 // Liveness watchdog. A REGISTERED sensor listener in the foreground delivers
 // raw events at tens of Hz without pause, so seconds of silence mean the

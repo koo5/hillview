@@ -18,6 +18,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.koin.core.context.GlobalContext
+import cz.hillview.plugin.hvTag
 
 /**
  * The capture-burst upload storm — the port of upload-coalescing.test.ts.
@@ -121,7 +122,7 @@ class UploadCoalescingBehaviourTest {
         val backgroundedRuns = count(log, "promote decision: backgrounded=true")
         val fgsCrashes = count(log, "ForegroundServiceDidNotStartInTimeException")
         Log.i(
-            "hv-UploadCoalescing",
+            hvTag("UploadCoalescing"),
             "captured=$burst burstMs=$burstMs reconciles=$reconciles " +
                 "enqueues=$enqueues runs=$runs " +
                 "promotions=$promotions backgroundedRuns=$backgroundedRuns",
@@ -165,7 +166,7 @@ class UploadCoalescingBehaviourTest {
             // run, so runs == enqueues is normal and proves nothing.
             assertTrue("no coalescing: runs=$runs for $burst captures", runs < burst)
         } else {
-            Log.i("hv-UploadCoalescing", "burst too slow to observe coalescing (windows=$windows) — collapse assertion skipped")
+            Log.i(hvTag("UploadCoalescing"), "burst too slow to observe coalescing (windows=$windows) — collapse assertion skipped")
         }
 
         // The original's responsiveness proxy: the screen is still alive.

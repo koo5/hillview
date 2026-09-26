@@ -5,6 +5,7 @@ import android.util.Log
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
+import cz.hillview.plugin.hvTag
 
 /**
  * The last crash, kept where the NEXT start can show it.
@@ -18,7 +19,7 @@ import java.io.StringWriter
  * sentence then arrives with its stack trace.
  */
 object CrashLog {
-    private const val TAG = "hv-CrashLog"
+    private val TAG = hvTag("CrashLog")
     private const val FILE = "last-crash.txt"
 
     fun install(context: Context) {

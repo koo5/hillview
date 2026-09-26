@@ -15,6 +15,7 @@ import cz.hillview.plugin.decideUploadSchedule
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.koin.core.context.GlobalContext
+import cz.hillview.plugin.hvTag
 
 // The unique names PhotoUploadManager enqueues under. Duplicated as literals
 // on purpose: this file only READS them, and a diagnostics page that silently
@@ -312,7 +313,7 @@ actual fun reconcileUploadSchedule(reason: String) {
         // so an unguarded warning would turn "reconcile unavailable" back into
         // the failed login this whole block exists to prevent.
         runCatching {
-            android.util.Log.w("hv-UploadDiagnostics", "reconcile [$reason] skipped: ${e.message}")
+            android.util.Log.w(hvTag("UploadDiagnostics"), "reconcile [$reason] skipped: ${e.message}")
         }
     }
 }

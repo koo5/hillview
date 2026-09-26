@@ -40,14 +40,20 @@ from memory.
 
 ## Logging
 
-Every tag carries the `hv-` prefix (`hv-GeoEngine`, `hv-Sensors`), so the
-whole app is one grep on a real device:
+Tags come from `hvTag("GeoEngine")` (shared-kt, `LogTag.kt`) — never a
+hand-written `"hv-…"` string. The prefix exists in one place, and
+`LogTagConventionTest` fails the build if a tag skips the helper; it used to be
+a convention held by 49 copies, and three tests had already lost it.
 
 ```bash
-adb logcat | grep hv-
+adb logcat | grep hv-                      # this project's own output
+adb logcat --pid=$(adb shell pidof cz.hillview.debug)   # ...and what the
+                                           # PLATFORM says about it
 ```
 
-Keep it when adding a tag. The in-app event log (`EventLog.record`) is for
+Prefer the PID form when hunting a crash: a `FATAL EXCEPTION` is logged under
+`AndroidRuntime`, not under any `hv-` tag, so the grep hides exactly the thing
+you are looking for. The in-app event log (`EventLog.record`) is for
 things a USER may need to see later — a re-registration, an export, a stand
 down; it survives without a cable attached and shows up in the Event log
 screen.

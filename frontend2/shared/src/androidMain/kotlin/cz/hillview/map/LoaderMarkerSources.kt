@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import cz.hillview.plugin.hvTag
 
 /**
  * The marker sources are thin adapters over the shared-kt photo-worker
@@ -119,7 +120,7 @@ class DeviceMarkerSource(
     }
 
     companion object {
-        private const val TAG = "hv-DeviceMarkerSource"
+        private val TAG = hvTag("DeviceMarkerSource")
     }
 }
 
@@ -189,7 +190,7 @@ class StreamMarkerSource(
     }
 
     companion object {
-        private const val TAG = "hv-StreamMarkerSource"
+        private val TAG = hvTag("StreamMarkerSource")
         const val REFETCH_MS = 30_000L
     }
 }
@@ -253,6 +254,6 @@ class PanoramaxMarkerSource(
     }
 
     companion object {
-        private const val TAG = "hv-PanoramaxMarkerSource"
+        private val TAG = hvTag("PanoramaxMarkerSource")
     }
 }

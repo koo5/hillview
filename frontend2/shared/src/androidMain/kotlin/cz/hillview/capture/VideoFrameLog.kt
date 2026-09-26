@@ -5,8 +5,9 @@ import android.hardware.camera2.CaptureResult
 import android.os.SystemClock
 import android.util.Log
 import java.io.File
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-VideoFrameLog"
+private val TAG = hvTag("VideoFrameLog")
 
 /**
  * The sidecar that makes a recording pairable with the geo record.

@@ -7,8 +7,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.core.view.WindowInsetsControllerCompat
 import cz.hillview.auth.CurrentActivityHolder
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-ControlsLock"
+private val TAG = hvTag("ControlsLock")
 
 @Composable
 actual fun ApplyControlsLock(active: Boolean, options: LockOptions) {

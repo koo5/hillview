@@ -24,8 +24,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-ExternalCamera"
+private val TAG = hvTag("ExternalCamera")
 
 /**
  * The external-camera mode's engine: sensors and GPS run CONTINUOUSLY into

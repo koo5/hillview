@@ -19,6 +19,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.koin.core.context.GlobalContext
+import cz.hillview.plugin.hvTag
 
 /**
  * The offline upload queue — the port of upload-queue-offline.test.ts: a
@@ -146,7 +147,7 @@ class UploadQueueOfflineBehaviourTest {
         }
 
         Log.i(
-            "hv-UploadQueueOffline",
+            hvTag("UploadQueueOffline"),
             "drained: status=${drained.uploadStatus} serverPhotoId=${drained.serverPhotoId}",
         )
         assertTrue(

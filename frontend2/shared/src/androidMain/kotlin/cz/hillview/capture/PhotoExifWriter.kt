@@ -12,8 +12,9 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-PhotoExifWriter"
+private val TAG = hvTag("PhotoExifWriter")
 
 /**
  * Writes the sensor snapshot into the JPEG's EXIF. This is the contract with

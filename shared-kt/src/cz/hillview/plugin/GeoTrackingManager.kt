@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
-private const val TAG = "hv-Geo"
+private val TAG = hvTag("Geo")
 
 
 data class OrientationSensorData(

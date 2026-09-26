@@ -19,6 +19,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import cz.hillview.plugin.hvTag
 
 /**
  * Storage-shape assertions — the port of storage-method-pref.test.ts, and
@@ -114,7 +115,7 @@ class StorageShapeBehaviourTest {
         // The matrix cell: which method actually won for this preference on
         // this API level. Runs against several images build the reference.
         Log.i(
-            "hv-StorageShape",
+            hvTag("StorageShape"),
             "preference=${mode.key} → landed via ${actual ?: "UNRECOGNIZED"} (${photo.path})",
         )
         assertNotNull("unrecognized save location: ${photo.path}", actual)

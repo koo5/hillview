@@ -29,7 +29,7 @@ class PhotoOutboxPusher(
     private val authManager: AuthenticationManager,
 ) {
     companion object {
-        private const val TAG = "hv-PhotoOutboxPusher"
+        private val TAG = hvTag("PhotoOutboxPusher")
 
         /** One pass takes a bounded bite; the drain comes round again. */
         private const val BATCH = 50

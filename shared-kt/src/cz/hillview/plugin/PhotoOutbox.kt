@@ -24,7 +24,7 @@ class PhotoOutbox(context: Context) {
     private val authManager = AuthenticationManager(context.applicationContext)
 
     companion object {
-        private const val TAG = "hv-PhotoOutbox"
+        private val TAG = hvTag("PhotoOutbox")
 
         /**
          * The signed-in account id, read out of the access token's `sub`.
