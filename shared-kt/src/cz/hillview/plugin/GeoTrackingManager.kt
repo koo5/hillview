@@ -434,6 +434,23 @@ class GeoTrackingManager(private val context: Context) {
 	 * Clears old geo tracking data and optionally exports to CSV.
 	 * @param forceDump If true, always export to CSV. If false, check auto_export preference.
 	 */
+	/**
+	 * One dump at a time, because two of them corrupt each other.
+	 *
+	 * Found on a device, 2026-09-26: the external service's periodic dump and a
+	 * second dump 3.2 s later overlapped, and the first CLEARED the tables while
+	 * the second was still iterating `getAllSamples()` —
+	 * "Couldn't read row 5825, col 0 from CursorWindow". Five callers each launch
+	 * their own coroutine (app start, the export button, capture teardown, the
+	 * external service's crash-safety timer) and nothing coordinated them.
+	 *
+	 * It was latent for as long as this only dumped bearings and locations: a
+	 * couple of thousand rows finish in milliseconds and never overlap. Continuous
+	 * inertial logging made a dump 257 769 rows and seconds long, and the window
+	 * opened.
+	 */
+	private val dumpMutex = kotlinx.coroutines.sync.Mutex()
+
 	fun dumpAndClear(forceDump: Boolean = false) {
 		val now = System.currentTimeMillis()
 
@@ -443,64 +460,89 @@ class GeoTrackingManager(private val context: Context) {
 		val shouldDump = forceDump || autoExportEnabled
 
 		CoroutineScope(Dispatchers.IO).launch {
-			if (shouldDump) {
-				try {
-					val sourceIdToName = buildSourceIdToNameMap()
-
-					val bearings = database.bearingDao().getAllBearings()
-					val bearingsAt = writeExportCsv(
-						"hillview_orientations_${now}.csv",
-						bearingsToCsv(bearings, sourceIdToName),
-					)
-					Log.i(TAG, "🢄📡 Dumped ${bearings.size} bearings to $bearingsAt")
-
-					val locations = database.locationDao().getAllLocations()
-					val locationsAt = writeExportCsv(
-						"hillview_locations_${now}.csv",
-						locationsToCsv(locations, sourceIdToName),
-					)
-					Log.i(TAG, "🢄📡 Dumped ${locations.size} locations to $locationsAt")
-					// The IMU windows, when any capture recorded one. Skipped
-					// silently when empty: a session with no captures, or one
-					// where the IMU was never asked for, has nothing to say and
-					// an empty file would only look like a failure.
-					val imu = database.imuDao().getAllSamples()
-					if (imu.isNotEmpty()) {
-						val imuAt = writeExportCsv(
-							"hillview_imu_${now}.csv",
-							imuSamplesToCsv(imu),
-						)
-						Log.i(TAG, "🢄📡 Dumped ${imu.size} IMU samples to $imuAt")
-					}
-					EventLog.record(
-						"export",
-						"${bearings.size} bearings + ${locations.size} locations" +
-							(if (imu.isNotEmpty()) " + ${imu.size} IMU samples" else "") +
-							" → $locationsAt",
-					)
-				} catch (e: Exception) {
-					Log.e(TAG, "🢄📡 Failed to dump geo tracking data: ${e.message}", e)
-					EventLog.record("export", "CSV dump FAILED: ${e.message}")
-				}
-			} else {
-				Log.d(TAG, "🢄📡 Skipping geo data dump (auto_export disabled)")
+			// A user pressing "Export CSVs now" WAITS — their action must not be
+			// silently dropped. An opportunistic dump SKIPS: queueing it behind the
+			// one already running would only produce a second export of the rows
+			// that one just cleared.
+			if (forceDump) {
+				dumpMutex.lock()
+			} else if (!dumpMutex.tryLock()) {
+				Log.i(TAG, "🢄📡 Skipping dump: another one is already running")
+				return@launch
 			}
-
-			// Always clear old data
-			val cutoff = now - 1000 * 60 * 5
-
 			try {
-				database.bearingDao().clearBearingsOlderThan(cutoff)
-				database.locationDao().clearLocationsOlderThan(cutoff)
-				database.imuDao().clearOlderThan(cutoff)
-				// A claim on rows that have just been deleted describes nothing,
-				// and a stale one would let a late upload pass read an empty
-				// range and report a payload of zero samples as if that were a
-				// measurement.
-				database.imuClaimDao().clearOlderThan(cutoff)
-				Log.i(TAG, "🢄📡 Geo tracking tables cleared")
-			} catch (e: Exception) {
-				Log.e(TAG, "🢄📡 Failed to clear geo tracking tables: ${e.message}", e)
+				var dumpFailed = false
+				if (shouldDump) {
+					try {
+						val sourceIdToName = buildSourceIdToNameMap()
+
+						val bearings = database.bearingDao().getAllBearings()
+						val bearingsAt = writeExportCsv(
+							"hillview_orientations_${now}.csv",
+							bearingsToCsv(bearings, sourceIdToName),
+						)
+						Log.i(TAG, "🢄📡 Dumped ${bearings.size} bearings to $bearingsAt")
+
+						val locations = database.locationDao().getAllLocations()
+						val locationsAt = writeExportCsv(
+							"hillview_locations_${now}.csv",
+							locationsToCsv(locations, sourceIdToName),
+						)
+						Log.i(TAG, "🢄📡 Dumped ${locations.size} locations to $locationsAt")
+						// The IMU windows, when any capture recorded one. Skipped
+						// silently when empty: a session with no captures, or one
+						// where the IMU was never asked for, has nothing to say and
+						// an empty file would only look like a failure.
+						val imu = database.imuDao().getAllSamples()
+						if (imu.isNotEmpty()) {
+							val imuAt = writeExportCsv(
+								"hillview_imu_${now}.csv",
+								imuSamplesToCsv(imu),
+							)
+							Log.i(TAG, "🢄📡 Dumped ${imu.size} IMU samples to $imuAt")
+						}
+						EventLog.record(
+							"export",
+							"${bearings.size} bearings + ${locations.size} locations" +
+								(if (imu.isNotEmpty()) " + ${imu.size} IMU samples" else "") +
+								" → $locationsAt",
+						)
+					} catch (e: Exception) {
+						Log.e(TAG, "🢄📡 Failed to dump geo tracking data: ${e.message}", e)
+						EventLog.record("export", "CSV dump FAILED: ${e.message}")
+						dumpFailed = true
+					}
+				} else {
+					Log.d(TAG, "🢄📡 Skipping geo data dump (auto_export disabled)")
+				}
+
+				// NOT "always" any more. Clearing after a FAILED dump deletes rows
+				// nothing wrote — the clear used to sit in its own try outside the
+				// dump's, so an export that threw still took the data with it. Five
+				// minutes of inertial samples is a quarter of a million rows now, and
+				// losing them silently because a cursor went bad is the wrong trade.
+				val cutoff = now - 1000 * 60 * 5
+
+				if (dumpFailed) {
+					Log.w(TAG, "🢄📡 NOT clearing: the dump failed, so the rows are not on disk")
+					return@launch
+				}
+
+				try {
+					database.bearingDao().clearBearingsOlderThan(cutoff)
+					database.locationDao().clearLocationsOlderThan(cutoff)
+					database.imuDao().clearOlderThan(cutoff)
+					// A claim on rows that have just been deleted describes nothing,
+					// and a stale one would let a late upload pass read an empty
+					// range and report a payload of zero samples as if that were a
+					// measurement.
+					database.imuClaimDao().clearOlderThan(cutoff)
+					Log.i(TAG, "🢄📡 Geo tracking tables cleared")
+				} catch (e: Exception) {
+					Log.e(TAG, "🢄📡 Failed to clear geo tracking tables: ${e.message}", e)
+				}
+			} finally {
+				dumpMutex.unlock()
 			}
 		}
 	}

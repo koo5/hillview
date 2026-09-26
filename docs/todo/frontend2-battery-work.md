@@ -79,6 +79,36 @@ interval capture arguably does not need a live preview between exposures at all,
 but that is a capture-path change with framing and 3A consequences, not a power
 tweak — `SceneMeter` meters continuously, and the exposure rules depend on it.
 
+## 5. Stream the IMU dump instead of loading the table · robustness, not battery
+
+Not battery work, parked here because it was found by the same session and has the
+same cause: continuous logging made this table two orders of magnitude bigger than
+anything else the dump handles.
+
+`ImuDao.getAllSamples()` loads the WHOLE table, and `imuSamplesToCsv` builds one
+String from it. Measured on a device, 2026-09-26: **257 769 rows** in a single dump
+— which is the steady state, since five minutes at ~800 samples/s is 240 000.
+
+    entity objects held at once   ~13 MB
+    the joined CSV String         ~28 MB   (Kotlin String is UTF-16)
+    the StringBuilder mid-build   roughly the same again
+
+It has not OOMed. It did take seconds, and those seconds are what let two dumps
+overlap and corrupt each other (fixed separately with a mutex — see the same day's
+status entry).
+
+**Shape of the work**: page the query (`LIMIT`/`OFFSET` by timestamp, or a
+`Cursor`-returning DAO method) and append to the file per page rather than
+composing one String. `writeExportCsv` currently takes the whole content and
+resolves a destination that may be a `DocumentsContract` tree URI, so it needs an
+append-or-stream variant rather than a signature change.
+
+**What to watch**: the CSV contract is `pics`-facing and columns may only be
+APPENDED, which a chunked writer must not disturb — the header is written once, not
+per page. And paging by OFFSET over a table that is still being written to at
+800 rows a second will skip or repeat rows; page by `timestamp > last` instead, the
+way the high-water mark already does.
+
 ## Not worth doing
 
 - **Decimating the IMU rate.** The window exists to describe a 1/60 s exposure and

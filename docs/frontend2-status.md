@@ -2563,3 +2563,40 @@ Counts moved from `Pair<Int, Int>` to a named `TrackingCounts`, because a third
 number in a pair is where readouts start getting mixed up.
 
 No engine logic touched — a readout and a warning.
+
+## 2026-09-26 — the dump had a race, and continuous logging opened it
+
+A device trace caught `dumpAndClear` failing:
+`Couldn't read row 5825, col 0 from CursorWindow`, out of
+`ImuDao_Impl.getAllSamples`. The thread ids tell the whole story:
+
+    25325  23:49:41.634  Dumped 1653 bearings   -> ..._1790459381317.csv
+    25325  23:49:41.807  Dumped 321 locations   -> ..._1790459381317.csv
+    25328  23:49:43.411  Dumped 257769 IMU      -> ..._1790459378082.csv
+    25328  23:49:43.538  Geo tracking tables CLEARED
+    25325  23:49:44.084  FAILED reading imu_samples at row 5825
+
+**Two concurrent dumps**, 3.2 s apart by their own filename stamps. One cleared the
+tables while the other was mid-iteration, and the row it wanted was gone.
+
+`dumpAndClear` had **no serialization at all**, and five callers each launch their
+own coroutine: app start, the export button, capture teardown, and the external
+service's crash-safety timer. Latent for as long as this dumped only bearings and
+locations — a couple of thousand rows finish in milliseconds and never overlap.
+Continuous inertial logging made a dump 257 769 rows and seconds long, and the
+window opened.
+
+**Fixed:** a `Mutex`. A user pressing "Export CSVs now" WAITS, because their action
+must not be silently dropped; an opportunistic dump SKIPS, because queueing it
+behind the running one would only re-export rows that one just cleared.
+
+**And a second bug found while reading it: the clear ran even when the dump had
+failed.** It sat in its own `try` outside the dump's, so an export that threw still
+took the data with it. In this trace nothing was lost because the other thread had
+already written those rows, but a single failing dump would have deleted five
+minutes of samples that reached no file. The clear is now skipped on failure.
+
+**Parked, not fixed** (item 5 in docs/todo/frontend2-battery-work.md): the dump
+loads the whole table — ~13 MB of entities and a ~28 MB String at the observed
+row count, which is the steady state. It has not OOMed, but those seconds are what
+made the race reachable.
