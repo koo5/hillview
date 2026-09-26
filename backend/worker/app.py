@@ -827,7 +827,7 @@ class BrowserMetadata(BaseModel):
 	# RAW accelerometer sample is deliberately absent: it is gravity plus linear
 	# acceleration and one sample cannot separate them, which is the whole reason
 	# the window exists.
-	motion: Optional[dict] = None
+	inertial: Optional[dict] = None
 	# The RAW inertial window, columnar and delta-encoded -- the one metadata
 	# object here that is a BULK ARTIFACT rather than a fact about the shutter.
 	#

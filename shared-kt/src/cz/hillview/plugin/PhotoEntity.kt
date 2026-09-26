@@ -251,13 +251,22 @@ data class PhotoEntity(
     val lensJson: String? = null,
 
     /**
-     * How the phone was MOVING at the shutter (v25) — gravity, linear
-     * acceleration, and the summary of the IMU window around the exposure, as
-     * the upload metadata's `motion` object. The window's samples themselves
-     * live in the tracking database and travel by CSV; this is what a
-     * server-side reader gets without it.
+     * What the phone's INERTIAL sensors read at the shutter (v25, renamed in
+     * v28) — gravity, linear acceleration, and the summary of the IMU window
+     * around the exposure, as the upload metadata's `inertial` object.
+     *
+     * It was `motion`, and that name was wrong about its own contents: the
+     * flagship field is GRAVITY, which a still phone reports at full strength
+     * and a moving one does not change. An object called "motion" whose main
+     * value is largest at zero motion misleads every reader once.
+     *
+     * `inertial` covers all three honestly — gravity, linear acceleration and
+     * the window's angular rates are inertial measurements — and matches the
+     * vocabulary already in use here (`imu_window`, `ImuRing`, IMU = inertial
+     * measurement unit). Renamed before anything shipped; see
+     * docs/recon-capture-metadata.md for why the pose/inertial SPLIT stayed.
      */
-    val motionJson: String? = null
+    val inertialJson: String? = null
 )
 
 /**

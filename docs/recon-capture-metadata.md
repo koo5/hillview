@@ -34,7 +34,7 @@ grouped objects, not a flat sprawl of keys, because the set will keep growing:
 | `alt_location` | the position stream the photo did NOT record | pre-existing |
 | `lens` | intrinsics, distortion, focus, zoom, focal length, skew | 2 |
 | `fix` | the position-quality fields `FixState` currently drops | 3 |
-| `motion` | gravity, linear acceleration, and the IMU window's summary | 3, 4 |
+| `inertial` | gravity, linear acceleration, and the IMU window's summary | 3, 4 |
 | `imu_samples` | the RAW window — the one field that is **not** provenance and never enters the UserComment | 5 |
 
 The existing FLAT keys (`location_source`, `location_age_ms`,
@@ -177,7 +177,7 @@ a missing one as `None`, and sniffs the file type from the header's prefix.
 ## Phase 5 — the samples payload reaches the server · DONE 2026-09-26
 
 Everything above stopped at the device for the raw samples: the per-photo
-`motion.imu_window` summary was all the SERVER got. This phase is the rest of it,
+`inertial.imu_window` summary was all the SERVER got. This phase is the rest of it,
 and it was the user's requirement — "the 6 s window really has to travel with the
 photo".
 
@@ -509,6 +509,60 @@ before alembic 032. That is the open decision already parked in
 new photos carry roll in a NAMED object with a typed projection, where before it
 never left the phone.
 
+## `attitude` and `inertial` — the split, and the names
+
+Asked before deploying, which was the right moment: does the split make sense,
+and is `attitude` the right key?
+
+### `attitude` stays, for a reason stronger than taste
+
+It is the term of art — the A in AHRS, and `MadgwickAHRS.kt` is already in this
+tree, so it is the house vocabulary rather than an import.
+
+The obvious alternative, `orientation`, is actively unsafe here: the upload
+metadata ALREADY carries `orientation_code`, the EXIF `Orientation` tag (1/3/6/8)
+that says how to rotate an image for display. Two keys a rename apart, meaning
+completely different things, one of them about display and one about where the
+camera pointed. That collision is why the object was renamed away from
+`orientation` in the first place, and it has not gone away.
+
+### The split stays; `motion` was the defect
+
+`motion` was wrong about its own contents. Its flagship field is `gravity`, which
+a STILL phone reports at full strength and a moving one barely changes. An object
+called "motion" whose most important value is largest at zero motion misleads
+every reader exactly once.
+
+Renamed to **`inertial`**: gravity, linear acceleration and the window's angular
+rates are all inertial measurements, and it matches the vocabulary already here
+(`imu_window`, `ImuRing`, IMU = inertial measurement unit).
+
+**What was considered and rejected: moving `gravity` into `attitude`.** Gravity
+does constrain two of the three rotation degrees of freedom, so co-locating it
+with pitch and roll is tempting, and it would make the fusion-vs-accelerometer
+comparison a single-object read. Against it, decisively: every provenance object
+here carries ONE sensor family, ONE `age_ms`, and one trust story. Gravity's
+timestamp is not the fused attitude's, so a merged object would have two ages and
+no way to say which field each belonged to — and ambiguous provenance is the exact
+failure this whole body of work exists to remove.
+
+Keeping them apart also keeps the INDEPENDENCE visible: `gravity` is the
+accelerometer's opinion about down, `attitude.pitch_deg`/`roll_deg` are the
+fusion's. A reader comparing them is checking the fusion, not reading one number
+twice — the same elected-versus-measured pattern as `bearing` against
+`attitude.heading_true_deg`.
+
+So the four objects are grouped by the subsystem that produced them — receiver,
+camera, orientation fusion, inertial sensors — and each name now says what it
+measures rather than which Android API produced it.
+
+### One acknowledged redundancy
+
+`inertial.linear_acceleration_magnitude` is derivable from the vector beside it.
+It stays because the magnitude is what a server-side filter would sort or
+threshold on, and computing a vector norm from a JSON array in SQL is not
+something to ask of a bounds query. Noted rather than defended as necessary.
+
 ## Rules that hold across all of it
 
 - **Null is not zero.** A value the device did not measure is absent; `0.0` is
@@ -544,7 +598,7 @@ specs are extracted and diffed, and the worker is checked for a
 | `attitude` | 10 |
 | `fix` | 7 |
 | `lens` | 14 |
-| `motion` | 5, one of them the nested `imu_window` |
+| `inertial` | 5, one of them the nested `imu_window` |
 | `imu_window` | 7 |
 
 **Three drop sites closed, each the same shape as roll's.** `GeoEngine`'s

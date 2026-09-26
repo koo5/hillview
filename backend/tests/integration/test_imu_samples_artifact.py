@@ -147,7 +147,7 @@ class TestImuSamplesArtifact(BasePhotoTest):
 		expected = sum(len(v["x"]) for v in IMU_SAMPLES.values())
 		photo = await self._upload(self._base_metadata(
 			imu_samples=IMU_SAMPLES,
-			motion={
+			inertial={
 				"gravity": [0.0, 0.0, 9.81],
 				"imu_window": {
 					"sample_count": expected,
@@ -157,8 +157,8 @@ class TestImuSamplesArtifact(BasePhotoTest):
 				},
 			},
 		))
-		stored = (((photo.get("motion") or {}).get("imu_window") or {})).get("stored_count")
-		assert stored == expected, f"the summary did not survive the upload: {photo.get('motion')}"
+		stored = (((photo.get("inertial") or {}).get("imu_window") or {})).get("stored_count")
+		assert stored == expected, f"the summary did not survive the upload: {photo.get('inertial')}"
 
 		body = json.loads(gzip.decompress(requests.get(photo["imu_samples_url"], timeout=30).content))
 		carried = sum(len(v["x"]) for v in body.values())

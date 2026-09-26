@@ -148,7 +148,7 @@ class SharedStackUploadPipeline(
                 if (claim == null) {
                     Log.w(TAG, "no IMU claim for $photoId after ${waited}ms — window summary only, no payload")
                 }
-                val json = cz.hillview.capture.motionProvenanceJson(
+                val json = cz.hillview.capture.inertialProvenanceJson(
                     cz.hillview.capture.SensorSnapshot(
                         capturedAtMs = capturedAt,
                         // The point reading the SHUTTER had, carried through so
@@ -166,7 +166,7 @@ class SharedStackUploadPipeline(
                     ),
                 )
                 val dao = PhotoDatabase.getDatabase(context).photoDao()
-                dao.updateMotionJson(photoId, json)
+                dao.updateInertialJson(photoId, json)
                 // The raw samples themselves — only the OWNED range, so
                 // consecutive photos in a run tile rather than each carrying the
                 // same six seconds. Capped at the ring's capacity: a payload
@@ -291,7 +291,7 @@ class SharedStackUploadPipeline(
                     attitudeJson = upload.attitudeJson,
                     fixJson = upload.fixJson,
                     lensJson = upload.lensJson,
-                    motionJson = upload.motionJson,
+                    inertialJson = upload.inertialJson,
                     // TWO holders, so the later deadline wins. The refiner's
                     // hold was the only one, and it was conditional on the
                     // refiner being ELIGIBLE — which meant a photo it did not

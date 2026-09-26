@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     // GeoTrackingDatabase in v18 — see that file for why. What is left here is
     // durable and low-rate: a capture and the edits that belong to it.
     entities = [PhotoEntity::class, EditEntity::class, PhotoOutboxEntity::class],
-    version = 27,
+    version = 28,
     // Schemas are exported per app (they compile these entities with different
     // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
     // docs/geo-election-test-todo.md item 6. Both agree on the identityHash;
@@ -562,7 +562,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 				// Null on existing rows: taken before any of it was kept.
 				database.execSQL("ALTER TABLE photos ADD COLUMN fixJson TEXT")
 				database.execSQL("ALTER TABLE photos ADD COLUMN lensJson TEXT")
-				database.execSQL("ALTER TABLE photos ADD COLUMN motionJson TEXT")
+				database.execSQL("ALTER TABLE photos ADD COLUMN inertialJson TEXT")
 			}
 		}
 
@@ -595,6 +595,16 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_27_28 = object : Migration(27, 28) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// `motion` -> `inertial`, renamed before anything deployed. The
+				// object's flagship field is GRAVITY, which is at full strength when
+				// there is no motion at all, so the old name said the opposite of
+				// what the value means. See PhotoEntity.inertialJson.
+				database.execSQL("ALTER TABLE photos RENAME COLUMN motionJson TO inertialJson")
+			}
+		}
+
 		/**
 		 * Every migration, in one list, so the runtime builder and
 		 * PhotoDatabaseMigrationTest cannot disagree about which ones exist.
@@ -605,7 +615,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 			MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
 			MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
 			MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
-			MIGRATION_25_26, MIGRATION_26_27,
+			MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28,
 		)
 
         fun getDatabase(context: Context): PhotoDatabase {

@@ -990,7 +990,7 @@ async def get_photo(
 			"attitude": _attitude(photo.exif_data),
 			"fix": _fix(photo.exif_data),
 			"lens": _lens(photo.exif_data),
-			"motion": _motion(photo.exif_data),
+			"inertial": _inertial(photo.exif_data),
 			"imu_samples_url": photo.imu_samples_url,
 			"detected_objects": photo.detected_objects,
 			"sizes": photo.sizes,
@@ -1758,7 +1758,7 @@ _IMU_WINDOW_FIELDS: dict = {
 	'gyro_peak_rad_s': float,
 }
 
-_MOTION_FIELDS: dict = {
+_INERTIAL_FIELDS: dict = {
 	'gravity': list,
 	'linear_acceleration': list,
 	'linear_acceleration_magnitude': float,
@@ -1770,7 +1770,7 @@ _PROVENANCE_OBJECTS: dict = {
 	'attitude': _ATTITUDE_FIELDS,
 	'fix': _FIX_FIELDS,
 	'lens': _LENS_FIELDS,
-	'motion': _MOTION_FIELDS,
+	'inertial': _INERTIAL_FIELDS,
 }
 
 # Kept for the name it is tested under; the cap is shared by every string field.
@@ -1907,8 +1907,25 @@ def _lens(exif_data: Optional[dict]) -> Optional[dict]:
 	return _provenance_object(exif_data, 'lens')
 
 
-def _motion(exif_data: Optional[dict]) -> Optional[dict]:
-	"""How the phone was MOVING at the shutter — gravity and linear acceleration.
+def _inertial(exif_data: Optional[dict]) -> Optional[dict]:
+	"""What the phone's INERTIAL sensors read at the shutter.
+
+	Named `inertial` and not `motion`, which it was until the rename: the field
+	that matters most here is ``gravity``, which a STILL phone reports at full
+	strength. An object called "motion" whose flagship value is largest at zero
+	motion misleads every reader once. Gravity, linear acceleration and the
+	window's angular rates are all inertial measurements, so one word covers
+	them honestly.
+
+	It stays SEPARATE from ``attitude`` on purpose. Gravity does constrain two of
+	the three rotation degrees of freedom, so co-locating it with pitch and roll
+	is tempting — but each provenance object here carries ONE sensor family, one
+	``age_ms`` and one trust story, and gravity's timestamp is not the fused
+	attitude's. Merging them would leave the object with two ages and no way to
+	say which field each belonged to. Keeping them apart also keeps the
+	independence visible: ``gravity`` is the accelerometer's opinion about down,
+	``attitude.pitch_deg``/``roll_deg`` are the fusion's, and a reader comparing
+	the two is checking the fusion rather than reading the same number twice.
 
 	``gravity`` is an unambiguous "down" in the device frame, where
 	``attitude.roll_deg`` is a residual within the quantized device pose; it
@@ -1919,7 +1936,7 @@ def _motion(exif_data: Optional[dict]) -> Optional[dict]:
 	A single raw accelerometer sample is deliberately absent: it is gravity plus
 	linear acceleration and one sample cannot separate them.
 	"""
-	return _provenance_object(exif_data, 'motion')
+	return _provenance_object(exif_data, 'inertial')
 
 
 def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
@@ -2149,7 +2166,7 @@ async def get_public_photo(
 			# the camera's calibration and the device's physics.
 			"fix": _fix(photo.exif_data),
 			"lens": _lens(photo.exif_data),
-			"motion": _motion(photo.exif_data),
+			"inertial": _inertial(photo.exif_data),
 			# The RAW window behind motion.imu_window, as a gzipped artifact.
 			# Public for the same reason `attitude` is: a reconstruction limited
 			# to the caller's own frames reconstructs nowhere. A URL costs a few

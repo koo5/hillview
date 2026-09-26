@@ -172,7 +172,7 @@ class ProvenanceObjectsTest {
 
     @Test
     fun theMotionObjectCarriesGravityAndTheBlurSignal() {
-        val json = motionProvenanceJson(
+        val json = inertialProvenanceJson(
             snap(
                 motion = DeviceMotionSample(
                     gravity = listOf(0f, 0f, 9.81f),
@@ -191,7 +191,7 @@ class ProvenanceObjectsTest {
     /** Gravity alone is still worth recording — it is two rotation DOF. */
     @Test
     fun gravityWithoutLinearAccelerationStillTravels() {
-        val json = motionProvenanceJson(
+        val json = inertialProvenanceJson(
             snap(motion = DeviceMotionSample(gravity = listOf(0f, 9.81f, 0f), atMs = shutterAt)),
         )!!
         assertTrue("gravity" in json, json)
@@ -201,12 +201,12 @@ class ProvenanceObjectsTest {
     /** Neither sensor reported: an age on its own describes nothing. */
     @Test
     fun aMotionSampleWithNeitherVectorIsNull() {
-        assertNull(motionProvenanceJson(snap(motion = DeviceMotionSample(atMs = shutterAt))))
+        assertNull(inertialProvenanceJson(snap(motion = DeviceMotionSample(atMs = shutterAt))))
     }
 
     @Test
     fun noMotionMeansNoObject() {
-        assertNull(motionProvenanceJson(snap()))
+        assertNull(inertialProvenanceJson(snap()))
     }
 
     // --- the IMU window: the cheap summary beside the payload ---
@@ -274,14 +274,14 @@ class ProvenanceObjectsTest {
      */
     @Test
     fun theWireCarriesTheCountAndNotAnOwnershipBound() {
-        val json = motionProvenanceJson(snap(imuWindow = window()))!!
+        val json = inertialProvenanceJson(snap(imuWindow = window()))!!
         assertTrue("\"stored_count\":61" in json, json)
         assertFalse("stored_from_ms" in json, json)
     }
 
     @Test
     fun theWindowNestsInsideMotion() {
-        val json = motionProvenanceJson(
+        val json = inertialProvenanceJson(
             snap(
                 motion = DeviceMotionSample(gravity = listOf(0f, 0f, 9.81f), atMs = shutterAt),
                 imuWindow = window(),
@@ -297,7 +297,7 @@ class ProvenanceObjectsTest {
      */
     @Test
     fun aWindowTravelsWithoutAGravityReading() {
-        val json = motionProvenanceJson(snap(imuWindow = window()))!!
+        val json = inertialProvenanceJson(snap(imuWindow = window()))!!
         assertTrue("imu_window" in json, json)
         assertFalse("gravity" in json, json)
         assertFalse("age_ms" in json, json)
@@ -306,6 +306,6 @@ class ProvenanceObjectsTest {
     /** No window and no sample: nothing to say, and an age would date nothing. */
     @Test
     fun neitherWindowNorSampleIsNull() {
-        assertNull(motionProvenanceJson(snap()))
+        assertNull(inertialProvenanceJson(snap()))
     }
 }

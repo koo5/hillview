@@ -220,15 +220,15 @@ interface SimplePhotoDao {
      * See GeoEngine.persistImuWindowAround and
      * docs/recon-capture-metadata.md.
      */
-    @Query("UPDATE photos SET motionJson = :motionJson WHERE id = :photoId")
-    fun updateMotionJson(photoId: String, motionJson: String?)
+    @Query("UPDATE photos SET inertialJson = :inertialJson WHERE id = :photoId")
+    fun updateInertialJson(photoId: String, inertialJson: String?)
 
-    @Query("SELECT motionJson FROM photos WHERE id = :photoId")
-    fun getMotionJson(photoId: String): String?
+    @Query("SELECT inertialJson FROM photos WHERE id = :photoId")
+    fun getInertialJson(photoId: String): String?
 
     /**
      * The raw window, written by the same deferred pass that finalises
-     * `motionJson` — the samples only exist to be read once the later half of
+     * `inertialJson` — the samples only exist to be read once the later half of
      * the window has happened. See PhotoEntity.imuSamplesJson.
      */
     @Query("UPDATE photos SET imuSamplesJson = :imuSamplesJson WHERE id = :photoId")

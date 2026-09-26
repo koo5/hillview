@@ -375,7 +375,7 @@ PROVENANCE_KEYS = (
 	# docs/recon-capture-metadata.md for why each is ONE object rather than a
 	# column per field. Declared there AND listed here, or the key is dropped
 	# silently at one end or the other.
-	'attitude', 'fix', 'lens', 'motion',
+	'attitude', 'fix', 'lens', 'inertial',
 	'v',
 )
 

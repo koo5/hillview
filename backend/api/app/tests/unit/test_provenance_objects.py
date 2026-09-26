@@ -28,7 +28,7 @@ from photo_routes import (  # noqa: E402
 	_PROVENANCE_STR_MAX,
 	_fix,
 	_lens,
-	_motion,
+	_inertial,
 )
 
 
@@ -150,8 +150,8 @@ def test_the_lens_string_field_is_length_capped():
 
 # --- motion ---
 
-def test_the_motion_object_carries_gravity_and_the_blur_signal():
-	out = _motion(exif(motion={
+def test_the_inertial_object_carries_gravity_and_the_blur_signal():
+	out = _inertial(exif(inertial={
 		'gravity': [0.0, 0.0, 9.81],
 		'linear_acceleration': [3.0, 4.0, 0.0],
 		'linear_acceleration_magnitude': 5.0,
@@ -165,14 +165,14 @@ def test_the_motion_object_carries_gravity_and_the_blur_signal():
 def test_a_stationary_phone_reads_as_zero_motion_not_as_absent():
 	"""0 is the most informative value this field takes — it says the frame was
 	shot from a standing phone, which is the one a reconstruction wants most."""
-	out = _motion(exif(motion={'linear_acceleration_magnitude': 0.0, 'age_ms': 0}))
+	out = _inertial(exif(inertial={'linear_acceleration_magnitude': 0.0, 'age_ms': 0}))
 	assert out == {'linear_acceleration_magnitude': 0.0, 'age_ms': 0}
 
 
 # --- the nested IMU window, the only nested object so far ---
 
-def test_the_imu_window_nests_inside_motion():
-	out = _motion(exif(motion={
+def test_the_imu_window_nests_inside_inertial():
+	out = _inertial(exif(inertial={
 		'gravity': [0.0, 0.0, 9.81],
 		'imu_window': {
 			'sample_count': 104,
@@ -198,12 +198,12 @@ def test_the_imu_window_nests_inside_motion():
 def test_a_window_that_stored_nothing_reports_zero():
 	"""The normal case in a fast interval run: the previous photo's window
 	already covered this one. 0 is a measurement, not an absence."""
-	out = _motion(exif(motion={'imu_window': {'sample_count': 104, 'stored_count': 0}}))
+	out = _inertial(exif(inertial={'imu_window': {'sample_count': 104, 'stored_count': 0}}))
 	assert out == {'imu_window': {'sample_count': 104, 'stored_count': 0}}
 
 
 def test_the_window_rejects_unknown_and_wrongly_typed_inner_keys():
-	out = _motion(exif(motion={'imu_window': {
+	out = _inertial(exif(inertial={'imu_window': {
 		'sample_count': 104,
 		'evil': {'deeper': [1, 2, 3]},
 		'accel_peak_mps2': 'loud',
@@ -222,21 +222,21 @@ def test_the_window_rejects_unknown_and_wrongly_typed_inner_keys():
 	{'imu_window': {'imu_window': {'sample_count': 1}}},
 ])
 def test_a_malformed_window_is_dropped_without_taking_the_object_with_it(bad):
-	assert _motion(exif(motion=bad)) is None
+	assert _inertial(exif(inertial=bad)) is None
 	# ...and a good sibling still survives alongside a bad window.
-	out = _motion(exif(motion={**bad, 'linear_acceleration_magnitude': 5.0}))
+	out = _inertial(exif(inertial={**bad, 'linear_acceleration_magnitude': 5.0}))
 	assert out == {'linear_acceleration_magnitude': 5.0}
 
 
 def test_a_window_with_no_point_sample_still_travels():
 	"""A device with no gravity sensor can still have an accelerometer."""
-	out = _motion(exif(motion={'imu_window': {'sample_count': 12}}))
+	out = _inertial(exif(inertial={'imu_window': {'sample_count': 12}}))
 	assert out == {'imu_window': {'sample_count': 12}}
 
 
 # --- shared: absence ---
 
-@pytest.mark.parametrize('reader', [_fix, _lens, _motion])
+@pytest.mark.parametrize('reader', [_fix, _lens, _inertial])
 @pytest.mark.parametrize('exif_data', [
 	None,
 	{},
@@ -247,7 +247,7 @@ def test_absent_or_malformed_is_none_for_every_object(reader, exif_data):
 	assert reader(exif_data) is None
 
 
-@pytest.mark.parametrize('reader,name', [(_fix, 'fix'), (_lens, 'lens'), (_motion, 'motion')])
+@pytest.mark.parametrize('reader,name', [(_fix, 'fix'), (_lens, 'lens'), (_inertial, 'inertial')])
 def test_only_unknown_keys_is_none_not_an_empty_object(reader, name):
 	assert reader(exif(**{name: {'made_up': 1}})) is None
 
@@ -257,4 +257,4 @@ def test_the_objects_do_not_read_each_others_keys():
 	mistake or a rename half-applied, and must not be silently honoured."""
 	assert _lens(exif(fix={'zoom_ratio': 2.0})) is None
 	assert _fix(exif(lens={'speed_mps': 1.4})) is None
-	assert _motion(exif(lens={'gravity': [0.0, 0.0, 9.81]})) is None
+	assert _inertial(exif(lens={'gravity': [0.0, 0.0, 9.81]})) is None

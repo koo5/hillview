@@ -871,7 +871,7 @@ fun attitudeProvenanceJson(s: SensorSnapshot): String? {
  * is a time SERIES across the exposure, which lives in the tracking database
  * and travels by CSV — see docs/recon-capture-metadata.md.
  */
-fun motionProvenanceJson(s: SensorSnapshot): String? {
+fun inertialProvenanceJson(s: SensorSnapshot): String? {
     fun floats(v: List<Float>?) = v?.joinToString(",", prefix = "[", postfix = "]")
     val fields = buildList {
         s.motion?.let { m ->

@@ -2217,3 +2217,40 @@ by the deadline.
 Verified: 399 jvmTest, 430 androidHostTest, `:androidApp:assembleDebug`,
 PhotoDatabase v27 identityHash matching across both apps, and the 26→27 migration
 validated against the exported schemas on real SQLite.
+
+## 2026-09-26 — `motion` becomes `inertial`, and `attitude` stays
+
+Asked before deploying whether the attitude/motion split makes sense and whether
+`attitude` is the right key. Full reasoning in
+**docs/recon-capture-metadata.md**; the short version:
+
+- **`attitude` stays.** It is the A in AHRS and `MadgwickAHRS.kt` is already in
+  this tree, so it is house vocabulary. The alternative, `orientation`, collides
+  with the `orientation_code` key the same metadata already carries — the EXIF
+  `Orientation` tag, about how to rotate an image for display. That collision is
+  why the object was renamed away from `orientation` originally.
+- **The split stays, but `motion` was misnamed.** Its flagship field is `gravity`,
+  which a still phone reports at full strength. An object called "motion" whose
+  most important value is largest at zero motion misleads every reader once.
+  Renamed to `inertial`, which covers gravity, linear acceleration and the
+  window's angular rates honestly.
+- **Rejected: moving `gravity` into `attitude`.** Tempting, since gravity
+  constrains two rotation degrees of freedom. But every provenance object carries
+  one sensor family, one `age_ms` and one trust story, and gravity's timestamp is
+  not the fused attitude's — a merged object would have two ages and no way to
+  attribute either. Separation also keeps the independence visible: gravity is the
+  accelerometer's opinion about down, `attitude.pitch_deg` is the fusion's, and
+  comparing them checks the fusion.
+
+Mechanically: `motionJson` → `inertialJson` (PhotoDatabase **v28**, an
+`ALTER TABLE … RENAME COLUMN`), `motionProvenanceJson` → `inertialProvenanceJson`,
+the metadata key, `BrowserMetadata.inertial`, `PROVENANCE_KEYS`, the API's
+`_INERTIAL_FIELDS`/`_inertial`, and both detail responses. Hardware-facing names
+keep Android's vocabulary deliberately — `DeviceMotionSample`,
+`startMotionSensors`, `GeoEngine._motion` are named for the sensor family
+(`TYPE_GRAVITY`/`TYPE_LINEAR_ACCELERATION`), which is legitimate at the hardware
+boundary; the rule that names describe what is MEASURED applies to the wire.
+
+Verified: 401 jvmTest, 430 androidHostTest, 296 API unit, 145 worker unit, 6
+end-to-end, `:androidApp:assembleDebug`. v28 identityHash matches both apps and
+27→28 was validated against the exported schemas on real SQLite.

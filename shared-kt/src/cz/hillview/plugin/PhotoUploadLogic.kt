@@ -917,7 +917,7 @@ class PhotoUploadLogic(internal val context: Context) {
 			"attitude" to photo.attitudeJson,
 			"fix" to photo.fixJson,
 			"lens" to photo.lensJson,
-			"motion" to photo.motionJson,
+			"inertial" to photo.inertialJson,
 		).forEach { (key, json) ->
 			json?.let {
 				try {
@@ -1466,8 +1466,8 @@ class PhotoUploadLogic(internal val context: Context) {
         fixJson: String? = null,
         /** The camera's calibration and settings — see PhotoEntity.lensJson. */
         lensJson: String? = null,
-        /** How the phone was moving — see PhotoEntity.motionJson. */
-        motionJson: String? = null,
+        /** How the phone was moving — see PhotoEntity.inertialJson. */
+        inertialJson: String? = null,
         // The refiner's upload gate (PhotoEntity.uploadHoldUntil): non-zero
         // keeps the drain off the row until then, so refinement wins the
         // race against an expedited upload.
@@ -1512,7 +1512,7 @@ class PhotoUploadLogic(internal val context: Context) {
             attitudeJson = attitudeJson,
             fixJson = fixJson,
             lensJson = lensJson,
-            motionJson = motionJson,
+            inertialJson = inertialJson,
             uploadHoldUntil = uploadHoldUntil,
             uploadHoldReasons = uploadHoldReasons,
         )

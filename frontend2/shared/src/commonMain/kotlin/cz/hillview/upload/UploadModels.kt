@@ -128,11 +128,11 @@ data class PendingUpload(
     val fixJson: String? = null,
     /** The camera's calibration and settings — see [cz.hillview.capture.lensProvenanceJson]. */
     val lensJson: String? = null,
-    /** How the phone was moving — see [cz.hillview.capture.motionProvenanceJson]. */
-    val motionJson: String? = null,
+    /** How the phone was moving — see [cz.hillview.capture.inertialProvenanceJson]. */
+    val inertialJson: String? = null,
     /**
      * The gravity / linear-acceleration sample itself, kept so the deferred IMU
-     * window can rebuild [motionJson] without losing it.
+     * window can rebuild [inertialJson] without losing it.
      *
      * The window completes three seconds after the shutter and then rewrites
      * that field; without the sample here, the rewrite would drop the point
