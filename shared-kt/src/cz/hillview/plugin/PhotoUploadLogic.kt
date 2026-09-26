@@ -927,6 +927,20 @@ class PhotoUploadLogic(internal val context: Context) {
 				}
 			}
 		}
+		// The RAW window, and the ONE metadata field that deliberately does
+		// NOT become provenance: it is a bulk artifact, not a fact about the
+		// shutter. The worker declares it like the rest but leaves it out of
+		// PROVENANCE_KEYS, gzips it, and stores it beside the photo's
+		// renditions — `exif_data` is read wholesale on every detail request
+		// and has no business carrying a time series.
+		// docs/recon-capture-metadata.md, Phase 5.
+		photo.imuSamplesJson?.let {
+			try {
+				put("imu_samples", JSONObject(it))
+			} catch (e: Exception) {
+				Log.w(TAG, "imuSamplesJson on ${photo.id} is not valid JSON, dropping")
+			}
+		}
 		// The original's alt_location: the backend synthesizes it into the
 		// UserComment provenance (test_background_location_provenance.py).
 		photo.altLocationJson?.let {

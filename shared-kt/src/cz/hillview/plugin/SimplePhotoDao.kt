@@ -220,6 +220,14 @@ interface SimplePhotoDao {
     fun getMotionJson(photoId: String): String?
 
     /**
+     * The raw window, written by the same deferred pass that finalises
+     * `motionJson` — the samples only exist to be read once the later half of
+     * the window has happened. See PhotoEntity.imuSamplesJson.
+     */
+    @Query("UPDATE photos SET imuSamplesJson = :imuSamplesJson WHERE id = :photoId")
+    fun updateImuSamplesJson(photoId: String, imuSamplesJson: String?)
+
+    /**
      * Every hold, dropped. Called at app start: a refiner that was mid-flight
      * belonged to a process that no longer exists, so its hold is a leftover,
      * not a promise. This is what lets the hold deadline be a generous crash

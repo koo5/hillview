@@ -183,6 +183,30 @@ data class PhotoEntity(
     val attitudeJson: String? = null,
 
     /**
+     * The RAW inertial window this photo owns (v26), columnar and
+     * delta-encoded — see `imuSamplesPayloadJson`.
+     *
+     * The one thing here that is BULK rather than provenance: a few thousand
+     * samples, tens of kilobytes, against a handful of numbers for every other
+     * JSON column on this row. It is held here anyway, rather than read from
+     * `imu_samples` at upload time, because that table is cleared five minutes
+     * back on every dump while an upload can be retried hours later on a phone
+     * that had no network. A window that existed at the shutter and is gone by
+     * the time the photo sends is the drop-site pattern this whole body of work
+     * was about closing.
+     *
+     * It carries only the samples in [ImuWindow.storedFromMs]..window-end — what
+     * this photo OWNS. Consecutive photos in an interval run therefore tile the
+     * session instead of each repeating the same six seconds.
+     *
+     * Deliberately NOT folded into the UserComment: it travels as its own
+     * top-level `imu_samples` metadata field and lands in the storage pool as a
+     * gzipped file, because `exif_data` is read wholesale on every photo detail
+     * request. docs/recon-capture-metadata.md, Phase 5.
+     */
+    val imuSamplesJson: String? = null,
+
+    /**
      * What the RECEIVER said about its own fix at the shutter (v25) — the
      * error bars and the motion, as the upload metadata's `fix` object. NOT
      * the position, which is already four columns here.

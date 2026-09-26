@@ -35,6 +35,7 @@ grouped objects, not a flat sprawl of keys, because the set will keep growing:
 | `lens` | intrinsics, distortion, focus, zoom, focal length, skew | 2 |
 | `fix` | the position-quality fields `FixState` currently drops | 3 |
 | `motion` | gravity, linear acceleration, and the IMU window's summary | 3, 4 |
+| `imu_samples` | the RAW window — the one field that is **not** provenance and never enters the UserComment | 5 |
 
 The existing FLAT keys (`location_source`, `location_age_ms`,
 `location_accuracy_m`, `bearing_source`, `refined`) stay exactly as they are.
@@ -173,13 +174,21 @@ CSV rule, verified against the consumer: **append columns, never insert.**
 `pics` resolves every column by header name (`gps_log.get_column_index`), reads
 a missing one as `None`, and sniffs the file type from the header's prefix.
 
-## Phase 5 — the samples payload reaches the server · PLAN, not built
+## Phase 5 — the samples payload reaches the server · DONE 2026-09-26
 
-Everything above stops at the device for the raw samples: they reach a
+Everything above stopped at the device for the raw samples: they reached a
 workstation only as `hillview_imu_<ms>.csv`, by hand, and only when tracking
-auto-export is on. The per-photo `motion.imu_window` summary is all the SERVER
-gets. This phase is the rest of it, and it is the user's requirement — "the 6 s
+auto-export was on. The per-photo `motion.imu_window` summary was all the SERVER
+got. This phase is the rest of it, and it was the user's requirement — "the 6 s
 window really has to travel with the photo".
+
+**Verified end to end** against the live stack, not only in units:
+`backend/tests/integration/test_imu_samples_artifact.py` drives the real secure
+upload with an `imu_samples` payload and asserts the artifact round-trips through
+the storage pool, the URL is served on both the owner and the public endpoint,
+absence stays absent, a malformed payload is dropped WITHOUT failing the photo,
+and — the one no unit test can see — that the samples never enter the
+UserComment.
 
 ### Why not in the UserComment
 
@@ -218,8 +227,11 @@ Columnar and delta-encoded, one object per sensor:
   after gzip and cannot be read by a human debugging a pipeline. For a research
   artifact that trade goes the other way.
 
-Rough size: ~45 KB of JSON for a 2 s trimmed window, ~15 KB gzipped — about
-0.3 % of the JPEG it travels with.
+**Measured**, on synthetic data with realistic per-sample noise so gzip cannot
+cheat: a 2 s trimmed window is 40 KB of JSON and 13 KB gzipped; the full 6 s
+window at 400 Hz on two sensors is 120 KB and 36 KB. About 0.3 % of the JPEG it
+travels with. (The encoder's own test prints the figure; the estimates this
+paragraph replaced were 45 KB / 15 KB, so they were honest.)
 
 ### Transport: the existing bulk-artifact path, not a column
 
@@ -324,6 +336,48 @@ particular answer is no:
    require the four arrays of a sensor to be the same length, and coerce every
    element to a finite float. The same discipline as `_provenance_object`,
    applied to something big enough that failing to apply it matters.
+
+### What the build decided that the plan had not
+
+Three things the plan left open, settled while building it.
+
+**1. The payload is held on the photo row, not re-read at send time.**
+`PhotoEntity.imuSamplesJson` (v26). The alternative — read `imu_samples` out of
+the tracking table when the upload runs — loses the window whenever an upload is
+delayed, because that table is cleared five minutes back on every dump while a
+retry can happen hours later on a phone that had no network. A window that
+existed at the shutter and is gone by the time the photo sends is the same
+drop-site pattern this whole body of work was about closing. The cost is real —
+tens of kilobytes per row in the app's SQLite — and it buys the guarantee.
+
+**2. The payload carries what the photo OWNS, not its whole ±3 s window.**
+This is what makes the tiling actually reach the server, and it needed a bound
+the plan had not identified. `imuHighWaterMs` made the TABLE hold each sample
+once, but a read of `getInWindow(shutter ± 3 s)` returns samples a neighbour
+stored — so without a lower bound each sample would still travel in three
+consecutive photos and the trim would have saved device storage only. The engine
+is the only thing that knows where a photo's claim begins, so `ImuWindowSummary`
+gained `storedFromMs`, it rides the row inside `motion.imu_window` as
+`stored_from_ms`, and the deferred pass reads it back with `imuStoredFromMs`.
+
+Which turned up a bug: **`stored_count` was 0 on every photo.** The capture path
+computed it correctly, and then the pipeline's deferred rewrite of `motionJson`
+rebuilt the `ImuWindow` without it and let it default. So the one field a server
+needs in order to concatenate a run without double-counting always said "this
+photo added nothing". The unit tests added earlier the same day covered the
+SERIALIZER, which was never wrong; nothing covered the call site that dropped the
+value. Fixed, and the reader is tolerant of every older row shape.
+
+**3. Deleting is a rename, so that forgetting is impossible.**
+The plan flagged the sweep as "the step most likely to be forgotten and the only
+one that quietly costs money", and adding a parameter would not have helped:
+every caller built `[photo.sizes for photo in photos]`, and nothing about that
+line looks wrong once a second artifact column exists. So the unit of work
+changed from a bare `sizes` dict to an artifact RECORD — `photo_artifacts(photo)`
+— and `delete_photo_files_for_sizes` became `delete_photo_files_for_artifacts`.
+A rename cannot be silently skipped: it is a missing name at all four call sites.
+New artifact columns now go in `_PHOTO_ARTIFACT_URL_COLUMNS`, one line, one
+place.
 
 ### What still decides the sizing
 
@@ -633,18 +687,41 @@ parking both there makes one read path serve both upload routes.
 
 The user's reading of what UserComment is FOR — "what other data do you need to
 store with the photo that EXIF doesn't support" — is right, and so is the
-conclusion: it is a channel now, and a few hundred samples per photo have no
-business in it. The samples payload should be **its own top-level metadata
-field** and **its own column** on the photos table, not a member of the
-provenance blob. That needs a `BrowserMetadata` field, an alembic migration, and
-an API column — none of it hard, and none of it done yet.
+conclusion: it is a channel now, and a few thousand samples per photo have no
+business in it.
+
+So the samples take a **second pipe**, which is what Phase 5 built. Same metadata
+dict, and then it forks:
+
+    app  buildUploadMetadata()        -> `imu_samples`, TOP-LEVEL
+    ---- the wire ----
+    worker  BrowserMetadata.imu_samples  -> declared, so it arrives
+    worker  PROVENANCE_KEYS              -> deliberately DOES NOT list it, so it
+                                            never enters the UserComment
+    worker  _validate_imu_samples()      -> the only client-supplied BULK
+                                            artifact in the pipeline, so the
+                                            caps are explicit
+    worker  gzip -> _get_size_url()      -> the same road the renditions and the
+                                            DZI pyramids take
+    ---- the API ----
+    api  photos.imu_samples_url          -> a URL, not the payload
+    api  both detail endpoints           -> the URL, public
+
+The two pipes differ in exactly one property, and it is the one that matters:
+everything in the first is read on every request that touches a photo, and the
+second is fetched only by something that wants it.
 
 ## Still open
 
-- **Phase 5 is the big one** — the samples payload reaching the server. Designed
-  above, not built. The step inside it most likely to be forgotten is the
-  DELETION sweep: a new URL column the delete path does not know about leaks one
-  file per deleted photo, forever.
+- **`pics` cannot read the new artifact.** Phase 5 lands the samples on the
+  server as `photos.imu_samples_url`, a gzipped columnar payload, and the
+  workbench still only knows the on-device CSV. That is the natural next
+  consumer and the reason the payload was kept inspectable rather than packed.
+- **The app's SQLite grows by the payload.** Tens of kilobytes per photo held on
+  the row until upload — a deliberate trade (see "What the build decided"), but
+  nobody has measured a long interval run's database against it, and there is no
+  pruning of `imuSamplesJson` after a successful upload. A row keeps its window
+  forever.
 - **A toggle for the external camera's continuous capture.** ~100 MB of CSV an
   hour is a user-visible amount of someone's storage, and a multi-hour drive
   deserves an off switch. The config flag exists (`GeoConfig.imuContinuous`);

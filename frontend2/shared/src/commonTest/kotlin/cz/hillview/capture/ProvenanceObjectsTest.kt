@@ -221,6 +221,9 @@ class ProvenanceObjectsTest {
         // Fewer than sampleCount: the neighbouring photo's window had already
         // stored the rest. See the dedup test below.
         storedCount = 61,
+        // ...and they start here, not at startMs, because the earlier part of
+        // the window belongs to the previous photo.
+        storedFromMs = shutterAt - 200,
     )
 
     @Test
@@ -263,6 +266,41 @@ class ProvenanceObjectsTest {
             ImuWindow(sampleCount = 104, startMs = shutterAt, endMs = shutterAt + 1, storedCount = 0),
         )
         assertTrue("\"stored_count\":0" in json, json)
+        // ...and with nothing owned there is no lower bound to report.
+        assertFalse("stored_from_ms" in json, json)
+    }
+
+    /**
+     * `stored_from_ms` bounds what this photo OWNS, and it has to survive the
+     * round trip because the deferred pass that finalises the window cannot ask
+     * the engine for it — see [imuStoredFromMs].
+     */
+    @Test
+    fun theOwnedRangesLowerBoundTravelsAndReadsBack() {
+        val json = motionProvenanceJson(snap(imuWindow = window()))!!
+        assertTrue("\"stored_from_ms\":${shutterAt - 200}" in json, json)
+        assertEquals(shutterAt - 200, imuStoredFromMs(json))
+    }
+
+    /**
+     * The reader is deliberately tolerant: rows written before the field
+     * existed, and blobs that are not what we think, must read as "claims
+     * nothing" rather than throw inside a background pass.
+     */
+    @Test
+    fun readingTheOwnedBoundIsTolerantOfEveryKindOfAbsence() {
+        listOf(
+            null,
+            "",
+            "{bad json",
+            "{}",
+            "[]",
+            """{"imu_window":{}}""",
+            """{"imu_window":"not an object"}""",
+            """{"imu_window":{"stored_from_ms":"not a number"}}""",
+            // The pre-2026-09-26 shape: a window with no ownership bound at all.
+            """{"imu_window":{"sample_count":104,"stored_count":0}}""",
+        ).forEach { assertNull(imuStoredFromMs(it), "should be null for: $it") }
     }
 
     @Test

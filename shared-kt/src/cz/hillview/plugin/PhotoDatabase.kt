@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     // GeoTrackingDatabase in v18 — see that file for why. What is left here is
     // durable and low-rate: a capture and the edits that belong to it.
     entities = [PhotoEntity::class, EditEntity::class, PhotoOutboxEntity::class],
-    version = 25,
+    version = 26,
     // Schemas are exported per app (they compile these entities with different
     // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
     // docs/geo-election-test-todo.md item 6. Both agree on the identityHash;
@@ -566,6 +566,19 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_25_26 = object : Migration(25, 26) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// The raw IMU window, as the payload that travels with the photo
+				// (docs/recon-capture-metadata.md, Phase 5). One column, and the
+				// only BULK one on this table — tens of kilobytes rather than a
+				// handful of numbers. See PhotoEntity.imuSamplesJson for why it
+				// is held here instead of re-read from imu_samples at send time.
+				//
+				// Null on existing rows: their windows were never kept.
+				database.execSQL("ALTER TABLE photos ADD COLUMN imuSamplesJson TEXT")
+			}
+		}
+
 		/**
 		 * Every migration, in one list, so the runtime builder and
 		 * PhotoDatabaseMigrationTest cannot disagree about which ones exist.
@@ -576,6 +589,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 			MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
 			MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
 			MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
+			MIGRATION_25_26,
 		)
 
         fun getDatabase(context: Context): PhotoDatabase {

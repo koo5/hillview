@@ -127,6 +127,14 @@ class Photo(Base):
 	exif_data: Mapped[Optional[dict]] = mapped_column(JSON)
 	detected_objects: Mapped[Optional[dict]] = mapped_column(JSON)
 	sizes: Mapped[Optional[dict]] = mapped_column(JSON)
+	# URL of the gzipped raw IMU window (accelerometer + gyroscope) captured
+	# around this photo's exposure, stored beside the renditions. A URL and not
+	# the payload: this row is read on every map bounds query, and the window is
+	# tens of kilobytes. THE DELETE PATH MUST SWEEP IT — see photo deletion,
+	# which resolves a storage pool per stored URL; a column it does not know
+	# about leaks one file per deleted photo, permanently.
+	# docs/recon-capture-metadata.md, Phase 5.
+	imu_samples_url: Mapped[Optional[str]] = mapped_column(Text)
 	analysis: Mapped[Optional[dict]] = mapped_column(JSONB)  # AI-generated photo analysis (indexed)
 	# Terrain overlay graduated from the enrichment workbench: fitted horizon
 	# line + visible peak labels, baked to vectors (no depth buffer). Tens of

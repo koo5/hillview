@@ -1428,7 +1428,7 @@ instances closed here.
 
 - **Five provenance objects, 42 fields, agreeing app → worker → API**, checked
   mechanically rather than by eye: `attitude` (10), `fix` (7), `lens` (14),
-  `motion` (5, incl. the nested `imu_window` of 6). All served publicly, on
+  `motion` (5, incl. the nested `imu_window` of 7). All served publicly, on
   other people's photos.
 - **`lens` is the big one.** Nothing had read a single calibration key. Factory
   intrinsics + distortion + physical sensor size + pixel array from
@@ -1981,3 +1981,50 @@ Still parked:
   the backlog doc; on API 30+ hidden-public satisfies both needs).
 - Tauri Play release: user will run a release and see whether the
   targetSdk-36 pass already succeeds (deadline 2026-08-31).
+
+## 2026-09-26 — the raw window reaches the server
+
+Phase 5 of **docs/recon-capture-metadata.md**, built and verified end to end.
+The samples had stopped at the device: reachable only as a tracking CSV pulled
+off the phone by hand, and only with auto-export on. The server got the summary
+and nothing else. The user's requirement was that the 6 s window travel with the
+photo, and now it does.
+
+- **A second pipe, beside the provenance one.** `imu_samples` is a top-level
+  metadata field, DECLARED in `BrowserMetadata` and deliberately absent from
+  `PROVENANCE_KEYS` — the only key of which that is true. The worker gzips it
+  onto the same road the renditions and DZI pyramids take (`_get_size_url`), and
+  `photos.imu_samples_url` keeps a URL. `exif_data` is read wholesale on every
+  photo detail request; a time series in there would be paid for by every reader
+  of every photo, forever.
+- **Columnar, delta-encoded, inspectable.** One object per sensor, `dt_us` with
+  n-1 gaps from the MONOTONIC clock (the wall clock can step under NTP), rounded
+  to each sensor's real resolution. Measured: a 2 s trimmed window is 40 KB of
+  JSON, 13 KB gzipped — 0.3 % of the JPEG. Not base64-packed: about the same size
+  after gzip and unreadable when a pipeline misbehaves.
+- **A bug the earlier day's tests could not see: `stored_count` was 0 on every
+  photo.** The capture path computed it; the pipeline's deferred rewrite of
+  `motionJson` rebuilt the window record without it and let it default. That is
+  the one number a server needs to concatenate a run without double-counting.
+  The fix needed a bound nobody had identified — `storedFromMs`, where a photo's
+  claim on the sample stream begins — which turned out to be the thing that makes
+  the on-device trim actually reach the wire: without it each photo's payload
+  would still carry its whole ±3 s window and the same samples would travel three
+  times in an interval run.
+- **DECISION: the payload is held on the photo row** (`PhotoEntity.imuSamplesJson`,
+  v26), not re-read from the tracking table at send time. That table is cleared
+  five minutes back on every dump while an upload can retry hours later on a
+  phone that had no network. Costs tens of kilobytes a row; buys the guarantee.
+  There is no pruning after upload yet — see "Still open" in the plan.
+- **DECISION: the delete sweep changed shape rather than gaining a parameter.**
+  Every caller built `[photo.sizes for photo in photos]`, and once a second
+  artifact column exists nothing about that line looks wrong. So the unit became
+  an artifact record (`photo_artifacts`) and `delete_photo_files_for_sizes`
+  became `delete_photo_files_for_artifacts` — a rename cannot be silently
+  skipped. New artifact columns go in `_PHOTO_ARTIFACT_URL_COLUMNS`.
+- **Verified against the live stack**, not only in units:
+  `backend/tests/integration/test_imu_samples_artifact.py` (5 tests) drives the
+  real secure upload and asserts the round-trip through the storage pool, the URL
+  on both the owner and public endpoints, absence staying absent, a malformed
+  payload dropped WITHOUT failing the photo, and that the samples never enter the
+  UserComment. Alembic `036_photo_imu_samples_url` is applied to dev.

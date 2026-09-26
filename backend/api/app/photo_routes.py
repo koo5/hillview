@@ -150,6 +150,12 @@ class ProcessedPhotoData(BaseModel):
 	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
 	filename: Optional[str] = None  # Secure filename after processing
 	captured_at: Optional[str] = None  # ISO datetime when photo was taken (from EXIF DateTimeOriginal)
+	# URL of the gzipped raw IMU window stored beside this photo's renditions.
+	# A URL and not the payload: the photos row is read by the map on every
+	# bounds query and must stay lean, while the window is tens of kilobytes.
+	# docs/recon-capture-metadata.md, Phase 5 -- and note that DELETION must
+	# sweep it, or every deleted photo leaks one file.
+	imu_samples_url: Optional[str] = None
 
 class WorkerProcessedPhotoRequest(BaseModel):
 	"""Request model for processed photo data from worker with signature."""
@@ -281,6 +287,11 @@ async def save_processed_photo(
 	photo.exif_data = processed_data.exif_data
 	photo.sizes = processed_data.sizes
 	photo.detected_objects = processed_data.detected_objects
+	# The gzipped raw IMU window, if the worker stored one. Assigned
+	# unconditionally like sizes: a reprocess that produced none must CLEAR a
+	# stale URL rather than leave the row pointing at a file the new run did not
+	# write. See the delete sweep, which is taught about this column too.
+	photo.imu_samples_url = processed_data.imu_samples_url
 	photo.error = processed_data.error
 	photo.retry_after_minutes = processed_data.retry_after_minutes  # async clients read this from the status/list/get endpoints
 	photo.client_signature = processed_data.client_signature  # Store signature for audit trail
@@ -980,6 +991,7 @@ async def get_photo(
 			"fix": _fix(photo.exif_data),
 			"lens": _lens(photo.exif_data),
 			"motion": _motion(photo.exif_data),
+			"imu_samples_url": photo.imu_samples_url,
 			"detected_objects": photo.detected_objects,
 			"sizes": photo.sizes,
 			"owner_id": photo.owner_id,
@@ -1741,6 +1753,10 @@ _IMU_WINDOW_FIELDS: dict = {
 	'window_start_ms': int,
 	'window_end_ms': int,
 	'stored_count': int,
+	# Where this photo's claim on the sample stream BEGINS. With it a reader can
+	# concatenate a run: each photo owns [stored_from_ms, window_end_ms] and
+	# every other sample in its window belongs to a neighbour.
+	'stored_from_ms': int,
 	'accel_peak_mps2': float,
 	'accel_peak_deviation_mps2': float,
 	'gyro_peak_rad_s': float,
@@ -2138,6 +2154,12 @@ async def get_public_photo(
 			"fix": _fix(photo.exif_data),
 			"lens": _lens(photo.exif_data),
 			"motion": _motion(photo.exif_data),
+			# The RAW window behind motion.imu_window, as a gzipped artifact.
+			# Public for the same reason `attitude` is: a reconstruction limited
+			# to the caller's own frames reconstructs nowhere. A URL costs a few
+			# dozen bytes here, unlike the payload, which is why only this travels
+			# in the response and the samples are fetched on demand.
+			"imu_samples_url": photo.imu_samples_url,
 			"width": photo.width,
 			"height": photo.height,
 			"exif": _curate_exif(photo.exif_data),

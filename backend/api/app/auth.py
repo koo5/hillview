@@ -903,13 +903,16 @@ async def delete_users_by_usernames(db: AsyncSession, usernames: list[str]) -> d
 			# clear-database's wholesale directory sweep is the local catch-all.
 			photos_query = select(Photo).where(Photo.owner_id.in_(user_ids))
 			photos_result = await db.execute(photos_query)
-			all_sizes = [photo.sizes for photo in photos_result.scalars().all()]
+			from photos import delete_photo_files_for_artifacts, photo_artifacts
+			# Artifact RECORDS, not bare `sizes` dicts — a photo also references
+			# standalone artifact URLs (imu_samples_url), and capturing only
+			# `sizes` leaked one file per deleted photo. See photo_artifacts.
+			all_artifacts = [photo_artifacts(photo) for photo in photos_result.scalars().all()]
 			await db.rollback()  # end the read snapshot; nothing written yet
 
-			if all_sizes:
-				from photos import delete_photo_files_for_sizes
-				deleted_files_count = await delete_photo_files_for_sizes(all_sizes)
-				logger.info(f"Deleted {deleted_files_count}/{len(all_sizes)} photo files for users: {usernames}")
+			if all_artifacts:
+				deleted_files_count = await delete_photo_files_for_artifacts(all_artifacts)
+				logger.info(f"Deleted {deleted_files_count}/{len(all_artifacts)} photo files for users: {usernames}")
 
 			# Now the DB deletes, in a fresh short write transaction.
 			photo_delete_stmt = delete(Photo).where(Photo.owner_id.in_(user_ids))

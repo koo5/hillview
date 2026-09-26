@@ -131,3 +131,89 @@ interface ImuDao {
     @Query("DELETE FROM imu_samples WHERE timestamp < :cutoff")
     fun clearOlderThan(cutoff: Long)
 }
+
+// --- the raw payload that travels with the photo (docs/recon-capture-metadata.md, Phase 5) ---
+
+/**
+ * Most samples a single photo's payload may carry.
+ *
+ * The ring's capacity, deliberately, rather than a byte figure someone picked:
+ * `GeoEngine.imuRing` is `ImuRing(capacity = 16_000)`, so no honest window can
+ * exceed it and a payload that claims more was not produced by this app. The
+ * worker enforces the same number at its door — see the plan doc's "Size"
+ * section for why the bound is expressed in samples.
+ */
+const val IMU_PAYLOAD_MAX_SAMPLES = 16_000
+
+/** Accelerometer resolution is ~1e-3 m/s2; printing more is printing float noise. */
+private const val ACCEL_DECIMALS = 3
+
+/** Gyroscope resolution is ~1e-4 rad/s. */
+private const val GYRO_DECIMALS = 4
+
+/**
+ * Fixed-point with the trailing zeros removed, and never a locale's comma.
+ *
+ * `String.format` without [java.util.Locale.ROOT] emits `0,012` in a Czech
+ * locale, which is not JSON — and this app's author's phone is Czech.
+ */
+private fun fmt(v: Double, decimals: Int): String {
+    val s = String.format(java.util.Locale.ROOT, "%.${decimals}f", v)
+    var t = if ('.' in s) s.trimEnd('0').trimEnd('.') else s
+    if (t.isEmpty() || t == "-0") t = "0"
+    return t
+}
+
+private fun decimalsFor(kind: String) = if (kind == "gyro") GYRO_DECIMALS else ACCEL_DECIMALS
+
+/**
+ * The raw window as the payload that travels beside the photo: **columnar and
+ * delta-encoded**, one object per sensor.
+ *
+ * ```json
+ * {"accel":{"t0_ms":1700000000000,"t0_ns":812340000000,
+ *           "dt_us":[2500,2501,...],"x":[...],"y":[...],"z":[...]}}
+ * ```
+ *
+ * - **Columnar**, so a key name appears once per array instead of once per
+ *   sample. Row-wise, `{"t":..,"x":..,"y":..,"z":..}` repeated four thousand
+ *   times IS most of the bytes.
+ * - **`dt_us` holds n-1 GAPS for n samples**, in microseconds, from
+ *   [ImuSampleEntity.elapsedNanos] — the monotonic clock, not the wall clock,
+ *   because the wall clock can step mid-window under an NTP correction and a
+ *   window whose ordering depended on it would reorder. Microseconds because at
+ *   400 Hz millisecond resolution puts two or three samples on one instant.
+ *   Reconstruct as `t[0] = 0; t[i] = t[i-1] + dt_us[i-1]`.
+ * - **`t0_ms` and `t0_ns` are both the FIRST sample's**: the wall clock so the
+ *   window can be found in time, the monotonic one so it can be joined to
+ *   anything else sampled on that clock (an exposure, another sensor).
+ * - **Rounded to what the sensor can resolve.** Not lossy; the digits below it
+ *   are noise that gzip cannot compress because it is random.
+ * - **Inspectable, not packed.** A base64 float32 blob is about the same size
+ *   after gzip and unreadable when a pipeline misbehaves. For a research
+ *   artifact that trade goes the other way.
+ *
+ * Returns null for an empty window — the honest answer on a device with no
+ * gyroscope, or for a capture taken before the buffer filled.
+ */
+fun imuSamplesPayloadJson(samples: List<ImuSampleEntity>): String? {
+    if (samples.isEmpty()) return null
+    val objects = samples.groupBy { it.kind }.entries
+        .sortedBy { it.key }
+        .map { (kind, rows) -> kindPayload(kind, rows.sortedBy { it.elapsedNanos }) }
+    return objects.joinToString(",", prefix = "{", postfix = "}")
+}
+
+private fun kindPayload(kind: String, rows: List<ImuSampleEntity>): String {
+    val d = decimalsFor(kind)
+    val first = rows.first()
+    // n-1 gaps, rounded to whole microseconds. Integer division of the
+    // nanosecond difference, so gaps never accumulate a fractional drift.
+    val gaps = (1 until rows.size).joinToString(",") {
+        ((rows[it].elapsedNanos - rows[it - 1].elapsedNanos) / 1_000).toString()
+    }
+    fun axis(pick: (ImuSampleEntity) -> Float) =
+        rows.joinToString(",") { fmt(pick(it).toDouble(), d) }
+    return """"$kind":{"t0_ms":${first.timestamp},"t0_ns":${first.elapsedNanos},""" +
+        """"dt_us":[$gaps],"x":[${axis { it.x }}],"y":[${axis { it.y }}],"z":[${axis { it.z }}]}"""
+}

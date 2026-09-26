@@ -66,6 +66,18 @@ class SharedStackUploadPipeline(
                 val samples = cz.hillview.plugin.GeoTrackingDatabase.getDatabase(context)
                     .imuDao().getInWindow(capturedAt - half, capturedAt + half)
                 val stats = cz.hillview.plugin.summariseImuWindow(samples) ?: return@launch
+                // What this photo OWNS, carried over from the inline pre-shutter
+                // summary the capture path already wrote. This rewrite used to
+                // drop it and let storedCount default to 0, which made the field
+                // read "this photo added nothing" on EVERY photo — and that is
+                // the one number a server needs to concatenate a run without
+                // counting samples twice. The engine is the only thing that can
+                // know it (it owns imuHighWaterMs), so it travels on the row
+                // rather than being recomputed here.
+                val storedFrom = cz.hillview.capture.imuStoredFromMs(upload.motionJson)
+                val owned = storedFrom
+                    ?.let { from -> samples.filter { it.timestamp in from..(capturedAt + half) } }
+                    ?: emptyList()
                 val json = cz.hillview.capture.motionProvenanceJson(
                     cz.hillview.capture.SensorSnapshot(
                         capturedAtMs = capturedAt,
@@ -79,14 +91,30 @@ class SharedStackUploadPipeline(
                             accelPeakMps2 = stats.accelPeakMps2,
                             accelPeakDeviationMps2 = stats.accelPeakDeviationMps2,
                             gyroPeakRadS = stats.gyroPeakRadS,
+                            storedCount = owned.size,
+                            storedFromMs = storedFrom,
                         ),
                     ),
                 )
-                PhotoDatabase.getDatabase(context).photoDao().updateMotionJson(photoId, json)
+                val dao = PhotoDatabase.getDatabase(context).photoDao()
+                dao.updateMotionJson(photoId, json)
+                // The raw samples themselves — only the OWNED range, so
+                // consecutive photos in a run tile rather than each carrying the
+                // same six seconds. Capped at the ring's capacity: a payload
+                // larger than the buffer that produced it did not come from here.
+                dao.updateImuSamplesJson(
+                    photoId,
+                    if (owned.size > cz.hillview.plugin.IMU_PAYLOAD_MAX_SAMPLES) {
+                        Log.w(TAG, "IMU payload for $photoId is ${owned.size} samples, over the cap — dropped")
+                        null
+                    } else {
+                        cz.hillview.plugin.imuSamplesPayloadJson(owned)
+                    },
+                )
                 Log.i(
                     TAG,
                     "IMU window for $photoId: ${stats.sampleCount} samples " +
-                        "${stats.startMs}..${stats.endMs}",
+                        "${stats.startMs}..${stats.endMs}, owns ${owned.size} from $storedFrom",
                 )
             } catch (e: Exception) {
                 Log.w(TAG, "could not attach the IMU window to $photoId: ${e.message}")

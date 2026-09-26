@@ -819,12 +819,28 @@ class BrowserMetadata(BaseModel):
 	# accelerometer/gyroscope window around the exposure (sample_count,
 	# window_start_ms, window_end_ms, accel_peak_mps2 which includes gravity,
 	# accel_peak_deviation_mps2 which is the gravity-free shake signal,
-	# gyro_peak_rad_s). The window's SAMPLES never come through here: they are
-	# hundreds of rows per photo and travel as a tracking CSV, found by those
-	# bounds. A single RAW accelerometer sample is deliberately absent: it is
-	# gravity plus linear acceleration and one sample cannot separate them, which
-	# is the whole reason the window exists.
+	# gyro_peak_rad_s, stored_count and stored_from_ms -- the last two saying
+	# which part of the stream this photo OWNS, so a run can be concatenated
+	# without counting a sample twice). The window's SAMPLES arrive separately,
+	# in imu_samples below, NOT in here: this object becomes provenance and ends
+	# up in exif_data, which is read wholesale on every detail request. A single
+	# RAW accelerometer sample is deliberately absent: it is gravity plus linear
+	# acceleration and one sample cannot separate them, which is the whole reason
+	# the window exists.
 	motion: Optional[dict] = None
+	# The RAW inertial window, columnar and delta-encoded -- the one metadata
+	# object here that is a BULK ARTIFACT rather than a fact about the shutter.
+	#
+	#   {"accel": {"t0_ms":…, "t0_ns":…, "dt_us":[n-1 gaps],
+	#              "x":[…], "y":[…], "z":[…]},
+	#    "gyro":  {…}}
+	#
+	# Declared like every other object, and then DELIBERATELY LEFT OUT of
+	# PROVENANCE_KEYS: it must not enter the UserComment. It is gzipped and
+	# stored beside the photo's renditions instead, and the row keeps only a URL.
+	# See imu_samples_url on ProcessedPhotoData, _validate_imu_samples below, and
+	# docs/recon-capture-metadata.md, Phase 5.
+	imu_samples: Optional[dict] = None
 	exposure: Optional[dict] = None  # rule/plan/metering — see exposureProvenanceJson
 	encoding: Optional[str] = None  # EXR pixel encoding: 'srgb' or 'linear' (sourced from .exr.encoding sidecar at upload). Worker falls back to the embedded header tag when absent.
 	exif: Optional[dict] = None  # Structured multi-frame source EXIF from the pipeline. A whole nested object: EXR panos send a representative identity header (Make/Model/LensModel/…) + 'pano_frames' (array-of-arrays, one entry per pano position, each a stack of frames); fused-stack singles send just 'stack_frames' (flat list of the bracket's members). Merged into exif_data['data'] (the same place a single's embedded tags land, so camera fields read at exif_data.data.* uniformly); NOT split into typed columns. See pics/src/lib/stamp.derive_pano_exif / derive_stack_exif.
@@ -857,6 +873,12 @@ class ProcessedPhotoData(BaseModel):
 	processed_by_worker: Optional[str] = None  # Worker identity for audit trail
 	filename: Optional[str] = None  # Secure filename after processing
 	captured_at: Optional[str] = None  # ISO datetime when photo was taken (from EXIF DateTimeOriginal)
+	# URL of the gzipped raw IMU window stored beside this photo's renditions.
+	# A URL and not the payload: the photos row is read by the map on every
+	# bounds query and must stay lean, while the window is tens of kilobytes.
+	# docs/recon-capture-metadata.md, Phase 5 -- and note that DELETION must
+	# sweep it, or every deleted photo leaks one file.
+	imu_samples_url: Optional[str] = None
 
 # Authentication dependency for upload authorization
 async def get_upload_authorization(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
@@ -1372,6 +1394,7 @@ async def _upload_inner(file: Optional[UploadFile], client_signature: str, photo
 				processed_data.detected_objects = processing_result.get("detected_objects")
 				processed_data.filename = secure_filename
 				processed_data.captured_at = processing_result.get("captured_at")
+				processed_data.imu_samples_url = processing_result.get("imu_samples_url")
 
 			# Send to API server
 			worker_signature = sign_processing_result(processed_data.dict())

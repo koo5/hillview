@@ -185,6 +185,18 @@ data class ImuWindowSummary(
      * interval's worth rather than the window's.
      */
     val storedCount: Int = 0,
+    /**
+     * Timestamp of the FIRST sample this call owns, or null when it stored
+     * nothing because a neighbour had already taken the whole window.
+     *
+     * The photo's claim on the table, and the reason it has to travel: the
+     * samples a photo OWNS run from here to the end of its window, contiguously
+     * (the inline pre-shutter half and the deferred post-shutter half abut), and
+     * every other sample inside its ±window belongs to a neighbour. Without this
+     * bound a later reader can only re-read the whole window, which puts the
+     * same samples in three consecutive photos and undoes the trim.
+     */
+    val storedFromMs: Long? = null,
 )
 
 /**
@@ -848,6 +860,7 @@ class GeoEngine private constructor(private val context: Context) {
             endMs = samples.last().timestamp,
             /** What this photo actually ADDED to the table — see imuHighWaterMs. */
             storedCount = fresh.size,
+            storedFromMs = fresh.firstOrNull()?.timestamp,
             // Raw accelerometer INCLUDES gravity, so this sits near 9.81 on a
             // still phone. Reported as-is, and the deviation below is the
             // gravity-free shake signal derived from it.
