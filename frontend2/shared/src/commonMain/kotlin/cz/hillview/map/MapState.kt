@@ -121,7 +121,149 @@ data class FixState(
     val atMs: Long,
     /** Monotonic ns of the fix — what fix age at the shutter is measured from. */
     val elapsedRealtimeNanos: Long,
+    // Everything below is what the RECEIVER also said and this record used to
+    // drop (2026-09-26). `PreciseLocationData` has carried all of it from the
+    // start; FixState kept six fields and discarded the rest, so a photo could
+    // say its position was accurate to 4 m horizontally and nothing at all
+    // about the vertical — which matters, because altitude is part of a camera
+    // centre. Null where the platform did not report one; that is a real
+    // distinction and never a zero.
+    /** Vertical error bar, metres — the altitude's accuracy, not the position's. */
+    val altitudeAccuracyM: Float? = null,
+    /** Ground speed, m/s. Motion at the shutter, and car mode's input. */
+    val speedMps: Float? = null,
+    /** Error bar on [speedMps], m/s. */
+    val speedAccuracyMps: Float? = null,
+    /**
+     * The receiver's own COURSE — the direction of travel it derived from
+     * successive fixes. Not a heading: a phone pointed sideways out of a car
+     * window has a course down the road and a heading across it. Car mode
+     * composes this into a bearing; it is kept raw here as well.
+     */
+    val courseDeg: Float? = null,
+    /** Error bar on [courseDeg], degrees. */
+    val courseAccuracyDeg: Float? = null,
+    /**
+     * Which platform provider produced it — "gps", "network", "fused". NOT
+     * the app's `location_source`, which says whether the PHOTO recorded a fix
+     * or the map centre. With the fused client this usually reads "fused", so
+     * it discriminates less than it looks; kept because when it does say
+     * "network" that fix is worthless for reconstruction and nothing else
+     * would have told you.
+     */
+    val provider: String? = null,
 )
+
+/**
+ * What the DEVICE itself was measuring, last time it said — independent of
+ * which bearing source is elected.
+ *
+ * The orientation side's answer to what [FixState] is on the position side:
+ * a second stream that must be recoverable after another source has won the
+ * election. [BearingState] holds the ELECTED answer, and a manual claim, a
+ * car course or a photo the user turned to all write null for pitch — which
+ * is the truth about those sources, and leaves nothing at all saying how the
+ * phone was actually being held at that moment.
+ *
+ * That gap had two visible costs. A manual bearing row reached the tracking
+ * table with pitch and roll invented as `0f` — a phone held perfectly level,
+ * recorded as a measurement. And roll never left the device at all: the
+ * sensor stack computes it, [BearingState] has no field for it, so the photo
+ * stamp could not carry it (user, 2026-09-22: "the phone should store every
+ * bit of info it has, both raw and processed").
+ *
+ * Session-scoped like [FixState], and for the same reason: an attitude does
+ * not survive a relaunch, because its age would be a day.
+ *
+ * **[roll] is not the camera's rotation about its optical axis.** The sensor
+ * stack remaps the rotation matrix for the QUANTIZED device pose
+ * (portrait / landscape-left / …) before reading pitch and roll out of it,
+ * so this roll is the residual tilt within that quadrant. The absolute
+ * rotation is this plus the pose, which the photo stamp records separately
+ * as `deviceRotationDeg`. A consumer needs both, which is why the stamp's
+ * provenance carries both.
+ */
+data class DeviceAttitude(
+    /** Declination-corrected heading the compass itself reported. */
+    val trueDeg: Double,
+    /** Uncorrected compass heading — the raw half of the same reading. */
+    val magneticDeg: Double,
+    /** Tilt, degrees, positive up. */
+    val pitch: Double,
+    /** Residual roll within the quantized device pose — see above. */
+    val roll: Double,
+    /**
+     * The MAGNETOMETER's calibration status — 0 unreliable, 1 low, 2 medium,
+     * 3 high; null when Android has never reported one. It qualifies
+     * [trueDeg] and [magneticDeg] only: [pitch] and [roll] come from gravity
+     * and the gyro, which this says nothing about. Latched, not per-sample —
+     * see `attitudeProvenanceJson` for the full set of caveats.
+     *
+     * Named for what it IS, not for Android's word for it. The same value
+     * reaches the tracking table as `BearingEntity.accuracyLevel` and the
+     * bearing state as [BearingState.accuracyLevel] — both keep the old name,
+     * because one is a database column and the other its mirror, and neither
+     * is worth a migration to rename. New readers should learn it here.
+     */
+    val magnetometerCalibration: Int? = null,
+    /**
+     * What the sensor that produced this sample said about ITSELF —
+     * `SensorEvent.accuracy`, same 0..3 scale, null when unknown.
+     *
+     * [magnetometerCalibration] rates the bare magnetometer; this rates the
+     * fused reading that the heading actually came from. Kept beside it
+     * because they can disagree, and which one is low says whether the
+     * magnetic field or the fusion was the trouble. Null from the hand-rolled
+     * filters, which compose several raw sensors and rate nothing.
+     */
+    val fusedSensorAccuracy: Int? = null,
+    /** Which fusion produced it, within the `android` source. */
+    val detail: String? = null,
+    /** Wall-clock ms of the sample. */
+    val ts: Long,
+)
+
+/**
+ * Gravity and linear acceleration, as last measured — the INERTIAL half of how
+ * the phone was held, beside [DeviceAttitude]'s angular half.
+ *
+ * Session-scoped like the rest, and null the moment nothing is measuring it.
+ */
+@kotlinx.serialization.Serializable
+data class DeviceMotionSample(
+    /**
+     * Gravity in the DEVICE frame, m/s², (x, y, z). An unambiguous "down",
+     * unlike [DeviceAttitude.roll], which is a residual within the quantized
+     * device pose. Two rotation degrees of freedom, straight out of the sensor.
+     */
+    val gravity: List<Float>? = null,
+    /**
+     * Acceleration with gravity REMOVED, m/s², (x, y, z). Its magnitude is how
+     * hard the phone was being moved, which is the motion-blur signal; a raw
+     * accelerometer sample cannot give this, because it is this plus gravity
+     * and one sample cannot separate them.
+     */
+    val linearAcceleration: List<Float>? = null,
+    /** Wall-clock ms of the sample that triggered this publication. */
+    val atMs: Long,
+)
+
+/**
+ * How stale an attitude may be and still be attached to a row or a photo it
+ * did not itself produce.
+ *
+ * The sensor stack publishes at ~10 Hz while the compass is registered, so a
+ * fresh reading is tens of milliseconds old; anything approaching this bound
+ * means the sensors are paused, gone, or were never started for this mode.
+ * Attaching one of those to a manual bearing would put a stale measurement
+ * under a fresh timestamp, which is the same lie as the `0f` it replaces,
+ * only harder to spot.
+ */
+const val ATTITUDE_MAX_AGE_MS = 2_000L
+
+/** The attitude, if it is fresh enough at [now] to describe that instant. */
+fun DeviceAttitude?.freshAt(now: Long): DeviceAttitude? =
+    this?.takeIf { now - it.ts in 0..ATTITUDE_MAX_AGE_MS }
 
 /**
  * Holds map state and enforces the update rules the Svelte app relies on.
@@ -152,6 +294,14 @@ class MapStateHolder(
     // measurement of THIS session, and every run starts with none.
     private val _lastFix = MutableStateFlow<FixState?>(null)
     val lastFix: StateFlow<FixState?> = _lastFix.asStateFlow()
+
+    // Same reasoning as lastFix: a measurement of THIS session.
+    private val _deviceAttitude = MutableStateFlow<DeviceAttitude?>(null)
+    val deviceAttitude: StateFlow<DeviceAttitude?> = _deviceAttitude.asStateFlow()
+
+    // The inertial half, same rules.
+    private val _deviceMotion = MutableStateFlow<DeviceMotionSample?>(null)
+    val deviceMotion: StateFlow<DeviceMotionSample?> = _deviceMotion.asStateFlow()
 
     // The last election handed to the sink, so we push on CHANGE only: these
     // funnels run at sensor rate, the election does not.
@@ -206,6 +356,22 @@ class MapStateHolder(
     }
 
     /**
+     * The attitude funnel. Every compass sample lands here whatever is
+     * elected — the twin of [updateFix], and like it, no election and no
+     * table row: the engine already records its own stream at full rate.
+     * This is the RECORD, kept so that a bearing set by hand can still say
+     * how the phone was being held when the hand set it.
+     */
+    fun updateDeviceAttitude(attitude: DeviceAttitude) {
+        _deviceAttitude.value = attitude
+    }
+
+    /** The inertial twin of [updateDeviceAttitude]; null when nothing measures it. */
+    fun updateDeviceMotion(motion: DeviceMotionSample?) {
+        _deviceMotion.value = motion
+    }
+
+    /**
      * The range READ-BACK — what the 70 dp circle currently means on the
      * ground, measured off the map's projection after a move or zoom. The
      * original recomputes it on every map sync (get_range, Map.svelte:651);
@@ -257,8 +423,16 @@ class MapStateHolder(
         elect(table.source, bearing = true)
         // …but only echo what the engine does not already record itself.
         if (!engineOwnsSource(source)) {
+            // What the device was doing as this bearing was set. Null when
+            // the sensors have nothing fresh to say (car mode with the
+            // compass down, a paused stream) — null, and not the `0f` that
+            // stood here until 2026-09-22, which recorded a level phone.
+            val attitude = _deviceAttitude.value.freshAt(now)
             sink.writeBearingRow(
-                normalizeBearing(bearing), table.source, table.detail, accuracyLevel, now,
+                normalizeBearing(bearing), table.source, table.detail, accuracyLevel,
+                pitch = attitude?.pitch,
+                roll = attitude?.roll,
+                now = now,
             )
         }
     }

@@ -1,0 +1,267 @@
+package cz.hillview.capture
+
+import cz.hillview.map.DeviceMotionSample
+import cz.hillview.map.FixState
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+/**
+ * The `fix`, `lens` and `motion` provenance objects — their wire shape, which
+ * is a contract with the worker (each must be DECLARED in `BrowserMetadata` or
+ * pydantic drops it silently) and with the API's typed projection, which
+ * enumerates every inner key.
+ *
+ * `attitude` has its own file; the freshness rule they all share is tested
+ * there. See docs/recon-capture-metadata.md.
+ */
+class ProvenanceObjectsTest {
+
+    private val shutterAt = 1_700_000_000_000L
+
+    private fun snap(
+        fix: FixState? = null,
+        lens: LensStamp? = null,
+        motion: DeviceMotionSample? = null,
+        imuWindow: ImuWindow? = null,
+        locationSource: String? = "gps",
+    ) = SensorSnapshot(
+        capturedAtMs = shutterAt,
+        fix = fix,
+        lens = lens,
+        motion = motion,
+        imuWindow = imuWindow,
+        locationSource = locationSource,
+    )
+
+    private fun fix() = FixState(
+        latitude = 50.1, longitude = 14.4, altitude = 300.0, accuracyM = 4.2f,
+        atMs = shutterAt, elapsedRealtimeNanos = 1L,
+        altitudeAccuracyM = 8.5f, speedMps = 1.4f, speedAccuracyMps = 0.3f,
+        courseDeg = 212.5f, courseAccuracyDeg = 15f, provider = "fused",
+    )
+
+    // --- fix: the error bars, and NEVER the position ---
+
+    @Test
+    fun theFixObjectCarriesTheErrorBarsNothingElseHas() {
+        val json = fixProvenanceJson(snap(fix = fix()))!!
+        listOf(
+            "\"altitude_accuracy_m\":8.5",
+            "\"speed_mps\":1.4",
+            "\"speed_accuracy_mps\":0.3",
+            "\"course_deg\":212.5",
+            "\"course_accuracy_deg\":15.0",
+            "\"provider\":\"fused\"",
+        ).forEach { assertTrue(it in json, "missing $it in $json") }
+    }
+
+    /**
+     * The position is already four columns and four response fields. Repeating
+     * it here would be exactly the duplication this object exists to avoid.
+     */
+    @Test
+    fun theFixObjectNeverRepeatsThePosition() {
+        val json = fixProvenanceJson(snap(fix = fix()))!!
+        // The KEY SET, exactly — substring hunting gives false alarms here,
+        // because `altitude_accuracy_m` legitimately contains `accuracy_m` and
+        // the two mean different things (vertical bar vs the horizontal one
+        // that is already a column).
+        val keys = Regex("\"([a-z0-9_]+)\":").findAll(json).map { it.groupValues[1] }.toSet()
+        assertEquals(
+            setOf(
+                "altitude_accuracy_m", "speed_mps", "speed_accuracy_mps",
+                "course_deg", "course_accuracy_deg", "provider", "elected",
+            ),
+            keys,
+        )
+        // And none of the position's own values, whatever they are keyed as.
+        listOf("50.1", "14.4", "300.0", "4.2").forEach {
+            assertFalse(it in json, "$it leaked into $json")
+        }
+    }
+
+    /**
+     * Whether this fix is what the photo actually RECORDED. Without it a reader
+     * cannot tell a quality report about the recorded position from one about a
+     * position that lost the election to a hand-placed map centre.
+     */
+    @Test
+    fun theFixObjectSaysWhetherItWonTheElection() {
+        assertTrue("\"elected\":true" in fixProvenanceJson(snap(fix = fix()))!!)
+        assertTrue(
+            "\"elected\":false" in
+                fixProvenanceJson(snap(fix = fix(), locationSource = "map"))!!,
+        )
+    }
+
+    /** A fix with no error bars at all says nothing worth an object. */
+    @Test
+    fun aFixWithOnlyAnElectionFlagIsNull() {
+        val bare = FixState(
+            latitude = 50.1, longitude = 14.4, atMs = shutterAt, elapsedRealtimeNanos = 1L,
+        )
+        assertNull(fixProvenanceJson(snap(fix = bare)))
+    }
+
+    @Test
+    fun noFixMeansNoObject() {
+        assertNull(fixProvenanceJson(snap()))
+    }
+
+    // --- lens ---
+
+    @Test
+    fun theLensObjectCarriesTheCalibrationAndTheSettings() {
+        val json = lensProvenanceJson(
+            snap(
+                lens = LensStamp(
+                    focalLengthMm = 5.58f,
+                    apertureFStop = 1.79f,
+                    focusDistanceDiopters = 0f,
+                    focusDistanceCalibration = "approximate",
+                    focusInfinityRequested = true,
+                    zoomRatio = 2f,
+                    rollingShutterSkewNs = 33_000_000L,
+                    intrinsics = listOf(1000f, 1000f, 960f, 540f, 0f),
+                    distortion = listOf(0.1f, -0.2f, 0.01f, 0f, 0f),
+                    cameraIntrinsics = listOf(999f, 999f, 961f, 541f, 0f),
+                    sensorPhysicalSizeMm = listOf(5.6f, 4.2f),
+                    sensorPixelArray = listOf(4000, 3000),
+                    intrinsicsAvailable = true,
+                ),
+            ),
+        )!!
+        listOf(
+            "\"focal_length_mm\":5.58",
+            "\"focus_distance_diopters\":0.0",
+            "\"focus_distance_calibration\":\"approximate\"",
+            "\"focus_infinity_requested\":true",
+            // The field that made every zoomed photo's intrinsics silently wrong.
+            "\"zoom_ratio\":2.0",
+            "\"rolling_shutter_skew_ns\":33000000",
+            "\"intrinsics\":[1000.0,1000.0,960.0,540.0,0.0]",
+            "\"camera_intrinsics\":[999.0,999.0,961.0,541.0,0.0]",
+            "\"sensor_pixel_array\":[4000,3000]",
+            "\"intrinsics_available\":true",
+        ).forEach { assertTrue(it in json, "missing $it in $json") }
+    }
+
+    /**
+     * A phone that publishes no factory calibration must SAY so. "This device
+     * does not calibrate its lenses" and "this app version did not look" are
+     * different claims about a photo, and only one is the phone's fault.
+     */
+    @Test
+    fun anAbsentCalibrationIsRecordedAsAFact() {
+        val json = lensProvenanceJson(
+            snap(lens = LensStamp(intrinsicsAvailable = false, zoomRatio = 1f)),
+        )!!
+        assertTrue("\"intrinsics_available\":false" in json, json)
+        assertFalse("camera_intrinsics" in json, json)
+    }
+
+    @Test
+    fun noLensMeansNoObject() {
+        assertNull(lensProvenanceJson(snap()))
+    }
+
+    // --- motion ---
+
+    @Test
+    fun theMotionObjectCarriesGravityAndTheBlurSignal() {
+        val json = motionProvenanceJson(
+            snap(
+                motion = DeviceMotionSample(
+                    gravity = listOf(0f, 0f, 9.81f),
+                    // 3-4-0 → magnitude exactly 5, so the arithmetic is checkable.
+                    linearAcceleration = listOf(3f, 4f, 0f),
+                    atMs = shutterAt - 40,
+                ),
+            ),
+        )!!
+        assertTrue("\"gravity\":[0.0,0.0,9.81]" in json, json)
+        assertTrue("\"linear_acceleration\":[3.0,4.0,0.0]" in json, json)
+        assertTrue("\"linear_acceleration_magnitude\":5.0" in json, json)
+        assertTrue("\"age_ms\":40" in json, json)
+    }
+
+    /** Gravity alone is still worth recording — it is two rotation DOF. */
+    @Test
+    fun gravityWithoutLinearAccelerationStillTravels() {
+        val json = motionProvenanceJson(
+            snap(motion = DeviceMotionSample(gravity = listOf(0f, 9.81f, 0f), atMs = shutterAt)),
+        )!!
+        assertTrue("gravity" in json, json)
+        assertFalse("linear_acceleration" in json, json)
+    }
+
+    /** Neither sensor reported: an age on its own describes nothing. */
+    @Test
+    fun aMotionSampleWithNeitherVectorIsNull() {
+        assertNull(motionProvenanceJson(snap(motion = DeviceMotionSample(atMs = shutterAt))))
+    }
+
+    @Test
+    fun noMotionMeansNoObject() {
+        assertNull(motionProvenanceJson(snap()))
+    }
+
+    // --- the IMU window: the summary that travels, and its join key ---
+
+    private fun window() = ImuWindow(
+        sampleCount = 104,
+        startMs = shutterAt - 500,
+        endMs = shutterAt + 500,
+        accelPeakMps2 = 10.4,
+        accelPeakDeviationMps2 = 0.6,
+        gyroPeakRadS = 0.12,
+    )
+
+    @Test
+    fun theWindowSummaryCarriesItsBoundsAndItsPeaks() {
+        val json = imuWindowJson(window())
+        listOf(
+            "\"sample_count\":104",
+            // The bounds ARE the join key: the samples live in the tracking
+            // database and reach a workstation as a CSV, found by time.
+            "\"window_start_ms\":${shutterAt - 500}",
+            "\"window_end_ms\":${shutterAt + 500}",
+            "\"accel_peak_mps2\":10.4",
+            "\"accel_peak_deviation_mps2\":0.6",
+            "\"gyro_peak_rad_s\":0.12",
+        ).forEach { assertTrue(it in json, "missing $it in $json") }
+    }
+
+    @Test
+    fun theWindowNestsInsideMotion() {
+        val json = motionProvenanceJson(
+            snap(
+                motion = DeviceMotionSample(gravity = listOf(0f, 0f, 9.81f), atMs = shutterAt),
+                imuWindow = window(),
+            ),
+        )!!
+        assertTrue("\"imu_window\":{" in json, json)
+        assertTrue("\"gravity\"" in json, json)
+    }
+
+    /**
+     * A device with no gravity sensor can still have an accelerometer and a
+     * gyroscope, so the window must not depend on the point sample.
+     */
+    @Test
+    fun aWindowTravelsWithoutAGravityReading() {
+        val json = motionProvenanceJson(snap(imuWindow = window()))!!
+        assertTrue("imu_window" in json, json)
+        assertFalse("gravity" in json, json)
+        assertFalse("age_ms" in json, json)
+    }
+
+    /** No window and no sample: nothing to say, and an age would date nothing. */
+    @Test
+    fun neitherWindowNorSampleIsNull() {
+        assertNull(motionProvenanceJson(snap()))
+    }
+}

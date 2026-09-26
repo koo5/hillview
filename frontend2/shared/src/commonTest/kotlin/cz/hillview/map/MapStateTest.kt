@@ -330,7 +330,7 @@ class MapStatePersistenceTest {
         val rows = mutableListOf<String>()
         val sink = object : TrackingSink {
             override fun writeLocationRow(latitude: Double, longitude: Double, source: String, detail: String, now: Long) { rows += "loc" }
-            override fun writeBearingRow(bearing: Double, source: String, detail: String, accuracyLevel: Int?, now: Long) { rows += "bear" }
+            override fun writeBearingRow(bearing: Double, source: String, detail: String, accuracyLevel: Int?, pitch: Double?, roll: Double?, now: Long) { rows += "bear" }
             override fun electBearingSource(source: String) { rows += "electB" }
             override fun electLocationSource(source: String) { rows += "electL" }
         }

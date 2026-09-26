@@ -754,6 +754,77 @@ class BrowserMetadata(BaseModel):
 	location_age_ms: Optional[int] = None  # age of the stamped fix at the shutter
 	refined: Optional[bool] = None  # the stamp was interpolated after the fact
 	pitch: Optional[float] = None  # camera elevation, degrees, positive up
+	# What the DEVICE measured at the shutter, as opposed to what the photo is
+	# stamped as FACING (bearing/pitch above, which a hand-set arrow or a car
+	# course may own and which measure no tilt at all). Roll lives here and
+	# nowhere else: the Android sensor stack has always computed it, and until
+	# 2026-09-22 no field anywhere in the chain could carry it off the phone.
+	#
+	# Keys, each named for what it measures rather than for the API that
+	# produced it (see attitudeProvenanceJson in the app for the full notes):
+	#   heading_true_deg, heading_magnetic_deg - the same compass reading
+	#     corrected and raw; their difference is the declination applied.
+	#   pitch_deg, roll_deg - read from a rotation matrix ALREADY remapped for
+	#     device_rotation_deg, so roll is the residual tilt within that
+	#     quadrant and an absolute camera rotation needs both.
+	#   magnetometer_calibration - the bare magnetometer's latched status
+	#     (0..3). Rates the HEADING only; pitch and roll come from gravity and
+	#     the gyro. Not the GPS radius, which is location_accuracy_m.
+	#   fused_sensor_accuracy - what the sensor that produced the sample said
+	#     about itself, per-sample. Disagreement with the line above is
+	#     informative: magnetometer low + fusion high is a gyro carrying a
+	#     stale field; the reverse is a fusion that has not settled.
+	#   fusion - which filter produced it (rotation-vector, Madgwick,
+	#     complementary); they do not agree and bearing_source is too coarse.
+	#   age_ms - how stale the reading was at the shutter.
+	#   device_rotation_deg - the quantized pose. NOT recoverable from the EXIF
+	#     Orientation tag, which CameraX derives from this combined with the
+	#     camera's sensorOrientation and lens facing.
+	#   landscape_azimuth_negation - whether the Armor-22 toggle was ENABLED.
+	#     It only fires past 90 degrees of roll, so roll_deg is what says
+	#     whether it applied to this sample.
+	# An object rather than typed columns because nothing queries it - the SfM
+	# bench reads it - and the set will grow.
+	attitude: Optional[dict] = None
+	# What the RECEIVER said about its own fix: the error bars and the motion,
+	# never the position (already four fields above). Keys: altitude_accuracy_m
+	# (the VERTICAL bar, which nothing carried before -- a photo could be good
+	# to 4 m horizontally and say nothing about its height, and altitude is part
+	# of a camera centre), speed_mps / speed_accuracy_mps, course_deg /
+	# course_accuracy_deg (direction of TRAVEL, not a heading -- a phone pointed
+	# out of a car window has a course down the road and a heading across it),
+	# provider ("gps"/"network"/"fused"; usually "fused", but a "network" fix is
+	# useless for reconstruction and nothing else says so), elected (whether
+	# this fix is what the photo actually recorded).
+	fix: Optional[dict] = None
+	# What the CAMERA knew about itself -- the largest single win for
+	# reconstruction, and the app read NONE of it before 2026-09-26. Keys:
+	# focal_length_mm, aperture_f_stop, focus_distance_diopters (the platform's
+	# unit: 0.0 IS infinity) + focus_distance_calibration (a dioptre value from
+	# an uncalibrated lens is an ordering, not a distance),
+	# focus_infinity_requested (the app's toggle -- intent beside measurement),
+	# zoom_ratio (the app has had pinch-to-zoom all along and a frame shot at 2x
+	# read as 1x is simply wrong), rolling_shutter_skew_ns, intrinsics /
+	# distortion (per FRAME, since the HAL varies them with focus and zoom),
+	# camera_intrinsics / camera_distortion (factory, per camera),
+	# sensor_physical_size_mm + sensor_pixel_array (the true pixel pitch),
+	# intrinsics_available (whether the DEVICE publishes a calibration at all --
+	# recorded because "this phone does not" and "this app did not look" are
+	# different claims and only one is the phone's fault).
+	lens: Optional[dict] = None
+	# How the phone was MOVING. Keys: gravity (x,y,z -- an unambiguous "down",
+	# where attitude.roll_deg is a residual within the quantized device pose),
+	# linear_acceleration (x,y,z, gravity removed) and its magnitude (the
+	# motion-blur signal), age_ms, and imu_window -- the SUMMARY of the raw
+	# accelerometer/gyroscope window around the exposure (sample_count,
+	# window_start_ms, window_end_ms, accel_peak_mps2 which includes gravity,
+	# accel_peak_deviation_mps2 which is the gravity-free shake signal,
+	# gyro_peak_rad_s). The window's SAMPLES never come through here: they are
+	# hundreds of rows per photo and travel as a tracking CSV, found by those
+	# bounds. A single RAW accelerometer sample is deliberately absent: it is
+	# gravity plus linear acceleration and one sample cannot separate them, which
+	# is the whole reason the window exists.
+	motion: Optional[dict] = None
 	exposure: Optional[dict] = None  # rule/plan/metering — see exposureProvenanceJson
 	encoding: Optional[str] = None  # EXR pixel encoding: 'srgb' or 'linear' (sourced from .exr.encoding sidecar at upload). Worker falls back to the embedded header tag when absent.
 	exif: Optional[dict] = None  # Structured multi-frame source EXIF from the pipeline. A whole nested object: EXR panos send a representative identity header (Make/Model/LensModel/…) + 'pano_frames' (array-of-arrays, one entry per pano position, each a stack of frames); fused-stack singles send just 'stack_frames' (flat list of the bracket's members). Merged into exif_data['data'] (the same place a single's embedded tags land, so camera fields read at exif_data.data.* uniformly); NOT split into typed columns. See pics/src/lib/stamp.derive_pano_exif / derive_stack_exif.

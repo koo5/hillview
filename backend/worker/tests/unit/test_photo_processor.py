@@ -321,6 +321,41 @@ class TestSynthesizeProvenance:
         }))
         assert out == {"location_source": "manual", "bearing_source": "arrow_drag"}
 
+    def test_the_device_attitude_is_folded_in_whole(self):
+        # Roll's only route off the phone. The app sends ONE object rather
+        # than a column each (nothing queries it; the SfM bench reads it), so
+        # what this asserts is that the object arrives intact and unflattened.
+        from photo_processor import synthesize_provenance
+        out = json.loads(synthesize_provenance({
+            "bearing_source": "arrow_drag",
+            "attitude": {
+                "heading_true_deg": 68.5,
+                "heading_magnetic_deg": 64.25,
+                "pitch_deg": 4.75,
+                "roll_deg": -1.5,
+                "magnetometer_calibration": 3,
+                "fused_sensor_accuracy": 2,
+                "fusion": "UPRIGHT_ROTATION_VECTOR (EMA smoothed)",
+                "age_ms": 0,
+                "device_rotation_deg": 90,
+                "landscape_azimuth_negation": False,
+            },
+        }))
+        # The bearing was HAND-SET here, so the elected answer measures no
+        # tilt at all — this object is the only record that the device was
+        # measuring anything, which is the case it exists for.
+        assert out["bearing_source"] == "arrow_drag"
+        assert out["attitude"]["roll_deg"] == -1.5
+        assert out["attitude"]["heading_true_deg"] == 68.5
+        # Named for the sensor and what it rates, not for Android's word:
+        # the magnetometer's latched calibration and the fused sample's own
+        # self-rating are different facts and both travel.
+        assert out["attitude"]["magnetometer_calibration"] == 3
+        assert out["attitude"]["fused_sensor_accuracy"] == 2
+        # False must survive: absent would be ambiguous between "the toggle
+        # was off" and "an app too old to say".
+        assert out["attitude"]["landscape_azimuth_negation"] is False
+
     def test_nothing_to_say_means_no_usercomment(self):
         # None (not "{}"), so the caller leaves a genuinely embedded
         # UserComment alone rather than overwriting it with an empty object.
@@ -385,6 +420,20 @@ class TestBrowserMetadataAcceptsProvenance:
         ).model_dump(exclude_none=True)
 
         assert parsed["pitch"] == -12.5
+
+    def test_the_attitude_object_arrives_whole(self):
+        # A dict-valued provenance key, so the failure mode is not just a
+        # dropped field but a silently flattened one. Roll is the field that
+        # had no home anywhere in the chain before 2026-09-22.
+        BrowserMetadata = self._browser_metadata()
+
+        parsed = BrowserMetadata.model_validate_json(
+            '{"bearing": 137.0, "attitude": {"roll_deg": -1.5, "pitch_deg": 4.75,'
+            ' "magnetometer_calibration": 3, "fused_sensor_accuracy": 2}}'
+        ).model_dump(exclude_none=True)
+
+        assert parsed["attitude"]["roll_deg"] == -1.5
+        assert parsed["attitude"]["fused_sensor_accuracy"] == 2
 
     def test_every_provenance_key_can_get_through(self):
         # Guards the two halves against drifting apart: photo_processor

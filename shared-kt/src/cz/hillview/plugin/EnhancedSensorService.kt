@@ -876,7 +876,10 @@ class EnhancedSensorService(
             accuracyLevel = magnetometerCalibrationStatus,
             pitch = pitch,
             roll = roll,
-            source = sourceWithMode
+            source = sourceWithMode,
+            // The rotation-vector sample rates itself; this is the one path
+            // where a real value exists to pass on.
+            fusedSensorAccuracy = event.accuracy,
         )
     }
 
@@ -1182,7 +1185,13 @@ class EnhancedSensorService(
         accuracyLevel: Int,
         pitch: Float,
         roll: Float,
-        source: String
+        source: String,
+        /**
+         * The emitting sensor's own rating of this sample
+         * (`SensorEvent.accuracy`). -1 from the hand-rolled filters, which
+         * compose several raw sensors and have no single rating to pass on.
+         */
+        fusedSensorAccuracy: Int = -1,
     ) {
         val startTime = System.currentTimeMillis()
         //Log.v(TAG, "TIMING 🕐 sendSensorData START: ${startTime} from $source")
@@ -1225,6 +1234,7 @@ class EnhancedSensorService(
             magneticHeading = finalMagneticHeading,
             trueHeading = finalTrueHeading,
             accuracyLevel = accuracyLevel,
+            fusedSensorAccuracy = fusedSensorAccuracy,
             pitch = finalPitch,
             roll = finalRoll,
             timestamp = System.currentTimeMillis(),

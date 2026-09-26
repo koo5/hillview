@@ -32,6 +32,9 @@ fun captureGeoConfig(gpsIntervalMs: Long = GPS_INTERVAL_DEFAULT_MS) = GeoConfig(
     sensors = true,
     sensorDelayUs = SENSOR_DELAY_NORMAL_US,
     locationIntervalMs = gpsIntervalMs,
+    // The window around each exposure — motion blur, shake, rolling shutter.
+    // Only the activities that PRODUCE photos pay for it.
+    imu = true,
 )
 
 /**
@@ -43,6 +46,14 @@ fun externalCameraConfig(gpsIntervalMs: Long = GPS_INTERVAL_DEFAULT_MS) = GeoCon
     sensors = true,
     sensorDelayUs = SENSOR_DELAY_NORMAL_US,
     locationIntervalMs = gpsIntervalMs,
+    // Photos are taken in this mode too — by another app, stamped from this
+    // record afterwards — so the window is worth keeping here as well.
+    imu = true,
+    // And CONTINUOUSLY, at full rate: nothing here fires a shutter to trigger a
+    // window, so without this the one mode a whole drive might be spent in
+    // records no inertial data at all. See GeoConfig.imuContinuous for what it
+    // costs and why it is not decimated.
+    imuContinuous = true,
     // The sentence above, made true: until 2026-08-19 the sensor service's
     // own lifecycle observer paused the sensors the moment the system camera
     // app came to the front — exactly when this mode needs them. The engine

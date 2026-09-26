@@ -63,6 +63,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.common.util.concurrent.ListenableFuture
+import cz.hillview.map.freshAt
 import cz.hillview.core.permissions.PermissionGatePane
 import cz.hillview.core.permissions.rememberPermissionsState
 import cz.hillview.plugin.DeviceOrientation
@@ -424,6 +425,45 @@ private class AndroidPhotoCapture(
             }
         }
 
+    // Pushed by the screen from the one state, like stampFix. No state
+    // mirror: nothing in the UI reads the attitude, only the shutter does.
+    /** Factory lens calibration for the bound camera — constants, read once. */
+    private data class CameraLensFacts(
+        val intrinsics: List<Float>? = null,
+        val distortion: List<Float>? = null,
+        val physicalSizeMm: List<Float>? = null,
+        val pixelArray: List<Int>? = null,
+        val focusDistanceCalibration: String? = null,
+    )
+
+    @Volatile private var cameraLens: CameraLensFacts? = null
+
+    /**
+     * The lens values from the LAST capture result — focus, zoom and the
+     * dynamic intrinsics, which track focus and zoom and so are only true of
+     * the frame they came from.
+     *
+     * Latched off the same session capture callback that already harvests 3A,
+     * so this costs no new stream. Read at the shutter, which means it is at
+     * most one preview frame old.
+     */
+    private data class FrameLensFacts(
+        val focalLengthMm: Float? = null,
+        val apertureFStop: Float? = null,
+        val focusDistanceDiopters: Float? = null,
+        val rollingShutterSkewNs: Long? = null,
+        val intrinsics: List<Float>? = null,
+        val distortion: List<Float>? = null,
+    )
+
+    @Volatile private var frameLens: FrameLensFacts? = null
+
+    @Volatile override var stampAttitude: cz.hillview.map.DeviceAttitude? = null
+
+    @Volatile override var stampMotion: cz.hillview.map.DeviceMotionSample? = null
+
+    @Volatile override var compassLandscapeWorkaround: Boolean = false
+
     @Volatile override var stampFix: cz.hillview.map.FixState? = null
         set(value) {
             field = value
@@ -698,6 +738,50 @@ private class AndroidPhotoCapture(
         val minFocusDistance = info.getCameraCharacteristic(
             CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE,
         )
+
+        // The lens CALIBRATION — factory values that cannot change, so read
+        // once here rather than per frame. Nothing read any of this before
+        // 2026-09-26; a reconstruction was left to recover from the images what
+        // the manufacturer had already written down.
+        //
+        // LENS_INTRINSIC_CALIBRATION is absent on many phones. Its absence is
+        // recorded as a FACT (intrinsicsAvailable) because "this device does not
+        // publish a calibration" and "this app did not look" are different
+        // claims and only one is the phone's fault.
+        val camIntrinsics = info.getCameraCharacteristic(
+            CameraCharacteristics.LENS_INTRINSIC_CALIBRATION,
+        )?.toList()
+        val camDistortion = info.getCameraCharacteristic(
+            CameraCharacteristics.LENS_DISTORTION,
+        )?.toList()
+        val physicalSize = info.getCameraCharacteristic(
+            CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE,
+        )
+        val pixelArray = info.getCameraCharacteristic(
+            CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE,
+        )
+        // How LENS_FOCUS_DISTANCE may be READ — a dioptre value from an
+        // UNCALIBRATED lens is an ordering, not a distance.
+        val focusCalibration = when (
+            info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_FOCUS_DISTANCE_CALIBRATION)
+        ) {
+            CameraMetadata.LENS_INFO_FOCUS_DISTANCE_CALIBRATION_CALIBRATED -> "calibrated"
+            CameraMetadata.LENS_INFO_FOCUS_DISTANCE_CALIBRATION_APPROXIMATE -> "approximate"
+            CameraMetadata.LENS_INFO_FOCUS_DISTANCE_CALIBRATION_UNCALIBRATED -> "uncalibrated"
+            else -> null
+        }
+        cameraLens = CameraLensFacts(
+            intrinsics = camIntrinsics,
+            distortion = camDistortion,
+            physicalSizeMm = physicalSize?.let { listOf(it.width, it.height) },
+            pixelArray = pixelArray?.let { listOf(it.width, it.height) },
+            focusDistanceCalibration = focusCalibration,
+        )
+        Log.i(
+            TAG,
+            "lens facts: intrinsics=${camIntrinsics ?: "ABSENT"} distortion=${camDistortion != null} " +
+                "physMm=$physicalSize pixels=$pixelArray focusCal=$focusCalibration",
+        )
         val manualFocus =
             afModes?.contains(CameraMetadata.CONTROL_AF_MODE_OFF) == true &&
                 (minFocusDistance ?: 0f) > 0f
@@ -761,6 +845,17 @@ private class AndroidPhotoCapture(
                     // The 3A picture as the HAL reports it, every frame,
                     // so the shutter press can log what CameraX's capture
                     // pipeline is about to wait on (see StillCaptureMode).
+                    // The LENS, off the same result as 3A — no new stream.
+                    frameLens = FrameLensFacts(
+                        focalLengthMm = result.get(CaptureResult.LENS_FOCAL_LENGTH),
+                        apertureFStop = result.get(CaptureResult.LENS_APERTURE),
+                        focusDistanceDiopters = result.get(CaptureResult.LENS_FOCUS_DISTANCE),
+                        rollingShutterSkewNs =
+                            result.get(CaptureResult.SENSOR_ROLLING_SHUTTER_SKEW),
+                        intrinsics =
+                            result.get(CaptureResult.LENS_INTRINSIC_CALIBRATION)?.toList(),
+                        distortion = result.get(CaptureResult.LENS_DISTORTION)?.toList(),
+                    )
                     last3A = ThreeAState(
                         afMode = result.get(CaptureResult.CONTROL_AF_MODE),
                         afState = result.get(CaptureResult.CONTROL_AF_STATE),
@@ -1742,6 +1837,18 @@ private class AndroidPhotoCapture(
         // offset included. Raw compass only as a fallback before the
         // screen pushes the first value.
         val stamp = stampBearing
+        // The SYMMETRIC IMU window, persisted once its later half has HAPPENED —
+        // fire and forget. The engine writes the samples; the upload path reads
+        // them back out of the tracking table to summarise, because it must not
+        // reach the engine itself (OneStateArchitectureTest rejected that, and
+        // was right: it is neither the hardware boundary nor a writer adapter).
+        //
+        // The press is NOT the exposure. This file measures press→exp itself,
+        // and Quality mode's 3A lock can make it approach a second, so a window
+        // ending at the press would contain none of the frame it describes —
+        // which is the wrong half for motion blur and useless for finding a
+        // shutter in the signal.
+        engine.persistImuWindowAround(capturedAtMs)
         return SensorSnapshot(
             latitude = position?.latitude,
             longitude = position?.longitude,
@@ -1761,6 +1868,72 @@ private class AndroidPhotoCapture(
             deviceRotationDeg = DeviceOrientation.toDegrees(pose),
             exposure = exposure,
             altLocation = alt,
+            // What the DEVICE measured, only if it measured it near enough to
+            // NOW to describe this shutter. The same freshness rule the
+            // tracking row uses, and for the same reason: a stale attitude
+            // under a fresh timestamp is a lie that reads like a measurement.
+            attitude = stampAttitude.freshAt(capturedAtMs),
+            compassLandscapeWorkaround = compassLandscapeWorkaround,
+            // The receiver's own quality report, whether or not its fix won the
+            // election — see SensorSnapshot.fix.
+            fix = stampFix,
+            lens = lensStampNow(),
+            // Same freshness rule as the attitude: a stale gravity vector under
+            // a fresh shutter is the invented-`0f` mistake in another costume.
+            motion = stampMotion?.takeIf { capturedAtMs - it.atMs in 0..cz.hillview.map.ATTITUDE_MAX_AGE_MS },
+            // The ONE place the IMU window is asked for. The engine holds the
+            // ring in memory (it is the only actor allowed to open a sensor) and
+            // persists the slice around this exposure; what comes back is the
+            // summary that travels with the photo. Not a flow, deliberately: a
+            // 100 Hz buffer is not user-facing state.
+            // The before-half, inline, as a FLOOR: what a photo carries even if
+            // the deferred symmetric read never runs (process death, a row
+            // already gone). Scheduled just above this constructor.
+            imuWindow = engine.persistImuWindowBeforeShutter(capturedAtMs)?.let {
+                ImuWindow(
+                    sampleCount = it.sampleCount,
+                    startMs = it.startMs,
+                    endMs = it.endMs,
+                    accelPeakMps2 = it.accelPeakMps2,
+                    accelPeakDeviationMps2 = it.accelPeakDeviationMps2,
+                    gyroPeakRadS = it.gyroPeakRadS,
+                    storedCount = it.storedCount,
+                )
+            },
+        )
+    }
+
+    /**
+     * The camera's calibration and settings as of the last preview frame,
+     * joined to the two things only the APP knows: the zoom it asked for and
+     * whether the user pinned focus at infinity.
+     *
+     * Null only when nothing at all is known — no camera bound and no frame yet.
+     */
+    private fun lensStampNow(): LensStamp? {
+        val cam = cameraLens
+        val frame = frameLens
+        if (cam == null && frame == null) return null
+        return LensStamp(
+            focalLengthMm = frame?.focalLengthMm,
+            apertureFStop = frame?.apertureFStop,
+            focusDistanceDiopters = frame?.focusDistanceDiopters,
+            focusDistanceCalibration = cam?.focusDistanceCalibration,
+            // INTENT, beside the measurement above: what the user asked for is
+            // not always what the lens did.
+            focusInfinityRequested = focusInfinity,
+            zoomRatio = zoomRatio,
+            rollingShutterSkewNs = frame?.rollingShutterSkewNs,
+            intrinsics = frame?.intrinsics,
+            distortion = frame?.distortion,
+            cameraIntrinsics = cam?.intrinsics,
+            cameraDistortion = cam?.distortion,
+            sensorPhysicalSizeMm = cam?.physicalSizeMm,
+            sensorPixelArray = cam?.pixelArray,
+            // Recorded even when false, and only once a camera has bound: the
+            // question "does this phone publish a calibration" has an answer
+            // then, and did not before.
+            intrinsicsAvailable = cam?.let { it.intrinsics != null },
         )
     }
 

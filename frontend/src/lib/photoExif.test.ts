@@ -9,7 +9,8 @@ import {
 	formatShutter,
 	formatFrames,
 	formatFocalLength,
-	formatCamera
+	formatCamera,
+	focalLengthTitle
 } from './photoExif';
 
 describe('formatShutter', () => {
@@ -77,6 +78,32 @@ describe('unchanged formatters', () => {
 	it('focal length with 35mm equivalent only when it differs', () => {
 		expect(formatFocalLength({ focal_length: 24, focal_length_35mm: 36 })).toBe('24 mm (36 mm eq.)');
 		expect(formatFocalLength({ focal_length: 170, focal_length_35mm: 170 })).toBe('170 mm');
+		// The camera stated nothing (phones write 0, which the server drops) and
+		// only exiftool's composite has the equivalent. Shown, and marked `~`
+		// because it was computed rather than reported — the two used to be
+		// collapsed server-side, so you could not tell which you had.
+		expect(formatFocalLength({ focal_length: 5.58, focal_length_35mm_computed: 26 }))
+			.toBe('5.58 mm (~26 mm eq.)');
+		// exiftool's float noise is rounded for display, not for storage.
+		expect(formatFocalLength({ focal_length: 70, focal_length_35mm_computed: 68.4587777880589 }))
+			.toBe('70 mm (~68.5 mm eq.)');
+		// The camera's own statement wins the line when there is one...
+		expect(formatFocalLength({
+			focal_length: 24, focal_length_35mm: 36, focal_length_35mm_computed: 35.2,
+		})).toBe('24 mm (36 mm eq.)');
+		// ...and neither value is invented when there is no equivalent at all.
+		expect(formatFocalLength({ focal_length: 24 })).toBe('24 mm');
+	});
+
+	it('names both 35mm-equivalents in the title when they disagree', () => {
+		// The line can only carry one number; nothing may be discarded.
+		expect(focalLengthTitle({
+			focal_length: 24, focal_length_35mm: 36, focal_length_35mm_computed: 35.2,
+		})).toBe('36 mm eq. reported by the camera; 35.2 mm eq. computed from the sensor size');
+		// One value only — the line already tells the whole truth.
+		expect(focalLengthTitle({ focal_length: 24, focal_length_35mm: 36 })).toBeNull();
+		expect(focalLengthTitle({ focal_length: 24, focal_length_35mm_computed: 26 })).toBeNull();
+		expect(focalLengthTitle({ focal_length: 24 })).toBeNull();
 		expect(formatFocalLength({})).toBeNull();
 	});
 

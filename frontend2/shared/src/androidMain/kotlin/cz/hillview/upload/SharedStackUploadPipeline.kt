@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -38,6 +39,60 @@ class SharedStackUploadPipeline(
     override val stats: StateFlow<QueueStats> = _stats.asStateFlow()
 
     private val uploadLogic by lazy { PhotoUploadLogic(context) }
+
+    /**
+     * Attach the IMU window's summary to a photo, once the window has closed.
+     *
+     * Reads the TRACKING TABLE, not the engine. That is the point: a ±3 s window
+     * is incomplete at the shutter, so someone has to look later — but the
+     * looking must not become a second line to the hardware. The capture path
+     * (which owns the engine, and is the allowlisted place to) asks the engine to
+     * PERSIST the window; this reads what landed. `OneStateArchitectureTest`
+     * rejected the version where this file called `GeoEngine.get` directly, and
+     * was right to: this is neither the hardware boundary, a writer adapter, nor
+     * a diagnostic.
+     *
+     * Best-effort throughout. A photo with no window is a fact about the device
+     * or the activity — no gyroscope, or an activity that never asked — and
+     * never an error.
+     */
+    private fun scheduleImuWindow(photoId: String, upload: cz.hillview.upload.PendingUpload) {
+        val capturedAt = upload.capturedAtMs ?: return
+        val half = cz.hillview.geo.IMU_WINDOW_HALF_MS
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val readAt = capturedAt + half + cz.hillview.geo.IMU_SETTLE_MARGIN_MS
+                kotlinx.coroutines.delay((readAt - System.currentTimeMillis()).coerceAtLeast(0))
+                val samples = cz.hillview.plugin.GeoTrackingDatabase.getDatabase(context)
+                    .imuDao().getInWindow(capturedAt - half, capturedAt + half)
+                val stats = cz.hillview.plugin.summariseImuWindow(samples) ?: return@launch
+                val json = cz.hillview.capture.motionProvenanceJson(
+                    cz.hillview.capture.SensorSnapshot(
+                        capturedAtMs = capturedAt,
+                        // The point reading the SHUTTER had, carried through so
+                        // this rewrite does not drop it.
+                        motion = upload.motionSample,
+                        imuWindow = cz.hillview.capture.ImuWindow(
+                            sampleCount = stats.sampleCount,
+                            startMs = stats.startMs,
+                            endMs = stats.endMs,
+                            accelPeakMps2 = stats.accelPeakMps2,
+                            accelPeakDeviationMps2 = stats.accelPeakDeviationMps2,
+                            gyroPeakRadS = stats.gyroPeakRadS,
+                        ),
+                    ),
+                )
+                PhotoDatabase.getDatabase(context).photoDao().updateMotionJson(photoId, json)
+                Log.i(
+                    TAG,
+                    "IMU window for $photoId: ${stats.sampleCount} samples " +
+                        "${stats.startMs}..${stats.endMs}",
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "could not attach the IMU window to $photoId: ${e.message}")
+            }
+        }
+    }
 
     // The stamp refiner: interpolates a fresh row's location/bearing once
     // the bracketing tracking data lands, updates the row in place, and the
@@ -118,6 +173,10 @@ class SharedStackUploadPipeline(
                     license = upload.license,
                     pitch = upload.pitchDeg,
                     altLocationJson = upload.altLocationJson,
+                    attitudeJson = upload.attitudeJson,
+                    fixJson = upload.fixJson,
+                    lensJson = upload.lensJson,
+                    motionJson = upload.motionJson,
                     uploadHoldUntil = if (eligible) {
                         System.currentTimeMillis() + cz.hillview.plugin.StampRefiner.UPLOAD_HOLD_MS
                     } else 0,
@@ -130,6 +189,14 @@ class SharedStackUploadPipeline(
                         upload.bearingSource,
                     )
                 }
+                // The IMU window around this exposure, once its later half has
+                // happened. Scheduled here because this is the first moment the
+                // photo HAS an id, and completed by an update to the row — the
+                // same shape as the StampRefiner, which also cannot know
+                // everything at the shutter. See GeoEngine.persistImuWindowAround
+                // for why the symmetric window cannot be taken inline.
+                scheduleImuWindow(photoId, upload)
+
                 PhotoUploadManager(context).startAutomaticUpload("capture")
                 // After the insert, never before: a refresh that raced the
                 // row would query the database and find nothing, which is

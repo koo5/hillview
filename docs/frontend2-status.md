@@ -1312,6 +1312,200 @@ invisible on exactly the machines that expose it.**
   proved to still fire by adding a listener under `androidMain` and
   watching the build go red.
 
+## 2026-09-26 — roll, and everything else the phone knew and dropped
+
+**Roll never left the device.** The sensor stack has computed it since the
+beginning; `BearingState` had no field for it, so the photo stamp could not
+carry it and no column anywhere in the chain existed to receive it. Two
+other values were in the same position: the MAGNETIC heading (carried in
+the capture snapshot since the beginning and dropped by every writer, since
+the EXIF tags take true north by convention) and the quantized device pose.
+
+**The shape.** One `attitude` object, not a column each — the `alt_location`
+precedent: nothing on the device queries it, it only travels, and the set
+will grow. Named `attitude` and not `orientation` because EXIF already has
+an Orientation tag meaning the display rotation (user-caught).
+
+    DeviceAttitude (one state) -> SensorSnapshot.attitude
+      -> attitudeProvenanceJson -> PendingUpload.attitudeJson
+      -> PhotoEntity.attitudeJson (Room v24) -> upload metadata `attitude`
+      -> BrowserMetadata.attitude -> PROVENANCE_KEYS -> UserComment
+      -> _attitude() -> GET /photos/public/{uid}
+
+- **`DeviceAttitude` is a new record in the one state**, the orientation
+  side's twin of `lastFix`: written on EVERY compass sample by the
+  allowlisted writer adapter, in BOTH bearing modes, elected or not. It had
+  to go in the state — `OneStateArchitectureTest` forbids the shortcut of
+  reading the engine from the tracking sink, and rightly.
+- **No field duplicates a column, for a reason worth knowing** (user asked
+  for the audit): `bearing` and `pitch` are the ELECTED answer and are
+  DEAD-BANDED — the bearing state only updates past 1° — while the attitude
+  is written past no gate. So even when the compass is elected these are the
+  instantaneous reading and the columns are the last one that cleared the
+  band.
+- **The fake `0f` is gone.** A manual bearing row reached the tracking table
+  with pitch and roll invented as `0f` (a level phone, recorded as
+  measurement) and magneticHeading set to a copy of the hand-set bearing (a
+  compass agreeing exactly with the hand that overrode it). New
+  `GeoTrackingManager.storeBearingNamed` takes them nullable; the funnel
+  passes the live attitude when fresh (`ATTITUDE_MAX_AGE_MS`, 2 s) and null
+  otherwise.
+- **Two accuracies, both kept.** `magnetometer_calibration` is the bare
+  magnetometer's LATCHED status and rates the HEADING only (pitch and roll
+  come from gravity and the gyro). `fused_sensor_accuracy` is what the
+  sensor that produced the sample said about ITSELF — read and discarded in
+  a commented-out log line until now. Disagreement is informative:
+  magnetometer low + fusion high is a gyro on a stale field; the reverse is
+  a fusion that has not settled.
+- **Every key names what it measures**, not the API that produced it
+  (user): `heading_true_deg`, `heading_magnetic_deg`, `pitch_deg`,
+  `roll_deg`, `magnetometer_calibration`, `fused_sensor_accuracy`,
+  `fusion`, `age_ms`, `device_rotation_deg`, `landscape_azimuth_negation`.
+  That last one records whether the Armor-22 toggle was ENABLED; it only
+  fires past 90° of roll, so `roll_deg` beside it says whether it applied.
+- **`roll_deg` is NOT the camera's rotation about its optical axis.** The
+  rotation matrix is remapped for the quantized pose FIRST, so it is the
+  residual within that quadrant; absolute rotation needs
+  `device_rotation_deg` too. Both travel for exactly that reason.
+- **PUBLIC, on other people's photos** (user: "the whole of hillview is
+  about sharing photos with location and orientation, and we dont want to
+  limit 3d recon options to own photos"). `GET /photos/public/{uid}` serves
+  it beside `location_accuracy_m`; the owner endpoint gets the same key so
+  one client path reads both. Precedent was already set — `bearing` has
+  always been public and `pitch` is in the map listing — and none of it
+  narrows WHERE a photo was taken. NOT added to the bulk marker listing,
+  which stays lean.
+- **`_attitude()` is a typed projection, not a pass-through.** The
+  UserComment is client-written, so serving it verbatim would put arbitrary
+  JSON of arbitrary size in a public response. Known keys only, expected
+  types only, `fusion` length-capped, `bool` rejected where a number is
+  expected (it is an `int` subclass in Python, so `True` would have become a
+  rotation of 1°), non-finite floats dropped.
+- Room 23 → 24, both apps exporting an identical schema
+  (identityHash `bf40b7e5a5f7da33151ad51abc7dafc5`). The CSV photo dump
+  gains `attitudeJson` on the END, per the appended-column rule.
+- Tests: 375 jvm (11 new, pinning the wire shape), 34 worker unit (2 new —
+  the existing "every provenance key can get through" tripwire caught the
+  door for free), 27 new API unit tests for the projection including
+  hostile input. `test_curate_exif.py::test_dslr_without_35mm_tag` fails
+  before and after this change — pre-existing, unrelated.
+- **The bearings table gained the column too**
+  (`BearingEntity.fusedSensorAccuracy`, GeoTrackingDatabase 1 → 2). A COLUMN and not an "extra" JSON cell, asked and
+  answered: this table takes a row at 5-20 Hz, where JSON would repeat its key
+  names on every row and force a parse per row on a CSV that `pics` reads
+  column-wise; and the value set is a closed shape of scalars, unlike the
+  photos blob, which is one row per photo and open-ended. The CSV header gains
+  `fusedSensorAccuracy` on the END — verified safe: `pics` resolves every column by
+  name (`gps_log.get_column_index`), reads a missing one as None, and sniffs
+  the file type from the header's PREFIX.
+  - The old comment "no migrations, and none coming" is gone. It was a claim
+    about what the SPLIT cost, not a prohibition, and disposable data makes a
+    migration CHEAP rather than unnecessary: a one-line ALTER TABLE keeps the
+    session in progress where a destructive fallback would discard the tail no
+    dump has reached.
+  - **One value, ONE name** (user: "sensorAccuracy sounds uninformative
+    though. like, what sensor"). It was `sensorAccuracy` in shared-kt and
+    `fusedSensorAccuracy` / `fused_sensor_accuracy` everywhere downstream —
+    three spellings of one number. Unified on the informative one, which is
+    also accurate: a non-null value only ever comes from a FUSED virtual
+    rotation-vector sensor, since the hand-rolled filters compose raw sensors
+    and nothing rates their result.
+  - `pics` does not yet READ the new column — its loader lists the names it
+    resolves, so that is a one-line addition there whenever it is wanted.
+- **NOT phone-verified.** Nothing in this entry has been on a real device, and
+  the emulator cannot settle sensor-fusion questions (its rotation vector is
+  synthesized).
+
+## 2026-09-26 — everything the phone knows at the shutter
+
+Plan and full record: **docs/recon-capture-metadata.md**. Driven by one
+requirement — the phone should store every bit it has, raw and processed,
+because the SfM bench can use all of it and a dropped value is unrecoverable.
+
+Roll (2026-09-22) turned out to be a PATTERN, not a one-off: values the
+platform hands us, captured at one layer, dropped at the next. Three more
+instances closed here.
+
+- **Five provenance objects, 42 fields, agreeing app → worker → API**, checked
+  mechanically rather than by eye: `attitude` (10), `fix` (7), `lens` (14),
+  `motion` (5, incl. the nested `imu_window` of 6). All served publicly, on
+  other people's photos.
+- **`lens` is the big one.** Nothing had read a single calibration key. Factory
+  intrinsics + distortion + physical sensor size + pixel array from
+  `CameraCharacteristics`; per-frame focal length, aperture, focus distance,
+  rolling-shutter skew and dynamic intrinsics off the `TotalCaptureResult` the
+  3A callback was ALREADY receiving — no new stream. `intrinsics_available`
+  records whether the device publishes a calibration at all, because "this
+  phone does not" and "this app did not look" are different claims.
+- **`zoom_ratio` was the most consequential single gap.** Pinch-to-zoom has
+  existed as long as the camera has, the UI prints "2.0×", and the stamp
+  recorded nothing — so every zoomed photo had silently wrong intrinsics.
+- **A third drop site, found on the way:** `GeoEngine`'s
+  `PreciseLocationData` → `Location` conversion lost vertical, speed and
+  bearing accuracy. `Location` has setters for all three; nobody connected
+  them; `FixState` had no fields for them either.
+- **The IMU window** (`ImuRing` → `imu_samples` table → `hillview_imu_*.csv`):
+  a memory ring at `SENSOR_DELAY_FASTEST` behind `GeoConfig.imu`, so only the
+  activities that produce photos pay; ±500 ms around each exposure is
+  persisted, and a summary travels with the photo. Rows scale with PHOTOS
+  (~100/shot) not session length (~720k for two hours) — continuous logging was
+  considered and rejected on that arithmetic. Why raw samples at all: a single
+  sample cannot describe an EXPOSURE, and motion blur is an integral.
+- **The two focal lengths stopped pretending to be one** (user: "why dont we
+  just store and display them both, since we dont understand them"). The
+  camera's `FocalLengthIn35mmFormat` tag and exiftool's COMPUTED
+  `FocalLength35efl` composite were collapsed with an `or`; they are now
+  `focal_length_35mm` and `focal_length_35mm_computed`, and the web app shows a
+  computed one as `~26 mm eq.` with both in the title. This also settles
+  `test_dslr_without_35mm_tag` honestly instead of by editing the assertion.
+- **Schemas:** PhotoDatabase 23 → 25, GeoTrackingDatabase 1 → 3. Both apps
+  identical at every version.
+- **`ImuRing` is `internal` in its own file**, not private inside the engine,
+  because its wraparound and per-millisecond sequencing are real logic and were
+  briefly untestable. 11 host tests.
+- **`OneStateArchitectureTest`'s allowlist entry for PhotoCapture was
+  widened and spelled out** — it now also calls `persistImuWindow`. The test's
+  own comment says an entry that understates a file is how a violation hides in
+  plain sight.
+- **Tests:** 396 jvm, 403 android-host, 295 API, 111 worker, 12 frontend.
+- **NOT phone-verified, and mostly not verifiable on the emulator** (synthetic
+  camera, synthesized rotation vector). `pics` reads neither the new bearings
+  column nor the IMU CSV yet — additive, safe, waiting for a consumer.
+- **The raw samples stop at the device.** The server gets the per-photo
+  `motion.imu_window` SUMMARY; the samples themselves reach a workstation only
+  as `hillview_imu_<ms>.csv`, by hand, and only with tracking auto-export on.
+  Getting them to the server is **Phase 5** in docs/recon-capture-metadata.md:
+  a top-level `imu_samples` metadata field (deliberately NOT in the UserComment
+  provenance — it is a bulk artifact, not provenance), gzipped through the
+  existing `POST /photos/upload-file` bulk path the renditions and DZI tiles
+  already use, a `photos.imu_samples_url` column, and — the step most likely to
+  be forgotten — the DELETION sweep, which leaks a file per deleted photo if it
+  is not taught the new column.
+
+## 2026-09-22
+
+- **"Press ignored: previous shot still in flight", permanently** (field
+  report: only leaving and re-entering the capture activity cleared it).
+  The controller's flag was fine; the SHUTTER GESTURE held a stale copy of
+  it. `CaptureScreen` reads `val state = capture.state` once per
+  composition, and the shutter's `pointerInput` closes over that value,
+  restarting only when one of its keys (gateOpen, repeating,
+  state.recording) changes. Stopping a run sets `repeating = false` — a
+  key — so the handler restarts; if the run's last shot was still in
+  flight at that instant, the new lambda captured `capturing = true` and
+  kept it forever, because every later press returned at the guard before
+  anything could change a key. Also reachable by a camera rebind
+  (resolution / JPEG quality / still mode) or a recording edge landing
+  mid-shot.
+  - **Fix:** the guards read the CONTROLLER live — `capture.state.capturing`,
+    `.recording`, `.ready`. A key would be the wrong cure: `capturing`
+    toggles per shot, and restarting `pointerInput` cancels the gesture in
+    progress, including the press meant to stop a run.
+  - **Third of its kind** in this file (the run loop's launch-time guard;
+    recording becoming a key). The rule: anything a gesture lambda reads
+    from a controller must be read THROUGH the controller, not from the
+    composition's snapshot.
+
 ## 2026-09-19
 
 - **The GPS fix dot draws over the photo markers** (overlay order in

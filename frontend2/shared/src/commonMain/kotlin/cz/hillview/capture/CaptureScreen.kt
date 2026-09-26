@@ -154,6 +154,26 @@ fun CaptureScreen(
     LaunchedEffect(Unit) {
         mapState.lastFix.collect { capture.stampFix = it }
     }
+    // The third record: what the device itself was measuring. Elected or
+    // not, past the bearing's dead-band or not — see DeviceAttitude. Roll
+    // has no other route out of the app, and a hand-set bearing leaves the
+    // stamp with no tilt at all without it.
+    LaunchedEffect(Unit) {
+        mapState.deviceAttitude.collect { capture.stampAttitude = it }
+    }
+    // The inertial half of the same record — gravity and linear acceleration.
+    LaunchedEffect(Unit) {
+        mapState.deviceMotion.collect { capture.stampMotion = it }
+    }
+    // A setting, not a measurement — but it decides what a landscape heading
+    // MEANS (EnhancedSensorService negates the azimuth past 90° of roll
+    // under it), so the stamp records which way it was.
+    val compassSettingsRepo: cz.hillview.settings.CompassSettingsRepository =
+        org.koin.compose.koinInject()
+    val compassSettings by compassSettingsRepo.settings.collectAsState()
+    LaunchedEffect(compassSettings.landscapeWorkaround) {
+        capture.compassLandscapeWorkaround = compassSettings.landscapeWorkaround
+    }
     // The capture stamp bearing IS the map's bearing state (Tauri:
     // locationData.bearing = bearingState.bearing): car mode's
     // gps-kalman + mount offset, walking's compass, or the hand-set
@@ -365,6 +385,12 @@ fun CaptureScreen(
                 exposureJson = photo.snapshot.exposure?.let { exposureProvenanceJson(it) },
                 pitchDeg = photo.snapshot.pitchDeg?.toDouble(),
                 altLocationJson = photo.snapshot.altLocation?.let { altLocationJson(it) },
+                attitudeJson = attitudeProvenanceJson(photo.snapshot),
+                fixJson = fixProvenanceJson(photo.snapshot),
+                lensJson = lensProvenanceJson(photo.snapshot),
+                motionJson = motionProvenanceJson(photo.snapshot),
+                // Kept so the deferred window's rewrite does not lose it.
+                motionSample = photo.snapshot.motion,
                 // Snapshot, not a live read — see PendingUpload.license.
                 license = uploadSettings.license,
             )
@@ -1094,7 +1120,13 @@ fun CaptureScreen(
                             // recording unstoppable — every press answered
                             // "no GPS fix" — and the same trap held a
                             // repeating run.
-                            if (state.recording) {
+                            // capture.state, not `state`: every read in this
+                            // block goes to the CONTROLLER, live. `state` is
+                            // the value this lambda closed over when
+                            // pointerInput last restarted, and the flags below
+                            // move without restarting it. See the capturing
+                            // guard for the bug that cost.
+                            if (capture.state.recording) {
                                 // Recording behaves exactly like a run: any
                                 // completed press on the button ends it.
                                 val up = waitForUpOrCancellation() ?: return@awaitEachGesture
@@ -1111,11 +1143,32 @@ fun CaptureScreen(
                                 if (circle.contains(clusterOrigin + up.position)) repeating = false
                                 return@awaitEachGesture
                             }
-                            if (!gateOpen) {
-                                ignoredPress = if (!state.ready) "camera not ready" else "no GPS fix"
+                            if (!shutterEnabled(capture.state.ready)) {
+                                ignoredPress =
+                                    if (!capture.state.ready) "camera not ready" else "no GPS fix"
                                 return@awaitEachGesture
                             }
-                            if (state.capturing) {
+                            // LIVE, and NOT a pointerInput key.
+                            //
+                            // Read from the stale snapshot (until 2026-09-22)
+                            // this was a shutter that stayed dead until the
+                            // pane was left and re-entered, answering every
+                            // press "previous shot still in flight". The trap:
+                            // stopping a run sets `repeating = false`, which IS
+                            // a key, so the handler restarts — and if the run's
+                            // last shot was still in flight at that instant,
+                            // the new lambda closed over capturing = true and
+                            // kept it forever, since nothing it could still do
+                            // changes a key. (Same shape as the two before it:
+                            // the run loop's launch-time guard, and recording
+                            // becoming a key.)
+                            //
+                            // A key is the WRONG cure here: capturing toggles
+                            // per shot, and restarting pointerInput cancels the
+                            // gesture in progress — during a run, the press
+                            // meant to stop it. The controller is the truth;
+                            // ask it.
+                            if (capture.state.capturing) {
                                 ignoredPress = "previous shot still in flight"
                                 return@awaitEachGesture
                             }

@@ -29,19 +29,30 @@ class RoomTrackingSink(context: Context) : TrackingSink {
         source: String,
         detail: String,
         accuracyLevel: Int?,
+        pitch: Double?,
+        roll: Double?,
         now: Long,
     ) {
-        geo.storeOrientationSensorData(
-            cz.hillview.plugin.OrientationSensorData(
-                magneticHeading = bearing.toFloat(),
-                trueHeading = bearing.toFloat(),
-                accuracyLevel = accuracyLevel ?: -1,
-                pitch = 0f,
-                roll = 0f,
-                timestamp = now,
-                source = source,
-                detail = detail,
-            ),
+        // storeBearingNamed, not storeOrientationSensorData: that one models a
+        // SENSOR SAMPLE and so demands a pitch and a roll, which a hand-set
+        // bearing does not have. This used to satisfy it with `0f` for both —
+        // a phone held perfectly level, written as measurement and
+        // indistinguishable in the table from one that really was. The live
+        // attitude arrives here from the one state when it is fresh, and null
+        // when there is nothing to say.
+        //
+        // magneticHeading likewise: a manual bearing has no magnetic reading,
+        // and copying the bearing into it (as this did) invented a compass
+        // that agreed exactly with the hand that overrode it.
+        geo.storeBearingNamed(
+            timestamp = now,
+            trueHeading = bearing.toFloat(),
+            source = source,
+            detail = detail,
+            magneticHeading = null,
+            accuracyLevel = accuracyLevel,
+            pitch = pitch?.toFloat(),
+            roll = roll?.toFloat(),
         )
     }
 

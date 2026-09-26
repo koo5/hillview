@@ -69,8 +69,11 @@ object PhotoExifWriter {
         // Tauri shape ignore what they don't know.
         val locationSource = snapshot.locationSource
         val exposure = snapshot.exposure
+        // One serialization, both routes: the fast-write default sends this
+        // same object in the upload metadata (PhotoEntity.attitudeJson).
+        val attitude = attitudeProvenanceJson(snapshot)
         if (locationSource != null || snapshot.bearingSource != null || exposure != null ||
-            snapshot.altLocation != null
+            snapshot.altLocation != null || attitude != null
         ) {
             val fields = buildList {
                 locationSource?.let { add("\"location_source\":\"$it\"") }
@@ -89,6 +92,9 @@ object PhotoExifWriter {
                 // The original's alt_location, same key, same shape — the
                 // Rust writer puts it here too (photo_exif.rs:193).
                 snapshot.altLocation?.let { add("\"alt_location\":${altLocationJson(it)}") }
+                // What the DEVICE measured, beside what the photo FACES —
+                // roll among it, which had never left the phone before.
+                attitude?.let { add("\"attitude\":$it") }
             }
             exif.setAttribute(
                 ExifInterface.TAG_USER_COMMENT,

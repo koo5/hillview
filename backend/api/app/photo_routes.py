@@ -973,6 +973,13 @@ async def get_photo(
 			"error": photo.error,
 			"retry_after_minutes": photo.retry_after_minutes,
 			"exif_data": photo.exif_data,
+			# Recoverable from exif_data above, but named and type-checked here
+			# so a client reads its own photo the same way it reads anyone's
+			# (see the public endpoint) instead of digging into the raw dump.
+			"attitude": _attitude(photo.exif_data),
+			"fix": _fix(photo.exif_data),
+			"lens": _lens(photo.exif_data),
+			"motion": _motion(photo.exif_data),
 			"detected_objects": photo.detected_objects,
 			"sizes": photo.sizes,
 			"owner_id": photo.owner_id,
@@ -1660,6 +1667,249 @@ def _location_accuracy_m(exif_data: Optional[dict]) -> Optional[float]:
 	return round(metres, 1)
 
 
+# The provenance objects a response may carry, and the type each key is coerced
+# to. A TYPED PROJECTION rather than a pass-through: the UserComment is written
+# by the capture app (or synthesized from metadata it sent), so serving it
+# verbatim would let a client put arbitrary JSON of arbitrary size into a
+# PUBLIC response. Only these keys travel, only as these types.
+#
+# `float`/`int`/`bool` are scalars; `str` is length-capped; `list` is a list of
+# numbers, length-capped, for the lens calibration vectors.
+#
+# These names must match what the app emits, key for key — the app's
+# `attitudeProvenanceJson` and friends, pinned by frontend2's
+# `AttitudeProvenanceTest`. The worker between us declares each object as an
+# untyped dict and passes it through whole, so it needs no edit when an inner
+# name changes, which makes THIS file and the Kotlin one the two that have to
+# agree. See docs/recon-capture-metadata.md.
+
+_PROVENANCE_STR_MAX = 64
+_PROVENANCE_LIST_MAX = 16
+
+# What the DEVICE measured: headings, tilt, and the quality of each.
+_ATTITUDE_FIELDS: dict = {
+	'heading_true_deg': float,
+	'heading_magnetic_deg': float,
+	'pitch_deg': float,
+	'roll_deg': float,
+	'magnetometer_calibration': int,
+	'fused_sensor_accuracy': int,
+	'fusion': str,
+	'age_ms': int,
+	'device_rotation_deg': int,
+	'landscape_azimuth_negation': bool,
+}
+
+# What the RECEIVER said about its own fix — error bars and motion, never the
+# position, which is already four columns and four response fields.
+_FIX_FIELDS: dict = {
+	'altitude_accuracy_m': float,
+	'speed_mps': float,
+	'speed_accuracy_mps': float,
+	'course_deg': float,
+	'course_accuracy_deg': float,
+	'provider': str,
+	'elected': bool,
+}
+
+# What the CAMERA knew about itself. The difference between a reconstruction
+# that solves for intrinsics and one that is told them.
+_LENS_FIELDS: dict = {
+	'focal_length_mm': float,
+	'aperture_f_stop': float,
+	'focus_distance_diopters': float,
+	'focus_distance_calibration': str,
+	'focus_infinity_requested': bool,
+	'zoom_ratio': float,
+	'rolling_shutter_skew_ns': int,
+	'intrinsics': list,
+	'distortion': list,
+	'camera_intrinsics': list,
+	'camera_distortion': list,
+	'sensor_physical_size_mm': list,
+	'sensor_pixel_array': list,
+	'intrinsics_available': bool,
+}
+
+# How the phone was MOVING — gravity (an unambiguous "down") and acceleration
+# with gravity removed (the motion-blur signal).
+# The IMU window around the exposure — a NESTED object, the only one so far.
+# The samples themselves never come here (they are hundreds of rows per photo and
+# travel as a tracking CSV); this is the summary plus the bounds to find them by.
+_IMU_WINDOW_FIELDS: dict = {
+	'sample_count': int,
+	'window_start_ms': int,
+	'window_end_ms': int,
+	'stored_count': int,
+	'accel_peak_mps2': float,
+	'accel_peak_deviation_mps2': float,
+	'gyro_peak_rad_s': float,
+}
+
+_MOTION_FIELDS: dict = {
+	'gravity': list,
+	'linear_acceleration': list,
+	'linear_acceleration_magnitude': float,
+	'age_ms': int,
+	'imu_window': _IMU_WINDOW_FIELDS,
+}
+
+_PROVENANCE_OBJECTS: dict = {
+	'attitude': _ATTITUDE_FIELDS,
+	'fix': _FIX_FIELDS,
+	'lens': _LENS_FIELDS,
+	'motion': _MOTION_FIELDS,
+}
+
+# Kept for the name it is tested under; the cap is shared by every string field.
+_ATTITUDE_FUSION_MAX = _PROVENANCE_STR_MAX
+
+
+def _provenance_number(value, kind):
+	"""One number, coerced, or None when it is not one.
+
+	`bool` is an `int` subclass in Python, so it is rejected explicitly rather
+	than published as a rotation of 1 degree. Non-finite floats are dropped
+	because they are not JSON-representable.
+	"""
+	if isinstance(value, bool) or not isinstance(value, (int, float)):
+		return None
+	try:
+		number = kind(value)
+	except (TypeError, ValueError, OverflowError):
+		return None
+	if kind is float and not math.isfinite(number):
+		return None
+	return number
+
+
+def _provenance_object(exif_data: Optional[dict], name: str) -> Optional[dict]:
+	"""One of the capture app's provenance objects, typed and filtered.
+
+	Returns None — not ``{}`` — when there is nothing to say, because every
+	photo taken before the app recorded a given object has none at all and the
+	response should say so rather than imply an empty measurement.
+	"""
+	fields = _PROVENANCE_OBJECTS[name]
+	raw = _user_comment(exif_data).get(name)
+	if not isinstance(raw, dict):
+		return None
+	out: dict = {}
+	for key, kind in fields.items():
+		value = raw.get(key)
+		if value is None:
+			continue
+		if kind is bool:
+			# Only a real boolean: a truthy string or 1 would silently become
+			# "the workaround was on", which is a claim about a measurement.
+			if isinstance(value, bool):
+				out[key] = value
+		elif kind is str:
+			if isinstance(value, str) and value:
+				out[key] = value[:_PROVENANCE_STR_MAX]
+		elif isinstance(kind, dict):
+			# A nested object — projected by the same rules, one level down. Not
+			# recursive beyond that by design: an unbounded nesting depth is a
+			# way to smuggle size into a public response.
+			if isinstance(value, dict):
+				inner = {}
+				for k2, kind2 in kind.items():
+					v2 = value.get(k2)
+					if v2 is None:
+						continue
+					number = _provenance_number(v2, kind2)
+					if number is not None:
+						inner[k2] = number
+				if inner:
+					out[key] = inner
+		elif kind is list:
+			# A calibration vector: numbers only, and bounded — an intrinsic
+			# matrix is 5 values, not 50 000.
+			if isinstance(value, list) and 0 < len(value) <= _PROVENANCE_LIST_MAX:
+				coerced = [_provenance_number(v, float) for v in value]
+				if all(v is not None for v in coerced):
+					out[key] = coerced
+		else:
+			number = _provenance_number(value, kind)
+			if number is not None:
+				out[key] = number
+	return out or None
+
+
+def _attitude(exif_data: Optional[dict]) -> Optional[dict]:
+	"""What the DEVICE measured at the shutter — heading, pitch, ROLL and the
+	quality of each — as the capture app recorded it.
+
+	Published, and published on OTHER people's photos, because sharing photos
+	with a position and an orientation is what this server is for: a 3-D
+	reconstruction that can only use the caller's own frames is not a
+	reconstruction of anywhere. The same reasoning as ``location_accuracy_m``
+	one field over, and the precedent is already set — ``bearing`` has always
+	been public and ``pitch`` is in the map listing.
+
+	None of it narrows WHERE a photo was taken. It says which way the camera
+	faced and how it was held, on a coordinate this response already gives in
+	full. The device details it implies (which fusion the phone has, whether
+	its owner enabled the landscape workaround) are a weaker disclosure than
+	the camera make and model ``_curate_exif`` already publishes.
+
+	Distinct from the top-level ``bearing``, which is the ELECTED answer and may
+	have been set by hand; this is the MEASUREMENT, and when the two disagree
+	that disagreement is the point. See ``attitudeProvenanceJson`` in frontend2
+	for what each key means and, importantly, what each does NOT mean —
+	``roll_deg`` is the residual within ``device_rotation_deg``, not an absolute
+	rotation, and ``magnetometer_calibration`` rates the heading only.
+
+	Absent before 2026-09-26, and absent on every photo taken before the app
+	started recording it.
+	"""
+	return _provenance_object(exif_data, 'attitude')
+
+
+def _fix(exif_data: Optional[dict]) -> Optional[dict]:
+	"""What the RECEIVER said about its own fix — the error bars and the motion.
+
+	Never the position: latitude, longitude, altitude and the horizontal
+	accuracy are already served above, so repeating them here would be the
+	duplication this object exists to avoid. ``elected`` is the one judgement —
+	whether this fix is what the photo actually recorded, without which a reader
+	cannot tell a quality report about the recorded position from one about a
+	position that lost.
+	"""
+	return _provenance_object(exif_data, 'fix')
+
+
+def _lens(exif_data: Optional[dict]) -> Optional[dict]:
+	"""What the CAMERA knew about itself: intrinsics, distortion, focus, zoom.
+
+	The largest single win for reconstruction, and the app read none of it
+	before 2026-09-26. ``intrinsics_available`` records whether the DEVICE
+	publishes a factory calibration at all, because "this phone does not
+	calibrate its lenses" and "this app version did not look" are different
+	claims about a photo and only one of them is the phone's fault.
+
+	``zoom_ratio`` matters more than it looks: the app has had pinch-to-zoom for
+	as long as it has had a camera, and a frame shot at 2x whose intrinsics are
+	read as the 1x ones is simply wrong.
+	"""
+	return _provenance_object(exif_data, 'lens')
+
+
+def _motion(exif_data: Optional[dict]) -> Optional[dict]:
+	"""How the phone was MOVING at the shutter — gravity and linear acceleration.
+
+	``gravity`` is an unambiguous "down" in the device frame, where
+	``attitude.roll_deg`` is a residual within the quantized device pose; it
+	constrains two rotation degrees of freedom on its own.
+	``linear_acceleration_magnitude`` is how hard the phone was being moved,
+	which is the motion-blur signal.
+
+	A single raw accelerometer sample is deliberately absent: it is gravity plus
+	linear acceleration and one sample cannot separate them.
+	"""
+	return _provenance_object(exif_data, 'motion')
+
+
 def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
 	"""Extract a small, display-friendly subset of camera/lens EXIF from the raw
 	exiftool dump stored in ``Photo.exif_data`` (worker writes the full tag set
@@ -1733,15 +1983,36 @@ def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
 
 	curated = {
 		'focal_length': positive('FocalLength'),
-		# FocalLength35efl is exiftool's COMPUTED 35 mm equivalent (focal length x the
-		# sensor's crop factor), and it exists exactly when the camera's own
-		# FocalLengthIn35mmFormat does not: every Ulefone Armor 22 upload writes 0 there
-		# and carries 5.58 here. Falling back to it is what makes the field usable on
-		# phones at all, which is most of this corpus. It stays within this function's
-		# rule -- a lens property, nothing that LOCATES -- and the consumer that needed
-		# it is reconstruction: one focal is solved for a cluster only when the frames
-		# really share one, and that is decided from this number.
-		'focal_length_35mm': positive('FocalLengthIn35mmFormat') or positive('FocalLength35efl'),
+		# TWO fields, because these are two DIFFERENT things and an `or` between
+		# them threw away which one you got (user, 2026-09-26: "why/where is one
+		# of these values a fallback for the other, why dont we just store and
+		# display them both, since we dont understand them").
+		#
+		#   FocalLengthIn35mmFormat is a real EXIF tag (0xA405) -- the CAMERA's
+		#     own statement of its 35 mm equivalent.
+		#   FocalLength35efl is not in the file at all. It is an exiftool
+		#     COMPOSITE: focal length x exiftool's own guess at the crop factor
+		#     (via ScaleFactor35efl, derived from sensor-size tags or a model
+		#     lookup). Every Ulefone Armor 22 upload writes 0 in the tag above
+		#     and carries 5.58 here, which is what made a fallback tempting.
+		#
+		# Collapsed, a consumer could not tell a manufacturer statement from an
+		# exiftool computation, and where both exist and disagree the
+		# disagreement was lost -- and the disagreement is information, the same
+		# way the measured bearing differing from the elected one is. Split and
+		# labelled, the way heading_true_deg sits beside heading_magnetic_deg.
+		#
+		# The consumer is reconstruction: one focal is solved for a cluster only
+		# when the frames really share one, and that is decided from these. On a
+		# FULL-FRAME body the computed value is also visibly off (a 70 mm lens on
+		# a Canon 5DS computes 68.46), which is a reason to label it, not to drop
+		# it. Both stay within this function's rule: a lens property, nothing
+		# that LOCATES.
+		#
+		# positive() on each, separately: 0 means "unknown" in the tag, and a
+		# zero focal length is never real.
+		'focal_length_35mm': positive('FocalLengthIn35mmFormat'),
+		'focal_length_35mm_computed': positive('FocalLength35efl'),
 		'exposure_compensation': num('ExposureCompensation'),
 		'make': text('Make'),
 		'model': text('Model'),
@@ -1855,6 +2126,18 @@ async def get_public_photo(
 			# subject — so it sits with the position rather than in `exif`,
 			# which is documented as camera settings.
 			"location_accuracy_m": _location_accuracy_m(photo.exif_data),
+			# What the DEVICE measured, as opposed to the elected `bearing`
+			# above — heading, pitch, roll and the quality of each. Beside the
+			# position rather than inside `exif`, which is documented as camera
+			# settings; this is the camera's POSE. See _attitude.
+			"attitude": _attitude(photo.exif_data),
+			# The receiver's error bars, the camera's calibration, and how the
+			# phone was moving. Beside the position and `attitude` rather than
+			# inside `exif`, which is documented as camera SETTINGS; these are
+			# the camera's calibration and the device's physics.
+			"fix": _fix(photo.exif_data),
+			"lens": _lens(photo.exif_data),
+			"motion": _motion(photo.exif_data),
 			"width": photo.width,
 			"height": photo.height,
 			"exif": _curate_exif(photo.exif_data),

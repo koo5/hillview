@@ -205,6 +205,21 @@ interface SimplePhotoDao {
     fun clearUploadHold(photoId: String)
 
     /**
+     * The IMU window's summary, written AFTER the row exists.
+     *
+     * A ±window around an exposure is only complete once its later half has
+     * happened, so it cannot be known at the shutter — the same reason the
+     * StampRefiner updates a row rather than computing everything up front.
+     * See GeoEngine.persistImuWindowAround and
+     * docs/recon-capture-metadata.md.
+     */
+    @Query("UPDATE photos SET motionJson = :motionJson WHERE id = :photoId")
+    fun updateMotionJson(photoId: String, motionJson: String?)
+
+    @Query("SELECT motionJson FROM photos WHERE id = :photoId")
+    fun getMotionJson(photoId: String): String?
+
+    /**
      * Every hold, dropped. Called at app start: a refiner that was mid-flight
      * belonged to a process that no longer exists, so its hold is a leftover,
      * not a promise. This is what lets the hold deadline be a generous crash

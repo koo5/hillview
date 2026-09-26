@@ -903,6 +903,30 @@ class PhotoUploadLogic(internal val context: Context) {
 		// anyway. Null stays absent rather than becoming 0 — see
 		// PhotoEntity.pitch.
 		photo.pitch?.let { put("pitch", it) }
+		// What the DEVICE measured, as opposed to what the photo is stamped
+		// as facing: roll (which had no route off the phone at all before
+		// this), the raw and corrected headings, the fusion behind them, the
+		// quantized device pose, the landscape-workaround flag. One object,
+		// like alt_location below, and folded into the UserComment the same
+		// way — the worker must DECLARE it to receive it (BrowserMetadata),
+		// or pydantic drops it silently.
+		// Each of these is one object the worker must DECLARE to receive
+		// (BrowserMetadata) and list in PROVENANCE_KEYS to copy onward.
+		// docs/recon-capture-metadata.md has the whole contract.
+		listOf(
+			"attitude" to photo.attitudeJson,
+			"fix" to photo.fixJson,
+			"lens" to photo.lensJson,
+			"motion" to photo.motionJson,
+		).forEach { (key, json) ->
+			json?.let {
+				try {
+					put(key, JSONObject(it))
+				} catch (e: Exception) {
+					Log.w(TAG, "${key}Json on ${photo.id} is not valid JSON, dropping: $it")
+				}
+			}
+		}
 		// The original's alt_location: the backend synthesizes it into the
 		// UserComment provenance (test_background_location_provenance.py).
 		photo.altLocationJson?.let {
@@ -1422,6 +1446,14 @@ class PhotoUploadLogic(internal val context: Context) {
         pitch: Double? = null,
         /** The other position stream, as JSON — see PhotoEntity.altLocationJson. */
         altLocationJson: String? = null,
+        /** What the device measured at the shutter — see PhotoEntity.attitudeJson. */
+        attitudeJson: String? = null,
+        /** What the receiver said about its fix — see PhotoEntity.fixJson. */
+        fixJson: String? = null,
+        /** The camera's calibration and settings — see PhotoEntity.lensJson. */
+        lensJson: String? = null,
+        /** How the phone was moving — see PhotoEntity.motionJson. */
+        motionJson: String? = null,
         // The refiner's upload gate (PhotoEntity.uploadHoldUntil): non-zero
         // keeps the drain off the row until then, so refinement wins the
         // race against an expedited upload.
@@ -1460,6 +1492,10 @@ class PhotoUploadLogic(internal val context: Context) {
             license = license,
             pitch = pitch,
             altLocationJson = altLocationJson,
+            attitudeJson = attitudeJson,
+            fixJson = fixJson,
+            lensJson = lensJson,
+            motionJson = motionJson,
             uploadHoldUntil = uploadHoldUntil,
         )
 

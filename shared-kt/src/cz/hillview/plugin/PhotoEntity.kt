@@ -154,7 +154,48 @@ data class PhotoEntity(
      * as JSON rather than five columns because it is opaque to this table:
      * nothing here reads it, it only travels.
      */
-    val altLocationJson: String? = null
+    val altLocationJson: String? = null,
+
+    /**
+     * What the DEVICE was measuring at the shutter (v24), as the JSON the
+     * upload metadata sends under `orientation` — roll, the raw and
+     * corrected compass headings, the fusion that produced them, the
+     * quantized device pose and the landscape-workaround flag.
+     *
+     * The ELECTED answer is [bearing] and [pitch]; this is the measurement
+     * beside it, which a manual claim or a car course cannot own. Roll had
+     * no column anywhere in the stack before this, so it never left the
+     * device, though the sensor service has always computed it.
+     *
+     * JSON rather than six columns for the same reason as [altLocationJson]:
+     * it is opaque to this table, nothing here reads it, it only travels —
+     * and the set of things worth recording about a pose will grow.
+     */
+    val attitudeJson: String? = null,
+
+    /**
+     * What the RECEIVER said about its own fix at the shutter (v25) — the
+     * error bars and the motion, as the upload metadata's `fix` object. NOT
+     * the position, which is already four columns here.
+     */
+    val fixJson: String? = null,
+
+    /**
+     * The camera's own calibration and settings at the shutter (v25) —
+     * intrinsics, distortion, focus, zoom, as the upload metadata's `lens`
+     * object. The difference between a reconstruction that SOLVES for
+     * intrinsics and one that is told them.
+     */
+    val lensJson: String? = null,
+
+    /**
+     * How the phone was MOVING at the shutter (v25) — gravity, linear
+     * acceleration, and the summary of the IMU window around the exposure, as
+     * the upload metadata's `motion` object. The window's samples themselves
+     * live in the tracking database and travel by CSV; this is what a
+     * server-side reader gets without it.
+     */
+    val motionJson: String? = null
 )
 
 /**

@@ -11,7 +11,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     // GeoTrackingDatabase in v18 — see that file for why. What is left here is
     // durable and low-rate: a capture and the edits that belong to it.
     entities = [PhotoEntity::class, EditEntity::class, PhotoOutboxEntity::class],
-    version = 23,
+    version = 25,
     // Schemas are exported per app (they compile these entities with different
     // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
     // docs/geo-election-test-todo.md item 6. Both agree on the identityHash;
@@ -539,6 +539,33 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_23_24 = object : Migration(23, 24) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// What the DEVICE measured at the shutter, as opposed to what
+				// the photo is stamped as facing (PhotoEntity.attitudeJson):
+				// roll — which had never left the phone at all — beside the
+				// raw and corrected headings, the fusion that produced them,
+				// the quantized device pose and the landscape-workaround flag.
+				// Null on existing rows: they were taken before it was kept.
+				database.execSQL("ALTER TABLE photos ADD COLUMN attitudeJson TEXT")
+			}
+		}
+
+		private val MIGRATION_24_25 = object : Migration(24, 25) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				// The rest of what the phone knows at the shutter and had been
+				// throwing away — see docs/recon-capture-metadata.md. Three
+				// columns in ONE migration rather than three versions: they are
+				// one change with one reason, and a reviewer reading the history
+				// should see it that way.
+				//
+				// Null on existing rows: taken before any of it was kept.
+				database.execSQL("ALTER TABLE photos ADD COLUMN fixJson TEXT")
+				database.execSQL("ALTER TABLE photos ADD COLUMN lensJson TEXT")
+				database.execSQL("ALTER TABLE photos ADD COLUMN motionJson TEXT")
+			}
+		}
+
 		/**
 		 * Every migration, in one list, so the runtime builder and
 		 * PhotoDatabaseMigrationTest cannot disagree about which ones exist.
@@ -548,7 +575,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 			MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
 			MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
 			MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
-			MIGRATION_22_23,
+			MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
 		)
 
         fun getDatabase(context: Context): PhotoDatabase {

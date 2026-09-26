@@ -14,6 +14,7 @@
 		fetchPublicInfo,
 		getCachedPublicInfo,
 		formatFocalLength,
+		focalLengthTitle,
 		formatAperture,
 		formatIso,
 		formatShutter,
@@ -65,6 +66,9 @@
 	$: cameraStr = exif ? formatCamera(exif.make, exif.model) : null;
 	$: lensStr = exif?.lens ?? null;
 	$: focalStr = exif ? formatFocalLength(exif) : null;
+	// Both 35mm-equivalents when the camera stated one and exiftool computed a
+	// different one — the line shows the camera's, this says so and gives both.
+	$: focalTitle = exif ? focalLengthTitle(exif) : null;
 	$: apertureStr = exif ? formatAperture(exif.f_number, exif.f_number_range, exif.f_number_mixed) : null;
 	$: shutterStr = exif ? formatShutter(exif.exposure_time, exif.exposure_time_range, exif.exposure_time_mixed) : null;
 	$: isoStr = exif ? formatIso(exif.iso, exif.iso_range, exif.iso_mixed) : null;
@@ -135,7 +139,7 @@
 		<dl class="pinfo-list">
 			{#if cameraStr}<dt>Camera</dt><dd>{cameraStr}</dd>{/if}
 			{#if lensStr}<dt>Lens</dt><dd>{lensStr}</dd>{/if}
-			{#if focalStr}<dt>Focal length</dt><dd>{focalStr}</dd>{/if}
+			{#if focalStr}<dt>Focal length</dt><dd title={focalTitle} data-testid="photo-info-focal-length">{focalStr}</dd>{/if}
 			{#if apertureStr}<dt>Aperture</dt><dd>{apertureStr}</dd>{/if}
 			{#if shutterStr}<dt>Shutter</dt><dd>{shutterStr}</dd>{/if}
 			{#if isoStr}<dt>ISO</dt><dd>{isoStr}</dd>{/if}

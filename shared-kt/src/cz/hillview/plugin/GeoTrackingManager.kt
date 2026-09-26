@@ -23,7 +23,26 @@ private const val TAG = "hv-Geo"
 data class OrientationSensorData(
 	val magneticHeading: Float,  // Compass bearing in degrees from magnetic north (0-360°)
 	val trueHeading: Float,       // Compass bearing corrected for magnetic declination
-	val accuracyLevel: Int,      // Android sensor accuracy constants: -1=unknown, 0=unreliable, 1=low, 2=medium, 3=high
+	// The MAGNETOMETER's calibration status, latched from onAccuracyChanged:
+	// -1=unknown, 0=unreliable, 1=low, 2=medium, 3=high. It rates the HEADING
+	// only — pitch and roll come from gravity and the gyro. Named for Android's
+	// word rather than for what it is, because it is also a database column.
+	val accuracyLevel: Int,
+	/**
+	 * What the sensor that actually produced THIS sample said about itself —
+	 * `SensorEvent.accuracy`, on the same 0..3 scale, -1 when unknown.
+	 *
+	 * [accuracyLevel] above is the bare magnetometer's status, which the
+	 * default fusion (TYPE_ROTATION_VECTOR) only indirectly depends on; this
+	 * is the fused sensor's own rating of the sample it just emitted. Both are
+	 * kept because they disagree, and which one was low tells you whether the
+	 * magnetic field or the fusion was the problem. It was read and discarded
+	 * (a commented-out log line) until 2026-09-22.
+	 *
+	 * -1 for the hand-rolled filters (Madgwick, complementary): they compose
+	 * several raw sensors and no single one rates the result.
+	 */
+	val fusedSensorAccuracy: Int = -1,
 	val pitch: Float,
 	val roll: Float,
 	val timestamp: Long,
@@ -186,6 +205,72 @@ class GeoTrackingManager(private val context: Context) {
 		return newId
 	}
 
+	/**
+	 * A bearing the APP produced — a manual claim, a photo the user turned
+	 * to — with whatever the device itself was measuring at the time.
+	 *
+	 * The bearing twin of [storeLocationNamed], and it exists for the
+	 * nullability: [OrientationSensorData] demands a non-null pitch and roll
+	 * because a sensor sample always has them, so the only way to write a
+	 * non-sensor row through it was to invent values. frontend2 invented
+	 * `0f` for both, which is a phone held perfectly level and is a
+	 * measurement, not an absence — indistinguishable in the table from a
+	 * phone that really was level. Here they are nullable, as
+	 * [BearingEntity] has always allowed, and the caller passes the live
+	 * attitude when it has a fresh one (user, 2026-09-22: "we should still
+	 * record actual sensor pitch and roll, even when bearing is overriden").
+	 */
+	fun storeBearingNamed(
+		timestamp: Long,
+		trueHeading: Float,
+		source: String,
+		detail: String? = null,
+		magneticHeading: Float? = null,
+		accuracyLevel: Int? = null,
+		pitch: Float? = null,
+		roll: Float? = null,
+		fusedSensorAccuracy: Int? = null,
+	) {
+		CoroutineScope(Dispatchers.IO).launch {
+			try {
+				val sourceId = getOrCreateSourceId(source)
+				storeBearingEntity(
+					BearingEntity(
+						timestamp = timestamp,
+						trueHeading = trueHeading,
+						magneticHeading = magneticHeading,
+						accuracyLevel = accuracyLevel,
+						sourceId = sourceId,
+						detail = detail,
+						pitch = pitch,
+						roll = roll,
+						fusedSensorAccuracy = fusedSensorAccuracy,
+					)
+				)
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to store $source bearing: ${e.message}", e)
+			}
+		}
+	}
+
+	/**
+	 * The IMU window around one shutter — see [ImuSampleEntity].
+	 *
+	 * A batch insert, deliberately: a window is a hundred-odd rows and a
+	 * per-row coroutine launch would cost more than the write. Synchronous
+	 * inside one IO launch for the same reason.
+	 */
+	fun storeImuSamples(samples: List<ImuSampleEntity>) {
+		if (samples.isEmpty()) return
+		CoroutineScope(Dispatchers.IO).launch {
+			try {
+				database.imuDao().insertAll(samples)
+			} catch (e: Exception) {
+				Log.e(TAG, "Failed to store ${samples.size} IMU samples: ${e.message}", e)
+			}
+		}
+	}
+
 	fun storeOrientationSensorData(data: OrientationSensorData) {
 		CoroutineScope(Dispatchers.IO).launch {
 			try {
@@ -199,7 +284,8 @@ class GeoTrackingManager(private val context: Context) {
 						sourceId = sourceId,
 						detail = data.detail,
 						pitch = data.pitch,
-						roll = data.roll
+						roll = data.roll,
+						fusedSensorAccuracy = data.fusedSensorAccuracy.takeIf { it >= 0 }
 					)
 				)
 			} catch (e: Exception) {
@@ -364,9 +450,23 @@ class GeoTrackingManager(private val context: Context) {
 						locationsToCsv(locations, sourceIdToName),
 					)
 					Log.i(TAG, "🢄📡 Dumped ${locations.size} locations to $locationsAt")
+					// The IMU windows, when any capture recorded one. Skipped
+					// silently when empty: a session with no captures, or one
+					// where the IMU was never asked for, has nothing to say and
+					// an empty file would only look like a failure.
+					val imu = database.imuDao().getAllSamples()
+					if (imu.isNotEmpty()) {
+						val imuAt = writeExportCsv(
+							"hillview_imu_${now}.csv",
+							imuSamplesToCsv(imu),
+						)
+						Log.i(TAG, "🢄📡 Dumped ${imu.size} IMU samples to $imuAt")
+					}
 					EventLog.record(
 						"export",
-						"${bearings.size} bearings + ${locations.size} locations → $locationsAt",
+						"${bearings.size} bearings + ${locations.size} locations" +
+							(if (imu.isNotEmpty()) " + ${imu.size} IMU samples" else "") +
+							" → $locationsAt",
 					)
 				} catch (e: Exception) {
 					Log.e(TAG, "🢄📡 Failed to dump geo tracking data: ${e.message}", e)
@@ -382,6 +482,7 @@ class GeoTrackingManager(private val context: Context) {
 			try {
 				database.bearingDao().clearBearingsOlderThan(cutoff)
 				database.locationDao().clearLocationsOlderThan(cutoff)
+				database.imuDao().clearOlderThan(cutoff)
 				Log.i(TAG, "🢄📡 Geo tracking tables cleared")
 			} catch (e: Exception) {
 				Log.e(TAG, "🢄📡 Failed to clear geo tracking tables: ${e.message}", e)
@@ -465,6 +566,23 @@ class GeoTrackingManager(private val context: Context) {
 		return idToName
 	}
 
+	/**
+	 * The IMU window as CSV. Appended columns only, like the others — `pics`
+	 * resolves every column by header name and reads a missing one as None.
+	 *
+	 * `elapsedNanos` is the column to JOIN an exposure on: it is the device's
+	 * monotonic clock, which cannot step, where `timestamp` is wall clock and
+	 * can. Both travel because only the wall clock relates a sample to a photo's
+	 * `captured_at`.
+	 */
+	private fun imuSamplesToCsv(samples: List<ImuSampleEntity>): String {
+		val header = "#timestamp,kind,sequence,x,y,z,elapsedNanos\n"
+		val rows = samples.joinToString("\n") {
+			"${it.timestamp},${it.kind},${it.sequence},${it.x},${it.y},${it.z},${it.elapsedNanos}"
+		}
+		return header + rows + "\n"
+	}
+
 	private fun escapeCsv(value: String?): String {
 		val str = value ?: ""
 		return if (str.contains(",") || str.contains("\"") || str.contains("\n")) {
@@ -477,13 +595,17 @@ class GeoTrackingManager(private val context: Context) {
 	private fun bearingsToCsv(bearings: List<BearingEntity>, sourceIdToName: Map<Int, String>): String {
 		// `detail` is appended, not slotted next to `source`: readers key on the
 		// header name, so a column added at the end never shifts an existing one.
-		val header = "#timestamp,trueHeading,magneticHeading,accuracyLevel,source,pitch,roll,detail,elected\n"
+		// APPENDED columns only. pics resolves every column by header name and
+		// reads a missing one as None (gps_log.get_column_index), and it sniffs
+		// the file type from this line's PREFIX — so a new column on the end is
+		// safe for old readers and old files alike.
+		val header = "#timestamp,trueHeading,magneticHeading,accuracyLevel,source,pitch,roll,detail,elected,fusedSensorAccuracy\n"
 		val rows = bearings.joinToString("\n") { bearing ->
 			val sourceName = escapeCsv(sourceIdToName[bearing.sourceId] ?: "unknown")
 			// Blank when no election was recorded — a reader that finds it blank
 			// should fall back to source-blind behaviour for that row.
 			val elected = escapeCsv(bearing.electedSourceId?.let { sourceIdToName[it] })
-			"${bearing.timestamp},${bearing.trueHeading},${bearing.magneticHeading ?: ""},${bearing.accuracyLevel ?: ""},${sourceName},${bearing.pitch ?: ""},${bearing.roll ?: ""},${escapeCsv(bearing.detail)},${elected}"
+			"${bearing.timestamp},${bearing.trueHeading},${bearing.magneticHeading ?: ""},${bearing.accuracyLevel ?: ""},${sourceName},${bearing.pitch ?: ""},${bearing.roll ?: ""},${escapeCsv(bearing.detail)},${elected},${bearing.fusedSensorAccuracy ?: ""}"
 		}
 		return header + rows + "\n"
 	}

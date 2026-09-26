@@ -20,12 +20,101 @@ class TrackingFunnelTest {
 
         override fun electBearingSource(source: String) { bearingElections += source }
         override fun electLocationSource(source: String) { locationElections += source }
+        /** Every bearing row's attitude, in call order — null when absent. */
+        val bearingAttitudes = mutableListOf<Pair<Double?, Double?>>()
         override fun writeBearingRow(
-            bearing: Double, source: String, detail: String, accuracyLevel: Int?, now: Long,
-        ) { bearingRows += Triple(bearing, source, detail) }
+            bearing: Double, source: String, detail: String, accuracyLevel: Int?,
+            pitch: Double?, roll: Double?, now: Long,
+        ) {
+            bearingRows += Triple(bearing, source, detail)
+            bearingAttitudes += pitch to roll
+        }
         override fun writeLocationRow(
             latitude: Double, longitude: Double, source: String, detail: String, now: Long,
         ) { locationRows += Triple(latitude, longitude, source) }
+    }
+
+    // --- what a hand-set bearing row says about the DEVICE ---
+
+    private fun attitude(ts: Long, pitch: Double = 4.75, roll: Double = -1.5) =
+        DeviceAttitude(
+            trueDeg = 68.5, magneticDeg = 64.25, pitch = pitch, roll = roll, ts = ts,
+        )
+
+    /**
+     * A bearing the USER set still records how the phone was being held.
+     *
+     * Until 2026-09-22 the row carried `0f` for both — a phone held perfectly
+     * level, written as measurement and indistinguishable in the table from
+     * one that really was level.
+     */
+    @Test
+    fun aHandSetBearingRowCarriesTheLiveAttitude() {
+        val sink = RecordingSink()
+        val state = MapStateHolder(sink = sink)
+        val now = 1_000_000L
+        state.updateDeviceAttitude(attitude(ts = now))
+        state.updateBearing(bearing = 200.0, source = "arrow_drag", now = now)
+
+        assertEquals(1, sink.bearingRows.size)
+        assertEquals(4.75 to -1.5, sink.bearingAttitudes.single())
+    }
+
+    /**
+     * ...and NULL, not a zero, when the sensors have nothing fresh to say.
+     * Null is "not recorded"; 0.0 is a measurement.
+     */
+    @Test
+    fun aStaleAttitudeIsNotAttachedToAFreshRow() {
+        val sink = RecordingSink()
+        val state = MapStateHolder(sink = sink)
+        val now = 1_000_000L
+        state.updateDeviceAttitude(attitude(ts = now - ATTITUDE_MAX_AGE_MS - 1))
+        state.updateBearing(bearing = 200.0, source = "arrow_drag", now = now)
+
+        assertEquals(null to null, sink.bearingAttitudes.single())
+    }
+
+    /** Never measured at all — car mode with the compass down, a cold start. */
+    @Test
+    fun noAttitudeEverMeansNullsRatherThanZeros() {
+        val sink = RecordingSink()
+        val state = MapStateHolder(sink = sink)
+        state.updateBearing(bearing = 200.0, source = "map", now = 1_000_000L)
+
+        assertEquals(null to null, sink.bearingAttitudes.single())
+    }
+
+    /**
+     * A LEVEL phone must still read as level, not as absent — the other half
+     * of the same distinction, and the reason `0f` was wrong rather than
+     * merely imprecise.
+     */
+    @Test
+    fun aGenuinelyLevelPhoneIsRecordedAsZeroNotAsAbsent() {
+        val sink = RecordingSink()
+        val state = MapStateHolder(sink = sink)
+        val now = 1_000_000L
+        state.updateDeviceAttitude(attitude(ts = now, pitch = 0.0, roll = 0.0))
+        state.updateBearing(bearing = 200.0, source = "arrow_drag", now = now)
+
+        assertEquals(0.0 to 0.0, sink.bearingAttitudes.single())
+    }
+
+    /**
+     * The engine records its own samples at sensor rate, so the funnel must
+     * not echo them — attitude or no attitude.
+     */
+    @Test
+    fun anEngineOwnedSourceStillWritesNoRowAtAll() {
+        val sink = RecordingSink()
+        val state = MapStateHolder(sink = sink)
+        val now = 1_000_000L
+        state.updateDeviceAttitude(attitude(ts = now))
+        state.updateBearing(bearing = 200.0, source = "android-compass-true", now = now)
+
+        assertTrue(sink.bearingRows.isEmpty(), "the engine already wrote this sample")
+        assertTrue(sink.bearingAttitudes.isEmpty())
     }
 
     // --- the vocabulary (ports of toTableSource / kotlinOwnsSource) ---

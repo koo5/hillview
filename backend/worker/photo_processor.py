@@ -368,6 +368,12 @@ PROVENANCE_KEYS = (
 	# rewrite and carries the whole stamp in the upload metadata instead —
 	# so the synthesized UserComment must say what a written one would.
 	'location_age_ms', 'exposure', 'refined',
+	# Everything the phone knows about how a frame was taken — see
+	# BrowserMetadata in worker/app.py for each object's key list, and
+	# docs/recon-capture-metadata.md for why each is ONE object rather than a
+	# column per field. Declared there AND listed here, or the key is dropped
+	# silently at one end or the other.
+	'attitude', 'fix', 'lens', 'motion',
 	'v',
 )
 
