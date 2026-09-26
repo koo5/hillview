@@ -2350,3 +2350,40 @@ yet.
 
 401 jvmTest, 431 androidHostTest, **376 connectedAndroidDeviceTest**, 296 API unit,
 `:androidApp:assembleDebug`.
+
+## 2026-09-26 — the sampling design, written down before the next control lands
+
+**docs/imu-sampling-design.md.** Written because three user-facing controls are
+foreseeable — a window-length setting, a fast-mode toggle in the CAPTURE activity,
+and battery work generally — and each lands on couplings that are not visible from
+the call site. Two of them already cost a fix today.
+
+The headline for anyone adding a control: **the claim merge is `any { }` for the
+booleans and `min` for the rates.** A value in `GeoDefaults` is a FLOOR another
+live claim can raise, so a toggle wired to one config does nothing while a second
+claimant disagrees. That is exactly how the external toggle's first version was
+defeated, and why `externalCameraConfig` takes the flag as a parameter instead of
+reading the setting itself. A capture-side toggle has to be the same shape and
+cannot honestly promise "off".
+
+Also documented: every constant and what it is pinned to. `ImuRing(16_000)` is
+`2 × IMU_WINDOW_HALF_MS + margin` at ~1 kHz, so **lengthening the window without
+growing the ring silently returns half a window** — which looks like data rather
+than an error. The payload caps in two languages are pinned to the same capacity.
+
+**The unused battery lever, flagged prominently: hardware FIFO batching.**
+`registerListener` has a five-argument form taking `maxReportLatencyUs`; we pass
+the four-argument one, so at 400 Hz every sample is a wakeup instead of a burst of
+forty. It is likely the largest available saving and the design is already
+compatible — samples carry their own timestamps and the ring assumes nothing about
+callback spacing. What to check first is whether the device even has a FIFO
+(`getFifoMaxEventCount`, or `dumpsys sensorservice`), and note the interaction: the
+latency budget must stay well under `IMU_SETTLE_MARGIN_MS` or the window's tail is
+still in the FIFO when it is read.
+
+**Cleanups while there.** The payload cap said "per SENSOR" in the worker while the
+app bounded the TOTAL — a factor-of-two disagreement in the permissive direction,
+so 16 000 accelerometer plus 16 000 gyroscope rows would have passed a door the
+producer can never reach. Now one number, checked as a total, with a per-array
+bound kept to fail fast. Two comments still named `stored_from_ms`, removed earlier
+today.

@@ -128,8 +128,10 @@ def test_an_unusable_wall_clock_base_drops_the_sensor(t0):
 
 def test_the_sample_count_is_capped_at_the_rings_capacity():
     """The cap is the capture buffer's size, not a byte figure: no honest window
-    can exceed the ring that produced it."""
-    cap = PhotoProcessor.IMU_MAX_SAMPLES_PER_SENSOR
+    can exceed the ring that produced it. TOTAL across sensors, matching what the
+    app bounds -- this used to say per-sensor and so allowed twice the producer's
+    maximum."""
+    cap = PhotoProcessor.IMU_MAX_SAMPLES_TOTAL
     n = cap + 1
     assert validate({'accel': {'t0_ms': 1, 'dt_us': [2_500] * (n - 1),
                                'x': [0.1] * n, 'y': [0.1] * n, 'z': [0.1] * n}}) is None

@@ -224,7 +224,7 @@ data class PhotoEntity(
      * the time the photo sends is the drop-site pattern this whole body of work
      * was about closing.
      *
-     * It carries only the samples in [ImuWindow.storedFromMs]..window-end — what
+     * It carries only the samples this capture CLAIMED (`imu_claims`) — what
      * this photo OWNS. Consecutive photos in an interval run therefore tile the
      * session instead of each repeating the same six seconds.
      *

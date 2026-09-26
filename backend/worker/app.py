@@ -819,9 +819,10 @@ class BrowserMetadata(BaseModel):
 	# accelerometer/gyroscope window around the exposure (sample_count,
 	# window_start_ms, window_end_ms, accel_peak_mps2 which includes gravity,
 	# accel_peak_deviation_mps2 which is the gravity-free shake signal,
-	# gyro_peak_rad_s, stored_count and stored_from_ms -- the last two saying
-	# which part of the stream this photo OWNS, so a run can be concatenated
-	# without counting a sample twice). The window's SAMPLES arrive separately,
+	# gyro_peak_rad_s and stored_count -- the last saying how much of the stream
+	# this photo OWNS, so a run can be concatenated without counting a sample
+	# twice; WHICH samples is device-side bookkeeping (imu_claims) and does not
+	# travel). The window's SAMPLES arrive separately,
 	# in imu_samples below, NOT in here: this object becomes provenance and ends
 	# up in exif_data, which is read wholesale on every detail request. A single
 	# RAW accelerometer sample is deliberately absent: it is gravity plus linear

@@ -58,6 +58,15 @@ things a USER may need to see later — a re-registration, an export, a stand
 down; it survives without a cable attached and shows up in the Event log
 screen.
 
+## Sensors and battery
+
+When the inertial sensors run, what every constant is pinned to, and what breaks
+if you change the window length or add a fast-mode toggle:
+[docs/imu-sampling-design.md](../docs/imu-sampling-design.md). Read it before
+touching `GeoConfig`, `GeoDefaults` or anything that claims the engine — the
+claim merge is `any { }`, so a per-screen toggle silently does nothing while
+another claim is live.
+
 ## Building and testing
 
 ```bash

@@ -6,6 +6,11 @@ import cz.hillview.external.ExternalImuSettings
  * Starting values for each activity's [GeoConfig] — deliberately HERE, next
  * to the call sites that start the engine, and not inside the engine itself.
  *
+ * BEFORE CHANGING A FLAG HERE: docs/imu-sampling-design.md has the couplings.
+ * The merge across claims is `any { }` for the booleans and `min` for the rates,
+ * so a value set here is a FLOOR that another live claim can raise — which is why
+ * a toggle wired to one config does nothing while another claimant disagrees.
+ *
  * The engine is told what to run and never decides; these are the defaults a
  * user control replaces. The GPS-interval slider and the eco sub-flags are
  * therefore values flowing through this seam, not new machinery: read the

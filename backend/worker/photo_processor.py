@@ -1475,14 +1475,19 @@ class PhotoProcessor:
 			raise RuntimeError("No upload method configured: either pass keep_pics_in_worker (with ALLOW_KEEP_PICS_IN_WORKER=true), set USE_CDN=true (with BUCKET_NAME), or provide photo_id and client_signature for API upload")
 
 
-	# Most samples one photo's payload may carry, per SENSOR.
+	# Most samples one photo's payload may carry, ACROSS ALL SENSORS.
 	#
 	# The number is the capture ring's capacity (`ImuRing(capacity = 16_000)` in
-	# GeoEngine), not a byte figure someone picked: no honest window can exceed
-	# the buffer that produced it, so a payload claiming more did not come from
-	# this app. Bytes would be the wrong unit anyway — the cost that matters is
-	# rows, and the same row count is a different byte count per sensor.
-	IMU_MAX_SAMPLES_PER_SENSOR = 16_000
+	# GeoEngine, mirrored as IMU_PAYLOAD_MAX_SAMPLES in shared-kt), not a byte
+	# figure someone picked: no honest window can exceed the buffer that produced
+	# it, so a payload claiming more did not come from this app. Bytes would be
+	# the wrong unit anyway — the cost that matters is rows.
+	#
+	# TOTAL, matching the producer. This said "per SENSOR" while the app bounded
+	# the total, so the two disagreed by a factor of two in the permissive
+	# direction: 16 000 accelerometer PLUS 16 000 gyroscope rows would have passed
+	# here and could never have been produced. One ring, one number.
+	IMU_MAX_SAMPLES_TOTAL = 16_000
 
 	# Sensor names we will store. A fixed set, because this becomes a filename
 	# and a public artifact; an open set lets a client name a key anything.
@@ -1519,7 +1524,7 @@ class PhotoProcessor:
 				if not isinstance(v, list) or not v:
 					ok = False
 					break
-				if len(v) > PhotoProcessor.IMU_MAX_SAMPLES_PER_SENSOR:
+				if len(v) > PhotoProcessor.IMU_MAX_SAMPLES_TOTAL:
 					logger.warning(f"IMU payload {kind}.{axis} has {len(v)} samples, over the cap — dropping {kind}")
 					ok = False
 					break
@@ -1552,7 +1557,15 @@ class PhotoProcessor:
 			if isinstance(t0_ns, int) and not isinstance(t0_ns, bool) and t0_ns > 0:
 				entry['t0_ns'] = t0_ns
 			out[kind] = entry
-		return out or None
+		if not out:
+			return None
+		total = sum(len(v['x']) for v in out.values())
+		if total > PhotoProcessor.IMU_MAX_SAMPLES_TOTAL:
+			logger.warning(
+				f"IMU payload holds {total} samples across {len(out)} sensors, over the "
+				f"{PhotoProcessor.IMU_MAX_SAMPLES_TOTAL} cap — dropping the whole payload")
+			return None
+		return out
 
 	async def _store_imu_samples(self, payload: Optional[dict], unique_id: str, output_base: str,
 								  photo_id: Optional[str], client_signature: Optional[str],

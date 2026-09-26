@@ -563,6 +563,14 @@ It stays because the magnitude is what a server-side filter would sort or
 threshold on, and computing a vector norm from a JSON array in SQL is not
 something to ask of a bounds query. Noted rather than defended as necessary.
 
+## Where the power and window design is written down
+
+When the sensors run, what the constants are pinned to, and what breaks if the
+window length or a fast-mode toggle changes:
+**[imu-sampling-design.md](imu-sampling-design.md)**. Written because a
+window-length setting and a capture-side toggle are both foreseeable, and both
+land on the `any { }` claim merge that has already defeated one toggle.
+
 ## Rules that hold across all of it
 
 - **Null is not zero.** A value the device did not measure is absent; `0.0` is
