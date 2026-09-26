@@ -2474,3 +2474,44 @@ too).
 Not yet exercised on hardware: the window and the payload, because that trace took
 no photo. `IMU window for <id>: …` and an `imu_samples` key in the upload metadata
 are still unconfirmed on a device.
+
+## 2026-09-26 — batch budget to 2 s, and where the battery actually is
+
+Raised `IMU_BATCH_LATENCY_MS` 1 s → **2 s** for the long interval sessions, and
+stopped there for a measured reason rather than a cautious one.
+
+| budget | IMU wakeups/s | inline pre-shutter cover |
+|---|---|---|
+| unbatched | ~800 | 3.0 s |
+| 1 s | 1.0 | 2.0 s |
+| **2 s** | **0.5** | **1.0 s** |
+| 3 s | 0.3 | **0 — crash floor gone** |
+
+The saving is all in the first step. And a budget at or above `IMU_WINDOW_HALF_MS`
+empties the inline pre-shutter summary — the only motion a photo keeps if the
+process dies before the deferred pass rewrites it — in exchange for 0.2 wakeups a
+second. 2 s is the last value that keeps the floor while taking essentially all of
+the saving. The Armor 22's FIFO would allow ~5.6 s; the window is what limits this,
+not the hardware.
+
+**The honest total, which is the part worth knowing** ("otoh, there's a lot more
+that the app still does anyway" — quite): four sensors run UNBATCHED at
+`sensorDelayUs` — rotation vector, magnetometer, gravity, linear acceleration —
+which at capture's 30 ms is ~132 wakeups a second regardless of this constant. So
+batching took 932/s to 133/s, and the last 0.5 is noise.
+
+The two levers that would actually move an interval session:
+
+- **The GPS interval setting is a no-op** (`GPS_INTERVAL_SETTING_LIVE = false`), so
+  every activity asks for a fix every second. An interval capture every ten seconds
+  is requesting ten times the fixes it uses, and the receiver costs far more than a
+  sensor callback. The control exists and is hidden only because the value never
+  reaches `PreciseLocationService` — scoped work, not research, and the biggest
+  cheap win available.
+- **Gravity and linear acceleration are sampled at 33 Hz to be read once per
+  shutter.** The other half of the 132/s floor, with a real trade: batching them
+  grows `inertial.age_ms`, and a stale gravity vector during a pan is meaningfully
+  wrong.
+
+And the largest term is probably neither — the camera preview runs for the whole
+session.

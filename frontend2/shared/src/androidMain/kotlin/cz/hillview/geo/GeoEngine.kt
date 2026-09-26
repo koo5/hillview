@@ -173,12 +173,30 @@ const val IMU_WINDOW_HALF_MS = 3_000L
  * which makes even the re-attribution rare rather than routine.
  *
  * A budget larger than the FIFO is not a mistake: the platform delivers as soon as
- * the buffer fills, so this is a ceiling rather than a promise. Typical FIFOs hold
- * a few hundred events, which at this rate is a few hundred milliseconds; the
- * registration logs `fifoMaxEventCount` so the actual depth is visible instead of
- * assumed.
+ * the buffer fills, so this is a ceiling rather than a promise. The registration
+ * logs `fifoMaxEventCount` so the actual depth is visible instead of assumed — the
+ * Armor 22 reports 4 500 with 3 000 reserved per sensor, which at ~400 Hz each is
+ * about 5.6 s of both streams together.
+ *
+ * WHY 2 s AND NOT MORE, measured rather than guessed. The saving is almost entirely
+ * in the first step: unbatched is ~800 wakeups a second, 1 s makes it 1, and 2 s
+ * makes it 0.5. Everything past that is rounding.
+ *
+ * What it trades against is the INLINE pre-shutter summary, which reads the ring
+ * synchronously and so covers only `IMU_WINDOW_HALF_MS - budget` of its window: 2 s
+ * at a 1 s budget, 1 s at 2 s, and NOTHING at 3 s or beyond. That summary is the
+ * only motion a photo has if the process dies before the deferred pass rewrites it,
+ * so a budget at or above the half-window silently removes a crash floor to save
+ * 0.2 wakeups a second. 2 s is the last value that keeps the floor while taking
+ * essentially all of the saving.
+ *
+ * AND THE IMU IS NO LONGER WHAT WAKES THE CPU. Four sensors run UNBATCHED at
+ * `sensorDelayUs` — rotation vector, magnetometer, gravity, linear acceleration —
+ * which at capture's 30 ms is about 132 wakeups a second no matter what this
+ * constant says. Squeezing this further is not where the remaining battery is; see
+ * docs/imu-sampling-design.md.
  */
-const val IMU_BATCH_LATENCY_MS = 1_000L
+const val IMU_BATCH_LATENCY_MS = 2_000L
 
 /**
  * How long after a window closes it is safe to read.

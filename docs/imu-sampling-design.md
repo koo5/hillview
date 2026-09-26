@@ -183,6 +183,45 @@ Two things this run found by reading the log rather than the result:
   at the fallback rate — a device suite testing a configuration the product never
   ships. `shared/src/androidDeviceTest/AndroidManifest.xml` now declares it.
 
+### Where the remaining battery actually is
+
+Raising `IMU_BATCH_LATENCY_MS` further was considered and stopped at 2 s, because
+the arithmetic says the IMU is no longer the problem:
+
+| budget | IMU wakeups/s | inline pre-shutter cover |
+|---|---|---|
+| unbatched | ~800 | 3.0 s |
+| 1 s | 1.0 | 2.0 s |
+| **2 s** | **0.5** | **1.0 s** |
+| 3 s | 0.3 | **0 — the crash floor is gone** |
+
+Two things that table makes obvious. The saving is all in the first step. And a
+budget at or above `IMU_WINDOW_HALF_MS` empties the inline pre-shutter summary
+entirely — the only motion a photo keeps if the process dies before the deferred
+pass rewrites it — to save 0.2 wakeups a second.
+
+**Meanwhile four sensors run UNBATCHED** at `sensorDelayUs`: rotation vector,
+magnetometer, gravity and linear acceleration. At capture's 30 ms that is roughly
+**132 wakeups a second, independent of this constant**. So the honest picture after
+batching is 932/s → 133/s, and the last 0.5 belongs to the noise.
+
+The two levers that would move a long interval session, neither of them this one:
+
+- **The GPS interval setting is a no-op.** `GPS_INTERVAL_SETTING_LIVE = false` in
+  `SettingsScreen`, so every activity gets `GPS_INTERVAL_DEFAULT_MS` = 1 s. An
+  interval capture every ten seconds is asking the receiver for ten times the fixes
+  it uses, and GPS is a far larger draw than a sensor callback. The control exists
+  and is hidden because the value never reaches `PreciseLocationService`; wiring it
+  is scoped work, not research.
+- **Gravity and linear acceleration are sampled at 33 Hz to be read ONCE per
+  shutter.** Their only consumers are the shutter stamp and the map's motion
+  readout. Batching or slowing them is the other half of the 132/s floor — with a
+  real trade, since `inertial.age_ms` would grow and a stale gravity vector during a
+  pan is meaningfully wrong. Worth measuring before assuming.
+
+And the largest term is almost certainly neither: the camera PREVIEW runs for the
+whole of an interval session.
+
 ## Other battery levers, still unused
 
 Ranked by what they cost the data:
