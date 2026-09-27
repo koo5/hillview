@@ -433,7 +433,55 @@ Every probe capture was **1440×1920**, ~530 KB, from a sensor whose
 is the configured capture resolution and not a probe artifact — but if full resolution
 was intended, something is pinning it down.
 
-### So: we did not know the exposure moment, and now we can
+### PROVEN END TO END ON PROD, 2026-09-28
+
+Two captures with `exactCaptureTime` on, fetched back as owner, and the exposure located
+inside the IMU sample array:
+
+| | Quality | Latency |
+|---|---:|---:|
+| `press_to_exposure_ms` | **1758** | **312** |
+| `exposure_wall_ms − captured_at` | 1758 ✓ | 312 ✓ |
+| exposure lands at sample | **1893 / 2387** | **1317 / 2386** |
+| residual to that sample | **+336 µs** | **−207 µs** |
+| position in the window | **79.3 %** | 55.2 % |
+| before / after the exposure | 4.76 s / **1.24 s** | 3.31 s / 2.69 s |
+
+The residuals are the result. Sub-millisecond, against a 2.512 ms sample period, means
+the exposure is pinned to ONE inertial sample — through the frame's SENSOR_TIMESTAMP, the
+clock bridge, the upload, `PROVENANCE_KEYS`, the stored UserComment, and the artifact's
+`t0_ns` + `cumsum(dt_us)`. Accel and gyro agree to the sample and to the microsecond, as
+they must, sharing `t0_ns`. Nothing in the chain is estimated and no wall clock is
+involved.
+
+**And it makes the cost of press-centring visible per photo.** The window is ±3 s around
+the PRESS, so in Quality mode it is really −4.76 s / +1.24 s around the frame: 79 % of the
+inertial history precedes the exposure and only a quarter of the intended margin follows
+it. Latency's 55 % is close to centred. That is the concrete version of what this document
+argued abstractly, and it is now a number each photo carries.
+
+**The natural next step, now justified rather than speculated.**
+`persistImuWindowAround` posts its read for `press + 3 s + 150 ms`, and with this path the
+exposure is known at the SAVE — which for Quality mode is 1758 ms before that read fires.
+So the centre can be re-targeted in flight, and the window can be centred on the frame
+instead of the button. The earlier analysis said this was cheap because the read is
+deferred; the 79.3 % figure says it is also worth doing.
+
+**A bug the uploaded data caught within minutes.** `still_mode` came back
+`"public_folder"` on both photos — the STORAGE target, because both save paths passed
+`mode.key` where `mode` is the `StorageMode` and the capture mode lives in a field of the
+same name. Fixed in both paths. This is the argument for shipping telemetry before
+polishing it: a wrong value in a field nobody had read yet announced itself as soon as
+someone read it.
+
+**Also fixed on review:** the two paths measured `exposure→jpeg` to different endpoints —
+the CameraX one at `onImageSaved` (file on disk), the in-memory one at the ImageProxy
+handover (bytes in hand). Recording both under one name would put two measurements under
+one label, which is the mistake this whole thread is about. The handover now has its own
+stat, `exposure→bytes`, and the stored `exposure_to_jpeg_ms` is taken after our write, so
+it means the same thing on both paths.
+
+### So: we did not know the exposure moment, and now we do
 
 Which is the outcome the requirement was written for. Two honest responses, and they
 are not exclusive:

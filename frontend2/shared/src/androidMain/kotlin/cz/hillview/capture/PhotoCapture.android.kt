@@ -1754,14 +1754,22 @@ private class AndroidPhotoCapture(
                     // that happened in between cannot bias it.
                     val exposureWallMs = wall - (elapsedNsAtEntry - exposureElapsedNs) / 1_000_000
 
-                    CaptureStatsLog.record("shutter→jpeg", shotAt - captureStartMs, wall)
+                    // `shotAt` is the ImageProxy HANDOVER; the CameraX path's equivalent
+                    // instant is onImageSaved, i.e. after the file exists. Recording both
+                    // under "exposure→jpeg" would put two different measurements under
+                    // one name, which is the mistake this whole thread is about — so the
+                    // handover gets its own name and the comparable figure is taken
+                    // after our write.
+                    val savedAt = SystemClock.elapsedRealtime()
+                    CaptureStatsLog.record("shutter→jpeg", savedAt - captureStartMs, wall)
                     if (captureExposedAtMs != 0L) {
-                        CaptureStatsLog.record("exposure→jpeg", shotAt - captureExposedAtMs, wall)
+                        CaptureStatsLog.record("exposure→bytes", shotAt - captureExposedAtMs, wall)
+                        CaptureStatsLog.record("exposure→jpeg", savedAt - captureExposedAtMs, wall)
                     }
                     if (lastShotAtMs != 0L) {
-                        CaptureStatsLog.record("cadence", shotAt - lastShotAtMs, wall)
+                        CaptureStatsLog.record("cadence", savedAt - lastShotAtMs, wall)
                     }
-                    lastShotAtMs = shotAt
+                    lastShotAtMs = savedAt
                     // The exact figure, and the one the log should show, because it is
                     // the whole point of this path: press→exposure with no dispatch in
                     // it. Negative is impossible; a ZSL device would make it so, and
@@ -1771,7 +1779,8 @@ private class AndroidPhotoCapture(
                         TAG,
                         "saved $filename (own write, ${saved.mode.key}): " +
                             "press→exposure ${pressToExpMs}ms EXACT, " +
-                            "exposure→jpeg ${shotAt - captureExposedAtMs}ms, " +
+                            "exposure→bytes ${shotAt - captureExposedAtMs}ms, " +
+                            "exposure→jpeg ${savedAt - captureExposedAtMs}ms, " +
                             "dispatch was ${captureExposedAtMs -
                                 exposureElapsedNs / 1_000_000}ms late, ${bytes.size} bytes",
                     )
@@ -1790,8 +1799,8 @@ private class AndroidPhotoCapture(
                                     // that the exposure is now RECORDED beside it.
                                     capturedAtSource = "press",
                                     pressToExposureMs = pressToExpMs,
-                                    exposureToJpegMs = shotAt - captureExposedAtMs,
-                                    stillMode = mode.key,
+                                    exposureToJpegMs = savedAt - captureExposedAtMs,
+                                    stillMode = this@AndroidPhotoCapture.stillMode.key,
                                     exposureElapsedNs = exposureElapsedNs,
                                     exposureWallMs = exposureWallMs,
                                     exposureSource = "sensor_timestamp",
@@ -1990,7 +1999,13 @@ private class AndroidPhotoCapture(
                                                 capturedAtSource = "press",
                                                 pressToExposureMs = pressToExpMs,
                                                 exposureToJpegMs = expToJpegMs,
-                                                stillMode = mode.key,
+                                                // The CAPTURE mode, not the
+                                                // storage target: `mode` here is
+                                                // the StorageMode, and passing it
+                                                // sent "public_folder" to the
+                                                // server as a still mode until the
+                                                // uploaded data said so.
+                                                stillMode = stillMode.key,
                                             ),
                                         ),
                                     ),
