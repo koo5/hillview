@@ -215,8 +215,21 @@ every request on the session. Attaching it to `ImageCapture.Builder` *should*
 scope it to the still capture, but that is UNVERIFIED, and getting it wrong means
 silently stamping a preview frame's timestamp — a new lie in place of the old one.
 
-Protocol: add the callback to `captureBuilder` behind a log, take one capture in
-`quality` mode, and check:
+**Instrumentation BUILT 2026-09-27** (`PhotoCapture.android.kt`): the callback is
+attached to `captureBuilder`, the clock bridge is read back-to-back inside it, and
+`StillFrameFacts` is stored but consumed by nothing. Every acceptance check below is
+computed INTO the log line rather than left to the reader:
+
+```
+still result #N: sensor_ts=… bridged=…ns (−Xms vs onCaptureStarted),
+  focus=… (preview …), skew=…ns (preview …ns), exp=…ns iso=…
+```
+
+`stillResultCount` resets at each press, so `#N` answers the first check directly:
+`#1` once per capture is the pass, and `#N` climbing with preview frames is the
+failure that would have made this a new lie instead of a fix.
+
+Protocol: take one capture in `quality` mode and check:
 
 - it fires once per still, not once per preview frame;
 - its bridged timestamp lands slightly EARLIER than `onCaptureStarted`'s wall time

@@ -462,6 +462,34 @@ private class AndroidPhotoCapture(
 
     @Volatile private var frameLens: FrameLensFacts? = null
 
+    /**
+     * The same facts, taken from the STILL frame's OWN result rather than the
+     * latest preview frame — plus the exposure timestamp.
+     *
+     * The experiment in docs/todo/captured-at-is-the-exposure.md, which gates the
+     * whole `captured_at` = exposure change, and it is an experiment because ONE
+     * assumption is untested: that a session capture callback attached to
+     * `ImageCapture.Builder` is invoked for the still's request and not for every
+     * preview frame. If that is wrong we would be stamping a preview frame's
+     * timestamp — a new lie in place of the old one — so this logs what actually
+     * arrives before anything consumes it. Nothing reads these yet.
+     */
+    private data class StillFrameFacts(
+        /** Raw `SENSOR_TIMESTAMP`: on THIS HAL an uptime-base value, not our clock. */
+        val sensorTimestampNs: Long?,
+        /** The same instant bridged onto `elapsedRealtimeNanos`, i.e. `imu_samples.t0_ns`. */
+        val exposureElapsedNs: Long?,
+        val focusDistanceDiopters: Float?,
+        val rollingShutterSkewNs: Long?,
+        val exposureNs: Long?,
+        val iso: Int?,
+    )
+
+    @Volatile private var stillFrame: StillFrameFacts? = null
+
+    /** Results seen since the last press — the answer to "does it fire once per still?". */
+    @Volatile private var stillResultCount = 0
+
     @Volatile override var stampAttitude: cz.hillview.map.DeviceAttitude? = null
 
     @Volatile override var stampMotion: cz.hillview.map.DeviceMotionSample? = null
@@ -615,6 +643,62 @@ private class AndroidPhotoCapture(
                 },
             )
             .setJpegQuality(quality.coerceIn(1, 100))
+        // The still frame's own result. The preview builder has had one of these
+        // for the AE harvest since the exposure work; this is the same mechanism
+        // pointed at the capture that actually becomes the photo, which is the only
+        // place the frame's TRUE focus distance, rolling-shutter skew and exposure
+        // START can come from. See StillFrameFacts for why it logs before it is used.
+        Camera2Interop.Extender(captureBuilder).setSessionCaptureCallback(
+            object : android.hardware.camera2.CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
+                    session: android.hardware.camera2.CameraCaptureSession,
+                    request: CaptureRequest,
+                    result: TotalCaptureResult,
+                ) {
+                    val n = ++stillResultCount
+                    val ts = result.get(CaptureResult.SENSOR_TIMESTAMP)
+                    // THE CLOCK BRIDGE. This device reports
+                    // android.sensor.info.timestampSource = UNKNOWN, so SENSOR_TIMESTAMP
+                    // shares uptime's base while every sample, bearing and location row
+                    // we hold uses elapsedRealtimeNanos. The two diverge only across
+                    // deep sleep, so reading them back-to-back converts exactly — and
+                    // the pair is read HERE, microseconds from the result, rather than
+                    // once at startup where a sleep could have intervened.
+                    val elapsedNs = SystemClock.elapsedRealtimeNanos()
+                    val monoNs = System.nanoTime()
+                    val bridged = ts?.let { it + (elapsedNs - monoNs) }
+                    val focus = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
+                    val skew = result.get(CaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)
+                    stillFrame = StillFrameFacts(
+                        sensorTimestampNs = ts,
+                        exposureElapsedNs = bridged,
+                        focusDistanceDiopters = focus,
+                        rollingShutterSkewNs = skew,
+                        exposureNs = result.get(CaptureResult.SENSOR_EXPOSURE_TIME),
+                        iso = result.get(CaptureResult.SENSOR_SENSITIVITY),
+                    )
+                    // Every acceptance check from the plan, computed here rather than
+                    // left to whoever reads the log: how many results this press
+                    // produced, where the exposure sits relative to onCaptureStarted
+                    // (which should be LATER, being a dispatch), and whether the
+                    // preview's lens numbers actually differ from the still's.
+                    val prev = frameLens
+                    val vsStarted = if (bridged != null && captureExposedAtMs != 0L) {
+                        "${bridged / 1_000_000 - captureExposedAtMs}ms vs onCaptureStarted"
+                    } else {
+                        "onCaptureStarted not seen yet"
+                    }
+                    Log.i(
+                        TAG,
+                        "still result #$n: sensor_ts=$ts bridged=${bridged}ns ($vsStarted), " +
+                            "focus=$focus (preview ${prev?.focusDistanceDiopters}), " +
+                            "skew=${skew}ns (preview ${prev?.rollingShutterSkewNs}ns), " +
+                            "exp=${result.get(CaptureResult.SENSOR_EXPOSURE_TIME)}ns " +
+                            "iso=${result.get(CaptureResult.SENSOR_SENSITIVITY)}",
+                    )
+                }
+            },
+        )
         pinnedResolution?.let { r ->
             // Three fences, because the default selector quietly prefers
             // 4:3: an aspect strategy derived from the request, a bounding
@@ -1573,6 +1657,7 @@ private class AndroidPhotoCapture(
         if (state.capturing) return
         captureStartMs = SystemClock.elapsedRealtime()
         captureExposedAtMs = 0L
+        stillResultCount = 0
         captureTonePlayed = false
         state = state.copy(capturing = true, errorMessage = null)
         // What the capture pipeline is about to wait on. In Quality mode
