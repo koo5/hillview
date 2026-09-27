@@ -831,14 +831,21 @@ second is fetched only by something that wants it.
   reconstruction cannot tell WHERE in the window the shutter fell, and "per-shot
   lens metadata" honestly means "the latest known lens state at press".
 
-  The cheap part: `captureExposedAtMs` is `SystemClock.elapsedRealtime()` — the
-  SAME monotonic clock as `imu_samples.t0_ns`. Shipping it as a metadata field
-  would let a solver align the exposure to the inertial timeline with no wall-clock
-  quantization at all, and it is already measured. It is not free, because a new
-  key means the four-list contract (app serializer, `BrowserMetadata`,
-  `PROVENANCE_KEYS`, typed projection) and a deploy — so it is recorded here rather
-  than slipped in. Re-centring the WINDOW on the exposure is a bigger change and
-  probably unnecessary.
+  Going deeper made it worse than "the lens values describe the press", and the
+  plan is now written up in **docs/todo/captured-at-is-the-exposure.md**. In short:
+  `attitude`, `inertial` and `fix` report ages measured to the press, so at the
+  1 881 ms the phone actually showed they consume 94 % of `ATTITUDE_MAX_AGE_MS`
+  while reporting two digits; the `lens` object is fed by PREVIEW frames, so its
+  focus distance is pre-autofocus and its 31.1 ms rolling-shutter skew is the
+  preview's readout, not the still's; and `StampRefiner` interpolates the stamp TO
+  the press, which makes it more precise without making it more true.
+
+  The fix is one timestamp, not two: `captured_at` becomes the exposure, sourced
+  from the still frame's own `SENSOR_TIMESTAMP`, with `captured_at_source` naming
+  which rung of the ladder answered. That subsumes the ages, the lens, the refiner
+  target and the window centring at once. It needs a clock bridge, because this
+  phone reports `timestampSource: UNKNOWN` — and it needs one experiment first,
+  because nobody has verified WHICH capture result belongs to the still.
 
 - **`pics` cannot read the new artifact.** Phase 5 lands the samples on the
   server as `photos.imu_samples_url`, a gzipped columnar payload, and the

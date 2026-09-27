@@ -2702,10 +2702,12 @@ cadence (every prior test used whole microseconds, which is why none caught it).
 docs/imu-sampling-design.md.
 
 **One limitation it documented rather than a failure:** every stamp describes the
-button press, not the exposure, which starts 546–2 014 ms later. The window covers
-it; the pose and lens values do not describe it. The exposure instant is already
-measured on the IMU's own clock and only logged — see "Still open" in
-docs/recon-capture-metadata.md.
+button press, not the exposure, which starts 546–2 014 ms later (1 881 ms measured
+live in `quality` mode). Pulling that thread found three more — preview-fed lens
+values, ages measured to the wrong instant, and a stamp refiner polishing toward
+the press — and the answer is one timestamp rather than two. Planned in
+**docs/todo/captured-at-is-the-exposure.md**; not built, and it opens with an
+experiment.
 
 The pane will also now show inertial counts, a live rate, the last export's cost, and
 a red warning if auto-export is off.
