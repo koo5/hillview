@@ -208,7 +208,73 @@ it, which is how the audit could compare the two. So the camera's exposure time 
 present for every app photo already, no app change needed — at one-second
 granularity, which is the rung's stated weakness.
 
-## Do this experiment first — everything rests on it
+## The experiment RAN, 2026-09-27 — and the assumption was FALSE
+
+`setSessionCaptureCallback` on `ImageCapture.Builder` is invoked for the **repeating
+(preview) request, not for the still**. CameraX's public API does not hand out the
+still's `TotalCaptureResult` this way, so harvesting it would have stamped a preview
+frame's timestamp — precisely the failure this experiment existed to catch.
+
+The evidence, from one capture in `quality` mode:
+
+- The counter reached **#2476 before the press** and resumed climbing afterwards at
+  ~15 Hz — 66.65 ms between results, the preview cadence.
+- `exp=19997000ns iso=332` held constant, and `focus`/`skew` were **identical to the
+  preview-derived `frameLens` on every single line**. Both callbacks are seeing the
+  same frames.
+- **The still's own frame is absent.** `onCaptureStarted` fired at 15:15:40.776. The
+  results bracket it — #19 at −56 ms, #20 at +11 ms — and their sensor timestamps are
+  66.667 ms apart, a uniform preview cadence with nothing extra in the window. The
+  repeating request paused for **251 ms** across the capture and then delivered three
+  results within 5 ms to catch up, which is the signature of the still INTERRUPTING
+  the stream rather than joining it.
+
+The instrumentation is reverted: at 15 Hz it is log spam, and `frameLens` already
+harvests everything it saw.
+
+### Three things the run established anyway
+
+1. **The lens lie is confirmed independently.** Focus moved from **7.0279527 to
+   6.9795275 during the 1213 ms press→exposure window** (0.6 s after the press). The
+   value shipped at press is demonstrably not the frame's.
+2. **The clock bridge is sound.** The bridged timestamps bracket `onCaptureStarted` at
+   −56 ms and +11 ms, i.e. the exposure lands between two preview frames as it must.
+   `elapsedRealtimeNanos − System.nanoTime()` converts this HAL's uptime-base
+   timestamps correctly, so that formula is reusable if any monotonic route appears.
+3. `press→exposure` was **1213 ms**, `exp→jpeg` 389 ms — quality mode again.
+
+### The ladder, corrected — and I had rung 3 wrong
+
+I called the JPEG's own EXIF "second-granular" and treated it as the weak rung. That
+was wrong. `DateTimeOriginal` is second-granular; **`SubSecTimeOriginal` carries
+milliseconds**, and the prod photo proves the pair survives the whole pipeline —
+`SubSecDateTimeOriginal: '2026:09:27 13:34:16.948'`, written by the HAL for the frame
+it exposed, still intact on the server because the app's EXIF rewrite touches
+`DateTimeOriginal` and not the SubSec pair.
+
+So the ladder is now:
+
+1. **The JPEG's `SubSecDateTimeOriginal`** — the frame's own exposure time at
+   millisecond resolution, from the only component that knows it. Needs the local
+   timezone handled, since `OffsetTimeOriginal` is absent (the +02:00 reading is
+   self-validating: any other offset puts the delta an hour out).
+2. `onCaptureStarted` — ms, dispatch-delayed, and the bracket above at least places it
+   inside the correct 66 ms window.
+3. The press, labelled.
+
+### The option that gets the exact value, at a price
+
+`ImageCapture.OnImageCapturedCallback` hands over an `ImageProxy` whose
+`imageInfo.timestamp` **is** that frame's `SENSOR_TIMESTAMP`. The app uses
+`OnImageSavedCallback`, so it never sees an ImageProxy, and switching means owning the
+file write.
+
+That may cost less than it sounds: the app **already** rewrites the whole file for
+EXIF afterwards — a 4–25 MB copy, moved off the main thread for exactly that reason —
+so writing once from memory could be cheaper than saving and rewriting. Real upside,
+real blast radius across the save path. Not decided.
+
+## The original experiment protocol, kept for the record
 
 **Which capture result belongs to the still?** The session capture callback sees
 every request on the session. Attaching it to `ImageCapture.Builder` *should*
