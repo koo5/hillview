@@ -108,58 +108,23 @@ that it belongs on the *consented* side of a line that does not exist yet.
   serials, ingested before anyone asked this question. Worth an audit of what is
   public today rather than what new photos will do.
 
-## Reading prod as a user — where that credential may live
+## Reading prod as a user — the development fact
 
-Recorded because it came up alongside: the `frontend2` account password can be used
-to fetch prod as its owner (this is how the owner/public difference above was
-measured), and the rule for it follows the posture the project already has.
+The `frontend2` account password at `/home/koom/secrets/frontend2` lets a developer
+fetch that account's photos as their OWNER, which is how the owner/public difference
+above was measured. That is all this repo needs it for.
 
-- **The workbench does not need it as a stored service credential.** `enrich/api`
-  takes `HILLVIEW_DB_URL`, and on the VPS it runs a mirror of the hillview database
-  (75 766 photos as of 2026-09-10). Everything the owner endpoint returns is already
-  there, with more fidelity than the API exposes. A mounted secret would add a
-  second, weaker path and a new thing to manage. An INTERACTIVE credential at plan
-  time is a different question — see below.
-- **The GPU box must never have it**, and the GPU runbook already forbids the
-  class: forwarding the API to a rented instance was rejected because it would hand
-  an hourly machine "queue purges, run imports, every artifact and the photo
-  mirror". The box gets a scoped broker user (`recon-worker`, no management tags,
-  read-only on `^recon(\.(DQ|XQ))?$`, publish denied), from a mode-600 file on the
-  VPS, through a tunnel opened from the trusted side. A hillview account password
-  would be strictly worse than what that design deliberately withholds.
-- **Where it DOES belong: the planning phase of a recon run, on the VPS.** The
-  intended shape (user, 2026-09-27): a person enters the password or a token when
-  PLANNING a run, all metadata is fetched then and there, and the run payload that
-  reaches a GPU box carries data only. That is better than any mounted secret,
-  because nothing persists — the credential is interactive, scoped to one planning
-  session, and there is no file for an image or a compose file to leak. The VPS is
-  trusted for this; the GPU boxes are not.
+What it buys, measured: the public endpoint already serves `attitude` (including
+`pitch_deg`), `fix`, `lens`, `inertial` and `imu_samples_url`. Authenticating adds the
+raw 73-tag dump, `gps.pitch`, the `debug` section, and — the one that matters —
+`SubSecDateTimeOriginal`, the camera's own exposure time, which no public reader can
+see.
 
-  Two refinements worth taking:
+Hygiene, which held for the 2026-09-27 measurement: read the file into memory, POST it
+once, and keep only the token. Never in argv, where `ps` shows it; never in a log;
+never on disk. Verified afterwards that it appeared in zero tracked files, zero
+scratchpad files and zero commits, and that no bearer token was written anywhere.
 
-  1. **Exchange it for a token immediately and keep only that.** If a plan is saved
-     for later execution, save the fetched metadata, never the credential; the token
-     expires on its own (`ACCESS_TOKEN_EXPIRE_MINUTES`, 100 by default).
-  2. **A narrower credential than the account password is already precedented.**
-     `create_ssr_read_token` mints a read-only JWT of type `ssr_read` that only a
-     handful of read endpoints accept, and `auth.py` rejects it everywhere else with
-     the comment "this rejection is what makes it read-only, so it is the one line in
-     this file that must not be relaxed." A planning credential wants exactly that
-     shape. It is not directly reusable — the owner photo detail is not in the
-     `ssr_read` allowlist — so this would be a third token type following the same
-     pattern rather than a reuse.
-
-  What the credential actually buys, measured: the public endpoint already serves
-  `attitude` (including `pitch_deg`), `fix`, `lens`, `inertial` and
-  `imu_samples_url`, so **recon metadata needs no credential at all**. Authenticating
-  adds the raw 73-tag dump, `gps.pitch`, the `debug` section, and
-  `SubSecDateTimeOriginal` — the camera's own exposure time, which is the one item
-  the timing work genuinely wants and cannot get publicly.
-
-- **Where it may also live:** a verification tool on the trusted side, reading the
-  password through the project's existing convention — a `*_FILE` env var pointing
-  at a runtime-mounted path (`MAPILLARY_CLIENT_TOKEN_FILE`,
-  `OPENROUTER_API_KEY_FILE`, the CDN pool's `secrets_file`). Never a Docker `ARG` or
-  `ENV`: build arguments persist in image history and `docker history` prints them,
-  which is exactly the leak to avoid. Never in argv, where `ps` shows it. Exchange
-  it for a token once and pass only the token onward — it expires on its own.
+Anything about credentials for the enrichment workbench or a rented GPU box is out of
+scope here — that component is developed in a separate VM and the question is being
+settled there.
