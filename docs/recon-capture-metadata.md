@@ -490,7 +490,10 @@ the path the claim will travel anyway, sitting under a key name
 
 ### Removing `gps.pitch` — the audit, 2026-09-27
 
-Asked for before doing it. Nothing reads it:
+Audited, then PARKED into **docs/todo/metadata-structure-sanitization.md**: the
+removal is right, but it is one of five small changes to this column's shape that
+each individually do not justify a migration. Doing them together is the plan.
+The audit stands as the evidence — nothing reads it:
 
 - **Zero readers** in `frontend/src`, `frontend2`, `shared-kt` or `enrich`. The
   frontend reads `photo.pitch`, the COLUMN, served by `hillview_routes.py:204` and
