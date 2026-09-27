@@ -339,6 +339,43 @@ could in principle be calibrated out — but treating a measured-once HAL consta
 known is precisely the pretending this plan exists to stop, so it would need measuring
 per device and mode, not assuming.
 
+### Latency mode, 13 captures, 2026-09-27 — the numbers that close it
+
+An interval run in `Latency` mode with `exiftool` on every file:
+
+| | mean | range |
+|---|---:|---:|
+| `press→exp` | **376 ms** | 332–426 |
+| `exp→jpeg` | 342 ms | 269–475 |
+| **EXIF − exposure** | **+139 ms** | +94…+163 (stdev 17) |
+
+Quality mode, for contrast: `press→exp` **1213 ms**, EXIF − exposure **+175 ms**.
+
+**1. EXIF is not the exposure, and the conclusion is robust.** `onCaptureStarted` can
+only be LATE relative to the true exposure — it is a main-thread dispatch, and delay
+only adds. So the true exposure is at or before our reference, which makes EXIF **at
+least** 139 ms after it. The direction of the one unmeasured error cannot rescue this
+reading; it can only make the gap wider. n = 13, plus the quality-mode sample.
+
+**2. It is a rough constant, not an encode fraction.** As a fraction of `exp→jpeg` the
+offset has relative spread 21 % (40.5 % ± 8.5); as an absolute offset, 12 %
+(139 ± 17 ms). The extreme point contradicts the fraction hypothesis outright: the
+largest `exp→jpeg` (475 ms) carries the SMALLEST offset (+94 ms), where a fixed
+fraction would predict the largest. So it is best read as a HAL pipeline delay of
+~140 ms in this mode, ~175 ms in quality.
+
+**3. And no constant can fix it anyway — this is the finding that matters.**
+`press→exp` varies **332–426 ms within a single run at constant settings**. Not across
+modes, not across devices, not across scenes: within one interval session. So no
+calibration, no per-device constant and no per-mode constant can recover the exposure
+moment from the press. Only a PER-CAPTURE measurement can. That closes the
+"calibrate the offset" idea for good, for both the press and the EXIF timestamp.
+
+**4. The default mode lies too, by 376 ms.** I guessed Latency would collapse the gap
+to under 100 ms. It does not — 376 ms is about 150 IMU samples and roughly 19× the
+20 ms the shutter is open. So this is not a quality-mode quirk to be avoided by using
+the default; `captured_at` is wrong in every mode, only less so.
+
 ### So: we do not currently know the exposure moment
 
 Which is the outcome the requirement was written for. Two honest responses, and they

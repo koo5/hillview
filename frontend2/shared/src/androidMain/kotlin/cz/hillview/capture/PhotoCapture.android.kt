@@ -615,6 +615,44 @@ private class AndroidPhotoCapture(
                 },
             )
             .setJpegQuality(quality.coerceIn(1, 100))
+        // DIAGNOSTIC, and the last cheap option before owning the file write.
+        // camera2's onCaptureStarted carries the frame's exact SENSOR_TIMESTAMP as a
+        // parameter; CameraX's same-named callback has none and discards it. If the
+        // STILL's request reaches this callback we get the true exposure instant AND
+        // a direct measurement of how far our main-thread reading lags it. The
+        // completed-result run of 2026-09-27 says only the REPEATING request arrives
+        // here, so the expected answer is no — but "measured no" is worth six lines
+        // before recommending a change to the save path on a presumption.
+        //
+        // Logs only within 3 s of a press, so it cannot spam: no flag to leak, and
+        // the window auto-expires.
+        Camera2Interop.Extender(captureBuilder).setSessionCaptureCallback(
+            object : android.hardware.camera2.CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureStarted(
+                    session: android.hardware.camera2.CameraCaptureSession,
+                    request: CaptureRequest,
+                    timestamp: Long,
+                    frameNumber: Long,
+                ) {
+                    val started = captureStartMs
+                    if (started == 0L || SystemClock.elapsedRealtime() - started > 3_000) return
+                    // Same bridge as before, read back-to-back: this HAL's
+                    // timestampSource is UNKNOWN, so `timestamp` is uptime-based.
+                    val bridged = timestamp + (SystemClock.elapsedRealtimeNanos() - System.nanoTime())
+                    val sincePrev = if (lastStartedTsNs != 0L) {
+                        "${(timestamp - lastStartedTsNs) / 1_000_000.0}ms since prev"
+                    } else {
+                        "first"
+                    }
+                    lastStartedTsNs = timestamp
+                    Log.i(
+                        TAG,
+                        "cam2 started: frame=$frameNumber ts=$timestamp " +
+                            "bridged_ms=${bridged / 1_000_000} ($sincePrev)",
+                    )
+                }
+            },
+        )
         pinnedResolution?.let { r ->
             // Three fences, because the default selector quietly prefers
             // 4:3: an aspect strategy derived from the request, a bounding
@@ -1517,6 +1555,9 @@ private class AndroidPhotoCapture(
     // plus inter-shot cadence. Feeds the copyable Stats dialog.
     @Volatile private var captureStartMs = 0L
     @Volatile private var captureExposedAtMs = 0L
+
+    /** Previous camera2 onCaptureStarted timestamp — cadence, for the diagnostic above. */
+    @Volatile private var lastStartedTsNs = 0L
     @Volatile private var lastShotAtMs = 0L
 
     /**
@@ -1668,10 +1709,15 @@ private class AndroidPhotoCapture(
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onCaptureStarted() {
-                    // The camera has started exposing the still: the
-                    // moment the photo is OF. Press→here is CameraX's
-                    // pre-capture work (3A lock in Quality mode, request
-                    // submission); here→saved is the HAL + JPEG + write.
+                    // CameraX says the still's capture has started. NOT the moment
+                    // the photo is OF, which this comment used to claim: the reading
+                    // below is taken on the MAIN executor (see takePicture's second
+                    // argument), so it carries main-thread queueing delay of an
+                    // unmeasured size, and camera2's own onCaptureStarted — which
+                    // does carry the exact SENSOR_TIMESTAMP — hands CameraX that
+                    // value and CameraX drops it (its override has no parameters).
+                    // Press→here is CameraX's pre-capture work (3A lock in Quality
+                    // mode, request submission); here→saved is the HAL + JPEG + write.
                     val now = SystemClock.elapsedRealtime()
                     captureExposedAtMs = now
                     val lag = now - captureStartMs
