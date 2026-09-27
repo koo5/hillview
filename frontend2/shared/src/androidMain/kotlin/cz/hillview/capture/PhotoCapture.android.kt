@@ -1696,7 +1696,11 @@ private class AndroidPhotoCapture(
                     } else {
                         "press→jpeg ${shotAt - captureStartMs}ms (no onCaptureStarted)"
                     }
-                    Log.i(TAG, "saved: $timing")
+                    // The FILENAME, because capturedAtMs is its stem: that is what
+                    // lets one log line be matched to one JPEG when an interval run
+                    // produces twenty of them, instead of re-deriving the press from
+                    // the previous line's logcat stamp minus its lag.
+                    Log.i(TAG, "saved hillview_photo_${snapshot.capturedAtMs}.jpg: $timing")
                     if (lastShotAtMs != 0L) {
                         CaptureStatsLog.record("cadence", shotAt - lastShotAtMs, wall)
                     }
