@@ -36,6 +36,29 @@ data class CaptureTiming(
     val exposureToJpegMs: Long? = null,
     /** "quality" / "latency" / "zsl": the gap depends strongly on it. */
     val stillMode: String? = null,
+
+    /**
+     * The exposure itself, on `elapsedRealtimeNanos` — the SAME clock as
+     * `imu_samples.t0_ns`, so a consumer can locate the shutter inside the inertial
+     * window by subtraction, with no wall-clock quantization in the way.
+     *
+     * Present only when the capture owned its file write; the frame's own
+     * SENSOR_TIMESTAMP is the only source, and it arrives on an uptime base that is
+     * bridged onto this one at the moment of capture (they were 2.016 DAYS apart on
+     * the device this was measured on).
+     */
+    val exposureElapsedNs: Long? = null,
+
+    /** The same instant as wall-clock ms, so it can be compared to `captured_at`. */
+    val exposureWallMs: Long? = null,
+
+    /**
+     * How the exposure instant was obtained — "sensor_timestamp", or absent when it
+     * was not obtained at all. Never inferred: a dispatch-derived estimate would be
+     * ~104 ms late and jitter by ±16, and calling that the exposure is the pretending
+     * this whole object exists to stop.
+     */
+    val exposureSource: String? = null,
 )
 
 data class SensorSnapshot(
@@ -919,6 +942,9 @@ fun captureTimingJson(s: SensorSnapshot): String? {
         t.pressToExposureMs?.let { add("\"press_to_exposure_ms\":$it") }
         t.exposureToJpegMs?.let { add("\"exposure_to_jpeg_ms\":$it") }
         t.stillMode?.let { add("\"still_mode\":\"$it\"") }
+        t.exposureElapsedNs?.let { add("\"exposure_elapsed_ns\":$it") }
+        t.exposureWallMs?.let { add("\"exposure_wall_ms\":$it") }
+        t.exposureSource?.let { add("\"exposure_source\":\"$it\"") }
     }
     return fields.joinToString(",", prefix = "{", postfix = "}")
 }

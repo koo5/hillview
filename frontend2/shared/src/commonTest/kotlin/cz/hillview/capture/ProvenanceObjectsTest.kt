@@ -93,6 +93,38 @@ class ProvenanceObjectsTest {
         assertFalse("exposure_to_jpeg_ms" in json, json)
     }
 
+    /**
+     * The exposure fields appear only when the capture actually MEASURED the exposure.
+     * A reader must be able to tell "we know when this frame was exposed" from "we are
+     * reporting the press and saying so", and `exposure_source` is that distinction.
+     */
+    @Test
+    fun theExposureIsReportedOnlyWhenItWasMeasured() {
+        val measured = captureTimingJson(
+            snap().copy(
+                captureTiming = CaptureTiming(
+                    capturedAtSource = "press",
+                    exposureElapsedNs = 387_671_398_000_000L,
+                    exposureWallMs = 1_790_547_858_357L,
+                    exposureSource = "sensor_timestamp",
+                ),
+            ),
+        )!!
+        assertTrue("\"exposure_elapsed_ns\":387671398000000" in measured, measured)
+        assertTrue("\"exposure_wall_ms\":1790547858357" in measured, measured)
+        assertTrue("\"exposure_source\":\"sensor_timestamp\"" in measured, measured)
+
+        // The ordinary path: press only, and no exposure claimed anywhere.
+        val unmeasured = captureTimingJson(
+            snap().copy(
+                captureTiming = CaptureTiming(capturedAtSource = "press", pressToExposureMs = 376),
+            ),
+        )!!
+        assertFalse("exposure_elapsed_ns" in unmeasured, unmeasured)
+        assertFalse("exposure_wall_ms" in unmeasured, unmeasured)
+        assertFalse("exposure_source" in unmeasured, unmeasured)
+    }
+
     /** No timing recorded at all — an older row, or a path that does not set it. */
     @Test
     fun noTimingMeansNoObject() {

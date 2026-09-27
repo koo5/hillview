@@ -133,6 +133,54 @@ object PhotoStorage {
         }
     }
 
+    /**
+     * Walk the chain writing BYTES we already hold, for the in-memory capture path
+     * (UploadSettings.exactCaptureTime). Returns the first target that accepted them.
+     *
+     * The fallback is stronger here than in the CameraX path, and that is the one real
+     * bonus of owning the write: a target that refuses the bytes costs a retry into the
+     * next folder, not a lost frame, because the frame is in hand rather than in the
+     * camera's pipeline.
+     *
+     * DELIBERATELY FILE-ONLY for now. MediaStore needs an insert, an
+     * `openOutputStream`, and IS_PENDING cleared on API 29+; the caller checks for a
+     * file target before choosing this path at all, so a MediaStore preference keeps
+     * the ordinary CameraX save. Hidden folders are unaffected — `chain()` already
+     * leaves MediaStore out when hiding, which makes hidden captures the case this
+     * path serves best.
+     */
+    fun writeBytesToChain(
+        context: Context,
+        chain: List<StorageMode>,
+        filename: String,
+        hideFromGallery: Boolean,
+        bytes: ByteArray,
+    ): SavedPhoto? {
+        for (mode in chain) {
+            val dir = when (mode) {
+                StorageMode.PublicFolder -> publicDir(hideFromGallery)
+                StorageMode.PrivateFolder -> privateDir(context, hideFromGallery)
+                StorageMode.MediaStore -> continue
+            }
+            try {
+                if (!dir.exists() && !dir.mkdirs()) {
+                    Log.w(TAG, "cannot create ${dir.absolutePath}")
+                    continue
+                }
+                val file = File(dir, filename)
+                file.outputStream().use { it.write(bytes) }
+                return SavedPhoto(file.absolutePath, null, file, mode)
+            } catch (e: Exception) {
+                Log.w(TAG, "cannot write $mode: ${e.message}")
+            }
+        }
+        return null
+    }
+
+    /** Whether [writeBytesToChain] can serve this chain at all — a file target exists. */
+    fun chainHasFileTarget(chain: List<StorageMode>): Boolean =
+        chain.any { it != StorageMode.MediaStore }
+
     private fun fileOptions(dir: File, filename: String): Pair<ImageCapture.OutputFileOptions, File>? {
         if (!dir.exists() && !dir.mkdirs()) {
             Log.w(TAG, "cannot create ${dir.absolutePath}")

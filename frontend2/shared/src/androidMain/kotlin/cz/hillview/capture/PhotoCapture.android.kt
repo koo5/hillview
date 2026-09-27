@@ -90,17 +90,6 @@ import cz.hillview.plugin.hvTag
 
 private val TAG = hvTag("PhotoCapture")
 
-/**
- * Take the IN-MEMORY capture path and log the frame's own SENSOR_TIMESTAMP instead of
- * saving normally. **False in every committed build**, and it must stay that way: the
- * probe writes the JPEG but skips EXIF, the gallery index, the row and the upload.
- *
- * Flip it, build, capture, read `probe in-memory:` from the log, flip it back. See
- * docs/todo/captured-at-is-the-exposure.md for why this is the only remaining
- * candidate for the exposure instant.
- */
-private const val PROBE_IN_MEMORY_TIMESTAMP = false
-
 // The metering window prepareExposure opens between interval shots. The
 // frame minimum is there so a single mid-convergence frame cannot be
 // mistaken for a reading; the timeouts are ceilings, not waits — a
@@ -1685,61 +1674,146 @@ private class AndroidPhotoCapture(
     }
 
     /**
-     * The in-memory capture probe — see the call site in [takePictureWithFallback].
+     * Capture into memory and write the file ourselves, so the photo can record the
+     * instant it was EXPOSED.
      *
-     * Reads `ImageProxy.imageInfo.timestamp` (the frame's own SENSOR_TIMESTAMP),
-     * bridges it onto `elapsedRealtimeNanos` the way the IMU samples are stamped, and
-     * prints it beside the main-thread reading of `onCaptureStarted`. Also reports
-     * `rotationDegrees`, `format` and the buffer size, because a real implementation
-     * would have to handle all three and this is a free look at them.
+     * The only reason this path exists: `ImageProxy.imageInfo.timestamp` is the frame's
+     * own SENSOR_TIMESTAMP, and CameraX offers it nowhere else. Everything else was
+     * tried — a session capture callback sees only the preview stream, the camera's own
+     * EXIF timestamp lands ~243 ms after the exposure, and `onCaptureStarted` is a
+     * main-thread dispatch that runs ~104 ms late with ±16 ms of jitter.
+     *
+     * Equivalent to the CameraX save in what it produces (bytes in the same folder,
+     * indexed the same way, the same row and upload) and different in three ways: the
+     * timestamp, a chain fallback that cannot lose the frame because the frame is in
+     * hand, and no EXIF (the caller only routes here when EXIF writing is off).
      */
-    private fun probeInMemoryCapture(capture: ImageCapture, file: java.io.File) {
+    private fun takePictureInMemory(
+        capture: ImageCapture,
+        chain: List<StorageMode>,
+        filename: String,
+        hideFromGallery: Boolean,
+        snapshot: SensorSnapshot,
+        watchdog: Job,
+        mode: StorageMode,
+    ) {
         capture.takePicture(
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageCapturedCallback() {
                 override fun onCaptureStarted() {
+                    // Kept for the tone and for comparison, NOT as the timestamp: this
+                    // reading is the one measured to be ~104 ms late.
                     val now = SystemClock.elapsedRealtime()
                     captureExposedAtMs = now
-                    Log.i(TAG, "probe: onCaptureStarted ${now - captureStartMs}ms after press")
+                    CaptureStatsLog.record(
+                        "press→exposure", now - captureStartMs, System.currentTimeMillis(),
+                    )
+                    playCaptureToneOnce(snapshot, "exposure")
                 }
 
                 override fun onCaptureSuccess(image: androidx.camera.core.ImageProxy) {
+                    watchdog.cancel()
+                    val shotAt = SystemClock.elapsedRealtime()
+                    val wall = System.currentTimeMillis()
+                    val bytes: ByteArray
+                    val exposureElapsedNs: Long
+                    // Read at ENTRY, beside `wall` above, so the wall-clock conversion
+                    // below cannot absorb the duration of the file write.
+                    var elapsedNsAtEntry = 0L
                     try {
-                        val sensorTs = image.imageInfo.timestamp
-                        // Read both clocks back-to-back: this HAL reports
-                        // timestampSource UNKNOWN, so sensor timestamps share uptime's
-                        // base while elapsedRealtimeNanos is what t0_ns uses.
-                        val elapsedNs = SystemClock.elapsedRealtimeNanos()
+                        // THE CLOCK BRIDGE, read back-to-back inside the callback. This
+                        // HAL reports timestampSource UNKNOWN, so the frame's timestamp
+                        // is on uptime's base while every sample, bearing and location
+                        // row uses elapsedRealtimeNanos — and on the device this was
+                        // measured on the two were 2.016 DAYS apart. Reading the pair
+                        // here rather than at startup is what keeps it exact: they
+                        // diverge across deep sleep, never while awake.
+                        elapsedNsAtEntry = SystemClock.elapsedRealtimeNanos()
                         val monoNs = System.nanoTime()
-                        val bridgedMs = (sensorTs + (elapsedNs - monoNs)) / 1_000_000
-                        val vsDispatch = if (captureExposedAtMs != 0L) {
-                            "${bridgedMs - captureExposedAtMs}ms vs onCaptureStarted"
-                        } else {
-                            "onCaptureStarted never fired"
-                        }
+                        exposureElapsedNs = image.imageInfo.timestamp + (elapsedNsAtEntry - monoNs)
                         val buf = image.planes[0].buffer
-                        val bytes = ByteArray(buf.remaining()).also { buf.get(it) }
-                        file.parentFile?.mkdirs()
-                        file.outputStream().use { it.write(bytes) }
-                        Log.i(
-                            TAG,
-                            "probe in-memory: sensor_ts=$sensorTs bridged_ms=$bridgedMs " +
-                                "($vsDispatch), rot=${image.imageInfo.rotationDegrees} " +
-                                "fmt=${image.format} ${image.width}x${image.height} " +
-                                "bytes=${bytes.size} -> ${file.absolutePath}",
-                        )
-                    } catch (e: Exception) {
-                        Log.e(TAG, "probe in-memory failed", e)
+                        bytes = ByteArray(buf.remaining()).also { buf.get(it) }
                     } finally {
                         image.close()
                     }
-                    // The probe stops here on purpose: no EXIF, no index, no row.
-                    state = state.copy(capturing = false)
+
+                    val saved = PhotoStorage.writeBytesToChain(
+                        context, chain, filename, hideFromGallery, bytes,
+                    )
+                    if (saved == null) {
+                        Log.e(TAG, "every storage target refused the bytes")
+                        state = state.copy(
+                            capturing = false, errorMessage = "could not save photo anywhere",
+                        )
+                        return
+                    }
+
+                    // Wall clock for the same instant, so it can be compared with
+                    // captured_at. Both terms come from the callback's ENTRY — `wall`
+                    // and `elapsedNsAtEntry` are microseconds apart — so the file write
+                    // that happened in between cannot bias it.
+                    val exposureWallMs = wall - (elapsedNsAtEntry - exposureElapsedNs) / 1_000_000
+
+                    CaptureStatsLog.record("shutter→jpeg", shotAt - captureStartMs, wall)
+                    if (captureExposedAtMs != 0L) {
+                        CaptureStatsLog.record("exposure→jpeg", shotAt - captureExposedAtMs, wall)
+                    }
+                    if (lastShotAtMs != 0L) {
+                        CaptureStatsLog.record("cadence", shotAt - lastShotAtMs, wall)
+                    }
+                    lastShotAtMs = shotAt
+                    // The exact figure, and the one the log should show, because it is
+                    // the whole point of this path: press→exposure with no dispatch in
+                    // it. Negative is impossible; a ZSL device would make it so, and
+                    // then this number is the thing that reveals it.
+                    val pressToExpMs = exposureWallMs - snapshot.capturedAtMs
+                    Log.i(
+                        TAG,
+                        "saved $filename (own write, ${saved.mode.key}): " +
+                            "press→exposure ${pressToExpMs}ms EXACT, " +
+                            "exposure→jpeg ${shotAt - captureExposedAtMs}ms, " +
+                            "dispatch was ${captureExposedAtMs -
+                                exposureElapsedNs / 1_000_000}ms late, ${bytes.size} bytes",
+                    )
+                    playCaptureToneOnce(snapshot, "save")
+                    if (!hideFromGallery) saved.file?.let { PhotoStorage.indexInGallery(context, it) }
+
+                    state = state.copy(
+                        capturing = false,
+                        lastPhoto = CapturedPhoto(
+                            saved.locator, filename,
+                            snapshot.copy(
+                                captureTiming = CaptureTiming(
+                                    // captured_at is still the press: moving it is a
+                                    // separate decision with a filename, a DB column
+                                    // and the pics join behind it. What changes here is
+                                    // that the exposure is now RECORDED beside it.
+                                    capturedAtSource = "press",
+                                    pressToExposureMs = pressToExpMs,
+                                    exposureToJpegMs = shotAt - captureExposedAtMs,
+                                    stillMode = mode.key,
+                                    exposureElapsedNs = exposureElapsedNs,
+                                    exposureWallMs = exposureWallMs,
+                                    exposureSource = "sensor_timestamp",
+                                ),
+                            ),
+                        ),
+                    )
+                    cz.hillview.plugin.EventLog.record(
+                        "capture",
+                        "$filename (${saved.mode.key}, own write, " +
+                            (snapshot.locationSource ?: "no position") +
+                            ") press→exposure ${pressToExpMs}ms exact",
+                    )
                 }
 
                 override fun onError(exception: ImageCaptureException) {
-                    Log.e(TAG, "probe in-memory capture error", exception)
-                    state = state.copy(capturing = false)
+                    watchdog.cancel()
+                    Log.e(TAG, "in-memory capture failed", exception)
+                    state = state.copy(
+                        capturing = false,
+                        errorMessage = "capture failed: ${exception.message}",
+                    )
                 }
             },
         )
@@ -1759,6 +1833,7 @@ private class AndroidPhotoCapture(
         writeExif: Boolean,
         snapshot: SensorSnapshot,
         watchdog: Job,
+        settings: cz.hillview.settings.UploadSettings = uploadSettings.settings.value,
     ) {
         val mode = chain.firstOrNull()
         if (mode == null) {
@@ -1776,30 +1851,29 @@ private class AndroidPhotoCapture(
         }
         val (options, file) = prepared
 
-        // PROBE, off in every committed build: can we get the exposure instant at all?
+        // OWN THE WRITE, when the settings allow it and the user asked: the frame's
+        // own SENSOR_TIMESTAMP is the only source of the instant the photo was
+        // EXPOSED, and CameraX surrenders it only through the in-memory overload.
+        // Proved reachable 2026-09-28 — 104 ms before the main-thread callback that
+        // reports it, and that callback jitters by +-16, so no correction could
+        // substitute. See docs/todo/captured-at-is-the-exposure.md.
         //
-        // Everything else has been tried and failed. A session capture callback sees
-        // only the repeating (preview) request. The camera's own
-        // SubSecDateTimeOriginal is +139 ms (Latency, n=13) and +175 ms (Quality)
-        // AFTER the exposure, so it marks some HAL/encode moment. `onCaptureStarted`
-        // is dispatched to the MAIN executor, so its reading is the exposure plus an
-        // unmeasured queueing delay. `ImageProxy.imageInfo.timestamp` is the frame's
-        // own SENSOR_TIMESTAMP and the only remaining candidate — but it comes from
-        // takePicture's IN-MEMORY overload, which means owning the file write.
-        //
-        // This is the cheapest thing that answers whether it is worth owning: take
-        // the in-memory path, log the timestamp against the main-thread reading, and
-        // write the bytes to the File the chain already prepared so the photo is not
-        // lost. It deliberately does NOT continue the normal flow — no EXIF, no
-        // gallery index, no row, no upload — because none of that is needed to learn
-        // whether the number is there and sane. A probe, not a feature.
-        //
-        // The delta IS the answer: negative means the sensor timestamp precedes the
-        // dispatch that reports it, as it must, and its magnitude is the main-thread
-        // lag nothing so far has been able to measure.
-        if (PROBE_IN_MEMORY_TIMESTAMP && file != null) {
-            probeInMemoryCapture(capture, file)
+        // Narrow on purpose. It declines rather than degrades:
+        //  - writeExif on  -> the ordinary path, because EXIF still needs a file to
+        //    save into and doing it here would be the same two passes with more code;
+        //  - no file target -> the ordinary path, because MediaStore from bytes needs
+        //    an insert, an openOutputStream and IS_PENDING, which this does not do yet.
+        // Either way the photo is saved exactly as before; only the exact timestamp is
+        // missing, and `capture_timing.exposure_source` says so by being absent.
+        if (settings.exactCaptureTime && !writeExif && PhotoStorage.chainHasFileTarget(chain)) {
+            takePictureInMemory(capture, chain, filename, hideFromGallery, snapshot, watchdog, mode)
             return
+        } else if (settings.exactCaptureTime) {
+            Log.i(
+                TAG,
+                "exact capture time declined: " +
+                    (if (writeExif) "EXIF writing is on" else "no file target in $chain"),
+            )
         }
 
         capture.takePicture(

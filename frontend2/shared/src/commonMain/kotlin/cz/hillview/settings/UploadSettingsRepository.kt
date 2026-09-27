@@ -75,6 +75,23 @@ data class UploadSettings(
      * server prefers over file EXIF.
      */
     val writeExif: Boolean = false,
+
+    /**
+     * Save the JPEG ourselves, so the photo can record the instant it was actually
+     * EXPOSED rather than the instant the button was pressed.
+     *
+     * Those differ by ~270 ms in Latency mode and ~1.1 s in Quality, and the gap
+     * cannot be corrected after the fact: it varies by 50 ms between captures at
+     * fixed settings (measured 2026-09-28). The only source of the true instant is
+     * the frame's own SENSOR_TIMESTAMP, which CameraX hands over only through the
+     * IN-MEMORY capture overload — so getting it means owning the file write.
+     *
+     * OFF by default, and deliberately narrow for now: it takes effect only for the
+     * file-based storage targets and only with [writeExif] off, falling back to the
+     * ordinary path otherwise rather than silently dropping either. See
+     * docs/todo/captured-at-is-the-exposure.md.
+     */
+    val exactCaptureTime: Boolean = false,
 )
 
 /**

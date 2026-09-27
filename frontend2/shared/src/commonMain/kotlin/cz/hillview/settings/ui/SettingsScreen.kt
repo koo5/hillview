@@ -485,6 +485,29 @@ fun SettingsScreen(
             )
         }
 
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Exact capture time", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Records when the photo was actually EXPOSED, not when the button " +
+                        "was pressed — they differ by a quarter of a second, and by " +
+                        "more than a second in Quality mode. Hillview saves the file " +
+                        "itself to get it, so it needs EXIF writing off and a folder " +
+                        "target rather than the media store; with either of those it " +
+                        "quietly uses the ordinary path instead.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Switch(
+                checked = settings.exactCaptureTime,
+                onCheckedChange = { on -> repository.update { it.copy(exactCaptureTime = on) } },
+                modifier = Modifier.testTag("settings-exact-capture-time"),
+            )
+        }
+
         // Not a switch: the dump always runs. What the screen owes the user
         // is where it went, so the file can be found — and a way to write it
         // again when it cannot be. See PhotoIndexExport.
