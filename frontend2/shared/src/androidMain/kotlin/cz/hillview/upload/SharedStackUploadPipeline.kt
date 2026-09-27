@@ -292,6 +292,7 @@ class SharedStackUploadPipeline(
                     fixJson = upload.fixJson,
                     lensJson = upload.lensJson,
                     inertialJson = upload.inertialJson,
+                    captureTimingJson = upload.captureTimingJson,
                     // TWO holders, so the later deadline wins. The refiner's
                     // hold was the only one, and it was conditional on the
                     // refiner being ELIGIBLE — which meant a photo it did not

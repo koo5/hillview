@@ -11,6 +11,33 @@ import androidx.compose.ui.Modifier
  * What the sensors said at the moment of capture; burned into the photo's
  * EXIF, which is the contract with the backend parser and the pics pipeline.
  */
+/**
+ * How this capture's instants related to each other — the one object that says what
+ * `captured_at` actually IS.
+ *
+ * It exists because the answer is "the button press", and the press is 332–426 ms
+ * before the exposure in Latency mode and ~1213 ms in Quality (measured 2026-09-27,
+ * 13 captures). That gap cannot be calibrated away: it varies by ±47 ms WITHIN one
+ * interval run at fixed settings, so only a per-capture measurement describes it.
+ * Until the exposure instant itself is reachable — see
+ * docs/todo/captured-at-is-the-exposure.md — the honest move is to say which instant
+ * we mean and how far the other ones were.
+ *
+ * Secondary, and the reason it ships now: these numbers reach the server inside the
+ * `capture_timing` provenance object, so the press→exposure behaviour can be studied
+ * from uploaded photos instead of from an attached cable.
+ */
+data class CaptureTiming(
+    /** What `captured_at` is. "press" today; never silently something else. */
+    val capturedAtSource: String,
+    /** Press → CameraX's onCaptureStarted. Null when that callback never fired. */
+    val pressToExposureMs: Long? = null,
+    /** onCaptureStarted → the JPEG landing. */
+    val exposureToJpegMs: Long? = null,
+    /** "quality" / "latency" / "zsl": the gap depends strongly on it. */
+    val stillMode: String? = null,
+)
+
 data class SensorSnapshot(
     val latitude: Double? = null,
     val longitude: Double? = null,
@@ -118,6 +145,15 @@ data class SensorSnapshot(
      * serialize it; the Android side fills it from `ImuWindowSummary`.
      */
     val imuWindow: ImuWindow? = null,
+    /**
+     * What `captured_at` means and how far the exposure was from it — see
+     * [CaptureTiming].
+     *
+     * The ONE field here that is not filled at the press, because two of its three
+     * numbers do not exist yet: the snapshot is copied with it at the save, once
+     * onCaptureStarted and the JPEG have both happened.
+     */
+    val captureTiming: CaptureTiming? = null,
 )
 
 /** See [SensorSnapshot.imuWindow]. Mirrors the engine's `ImuWindowSummary`. */
@@ -871,6 +907,22 @@ fun attitudeProvenanceJson(s: SensorSnapshot): String? {
  * is a time SERIES across the exposure, which lives in the tracking database
  * and travels by CSV — see docs/recon-capture-metadata.md.
  */
+/**
+ * `capture_timing` — see [CaptureTiming]. Always emits `captured_at_source`, because a
+ * timing object that does not say which instant `captured_at` names would be the very
+ * ambiguity it exists to remove.
+ */
+fun captureTimingJson(s: SensorSnapshot): String? {
+    val t = s.captureTiming ?: return null
+    val fields = buildList {
+        add("\"captured_at_source\":\"${t.capturedAtSource}\"")
+        t.pressToExposureMs?.let { add("\"press_to_exposure_ms\":$it") }
+        t.exposureToJpegMs?.let { add("\"exposure_to_jpeg_ms\":$it") }
+        t.stillMode?.let { add("\"still_mode\":\"$it\"") }
+    }
+    return fields.joinToString(",", prefix = "{", postfix = "}")
+}
+
 fun inertialProvenanceJson(s: SensorSnapshot): String? {
     fun floats(v: List<Float>?) = v?.joinToString(",", prefix = "[", postfix = "]")
     val fields = buildList {

@@ -612,6 +612,17 @@ abstract class PhotoDatabase : RoomDatabase() {
 			}
 		}
 
+		private val MIGRATION_28_29 = object : Migration(28, 29) {
+			override fun migrate(db: SupportSQLiteDatabase) {
+				// What captured_at MEANS, per photo, plus how far the exposure was
+				// from it. A column because the two intervals are only known at the
+				// save, and the row is the stamp's only vehicle to the upload
+				// metadata in the fast-write default. See
+				// docs/todo/captured-at-is-the-exposure.md.
+				db.execSQL("ALTER TABLE photos ADD COLUMN captureTimingJson TEXT")
+			}
+		}
+
 		/**
 		 * Every migration, in one list, so the runtime builder and
 		 * PhotoDatabaseMigrationTest cannot disagree about which ones exist.
@@ -623,6 +634,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 			MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
 			MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25,
 			MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28,
+			MIGRATION_28_29,
 		)
 
         fun getDatabase(context: Context): PhotoDatabase {
@@ -649,6 +661,6 @@ abstract class PhotoDatabase : RoomDatabase() {
  * the inertial rename) were never once validated against the entities. A hardcoded
  * target in a test whose job is to catch drift is the one place drift hides.
  */
-const val PHOTO_DB_VERSION = 28
+const val PHOTO_DB_VERSION = 29
 
 

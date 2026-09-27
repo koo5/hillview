@@ -130,6 +130,8 @@ data class PendingUpload(
     val lensJson: String? = null,
     /** How the phone was moving — see [cz.hillview.capture.inertialProvenanceJson]. */
     val inertialJson: String? = null,
+    /** What `captured_at` means — see [cz.hillview.capture.captureTimingJson]. */
+    val captureTimingJson: String? = null,
     /**
      * The gravity / linear-acceleration sample itself, kept so the deferred IMU
      * window can rebuild [inertialJson] without losing it.

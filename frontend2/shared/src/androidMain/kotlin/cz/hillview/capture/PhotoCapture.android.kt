@@ -1747,6 +1747,12 @@ private class AndroidPhotoCapture(
                     // produces twenty of them, instead of re-deriving the press from
                     // the previous line's logcat stamp minus its lag.
                     Log.i(TAG, "saved hillview_photo_${snapshot.capturedAtMs}.jpg: $timing")
+                    // Captured as LOCALS here, where both instants are known and
+                    // still belong to THIS capture: captureStartMs is @Volatile and a
+                    // fast interval run can start the next press before this
+                    // capture's finalize coroutine reaches CapturedPhoto below.
+                    val pressToExpMs = if (exposedAt != 0L) exposedAt - captureStartMs else null
+                    val expToJpegMs = if (exposedAt != 0L) shotAt - exposedAt else null
                     if (lastShotAtMs != 0L) {
                         CaptureStatsLog.record("cadence", shotAt - lastShotAtMs, wall)
                     }
@@ -1802,7 +1808,20 @@ private class AndroidPhotoCapture(
                             // the final bytes.)
                             kotlinx.coroutines.withContext(Dispatchers.Main) {
                                 state = state.copy(
-                                    lastPhoto = CapturedPhoto(locator, filename, snapshot),
+                                    lastPhoto = CapturedPhoto(
+                                        locator, filename,
+                                        // The timing joins the snapshot only here: the
+                                        // press-time copy could not have known it, and
+                                        // this is the object the row is built from.
+                                        snapshot.copy(
+                                            captureTiming = CaptureTiming(
+                                                capturedAtSource = "press",
+                                                pressToExposureMs = pressToExpMs,
+                                                exposureToJpegMs = expToJpegMs,
+                                                stillMode = mode.key,
+                                            ),
+                                        ),
+                                    ),
                                 )
                             }
                             CaptureStatsLog.record(

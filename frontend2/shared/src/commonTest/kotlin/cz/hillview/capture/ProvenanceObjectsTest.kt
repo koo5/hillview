@@ -45,6 +45,60 @@ class ProvenanceObjectsTest {
 
     // --- fix: the error bars, and NEVER the position ---
 
+    // --- capture_timing: what `captured_at` actually means ---
+
+    /**
+     * The one field that must never be absent. A timing object that omits
+     * `captured_at_source` would leave exactly the ambiguity it exists to remove —
+     * a reader could not tell whether `captured_at` is the press or the exposure.
+     */
+    @Test
+    fun theTimingObjectAlwaysSaysWhatCapturedAtIs() {
+        val json = captureTimingJson(
+            snap().copy(captureTiming = CaptureTiming(capturedAtSource = "press")),
+        )
+        assertEquals("""{"captured_at_source":"press"}""", json)
+    }
+
+    @Test
+    fun theTimingObjectCarriesBothIntervals() {
+        val json = captureTimingJson(
+            snap().copy(
+                captureTiming = CaptureTiming(
+                    capturedAtSource = "press",
+                    pressToExposureMs = 376,
+                    exposureToJpegMs = 342,
+                    stillMode = "latency",
+                ),
+            ),
+        )!!
+        assertTrue("\"press_to_exposure_ms\":376" in json, json)
+        assertTrue("\"exposure_to_jpeg_ms\":342" in json, json)
+        assertTrue("\"still_mode\":\"latency\"" in json, json)
+    }
+
+    /**
+     * A capture whose `onCaptureStarted` never fired knows neither interval. It must
+     * still say what `captured_at` is rather than vanishing — "we do not know how far
+     * the exposure was" and "we do not know what this timestamp means" are different
+     * statements, and only the first one is true there.
+     */
+    @Test
+    fun aCaptureWithNoExposureCallbackStillDeclaresItsSource() {
+        val json = captureTimingJson(
+            snap().copy(captureTiming = CaptureTiming(capturedAtSource = "press", stillMode = "quality")),
+        )!!
+        assertTrue("\"captured_at_source\":\"press\"" in json, json)
+        assertFalse("press_to_exposure_ms" in json, json)
+        assertFalse("exposure_to_jpeg_ms" in json, json)
+    }
+
+    /** No timing recorded at all — an older row, or a path that does not set it. */
+    @Test
+    fun noTimingMeansNoObject() {
+        assertNull(captureTimingJson(snap()))
+    }
+
     @Test
     fun theFixObjectCarriesTheErrorBarsNothingElseHas() {
         val json = fixProvenanceJson(snap(fix = fix()))!!

@@ -389,6 +389,7 @@ fun CaptureScreen(
                 fixJson = fixProvenanceJson(photo.snapshot),
                 lensJson = lensProvenanceJson(photo.snapshot),
                 inertialJson = inertialProvenanceJson(photo.snapshot),
+                captureTimingJson = captureTimingJson(photo.snapshot),
                 // Kept so the deferred window's rewrite does not lose it.
                 motionSample = photo.snapshot.motion,
                 // Snapshot, not a live read — see PendingUpload.license.

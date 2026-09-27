@@ -266,7 +266,18 @@ data class PhotoEntity(
      * measurement unit). Renamed before anything shipped; see
      * docs/recon-capture-metadata.md for why the pose/inertial SPLIT stayed.
      */
-    val inertialJson: String? = null
+    val inertialJson: String? = null,
+
+    /**
+     * `capture_timing` — what `captured_at` means, and how far the exposure was from
+     * it. See CaptureTiming in frontend2's PhotoCapture.kt and
+     * docs/todo/captured-at-is-the-exposure.md.
+     *
+     * A column rather than a derived value because the two intervals are only known
+     * at the SAVE and the row is the stamp's only vehicle to the upload metadata in
+     * the fast-write default.
+     */
+    val captureTimingJson: String? = null
 )
 
 /**

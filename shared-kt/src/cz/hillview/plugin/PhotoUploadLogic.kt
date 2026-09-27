@@ -918,6 +918,9 @@ class PhotoUploadLogic(internal val context: Context) {
 			"fix" to photo.fixJson,
 			"lens" to photo.lensJson,
 			"inertial" to photo.inertialJson,
+			// Pre-declared server-side before anything sent it (BrowserMetadata +
+			// PROVENANCE_KEYS, 2026-09-27), precisely so this line needs no deploy.
+			"capture_timing" to photo.captureTimingJson,
 		).forEach { (key, json) ->
 			json?.let {
 				try {
@@ -1468,6 +1471,8 @@ class PhotoUploadLogic(internal val context: Context) {
         lensJson: String? = null,
         /** How the phone was moving — see PhotoEntity.inertialJson. */
         inertialJson: String? = null,
+        /** What captured_at means — see PhotoEntity.captureTimingJson. */
+        captureTimingJson: String? = null,
         // The refiner's upload gate (PhotoEntity.uploadHoldUntil): non-zero
         // keeps the drain off the row until then, so refinement wins the
         // race against an expedited upload.
@@ -1513,6 +1518,7 @@ class PhotoUploadLogic(internal val context: Context) {
             fixJson = fixJson,
             lensJson = lensJson,
             inertialJson = inertialJson,
+            captureTimingJson = captureTimingJson,
             uploadHoldUntil = uploadHoldUntil,
             uploadHoldReasons = uploadHoldReasons,
         )

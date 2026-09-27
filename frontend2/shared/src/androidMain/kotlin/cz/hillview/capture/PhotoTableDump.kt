@@ -587,7 +587,8 @@ internal fun photoTableCsv(rows: List<PhotoEntity>): String {
         out.cell(row.attitudeJson)
         out.cell(row.fixJson)
         out.cell(row.lensJson)
-        out.cell(row.inertialJson, last = true)
+        out.cell(row.inertialJson)
+        out.cell(row.captureTimingJson, last = true)
     }
     return out.toString()
 }
@@ -613,7 +614,7 @@ internal val PHOTO_DUMP_COLUMNS = listOf(
     "fileHash", "serverPhotoId", "deleted", "version", "anonymizationOverride",
     "bearingSource", "locationSource", "locationAgeMs", "exposureJson",
     "stampRefinedAt", "license", "altLocationJson", "attitudeJson",
-    "fixJson", "lensJson", "inertialJson",
+    "fixJson", "lensJson", "inertialJson", "captureTimingJson",
 )
 
 private fun isoUtc(epochMs: Long): String {
