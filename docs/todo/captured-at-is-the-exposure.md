@@ -376,7 +376,64 @@ to under 100 ms. It does not — 376 ms is about 150 IMU samples and roughly 19�
 20 ms the shutter is open. So this is not a quality-mode quirk to be avoided by using
 the default; `captured_at` is wrong in every mode, only less so.
 
-### So: we do not currently know the exposure moment
+### THE PROBE SUCCEEDED, 2026-09-28 — the exposure instant is reachable
+
+`ImageProxy.imageInfo.timestamp` from `takePicture`'s in-memory overload is the frame's
+own `SENSOR_TIMESTAMP`, it is present and non-zero, and across five captures the delta
+against the main-thread reading was **always negative** — which is the proof that it
+precedes the callback reporting it rather than being that callback's own clock.
+
+| | |
+|---|---|
+| dispatch lag (`onCaptureStarted` late by) | **104 ms** mean, 94–126, stdev 14 |
+| press→exposure, measured via the dispatch | 370 ms mean, spread 82 |
+| press→exposure, **true**, from `sensor_ts` | **267 ms** mean, spread **50** |
+| `rotationDegrees` | **0** on every capture |
+| format / size | JPEG (256), single plane, 1440×1920, ~530 KB |
+
+**1. The dispatch lag is ~104 ms and varies by ±16.** So `onCaptureStarted` can never be
+a precise proxy — not because it is biased, which could be corrected, but because it
+jitters by more than the exposure duration.
+
+**2. Measuring through it inflated the variance as well as the magnitude.** True
+press→exposure has spread 50 ms where the dispatch-measured figure had 82. Part of what
+looked like camera inconsistency was our own main thread. The camera is steadier than
+this plan said it was.
+
+**3. The clock bridge is load-bearing, and now measured.** On this device
+`elapsedRealtime` runs **2.016 days** ahead of the uptime base `SENSOR_TIMESTAMP` uses —
+so treating one as the other would be two days wrong, not milliseconds. The offset was
+stable across all five captures to **0.61 ms**, and that figure includes the millisecond
+truncation in the log line, so the bridge itself is sub-millisecond. Read the two clocks
+back-to-back, as the probe does, and the conversion is exact for our purposes.
+
+**4. `rot=0` removes the risk that worried me most.** No hand-rolled rotation is needed;
+the HAL's JPEG carries its own orientation and CameraX asks for no correction.
+
+**5. The direct `File` write to `DCIM/Hillview2` succeeded** on this device, so the
+PublicFolder target of the storage chain works from bytes. Only the `MediaStore` target
+is unproven from the in-memory path.
+
+#### Corrections to every number this document reported against the dispatch
+
+| | reported | true |
+|---|---:|---:|
+| Latency press→exposure | 376 ms | **~272 ms** |
+| Quality press→exposure | 1213 ms | **~1109 ms** |
+| EXIF `SubSecDateTimeOriginal` offset | +139 ms | **~+243 ms** after the exposure |
+
+So `captured_at` is ~270 ms before the frame in the default mode and ~1.1 s in Quality,
+and the camera's own EXIF timestamp is nearly a quarter-second LATE — worse than this
+document said, and in the direction it predicted the unmeasured error could only go.
+
+#### Unrelated observation, worth a look
+
+Every probe capture was **1440×1920**, ~530 KB, from a sensor whose
+`sensor_pixel_array` is 4624×3472. The probe uses the app's own `ImageCapture`, so that
+is the configured capture resolution and not a probe artifact — but if full resolution
+was intended, something is pinning it down.
+
+### So: we did not know the exposure moment, and now we can
 
 Which is the outcome the requirement was written for. Two honest responses, and they
 are not exclusive:
