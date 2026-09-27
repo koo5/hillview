@@ -817,6 +817,29 @@ second is fetched only by something that wants it.
 
 ## Still open
 
+- **Every stamp describes the PRESS, not the exposure — and the fix is one field.**
+  `PhotoCapture.android.kt` sets `capturedAtMs = System.currentTimeMillis()` and
+  snapshots pose and lens BEFORE `takePicture`, and `persistImuWindowAround(
+  capturedAtMs)` centres the +-3 s window on that same instant. `onCaptureStarted`
+  then learns when the sensor actually began exposing and only LOGS it
+  (`press->exposure` in `CaptureStatsLog`). The 2026-09-27 audit measured the gap
+  from the retained camera EXIF at **546, 558, 581 and 2 014 ms** — the long one
+  being the isolated capture, i.e. a cold 3A lock rather than a burst.
+
+  Nothing is lost: a +-3 s window covers a 2 s lag comfortably, and this is why the
+  window is symmetric. But the pose and lens values belong to the press, the
+  reconstruction cannot tell WHERE in the window the shutter fell, and "per-shot
+  lens metadata" honestly means "the latest known lens state at press".
+
+  The cheap part: `captureExposedAtMs` is `SystemClock.elapsedRealtime()` — the
+  SAME monotonic clock as `imu_samples.t0_ns`. Shipping it as a metadata field
+  would let a solver align the exposure to the inertial timeline with no wall-clock
+  quantization at all, and it is already measured. It is not free, because a new
+  key means the four-list contract (app serializer, `BrowserMetadata`,
+  `PROVENANCE_KEYS`, typed projection) and a deploy — so it is recorded here rather
+  than slipped in. Re-centring the WINDOW on the exposure is a bigger change and
+  probably unnecessary.
+
 - **`pics` cannot read the new artifact.** Phase 5 lands the samples on the
   server as `photos.imu_samples_url`, a gzipped columnar payload, and the
   workbench still only knows the on-device CSV. That is the natural next

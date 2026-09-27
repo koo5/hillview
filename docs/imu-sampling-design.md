@@ -239,6 +239,52 @@ Ranked by what they cost the data:
   stationary phone needs no 400 Hz. Costs the ability to detect the moment motion
   starts.
 
+## The payload's timeline — a 1.2 ms drift, found by audit
+
+A four-capture audit of the local stack (2026-09-27, `/shared/imu/`) reassembled a
+real burst from the served artifacts and came out **two samples short** of what the
+summaries claimed: 4 774 where `stored_count` said 4 776. The missing samples were
+not missing. They decoded 1.173 ms EARLIER than they were recorded, which pushed the
+first of them outside a strict window test.
+
+The cause was in `imuSamplesPayloadJson`, under a comment asserting the opposite:
+
+```kotlin
+// ...so gaps never accumulate a fractional drift.     // WRONG
+((rows[it].elapsedNanos - rows[it - 1].elapsedNanos) / 1_000)
+```
+
+Truncating each gap independently loses up to 999 ns **per gap**. Every other
+number in this document made that invisible: the tests all step by whole
+microseconds (2 500 ns), where truncation loses nothing. The device does not
+oblige — the Armor 22 delivers ~398 Hz, a 2 512.5 us period, so every gap lost
+500 ns and a 6-second window ran **1 193 us short** (measured by the regression
+test; the audit measured 1.173 ms on real data, agreeing within 2 %).
+
+The fix is to difference the TRUNCATED times rather than truncate the difference:
+
+```kotlin
+(rows[it].elapsedNanos / 1_000 - rows[it - 1].elapsedNanos / 1_000)
+```
+
+The sum then telescopes to two truncations, so `sum(dt_us)` is within **1 us of the
+true span for a window of any length** instead of 0.5 us per gap. Individual gaps
+alternate 2512, 2513, 2512 — the carried remainder, not jitter, and
+`ImuPayloadTest.theTimelineDoesNotDriftAcrossARealLengthWindow` asserts both the
+bound and the alternation. It fails by 1 193 us on the old expression.
+
+**Decoders should read absolute monotonic microseconds as `t0_ns / 1000 +
+cumsum(dt_us)`.** `t0_ns` is the exact nanosecond anchor on the same clock the
+samples were stamped on; `t0_ms` exists only so a window can be FOUND in wall time,
+and it carries the wall clock's own quantization plus any re-anchoring (see
+`imuWallClockFor`). Do not reconstruct a precise timeline from `t0_ms`.
+
+What is still NOT recoverable, and the audit is right to say so: the original
+nanosecond timestamps. Microsecond resolution is the format's floor, chosen
+deliberately (a millisecond puts two or three samples on one instant at 400 Hz).
+That is a resolution limit, not drift, and 1 us is far below any use the samples
+have.
+
 ## Costs currently accepted
 
 - **`imuSamplesJson` is never pruned.** Tens of kilobytes per photo, held on the

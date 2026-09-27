@@ -188,7 +188,11 @@ private fun decimalsFor(kind: String) = if (kind == "gyro") GYRO_DECIMALS else A
  *   because the wall clock can step mid-window under an NTP correction and a
  *   window whose ordering depended on it would reorder. Microseconds because at
  *   400 Hz millisecond resolution puts two or three samples on one instant.
- *   Reconstruct as `t[0] = 0; t[i] = t[i-1] + dt_us[i-1]`.
+ *   Reconstruct as `t[0] = 0; t[i] = t[i-1] + dt_us[i-1]`, or in absolute
+ *   monotonic microseconds as `t0_ns / 1000 + cumsum(dt_us)`. Either way the
+ *   cumulative sum is within **1 us of the truth for the whole window**, not
+ *   per gap — see `kindPayload` for why that distinction is the difference
+ *   between a correct decode and a millisecond of drift.
  * - **`t0_ms` and `t0_ns` are both the FIRST sample's**: the wall clock so the
  *   window can be found in time, the monotonic one so it can be joined to
  *   anything else sampled on that clock (an exposure, another sensor).
@@ -212,10 +216,23 @@ fun imuSamplesPayloadJson(samples: List<ImuSampleEntity>): String? {
 private fun kindPayload(kind: String, rows: List<ImuSampleEntity>): String {
     val d = decimalsFor(kind)
     val first = rows.first()
-    // n-1 gaps, rounded to whole microseconds. Integer division of the
-    // nanosecond difference, so gaps never accumulate a fractional drift.
+    // n-1 gaps in whole microseconds, as the DIFFERENCE OF TRUNCATED times —
+    // never the truncation of each difference, which is what this used to do
+    // under a comment claiming it could not drift. It could, and it did: each
+    // gap lost up to 999 ns on its own, ~500 ns on average at the device's
+    // 2512.5 us cadence, so a 6-second window's reconstructed timeline ran
+    // ~1.2 ms short of the truth. That is enough to push the first sample of a
+    // window outside a strict wall-clock window test, which is how a real
+    // four-capture audit reassembled 4 774 samples where the summary said
+    // 4 776 (docs/imu-sampling-design.md).
+    //
+    // Differencing truncated times makes the error TOTAL rather than per-gap:
+    // sum(dt_us) == (last.elapsedNanos - first.elapsedNanos) / 1_000 within
+    // 1 us for a window of any length, because the sum telescopes back to two
+    // truncations. Individual gaps then alternate (2512, 2513, 2512, ...),
+    // which is the carried remainder doing its job, not jitter.
     val gaps = (1 until rows.size).joinToString(",") {
-        ((rows[it].elapsedNanos - rows[it - 1].elapsedNanos) / 1_000).toString()
+        (rows[it].elapsedNanos / 1_000 - rows[it - 1].elapsedNanos / 1_000).toString()
     }
     fun axis(pick: (ImuSampleEntity) -> Float) =
         rows.joinToString(",") { fmt(pick(it).toDouble(), d) }

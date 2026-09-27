@@ -2670,12 +2670,42 @@ why no error appears anywhere — the documented behaviour, not a fault.
   self-consistent to 0.02 %.
 - Claims, tiling and the dumps all work; a dump of 257 769 rows completed.
 
-### NOT yet confirmed on hardware — the one open test
+### CONFIRMED on hardware 2026-09-27 — the last open test passed
 
-**A capture producing a payload.** `IMU window for <id>: N samples A..B` with a ~6 s
-span, and an `imu_samples` key in `Including metadata:` with a non-zero
-`stored_count`. Every trace so far either took no photo or predates the upload-hold
-fix. Take two captures a few seconds apart so the tiling shows.
+**A capture producing a payload.** Four captures on the Armor 22, audited read-only
+against the local stack end to end (`/shared/imu/`, records + public responses +
+fetched artifacts):
+
+| capture | summary count | artifact = `stored_count` | span | gzip |
+|---|---:|---:|---:|---:|
+| 08:49:00.906 | 4 774 | 4 774 | 5.995 s | 30 713 B |
+| 08:49:02.796 | 4 776 | **1 504** | 1.887 s | 10 336 B |
+| 08:49:04.479 | 4 776 | **1 340** | 1.681 s | 10 070 B |
+| 09:00:20.633 | 4 776 | 4 776 | 5.998 s | 28 023 B |
+
+**The tiling is the result worth having.** Three captures ~1.9 s apart share one
+overlapping ±3 s window, and the burst ships **7 618 samples instead of 14 326** —
+each artifact carries only its own tail, with disjoint monotonic ranges, and
+`stored_count` matches the artifact exactly every time. That is `imu_claims` doing
+the job it replaced derived attribution for. The fourth capture, 676 s later, gets a
+full window of its own.
+
+Also confirmed on the way: `inertial` present and `motion` absent; `attitude`, `fix`,
+`lens` and `inertial` in the public response equal the stored UserComment; no
+`imu_samples` anywhere in a UserComment; every `imu_samples_url` fetched 200 with
+valid gzip, unauthenticated; ~398 Hz per sensor with no internal gaps.
+
+**And it found a real bug** — the payload's `dt_us` drifted ~1.2 ms over a 6 s
+window because each gap was truncated independently, under a comment claiming that
+could not happen. Fixed, with a regression test at the device's real 2 512.5 us
+cadence (every prior test used whole microseconds, which is why none caught it). See
+docs/imu-sampling-design.md.
+
+**One limitation it documented rather than a failure:** every stamp describes the
+button press, not the exposure, which starts 546–2 014 ms later. The window covers
+it; the pose and lens values do not describe it. The exposure instant is already
+measured on the IMU's own clock and only logged — see "Still open" in
+docs/recon-capture-metadata.md.
 
 The pane will also now show inertial counts, a live rate, the last export's cost, and
 a red warning if auto-export is off.

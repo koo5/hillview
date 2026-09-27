@@ -38,6 +38,48 @@ class ImuPayloadTest {
             elapsedNanos = 812_340_000_000L + i * stepUs * 1_000,
         )
 
+    /**
+     * A REAL window must not drift. Every other test here steps by whole
+     * microseconds, which is exactly why none of them caught this: 2 500 ns
+     * divides evenly, so truncation loses nothing and the bug is invisible.
+     *
+     * The device does not oblige. The Armor 22 delivers ~398 Hz — 2 512.5 us —
+     * and the encoder used to truncate each gap on its own, losing ~500 ns per
+     * gap. Over a 6-second window that is ~1.2 ms of accumulated shortfall, which
+     * is how a four-capture audit reassembling by decoded wall time came out two
+     * samples short of what the summaries claimed.
+     */
+    @Test
+    fun theTimelineDoesNotDriftAcrossARealLengthWindow() {
+        val stepNs = 2_512_500L          // 398 Hz: NOT a whole number of us
+        val n = 2_388                    // ~6 s, the size of a real window
+        val baseNs = 812_340_000_000L
+        val rows = (0 until n).map { i ->
+            ImuSampleEntity(
+                timestamp = t0 + (i * stepNs) / 1_000_000,
+                kind = "accel",
+                sequence = i,
+                x = 0f, y = 0f, z = 0f,
+                elapsedNanos = baseNs + i * stepNs,
+            )
+        }
+        val json = imuSamplesPayloadJson(rows)!!
+        val gaps = Regex(""""dt_us":\[([^]]*)]""").find(json)!!
+            .groupValues[1].split(",").map { it.toLong() }
+        assertEquals(n - 1, gaps.size)
+
+        val trueSpanUs = (rows.last().elapsedNanos - rows.first().elapsedNanos) / 1_000
+        val decodedSpanUs = gaps.sum()
+        assertTrue(
+            kotlin.math.abs(decodedSpanUs - trueSpanUs) <= 1,
+            "timeline drifted ${trueSpanUs - decodedSpanUs}us over $n samples " +
+                "(decoded $decodedSpanUs vs true $trueSpanUs)",
+        )
+        // The mechanism, not just the outcome: the remainder is carried, so gaps
+        // alternate instead of every one of them rounding the same way down.
+        assertTrue(2_512L in gaps && 2_513L in gaps, "gaps never alternate: ${gaps.take(6)}")
+    }
+
     @Test
     fun anEmptyWindowHasNoPayload() {
         assertNull(imuSamplesPayloadJson(emptyList()))
