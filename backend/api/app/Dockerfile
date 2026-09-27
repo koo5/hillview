@@ -1,10 +1,9 @@
 FROM python:3.12-slim
 
-RUN mkdir -p /tmp
-RUN chmod a=rwx,o+t /tmp
-
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Repair /tmp in the same layer as apt so _apt can create signature files.
+RUN mkdir -p /tmp && chmod 1777 /tmp \
+    && apt-get update && apt-get install -y \
     gcc \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*

@@ -96,9 +96,8 @@ fun SettingsScreen(
         // The field edits RAW text (normalizing per keystroke would fight
         // the cursor); the persisted setting is normalized — trimmed, no
         // trailing slash (a stored slash doubles up in every "$url/path").
-        // A combobox: the two URLs anyone actually switches between sit
-        // under ▾ (serverPresets), and anything else — a LAN address, a
-        // staging host — is typed. Either way it is the FULL …/api URL,
+        // A combobox: predefined URLs sit under ▾ (serverPresets), and
+        // anything else is typed. Either way it is the FULL …/api URL,
         // never assembled from a host.
         var serverUrlText by rememberSaveable { mutableStateOf(settings.serverUrl) }
         var serverMenuOpen by remember { mutableStateOf(false) }

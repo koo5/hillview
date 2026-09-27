@@ -30,12 +30,13 @@ data class ServerPreset(val label: String, val apiUrl: String)
 /**
  * The combobox's predefined choices; anything else is typed. The dev entry
  * is the platform default (on Android the emulator's route to the host
- * machine; on the desktop shell HILLVIEW_BACKEND or localhost), so a phone
- * on the LAN still types its address.
+ * machine; on the desktop shell HILLVIEW_BACKEND or localhost). The LAN
+ * entry provides the dev backend address for devices on the local network.
  */
 fun serverPresets(): List<ServerPreset> = listOf(
     ServerPreset("Production", HILLVIEW_API_URL),
     ServerPreset("Local dev backend", cz.hillview.core.net.defaultBackendConfig().apiUrl),
+    ServerPreset("LAN dev backend", "http://10.0.0.24/api"),
 )
 
 data class UploadSettings(
