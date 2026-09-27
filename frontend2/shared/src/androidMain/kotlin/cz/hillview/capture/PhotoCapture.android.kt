@@ -462,9 +462,32 @@ private class AndroidPhotoCapture(
 
     @Volatile private var frameLens: FrameLensFacts? = null
 
-    @Volatile override var stampAttitude: cz.hillview.map.DeviceAttitude? = null
+    /**
+     * The last few seconds of each stream, so the save can ask what the device was doing
+     * at the EXPOSURE instead of inheriting the press. Fed by the setters below, which is
+     * why nothing outside this class changes: the screen keeps pushing the one state's
+     * values in exactly as before, and the history is a side effect of that.
+     */
+    private val attitudeRing =
+        SampleRing<cz.hillview.map.DeviceAttitude>(AT_EXPOSURE_RING_CAPACITY) { it.elapsedNs }
+    private val motionRing =
+        SampleRing<cz.hillview.map.DeviceMotionSample>(AT_EXPOSURE_RING_CAPACITY) { it.elapsedNs }
 
-    @Volatile override var stampMotion: cz.hillview.map.DeviceMotionSample? = null
+    @Volatile private var attitudeNow: cz.hillview.map.DeviceAttitude? = null
+    override var stampAttitude: cz.hillview.map.DeviceAttitude?
+        get() = attitudeNow
+        set(value) {
+            attitudeNow = value
+            value?.let { attitudeRing.add(it) }
+        }
+
+    @Volatile private var motionNow: cz.hillview.map.DeviceMotionSample? = null
+    override var stampMotion: cz.hillview.map.DeviceMotionSample?
+        get() = motionNow
+        set(value) {
+            motionNow = value
+            value?.let { motionRing.add(it) }
+        }
 
     @Volatile override var compassLandscapeWorkaround: Boolean = false
 
@@ -1787,11 +1810,24 @@ private class AndroidPhotoCapture(
                     playCaptureToneOnce(snapshot, "save")
                     if (!hideFromGallery) saved.file?.let { PhotoStorage.indexInGallery(context, it) }
 
+                    // THE POINT OF THE RING. The stamp was read at the press; these are
+                    // the same streams as the device saw them when the shutter was
+                    // actually open. Null means the ring had nothing within tolerance,
+                    // and then the press-time value stands — visibly, via
+                    // pose_referenced_to below, rather than by silent substitution.
+                    val attitudeAtExposure = attitudeRing.nearest(
+                        exposureElapsedNs, AT_EXPOSURE_TOLERANCE_NS,
+                    )
+                    val motionAtExposure = motionRing.nearest(
+                        exposureElapsedNs, AT_EXPOSURE_TOLERANCE_NS,
+                    )
                     state = state.copy(
                         capturing = false,
                         lastPhoto = CapturedPhoto(
                             saved.locator, filename,
                             snapshot.copy(
+                                attitude = attitudeAtExposure ?: snapshot.attitude,
+                                motion = motionAtExposure ?: snapshot.motion,
                                 captureTiming = CaptureTiming(
                                     // captured_at is still the press: moving it is a
                                     // separate decision with a filename, a DB column
@@ -1804,6 +1840,17 @@ private class AndroidPhotoCapture(
                                     exposureElapsedNs = exposureElapsedNs,
                                     exposureWallMs = exposureWallMs,
                                     exposureSource = "sensor_timestamp",
+                                    // Only claim the exposure when BOTH streams answered
+                                    // for it: a record half from one instant and half
+                                    // from another is the ambiguity this field exists to
+                                    // remove.
+                                    poseReferencedTo = if (
+                                        attitudeAtExposure != null && motionAtExposure != null
+                                    ) {
+                                        "exposure"
+                                    } else {
+                                        "press"
+                                    },
                                 ),
                             ),
                         ),

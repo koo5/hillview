@@ -738,6 +738,10 @@ class GeoEngine private constructor(private val context: Context) {
                 gravity = gravity,
                 linearAcceleration = linear,
                 atMs = System.currentTimeMillis(),
+                // The EVENT's own instant, not the callback's: SensorEvent.timestamp is
+                // already elapsedRealtimeNanos, so this is the sample's real time rather
+                // than when we got round to it.
+                elapsedNs = event.timestamp,
             )
         }
 

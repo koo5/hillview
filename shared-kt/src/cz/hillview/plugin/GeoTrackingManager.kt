@@ -64,6 +64,20 @@ data class OrientationSensorData(
 	val pitch: Float,
 	val roll: Float,
 	val timestamp: Long,
+
+	/**
+	 * The same sample on `elapsedRealtimeNanos`, which is what can be compared to
+	 * anything else the device measured: the IMU samples' `t0_ns`, and a capture's
+	 * exposure instant.
+	 *
+	 * [timestamp] above stays the wall clock because it is a database column and the
+	 * CSVs correlate with external cameras on wall time. But the wall clock can STEP
+	 * mid-window under an NTP correction, which is exactly why the inertial payload
+	 * refuses to use it, so a lookup "what was the attitude at this instant" needs the
+	 * monotonic one. 0 when a producer did not set it.
+	 */
+	val elapsedRealtimeNanos: Long = 0L,
+
 	val source: String,     // Elect-able identity — "android" for the sensor stack
 	val detail: String? = null  // Which fusion mode produced it, within that source
 )

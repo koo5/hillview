@@ -209,6 +209,7 @@ actual fun MapScreen(
                         fusedSensorAccuracy = data.fusedSensorAccuracy.takeIf { it >= 0 },
                         detail = data.detail,
                         ts = data.timestamp,
+                        elapsedNs = data.elapsedRealtimeNanos,
                     ),
                 )
             },

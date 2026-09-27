@@ -53,6 +53,18 @@ data class CaptureTiming(
     val exposureWallMs: Long? = null,
 
     /**
+     * Which instant the POSE objects describe — "exposure" when the attitude and
+     * inertial readings were looked up at the exposure, "press" when they are the
+     * press-time stamp because no sample was within tolerance.
+     *
+     * Separate from [exposureSource] because the two can disagree: knowing when the
+     * frame was exposed does not guarantee a sample from that moment, and a reader
+     * deserves to know which of the two it got. Every `age_ms` in the provenance is
+     * measured against whichever instant this names.
+     */
+    val poseReferencedTo: String? = null,
+
+    /**
      * How the exposure instant was obtained — "sensor_timestamp", or absent when it
      * was not obtained at all. Never inferred: a dispatch-derived estimate would be
      * ~104 ms late and jitter by ±16, and calling that the exposure is the pretending
@@ -901,7 +913,7 @@ fun attitudeProvenanceJson(s: SensorSnapshot): String? {
             it.magnetometerCalibration?.let { add("\"magnetometer_calibration\":$it") }
             it.fusedSensorAccuracy?.let { add("\"fused_sensor_accuracy\":$it") }
             it.detail?.let { d -> add("\"fusion\":\"$d\"") }
-            add("\"age_ms\":${s.capturedAtMs - it.ts}")
+            add("\"age_ms\":${s.poseReferenceMs() - it.ts}")
         }
         s.deviceRotationDeg?.let { add("\"device_rotation_deg\":$it") }
         s.compassLandscapeWorkaround?.let { add("\"landscape_azimuth_negation\":$it") }
@@ -931,6 +943,28 @@ fun attitudeProvenanceJson(s: SensorSnapshot): String? {
  * and travels by CSV — see docs/recon-capture-metadata.md.
  */
 /**
+ * The instant every `age_ms` in the provenance is measured against.
+ *
+ * The exposure when the pose was actually looked up there, the press otherwise. Without
+ * this, replacing the attitude with a sample taken at the exposure would make
+ * `age_ms` — defined as "how stale the reading was at the shutter" — come out NEGATIVE,
+ * because the sample is later than the press. One definition, so the attitude, the
+ * inertial reading and anything added later cannot disagree about what they are stale
+ * relative to.
+ */
+/*
+ * CONTRACT NOTE. With `pose_referenced_to: "exposure"` the provenance's `age_ms` fields
+ * become SIGNED offsets from the exposure rather than non-negative ages from the press:
+ * the lookup takes the nearest sample on either side, so about half of them land after
+ * the shutter and report a negative number, bounded by AT_EXPOSURE_TOLERANCE_NS. Nothing
+ * downstream needs changing — a staleness filter reading a negative offset as "fresh" is
+ * right — but a reader expecting a non-negative age deserves to have been told.
+ */
+fun SensorSnapshot.poseReferenceMs(): Long =
+    captureTiming?.takeIf { it.poseReferencedTo == "exposure" }?.exposureWallMs
+        ?: capturedAtMs
+
+/**
  * `capture_timing` — see [CaptureTiming]. Always emits `captured_at_source`, because a
  * timing object that does not say which instant `captured_at` names would be the very
  * ambiguity it exists to remove.
@@ -945,6 +979,7 @@ fun captureTimingJson(s: SensorSnapshot): String? {
         t.exposureElapsedNs?.let { add("\"exposure_elapsed_ns\":$it") }
         t.exposureWallMs?.let { add("\"exposure_wall_ms\":$it") }
         t.exposureSource?.let { add("\"exposure_source\":\"$it\"") }
+        t.poseReferencedTo?.let { add("\"pose_referenced_to\":\"$it\"") }
     }
     return fields.joinToString(",", prefix = "{", postfix = "}")
 }
@@ -961,7 +996,7 @@ fun inertialProvenanceJson(s: SensorSnapshot): String? {
             }
             // Age of the GRAVITY reading, not of the window — the window carries
             // its own bounds.
-            add("\"age_ms\":${s.capturedAtMs - m.atMs}")
+            add("\"age_ms\":${s.poseReferenceMs() - m.atMs}")
         }
         // The window stands on its own: a device with no gravity sensor can
         // still have an accelerometer and a gyroscope.

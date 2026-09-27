@@ -221,6 +221,14 @@ data class DeviceAttitude(
     val detail: String? = null,
     /** Wall-clock ms of the sample. */
     val ts: Long,
+
+    /**
+     * This sample on `elapsedRealtimeNanos` — the clock a capture's exposure instant is
+     * on, so "what was the attitude when the shutter actually opened" is answerable by
+     * lookup rather than by assuming the press. 0 from producers that do not set it,
+     * and a 0 simply never matches.
+     */
+    val elapsedNs: Long = 0L
 )
 
 /**
@@ -246,6 +254,9 @@ data class DeviceMotionSample(
     val linearAcceleration: List<Float>? = null,
     /** Wall-clock ms of the sample that triggered this publication. */
     val atMs: Long,
+
+    /** Same instant on `elapsedRealtimeNanos` — see DeviceAttitude.elapsedNs. */
+    val elapsedNs: Long = 0L
 )
 
 /**

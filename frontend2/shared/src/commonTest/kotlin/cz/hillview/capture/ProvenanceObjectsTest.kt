@@ -125,6 +125,69 @@ class ProvenanceObjectsTest {
         assertFalse("exposure_source" in unmeasured, unmeasured)
     }
 
+    /**
+     * The reference instant every `age_ms` is measured against. Without it, looking the
+     * attitude up AT the exposure and leaving the age measured from the press would
+     * produce a NEGATIVE age — the sample being later than the button — which is how a
+     * reader would discover the inconsistency instead of being told.
+     */
+    @Test
+    fun agesAreMeasuredAgainstWhicheverInstantThePoseDescribes() {
+        val exposureWall = shutterAt + 312
+        val atExposure = snap().copy(
+            captureTiming = CaptureTiming(
+                capturedAtSource = "press",
+                exposureWallMs = exposureWall,
+                exposureSource = "sensor_timestamp",
+                poseReferencedTo = "exposure",
+            ),
+        )
+        assertEquals(exposureWall, atExposure.poseReferenceMs())
+
+        // Exposure known but no sample near it: the pose is still the press-time one, so
+        // the ages must stay measured from the press.
+        val declined = snap().copy(
+            captureTiming = CaptureTiming(
+                capturedAtSource = "press",
+                exposureWallMs = exposureWall,
+                exposureSource = "sensor_timestamp",
+                poseReferencedTo = "press",
+            ),
+        )
+        assertEquals(shutterAt, declined.poseReferenceMs())
+
+        // The ordinary path knows no exposure at all.
+        assertEquals(shutterAt, snap().poseReferenceMs())
+    }
+
+    /**
+     * The whole point, end to end through the serializer: a reading taken 6 ms AFTER the
+     * exposure reports −6, not the 318 ms it would have shown measured from the press.
+     *
+     * The sign is deliberate and is the contract. Once the pose is looked up at the
+     * exposure, `age_ms` is a SIGNED offset from the instant named by
+     * `pose_referenced_to`, and it is negative whenever the nearest sample fell after the
+     * shutter — which is about half the time, since the lookup accepts both sides on
+     * purpose. Harmless to a staleness filter: a negative offset really is fresh.
+     */
+    @Test
+    fun anAtExposureReadingReportsItsAgeFromTheExposure() {
+        val exposureWall = shutterAt + 312
+        val json = inertialProvenanceJson(
+            snap(motion = DeviceMotionSample(gravity = listOf(0f, 0f, 9.81f), atMs = exposureWall + 6))
+                .copy(
+                    captureTiming = CaptureTiming(
+                        capturedAtSource = "press",
+                        exposureWallMs = exposureWall,
+                        exposureSource = "sensor_timestamp",
+                        poseReferencedTo = "exposure",
+                    ),
+                ),
+        )!!
+        assertTrue("\"age_ms\":-6" in json, json)
+        assertFalse("\"age_ms\":-318" in json, json)
+    }
+
     /** No timing recorded at all — an older row, or a path that does not set it. */
     @Test
     fun noTimingMeansNoObject() {

@@ -1239,6 +1239,8 @@ class EnhancedSensorService(
             pitch = finalPitch,
             roll = finalRoll,
             timestamp = System.currentTimeMillis(),
+            // Read beside the wall clock, so the two describe one instant.
+            elapsedRealtimeNanos = android.os.SystemClock.elapsedRealtimeNanos(),
             // The source is the platform sensor stack, full stop — it has to
             // stay a small, stable, elect-able name. Which fusion mode produced
             // this sample is provenance, so it moves to `detail`, where nothing
