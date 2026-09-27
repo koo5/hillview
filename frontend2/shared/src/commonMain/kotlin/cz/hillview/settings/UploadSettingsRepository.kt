@@ -36,7 +36,7 @@ data class ServerPreset(val label: String, val apiUrl: String)
 fun serverPresets(): List<ServerPreset> = listOf(
     ServerPreset("Production", HILLVIEW_API_URL),
     ServerPreset("Local dev backend", cz.hillview.core.net.defaultBackendConfig().apiUrl),
-    ServerPreset("LAN dev backend", "http://10.0.0.24/api"),
+    ServerPreset("LAN dev backend", "http://10.0.0.24:8055/api"),
 )
 
 data class UploadSettings(
