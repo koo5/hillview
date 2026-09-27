@@ -464,15 +464,33 @@ What actually happens:
   placement, car course) there is no elected pitch to be a claim; there is no
   pitch at all.
 - **Both numbers come from one sensor path**, `EnhancedSensorService.sendSensorData`,
-  which EMA-smooths and then SUPPRESSES the emission unless heading, pitch or roll
-  moved by at least `PITCH_THRESHOLD`/`HEADING_THRESHOLD`/`ROLL_THRESHOLD` = **1.0°**.
-  Every consumer therefore sees a staggered signal that steps in ~1° units.
+  which EMA-smooths every sample and then emits it.
 - So the two stored numbers are the same smoothed measurement captured at two
-  different moments of that gated stream: `attitude.pitch_deg` is the freshest at
-  the shutter, `gps.pitch` is whatever was attached when the bearing was last set.
-  On a real prod photo they differ by **0.07°** (6.9916 vs 6.9223) — a difference
-  bounded by the threshold, not by a decision. The stamp refiner is not involved;
-  it does not touch pitch.
+  different moments of that stream: `attitude.pitch_deg` is the freshest at the
+  shutter, `gps.pitch` is whatever was attached when the bearing was last set. On a
+  real prod photo they differ by **0.07°** (6.9916 vs 6.9223) — two samples of a
+  stationary phone, not a decision. The stamp refiner is not involved; it does not
+  touch pitch.
+
+  **CORRECTED 2026-09-28.** This bullet used to say the stream is throttled to 1° by
+  `PITCH_THRESHOLD`/`HEADING_THRESHOLD`/`ROLL_THRESHOLD` and that every consumer
+  therefore sees a signal stepping in ~1° units. **That throttle does not work.**
+  `hasSignificantChange` is called with a literal `0` for the accuracy argument while
+  `lastSentAccuracy` stores the REAL value, so `accuracyChanged` is
+  `|0 − accuracy| >= 1.0` — true for any non-zero compass accuracy, and the gate
+  returns `heading || trueHeading || pitch || roll || accuracyChanged`. Every sample
+  passes. Measured confirmation: `attitude.age_ms` of 25–41 ms on real captures is
+  exactly the 30 ms `SENSOR_DELAY_NORMAL_US` period.
+
+  Two consequences. The 0.07° above is sample-to-sample noise rather than
+  threshold staggering, so the *conclusion* of this section stands (there is no pitch
+  election, and `attitude.pitch_deg` is the one to use) while its stated mechanism was
+  wrong. And `GeoTrackingManager.storeOrientationSensorData` has no pacing of its own,
+  so a bearings row is written per sample — about **33 rows/second** in capture mode
+  and 10/s on the relaxed map rate, each on its own IO coroutine. Whether the throttle
+  should be repaired or removed is a real decision, and it is coupled to the attitude
+  ring in docs/todo/captured-at-is-the-exposure.md: repairing it would starve the ring
+  that wants every sample.
 
 For bearing, elected-versus-measured is a real semantic distinction: a hand-set
 arrow or a car course genuinely is a different claim from the compass. For pitch it
