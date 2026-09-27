@@ -30,7 +30,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from utils.base_test import BasePhotoTest
-from utils.secure_upload_utils import SecureUploadClient, generate_test_captured_at
+from utils.secure_upload_utils import SecureUploadClient, generate_test_captured_at, tls_verify
 from utils.test_utils import API_URL
 from utils.image_utils import create_test_image_no_exif
 
@@ -113,7 +113,14 @@ class TestImuSamplesArtifact(BasePhotoTest):
 		url = photo.get("imu_samples_url")
 		assert url, f"no imu_samples_url on the photo; keys: {sorted(photo)}"
 
-		fetched = requests.get(url, timeout=30)
+		# An app-advertised pool URL, not the API: in dev it is served by a Caddy
+		# origin whose `tls internal` CA Python does not trust, so it takes the
+		# same gate as dev_origin_client and the size-URL check in
+		# test_photo_processing_errors. Verification stays ON unless
+		# HILLVIEW_INSECURE_TLS is set, which only the test entry point does.
+		# A bare requests.get here passes today only because .env happens to
+		# serve pics over plain http.
+		fetched = requests.get(url, timeout=30, verify=tls_verify())
 		assert fetched.status_code == 200, f"artifact not served at {url}: {fetched.status_code}"
 		# Stored gzipped; requests does not transparently decode a .gz BODY
 		# (that is Content-Encoding, not a gzip file), so unwrap it explicitly.
@@ -160,7 +167,8 @@ class TestImuSamplesArtifact(BasePhotoTest):
 		stored = (((photo.get("inertial") or {}).get("imu_window") or {})).get("stored_count")
 		assert stored == expected, f"the summary did not survive the upload: {photo.get('inertial')}"
 
-		body = json.loads(gzip.decompress(requests.get(photo["imu_samples_url"], timeout=30).content))
+		artifact = requests.get(photo["imu_samples_url"], timeout=30, verify=tls_verify())
+		body = json.loads(gzip.decompress(artifact.content))
 		carried = sum(len(v["x"]) for v in body.values())
 		assert carried == stored, f"payload carries {carried} samples, summary claims {stored}"
 
