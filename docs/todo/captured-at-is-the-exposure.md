@@ -7,6 +7,13 @@ lie.** Not "be maximally precise" — a coarse number that says what it is costs
 nothing. What costs is a number that reads like a measurement of the photo and
 is a measurement of something else.
 
+And its sharper form, which is the one to hold onto (2026-09-27): **stop pretending we
+know the exposure moment, if the research ends up showing that we don't.** That is the
+deliverable. Shipping an exposure timestamp is only one way to satisfy it; saying
+plainly that a value is press-derived satisfies it too, and costs nothing. The failure
+mode to avoid is a third experiment that replaces one confident wrong answer with
+another.
+
 Three fields currently do that, and a fourth mechanism actively polishes one of
 them toward the wrong answer. This plan replaces the press with the exposure as
 the one timestamp the app records, which subsumes all four.
@@ -261,6 +268,51 @@ So the ladder is now:
 2. `onCaptureStarted` — ms, dispatch-delayed, and the bracket above at least places it
    inside the correct 66 ms window.
 3. The press, labelled.
+
+### Precision needed: milliseconds, and no more
+
+Settled 2026-09-27, because it decides how hard this is worth working. The frame
+integrates light for **20 ms** (`exp=19997000ns`) and the sensor reads out over
+**31 ms** (`rolling_shutter_skew_ns`). No timestamp can meaningfully place "the
+instant the photo is of" more sharply than that, so millisecond resolution is already
+a twentieth of the exposure window and sub-millisecond precision is decoration.
+
+That retires the main argument for fighting CameraX: `SubSecDateTimeOriginal`'s
+milliseconds are enough. It does NOT retire the correctness question below.
+
+### Let the consumer do the alignment
+
+The preferred division (user, 2026-09-27): the app RECORDS, the consumer ALIGNS. If
+the worker and the recon workbench read `SubSecDateTimeOriginal` and look that moment
+up in the sample arrays themselves, the app may not need to change at all for
+alignment — it already ships both halves, and the server already holds both. That
+takes the restructuring of `capturedAtMs` (the filename, the snapshot ordering, the
+window centre) off the critical path entirely.
+
+What remains app-side is then only the honesty part: not presenting press-derived
+values as frame-accurate.
+
+### THE NEXT UNVERIFIED ASSUMPTION — do not skip it
+
+**Nobody has checked what `SubSecDateTimeOriginal` actually timestamps.** The EXIF spec
+says "when the image was generated"; HALs interpret that as exposure start OR as the
+moment the JPEG was encoded, and on this device those are **390 ms apart**
+(`exp→jpeg 389 ms`). Making it rung 1 without checking would repeat the mistake that
+just cost an experiment.
+
+It is cheap to settle, and the photo is still on the phone. From the 15:15:40 capture's
+log — all device-local, the same clock EXIF uses:
+
+```
+press     15:15:39.563     (40.776 − 1213 ms)
+exposure  15:15:40.776     onCaptureStarted
+jpeg      15:15:41.166     the "saved:" line
+```
+
+So `exiftool -SubSecDateTimeOriginal -SubSecTimeOriginal <that file>` answers it
+outright: ~`.776` means it marks the exposure and it is rung 1; ~`1.166` means it marks
+encode time and is useless for this, leaving `onCaptureStarted` as the best available
+and the honest label as the whole of the fix.
 
 ### The option that gets the exact value, at a price
 
