@@ -737,6 +737,16 @@ class BrowserMetadata(BaseModel):
 	altitude: Optional[float] = None
 	bearing: Optional[float] = None
 	captured_at: Optional[str] = None  # ISO datetime
+	# HOW that timestamp was determined, and it is PRE-DECLARED: nothing sends it
+	# yet. docs/todo/captured-at-is-the-exposure.md plans to make captured_at the
+	# EXPOSURE rather than the button press (they differ by 546-1881 ms, measured),
+	# which needs a field saying which source answered -- the same reasoning as
+	# location_source and bearing_source. Declared as an untyped dict on purpose:
+	# a top-level key is the ONLY thing that requires a worker deploy (pydantic
+	# drops undeclared keys, PROVENANCE_KEYS copies top-level names), while keys
+	# NESTED inside one ride through untouched. So this one declaration now means
+	# that whole change ships without redeploying the worker again.
+	capture_timing: Optional[dict] = None
 	orientation_code: Optional[int] = None  # EXIF orientation (1, 3, 6, 8)
 	location_source: Optional[str] = None  # 'gps' or 'map'
 	bearing_source: Optional[str] = None

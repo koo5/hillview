@@ -177,9 +177,26 @@ Checked 2026-09-27. Of the four lists a new provenance field normally has to ent
 | typed public projection (`photo_routes.py`) | **one line** per field in `_IMU_WINDOW_FIELDS` / the relevant allowlist |
 | app serializer | yes |
 
-`captured_at` itself is already a declared top-level field, so only
-`captured_at_source` is new. The API deploy this rides on is queued anyway
-(alembic `036` → API → worker).
+`captured_at` itself is already a declared top-level field, and its MEANING
+changing needs nothing at all: the worker copies `metadata['captured_at']` over
+`exif_data.data.DateTimeOriginal` and then derives the stored `captured_at` from
+that, so a new value propagates on its own.
+
+**Already done, 2026-09-27, so this plan needs NO server deploy of its own:**
+`capture_timing` is pre-declared in `BrowserMetadata` and listed in
+`PROVENANCE_KEYS`, as an untyped dict with nothing sending it yet. A top-level key
+is the only thing that requires a worker deploy; keys nested inside one ride
+through untouched, and `exif_data` ships wholesale in the API response (the typed
+`attitude`/`fix`/`lens`/`inertial` projections are a convenience on top of it, not
+the route). So `source`, an exposure value on the monotonic clock, and the
+press→exposure lag all go INSIDE `capture_timing` later, for free. A line in the
+typed projection's allowlist remains optional — for type-checking, whenever.
+
+**And rung 3 is already on the server.** The metadata overwrite hits
+`DateTimeOriginal` only; the camera's own `SubSecDateTimeOriginal` survives beside
+it, which is how the audit could compare the two. So the camera's exposure time is
+present for every app photo already, no app change needed — at one-second
+granularity, which is the rung's stated weakness.
 
 ## Do this experiment first — everything rests on it
 

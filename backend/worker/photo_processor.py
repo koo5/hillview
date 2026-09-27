@@ -376,6 +376,10 @@ PROVENANCE_KEYS = (
 	# column per field. Declared there AND listed here, or the key is dropped
 	# silently at one end or the other.
 	'attitude', 'fix', 'lens', 'inertial',
+	# Pre-declared, nothing sends it yet -- see BrowserMetadata.capture_timing for
+	# why it is here before its contents exist. Copied only when present (the
+	# comprehension below skips None), so listing it early is inert.
+	'capture_timing',
 	'v',
 )
 
