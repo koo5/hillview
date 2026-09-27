@@ -292,7 +292,71 @@ window centre) off the critical path entirely.
 What remains app-side is then only the honesty part: not presenting press-derived
 values as frame-accurate.
 
-### THE NEXT UNVERIFIED ASSUMPTION — do not skip it
+### ANSWERED 2026-09-27: `SubSecDateTimeOriginal` is NOT the exposure
+
+`exiftool` on the 15:15:40 capture (`hillview_photo_1790514939565.jpg`, whose filename
+epoch 15:15:39.565 confirms it is the same press the log describes):
+
+```
+Date/Time Original    : 2026:09:27 15:15:40.951
+Sub Sec Time Original : 951
+OffsetTimeOriginal    : absent
+```
+
+| | | vs exposure |
+|---|---|---|
+| press (`capturedAtMs`, = filename) | 15:15:39.565 | −1211 ms |
+| exposure (`onCaptureStarted`) | 15:15:40.776 | — |
+| **`SubSecDateTimeOriginal`** | **15:15:40.951** | **+175 ms** |
+| saved (`onImageSaved`) | 15:15:41.166 | +390 ms |
+
+**Neither candidate.** It is an intermediate HAL/encode moment — 175 ms after the
+exposure began and 215 ms before the file landed. That is 70 IMU samples at 398 Hz and
+about nine times the 20 ms the shutter was open, so for attributing motion blur it
+points at the wrong 20 ms entirely. It is not usable as the exposure instant, by the
+app or by a consumer.
+
+**Which corrects what I wrote an hour earlier.** I said owning the file write "wins
+nothing that matters for timing", on the argument that millisecond resolution is
+already below the 20 ms/31 ms noise floor. The resolution argument still holds. The
+conclusion did not: there is now **no millisecond-accurate source of the exposure
+moment at all** except `ImageProxy.imageInfo.timestamp`. Owning the write buys
+CORRECTNESS, not precision — a different and much better reason.
+
+So, honestly, the ladder is:
+
+1. **`ImageProxy.imageInfo.timestamp`** via `OnImageCapturedCallback` — the frame's own
+   `SENSOR_TIMESTAMP`. Exact, and the only route that actually knows. Costs owning the
+   file write.
+2. **`onCaptureStarted`** — dispatched to the MAIN executor, so its lag includes
+   main-thread queueing and is unmeasured. The preview bracket (−56/+11 ms) places it
+   in the right region and no closer.
+3. **The press** — 1211 ms early here, 546–1881 ms across everything measured.
+
+`SubSecDateTimeOriginal` is off the ladder. One caveat: n = 1 for the +175 ms, one
+device, `quality` mode. If that offset turned out stable across captures and modes it
+could in principle be calibrated out — but treating a measured-once HAL constant as
+known is precisely the pretending this plan exists to stop, so it would need measuring
+per device and mode, not assuming.
+
+### So: we do not currently know the exposure moment
+
+Which is the outcome the requirement was written for. Two honest responses, and they
+are not exclusive:
+
+- **Label it** (cheap, no new data, no deploy): stop presenting press-derived values as
+  frame-accurate. `captured_at` stays the press and says so; the ages and freshness
+  gates say what instant they are relative to. This satisfies "stop pretending"
+  completely and on its own.
+- **Go and find out** (costs the save path): `OnImageCapturedCallback`, which hands over
+  the exact value. Then `captured_at` can BE the exposure and the ages become true
+  rather than merely labelled.
+
+What is no longer on the table: consumer-side alignment from `SubSecDateTimeOriginal`.
+The worker and the workbench cannot recover the exposure from what is currently
+stored, because nothing currently stored is the exposure.
+
+### The superseded assumption, kept for the record
 
 **Nobody has checked what `SubSecDateTimeOriginal` actually timestamps.** The EXIF spec
 says "when the image was generated"; HALs interpret that as exposure start OR as the
