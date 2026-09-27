@@ -90,6 +90,17 @@ import cz.hillview.plugin.hvTag
 
 private val TAG = hvTag("PhotoCapture")
 
+/**
+ * Take the IN-MEMORY capture path and log the frame's own SENSOR_TIMESTAMP instead of
+ * saving normally. **False in every committed build**, and it must stay that way: the
+ * probe writes the JPEG but skips EXIF, the gallery index, the row and the upload.
+ *
+ * Flip it, build, capture, read `probe in-memory:` from the log, flip it back. See
+ * docs/todo/captured-at-is-the-exposure.md for why this is the only remaining
+ * candidate for the exposure instant.
+ */
+private const val PROBE_IN_MEMORY_TIMESTAMP = false
+
 // The metering window prepareExposure opens between interval shots. The
 // frame minimum is there so a single mid-convergence frame cannot be
 // mistaken for a reading; the timeouts are ceilings, not waits — a
@@ -1674,6 +1685,67 @@ private class AndroidPhotoCapture(
     }
 
     /**
+     * The in-memory capture probe — see the call site in [takePictureWithFallback].
+     *
+     * Reads `ImageProxy.imageInfo.timestamp` (the frame's own SENSOR_TIMESTAMP),
+     * bridges it onto `elapsedRealtimeNanos` the way the IMU samples are stamped, and
+     * prints it beside the main-thread reading of `onCaptureStarted`. Also reports
+     * `rotationDegrees`, `format` and the buffer size, because a real implementation
+     * would have to handle all three and this is a free look at them.
+     */
+    private fun probeInMemoryCapture(capture: ImageCapture, file: java.io.File) {
+        capture.takePicture(
+            ContextCompat.getMainExecutor(context),
+            object : ImageCapture.OnImageCapturedCallback() {
+                override fun onCaptureStarted() {
+                    val now = SystemClock.elapsedRealtime()
+                    captureExposedAtMs = now
+                    Log.i(TAG, "probe: onCaptureStarted ${now - captureStartMs}ms after press")
+                }
+
+                override fun onCaptureSuccess(image: androidx.camera.core.ImageProxy) {
+                    try {
+                        val sensorTs = image.imageInfo.timestamp
+                        // Read both clocks back-to-back: this HAL reports
+                        // timestampSource UNKNOWN, so sensor timestamps share uptime's
+                        // base while elapsedRealtimeNanos is what t0_ns uses.
+                        val elapsedNs = SystemClock.elapsedRealtimeNanos()
+                        val monoNs = System.nanoTime()
+                        val bridgedMs = (sensorTs + (elapsedNs - monoNs)) / 1_000_000
+                        val vsDispatch = if (captureExposedAtMs != 0L) {
+                            "${bridgedMs - captureExposedAtMs}ms vs onCaptureStarted"
+                        } else {
+                            "onCaptureStarted never fired"
+                        }
+                        val buf = image.planes[0].buffer
+                        val bytes = ByteArray(buf.remaining()).also { buf.get(it) }
+                        file.parentFile?.mkdirs()
+                        file.outputStream().use { it.write(bytes) }
+                        Log.i(
+                            TAG,
+                            "probe in-memory: sensor_ts=$sensorTs bridged_ms=$bridgedMs " +
+                                "($vsDispatch), rot=${image.imageInfo.rotationDegrees} " +
+                                "fmt=${image.format} ${image.width}x${image.height} " +
+                                "bytes=${bytes.size} -> ${file.absolutePath}",
+                        )
+                    } catch (e: Exception) {
+                        Log.e(TAG, "probe in-memory failed", e)
+                    } finally {
+                        image.close()
+                    }
+                    // The probe stops here on purpose: no EXIF, no index, no row.
+                    state = state.copy(capturing = false)
+                }
+
+                override fun onError(exception: ImageCaptureException) {
+                    Log.e(TAG, "probe in-memory capture error", exception)
+                    state = state.copy(capturing = false)
+                }
+            },
+        )
+    }
+
+    /**
      * Walk the storage chain: the first target that both prepares and saves
      * wins. Mirrors device_photos.rs — a target blocked by scoped storage (a
      * direct DCIM write on API 29+) degrades to the next instead of losing
@@ -1703,6 +1775,32 @@ private class AndroidPhotoCapture(
             return
         }
         val (options, file) = prepared
+
+        // PROBE, off in every committed build: can we get the exposure instant at all?
+        //
+        // Everything else has been tried and failed. A session capture callback sees
+        // only the repeating (preview) request. The camera's own
+        // SubSecDateTimeOriginal is +139 ms (Latency, n=13) and +175 ms (Quality)
+        // AFTER the exposure, so it marks some HAL/encode moment. `onCaptureStarted`
+        // is dispatched to the MAIN executor, so its reading is the exposure plus an
+        // unmeasured queueing delay. `ImageProxy.imageInfo.timestamp` is the frame's
+        // own SENSOR_TIMESTAMP and the only remaining candidate — but it comes from
+        // takePicture's IN-MEMORY overload, which means owning the file write.
+        //
+        // This is the cheapest thing that answers whether it is worth owning: take
+        // the in-memory path, log the timestamp against the main-thread reading, and
+        // write the bytes to the File the chain already prepared so the photo is not
+        // lost. It deliberately does NOT continue the normal flow — no EXIF, no
+        // gallery index, no row, no upload — because none of that is needed to learn
+        // whether the number is there and sane. A probe, not a feature.
+        //
+        // The delta IS the answer: negative means the sensor timestamp precedes the
+        // dispatch that reports it, as it must, and its magnitude is the main-thread
+        // lag nothing so far has been able to measure.
+        if (PROBE_IN_MEMORY_TIMESTAMP && file != null) {
+            probeInMemoryCapture(capture, file)
+            return
+        }
 
         capture.takePicture(
             options,
