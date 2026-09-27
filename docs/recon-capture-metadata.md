@@ -499,6 +499,20 @@ bearing overridden by a manual claim. The gap is filled; it is just not filled
 under an `alt_` name, because what the device measured is not a candidate that
 lost an election.
 
+### Verified on prod, 2026-09-27 — and the elected pitch is owner-only
+
+An owner-authenticated fetch of a real prod photo settled the three homes on live
+data: `exif_data['gps']['pitch']` 6.9223 (elected) beside `attitude.pitch_deg`
+6.9916 (measured), the intended split, differing by 0.07°.
+
+But `pitch` is **not a key in either API response**, public or owner — the column
+is not projected at all. So the elected pitch reaches consumers ONLY through
+`exif_data.gps.pitch`, which the public endpoint withholds along with the rest of
+the raw dump. A public reader gets the MEASURED pitch and no elected one. That is
+not what "three homes" implied, and it is worth deciding rather than leaving as an
+accident of which projections were written. See
+docs/todo/what-a-public-photo-publishes.md.
+
 ### What this leaves genuinely open
 
 `roll` now reaches the server — `attitude.roll_deg`, served publicly beside
