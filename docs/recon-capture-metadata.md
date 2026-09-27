@@ -477,9 +477,48 @@ What actually happens:
 For bearing, elected-versus-measured is a real semantic distinction: a hand-set
 arrow or a car course genuinely is a different claim from the compass. For pitch it
 collapses into **fresh versus up-to-1°-stale**, which means `gps.pitch` carries no
-meaning that `attitude.pitch_deg` lacks — only more staleness. Worth deciding
-whether it should keep being written at all; nothing about pitch needs the election
-machinery it is currently borrowing.
+meaning that `attitude.pitch_deg` lacks — only more staleness.
+
+**Premature, not wrong forever.** User-supplied pitch is on the table (2026-09-27),
+for the same reason user-supplied bearing exists: to override noisy sensors. The day
+a pitch control ships, the elected/measured split becomes real for pitch exactly as
+it is for bearing — and the home for that claim is the `photos.pitch` COLUMN, with
+`BrowserMetadata.pitch` already its transport. Which is the argument for removing
+`gps.pitch` rather than keeping it against that day: it is a redundant waypoint on
+the path the claim will travel anyway, sitting under a key name
+(`gps`) that a user-set tilt has even less business being under than a sensor's.
+
+### Removing `gps.pitch` — the audit, 2026-09-27
+
+Asked for before doing it. Nothing reads it:
+
+- **Zero readers** in `frontend/src`, `frontend2`, `shared-kt` or `enrich`. The
+  frontend reads `photo.pitch`, the COLUMN, served by `hillview_routes.py:204` and
+  typed in `photoCommon.ts:61`; its consumers are the up/down navigation
+  (`mapState.ts:330-344`) and `data.svelte.ts:361-364`.
+- **Inside the worker it is a pure waypoint**: written at `photo_processor.py:1750`
+  inside `if metadata:`, read straight back at `:1891`. Both sit in
+  `process_uploaded_photo`, where `metadata` is a parameter, so the reader becomes
+  `(metadata or {}).get('pitch')` and the column is fed exactly as before.
+- **Measured redundancy across 12 995 prod rows**, from the backfill plan's own
+  query: every row with `gps->>'pitch'` has the column set, and
+  `pitch IS NULL AND exif gps.pitch present` is **0**. It has never carried
+  information the column lacks.
+- **The backfill plan does not need it** — it reads
+  `exif_data->'data'->>'UserComment'` for the 4 807-row population, which is the
+  only one with anything to recover.
+- The code already knew: the comment at `:1747` says "Pitch has no EXIF home the way
+  bearing does (GPSImgDirection), so metadata is its only source."
+
+**`gps.bearing` is NOT in the same position** and stays: it has a fallback check at
+`:1838`, feeds `compass_angle` at `:1890`, and `GPSImgDirection` is a real EXIF
+source for it. So this is a pitch fix, not a `gps` cleanup — the name stays the
+misnomer this document already decided to live with.
+
+Old rows keep the key; nothing sweeps it, which also keeps the backfill plan's
+measurements valid as history. **Unverifiable from this repo:** the `pics` sibling
+project, which is not in this tree. Pitch is measurably redundant with the column,
+so the column is the better source there too, but nobody has grepped it.
 
 ### Why `gps` is the wrong name, and why it stays
 
