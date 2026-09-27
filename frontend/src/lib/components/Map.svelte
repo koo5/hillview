@@ -364,7 +364,7 @@ import { timelineActive, timelinePhotos, timelineCurrent, timelineRecenter, togg
 			// Switch to view mode when opening a specific photo
 			app.update(a => ({...a, activity: 'view'}));
 			// Auto-set hunterMode once this photo arrives in range
-			setUrlRequestedPhoto(photoUid);
+			setUrlRequestedPhoto(photoUid, bearingParam !== null && Number.isFinite(Number(bearingParam)) ? Number(bearingParam) : undefined);
 		}
 
 		// Only stamp spatialState.ts when the user actually directed navigation (URL params).
