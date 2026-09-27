@@ -273,6 +273,23 @@ alternate 2512, 2513, 2512 — the carried remainder, not jitter, and
 `ImuPayloadTest.theTimelineDoesNotDriftAcrossARealLengthWindow` asserts both the
 bound and the alternation. It fails by 1 193 us on the old expression.
 
+**How much this actually cost, corrected 2026-09-27 against a prod artifact.** The
+test's 2 512.5 us is the WORST case — a period exactly half a microsecond off the
+grid, where every gap loses 500 ns. The Armor 22's real period is ~2 512.014 us
+(measured: 2 354 gaps of 2 512 us and 33 of 2 513 us over one window), i.e. within
+14 ns of a whole microsecond, so the old encoder lost only ~33 us across a
+6-second window here — not 1.2 ms.
+
+Which means the audit's 1.173 ms boundary discrepancy was NOT mostly this bug, and
+the "agrees within 2 %" in the commit that fixed it was a coincidence rather than a
+cross-check. The remaining explanation is the other one the audit itself named and
+this document's decoder guidance addresses: `t0_ms` is an integer millisecond
+anchor derived through `imuWallClockFor`, whose re-anchoring is invisible in the
+payload. Reassembling by decoded WALL time inherits that; reassembling from `t0_ns`
+does not. The truncation fix is still right — bounded beats accumulating, and a
+device whose period lands near .5 us would drift badly — but it was not the cause
+of what the audit saw.
+
 **Decoders should read absolute monotonic microseconds as `t0_ns / 1000 +
 cumsum(dt_us)`.** `t0_ns` is the exact nanosecond anchor on the same clock the
 samples were stamped on; `t0_ms` exists only so a window can be FOUND in wall time,

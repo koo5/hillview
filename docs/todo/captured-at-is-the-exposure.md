@@ -185,12 +185,22 @@ that, so a new value propagates on its own.
 **Already done, 2026-09-27, so this plan needs NO server deploy of its own:**
 `capture_timing` is pre-declared in `BrowserMetadata` and listed in
 `PROVENANCE_KEYS`, as an untyped dict with nothing sending it yet. A top-level key
-is the only thing that requires a worker deploy; keys nested inside one ride
-through untouched, and `exif_data` ships wholesale in the API response (the typed
-`attitude`/`fix`/`lens`/`inertial` projections are a convenience on top of it, not
-the route). So `source`, an exposure value on the monotonic clock, and the
-press→exposure lag all go INSIDE `capture_timing` later, for free. A line in the
-typed projection's allowlist remains optional — for type-checking, whenever.
+is the only thing that requires a WORKER deploy; keys nested inside one are stored
+untouched. So `source`, an exposure value on the monotonic clock, and the
+press→exposure lag all go INSIDE `capture_timing` later with no worker deploy.
+
+**The API is a different story, corrected 2026-09-27 against prod.** Only the
+OWNER endpoint ships `exif_data` wholesale (`photo_routes.py:986`). The PUBLIC
+endpoint does not: it serves the typed `attitude`/`fix`/`lens`/`inertial`
+projections plus `_curate_exif`, a deliberately small camera-settings subset that
+excludes anything locating, because the raw dump can carry more precise position
+than we publish. Verified on a real prod photo — the public response has 35 keys
+and `exif_data` is not among them.
+
+So a new field is visible to the photo's owner immediately, and invisible
+PUBLICLY until `_IMU_WINDOW_FIELDS` / a `capture_timing` allowlist gets its typed
+line. That is an API deploy, not a worker one, and it can be pre-declared the same
+way if a second deploy is worth avoiding.
 
 **And rung 3 is already on the server.** The metadata overwrite hits
 `DateTimeOriginal` only; the camera's own `SubSecDateTimeOriginal` survives beside
