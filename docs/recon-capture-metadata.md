@@ -482,6 +482,25 @@ What actually happens:
   passes. Measured confirmation: `attitude.age_ms` of 25–41 ms on real captures is
   exactly the 30 ms `SENSOR_DELAY_NORMAL_US` period.
 
+  **Root cause, `358e0ab0` "there is no accuracy", 2026-01-09, in the TAURI app.**
+  `ACCURACY_THRESHOLD` was documented as "Minimum accuracy change to trigger update
+  (**degrees**)" — accuracy was a float angle. That commit replaced it with
+  `magnetometerCalibrationStatus`, a 0–3 LEVEL, and dropped `headingAccuracy`. The
+  comparison was never updated, so a threshold meaning "one degree" now reads "one
+  calibration level" and the literal `0` argument trips it against any stored level of
+  1–3. A units change that outran its threshold, not a stray constant.
+
+  Two things follow from where it came from. `shared-kt` IS that plugin's code, so this
+  has been live in the SHIPPED Tauri app since January, writing a bearings row per
+  sample there too. And the hysteresis was always meant for the UI — needle jitter —
+  which says where it belongs: at the consumer, not at the source.
+
+  **So the shape is three consumers at three rates, currently conflated in one broken
+  gate.** The attitude ring wants every sample; the UI wants hysteresis; the tracking
+  table wants explicit pacing. Repairing the gate would serve none of them — it would
+  throttle the stamp and the ring to fix a row-rate problem that deserves its own
+  decision.
+
   Two consequences. The 0.07° above is sample-to-sample noise rather than
   threshold staggering, so the *conclusion* of this section stands (there is no pitch
   election, and `attitude.pitch_deg` is the one to use) while its stated mechanism was
