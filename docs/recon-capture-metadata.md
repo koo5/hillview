@@ -437,18 +437,49 @@ the confusion is built into stored data and will outlive anyone's memory of it.
 
 | where | what it means | who reads it |
 |---|---|---|
-| `photos.pitch` (alembic 032) | the ELECTED stamp — what the photo claims | the viewer's up/down navigation, the recon bench's frame manifest |
+| `photos.pitch` (alembic 032) | the tilt that rode along with the elected BEARING — see the correction below | the viewer's up/down navigation, the recon bench's frame manifest |
 | `exif_data->'gps'->'pitch'` | the same number one layer earlier, on its way to that column | `docs/todo/pitch-backfill-from-usercomment.md`, `enrich/`'s photo mirror |
-| `attitude.pitch_deg` in the UserComment | what the SENSOR read at that instant | anything reconstructing, via the public detail endpoint |
+| `attitude.pitch_deg` in the UserComment | what the SENSOR read, freshest at the shutter | anything reconstructing, via the public detail endpoint |
 
-The first two are one value with two names. The third is a **different claim**
-that happens to carry the same number most of the time, and the distinction is
-the whole point of the user's rule for this work: *"instead of the fake 0f, we
-should still record actual sensor pitch and roll, even when bearing is
-overriden."* When a stamp was overridden by a map placement or a car course, the
-elected pitch is a claim and only `attitude.pitch_deg` is still a measurement.
-It is exactly the relation `bearing` has to `attitude.heading_true_deg`, and it
-is recorded at the call site in `PhotoEntity.pitch` / `PhotoEntity.attitudeJson`.
+The first two are one value with two names. The third is the same quantity read at
+a different moment — and the practical rule stands: for anything reconstructing,
+use `attitude.pitch_deg`. It exists because of the user's rule for this work:
+*"instead of the fake 0f, we should still record actual sensor pitch and roll,
+even when bearing is overriden."* Recorded at the call site in
+`PhotoEntity.pitch` / `PhotoEntity.attitudeJson`.
+
+### CORRECTION 2026-09-27: there is no pitch election
+
+This section used to call the first two "the ELECTED stamp — what the photo
+claims" and the third "a different claim", by analogy with
+`bearing` ↔ `attitude.heading_true_deg`. **The analogy does not hold, and "elected
+pitch" is the wrong name.** Raised by the user: there is no pitch election UI, and
+there isn't one because nothing elects pitch.
+
+What actually happens:
+
+- **Pitch is never chosen.** `BearingState.pitch` is documented as "tilt, when the
+  elected source has one" — it rides along with whichever BEARING source won, and
+  sources that do not measure tilt write **null**. So in the overridden case (map
+  placement, car course) there is no elected pitch to be a claim; there is no
+  pitch at all.
+- **Both numbers come from one sensor path**, `EnhancedSensorService.sendSensorData`,
+  which EMA-smooths and then SUPPRESSES the emission unless heading, pitch or roll
+  moved by at least `PITCH_THRESHOLD`/`HEADING_THRESHOLD`/`ROLL_THRESHOLD` = **1.0°**.
+  Every consumer therefore sees a staggered signal that steps in ~1° units.
+- So the two stored numbers are the same smoothed measurement captured at two
+  different moments of that gated stream: `attitude.pitch_deg` is the freshest at
+  the shutter, `gps.pitch` is whatever was attached when the bearing was last set.
+  On a real prod photo they differ by **0.07°** (6.9916 vs 6.9223) — a difference
+  bounded by the threshold, not by a decision. The stamp refiner is not involved;
+  it does not touch pitch.
+
+For bearing, elected-versus-measured is a real semantic distinction: a hand-set
+arrow or a car course genuinely is a different claim from the compass. For pitch it
+collapses into **fresh versus up-to-1°-stale**, which means `gps.pitch` carries no
+meaning that `attitude.pitch_deg` lacks — only more staleness. Worth deciding
+whether it should keep being written at all; nothing about pitch needs the election
+machinery it is currently borrowing.
 
 ### Why `gps` is the wrong name, and why it stays
 
@@ -502,8 +533,9 @@ lost an election.
 ### Verified on prod, 2026-09-27 — and the elected pitch is owner-only
 
 An owner-authenticated fetch of a real prod photo settled the three homes on live
-data: `exif_data['gps']['pitch']` 6.9223 (elected) beside `attitude.pitch_deg`
-6.9916 (measured), the intended split, differing by 0.07°.
+data: `exif_data['gps']['pitch']` 6.9223 beside `attitude.pitch_deg` 6.9916,
+differing by 0.07° — which turned out to be staleness, not a split. See the
+correction above.
 
 But `pitch` is **not a key in either API response**, public or owner — the column
 is not projected at all. So the elected pitch reaches consumers ONLY through
