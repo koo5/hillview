@@ -187,7 +187,10 @@ actual fun rememberPhotoCapture(): PhotoCapture {
  * written into the JPEG's EXIF. Battery discipline: camera and sensors run
  * only while the capture screen is open — release() tears everything down.
  */
-@OptIn(ExperimentalCamera2Interop::class)
+// androidx.annotation.OptIn, NOT kotlin.OptIn: ExperimentalCamera2Interop is an
+// androidx @RequiresOptIn marker, and Kotlin's @OptIn has no effect on one — the
+// class-level opt-in was inert while only the per-function one below worked.
+@androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
 private class AndroidPhotoCapture(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,

@@ -434,7 +434,14 @@ class StreamPhotoLoader {
         // Extract sizes object (Hillview endpoint)
         val sizes = photoJson["sizes"]?.jsonObject?.let { sizesObj ->
             sizesObj.mapNotNull { (key, value) ->
-                value.jsonObject?.let { sizeObj ->
+                // NOT a null check, despite the shape: `jsonObject` is non-null in
+                // serialization 1.5.1 (Tauri) and 1.9.0 (frontend2) alike, and THROWS
+                // on anything that is not an object. So a malformed `sizes` entry
+                // aborts the whole photo's parse rather than being skipped, which the
+                // surrounding mapNotNull implies it would be. Left as is — making it
+                // skip (`value as? JsonObject`) is an error-handling decision, not a
+                // warning fix.
+                value.jsonObject.let { sizeObj ->
                     val sizeUrl = sizeObj["url"]?.jsonPrimitive?.content
                     val width = sizeObj["width"]?.jsonPrimitive?.intOrNull
                     val height = sizeObj["height"]?.jsonPrimitive?.intOrNull

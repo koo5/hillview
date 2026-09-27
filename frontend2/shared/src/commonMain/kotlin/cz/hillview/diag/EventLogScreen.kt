@@ -44,6 +44,11 @@ fun EventLogScreen(onBack: () -> Unit) {
     var events by remember { mutableStateOf<List<LoggedEvent>>(emptyList()) }
     var category by remember { mutableStateOf<String?>(null) }
     var crash by remember { mutableStateOf(lastCrashReport()) }
+    // LocalClipboardManager is deprecated for LocalClipboard, whose setClipEntry is
+    // suspend and takes a platform ClipEntry, so a commonMain copy button needs a
+    // scope here AND a text->ClipEntry path per platform (CMP 1.11.1 ships no common
+    // helper for it). Parked: two copy buttons, and the deprecated API still works.
+    @Suppress("DEPRECATION")
     val clipboard = LocalClipboardManager.current
 
     LaunchedEffect(Unit) {

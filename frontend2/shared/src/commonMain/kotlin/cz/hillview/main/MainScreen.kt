@@ -506,6 +506,9 @@ fun MainScreen(
                     kotlinx.coroutines.delay(1_000)
                 }
             }
+            // Deprecated for LocalClipboard; see EventLogScreen for why that migration
+            // is parked rather than done.
+            @Suppress("DEPRECATION")
             val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showStats = false },

@@ -1,7 +1,6 @@
 package cz.hillview.map
 
 import android.content.Context
-import android.preference.PreferenceManager
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourcePolicy
@@ -44,7 +43,16 @@ private class TemplateTileSource(
  */
 fun initOsmdroid(context: Context) {
     Configuration.getInstance().apply {
-        load(context, PreferenceManager.getDefaultSharedPreferences(context))
+        // Spelled out rather than via the deprecated framework
+        // PreferenceManager.getDefaultSharedPreferences(context), whose whole body
+        // this is: the file name is the same, so osmdroid keeps reading the config
+        // it has already written on users' phones.
+        load(
+            context,
+            context.getSharedPreferences(
+                "${context.packageName}_preferences", Context.MODE_PRIVATE,
+            ),
+        )
         userAgentValue = context.packageName
         osmdroidBasePath = context.getExternalFilesDir(null) ?: context.filesDir
         osmdroidTileCache = osmdroidBasePath.resolve("tiles")

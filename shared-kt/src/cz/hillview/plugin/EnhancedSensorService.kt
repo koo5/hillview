@@ -894,6 +894,7 @@ class EnhancedSensorService(
      * @param orientation Device orientation enum
      * @return Remapped rotation matrix appropriate for the given orientation
      */
+    @Suppress("REDUNDANT_ELSE_IN_WHEN") // see the `else` below: deliberate, not forgotten
     private fun remapCoordinatesForOrientation(rotationMatrix: FloatArray, orientation: DeviceOrientation): FloatArray {
         val remappedMatrix = FloatArray(9)
 

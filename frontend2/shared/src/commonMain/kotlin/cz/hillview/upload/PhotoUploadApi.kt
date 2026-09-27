@@ -18,7 +18,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.errors.IOException
+import kotlinx.io.IOException
 
 /** Rewrites dev worker URLs for the platform (emulator loopback). */
 expect fun mapWorkerUrl(url: String): String

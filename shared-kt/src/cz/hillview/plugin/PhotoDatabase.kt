@@ -35,16 +35,16 @@ abstract class PhotoDatabase : RoomDatabase() {
         private var INSTANCE: PhotoDatabase? = null
 
         private val MIGRATION_6_7 = object : Migration(6, 7) {
-            override fun migrate(database: SupportSQLiteDatabase) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 // Rename timestamp column to capturedAt
-                database.execSQL("ALTER TABLE photos RENAME COLUMN timestamp TO capturedAt")
+                db.execSQL("ALTER TABLE photos RENAME COLUMN timestamp TO capturedAt")
             }
         }
 
         private val MIGRATION_7_8 = object : Migration(7, 8) {
-            override fun migrate(database: SupportSQLiteDatabase) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 // Create initial bearings and locations tables without normalized sources
-                database.execSQL("""
+                db.execSQL("""
                     CREATE TABLE IF NOT EXISTS bearings (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                         timestamp INTEGER NOT NULL,
@@ -58,7 +58,7 @@ abstract class PhotoDatabase : RoomDatabase() {
                     )
                 """)
 
-                database.execSQL("""
+                db.execSQL("""
                     CREATE TABLE IF NOT EXISTS locations (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                         timestamp INTEGER NOT NULL,
@@ -76,21 +76,21 @@ abstract class PhotoDatabase : RoomDatabase() {
         }
 
         private val MIGRATION_8_9 = object : Migration(8, 9) {
-            override fun migrate(database: SupportSQLiteDatabase) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 // Create sources table
-                database.execSQL("""
+                db.execSQL("""
                     CREATE TABLE IF NOT EXISTS sources (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                         name TEXT NOT NULL
                     )
                 """)
-                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_sources_name ON sources (name)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_sources_name ON sources (name)")
 
                 // Drop old tables and create new ones with normalized schema
-                database.execSQL("DROP TABLE IF EXISTS bearings")
-                database.execSQL("DROP TABLE IF EXISTS locations")
+                db.execSQL("DROP TABLE IF EXISTS bearings")
+                db.execSQL("DROP TABLE IF EXISTS locations")
 
-                database.execSQL("""
+                db.execSQL("""
                     CREATE TABLE bearings (
                         timestamp INTEGER PRIMARY KEY NOT NULL,
                         trueHeading REAL NOT NULL,
@@ -103,9 +103,9 @@ abstract class PhotoDatabase : RoomDatabase() {
                         FOREIGN KEY (sourceId) REFERENCES sources (id)
                     )
                 """)
-                database.execSQL("CREATE INDEX IF NOT EXISTS index_bearings_sourceId ON bearings (sourceId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_bearings_sourceId ON bearings (sourceId)")
 
-                database.execSQL("""
+                db.execSQL("""
                     CREATE TABLE locations (
                         timestamp INTEGER PRIMARY KEY NOT NULL,
                         latitude REAL NOT NULL,
@@ -119,15 +119,15 @@ abstract class PhotoDatabase : RoomDatabase() {
                         FOREIGN KEY (sourceId) REFERENCES sources (id)
                     )
                 """)
-                database.execSQL("CREATE INDEX IF NOT EXISTS index_locations_sourceId ON locations (sourceId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_locations_sourceId ON locations (sourceId)")
             }
         }
 
 		private val MIGRATION_9_10 = object : Migration(9, 10) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// DROP COLUMN not supported on SQLite < 3.35.0 (Android < API 34)
 				// Recreate the table without headingAccuracy
-				database.execSQL("""
+				db.execSQL("""
 					CREATE TABLE bearings_new (
 						timestamp INTEGER PRIMARY KEY NOT NULL,
 						trueHeading REAL NOT NULL,
@@ -139,29 +139,29 @@ abstract class PhotoDatabase : RoomDatabase() {
 						FOREIGN KEY (sourceId) REFERENCES sources (id)
 					)
 				""")
-				database.execSQL("""
+				db.execSQL("""
 					INSERT INTO bearings_new (timestamp, trueHeading, magneticHeading, accuracyLevel, sourceId, pitch, roll)
 					SELECT timestamp, trueHeading, magneticHeading, accuracyLevel, sourceId, pitch, roll FROM bearings
 				""")
-				database.execSQL("DROP TABLE bearings")
-				database.execSQL("ALTER TABLE bearings_new RENAME TO bearings")
-				database.execSQL("CREATE INDEX IF NOT EXISTS index_bearings_sourceId ON bearings (sourceId)")
+				db.execSQL("DROP TABLE bearings")
+				db.execSQL("ALTER TABLE bearings_new RENAME TO bearings")
+				db.execSQL("CREATE INDEX IF NOT EXISTS index_bearings_sourceId ON bearings (sourceId)")
 			}
 		}
 
 		private val MIGRATION_10_11 = object : Migration(10, 11) {
-			override fun migrate(database: SupportSQLiteDatabase) {
-				database.execSQL("ALTER TABLE photos ADD COLUMN serverPhotoId TEXT")
+			override fun migrate(db: SupportSQLiteDatabase) {
+				db.execSQL("ALTER TABLE photos ADD COLUMN serverPhotoId TEXT")
 			}
 		}
 
 		private val MIGRATION_11_12 = object : Migration(11, 12) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// Add deleted column to photos table
-				database.execSQL("ALTER TABLE photos ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+				db.execSQL("ALTER TABLE photos ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
 
 				// Create edits table for pending photo edit actions
-				database.execSQL("""
+				db.execSQL("""
 					CREATE TABLE IF NOT EXISTS edits (
 						id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 						photoId TEXT NOT NULL,
@@ -172,22 +172,22 @@ abstract class PhotoDatabase : RoomDatabase() {
 						FOREIGN KEY (photoId) REFERENCES photos (id) ON DELETE CASCADE
 					)
 				""")
-				database.execSQL("CREATE INDEX IF NOT EXISTS idx_edits_photo_id ON edits (photoId)")
-				database.execSQL("CREATE INDEX IF NOT EXISTS idx_edits_created_at ON edits (createdAt)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS idx_edits_photo_id ON edits (photoId)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS idx_edits_created_at ON edits (createdAt)")
 			}
 		}
 
 		private val MIGRATION_12_13 = object : Migration(12, 13) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// Add version column for re-upload support (e.g., changing anonymization settings)
-				database.execSQL("ALTER TABLE photos ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+				db.execSQL("ALTER TABLE photos ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
 				// Add anonymization override column (null = auto-detect, "[]" = skip, "[{...}]" = manual)
-				database.execSQL("ALTER TABLE photos ADD COLUMN anonymizationOverride TEXT")
+				db.execSQL("ALTER TABLE photos ADD COLUMN anonymizationOverride TEXT")
 			}
 		}
 
 		private val MIGRATION_13_14 = object : Migration(13, 14) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// bearings and locations are ephemeral by construction —
 				// dumpAndClear keeps a five-minute window — so there is nothing
 				// here worth carrying across. Drop and recreate the way
@@ -201,23 +201,23 @@ abstract class PhotoDatabase : RoomDatabase() {
 				// "manual"), so the old names would only linger as dead rows
 				// holding ids nothing writes again. Children first, so the drop
 				// leaves no dangling reference.
-				database.execSQL("DROP TABLE IF EXISTS bearings")
-				database.execSQL("DROP TABLE IF EXISTS locations")
-				database.execSQL("DROP TABLE IF EXISTS sources")
+				db.execSQL("DROP TABLE IF EXISTS bearings")
+				db.execSQL("DROP TABLE IF EXISTS locations")
+				db.execSQL("DROP TABLE IF EXISTS sources")
 
-				database.execSQL("""
+				db.execSQL("""
 					CREATE TABLE IF NOT EXISTS sources (
 						id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 						name TEXT NOT NULL
 					)
 				""")
-				database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_sources_name ON sources (name)")
+				db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_sources_name ON sources (name)")
 
 				// PRIMARY KEY (timestamp, sourceId): one row per source per
 				// millisecond, instead of one row per millisecond overall.
 				// detail and electedSourceId land now so the later passes that
 				// fill them need no second migration; both stay NULL until then.
-				database.execSQL("""
+				db.execSQL("""
 					CREATE TABLE bearings (
 						timestamp INTEGER NOT NULL,
 						trueHeading REAL NOT NULL,
@@ -233,10 +233,10 @@ abstract class PhotoDatabase : RoomDatabase() {
 						FOREIGN KEY (electedSourceId) REFERENCES sources (id)
 					)
 				""")
-				database.execSQL("CREATE INDEX IF NOT EXISTS index_bearings_sourceId ON bearings (sourceId)")
-				database.execSQL("CREATE INDEX IF NOT EXISTS index_bearings_electedSourceId ON bearings (electedSourceId)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS index_bearings_sourceId ON bearings (sourceId)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS index_bearings_electedSourceId ON bearings (electedSourceId)")
 
-				database.execSQL("""
+				db.execSQL("""
 					CREATE TABLE locations (
 						timestamp INTEGER NOT NULL,
 						latitude REAL NOT NULL,
@@ -254,44 +254,44 @@ abstract class PhotoDatabase : RoomDatabase() {
 						FOREIGN KEY (electedSourceId) REFERENCES sources (id)
 					)
 				""")
-				database.execSQL("CREATE INDEX IF NOT EXISTS index_locations_sourceId ON locations (sourceId)")
-				database.execSQL("CREATE INDEX IF NOT EXISTS index_locations_electedSourceId ON locations (electedSourceId)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS index_locations_sourceId ON locations (sourceId)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS index_locations_electedSourceId ON locations (electedSourceId)")
 			}
 		}
 
 		private val MIGRATION_14_15 = object : Migration(14, 15) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// photos is DURABLE (unlike the tracking tables), so this is
 				// additive: the stamp-provenance columns the fast-write
 				// upload path sends in the worker `metadata` field. Old rows
 				// stay null and the worker falls back to their files' EXIF.
-				database.execSQL("ALTER TABLE photos ADD COLUMN bearingSource TEXT")
-				database.execSQL("ALTER TABLE photos ADD COLUMN locationSource TEXT")
-				database.execSQL("ALTER TABLE photos ADD COLUMN locationAgeMs INTEGER")
-				database.execSQL("ALTER TABLE photos ADD COLUMN exposureJson TEXT")
+				db.execSQL("ALTER TABLE photos ADD COLUMN bearingSource TEXT")
+				db.execSQL("ALTER TABLE photos ADD COLUMN locationSource TEXT")
+				db.execSQL("ALTER TABLE photos ADD COLUMN locationAgeMs INTEGER")
+				db.execSQL("ALTER TABLE photos ADD COLUMN exposureJson TEXT")
 			}
 		}
 
 		private val MIGRATION_15_16 = object : Migration(15, 16) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// The stamp refiner's marker and its upload gate (see
 				// PhotoEntity.stampRefinedAt / uploadHoldUntil).
-				database.execSQL("ALTER TABLE photos ADD COLUMN stampRefinedAt INTEGER")
-				database.execSQL("ALTER TABLE photos ADD COLUMN uploadHoldUntil INTEGER NOT NULL DEFAULT 0")
+				db.execSQL("ALTER TABLE photos ADD COLUMN stampRefinedAt INTEGER")
+				db.execSQL("ALTER TABLE photos ADD COLUMN uploadHoldUntil INTEGER NOT NULL DEFAULT 0")
 			}
 		}
 
 		private val MIGRATION_16_17 = object : Migration(16, 17) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// Per-photo licence (see PhotoEntity.license). Null on every
 				// existing row, which is what keeps them uploadable: the
 				// upload falls back to the global setting for those.
-				database.execSQL("ALTER TABLE photos ADD COLUMN license TEXT")
+				db.execSQL("ALTER TABLE photos ADD COLUMN license TEXT")
 			}
 		}
 
 		private val MIGRATION_17_18 = object : Migration(17, 18) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// The sensor tables now live in their own file
 				// (GeoTrackingDatabase) so that a bulk delete of sensor rows
 				// can no longer stall a photo write. Dropped rather than
@@ -301,31 +301,31 @@ abstract class PhotoDatabase : RoomDatabase() {
 				//
 				// Children before parent: bearings and locations carry foreign
 				// keys into sources.
-				database.execSQL("DROP TABLE IF EXISTS bearings")
-				database.execSQL("DROP TABLE IF EXISTS locations")
-				database.execSQL("DROP TABLE IF EXISTS sources")
+				db.execSQL("DROP TABLE IF EXISTS bearings")
+				db.execSQL("DROP TABLE IF EXISTS locations")
+				db.execSQL("DROP TABLE IF EXISTS sources")
 			}
 		}
 
 		private val MIGRATION_18_19 = object : Migration(18, 19) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// Camera elevation at the shutter (see PhotoEntity.pitch).
 				// Null on every existing row, which is what the viewer wants:
 				// "not recorded" must stay distinct from "level".
-				database.execSQL("ALTER TABLE photos ADD COLUMN pitch REAL")
+				db.execSQL("ALTER TABLE photos ADD COLUMN pitch REAL")
 			}
 		}
 
 		private val MIGRATION_19_20 = object : Migration(19, 20) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// The alternative position stream (PhotoEntity.altLocationJson).
 				// Null on existing rows: they were taken before it was kept.
-				database.execSQL("ALTER TABLE photos ADD COLUMN altLocationJson TEXT")
+				db.execSQL("ALTER TABLE photos ADD COLUMN altLocationJson TEXT")
 			}
 		}
 
 		private val MIGRATION_20_21 = object : Migration(20, 21) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// altitude becomes NULLABLE (see PhotoEntity.altitude). Every
 				// other photos migration has been an ALTER TABLE ADD COLUMN;
 				// this one cannot be, because SQLite has no way to drop a NOT
@@ -347,7 +347,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 				// cascade. Were that ever to change, the rename below would
 				// fail on the dangling reference and the whole migration would
 				// roll back — loudly, not silently.
-				database.execSQL("""
+				db.execSQL("""
 					CREATE TABLE photos_new (
 						id TEXT NOT NULL,
 						filename TEXT NOT NULL,
@@ -384,7 +384,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 						PRIMARY KEY(id)
 					)
 				""")
-				database.execSQL("""
+				db.execSQL("""
 					INSERT INTO photos_new (
 						id, filename, path, latitude, longitude, altitude, bearing,
 						capturedAt, accuracy, width, height, fileSize, createdAt,
@@ -404,22 +404,22 @@ abstract class PhotoDatabase : RoomDatabase() {
 						license, pitch, altLocationJson
 					FROM photos
 				""")
-				database.execSQL("DROP TABLE photos")
-				database.execSQL("ALTER TABLE photos_new RENAME TO photos")
+				db.execSQL("DROP TABLE photos")
+				db.execSQL("ALTER TABLE photos_new RENAME TO photos")
 
 				// The indices go with the old table; recreate all five exactly
 				// as PhotoEntity declares them, or Room's identity check fails
 				// on the next open.
-				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_created_at ON photos (createdAt)")
-				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_upload_status_created_at ON photos (uploadStatus, createdAt)")
-				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_location ON photos (latitude, longitude)")
-				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_file_hash ON photos (fileHash)")
-				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_path ON photos (path)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_created_at ON photos (createdAt)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_upload_status_created_at ON photos (uploadStatus, createdAt)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_location ON photos (latitude, longitude)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_file_hash ON photos (fileHash)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_path ON photos (path)")
 			}
 		}
 
 		private val MIGRATION_21_22 = object : Migration(21, 22) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// latitude and longitude become NULLABLE (see PhotoEntity),
 				// the same rebuild MIGRATION_20_21 did for altitude — SQLite
 				// cannot drop a NOT NULL in place. Same foreign-key reasoning
@@ -432,7 +432,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 				// import path defaulting a file with no GPS tags. A single
 				// zero coordinate with a real other one is left alone — the
 				// equator and the meridian are real, Null Island is not.
-				database.execSQL("""
+				db.execSQL("""
 					CREATE TABLE photos_new (
 						id TEXT NOT NULL,
 						filename TEXT NOT NULL,
@@ -469,7 +469,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 						PRIMARY KEY(id)
 					)
 				""")
-				database.execSQL("""
+				db.execSQL("""
 					INSERT INTO photos_new (
 						id, filename, path, latitude, longitude, altitude, bearing,
 						capturedAt, accuracy, width, height, fileSize, createdAt,
@@ -492,13 +492,13 @@ abstract class PhotoDatabase : RoomDatabase() {
 						license, pitch, altLocationJson
 					FROM photos
 				""")
-				database.execSQL("DROP TABLE photos")
-				database.execSQL("ALTER TABLE photos_new RENAME TO photos")
-				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_created_at ON photos (createdAt)")
-				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_upload_status_created_at ON photos (uploadStatus, createdAt)")
-				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_location ON photos (latitude, longitude)")
-				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_file_hash ON photos (fileHash)")
-				database.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_path ON photos (path)")
+				db.execSQL("DROP TABLE photos")
+				db.execSQL("ALTER TABLE photos_new RENAME TO photos")
+				db.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_created_at ON photos (createdAt)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_upload_status_created_at ON photos (uploadStatus, createdAt)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_location ON photos (latitude, longitude)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_file_hash ON photos (fileHash)")
+				db.execSQL("CREATE INDEX IF NOT EXISTS idx_photos_path ON photos (path)")
 			}
 		}
 
@@ -512,8 +512,8 @@ abstract class PhotoDatabase : RoomDatabase() {
 		 * to carry across and nothing already there to get wrong.
 		 */
 		private val MIGRATION_22_23 = object : Migration(22, 23) {
-			override fun migrate(database: SupportSQLiteDatabase) {
-				database.execSQL("""
+			override fun migrate(db: SupportSQLiteDatabase) {
+				db.execSQL("""
 					CREATE TABLE IF NOT EXISTS photo_outbox (
 						userId TEXT NOT NULL,
 						photoId TEXT NOT NULL,
@@ -530,29 +530,29 @@ abstract class PhotoDatabase : RoomDatabase() {
 						FOREIGN KEY(photoId) REFERENCES photos(id) ON UPDATE NO ACTION ON DELETE CASCADE
 					)
 				""")
-				database.execSQL(
+				db.execSQL(
 					"CREATE INDEX IF NOT EXISTS idx_outbox_photo_id ON photo_outbox(photoId)"
 				)
-				database.execSQL(
+				db.execSQL(
 					"CREATE INDEX IF NOT EXISTS idx_outbox_user_changed ON photo_outbox(userId, changedAt)"
 				)
 			}
 		}
 
 		private val MIGRATION_23_24 = object : Migration(23, 24) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// What the DEVICE measured at the shutter, as opposed to what
 				// the photo is stamped as facing (PhotoEntity.attitudeJson):
 				// roll — which had never left the phone at all — beside the
 				// raw and corrected headings, the fusion that produced them,
 				// the quantized device pose and the landscape-workaround flag.
 				// Null on existing rows: they were taken before it was kept.
-				database.execSQL("ALTER TABLE photos ADD COLUMN attitudeJson TEXT")
+				db.execSQL("ALTER TABLE photos ADD COLUMN attitudeJson TEXT")
 			}
 		}
 
 		private val MIGRATION_24_25 = object : Migration(24, 25) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// The rest of what the phone knows at the shutter and had been
 				// throwing away — see docs/recon-capture-metadata.md. Three
 				// columns in ONE migration rather than three versions: they are
@@ -560,8 +560,8 @@ abstract class PhotoDatabase : RoomDatabase() {
 				// should see it that way.
 				//
 				// Null on existing rows: taken before any of it was kept.
-				database.execSQL("ALTER TABLE photos ADD COLUMN fixJson TEXT")
-				database.execSQL("ALTER TABLE photos ADD COLUMN lensJson TEXT")
+				db.execSQL("ALTER TABLE photos ADD COLUMN fixJson TEXT")
+				db.execSQL("ALTER TABLE photos ADD COLUMN lensJson TEXT")
 				// `motionJson`, its name AT THE TIME. A migration is history and
 				// must not be rewritten: a blanket motionJson -> inertialJson
 				// rename swept this line up, and then v28's RENAME COLUMN failed
@@ -569,12 +569,12 @@ abstract class PhotoDatabase : RoomDatabase() {
 				// still working on a device that had the original v25. The
 				// emulator's whole-chain test caught it; the hand-written 27->28
 				// check did not, because it only ever started at 27.
-				database.execSQL("ALTER TABLE photos ADD COLUMN motionJson TEXT")
+				db.execSQL("ALTER TABLE photos ADD COLUMN motionJson TEXT")
 			}
 		}
 
 		private val MIGRATION_25_26 = object : Migration(25, 26) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// The raw IMU window, as the payload that travels with the photo
 				// (docs/recon-capture-metadata.md, Phase 5). One column, and the
 				// only BULK one on this table — tens of kilobytes rather than a
@@ -582,12 +582,12 @@ abstract class PhotoDatabase : RoomDatabase() {
 				// is held here instead of re-read from imu_samples at send time.
 				//
 				// Null on existing rows: their windows were never kept.
-				database.execSQL("ALTER TABLE photos ADD COLUMN imuSamplesJson TEXT")
+				db.execSQL("ALTER TABLE photos ADD COLUMN imuSamplesJson TEXT")
 			}
 		}
 
 		private val MIGRATION_26_27 = object : Migration(26, 27) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// Which enrichers still hold this row's upload (PhotoEntity
 				// .uploadHoldReasons). The hold had one deadline and two holders,
 				// so whichever finished first freed the row out from under the
@@ -596,19 +596,19 @@ abstract class PhotoDatabase : RoomDatabase() {
 				//
 				// 0 on existing rows: nothing is mid-enrichment across an upgrade,
 				// and StartupReconciler clears stale holds at launch anyway.
-				database.execSQL(
+				db.execSQL(
 					"ALTER TABLE photos ADD COLUMN uploadHoldReasons INTEGER NOT NULL DEFAULT 0",
 				)
 			}
 		}
 
 		private val MIGRATION_27_28 = object : Migration(27, 28) {
-			override fun migrate(database: SupportSQLiteDatabase) {
+			override fun migrate(db: SupportSQLiteDatabase) {
 				// `motion` -> `inertial`, renamed before anything deployed. The
 				// object's flagship field is GRAVITY, which is at full strength when
 				// there is no motion at all, so the old name said the opposite of
 				// what the value means. See PhotoEntity.inertialJson.
-				database.execSQL("ALTER TABLE photos RENAME COLUMN motionJson TO inertialJson")
+				db.execSQL("ALTER TABLE photos RENAME COLUMN motionJson TO inertialJson")
 			}
 		}
 

@@ -64,22 +64,22 @@ abstract class GeoTrackingDatabase : RoomDatabase() {
         private var INSTANCE: GeoTrackingDatabase? = null
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
-            override fun migrate(database: SupportSQLiteDatabase) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 // What the emitting sensor said about itself, per sample
                 // (BearingEntity.fusedSensorAccuracy) — beside accuracyLevel, which
                 // is the bare magnetometer's latched calibration. Null on
                 // existing rows: they were written before it was kept.
-                database.execSQL("ALTER TABLE bearings ADD COLUMN fusedSensorAccuracy INTEGER")
+                db.execSQL("ALTER TABLE bearings ADD COLUMN fusedSensorAccuracy INTEGER")
             }
         }
 
         private val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(database: SupportSQLiteDatabase) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 // The IMU window around a shutter (ImuSampleEntity) — written
                 // per CAPTURE, never continuously. No foreign key to sources:
                 // these are raw hardware, not an elect-able stream, and nothing
                 // arbitrates between two accelerometers.
-                database.execSQL(
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS imu_samples (
                         timestamp INTEGER NOT NULL,
@@ -93,20 +93,20 @@ abstract class GeoTrackingDatabase : RoomDatabase() {
                     )
                     """,
                 )
-                database.execSQL(
+                db.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_imu_samples_timestamp ON imu_samples(timestamp)",
                 )
             }
         }
 
         private val MIGRATION_3_4 = object : Migration(3, 4) {
-            override fun migrate(database: SupportSQLiteDatabase) {
+            override fun migrate(db: SupportSQLiteDatabase) {
                 // Which capture owns which samples (ImuClaimEntity). One row per
                 // PHOTO, not per sample: attribution has to be data, and a
                 // 6-byte owner column on every sample row would cost ~33 KB per
                 // photo here and tens of megabytes an hour in the CSV dump for
                 // the same answer.
-                database.execSQL(
+                db.execSQL(
                     """
                     CREATE TABLE IF NOT EXISTS imu_claims (
                         capturedAtMs INTEGER NOT NULL,
