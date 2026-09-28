@@ -80,8 +80,19 @@ data class CaptureTiming(
      *
      * Separate from [exposureSource] because the two can disagree: knowing when the
      * frame was exposed does not guarantee a sample from that moment, and a reader
-     * deserves to know which of the two it got. Every `age_ms` in the provenance is
-     * measured against whichever instant this names.
+     * deserves to know which of the two it got.
+     *
+     * MEANING NARROWED 2026-09-28. It used to name the instant every `age_ms` was
+     * measured against as well, which conflated "where the values came from" with
+     * "what they are dated against" and made both wrong whenever the lookup half
+     * failed — see [SensorSnapshot.poseReferenceMs]. Ages are now measured against
+     * `exposure_wall_ms` whenever it is present, and this field says only which
+     * stream answered. A reader wanting the age reference reads the presence of
+     * `exposure_wall_ms`; it needs no field of its own.
+     *
+     * It also covers only the POSE pair. The position is not looked up — there is no
+     * fix at the exposure to look up — it is interpolated there by `StampRefiner`,
+     * which reports that separately (see the note under [exposureSource]).
      */
     val poseReferencedTo: String? = null,
 
@@ -92,6 +103,15 @@ data class CaptureTiming(
      * this whole object exists to stop.
      */
     val exposureSource: String? = null,
+
+    // THREE MORE KEYS REACH THE SERVER IN THIS OBJECT AND ARE NOT FIELDS HERE:
+    // `refined_to`, `refined_position` and `refined_bearing`, added to the serialized
+    // JSON by StampRefiner.recordRefinement. They cannot be fields, because they are
+    // not known at the shutter — the refiner runs seconds later, after the fix that
+    // brackets the exposure from the far side has arrived, and writes them into the
+    // photo row it is already updating. Listed here so the object's full shape is
+    // documented in one place: anyone reading `capture_timing` from the server will
+    // see them, and grepping this data class alone would say they do not exist.
 )
 
 data class SensorSnapshot(
@@ -245,6 +265,13 @@ data class ImuWindow(
  * Split by LIFETIME, because the two halves are trustworthy in different ways:
  * the per-camera half is factory calibration that cannot change, the per-shot
  * half tracks focus and zoom and is only true of this frame.
+ *
+ * And the per-shot half is a PREVIEW frame's, not the still's — stated in the
+ * provenance as `frame_values_source: "preview"` with an `age_ms` beside it, because
+ * the difference is measurable and was measured: focus moved from 7.0279527 to
+ * 6.9795275 diopters DURING one press→exposure window (2026-09-27). Read
+ * [previewRollingShutterSkewNs] for why exactly one of these fields is renamed rather
+ * than merely dated.
  */
 data class LensStamp(
     // --- per shot, from the capture result ---
@@ -268,8 +295,37 @@ data class LensStamp(
      * printed "2.0×" on screen, while recording nothing.
      */
     val zoomRatio: Float? = null,
-    /** Readout skew top-to-bottom, ns. Rolling shutter, which matters in car mode. */
-    val rollingShutterSkewNs: Long? = null,
+    /**
+     * Readout skew top-to-bottom, ns — of a PREVIEW frame, which is why the name says
+     * so. Rolling shutter, which matters in car mode.
+     *
+     * Renamed 2026-09-28. Every field in this "per shot" half comes from the preview
+     * repeating request (`setSessionCaptureCallback` is on the PREVIEW builder; the
+     * still's `TotalCaptureResult` is not handed out by CameraX and the 2026-09-27
+     * experiment proved an `ImageCapture.Builder` callback sees the preview stream
+     * too). For most of them that is STALENESS, and [frameValuesAtMs] reports exactly
+     * how much. Skew is the one with a PHYSICAL reason to differ: readout time scales
+     * with the lines read, and preview and still run different sensor modes and
+     * resolutions — this device previews at a fraction of a 4624×3472 array. So the
+     * still's value is not merely a fresher version of this one, and a key called
+     * `rolling_shutter_skew_ns` would be read as the photo's own readout time by
+     * anyone modelling rolling-shutter distortion. 31.1 ms is ~4 cm of translation at
+     * walking pace, so the difference is not cosmetic for reconstruction.
+     *
+     * When a route to the still's own result appears, THAT gets the unqualified name
+     * and this one keeps its own.
+     */
+    val previewRollingShutterSkewNs: Long? = null,
+    /**
+     * When the preview frame these per-shot values came from was EXPOSED — its own
+     * `SENSOR_TIMESTAMP`, bridged onto `elapsedRealtimeNanos` and expressed as wall ms
+     * so it can be subtracted from the reference instant like every other `age_ms`.
+     *
+     * Null when the HAL reported no timestamp, and then no age is emitted rather than
+     * a dispatch-derived guess — the callback's own arrival time would fold in a
+     * queueing delay that was measured at ~104 ms ± 16 for the still's equivalent.
+     */
+    val frameValuesAtMs: Long? = null,
     /**
      * fx, fy, cx, cy, skew for THIS frame, in pixels of the pre-correction
      * active array. The HAL may vary it with focus and zoom, which is why it is
@@ -981,9 +1037,26 @@ fun attitudeProvenanceJson(s: SensorSnapshot): String? {
  * downstream needs changing — a staleness filter reading a negative offset as "fresh" is
  * right — but a reader expecting a non-negative age deserves to have been told.
  */
+/*
+ * UNGATED ON PURPOSE, 2026-09-28 — it used to return the exposure only when
+ * `poseReferencedTo == "exposure"`, i.e. only when BOTH rings answered. That gate made
+ * two cases lie in opposite directions:
+ *
+ *  - rings empty: the attitude is the press-time stamp, and measuring it against the
+ *    press reported ~25 ms when the reading was really ~340 ms stale with respect to
+ *    its own frame. That is item 1 of docs/todo/captured-at-is-the-exposure.md, still
+ *    intact for exactly the captures where the lookup failed.
+ *  - MIXED (attitude found, motion not, or the reverse): `poseReferencedTo` fell back to
+ *    "press" while the attitude object held an at-exposure sample, so its `age_ms` came
+ *    out NEGATIVE by the whole press→exposure gap.
+ *
+ * The instant the exposure was measured is a fact about the capture, not about whether a
+ * lookup succeeded. So: when it is known, every age is measured against it, and
+ * `pose_referenced_to` goes back to meaning only what it says — where the pose VALUES
+ * came from.
+ */
 fun SensorSnapshot.poseReferenceMs(): Long =
-    captureTiming?.takeIf { it.poseReferencedTo == "exposure" }?.exposureWallMs
-        ?: capturedAtMs
+    captureTiming?.exposureWallMs ?: capturedAtMs
 
 /**
  * `capture_timing` — see [CaptureTiming]. Always emits `captured_at_source`, because a
@@ -1098,9 +1171,21 @@ fun lensProvenanceJson(s: SensorSnapshot): String? {
         l.focusDistanceCalibration?.let { add("\"focus_distance_calibration\":\"$it\"") }
         l.focusInfinityRequested?.let { add("\"focus_infinity_requested\":$it") }
         l.zoomRatio?.let { add("\"zoom_ratio\":$it") }
-        l.rollingShutterSkewNs?.let { add("\"rolling_shutter_skew_ns\":$it") }
+        l.previewRollingShutterSkewNs?.let { add("\"preview_rolling_shutter_skew_ns\":$it") }
         floats(l.intrinsics)?.let { add("\"intrinsics\":$it") }
         floats(l.distortion)?.let { add("\"distortion\":$it") }
+        // Which stream the per-shot half above came from, and how far it was from the
+        // frame this photo IS. Emitted together, and only when there is something for
+        // them to qualify: a lens object carrying nothing but factory calibration has
+        // no frame behind it to describe. See LensStamp.previewRollingShutterSkewNs.
+        if (
+            l.focalLengthMm != null || l.apertureFStop != null ||
+            l.focusDistanceDiopters != null || l.previewRollingShutterSkewNs != null ||
+            l.intrinsics != null || l.distortion != null
+        ) {
+            add("\"frame_values_source\":\"preview\"")
+            l.frameValuesAtMs?.let { add("\"age_ms\":${s.poseReferenceMs() - it}") }
+        }
         floats(l.cameraIntrinsics)?.let { add("\"camera_intrinsics\":$it") }
         floats(l.cameraDistortion)?.let { add("\"camera_distortion\":$it") }
         floats(l.sensorPhysicalSizeMm)?.let { add("\"sensor_physical_size_mm\":$it") }

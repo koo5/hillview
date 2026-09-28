@@ -814,8 +814,13 @@ class BrowserMetadata(BaseModel):
 	# an uncalibrated lens is an ordering, not a distance),
 	# focus_infinity_requested (the app's toggle -- intent beside measurement),
 	# zoom_ratio (the app has had pinch-to-zoom all along and a frame shot at 2x
-	# read as 1x is simply wrong), rolling_shutter_skew_ns, intrinsics /
+	# read as 1x is simply wrong), preview_rolling_shutter_skew_ns, intrinsics /
 	# distortion (per FRAME, since the HAL varies them with focus and zoom),
+	# frame_values_source + age_ms (the per-frame keys above come from a PREVIEW
+	# capture result -- CameraX does not expose the still's; the age says how far
+	# that frame was from the exposure, and the skew keeps a qualified name because
+	# preview and still read different numbers of sensor lines, so it is a
+	# different value and not merely an older one),
 	# camera_intrinsics / camera_distortion (factory, per camera),
 	# sensor_physical_size_mm + sensor_pixel_array (the true pixel pitch),
 	# intrinsics_available (whether the DEVICE publishes a calibration at all --

@@ -317,10 +317,16 @@ interface SimplePhotoDao {
     // the local row must keep telling the same story; a photo the upload
     // won keeps its at-the-time stamp, by design. Returns rows updated
     // (0 = lost the race or already gone).
+    // captureTimingJson rides along because the refinement is a FACT ABOUT THE
+    // PHOTO that only this write knows — which instant the position and bearing
+    // were interpolated to, and which of the two actually moved. The caller
+    // passes the row's existing value back when it has nothing to add, so this
+    // column is never cleared by a refinement. No schema change and no
+    // migration: the column arrived with v29.
     @Query("""
         UPDATE photos SET latitude = :latitude, longitude = :longitude,
             altitude = :altitude, bearing = :bearing, accuracy = :accuracy,
-            stampRefinedAt = :refinedAt
+            stampRefinedAt = :refinedAt, captureTimingJson = :captureTimingJson
         WHERE id = :photoId AND uploadStatus = 'pending' AND deleted = 0
     """)
     fun applyRefinedStamp(
@@ -331,6 +337,7 @@ interface SimplePhotoDao {
         bearing: Double,
         accuracy: Double,
         refinedAt: Long,
+        captureTimingJson: String?,
     ): Int
 
     // Changing a licence is only meaningful before the photo goes out; the

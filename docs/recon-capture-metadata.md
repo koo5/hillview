@@ -993,7 +993,30 @@ second is fetched only by something that wants it.
   `intrinsics_available: false` is the field doing exactly the job it was added
   for: saying "this device publishes none" rather than "this app did not look".
   Also now a measured number rather than a hypothetical:
-  `rolling_shutter_skew_ns` 31 089 628 — **31.1 ms** of readout per frame.
+  `preview_rolling_shutter_skew_ns` 31 089 628 — **31.1 ms** of readout per frame.
+
+  **Renamed 2026-09-28, and the rename is the finding.** It is a PREVIEW frame's
+  readout time. Every per-shot key in `lens` is: the session capture callback is
+  attached to the preview builder, and the 2026-09-27 experiment established that
+  attaching one to `ImageCapture.Builder` yields the preview stream too — CameraX
+  does not hand out the still's `TotalCaptureResult`, and `ImageProxy` carries the
+  timestamp and the rotation but not the result. Preview and still run different
+  sensor modes and resolutions, and readout time scales with the lines read, so the
+  still's skew is a DIFFERENT number rather than a staler one — which is why this one
+  key is renamed while the rest of the half is merely dated. At walking pace, 31 ms
+  of readout is about 4 cm of translation across the frame, so a reconstruction that
+  models rolling shutter would be using the wrong constant, silently.
+
+  The rest of the half now says what it is instead: `frame_values_source: "preview"`
+  and an `age_ms` measured from the exposure, exactly like `attitude.age_ms` and
+  `inertial.age_ms`. The age matters because focus MOVES in the gap — 7.0279527 to
+  6.9795275 diopters during one press→exposure window, measured 2026-09-27 — so
+  `focus_distance_diopters` is a pre-autofocus value on any capture where 3A ran.
+
+  Getting the still's own values needs a route to its capture result that CameraX
+  does not currently offer; until one exists, the honest options were to label or to
+  drop, and labelling keeps a usable bound on readout for anything that only needs
+  the order of magnitude.
 
   **Independently verified against the HAL**, `dumpsys media.camera` on the same
   device (`/shared/a22_dumpsys_camera.txt`, 2026-09-26). Every value our `lens`

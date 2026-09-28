@@ -458,6 +458,13 @@ private class AndroidPhotoCapture(
         val rollingShutterSkewNs: Long? = null,
         val intrinsics: List<Float>? = null,
         val distortion: List<Float>? = null,
+        /**
+         * When this frame was EXPOSED, wall ms — the result's own SENSOR_TIMESTAMP
+         * through the same clock bridge the still path uses, not the moment this
+         * callback ran. Null when the HAL reported no timestamp; the provenance then
+         * emits no age rather than a dispatch-derived one.
+         */
+        val atMs: Long? = null,
     )
 
     @Volatile private var frameLens: FrameLensFacts? = null
@@ -894,6 +901,27 @@ private class AndroidPhotoCapture(
                     // so the shutter press can log what CameraX's capture
                     // pipeline is about to wait on (see StillCaptureMode).
                     // The LENS, off the same result as 3A — no new stream.
+                    //
+                    // These are a PREVIEW frame's values, which is the whole reason the
+                    // frame's own instant is carried with them: the shutter reads this
+                    // latch at the press, and the exposure is 270 ms (latency) to 1.1 s
+                    // (quality) later. Without a timestamp there is no way to say how
+                    // stale they were; with one it is a number on every photo.
+                    //
+                    // THE SAME CLOCK BRIDGE as the still path, one hop shorter because
+                    // the destination here is the wall clock rather than
+                    // elapsedRealtime: SENSOR_TIMESTAMP is on the uptime base
+                    // (timestampSource UNKNOWN), System.nanoTime() is that same base,
+                    // so the frame's AGE is a monotonic subtraction and only the anchor
+                    // is wall. Read back to back, which is what keeps it exact.
+                    // (Substituting the still path's two-step bridge gives this
+                    // identical expression — it is the same conversion, not a second
+                    // one.)
+                    val monoNowNs = System.nanoTime()
+                    val wallNowMs = System.currentTimeMillis()
+                    val frameAtMs = result.get(CaptureResult.SENSOR_TIMESTAMP)?.let { ts ->
+                        wallNowMs - (monoNowNs - ts) / 1_000_000
+                    }
                     frameLens = FrameLensFacts(
                         focalLengthMm = result.get(CaptureResult.LENS_FOCAL_LENGTH),
                         apertureFStop = result.get(CaptureResult.LENS_APERTURE),
@@ -903,6 +931,7 @@ private class AndroidPhotoCapture(
                         intrinsics =
                             result.get(CaptureResult.LENS_INTRINSIC_CALIBRATION)?.toList(),
                         distortion = result.get(CaptureResult.LENS_DISTORTION)?.toList(),
+                        atMs = frameAtMs,
                     )
                     last3A = ThreeAState(
                         afMode = result.get(CaptureResult.CONTROL_AF_MODE),
@@ -1807,6 +1836,24 @@ private class AndroidPhotoCapture(
                             snapshot.copy(
                                 attitude = attitudeAtExposure ?: snapshot.attitude,
                                 motion = motionAtExposure ?: snapshot.motion,
+                                // THE THIRD STREAM, and the one with no ring to look
+                                // into: GPS arrives at ~1 Hz, so there is no fix "at"
+                                // the exposure to swap in — the honest at-exposure
+                                // position is an INTERPOLATION between the fixes
+                                // bracketing it, which is exactly what StampRefiner
+                                // does and why it is now aimed here (see
+                                // SharedStackUploadPipeline).
+                                //
+                                // What this line fixes is the AGE. It was measured at
+                                // the press, in snapshotSensors, from the fix's own
+                                // elapsedRealtimeNanos — so it under-reported the
+                                // staleness relative to the frame by the whole
+                                // press→exposure gap, the same way attitude.age_ms
+                                // read 25 ms when it meant 337. Both terms are
+                                // distances from one fix instant, so the correction is
+                                // exact addition, not a re-measurement: a re-read now
+                                // would time from the SAVE, which is later still.
+                                locationAgeMs = snapshot.locationAgeMs?.plus(pressToExpMs),
                                 captureTiming = CaptureTiming(
                                     // captured_at is still the press: moving it is a
                                     // separate decision with a filename, a DB column
@@ -2211,7 +2258,8 @@ private class AndroidPhotoCapture(
             // not always what the lens did.
             focusInfinityRequested = focusInfinity,
             zoomRatio = zoomRatio,
-            rollingShutterSkewNs = frame?.rollingShutterSkewNs,
+            previewRollingShutterSkewNs = frame?.rollingShutterSkewNs,
+            frameValuesAtMs = frame?.atMs,
             intrinsics = frame?.intrinsics,
             distortion = frame?.distortion,
             cameraIntrinsics = cam?.intrinsics,

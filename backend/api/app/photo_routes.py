@@ -1733,7 +1733,20 @@ _LENS_FIELDS: dict = {
 	'focus_distance_calibration': str,
 	'focus_infinity_requested': bool,
 	'zoom_ratio': float,
+	# The per-shot half of this object comes from a PREVIEW capture result, not from
+	# the still's — CameraX does not hand out the still's TotalCaptureResult, which an
+	# experiment on 2026-09-27 established rather than assumed. So:
+	#  - `frame_values_source` says which stream, and `age_ms` how far that frame was
+	#    from the exposure (focus was measured moving DURING one press→exposure window);
+	#  - the skew keeps a qualified name, because readout time scales with the lines
+	#    read and preview and still run different sensor modes — it is not a stale
+	#    version of the still's number, it is a different number. The unqualified
+	#    `rolling_shutter_skew_ns` stays declared for rows written before 2026-09-28
+	#    and is reserved for the still's own value if a route to it ever appears.
 	'rolling_shutter_skew_ns': int,
+	'preview_rolling_shutter_skew_ns': int,
+	'frame_values_source': str,
+	'age_ms': int,
 	'intrinsics': list,
 	'distortion': list,
 	'camera_intrinsics': list,

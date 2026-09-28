@@ -34,6 +34,8 @@ was chased down separately. The DEFAULT is `StillCaptureMode.Latency`. So the ga
 is a user-switchable menu setting, ranging over roughly 550 ms to 1 900 ms.
 
 1. **Every age and every freshness gate is measured to the press.**
+   *(FIXED 2026-09-28 — ages are measured against `exposure_wall_ms` whenever the
+   capture measured one, including `location_age_ms`. See the 2026-09-28 section.)*
    `attitude.age_ms` (37–152 ms in the audit), `inertial.age_ms` (5–7 ms) and
    `location_age_ms` are all computed against `capturedAtMs`, which is
    `System.currentTimeMillis()` read BEFORE `takePicture`
@@ -45,7 +47,11 @@ is a user-switchable menu setting, ranging over roughly 550 ms to 1 900 ms.
    pass a pose that is ~2 s stale with respect to its own frame while reporting a
    two-digit age. The rule is sound. It is measuring to the wrong instant.
 
-2. **The `lens` object is fed by PREVIEW frames.** `ImageCapture.Builder()`
+2. **The `lens` object is fed by PREVIEW frames.**
+   *(LABELLED, not fixed, 2026-09-28: the skew is renamed
+   `preview_rolling_shutter_skew_ns` and the rest of the per-shot half carries
+   `frame_values_source` + `age_ms`. The values are still the preview's.)*
+   `ImageCapture.Builder()`
    (line 609) has no `Camera2Interop` session capture callback; the only two in
    the file are on the preview builder (832) and the video builder (1368). So
    `lensStampNow()`'s `frame?.*` values come from the latest preview result:
@@ -59,7 +65,10 @@ is a user-switchable menu setting, ranging over roughly 550 ms to 1 900 ms.
 3. **`captured_at` is the press** while the camera's own
    `SubSecDateTimeOriginal` is the exposure, and nothing says which is which.
 
-4. **`StampRefiner` refines to the press.** The stats show `refine applied: 1`,
+4. **`StampRefiner` refines to the press.**
+   *(FIXED 2026-09-28 — it interpolates to the exposure when the capture measured
+   one, and records `refined_to` per photo.)*
+   The stats show `refine applied: 1`,
    `Δbearing 1.0°`, `Δpos 18 cm` — the refiner interpolated the stamp to an
    instant 1 881 ms before the frame existed. This is the worst of the four: it
    makes the number more PRECISE without making it more TRUE, and the existence
@@ -543,6 +552,101 @@ reproducible:
 Reconstruct a candidate tree in a worktree and hash it. Doing exactly that settled which
 of two builds the phone ran — `d91d86d5` matched the tree WITH the tap, not the one
 without — and turned an argument from age distributions into arithmetic.
+
+### 2026-09-28 — position at the exposure, and the skew made honest
+
+The two remaining items from the "what lies today" list, item 4 and half of item 2.
+
+**Position (item 4).** `StampRefiner` now interpolates to the exposure. It is a
+four-line change — `SharedStackUploadPipeline` passes
+`upload.captureTiming?.exposureWallMs` instead of the press, and says which of the two
+it passed — because the mechanism was already right and only its target was wrong.
+That is worth stating plainly: refining to the press was the most misleading of the
+four lies precisely BECAUSE the machinery was good. Interpolation makes a value more
+precise, and a refinement step advertises that the stamp has been corrected to match
+the photo; doing that against an instant 270 ms (latency) to 1.1 s (quality) before the
+frame existed polished the number toward the wrong answer.
+
+And unlike attitude and inertial, position needed no ring. A ~1 Hz receiver has no
+sample at the exposure to look up — the honest at-exposure position IS an
+interpolation across the bracketing fixes, which is what the refiner has always
+computed. So "position at the exposure" turned out to be a retargeting, not a
+mechanism.
+
+What each photo now carries, written into `capture_timing` by the refiner itself
+(nested, so no worker deploy — the object is a declared untyped dict):
+
+| key | meaning |
+|---|---|
+| `refined_to` | `"exposure"` or `"press"` — the instant the interpolation targeted |
+| `refined_position` | present only when the position was actually replaced |
+| `refined_bearing` | present only when the bearing was |
+
+The two booleans are separate because refinement can apply to one stream and not the
+other (a GPS dropout past `MAX_BRACKET_SPAN_MS`, an empty compass window), and
+"position interpolated to the frame" is a different claim from "position is the last
+fix, `location_age_ms` old". It never invents the object: a row without
+`capture_timing` — the Tauri app, or a capture from before this shipped — keeps none,
+because the serializer's contract is that the object always carries
+`captured_at_source` and a refiner-built one could not.
+
+`location_age_ms` is measured from the exposure now, the same treatment the other two
+ages got. It is exact addition rather than a re-measurement: the press-time age and
+the press→exposure gap are both distances from the same fix instant, and re-reading
+the clock at the save would time from later still.
+
+**The age reference was ungated, which fixed a bug nobody had reported.**
+`poseReferenceMs()` returned the exposure only when `pose_referenced_to == "exposure"`,
+i.e. only when BOTH rings answered. That made two cases wrong in opposite directions:
+
+- *rings empty* — the attitude is the press-time stamp, genuinely ~340 ms stale with
+  respect to its own frame, and measuring it from the press reported ~25 ms. Item 1 of
+  this document, still fully intact for exactly the captures where the lookup failed.
+- *MIXED* — attitude found, motion not (or the reverse): `pose_referenced_to` fell back
+  to `"press"` while the attitude object held an at-exposure sample, so its `age_ms`
+  came out NEGATIVE by the whole gap. A reading from the right instant, dated against
+  the wrong one.
+
+The instant the exposure was measured is a fact about the capture; whether a sample was
+found near it is a different fact. So ages are now measured against `exposure_wall_ms`
+whenever it is present, and `pose_referenced_to` means only what it says — which stream
+answered. No new field: the age reference is the presence of `exposure_wall_ms`.
+
+**Skew (item 2), labelled rather than fixed.** `rolling_shutter_skew_ns` became
+`preview_rolling_shutter_skew_ns`, with `frame_values_source: "preview"` and an
+`age_ms` beside it for the rest of the per-shot half.
+
+Exactly one key is renamed, and the reason is the distinction worth keeping: the other
+per-shot values are merely STALE, and the age reports how stale. Skew is DIFFERENT.
+Readout time scales with the lines read; preview and still run different sensor modes
+and resolutions, so the still's value is not a fresher version of this one. A key
+called `rolling_shutter_skew_ns` would be read as this photo's own readout time by
+anything modelling the distortion, and 31 ms is ~4 cm of translation at walking pace —
+not cosmetic for reconstruction. The unqualified name is now reserved for the still's
+own value, if a route to it ever appears.
+
+The `age_ms` needed a timestamp on the latched preview values, so the preview capture
+callback now bridges the result's own `SENSOR_TIMESTAMP` to wall ms — the same
+conversion as the still path, one hop shorter because the destination is wall rather
+than `elapsedRealtime`. Not the callback's arrival time: the still's equivalent
+dispatch was 104 ms late and jittered by ±16, so a dispatch-derived age would be a
+fresh guess in place of an old one. No timestamp from the HAL means no age emitted.
+
+**What did NOT get fixed, and is still item 2.** The still's focus distance,
+intrinsics and distortion are still the preview's. The age makes the staleness visible
+per photo and the source key makes the provenance explicit, but a reconstruction that
+wants the frame's own focus still cannot have it. The nearest cheap improvement is a
+ring of preview `FrameLensFacts` keyed by each result's `SENSOR_TIMESTAMP`, looked up
+at the exposure like the attitude and inertial rings — it would not produce the still's
+values, but it would replace "the preview frame before the press" with "the preview
+frame nearest the exposure", cutting the age from hundreds of ms to tens. Not built.
+
+**Still press-centred: the IMU window.** `persistImuWindowAround(capturedAtMs)` is
+aimed at the button, which the prod measurement made concrete — in Quality mode the
+±3 s window is really −4.76 s / +1.24 s around the frame, 79.3 % of the inertial
+history before the exposure. The read is deferred to `press + 3 s + 150 ms` and the
+exposure is known at the save, so the centre can still be retargeted in flight. Not
+done here.
 
 ### So: we did not know the exposure moment, and now we do
 

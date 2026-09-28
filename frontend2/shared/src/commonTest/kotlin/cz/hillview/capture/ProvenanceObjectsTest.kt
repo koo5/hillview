@@ -130,9 +130,17 @@ class ProvenanceObjectsTest {
      * attitude up AT the exposure and leaving the age measured from the press would
      * produce a NEGATIVE age — the sample being later than the button — which is how a
      * reader would discover the inconsistency instead of being told.
+     *
+     * The reference is the EXPOSURE whenever the capture measured one, and does not
+     * depend on `pose_referenced_to`. It used to, and that gate made the failure case
+     * lie in the other direction: with the rings empty the attitude is the press-time
+     * stamp, genuinely ~340 ms stale with respect to its own frame, and measuring it
+     * from the press reported ~25 ms. Knowing when the frame was exposed is a fact
+     * about the capture; whether a sample was found near it is a different fact, and
+     * only the second one belongs to `pose_referenced_to`.
      */
     @Test
-    fun agesAreMeasuredAgainstWhicheverInstantThePoseDescribes() {
+    fun agesAreMeasuredAgainstTheExposureWheneverItWasMeasured() {
         val exposureWall = shutterAt + 312
         val atExposure = snap().copy(
             captureTiming = CaptureTiming(
@@ -144,8 +152,8 @@ class ProvenanceObjectsTest {
         )
         assertEquals(exposureWall, atExposure.poseReferenceMs())
 
-        // Exposure known but no sample near it: the pose is still the press-time one, so
-        // the ages must stay measured from the press.
+        // Exposure known but no sample near it: the pose IS the press-time one, and the
+        // age must say so — 312 ms of staleness, not 0.
         val declined = snap().copy(
             captureTiming = CaptureTiming(
                 capturedAtSource = "press",
@@ -154,10 +162,41 @@ class ProvenanceObjectsTest {
                 poseReferencedTo = "press",
             ),
         )
-        assertEquals(shutterAt, declined.poseReferenceMs())
+        assertEquals(exposureWall, declined.poseReferenceMs())
 
         // The ordinary path knows no exposure at all.
         assertEquals(shutterAt, snap().poseReferenceMs())
+    }
+
+    /**
+     * The MIXED case, which the old gate got wrong by the whole press→exposure gap.
+     *
+     * `poseReferencedTo` is only "exposure" when BOTH rings answered, so one stream
+     * answering and the other not fell back to "press" — while the stream that DID
+     * answer held a sample taken at the exposure. Its `age_ms` then came out at minus
+     * the gap: a reading from the right instant, dated against the wrong one.
+     */
+    @Test
+    fun aHalfSuccessfulLookupDoesNotDateTheFoundSampleFromThePress() {
+        val exposureWall = shutterAt + 312
+        val json = inertialProvenanceJson(
+            snap(
+                // Found by the ring, 3 ms before the exposure.
+                motion = DeviceMotionSample(
+                    gravity = listOf(0f, 0f, 9.81f), atMs = exposureWall - 3,
+                ),
+            ).copy(
+                captureTiming = CaptureTiming(
+                    capturedAtSource = "press",
+                    exposureWallMs = exposureWall,
+                    exposureSource = "sensor_timestamp",
+                    // The attitude lookup missed, so the pair is not both at-exposure.
+                    poseReferencedTo = "press",
+                ),
+            ),
+        )!!
+        assertTrue("\"age_ms\":3" in json, json)
+        assertFalse("\"age_ms\":-309" in json, json)
     }
 
     /**
@@ -310,7 +349,8 @@ class ProvenanceObjectsTest {
                     focusDistanceCalibration = "approximate",
                     focusInfinityRequested = true,
                     zoomRatio = 2f,
-                    rollingShutterSkewNs = 33_000_000L,
+                    previewRollingShutterSkewNs = 33_000_000L,
+                    frameValuesAtMs = shutterAt - 40,
                     intrinsics = listOf(1000f, 1000f, 960f, 540f, 0f),
                     distortion = listOf(0.1f, -0.2f, 0.01f, 0f, 0f),
                     cameraIntrinsics = listOf(999f, 999f, 961f, 541f, 0f),
@@ -327,7 +367,12 @@ class ProvenanceObjectsTest {
             "\"focus_infinity_requested\":true",
             // The field that made every zoomed photo's intrinsics silently wrong.
             "\"zoom_ratio\":2.0",
-            "\"rolling_shutter_skew_ns\":33000000",
+            "\"preview_rolling_shutter_skew_ns\":33000000",
+            // Which stream the per-shot half came from, and how far that frame was
+            // from the reference instant. Without the pair, a preview frame's focus
+            // and readout time read as the photo's own.
+            "\"frame_values_source\":\"preview\"",
+            "\"age_ms\":40",
             "\"intrinsics\":[1000.0,1000.0,960.0,540.0,0.0]",
             "\"camera_intrinsics\":[999.0,999.0,961.0,541.0,0.0]",
             "\"sensor_pixel_array\":[4000,3000]",
@@ -347,6 +392,33 @@ class ProvenanceObjectsTest {
         )!!
         assertTrue("\"intrinsics_available\":false" in json, json)
         assertFalse("camera_intrinsics" in json, json)
+        // Nothing here came from a frame, so there is no frame to qualify or date.
+        assertFalse("frame_values_source" in json, json)
+        assertFalse("age_ms" in json, json)
+    }
+
+    /**
+     * The skew must never be published under the unqualified name.
+     *
+     * It is a PREVIEW frame's readout time — `setSessionCaptureCallback` is on the
+     * preview builder, and the 2026-09-27 experiment showed an `ImageCapture.Builder`
+     * callback sees the same preview stream. Readout scales with the lines read and the
+     * two requests run different sensor modes, so the still's value is a different
+     * number rather than a fresher one; a key called `rolling_shutter_skew_ns` would be
+     * read as this photo's own readout time by anything modelling the distortion, and
+     * 31 ms of it is ~4 cm of translation at walking pace.
+     */
+    @Test
+    fun theSkewIsPublishedAsThePreviewsOrNotAtAll() {
+        val json = lensProvenanceJson(
+            snap(lens = LensStamp(previewRollingShutterSkewNs = 31_089_628L)),
+        )!!
+        assertTrue("\"preview_rolling_shutter_skew_ns\":31089628" in json, json)
+        assertFalse("\"rolling_shutter_skew_ns\":" in json, json)
+        assertTrue("\"frame_values_source\":\"preview\"" in json, json)
+        // No frame timestamp: no age, rather than one derived from the callback's own
+        // arrival — the still's equivalent dispatch was 104 ms late and jittered by 16.
+        assertFalse("age_ms" in json, json)
     }
 
     @Test

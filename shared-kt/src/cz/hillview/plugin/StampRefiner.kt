@@ -22,10 +22,19 @@ private val TAG = hvTag("StampRefiner")
  * upload grabs first simply keeps its at-the-time stamp, which is the
  * designed worst case. Never re-uploads, never blocks the shutter.
  *
+ * THE INSTANT IT AIMS AT is the caller's to name (see [refineAsync]): the exposure
+ * when the capture measured the frame's own timestamp, the button press otherwise.
+ * Aiming at the press was the original behaviour and the most misleading of the
+ * app's timing errors — interpolation makes a value more PRECISE, so refining to an
+ * instant 270 ms to 1.1 s before the frame existed polished the stamp toward the
+ * wrong answer while advertising that it had been corrected to match the photo.
+ *
  * What refinement means per stream:
  *  - LOCATION (source "gps"): the live stamp is the latest fix, up to one
  *    fix-interval stale. Interpolate linearly between the fixes bracketing
- *    the shutter instant.
+ *    the shutter instant. This is also the ONLY way the position can be placed at
+ *    the exposure: a ~1 Hz receiver has no sample there to look up, unlike the
+ *    attitude and inertial streams, which the capture reads from an at-exposure ring.
  *  - COMPASS BEARING (source "android…"): the live stamp is the single
  *    latest ~10 Hz sample — raw (EMA_ALPHA is currently 1, a pass-through)
  *    and causal. Recompute as the circular mean of a window CENTERED on the
@@ -128,12 +137,21 @@ class StampRefiner private constructor(private val context: Context) {
 	 * Schedule refinement for a just-captured photo. Returns false when the
 	 * photo isn't eligible at all (manual position AND non-sensor bearing) —
 	 * nothing is launched and no indicator flashes.
+	 *
+	 * [shutterAtMs] is THE INSTANT TO INTERPOLATE TO, and [refinedTo] names what that
+	 * instant is — "exposure" when the caller measured the frame's own timestamp,
+	 * "press" when the button is all it has. The parameter used to be called
+	 * `capturedAtMs` and was always the press, which produced a position and a bearing
+	 * interpolated with great care to a moment before the frame existed. Callers that
+	 * know better now say so, and the answer is recorded per photo rather than assumed
+	 * (see [recordRefinement]).
 	 */
 	fun refineAsync(
 		photoId: String,
-		capturedAtMs: Long,
+		shutterAtMs: Long,
 		locationSource: String?,
 		bearingSource: String?,
+		refinedTo: String = "press",
 	): Boolean {
 		val wantLocation = locationSource == "gps"
 		val wantCompass = bearingSource?.startsWith("android") == true
@@ -145,7 +163,9 @@ class StampRefiner private constructor(private val context: Context) {
 			// A measured DURATION, so monotonic — it is only ever subtracted.
 			val startedAt = android.os.SystemClock.elapsedRealtime()
 			try {
-				val result = refine(photoId, capturedAtMs, wantLocation, wantCompass, wantKalman)
+				val result = refine(
+					photoId, shutterAtMs, wantLocation, wantCompass, wantKalman, refinedTo,
+				)
 				onResult?.invoke(result.copy(waitMs = android.os.SystemClock.elapsedRealtime() - startedAt))
 			} catch (e: Exception) {
 				Log.e(TAG, "refinement of $photoId failed", e)
@@ -174,6 +194,7 @@ class StampRefiner private constructor(private val context: Context) {
 		wantLocation: Boolean,
 		wantCompass: Boolean,
 		wantKalman: Boolean,
+		refinedTo: String,
 	): RefineResult {
 		val bearingDao = geo.bearingDao()
 		val locationDao = geo.locationDao()
@@ -247,6 +268,12 @@ class StampRefiner private constructor(private val context: Context) {
 		val newAccuracy = refinedAccuracy ?: row.accuracy
 		val updated = database.photoDao().applyRefinedStamp(
 			photoId, newLat, newLon, newAlt, newBearing, newAccuracy, System.currentTimeMillis(),
+			recordRefinement(
+				row.captureTimingJson,
+				refinedTo,
+				position = refinedLat != null,
+				bearing = refinedBearing != null,
+			),
 		)
 		if (updated == 0) return RefineResult(photoId, "upload-won", 0)
 
@@ -262,13 +289,54 @@ class StampRefiner private constructor(private val context: Context) {
 		} else null
 		Log.i(
 			TAG,
-			"refined $photoId: pos ${row.latitude},${row.longitude} -> $newLat,$newLon " +
+			"refined $photoId to the $refinedTo: " +
+				"pos ${row.latitude},${row.longitude} -> $newLat,$newLon " +
 				"(${moved?.let { "%.2f m".format(it) } ?: "untouched"}), " +
 				"bearing ${row.bearing} -> $newBearing " +
 				"(${turned?.let { "%.1f°".format(it) } ?: "untouched"}), " +
 				"accuracy ${row.accuracy} -> $newAccuracy",
 		)
 		return RefineResult(photoId, "applied", 0, moved, turned)
+	}
+
+	/**
+	 * Fold what this refinement DID into the photo's `capture_timing` object, so the
+	 * fact travels with the photo instead of living in a log line.
+	 *
+	 * Three keys: `refined_to` (the instant the interpolation targeted — "exposure" or
+	 * "press"), and `refined_position` / `refined_bearing`, present only when that
+	 * stream was actually replaced. A refinement can apply to one stream and not the
+	 * other (GPS dropout past MAX_BRACKET_SPAN_MS, an empty compass window), and
+	 * "position interpolated to the frame" is a different claim about a photo from
+	 * "position is the last fix, `location_age_ms` old" — the two must not look alike.
+	 *
+	 * Nested inside `capture_timing` rather than given top-level keys because that
+	 * object is already declared server-side as an untyped dict, so nested keys need no
+	 * worker deploy (docs/todo/captured-at-is-the-exposure.md, "Server side: one line").
+	 *
+	 * NEVER INVENTS THE OBJECT. A row with no `capture_timing` — the Tauri app, or a
+	 * capture before this shipped — keeps none: the serializer's contract is that the
+	 * object always carries `captured_at_source`, and a refiner-built one could not.
+	 * Returns the input unchanged on anything unexpected; a refinement must not be lost
+	 * because a note about it could not be written.
+	 */
+	private fun recordRefinement(
+		existing: String?,
+		refinedTo: String,
+		position: Boolean,
+		bearing: Boolean,
+	): String? {
+		if (existing.isNullOrBlank()) return existing
+		return try {
+			org.json.JSONObject(existing).apply {
+				put("refined_to", refinedTo)
+				if (position) put("refined_position", true)
+				if (bearing) put("refined_bearing", true)
+			}.toString()
+		} catch (e: Exception) {
+			Log.w(TAG, "capture_timing is not valid JSON, leaving it alone: $existing", e)
+			existing
+		}
 	}
 
 	// MONOTONIC deadline: a wall-clock one can be pushed further away by a

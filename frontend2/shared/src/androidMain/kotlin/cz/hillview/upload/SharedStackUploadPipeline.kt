@@ -311,11 +311,30 @@ class SharedStackUploadPipeline(
                     uploadHoldReasons = holdReasons,
                 )
                 if (eligible) {
+                    // AIMED AT THE EXPOSURE, not at the press. The refiner interpolates
+                    // between the fixes bracketing an instant, and until now that
+                    // instant was the button — "the worst of the four" lies in
+                    // docs/todo/captured-at-is-the-exposure.md, because refining to the
+                    // press makes the position more PRECISE about a moment 270 ms
+                    // (latency) to 1.1 s (quality) before the frame existed, while the
+                    // existence of a refinement step advertises that it was corrected
+                    // to match the photo.
+                    //
+                    // This is also the whole of "position at the exposure": GPS is ~1 Hz,
+                    // so unlike attitude and inertial there is no sample at the exposure
+                    // to look up, and an interpolation across the bracket is strictly
+                    // better than picking the nearer fix. The mechanism already existed;
+                    // only its target was wrong.
+                    val exposureMs = upload.captureTiming?.exposureWallMs
                     refiner.refineAsync(
                         photoId,
-                        upload.capturedAtMs ?: System.currentTimeMillis(),
+                        exposureMs ?: upload.capturedAtMs ?: System.currentTimeMillis(),
                         upload.locationSource,
                         upload.bearingSource,
+                        // Never asserted: with exactCaptureTime off, or on a path that
+                        // could not read the frame's timestamp, this stays the press and
+                        // the photo says so.
+                        refinedTo = if (exposureMs != null) "exposure" else "press",
                     )
                 }
                 // The IMU window around this exposure, once its later half has

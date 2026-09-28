@@ -76,7 +76,9 @@ FULL_LENS = {
 	'focus_distance_calibration': 'approximate',
 	'focus_infinity_requested': True,
 	'zoom_ratio': 2.0,
-	'rolling_shutter_skew_ns': 33000000,
+	'preview_rolling_shutter_skew_ns': 33000000,
+	'frame_values_source': 'preview',
+	'age_ms': 40,
 	'intrinsics': [1000.0, 1000.0, 960.0, 540.0, 0.0],
 	'distortion': [0.1, -0.2, 0.01, 0.0, 0.0],
 	'camera_intrinsics': [999.0, 999.0, 961.0, 541.0, 0.0],
@@ -90,6 +92,30 @@ FULL_LENS = {
 def test_every_lens_field_survives():
 	out = _lens(exif(lens=FULL_LENS))
 	assert out == FULL_LENS
+
+
+def test_the_skew_is_published_as_the_previews():
+	"""The per-shot half of `lens` comes from a PREVIEW capture result -- CameraX
+	does not hand out the still's, which an app-side experiment established rather
+	than assumed. Readout time scales with the lines read and the two requests run
+	different sensor modes, so the still's skew is a DIFFERENT number, not a fresher
+	one, and the qualified name is what stops it being read as this photo's own.
+	`frame_values_source` and `age_ms` qualify and date the rest of that half.
+
+	The unqualified key stays declared for rows written before 2026-09-28."""
+	out = _lens(exif(lens={
+		'preview_rolling_shutter_skew_ns': 31089628,
+		'frame_values_source': 'preview',
+		'age_ms': 337,
+	}))
+	assert out == {
+		'preview_rolling_shutter_skew_ns': 31089628,
+		'frame_values_source': 'preview',
+		'age_ms': 337,
+	}
+	assert _lens(exif(lens={'rolling_shutter_skew_ns': 33000000})) == {
+		'rolling_shutter_skew_ns': 33000000,
+	}
 
 
 def test_zoom_is_kept_because_it_changes_the_intrinsics():
