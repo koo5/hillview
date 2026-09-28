@@ -180,4 +180,41 @@ class PhotoOutboxDaoTest {
         assertEquals("boom", row.lastError)
         assertTrue(row.dirty)
     }
+
+    /**
+     * The list screen reads a page of wishes in one query. It used to be two
+     * per card, on the thread that draws them.
+     */
+    @Test
+    fun aPageOfWishesComesBackInOneQuery() {
+        photo("p1", serverPhotoId = "s1")
+        photo("p2", serverPhotoId = "s2")
+        photo("p3")
+        want("p1", OUTBOX_KIND_RATING, """{"rating":"thumbs_up"}""")
+        want("p2", OUTBOX_KIND_DELETE, "{}")
+
+        val byPhoto = outbox.forPhotos(me, listOf("p1", "p2", "p3")).groupBy { it.photoId }
+        assertEquals(setOf("p1", "p2"), byPhoto.keys)
+        assertEquals(OUTBOX_KIND_RATING, byPhoto.getValue("p1").single().kind)
+        assertEquals(OUTBOX_KIND_DELETE, byPhoto.getValue("p2").single().kind)
+    }
+
+    /**
+     * A wanted deletion carries its own local cleanup, so "Delete" can mean
+     * delete without the UI having to sequence two asynchronous things.
+     */
+    @Test
+    fun aDeleteWishSaysWhetherTheRowGoesWithIt() {
+        photo("p1", serverPhotoId = "s1")
+        want("p1", OUTBOX_KIND_DELETE, org.json.JSONObject().put(DELETE_FORGET_LOCALLY, true).toString())
+        val row = outbox.find(me, "p1", OUTBOX_KIND_DELETE, "")!!
+        assertTrue(org.json.JSONObject(row.valueJson!!).optBoolean(DELETE_FORGET_LOCALLY, false))
+
+        // Absent means false: a deletion recorded by an older build, or from
+        // a screen that is not throwing the local photo away, leaves the row.
+        photo("p2", serverPhotoId = "s2")
+        want("p2", OUTBOX_KIND_DELETE, "{}")
+        val plain = outbox.find(me, "p2", OUTBOX_KIND_DELETE, "")!!
+        assertTrue(!org.json.JSONObject(plain.valueJson!!).optBoolean(DELETE_FORGET_LOCALLY, false))
+    }
 }

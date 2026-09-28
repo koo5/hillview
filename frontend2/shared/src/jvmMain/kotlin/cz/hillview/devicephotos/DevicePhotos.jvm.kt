@@ -11,7 +11,15 @@ class EmptyDevicePhotoBrowser : DevicePhotoBrowser {
 
     override suspend fun counts(): Map<PhotoFilter, Int> = emptyMap()
 
+    override suspend fun card(id: String): DevicePhotoCard? = null
+    override suspend fun idForLocator(locator: String): String? = null
+    override suspend fun cardForMarker(source: String, markerId: String): DevicePhotoCard? = null
+    override suspend fun deleteEverywhere(id: String) {}
+    override suspend fun canRate(): Boolean = false
+
     override suspend fun delete(id: String, alsoFile: Boolean) {}
+    override suspend fun setRating(id: String, rating: String?) {}
+    override suspend fun setServerDeletion(id: String, wanted: Boolean) {}
 
     override suspend fun retryUploads() {}
     override suspend fun retryUpload(id: String) {}
@@ -21,6 +29,6 @@ class EmptyDevicePhotoBrowser : DevicePhotoBrowser {
 }
 
 @Composable
-actual fun PhotoThumbnail(locator: String, modifier: Modifier) {
+actual fun PhotoThumbnail(locator: String, modifier: Modifier, targetPx: Int) {
     Box(modifier)
 }

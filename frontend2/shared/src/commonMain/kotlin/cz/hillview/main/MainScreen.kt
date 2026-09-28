@@ -96,6 +96,8 @@ fun MainScreen(
     onOpenUploadStatus: () -> Unit = {},
     onOpenEventLog: () -> Unit = {},
     onOpenLockSettings: () -> Unit = {},
+    /** The shutter's thumbnail opens the photo it just took. */
+    onOpenPhoto: (String) -> Unit = {},
     settingsRepo: MapSettingsRepository = koinInject(),
     session: MapSession = koinInject(),
     sessionManager: SessionManager = koinInject(),
@@ -220,6 +222,11 @@ fun MainScreen(
         // `activity` is passed as a parameter, not captured: a remembered
         // lambda would otherwise keep the value it was created with.
         val currentOnOpenSettings by rememberUpdatedState(onOpenSettings)
+        // Same reason as the line above: the panels are movableContentOf and
+        // travel between the portrait Column and the landscape Row, so a
+        // captured lambda would be frozen at whichever orientation the app
+        // started in.
+        val currentOnOpenPhoto by rememberUpdatedState(onOpenPhoto)
         // Read through a State, not captured: both panels below are MOVABLE
         // — one instance each, travelling between the portrait Column and
         // the landscape Row — so a value captured when one was created would
@@ -228,7 +235,10 @@ fun MainScreen(
         val photoPanel = remember {
             movableContentOf { activity: String ->
                 when (activity) {
-                    "capture" -> CaptureScreen(onOpenSettings = { currentOnOpenSettings() })
+                    "capture" -> CaptureScreen(
+                        onOpenSettings = { currentOnOpenSettings() },
+                        onOpenPhoto = { photoId -> currentOnOpenPhoto(photoId) },
+                    )
                     // The external-camera mode: a peer of capture in the same
                     // panel slot (no camera stream; a foreground service keeps
                     // the record alive while the system camera owns the screen).

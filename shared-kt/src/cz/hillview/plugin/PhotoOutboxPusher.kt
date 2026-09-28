@@ -158,10 +158,19 @@ class PhotoOutboxPusher(
         val request = authorized(
             Request.Builder().url("$serverUrl/photos/$serverPhotoId").delete(),
         ) ?: return false
-        return client.newCall(request).execute().use { response ->
+        val gone = client.newCall(request).execute().use { response ->
             // Already gone is the state we wanted.
             response.isSuccessful || response.code == 404
         }
+        if (gone && JSONObject(row.valueJson).optBoolean(DELETE_FORGET_LOCALLY, false)) {
+            // Now, and only now, is it safe: the wish has been carried out,
+            // so the row that carried it has nothing left to say. Removing it
+            // cascades this row away with it, which is the tidy-up rather
+            // than a loss.
+            Log.i(TAG, "server deleted ${row.photoId}; forgetting the local row too")
+            photoDao.deletePhoto(row.photoId)
+        }
+        return gone
     }
 
     private fun authorized(builder: Request.Builder): Request? {

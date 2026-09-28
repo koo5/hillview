@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -65,6 +66,8 @@ fun DevicePhotosScreen(
     var hasMore by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf(1) }
     var loading by remember { mutableStateOf(true) }
+    var canRate by remember { mutableStateOf(false) }
+    LaunchedEffect(sessionState) { canRate = browser.canRate() }
     var loadingMore by remember { mutableStateOf(false) }
 
     suspend fun load(target: Int, append: Boolean) {
@@ -234,6 +237,10 @@ fun DevicePhotosScreen(
                         // its button was the GLOBAL drain, which the toggle
                         // genuinely governs.
                         retryOffered = sessionState is SessionState.LoggedIn,
+                        // A rating has to belong to somebody: the outbox
+                        // keys its rows by account, which is a finer question
+                        // than "is the session live" — see canRate.
+                        ratingEnabled = canRate,
                         // THIS photo, not the queue (user-corrected: the
                         // global drain has its own button in the header).
                         onRetry = {
@@ -261,6 +268,30 @@ fun DevicePhotosScreen(
                                 kotlinx.coroutines.delay(2_000)
                                 load(1, append = false)
                             }
+                        },
+                        onSetRating = { rating ->
+                            // Patched in place, like the licence below and
+                            // for the same reason — and it is also what the
+                            // outbox already guarantees: the wish is recorded
+                            // locally and the server catches up later, so
+                            // waiting for a round trip to redraw a thumb
+                            // would be showing the wrong source of truth.
+                            cards = cards.map {
+                                if (it.id == card.id) it.copy(rating = rating) else it
+                            }
+                            scope.launch { browser.setRating(card.id, rating) }
+                        },
+                        onSetServerDeletion = { wanted ->
+                            cards = cards.map {
+                                if (it.id == card.id) {
+                                    it.copy(
+                                        serverDeletion = if (wanted) ServerDeletion.Pending else null,
+                                    )
+                                } else {
+                                    it
+                                }
+                            }
+                            scope.launch { browser.setServerDeletion(card.id, wanted) }
                         },
                         onChangeLicense = { license ->
                             scope.launch {
@@ -296,7 +327,7 @@ fun DevicePhotosScreen(
 }
 
 @Composable
-private fun PhotoCard(
+internal fun PhotoCard(
     card: DevicePhotoCard,
     retryOffered: Boolean,
     onRetry: () -> Unit,
@@ -306,8 +337,25 @@ private fun PhotoCard(
     onChangeLicense: (String) -> Unit = {},
     /** null = auto-detect & blur, "[]" = no anonymization. */
     onSetAnonymization: (String?) -> Unit = {},
+    /**
+     * Whether a rating can be recorded at all.
+     *
+     * A rating belongs to an ACCOUNT — the outbox keys its rows by user, so
+     * there is nowhere to put one when nobody is signed in. Drawn and
+     * disabled rather than hidden: a control that appears when you sign in
+     * moves everything beside it, and these sit next to Delete.
+     */
+    ratingEnabled: Boolean = true,
+    /** "thumbs_up", "thumbs_down", or null to take it back. */
+    onSetRating: (String?) -> Unit = {},
+    /** Ask for (or withdraw) a server-side deletion. */
+    onSetServerDeletion: (Boolean) -> Unit = {},
 ) {
     var confirmingDelete by remember { mutableStateOf(false) }
+    // Default ON when the server has a copy: someone deleting a photo they
+    // published almost always means the published one too, and the one case
+    // where they do not is the rarer, more deliberate one.
+    var alsoServer by remember(card.id, card.onServer) { mutableStateOf(card.onServer) }
     var editingLicense by remember { mutableStateOf(false) }
     var editingAnonymization by remember { mutableStateOf(false) }
 
@@ -385,21 +433,59 @@ private fun PhotoCard(
             onDismissRequest = { confirmingDelete = false },
             title = { Text("Delete ${card.filename}?") },
             text = {
-                Text(
-                    if (card.fileMissing) {
-                        "The file is already gone, so only the database row is left " +
-                            "to remove. It can never upload."
-                    } else {
-                        "\"Forget row\" removes it from this list and the upload " +
-                            "queue but leaves the file on the device. \"Delete file " +
-                            "too\" also removes the bytes. Neither touches anything " +
-                            "already uploaded to the server."
-                    },
-                )
+                Column {
+                    Text(
+                        if (card.fileMissing) {
+                            "The file is already gone, so only the database row is left " +
+                                "to remove. It can never upload."
+                        } else {
+                            "\"Forget row\" removes it from this list and the upload " +
+                                "queue but leaves the file on the device. \"Delete file " +
+                                "too\" also removes the bytes."
+                        },
+                    )
+                    if (card.onServer) {
+                        // The published copy is its own decision, and it is
+                        // the one a local delete cannot make on its own: the
+                        // phone may have no signal for days, so this records
+                        // the wish and the outbox carries it.
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 12.dp),
+                        ) {
+                            androidx.compose.material3.Checkbox(
+                                checked = alsoServer,
+                                onCheckedChange = { alsoServer = it },
+                                modifier = Modifier.testTag("delete-also-server"),
+                            )
+                            Text(
+                                "Also delete it from the server",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        Text(
+                            if (alsoServer) {
+                                "The row stays on this list until the server confirms, " +
+                                    "then goes on its own. It will not upload again."
+                            } else {
+                                "The copy already on the server stays published."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             },
             confirmButton = {
                 TextButton(
-                    onClick = { confirmingDelete = false; onDelete(false) },
+                    onClick = {
+                        confirmingDelete = false
+                        // The wish BEFORE the local delete: it hangs off the
+                        // row, so recording it second would be recording it
+                        // onto something already gone.
+                        if (alsoServer && card.onServer) onSetServerDeletion(true)
+                        onDelete(false)
+                    },
                     modifier = Modifier.testTag("delete-row-only"),
                 ) { Text("Forget row") }
             },
@@ -410,7 +496,11 @@ private fun PhotoCard(
                     ) { Text("Cancel") }
                     if (!card.fileMissing) {
                         TextButton(
-                            onClick = { confirmingDelete = false; onDelete(true) },
+                            onClick = {
+                                confirmingDelete = false
+                                if (alsoServer && card.onServer) onSetServerDeletion(true)
+                                onDelete(true)
+                            },
                             modifier = Modifier.testTag("delete-with-file"),
                         ) {
                             Text("Delete file too", color = MaterialTheme.colorScheme.error)
@@ -524,6 +614,48 @@ private fun PhotoCard(
             // delete aimed at the same spot lands on a different photo. For
             // a destructive action that is unacceptable — and the dialog has
             // room to say what the two deletes differ on.
+            // Thumbs and delete together, because they are the same act:
+            // looking at a photo and deciding what it is worth. They read
+            // from the outbox, so a tap shows immediately and travels when
+            // there is signal — see docs/photo-outbox.md.
+            Row {
+                RatingButton(
+                    label = "\uD83D\uDC4D",
+                    mine = card.rating == "thumbs_up",
+                    enabled = ratingEnabled,
+                    tag = "rate-up",
+                    // Pressing the one already chosen takes it back, which is
+                    // what every rating control does and what the API means
+                    // by DELETE.
+                    onClick = { onSetRating(if (card.rating == "thumbs_up") null else "thumbs_up") },
+                )
+                RatingButton(
+                    label = "\uD83D\uDC4E",
+                    mine = card.rating == "thumbs_down",
+                    enabled = ratingEnabled,
+                    tag = "rate-down",
+                    onClick = {
+                        onSetRating(if (card.rating == "thumbs_down") null else "thumbs_down")
+                    },
+                )
+                when (card.serverDeletion) {
+                    ServerDeletion.Pending -> TextButton(
+                        onClick = { onSetServerDeletion(false) },
+                        modifier = Modifier.testTag("undo-server-deletion"),
+                    ) { Text("Deleting from server — undo") }
+                    ServerDeletion.Done -> Text(
+                        "Deleted from the server",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .align(Alignment.CenterVertically)
+                            .padding(start = 8.dp)
+                            .testTag("server-deletion-done"),
+                    )
+                    null -> Unit
+                }
+            }
+
             Row {
                 TextButton(
                     onClick = { confirmingDelete = true },
@@ -556,6 +688,37 @@ private fun PhotoCard(
                 }
             }
         }
+    }
+}
+
+/**
+ * One thumb. Filled when it is the user's own choice, outlined otherwise.
+ *
+ * It shows what the USER said, not what the server has heard: the outbox is
+ * the source of truth for this, so the button answers the instant it is
+ * pressed and keeps answering on a hill with no signal.
+ */
+@Composable
+private fun RatingButton(
+    label: String,
+    mine: Boolean,
+    enabled: Boolean = true,
+    tag: String,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.testTag(tag),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.titleMedium,
+            // A thumb that is merely available and one that is CHOSEN have to
+            // be tellable apart at a glance, and an emoji cannot be tinted —
+            // so the difference is carried by opacity.
+            modifier = Modifier.alpha(if (mine) 1f else 0.35f),
+        )
     }
 }
 

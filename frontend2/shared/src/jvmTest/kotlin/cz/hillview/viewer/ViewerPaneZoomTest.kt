@@ -70,7 +70,16 @@ class ViewerPaneZoomTest {
 
     private fun androidx.compose.ui.test.ComposeUiTest.pane(rig: Rig) {
         setContent {
-            ViewerPane(holder = rig.holder, settingsRepo = FakeSettings(), mapState = rig.map)
+            ViewerPane(
+                holder = rig.holder,
+                settingsRepo = FakeSettings(),
+                mapState = rig.map,
+                // The pane asks the photo rows whether the photo in front is
+                // one this device can act on. There are none on the desktop,
+                // and none in a test rig — supplied explicitly so the pane
+                // does not reach for a Koin graph that is not running.
+                photoBrowser = cz.hillview.devicephotos.EmptyDevicePhotoBrowser(),
+            )
         }
     }
 

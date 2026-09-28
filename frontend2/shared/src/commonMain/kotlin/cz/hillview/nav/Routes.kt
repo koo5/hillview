@@ -53,3 +53,14 @@ data object LockSettingsKey : NavKey
 
 @Serializable
 data object MapKey : NavKey
+
+/**
+ * One photo on its own — what the shutter's thumbnail opens.
+ *
+ * The same card the Device photos list draws, because it is the same
+ * question asked about one row: where it went, what it is licensed as, what
+ * you thought of it. A second, slightly different photo screen would be two
+ * places to fix anything said about a photo.
+ */
+@Serializable
+data class PhotoDetailKey(val photoId: String) : NavKey

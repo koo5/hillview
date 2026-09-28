@@ -1,6 +1,7 @@
 package cz.hillview.capture
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
@@ -35,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,6 +56,7 @@ import androidx.compose.ui.semantics.semantics
 import cz.hillview.upload.PendingUpload
 import cz.hillview.upload.UploadPipeline
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
@@ -91,12 +94,18 @@ internal object CaptureSessionCounters {
 @Composable
 fun CaptureScreen(
     onOpenSettings: () -> Unit = {},
+    /** Where the just-taken thumbnail sends a tap. */
+    onOpenPhoto: (String) -> Unit = {},
     uploadPipeline: UploadPipeline = org.koin.compose.koinInject(),
     uploadSettingsRepo: cz.hillview.settings.UploadSettingsRepository =
         org.koin.compose.koinInject(),
 ) {
     val capture = rememberPhotoCapture()
     val state = capture.state
+    val scope = rememberCoroutineScope()
+    // The photo rows, for turning the file the shutter just wrote into the
+    // row id the single-photo screen is keyed on.
+    val photoBrowser: cz.hillview.devicephotos.DevicePhotoBrowser = org.koin.compose.koinInject()
     val queueStats by uploadPipeline.stats.collectAsState()
     val uploadSettings by uploadSettingsRepo.settings.collectAsState()
     val sessionManager: cz.hillview.auth.SessionManager = org.koin.compose.koinInject()
@@ -356,6 +365,25 @@ fun CaptureScreen(
             // path (and the leave-the-screen path) in one place.
             standDownSports(engaged)
         }
+    }
+
+    // The shutter's confirmation: the photo just taken, bottom-left, for a
+    // moment — where every camera app puts it, and over the 📷 selector
+    // because that is the corner it belongs in and the selector is not what
+    // you are looking at a tenth of a second after the shutter.
+    //
+    // In an interval run it is a PLACEHOLDER (user-decided): the image costs
+    // a decode per shot, and a run fires one every 0.2 s while the capture
+    // pipeline wants that CPU and that memory. A plain box still says "one
+    // landed", which is all it has to say when they are landing continuously.
+    var flash by remember { mutableStateOf<CaptureFlash?>(null) }
+    LaunchedEffect(state.lastPhoto) {
+        val photo = state.lastPhoto ?: return@LaunchedEffect
+        // `repeating` is read here rather than keyed on: the question is
+        // whether THIS shot was part of a run, not whether one is running now.
+        flash = CaptureFlash(locator = photo.path, placeholderOnly = repeating)
+        delay(CAPTURE_FLASH_MS)
+        flash = null
     }
 
     // Every capture goes straight into the offline-first pipeline; it no-ops
@@ -804,6 +832,40 @@ fun CaptureScreen(
                         .testTag("camera-selector-button"),
                 ) { Text("📷", style = MaterialTheme.typography.titleMedium) }
             }
+        }
+
+        // AFTER the 📷 selector, so it paints over it — the corner a camera
+        // app puts the last shot in, and the selector is not what anyone is
+        // looking at a tenth of a second after the shutter.
+        flash?.let { shot ->
+            CaptureFlashThumbnail(
+                shot = shot,
+                onOpen = { locator ->
+                    scope.launch {
+                        // Resolved only on a tap: the capture path knows the
+                        // path and the pipeline assigns the row id, so asking
+                        // per shot would be a query per shot for something
+                        // almost never used.
+                        //
+                        // Briefly retried because the thumbnail appears the
+                        // moment the FILE exists, while the ROW is written by
+                        // the pipeline on its own coroutine — a tap in that
+                        // gap would otherwise do nothing at all, which reads
+                        // as a dead control rather than as being early.
+                        var id: String? = null
+                        repeat(10) {
+                            if (id == null) {
+                                id = photoBrowser.idForLocator(locator)
+                                if (id == null) delay(100)
+                            }
+                        }
+                        id?.let(onOpenPhoto)
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 8.dp, bottom = 6.dp),
+            )
         }
 
         // The lower-right column: the ⚡ shutter-speed control stacked over
@@ -1468,6 +1530,68 @@ private fun EcoSlider(
                     .requiredWidth(140.dp)
                     .rotate(-90f)
                     .testTag("eco-fps-slider"),
+            )
+        }
+    }
+}
+
+/** How long the just-taken photo sits in the corner. */
+private const val CAPTURE_FLASH_MS = 1_200L
+
+/**
+ * The shutter's confirmation — what was just taken, for a moment.
+ *
+ * [placeholderOnly] is the interval-run case: the shot happened, and saying
+ * so is worth a box, but decoding the image is not worth doing every 0.2 s
+ * while the capture pipeline wants the same CPU and the same memory.
+ */
+internal data class CaptureFlash(
+    val locator: String,
+    val placeholderOnly: Boolean,
+)
+
+/**
+ * The last shot, bottom-left, over the 📷 selector — the corner every camera
+ * app uses for it, and a tap opens the photo on its own page.
+ *
+ * The placeholder is not tappable on purpose: during a run the finger is on
+ * the shutter, and a target that navigates away from a capture in progress
+ * under a thumb that is aiming at the shutter is a trap, not an affordance.
+ */
+@Composable
+private fun CaptureFlashThumbnail(
+    shot: CaptureFlash,
+    onOpen: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
+            .size(56.dp)
+            .background(Color(0xCC111111), RoundedCornerShape(6.dp))
+            .border(2.dp, Color(0xCCFFFFFF), RoundedCornerShape(6.dp))
+            .then(
+                if (shot.placeholderOnly) {
+                    Modifier
+                } else {
+                    Modifier.clickable { onOpen(shot.locator) }
+                },
+            )
+            .testTag("capture-flash"),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (shot.placeholderOnly) {
+            Text("📷", style = MaterialTheme.typography.titleMedium)
+        } else {
+            // 128 px, not the list's 512: this is a 56 dp box that lives for
+            // a second, and the decode happens on the phone that is holding
+            // the camera open.
+            cz.hillview.devicephotos.PhotoThumbnail(
+                locator = shot.locator,
+                targetPx = 128,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(4.dp))
+                    .testTag("capture-flash-image"),
             )
         }
     }

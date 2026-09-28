@@ -82,6 +82,24 @@ Withdrawing a deletion only means anything before it is pushed. After that
 there is nothing to take back, and the row stays as the record that it
 happened.
 
+## Where it surfaces
+
+Three places, all drawing the same [DevicePhotoCard] and all reading the
+outbox rather than the server, so a tap shows immediately and travels later:
+
+- **Device photos**, every card.
+- **One photo on its own** (`PhotoDetailScreen`, `PhotoDetailKey`), which is
+  literally the list's card on a page of its own — where the capture pane's
+  thumbnail lands.
+- **The gallery**, over the photo in front, when this device has a row for it
+  (its own captures, and hillview photos it uploaded). Someone else's photo
+  gets nothing: the wishes hang off a local row, so there is nowhere to put
+  the answer.
+
+Rating is disabled when there is no account to key a row by
+(`DevicePhotoBrowser.canRate`), drawn-and-disabled rather than hidden so the
+controls beside it do not move when you sign in.
+
 ## Adding a kind
 
 1. A `OUTBOX_KIND_*` constant and the JSON shape it puts in `valueJson`.

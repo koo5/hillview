@@ -122,12 +122,20 @@ class PhotoOutbox(context: Context) {
      * gets both: the bytes land, and the pusher deletes on the far side as
      * soon as the server id exists — see PhotoOutboxPusher.afterUpload.
      */
-    fun wantDeleted(photoId: String, wanted: Boolean = true) {
+    fun wantDeleted(photoId: String, wanted: Boolean = true, forgetLocally: Boolean = false) {
         want(
             photoId,
             OUTBOX_KIND_DELETE,
-            if (wanted) JSONObject().toString() else null,
+            if (wanted) JSONObject().put(DELETE_FORGET_LOCALLY, forgetLocally).toString() else null,
         )
+    }
+
+    /** How far this photo's wanted deletion has got, or null if none was. */
+    fun deletionState(photoId: String): DeletionWish? {
+        val userId = currentUserId() ?: return null
+        val row = dao.find(userId, photoId, OUTBOX_KIND_DELETE, "") ?: return null
+        if (row.valueJson == null) return null
+        return if (row.dirty) DeletionWish.Pending else DeletionWish.Pushed
     }
 
     fun isDeletionWanted(photoId: String): Boolean {
@@ -135,6 +143,47 @@ class PhotoOutbox(context: Context) {
         return dao.find(userId, photoId, OUTBOX_KIND_DELETE, "")?.valueJson != null
     }
 
+    /**
+     * Everything this account has said about a page of photos, in one query.
+     *
+     * The list screen reads it per page rather than per card: fifty cards
+     * asking two questions each is a hundred queries on the drawing thread.
+     */
+    fun forPhotos(photoIds: List<String>): Map<String, PhotoWishes> {
+        val userId = currentUserId() ?: return emptyMap()
+        if (photoIds.isEmpty()) return emptyMap()
+        return dao.forPhotos(userId, photoIds)
+            .groupBy { it.photoId }
+            .mapValues { (_, rows) ->
+                val rating = rows.firstOrNull { it.kind == OUTBOX_KIND_RATING }
+                    ?.valueJson
+                    ?.let { runCatching { JSONObject(it).optString("rating") }.getOrNull() }
+                    ?.takeIf { it.isNotEmpty() }
+                val deleteRow = rows.firstOrNull { it.kind == OUTBOX_KIND_DELETE }
+                val deletion = when {
+                    deleteRow?.valueJson == null -> null
+                    deleteRow.dirty -> DeletionWish.Pending
+                    else -> DeletionWish.Pushed
+                }
+                PhotoWishes(rating = rating, deletion = deletion)
+            }
+    }
+
     /** How much this account still owes the server. */
     fun pendingCount(): Int = currentUserId()?.let { dao.pendingCount(it) } ?: 0
+}
+
+/** What one photo's outbox rows add up to, for a screen to draw. */
+data class PhotoWishes(
+    val rating: String? = null,
+    val deletion: DeletionWish? = null,
+)
+
+/** How far a wanted deletion has got; null means none was asked for. */
+enum class DeletionWish {
+    /** Recorded, and the server has not confirmed it. */
+    Pending,
+
+    /** The server has deleted it. */
+    Pushed,
 }

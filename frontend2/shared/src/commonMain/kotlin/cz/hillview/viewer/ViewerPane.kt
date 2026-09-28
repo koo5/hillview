@@ -50,6 +50,10 @@ import androidx.compose.animation.core.VectorConverter
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cz.hillview.map.PhotoMarker
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.alpha
+import cz.hillview.devicephotos.DevicePhotoCard
 import cz.hillview.map.pickRendition
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -93,6 +97,7 @@ fun ViewerPane(
     holder: ViewerStateHolder = org.koin.compose.koinInject(),
     settingsRepo: cz.hillview.settings.UploadSettingsRepository = org.koin.compose.koinInject(),
     mapState: cz.hillview.map.MapStateHolder = org.koin.compose.koinInject(),
+    photoBrowser: cz.hillview.devicephotos.DevicePhotoBrowser = org.koin.compose.koinInject(),
 ) {
     val state by holder.state.collectAsStateWithLifecycle()
 
@@ -386,6 +391,42 @@ fun ViewerPane(
                 )
             }
 
+            // Thumbs and delete for the photo in front, when it is one this
+            // device has a row for — its own captures, and hillview photos
+            // it uploaded. Someone else's photo gets nothing here: the
+            // outbox hangs its wishes off a local row, so there is nowhere
+            // to put the answer (see DevicePhotoBrowser.cardForMarker).
+            //
+            // Re-read whenever the front changes rather than held across
+            // turns: a swipe is a different photo, and a thumb that stayed
+            // lit from the previous one would be a lie at exactly the moment
+            // it is being looked at.
+            var frontCard by remember { mutableStateOf<DevicePhotoCard?>(null) }
+            var canRate by remember { mutableStateOf(false) }
+            LaunchedEffect(front?.source, front?.id) {
+                frontCard = front?.let { photoBrowser.cardForMarker(it.source, it.id) }
+                canRate = photoBrowser.canRate()
+            }
+            frontCard?.let { card ->
+                ViewerPhotoActions(
+                    card = card,
+                    ratingEnabled = canRate,
+                    onSetRating = { rating ->
+                        frontCard = card.copy(rating = rating)
+                        scope.launch { photoBrowser.setRating(card.id, rating) }
+                    },
+                    onDelete = {
+                        scope.launch {
+                            photoBrowser.deleteEverywhere(card.id)
+                            // The photo is gone; so is anything this could
+                            // still say about it.
+                            frontCard = null
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
+                )
+            }
+
             // The chevrons duplicate every direction that exists. Each tap
             // fast-forwards a slide already in flight, for the same reason a
             // drag does: a quick double-tap used to cancel the first commit
@@ -404,6 +445,99 @@ fun ViewerPane(
             }
         }
     }
+}
+
+/**
+ * Thumbs and delete over the photo in front.
+ *
+ * Delete asks first. Everywhere else in this pane a tap turns to another
+ * photo, so the one tap that destroys one cannot look like the others — and
+ * a swipe-heavy surface is exactly where a mis-tap is likeliest.
+ */
+@Composable
+private fun ViewerPhotoActions(
+    card: DevicePhotoCard,
+    /** A rating needs an account to belong to — see PhotoCard's own note. */
+    ratingEnabled: Boolean,
+    onSetRating: (String?) -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var confirming by remember(card.id) { mutableStateOf(false) }
+
+    if (confirming) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text("Delete ${card.filename}?") },
+            text = {
+                Text(
+                    if (card.onServer) {
+                        "The file goes from this device, and the copy on the " +
+                            "server goes when there is signal."
+                    } else {
+                        "The file goes from this device. It has not been " +
+                            "uploaded, and now never will be."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { confirming = false; onDelete() },
+                    modifier = Modifier.testTag("viewer-delete-confirm"),
+                ) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    Row(
+        modifier = modifier
+            .background(Color(0x66000000), RoundedCornerShape(20.dp))
+            .padding(horizontal = 4.dp)
+            .testTag("viewer-photo-actions"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ViewerActionButton(
+            label = "\uD83D\uDC4D",
+            lit = card.rating == "thumbs_up",
+            enabled = ratingEnabled,
+            tag = "viewer-rate-up",
+        ) { onSetRating(if (card.rating == "thumbs_up") null else "thumbs_up") }
+        ViewerActionButton(
+            label = "\uD83D\uDC4E",
+            lit = card.rating == "thumbs_down",
+            enabled = ratingEnabled,
+            tag = "viewer-rate-down",
+        ) { onSetRating(if (card.rating == "thumbs_down") null else "thumbs_down") }
+        ViewerActionButton(
+            label = "\uD83D\uDDD1",
+            lit = card.serverDeletion != null,
+            tag = "viewer-delete",
+        ) { confirming = true }
+    }
+}
+
+@Composable
+private fun ViewerActionButton(
+    label: String,
+    lit: Boolean,
+    tag: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Text(
+        label,
+        style = MaterialTheme.typography.titleMedium,
+        // An emoji takes no tint, so a chosen one is told from an offered one
+        // by opacity — the same rule the device-photos card uses.
+        modifier = Modifier
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .alpha(if (!enabled) 0.2f else if (lit) 1f else 0.4f)
+            .testTag(tag),
+    )
 }
 
 @Composable
