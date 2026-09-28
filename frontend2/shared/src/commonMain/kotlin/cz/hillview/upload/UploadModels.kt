@@ -133,6 +133,17 @@ data class PendingUpload(
     /** What `captured_at` means — see [cz.hillview.capture.captureTimingJson]. */
     val captureTimingJson: String? = null,
     /**
+     * The same thing unserialized, because the deferred IMU-window rewrite REBUILDS the
+     * inertial object and has to know which instant its ages are measured against.
+     *
+     * Carrying only the JSON was a real bug: the rewrite constructed a bare
+     * SensorSnapshot, `poseReferenceMs()` fell through to the press while the motion
+     * sample had been looked up at the EXPOSURE, and every uploaded photo reported an
+     * inertial age of almost exactly minus the press→exposure gap. Two separate fixes
+     * failed to move that number because neither touched this path.
+     */
+    val captureTiming: cz.hillview.capture.CaptureTiming? = null,
+    /**
      * The gravity / linear-acceleration sample itself, kept so the deferred IMU
      * window can rebuild [inertialJson] without losing it.
      *

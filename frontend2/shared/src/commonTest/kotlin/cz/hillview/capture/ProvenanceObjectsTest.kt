@@ -188,6 +188,43 @@ class ProvenanceObjectsTest {
         assertFalse("\"age_ms\":-318" in json, json)
     }
 
+    /**
+     * The deferred IMU-window rewrite REBUILDS this object from a fresh snapshot, and if
+     * the timing does not travel with it the ages silently revert to the press while the
+     * motion sample was taken at the exposure.
+     *
+     * That is not hypothetical: it shipped, and every uploaded photo reported an inertial
+     * age of almost exactly minus the press→exposure gap (−315 against +316, −399 against
+     * +398) while two separate fixes failed to move it, because neither touched the
+     * rebuild. This asserts the shape the rebuild constructs.
+     */
+    @Test
+    fun aRebuiltInertialObjectStillMeasuresAgainstTheExposure() {
+        val exposureWall = shutterAt + 316
+        val timing = CaptureTiming(
+            capturedAtSource = "press",
+            pressToExposureMs = 316,
+            exposureWallMs = exposureWall,
+            exposureSource = "sensor_timestamp",
+            poseReferencedTo = "exposure",
+        )
+        // Exactly what SharedStackUploadPipeline builds when the window closes: a bare
+        // snapshot carrying the press, the point reading, the window — and the timing.
+        val rebuilt = SensorSnapshot(
+            capturedAtMs = shutterAt,
+            captureTiming = timing,
+            motion = DeviceMotionSample(gravity = listOf(0f, 0f, 9.81f), atMs = exposureWall + 4),
+        )
+        val json = inertialProvenanceJson(rebuilt)!!
+        assertTrue("\"age_ms\":-4" in json, json)
+        // The regression: -316 is the press-referenced answer, and it is what shipped.
+        assertFalse("\"age_ms\":-316" in json, json)
+
+        // Drop the timing, as the rebuild used to, and the bug comes straight back.
+        val withoutTiming = rebuilt.copy(captureTiming = null)
+        assertTrue("\"age_ms\":-320" in inertialProvenanceJson(withoutTiming)!!)
+    }
+
     /** No timing recorded at all — an older row, or a path that does not set it. */
     @Test
     fun noTimingMeansNoObject() {

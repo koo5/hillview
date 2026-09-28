@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
  * `capture_timing` provenance object, so the press→exposure behaviour can be studied
  * from uploaded photos instead of from an attached cable.
  */
+@kotlinx.serialization.Serializable
 data class CaptureTiming(
     /** What `captured_at` is. "press" today; never silently something else. */
     val capturedAtSource: String,

@@ -151,6 +151,11 @@ class SharedStackUploadPipeline(
                 val json = cz.hillview.capture.inertialProvenanceJson(
                     cz.hillview.capture.SensorSnapshot(
                         capturedAtMs = capturedAt,
+                        // Which instant the ages are measured against. Without it this
+                        // rebuild silently reverted to the press while the motion sample
+                        // below had been taken at the exposure, so every photo reported
+                        // an inertial age of almost exactly minus the press→exposure gap.
+                        captureTiming = upload.captureTiming,
                         // The point reading the SHUTTER had, carried through so
                         // this rewrite does not drop it.
                         motion = upload.motionSample,
