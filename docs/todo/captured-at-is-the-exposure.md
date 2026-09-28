@@ -508,6 +508,42 @@ and both are an order better than the press, so nothing is wrong; but if the att
 stream can be made as dense as the motion one, the lookup tightens from ~50 ms to ~1 ms
 for free. n = 1, so this is a thing to measure rather than a conclusion.
 
+### CONFIRMED 2026-09-28: both ages land on the exposure
+
+Eight captures, build `c0a58b90+d91d86d5`:
+
+| | before | after |
+|---|---:|---:|
+| `attitude.age_ms` \|mean\| | 50.2 (worst 94) | **0.6** (worst 2, median 0) |
+| `inertial.age_ms` \|mean\| | 314.9 (worst 343) | **17.8** (worst 128, median 0.5) |
+| `pose_referenced_to` | — | exposure, 8/8 |
+
+Both causes were what they looked like. The attitude was held at ~50 ms by
+`MODE_RATE_LIMITS` — a 200 ms per-mode cap in UPRIGHT mode, which produces exactly the
+±100 ms uniform spread the old batches show; the uncapped `onRawSample` tap removes it
+while the cap keeps serving the compass and the bearings rows. The inertial age was the
+deferred window rewrite rebuilding the object against the press, fixed by carrying
+`CaptureTiming` into it.
+
+**Reading the build stamp, because it cost an hour.** The third field is
+`GIT_COMMIT_TIME`, NOT a build time — `androidApp/build.gradle.kts` explains why
+("never from the clock: with the configuration cache on, a config-time timestamp would
+be frozen in the cache entry and lie"). So a stamp of `c0a58b90 · 06:52` says only that
+the APK was built from a tree whose HEAD was that commit; it could have been built at any
+later moment, and two builds made before the NEXT commit share the sha and differ only in
+the dirty hash.
+
+The dirty hash is therefore the discriminator, and it is content-addressed and
+reproducible:
+
+```bash
+(git status --porcelain; git diff HEAD) | sha1sum | cut -c1-8
+```
+
+Reconstruct a candidate tree in a worktree and hash it. Doing exactly that settled which
+of two builds the phone ran — `d91d86d5` matched the tree WITH the tap, not the one
+without — and turned an argument from age distributions into arithmetic.
+
 ### So: we did not know the exposure moment, and now we do
 
 Which is the outcome the requirement was written for. Two honest responses, and they
