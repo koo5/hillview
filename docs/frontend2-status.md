@@ -2861,11 +2861,25 @@ is worse than gyro for this; lens wants one value for the frame) and why positio
 - **The still's own lens values.** Focus distance, intrinsics, distortion and skew are
   the preview's however close to the exposure we sample. That needs a route to the
   still's `TotalCaptureResult`, which CameraX does not offer.
-- **The IMU window is still press-centred.** `persistImuWindowAround(capturedAtMs)`
-  aims at the button; prod measured the ±3 s window as −4.76 s / +1.24 s around the
-  frame in Quality mode (79.3 % of the history before the exposure). The read is
-  deferred to `press + 3 s + 150 ms` and the exposure is known at the save, so the
-  centre can still be retargeted in flight.
+- **The IMU window's TAIL is still press-bounded.** The summary is now centred on the
+  exposure (2026-09-28) — `sample_count` and the three peaks are read over
+  `exposure ± 3 s` instead of `press ± 3 s`, which removes up to 1.76 s of pre-press
+  history from the peaks in Quality mode. Only the summary moved: the claim key and the
+  read deadline stay on the press, because the engine wrote both under that name and two
+  timers disagreeing about which instant they mean is a bug this window has already had.
+
+  What it cannot fix: the engine persists `press ± 3 s`, so at the read nothing exists
+  past `press + 3 s` — those samples belong to the next capture and arrive later. So the
+  leading edge is now correct and the trailing edge is where it was. It stays honest
+  because `summariseImuWindow` reports the first and last sample it actually FOUND, so
+  `window_start_ms`/`window_end_ms` always describe what was really summarised.
+  Widening the tail means widening what the engine persists: free in storage, since the
+  trim tiles, but it moves the claim timing, which is the expensive half.
+
+  And today's tiling result narrowed what a full re-centre would buy: in a run the
+  windows tile, so the union is continuous whatever the centres are — shifting every
+  centre just shifts every seam. The remaining case is an ISOLATED capture, which has
+  only its own window.
 - **`captured_at` itself is still the press**, and says so. Moving it has a filename, a
   DB column and the pics join behind it.
 

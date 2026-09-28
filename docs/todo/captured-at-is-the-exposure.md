@@ -646,7 +646,7 @@ aimed at the button, which the prod measurement made concrete — in Quality mod
 ±3 s window is really −4.76 s / +1.24 s around the frame, 79.3 % of the inertial
 history before the exposure. The read is deferred to `press + 3 s + 150 ms` and the
 exposure is known at the save, so the centre can still be retargeted in flight. Not
-done here.
+done here. *(The SUMMARY half was done later the same day — see below.)*
 
 ### CONFIRMED ON PROD 2026-09-28 — and `lens.age_ms` found something
 
@@ -812,6 +812,42 @@ a hard stop. Closing it further means either averaging the two bracketing frames
 invents a third number and would need its own label, or the still's own capture result,
 which CameraX does not hand out. The lens half of "every sensor at the exposure" is now
 as close as this architecture allows, and `frame_values_referenced_to` says so.
+
+### 2026-09-28 — the summary gets centred on the frame; the tail does not
+
+Split out of "re-centre the window" once the tiling verification showed what re-centring
+would and would not buy.
+
+**What it would NOT buy.** In a run the windows tile, so the union of stored samples is
+continuous whatever the centres are — moving every centre by 300 ms moves every seam by
+300 ms and nothing else. Coverage is identical. The raw-sample argument for re-centring
+only survives for an ISOLATED capture, which has no neighbours to tile with.
+
+**What was genuinely wrong** is the SUMMARY: `sample_count`, `accel_peak_mps2`,
+`accel_peak_deviation_mps2` and `gyro_peak_rad_s` were computed over `press ± 3 s`, i.e.
+−4.76 s / +1.24 s around the frame in Quality mode. That is the one press-anchored
+number that reaches consumers who never open the artifact, since it lives in the
+metadata rather than the gzipped payload.
+
+So the summary read moved to `exposure ± 3 s`. **Only the summary.** The claim key and
+the read deadline stay on the press, because the engine wrote both under that name, and
+two timers that disagree about which instant they mean is precisely the bug that once
+made the post-shutter half of this window present or absent by luck.
+
+**The trailing edge is still short and this cannot fix it.** The engine persists
+`press ± 3 s`, so at the read nothing exists past `press + 3 s`; those samples belong to
+the next capture's window and arrive later. The leading edge is now correct — no more
+1.76 s of pre-press history inside the peaks — and the tail is where it was. It stays
+honest rather than silently truncated because `summariseImuWindow` returns the FIRST AND
+LAST SAMPLE it actually found, not the range it was asked for, so
+`window_start_ms`/`window_end_ms` always describe what was really summarised. In Quality
+mode `sample_count` will therefore drop, and the drop is the field telling the truth.
+
+**What widening the tail would take.** Extending what the engine persists is free in
+storage — the trim tiles, so this photo claiming more means the next claims less — but
+it moves the claim's timing, and the claim key, the read deadline and the engine's post
+all have to keep agreeing. That is the expensive half, and it is only worth it for
+isolated captures.
 
 ### So: we did not know the exposure moment, and now we do
 

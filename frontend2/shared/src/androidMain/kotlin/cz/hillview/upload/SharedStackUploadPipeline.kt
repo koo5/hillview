@@ -115,6 +115,30 @@ class SharedStackUploadPipeline(
     private fun scheduleImuWindow(photoId: String, upload: cz.hillview.upload.PendingUpload) {
         val capturedAt = upload.capturedAtMs ?: return
         val half = cz.hillview.geo.IMU_WINDOW_HALF_MS
+        // WHAT THE SUMMARY DESCRIBES: the frame, so it is centred on the exposure
+        // whenever the capture measured one.
+        //
+        // `sample_count` and the three peaks were computed over `press ± 3 s`, which on
+        // prod is −4.76 s / +1.24 s around the FRAME in Quality mode: 79 % of the
+        // history summarised as "near this photo" preceded the shutter. That is the one
+        // press-anchored number that reaches consumers who never open the artifact.
+        //
+        // ONLY the summary moves. The claim key and the read deadline stay on the press
+        // because the engine wrote both under that name, and two timers that disagree
+        // about which instant they mean is the bug that already made the post-shutter
+        // half of this window present or absent by luck.
+        //
+        // THE TRAILING EDGE IS STILL SHORT, and this cannot fix it. The engine persists
+        // `press ± 3 s`, so at the read there is nothing past `press + 3 s` — samples
+        // after that belong to the next capture's window and arrive later. So this buys
+        // a correct LEADING edge (no more 1.76 s of pre-press history in the peaks) and
+        // leaves the tail where it was. Honest either way: `summariseImuWindow` reports
+        // the FIRST AND LAST SAMPLE it actually found, not the range asked for, so
+        // `window_start_ms`/`window_end_ms` always describe what was really summarised.
+        // Widening the tail means widening what the engine persists — free in storage,
+        // since the trim tiles, but it moves the claim timing and that is the expensive
+        // half.
+        val summaryAt = upload.captureTiming?.exposureWallMs ?: capturedAt
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
             try {
                 val db = cz.hillview.plugin.GeoTrackingDatabase.getDatabase(context)
@@ -135,10 +159,11 @@ class SharedStackUploadPipeline(
                     waited += IMU_CLAIM_POLL_MS
                     claim = db.imuClaimDao().get(capturedAt)
                 }
-                // The FULL window, whoever stored it: the context number, so a
-                // reader can tell "the frame sat in 6 s of quiet" from "we only
-                // kept 2 s of it".
-                val samples = db.imuDao().getInWindow(capturedAt - half, capturedAt + half)
+                // The FULL window around the EXPOSURE, whoever stored it: the
+                // context number, so a reader can tell "the frame sat in 6 s of
+                // quiet" from "we only kept 2 s of it". Centred on the frame
+                // rather than the button since 2026-09-28 — see summaryAt.
+                val samples = db.imuDao().getInWindow(summaryAt - half, summaryAt + half)
                 val stats = cz.hillview.plugin.summariseImuWindow(samples) ?: return@launch
                 // What this photo OWNS: exactly the range it claimed. Attribution
                 // is data now — derived from the claim, not inferred from a
