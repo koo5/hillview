@@ -54,6 +54,26 @@ data class CaptureTiming(
     val exposureWallMs: Long? = null,
 
     /**
+     * Which build took this photo — `BuildInfo.label()`, e.g.
+     * `0.1.0 · d4993b5a · 2026-09-28T00:16:00+00:00`.
+     *
+     * Here because an autoupload can glitch and a phone can be a build behind, and then
+     * every number in this object describes code nobody can identify afterwards. That is
+     * not hypothetical: two rounds of analysis on 2026-09-28 argued from age
+     * distributions about which APK was running, and the version screen settled it in one
+     * line.
+     *
+     * IT IS IN THE WRONG OBJECT and should move. `capture_timing` is about when the
+     * shutter opened, not about the software; the right home is a top-level `app` object.
+     * It lives here because a top-level key needs `BrowserMetadata` plus
+     * `PROVENANCE_KEYS` and therefore a worker deploy, while a nested one needs nothing —
+     * and having the build recorded NOW is worth more than having it in the right place
+     * later. Move it when the metadata rehaul lands
+     * (docs/todo/metadata-structure-sanitization.md).
+     */
+    val build: String? = null,
+
+    /**
      * Which instant the POSE objects describe — "exposure" when the attitude and
      * inertial readings were looked up at the exposure, "press" when they are the
      * press-time stamp because no sample was within tolerance.
@@ -981,6 +1001,15 @@ fun captureTimingJson(s: SensorSnapshot): String? {
         t.exposureWallMs?.let { add("\"exposure_wall_ms\":$it") }
         t.exposureSource?.let { add("\"exposure_source\":\"$it\"") }
         t.poseReferencedTo?.let { add("\"pose_referenced_to\":\"$it\"") }
+        // The only field in this object built from strings that did not come from an
+        // enum or a number, so it is the only one worth guarding: a version or a dirty
+        // hash carrying a quote would otherwise produce a payload the worker drops
+        // whole. Sanitised rather than escaped — the label is generated, so anything
+        // exotic in it is a bug to see, not text to preserve.
+        t.build?.takeIf { it.isNotBlank() }
+            ?.map { c -> if (c == '"' || c == '\\') ' ' else c }
+            ?.joinToString("")
+            ?.let { add("\"build\":\"$it\"") }
     }
     return fields.joinToString(",", prefix = "{", postfix = "}")
 }

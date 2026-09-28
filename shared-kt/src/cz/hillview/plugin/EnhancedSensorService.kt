@@ -131,6 +131,24 @@ class EnhancedSensorService(
      * worst kind. The default keeps the Tauri plugin's behaviour exactly.
      */
     private val sensorDelayUs: Int = DEFAULT_SENSOR_DELAY_US,
+    /**
+     * EVERY sample, before the per-mode rate limit that [onSensorUpdate] is behind.
+     *
+     * The published stream is capped at [MODE_RATE_LIMITS] — 200 ms in UPRIGHT mode —
+     * because that is what a compass needle and the tracking rows want. A photo wants
+     * something else: the attitude at the instant the shutter opened, and with a 200 ms
+     * cap the nearest sample is up to 100 ms away, which is exactly what 32 uploaded
+     * photos measured (|mean| 50 ms, worst 94). This tap exists so the capture's lookup
+     * ring can be fed at the sensor's own rate while the cap keeps doing its job for the
+     * UI and the CSVs.
+     *
+     * Null for callers that do not need it — the Tauri plugin's behaviour is unchanged.
+     * Called on the same thread as [onSensorUpdate], so it must be cheap: a ring append,
+     * nothing more.
+     *
+     * Declared BEFORE onSensorUpdate for the trailing-lambda reason spelled out above.
+     */
+    private val onRawSample: ((OrientationSensorData) -> Unit)? = null,
     private val onSensorUpdate: (OrientationSensorData) -> Unit,
 ) : SensorEventListener {
     companion object {
@@ -801,10 +819,17 @@ class EnhancedSensorService(
         val currentTime = SystemClock.elapsedRealtime()
         val rateLimit = MODE_RATE_LIMITS[currentMode] ?: UPDATE_RATE_MS
 
-        if (currentTime - lastUpdateTime < rateLimit) {
-            return
-        }
-        lastUpdateTime = currentTime
+        // DECIDE, do not return. The cap belongs to what it was written for — the
+        // compass needle and the bearings rows — but returning here also denied the
+        // orientation maths to the capture's at-exposure lookup, which wants every
+        // sample. The maths is a rotation matrix, a remap and a getOrientation: at
+        // 33 Hz its cost is not worth a capped pose.
+        //
+        // Only this handler. The Madgwick and complementary paths derive their filter
+        // `dt` from this same clock, so the limit is part of their dynamics there; they
+        // keep it, and neither is the mode in use (TYPE_ROTATION_VECTOR / UPRIGHT).
+        val publish = currentTime - lastUpdateTime >= rateLimit
+        if (publish) lastUpdateTime = currentTime
 
         //Log.v(TAG, "🔍📊 Processing $source data")
 
@@ -877,6 +902,7 @@ class EnhancedSensorService(
             pitch = pitch,
             roll = roll,
             source = sourceWithMode,
+            publish = publish,
             // The rotation-vector sample rates itself; this is the one path
             // where a real value exists to pass on.
             fusedSensorAccuracy = event.accuracy,
@@ -1193,6 +1219,12 @@ class EnhancedSensorService(
          * compose several raw sensors and have no single rating to pass on.
          */
         fusedSensorAccuracy: Int = -1,
+        /**
+         * Whether this sample may reach [onSensorUpdate]. False means the per-mode rate
+         * limit held it back — [onRawSample] still sees it. Defaults true so the paths
+         * that have not been restructured (Madgwick, complementary) behave as before.
+         */
+        publish: Boolean = true,
     ) {
         val startTime = System.currentTimeMillis()
         //Log.v(TAG, "TIMING 🕐 sendSensorData START: ${startTime} from $source")
@@ -1208,6 +1240,27 @@ class EnhancedSensorService(
         val finalPitch = smoothedPitch!!
         val finalRoll = smoothedRoll!!
 		val finalAccuracy = accuracyLevel
+
+        // The sample, built BEFORE the gates so the unthrottled tap can see every one of
+        // them. Nothing below may mutate it.
+        val sample = OrientationSensorData(
+            magneticHeading = finalMagneticHeading,
+            trueHeading = finalTrueHeading,
+            accuracyLevel = accuracyLevel,
+            fusedSensorAccuracy = fusedSensorAccuracy,
+            pitch = finalPitch,
+            roll = finalRoll,
+            timestamp = System.currentTimeMillis(),
+            elapsedRealtimeNanos = android.os.SystemClock.elapsedRealtimeNanos(),
+            source = "android",
+            detail = "$source (EMA smoothed)",
+        )
+        // Every sample, whatever the cap and the gate decide below.
+        onRawSample?.invoke(sample)
+
+        // The per-mode rate limit, for the published stream only — see the `publish`
+        // parameter and handleRotationVector.
+        if (!publish) return
 
         // Check if changes are significant enough to warrant an update
         if (!hasSignificantChange(finalMagneticHeading, finalTrueHeading, 0, finalPitch, finalRoll)) {
@@ -1231,23 +1284,7 @@ class EnhancedSensorService(
             Log.w(TAG, "  EMA_ALPHA=${EMA_ALPHA}, thresholds: heading=${HEADING_THRESHOLD}°, pitch=${PITCH_THRESHOLD}°, roll=${ROLL_THRESHOLD}°")
         }
 
-        val data = OrientationSensorData(
-            magneticHeading = finalMagneticHeading,
-            trueHeading = finalTrueHeading,
-            accuracyLevel = accuracyLevel,
-            fusedSensorAccuracy = fusedSensorAccuracy,
-            pitch = finalPitch,
-            roll = finalRoll,
-            timestamp = System.currentTimeMillis(),
-            // Read beside the wall clock, so the two describe one instant.
-            elapsedRealtimeNanos = android.os.SystemClock.elapsedRealtimeNanos(),
-            // The source is the platform sensor stack, full stop — it has to
-            // stay a small, stable, elect-able name. Which fusion mode produced
-            // this sample is provenance, so it moves to `detail`, where nothing
-            // matches on it and it can stay as verbose as it likes.
-            source = "android",
-            detail = "$source (EMA smoothed)"
-        )
+        val data = sample
 
         /*val sendTime = System.currentTimeMillis()
         Log.v(TAG, "TIMING 📡 sendSensorData SENDING: ${sendTime} (${sendTime - startTime}ms) bearing=${finalMagneticHeading.format(1)}°")

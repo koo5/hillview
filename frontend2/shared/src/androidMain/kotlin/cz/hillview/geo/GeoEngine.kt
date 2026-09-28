@@ -1286,14 +1286,16 @@ class GeoEngine private constructor(private val context: Context) {
             // activity switch tore the registration down and rebuilt an
             // identical one, and the relaxed map-only rate never ran.
             sensorDelayUs = active.sensorDelayUs,
+            // The at-exposure ring is fed from the UNCAPPED tap. The published stream
+            // below is rate-limited per mode (200 ms in UPRIGHT), which is right for the
+            // compass and the bearings rows and wrong for a photo: at 200 ms the nearest
+            // sample to an exposure is up to 100 ms away, which is what 32 uploaded
+            // photos measured. Same thread as the callback, so this stays an append.
+            onRawSample = { raw -> attitudeRing.add(raw.toDeviceAttitude()) },
         ) { data ->
             // One sample, fanned out — the plugin's shape exactly.
             geoTracking.storeOrientationSensorData(data)
             _orientation.value = data
-            // …and kept, so a capture can look up this instant later. On THIS thread,
-            // which is the whole point: the published flow is conflated by whoever
-            // collects it, the ring is not.
-            attitudeRing.add(data.toDeviceAttitude())
         }.also { it.startSensor() }
     }
 

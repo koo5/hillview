@@ -1816,6 +1816,7 @@ private class AndroidPhotoCapture(
                                     pressToExposureMs = pressToExpMs,
                                     exposureToJpegMs = savedAt - captureExposedAtMs,
                                     stillMode = this@AndroidPhotoCapture.stillMode.key,
+                                    build = cz.hillview.BuildInfo.label(),
                                     exposureElapsedNs = exposureElapsedNs,
                                     exposureWallMs = exposureWallMs,
                                     exposureSource = "sensor_timestamp",
@@ -2032,6 +2033,7 @@ private class AndroidPhotoCapture(
                                                 // server as a still mode until the
                                                 // uploaded data said so.
                                                 stillMode = stillMode.key,
+                                                build = cz.hillview.BuildInfo.label(),
                                             ),
                                         ),
                                     ),
