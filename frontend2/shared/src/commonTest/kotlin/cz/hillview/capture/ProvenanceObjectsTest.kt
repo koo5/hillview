@@ -351,6 +351,7 @@ class ProvenanceObjectsTest {
                     zoomRatio = 2f,
                     previewRollingShutterSkewNs = 33_000_000L,
                     frameValuesAtMs = shutterAt - 40,
+                    frameValuesReferencedTo = "exposure",
                     intrinsics = listOf(1000f, 1000f, 960f, 540f, 0f),
                     distortion = listOf(0.1f, -0.2f, 0.01f, 0f, 0f),
                     cameraIntrinsics = listOf(999f, 999f, 961f, 541f, 0f),
@@ -372,6 +373,9 @@ class ProvenanceObjectsTest {
             // from the reference instant. Without the pair, a preview frame's focus
             // and readout time read as the photo's own.
             "\"frame_values_source\":\"preview\"",
+            // Source and reference are two facts, not one: the stream is the preview
+            // either way, and this says how close to the frame the lookup got.
+            "\"frame_values_referenced_to\":\"exposure\"",
             "\"age_ms\":40",
             "\"intrinsics\":[1000.0,1000.0,960.0,540.0,0.0]",
             "\"camera_intrinsics\":[999.0,999.0,961.0,541.0,0.0]",
@@ -419,6 +423,34 @@ class ProvenanceObjectsTest {
         // No frame timestamp: no age, rather than one derived from the callback's own
         // arrival — the still's equivalent dispatch was 104 ms late and jittered by 16.
         assertFalse("age_ms" in json, json)
+        // And no claim about WHICH instant, either: the source is known, the reference
+        // is not, and the two are separate facts.
+        assertFalse("frame_values_referenced_to" in json, json)
+    }
+
+    /**
+     * The press-time latch, labelled as such — what a capture keeps when it has no
+     * exposure instant to look up, or when the ring holds nothing within tolerance.
+     *
+     * Worth its own test because the age alone does not settle it. Measured on build
+     * `0444561a`: the latch sat 399–470 ms from the exposure, which is 6–7 preview
+     * frames, because a capture RESULT arrives well after its own frame. A reader
+     * deciding whether `focus_distance_diopters` describes this photo needs the word,
+     * not an inference from a magnitude.
+     */
+    @Test
+    fun thePressTimeLatchSaysThatIsWhatItIs() {
+        val json = lensProvenanceJson(
+            snap(
+                lens = LensStamp(
+                    focusDistanceDiopters = 3.0086613f,
+                    frameValuesAtMs = shutterAt - 103,
+                    frameValuesReferencedTo = "press",
+                ),
+            ),
+        )!!
+        assertTrue("\"frame_values_referenced_to\":\"press\"" in json, json)
+        assertTrue("\"age_ms\":103" in json, json)
     }
 
     @Test

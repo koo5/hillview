@@ -2726,14 +2726,44 @@ string/int keys), the old key kept declared for rows written before today. That 
 API deploy, not a worker one, and only affects PUBLIC visibility — the owner endpoint
 ships `exif_data` wholesale and sees everything immediately.
 
+### MEASURED ON PROD, and it forced a third ring
+
+23 captures on build `0444561a`: `refined_to: "exposure"` and both refined flags 23/23,
+`location_age_ms` 431–1340 (median 905) where the same photos would have said 143–987,
+attitude |mean| 0.9 and inertial |mean| 1.3 (worst −8, from 128). The old skew key is
+absent on all 23. The phone was standing still — `fix.speed_mps` mean 0.102 — so this
+batch proves the plumbing, not the payoff: 336 ms of retargeting is ~3 cm at that speed.
+
+**`lens.age_ms` came back 399–470 ms, and quantized.** Divided by the 66.65 ms preview
+period: 5.986 … 7.052 — exactly 6 or 7 whole frames, mean residual **0.99 ms**, worst
+4.10 ms. Two consequences, the second unsuspected:
+
+1. those are real frame timestamps, not dispatch times — a queued callback could not
+   land on the frame grid;
+2. **the still's exposure is phase-locked to the preview cadence to within ~1 ms.** The
+   press arrives at a random phase and the still waits for a slot, which is a mechanism
+   for the 288–381 ms press→exposure spread that nothing had proposed.
+
+And the magnitude is the point: the per-shot lens values were **older than
+press→exposure itself**, where the attitude's press-time staleness was ~50 ms. Six to
+seven frames, because a capture RESULT arrives well after the frame it describes — so
+the press-time latch is never "the frame before the press", as this file's own comment
+had assumed.
+
+So the lens got a ring: `lensRing`, keyed by each preview result's own
+`SENSOR_TIMESTAMP` bridged onto `elapsedRealtimeNanos`, looked up at the exposure. Half
+a preview period at worst, ~33 ms, against 399–470. It lives in
+`PhotoCapture.android.kt` and not in `GeoEngine` — the camera is that file's hardware
+and the callback already runs on the camera thread, so there is nothing conflating in
+the path, which is the only reason the attitude ring had to move.
+`frame_values_referenced_to` says which a photo got. It still does NOT produce the
+still's values; nothing does.
+
 ### STILL NOT DONE, after this
 
-- **The still's lens values.** Focus distance, intrinsics and distortion remain the
-  preview's, now merely labelled and dated. The cheap next step is a ring of
-  `FrameLensFacts` keyed by each preview result's `SENSOR_TIMESTAMP`, looked up at the
-  exposure like the other two rings — it cannot produce the still's values, but it
-  replaces "the preview frame before the press" with "the preview frame nearest the
-  exposure", cutting the age from hundreds of ms to tens.
+- **The still's own lens values.** Focus distance, intrinsics, distortion and skew are
+  the preview's however close to the exposure we sample. That needs a route to the
+  still's `TotalCaptureResult`, which CameraX does not offer.
 - **The IMU window is still press-centred.** `persistImuWindowAround(capturedAtMs)`
   aims at the button; prod measured the ±3 s window as −4.76 s / +1.24 s around the
   frame in Quality mode (79.3 % of the history before the exposure). The read is

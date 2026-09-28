@@ -648,6 +648,79 @@ history before the exposure. The read is deferred to `press + 3 s + 150 ms` and 
 exposure is known at the save, so the centre can still be retargeted in flight. Not
 done here.
 
+### CONFIRMED ON PROD 2026-09-28 — and `lens.age_ms` found something
+
+23 captures, build `0444561a` (clean sha, no dirty hash), latency mode, phone almost
+stationary.
+
+| | |
+|---|---:|
+| `refined_to: "exposure"` | **23/23** |
+| `refined_position` / `refined_bearing` | **23/23** each |
+| `pose_referenced_to: "exposure"` | 23/23 |
+| `attitude.age_ms` \|mean\| | **0.9** (worst 2) |
+| `inertial.age_ms` \|mean\| | **1.3** (worst −8; it was 17.8 / worst 128) |
+| `press→exposure` | 336 mean, 288–381 |
+| old `rolling_shutter_skew_ns` | absent on all 23 ✓ |
+
+**`location_age_ms` moved exactly as predicted.** 431–1340 ms, median 905, where the
+same photos would previously have reported 143–987, median 570. The SPAN is unchanged
+at ~909 ms — that is the ~1 Hz fix cadence, sampled at a random phase — and the whole
+distribution shifted up by the press→exposure gap. The number got bigger because it
+got true.
+
+**But this batch proves the plumbing, not the payoff.** `fix.speed_mps` averaged 0.102,
+max 0.662: standing still. At that speed, retargeting 336 ms moves the position ~3 cm,
+25 cm at the worst sample. Whether refining to the exposure MATTERS is a question for a
+walking batch; that it now happens is settled.
+
+#### The still's exposure is phase-locked to the preview cadence
+
+`lens.age_ms` came back 399–470 ms — and the values are quantized. Divided by the
+66.65 ms preview period they are 5.986 … 7.052, i.e. **exactly 6 or 7 whole preview
+frames, with a mean residual of 0.99 ms and a worst of 4.10 ms.**
+
+Two things follow, and the second was not suspected:
+
+1. **These are real frame timestamps.** A dispatch-derived age could not land on the
+   frame grid — the callback's own queueing would smear it. The field validates its own
+   provenance, which is the property the whole ladder was chosen for.
+2. **The still's exposure sits on a preview frame boundary, to within ~1 ms.** The press
+   arrives at a random phase and the still waits for a grid slot. That is a mechanism
+   for the 288–381 ms press→exposure spread that nothing had proposed — and it is the
+   reason a preview frame essentially AT the exposure exists to be found.
+
+And the magnitude is the finding that forced the next change: the per-shot lens values
+were **399–470 ms older than the frame the photo is of — larger than press→exposure
+itself**, where the attitude's press-time staleness was ~50 ms. Six to seven frames,
+because a capture RESULT arrives well after the frame it describes; the press-time latch
+is therefore never the frame before the press, as the code's own comment had assumed
+("at most one preview frame old").
+
+`focus_distance_diopters: 3.0086613` on the last capture — focused at ~33 cm, as the
+preview saw it seven frames before the shutter.
+
+#### So the lens got a ring too
+
+`lensRing`, a `SampleRing<FrameLensFacts>` keyed by each preview result's own
+`SENSOR_TIMESTAMP` bridged onto `elapsedRealtimeNanos`, looked up at the exposure like
+the attitude and inertial rings. It replaces "the preview frame before the press" with
+"the preview frame nearest the exposure" — half a period at worst, ~33 ms, against
+399–470.
+
+It does NOT produce the still's values. Nothing does; that part of item 2 stands.
+
+It lives in `PhotoCapture.android.kt` rather than in `GeoEngine`, unlike the other two
+rings, and the difference is principled: the camera is that file's hardware, the preview
+callback already runs on the camera thread, and nothing conflating stands between the
+two. The attitude ring had to move into the engine because its feed passed through two
+StateFlows and the composition's dispatcher — a problem this ring does not have.
+
+`frame_values_referenced_to` says which one a photo got, `"exposure"` or `"press"`,
+beside the unchanged `frame_values_source: "preview"`. Two fields on purpose: which
+stream and which instant are two facts, and collapsing them into one is exactly what
+made the pose ages wrong in two directions at once.
+
 ### So: we did not know the exposure moment, and now we do
 
 Which is the outcome the requirement was written for. Two honest responses, and they

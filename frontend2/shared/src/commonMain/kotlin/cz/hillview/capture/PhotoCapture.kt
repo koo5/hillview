@@ -327,6 +327,24 @@ data class LensStamp(
      */
     val frameValuesAtMs: Long? = null,
     /**
+     * Which instant the per-shot half was looked up at — `"exposure"` when a ring of
+     * preview results answered for the frame's own moment, `"press"` when it is the
+     * latch the shutter read.
+     *
+     * SEPARATE from the source, and the separation is the lesson from ungating
+     * [SensorSnapshot.poseReferenceMs]: "which stream these came from" and "which
+     * instant they describe" are two facts, and one field carrying both is what made
+     * the pose ages wrong in two directions at once. The stream is still the preview
+     * either way — this says only how close to the frame it got.
+     *
+     * Why it is worth a field at all: measured on build `0444561a`, the press-time
+     * latch was 399–470 ms from the exposure, where the at-exposure lookup can be
+     * half a preview period. A reader deciding whether to trust
+     * `focus_distance_diopters` for this frame needs to know which it has, and
+     * `age_ms` alone only implies it.
+     */
+    val frameValuesReferencedTo: String? = null,
+    /**
      * fx, fy, cx, cy, skew for THIS frame, in pixels of the pre-correction
      * active array. The HAL may vary it with focus and zoom, which is why it is
      * read per frame and not only from the characteristics.
@@ -1184,6 +1202,7 @@ fun lensProvenanceJson(s: SensorSnapshot): String? {
             l.intrinsics != null || l.distortion != null
         ) {
             add("\"frame_values_source\":\"preview\"")
+            l.frameValuesReferencedTo?.let { add("\"frame_values_referenced_to\":\"$it\"") }
             l.frameValuesAtMs?.let { add("\"age_ms\":${s.poseReferenceMs() - it}") }
         }
         floats(l.cameraIntrinsics)?.let { add("\"camera_intrinsics\":$it") }

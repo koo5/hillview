@@ -1007,11 +1007,23 @@ second is fetched only by something that wants it.
   of readout is about 4 cm of translation across the frame, so a reconstruction that
   models rolling shutter would be using the wrong constant, silently.
 
-  The rest of the half now says what it is instead: `frame_values_source: "preview"`
-  and an `age_ms` measured from the exposure, exactly like `attitude.age_ms` and
-  `inertial.age_ms`. The age matters because focus MOVES in the gap — 7.0279527 to
-  6.9795275 diopters during one press→exposure window, measured 2026-09-27 — so
-  `focus_distance_diopters` is a pre-autofocus value on any capture where 3A ran.
+  The rest of the half now says what it is instead: `frame_values_source: "preview"`,
+  `frame_values_referenced_to` (`"exposure"` or `"press"`) and an `age_ms` measured
+  from the exposure, exactly like `attitude.age_ms` and `inertial.age_ms`. The age
+  matters because focus MOVES in the gap — 7.0279527 to 6.9795275 diopters during one
+  press→exposure window, measured 2026-09-27 — so `focus_distance_diopters` is a
+  pre-autofocus value on any capture where 3A ran.
+
+  **And the age turned out to be the largest of the three.** Measured on 23 prod
+  captures, 2026-09-28: the shutter's latch sat **399–470 ms** from the frame, where
+  the attitude's press-time staleness was ~50 ms — larger than press→exposure itself.
+  Those ages divide by the 66.65 ms preview period to 5.986 … 7.052, i.e. **exactly 6
+  or 7 whole frames, mean residual 0.99 ms**, because a capture RESULT arrives well
+  after the frame it describes. (That quantization also shows the still's exposure is
+  phase-locked to the preview grid to within ~1 ms, which is a separate finding and
+  lives in `todo/captured-at-is-the-exposure.md`.) Hence `lensRing`: the per-shot half
+  is now looked up at the exposure like the other two streams, `"press"` remaining the
+  labelled fallback when no preview frame is within tolerance.
 
   Getting the still's own values needs a route to its capture result that CameraX
   does not currently offer; until one exists, the honest options were to label or to

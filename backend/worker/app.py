@@ -816,10 +816,12 @@ class BrowserMetadata(BaseModel):
 	# zoom_ratio (the app has had pinch-to-zoom all along and a frame shot at 2x
 	# read as 1x is simply wrong), preview_rolling_shutter_skew_ns, intrinsics /
 	# distortion (per FRAME, since the HAL varies them with focus and zoom),
-	# frame_values_source + age_ms (the per-frame keys above come from a PREVIEW
-	# capture result -- CameraX does not expose the still's; the age says how far
-	# that frame was from the exposure, and the skew keeps a qualified name because
-	# preview and still read different numbers of sensor lines, so it is a
+	# frame_values_source + frame_values_referenced_to + age_ms (the per-frame keys
+	# above come from a PREVIEW capture result -- CameraX does not expose the
+	# still's. referenced_to says whether they are the shutter's latch, which
+	# measured 6-7 preview frames = 399-470 ms out, or a ring lookup at the
+	# exposure; age_ms says how far that frame was. The skew keeps a qualified name
+	# because preview and still read different numbers of sensor lines, so it is a
 	# different value and not merely an older one),
 	# camera_intrinsics / camera_distortion (factory, per camera),
 	# sensor_physical_size_mm + sensor_pixel_array (the true pixel pitch),

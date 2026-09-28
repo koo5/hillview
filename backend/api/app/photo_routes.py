@@ -1736,8 +1736,12 @@ _LENS_FIELDS: dict = {
 	# The per-shot half of this object comes from a PREVIEW capture result, not from
 	# the still's — CameraX does not hand out the still's TotalCaptureResult, which an
 	# experiment on 2026-09-27 established rather than assumed. So:
-	#  - `frame_values_source` says which stream, and `age_ms` how far that frame was
-	#    from the exposure (focus was measured moving DURING one press→exposure window);
+	#  - `frame_values_source` says which stream, `frame_values_referenced_to` whether
+	#    the shutter's latch or a ring lookup at the exposure produced them, and
+	#    `age_ms` how far that frame was from the exposure. The latch measured
+	#    399–470 ms out on 23 captures (2026-09-28) — 6–7 preview frames, since a
+	#    capture result arrives well after its own frame — and focus was separately
+	#    measured MOVING during a press→exposure window, so the distinction is real;
 	#  - the skew keeps a qualified name, because readout time scales with the lines
 	#    read and preview and still run different sensor modes — it is not a stale
 	#    version of the still's number, it is a different number. The unqualified
@@ -1746,6 +1750,7 @@ _LENS_FIELDS: dict = {
 	'rolling_shutter_skew_ns': int,
 	'preview_rolling_shutter_skew_ns': int,
 	'frame_values_source': str,
+	'frame_values_referenced_to': str,
 	'age_ms': int,
 	'intrinsics': list,
 	'distortion': list,

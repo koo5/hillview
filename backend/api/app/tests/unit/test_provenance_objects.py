@@ -78,6 +78,7 @@ FULL_LENS = {
 	'zoom_ratio': 2.0,
 	'preview_rolling_shutter_skew_ns': 33000000,
 	'frame_values_source': 'preview',
+	'frame_values_referenced_to': 'exposure',
 	'age_ms': 40,
 	'intrinsics': [1000.0, 1000.0, 960.0, 540.0, 0.0],
 	'distortion': [0.1, -0.2, 0.01, 0.0, 0.0],
@@ -106,11 +107,13 @@ def test_the_skew_is_published_as_the_previews():
 	out = _lens(exif(lens={
 		'preview_rolling_shutter_skew_ns': 31089628,
 		'frame_values_source': 'preview',
+		'frame_values_referenced_to': 'press',
 		'age_ms': 337,
 	}))
 	assert out == {
 		'preview_rolling_shutter_skew_ns': 31089628,
 		'frame_values_source': 'preview',
+		'frame_values_referenced_to': 'press',
 		'age_ms': 337,
 	}
 	assert _lens(exif(lens={'rolling_shutter_skew_ns': 33000000})) == {

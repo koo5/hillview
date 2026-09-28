@@ -465,9 +465,48 @@ private class AndroidPhotoCapture(
          * emits no age rather than a dispatch-derived one.
          */
         val atMs: Long? = null,
+        /**
+         * The same instant on `elapsedRealtimeNanos`, which is what [lensRing] looks
+         * frames up by — the still's `exposureElapsedNs` is on that clock, and going
+         * through wall milliseconds to compare them would throw away the resolution
+         * the comparison exists for. 0 when the HAL reported no timestamp, which is
+         * the value `SampleRing` refuses.
+         */
+        val atElapsedNs: Long = 0L,
     )
 
     @Volatile private var frameLens: FrameLensFacts? = null
+
+    /**
+     * The preview frames' lens values, kept so the SAVE can ask what the camera's
+     * settings were at the exposure rather than at the press.
+     *
+     * MEASURED, not assumed: on build `0444561a` (23 captures, 2026-09-28) the
+     * press-time latch was **399–470 ms older than the frame the photo is of** — larger
+     * than press→exposure itself, and `focus_distance_diopters` is exactly the value
+     * 3A was moving during that window. Dividing those ages by the 66.65 ms preview
+     * period gives 5.986–7.052, i.e. a whole number of frames with a mean residual of
+     * 0.99 ms: the latch is 6–7 preview frames behind, because a capture RESULT arrives
+     * some way after its own frame was exposed.
+     *
+     * The same batch is why the ring can help: the residual being a whole number of
+     * frames also shows the still's exposure is phase-locked to the preview grid, so
+     * there IS a preview frame essentially at the exposure to find.
+     *
+     * It does NOT produce the still's own values — CameraX hands out no result for the
+     * still (see [LensStamp.previewRollingShutterSkewNs]). It replaces "the preview
+     * frame before the press" with "the preview frame nearest the exposure", half a
+     * period at worst.
+     *
+     * Here rather than in GeoEngine, unlike the attitude and motion rings: the camera is
+     * this file's hardware, the callback that fills this already runs on the camera
+     * thread, and nothing conflating stands between the two. The engine holds those
+     * other rings because their feed used to pass through StateFlows and the
+     * composition's dispatcher, which is not a problem this one has.
+     */
+    private val lensRing = cz.hillview.geo.SampleRing<FrameLensFacts>(
+        capacity = cz.hillview.geo.AT_EXPOSURE_RING_CAPACITY,
+    ) { it.atElapsedNs }
 
     // The at-exposure history lives in GeoEngine, not here. It was here first, fed from
     // these setters, and that put two conflating StateFlows and the composition's
@@ -917,12 +956,12 @@ private class AndroidPhotoCapture(
                     // (Substituting the still path's two-step bridge gives this
                     // identical expression — it is the same conversion, not a second
                     // one.)
+                    val elapsedNowNs = SystemClock.elapsedRealtimeNanos()
                     val monoNowNs = System.nanoTime()
                     val wallNowMs = System.currentTimeMillis()
-                    val frameAtMs = result.get(CaptureResult.SENSOR_TIMESTAMP)?.let { ts ->
-                        wallNowMs - (monoNowNs - ts) / 1_000_000
-                    }
-                    frameLens = FrameLensFacts(
+                    val frameTs = result.get(CaptureResult.SENSOR_TIMESTAMP)
+                    val frameAtMs = frameTs?.let { wallNowMs - (monoNowNs - it) / 1_000_000 }
+                    val facts = FrameLensFacts(
                         focalLengthMm = result.get(CaptureResult.LENS_FOCAL_LENGTH),
                         apertureFStop = result.get(CaptureResult.LENS_APERTURE),
                         focusDistanceDiopters = result.get(CaptureResult.LENS_FOCUS_DISTANCE),
@@ -932,7 +971,13 @@ private class AndroidPhotoCapture(
                             result.get(CaptureResult.LENS_INTRINSIC_CALIBRATION)?.toList(),
                         distortion = result.get(CaptureResult.LENS_DISTORTION)?.toList(),
                         atMs = frameAtMs,
+                        // The elapsedRealtime leg of the bridge, for the ring. Zero
+                        // without a HAL timestamp, which is what makes SampleRing
+                        // refuse the entry rather than keep one that can never match.
+                        atElapsedNs = frameTs?.plus(elapsedNowNs - monoNowNs) ?: 0L,
                     )
+                    frameLens = facts
+                    lensRing.add(facts)
                     last3A = ThreeAState(
                         afMode = result.get(CaptureResult.CONTROL_AF_MODE),
                         afState = result.get(CaptureResult.CONTROL_AF_STATE),
@@ -1829,6 +1874,12 @@ private class AndroidPhotoCapture(
                     // pose_referenced_to below, rather than by silent substitution.
                     val attitudeAtExposure = engine.attitudeAt(exposureElapsedNs)
                     val motionAtExposure = engine.motionAt(exposureElapsedNs)
+                    // The lens is the THIRD ring, and the one with the most to gain:
+                    // its press-time latch measured 399–470 ms from the frame, where
+                    // the attitude's was 50 ms. Still a preview frame either way — the
+                    // still's own result is not on offer — but the nearest one rather
+                    // than one seven frames and a shutter lag ago.
+                    val lensAtExposure = lensStampAt(exposureElapsedNs)
                     state = state.copy(
                         capturing = false,
                         lastPhoto = CapturedPhoto(
@@ -1836,6 +1887,7 @@ private class AndroidPhotoCapture(
                             snapshot.copy(
                                 attitude = attitudeAtExposure ?: snapshot.attitude,
                                 motion = motionAtExposure ?: snapshot.motion,
+                                lens = lensAtExposure ?: snapshot.lens,
                                 // THE THIRD STREAM, and the one with no ring to look
                                 // into: GPS arrives at ~1 Hz, so there is no fix "at"
                                 // the exposure to swap in — the honest at-exposure
@@ -2239,15 +2291,33 @@ private class AndroidPhotoCapture(
     }
 
     /**
-     * The camera's calibration and settings as of the last preview frame,
-     * joined to the two things only the APP knows: the zoom it asked for and
-     * whether the user pinned focus at infinity.
+     * The camera's calibration and settings as of the LAST preview frame, joined to the
+     * two things only the APP knows: the zoom it asked for and whether the user pinned
+     * focus at infinity.
      *
+     * Read at the press, so the frame it describes is 6–7 preview frames behind — and
+     * then the exposure is a further ~300 ms away. [lensStampAt] is the version that
+     * asks the ring instead; this one is what a capture keeps when there is no exposure
+     * instant to ask about.
+     */
+    private fun lensStampNow(): LensStamp? = lensStampFrom(frameLens, "press")
+
+    /**
+     * The same, for the preview frame nearest [exposureElapsedNs] — the lens half of
+     * "every sensor snapshot at the exposure".
+     *
+     * Null when the ring holds nothing within tolerance, and then the caller keeps the
+     * press-time stamp, visibly: `frame_values_referenced_to` says which one it got.
+     */
+    private fun lensStampAt(exposureElapsedNs: Long): LensStamp? =
+        lensRing.nearest(exposureElapsedNs, cz.hillview.geo.AT_EXPOSURE_TOLERANCE_NS)
+            ?.let { lensStampFrom(it, "exposure") }
+
+    /**
      * Null only when nothing at all is known — no camera bound and no frame yet.
      */
-    private fun lensStampNow(): LensStamp? {
+    private fun lensStampFrom(frame: FrameLensFacts?, referencedTo: String): LensStamp? {
         val cam = cameraLens
-        val frame = frameLens
         if (cam == null && frame == null) return null
         return LensStamp(
             focalLengthMm = frame?.focalLengthMm,
@@ -2260,6 +2330,10 @@ private class AndroidPhotoCapture(
             zoomRatio = zoomRatio,
             previewRollingShutterSkewNs = frame?.rollingShutterSkewNs,
             frameValuesAtMs = frame?.atMs,
+            // Only claimed when there IS a frame to have referenced: with no preview
+            // result at all the rest of this half is absent and the word would qualify
+            // nothing.
+            frameValuesReferencedTo = frame?.let { referencedTo },
             intrinsics = frame?.intrinsics,
             distortion = frame?.distortion,
             cameraIntrinsics = cam?.intrinsics,
