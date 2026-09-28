@@ -2856,6 +2856,31 @@ answered badly in the meantime.
 not want arrays (gravity and linear acceleration are derived from accel; fused attitude
 is worse than gyro for this; lens wants one value for the frame) and why position does.
 
+### `inertial.gravity` was null for a day — found by reading the uploaded data
+
+`d4993b5a` rewrote `motionListener.onSensorChanged` to stamp both clocks from the event
+instead of the callback, and the new argument list lost `gravity = gravity` and
+`linearAcceleration = linear`. Both are nullable with defaults on `DeviceMotionSample`,
+so it compiled. ~2 800 photos carried `inertial.age_ms` of ~1 ms — a sample WAS found at
+the exposure — dating a reading that was not there.
+
+Confirmed in the code and against prod before fixing. The sibling attitude ring, fed by
+the same commit, is intact.
+
+**The same shape as `stored_count`**: the serializer was never wrong, the call site
+dropped the value, and the tests covered the serializer. The ring tests could not catch
+it either — they construct samples carrying gravity themselves, so they round-trip a
+vector the real listener never supplied.
+
+Two guards now: `MotionSampleAssembler` (a unit with a host test asserting that what the
+callback latched is what the sample carries), and the serializer refusing to emit
+`age_ms` for a sample with no vectors. The existing `onlyAge` guard did not fire because
+`imu_window` kept the object non-empty.
+
+Impact is low for reconstruction — the raw accelerometer is in `imu_samples`, so gravity
+is recoverable as the mean acceleration near the exposure — but a metadata-only consumer
+lost the documented per-photo "down" for those photos. Not backfillable from the app.
+
 ### STILL NOT DONE, after this
 
 - **The still's own lens values.** Focus distance, intrinsics, distortion and skew are

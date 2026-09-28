@@ -265,6 +265,37 @@ class ProvenanceObjectsTest {
     }
 
     /**
+     * A SAMPLE WITH NO VECTORS MUST NOT BE DATED.
+     *
+     * `age_ms` beside two nulls reads as "we measured this 1 ms from the exposure" when
+     * nothing was measured. That is not hypothetical: a rewrite dropped `gravity` and
+     * `linearAcceleration` at the listener's call site — both nullable with defaults, so
+     * it compiled — and ~2 800 uploaded photos carried a freshness figure for a reading
+     * that was not there. The assembly has its own test now; this is the second guard,
+     * at the other end.
+     */
+    @Test
+    fun anEmptyMotionSampleIsNotGivenAnAge() {
+        val bare = snap(
+            motion = DeviceMotionSample(atMs = shutterAt - 1),
+            imuWindow = ImuWindow(sampleCount = 4775, startMs = 1, endMs = 2),
+        )
+        val json = inertialProvenanceJson(bare)!!
+        assertFalse("age_ms" in json, json)
+        // The window still travels: it stands on its own and says what it covered.
+        assertTrue("imu_window" in json, json)
+    }
+
+    /** ...and one vector IS a reading, so it gets its age. */
+    @Test
+    fun oneVectorIsEnoughToBeWorthDating() {
+        val json = inertialProvenanceJson(
+            snap(motion = DeviceMotionSample(gravity = listOf(0f, 0f, 9.81f), atMs = shutterAt - 4)),
+        )!!
+        assertTrue("\"age_ms\":4" in json, json)
+    }
+
+    /**
      * THE FIELD THAT MAKES AN ARTIFACT FINDABLE.
      *
      * A photo's own IMU array does not contain its own exposure — 1 case in 86 on real

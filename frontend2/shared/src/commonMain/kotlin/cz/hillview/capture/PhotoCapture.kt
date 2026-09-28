@@ -1143,8 +1143,16 @@ fun inertialProvenanceJson(s: SensorSnapshot): String? {
                 add("\"linear_acceleration_magnitude\":$mag")
             }
             // Age of the GRAVITY reading, not of the window — the window carries
-            // its own bounds.
-            add("\"age_ms\":${s.poseReferenceMs() - m.atMs}")
+            // its own bounds. ONLY when there is a reading to date: a sample that
+            // carries no vectors has nothing whose freshness could be described, and
+            // an `age_ms` beside two nulls reads as "we measured this 1 ms from the
+            // exposure" when nothing was measured at all. That shipped for a day
+            // (~2 800 photos) after a rewrite dropped the vectors at the call site,
+            // and this is the second guard: the assembly has a test now, and the
+            // serializer will no longer put a timestamp on an empty reading.
+            if (m.gravity != null || m.linearAcceleration != null) {
+                add("\"age_ms\":${s.poseReferenceMs() - m.atMs}")
+            }
         }
         // The window stands on its own: a device with no gravity sensor can
         // still have an accelerometer and a gyroscope.

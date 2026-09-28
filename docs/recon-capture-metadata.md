@@ -494,6 +494,55 @@ are ROW counts across both sensors, so the per-sensor array length is half of ea
 (2388 and 271). The two are consistent with each other, but "sample_count" reads as
 samples and a consumer sizing a buffer from it will be out by 2x.
 
+## `inertial.gravity` was null for a day, and the shape is familiar
+
+Found 2026-09-28 by someone reading the uploaded data, confirmed in the code and against
+prod the same hour: every photo from `d4993b5a` (2026-09-28 00:17) onward carried
+`inertial.age_ms` — median 1 ms, so a sample WAS found at the exposure — with
+`gravity`, `linear_acceleration` and `linear_acceleration_magnitude` all null. About
+2 800 photos.
+
+`d4993b5a` rewrote `motionListener.onSensorChanged` to stamp both clocks from the EVENT
+rather than the callback. The rewrite replaced the argument list and lost two of them:
+
+```diff
+             _motion.value = DeviceMotionSample(
+-                gravity = gravity,
+-                linearAcceleration = linear,
+-                atMs = System.currentTimeMillis(),
++                atMs = imuWallClockFor(event.timestamp),
++                elapsedNs = event.timestamp,
+             ).also { motionRing.add(it) }
+```
+
+The listener went on latching both vectors correctly. It simply stopped passing them on,
+and **`gravity` and `linearAcceleration` are nullable with defaults, so it compiled.**
+
+**The same shape as `stored_count`** (above): the serializer was never wrong, the call
+site dropped the value, and the tests covered the serializer. The ring tests could not
+see it either — they construct samples carrying gravity themselves, so they round-tripped
+a vector the real listener never supplied.
+
+Two guards, at the two ends:
+
+- `MotionSampleAssembler` — the latch and the assembly extracted into a unit with a host
+  test that asserts what the callback latched is what the sample carries. The
+  sensor-type dispatch stays in `GeoEngine`, where the platform constants belong.
+- The serializer no longer emits `age_ms` for a sample with no vectors. `age_ms` beside
+  two nulls reads as "we measured this 1 ms from the exposure" when nothing was measured;
+  the existing `onlyAge` guard did not fire because `imu_window` kept the object
+  non-empty.
+
+**Impact is low for reconstruction and not zero for everyone else.** The raw accelerometer
+is in `imu_samples`, so gravity is recoverable server-side as the mean acceleration near
+the exposure. But `gravity` is documented as the unambiguous per-photo "down", and a
+consumer reading only the metadata lost it for those 2 800 photos. Not backfillable from
+the app; recoverable from each photo's artifact if it is ever worth a pass.
+
+**And the lesson that generalises:** a data class whose payload fields are nullable with
+defaults will let a rewrite drop them silently. Every argument in that constructor was
+load-bearing and none of them was required.
+
 ## Pitch has three homes — which is which
 
 Raised as a confusing moment, 2026-09-26, and worth settling in writing because

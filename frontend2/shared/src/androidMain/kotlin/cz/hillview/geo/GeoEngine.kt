@@ -724,18 +724,21 @@ class GeoEngine private constructor(private val context: Context) {
      * sample that triggered it, so staleness is measurable rather than assumed.
      */
     private val motionListener = object : android.hardware.SensorEventListener {
-        @Volatile private var gravity: List<Float>? = null
-        @Volatile private var linear: List<Float>? = null
+        // The vectors and the assembly live in MotionSampleAssembler, which exists
+        // because building the sample inline lost `gravity` and `linearAcceleration`
+        // in a rewrite and compiled anyway — both are nullable with defaults. ~2 800
+        // photos shipped an inertial age dating a reading that was not there.
+        private val pair = MotionSampleAssembler()
 
         override fun onSensorChanged(event: android.hardware.SensorEvent) {
             when (event.sensor.type) {
                 android.hardware.Sensor.TYPE_GRAVITY ->
-                    gravity = listOf(event.values[0], event.values[1], event.values[2])
+                    pair.gravity(event.values[0], event.values[1], event.values[2])
                 android.hardware.Sensor.TYPE_LINEAR_ACCELERATION ->
-                    linear = listOf(event.values[0], event.values[1], event.values[2])
+                    pair.linear(event.values[0], event.values[1], event.values[2])
                 else -> return
             }
-            _motion.value = cz.hillview.map.DeviceMotionSample(
+            _motion.value = pair.sampleAt(
                 // BOTH clocks describe the EVENT, not the callback, and that matters
                 // because the two are ~300 ms apart here: these sensors batch, so
                 // System.currentTimeMillis() at delivery is a third of a second after
@@ -751,10 +754,7 @@ class GeoEngine private constructor(private val context: Context) {
 
         override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
 
-        fun reset() {
-            gravity = null
-            linear = null
-        }
+        fun reset() = pair.reset()
     }
 
     @Volatile private var motionRegistered = false
