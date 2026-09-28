@@ -2759,6 +2759,39 @@ the path, which is the only reason the attitude ring had to move.
 `frame_values_referenced_to` says which a photo got. It still does NOT produce the
 still's values; nothing does.
 
+### The walking batch paid off — and found the rings were 29x shorter than documented
+
+43 captures at 1.27 m/s mean. Retargeting 336 ms moves the stamp **0.43 m** there,
+against 3 cm standing, which answers whether refining to the exposure matters.
+
+But 12 of 70 photos fell back to the press, and `exposure_to_jpeg_ms` separates the two
+groups cleanly: **275 ms** mean on the photos that hit, **914 ms** on the ones that
+missed. On the photos where the motion ring returned a later sample,
+`exposure_to_jpeg_ms + inertial.age_ms` gives the ring's implied span: **268 ms, stdev
+17** over 20 photos. A stream with gaps would scatter; that constant is a fixed-capacity
+ring running out. 256 samples / 0.268 s = **956 samples/s**, i.e. ~478 Hz from each of
+gravity and linear acceleration.
+
+`AT_EXPOSURE_RING_CAPACITY = 256` said *"At 33 Hz this is ~7.7 s"*. It was 0.27 s.
+
+**The cause is our own IMU stream.** `registerListener`'s rate is a hint, and this
+process registers accelerometer at `SENSOR_DELAY_FASTEST` for the IMU window; gravity
+and linear acceleration are derived from it, so a fast client raised the rate of samples
+another part of the app had sized a buffer for at 33 Hz. A count is a PROXY for a
+duration, and the proxy changed meaning silently when an unrelated feature touched a
+shared sensor.
+
+`SampleRing` is now bounded by TIME — 8 s, about 4x the worst `exposure_to_jpeg`
+measured — with the count kept only as a memory backstop that raises a `capped` flag,
+and `GeoEngine` logging the ring's real span whenever a lookup declines. Memory is
+stated at the constant (~2.3 MB for the motion ring at 1 kHz) rather than left to be
+discovered. The same 30x rate change now costs memory and nothing else.
+
+This qualifies the "attitude 0.6 ms, inertial 0.5 ms median" result above: it was
+measured where saves took 275 ms, and degraded under load. The mixed case also fired in
+the wild three times and reported correctly thanks to the ungating — `09:35:21` carries
+`att = -148` beside `inr = +503`, which would have read −457 under the old gate.
+
 ### STILL NOT DONE, after this
 
 - **The still's own lens values.** Focus distance, intrinsics, distortion and skew are

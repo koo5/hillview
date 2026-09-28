@@ -811,10 +811,12 @@ class GeoEngine private constructor(private val context: Context) {
      *
      * ASKED, never observed: one lookup per capture, like persistImuWindow.
      */
-    private val attitudeRing =
-        SampleRing<cz.hillview.map.DeviceAttitude>(AT_EXPOSURE_RING_CAPACITY) { it.elapsedNs }
-    private val motionRing =
-        SampleRing<cz.hillview.map.DeviceMotionSample>(AT_EXPOSURE_RING_CAPACITY) { it.elapsedNs }
+    private val attitudeRing = SampleRing<cz.hillview.map.DeviceAttitude>(
+        AT_EXPOSURE_RING_WINDOW_NS, AT_EXPOSURE_RING_MAX_SAMPLES,
+    ) { it.elapsedNs }
+    private val motionRing = SampleRing<cz.hillview.map.DeviceMotionSample>(
+        AT_EXPOSURE_RING_WINDOW_NS, AT_EXPOSURE_RING_MAX_SAMPLES,
+    ) { it.elapsedNs }
 
     /**
      * What the device's orientation was at [elapsedNs] (an `elapsedRealtimeNanos` value,
@@ -825,10 +827,32 @@ class GeoEngine private constructor(private val context: Context) {
      */
     fun attitudeAt(elapsedNs: Long): cz.hillview.map.DeviceAttitude? =
         attitudeRing.nearest(elapsedNs, AT_EXPOSURE_TOLERANCE_NS)
+            .also { if (it == null) explainMiss("attitude", attitudeRing, elapsedNs) }
 
     /** The gravity / linear-acceleration reading at [elapsedNs]. See [attitudeAt]. */
     fun motionAt(elapsedNs: Long): cz.hillview.map.DeviceMotionSample? =
         motionRing.nearest(elapsedNs, AT_EXPOSURE_TOLERANCE_NS)
+            .also { if (it == null) explainMiss("inertial", motionRing, elapsedNs) }
+
+    /**
+     * Say WHY a lookup declined, because the last time one did quietly it took a batch
+     * of uploaded photos and a correlation against `exposure_to_jpeg_ms` to work out
+     * that the ring was 1/29th of its documented length.
+     *
+     * The two candidate causes are distinguishable from these numbers alone: a ring
+     * whose span is shorter than the lookup is behind means the history ran out, while
+     * a long span with the exposure inside it means the stream itself had a gap. Rare
+     * by construction — this only runs when a capture has already missed.
+     */
+    private fun <T> explainMiss(which: String, ring: SampleRing<T>, elapsedNs: Long) {
+        val behindMs = (android.os.SystemClock.elapsedRealtimeNanos() - elapsedNs) / 1_000_000
+        Log.w(
+            TAG,
+            "$which lookup declined: exposure was ${behindMs}ms ago, ring holds " +
+                "${ring.spanNs / 1_000_000}ms in ${ring.size} samples" +
+                (if (ring.capped) " (CAPPED — raise AT_EXPOSURE_RING_MAX_SAMPLES)" else ""),
+        )
+    }
 
     /**
      * The newest sample already persisted, so consecutive windows do not store

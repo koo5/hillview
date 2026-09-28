@@ -721,6 +721,55 @@ beside the unchanged `frame_values_source: "preview"`. Two fields on purpose: wh
 stream and which instant are two facts, and collapsing them into one is exactly what
 made the pose ages wrong in two directions at once.
 
+### THE WALKING BATCH, 2026-09-28 — the payoff, and a 29x measurement error
+
+43 captures, `fix.speed_mps` mean **1.27**, max 1.54. This is the batch the standing one
+could not be.
+
+**Position: the payoff is real.** At 1.27 m/s, retargeting 336 ms moves the stamp
+**0.43 m** (0.52 m at the fastest sample), against 3 cm standing. `refined_to:
+"exposure"` and both refined flags 43/43.
+
+**And 12 of 70 photos fell back to the press.** Not noise, and not a mystery — the
+misses track how late the lookup was, exactly:
+
+| | n | `exposure_to_jpeg_ms` |
+|---|---:|---|
+| at-exposure | 58 | mean **275** (182–447) |
+| press fallback | 12 | mean **914** (333–2010) |
+
+On the photos where the motion ring returned a LATER sample,
+`exposure_to_jpeg_ms + inertial.age_ms` — the ring's implied span — came to **268 ms,
+stdev 17** (n = 20, range 233–288). A stream with gaps would scatter; a number that
+constant is a fixed-capacity ring running out. And 256 samples over 268 ms is **956
+samples/s** into the motion ring, i.e. ~478 Hz from each of gravity and linear
+acceleration.
+
+`AT_EXPOSURE_RING_CAPACITY = 256` was documented as *"At 33 Hz this is ~7.7 s"*. It was
+**0.27 s** — wrong by 29x, in the direction that loses data, for two days.
+
+**The cause is our own IMU stream.** `registerListener`'s rate is a HINT, and this
+process has another client registering the accelerometer at `SENSOR_DELAY_FASTEST` for
+the IMU window. Gravity and linear acceleration are derived from accelerometer, so the
+fast client raised the delivery rate of the whole family — including the samples a
+different part of the app had asked for at 33 Hz and sized a buffer for.
+
+So the failure was never in the ring's logic. **A count is a proxy for a duration, and
+the proxy silently changed meaning when an unrelated feature touched a shared sensor.**
+`SampleRing` is now bounded by TIME (8 s), with the count kept only as a memory backstop
+that sets a `capped` flag when it binds, and `GeoEngine` logs the ring's real span
+whenever a lookup declines. The same 30x rate change now costs memory and nothing else.
+
+**Which also qualifies the previous section's result.** "Attitude 0.6 ms, inertial
+0.5 ms median" was measured on a batch whose saves took 275 ms. It was true there and
+degraded exactly where interval capture gets interesting — under load, which is when
+`exposure_to_jpeg` grows.
+
+**The mixed case fired in the wild, three times**, and reported correctly because of the
+ungating a few hours earlier: `09:35:21` carries `att = -148` (a ring hit, 148 ms after
+the exposure) beside `inr = +503` (the press fallback). Under the old gate that attitude
+would have read −457.
+
 ### So: we did not know the exposure moment, and now we do
 
 Which is the outcome the requirement was written for. Two honest responses, and they

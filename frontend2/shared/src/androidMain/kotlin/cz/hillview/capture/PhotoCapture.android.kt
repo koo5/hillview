@@ -505,7 +505,8 @@ private class AndroidPhotoCapture(
      * composition's dispatcher, which is not a problem this one has.
      */
     private val lensRing = cz.hillview.geo.SampleRing<FrameLensFacts>(
-        capacity = cz.hillview.geo.AT_EXPOSURE_RING_CAPACITY,
+        windowNs = cz.hillview.geo.AT_EXPOSURE_RING_WINDOW_NS,
+        maxSamples = cz.hillview.geo.AT_EXPOSURE_RING_MAX_SAMPLES,
     ) { it.atElapsedNs }
 
     // The at-exposure history lives in GeoEngine, not here. It was here first, fed from

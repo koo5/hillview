@@ -29,22 +29,74 @@ package cz.hillview.geo
  * Thread-safe because of who touches it: samples arrive on the sensor thread and the
  * lookup happens on the camera callback.
  */
+/**
+ * BOUNDED BY TIME, NOT BY COUNT — changed 2026-09-28, after the count-bounded version
+ * was measured at 1/29th of its documented span.
+ *
+ * It held 256 samples and the comment said "~7.7 s at 33 Hz". On a walking interval run
+ * the real span was **268 ms, stdev 17** (n = 20 uploaded photos, derived as
+ * `exposure_to_jpeg_ms + inertial.age_ms`): 256 samples over 268 ms is 956 samples/s
+ * into the motion ring, i.e. ~478 Hz from each of gravity and linear acceleration where
+ * `SENSOR_DELAY_NORMAL_US` had asked for 33. `registerListener`'s rate is a HINT, and
+ * this process has another client — the IMU window — registering accelerometer at
+ * `SENSOR_DELAY_FASTEST`, which raises the delivery rate of the whole derived family.
+ *
+ * The consequence was not subtle: the lookup happens at the SAVE, and on 12 of 70
+ * photos the save was slower than the ring was long, so the exposure's samples had
+ * already been evicted and the capture fell back to the press. `exposure_to_jpeg_ms`
+ * separated the two cases cleanly — 275 ms mean on the photos that hit, 914 ms on the
+ * ones that missed.
+ *
+ * A count is a PROXY for a duration, and the proxy silently changed meaning by 29x when
+ * another part of the app touched an unrelated sensor. The duration is the actual
+ * requirement, so it is what the ring is now given; [maxSamples] remains only as a
+ * memory backstop, and [capped] says when it is the binding constraint so that failure
+ * cannot be silent the way the last one was.
+ */
 internal class SampleRing<T>(
-    private val capacity: Int,
+    private val windowNs: Long,
+    private val maxSamples: Int,
     private val instantOf: (T) -> Long,
 ) {
-    private val items = ArrayDeque<T>(capacity)
+    private val items = ArrayDeque<T>()
+
+    /** True once [maxSamples] has ever evicted a sample the window would have kept. */
+    @Volatile
+    var capped: Boolean = false
+        private set
 
     fun add(item: T) {
         // A sample with no monotonic instant cannot be looked up, so it is not kept —
         // better an empty ring, which falls back to the press-time value visibly, than
         // a ring of entries that silently never match.
-        if (instantOf(item) <= 0L) return
+        val at = instantOf(item)
+        if (at <= 0L) return
         synchronized(items) {
-            if (items.size >= capacity) items.removeFirst()
             items.addLast(item)
+            // Age relative to the NEWEST SAMPLE, not to a clock read here. The ring is
+            // fed on the sensor thread and read on the camera thread, and the samples
+            // carry the instant that matters; calling elapsedRealtimeNanos() would make
+            // this class platform-bound and untestable for the sake of a value it
+            // already has. Out-of-order arrivals (gravity and linear acceleration are
+            // two callbacks) only ever delay an eviction by one sample.
+            while (items.size > 1 && at - instantOf(items.first()) > windowNs) {
+                items.removeFirst()
+            }
+            while (items.size > maxSamples) {
+                items.removeFirst()
+                capped = true
+            }
         }
     }
+
+    /**
+     * How much time the ring currently holds. The number the old `capacity` was a proxy
+     * for, exposed so a declining lookup can be diagnosed instead of guessed at.
+     */
+    val spanNs: Long
+        get() = synchronized(items) {
+            if (items.size < 2) 0L else instantOf(items.last()) - instantOf(items.first())
+        }
 
     /**
      * The sample closest to [atNs], or null when the ring holds nothing within
@@ -76,8 +128,33 @@ internal class SampleRing<T>(
 internal const val AT_EXPOSURE_TOLERANCE_NS = 250L * 1_000_000
 
 /**
- * Samples to keep. At 33 Hz this is ~7.7 s — comfortably longer than the worst
- * press→exposure gap measured (1.2 s in Quality mode) plus the time the save takes to
- * ask, and small enough that the memory is not worth discussing.
+ * How much HISTORY to keep, which is the thing the ring is actually for.
+ *
+ * What has to fit is exposure → lookup, not press → exposure: the exposure's samples
+ * must still be there when the save asks for them. Measured worst case on a walking
+ * interval run is `exposure_to_jpeg_ms` = 2010 ms, and Quality mode's 1758 ms
+ * press→exposure sits on top of a similar save; 8 s is about 4x the worst observed,
+ * which is the margin a value that failed silently once has earned.
+ *
+ * Note what this does NOT depend on: the sample rate. That was the bug.
+ *
+ * WHAT IT COSTS, stated rather than left to be discovered the way the last number was.
+ * The motion ring is the expensive one: ~1 kHz x 8 s = ~8 000 `DeviceMotionSample`,
+ * each holding two three-element `List<Float>` of BOXED floats, so roughly 2.3 MB
+ * retained; the attitude ring adds a few hundred kB. That is retention, not extra
+ * allocation — the samples are built per event either way — and the peak only occurs
+ * while the IMU window is running, which is the same condition under which the history
+ * is wanted. The `imuRing` beside it already holds 16 000 samples. If this ever needs
+ * to come down, unboxing those two lists buys most of it back without shortening the
+ * window, which is the axis that must not be traded.
  */
-internal const val AT_EXPOSURE_RING_CAPACITY = 256
+internal const val AT_EXPOSURE_RING_WINDOW_NS = 8L * 1_000_000_000
+
+/**
+ * The memory backstop, not the design. At the ~1 kHz the motion ring was measured
+ * receiving, the window above is ~8 000 samples, so this only binds if the delivery
+ * rate rises by half again — and `SampleRing.capped` says so out loud when it does,
+ * because the previous silent version of this failure cost twelve photos before anyone
+ * noticed. For comparison the IMU ring already holds 16 000.
+ */
+internal const val AT_EXPOSURE_RING_MAX_SAMPLES = 12_000
