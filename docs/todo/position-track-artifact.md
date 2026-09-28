@@ -67,36 +67,47 @@ So ship the window, let the consumer dedupe by timestamp, and do not build the
 machinery. The claim table earned its place by measurement; copying it here without the
 measurement would be cargo cult.
 
-## Step 0, independent and much cheaper: `capture_run_id` — **DONE 2026-09-28**
+## Step 0 — DONE 2026-09-28, and NOT as a run id
 
-Verified 2026-09-28: **nothing identifies a capture run.** Not the photo detail
-response, not the provenance. Adjacency IS inferable — sort by `captured_at`, then glue
-slices whose `t0_ns` is one sample period past the previous end — but the field that
-makes it inferable lives inside a gzipped artifact you have to fetch in order to
-discover that two photos are adjacent at all.
+The problem: a photo's IMU array does not contain its own exposure (1 case in 86 — the
+claims tile the session rather than centring on their photo, so at a 0.75 s interval the
+exposure was stored four captures earlier). Anything at-exposure — rolling-shutter
+compensation, blur across the 20 ms — therefore needs a DIFFERENT photo's artifact, and
+nothing said which. Finding it meant fetching candidates and reading their `t0_ns`:
+downloading in order to decide whether to download.
 
-That matters more than this whole plan, because of what the tiling verification found: a
-photo's own IMU array contains its own exposure in **1 case out of 86** (at a 0.75 s
-interval the exposure sits four photos back). **Rolling-shutter compensation and blur
-analysis therefore require the run**, and the run is currently something a consumer has
-to guess at.
+This was first built as `capture_run_id`, grouping photos whose windows tile, on a rule
+derived from the geometry (`2 × IMU_WINDOW_HALF_MS` between presses). **It was removed
+the same day**, and the reason is worth keeping because it is a shape mistake rather
+than a bug:
 
-A `capture_run_id` nested inside `capture_timing` costs one line and **no worker
-deploy** — that object is already declared server-side as an untyped dict, the same
-property that let `build` ship without one.
+> The question is "whose array covers THIS instant", and that does not need a grouping
+> concept at all. It needs each photo to publish the bounds of the slice it owns.
 
-**Built the same day, and the RULE turned out to be the interesting part.** A run is not
-"the interval session": what a consumer needs is contiguous inertial coverage, and that
-is arithmetic. Photo N's window opens at `press − half` while photo N−1 stored up to
-`press(N−1) + half`, so coverage is continuous exactly while consecutive presses are no
-more than `2 × half` apart. A hand-pressed shot three seconds after another tiles with
-it and belongs in the same run; two interval captures either side of a long pause do
-not — which is precisely what the 4812.9 ms hole in the measured batch was.
+A grouping key drags in a threshold, and with it a heuristic and a set of scoping
+questions — does an app restart split a run, does a quick single shot after an interval
+run join it, does the id collide across devices. Per-photo bounds have none of them,
+because there is nothing to scope: claims tile and do not overlap, so exactly one photo
+owns any instant and containment settles it.
 
-`CaptureRunTracker` (commonMain, host-tested) mints a UUID at the press whenever the gap
-exceeds one full window, and both save paths carry it. It is a HINT about where to look,
-never a guarantee: a run can still be broken by sensors that were not running. The arrays
-remain the proof; the id only says which ones to fetch.
+So: `inertial.imu_window.stored_from_ms` / `stored_to_ms`, written by the deferred
+rewrite because the claim is the only place they are known, declared in the API's
+`_IMU_WINDOW_FIELDS`. Nested, so no worker deploy.
+
+Two details that are decisions rather than defaults:
+
+- the CLAIMED range, not the extent of samples actually found in it. Attribution has to
+  be a partition of time; `stored_count` says how many samples turned up, and a short
+  count against a wide range is a real fact about the recording (sensors not running);
+- absent rather than 0 when no claim arrived, because a bound of 0 would claim the epoch
+  and match every containment test ever run.
+
+It also makes the tiling checkable without a download: verifying it on 2026-09-28 meant
+fetching 86 gzipped artifacts, and the same check is now a list query.
+
+**Grouping photos into SEQUENCES** — which ones form a walk, for pair selection — is a
+genuinely different question with a different right threshold. It is not one this
+project needs yet, so it is not being answered badly in the meantime.
 
 ## Server side
 

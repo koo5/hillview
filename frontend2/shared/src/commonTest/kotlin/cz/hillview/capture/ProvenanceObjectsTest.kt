@@ -265,45 +265,45 @@ class ProvenanceObjectsTest {
     }
 
     /**
-     * The run id, which is what makes a sequence fetchable.
+     * THE FIELD THAT MAKES AN ARTIFACT FINDABLE.
      *
-     * A photo's IMU array holds its own exposure in 1 case out of 86 — the slices tile
-     * the session rather than centring on their own photo — so rolling-shutter and blur
-     * work needs the neighbours, and until this key existed a consumer could only find
-     * them by downloading every artifact and comparing `t0_ns`.
+     * A photo's own IMU array does not contain its own exposure — 1 case in 86 on real
+     * captures, because the claims tile the session rather than centring on their photo.
+     * So "the samples at this exposure" is a question about someone ELSE'S artifact, and
+     * these two bounds are how a consumer picks it out of a photo list without fetching
+     * anything. Claims tile and do not overlap, so exactly one photo owns any instant.
      */
     @Test
-    fun theRunIdTravelsWithEveryPhotoInTheRun() {
-        val json = captureTimingJson(
-            snap().copy(
-                captureTiming = CaptureTiming(
-                    capturedAtSource = "press",
-                    captureRunId = "3f1b0c7e-9a44-4f02-8d61-2c5e77b0a913",
+    fun theWindowSaysWhichSliceOfTimeThisPhotoOwns() {
+        val json = inertialProvenanceJson(
+            snap(
+                imuWindow = ImuWindow(
+                    sampleCount = 4775, startMs = shutterAt - 3_000, endMs = shutterAt + 3_000,
+                    storedCount = 542,
+                    // The claimed slice: after the previous photo's claim ended, and
+                    // ending at this photo's own window edge. Nowhere near the middle.
+                    storedFromMs = shutterAt + 2_250, storedToMs = shutterAt + 3_000,
                 ),
             ),
         )!!
-        assertTrue("\"capture_run_id\":\"3f1b0c7e-9a44-4f02-8d61-2c5e77b0a913\"" in json, json)
+        assertTrue("\"stored_from_ms\":${shutterAt + 2_250}" in json, json)
+        assertTrue("\"stored_to_ms\":${shutterAt + 3_000}" in json, json)
+        // And the full-window bounds stay what they were: context, not attribution.
+        assertTrue("\"window_start_ms\":${shutterAt - 3_000}" in json, json)
     }
 
     /**
-     * Sanitised, not escaped — the same treatment `build` gets. The value is generated,
-     * so a quote in it is a bug to see rather than text to preserve, and an unescaped
-     * one would produce a payload the worker drops WHOLE rather than partially.
+     * An inline floor written before the claim exists has no slice to name. Absent
+     * rather than zero: a bound of 0 would claim ownership of the epoch, and a consumer
+     * testing containment would match every instant against it.
      */
     @Test
-    fun aQuoteInTheRunIdCannotBreakTheObject() {
-        val json = captureTimingJson(
-            snap().copy(
-                captureTiming = CaptureTiming(
-                    capturedAtSource = "press",
-                    captureRunId = "bad\"id",
-                    stillMode = "latency",
-                ),
-            ),
+    fun aWindowWithNoClaimYetNamesNoSlice() {
+        val json = inertialProvenanceJson(
+            snap(imuWindow = ImuWindow(sampleCount = 100, startMs = 1, endMs = 2)),
         )!!
-        assertTrue("\"capture_run_id\":\"bad id\"" in json, json)
-        // Still one well-formed object: the mode after it survived.
-        assertTrue("\"still_mode\":\"latency\"" in json, json)
+        assertFalse("stored_from_ms" in json, json)
+        assertFalse("stored_to_ms" in json, json)
     }
 
     /** No timing recorded at all — an older row, or a path that does not set it. */

@@ -224,6 +224,40 @@ def test_the_imu_window_nests_inside_inertial():
 	assert out['imu_window']['stored_count'] == 61
 
 
+def test_the_window_says_which_slice_of_time_the_photo_owns():
+	"""The pair that makes an artifact findable.
+
+	A photo's own IMU array does not contain its own exposure -- 1 case in 86 on
+	real captures, because the claims tile the session rather than centring on
+	their photo, so at a 0.75 s interval a photo's exposure was stored four
+	captures earlier. "Give me the samples at this exposure" is therefore always a
+	question about someone ELSE'S artifact, and these two bounds are how a
+	consumer picks it out of a photo list without fetching candidates to read
+	their t0_ns. Claims tile and do not overlap, so exactly one photo owns any
+	instant."""
+	out = _inertial(exif(inertial={'imu_window': {
+		'sample_count': 4775,
+		'window_start_ms': 1700000000000,
+		'window_end_ms': 1700000006000,
+		'stored_count': 542,
+		'stored_from_ms': 1700000005250,
+		'stored_to_ms': 1700000006000,
+	}}))
+	# The owned slice, nowhere near the middle of the window it had context from.
+	assert out['imu_window']['stored_from_ms'] == 1700000005250
+	assert out['imu_window']['stored_to_ms'] == 1700000006000
+	# And the window bounds stay what they were: context, not attribution.
+	assert out['imu_window']['window_start_ms'] == 1700000000000
+
+
+def test_a_window_with_no_claim_names_no_slice():
+	"""Absent, never 0. A bound of 0 would claim the epoch, and a consumer
+	testing containment would match every instant ever recorded against it."""
+	out = _inertial(exif(inertial={'imu_window': {'sample_count': 104, 'stored_count': 0}}))
+	assert 'stored_from_ms' not in out['imu_window']
+	assert 'stored_to_ms' not in out['imu_window']
+
+
 def test_a_window_that_stored_nothing_reports_zero():
 	"""The normal case in a fast interval run: the previous photo's window
 	already covered this one. 0 is a measurement, not an absence."""

@@ -104,18 +104,6 @@ data class CaptureTiming(
      */
     val exposureSource: String? = null,
 
-    /**
-     * Which capture RUN this photo belongs to — see [CaptureRunTracker] for what a run
-     * is and why it is decided by arithmetic rather than by the interval button.
-     *
-     * It is here for the same reason [build] is: `capture_timing` is already declared
-     * server-side as an untyped dict, so a key nested inside it needs no worker deploy,
-     * and having the run recorded now is worth more than having it in a tidier place
-     * later. Unlike `build`, though, this one arguably belongs here — the run is a fact
-     * about WHEN the shutter fired relative to its neighbours, which is what this object
-     * is for.
-     */
-    val captureRunId: String? = null,
 
     // THREE MORE KEYS REACH THE SERVER IN THIS OBJECT AND ARE NOT FIELDS HERE:
     // `refined_to`, `refined_position` and `refined_bearing`, added to the serialized
@@ -263,6 +251,32 @@ data class ImuWindow(
      * instead of repeating it.
      */
     val storedCount: Int = 0,
+    /**
+     * The SLICE THIS PHOTO OWNS, wall ms — the claimed range whose samples are in its
+     * artifact, as opposed to [startMs]/[endMs], which are the full ±3 s window this
+     * capture had context from and which its neighbours mostly stored.
+     *
+     * This is the field that makes the artifact findable. A photo's own array does NOT
+     * contain its own exposure — measured 2026-09-28, 1 case in 86, because the claims
+     * tile the session rather than centring on their photo and at a 0.75 s interval a
+     * photo's exposure was stored four captures earlier. So "give me the inertial
+     * samples at this exposure" is a question about SOMEONE ELSE'S artifact, and
+     * without these two numbers the only way to find which one was to download
+     * candidates and read their `t0_ns` — downloading in order to decide whether to
+     * download.
+     *
+     * Claims tile and do not overlap, so containment is unambiguous: exactly one photo
+     * owns any given instant. `stored_from_ms` existed once and was removed on the
+     * argument that "the payload's own `t0_ms` says where it starts", which is true and
+     * beside the point — it says so only after the fetch.
+     *
+     * Deliberately the CLAIMED range, not the extent of the samples actually found in
+     * it. Attribution has to be a partition of time; [storedCount] beside it says how
+     * many samples turned up, and a short count against a wide range is a real fact
+     * about the recording (sensors not running), not a rounding of these bounds.
+     */
+    val storedFromMs: Long? = null,
+    val storedToMs: Long? = null,
 )
 
 /**
@@ -1104,13 +1118,6 @@ fun captureTimingJson(s: SensorSnapshot): String? {
         t.exposureElapsedNs?.let { add("\"exposure_elapsed_ns\":$it") }
         t.exposureWallMs?.let { add("\"exposure_wall_ms\":$it") }
         t.exposureSource?.let { add("\"exposure_source\":\"$it\"") }
-        // Generated, so sanitised rather than escaped — the same treatment `build`
-        // gets, and for the same reason: a quote in here would produce a payload the
-        // worker drops whole.
-        t.captureRunId?.takeIf { it.isNotBlank() }
-            ?.map { c -> if (c == '"' || c == '\\') ' ' else c }
-            ?.joinToString("")
-            ?.let { add("\"capture_run_id\":\"$it\"") }
         t.poseReferencedTo?.let { add("\"pose_referenced_to\":\"$it\"") }
         // The only field in this object built from strings that did not come from an
         // enum or a number, so it is the only one worth guarding: a version or a dirty
@@ -1183,6 +1190,10 @@ fun imuWindowJson(w: ImuWindow): String {
         add("\"window_start_ms\":${w.startMs}")
         add("\"window_end_ms\":${w.endMs}")
         add("\"stored_count\":${w.storedCount}")
+        // The claimed slice, so a consumer can tell which photo's artifact covers an
+        // instant WITHOUT fetching any of them. See ImuWindow.storedFromMs.
+        w.storedFromMs?.let { add("\"stored_from_ms\":$it") }
+        w.storedToMs?.let { add("\"stored_to_ms\":$it") }
         w.accelPeakMps2?.let { add("\"accel_peak_mps2\":$it") }
         w.accelPeakDeviationMps2?.let { add("\"accel_peak_deviation_mps2\":$it") }
         w.gyroPeakRadS?.let { add("\"gyro_peak_rad_s\":$it") }

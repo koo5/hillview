@@ -2839,15 +2839,18 @@ direct consequence of the claim rule at a 0.75 s interval, and something
 exposure; it is the payload that tiles. So: **rolling-shutter compensation and blur
 analysis cannot be done from a single photo** — the run must be reassembled first.
 
-**Nothing identified a run — `capture_run_id` now does.** Adjacency was inferable from
-`t0_ns`, but that lives inside a gzipped artifact you must fetch to discover two photos
-are adjacent. The new key is nested in `capture_timing`, so it needed no worker deploy.
+**Nothing identified which artifact covers an instant — now the window does.**
+`inertial.imu_window.stored_from_ms` / `stored_to_ms` are the slice this photo owns,
+written by the deferred rewrite because the claim is the only place it is known. Claims
+tile and do not overlap, so exactly one photo owns any instant and a consumer finds the
+right artifact by containment, from a photo list, fetching nothing.
 
-The rule is the interesting part: a run is not "the interval session" but a stretch of
-contiguous coverage, which is arithmetic — the slices touch exactly while consecutive
-presses are within `2 × IMU_WINDOW_HALF_MS`. A hand-pressed shot 3 s after another is
-the same run; two interval captures either side of a long pause are not, which is what
-the 4812.9 ms hole was. `CaptureRunTracker` is commonMain and host-tested.
+**A `capture_run_id` was built first and then removed the same day.** It grouped photos
+whose windows tile — which answers the question indirectly and drags in a threshold, a
+heuristic, and questions about app restarts and multiple devices. The per-photo bounds
+have none of those, because there is nothing to scope. Grouping photos into SEQUENCES is
+a genuinely different question; it is not one this project needs yet, so it is not being
+answered badly in the meantime.
 
 `docs/todo/position-track-artifact.md` holds the rest: why the OTHER sensor streams do
 not want arrays (gravity and linear acceleration are derived from accel; fused attitude

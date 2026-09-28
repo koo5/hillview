@@ -464,21 +464,30 @@ consequence worth stating plainly, because it is not what a reader expects:
 > across the 20 ms the shutter was open — cannot be computed from a single photo.** The
 > run has to be reassembled first.
 
-**Nothing identified a run, so now something does.** Neither the photo detail response
-nor the provenance carried a sequence, session or burst id. Adjacency was inferable —
-sort by `captured_at`, then glue slices whose `t0_ns` is one sample period past the
-previous end — but the field that makes it inferable lives inside a gzipped artifact you
-must fetch in order to discover that two photos are adjacent at all.
+**Nothing identified which artifact covers an instant — now the window does.** The
+question a consumer actually asks is not "which photos form a run" but "whose array
+holds the samples at THIS exposure", and since a photo's own array holds its own
+exposure in 1 case out of 86, that is always a question about someone else's artifact.
+Answering it used to mean fetching candidates and reading their `t0_ns` — downloading
+in order to decide whether to download.
 
-`capture_timing.capture_run_id` (2026-09-28) answers it, nested so it needed no worker
-deploy. The rule is the part worth knowing: a run is not "the interval session" but a
-stretch of CONTIGUOUS COVERAGE, and that is arithmetic — photo N's window opens at
-`press − half` while N−1 stored up to `press(N−1) + half`, so the slices touch exactly
-while consecutive presses are within `2 × IMU_WINDOW_HALF_MS`. A hand-pressed shot three
-seconds after another belongs to the same run; two interval captures either side of a
-long pause do not, which is what the 4812.9 ms hole above was. The id is a HINT about
-which photos to fetch — a run can still be broken by sensors that were not running — and
-the arrays remain the proof.
+`inertial.imu_window.stored_from_ms` / `stored_to_ms` (2026-09-28) are the claimed
+slice, written by the deferred rewrite because the claim is the only place it is known.
+Claims tile and do not overlap, so exactly one photo owns any instant and containment
+answers the question from a photo list alone. `stored_from_ms` existed once and was
+removed on the argument that "the payload's own `t0_ms` says where it starts" — true,
+and beside the point: it says so only after the fetch.
+
+Deliberately the CLAIMED range rather than the extent of samples actually found in it.
+Attribution has to be a partition of time; `stored_count` beside it says how many
+samples turned up, and a short count against a wide range is a real fact about the
+recording rather than a reason to narrow these bounds.
+
+**A run id was built first and then removed.** It grouped photos whose windows tile,
+which answered the same question indirectly and dragged in a threshold, a heuristic and
+questions about restarts and multiple devices — none of which the per-photo bounds have,
+because there is nothing to scope. Grouping photos into sequences is a different
+question with a different right answer, and not one this project needs yet.
 
 One naming wrinkle found in the same pass: `sample_count` (4775) and `stored_count` (542)
 are ROW counts across both sensors, so the per-sensor array length is half of each

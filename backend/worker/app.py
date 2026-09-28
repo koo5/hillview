@@ -834,6 +834,10 @@ class BrowserMetadata(BaseModel):
 	# linear_acceleration (x,y,z, gravity removed) and its magnitude (the
 	# motion-blur signal), age_ms, and imu_window -- the SUMMARY of the raw
 	# accelerometer/gyroscope window around the exposure (sample_count,
+	# stored_from_ms + stored_to_ms -- the slice this photo OWNS, which is what
+	# lets a consumer find which artifact covers a given exposure without fetching
+	# candidates: a photo's own array holds its own exposure in 1 case out of 86,
+	# since the claims tile the session rather than centring on their photo,
 	# window_start_ms, window_end_ms, accel_peak_mps2 which includes gravity,
 	# accel_peak_deviation_mps2 which is the gravity-free shake signal,
 	# gyro_peak_rad_s and stored_count -- the last saying how much of the stream

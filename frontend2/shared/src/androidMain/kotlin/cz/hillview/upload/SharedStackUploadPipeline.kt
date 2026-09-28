@@ -167,6 +167,19 @@ class SharedStackUploadPipeline(
                             accelPeakDeviationMps2 = stats.accelPeakDeviationMps2,
                             gyroPeakRadS = stats.gyroPeakRadS,
                             storedCount = owned.size,
+                            // WHICH SLICE THIS PHOTO OWNS, from the claim itself — the
+                            // only place it is known, and the reason this rewrite is
+                            // where it gets written rather than the capture path. It
+                            // is what lets a consumer find the artifact holding a given
+                            // exposure without fetching candidates to look inside them:
+                            // a photo's own array holds its own exposure in 1 case out
+                            // of 86, so that lookup is always about someone else's.
+                            //
+                            // Null together with the payload when no claim arrived —
+                            // absent, never 0, because a bound of 0 would claim the
+                            // epoch and match every containment test ever run.
+                            storedFromMs = claim?.fromMs,
+                            storedToMs = claim?.toMs,
                         ),
                     ),
                 )
