@@ -481,6 +481,33 @@ one label, which is the mistake this whole thread is about. The handover now has
 stat, `exposure→bytes`, and the stored `exposure_to_jpeg_ms` is taken after our write, so
 it means the same thing on both paths.
 
+### The ring, confirmed on prod 2026-09-28
+
+First capture with it, fetched back as owner:
+
+```
+pose_referenced_to     exposure
+still_mode             latency          (was "public_folder" — the storage-target bug)
+press_to_exposure_ms   281
+attitude.age_ms        54
+inertial.age_ms        -1
+```
+
+Against two captures from the same session before the ring: no `pose_referenced_to`,
+and `attitude.age_ms` of 25 that was really **337 ms** of staleness once its 312 ms gap
+is added. Now 54 means 54 **from the frame**.
+
+`inertial.age_ms: -1` is the gravity sample landing 1 ms AFTER the exposure — the signed
+offset documented an hour earlier, appearing unprompted on the first real capture.
+
+**One observation worth following up.** The inertial hit was 1 ms from the exposure while
+the attitude hit was 54 ms — larger than half a 33 Hz period, so on this capture the
+attitude stream was sparser than `SENSOR_DELAY_NORMAL_US` implies, while the
+gravity/linear-acceleration stream was dense. Both are well inside the 250 ms tolerance
+and both are an order better than the press, so nothing is wrong; but if the attitude
+stream can be made as dense as the motion one, the lookup tightens from ~50 ms to ~1 ms
+for free. n = 1, so this is a thing to measure rather than a conclusion.
+
 ### So: we did not know the exposure moment, and now we do
 
 Which is the outcome the requirement was written for. Two honest responses, and they
