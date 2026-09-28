@@ -2629,6 +2629,76 @@ Parked with the fix shape in docs/todo/frontend2-battery-work.md rather than don
 the retention window cannot simply shrink, because those five minutes are what let a
 capture's deferred window still be read.
 
+## 2026-09-28 — the exposure instant, and where the next two pieces start
+
+**What a photo now records about WHEN it was taken.** `capture_timing`, inside the
+UserComment, on every capture:
+
+| field | meaning |
+|---|---|
+| `captured_at_source` | what `captured_at` is — `"press"` today, always emitted |
+| `press_to_exposure_ms` | measured, not assumed |
+| `exposure_to_jpeg_ms` | to the file landing, same definition on both save paths |
+| `exposure_elapsed_ns` | the exposure on `elapsedRealtimeNanos` — **the same clock as `imu_samples.t0_ns`** |
+| `exposure_wall_ms` | the same instant in wall time |
+| `exposure_source` | `"sensor_timestamp"`, or ABSENT when it was not measured |
+| `pose_referenced_to` | `"exposure"` or `"press"` — which instant the pose objects describe |
+| `still_mode` | the capture mode |
+| `build` | the APK's `BuildInfo.label()` — **in the wrong object, see below** |
+
+**Proven on hardware, not asserted.** The exposure lands on ONE IMU sample: residuals
++336 µs and −207 µs against a 2 512 µs sample period, through the frame's
+`SENSOR_TIMESTAMP`, a clock bridge, the upload and the artifact's `t0_ns + cumsum(dt_us)`.
+Attitude and inertial readings are looked up AT that instant — `|age|` 0.6 ms and 0.5 ms
+median, from 50 ms and 315 ms before.
+
+**It needs no server deploy.** `capture_timing` was pre-declared in `BrowserMetadata`
+and `PROVENANCE_KEYS` before anything sent it, precisely so the app could iterate alone.
+Prod already has alembic 036 + API + worker.
+
+### Reading the build stamp — it cost an hour, twice
+
+The stamp's third field is `GIT_COMMIT_TIME`, **not a build time** (the clock is avoided
+deliberately: a config-time timestamp would freeze into the configuration cache and lie).
+So `sha · time` says only "built from a tree whose HEAD was that commit", and **two builds
+made between the same pair of commits share the sha**, differing only in the dirty hash.
+
+The dirty hash is the discriminator and is reproducible:
+
+```bash
+(git status --porcelain; git diff HEAD) | sha1sum | cut -c1-8
+```
+
+Reconstruct a candidate tree in a worktree, hash it, compare. That settled which of two
+builds a phone had run when age distributions could not.
+
+### NEXT — position at the exposure
+
+The stamp's position is still the press's. The mechanism to move it already exists and is
+aimed one line away:
+
+- `SharedStackUploadPipeline.kt:316` calls `refiner.refineAsync(photoId, upload.capturedAtMs …)`
+  — the PRESS. `upload.captureTiming?.exposureWallMs` is already on `PendingUpload`
+  (added so the deferred inertial rewrite could reference the right instant), so aiming
+  the refiner at the exposure is a small change.
+- `StampRefiner` interpolates between the two fixes bracketing the shutter, so the fix
+  cadence (~1 Hz) sets its resolution — a 300 ms move is well inside what it can express.
+- `location_age_ms` is computed in `snapshotSensors` from the fix's own
+  `elapsedRealtimeNanos` AT THE PRESS, so it wants the same treatment the attitude and
+  inertial ages got: measure against `poseReferenceMs()`.
+
+### NEXT — rolling shutter, and what blocks it
+
+We ship `lens.rolling_shutter_skew_ns` = 31 089 628 (31.1 ms) and it is the **PREVIEW's**:
+`frameLens` is fed by the preview session callback, and preview and still run different
+sensor modes and resolutions, so there is no reason the readout matches. `ImageProxy`
+carries `timestamp` and `rotationDegrees` but NOT the capture result, so the still's own
+skew is not reachable through the in-memory path either. Options are (a) accept the
+preview value and SAY it is the preview's, (b) find a route to the still's
+`TotalCaptureResult`, (c) drop the field rather than ship a number from the wrong stream.
+31 ms of readout while walking is ~4 cm of translation across the frame, so for
+reconstruction this is a real geometric error, not a rounding one.
+
 ## 2026-09-26 — STATE OF PLAY at end of day
 
 24 commits. Read this entry first if you are picking the work back up; the entries
