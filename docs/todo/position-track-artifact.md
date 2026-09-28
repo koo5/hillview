@@ -67,7 +67,7 @@ So ship the window, let the consumer dedupe by timestamp, and do not build the
 machinery. The claim table earned its place by measurement; copying it here without the
 measurement would be cargo cult.
 
-## Step 0, independent and much cheaper: `capture_run_id`
+## Step 0, independent and much cheaper: `capture_run_id` — **DONE 2026-09-28**
 
 Verified 2026-09-28: **nothing identifies a capture run.** Not the photo detail
 response, not the provenance. Adjacency IS inferable — sort by `captured_at`, then glue
@@ -83,9 +83,20 @@ to guess at.
 
 A `capture_run_id` nested inside `capture_timing` costs one line and **no worker
 deploy** — that object is already declared server-side as an untyped dict, the same
-property that let `build` ship without one. An interval session mints one; a single shot
-gets its own. Do this first and separately: it is worth more per line than anything else
-in this document.
+property that let `build` ship without one.
+
+**Built the same day, and the RULE turned out to be the interesting part.** A run is not
+"the interval session": what a consumer needs is contiguous inertial coverage, and that
+is arithmetic. Photo N's window opens at `press − half` while photo N−1 stored up to
+`press(N−1) + half`, so coverage is continuous exactly while consecutive presses are no
+more than `2 × half` apart. A hand-pressed shot three seconds after another tiles with
+it and belongs in the same run; two interval captures either side of a long pause do
+not — which is precisely what the 4812.9 ms hole in the measured batch was.
+
+`CaptureRunTracker` (commonMain, host-tested) mints a UUID at the press whenever the gap
+exceeds one full window, and both save paths carry it. It is a HINT about where to look,
+never a guarantee: a run can still be broken by sensors that were not running. The arrays
+remain the proof; the id only says which ones to fetch.
 
 ## Server side
 

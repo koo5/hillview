@@ -104,6 +104,19 @@ data class CaptureTiming(
      */
     val exposureSource: String? = null,
 
+    /**
+     * Which capture RUN this photo belongs to — see [CaptureRunTracker] for what a run
+     * is and why it is decided by arithmetic rather than by the interval button.
+     *
+     * It is here for the same reason [build] is: `capture_timing` is already declared
+     * server-side as an untyped dict, so a key nested inside it needs no worker deploy,
+     * and having the run recorded now is worth more than having it in a tidier place
+     * later. Unlike `build`, though, this one arguably belongs here — the run is a fact
+     * about WHEN the shutter fired relative to its neighbours, which is what this object
+     * is for.
+     */
+    val captureRunId: String? = null,
+
     // THREE MORE KEYS REACH THE SERVER IN THIS OBJECT AND ARE NOT FIELDS HERE:
     // `refined_to`, `refined_position` and `refined_bearing`, added to the serialized
     // JSON by StampRefiner.recordRefinement. They cannot be fields, because they are
@@ -1091,6 +1104,13 @@ fun captureTimingJson(s: SensorSnapshot): String? {
         t.exposureElapsedNs?.let { add("\"exposure_elapsed_ns\":$it") }
         t.exposureWallMs?.let { add("\"exposure_wall_ms\":$it") }
         t.exposureSource?.let { add("\"exposure_source\":\"$it\"") }
+        // Generated, so sanitised rather than escaped — the same treatment `build`
+        // gets, and for the same reason: a quote in here would produce a payload the
+        // worker drops whole.
+        t.captureRunId?.takeIf { it.isNotBlank() }
+            ?.map { c -> if (c == '"' || c == '\\') ' ' else c }
+            ?.joinToString("")
+            ?.let { add("\"capture_run_id\":\"$it\"") }
         t.poseReferencedTo?.let { add("\"pose_referenced_to\":\"$it\"") }
         // The only field in this object built from strings that did not come from an
         // enum or a number, so it is the only one worth guarding: a version or a dirty

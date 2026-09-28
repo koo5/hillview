@@ -2839,13 +2839,19 @@ direct consequence of the claim rule at a 0.75 s interval, and something
 exposure; it is the payload that tiles. So: **rolling-shutter compensation and blur
 analysis cannot be done from a single photo** — the run must be reassembled first.
 
-**And nothing identifies a run.** Not the detail response, not the provenance. Adjacency
-is inferable from `t0_ns`, but that lives inside a gzipped artifact you must fetch to
-discover two photos are adjacent. A `capture_run_id` nested in `capture_timing` costs one
-line and no worker deploy — see `docs/todo/position-track-artifact.md`, which also
-records why the OTHER sensor streams do not want arrays (gravity and linear acceleration
-are derived from accel; fused attitude is worse than gyro for this; lens wants one value)
-and why position does.
+**Nothing identified a run — `capture_run_id` now does.** Adjacency was inferable from
+`t0_ns`, but that lives inside a gzipped artifact you must fetch to discover two photos
+are adjacent. The new key is nested in `capture_timing`, so it needed no worker deploy.
+
+The rule is the interesting part: a run is not "the interval session" but a stretch of
+contiguous coverage, which is arithmetic — the slices touch exactly while consecutive
+presses are within `2 × IMU_WINDOW_HALF_MS`. A hand-pressed shot 3 s after another is
+the same run; two interval captures either side of a long pause are not, which is what
+the 4812.9 ms hole was. `CaptureRunTracker` is commonMain and host-tested.
+
+`docs/todo/position-track-artifact.md` holds the rest: why the OTHER sensor streams do
+not want arrays (gravity and linear acceleration are derived from accel; fused attitude
+is worse than gyro for this; lens wants one value for the frame) and why position does.
 
 ### STILL NOT DONE, after this
 

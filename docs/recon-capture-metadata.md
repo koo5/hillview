@@ -464,12 +464,21 @@ consequence worth stating plainly, because it is not what a reader expects:
 > across the 20 ms the shutter was open — cannot be computed from a single photo.** The
 > run has to be reassembled first.
 
-**And nothing identifies a run.** Neither the photo detail response nor the provenance
-carries a sequence, session or burst id. Adjacency IS inferable — sort by `captured_at`,
-then glue slices whose `t0_ns` is one sample period past the previous end — but the field
-that makes it inferable lives inside a gzipped artifact you must fetch to discover that
-two photos are adjacent at all. A `capture_run_id` nested in `capture_timing` would cost
-one line and no worker deploy; see `todo/position-track-artifact.md`.
+**Nothing identified a run, so now something does.** Neither the photo detail response
+nor the provenance carried a sequence, session or burst id. Adjacency was inferable —
+sort by `captured_at`, then glue slices whose `t0_ns` is one sample period past the
+previous end — but the field that makes it inferable lives inside a gzipped artifact you
+must fetch in order to discover that two photos are adjacent at all.
+
+`capture_timing.capture_run_id` (2026-09-28) answers it, nested so it needed no worker
+deploy. The rule is the part worth knowing: a run is not "the interval session" but a
+stretch of CONTIGUOUS COVERAGE, and that is arithmetic — photo N's window opens at
+`press − half` while N−1 stored up to `press(N−1) + half`, so the slices touch exactly
+while consecutive presses are within `2 × IMU_WINDOW_HALF_MS`. A hand-pressed shot three
+seconds after another belongs to the same run; two interval captures either side of a
+long pause do not, which is what the 4812.9 ms hole above was. The id is a HINT about
+which photos to fetch — a run can still be broken by sensors that were not running — and
+the arrays remain the proof.
 
 One naming wrinkle found in the same pass: `sample_count` (4775) and `stored_count` (542)
 are ROW counts across both sensors, so the per-sensor array length is half of each

@@ -264,6 +264,48 @@ class ProvenanceObjectsTest {
         assertTrue("\"age_ms\":-320" in inertialProvenanceJson(withoutTiming)!!)
     }
 
+    /**
+     * The run id, which is what makes a sequence fetchable.
+     *
+     * A photo's IMU array holds its own exposure in 1 case out of 86 — the slices tile
+     * the session rather than centring on their own photo — so rolling-shutter and blur
+     * work needs the neighbours, and until this key existed a consumer could only find
+     * them by downloading every artifact and comparing `t0_ns`.
+     */
+    @Test
+    fun theRunIdTravelsWithEveryPhotoInTheRun() {
+        val json = captureTimingJson(
+            snap().copy(
+                captureTiming = CaptureTiming(
+                    capturedAtSource = "press",
+                    captureRunId = "3f1b0c7e-9a44-4f02-8d61-2c5e77b0a913",
+                ),
+            ),
+        )!!
+        assertTrue("\"capture_run_id\":\"3f1b0c7e-9a44-4f02-8d61-2c5e77b0a913\"" in json, json)
+    }
+
+    /**
+     * Sanitised, not escaped — the same treatment `build` gets. The value is generated,
+     * so a quote in it is a bug to see rather than text to preserve, and an unescaped
+     * one would produce a payload the worker drops WHOLE rather than partially.
+     */
+    @Test
+    fun aQuoteInTheRunIdCannotBreakTheObject() {
+        val json = captureTimingJson(
+            snap().copy(
+                captureTiming = CaptureTiming(
+                    capturedAtSource = "press",
+                    captureRunId = "bad\"id",
+                    stillMode = "latency",
+                ),
+            ),
+        )!!
+        assertTrue("\"capture_run_id\":\"bad id\"" in json, json)
+        // Still one well-formed object: the mode after it survived.
+        assertTrue("\"still_mode\":\"latency\"" in json, json)
+    }
+
     /** No timing recorded at all — an older row, or a path that does not set it. */
     @Test
     fun noTimingMeansNoObject() {

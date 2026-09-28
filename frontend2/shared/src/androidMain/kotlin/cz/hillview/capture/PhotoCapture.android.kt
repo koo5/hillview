@@ -1650,6 +1650,22 @@ private class AndroidPhotoCapture(
     @Volatile private var lastShotAtMs = 0L
 
     /**
+     * Which run the CURRENT capture belongs to, decided at the press and read by both
+     * save paths. A field rather than a parameter because the two paths build their
+     * CaptureTiming in different places; captures are sequential, so one slot is enough.
+     */
+    @Volatile private var captureRunId: String? = null
+
+    /**
+     * A new run whenever consecutive presses are further apart than one full IMU window,
+     * which is exactly when the stored inertial slices stop touching. See
+     * [CaptureRunTracker] — the rule is arithmetic, not the interval button.
+     */
+    private val runTracker = CaptureRunTracker(
+        gapMs = 2 * cz.hillview.geo.IMU_WINDOW_HALF_MS,
+    ) { java.util.UUID.randomUUID().toString() }
+
+    /**
      * The shutter's voice plays at onCaptureStarted — the actual exposure —
      * not at onImageSaved, which trails it by the HAL's still processing
      * plus the JPEG write (user-requested: the click should mark the
@@ -1702,6 +1718,9 @@ private class AndroidPhotoCapture(
         val capture = imageCapture ?: return
         if (state.capturing) return
         captureStartMs = SystemClock.elapsedRealtime()
+        // At the PRESS, on the monotonic clock: a run is a stretch of uninterrupted
+        // recording, and the gap that ends one is a real elapsed duration.
+        captureRunId = runTracker.idFor(captureStartMs)
         captureExposedAtMs = 0L
         captureTonePlayed = false
         state = state.copy(capturing = true, errorMessage = null)
@@ -1925,6 +1944,7 @@ private class AndroidPhotoCapture(
                                     exposureToJpegMs = savedAt - captureExposedAtMs,
                                     stillMode = this@AndroidPhotoCapture.stillMode.key,
                                     build = cz.hillview.BuildInfo.label(),
+                                    captureRunId = this@AndroidPhotoCapture.captureRunId,
                                     exposureElapsedNs = exposureElapsedNs,
                                     exposureWallMs = exposureWallMs,
                                     exposureSource = "sensor_timestamp",
@@ -2142,6 +2162,7 @@ private class AndroidPhotoCapture(
                                                 // uploaded data said so.
                                                 stillMode = stillMode.key,
                                                 build = cz.hillview.BuildInfo.label(),
+                                    captureRunId = this@AndroidPhotoCapture.captureRunId,
                                             ),
                                         ),
                                     ),
