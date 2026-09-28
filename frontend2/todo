@@ -1,1 +1,13 @@
+===
+
 DNG?
+
+===
+
+One unrelated thing I want to flag rather than bury: every probe capture was 1440Ã1920, ~530 KB, from a sensor whose pixel array is 4624Ã3472. The probe uses the app's own   ImageCapture, so that's the configured capture resolution, not a probe artifact â but if you expected full resolution, something is pinning it down. Worth a separate   look.
+
+===
+
+
+
+

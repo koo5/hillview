@@ -110,7 +110,7 @@ that it belongs on the *consented* side of a line that does not exist yet.
 
 ## Reading prod as a user — the development fact
 
-The `frontend2` account password at `/home/koom/secrets/frontend2` lets a developer
+The `frontend2` account password in `~/secrets/` lets a developer
 fetch that account's photos as their OWNER, which is how the owner/public difference
 above was measured. That is all this repo needs it for.
 
@@ -126,5 +126,4 @@ never on disk. Verified afterwards that it appeared in zero tracked files, zero
 scratchpad files and zero commits, and that no bearer token was written anywhere.
 
 Anything about credentials for the enrichment workbench or a rented GPU box is out of
-scope here — that component is developed in a separate VM and the question is being
-settled there.
+scope here.

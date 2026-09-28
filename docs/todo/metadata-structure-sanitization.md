@@ -98,3 +98,10 @@ untyped dict specifically to dodge the tax once (see
   historical rows as they are? Leaving them means every reader handles both forms
   forever, which is the thing this plan exists to stop.
 - Is `debug` still worth storing per photo? Seven parser flags on every row.
+
+
+
+
+========
+notes:
+concerning avoiding surprises, we want to store almost-full dumps of original exif data, if any are present. some values could be replaced with {nuked:true}, those that we knowingly copy elsewhere, or want to kill of because of size.
