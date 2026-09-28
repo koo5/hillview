@@ -2792,6 +2792,32 @@ measured where saves took 275 ms, and degraded under load. The mixed case also f
 the wild three times and reported correctly thanks to the ungating — `09:35:21` carries
 `att = -148` beside `inr = +503`, which would have read −457 under the old gate.
 
+### Confirmed on hardware — and the still turns out to CONSUME a preview slot
+
+| | `lens.age_ms` | `inertial.age_ms` | press fallbacks |
+|---|---|---|---|
+| `0444561a` press latch, count rings | 399–470 | −31 … −165 | **12 / 70** |
+| `68b59ece` + lens ring | **±66** | −41, −92 | 0 / 12 |
+| `da6a8994` + time-bounded rings | ±66 | **0 … +2** | **0 / 14** |
+
+The time-bounded rings are demonstrated by a paired comparison, not just by the absence
+of failures: on `0444561a` saves of 435/439/447 ms gave inertial ages of −165/−164/−162
+(the ring's oldest survivor); on `da6a8994` saves of 395 and 458 ms give **+1 and +1**.
+The >500 ms saves that caused all twelve fallbacks were not reproduced in this batch, so
+that half remains an inference from the 8 s window.
+
+**And my prediction of ±33 ms for the lens was wrong.** It is 66–67 ms on every capture,
+never less, sign split evenly — exactly one preview period. The only shape that produces
+that floor is the still taking a slot OUT of the preview grid rather than joining it:
+the frame that would have been at the exposure IS the still, so the survivors are one
+period either side and equidistant. That also sharpens the earlier reading of the
+preview's 251 ms pause across a capture — the still is scheduled into the cadence, in
+place of a frame.
+
+66 ms is therefore the floor for this route, not a tuning problem: closing it means
+averaging the bracketing frames (which invents a number and needs its own label) or the
+still's own capture result, which CameraX does not offer.
+
 ### STILL NOT DONE, after this
 
 - **The still's own lens values.** Focus distance, intrinsics, distortion and skew are

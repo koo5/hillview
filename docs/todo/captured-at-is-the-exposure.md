@@ -770,6 +770,49 @@ ungating a few hours earlier: `09:35:21` carries `att = -148` (a ring hit, 148 m
 the exposure) beside `inr = +503` (the press fallback). Under the old gate that attitude
 would have read −457.
 
+### BOTH RINGS CONFIRMED 2026-09-28 — and the still CONSUMES a preview slot
+
+Three builds, same afternoon, same phone, walking. One row per change:
+
+| | `lens.age_ms` | `inertial.age_ms` | press fallbacks |
+|---|---|---|---|
+| `0444561a` press latch, count-bounded rings | 399–470 | −31 … −165 | **12 / 70** |
+| `68b59ece` + lens ring | **±66** | −41, −92 | 0 / 12 |
+| `da6a8994` + time-bounded rings | ±66 | **0 … +2** | **0 / 14** |
+
+**The time-bounded rings work, and a paired comparison shows it without needing a slow
+save.** On `0444561a`, captures with `exposure_to_jpeg_ms` of 435/439/447 ms reported
+inertial ages of −165/−164/−162 — the ring handing back its oldest survivor. On
+`da6a8994`, 395 ms and 458 ms report **+1 and +1**. Same save latency, the exposure's
+own sample now present.
+
+NOT yet exercised: the >500 ms saves that produced all twelve fallbacks. This batch
+topped out at 458 ms, so "it holds through a 2 s save" remains an inference from the 8 s
+window rather than a measurement.
+
+#### The prediction that was wrong, and what it teaches
+
+I wrote that the phase-lock meant "a preview frame essentially AT the exposure exists to
+be found", and expected `lens.age_ms` of ±33 ms — half a period. It is **66–67 ms on
+every single capture across both builds, never less**, with the sign split about evenly.
+
+That floor is exactly one preview period, and the only shape that produces it is: the
+still does not JOIN the preview grid, it **takes a slot out of it**. The frame that
+would have been at the exposure is the still. The surviving preview frames are one
+period either side and equidistant, so which one wins is decided by sub-millisecond
+phase — hence the coin-flip sign, and hence a value that is never closer.
+
+Which sharpens the 2026-09-27 observation that the repeating request "paused for 251 ms
+across the capture and then delivered three results within 5 ms to catch up". That was
+read as the still interrupting the stream. It is more specific than that: the still is
+scheduled INTO the cadence, in place of a preview frame.
+
+So 66 ms is the floor for the preview route — a 6–7x improvement on the latch, and then
+a hard stop. Closing it further means either averaging the two bracketing frames, which
+invents a third number and would need its own label, or the still's own capture result,
+which CameraX does not hand out. The lens half of "every sensor at the exposure" is now
+as close as this architecture allows, and `frame_values_referenced_to` says so.
+
 ### So: we did not know the exposure moment, and now we do
 
 Which is the outcome the requirement was written for. Two honest responses, and they

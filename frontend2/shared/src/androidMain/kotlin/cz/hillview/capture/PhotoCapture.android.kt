@@ -489,14 +489,22 @@ private class AndroidPhotoCapture(
      * 0.99 ms: the latch is 6–7 preview frames behind, because a capture RESULT arrives
      * some way after its own frame was exposed.
      *
-     * The same batch is why the ring can help: the residual being a whole number of
-     * frames also shows the still's exposure is phase-locked to the preview grid, so
-     * there IS a preview frame essentially at the exposure to find.
+     * WHAT IT ACHIEVES, and the floor it hits. Measured on the build that shipped it:
+     * `lens.age_ms` went from 399-470 ms to **66-67 ms — one whole preview period,
+     * never less**, with the sign split about evenly between the frame before and the
+     * frame after. That is a 6-7x improvement and then a hard stop, and the stop is
+     * informative: I had predicted "half a period at worst" on the grounds that the
+     * exposure is phase-locked to the preview grid, so a frame would sit essentially
+     * ON it. The still does not JOIN that grid — it CONSUMES a slot. The preview frame
+     * that would have been at the exposure is the still itself, so the survivors are
+     * one period either side and equidistant, which is why the sign is a coin flip.
      *
-     * It does NOT produce the still's own values — CameraX hands out no result for the
-     * still (see [LensStamp.previewRollingShutterSkewNs]). It replaces "the preview
-     * frame before the press" with "the preview frame nearest the exposure", half a
-     * period at worst.
+     * So 66 ms is the floor for this route, not a tuning problem. Closing it further
+     * would mean averaging the two bracketing frames — which invents a third number
+     * and would need its own label — or the still's own result, which CameraX does not
+     * hand out (see [LensStamp.previewRollingShutterSkewNs]).
+     *
+     * It does NOT produce the still's own values either way.
      *
      * Here rather than in GeoEngine, unlike the attitude and motion rings: the camera is
      * this file's hardware, the callback that fills this already runs on the camera
