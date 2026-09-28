@@ -1,4 +1,4 @@
-package cz.hillview.capture
+package cz.hillview.geo
 
 /**
  * A short history of sensor samples, so a capture can ask what the device was doing at
@@ -16,8 +16,18 @@ package cz.hillview.capture
  * contributes over a capture. Interpolating angles correctly (shortest arc, per axis)
  * would cost more than it could buy.
  *
- * Thread-safe because of who touches it: samples arrive on the collector that feeds the
- * capture's stamp fields, and the lookup happens on the camera callback.
+ * IT LIVES IN THE ENGINE, and the first version did not — that cost a measurable amount
+ * of quality. Fed from the capture's stamp setters, the samples reached it through two
+ * conflating StateFlows and a collector on the composition's dispatcher, so whenever
+ * Compose was busy the intermediate values were DROPPED rather than queued. Twenty
+ * uploaded photos showed the result: attitude hits +-88 ms from the exposure, a 33 Hz
+ * stream arriving as roughly 9 Hz. Fed at the source, on the sensor thread, there is
+ * nothing to conflate. The one-state allowlist already made this argument for the IMU
+ * ring — "a 100 Hz buffer is not user-facing state and has no business passing through
+ * recomposition".
+ *
+ * Thread-safe because of who touches it: samples arrive on the sensor thread and the
+ * lookup happens on the camera callback.
  */
 internal class SampleRing<T>(
     private val capacity: Int,

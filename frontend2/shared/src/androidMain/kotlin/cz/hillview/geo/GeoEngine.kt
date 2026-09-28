@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import cz.hillview.map.toDeviceAttitude
 import cz.hillview.plugin.hvTag
 
 private val TAG = hvTag("GeoEngine")
@@ -735,14 +736,17 @@ class GeoEngine private constructor(private val context: Context) {
                 else -> return
             }
             _motion.value = cz.hillview.map.DeviceMotionSample(
-                gravity = gravity,
-                linearAcceleration = linear,
-                atMs = System.currentTimeMillis(),
-                // The EVENT's own instant, not the callback's: SensorEvent.timestamp is
-                // already elapsedRealtimeNanos, so this is the sample's real time rather
-                // than when we got round to it.
+                // BOTH clocks describe the EVENT, not the callback, and that matters
+                // because the two are ~300 ms apart here: these sensors batch, so
+                // System.currentTimeMillis() at delivery is a third of a second after
+                // the sample it is stamping. Mixing them is a bug this code had for one
+                // evening — the ring matched on the event time while `age_ms` was
+                // computed from the callback time, and 20 uploaded photos reported
+                // inertial ages of -311 ms for samples that were within 1 ms of the
+                // exposure. imuWallClockFor is the same mapping the IMU payload uses.
+                atMs = imuWallClockFor(event.timestamp),
                 elapsedNs = event.timestamp,
-            )
+            ).also { motionRing.add(it) }
         }
 
         override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
@@ -793,6 +797,38 @@ class GeoEngine private constructor(private val context: Context) {
     // arrays. A buffer that wrapped mid-window would silently return half of
     // one, which is the failure that looks like data rather than an error.
     private val imuRing = ImuRing(capacity = 16_000)
+
+    /**
+     * The last few seconds of attitude and motion, so a capture can ask what the device
+     * was doing at the instant it EXPOSED rather than when the button went down — the
+     * two are 250 ms–1.2 s apart and the gap cannot be calibrated away.
+     *
+     * Here rather than in the capture for the same reason [imuRing] is here: fed at the
+     * source on the sensor thread, nothing conflates. The first version was fed from the
+     * capture's stamp setters, through two StateFlows and a collector on the composition's
+     * dispatcher, and twenty uploaded photos measured the cost — attitude hits ±88 ms from
+     * the exposure, a 33 Hz stream arriving as about 9 Hz.
+     *
+     * ASKED, never observed: one lookup per capture, like persistImuWindow.
+     */
+    private val attitudeRing =
+        SampleRing<cz.hillview.map.DeviceAttitude>(AT_EXPOSURE_RING_CAPACITY) { it.elapsedNs }
+    private val motionRing =
+        SampleRing<cz.hillview.map.DeviceMotionSample>(AT_EXPOSURE_RING_CAPACITY) { it.elapsedNs }
+
+    /**
+     * What the device's orientation was at [elapsedNs] (an `elapsedRealtimeNanos` value,
+     * e.g. a frame's SENSOR_TIMESTAMP), or null when nothing was recorded near it.
+     *
+     * Null is the useful answer: the caller then keeps whatever it stamped at the press
+     * and SAYS so, which is better than a sample from an unrelated moment.
+     */
+    fun attitudeAt(elapsedNs: Long): cz.hillview.map.DeviceAttitude? =
+        attitudeRing.nearest(elapsedNs, AT_EXPOSURE_TOLERANCE_NS)
+
+    /** The gravity / linear-acceleration reading at [elapsedNs]. See [attitudeAt]. */
+    fun motionAt(elapsedNs: Long): cz.hillview.map.DeviceMotionSample? =
+        motionRing.nearest(elapsedNs, AT_EXPOSURE_TOLERANCE_NS)
 
     /**
      * The newest sample already persisted, so consecutive windows do not store
@@ -1254,6 +1290,10 @@ class GeoEngine private constructor(private val context: Context) {
             // One sample, fanned out — the plugin's shape exactly.
             geoTracking.storeOrientationSensorData(data)
             _orientation.value = data
+            // …and kept, so a capture can look up this instant later. On THIS thread,
+            // which is the whole point: the published flow is conflated by whoever
+            // collects it, the ring is not.
+            attitudeRing.add(data.toDeviceAttitude())
         }.also { it.startSensor() }
     }
 

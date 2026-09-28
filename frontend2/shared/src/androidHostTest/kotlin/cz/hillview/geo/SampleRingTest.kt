@@ -1,4 +1,4 @@
-package cz.hillview.capture
+package cz.hillview.geo
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

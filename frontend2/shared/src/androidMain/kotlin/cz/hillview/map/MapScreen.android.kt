@@ -197,21 +197,9 @@ actual fun MapScreen(
             // and it is the one state's answer for a manual row's pitch/roll
             // and for the photo stamp's attitude provenance.
             onAttitude = { data ->
-                state.updateDeviceAttitude(
-                    DeviceAttitude(
-                        trueDeg = data.trueHeading.toDouble(),
-                        magneticDeg = data.magneticHeading.toDouble(),
-                        pitch = data.pitch.toDouble(),
-                        roll = data.roll.toDouble(),
-                        // Android's -1 doubles as NO_CONTACT and as "never
-                        // reported"; both mean we cannot rate the heading.
-                        magnetometerCalibration = data.accuracyLevel.takeIf { it >= 0 },
-                        fusedSensorAccuracy = data.fusedSensorAccuracy.takeIf { it >= 0 },
-                        detail = data.detail,
-                        ts = data.timestamp,
-                        elapsedNs = data.elapsedRealtimeNanos,
-                    ),
-                )
+                // One conversion, shared with the engine's lookup ring — see
+                // toDeviceAttitude for why it is not written twice.
+                state.updateDeviceAttitude(data.toDeviceAttitude())
             },
         ) { heading, accuracy, magnetic, pitch ->
             session.setBearingPhase(TrackingPhase.Active)

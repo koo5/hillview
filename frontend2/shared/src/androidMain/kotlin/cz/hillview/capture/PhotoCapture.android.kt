@@ -462,32 +462,15 @@ private class AndroidPhotoCapture(
 
     @Volatile private var frameLens: FrameLensFacts? = null
 
-    /**
-     * The last few seconds of each stream, so the save can ask what the device was doing
-     * at the EXPOSURE instead of inheriting the press. Fed by the setters below, which is
-     * why nothing outside this class changes: the screen keeps pushing the one state's
-     * values in exactly as before, and the history is a side effect of that.
-     */
-    private val attitudeRing =
-        SampleRing<cz.hillview.map.DeviceAttitude>(AT_EXPOSURE_RING_CAPACITY) { it.elapsedNs }
-    private val motionRing =
-        SampleRing<cz.hillview.map.DeviceMotionSample>(AT_EXPOSURE_RING_CAPACITY) { it.elapsedNs }
+    // The at-exposure history lives in GeoEngine, not here. It was here first, fed from
+    // these setters, and that put two conflating StateFlows and the composition's
+    // dispatcher between the sensor and the ring — measurably: attitude hits ±88 ms from
+    // the exposure, a 33 Hz stream arriving as ~9 Hz. The engine feeds it on the sensor
+    // thread instead, and this file ASKS once per capture (engine.attitudeAt), which is
+    // the same arrangement persistImuWindow already has.
+    @Volatile override var stampAttitude: cz.hillview.map.DeviceAttitude? = null
 
-    @Volatile private var attitudeNow: cz.hillview.map.DeviceAttitude? = null
-    override var stampAttitude: cz.hillview.map.DeviceAttitude?
-        get() = attitudeNow
-        set(value) {
-            attitudeNow = value
-            value?.let { attitudeRing.add(it) }
-        }
-
-    @Volatile private var motionNow: cz.hillview.map.DeviceMotionSample? = null
-    override var stampMotion: cz.hillview.map.DeviceMotionSample?
-        get() = motionNow
-        set(value) {
-            motionNow = value
-            value?.let { motionRing.add(it) }
-        }
+    @Volatile override var stampMotion: cz.hillview.map.DeviceMotionSample? = null
 
     @Volatile override var compassLandscapeWorkaround: Boolean = false
 
@@ -1815,12 +1798,8 @@ private class AndroidPhotoCapture(
                     // actually open. Null means the ring had nothing within tolerance,
                     // and then the press-time value stands — visibly, via
                     // pose_referenced_to below, rather than by silent substitution.
-                    val attitudeAtExposure = attitudeRing.nearest(
-                        exposureElapsedNs, AT_EXPOSURE_TOLERANCE_NS,
-                    )
-                    val motionAtExposure = motionRing.nearest(
-                        exposureElapsedNs, AT_EXPOSURE_TOLERANCE_NS,
-                    )
+                    val attitudeAtExposure = engine.attitudeAt(exposureElapsedNs)
+                    val motionAtExposure = engine.motionAt(exposureElapsedNs)
                     state = state.copy(
                         capturing = false,
                         lastPhoto = CapturedPhoto(
