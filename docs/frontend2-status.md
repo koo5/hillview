@@ -2818,6 +2818,35 @@ place of a frame.
 averaging the bracketing frames (which invents a number and needs its own label) or the
 still's own capture result, which CameraX does not offer.
 
+### The IMU arrays tile exactly — and a photo's array is not its own
+
+86 photos from one interval run, every artifact fetched and compared against the next:
+
+```
+gap between consecutive owned windows: 2.513 ms   (78 of 79 boundaries)
+sample period:                         2.5133 ms
+overlaps: 0   lost: 0   duplicated: 0
+23 310 accel samples, 59.80 s continuous
+```
+
+One sample period between slices is the exact result the `imuHighWaterMs` trim exists
+for. The only larger gap, 4812.9 ms, is the pause between two bursts.
+
+**But a photo's own array contains its own exposure in 1 case out of 86.** The slice
+starts a median 2071 ms AFTER the exposure, which sits four photos back in the run — a
+direct consequence of the claim rule at a 0.75 s interval, and something
+`recon-capture-metadata.md` had predicted in words. The summary is still centred on the
+exposure; it is the payload that tiles. So: **rolling-shutter compensation and blur
+analysis cannot be done from a single photo** — the run must be reassembled first.
+
+**And nothing identifies a run.** Not the detail response, not the provenance. Adjacency
+is inferable from `t0_ns`, but that lives inside a gzipped artifact you must fetch to
+discover two photos are adjacent. A `capture_run_id` nested in `capture_timing` costs one
+line and no worker deploy — see `docs/todo/position-track-artifact.md`, which also
+records why the OTHER sensor streams do not want arrays (gravity and linear acceleration
+are derived from accel; fused attitude is worse than gyro for this; lens wants one value)
+and why position does.
+
 ### STILL NOT DONE, after this
 
 - **The still's own lens values.** Focus distance, intrinsics, distortion and skew are

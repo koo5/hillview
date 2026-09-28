@@ -430,6 +430,52 @@ concatenate a run into one continuous trajectory — which is the artifact the
 workbench actually wants, and the reason the trim is load-bearing rather than
 tidiness.
 
+### VERIFIED ON PROD 2026-09-28: the windows tile exactly
+
+The trim's whole purpose, measured end to end. 86 photos from one interval run, build
+`da6a8994`, every artifact fetched and its `accel.t0_ns + cumsum(dt_us)` compared
+against the next photo's `t0_ns`:
+
+```
+gap between consecutive owned windows: 2.513 ms   (78 of 79 boundaries)
+sample period:                         2.5133 ms
+overlaps: 0    lost samples: 0    duplicated samples: 0
+23 310 accel samples, 59.80 s continuous
+```
+
+One sample period between slices is the exact result: no sample belongs to two photos
+and none falls between them. The single exception is a 4812.9 ms gap, which is the pause
+between two bursts rather than a defect.
+
+**And the offset this document predicted is now a number.** It says above that "an
+interval run below 6 s has each photo storing post-shutter samples anyway (the previous
+window already claimed everything before this shutter)". Quantified: a photo's own array
+contains its own exposure in **1 case out of 86**. The slice starts a median **2071 ms
+AFTER** the exposure, and the exposure sits **four photos back** in the concatenated run
+(74 of 86 cases exactly four). That falls straight out of the claim rule — photo N owns
+`[end of N−1's claim, N's press + 3 s]`, and N's press is 3 s before that end, so at a
+0.75 s interval N−4 stored it.
+
+Nothing is wrong: the SUMMARY is centred on the exposure (4775 rows over the full ±3 s)
+and the PAYLOAD tiles the session, which is the split the design chose. But it has a
+consequence worth stating plainly, because it is not what a reader expects:
+
+> **Anything that needs samples AT the exposure — rolling-shutter compensation, blur
+> across the 20 ms the shutter was open — cannot be computed from a single photo.** The
+> run has to be reassembled first.
+
+**And nothing identifies a run.** Neither the photo detail response nor the provenance
+carries a sequence, session or burst id. Adjacency IS inferable — sort by `captured_at`,
+then glue slices whose `t0_ns` is one sample period past the previous end — but the field
+that makes it inferable lives inside a gzipped artifact you must fetch to discover that
+two photos are adjacent at all. A `capture_run_id` nested in `capture_timing` would cost
+one line and no worker deploy; see `todo/position-track-artifact.md`.
+
+One naming wrinkle found in the same pass: `sample_count` (4775) and `stored_count` (542)
+are ROW counts across both sensors, so the per-sensor array length is half of each
+(2388 and 271). The two are consistent with each other, but "sample_count" reads as
+samples and a consumer sizing a buffer from it will be out by 2x.
+
 ## Pitch has three homes — which is which
 
 Raised as a confusing moment, 2026-09-26, and worth settling in writing because
