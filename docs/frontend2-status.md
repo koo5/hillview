@@ -2881,6 +2881,32 @@ Impact is low for reconstruction — the raw accelerometer is in `imu_samples`, 
 is recoverable as the mean acceleration near the exposure — but a metadata-only consumer
 lost the documented per-photo "down" for those photos. Not backfillable from the app.
 
+### The 3 exposures that belonged to no photo — a 2.5 ms crack, now closed
+
+Reported as "minor, unexplained". Reproduced: their exposure instants fell in the gap
+BETWEEN two consecutive claims. Every boundary had one — 692 of them in that span, mean
+2.597 ms, range 2–4, i.e. one sample period. `persistImuWindow` bounded each claim by the
+samples it held, so one ended at its last sample and the next began at its first. The
+rate follows exactly: 2.5 ms against a 750 ms interval is 0.33 %, so ~2.3 of 698 expected.
+
+No samples were missing. But it mattered more than "minor", because
+`stored_from_ms`/`stored_to_ms` had just replaced `capture_run_id` as THE retrieval
+mechanism, and four places — this page, the contract doc, the API allowlist and the
+Kotlin doc — stated that claims tile and therefore exactly one photo owns any instant.
+They did not, and naive containment misses ~0.3 % silently.
+
+Fixed by making the bound mirror the freshness filter rather than deriving it from the
+data a second time: `maxOf(imuHighWaterMs + 1, fromMs)`. Adjacency, not overlap. The
+clamp keeps a claim from reaching back across a real recording pause, so "unclaimed"
+still means "nothing was recorded here".
+
+**And the test that should have caught it said it did.**
+`consecutiveCapturesOwnDisjointRanges` was commented "...and consecutive claims abut
+rather than leaving holes" while asserting only that no SAMPLE is in two claims.
+Disjointness and adjacency are two properties; it checked one. There is now a test per
+property, one of which walks the run at 37 ms steps and requires every instant to have
+exactly one owner.
+
 ### STILL NOT DONE, after this
 
 - **The still's own lens values.** Focus distance, intrinsics, distortion and skew are

@@ -41,10 +41,14 @@ class ImuAttributionTest {
         fun persist(fromMs: Long, toMs: Long, forCaptureAtMs: Long?) {
             val fresh = ring(fromMs, toMs).filter { it.timestamp > highWater }
             if (fresh.isEmpty()) return
+            // The claim starts where the freshness filter does, clamped to the window
+            // asked for — see GeoEngine.persistImuWindow for why it is not the first
+            // sample's timestamp.
+            val claimFrom = maxOf(highWater + 1, fromMs)
             table += fresh
             highWater = fresh.last().timestamp
             forCaptureAtMs?.let {
-                claims += ImuClaimEntity(it, fresh.first().timestamp, fresh.last().timestamp, fresh.size)
+                claims += ImuClaimEntity(it, claimFrom, fresh.last().timestamp, fresh.size)
             }
         }
 
@@ -98,13 +102,69 @@ class ImuAttributionTest {
         // The whole point: no sample belongs to two photos.
         val all = sets.flatten()
         assertEquals(all.size, all.distinct().size, "a sample was claimed by two captures")
-        // ...and consecutive claims abut rather than leaving holes.
+        // ...and no capture's SAMPLES run into the next one's.
         for (i in 0 until sets.size - 1) {
             assertTrue(
                 sets[i].max() < sets[i + 1].min(),
                 "claim $i (${sets[i].max()}) overlaps claim ${i + 1} (${sets[i + 1].min()})",
             )
         }
+    }
+
+    /**
+     * THE CLAIM RANGES ABUT — which is a different statement from the one above, and
+     * the difference is a bug that shipped.
+     *
+     * The test above says no SAMPLE is in two claims. It does not say the claims cover
+     * the time between them, and they did not: the bound was `fresh.minOf { timestamp }`,
+     * so a claim began at its first sample while the previous ended at its last, leaving
+     * one sample period owned by nobody. Measured on a real drive: 692 boundaries, mean
+     * 2.597 ms, range 2–4. Three of 698 exposures fell into one — 0.33 %, exactly the
+     * ratio of a 2.5 ms gap to a 750 ms interval — and a consumer looking up
+     * `stored_from_ms..stored_to_ms` by containment got "no photo owns this" while the
+     * samples either side were present and owned.
+     *
+     * So: adjacency, not overlap. `[.., H]` then `[H+1, ..]`.
+     */
+    @Test
+    fun consecutiveClaimRangesLeaveNoInstantUnowned() {
+        val r = Recorder()
+        val shutters = listOf(1_000_000L, 1_002_000L, 1_004_000L, 1_006_000L)
+        shutters.forEach { r.persist(it - half, it + half, it) }
+
+        val cs = shutters.mapNotNull { sh -> r.claims.firstOrNull { it.capturedAtMs == sh } }
+        assertEquals(shutters.size, cs.size)
+        for (i in 0 until cs.size - 1) {
+            assertEquals(
+                cs[i].toMs + 1, cs[i + 1].fromMs,
+                "claim $i ends ${cs[i].toMs} and claim ${i + 1} starts ${cs[i + 1].fromMs} — " +
+                    "${cs[i + 1].fromMs - cs[i].toMs - 1} ms owned by nobody",
+            )
+        }
+        // The property a consumer actually relies on: every instant inside the run is
+        // in exactly one claim, INCLUDING the ones between two samples.
+        val span = cs.first().fromMs..cs.last().toMs
+        for (t in span step 37) {                     // 37 ms: coprime with the 250 ms period
+            val owners = cs.count { t in it.fromMs..it.toMs }
+            assertEquals(1, owners, "instant $t is owned by $owners claims")
+        }
+    }
+
+    /**
+     * ...but a claim must not reach back across a real pause in recording. After a gap
+     * the bound is clamped to the window the capture asked for, so the silence stays
+     * unclaimed — and "unclaimed" keeps meaning "nothing was recorded here" rather than
+     * "you landed in a crack between two claims".
+     */
+    @Test
+    fun aClaimDoesNotReachBackAcrossAPauseInRecording() {
+        val r = Recorder()
+        r.persist(1_000_000 - half, 1_000_000 + half, 1_000_000L)
+        r.persist(1_060_000 - half, 1_060_000 + half, 1_060_000L)
+        val a = r.claims.first { it.capturedAtMs == 1_000_000L }
+        val b = r.claims.first { it.capturedAtMs == 1_060_000L }
+        assertEquals(1_060_000 - half, b.fromMs, "the claim should start at its own window")
+        assertTrue(b.fromMs - a.toMs > half, "the unsampled pause must stay unclaimed")
     }
 
     /** Every stored sample is owned by exactly one capture: nothing is orphaned. */

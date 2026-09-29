@@ -473,8 +473,10 @@ in order to decide whether to download.
 
 `inertial.imu_window.stored_from_ms` / `stored_to_ms` (2026-09-28) are the claimed
 slice, written by the deferred rewrite because the claim is the only place it is known.
-Claims tile and do not overlap, so exactly one photo owns any instant and containment
-answers the question from a photo list alone. `stored_from_ms` existed once and was
+Claims are ADJACENT and do not overlap — `[.., H]` then `[H+1, ..]` — so inside a stretch
+of continuous recording exactly one photo owns any instant and containment answers the
+question from a photo list alone. (That adjacency had to be FIXED to be true; see "the
+three exposures that belonged to no photo" below.) `stored_from_ms` existed once and was
 removed on the argument that "the payload's own `t0_ms` says where it starts" — true,
 and beside the point: it says so only after the fetch.
 
@@ -542,6 +544,58 @@ the app; recoverable from each photo's artifact if it is ever worth a pass.
 **And the lesson that generalises:** a data class whose payload fields are nullable with
 defaults will let a rewrite drop them silently. Every argument in that constructor was
 load-bearing and none of them was required.
+
+## The three exposures that belonged to no photo
+
+Reported 2026-09-28 as "minor, unexplained: 3 of 698 portrait-car exposures fall inside
+NO photo's `stored_from_ms..stored_to_ms` claim, on an otherwise seamless tiling."
+Reproduced and explained the next day, and the explanation falsified a sentence this
+document had just gained.
+
+**The samples were not missing.** The exposure instants fell in the gap BETWEEN two
+consecutive claims:
+
+```
+16:08:28.269   previous claim ends 2 ms before,  next begins 1 ms after
+16:08:47.933   previous claim ends 1 ms before,  next begins 2 ms after
+16:09:24.194   previous claim ends 1 ms before,  next begins 2 ms after
+```
+
+Every boundary had that gap — 692 of them in that span, mean 2.597 ms, range 2–4, i.e.
+one sample period at 398 Hz. `GeoEngine.persistImuWindow` bounded each claim by the
+samples it held (`fresh.minOf { it.timestamp } .. fresh.maxOf { … }`), so one claim ended
+at its last sample while the next began at its first, and the ~2.5 ms between them was
+owned by nobody. The rate follows: a 2.5 ms gap against a 750 ms capture interval is
+0.33 %, so ~2.3 of 698 expected, 3 observed.
+
+**Why it mattered more than "minor".** `stored_from_ms`/`stored_to_ms` had just been
+introduced as THE retrieval mechanism — a consumer finds the artifact covering an instant
+by containment — and this document, the API allowlist, the Kotlin doc and two tests all
+stated that claims tile and therefore exactly one photo owns any instant. They do not, and
+a naive containment lookup misses ~0.3 % of exposures silently. A careful reader hit it
+immediately and had no way to tell a crack from missing data.
+
+**The fix is that the bound now mirrors the freshness filter** instead of being derived
+from the data a second time: `maxOf(imuHighWaterMs + 1, fromMs)`. `> imuHighWaterMs` and
+`>= imuHighWaterMs + 1` are the same line, which is why the gap cannot have been intended
+— two definitions of one boundary is what produced it. Adjacency, NOT overlap: `[.., H]`
+then `[H+1, ..]`, so no sample is ever in two claims, which is the whole point of the
+claim table.
+
+The clamp to the requested window is what keeps it honest across a real pause: after a
+45 s break in recording a claim stays at its own window's start, the silence remains
+unclaimed, and "unclaimed" goes on meaning *nothing was recorded here* rather than *you
+landed in a crack*. The same holds for samples written by `flushContinuousImu`, which
+stores and advances the high-water WITHOUT a claim — those rows are in the tracking
+database and in no photo's artifact, so containment correctly finds no owner.
+
+**And the test that should have caught it said it did.**
+`consecutiveCapturesOwnDisjointRanges` carried the comment "...and consecutive claims
+abut rather than leaving holes" while asserting only that no SAMPLE is in two claims —
+a different statement, and the weaker one. Disjointness and adjacency are two properties
+and it checked one. There is now a test per property, including one that walks the run at
+37 ms steps (coprime with the sample period) and requires every instant to have exactly
+one owner.
 
 ## Pitch has three homes — which is which
 

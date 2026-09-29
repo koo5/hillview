@@ -1775,9 +1775,12 @@ _IMU_WINDOW_FIELDS: dict = {
 	# what makes an artifact findable: a photo's own array holds its own exposure in
 	# 1 case out of 86 (measured 2026-09-28) because the claims tile the session
 	# rather than centring on their photo, so "the samples at this exposure" is always
-	# a question about someone else's artifact. Claims tile and do not overlap, so
-	# exactly one photo owns any instant and containment answers it from this list
-	# alone -- no fetching candidates in order to read their t0_ns.
+	# a question about someone else's artifact. Claims are ADJACENT and do not overlap
+	# ([.., H] then [H+1, ..]), so inside a stretch of continuous recording exactly one
+	# photo owns any instant and containment answers it from this list alone -- no
+	# fetching candidates in order to read their t0_ns. Across a real pause in recording
+	# the claims do not abut, and containment correctly returns nothing: no photo's
+	# artifact holds samples that were never recorded.
 	'stored_from_ms': int,
 	'stored_to_ms': int,
 	'accel_peak_mps2': float,

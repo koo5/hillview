@@ -265,10 +265,20 @@ data class ImuWindow(
      * candidates and read their `t0_ns` — downloading in order to decide whether to
      * download.
      *
-     * Claims tile and do not overlap, so containment is unambiguous: exactly one photo
-     * owns any given instant. `stored_from_ms` existed once and was removed on the
-     * argument that "the payload's own `t0_ms` says where it starts", which is true and
-     * beside the point — it says so only after the fetch.
+     * Claims are ADJACENT and do not overlap — `[.., H]` then `[H+1, ..]` — so within a
+     * stretch of continuous recording exactly one photo owns any given instant and
+     * containment is unambiguous. That adjacency had to be fixed to be true: the bound
+     * was the first sample's timestamp, which left one sample period between claims
+     * owned by nobody, and 3 of 698 exposures on one drive landed in one. See
+     * `GeoEngine.persistImuWindow`.
+     *
+     * Where recording actually PAUSED the claims do not abut, and that is correct:
+     * nothing was recorded, no photo's artifact holds it, and containment returning
+     * nothing is the honest answer rather than a crack to fall into.
+     *
+     * `stored_from_ms` existed once and was removed on the argument that "the payload's
+     * own `t0_ms` says where it starts", which is true and beside the point — it says so
+     * only after the fetch.
      *
      * Deliberately the CLAIMED range, not the extent of the samples actually found in
      * it. Attribution has to be a partition of time; [storedCount] beside it says how

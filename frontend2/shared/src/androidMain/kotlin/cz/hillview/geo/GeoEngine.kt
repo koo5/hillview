@@ -1087,6 +1087,32 @@ class GeoEngine private constructor(private val context: Context) {
         // it. See imuHighWaterMs.
         val fresh = samples.filter { it.timestamp > imuHighWaterMs }
         if (fresh.isNotEmpty()) {
+            // WHERE THIS CLAIM STARTS, and it is deliberately not the first sample.
+            //
+            // It used to be `fresh.minOf { it.timestamp }`, which made consecutive
+            // claims exactly one sample period apart instead of adjacent: the previous
+            // claim ended at its last sample, this one began at its first, and the
+            // ~2.5 ms between them belonged to nobody. Measured on 692 boundaries of one
+            // drive: mean 2.597 ms, range 2–4. An exposure landing in one of those
+            // slivers is inside no claim at all, which happened to 3 of 698 exposures —
+            // 0.33 %, exactly the ratio of a 2.5 ms gap to a 750 ms capture interval.
+            // That defeats the containment lookup `stored_from_ms`/`stored_to_ms` exist
+            // for, and silently: the consumer gets "no photo owns this instant" when the
+            // samples either side are present and owned.
+            //
+            // The bound now MIRRORS THE FRESHNESS FILTER above rather than being derived
+            // from the data a second time — `> imuHighWaterMs` and `>= imuHighWaterMs+1`
+            // are the same line, which is why the gap could not have been intended. Two
+            // definitions of one boundary is what produced it.
+            //
+            // Clamped to the requested window so a claim can never reach back across a
+            // real pause in recording: after a 45 s gap this stays at the window's own
+            // start, the silence remains unclaimed, and "unclaimed" keeps meaning
+            // "nothing was recorded here" rather than "you landed in a crack".
+            //
+            // NOT an overlap. [.., H] then [H+1, ..] — no sample is ever in two claims,
+            // which is the whole point of the claim table.
+            val claimFromMs = maxOf(imuHighWaterMs + 1, fromMs)
             // Record WHICH samples this capture is responsible for, as DATA.
             // Deriving it does not work: the window a photo asks for and the
             // samples it actually adds are different things, so two consecutive
@@ -1099,9 +1125,9 @@ class GeoEngine private constructor(private val context: Context) {
                 forCaptureAtMs?.let {
                     cz.hillview.plugin.ImuClaimEntity(
                         capturedAtMs = it,
-                        // min/max, not first/last: batched bursts interleave,
-                        // so insertion order is not time order.
-                        fromMs = fresh.minOf { it.timestamp },
+                        fromMs = claimFromMs,
+                        // MAX, not last: batched bursts interleave, so insertion
+                        // order is not time order.
                         toMs = fresh.maxOf { it.timestamp },
                         sampleCount = fresh.size,
                     )
