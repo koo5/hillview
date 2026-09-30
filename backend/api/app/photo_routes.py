@@ -38,6 +38,7 @@
 
 import os
 import sys
+import json
 import math
 import re
 import logging
@@ -60,6 +61,7 @@ from common.database import get_db
 from common.models import Photo, User, PhotoRating, UserPublicKey, PhotoAnnotation, PhotoLicenseHistory, PhotoModerationAudit, UserRole
 from common.config import get_write_pool
 from common.utc import format_utc
+from common.detections import blurred_only
 from auth import get_current_active_user, get_current_user_optional_with_query, get_current_user_optional_ssr
 from hidden_content_filters import apply_hidden_content_filters
 from hillview_routes import ALLOWED_LICENSES, legal_rights_to_license
@@ -716,7 +718,10 @@ async def get_sitemap_photo_ids(
 	"""Public, completed photo identifiers for the XML sitemap (no auth — SEO).
 
 	Returns ``{"total", "photos": [{uid, lastmod, img}, ...]}`` for public,
-	non-deleted, completed hillview photos, newest first. ``img`` is the
+	non-deleted, completed hillview photos, newest first. ``lastmod`` is when
+	the photo PAGE last changed: the upload, or the later of the trigger-kept
+	``content_updated_at`` (metadata edits, annotation events — migration
+	034). Not the rendition/processing timestamps. ``img`` is the
 	preferred rendition URL for the sitemap's ``<image:image>`` entry (may be
 	null). Paginated so the frontend sitemap can be a sitemap-index of
 	fixed-size child pages and never hit the 50k-URLs-per-file limit.
@@ -747,7 +752,8 @@ async def get_sitemap_photo_ids(
 	]
 	total = await db.scalar(select(func.count()).select_from(Photo).where(*conds))
 	rows = (await db.execute(
-		select(Photo.id, Photo.uploaded_at, Photo.sizes)
+		# GREATEST skips NULLs in PostgreSQL, so a never-edited photo yields uploaded_at.
+		select(Photo.id, func.greatest(Photo.uploaded_at, Photo.content_updated_at), Photo.sizes)
 		.where(*conds)
 		.order_by(Photo.uploaded_at.desc())
 		.offset(offset)
@@ -995,6 +1001,16 @@ async def get_photo_detections(
 
 	Accessible for public photos and for the owner's own photos. Used by the
 	frontend debug overlay to visualize what the object detector found.
+
+	Two scopes, and ``scope`` in the response says which one the caller got.
+	The owner and moderators see every recorded detection — that full set is
+	what the blur threshold gets re-tuned from. Everyone else sees only the
+	boxes that were actually blurred: the recorded-but-unblurred band is an
+	index of people the detector saw and the pipeline left visible, which the
+	image itself does not hand out (see ``blurred_only``).
+
+	Moderators get the wider set, not a wider catalogue: a non-public photo is
+	still 404 for anyone but its owner, as before.
 	"""
 	result = await db.execute(
 		select(Photo.detected_objects, Photo.is_public, Photo.owner_id, Photo.width, Photo.height).where(
@@ -1018,9 +1034,13 @@ async def get_photo_detections(
 			detail="Photo not found"
 		)
 
+	is_moderator = current_user is not None and current_user.role in (UserRole.ADMIN, UserRole.MODERATOR)
+	full_scope = is_owner or is_moderator
+
 	return {
 		"photo_id": photo_id,
-		"detected_objects": detected_objects,
+		"detected_objects": detected_objects if full_scope else blurred_only(detected_objects),
+		"scope": "all" if full_scope else "blurred",
 		"width": width,
 		"height": height
 	}
@@ -1585,6 +1605,61 @@ def _exif_stacks(data: dict) -> list:
 	return stacks
 
 
+def _user_comment(exif_data: Optional[dict]) -> dict:
+	"""The capture app's provenance JSON (UserComment), or ``{}``.
+
+	Written into ``exif_data['data']['UserComment']`` by two routes that agree on
+	the shape: the Android EXIF writer embeds it in the file, and for everything
+	that cannot write EXIF — browser uploads, the fast-write path — the worker
+	synthesizes the same object from the upload metadata. Anything else that ends
+	up in that tag is some other camera's free text, so a value that is not a JSON
+	object is treated as absent rather than parsed hopefully.
+	"""
+	if not isinstance(exif_data, dict):
+		return {}
+	data = exif_data.get('data')
+	uc = data.get('UserComment') if isinstance(data, dict) else None
+	if not isinstance(uc, str) or not uc.startswith('{'):
+		return {}
+	try:
+		parsed = json.loads(uc)
+	except (json.JSONDecodeError, ValueError):
+		return {}
+	return parsed if isinstance(parsed, dict) else {}
+
+
+def _location_accuracy_m(exif_data: Optional[dict]) -> Optional[float]:
+	"""The receiver's horizontal accuracy radius at the stamped fix, metres.
+
+	Published, unlike everything else positional in the dump, because it cannot
+	narrow where a photo was taken — it can only widen what a reader is entitled
+	to believe about a coordinate this response already gives in full. Withholding
+	it does not protect the subject; it just means every consumer treats the
+	position as exact, which is the failure the worker's own provenance note
+	records (a walk whose first eighteen frames wander inside a 10 m blob, with
+	nothing stored able to tell them from the rest). Where a position is genuinely
+	too revealing, the lever is coarsening or withholding the COORDINATE; the
+	error bar is not a privacy control and using it as one gives false comfort.
+	Prior art agrees: Panoramax (which this server federates with) carries a
+	horizontal accuracy on its public items, OSM publishes trace dilution of
+	precision, and Mapillary publishes the raw and reconstructed positions both,
+	which discloses strictly more.
+
+	Absent before 2026-09-13, when the value first reached the server at all.
+	Zero is the capture table's "unknown" sentinel and never a real radius, so it
+	reads as absent here too. Rounded to a tenth of a metre: nobody needs seven
+	significant figures of an error estimate.
+	"""
+	value = _user_comment(exif_data).get('location_accuracy_m')
+	try:
+		metres = float(value)
+	except (TypeError, ValueError):
+		return None
+	if not math.isfinite(metres) or metres <= 0:
+		return None
+	return round(metres, 1)
+
+
 def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
 	"""Extract a small, display-friendly subset of camera/lens EXIF from the raw
 	exiftool dump stored in ``Photo.exif_data`` (worker writes the full tag set
@@ -1593,10 +1668,13 @@ def _curate_exif(exif_data: Optional[dict]) -> Optional[dict]:
 	``_exif_number`` for the forms accepted).
 
 	Only camera settings are exposed (focal length, aperture, ISO, shutter,
-	exposure compensation, camera make/model, lens). Positional data
-	(GPS/altitude/bearing) is deliberately omitted here — it is already served
+	exposure compensation, camera make/model, lens). Nothing that LOCATES is
+	exposed here — no GPS, altitude or bearing — because it is already served
 	via the response's top-level latitude/longitude/bearing/altitude, and the raw
-	dump can carry more precise/sensitive location than we want to publish.
+	dump can carry more precise/sensitive location than we want to publish. The
+	rule is about locating, not about provenance in general: the accuracy RADIUS
+	of the published position goes out at the top level beside the position it
+	describes (see ``_location_accuracy_m``).
 
 	Exposure triangle (aperture/ISO/shutter): when the pipeline snapshotted the
 	source frames (``pano_frames`` — one stack per pano position — or
@@ -1765,6 +1843,10 @@ async def get_public_photo(
 			"longitude": longitude,
 			"bearing": photo.compass_angle,
 			"altitude": photo.altitude,
+			# The error bar on the two fields above it, not a field of its own
+			# subject — so it sits with the position rather than in `exif`,
+			# which is documented as camera settings.
+			"location_accuracy_m": _location_accuracy_m(photo.exif_data),
 			"width": photo.width,
 			"height": photo.height,
 			"exif": _curate_exif(photo.exif_data),

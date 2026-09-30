@@ -1,5 +1,28 @@
 # Hillview Frontend - Project Instructions
 
+## Docs
+
+- **[Photo sources: independent loading](../docs/sources-loading.md)**: the one contract all three marker pipelines follow — concurrent per-source loads, publish-on-arrival, deterministic cross-source cull, throttle policy — and how to test it (manual streams in the worker harness, the `hillview_stream`/`mapillary_stream` debug delay, the Panoramax route mock)
+- **[SSR auth ticket](../docs/ssr-auth-ticket.md)**: how the web server renders a signed-in visitor's own view — the read-only `ssr_read` token, the `hv_ssr` cookie the browser mirrors it into, the two allowlisted backend dependencies, `viewer_id` + `createSsrBackedLoad`, the `SSR_AUTH` runtime switch
+- **[Native Android Auth](../docs/native-auth.md)**: Credential Manager + Google ID-token login — concepts, security reasoning, and where everything lives
+- **[Zoom view print view](../docs/zoomview-print.md)**: ⋮ → Print view + Ctrl+P — share-link QR in the middle, why the viewer freezes instead of re-rendering at print time, the replaced-element canvas gotcha
+- **[Android test infra](../docs/android-test-infra.md)**: the non-obvious parts of the Appium suite — capabilities, what resets between sessions, helpers — that you would otherwise re-discover by grepping
+- **[Auth state machine](../docs/auth-state-machine.md)**: who holds auth state on Android/Tauri, how the copies stay consistent, and the invariants any auth change must preserve
+- **[Push notifications](../docs/push-notifications.md)**: the FCM / UnifiedPush flow end to end — what the backend sends, how Android displays it, and the knobs that control both
+- **[Photo upload workflow](../docs/photo-upload-workflow.md)**: the whole upload flow across the Android client, the API and the worker — states, transitions, error handling, known edge cases (written 2026-02; check it against the code)
+- **[Stream auth credential TODO](../docs/stream-auth-client-signed-credential-todo.md)**: replacing `?token=<access_token>` on stream endpoints with a client-signed credential — backend done, client wiring pending
+- **[App behaviour scenarios](../docs/app-behaviour-scenarios.md)**: what the app is *supposed* to do, as the Appium and Playwright suites assert it — including rules that exist only as an assertion plus a comment about the bug it was written for
+- **[Terrain mode](../docs/terrain-mode.md)**: design record for terrain in the main app — the mode, marker states, selection, enqueue and status polling
+- **[Terrain overlay graduation](../docs/terrain-overlay-graduation.md)**: the per-photo horizon line + peak labels in the zoom view, and the depth buffer that answers "what am I looking at?" for any pixel
+- **[Clock-calibration video TODO](../docs/clock-video-calibration-todo.md)**: the clock video recorder here and the solver in the sibling `pics` repo — validated end to end, with what is left
+
+## Web Development
+
+```bash
+# Start the dev server (backend first — see the root CLAUDE.md)
+bun run dev
+```
+
 ## Android App Development
 
 ### App Package Identifiers

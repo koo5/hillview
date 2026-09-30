@@ -8,8 +8,10 @@ import kotlin.test.assertTrue
 class IntervalLadderTest {
 
     @Test
-    fun theLadderRunsCancelThenFasterThanASecondThenTheSecondsThenVideo() {
-        assertSame(LadderRung.Cancel, INTERVAL_LADDER.first())
+    fun theLadderRunsFasterThanASecondThenTheSecondsThenVideo() {
+        // No cancel rung at the foot (user, 2026-09-18): the bottom band is
+        // the fastest interval, and the way out is off the pane.
+        assertEquals(LadderRung.Every(200), INTERVAL_LADDER.first())
         assertSame(LadderRung.Video, INTERVAL_LADDER.last())
 
         val intervals = INTERVAL_LADDER.filterIsInstance<LadderRung.Every>()
@@ -96,11 +98,6 @@ class IntervalLadderTest {
         assertTrue(
             ladderBandColor(LadderRung.Video, selected = true, armed = true) !=
                 ladderBandColor(run, selected = true, armed = true),
-        )
-        // Releasing over "cancel" does nothing, so it never wears the green.
-        assertEquals(
-            ladderBandColor(LadderRung.Cancel, selected = true, armed = false),
-            ladderBandColor(LadderRung.Cancel, selected = true, armed = true),
         )
     }
 }

@@ -22,6 +22,13 @@ thought they owned a decision.
   atomically on the status it selected under, and every exit path restores
   or advances the status it found.
 
+The drain has one more step, and it is not a third owner: **the photo
+outbox** (`PhotoOutboxPusher`, [photo-outbox.md](photo-outbox.md)) pushes
+what the client owes the server ABOUT photos — ratings, deletions, the
+tagging kinds to come — before the file loop and again the moment an upload
+lands a server id. It moves no upload status and enqueues no work, so both
+rules above still hold with one scheduler and one drain.
+
 One sanctioned helper each side: `StartupReconciler` hands abandoned
 `uploading` rows back (`reclaimAbandonedUploads`) before the first reconcile,
 and `StampRefiner` releases its own upload hold (`clearUploadHold`) — a gate,

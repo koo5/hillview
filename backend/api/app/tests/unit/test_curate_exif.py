@@ -18,7 +18,7 @@ api_app_dir = os.path.join(os.path.dirname(__file__), '..', '..')
 sys.path.insert(0, os.path.abspath(api_app_dir))
 sys.path.insert(1, os.path.abspath(os.path.join(api_app_dir, '..', '..')))
 
-from photo_routes import _curate_exif, _exif_number  # noqa: E402
+from photo_routes import _curate_exif, _exif_number, _location_accuracy_m  # noqa: E402
 
 
 @pytest.mark.parametrize('raw, expected', [
@@ -212,3 +212,65 @@ def test_dslr_without_35mm_tag():
 	assert curated['focal_length'] == 70
 	assert 'focal_length_35mm' not in curated
 	assert curated['lens'] == 'EF70-200mm f/4L IS USM'
+
+
+# --- the accuracy radius, the one positional value the public response carries ---
+#
+# It rides in the capture app's UserComment provenance JSON rather than in a
+# column, so reading it back is a parse of untrusted text from an EXIF tag that
+# any camera may have written something else into.
+
+def _uc(payload):
+	return {'data': {'UserComment': payload}}
+
+
+def test_accuracy_is_read_from_the_provenance_json():
+	assert _location_accuracy_m(_uc('{"location_source":"gps","location_accuracy_m":4.2}')) == 4.2
+
+
+def test_accuracy_is_rounded_to_a_tenth_of_a_metre():
+	"""Android reports a float; seven significant figures of an error estimate
+	is noise dressed as precision."""
+	assert _location_accuracy_m(_uc('{"location_accuracy_m":12.386499}')) == 12.4
+
+
+def test_zero_is_the_unknown_sentinel_not_a_perfect_fix():
+	"""0.0 is what the capture table stores for "no accuracy known"; the upload
+	omits it, but a row that still carries one must not publish it as a radius of
+	nothing."""
+	assert _location_accuracy_m(_uc('{"location_accuracy_m":0}')) is None
+	assert _location_accuracy_m(_uc('{"location_accuracy_m":-3}')) is None
+
+
+def test_photos_from_before_the_field_existed_have_none():
+	assert _location_accuracy_m(_uc('{"location_source":"gps"}')) is None
+	assert _location_accuracy_m({'data': {'Make': 'Canon'}}) is None
+	assert _location_accuracy_m({}) is None
+	assert _location_accuracy_m(None) is None
+
+
+def test_someone_elses_user_comment_is_not_parsed_hopefully():
+	"""The tag is free text in the EXIF standard, so most of what turns up in it
+	is prose, not our JSON."""
+	assert _location_accuracy_m(_uc('Shot on a Canon')) is None
+	assert _location_accuracy_m(_uc('{ truncated')) is None
+	assert _location_accuracy_m(_uc('[1, 2, 3]')) is None
+	assert _location_accuracy_m(_uc(42)) is None
+
+
+def test_a_non_numeric_radius_is_absent_rather_than_an_error():
+	assert _location_accuracy_m(_uc('{"location_accuracy_m":"about 5 m"}')) is None
+	assert _location_accuracy_m(_uc('{"location_accuracy_m":null}')) is None
+	assert _location_accuracy_m(_uc('{"location_accuracy_m":"NaN"}')) is None
+
+
+def test_the_curated_camera_exif_still_carries_nothing_positional():
+	"""The rule that keeps location out of `exif` is unchanged by publishing the
+	radius at the top level."""
+	curated = _curate_exif({'data': {
+		'Make': 'Google', 'Model': 'Pixel 8', 'FocalLength': 6.9,
+		'GPSLatitude': 50.115044, 'GPSLongitude': 14.500907, 'GPSAltitude': 320.5,
+		'GPSImgDirection': 141.2, 'GPSHPositioningError': 4.2,
+		'UserComment': '{"location_accuracy_m":4.2}',
+	}})
+	assert set(curated) == {'make', 'model', 'focal_length'}

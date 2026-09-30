@@ -23,7 +23,7 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class IntervalLadderRenderTest {
 
-    /** 0 cancel, 1..4 sub-second, 5 = 1 s, 6 = 2 s. */
+    /** 0..3 sub-second, 4 = 1 s, 5 = 2 s. */
     private val twoSeconds = INTERVAL_LADDER.indexOf(LadderRung.Every(2_000))
 
     private fun androidx.compose.ui.test.ComposeUiTest.ladder(
@@ -60,9 +60,30 @@ class IntervalLadderRenderTest {
     }
 
     @Test
-    fun theTopRungIsVideoAndTheBottomIsSingle() = runComposeUiTest {
+    fun theTopRungIsVideo() = runComposeUiTest {
         ladder(hoverIndex = INTERVAL_LADDER.lastIndex)
         onNodeWithTag("capture-interval-value").assertTextEquals("VIDEO")
+    }
+
+    @Test
+    fun theBottomRungIsTheFastestIntervalNotAWayOut() = runComposeUiTest {
+        ladder(hoverIndex = 0)
+        onNodeWithTag("capture-interval-value").assertTextEquals("0.2s")
+    }
+
+    /** The button's side of the pane says what releasing there does. */
+    @Test
+    fun theCaptureZoneNamesItselfAndItsArmedState() = runComposeUiTest {
+        setContent {
+            CaptureZone(armed = true, modifier = Modifier.size(width = 160.dp, height = 600.dp))
+        }
+        onNodeWithTag("capture-single-zone-label").assertTextEquals("capture")
+        assertEquals(
+            "armed capture",
+            onNodeWithTag("capture-single-zone")
+                .fetchSemanticsNode()
+                .config[SemanticsProperties.StateDescription],
+        )
     }
 
     @Test

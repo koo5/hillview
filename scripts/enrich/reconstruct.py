@@ -73,7 +73,7 @@ def wkt(g):
     return None
 
 
-BLUR_CONFIDENCE = 0.4  # mirrors backend/worker/detections.py: blurred iff conf is None or >= this
+BLUR_CONFIDENCE = 0.4  # mirrors backend/common/detections.py: blurred iff conf is None or >= this
 
 
 def bearing_source(r):
@@ -145,7 +145,7 @@ def parse_anon(r):
             continue
         conf = o.get("confidence")
         # prefer the persisted "blurred" flag (worker formats #2/#3); fall back to
-        # should_blur for older records (#1 / #1b) — see backend/worker/detections.py
+        # should_blur for older records (#1 / #1b) — see backend/common/detections.py
         if o.get("blurred", conf is None or conf >= BLUR_CONFIDENCE):
             out.append((b["x1"], b["y1"], b["x2"], b["y2"]))
     return out

@@ -4,7 +4,8 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/enrich-api.iml" filepath="$PROJECT_DIR$/.idea/enrich-api.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/hillview.iml" filepath="$PROJECT_DIR$/.idea/hillview.iml" />
-      <module fileurl="file://$PROJECT_DIR$/.idea/hillview-analyzer.iml" filepath="$PROJECT_DIR$/.idea/hillview-analyzer.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/hillview-analyzer@1.iml" filepath="$PROJECT_DIR$/.idea/hillview-analyzer@1.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/hillview-analyzer@2.iml" filepath="$PROJECT_DIR$/.idea/hillview-analyzer@2.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/hillview-api.iml" filepath="$PROJECT_DIR$/.idea/hillview-api.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/hillview-backend.iml" filepath="$PROJECT_DIR$/.idea/hillview-backend.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/hillview-common.iml" filepath="$PROJECT_DIR$/.idea/hillview-common.iml" />

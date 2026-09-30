@@ -391,9 +391,13 @@ actual fun MapScreen(
                     view.applyProvider(tileProvider(mapSettings.tileProviderKey))
                     applied.providerKey = mapSettings.tileProviderKey
                 }
+                // Draw order = list order. The GPS dot goes AFTER the photo
+                // markers so it stays visible in a pile of them (user,
+                // 2026-09-19: "needs to draw over photo markers, not under");
+                // it takes no touches, so the markers' taps are unaffected.
                 if (rangeOverlay !in view.overlays) view.overlays.add(rangeOverlay)
-                if (gpsOverlay !in view.overlays) view.overlays.add(gpsOverlay)
                 if (markerOverlay !in view.overlays) view.overlays.add(markerOverlay)
+                if (gpsOverlay !in view.overlays) view.overlays.add(gpsOverlay)
                 // Late, so it draws on top — and so its touch handler gets
                 // refusal before the map pans.
                 if (arrowOverlay !in view.overlays) view.overlays.add(arrowOverlay)

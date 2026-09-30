@@ -10,8 +10,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     // The sensor tables (bearings/locations/sources) moved OUT to
     // GeoTrackingDatabase in v18 — see that file for why. What is left here is
     // durable and low-rate: a capture and the edits that belong to it.
-    entities = [PhotoEntity::class, EditEntity::class],
-    version = 22,
+    entities = [PhotoEntity::class, EditEntity::class, PhotoOutboxEntity::class],
+    version = 23,
     // Schemas are exported per app (they compile these entities with different
     // Room versions) into shared-kt/schemas/{frontend2,tauri}/ — see
     // docs/geo-election-test-todo.md item 6. Both agree on the identityHash;
@@ -28,6 +28,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 
     abstract fun photoDao(): SimplePhotoDao
     abstract fun editDao(): EditDao
+    abstract fun outboxDao(): PhotoOutboxDao
 
     companion object {
         @Volatile
@@ -502,6 +503,43 @@ abstract class PhotoDatabase : RoomDatabase() {
 		}
 
 		/**
+		 * photo_outbox (v23) — what this client wants the SERVER to know and
+		 * has not managed to tell it: a rating, and a wanted deletion, with
+		 * room for the tagging, description and voice-note kinds to come. See
+		 * PhotoOutboxEntity for why a row is a state rather than a message.
+		 *
+		 * A pure addition. No existing table is touched, so there is nothing
+		 * to carry across and nothing already there to get wrong.
+		 */
+		private val MIGRATION_22_23 = object : Migration(22, 23) {
+			override fun migrate(database: SupportSQLiteDatabase) {
+				database.execSQL("""
+					CREATE TABLE IF NOT EXISTS photo_outbox (
+						userId TEXT NOT NULL,
+						photoId TEXT NOT NULL,
+						kind TEXT NOT NULL,
+						itemId TEXT NOT NULL,
+						valueJson TEXT,
+						revision INTEGER NOT NULL,
+						syncedRevision INTEGER NOT NULL,
+						changedAt INTEGER NOT NULL,
+						attempts INTEGER NOT NULL,
+						lastAttemptAt INTEGER NOT NULL,
+						lastError TEXT NOT NULL,
+						PRIMARY KEY(userId, photoId, kind, itemId),
+						FOREIGN KEY(photoId) REFERENCES photos(id) ON UPDATE NO ACTION ON DELETE CASCADE
+					)
+				""")
+				database.execSQL(
+					"CREATE INDEX IF NOT EXISTS idx_outbox_photo_id ON photo_outbox(photoId)"
+				)
+				database.execSQL(
+					"CREATE INDEX IF NOT EXISTS idx_outbox_user_changed ON photo_outbox(userId, changedAt)"
+				)
+			}
+		}
+
+		/**
 		 * Every migration, in one list, so the runtime builder and
 		 * PhotoDatabaseMigrationTest cannot disagree about which ones exist.
 		 */
@@ -510,6 +548,7 @@ abstract class PhotoDatabase : RoomDatabase() {
 			MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
 			MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18,
 			MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
+			MIGRATION_22_23,
 		)
 
         fun getDatabase(context: Context): PhotoDatabase {

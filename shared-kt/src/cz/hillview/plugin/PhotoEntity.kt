@@ -50,6 +50,17 @@ data class PhotoEntity(
     val altitude: Double? = null,
     val bearing: Double = 0.0,
     val capturedAt: Long,
+    /**
+     * The receiver's horizontal accuracy radius at the stamped fix, metres.
+     *
+     * Non-null, with **0.0 as the absent sentinel** — a receiver never reports
+     * a radius of zero, so unlike [altitude] the sentinel costs no real
+     * measurement and the column has not needed widening. Read it through
+     * [accuracyMOrNull] rather than testing the number at each call site:
+     * "is there an accuracy" is one question with one answer, and it is asked
+     * by the upload metadata, the photos-table dump, and (on the far side of
+     * the wire) the API's public response.
+     */
     val accuracy: Double,
     val width: Int,
     val height: Int,
@@ -145,6 +156,16 @@ data class PhotoEntity(
      */
     val altLocationJson: String? = null
 )
+
+/**
+ * The accuracy radius this row records, or null where it records none.
+ *
+ * The one place that knows what absent looks like in [PhotoEntity.accuracy].
+ * Callers ask for the value, not for the encoding, so a row with no accuracy
+ * omits the field rather than publishing a radius of nothing — which would
+ * read as a perfect fix, the opposite of the truth.
+ */
+val PhotoEntity.accuracyMOrNull: Double? get() = accuracy.takeIf { it > 0.0 }
 
 enum class UploadStatus {
     PENDING,

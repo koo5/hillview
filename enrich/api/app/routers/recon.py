@@ -1090,7 +1090,7 @@ async def _select_frames(req: EnqueueRequest) -> list[dict]:
     return frames
 
 
-BLUR_CONFIDENCE = 0.4   # mirrors backend/worker/detections.py should_blur()
+BLUR_CONFIDENCE = 0.4   # mirrors backend/common/detections.py should_blur()
 
 
 def _anon_boxes(detected: object) -> list[list[float]]:

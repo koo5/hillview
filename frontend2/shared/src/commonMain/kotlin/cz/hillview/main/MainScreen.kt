@@ -71,6 +71,21 @@ import org.koin.compose.koinInject
  */
 private const val CLOCK_VIDEO_IN_MENU = false
 
+/**
+ * How far down a pane the floating controls reach.
+ *
+ * They float in the Main page's own Box, so a pane knows nothing about them
+ * and will happily draw underneath — which is what the capture pane's
+ * interval ladder did: its top rungs, VIDEO among them, came out behind the
+ * hamburger (emulator-caught, 2026-09-17). A pane that puts something in that
+ * corner insets by this.
+ *
+ * 4 dp of row padding, 4 dp of Surface padding and a TextButton's 40 dp
+ * minimum, top and bottom. Kept beside the Row it measures, because the two
+ * have to agree and nothing enforces it.
+ */
+internal val FLOATING_CONTROLS_HEIGHT = 56.dp
+
 @Composable
 fun MainScreen(
     onOpenSettings: () -> Unit,
@@ -306,7 +321,9 @@ fun MainScreen(
         }
 
         // Floating controls along the top-left, as the original places them
-        // (hamburger at the edge, camera next to it).
+        // (hamburger at the edge, camera next to it). Anything a PANE draws
+        // in that corner has to keep clear of them — see
+        // [FLOATING_CONTROLS_HEIGHT], and keep it in step with this row.
         Row(Modifier.align(Alignment.TopStart).padding(4.dp)) {
             FloatingControl(
                 label = "☰",

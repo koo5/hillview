@@ -96,6 +96,12 @@ class Photo(Base):
 	# trigger (migration 022); indexed for the capture-time timeline walk.
 	effective_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False))
 	record_created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+	# When the photo PAGE last changed — title/description/keywords/featured/
+	# licence/bearing/place edits and annotation events — maintained by triggers
+	# (migration 034), NULL until the first such change. The sitemap's <lastmod>
+	# is GREATEST(uploaded_at, content_updated_at). Rendition/processing writes
+	# do not count.
+	content_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 	title: Mapped[Optional[str]] = mapped_column(Text)  # concise headline (og:title, <title>, schema.org name)
 	description: Mapped[Optional[str]] = mapped_column(Text)  # longer body text
 	keywords: Mapped[Optional[list[str]]] = mapped_column(ARRAY(Text))  # alt names / search synonyms (schema.org keywords)
@@ -152,6 +158,20 @@ class Photo(Base):
 	# Relationships
 	owner_id: Mapped[str] = mapped_column(String, ForeignKey("users.id", ondelete="CASCADE"))
 	owner: Mapped["User"] = relationship(back_populates="photos")
+
+
+class SiteState(Base):
+	"""One row per named piece of site-wide derived state (migration 035).
+
+	updated_at moves only when the value actually changes — writers upsert with
+	a WHERE on the old value — so it doubles as "when did this last change".
+	Keys so far: 'bestof_page1' (the sitemap's /bestof lastmod fingerprint).
+	"""
+	__tablename__ = "site_state"
+
+	key: Mapped[str] = mapped_column(Text, primary_key=True)
+	value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+	updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class CachedRegion(Base):
