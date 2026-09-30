@@ -86,6 +86,38 @@ data class MapSettings(
      * 1 s is what both apps have always used.
      */
     val gpsIntervalMs: Long = 1_000L,
+    /**
+     * What locking the controls is allowed to do to the phone — see
+     * [cz.hillview.lock.LockOptions] and the Lock controls settings screen.
+     * Persisted field by field rather than as a blob so a new one can be
+     * added without a migration.
+     */
+    val lockDimScreen: Boolean = true,
+    val lockBrightness: Float = 0f,
+    val lockDarkTheme: Boolean = false,
+    val lockHideSystemBars: Boolean = true,
+    val lockPinScreen: Boolean = false,
+)
+
+/**
+ * Is this `mainActivity` one that RECORDS — "capture" or "external"?
+ *
+ * The distinction decides more than one thing now (what the geo hardware
+ * runs, whether entering arms tracking, and how hard it is to overrule the
+ * compass by hand), so it is written once. "external" counts: the photos
+ * are taken by another app, but the position and heading behind them are
+ * this app's record, and a stray write poisons them exactly the same.
+ */
+fun isRecordingActivity(activity: String): Boolean =
+    activity == "capture" || activity == "external"
+
+/** The settings half of [cz.hillview.lock.LockOptions]. */
+fun MapSettings.lockOptions(): cz.hillview.lock.LockOptions = cz.hillview.lock.LockOptions(
+    dimScreen = lockDimScreen,
+    brightness = lockBrightness,
+    darkTheme = lockDarkTheme,
+    hideSystemBars = lockHideSystemBars,
+    pinScreen = lockPinScreen,
 )
 
 /** The fix cadences the slider offers — 1 s (both apps' default) to 30 s. */

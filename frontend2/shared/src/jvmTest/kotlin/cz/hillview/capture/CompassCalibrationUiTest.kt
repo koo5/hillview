@@ -123,6 +123,7 @@ class CameraOverlayUiTest {
             CameraOverlayUi(
                 state = CaptureState(
                     ready = false,
+                    hasFix = true, // …a live fix exists (hasFix is "ever", not "fresh"),
                     fixLatitude = 50.0, // live fix exists…
                     fixLongitude = 14.0,
                     fixAccuracyM = 5f,
@@ -138,6 +139,28 @@ class CameraOverlayUiTest {
         onNodeWithText("(map position)").assertIsDisplayed()
     }
 
+    /**
+     * Row 3 of the stamp table (docs/one-state.md): no fix this session, a
+     * placed map — the map centre is what a capture records, and the
+     * overlay says so instead of refusing. The wording differs from the
+     * claimed case above because nothing was overridden.
+     */
+    @Test
+    fun withNoFixTheMapPositionShowsItselfAsTheDefault() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(ready = false, hasFix = false),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = ManualLocation(49.897330, 14.500907, atMs = 1L),
+                opacityLevel = 3,
+                onCycleOpacity = {},
+            )
+        }
+        onNodeWithText("📍 49.897330°, 14.500907°").assertIsDisplayed()
+        onNodeWithText("(map position — no GPS fix)").assertIsDisplayed()
+        onNodeWithTag("map-position-note", useUnmergedTree = true).assertExists()
+    }
+
     @Test
     fun noPositionShowsTheSpinnerLine() = runComposeUiTest {
         setContent {
@@ -149,7 +172,9 @@ class CameraOverlayUiTest {
                 onCycleOpacity = {},
             )
         }
-        onNodeWithText("Getting location...").assertIsDisplayed()
+        // No fix this session and no placed map: the one no-position case,
+        // and the overlay says what a photo would (not) carry.
+        onNodeWithText("Waiting for GPS — photos will carry no position").assertIsDisplayed()
     }
 
     @Test

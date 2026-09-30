@@ -20,10 +20,12 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -40,6 +42,9 @@ import cz.hillview.settings.exportGeoTrackingNow
 import cz.hillview.settings.clearTrackingExportFolder
 import cz.hillview.settings.geoAutoExportEnabled
 import cz.hillview.settings.rememberTrackingFolderPicker
+import cz.hillview.settings.dumpPhotoTableNow
+import cz.hillview.settings.photoTableDumpLabel
+import kotlinx.coroutines.launch
 import cz.hillview.settings.setGeoAutoExport
 import cz.hillview.settings.trackingExportFolderLabel
 import cz.hillview.settings.CompassSettingsRepository
@@ -469,7 +474,8 @@ fun SettingsScreen(
                 Text(
                     "For using the files outside Hillview (GPS, heading, provenance " +
                         "tags). Slower per shot — each photo is rewritten whole. " +
-                        "Uploads carry the full stamp either way.",
+                        "Uploads carry the full stamp either way, and so does the " +
+                        "photo index below.",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
@@ -478,6 +484,44 @@ fun SettingsScreen(
                 onCheckedChange = { on -> repository.update { it.copy(writeExif = on) } },
                 modifier = Modifier.testTag("settings-write-exif"),
             )
+        }
+
+        // Not a switch: the dump always runs. What the screen owes the user
+        // is where it went, so the file can be found — and a way to write it
+        // again when it cannot be. See PhotoIndexExport.
+        Column(Modifier.fillMaxWidth()) {
+            Text("Photo index", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Everything the app knows about your photos — position, heading, " +
+                    "time, licence — written to a CSV file beside them, so photos " +
+                    "that outlive the app are still readable. Rewritten when you " +
+                    "leave the app and as you shoot.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            var indexLabel by remember { mutableStateOf<String?>(null) }
+            var writing by remember { mutableStateOf(false) }
+            // Read after composition rather than during: it is a file-backed
+            // lookup, and re-reading it on every recomposition of a scrolling
+            // settings page is a needless disk touch.
+            LaunchedEffect(Unit) { indexLabel = photoTableDumpLabel() }
+            Text(
+                indexLabel ?: "not written yet",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("settings-photo-index-status"),
+            )
+            val indexScope = rememberCoroutineScope()
+            TextButton(
+                enabled = !writing,
+                onClick = {
+                    writing = true
+                    indexScope.launch {
+                        indexLabel = dumpPhotoTableNow()
+                        writing = false
+                    }
+                },
+                modifier = Modifier.testTag("settings-photo-index-write"),
+            ) { Text(if (writing) "Writing…" else "Write it now") }
         }
 
         Row(

@@ -49,9 +49,27 @@ def latest_csv(stem, d=DUMP_DIR):
 
 
 def wkt(g):
-    if g and g.upper().startswith("POINT"):
-        lo, la = g[g.index("(") + 1:g.index(")")].split()
+    """(lon, lat) from a PostGIS geometry column however the dump wrote it: WKT
+    ('POINT(lon lat)'), or hex EWKB ('0101000020E6100000' + two little-endian doubles),
+    which is what a plain COPY of the table produces and what /shared/photos.csv has
+    carried since the 2026-09 dumps. Silently returning None here made a whole area
+    'select 0 photos'."""
+    if not g:
+        return None
+    s = g.strip()
+    if s.upper().startswith("POINT"):
+        lo, la = s[s.index("(") + 1:s.index(")")].split()
         return float(lo), float(la)
+    if len(s) >= 42 and all(c in "0123456789abcdefABCDEF" for c in s[:42]):
+        import struct
+        b = bytes.fromhex(s[:50])
+        little = b[0] == 1
+        order = "<" if little else ">"
+        gtype = struct.unpack(order + "I", b[1:5])[0]
+        off = 5 + (4 if gtype & 0x20000000 else 0)          # EWKB SRID flag
+        if (gtype & 0xFF) == 1 and len(b) >= off + 16:       # Point
+            lo, la = struct.unpack(order + "dd", b[off:off + 16])
+            return lo, la
     return None
 
 
@@ -69,17 +87,39 @@ def bearing_source(r):
     the error CHARACTER differs, not because one of them is the truth — so a bearing is read
     together with this, and never filtered by it.
     """
+    return user_comment(r).get("bearing_source")
+
+
+def user_comment(r):
+    """The capture app's provenance JSON (UserComment), or {} when there is none."""
     ex = r.get("exif_data") or r.get("exif") or {}
     if not isinstance(ex, dict):
-        return None
+        return {}
     d = ex.get("data") if isinstance(ex.get("data"), dict) else ex
     uc = (d or {}).get("UserComment")
     if not isinstance(uc, str) or not uc.startswith("{"):
-        return None
+        return {}
     try:
-        return (json.loads(uc) or {}).get("bearing_source")
+        return json.loads(uc) or {}
     except (ValueError, TypeError):
+        return {}
+
+
+def location_accuracy(r):
+    """The receiver's horizontal accuracy radius at the stamped fix, metres, or None.
+
+    Written by the capture apps as `location_accuracy_m` since 2026-09-13 (for an
+    interpolated stamp it is the worse of the two bracketing fixes). Frames uploaded
+    before that have none: the value never left the phone. It is the one number that
+    says how much a frame's GPS deserves to steer the position fit, so it weights that
+    fit and loosens the distance gates; it never decides which frames to solve.
+    """
+    v = user_comment(r).get("location_accuracy_m")
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
         return None
+    return v if v > 0 else None
 
 
 COMPASS_BEARING_SOURCES = ("compass-true", "compass-magnetic", "absolute-compass")
@@ -164,6 +204,7 @@ def select_cluster(center, radius_m, n, start, maxscan, stride=1, after="", befo
             "alt": float(r["altitude"]) if r.get("altitude") else None,
             "brg": float(r["compass_angle"]) if r.get("compass_angle") else None,
             "brg_src": bearing_source(r),
+            "acc": location_accuracy(r),
             "cap": r.get("captured_at") or r.get("uploaded_at") or "",
             "full": url, "t640": t640,
             "ttl": (r.get("title") or "")[:60],
@@ -208,6 +249,8 @@ def load_manifest(path, center):
             "alt": float(f["altitude"]) if f.get("altitude") is not None else None,
             "brg": float(f["compass_angle"]) if f.get("compass_angle") is not None else None,
             "brg_src": f.get("bearing_source"),
+            "acc": (float(f["location_accuracy_m"])
+                    if f.get("location_accuracy_m") not in (None, 0) else None),
             "cap": f.get("captured_at") or "",
             # the focal the camera recorded, in pixels of the 512-long-side frame. Ground
             # truth wherever EXIF survived, and the prior a pow3r solve conditions on.
@@ -253,7 +296,8 @@ def fetch_by_ids(prefixes, center):
                     "d": math.hypot((lon - lon0) * kx, (lat - lat0) * ky),
                     "alt": float(r["altitude"]) if r.get("altitude") else None,
                     "brg": float(r["compass_angle"]) if r.get("compass_angle") else None,
-            "brg_src": bearing_source(r),
+                    "brg_src": bearing_source(r),
+                    "acc": location_accuracy(r),
                     "cap": r.get("captured_at") or "", "full": url, "t640": None, "inj": True,
                     "anon": parse_anon(r), "ow": int(r["width"]), "oh": int(r["height"]),
                     "ofn": r.get("original_filename") or "",
@@ -727,21 +771,46 @@ def tile_consistency(poses, tsub, scale_units_per_m):
 
 
 # ---------- geometry ----------
-def umeyama(src, dst):
-    """Similarity transform (scale s, rot R, trans t) mapping src->dst (Nx3). Returns s,R,t."""
+def umeyama(src, dst, w=None):
+    """Similarity transform (scale s, rot R, trans t) mapping src->dst (Nx3), optionally
+    weighted per point (w sums to anything; None = uniform). Returns s,R,t."""
     src = np.asarray(src, float); dst = np.asarray(dst, float)
-    mu_s = src.mean(0); mu_d = dst.mean(0)
+    w = np.ones(len(src)) if w is None else np.asarray(w, float)
+    w = w / max(w.sum(), 1e-12)
+    mu_s = (w[:, None] * src).sum(0); mu_d = (w[:, None] * dst).sum(0)
     S = src - mu_s; D = dst - mu_d
-    cov = (D.T @ S) / len(src)
+    cov = (w[:, None] * D).T @ S
     U, d, Vt = np.linalg.svd(cov)
     Sgn = np.eye(3)
     if np.linalg.det(U) * np.linalg.det(Vt) < 0:
         Sgn[2, 2] = -1
     R = U @ Sgn @ Vt
-    var_s = (S ** 2).sum() / len(src)
-    s = np.trace(np.diag(d) @ Sgn) / var_s
+    var_s = (w * (S ** 2).sum(1)).sum()
+    s = np.trace(np.diag(d) @ Sgn) / max(var_s, 1e-12)
     t = mu_d - s * R @ mu_s
     return s, R, t
+
+
+def gps_weights(sub, floor_m):
+    """Per-frame weights for the position fit from the receiver's own accuracy, 1/acc².
+
+    A fix that says "10 m" should steer the alignment a hundredth as hard as one that says
+    "1 m" — that is what the number means. Frames without one get the median of those that
+    have it (nothing is known about them either way); if no frame has one the fit stays
+    uniform, which is what every run before 2026-09-13 gets. The floor stops a phone's
+    optimistic sub-metre claims from owning the fit."""
+    acc = np.array([p.get("acc") or np.nan for p in sub], float)
+    known = ~np.isnan(acc)
+    if not known.any():
+        return None, dict(n_known=0)
+    fill = float(np.median(acc[known]))
+    a = np.where(known, acc, fill)
+    a = np.maximum(a, floor_m)
+    w = 1.0 / a ** 2
+    return w, dict(n_known=int(known.sum()), median_m=round(fill, 1),
+                   p90_m=round(float(np.percentile(acc[known], 90)), 1),
+                   worst_m=round(float(acc[known].max()), 1), floor_m=floor_m,
+                   weight_ratio=round(float(w.max() / w.min()), 1))
 
 
 # Binary, because these files leave the machine. ASCII spends about 90 bytes on a point
@@ -1036,9 +1105,31 @@ def main():
                     help="how many frames beyond the window to reach around a weak link")
     ap.add_argument("--adaptive_frac", type=float, default=0.35,
                     help="a consecutive link below this fraction of the median link is weak")
+    ap.add_argument("--expand_rounds", type=int, default=0,
+                    help="transitive expansion: after measuring the pairs chosen so far, propose "
+                         "A-C wherever A-B and B-C are both verified links, gate the proposal on "
+                         "GPS distance, match it, and repeat this many rounds (0=off). Finds the "
+                         "revisit pairs a window is blind to at a fraction of exhaustive cost; "
+                         "the idea is CityZero's query expansion, the distance gate is what its "
+                         "post-mortem said was missing")
+    ap.add_argument("--expand_min", type=float, default=0,
+                    help="a link counts as verified at this many correspondences; 0 = half the "
+                         "median over the links measured so far")
+    ap.add_argument("--expand_dist", type=float, default=30,
+                    help="expansion: only propose pairs whose cameras are within this many metres "
+                         "(GPS), so a lookalike facade across the district cannot be proposed. "
+                         "0 disables the gate")
+    ap.add_argument("--expand_per_frame", type=int, default=12,
+                    help="expansion: at most this many new partners per frame per round, best-"
+                         "supported first, so a rotation does not propose everything at once")
     ap.add_argument("--pairs", default="swin", choices=["swin", "complete", "bearing"],
                     help="pairing strategy: time-window / exhaustive / spatial+bearing-overlap")
     ap.add_argument("--pair_dist", type=float, default=80, help="bearing mode: max pair distance (m)")
+    ap.add_argument("--gps_acc_floor", type=float, default=2.0,
+                    help="position fit: a frame's GPS accuracy is clamped to at least this many "
+                         "metres before weighting by 1/acc², so optimistic sub-metre claims do "
+                         "not own the fit. Frames without an accuracy get the median of those "
+                         "that have one; no accuracies at all = the uniform fit of old runs")
     ap.add_argument("--pair_dang", type=float, default=110, help="bearing mode: max bearing diff (deg)")
     ap.add_argument("--size", type=int, default=512)
     ap.add_argument("--niter1", type=int, default=300)
@@ -1281,7 +1372,9 @@ def main():
         def keep(a_, b_):
             i, j = a_["idx"], b_["idx"]
             d = math.hypot(sub[i]["e"] - sub[j]["e"], sub[i]["n"] - sub[j]["n"])
-            if d > a.pair_dist:
+            # a gate must not reject what the GPS could not have separated: two fixes
+            # each uncertain by r may be closer than their difference by 2r
+            if d - (sub[i].get("acc") or 0.0) - (sub[j].get("acc") or 0.0) > a.pair_dist:
                 return False
             bi, bj = sub[i]["brg"], sub[j]["brg"]
             if bi is not None and bj is not None:
@@ -1373,6 +1466,101 @@ def main():
                 f"-> {len(pairs)} total")
         else:
             log("adaptive pairing: nothing to add")
+
+    # TRANSITIVE EXPANSION. Window pairing sees a chain; bearing pairing sees a radius; both
+    # are guesses about which frames overlap. The matcher's own output is not a guess: once
+    # A-B and B-C are verified with plenty of correspondences, A-C is the single most likely
+    # unmeasured pair to be real. So measure what we have, propose the two-hop closures,
+    # keep only the ones the GPS says are physically near, match them, repeat. Each round
+    # can only propose pairs adjacent to verified structure, so cost grows with the graph's
+    # real density rather than with n². The distance gate is the lesson from CityZero's
+    # failed mappers: expansion without it made lookalike houses on opposite ends of the
+    # district the best-connected pair in the set, and every solve initialised on them.
+    if a.expand_rounds > 0 and a.pairs != "complete" and not tile_grid:
+        from collections import defaultdict as _dd
+        import mast3r.cloud_opt.sparse_ga as _SGA
+        import torch as _t
+        exp_cache = shared_cache or os.path.join(a.out, "cache")
+        key_of = [CONTENT_KEY.get(p, p) for p in paths]
+        have = set()
+        for p1, p2 in pairs:
+            have.add((p1["idx"], p2["idx"])); have.add((p2["idx"], p1["idx"]))
+
+        def near(i, j):
+            if a.expand_dist <= 0:
+                return True
+            si, sj = sub[i], sub[j]
+            if si.get("e") is None or sj.get("e") is None:
+                return True     # no position to gate on: let the matcher decide
+            slack = (si.get("acc") or 0.0) + (sj.get("acc") or 0.0)
+            return math.hypot(si["e"] - sj["e"], si["n"] - sj["n"]) - slack <= a.expand_dist
+
+        n_added = 0
+        for rnd in range(1, a.expand_rounds + 1):
+            base = _SGA.convert_dust3r_pairs_naming(paths, [(p1.copy(), p2.copy()) for p1, p2 in pairs])
+            log(f"expansion round {rnd}: measuring {len(base)} directed pairs (cached ones are free)…")
+            res_paths, _ = _SGA.forward_mast3r(base, model, cache_path=exp_cache, subsample=8,
+                                               desc_conf="desc_conf", device=a.device)
+            cnt = {}
+            for (i1, i2), (_pp, pc) in res_paths.items():
+                try:
+                    (_score, _csum, n_corr), _ = _t.load(pc)
+                except Exception:
+                    continue
+                k = tuple(sorted((CONTENT_KEY.get(i1, i1), CONTENT_KEY.get(i2, i2))))
+                cnt[k] = max(cnt.get(k, 0), int(n_corr))
+            verified = {}
+            for (i, j) in have:
+                if i < j:
+                    c = cnt.get(tuple(sorted((key_of[i], key_of[j]))), 0)
+                    if c > 0:
+                        verified[(i, j)] = c
+            if not verified:
+                log("expansion: no measured links to expand from")
+                break
+            thr = a.expand_min if a.expand_min > 0 else 0.5 * float(np.median(list(verified.values())))
+            adj = _dd(dict)
+            for (i, j), c in verified.items():
+                if c >= thr:
+                    adj[i][j] = c; adj[j][i] = c
+            # a two-hop proposal is as strong as its weaker hop
+            prop = {}
+            for b, nb in adj.items():
+                ks = list(nb.items())
+                for x in range(len(ks)):
+                    for y in range(x + 1, len(ks)):
+                        (i, ci), (j, cj) = ks[x], ks[y]
+                        if (i, j) in have or not near(i, j):
+                            continue
+                        k = (min(i, j), max(i, j))
+                        s = min(ci, cj)
+                        if s > prop.get(k, 0):
+                            prop[k] = s
+            per = _dd(list)
+            for (i, j), s in prop.items():
+                per[i].append((s, j)); per[j].append((s, i))
+            keep = set()
+            for i, lst in per.items():
+                lst.sort(reverse=True)
+                for s, j in lst[:a.expand_per_frame]:
+                    keep.add((min(i, j), max(i, j)))
+            if not keep:
+                log(f"expansion round {rnd}: {len(prop)} proposals, nothing new -> converged")
+                break
+            extra = []
+            for (i, j) in sorted(keep):
+                extra.append((imgs[i], imgs[j])); extra.append((imgs[j], imgs[i]))
+                have.add((i, j)); have.add((j, i))
+            pairs = pairs + extra
+            n_added += len(extra)
+            log(f"expansion round {rnd}: {len(verified)} measured links, {len(adj)} frames with "
+                f"a verified one (>= {thr:.0f} corres), {len(prop)} two-hop proposals within "
+                f"{a.expand_dist:g} m, kept {len(keep)} -> +{len(extra)} directed pairs, "
+                f"{len(pairs)} total")
+        if n_added:
+            log(f"expansion: +{n_added} directed pairs over the rounds")
+    elif a.expand_rounds > 0:
+        log("expansion: skipped (complete pairing has nothing to add; tiling pairs over frames)")
 
     log("running sparse_global_alignment…")
     tr = time.time()
@@ -1540,7 +1728,12 @@ def main():
     gps_enu = np.array([[p["e"], p["n"], (p["alt"] - alt0) if p["alt"] is not None else 0.0] for p in sub])
     # Fit the similarity on the REAL cluster only; impostors must not influence the alignment.
     real = np.array([not p.get("inj") for p in sub])
-    s, R, t = umeyama(cams[real], gps_enu[real])
+    gw, gps_acc = gps_weights(sub, a.gps_acc_floor)
+    if gw is not None:
+        log(f"position fit weighted by GPS accuracy: {gps_acc['n_known']}/{len(sub)} frames "
+            f"carry one, median {gps_acc['median_m']} m, worst {gps_acc['worst_m']} m, "
+            f"weight ratio {gps_acc['weight_ratio']}x")
+    s, R, t = umeyama(cams[real], gps_enu[real], None if gw is None else gw[real])
     rec_enu = (s * (R @ cams.T)).T + t
     resid = np.linalg.norm(rec_enu[:, :2] - gps_enu[:, :2], axis=1)   # horizontal residual
     cam_ll_gps = [(p["lat"], p["lon"]) for p in sub]
@@ -1579,6 +1772,7 @@ def main():
                  mean_resid=float(rr.mean()), max_resid=float(rr.max()),
                  corr_dropped=CORR_STATS["dropped"], corr_total=CORR_STATS["total"],
                  n_masked=len(CORR_MASKS), pair_stats=pair_stats, impostor_resid=inj_resid, topdown=td,
+                 gps_accuracy=gps_acc,
                  solver=sol.backend, emits_correspondences=sol.emits_correspondences,
                  solver_notes={k: v for k, v in sol.notes.items() if k != "scene"},
                  tiles=(dict(grid=list(tile_grid), overlap=a.tile_overlap, mode=a.tile_pairs,
@@ -1610,6 +1804,7 @@ def main():
             "session": p.get("sess"),
             "gps": [p["lat"], p["lon"]], "altitude": p["alt"],
             "compass_angle": p["brg"], "bearing_source": p.get("brg_src"),
+            "location_accuracy_m": p.get("acc"),
             "captured_at": p["cap"], "title": p["ttl"],
             "dist_to_center_m": round(p["d"], 1), "source_url": p["full"],
             "focal_px": float(focals[i]),

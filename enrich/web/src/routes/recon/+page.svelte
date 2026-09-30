@@ -100,6 +100,8 @@
 		captured_at?: string | null;
 		camera?: string | null;
 		compass_angle?: number | null;
+		/** receiver's horizontal accuracy radius at the fix, metres; null before 2026-09-13 */
+		location_accuracy_m?: number | null;
 		id: string;
 		focal_px: number;
 		base_focal_px: number;
@@ -984,6 +986,7 @@
 									>
 									<th>camera</th>
 									<th class="num">compass</th>
+									<th class="num" title="the receiver's own accuracy radius at the fix (worse of the two bracketing fixes when interpolated); weights the position fit">GPS ±m</th>
 								{:else}
 									<th class="num sortable" onclick={() => cycleFrameSort('reproj_px')}
 										data-testid="recon-frames-sort-reproj">reproj px{sortArrow('reproj_px')}</th
@@ -994,6 +997,7 @@
 									<th class="num sortable" onclick={() => cycleFrameSort('residual_m')}
 										>GPS resid m{sortArrow('residual_m')}</th
 									>
+									<th class="num" title="the receiver's own accuracy radius at the fix (worse of the two bracketing fixes when interpolated); weights the position fit — a residual larger than this is the solve disagreeing with the GPS, one smaller is within what the GPS claimed">GPS ±m</th>
 									<th class="num sortable" onclick={() => cycleFrameSort('focal_px')}
 										>focal px{sortArrow('focal_px')}</th
 									>
@@ -1017,10 +1021,12 @@
 										<td>{f.captured_at?.slice(0, 19) ?? '—'}</td>
 										<td class="small">{f.camera ?? '—'}</td>
 										<td class="num">{f.compass_angle?.toFixed(0) ?? '—'}°</td>
+										<td class="num">{f.location_accuracy_m?.toFixed(1) ?? '—'}</td>
 									{:else}
 										<td class="num">{fmtPx(f.reproj_px)}</td>
 										<td class="num">{fmtPx(f.epipolar_px)}</td>
 										<td class="num">{f.residual_m ?? '—'}</td>
+										<td class="num">{f.location_accuracy_m?.toFixed(1) ?? '—'}</td>
 										<td class="num">{f.focal_px?.toFixed(0) ?? '—'}</td>
 									{/if}
 								</tr>

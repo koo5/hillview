@@ -29,7 +29,7 @@ Read `docs/frontend2-status.md` (the election entry + items 0d/0e) and
 
 | Claim | Where |
 |---|---|
-| Two ways in, one election; follow-me withdraws the claim but not the no-fix hatch | `frontend2/shared/src/commonTest/.../map/MapStateTest.kt` (`MapSessionTest`) |
+| ~~Two ways in, one election; follow-me withdraws the claim but not the no-fix hatch~~ — one way in since 2026-09-09 (the hatch is gone; docs/one-state.md) | `frontend2/shared/src/commonTest/.../map/MapStateTest.kt` (`MapSessionTest`) |
 | Shutter gate opens on a fix OR an elected map position | `frontend2/shared/src/commonTest/.../capture/ShutterGateTest.kt` |
 | An accepted claim opens the gate and suppresses the duplicate lift offer | `frontend2/androidApp/src/androidTest/.../CaptureGatingBehaviourTest.kt` |
 | Tauri: the election flips end-to-end into the exported CSV (`android` rows, `elected` moving between `android`/`manual`) | `frontend/tests-appium/specs/background-location-tracking.test.ts` |
@@ -44,7 +44,7 @@ Read `docs/frontend2-status.md` (the election entry + items 0d/0e) and
 | 3. Claim → pan → shoot stamps the NEW centre (item 0e) | `frontend2/androidApp/src/androidTest/.../GeoElectionBehaviourTest.kt` | |
 | 4. frontend2's election reaches the CSVs: `manual` row at the new centre (`detail=map`, `elected=manual`), fixes meanwhile as `android` rows carrying `elected=manual`, source names inside the exact vocabulary | same file | **found the bug below** |
 | 5. `toTableSource` / `kotlinOwnsSource` | `frontend/src/lib/mapState.test.ts` | 8 tests; `kotlinOwnsSource` had to be exported. Pins `-compass-` → `android` (incl. the web fallback, which elects as android but is NOT Kotlin-owned — the asymmetry is deliberate) and prefix-not-substring matching |
-| 7. `overridePosition` for the no-fix hatch (item 0d) — the hatch's label follows the map and the capture stamps the same position | same file | |
+| 7. ~~`overridePosition` for the no-fix hatch (item 0d) — the hatch's label follows the map and the capture stamps the same position~~ — restated 2026-09-09 as `withNoFixTheStampFollowsTheMapAsWell`: no hatch, the map centre is simply recorded | same file | |
 
 The bug item 4 caught: `GeoTrackingManager` was constructed twice in
 frontend2 — once by `MapSensorController` (which PUBLISHES the election) and

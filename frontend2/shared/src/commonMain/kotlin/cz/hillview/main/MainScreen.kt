@@ -47,6 +47,7 @@ import cz.hillview.core.ui.rememberScreenAngleDeg
 import cz.hillview.map.MapScreen
 import cz.hillview.map.MapSession
 import cz.hillview.map.MapStateHolder
+import cz.hillview.map.PanelEdges
 import cz.hillview.settings.MapSettingsRepository
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
@@ -79,11 +80,13 @@ fun MainScreen(
     onOpenCaptureGuide: () -> Unit = {},
     onOpenUploadStatus: () -> Unit = {},
     onOpenEventLog: () -> Unit = {},
+    onOpenLockSettings: () -> Unit = {},
     settingsRepo: MapSettingsRepository = koinInject(),
     session: MapSession = koinInject(),
     sessionManager: SessionManager = koinInject(),
     stateHolder: MapStateHolder = koinInject(),
     devicePose: DevicePoseState = koinInject(),
+    controlsLock: cz.hillview.lock.ControlsLock = koinInject(),
 ) {
     val mapSettings by settingsRepo.settings.collectAsState()
     val activity = mapSettings.mainActivity
@@ -127,8 +130,10 @@ fun MainScreen(
     var oldActivity by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(activity) {
         if (oldActivity != activity) {
-            val recording = activity == "capture" || activity == "external"
-            val wasRecording = oldActivity == "capture" || oldActivity == "external"
+            val recording = cz.hillview.settings.isRecordingActivity(activity)
+            val wasRecording = oldActivity?.let {
+                cz.hillview.settings.isRecordingActivity(it)
+            } == true
             when {
                 recording -> session.onEnterRecording()
                 wasRecording -> session.onLeaveRecording()
@@ -200,6 +205,11 @@ fun MainScreen(
         // `activity` is passed as a parameter, not captured: a remembered
         // lambda would otherwise keep the value it was created with.
         val currentOnOpenSettings by rememberUpdatedState(onOpenSettings)
+        // Read through a State, not captured: both panels below are MOVABLE
+        // — one instance each, travelling between the portrait Column and
+        // the landscape Row — so a value captured when one was created would
+        // describe the orientation it was born in forever.
+        val portraitNow = rememberUpdatedState(portrait)
         val photoPanel = remember {
             movableContentOf { activity: String ->
                 when (activity) {
@@ -211,7 +221,13 @@ fun MainScreen(
                     // Named "gallery" for historical reasons only — it is
                     // the VIEWER: the photo you are facing from where the map
                     // says you stand. See docs/tauri-viewer-ui-contract.md.
-                    else -> cz.hillview.viewer.ViewerPane()
+                    // The window's top-right corner is the lock button's
+                    // in portrait, where this panel is the top half; in
+                    // landscape it is the map's. The pane's own corner chip
+                    // yields accordingly instead of sitting under it.
+                    else -> cz.hillview.viewer.ViewerPane(
+                        edges = PanelEdges.photoPanel(portraitNow.value),
+                    )
                 }
             }
         }
@@ -223,6 +239,7 @@ fun MainScreen(
                     stateHolder = stateHolder,
                     stateStore = koinInject(),
                     session = session,
+                    edges = PanelEdges.mapPanel(portraitNow.value),
                 )
             }
         }
@@ -312,7 +329,13 @@ fun MainScreen(
             // session, and its state — recording or not — is worth seeing at
             // a glance. Toggles back to the map, exactly like 📷.
             FloatingControl(
-                label = "🛰",
+                // 🎞, not 🛰 (user, 2026-09-11). A satellite says GPS, which
+                // is the half of this mode that is not the point — every
+                // activity here uses GPS. Film says "pictures being taken on
+                // something else", which is the half that distinguishes it,
+                // and unlike 👣 it cannot be read as the compass's walking
+                // mode.
+                label = "🎞",
                 tag = "external-camera-button",
                 active = activity == "external",
                 onClick = {
@@ -322,6 +345,32 @@ fun MainScreen(
                             mainActivity = if (activity == "external") "view" else "external",
                         )
                     }
+                },
+            )
+        }
+
+        // The lock, alone in the opposite corner (user, 2026-09-11: "lets
+        // maybe just shift the lock button into the top right corner, away
+        // from the activity buttons").
+        //
+        // It stays ONE tap, because it is pressed as the phone goes into a
+        // pocket and a run is already going. But one tap beside the activity
+        // buttons is one tap away from the two presses that cost the most:
+        // reaching for 🎞 and hitting 🔒 costs a scrim and a deliberate
+        // slider, and reaching for 🔒 and hitting 🎞 ends the shoot. Putting
+        // the width of the screen between them is the cheapest separation
+        // there is, and the corner is otherwise the app's least-used.
+        //
+        // The corner belongs to the window now rather than to whichever
+        // panel is under it — see PanelEdges.ownsWindowTopEnd, which is how
+        // the panel that IS under it keeps clear.
+        Box(Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+            FloatingControl(
+                label = "🔒",
+                tag = "lock-controls-button",
+                onClick = {
+                    menuOpen = false
+                    controlsLock.lock()
                 },
             )
         }
@@ -399,8 +448,12 @@ fun MainScreen(
                         menuOpen = false
                         onOpenCaptureGuide()
                     }
+                    MenuLink("Lock controls", "menu-lock-settings") {
+                        menuOpen = false
+                        onOpenLockSettings()
+                    }
                     // (External camera moved OUT of the menu to a floating
-                    // 🛰 button beside 📷 — it is an activity you toggle,
+                    // 🎞 button beside 📷 — it is an activity you toggle,
                     // not a page you visit.)
                     if (CLOCK_VIDEO_IN_MENU) {
                         MenuLink("Clock video", "menu-clock-video") {

@@ -15,8 +15,9 @@ data class DevicePhotoCard(
     val locator: String,
     val sizeBytes: Long,
     val capturedAtMs: Long,
-    val latitude: Double,
-    val longitude: Double,
+    /** Null = the photo records no position (PhotoEntity.latitude, v22). */
+    val latitude: Double?,
+    val longitude: Double?,
     val bearingDeg: Double?,
     val width: Int,
     val height: Int,

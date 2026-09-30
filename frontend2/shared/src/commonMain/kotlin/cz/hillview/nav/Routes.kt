@@ -47,5 +47,9 @@ data object UploadStatusKey : NavKey
 @Serializable
 data object CaptureGuideKey : NavKey
 
+/** What locking the controls is allowed to do (see ControlsLock). */
+@Serializable
+data object LockSettingsKey : NavKey
+
 @Serializable
 data object MapKey : NavKey

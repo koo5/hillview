@@ -68,6 +68,18 @@ class StampRefinerMathTest {
     }
 
     @Test
+    fun interpolatedAccuracyIsTheWorseOfTheBracket() {
+        // Between a 3 m fix and an 11 m fix the point is an 11 m point.
+        assertEquals(11.0, worseAccuracy(3f, 11f)!!, 0.0)
+        assertEquals(11.0, worseAccuracy(11f, 3f)!!, 0.0)
+        // A fix without an accuracy does not pull the other one down to null.
+        assertEquals(3.0, worseAccuracy(3f, null)!!, 0.0)
+        assertEquals(3.0, worseAccuracy(null, 3f)!!, 0.0)
+        // Nothing known: the caller keeps the at-the-time value.
+        assertEquals(null, worseAccuracy(null, null))
+    }
+
+    @Test
     fun eligibilityMirrorsTheSourceVocabulary() {
         // The sources the refiner can improve…
         assertTrue(StampRefiner.isEligible("gps", null))
