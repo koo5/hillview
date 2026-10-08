@@ -2907,6 +2907,42 @@ Disjointness and adjacency are two properties; it checked one. There is now a te
 property, one of which walks the run at 37 ms steps and requires every instant to have
 exactly one owner.
 
+### The attitude maths: where the lens points, not how the phone is tilted
+
+The landscape report's "design bug", resolved after deliberate orientation captures on
+10-03. All three symptoms had one cause, and the sensor was never the compass — it is
+`TYPE_ROTATION_VECTOR`, and what was remapped is the rotation MATRIX, with azimuth,
+pitch and roll all read out of the remapped frame.
+
+The portrait remap sends device Y to world Z (up) — the "phone is upright" part. Neither
+landscape remap sends anything to Z. So in landscape `getOrientation` gets a frame with
+no axis near up: pitch pins near ∓90, roll goes ill-conditioned, and the two
+`abs(roll) > 90` corrections are keyed on exactly that degenerate value (the up/level/down
+sweep shows them switching between consecutive frames). And since the classifier only
+calls it landscape from 45°, a phone rolled 38° got the PORTRAIT remap.
+
+Measured against gravity: portrait `pitch_deg` agrees to ≤0.8°; landscape published
+−56.7 / −84.4 / −68.0 where gravity said −33.7 / −4.4 / +21.8. **No inherent landscape
+bearing bias** — 1.0° from portrait on the same scene, median −3.0° over 16 captures — but
+mid-roll frames were 43–52° out.
+
+Replaced by a vector transform (`cz.hillview.plugin.CameraPose`): lens direction is minus
+the matrix's third column in ENU, bearing from its horizontal part, pitch from its
+vertical part, image roll from world-up in device coordinates. No orientation class, no
+`remapCoordinateSystem`, no step functions, no A22 toggle, continuous through every pose.
+`CameraPoseTest` builds matrices from named device axes — the opposite direction from the
+code — and pins the portrait/mid-roll/landscape invariance, a monotonic landscape sweep,
+and the identity with the gravity formulas.
+
+Also corrected: `pitch_deg` is POSITIVE LOOKING DOWN; the code said "positive up". The
+old path is kept as `legacyOrientationFromRemappedMatrix`, uncalled, because every row
+before this build came out of it. Pre-10-08 landscape rows recover as
+`(pitch_deg + 90) × (−1 if |roll_deg| > 90 else +1)` — not the report's
+`wrap(roll_deg + 180)`, which came from a near-level drive.
+
+NOT verified on hardware yet. `landscape_azimuth_negation` is now inert and still
+recorded, so the settings toggle does nothing — removing it is a product decision.
+
 ### STILL NOT DONE, after this
 
 - **The still's own lens values.** Focus distance, intrinsics, distortion and skew are

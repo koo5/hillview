@@ -189,10 +189,14 @@ data class SensorSnapshot(
     /**
      * Was the Armor-22 landscape heading workaround in force?
      *
-     * It NEGATES the azimuth past 90° of roll (EnhancedSensorService), so a
-     * heading recorded under it and one recorded without are not the same
-     * measurement. Nothing downstream could tell them apart, which makes
-     * every landscape bearing in the archive ambiguous after the fact.
+     * INERT SINCE 2026-10-08 and still recorded. It used to NEGATE the azimuth past
+     * 90° of roll (EnhancedSensorService); the heading no longer goes through
+     * `getOrientation` or those branches, so the toggle cannot reach it. Kept because
+     * it is still a true fact about the device's settings, and because rows from BEFORE
+     * that build cannot be interpreted without it: there, a heading recorded under it
+     * and one recorded without are not the same measurement, and nothing downstream
+     * could tell them apart — which is what made every landscape bearing in the archive
+     * ambiguous after the fact.
      */
     val compassLandscapeWorkaround: Boolean? = null,
     /**
@@ -982,11 +986,23 @@ fun altLocationJson(a: AltLocation): String {
  *    snapshot has carried it since the beginning and every writer dropped it
  *    (the EXIF tags take true north, by ecosystem convention). Its difference
  *    from `true_deg` is the declination the device applied.
- *  - `pitch_deg` — tilt. Same relationship to the `pitch` column as above.
- *  - `roll_deg` — stored nowhere else, and never left the device before this.
- *    NOT the camera's rotation about its optical axis: the rotation matrix is
- *    remapped for `device_rotation_deg` FIRST, so this is the residual tilt
- *    within that quadrant and the absolute rotation needs both.
+ *  - `pitch_deg` — the OPTICAL AXIS's tilt, POSITIVE LOOKING DOWN. Same
+ *    relationship to the `pitch` column as above. Identical to
+ *    `asin(inertial.gravity.z / |gravity|)`, which is how it is checked.
+ *  - `roll_deg` — the camera's rotation about its optical axis: 0 with the
+ *    screen's up pointing at the sky, ±90 in landscape. Stored nowhere else,
+ *    and never left the device before this.
+ *
+ *    BOTH CHANGED MEANING on 2026-10-08, and `capture_timing.build` is what
+ *    tells the two apart. They used to come from `getOrientation` on a matrix
+ *    remapped by the QUANTIZED `device_rotation_deg`, which made them
+ *    device-frame, discontinuous, and in landscape degenerate — one up/level/down
+ *    sweep published pitch −56.7 / −84.4 / −68.0 where gravity said
+ *    −33.7 / −4.4 / +21.8, with roll flipping 180° partway. Now both come from
+ *    transforming the camera axis, so they are continuous through every
+ *    orientation. Rows from before that build are recoverable:
+ *    `pitch = (pitch_deg + 90) × (−1 if |roll_deg| > 90 else +1)` in landscape,
+ *    as recorded; portrait rows were already right.
  *  - `magnetometer_calibration` — the magnetometer's calibration status
  *    (0 unreliable,
  *    1 low, 2 medium, 3 high), and it qualifies the HEADING ONLY. Pitch and
@@ -1024,10 +1040,12 @@ fun altLocationJson(a: AltLocation): String {
  *    NOT this: CameraX derives that from the pose combined with the camera's
  *    sensorOrientation and lens facing, so it cannot be inverted back.
  *  - `landscape_azimuth_negation` — whether the Armor-22 toggle was ENABLED.
- *    It negates the azimuth, but only past 90° of roll, so this being true
- *    does not mean it fired on this sample — `roll_deg` beside it is what
- *    tells you. Named for what it does rather than for the phone it was added
- *    for, and recorded always, true or false: absence would be ambiguous.
+ *    STILL RECORDED, but INERT since 2026-10-08: the heading no longer passes
+ *    through `getOrientation` or the two `abs(roll) > 90` branches the toggle
+ *    switched, so it cannot affect the azimuth. Kept because it remains a true
+ *    fact about the device's settings and because rows from BEFORE that build
+ *    need it to be interpreted at all — there, true means the azimuth may have
+ *    been negated, and `roll_deg` beside it is what says whether it fired.
  *
  * The tracking table holds all of this at sensor rate too — but that table
  * only leaves the phone as a manual CSV export, so for an uploaded photo this
@@ -1058,10 +1076,13 @@ fun attitudeProvenanceJson(s: SensorSnapshot): String? {
  * object.
  *
  *  - `gravity` — (x, y, z) m/s² in the device frame. An unambiguous "down",
- *    where `attitude.roll_deg` is a residual within the quantized device pose.
- *    Two rotation degrees of freedom with no fusion and no magnetometer in the
- *    way, which is why a reconstruction wants it even though pitch and roll
- *    are already recorded.
+ *    with two rotation degrees of freedom, no fusion and no magnetometer in the
+ *    way. It is why a reconstruction wants it even though pitch and roll are
+ *    recorded, and it is also the INDEPENDENT CHECK on them: `attitude.pitch_deg`
+ *    equals `asin(gravity.z / |gravity|)` and `attitude.roll_deg` equals
+ *    `atan2(gravity.x, gravity.y)` by construction. Measuring that identity on
+ *    prod captures is what exposed the landscape bug the attitude maths was
+ *    rewritten for.
  *  - `linear_acceleration` — the same stream with gravity removed, (x, y, z).
  *  - `linear_acceleration_magnitude` — its length, precomputed because it is
  *    the number anything sorting frames by motion blur actually uses.

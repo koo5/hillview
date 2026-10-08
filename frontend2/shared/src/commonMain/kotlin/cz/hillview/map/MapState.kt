@@ -188,9 +188,25 @@ data class DeviceAttitude(
     val trueDeg: Double,
     /** Uncorrected compass heading — the raw half of the same reading. */
     val magneticDeg: Double,
-    /** Tilt, degrees, positive up. */
+    /**
+     * The OPTICAL AXIS's tilt, degrees, POSITIVE LOOKING DOWN.
+     *
+     * The sign was documented as "positive up" and was not: a level portrait capture
+     * reads −4.5 with the lens 4.6° ABOVE the horizon. Corrected 2026-10-08 against
+     * `inertial.gravity`, which it now equals by construction —
+     * `asin(gravity.z / |gravity|)`.
+     */
     val pitch: Double,
-    /** Residual roll within the quantized device pose — see above. */
+    /**
+     * The camera's rotation about its optical axis: 0 with the screen's up pointing at
+     * the sky, ±90 in landscape. Equals `atan2(gravity.x, gravity.y)`.
+     *
+     * It used to be the residual roll WITHIN the quantized device pose, because the
+     * rotation matrix was remapped by orientation class before the angles were read out
+     * of it. Since 2026-10-08 both this and [pitch] come from transforming the camera
+     * axis, so they are continuous through every orientation — see
+     * `cz.hillview.plugin.CameraPose`.
+     */
     val roll: Double,
     /**
      * The MAGNETOMETER's calibration status — 0 unreliable, 1 low, 2 medium,

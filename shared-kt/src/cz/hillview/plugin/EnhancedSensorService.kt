@@ -836,42 +836,33 @@ class EnhancedSensorService(
         // Get rotation matrix
         SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
 
-        // Apply coordinate remapping based on device orientation
-        if (currentMode == MODE_UPRIGHT_ROTATION_VECTOR) {
-            val remappedMatrix = remapCoordinatesForOrientation(rotationMatrix, deviceOrientation)
-            System.arraycopy(remappedMatrix, 0, rotationMatrix, 0, 9)
-            //Log.v(TAG, "🔄 Applied coordinate remapping for ${deviceOrientation}")
+        // WHERE THE LENS POINTS, by transforming the camera axis — NOT by reading Euler
+        // angles out of a remapped frame. The matrix is deliberately left un-remapped:
+        // a vector transform has no quantized orientation class to key on, which is the
+        // entire point. See CameraPose for the measurements that retired the old path
+        // and [legacyOrientationFromRemappedMatrix] for what it did.
+        val lens = cameraPoseFromRotationMatrix(rotationMatrix)
+        if (lens == null) {
+            // All zeros until the first usable sample. Publishing would assert a level
+            // camera facing due north, which is a plausible lie rather than an absence.
+            Log.v(TAG, "🔍📐 no usable rotation matrix yet from $source")
+            return
         }
-		else
-		{
-			Log.v(TAG, "🔄 No coordinate remapping applied for mode: ${MODE_NAMES[currentMode]}")
-		}
-
-        // Get orientation
-        SensorManager.getOrientation(rotationMatrix, orientation)
-
-        // Convert to degrees
-        var azimuth = (Math.toDegrees(orientation[0].toDouble()).toFloat() + 360) % 360
-        val pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
-        val roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
-
-
-		if (abs(roll) > 90) {
-			azimuth += 180
-		}
-		val prefs = context.getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
-        val workaround1 = prefs.getBoolean("landscape_armor22_workaround", false)
-		if (workaround1) {
-			if (abs(roll) > 90) {
-				azimuth = 0 - azimuth // magic
-			}
-		}
-		azimuth = (azimuth + 360*2) % 360
-
-		//Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
-
-        // Normalize heading
-        val heading = if (azimuth < 0) azimuth + 360 else azimuth
+        val heading = lens.bearingDeg
+        val pitch = lens.pitchDeg
+        val roll = lens.imageRollDeg
+        if (!lens.bearingIsDefined()) {
+            // Within ~3° of straight up or down, where a bearing does not EXIST — the
+            // horizontal projection it comes from has almost no length. The pose is
+            // still published, because pitch and roll are perfectly well defined there;
+            // this line is so the condition has a name in the log rather than appearing
+            // as a compass that went wild.
+            Log.d(
+                TAG,
+                "🔍🧭 lens within ${"%.1f".format(90f - abs(pitch))}° of vertical — " +
+                    "bearing $heading is ill-conditioned (horizontal ${lens.horizontalLength})",
+            )
+        }
 
         // Apply magnetic declination to convert from magnetic north to true north
         val declination = getMagneticDeclination()
@@ -982,6 +973,77 @@ class EnhancedSensorService(
 
         return remappedMatrix
     }
+
+    /**
+     * THE PATH THAT WAS REPLACED on 2026-10-08, kept because it is the record of what
+     * the old numbers meant — every row captured before that build came out of this, and
+     * recovering one needs to know exactly what it did. Nothing calls it.
+     *
+     * It remapped the rotation matrix by a QUANTIZED orientation class and then read
+     * Euler angles out of the result, patching them with two step functions keyed on
+     * `roll` — one of which carried the comment `// magic`, which is the honest label for
+     * a sign fix applied to a frame that was already wrong.
+     *
+     * Why it had to go, measured against gravity on real captures (2026-10-03):
+     *  - the portrait remap sends device Y to world Z (up) — the "phone is upright"
+     *    part — while NEITHER landscape remap sends anything to Z. So in landscape the
+     *    frame has no axis near world up, `getOrientation`'s pitch pins near ∓90 and its
+     *    roll goes ill-conditioned: one up/level/down sweep published −56.7 / −84.4 /
+     *    −68.0 where gravity said −33.7 / −4.4 / +21.8, and `roll` flipped −176.8 → +2.7
+     *    between consecutive frames — flipping the two corrections below on and off,
+     *    because they are keyed on exactly that degenerate value;
+     *  - the orientation classifier only calls it landscape from 45°, so at 38° of roll
+     *    the PORTRAIT remap was applied to a rolled phone. Three deliberate ~40°
+     *    captures landed 43–52° off their own un-rolled neighbours.
+     *
+     * The replacement is proven in `CameraPoseTest`, which builds matrices from named
+     * device axes — the opposite direction from the code — so a sign error cannot cancel.
+     */
+    @Suppress("unused")
+    private fun legacyOrientationFromRemappedMatrix(event: SensorEvent, source: String): Triple<Float, Float, Float> {
+        SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+        // Apply coordinate remapping based on device orientation
+        if (currentMode == MODE_UPRIGHT_ROTATION_VECTOR) {
+            val remappedMatrix = remapCoordinatesForOrientation(rotationMatrix, deviceOrientation)
+            System.arraycopy(remappedMatrix, 0, rotationMatrix, 0, 9)
+            //Log.v(TAG, "🔄 Applied coordinate remapping for ${deviceOrientation}")
+        }
+		else
+		{
+			Log.v(TAG, "🔄 No coordinate remapping applied for mode: ${MODE_NAMES[currentMode]}")
+		}
+
+        // Get orientation
+        SensorManager.getOrientation(rotationMatrix, orientation)
+
+        // Convert to degrees
+        var azimuth = (Math.toDegrees(orientation[0].toDouble()).toFloat() + 360) % 360
+        val pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
+        val roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
+
+
+		if (abs(roll) > 90) {
+			azimuth += 180
+		}
+		val prefs = context.getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
+        val workaround1 = prefs.getBoolean("landscape_armor22_workaround", false)
+		if (workaround1) {
+			if (abs(roll) > 90) {
+				azimuth = 0 - azimuth // magic
+			}
+		}
+		azimuth = (azimuth + 360*2) % 360
+
+		//Log.v(TAG, "🔍📊 $source orientation: azimuth=${azimuth.format(1)}°, pitch=${pitch.format(1)}°, roll=${roll.format(1)}°, accuracy=${event.accuracy}, orientation=${deviceOrientation}")
+
+        // Normalize heading
+        val heading = if (azimuth < 0) azimuth + 360 else azimuth
+
+        // Apply magnetic declination to convert from magnetic north to true north
+        val declination = getMagneticDeclination()
+        return Triple(heading, pitch, roll)
+    }
+
 
 
 

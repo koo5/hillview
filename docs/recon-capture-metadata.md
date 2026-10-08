@@ -597,6 +597,81 @@ and it checked one. There is now a test per property, including one that walks t
 37 ms steps (coprime with the sample period) and requires every instant to have exactly
 one owner.
 
+## The attitude maths: where the lens points, not how the phone is tilted
+
+Rewritten 2026-10-08, after `/shared/app_bugs/02` and one afternoon of deliberate
+orientation captures. The old path was `remapCoordinateSystem` keyed on a QUANTIZED
+orientation class, then `getOrientation`, then two step functions keyed on `roll` — one
+commented `// magic`. All three of its symptoms have one cause.
+
+**The sensor was never the compass.** It is `TYPE_ROTATION_VECTOR`, Android's fused
+orientation; the magnetometer is registered alongside only for its calibration status,
+and declination is added afterwards. What was being remapped is the rotation MATRIX, and
+azimuth, pitch and roll were all read out of the remapped frame — so the earlier claim
+that "pitch/roll are in the portrait frame and not remapped" was wrong in both halves.
+
+**The cause.** The portrait remap sends the device's Y axis to world Z — up — which is
+the "phone is held upright" part. Neither landscape remap sends anything to Z; they are
+in-plane rotations about the screen normal. So in landscape the frame handed to
+`getOrientation` has no axis near world up: pitch pins near ∓90 and roll goes
+ill-conditioned. And because the orientation classifier only calls it landscape from 45°,
+a phone rolled 38° got the PORTRAIT remap applied to it.
+
+**Measured against gravity, 2026-10-03:**
+
+| | portrait | landscape |
+|---|---|---|
+| `pitch_deg` vs `asin(g_z/\|g\|)` | agrees to ≤0.8° on 6 captures | −56.7 / −84.4 / −68.0 where gravity says −33.7 / −4.4 / +21.8 — not monotonic |
+| `roll_deg` | agrees with `atan2(g_x, g_y)` | flips −176.8 → +2.7 between consecutive frames |
+| bearing | reference | **1.0° from portrait on the same scene** |
+
+So there is **no inherent landscape bearing bias** — the earlier ~20° hint from 09-10
+orientation switches does not reproduce, and across 16 landscape captures the median
+bearing error against the nearest un-rolled neighbour is −3.0°. What IS broken is
+mid-roll: three deliberate ~40° captures came out **43–52°** off their own un-rolled
+neighbours, the error tracking the roll angle.
+
+And the two corrections were keyed on `roll` — the very quantity the landscape remap
+made degenerate. The sweep above shows them switching on and off between consecutive
+frames while the phone merely tilted.
+
+**The replacement** transforms the camera axis instead of reading Euler angles
+(`cz.hillview.plugin.CameraPose`): the lens direction is minus the matrix's third column
+in world (East, North, Up), so the bearing is `atan2` of its horizontal part, the pitch
+is `asin` of its vertical part, and the image roll comes from world-up expressed in
+device coordinates — the matrix's third row, which is also what the gravity vector
+points along. No orientation class, no `remapCoordinateSystem`, no `abs(roll) > 90`
+branches, no A22 toggle, and continuous through every pose.
+
+`CameraPoseTest` builds matrices from NAMED DEVICE AXES — the opposite direction from the
+code, so a sign error cannot cancel — and pins: the same bearing in portrait, at 10/38/45/60/89°
+of roll and in landscape; a monotonic up/level/down sweep held in landscape; and the
+identity with the gravity formulas that the prod check rests on.
+
+**Two conventions, now stated because one was wrong.** `pitch_deg` is POSITIVE LOOKING
+DOWN — the code said "positive up" and the data says otherwise (a level portrait capture
+reads −4.5 with the lens 4.6° above the horizon). `roll_deg` is now the image's rotation
+about the optical axis rather than a residual within a quadrant.
+
+**What the degeneracy became.** A lens pointed straight up or down has no bearing, and
+`atan2(0, 0)` returns 0 — so the old code published "due north" for a photo of the
+pavement. `CameraPose.horizontalLength` is that condition as a number
+(cos of the elevation), with `BEARING_CONDITION_FLOOR` naming the threshold and a log
+line when it trips. The pose is still published, because pitch and roll are perfectly
+well defined there.
+
+**Reading the archive.** `capture_timing.build` separates the two eras. Portrait rows
+were already right. Landscape rows from before are recoverable as
+`pitch = (pitch_deg + 90) × (−1 if |roll_deg| > 90 else +1)` — which is NOT the
+`wrap(roll_deg + 180)` the bug report proposed; that came from a near-level car drive
+where the elevation barely varied and it does not survive a real sweep.
+
+**Still open:** `landscape_azimuth_negation` is now inert and still recorded (it remains
+a true fact about the settings, and pre-2026-10-08 rows cannot be read without it), so
+the settings toggle no longer does anything — remove it or keep it as a kill switch is a
+product decision, not made here. And the absolute landscape↔portrait offset that
+rotation deltas structurally cannot see is still unmeasured.
+
 ## Pitch has three homes — which is which
 
 Raised as a confusing moment, 2026-09-26, and worth settling in writing because
