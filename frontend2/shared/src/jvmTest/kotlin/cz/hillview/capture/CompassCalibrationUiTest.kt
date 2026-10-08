@@ -53,6 +53,80 @@ class CompassCalibrationUiTest {
 @OptIn(ExperimentalTestApi::class)
 class CameraOverlayUiTest {
 
+    /**
+     * The two axes beside the bearing, added so an orientation test is readable while
+     * shooting it: ↕ is the optical axis's tilt (POSITIVE LOOKING DOWN) and ⟳ the
+     * image's rotation about that axis, 0 upright and ±90 in landscape.
+     *
+     * Note what the 🧭 is NOT: it is the ELECTED bearing — what a capture would stamp,
+     * so gps-kalman in car mode — while these two come from the raw attitude. In
+     * walking mode all three are the same reading.
+     */
+    @Test
+    fun theOverlayShowsTheOtherTwoAxesBesideTheBearing() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(
+                    ready = false,
+                    bearingDeg = 273.1f,
+                    pitchDeg = -5.6f,
+                    imageRollDeg = 0.8f,
+                    fixLatitude = 50.115044,
+                    fixLongitude = 14.500907,
+                ),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+            )
+        }
+        onNodeWithText("↕ -5.6°  ⟳ 0.8°").assertIsDisplayed()
+    }
+
+    /** Landscape: the roll is what moves, and it reads ±90 rather than a residual. */
+    @Test
+    fun theRollReadsNinetyInLandscape() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(
+                    ready = false,
+                    pitchDeg = -4.4f,
+                    imageRollDeg = -92.4f,
+                    fixLatitude = 50.1,
+                    fixLongitude = 14.5,
+                ),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+            )
+        }
+        onNodeWithText("↕ -4.4°  ⟳ -92.4°").assertIsDisplayed()
+    }
+
+    /**
+     * Before the compass has answered there is nothing to show, and a 0.0 would read as
+     * "perfectly level" rather than "not known yet".
+     */
+    @Test
+    fun noAttitudeMeansNoAttitudeRow() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(
+                    ready = false,
+                    bearingDeg = 5.4f,
+                    fixLatitude = 50.1,
+                    fixLongitude = 14.5,
+                ),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+            )
+        }
+        onNodeWithTag("attitude-readout").assertDoesNotExist()
+    }
+
     @Test
     fun aFixShowsBearingAndCoordinates() = runComposeUiTest {
         setContent {

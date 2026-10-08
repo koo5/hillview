@@ -27,6 +27,12 @@ import androidx.compose.ui.Modifier
  * `capture_timing` provenance object, so the press→exposure behaviour can be studied
  * from uploaded photos instead of from an attached cable.
  */
+/**
+ * The current metadata contract — see [CaptureTiming.metadataVersion] for what each
+ * value means and for the rule about when it moves.
+ */
+const val METADATA_VERSION = 1
+
 @kotlinx.serialization.Serializable
 data class CaptureTiming(
     /** What `captured_at` is. "press" today; never silently something else. */
@@ -103,6 +109,37 @@ data class CaptureTiming(
      * this whole object exists to stop.
      */
     val exposureSource: String? = null,
+
+    /**
+     * WHICH CONTRACT THIS PHOTO'S METADATA FOLLOWS — a monotonic integer, bumped
+     * whenever an existing field CHANGES MEANING rather than when one is added.
+     *
+     * `build` already identifies the code, but reading it means a lookup from git sha to
+     * semantics; this is the thing a consumer can branch on. Adding fields never bumps
+     * it: absence of a key is already unambiguous. Only a reinterpretation does, because
+     * that is the case where old and new rows look identical and are not.
+     *
+     * Absent — every photo before 2026-10-08. `attitude.pitch_deg` and `roll_deg` are
+     * Euler angles read off a rotation matrix remapped by the QUANTIZED
+     * `device_rotation_deg`: device-frame, discontinuous at the quadrant boundaries, and
+     * degenerate in landscape (pitch pinned near ∓90, roll flipping 180°, both
+     * corrections keyed on that same degenerate roll). The azimuth was additionally
+     * shifted 180° past 90° of roll, and negated on top of that when
+     * `landscape_azimuth_negation` was true.
+     *
+     * 1 — from 2026-10-08. Bearing, `pitch_deg` and `roll_deg` all come from
+     * transforming the camera axis, so they are continuous through every orientation:
+     * pitch is the optical axis's tilt POSITIVE LOOKING DOWN, roll is the image's
+     * rotation about that axis (0 upright, ±90 landscape), and both equal the
+     * `inertial.gravity` formulas by construction. No orientation class and no step
+     * functions, so `landscape_azimuth_negation` is inert from here on.
+     *
+     * Nested in `capture_timing` for the same reason `build` is — the object is a
+     * declared untyped dict server-side, so it needs no worker deploy — and with the
+     * same caveat: a top-level `metadata` object is where both belong once the rehaul in
+     * docs/todo/metadata-structure-sanitization.md lands.
+     */
+    val metadataVersion: Int? = null,
 
 
     // THREE MORE KEYS REACH THE SERVER IN THIS OBJECT AND ARE NOT FIELDS HERE:
@@ -478,6 +515,17 @@ data class CaptureState(
      */
     val plan: ExposurePlan? = null,
     val bearingDeg: Float? = null,
+    /**
+     * The other two axes of the same reading, for the overlay — the optical axis's tilt
+     * (POSITIVE LOOKING DOWN) and the image's rotation about it.
+     *
+     * Mirrored out of the attitude the screen pushes in, exactly as [bearingDeg] is
+     * mirrored out of the bearing: the capture never reads a sensor for these. Nothing
+     * in the UI wanted them until the orientation maths was rewritten and the pitch and
+     * roll became worth watching while shooting an orientation test.
+     */
+    val pitchDeg: Float? = null,
+    val imageRollDeg: Float? = null,
     val lastPhoto: CapturedPhoto? = null,
     val errorMessage: String? = null,
     /** A video recording is in progress — the shutter stops it. */
@@ -1142,6 +1190,7 @@ fun SensorSnapshot.poseReferenceMs(): Long =
 fun captureTimingJson(s: SensorSnapshot): String? {
     val t = s.captureTiming ?: return null
     val fields = buildList {
+        t.metadataVersion?.let { add("\"metadata_version\":$it") }
         add("\"captured_at_source\":\"${t.capturedAtSource}\"")
         t.pressToExposureMs?.let { add("\"press_to_exposure_ms\":$it") }
         t.exposureToJpegMs?.let { add("\"exposure_to_jpeg_ms\":$it") }

@@ -524,6 +524,19 @@ private class AndroidPhotoCapture(
     // thread instead, and this file ASKS once per capture (engine.attitudeAt), which is
     // the same arrangement persistImuWindow already has.
     @Volatile override var stampAttitude: cz.hillview.map.DeviceAttitude? = null
+        set(value) {
+            field = value
+            // The pill shows the two axes beside the bearing, out of the same reading —
+            // the same mirroring stampBearing does, and for the same reason: the UI must
+            // not reach for a sensor of its own. Pushed by the screen from the one state,
+            // so this runs on the main dispatcher like the bearing's.
+            value?.let {
+                state = state.copy(
+                    pitchDeg = it.pitch.toFloat(),
+                    imageRollDeg = it.roll.toFloat(),
+                )
+            }
+        }
 
     @Volatile override var stampMotion: cz.hillview.map.DeviceMotionSample? = null
 
@@ -1926,6 +1939,7 @@ private class AndroidPhotoCapture(
                                     exposureToJpegMs = savedAt - captureExposedAtMs,
                                     stillMode = this@AndroidPhotoCapture.stillMode.key,
                                     build = cz.hillview.BuildInfo.label(),
+                                    metadataVersion = METADATA_VERSION,
                                     exposureElapsedNs = exposureElapsedNs,
                                     exposureWallMs = exposureWallMs,
                                     exposureSource = "sensor_timestamp",
@@ -2143,6 +2157,7 @@ private class AndroidPhotoCapture(
                                                 // uploaded data said so.
                                                 stillMode = stillMode.key,
                                                 build = cz.hillview.BuildInfo.label(),
+                                    metadataVersion = METADATA_VERSION,
                                             ),
                                         ),
                                     ),

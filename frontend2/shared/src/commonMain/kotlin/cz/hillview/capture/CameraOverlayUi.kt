@@ -209,6 +209,19 @@ private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?)
         }
         MonoText("📍 ${sixDp(lat)}°, ${sixDp(lon)}°")
     }
+    // The other two axes of the attitude, beside the bearing rather than in it: at phone
+    // width the bearing row already carries the position. ↕ is the optical axis's tilt,
+    // POSITIVE LOOKING DOWN; ⟳ is the image's rotation about that axis, 0 upright and
+    // ±90 in landscape. Both only when the compass has answered at all.
+    if (state.pitchDeg != null || state.imageRollDeg != null) {
+        MonoText(
+            listOfNotNull(
+                state.pitchDeg?.let { "↕ ${oneDp(it.toDouble())}°" },
+                state.imageRollDeg?.let { "⟳ ${oneDp(it.toDouble())}°" },
+            ).joinToString("  "),
+            Modifier.testTag("attitude-readout"),
+        )
+    }
     if (overridePosition == null) {
         state.fixAltitude?.let { MonoText("⛰️ ${oneDp(it)}m") }
         state.fixAccuracyM?.let { MonoText("🎯 ±${it.toInt()}m") }

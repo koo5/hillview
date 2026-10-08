@@ -597,6 +597,26 @@ and it checked one. There is now a test per property, including one that walks t
 37 ms steps (coprime with the sample period) and requires every instant to have exactly
 one owner.
 
+## `capture_timing.metadata_version` — the contract, as a number
+
+Added 2026-10-08, because the attitude rewrite was the first change that made OLD AND NEW
+ROWS LOOK IDENTICAL AND MEAN DIFFERENT THINGS. `build` already identifies the code, but
+reading it means a lookup from git sha to semantics; this is the thing a consumer can
+branch on.
+
+**The rule: adding a field never bumps it.** Absence of a key is already unambiguous. It
+moves only when an existing field is REINTERPRETED.
+
+| value | what the attitude means |
+|---|---|
+| absent | before 2026-10-08. `pitch_deg`/`roll_deg` are Euler angles off a matrix remapped by the quantized `device_rotation_deg`: device-frame, discontinuous at quadrant boundaries, degenerate in landscape. The azimuth was shifted 180° past 90° of roll, and negated on top of that when `landscape_azimuth_negation` was true. |
+| **1** | from 2026-10-08. Bearing, `pitch_deg` and `roll_deg` from the camera-axis transform — continuous in every orientation, pitch POSITIVE LOOKING DOWN, roll the image's rotation about the optical axis, both equal to the `inertial.gravity` formulas by construction. `landscape_azimuth_negation` is inert. |
+
+Emitted first in the object, so it is the first thing a reader meets. Nested in
+`capture_timing` for the same reason `build` is — the object is a declared untyped dict
+server-side, so no worker deploy — and with the same caveat: both belong in a top-level
+`metadata` object once the rehaul lands.
+
 ## The attitude maths: where the lens points, not how the phone is tilted
 
 Rewritten 2026-10-08, after `/shared/app_bugs/02` and one afternoon of deliberate
