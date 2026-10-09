@@ -124,6 +124,36 @@ interface ImuDao {
     @Query("SELECT * FROM imu_samples ORDER BY timestamp ASC, kind ASC, sequence ASC")
     fun getAllSamples(): List<ImuSampleEntity>
 
+    /**
+     * One PAGE of samples, after the given key, in the table's own order.
+     *
+     * [getAllSamples] materialises every row, which is how a dump ran the app out of
+     * memory: at ~720 rows/s stored during an interval run, a table that has missed a
+     * few dumps holds a million of them. The CSV export pages through this instead and
+     * holds one page at a time.
+     *
+     * A KEYSET, not LIMIT/OFFSET: the primary key is exactly `(timestamp, kind,
+     * sequence)` and the order is exactly that, so this resumes precisely where the
+     * previous page ended with no row seen twice and none skipped — and it stays
+     * index-backed instead of re-walking the prefix for every page, which is what makes
+     * OFFSET quadratic over a million rows.
+     *
+     * Pass `afterTimestamp = Long.MIN_VALUE` for the first page.
+     */
+    @Query(
+        "SELECT * FROM imu_samples WHERE " +
+            "timestamp > :afterTimestamp OR " +
+            "(timestamp = :afterTimestamp AND kind > :afterKind) OR " +
+            "(timestamp = :afterTimestamp AND kind = :afterKind AND sequence > :afterSequence) " +
+            "ORDER BY timestamp ASC, kind ASC, sequence ASC LIMIT :limit",
+    )
+    fun samplesAfter(
+        afterTimestamp: Long,
+        afterKind: String,
+        afterSequence: Int,
+        limit: Int,
+    ): List<ImuSampleEntity>
+
     @Query(
         "SELECT * FROM imu_samples WHERE timestamp BETWEEN :fromMs AND :toMs " +
             "ORDER BY timestamp ASC, kind ASC, sequence ASC",

@@ -2970,6 +2970,48 @@ No new provenance field: which reference answered is a function of `pitch_deg`
 tax is not paid for a derived value. Folded into `metadata_version` 1 rather than bumping
 to 2, because v1 had not reached prod — checked before changing it.
 
+### The crash: the CSV dump built a 131 MB String
+
+Crash report off the phone via Event log → Copy crash (build `d5a5699c`, 2026-10-09):
+
+```
+java.lang.OutOfMemoryError: Failed to allocate a 131319288 byte allocation
+  with 51842528 free bytes and 49MB until OOM, target footprint 268435456
+    at java.lang.StringBuilder.append
+    at cz.hillview.plugin.GeoTrackingManager.imuSamplesToCsv(GeoTrackingManager.kt:702)
+    at ...GeoTrackingManager$dumpAndClear$1.invokeSuspend
+```
+
+Nothing to do with the orientation work. The export did
+`imuDao().getAllSamples()` — every row as objects — and then `joinToString` into one
+String. At the ~720 rows/s actually stored during an interval run (measured, against the
+"about a hundred rows a shot" the entity's own doc assumes), a table that has missed a
+few dumps holds a million rows: a ~65 MB CSV, a StringBuilder doubling to 131 MB, against
+a 268 MB heap.
+
+**And it was self-reinforcing, which is why it kept happening.** The clear is the last
+step of the dump, so an OOM means the table is never pruned — it grows, and the next dump
+dies harder. The comment above `lastDump` had predicted exactly this: *"a dump slower than
+its own 5-minute interval would skip and the table would grow without bound."*
+
+Fixed on both axes, because either alone would still OOM eventually:
+
+- `writeExportCsvStreaming` opens the target and hands over a `Writer`; nothing is held
+  whole. The `String` overload delegates to it, so bearings and locations lose their
+  doubling spike too.
+- `ImuDao.samplesAfter` pages by KEYSET on `(timestamp, kind, sequence)` — which is
+  exactly the primary key and exactly the sort order, so it resumes where the last page
+  ended with no row twice and none skipped, and stays index-backed instead of going
+  quadratic the way OFFSET would over a million rows.
+
+Memory is now O(page), 5 000 rows ≈ 350 KB. No migration, no schema change. The first
+dump on the fixed build will write the backlog out and then prune, so the loop breaks
+itself.
+
+`ImuCsvPagingTest` covers the case the composite key exists for — both sensors on the
+same millisecond, page boundaries landing inside a group — plus a row arriving mid-dump.
+It is an androidDeviceTest and COMPILES ONLY: no device was reachable, so it has not run.
+
 ### STILL NOT DONE, after this
 
 - **The still's own lens values.** Focus distance, intrinsics, distortion and skew are

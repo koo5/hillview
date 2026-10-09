@@ -37,6 +37,12 @@ data class DumpStats(
  */
 private const val DUMP_INTERVAL_HINT_MS = 5 * 60 * 1000L
 
+/**
+ * Rows per page when streaming the IMU CSV. ~350 KB of entities in flight, and a
+ * million-row table becomes 200 queries rather than 200 000.
+ */
+private const val IMU_CSV_PAGE_ROWS = 5_000
+
 
 data class OrientationSensorData(
 	val magneticHeading: Float,  // Compass bearing in degrees from magnetic north (0-360°)
@@ -537,20 +543,23 @@ class GeoTrackingManager(private val context: Context) {
 						// silently when empty: a session with no captures, or one
 						// where the IMU was never asked for, has nothing to say and
 						// an empty file would only look like a failure.
-						val imu = database.imuDao().getAllSamples()
-						if (imu.isNotEmpty()) {
-							val imuAt = writeExportCsv(
-								"hillview_imu_${now}.csv",
-								imuSamplesToCsv(imu),
-							)
-							Log.i(TAG, "🢄📡 Dumped ${imu.size} IMU samples to $imuAt")
+						// COUNTED, not loaded: this is the table that ran the app out
+						// of memory, and asking how many rows there are must not be the
+						// thing that allocates them.
+						val imuCount = database.imuDao().count()
+						var imuWritten = 0
+						if (imuCount > 0) {
+							val imuAt = writeExportCsvStreaming("hillview_imu_${now}.csv") { out ->
+								imuWritten = writeImuSamplesCsv(out)
+							}
+							Log.i(TAG, "🢄📡 Dumped $imuWritten IMU samples to $imuAt")
 						}
 						// TIMED, because a dump that cannot keep up is a silent
 						// failure: the clear is part of the dump, so a dump slower
 						// than its own 5-minute interval would skip (see dumpMutex)
 						// and the table would grow without bound. The headroom is
 						// the thing to watch, not the row count.
-						val rows = bearings.size + locations.size + imu.size
+						val rows = bearings.size + locations.size + imuWritten
 						val ms = System.currentTimeMillis() - startedAt
 						lastDump.value = DumpStats(startedAt, rows, ms, ok = true)
 						Log.i(
@@ -562,7 +571,7 @@ class GeoTrackingManager(private val context: Context) {
 						EventLog.record(
 							"export",
 							"${bearings.size} bearings + ${locations.size} locations" +
-								(if (imu.isNotEmpty()) " + ${imu.size} IMU samples" else "") +
+								(if (imuWritten > 0) " + $imuWritten IMU samples" else "") +
 								" in ${ms}ms → $locationsAt",
 						)
 					} catch (e: Exception) {
@@ -628,7 +637,29 @@ class GeoTrackingManager(private val context: Context) {
 	 *
 	 * @return a human-readable locator of where the bytes actually went.
 	 */
-	private fun writeExportCsv(displayName: String, content: String): String {
+	/**
+	 * The String form, for the exports small enough to build in one piece.
+	 *
+	 * "Small enough" is a judgement, and it was wrong once: `imu_samples` at ~720 rows/s
+	 * reached a million rows after a few missed dumps, `joinToString` grew a
+	 * StringBuilder to 131 MB against a 268 MB heap, and the app died in
+	 * `imuSamplesToCsv` — which meant the CLEAR at the end of the dump never ran, so the
+	 * table grew and the next dump died harder. A self-reinforcing crash loop, and the
+	 * comment above `lastDump` had predicted exactly it ("a dump slower than its own
+	 * 5-minute interval would skip and the table would grow without bound").
+	 *
+	 * So the real implementation streams, and the big export pages its reads as well.
+	 */
+	private fun writeExportCsv(displayName: String, content: String): String =
+		writeExportCsvStreaming(displayName) { it.write(content) }
+
+	/**
+	 * Open the export target and hand a Writer to [body] — nothing is held whole.
+	 *
+	 * Both targets are the same two as before, in the same order and with the same
+	 * fallback rules: the user's chosen folder through SAF, else app-private storage.
+	 */
+	private fun writeExportCsvStreaming(displayName: String, body: (java.io.Writer) -> Unit): String {
 		val prefs = context.getSharedPreferences("hillview_tracking_prefs", Context.MODE_PRIVATE)
 		val treeUriString = prefs.getString(EXPORT_TREE_URI_PREF, null)
 		if (treeUriString != null) {
@@ -641,8 +672,8 @@ class GeoTrackingManager(private val context: Context) {
 				val fileUri = DocumentsContract.createDocument(
 					context.contentResolver, parent, "text/csv", displayName,
 				) ?: throw java.io.IOException("createDocument returned null")
-				context.contentResolver.openOutputStream(fileUri)?.use {
-					it.write(content.toByteArray(Charsets.UTF_8))
+				context.contentResolver.openOutputStream(fileUri)?.use { out ->
+					out.bufferedWriter(Charsets.UTF_8).use(body)
 				} ?: throw java.io.IOException("openOutputStream returned null")
 				return exportFolderDisplayName(treeUriString) + "/" + displayName
 			} catch (e: SecurityException) {
@@ -665,7 +696,7 @@ class GeoTrackingManager(private val context: Context) {
 		val dir = File(context.getExternalFilesDir(null), "GeoTrackingDumps")
 		if (!dir.exists()) dir.mkdirs()
 		val file = File(dir, displayName)
-		file.writeText(content)
+		file.bufferedWriter(Charsets.UTF_8).use(body)
 		return file.absolutePath
 	}
 
@@ -694,6 +725,41 @@ class GeoTrackingManager(private val context: Context) {
 	 * can. Both travel because only the wall clock relates a sample to a photo's
 	 * `captured_at`.
 	 */
+	/**
+	 * Every IMU sample to [out], a page at a time. Returns how many rows were written.
+	 *
+	 * Memory is O(page), not O(table). The page size is a round 5 000 rows — about
+	 * 350 KB of entities, far below anything that matters, and large enough that a
+	 * million rows is 200 queries rather than 200 000.
+	 *
+	 * The key for the next page comes from the last row of this one, so a sample
+	 * arriving mid-dump (the engine keeps writing) is simply picked up by a later page
+	 * or missed by this dump and caught by the next — never duplicated, because the
+	 * keyset is strictly greater than what was already written.
+	 */
+	private fun writeImuSamplesCsv(out: java.io.Writer): Int {
+		out.write("#timestamp,kind,sequence,x,y,z,elapsedNanos\n")
+		var afterTimestamp = Long.MIN_VALUE
+		var afterKind = ""
+		var afterSequence = Int.MIN_VALUE
+		var written = 0
+		while (true) {
+			val page = database.imuDao()
+				.samplesAfter(afterTimestamp, afterKind, afterSequence, IMU_CSV_PAGE_ROWS)
+			if (page.isEmpty()) break
+			for (s in page) {
+				out.write("${s.timestamp},${s.kind},${s.sequence},${s.x},${s.y},${s.z},${s.elapsedNanos}\n")
+			}
+			written += page.size
+			val last = page.last()
+			afterTimestamp = last.timestamp
+			afterKind = last.kind
+			afterSequence = last.sequence
+			if (page.size < IMU_CSV_PAGE_ROWS) break
+		}
+		return written
+	}
+
 	private fun imuSamplesToCsv(samples: List<ImuSampleEntity>): String {
 		val header = "#timestamp,kind,sequence,x,y,z,elapsedNanos\n"
 		val rows = samples.joinToString("\n") {
