@@ -45,9 +45,14 @@ class HillviewApplication : Application() {
         cz.hillview.diag.CrashLog.lastReport(this)?.let { report ->
             cz.hillview.plugin.EventLog.record(
                 "crash",
-                "previous run crashed: " + (report.lineSequence().firstOrNull { it.contains("Exception") || it.contains("Error") } ?: "see Event log → Copy crash"),
+                "previous run crashed: " + cz.hillview.diag.crashSummaryLine(report),
             )
         }
+        // What CrashLog CANNOT catch, from the system's own records: a native crash, an
+        // ANR, a low-memory kill, or a crash early enough that our handler never ran.
+        // Retrospective, so this reports deaths that already happened — which is the
+        // difference between "no crash" and "our handler never got the chance".
+        cz.hillview.diag.CrashLog.recordSystemExitReasons(this)
         // The UploadSettingsRepository (createdAtStart) materializes the
         // upload-settings prefs the shared-kt stack reads.
         initKoin {
