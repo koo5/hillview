@@ -5,7 +5,7 @@
 #   uv pip compile --generate-hashes --python-version 3.12 \
 #       requirements.in -o requirements.txt
 numpy==2.4.4
-pillow==12.2.0
+pillow==12.3.0
 psutil==7.2.2
 rasterio
 remoulade[rabbitmq,limits]==7.0.0   # extras: broker.py needs limits, RabbitmqBroker needs amqpstorm (cf. api/pyproject.toml)
