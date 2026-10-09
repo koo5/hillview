@@ -127,12 +127,19 @@ data class CaptureTiming(
      * shifted 180° past 90° of roll, and negated on top of that when
      * `landscape_azimuth_negation` was true.
      *
-     * 1 — from 2026-10-08. Bearing, `pitch_deg` and `roll_deg` all come from
-     * transforming the camera axis, so they are continuous through every orientation:
-     * pitch is the optical axis's tilt POSITIVE LOOKING DOWN, roll is the image's
-     * rotation about that axis (0 upright, ±90 landscape), and both equal the
-     * `inertial.gravity` formulas by construction. No orientation class and no step
-     * functions, so `landscape_azimuth_negation` is inert from here on.
+     * 1 — from 2026-10-08. `pitch_deg` and `roll_deg` come from transforming the camera
+     * axis, so they are continuous through every orientation: pitch is the optical
+     * axis's tilt POSITIVE LOOKING DOWN, roll is the image's rotation about that axis
+     * (0 upright, ±90 landscape), and both equal the `inertial.gravity` formulas by
+     * construction. No orientation class and no step functions, so
+     * `landscape_azimuth_negation` is inert from here on.
+     *
+     * The HEADING in v1 is the camera's wherever the lens is meaningfully off vertical,
+     * and the device's TOP EDGE where it is not — a phone flat on a table has no lens
+     * bearing at all, and the map still needs one. Which reference answered is a
+     * function of `pitch_deg` and nothing else: `|pitch_deg| < 45` is the camera,
+     * `> 75` is the top edge, between is a blend. So a photo shot with the phone flat
+     * carries a bearing that is NOT where the lens pointed, and its own pitch says so.
      *
      * Nested in `capture_timing` for the same reason `build` is — the object is a
      * declared untyped dict server-side, so it needs no worker deploy — and with the
@@ -1030,6 +1037,13 @@ fun altLocationJson(a: AltLocation): String {
  *  - `heading_true_deg` — the compass's own declination-corrected heading. The
  *    `bearing` column is the elected, dead-banded cousin; `bearing_source`
  *    says whether that one came from here at all.
+ *
+ *    WHICH AXIS it is the heading OF depends on the posture, and `pitch_deg`
+ *    below is what says which: the optical axis while the lens is off vertical
+ *    (`|pitch_deg| < 45`), the device's TOP EDGE when the phone is flat
+ *    (`> 75`), a blend between. A phone on a table has no lens bearing to
+ *    report and the map still wants one — see
+ *    `cz.hillview.plugin.CameraPose.pointingBearingDeg`.
  *  - `heading_magnetic_deg` — the same reading uncorrected. Stored NOWHERE else: the
  *    snapshot has carried it since the beginning and every writer dropped it
  *    (the EXIF tags take true north, by ecosystem convention). Its difference

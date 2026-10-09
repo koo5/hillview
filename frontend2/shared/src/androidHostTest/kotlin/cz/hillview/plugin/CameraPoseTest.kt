@@ -140,6 +140,147 @@ class CameraPoseTest {
         assertEquals(got.sorted(), got, "pitch must be monotonic across the sweep")
     }
 
+    // --- the flat phone: the other reference ---
+
+    /**
+     * PHONE FLAT ON A TABLE, screen up, top edge pointing north. The lens points at the
+     * table, so it has no bearing at all — but the map still wants one, and the top
+     * edge has it. This is what the old `getOrientation` path published, and losing it
+     * was a real regression (user: "good for using the map with phone on a table").
+     */
+    @Test
+    fun aFlatPhonePublishesItsTopEdgeBearing() {
+        val p = pose(matrix(dx = east, dy = north, dz = up))
+        assertEquals(90f, p.pitchDeg, 0.01f, "the lens is pointing straight down")
+        assertEquals(0f, p.horizontalLength, 0.01f, "so it has no bearing of its own")
+        assertEquals(1f, p.deviceHorizontalLength, 0.01f, "but the top edge does")
+        assertEquals(0f, p.deviceBearingDeg, 0.01f)
+        assertEquals(0f, p.pointingBearingDeg, 0.01f)
+        assertEquals("device", p.bearingReference)
+    }
+
+    /** Rotate the flat phone on the table and the published bearing follows it. */
+    @Test
+    fun turningAFlatPhoneTurnsTheBearing() {
+        // Top edge to the east, so the device's +Y is east and +X is south.
+        val p = pose(matrix(dx = south, dy = east, dz = up))
+        assertEquals(90f, p.pointingBearingDeg, 0.01f)
+        assertEquals("device", p.bearingReference)
+    }
+
+    /**
+     * THE CASE A CONDITIONING-WEIGHTED BLEND WOULD RUIN. In landscape held upright BOTH
+     * axes are horizontal — the lens forward, the top edge sideways — so sharing the
+     * weight between them would skew the bearing by up to 45°, which is the mid-roll bug
+     * wearing a different hat. The camera must win outright.
+     */
+    @Test
+    fun landscapeUprightStaysPureCameraEvenThoughTheTopEdgeIsAlsoHorizontal() {
+        val p = pose(matrix(dx = down, dy = east, dz = south))
+        assertEquals(1f, p.horizontalLength, 0.01f)
+        assertEquals(1f, p.deviceHorizontalLength, 0.01f, "the top edge is horizontal too")
+        assertEquals(90f, p.deviceBearingDeg, 0.01f, "and points 90° away from the lens")
+        assertEquals("camera", p.bearingReference)
+        assertEquals(0f, p.pointingBearingDeg, 0.01f, "yet the published bearing is the lens's")
+    }
+
+    /** Every shooting posture is pure camera — the fallback must not leak into photos. */
+    @Test
+    fun everyShootingPostureIsPureCamera() {
+        for (pitchWanted in listOf(-40f, -20f, 0f, 20f, 40f)) {
+            val a = Math.toRadians(-pitchWanted.toDouble()).toFloat()
+            val c = cos(a)
+            val sn = sin(a)
+            for (landscape in listOf(false, true)) {
+                val p = if (landscape) {
+                    pose(matrix(Triple(0f, sn, -c), east, Triple(0f, -c, -sn)))
+                } else {
+                    pose(matrix(east, Triple(0f, sn, c), Triple(0f, -c, -sn)))
+                }
+                assertEquals(
+                    "camera", p.bearingReference,
+                    "pitch $pitchWanted landscape=$landscape fell back",
+                )
+                assertEquals(0f, p.pointingBearingDeg, 0.02f)
+            }
+        }
+    }
+
+    /**
+     * A matrix for a lens aimed at [azimuthDeg] / [elevationDeg] with the image rotated
+     * by [imageRollDeg], built so it is orthonormal BY CONSTRUCTION: the lens direction
+     * fixes device −Z, screen-up starts as world-up projected perpendicular to it and is
+     * rotated about it by the roll, and device X closes the frame as dy × dz.
+     *
+     * Worth the arithmetic because it sweeps the whole sphere without me hand-checking
+     * each pose, and because `cameraPoseFromRotationMatrix` REJECTS a non-rotation — so
+     * a sloppy matrix would make a sweep silently vacuous rather than failing.
+     */
+    private fun poseFor(azimuthDeg: Float, elevationDeg: Float, imageRollDeg: Float): CameraPose? {
+        fun rad(d: Float) = Math.toRadians(d.toDouble()).toFloat()
+        val a = rad(azimuthDeg)
+        val e = rad(elevationDeg)
+        val cz = Triple(sin(a) * cos(e), cos(a) * cos(e), sin(e))          // the lens
+        val dz = Triple(-cz.first, -cz.second, -cz.third)
+        // World up, with the component along the lens removed: screen-up at zero roll.
+        val dot = cz.third
+        var ux = -dot * cz.first
+        var uy = -dot * cz.second
+        var uz = 1f - dot * cz.third
+        val un = kotlin.math.sqrt(ux * ux + uy * uy + uz * uz)
+        if (un < 1e-4f) return null                                        // lens vertical
+        ux /= un; uy /= un; uz /= un
+        // v = lens × up-ish, completing an orthonormal pair in the image plane.
+        val vx = cz.second * uz - cz.third * uy
+        val vy = cz.third * ux - cz.first * uz
+        val vz = cz.first * uy - cz.second * ux
+        val r = rad(imageRollDeg)
+        val dy = Triple(
+            ux * cos(r) + vx * sin(r),
+            uy * cos(r) + vy * sin(r),
+            uz * cos(r) + vz * sin(r),
+        )
+        val dx = Triple(
+            dy.second * dz.third - dy.third * dz.second,
+            dy.third * dz.first - dy.first * dz.third,
+            dy.first * dz.second - dy.second * dz.first,
+        )
+        return cameraPoseFromRotationMatrix(matrix(dx, dy, dz))
+    }
+
+    /**
+     * The guarantee the thresholds are chosen from: +Y and −Z are orthogonal unit
+     * vectors, so their horizontal lengths satisfy hc² + hd² ≥ 1 and at least one is
+     * always ≥ 1/√2. There is therefore no posture where BOTH references are bad, which
+     * is what makes a hard floor on the camera safe.
+     *
+     * Swept over the sphere, and while we are here: the camera bearing must come back as
+     * the azimuth it was built from wherever the lens is not vertical.
+     */
+    @Test
+    fun oneOfTheTwoReferencesIsAlwaysWellConditioned() {
+        var checked = 0
+        for (az in 0..330 step 30) {
+            for (elev in -80..80 step 10) {
+                for (roll in -90..90 step 30) {
+                    val p = poseFor(az.toFloat(), elev.toFloat(), roll.toFloat()) ?: continue
+                    assertTrue(
+                        maxOf(p.horizontalLength, p.deviceHorizontalLength) >= 0.70f,
+                        "az $az elev $elev roll $roll left both references bad: " +
+                            "${p.horizontalLength} / ${p.deviceHorizontalLength}",
+                    )
+                    assertTrue(
+                        degreesClose(az.toFloat(), p.bearingDeg, 0.1f),
+                        "az $az elev $elev roll $roll gave camera bearing ${p.bearingDeg}",
+                    )
+                    assertEquals(-elev.toFloat(), p.pitchDeg, 0.1f)
+                    checked++
+                }
+            }
+        }
+        assertEquals(12 * 17 * 7, checked, "some poses were skipped, so the sweep is thinner than it reads")
+    }
+
     // --- the degeneracy, named instead of hidden ---
 
     /**

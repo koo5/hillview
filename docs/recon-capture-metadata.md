@@ -610,7 +610,7 @@ moves only when an existing field is REINTERPRETED.
 | value | what the attitude means |
 |---|---|
 | absent | before 2026-10-08. `pitch_deg`/`roll_deg` are Euler angles off a matrix remapped by the quantized `device_rotation_deg`: device-frame, discontinuous at quadrant boundaries, degenerate in landscape. The azimuth was shifted 180° past 90° of roll, and negated on top of that when `landscape_azimuth_negation` was true. |
-| **1** | from 2026-10-08. Bearing, `pitch_deg` and `roll_deg` from the camera-axis transform — continuous in every orientation, pitch POSITIVE LOOKING DOWN, roll the image's rotation about the optical axis, both equal to the `inertial.gravity` formulas by construction. `landscape_azimuth_negation` is inert. |
+| **1** | from 2026-10-08. `pitch_deg` and `roll_deg` from the camera-axis transform — continuous in every orientation, pitch POSITIVE LOOKING DOWN, roll the image's rotation about the optical axis, both equal to the `inertial.gravity` formulas by construction. `landscape_azimuth_negation` is inert. The heading is the camera's where the lens is off vertical and the device's TOP EDGE where it is not; `pitch_deg` says which. |
 
 Emitted first in the object, so it is the first thing a reader meets. Nested in
 `capture_timing` for the same reason `build` is — the object is a declared untyped dict
@@ -691,6 +691,44 @@ a true fact about the settings, and pre-2026-10-08 rows cannot be read without i
 the settings toggle no longer does anything — remove it or keep it as a kill switch is a
 product decision, not made here. And the absolute landscape↔portrait offset that
 rotation deltas structurally cannot see is still unmeasured.
+
+### The flat phone, and why the old path was not simply wrong
+
+Caught on the first day of real use (user, 2026-10-09): *"the new remapping does what was
+promised, but the old one had an advantage: when the phone was held roughly flat, it would
+still show more or less correct bearing. Good for using the map with phone on a table."*
+
+Correct, and it localises what the old design was actually doing. `getOrientation`'s
+azimuth is the direction of the device's **top edge**, projected horizontally — and that
+is exactly the reference a map wants from a phone lying on a desk. Its orientation
+classifier even had a FLAT case with "no remapping needed", which is why: unremapped, it
+was already the right answer there. The remap existed to convert the top edge into the
+lens direction for the postures where a photo is taken. So the old code was switching
+between two references on posture; the bug was that it did so on a quantized class and
+got landscape's conversion wrong.
+
+**The two references are complementary, not rival.** Held up to shoot, the lens is
+horizontal and the top edge points at the sky. Flat on a table, the lens points at the
+table and the top edge is horizontal. And that is provable rather than observed: the
+device's +Y and −Z are orthogonal unit vectors, so their vertical components satisfy
+u_y² + u_z² ≤ 1, hence their horizontal lengths satisfy hc² + hd² ≥ 1 and
+**max(hc, hd) ≥ 1/√2 always**. There is no posture in which both are bad.
+
+So the published heading is `pointingBearingDeg`: the camera's wherever hc ≥ 0.707 (the
+lens within 45° of level, which covers every shooting posture including landscape), the
+top edge's below hc ≤ 0.259 (the lens within ~15° of vertical), blended across the band.
+
+**The camera DOMINATES rather than sharing, and that is the whole design.** In landscape
+held upright both axes are horizontal — lens forward, top edge sideways — so a blend
+weighted by conditioning alone would split the difference and skew the bearing by up to
+45°, which is the mid-roll bug in a new costume. A test pins that case specifically.
+
+**No new provenance field, deliberately.** Which reference answered is a function of the
+camera's conditioning, which is a function of `pitch_deg`, which every photo already
+carries: `|pitch_deg| < 45` is the camera, `> 75` the top edge, between a blend. Nothing
+is hidden and the four-list tax is not paid for a derived value. The consequence worth
+stating: a photo shot with the phone flat carries a bearing that is NOT where the lens
+pointed — and its own pitch of ~±90 says so.
 
 ## Pitch has three homes — which is which
 

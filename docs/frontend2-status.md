@@ -2943,6 +2943,33 @@ before this build came out of it. Pre-10-08 landscape rows recover as
 NOT verified on hardware yet. `landscape_azimuth_negation` is now inert and still
 recorded, so the settings toggle does nothing — removing it is a product decision.
 
+### The flat phone — the camera bearing alone broke the map on a table
+
+First day of real use: the vector path does what it promised, but the old one still gave
+a usable bearing with the phone lying flat, which is how you read the map on a desk.
+
+That localises what the old design was doing rather than condemning it.
+`getOrientation`'s azimuth is the direction of the device's TOP EDGE — exactly the
+reference a flat phone needs, which is why its classifier had a FLAT case with "no
+remapping needed". The remap existed to convert the top edge into the lens direction for
+shooting postures. It was switching references on posture; the bug was doing it on a
+quantized class and getting landscape's conversion wrong.
+
+The two references are complementary, and provably so: +Y and −Z are orthogonal unit
+vectors, so hc² + hd² ≥ 1 and **max(hc, hd) ≥ 1/√2 always** — no posture leaves both bad.
+So the published heading is now the camera's where hc ≥ 0.707 (lens within 45° of level,
+every shooting posture including landscape) and the top edge's below 0.259, blended
+across the band.
+
+The camera DOMINATES rather than sharing: in landscape upright both axes are horizontal,
+so a conditioning-weighted blend would skew by up to 45° — the mid-roll bug in a new
+costume. A test pins that case.
+
+No new provenance field: which reference answered is a function of `pitch_deg`
+(`< 45` camera, `> 75` top edge, between a blend), so nothing is hidden and the four-list
+tax is not paid for a derived value. Folded into `metadata_version` 1 rather than bumping
+to 2, because v1 had not reached prod — checked before changing it.
+
 ### STILL NOT DONE, after this
 
 - **The still's own lens values.** Focus distance, intrinsics, distortion and skew are

@@ -60,7 +60,75 @@ data class CameraPose(
      * a caller can also read it as "how much of the aim is horizontal".
      */
     val horizontalLength: Float,
-)
+    /**
+     * The bearing of the device's TOP EDGE — where the +Y axis points, projected
+     * horizontally. The reference a map wants when the phone is lying on a table.
+     *
+     * It exists because the two references are COMPLEMENTARY, not rival. Held up to
+     * shoot, the lens is horizontal and the top edge points at the sky, so
+     * [bearingDeg] is the well-conditioned one. Flat on a table, the lens points at the
+     * table and the top edge is horizontal, so this one is. The old `getOrientation`
+     * path published exactly this (its azimuth IS the top edge's direction), which is
+     * why it kept working on a desk and why its orientation classifier had a FLAT case
+     * with "no remapping needed" — unremapped, it was already the right answer there.
+     * Replacing it with the camera bearing alone fixed photos and broke the map.
+     */
+    val deviceBearingDeg: Float,
+    /** How well-conditioned [deviceBearingDeg] is — see [horizontalLength]. */
+    val deviceHorizontalLength: Float,
+    /**
+     * THE ONE TO PUBLISH: the camera bearing wherever the lens is meaningfully off
+     * vertical, the top edge's where it is not, blended across the band between.
+     *
+     * The camera DOMINATES rather than sharing, and that is the whole design. In
+     * landscape held upright BOTH axes are horizontal, so a blend weighted by
+     * conditioning alone would split the difference and skew the bearing by up to 45° —
+     * which is the mid-roll bug in a new costume. So the weight is driven by the
+     * camera's conditioning only, and the top edge is a fallback, never a partner.
+     *
+     * The thresholds are not arbitrary. The device's +Y and −Z are orthogonal unit
+     * vectors, so their vertical components satisfy u_y² + u_z² ≤ 1, hence
+     * hc² + hd² ≥ 1 and **max(hc, hd) ≥ 1/√2 ≈ 0.707 always**. Taking that bound as
+     * the point where the camera stops being trusted alone guarantees the fallback is
+     * itself well-conditioned whenever it is reached: there is no posture in which both
+     * references are bad.
+     */
+    val pointingBearingDeg: Float,
+) {
+    /**
+     * Which reference [pointingBearingDeg] came from — "camera", "device" or "blend".
+     *
+     * Deliberately NOT a provenance field, because it does not need to be: the weight is
+     * a function of the camera's conditioning, which is a function of [pitchDeg], which
+     * every photo already carries. A consumer recovers it exactly —
+     * `|pitch_deg| < 45` is "camera", `> 75` is "device", between is "blend" — so
+     * nothing is hidden and the four-list tax is not paid for a derived value.
+     */
+    val bearingReference: String
+        get() = when (cameraWeight(horizontalLength)) {
+            1f -> "camera"
+            0f -> "device"
+            else -> "blend"
+        }
+}
+
+/**
+ * Full trust in the camera bearing at or above this horizontal length — the lens within
+ * 45° of level, which covers every posture a photo is taken from, landscape included.
+ * Also the provable crossover: at this value the top edge is guaranteed conditioned too.
+ */
+const val CAMERA_REFERENCE_FULL_AT = 0.707f
+
+/** No trust below this — the lens within ~15° of vertical, i.e. the phone flat. */
+const val CAMERA_REFERENCE_NONE_BELOW = 0.259f
+
+/** The camera bearing's share of [CameraPose.pointingBearingDeg], 0..1. */
+internal fun cameraWeight(cameraHorizontal: Float): Float = when {
+    cameraHorizontal >= CAMERA_REFERENCE_FULL_AT -> 1f
+    cameraHorizontal <= CAMERA_REFERENCE_NONE_BELOW -> 0f
+    else -> (cameraHorizontal - CAMERA_REFERENCE_NONE_BELOW) /
+        (CAMERA_REFERENCE_FULL_AT - CAMERA_REFERENCE_NONE_BELOW)
+}
 
 /**
  * Below this, [CameraPose.bearingDeg] should not be believed: the lens is within ~3° of
@@ -90,15 +158,45 @@ fun cameraPoseFromRotationMatrix(r: FloatArray): CameraPose? {
     // A real rotation matrix's columns are unit length. Anything far off is not one.
     if (norm < 0.5f || norm > 2f) return null
     val upUnit = (up / norm).coerceIn(-1f, 1f)
+    // The device's +Y axis — the top edge — is the matrix's second COLUMN.
+    val devEast = r[1]
+    val devNorth = r[4]
+    val devHorizontal = sqrt(devEast * devEast + devNorth * devNorth)
+    val hc = horizontal / norm
+    val w = cameraWeight(hc)
+    // Blend as VECTORS, each normalised first so the weight is the only thing deciding;
+    // adding the raw projections would weight by conditioning twice. A term whose axis
+    // is vertical contributes nothing and is skipped rather than dividing by ~zero.
+    var blendEast = 0f
+    var blendNorth = 0f
+    if (w > 0f && horizontal > 1e-6f) {
+        blendEast += w * east / horizontal
+        blendNorth += w * north / horizontal
+    }
+    if (w < 1f && devHorizontal > 1e-6f) {
+        blendEast += (1f - w) * devEast / devHorizontal
+        blendNorth += (1f - w) * devNorth / devHorizontal
+    }
+    fun deg(e: Float, n: Float) =
+        ((Math.toDegrees(atan2(e, n).toDouble()).toFloat() % 360f) + 360f) % 360f
     return CameraPose(
-        bearingDeg = ((Math.toDegrees(atan2(east, north).toDouble()).toFloat() % 360f) + 360f) % 360f,
+        bearingDeg = deg(east, north),
         // Positive = looking DOWN, so it is the negated elevation. Identical to
         // asin(gravityZ / |gravity|), which is how it was checked against real captures.
         pitchDeg = -Math.toDegrees(asin(upUnit).toDouble()).toFloat(),
         // World up expressed in DEVICE coordinates is the matrix's third ROW; its x and
         // y are how far the horizon is rotated within the image.
         imageRollDeg = Math.toDegrees(atan2(r[6], r[7]).toDouble()).toFloat(),
-        horizontalLength = horizontal / norm,
+        horizontalLength = hc,
+        deviceBearingDeg = deg(devEast, devNorth),
+        deviceHorizontalLength = devHorizontal,
+        // Both axes vertical is impossible for an orthogonal pair, so this only guards
+        // a matrix that is not a rotation; the camera bearing then stands.
+        pointingBearingDeg = if (blendEast == 0f && blendNorth == 0f) {
+            deg(east, north)
+        } else {
+            deg(blendEast, blendNorth)
+        },
     )
 }
 

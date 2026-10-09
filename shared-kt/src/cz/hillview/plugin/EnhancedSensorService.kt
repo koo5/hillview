@@ -848,7 +848,14 @@ class EnhancedSensorService(
             Log.v(TAG, "🔍📐 no usable rotation matrix yet from $source")
             return
         }
-        val heading = lens.bearingDeg
+        // THE POINTING bearing, not the bare camera one: with the phone flat on a table
+        // the lens points at the table and only the top edge has a horizontal direction
+        // left. The old getOrientation path published the top edge and so kept working
+        // on a desk — losing that was a real regression (user, 2026-10-09: "good for
+        // using the map with phone on a table"). See CameraPose.pointingBearingDeg; the
+        // camera still dominates wherever the lens is off vertical, so nothing about
+        // shooting changes.
+        val heading = lens.pointingBearingDeg
         val pitch = lens.pitchDeg
         val roll = lens.imageRollDeg
         if (!lens.bearingIsDefined()) {
@@ -860,7 +867,8 @@ class EnhancedSensorService(
             Log.d(
                 TAG,
                 "🔍🧭 lens within ${"%.1f".format(90f - abs(pitch))}° of vertical — " +
-                    "bearing $heading is ill-conditioned (horizontal ${lens.horizontalLength})",
+                    "bearing from ${lens.bearingReference} (camera horizontal " +
+                    "${lens.horizontalLength}, top edge ${lens.deviceHorizontalLength})",
             )
         }
 
