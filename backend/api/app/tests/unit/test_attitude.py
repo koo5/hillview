@@ -54,11 +54,54 @@ FULL = {
 	'age_ms': 0,
 	'device_rotation_deg': 90,
 	'landscape_azimuth_negation': False,
+	# How the angles were arrived at, 2026-10-10. The raw quaternion plus the
+	# arithmetic we applied, so a published frame can be re-derived rather than
+	# taken on trust.
+	'rotation_vector': [0.0123, -0.4567, 0.789, 0.4091],
+	'matrix_determinant': 1.0,
+	'bearing_reference': 'camera',
+	'bearing_conditioning': 0.9876,
+	'camera_bearing_deg': 68.4,
+	'device_bearing_deg': 158.4,
+	'branch_corrected': False,
+	'azimuth_mirrored': False,
 }
 
 
 def test_every_field_the_app_sends_survives():
 	assert _attitude(exif(FULL)) == FULL
+
+
+def test_the_raw_quaternion_survives_as_sent():
+	"""The one field everything else in the object is a function of, so it is
+	what makes a published frame re-derivable. Five elements too: Android lets
+	the rotation vector carry w and a heading accuracy after xyz, and the app
+	stores it at whatever length it arrived."""
+	five = [0.1, 0.2, 0.3, 0.9, 0.05]
+	assert _attitude(exif({'rotation_vector': five}))['rotation_vector'] == five
+
+
+def test_a_fired_correction_is_recorded_not_inferred():
+	"""Whether the 180-degree branch fix and the azimuth mirror actually fired.
+	Re-deriving them afterwards from the roll sign is the archaeology these
+	fields exist to retire, so True must survive as True and the two must stay
+	independent of each other."""
+	out = _attitude(exif({'branch_corrected': True, 'azimuth_mirrored': False}))
+	assert out == {'branch_corrected': True, 'azimuth_mirrored': False}
+
+
+def test_the_hal_diagnostics_are_absent_not_defaulted():
+	"""Both hand-rolled filters build no rotation matrix, and every photo taken
+	before 2026-10-10 has none of this. Absent has to read as absent: a
+	defaulted determinant of 0.0 or a branch_corrected of False would be a
+	claim about a measurement nobody made."""
+	out = _attitude(exif({'roll_deg': -1.5, 'fusion': 'MADGWICK_AHRS'}))
+	for key in (
+		'rotation_vector', 'matrix_determinant', 'bearing_reference',
+		'bearing_conditioning', 'camera_bearing_deg', 'device_bearing_deg',
+		'branch_corrected', 'azimuth_mirrored',
+	):
+		assert key not in out, key
 
 
 def test_roll_is_there_because_nothing_else_carries_it():

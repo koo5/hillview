@@ -85,7 +85,66 @@ data class OrientationSensorData(
 	val elapsedRealtimeNanos: Long = 0L,
 
 	val source: String,     // Elect-able identity — "android" for the sensor stack
-	val detail: String? = null  // Which fusion mode produced it, within that source
+	val detail: String? = null,  // Which fusion mode produced it, within that source
+
+	/**
+	 * How the ANGLES ABOVE WERE ARRIVED AT, for the next time this device's fusion
+	 * misbehaves. All null outside [EnhancedSensorService.MODE_UPRIGHT_ROTATION_VECTOR],
+	 * because the hand-rolled filters compute no rotation matrix to describe.
+	 *
+	 * This exists because of what it cost not to have it. Two faults in this phone's
+	 * TYPE_ROTATION_VECTOR took a session each to pin down (a 180° attitude branch in
+	 * level landscape, a mirrored azimuth above the horizon) and both were measured
+	 * through a temporary log probe, because the stamp carried only the FINAL heading —
+	 * by which point our own corrections had already been applied and could no longer be
+	 * told apart from the HAL's output. These fields make a captured frame
+	 * self-describing: [rotationVector] is what the HAL said, the rest is what we did
+	 * with it, and the two are separable after the fact without a cable.
+	 *
+	 * See `cz.hillview.plugin.CameraPose` for the geometry and
+	 * docs/todo/roll-skews-the-bearing.md for the question they are next needed for.
+	 */
+	val rotationVector: List<Float>? = null,
+	/**
+	 * `det(R)` of the matrix `getRotationMatrixFromVector` produced. A rotation matrix
+	 * has determinant +1; anything else is not one, and the cheapest possible detector
+	 * for a HAL returning something that only looks like an attitude. Measured +1.0000
+	 * through both known faults — which is the point: it RULED OUT the malformed-matrix
+	 * explanation rather than confirming it, and a diagnostic that can do that is worth
+	 * four bytes.
+	 */
+	val matrixDeterminant: Float? = null,
+	/**
+	 * Which vector the azimuth came from: `camera`, `blended` or `top_edge`. With the
+	 * lens near vertical its azimuth is undefined, so the device's top edge takes over
+	 * through a blend — and a bearing that disagrees with expectations means something
+	 * different in each case. See `CameraPose.bearingReference`.
+	 */
+	val bearingReference: String? = null,
+	/**
+	 * How well-defined the azimuth was: the horizontal length of the lens vector, 1 with
+	 * the camera level and 0 with it pointing straight up or down. Near 0 the heading is
+	 * arbitrary however healthy the sensors are, and this is the number that says so.
+	 */
+	val bearingConditioning: Float? = null,
+	/** The azimuth of the LENS alone, before the top-edge fallback was blended in. */
+	val cameraBearingDeg: Float? = null,
+	/** The azimuth of the device's TOP EDGE — the fallback's own answer, for decomposing a blend. */
+	val deviceBearingDeg: Float? = null,
+	/**
+	 * Whether the 180° attitude-branch correction fired on this sample: the HAL handed
+	 * back the attitude whose roll sign disagrees with gravity, and we added 180° to the
+	 * azimuths and flipped the image roll. Recorded rather than re-derived, so a row
+	 * that was corrected stays distinguishable from one that never needed it.
+	 */
+	val branchCorrected: Boolean? = null,
+	/**
+	 * Whether the landscape-above-horizon azimuth mirror was undone on this sample.
+	 * Gated on the user's `landscape_armor22_workaround` pref, so false means either
+	 * "not affected" or "not enabled" — `landscape_azimuth_negation` in the upload says
+	 * which.
+	 */
+	val azimuthMirrored: Boolean? = null,
 )
 
 

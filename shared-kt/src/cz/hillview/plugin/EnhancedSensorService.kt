@@ -905,16 +905,22 @@ class EnhancedSensorService(
         // roll's SIGN against the gravity-based orientation class, and the mirror on
         // landscape-plus-lens-above-horizon, because the measurements say those are two
         // different conditions.
-        val branched = if (rawLens != null &&
+        //
+        // Both decisions are HOISTED into named flags because they are stamped onto the
+        // photo (OrientationSensorData.branchCorrected / azimuthMirrored). Re-deriving
+        // afterwards from the roll sign is exactly the archaeology that cost two
+        // sessions here: by the time a heading reaches an upload, a corrected sample and
+        // one that never needed correcting look identical.
+        val onWrongBranch = rawLens != null &&
             rawLens.onWrongAttitudeBranch(expectedLandscapeRollSign())
-        ) {
+        val branched = if (rawLens != null && onWrongBranch) {
             rawLens.withBranchCorrected()
         } else {
             rawLens
         }
-        val lens = if (branched != null && mirrorAzimuthWhenAffected &&
+        val mirrorAzimuth = branched != null && mirrorAzimuthWhenAffected &&
             branched.inMirroredAzimuthRegion()
-        ) {
+        val lens = if (branched != null && mirrorAzimuth) {
             branched.withMirroredAzimuth()
         } else {
             branched
@@ -1035,7 +1041,11 @@ class EnhancedSensorService(
 
         // Include mode information in source
         val sourceWithMode = when (currentMode) {
-            MODE_UPRIGHT_ROTATION_VECTOR -> "$source (UPRIGHT MODE)"
+            // "(UPRIGHT MODE)" until 2026-10-10, naming a remap by orientation class
+            // that no longer exists — the angles come from transforming the camera axis
+            // now. The label has to change with the maths, or every row uploaded from
+            // here on claims a provenance that was retired.
+            MODE_UPRIGHT_ROTATION_VECTOR -> "$source (camera-axis)"
             MODE_MADGWICK_AHRS -> "$source MADGWICK_AHRS"
             MODE_COMPLEMENTARY_FILTER -> "$source COMPLEMENTARY_FILTER"
             else -> source
@@ -1052,6 +1062,11 @@ class EnhancedSensorService(
             // The rotation-vector sample rates itself; this is the one path
             // where a real value exists to pass on.
             fusedSensorAccuracy = event.accuracy,
+            // What the HAL said and what we made of it, kept separable on the frame.
+            pose = lens,
+            rotationVector = event.values,
+            branchCorrected = onWrongBranch,
+            azimuthMirrored = mirrorAzimuth,
         )
     }
 
@@ -1442,6 +1457,17 @@ class EnhancedSensorService(
          * that have not been restructured (Madgwick, complementary) behave as before.
          */
         publish: Boolean = true,
+        /**
+         * How the angles were arrived at, for the diagnostic fields on
+         * [OrientationSensorData] — null from every mode that computes no rotation
+         * matrix, which is both hand-rolled filters.
+         */
+        pose: CameraPose? = null,
+        /** The HAL's own output, `SensorEvent.values` of the rotation vector. */
+        rotationVector: FloatArray? = null,
+        /** Whether the 180° branch fix and the azimuth mirror fired on this sample. */
+        branchCorrected: Boolean = false,
+        azimuthMirrored: Boolean = false,
     ) {
         val startTime = System.currentTimeMillis()
         //Log.v(TAG, "TIMING 🕐 sendSensorData START: ${startTime} from $source")
@@ -1470,7 +1496,22 @@ class EnhancedSensorService(
             timestamp = System.currentTimeMillis(),
             elapsedRealtimeNanos = android.os.SystemClock.elapsedRealtimeNanos(),
             source = "android",
-            detail = "$source (EMA smoothed)",
+            // Was unconditionally "(EMA smoothed)", which EMA_ALPHA = 1 makes a false
+            // claim — that path is a pass-through. Derived from the constant instead, so
+            // the label cannot drift from the filter again.
+            detail = if (EMA_ALPHA < 1f) "$source (EMA $EMA_ALPHA)" else "$source (unsmoothed)",
+            // Only the rotation-vector path fills these; see the field docs. The
+            // `toList` is not cosmetic: `SensorEvent.values` is one array the HAL
+            // overwrites in place, so keeping a reference would hand every stored sample
+            // the LATEST reading. Copy here, inside the synchronous call.
+            rotationVector = rotationVector?.toList(),
+            matrixDeterminant = pose?.determinant,
+            bearingReference = pose?.bearingReference,
+            bearingConditioning = pose?.horizontalLength,
+            cameraBearingDeg = pose?.bearingDeg,
+            deviceBearingDeg = pose?.deviceBearingDeg,
+            branchCorrected = pose?.let { branchCorrected },
+            azimuthMirrored = pose?.let { azimuthMirrored },
         )
         // Every sample, whatever the cap and the gate decide below.
         onRawSample?.invoke(sample)

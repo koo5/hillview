@@ -235,6 +235,24 @@ data class DeviceAttitude(
     val fusedSensorAccuracy: Int? = null,
     /** Which fusion produced it, within the `android` source. */
     val detail: String? = null,
+
+    /**
+     * HOW THE ANGLES ABOVE WERE ARRIVED AT — the HAL's own output beside what we did
+     * with it. All null outside the rotation-vector path, and all carried onto a
+     * captured frame by `attitudeProvenanceJson`.
+     *
+     * Kept because this device's fusion has twice been wrong in ways that only a raw
+     * reading could settle, and the stamp used to carry the corrected heading alone.
+     * See `cz.hillview.plugin.OrientationSensorData` for what each one is for.
+     */
+    val rotationVector: List<Double>? = null,
+    val matrixDeterminant: Double? = null,
+    val bearingReference: String? = null,
+    val bearingConditioning: Double? = null,
+    val cameraBearingDeg: Double? = null,
+    val deviceBearingDeg: Double? = null,
+    val branchCorrected: Boolean? = null,
+    val azimuthMirrored: Boolean? = null,
     /** Wall-clock ms of the sample. */
     val ts: Long,
 

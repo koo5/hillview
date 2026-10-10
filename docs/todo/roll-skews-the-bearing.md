@@ -53,21 +53,42 @@ conditioning bug wants new constants, an overlay bug wants neither.
 
 ## The measurement that would settle it
 
-The same instrument that settled both landscape faults — the `[frame-probe]`
-block in `EnhancedSensorService`, which is why it is still in the build.
+Two sweeps, and from 2026-10-10 the photos carry everything needed to read them —
+`attitude.rotation_vector`, `matrix_determinant`, `bearing_reference`,
+`bearing_conditioning`, `camera_bearing_deg`, `device_bearing_deg`,
+`branch_corrected`, `azimuth_mirrored`, beside the heading, pitch, roll,
+`device_rotation_deg` and `motion.gravity` that were already there. No cable, no
+log probe: fetch the sweep from the timeline API and the analysis is arithmetic.
+Frames are `capture_timing.metadata_version` 2.
 
-Hold one bearing and one pitch, vary **only** roll in steps (0°, 10°, 20°, 30°,
-45°, 60°, 90°), and read off per step: `bearing`, `pitch`, `roll`, `det`, the
-lens `e/n/u` and the raw `rv`. Do it twice: near-level pitch, and ~20° above the
-horizon. Then plot reported bearing against roll.
+**Centre one distant landmark in every frame.** The lens axis lands on the
+landmark however the phone is rolled, so the landmark IS the ground truth for the
+true bearing. Without it a handheld sweep cannot separate "the bearing skewed"
+from "I turned slightly while rolling", and that confound is fatal to the whole
+measurement. Distant matters — a near object changes bearing when the feet move.
 
-- Flat line → the stamp is fine and the problem is downstream (overlay).
-- A line that tracks roll → read `rv`: if the raw quaternion's azimuth tracks
-  roll too, it is the HAL; if it does not, it is us.
-- Mid-roll (~40°) is the gap both existing corrections deliberately leave
-  uncorrected (`LANDSCAPE_ROLL_DEG = 60f`), so that step is the interesting one
-  for the combined question.
+**Pitch: off the horizon, not on it.** The mirror correction switches on
+`pitch < 0`, so a level sweep straddles the branch it is meant to hold still. One
+sweep ~10° BELOW the horizon (correction off), one ~20° ABOVE (correction on).
 
-Captured photos carry all of this in `attitude.*` plus
-`device_rotation_deg`, so a sweep uploaded from the field is analysable after the
-fact via the timeline API — no cable needed, same as last time.
+**Roll: signed, both directions.** The branch detector keys on the roll sign
+against gravity, so +45° and −45° are different experiments: `0, ±10, ±20, ±45,
+±90`. The ±10 step is where the user reports seeing it in portrait, so it is the
+one not to skip. ±20 is the first to drop if the set gets tedious.
+
+**2–3 shots per step.** The HAL flips branch on a steady hold; one shot per step
+cannot distinguish a roll skew from a flip that happened between two shots.
+
+Then plot reported bearing against roll, per sweep:
+
+- Flat → the stamp is fine and the problem is downstream, in the overlay.
+- Tracks roll → recompute the lens azimuth from `rotation_vector` directly. If
+  the raw quaternion's azimuth tracks roll too, it is the HAL; if it does not, it
+  is our arithmetic, and `bearing_reference` plus `bearing_conditioning` say
+  whether the fallback blend was involved.
+- `branch_corrected` / `azimuth_mirrored` make each row self-describing, so a
+  corrected frame never has to be told from an uncorrected one by eye again.
+
+Mid-roll (~40°) is the gap both existing corrections deliberately leave alone
+(`LANDSCAPE_ROLL_DEG = 60f`), so that step is the interesting one for the
+combined question.

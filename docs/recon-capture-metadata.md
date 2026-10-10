@@ -29,7 +29,7 @@ grouped objects, not a flat sprawl of keys, because the set will keep growing:
 
 | object | what it holds | phase |
 |---|---|---|
-| `attitude` | device pose: headings, pitch, roll, the two accuracies, fusion, device rotation | DONE |
+| `attitude` | device pose: headings, pitch, roll, the two accuracies, fusion, device rotation, and (2026-10-10) HOW the angles were arrived at — the HAL's raw quaternion, `det(R)`, which vector the bearing came from and how well-conditioned it was, and whether each of the two corrections fired | DONE |
 | `exposure` | the rule asked for and what it resolved to | pre-existing |
 | `alt_location` | the position stream the photo did NOT record | pre-existing |
 | `lens` | intrinsics, distortion, focus, zoom, focal length, skew | 2 |
@@ -611,6 +611,7 @@ moves only when an existing field is REINTERPRETED.
 |---|---|
 | absent | before 2026-10-08. `pitch_deg`/`roll_deg` are Euler angles off a matrix remapped by the quantized `device_rotation_deg`: device-frame, discontinuous at quadrant boundaries, degenerate in landscape. The azimuth was shifted 180° past 90° of roll, and negated on top of that when `landscape_azimuth_negation` was true. |
 | **1** | from 2026-10-08. `pitch_deg` and `roll_deg` from the camera-axis transform — continuous in every orientation, pitch POSITIVE LOOKING DOWN, roll the image's rotation about the optical axis, both equal to the `inertial.gravity` formulas by construction. `landscape_azimuth_negation` is inert. The heading is the camera's where the lens is off vertical and the device's TOP EDGE where it is not; `pitch_deg` says which. |
+| **2** | from 2026-10-10. Everything v1 says about MEANING still holds; the VALUES are now corrected for two measured faults in this device's fused rotation vector. The azimuths and `roll_deg` take +180° when the HAL returns the attitude whose roll sign disagrees with gravity; the azimuth is unmirrored in landscape above the horizon when the user's pref is on, so `landscape_azimuth_negation` is LIVE again and `attitude.azimuth_mirrored` says whether it fired. The HAL's raw quaternion is stamped alongside (`attitude.rotation_vector` and the fields with it), so a v2 frame is re-derivable rather than taken on trust. |
 
 Emitted first in the object, so it is the first thing a reader meets. Nested in
 `capture_timing` for the same reason `build` is — the object is a declared untyped dict

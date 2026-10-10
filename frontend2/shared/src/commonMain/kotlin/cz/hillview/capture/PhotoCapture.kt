@@ -31,7 +31,7 @@ import androidx.compose.ui.Modifier
  * The current metadata contract — see [CaptureTiming.metadataVersion] for what each
  * value means and for the rule about when it moves.
  */
-const val METADATA_VERSION = 1
+const val METADATA_VERSION = 2
 
 @kotlinx.serialization.Serializable
 data class CaptureTiming(
@@ -140,6 +140,22 @@ data class CaptureTiming(
      * function of `pitch_deg` and nothing else: `|pitch_deg| < 45` is the camera,
      * `> 75` is the top edge, between is a blend. So a photo shot with the phone flat
      * carries a bearing that is NOT where the lens pointed, and its own pitch says so.
+     *
+     * 2 — from 2026-10-10, and a REINTERPRETATION rather than new fields: two measured
+     * faults in this device's fused rotation vector are now corrected before the stamp
+     * is written, so a v1 and a v2 row from the same physical pose can differ. The
+     * azimuths and `roll_deg` get 180° added when the HAL returns the attitude whose
+     * roll sign disagrees with gravity (the 180° branch), and the azimuth is unmirrored
+     * in landscape with the lens above the horizon when the user's workaround pref is
+     * on. `landscape_azimuth_negation` is therefore LIVE again, after two days of being
+     * inert in v1 — and `attitude.azimuth_mirrored` beside it now says whether it fired
+     * on this frame, which v1 and earlier rows can only be guessed at from `roll_deg`.
+     *
+     * Everything v1 says about the MEANING of `pitch_deg`, `roll_deg` and the heading's
+     * reference still holds in v2; what changed is that the values are corrected. The
+     * HAL's own input is stamped alongside from here on (`attitude.rotation_vector` and
+     * the fields with it), so a v2 frame can be re-derived from scratch and does not
+     * have to be taken on trust — which is exactly what no v1 or earlier frame allows.
      *
      * Nested in `capture_timing` for the same reason `build` is — the object is a
      * declared untyped dict server-side, so it needs no worker deploy — and with the
@@ -1102,12 +1118,50 @@ fun altLocationJson(a: AltLocation): String {
  *    NOT this: CameraX derives that from the pose combined with the camera's
  *    sensorOrientation and lens facing, so it cannot be inverted back.
  *  - `landscape_azimuth_negation` — whether the Armor-22 toggle was ENABLED.
- *    STILL RECORDED, but INERT since 2026-10-08: the heading no longer passes
- *    through `getOrientation` or the two `abs(roll) > 90` branches the toggle
- *    switched, so it cannot affect the azimuth. Kept because it remains a true
- *    fact about the device's settings and because rows from BEFORE that build
- *    need it to be interpreted at all — there, true means the azimuth may have
- *    been negated, and `roll_deg` beside it is what says whether it fired.
+ *    Inert for the two days after 2026-10-08, when the heading stopped passing
+ *    through `getOrientation` and the two `abs(roll) > 90` branches the toggle
+ *    switched. LIVE AGAIN since 2026-10-10: it gates the measured
+ *    landscape-above-horizon azimuth mirror. What changed is that it no longer
+ *    has to be interpreted — `azimuth_mirrored` below says whether the
+ *    correction actually fired on THIS sample, which is what `roll_deg` had to
+ *    be used to guess at before, and for older rows still does.
+ *
+ * HOW THE ANGLES WERE ARRIVED AT. Everything above is a RESULT; these are the
+ * HAL's own output and the arithmetic we did on it, kept separable. They exist
+ * because two faults in one phone's `TYPE_ROTATION_VECTOR` each cost a session
+ * to pin down, and both had to be measured through a temporary log probe —
+ * the stamp carried only the final heading, by which point our own corrections
+ * were baked in and indistinguishable from the fusion's output. Absent from the
+ * Madgwick and complementary paths, which build no rotation matrix. See
+ * `cz.hillview.plugin.CameraPose`.
+ *  - `rotation_vector` — `SensorEvent.values` of `TYPE_ROTATION_VECTOR`, raw:
+ *    the quaternion `[x, y, z]`, usually with `w` and sometimes a heading
+ *    accuracy after it (Android lets the length vary, so it is stored as it
+ *    arrived rather than trimmed to an assumed shape). Everything else in this
+ *    object is a function of this, which is the point: a frame carrying it can
+ *    be re-derived from scratch years later, against whatever we believe the
+ *    geometry to be then.
+ *  - `matrix_determinant` — `det(R)` of the matrix built from it. +1 for a
+ *    proper rotation, −1 for a mirrored frame. It read +1.0000 through both
+ *    known faults, and that is its value: it RULED OUT a malformed matrix and
+ *    sent the search to the right place.
+ *  - `bearing_reference` — `camera`, `blended` or `top_edge`: which vector the
+ *    heading came from. With the lens near vertical its azimuth does not exist
+ *    and the device's top edge takes over, so a surprising heading means
+ *    something different in each case.
+ *  - `bearing_conditioning` — how well-defined the heading was: the horizontal
+ *    length of the lens vector, 1 level and 0 straight up or down. Near 0 the
+ *    azimuth is arbitrary with perfectly healthy sensors.
+ *  - `camera_bearing_deg` — the lens azimuth alone, before any fallback blend.
+ *  - `device_bearing_deg` — the top edge's azimuth, the fallback's own answer.
+ *    With the two above, a blended `heading_true_deg` decomposes.
+ *  - `branch_corrected` — whether the 180° attitude-branch fix fired: the HAL
+ *    returned the one of the two fitting attitudes whose roll sign disagrees
+ *    with gravity. Over 729 captures that disagreement separated 639 rows from
+ *    9 and 79 from 2, so it is a clean test, not a marginal one.
+ *  - `azimuth_mirrored` — whether the landscape-above-horizon mirror was
+ *    undone. False means "not affected" OR "not enabled";
+ *    `landscape_azimuth_negation` above is what tells those apart.
  *
  * The tracking table holds all of this at sensor rate too — but that table
  * only leaves the phone as a manual CSV export, so for an uploaded photo this
@@ -1126,6 +1180,17 @@ fun attitudeProvenanceJson(s: SensorSnapshot): String? {
             it.fusedSensorAccuracy?.let { add("\"fused_sensor_accuracy\":$it") }
             it.detail?.let { d -> add("\"fusion\":\"$d\"") }
             add("\"age_ms\":${s.poseReferenceMs() - it.ts}")
+            // THE HAL'S OWN OUTPUT, AND WHAT WE DID TO IT — see the block comment below.
+            it.rotationVector?.let { v ->
+                add("\"rotation_vector\":[${v.joinToString(",")}]")
+            }
+            it.matrixDeterminant?.let { d -> add("\"matrix_determinant\":$d") }
+            it.bearingReference?.let { r -> add("\"bearing_reference\":\"$r\"") }
+            it.bearingConditioning?.let { c -> add("\"bearing_conditioning\":$c") }
+            it.cameraBearingDeg?.let { b -> add("\"camera_bearing_deg\":$b") }
+            it.deviceBearingDeg?.let { b -> add("\"device_bearing_deg\":$b") }
+            it.branchCorrected?.let { b -> add("\"branch_corrected\":$b") }
+            it.azimuthMirrored?.let { b -> add("\"azimuth_mirrored\":$b") }
         }
         s.deviceRotationDeg?.let { add("\"device_rotation_deg\":$it") }
         s.compassLandscapeWorkaround?.let { add("\"landscape_azimuth_negation\":$it") }

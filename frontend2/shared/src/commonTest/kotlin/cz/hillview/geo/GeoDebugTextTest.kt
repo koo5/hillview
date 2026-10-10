@@ -146,6 +146,12 @@ class GeoDebugTextTest {
     @Test
     fun theSensorDetailIsCompressedToWhatVariesBetweenDevices() {
         assertEquals(
+            "ROTATION_VECTOR·camera-axis",
+            compactDetail("TYPE_ROTATION_VECTOR (camera-axis) (unsmoothed)"),
+        )
+        // The string the sensor stack produced until 2026-10-10. Still parsed, because
+        // a tracking row or an uploaded frame from before that build carries it.
+        assertEquals(
             "ROTATION_VECTOR·UPRIGHT",
             compactDetail("TYPE_ROTATION_VECTOR (UPRIGHT MODE) (EMA smoothed)"),
         )
