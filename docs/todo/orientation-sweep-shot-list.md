@@ -21,24 +21,56 @@ Gravity is silent about azimuth. That one fact decides the whole plan.
 Everything below therefore spends its effort on azimuth and treats pitch/roll as
 a free rider.
 
-## The site: Prosek Rocks lookout, not a street
+## The site: two requirements, and they fight each other
 
-`Vyhlídka Prosecké skály`, ~50.1169, 14.4884 — the project's existing anchor
-vantage (see the Prosek board notes and the annotated panorama `333e8851`).
+**Distant landmarks**, because position error converts to bearing error: at 300 m
+a metre of GPS error is 0.19°, at 8 km it is 0.007°. A street canyon puts its
+sharp features at tens of metres, where the same error is degrees — the size of
+the thing being measured. So a vista, not a street.
 
-Why it beats a square or a boulevard:
+**A magnetically QUIET spot**, which is the requirement that rules out the
+obvious vista. The Prosek Rocks lookout was the first candidate — it has the
+annotated panorama `333e8851`, a board that names every landmark, and ~114
+existing frames — and it is **out: the compass is severely disturbed there**
+(user, 2026-10-10).
 
-- **The landmarks are kilometres away.** Position error stops mattering: at 300 m
-  a metre of GPS error is 0.19° of bearing, at 8 km it is 0.007°. A street canyon
-  puts its sharp features at tens of metres, where the same error is degrees —
-  the size of the thing being measured.
-- **The ground truth is already written down.** The metal board's legend names
-  the landmarks (O2 Arena, Pankrác, Balabenka, Plynojem Palmovka, …), each of
-  which has a known position, so the true bearing of a centred landmark is a
-  two-point calculation rather than a photogrammetry problem.
-- **Azimuth spread**, which a canyon cannot give: it offers two usable bearings,
-  up the street and down it. Shape needs a circle.
-- It joins ~114 existing photos across 6+ dates at that vantage.
+That is worse than it sounds, and the reason matters more than the verdict. A
+local ferrous mass does not merely offset the heading; it DISTORTS and TILTS the
+field, and the fused azimuth's error then depends on how the device is held —
+because the fusion resolves heading by projecting the field through the current
+attitude. **Attitude-dependent azimuth error is the exact signature we would
+otherwise attribute to the HAL's mirror.** A disturbed site cannot distinguish
+the fault from the ground.
+
+So: an open vantage with kilometres of view, standing several metres clear of
+railings, lamp posts, parked cars, reinforced concrete and rails. Tram and
+trolleybus runs are the worst case — traction current is hundreds of amps of DC
+and the field it makes varies in TIME, so it cannot even be calibrated out.
+
+### The site test is now measurable, not a guess
+
+`mag` in the window (since `b1ad5e00`) makes site quality checkable from the data
+itself, with no magnetic model needed:
+
+- **The angle between gravity and the field is the magnetic inclination**, and it
+  is a property of the LOCATION. Compute `angle(accel, mag)` per sample across a
+  rotation: at a clean site with a calibrated magnetometer it is CONSTANT however
+  the phone is held. If it moves with attitude, either the phone's own hard/soft
+  iron is uncalibrated or the site is disturbed — and for this measurement those
+  are the same disqualification.
+- **|B| is rotation-invariant** for the same reason. Prague is ~49 µT total with
+  ~66° of dip; a spot reading well off that, or varying as the phone turns, is
+  not quiet.
+
+Shoot 30 seconds of rotation at a candidate spot and the window answers whether
+it is usable, before the real sweeps are spent on it.
+
+### Only the azimuth map needs the trip
+
+Worth separating, because it cuts the field burden sharply: the roll sweeps and
+the steady-hold branch tests are arbitrated by GRAVITY, which no magnetic
+disturbance touches. They can be shot anywhere — a garden, a window. Only step 1
+below, the azimuth map, needs a clean vantage with distant landmarks.
 
 Bring the centre mark (📷 → Centre mark → Shown, default on since `46945829`).
 
