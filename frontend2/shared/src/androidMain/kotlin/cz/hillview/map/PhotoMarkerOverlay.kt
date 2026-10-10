@@ -353,7 +353,7 @@ class PhotoMarkerOverlay : Overlay() {
 }
 
 /**
- * The dashed range ring. It is a **screen-constant** circle — the Tauri app
+ * The range ring. It is a **screen-constant** circle — the Tauri app
  * derives `range` from a fixed 70 CSS pixels, so the ring keeps its size
  * while zoom changes what it means on the ground. Drawn straight at that
  * pixel radius rather than round-tripping through metres, which would only
@@ -407,21 +407,18 @@ class GpsMarkerOverlay : Overlay() {
 }
 
 /**
- * The range ring's stroke, in dp — Leaflet's `weight 8.8` (CSS pixels, i.e.
- * dp here). Shared with [BearingArrowOverlay], whose hold is drawn ON this
- * ring and covers it once served.
- */
-const val RANGE_RING_STROKE_DP = 8.8f
-
-/**
  * The one circle on the map: the range, and the bearing handle as well.
  *
  * There used to be two, concentric and 21 dp apart: this one, which said
  * what the circle MEANS, and a faint blue ring at the arrow's tip radius,
  * which was what actually answered a finger (user, 2026-10-10: "This should
  * be unified into one circle somehow"). [BearingArrowOverlay] now grabs THIS
- * ring and draws its hold on it, so what the circle says and what it does
- * are the same line.
+ * ring and draws its hold against it, so what the circle says and what it
+ * does are the same line.
+ *
+ * And the line is the range EXACTLY (same day: "the circle should give users
+ * the exact threshold of the range"): a thin solid stroke on the threshold,
+ * where it used to be the middle of an 8.8 dp dashed band — see RangeRing.kt.
  *
  * Centred on the VIEW, as the arrow and its touch handling are, and not on
  * the spatial centre projected back to pixels. At rest those are one point,
@@ -430,7 +427,11 @@ const val RANGE_RING_STROKE_DP = 8.8f
  * and one circle cannot be in two places.
  */
 class RangeCircleOverlay : Overlay() {
-    /** Screen radius in device pixels (70dp worth). */
+    /**
+     * The range threshold's screen radius in device pixels (70dp worth): the
+     * radius MapScreen measures the range off, so the line drawn here is the
+     * line the viewer culls at. See RangeRing.kt for where the rest sits.
+     */
     var radiusPx: Float = 0f
     var visible: Boolean = true
 
@@ -451,11 +452,10 @@ class RangeCircleOverlay : Overlay() {
         val cy = mapView.height / 2f
 
         canvas.drawCircle(cx, cy, radiusPx, inner)
-        // Leaflet weight/dash are CSS pixels, i.e. dp here.
-        ring.strokeWidth = RANGE_RING_STROKE_DP * density
-        ring.pathEffect = android.graphics.DashPathEffect(
-            floatArrayOf(5f * density, 15f * density), 0f,
-        )
+        // The threshold: solid and thin, exactly on the range, so in and out
+        // of range is a line you can see. No dashed band any more — see
+        // RangeRing.kt.
+        ring.strokeWidth = RANGE_THRESHOLD_LINE_DP * density
         canvas.drawCircle(cx, cy, radiusPx, ring)
     }
 }

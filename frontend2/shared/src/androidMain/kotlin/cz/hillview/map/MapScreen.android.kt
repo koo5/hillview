@@ -429,17 +429,29 @@ actual fun MapScreen(
                 // never for drawing.
                 val centre = GeoPoint(spatial.latitude, spatial.longitude)
                 val density = view.context.resources.displayMetrics.density
-                val ringPx = 70f * density
+                // Whole pixels, so the radius drawn and the radius measured
+                // are one number: the circle is the cull threshold itself
+                // (user, 2026-10-10: "the exact threshold of the range"). It
+                // was a float drawn and its truncation measured.
+                val ringPx = kotlin.math.round(70f * density)
                 val rangeMeters = view.projection.let { p ->
                     val a = p.toPixels(centre, null)
+                    // Both ends read off the same pixel grid. Measuring from
+                    // `centre` itself added its rounding to the nearest pixel
+                    // to the radius — half a pixel either way, per pan.
+                    val c = p.fromPixels(a.x, a.y)
                     val b = p.fromPixels(a.x + ringPx.toInt(), a.y)
-                    centre.distanceToAsDouble(b)
+                    GeoPoint(c.latitude, c.longitude).distanceToAsDouble(b)
                 }.takeIf { it > 0 } ?: spatial.range
                 rangeOverlay.radiusPx = ringPx
                 // Read the circle's ground meaning back into the one state,
                 // so the viewer's ring culls against what the circle SHOWS.
                 // Only on real change: this block runs per recomposition.
-                if (kotlin.math.abs(rangeMeters - spatial.range) > spatial.range * 0.01) {
+                // A thousandth, not the hundredth it was: 1% of 70 dp is
+                // 0.7 dp of circle the cull could disagree with, a thousandth
+                // is under a pixel — and it still only fires on a zoom or a
+                // long north–south pan.
+                if (kotlin.math.abs(rangeMeters - spatial.range) > spatial.range * 0.001) {
                     state.updateRange(rangeMeters)
                 }
                 gpsOverlay.position = lastFix
@@ -452,8 +464,8 @@ actual fun MapScreen(
                 // readout's own half-second tick is what reads it.
                 arrowStamp[0] = System.currentTimeMillis()
                 arrowStamp[1] = bearing.bearing.toRawBits()
-                // The SAME ring the range overlay draws: the arrow grabs it
-                // and draws its hold on it, and places its own tip from it.
+                // The SAME ring the range overlay draws: the arrow grabs it,
+                // draws its hold just outside it and ends just inside it.
                 arrowOverlay.ringRadiusPx = ringPx
                 // The ring is grabbable in every mode; this decides only
                 // what a drag MEANS — car mode adjusts the mount offset by

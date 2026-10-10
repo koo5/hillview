@@ -69,6 +69,15 @@ data class MapSettings(
     /** JPEG quality of the saved stills, 1..100 (CaptureState.jpegQuality). */
     val jpegQuality: Int = DEFAULT_JPEG_QUALITY,
     /**
+     * The centre mark on the capture preview — see ViewfinderCentre.
+     *
+     * ON by default, which is the unusual choice for an overlay and the right one here:
+     * a photo's bearing and pitch describe the centre of its frame, so the mark says
+     * what the stamp refers to. Off is for when the subject is what matters and the
+     * direction is incidental.
+     */
+    val showViewfinderCentre: Boolean = true,
+    /**
      * The Main page's activity — "view" or "capture" — persisted so the
      * mode survives restarts, as the Tauri appSettings.activity does.
      */

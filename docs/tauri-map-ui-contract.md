@@ -37,6 +37,10 @@ Two separate absolutely-positioned clusters over the Leaflet map
 2. **Range circle** — only when `$app.activity != 'capture'`: centred on
    `$spatialState.center` with radius `$spatialState.range`, colour
    `#4AE092`, white fill, `weight 8.8`, `dashArray [5,15]`.
+   **frontend2 diverges** (user, 2026-10-10: "the circle should give users
+   the exact threshold of the range" / "the dashed band really had no
+   meaning"): no dashed band — one solid 2 dp line exactly on the range
+   (`RangeRing.kt`), with the white fill to the same radius.
 3. **Photo markers** (see the marker section).
 4. **`BearingStateArrow`** in an SVG overlay, hidden while
    `$app.activity === 'terrain'`. Gets `fullCircleHitArea` when
@@ -443,8 +447,11 @@ merge; phone-in-hand review drove this pass.
   travelled in car mode, jump-to-angle otherwise. And since 2026-10-10 the
   ring is the RANGE ring, as the original's car-mode ring is: frontend2
   had drawn and grabbed a second, blue ring at the arrow's tip radius, and
-  the user asked for the two circles to be one. The arrow's tip stays at
-  `range × 1.3`.
+  the user asked for the two circles to be one. The arrow's tip does NOT
+  stay at `range × 1.3`: it ends just inside the range line (user,
+  2026-10-10: "the bearing arrow should end right inside it"), and the hold
+  arc is drawn just outside it, so nothing covers the threshold
+  (`arrowTipRadiusPx`, `bearingHoldRadiusPx`).
 
 frontend2 divergences (deliberate): osmdroid's fling is disabled — its
 glide is essentially unbounded where Leaflet's inertia is short and

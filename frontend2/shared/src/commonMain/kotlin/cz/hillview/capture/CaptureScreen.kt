@@ -598,6 +598,14 @@ fun CaptureScreen(
     ) {
         capture.CameraPane(Modifier.fillMaxSize())
 
+        // WHERE THE LENS POINTS, over the preview and centred in the same pane the
+        // preview is centred in — the one point a FIT_CENTER letterbox leaves fixed.
+        // See ViewfinderCentre for why the centre specifically, and why it is on by
+        // default.
+        if (mapSettings.showViewfinderCentre) {
+            ViewfinderCentre(Modifier.align(Alignment.Center))
+        }
+
         // Top-left stack near the original pill's spot (CameraOverlay
         // .svelte: top 60px / left 60px) — pulled LOWER than the original's
         // 60: Main's floating hamburger/camera row is taller than the
@@ -861,6 +869,26 @@ fun CaptureScreen(
                             ) {
                                 showResolutionMenu = false
                                 mapSettingsRepo.update { it.copy(stillCaptureMode = mode) }
+                            }
+                        }
+                        // What the photo's bearing and pitch actually describe:
+                        // the middle of the frame. A knob because an overlay
+                        // over the subject is a matter of taste, and because a
+                        // bearing sweep needs it ON (see ViewfinderCentre).
+                        Text(
+                            "Centre mark",
+                            color = Color(0x99FFFFFF),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+                        )
+                        listOf(true, false).forEach { on ->
+                            ResolutionOption(
+                                label = if (on) "Shown" else "Hidden",
+                                selected = mapSettings.showViewfinderCentre == on,
+                                tag = "viewfinder-centre-option-${if (on) "on" else "off"}",
+                            ) {
+                                showResolutionMenu = false
+                                mapSettingsRepo.update { it.copy(showViewfinderCentre = on) }
                             }
                         }
                         // Decoupled from the mode on purpose: CameraX's

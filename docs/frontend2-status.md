@@ -508,6 +508,55 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-10-10 — the attitude says how it was arrived at, and the viewfinder has a centre
+
+Two faults in this phone's `TYPE_ROTATION_VECTOR` are corrected rather than
+remapped around (`CameraPose`, commit 6555c76d): a 180° attitude branch in level
+landscape, detected by the matrix roll's sign disagreeing with the gravity-based
+`device_rotation_deg` (639 rows against 9, and 79 against 2, over 729 captures),
+and an azimuth mirror in landscape with the lens above the horizon (ratio −1.05
+over 9 turning pairs; keyed on `pitch < 0` the worst step across a sweep is 15.7°
+against 109.4° raw). The second stays behind the user's Armor-22 pref, because it
+is this device lying rather than geometry. Mid-roll, around 40°, is unmeasured and
+deliberately left alone.
+
+**The lesson, and the change that follows from it.** Both took a session to pin
+down, and both had to be measured through a temporary log probe, because the stamp
+carried only the FINAL heading — by which point our own corrections were baked in
+and indistinguishable from the HAL's output. So `attitude` now carries HOW the
+angles were arrived at, permanently: `rotation_vector` (the HAL's raw quaternion,
+which everything else in the object is a function of), `matrix_determinant`,
+`bearing_reference`, `bearing_conditioning`, `camera_bearing_deg`,
+`device_bearing_deg`, and `branch_corrected` / `azimuth_mirrored` saying whether
+each correction fired. A frame is now self-describing and re-derivable years later;
+no frame before today is.
+
+`METADATA_VERSION` 1 → 2. Adding fields never bumps it, but the corrections
+REINTERPRET three existing ones, and `landscape_azimuth_negation` is live again
+after two days of being inert in v1.
+
+Two stale provenance strings fixed, both of which were on prod: `fusion` read
+`TYPE_ROTATION_VECTOR (UPRIGHT MODE) (EMA smoothed)`, naming a remap that no longer
+exists and a filter that `EMA_ALPHA = 1` makes a pass-through. It now reads
+`(camera-axis) (unsmoothed)`, derived from the constant so it cannot drift again;
+the old string is still parsed, since every earlier row carries it.
+
+**A DIVERGENCE FROM THE ORIGINAL, deliberately.** The capture preview has a centre
+mark (`ViewfinderCentre`, on by default, toggle in the 📷 menu). The Tauri app has
+none. The reason is that a photo's `bearing` and `attitude.pitch_deg` describe the
+optical axis — the middle of the frame — so without it the stamp refers to a point
+the person framing cannot see. It is also what makes a bearing measurable at all:
+centre a distant landmark and the true bearing is known independently of every
+sensor in the phone. The centre specifically, because the preview is `FIT_CENTER`
+and the centre is the one point a centred letterbox leaves fixed — a thirds line or
+a corner would land elsewhere in the saved photo. A render test pins the centring,
+which is the only property it claims and the one that would break silently.
+
+Open, as a separate effort: whether roll skews the bearing, visible at a few
+degrees in portrait, and whether one rule covers it —
+`docs/todo/roll-skews-the-bearing.md` has the sweep protocol and the three
+candidate explanations.
+
 ## 2026-10-10 — one circle on the map; the shutter's way out moves back
 
 - **The map has one circle** (user: "we have the blue bearing adjustment
@@ -522,10 +571,12 @@ the chain stopped. See `GeoDebugText.kt`.
     same `ringPx` the range overlay draws), and the hold arc closes ON that
     ring and, once armed, widens to its full 8.8 dp stroke
     (`RANGE_RING_STROKE_DP`) — the dashed green circle goes solid blue for as
-    long as it is the handle.
+    long as it is the handle. *(Superseded the same day: the hold now hugs
+    the line from outside — see the next bullet.)*
   - **The arrow did not move**: its tip stays at 1.3× the ring, the
     original's `range × 1.3`, now derived inside the overlay
-    (`ARROW_TIP_SCALE`) rather than passed in.
+    (`ARROW_TIP_SCALE`) rather than passed in. *(Superseded the same day:
+    the tip now ends just inside the ring — see the next bullet.)*
   - **The grab band moved in with the ring**: ±36 dp around 70 dp in the
     recording activities (34–106 dp from centre, was 55–127), ±18 dp in the
     viewer (52–88, was 73–109). The viewer's band is now exactly the
@@ -537,6 +588,38 @@ the chain stopped. See `GeoDebugText.kt`.
     gone.
   - `bearingRingGrabbed`'s radius parameter is `ringRadiusPx` now; tests
     renamed with it. Map tests green, APK assembles.
+
+- **The circle is the exact range threshold, and the arrow ends inside it**
+  (user: "the circle should give users the exact threshold of the range. and
+  the bearing arrow should end right inside it"; then "the dashed band
+  really had no meaning that im aware of"). NOT device-verified.
+  - **One solid 2 dp line on the range, no dashed band.** The threshold used
+    to be the invisible middle of Leaflet's 8.8 dp 5/15-dashed stroke, so a
+    photo anywhere under the stripe could be in or out. The band is no
+    longer drawn — a divergence from the original, whose circle it was.
+    Geometry and its reasoning live in one place, `RangeRing.kt` (commonMain),
+    which `RANGE_RING_STROKE_DP` moved into and then left: nothing draws an
+    8.8 dp ring any more.
+  - **The arrow's tip ends 1.5 dp inside the line's inner edge**
+    (`arrowTipRadiusPx`), where the original runs it out to `range × 1.3` —
+    an arrow past the circle said the range went further than it does.
+    The shaft now stops at the head's back: its round cap stuck 1.5 dp past
+    the point, so the arrow visibly ended beyond where it was placed.
+  - **The hold arc hugs the line from outside** (`bearingHoldRadiusPx`): its
+    inner edge sits on the line's outer edge at both widths, 3 dp charging
+    and 6 dp armed (`BEARING_HOLD_ARMED_DP`, was 8.8 to cover the band), so
+    it widens outward and never hides the threshold or the tip. The grab
+    zone is still centred on the line.
+  - **The range in the state now matches the line to under a pixel.** The
+    ring was drawn at a float radius and measured at its truncation, from
+    the centre's exact position to a point on the rounded pixel grid (half a
+    pixel either way per pan), and the read-back ignored changes under 1%
+    (0.7 dp). Now the radius is whole pixels, both ends are read off the
+    same grid, and the read-back fires past a thousandth. What is left is
+    osmdroid's earth radius (6378137 m) against the culler's (6371000 m),
+    0.11% — about 0.08 dp.
+  - Tests: `RangeRingTest` (tip inside the line, and right inside; the hold's
+    inner edge on the line at both widths, at four densities).
 
 - **Holding the shutter: the button's side cancels again, and the bottom
   rung reaches off the pane** (user: "sliding to the right side should mean
