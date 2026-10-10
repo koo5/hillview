@@ -535,6 +535,14 @@ private class AndroidPhotoCapture(
                     pitchDeg = it.pitch.toFloat(),
                     imageRollDeg = it.roll.toFloat(),
                     branchCorrected = it.branchCorrected,
+                    fieldMagnitudeUt = it.fieldMagnitudeUt?.toFloat(),
+                    fieldDipDeg = it.fieldDipDeg?.toFloat(),
+                    fieldLooksClean = it.fieldMagnitudeUt?.let { b ->
+                        cz.hillview.plugin.fieldLooksUndisturbed(
+                            b.toFloat(),
+                            it.fieldDipDeg?.toFloat(),
+                        )
+                    },
                 )
             }
         }

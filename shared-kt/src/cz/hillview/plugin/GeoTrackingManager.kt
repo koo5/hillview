@@ -158,6 +158,16 @@ data class OrientationSensorData(
 	 * because nothing stored it.
 	 */
 	val deviceRotationDeg: Int? = null,
+	/**
+	 * THE LOCAL FIELD, for judging whether the compass can be trusted HERE —
+	 * strength in µT and dip below horizontal in degrees. See `MagneticField.kt`;
+	 * both are properties of the location, so neither may change as the phone turns,
+	 * and the dip is a geometric invariant that cannot.
+	 *
+	 * Null outside the modes that register a magnetometer.
+	 */
+	val fieldMagnitudeUt: Float? = null,
+	val fieldDipDeg: Float? = null,
 )
 
 

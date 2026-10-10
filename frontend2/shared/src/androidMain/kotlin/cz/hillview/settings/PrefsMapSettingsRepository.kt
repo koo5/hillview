@@ -41,6 +41,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             stillCaptureMode = StillCaptureMode.fromKey(prefs.getString("still_capture_mode", null)),
             jpegQuality = prefs.getInt("jpeg_quality", DEFAULT_JPEG_QUALITY),
             showViewfinderCentre = prefs.getBoolean("viewfinder_centre", true),
+            showFieldCheck = prefs.getBoolean("field_check", false),
             mainActivity = prefs.getString("main_activity", null) ?: "view",
             splitPercent = prefs.getFloat("split_percent", 50f),
             gpsIntervalMs = prefs.getLong("gps_interval_ms", 1_000L),
@@ -75,6 +76,7 @@ class PrefsMapSettingsRepository(context: Context) : MapSettingsRepository {
             .putString("still_capture_mode", next.stillCaptureMode.key)
             .putInt("jpeg_quality", next.jpegQuality.coerceIn(1, 100))
             .putBoolean("viewfinder_centre", next.showViewfinderCentre)
+            .putBoolean("field_check", next.showFieldCheck)
             .putLong("gps_interval_ms", next.gpsIntervalMs.coerceIn(250L, 60_000L))
             .putString("main_activity", next.mainActivity)
             .putFloat("split_percent", next.splitPercent.coerceIn(10f, 90f))

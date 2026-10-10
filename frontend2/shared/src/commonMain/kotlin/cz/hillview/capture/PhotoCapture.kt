@@ -573,6 +573,29 @@ data class CaptureState(
      * can be attributed, instead of being a jump with no stated cause.
      */
     val branchCorrected: Boolean? = null,
+    /**
+     * CAN THE COMPASS BE TRUSTED HERE — the local field's strength in µT and its dip
+     * below horizontal in degrees, both properties of the LOCATION rather than of how
+     * the phone is held. Prague is about 49 µT at 66°.
+     *
+     * Shown behind a setting, because it answers a question only asked while choosing
+     * somewhere to measure an azimuth from: a disturbed field does not merely offset the
+     * heading, it makes the error depend on the device's attitude, which is
+     * indistinguishable from the HAL fault being hunted. See `MagneticField.kt`.
+     */
+    val fieldMagnitudeUt: Float? = null,
+    val fieldDipDeg: Float? = null,
+    /**
+     * Whether those two look like the Earth's field here — the screening verdict from
+     * `MagneticField.fieldLooksUndisturbed`.
+     *
+     * Decided where the sensors are, not in the UI, for the same reason [branchCorrected]
+     * is: the reference values live beside the maths that uses them, and `cz.hillview.plugin`
+     * is Android-only source while this overlay is common. A UI that re-derived the
+     * verdict would be a second copy of Prague's field strength, free to drift from the
+     * first.
+     */
+    val fieldLooksClean: Boolean? = null,
     val lastPhoto: CapturedPhoto? = null,
     val errorMessage: String? = null,
     /** A video recording is in progress — the shutter stops it. */

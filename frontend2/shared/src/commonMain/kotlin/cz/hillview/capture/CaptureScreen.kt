@@ -639,6 +639,7 @@ fun CaptureScreen(
             CameraOverlayUi(
                 suppressHint = showBearingHint,
                 state = state,
+                fieldCheck = mapSettings.showFieldCheck,
                 bearingMode = mapSettings.bearingMode,
                 // What a capture would stamp when it is NOT the fix: the map
                 // centre, live — while claimed over a fix, and whenever there
@@ -889,6 +890,26 @@ fun CaptureScreen(
                             ) {
                                 showResolutionMenu = false
                                 mapSettingsRepo.update { it.copy(showViewfinderCentre = on) }
+                            }
+                        }
+                        // Whether the compass can be trusted where you are
+                        // standing — for picking a spot to measure an azimuth
+                        // from, which is the one job a disturbed field makes
+                        // impossible. See MagneticField.kt.
+                        Text(
+                            "Field check",
+                            color = Color(0x99FFFFFF),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 12.dp, top = 6.dp),
+                        )
+                        listOf(true, false).forEach { on ->
+                            ResolutionOption(
+                                label = if (on) "Shown" else "Hidden",
+                                selected = mapSettings.showFieldCheck == on,
+                                tag = "field-check-option-${if (on) "on" else "off"}",
+                            ) {
+                                showResolutionMenu = false
+                                mapSettingsRepo.update { it.copy(showFieldCheck = on) }
                             }
                         }
                         // Decoupled from the mode on purpose: CameraX's

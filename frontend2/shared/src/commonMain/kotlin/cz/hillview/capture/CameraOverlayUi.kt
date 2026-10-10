@@ -63,6 +63,8 @@ fun CameraOverlayUi(
      * compass that is not running would be advice about the wrong problem.
      */
     suppressHint: Boolean = false,
+    /** Show the magnetic field readout — MapSettings.showFieldCheck. */
+    fieldCheck: Boolean = false,
 ) {
     // The post-open hint: 4 s from the camera coming ready, as the
     // original fires doCalibrationHint right after the stream starts.
@@ -110,7 +112,7 @@ fun CameraOverlayUi(
         Column(Modifier.padding(start = 18.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)) {
             when {
                 showHint && !suppressHint -> HintContent(bearingMode)
-                else -> LocationRows(state, overridePosition)
+                else -> LocationRows(state, overridePosition, fieldCheck)
             }
             statusText?.let { MonoText(it, Modifier.testTag("capture-status")) }
             uploadsText?.let { MonoText(it, Modifier.testTag("capture-upload-stats")) }
@@ -161,7 +163,11 @@ private fun HintContent(bearingMode: BearingMode) {
 }
 
 @Composable
-private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?) {
+private fun LocationRows(
+    state: CaptureState,
+    overridePosition: ManualLocation?,
+    fieldCheck: Boolean,
+) {
     // The effective capture position — the honesty note in the contract:
     // Tauri shows its pairing position (map state); here that is the
     // claimed manual position when it wins, else the fix.
@@ -237,6 +243,20 @@ private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?)
                 }?.let { "g ${pad(signedOneDp(it.toDouble()), W_ROLL)}°" },
             ).joinToString("  "),
             Modifier.testTag("attitude-readout"),
+        )
+    }
+    // THE FIELD CHECK, behind its setting: is the compass trustworthy where we are
+    // standing? Both numbers are properties of the LOCATION, so the way to read them is
+    // to turn on the spot and watch whether they hold still — the dip especially, which
+    // is a geometric invariant and CANNOT move under rotation. A ✓ is only a screening
+    // test against Prague's 49 µT at 66°; it cannot see the few degrees of disturbance
+    // that would still spoil a careful azimuth. See MagneticField.kt.
+    if (fieldCheck && state.fieldMagnitudeUt != null) {
+        MonoText(
+            "🧲 ${pad(oneDp(state.fieldMagnitudeUt.toDouble()), W_FIELD)}µT  " +
+                "dip ${pad(state.fieldDipDeg?.let { signedOneDp(it.toDouble()) } ?: "—", W_DIP)}°" +
+                if (state.fieldLooksClean == true) "  ✓" else "  ✗",
+            Modifier.testTag("field-check"),
         )
     }
     if (overridePosition == null) {
@@ -327,6 +347,10 @@ internal const val W_PITCH = 5
 internal const val W_ROLL = 6
 internal const val W_ALT = 7
 internal const val W_ACCURACY = 3
+// A disturbed field can read far above the Earth's ~49 µT, so four digits; the dip is
+// signed and cannot exceed 90.
+internal const val W_FIELD = 6
+internal const val W_DIP = 5
 
 /** toFixed(n), without java.lang.String.format (this is commonMain). */
 internal fun fmtDecimals(v: Double, decimals: Int): String {

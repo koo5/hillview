@@ -253,6 +253,12 @@ data class DeviceAttitude(
     val deviceBearingDeg: Double? = null,
     val branchCorrected: Boolean? = null,
     val azimuthMirrored: Boolean? = null,
+    /**
+     * The LOCAL FIELD — strength in µT and dip below horizontal — for judging whether
+     * the compass can be trusted where the phone is standing. See `MagneticField.kt`.
+     */
+    val fieldMagnitudeUt: Double? = null,
+    val fieldDipDeg: Double? = null,
     /** Wall-clock ms of the sample. */
     val ts: Long,
 

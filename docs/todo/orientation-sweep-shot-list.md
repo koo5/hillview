@@ -65,6 +65,21 @@ itself, with no magnetic model needed:
 Shoot 30 seconds of rotation at a candidate spot and the window answers whether
 it is usable, before the real sweeps are spent on it.
 
+**And it is on screen, so the spot can be judged THERE rather than at the desk**:
+📷 → Field check → Shown gives `🧲 49.2µT  dip +65.8°  ✓`. Turn on the spot and
+watch the dip: it is a geometric invariant, so rotating the phone cannot move it.
+If it wanders, the site or the magnetometer is the reason and the spot is out.
+The ✓ only screens against Prague's 49 µT at 66° with 8 units of slack — it
+cannot see the few degrees that would still spoil a careful azimuth, which is
+why the dip holding still is the real test.
+
+**Candidate: Vyhlídka Havránka** (user, 2026-10-10 — expected to be clean in this
+regard). Open, natural, clear of traction current. Verify with the readout before
+spending the sweeps, and if the view spans much less than a full circle, a second
+quiet vantage facing the complementary directions completes the azimuth map —
+each frame's bearing comes from its own landmark, so the two spots need not be
+the same place.
+
 ### Only the azimuth map needs the trip
 
 Worth separating, because it cuts the field burden sharply: the roll sweeps and

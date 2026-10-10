@@ -1547,6 +1547,23 @@ class EnhancedSensorService(
             // measured whatever the fusion mode, and it is recorded precisely because it
             // cannot be recomputed from any sensor series afterwards.
             deviceRotationDeg = DeviceOrientation.toDegrees(deviceOrientation),
+            // Whether the compass can be trusted at this spot at all. Computed here
+            // because this is where the accelerometer and the magnetometer are both
+            // already in hand, and gated on the magnetometer having reported: an
+            // all-zero vector would read as a 0 µT field rather than as no reading.
+            fieldMagnitudeUt = if (hasMagnetometer) {
+                fieldMagnitudeUt(magnetometerData[0], magnetometerData[1], magnetometerData[2])
+            } else {
+                null
+            },
+            fieldDipDeg = if (hasMagnetometer) {
+                fieldDipDeg(
+                    accelerometerData[0], accelerometerData[1], accelerometerData[2],
+                    magnetometerData[0], magnetometerData[1], magnetometerData[2],
+                )
+            } else {
+                null
+            },
         )
         // Every sample, whatever the cap and the gate decide below.
         onRawSample?.invoke(sample)
