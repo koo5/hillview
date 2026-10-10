@@ -159,6 +159,9 @@ class EnhancedSensorService(
         const val DEFAULT_SENSOR_DELAY_US = 1000*30//SensorManager.SENSOR_DELAY_GAME // Faster updates
 
         // Smoothing and filtering parameters
+        /** How often the temporary frame-probe may write an Event log line. */
+        private const val REVERSAL_PROBE_PERIOD_MS = 2_000L
+
         private const val EMA_ALPHA = 1f // EMA smoothing factor (0.1-0.3 range, lower = more smoothing)
         private const val HEADING_THRESHOLD = 1.0f // Minimum heading change to trigger update (degrees)
         private const val PITCH_THRESHOLD = 1.0f // Minimum pitch change to trigger update (degrees)
@@ -242,6 +245,9 @@ class EnhancedSensorService(
     private val MAX_FILTER_GAP_MS = 1_000L
 
     // Device orientation tracking
+    /** See the frame-probe in handleRotationVector — temporary. */
+    private var lastReversalProbeMs = 0L
+
     private var deviceOrientation = DeviceOrientation.PORTRAIT
 
     private val orientationEventListener = object : OrientationEventListener(context) {
@@ -869,6 +875,33 @@ class EnhancedSensorService(
                 "🔍🧭 lens within ${"%.1f".format(90f - abs(pitch))}° of vertical — " +
                     "bearing from ${lens.bearingReference} (camera horizontal " +
                     "${lens.horizontalLength}, top edge ${lens.deviceHorizontalLength})",
+            )
+        }
+
+        // TEMPORARY, TARGETED DIAGNOSTIC. A bearing reversal was reported that is
+        // confined to landscape with the lens above the horizon — and nothing between
+        // the matrix and `heading` is conditional on either, so the matrix itself is the
+        // only place it can come from. This records exactly that posture and nothing
+        // else, into the Event log, where it can be copied off a phone with no cable.
+        //
+        // `det` is the question: +1 says the HAL handed us a proper rotation and the
+        // reversal is a rotation pointing the wrong way; −1 says it handed us a MIRRORED
+        // frame, which is what a negation genuinely compensates and would vindicate the
+        // Armor-22 hack as fixing a real device defect. The lens vector is there so the
+        // reversal can be watched directly in world coordinates while the phone turns.
+        //
+        // Delete this once the question is answered.
+        if (abs(roll) > 60f && pitch < -10f &&
+            currentTime - lastReversalProbeMs > REVERSAL_PROBE_PERIOD_MS
+        ) {
+            lastReversalProbeMs = currentTime
+            EventLog.record(
+                "frame-probe",
+                "bearing ${"%.1f".format(heading)} pitch ${"%.1f".format(pitch)} " +
+                    "roll ${"%.1f".format(roll)} det ${"%.4f".format(lens.determinant)} " +
+                    "lens e/n/u ${"%.3f".format(lens.lensEast)}/" +
+                    "${"%.3f".format(lens.lensNorth)}/${"%.3f".format(lens.lensUp)} " +
+                    "rv ${event.values.take(4).joinToString(",") { "%.4f".format(it) }}",
             )
         }
 

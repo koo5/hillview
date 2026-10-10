@@ -95,6 +95,21 @@ data class CameraPose(
      * references are bad.
      */
     val pointingBearingDeg: Float,
+    /**
+     * `det(R)` — +1 for a proper rotation, −1 for a mirrored frame.
+     *
+     * A DIAGNOSTIC, not a value anything consumes. It is here because a reversal was
+     * reported that the maths above cannot produce: every expression in this function is
+     * unconditional, so a symptom confined to one region of the sphere has to be in the
+     * matrix rather than in what is computed from it. This splits "the HAL handed us
+     * something that is not a rotation at all", which a negation would genuinely
+     * compensate, from "a rotation, but pointing the wrong way", which it would not.
+     */
+    val determinant: Float,
+    /** The lens direction in world coordinates — (east, north, up), unit length. */
+    val lensEast: Float,
+    val lensNorth: Float,
+    val lensUp: Float,
 ) {
     /**
      * Which reference [pointingBearingDeg] came from — "camera", "device" or "blend".
@@ -225,6 +240,12 @@ fun cameraPoseFromRotationMatrix(r: FloatArray): CameraPose? {
         } else {
             deg(blendEast, blendNorth)
         },
+        determinant = r[0] * (r[4] * r[8] - r[5] * r[7]) -
+            r[1] * (r[3] * r[8] - r[5] * r[6]) +
+            r[2] * (r[3] * r[7] - r[4] * r[6]),
+        lensEast = east / norm,
+        lensNorth = north / norm,
+        lensUp = upUnit,
     )
 }
 
