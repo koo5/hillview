@@ -191,6 +191,10 @@ disjoint and easy to conflate:
 
 | | app photos (frontend2) | external frames (`pics`) |
 |---|---|---|
+
+The IMU artifact carries three kinds as of 2026-10-10: `accel` (m/s²), `gyro` (rad/s) and `rv` — `TYPE_ROTATION_VECTOR` as a unit quaternion's vector part, three floats at six decimals. `w` comes back as `sqrt(1 - x² - y² - z²)`, which is what `SensorManager.getRotationMatrixFromVector` itself does with a 3-element vector, so the existing row shape holds it losslessly and no migration was needed. Replay it with `CameraPose.cameraPoseFromRotationVector` — the same geometry the phone ran.
+
+It is there because of what its absence cost: accel and gyro describe the TRUE motion across an exposure, but not what the fusion REPORTED during it, and both attitude faults found on this device were about the reported value. Each had to be chased with a person watching a readout. With `rv` recorded, a window answers that offline.
 | route | the upload carries everything: `attitude`, `fix`, `lens`, `motion`, and `imu_samples` | the CSV dumps, which are the ONLY route |
 | joined by | nothing — it is all one record | time, against the logs |
 | needs the dumps | no | yes, entirely |

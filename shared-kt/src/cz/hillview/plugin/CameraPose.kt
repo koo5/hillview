@@ -465,3 +465,43 @@ internal fun signedDegreeDelta(a: Float, b: Float): Float {
 /** True when [a] and [b] are within [toleranceDeg] of each other on the circle. */
 internal fun degreesClose(a: Float, b: Float, toleranceDeg: Float): Boolean =
     abs(signedDegreeDelta(a, b)) <= toleranceDeg
+
+/**
+ * The rotation matrix a STORED rotation-vector sample implies — the replay path.
+ *
+ * `ImuRing.KIND_RV` keeps a quaternion's vector part, three floats in the row shape the
+ * window already had. This is what turns those three numbers back into an attitude, and
+ * it exists so that OFFLINE analysis of a stored window runs the SAME geometry the phone
+ * ran, rather than a reimplementation that can drift from it. That was the gap: with only
+ * accel and gyro recorded, the true motion was recoverable but what the fusion reported
+ * during it was not, so every question about the fusion needed someone watching a screen.
+ *
+ * `w` is recovered as `sqrt(1 - x² - y² - z²)`, which is not an approximation and not a
+ * choice: `SensorManager.getRotationMatrixFromVector` does exactly this when handed a
+ * 3-element vector, so a unit quaternion's vector part determines it. Clamped at 0
+ * because float error can push the sum just past 1.
+ *
+ * Row-major device→world, the same convention [cameraPoseFromRotationMatrix] consumes.
+ */
+fun rotationMatrixFromVector(x: Float, y: Float, z: Float): FloatArray {
+    val w2 = 1f - x * x - y * y - z * z
+    val w = if (w2 > 0f) sqrt(w2) else 0f
+    val xx = 2f * x * x
+    val yy = 2f * y * y
+    val zz = 2f * z * z
+    val xy = 2f * x * y
+    val xz = 2f * x * z
+    val yz = 2f * y * z
+    val wx = 2f * w * x
+    val wy = 2f * w * y
+    val wz = 2f * w * z
+    return floatArrayOf(
+        1f - yy - zz, xy - wz, xz + wy,
+        xy + wz, 1f - xx - zz, yz - wx,
+        xz - wy, yz + wx, 1f - xx - yy,
+    )
+}
+
+/** [cameraPoseFromRotationMatrix] straight from a stored rotation-vector sample. */
+fun cameraPoseFromRotationVector(x: Float, y: Float, z: Float): CameraPose? =
+    cameraPoseFromRotationMatrix(rotationMatrixFromVector(x, y, z))

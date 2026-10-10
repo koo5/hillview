@@ -920,6 +920,7 @@ class GeoEngine private constructor(private val context: Context) {
             val kind = when (event.sensor.type) {
                 android.hardware.Sensor.TYPE_ACCELEROMETER -> ImuRing.KIND_ACCEL
                 android.hardware.Sensor.TYPE_GYROSCOPE -> ImuRing.KIND_GYRO
+                android.hardware.Sensor.TYPE_ROTATION_VECTOR -> ImuRing.KIND_RV
                 else -> return
             }
             val atMs = imuWallClockFor(event.timestamp)
@@ -1001,6 +1002,34 @@ class GeoEngine private constructor(private val context: Context) {
                 return
             }
         imuRegistered = true
+
+        // THE FUSED ATTITUDE, best-effort and DELIBERATELY NOT in `wanted` above.
+        // That list is all-or-nothing by design — a half-registered window reads as
+        // "this device has no gyroscope" — and the rotation vector must not be able
+        // to take the window down with it: accel and gyro are what a window is FOR,
+        // this is a diagnostic beside them. So it is registered after the pair has
+        // succeeded, at the rate the pair actually achieved, and a refusal costs
+        // nothing but a log line. Same listener, so the unregister paths already
+        // cover it.
+        val rvSensor = manager.getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR)
+        if (rvSensor == null) {
+            Log.i(TAG, "no TYPE_ROTATION_VECTOR — IMU windows carry accel and gyro only")
+        } else {
+            val ok = try {
+                manager.registerListener(
+                    imuListener, rvSensor, rate,
+                    (IMU_BATCH_LATENCY_MS * 1_000).toInt(), handler,
+                )
+            } catch (e: SecurityException) {
+                // The HIGH_SAMPLING_RATE_SENSORS case, which THROWS rather than
+                // clamping. The pair above already survived it at this rate, but a
+                // fused sensor is a different sensor and may be policed differently.
+                Log.w(TAG, "rotation vector refused at ${rate}µs: ${e.message}")
+                false
+            }
+            Log.i(TAG, if (ok) "  ✓ rotation vector in the IMU window" else "  ✗ rotation vector refused")
+        }
+
         // The FIFO depth is the whole question for batching: a latency budget on a
         // sensor with fifoMaxEventCount == 0 saves nothing, and reading "batching
         // 200ms" in a log without it would be a false comfort.

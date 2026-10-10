@@ -96,6 +96,29 @@ internal class ImuRing(val capacity: Int) {
         const val KIND_ACCEL = 0
         const val KIND_GYRO = 1
 
-        fun kindName(k: Int): String = if (k == KIND_GYRO) "gyro" else "accel"
+        /**
+         * `TYPE_ROTATION_VECTOR` — the HAL's own fused attitude, at window rate.
+         *
+         * Three components, not four: Android's `getRotationMatrixFromVector`
+         * recovers `w` as `sqrt(1 - x² - y² - z²)` when handed a 3-element vector,
+         * so the quaternion is fully determined by its vector part and this fits
+         * the existing (x, y, z) row with no migration. What IS lost is the
+         * optional 5th element, the estimated heading accuracy — recorded per
+         * photo in `attitude.fused_sensor_accuracy` instead, which is the shutter's
+         * value rather than the series.
+         *
+         * Added 2026-10-10 because the series is what two separate attitude faults
+         * needed and neither had: with only accel and gyro in the window, the
+         * TRUE motion could be reconstructed offline but what the fusion REPORTED
+         * during it could not, so every question about it needed a person watching
+         * a screen.
+         */
+        const val KIND_RV = 2
+
+        fun kindName(k: Int): String = when (k) {
+            KIND_GYRO -> "gyro"
+            KIND_RV -> "rv"
+            else -> "accel"
+        }
     }
 }

@@ -187,6 +187,16 @@ private const val ACCEL_DECIMALS = 3
 private const val GYRO_DECIMALS = 4
 
 /**
+ * The rotation vector is a unit quaternion's VECTOR PART, so its components carry
+ * angle, not a physical unit, and the budget is set by how `w` is recovered:
+ * `w = sqrt(1 - x² - y² - z²)`, whose derivative blows up as the vector approaches
+ * unit length (a 180° rotation, where `w` is 0). At 6 decimals the recovered `w` stays
+ * good to ~1e-3 even there; at 3, as the accelerometer uses, a near-180° attitude would
+ * come back degrees wrong.
+ */
+private const val RV_DECIMALS = 6
+
+/**
  * Fixed-point with the trailing zeros removed, and never a locale's comma.
  *
  * `String.format` without [java.util.Locale.ROOT] emits `0,012` in a Czech
@@ -199,7 +209,11 @@ private fun fmt(v: Double, decimals: Int): String {
     return t
 }
 
-private fun decimalsFor(kind: String) = if (kind == "gyro") GYRO_DECIMALS else ACCEL_DECIMALS
+private fun decimalsFor(kind: String) = when (kind) {
+    "gyro" -> GYRO_DECIMALS
+    "rv" -> RV_DECIMALS
+    else -> ACCEL_DECIMALS
+}
 
 /**
  * The raw window as the payload that travels beside the photo: **columnar and
@@ -209,6 +223,18 @@ private fun decimalsFor(kind: String) = if (kind == "gyro") GYRO_DECIMALS else A
  * {"accel":{"t0_ms":1700000000000,"t0_ns":812340000000,
  *           "dt_us":[2500,2501,...],"x":[...],"y":[...],"z":[...]}}
  * ```
+ *
+ * Three kinds: `accel` and `gyro` in m/s² and rad/s, and since 2026-10-10 `rv` — the
+ * HAL's own fused attitude, as the VECTOR PART of a unit quaternion. Recover the
+ * rotation with `CameraPose.rotationMatrixFromVector`, which rebuilds `w` as
+ * `sqrt(1 - x² - y² - z²)` exactly as `SensorManager.getRotationMatrixFromVector` does
+ * for a 3-element vector; `cameraPoseFromRotationVector` goes straight to a pose, so an
+ * offline replay runs the geometry the phone ran rather than a reimplementation of it.
+ *
+ * `rv` is why the window exists at all for attitude questions: with accel and gyro
+ * alone, the TRUE motion across an exposure was recoverable but what the fusion REPORTED
+ * during it was not, so each of the two attitude faults found on this device had to be
+ * measured with a person watching a screen.
  *
  * - **Columnar**, so a key name appears once per array instead of once per
  *   sample. Row-wise, `{"t":..,"x":..,"y":..,"z":..}` repeated four thousand
