@@ -145,6 +145,19 @@ data class OrientationSensorData(
 	 * which.
 	 */
 	val azimuthMirrored: Boolean? = null,
+	/**
+	 * The gravity-based ORIENTATION CLASS as degrees (0 / 90 / 180 / 270) — what
+	 * `device_rotation_deg` carries on a photo, here per sample.
+	 *
+	 * Recorded because it is the one input to the attitude path that NO sensor series can
+	 * reconstruct: `OrientationEventListener` quantizes to 45° buckets, has its own
+	 * hysteresis, and reports ORIENTATION_UNKNOWN near flat — which
+	 * [DeviceOrientation.fromDegrees] maps to FLAT_UP and [DeviceOrientation.toDegrees]
+	 * renders as 0, indistinguishable from PORTRAIT. A theory about this value flickering
+	 * during a rotation cost a session and could not be checked against any stored data,
+	 * because nothing stored it.
+	 */
+	val deviceRotationDeg: Int? = null,
 )
 
 

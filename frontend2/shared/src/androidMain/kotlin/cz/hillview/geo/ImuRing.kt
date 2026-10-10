@@ -115,9 +115,49 @@ internal class ImuRing(val capacity: Int) {
          */
         const val KIND_RV = 2
 
+        /**
+         * `TYPE_MAGNETIC_FIELD`, µT in the device frame.
+         *
+         * The one sensor from which an attitude can be computed WITHOUT the HAL's
+         * fusion: `getRotationMatrix(accel, mag)` gives an independent answer, so a
+         * disagreement with [KIND_RV] is the fusion's and can be characterised rather
+         * than merely patched. That matters for the azimuth mirror this device shows in
+         * landscape above the horizon, which is currently corrected behind a pref with
+         * no account of WHY it happens.
+         */
+        const val KIND_MAG = 3
+
+        /**
+         * WHAT THE APP PUBLISHED — (pointing bearing, pitch, image roll) in degrees,
+         * after both corrections, at the rate the sensor stack produces them.
+         *
+         * In principle derivable from [KIND_RV] plus [KIND_ACCEL] plus the user's pref,
+         * because the branch test now asks gravity. In practice that derivation means
+         * checking out the exact commit and re-running its arithmetic, and the question
+         * worth answering fast is "did the number the user saw jump, and when" — so the
+         * OUTPUT is recorded beside the inputs. Comparing the two is how a fault in our
+         * own code is told from a fault in the HAL's, which has taken three attempts to
+         * settle by reasoning alone.
+         */
+        const val KIND_POSE = 4
+
+        /**
+         * THE DECISIONS, packed into one row: (orientation class in degrees, the 180°
+         * branch correction fired, the azimuth mirror fired).
+         *
+         * The class is the only input here that no sensor series can reconstruct — see
+         * `OrientationSensorData.deviceRotationDeg`. The two flags are derivable, and are
+         * recorded anyway because the row has the space and because a flag beats
+         * re-deriving a decision from thresholds that may have moved since.
+         */
+        const val KIND_DECIDE = 5
+
         fun kindName(k: Int): String = when (k) {
             KIND_GYRO -> "gyro"
             KIND_RV -> "rv"
+            KIND_MAG -> "mag"
+            KIND_POSE -> "pose"
+            KIND_DECIDE -> "decide"
             else -> "accel"
         }
     }

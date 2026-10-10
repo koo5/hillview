@@ -1543,6 +1543,10 @@ class EnhancedSensorService(
             deviceBearingDeg = pose?.deviceBearingDeg,
             branchCorrected = pose?.let { branchCorrected },
             azimuthMirrored = pose?.let { azimuthMirrored },
+            // Not gated on `pose`: the class is a fact about how the phone is held,
+            // measured whatever the fusion mode, and it is recorded precisely because it
+            // cannot be recomputed from any sensor series afterwards.
+            deviceRotationDeg = DeviceOrientation.toDegrees(deviceOrientation),
         )
         // Every sample, whatever the cap and the gate decide below.
         onRawSample?.invoke(sample)

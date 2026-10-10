@@ -921,6 +921,7 @@ class GeoEngine private constructor(private val context: Context) {
                 android.hardware.Sensor.TYPE_ACCELEROMETER -> ImuRing.KIND_ACCEL
                 android.hardware.Sensor.TYPE_GYROSCOPE -> ImuRing.KIND_GYRO
                 android.hardware.Sensor.TYPE_ROTATION_VECTOR -> ImuRing.KIND_RV
+                android.hardware.Sensor.TYPE_MAGNETIC_FIELD -> ImuRing.KIND_MAG
                 else -> return
             }
             val atMs = imuWallClockFor(event.timestamp)
@@ -1011,23 +1012,30 @@ class GeoEngine private constructor(private val context: Context) {
         // succeeded, at the rate the pair actually achieved, and a refusal costs
         // nothing but a log line. Same listener, so the unregister paths already
         // cover it.
-        val rvSensor = manager.getDefaultSensor(android.hardware.Sensor.TYPE_ROTATION_VECTOR)
-        if (rvSensor == null) {
-            Log.i(TAG, "no TYPE_ROTATION_VECTOR — IMU windows carry accel and gyro only")
-        } else {
+        for (type in listOf(
+            android.hardware.Sensor.TYPE_ROTATION_VECTOR,
+            // The magnetic field, so an attitude can be computed WITHOUT the HAL's
+            // fusion and compared against it — see ImuRing.KIND_MAG.
+            android.hardware.Sensor.TYPE_MAGNETIC_FIELD,
+        )) {
+            val sensor = manager.getDefaultSensor(type)
+            if (sensor == null) {
+                Log.i(TAG, "no sensor type $type — IMU windows go without it")
+                continue
+            }
             val ok = try {
                 manager.registerListener(
-                    imuListener, rvSensor, rate,
+                    imuListener, sensor, rate,
                     (IMU_BATCH_LATENCY_MS * 1_000).toInt(), handler,
                 )
             } catch (e: SecurityException) {
                 // The HIGH_SAMPLING_RATE_SENSORS case, which THROWS rather than
-                // clamping. The pair above already survived it at this rate, but a
-                // fused sensor is a different sensor and may be policed differently.
-                Log.w(TAG, "rotation vector refused at ${rate}µs: ${e.message}")
+                // clamping. The pair above already survived it at this rate, but these
+                // are different sensors and may be policed differently.
+                Log.w(TAG, "${sensor.name} refused at ${rate}µs: ${e.message}")
                 false
             }
-            Log.i(TAG, if (ok) "  ✓ rotation vector in the IMU window" else "  ✗ rotation vector refused")
+            Log.i(TAG, (if (ok) "  ✓ " else "  ✗ ") + "${sensor.name} in the IMU window")
         }
 
         // The FIFO depth is the whole question for batching: a latency budget on a
@@ -1370,7 +1378,28 @@ class GeoEngine private constructor(private val context: Context) {
             // compass and the bearings rows and wrong for a photo: at 200 ms the nearest
             // sample to an exposure is up to 100 ms away, which is what 32 uploaded
             // photos measured. Same thread as the callback, so this stays an append.
-            onRawSample = { raw -> attitudeRing.add(raw.toDeviceAttitude()) },
+            onRawSample = { raw ->
+                attitudeRing.add(raw.toDeviceAttitude())
+                // ...and into the WINDOW, so a stored sweep carries what the app
+                // published beside what the sensors said. Two rows per sample: the pose
+                // it answered with, and the decisions behind it. See ImuRing.KIND_POSE
+                // and KIND_DECIDE for why the output is recorded when it is in principle
+                // derivable. Guarded on the ring being wanted at all — outside a window
+                // this is the map's compass and nothing should be accumulating.
+                if (active.imu && raw.elapsedRealtimeNanos != 0L) {
+                    val atMs = raw.timestamp
+                    imuRing.add(
+                        atMs, raw.elapsedRealtimeNanos, ImuRing.KIND_POSE,
+                        raw.trueHeading, raw.pitch, raw.roll,
+                    )
+                    imuRing.add(
+                        atMs, raw.elapsedRealtimeNanos, ImuRing.KIND_DECIDE,
+                        (raw.deviceRotationDeg ?: -1).toFloat(),
+                        if (raw.branchCorrected == true) 1f else 0f,
+                        if (raw.azimuthMirrored == true) 1f else 0f,
+                    )
+                }
+            },
         ) { data ->
             // One sample, fanned out — the plugin's shape exactly.
             geoTracking.storeOrientationSensorData(data)

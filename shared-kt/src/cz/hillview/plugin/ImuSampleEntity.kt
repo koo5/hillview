@@ -212,6 +212,13 @@ private fun fmt(v: Double, decimals: Int): String {
 private fun decimalsFor(kind: String) = when (kind) {
     "gyro" -> GYRO_DECIMALS
     "rv" -> RV_DECIMALS
+    // Degrees, and the published readout shows one decimal — more would be printing
+    // float noise about an angle the user was shown to 0.1°.
+    "pose" -> 2
+    // A quantized class and two booleans. Integers, so no decimals at all.
+    "decide" -> 0
+    // Magnetometer resolution is ~0.1 µT and the field is tens of µT.
+    "mag" -> 2
     else -> ACCEL_DECIMALS
 }
 
@@ -224,17 +231,30 @@ private fun decimalsFor(kind: String) = when (kind) {
  *           "dt_us":[2500,2501,...],"x":[...],"y":[...],"z":[...]}}
  * ```
  *
- * Three kinds: `accel` and `gyro` in m/s² and rad/s, and since 2026-10-10 `rv` — the
- * HAL's own fused attitude, as the VECTOR PART of a unit quaternion. Recover the
- * rotation with `CameraPose.rotationMatrixFromVector`, which rebuilds `w` as
- * `sqrt(1 - x² - y² - z²)` exactly as `SensorManager.getRotationMatrixFromVector` does
- * for a 3-element vector; `cameraPoseFromRotationVector` goes straight to a pose, so an
- * offline replay runs the geometry the phone ran rather than a reimplementation of it.
+ * SIX KINDS as of 2026-10-10, and between them a window is SELF-CONTAINED — every
+ * input to the orientation path, and its output:
  *
- * `rv` is why the window exists at all for attitude questions: with accel and gyro
- * alone, the TRUE motion across an exposure was recoverable but what the fusion REPORTED
- * during it was not, so each of the two attitude faults found on this device had to be
- * measured with a person watching a screen.
+ * | kind | what it is | why it is here |
+ * |---|---|---|
+ * | `accel` | m/s², device frame | the true motion, and gravity's unambiguous "down" |
+ * | `gyro` | rad/s | the true angular rate, independent of any fusion |
+ * | `rv` | the HAL's fused attitude | what the fusion SAID, sample by sample |
+ * | `mag` | µT, device frame | with `accel`, an attitude owing nothing to the HAL |
+ * | `pose` | published bearing, pitch, image roll, degrees | what the app ANSWERED |
+ * | `decide` | orientation class, branch fired, mirror fired | the one input no sensor series can reconstruct |
+ *
+ * `rv` is a unit quaternion's VECTOR PART. Recover the rotation with
+ * `CameraPose.rotationMatrixFromVector`, which rebuilds `w` as `sqrt(1 - x² - y² - z²)`
+ * exactly as `SensorManager.getRotationMatrixFromVector` does for a 3-element vector;
+ * `cameraPoseFromRotationVector` goes straight to a pose, so an offline replay runs the
+ * geometry the phone ran rather than a reimplementation of it.
+ *
+ * The shape of the gap this closed: with accel and gyro alone, the TRUE motion across an
+ * exposure was recoverable but what the fusion REPORTED during it was not — and both
+ * attitude faults found on this device were about the reported value. Each had to be
+ * chased with a person watching a readout. `rv` answers what the HAL said, `pose` what
+ * we did with it, `decide` which branch we took, and `mag` whether the fusion agrees
+ * with the raw field at all.
  *
  * - **Columnar**, so a key name appears once per array instead of once per
  *   sample. Row-wise, `{"t":..,"x":..,"y":..,"z":..}` repeated four thousand
