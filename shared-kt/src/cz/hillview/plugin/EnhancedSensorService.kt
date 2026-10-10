@@ -217,6 +217,8 @@ class EnhancedSensorService(
 
     // Sensor data buffers
     private var accelerometerData = FloatArray(3)
+    private var gravityData = FloatArray(3)
+    private var hasGravity = false
     private var gyroscopeData = FloatArray(3)
     private var magnetometerData = FloatArray(3)
     private var hasAccelerometer = false
@@ -259,6 +261,22 @@ class EnhancedSensorService(
     // measurement behind the sign table is real. The branch test now asks gravity, which
     // has no "unknown" state to mistake for portrait — see that function for why.
     @Suppress("unused")
+    /**
+     * DOWN, as well as this device can say it: `TYPE_GRAVITY` when it has reported, the
+     * raw accelerometer otherwise, and null before either has.
+     *
+     * `TYPE_GRAVITY` is itself gyro-fused, so it is smooth under hand movement in the way
+     * a raw accelerometer sample is not — but it carries no magnetometer, which is the
+     * whole point: it cannot be on the wrong branch of anything. The raw fallback exists
+     * because the sensor is composite and an OEM may not offer it; it is noisier, and for
+     * the binary branch test (a 90° margin) that does not matter at all.
+     */
+    private fun gravityVector(): FloatArray? = when {
+        hasGravity -> gravityData
+        hasAccelerometer -> accelerometerData
+        else -> null
+    }
+
     private fun expectedLandscapeRollSign(): Int =
         when (DeviceOrientation.toDegrees(deviceOrientation)) {
             270 -> 1
@@ -643,6 +661,15 @@ class EnhancedSensorService(
                     Log.d(TAG, "  ✓ Registered ACCELEROMETER (branch reference)")
                 } ?: Log.w(TAG, "  ❌ ACCELEROMETER not available — branch test declines")
 
+                // DOWN, gyro-stabilised and with no magnetometer in it — the source of
+                // the published pitch and roll since 2026-10-10, and the reference the
+                // branch test compares the fused matrix against. Composite, so it may be
+                // absent; gravityVector() falls back to the raw accelerometer.
+                sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY)?.let {
+                    registerSensor(it)
+                    Log.d(TAG, "  ✓ Registered GRAVITY")
+                } ?: Log.i(TAG, "  no TYPE_GRAVITY — falling back to the raw accelerometer")
+
                 rotationVectorSensor?.let {
                     Log.d(TAG, "🔄 Registering TYPE_ROTATION_VECTOR sensor for UPRIGHT mode")
                     registerSensor(it)
@@ -816,6 +843,10 @@ class EnhancedSensorService(
                 Log.v(TAG, "🔍🧭 Received TYPE_GEOMAGNETIC_ROTATION_VECTOR data")
                 handleRotationVector(event, "TYPE_GEOMAGNETIC_ROTATION_VECTOR")
             }
+            Sensor.TYPE_GRAVITY -> {
+                gravityData = event.values.clone()
+                hasGravity = true
+            }
             Sensor.TYPE_ACCELEROMETER -> {
                 accelerometerData = event.values.clone()
                 hasAccelerometer = true
@@ -934,11 +965,12 @@ class EnhancedSensorService(
         // while the phone moved smoothly (user, 2026-10-10: rotating portrait → landscape
         // below the horizon read 0, −10, … +110, +90 — which is −70+180, −80+180,
         // −90+180). Gravity has no unknown state and no buckets.
-        val gravityConditioning = gravityRollConditioning(
-            accelerometerData[0], accelerometerData[1], accelerometerData[2],
-        )
-        val gravityRoll = if (gravityConditioning >= GRAVITY_ROLL_FLOOR) {
-            gravityRollDeg(accelerometerData[0], accelerometerData[1])
+        val down = gravityVector()
+        val gravityConditioning = down?.let {
+            gravityRollConditioning(it[0], it[1], it[2])
+        } ?: 0f
+        val gravityRoll = if (down != null && gravityConditioning >= GRAVITY_ROLL_FLOOR) {
+            gravityRollDeg(down[0], down[1])
         } else {
             null
         }
@@ -970,8 +1002,29 @@ class EnhancedSensorService(
         // camera still dominates wherever the lens is off vertical, so nothing about
         // shooting changes.
         val heading = lens.pointingBearingDeg
-        val pitch = lens.pitchDeg
-        val roll = lens.imageRollDeg
+        // PITCH AND ROLL FROM GRAVITY, not from the fused matrix. They never needed the
+        // magnetometer: there is exactly one down, and it fixes the optical axis's tilt
+        // and the image's rotation about it completely. The fused matrix needs the
+        // magnetometer because it also has to answer WHICH WAY IS NORTH, and resolving
+        // that is what forces a choice between the two attitudes that fit the readings —
+        // the 180° branch. So the branch ambiguity is the heading's problem, and letting
+        // it reach the roll was giving away two good axes to buy one doubtful one.
+        //
+        // Measured on 94 prod captures where the matrix is on the right branch: the two
+        // rolls differ by a mean of -0.95° (sd 3.33) and the two pitches by -0.29°
+        // (sd 1.32), so there is no systematic disagreement to lose — a few degrees of
+        // scatter against an entire class of 180° failure. The user saw it first:
+        // "g matches closely what i would call an intuitive understanding of the phone's
+        // roll axis values" (2026-10-10).
+        //
+        // The matrix keeps the bearing, and keeps BOTH correction decisions, which still
+        // compare it against gravity. What changes is only which number is published.
+        val pitch = down?.let { gravityPitchDeg(it[0], it[1], it[2]) } ?: lens.pitchDeg
+        // Roll needs gravity's IN-PLANE direction, which does not exist with the phone
+        // flat — the rotation about a vertical optical axis is an azimuth, and gravity
+        // cannot see azimuths. There the fused matrix answers, exactly as the bearing
+        // falls back to the device's top edge when the lens goes vertical.
+        val roll = if (gravityRoll != null) gravityRoll else lens.imageRollDeg
 
         // THE INDEPENDENT REFERENCE. World up in device coordinates is the matrix's
         // third row, so the gyro's component along it is the true yaw rate — positive is

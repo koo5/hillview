@@ -31,7 +31,7 @@ import androidx.compose.ui.Modifier
  * The current metadata contract — see [CaptureTiming.metadataVersion] for what each
  * value means and for the rule about when it moves.
  */
-const val METADATA_VERSION = 2
+const val METADATA_VERSION = 3
 
 @kotlinx.serialization.Serializable
 data class CaptureTiming(
@@ -156,6 +156,28 @@ data class CaptureTiming(
      * HAL's own input is stamped alongside from here on (`attitude.rotation_vector` and
      * the fields with it), so a v2 frame can be re-derived from scratch and does not
      * have to be taken on trust — which is exactly what no v1 or earlier frame allows.
+     *
+     * 3 — from 2026-10-10, hours after v2, and a change of SOURCE for two fields.
+     * `pitch_deg` and `roll_deg` now come from GRAVITY — `asin(g_z/|g|)` and
+     * `atan2(g_x, g_y)` — rather than from the fused rotation matrix. They never needed
+     * the magnetometer: there is one down, and it fixes the optical axis's tilt and the
+     * image's rotation about it completely. The matrix needs the magnetometer because it
+     * must also answer which way is north, and resolving THAT is what forces a choice
+     * between the two attitudes fitting the readings — so the 180° branch ambiguity is
+     * the heading's problem, and letting it reach the roll gave away two sound axes to
+     * buy one doubtful one.
+     *
+     * Numerically this is a small change and that is the point: over 94 captures where
+     * the matrix was on the right branch, the two rolls differ by a mean of −0.95°
+     * (sd 3.33) and the two pitches by −0.29° (sd 1.32). No systematic disagreement, a
+     * few degrees of scatter — against an entire class of 180° failure.
+     *
+     * Where gravity CANNOT answer it still defers: with the phone flat there is no
+     * in-plane gravity, the rotation about a vertical optical axis is an azimuth, and the
+     * matrix's roll is published instead (`GRAVITY_ROLL_FLOOR`, about 15° of flat). Pitch
+     * never defers, being well conditioned everywhere. The heading is unchanged, and so
+     * are both corrections — they still compare the matrix against gravity, which is
+     * what `branch_corrected` and `azimuth_mirrored` report.
      *
      * Nested in `capture_timing` for the same reason `build` is — the object is a
      * declared untyped dict server-side, so it needs no worker deploy — and with the

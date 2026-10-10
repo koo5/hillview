@@ -344,7 +344,9 @@ fun gravityRollDeg(ax: Float, ay: Float): Float =
 /**
  * The floor under [gravityRollConditioning] at which the branch test declines.
  *
- * 0.26 is ~15° off flat. Below it gravity has no usable in-plane direction, so the test
+ * 0.26 is sin(15.07°), so just over 15° off flat — a test pins both sides of that
+ * boundary, since "15°" rounds the wrong way at it. Below it gravity has no usable
+ * in-plane direction, so the test
  * says nothing rather than guessing — the same discipline as [BEARING_CONDITION_FLOOR],
  * and the opposite of the orientation class's habit of reporting 0 for "I do not know".
  */
@@ -505,3 +507,18 @@ fun rotationMatrixFromVector(x: Float, y: Float, z: Float): FloatArray {
 /** [cameraPoseFromRotationMatrix] straight from a stored rotation-vector sample. */
 fun cameraPoseFromRotationVector(x: Float, y: Float, z: Float): CameraPose? =
     cameraPoseFromRotationMatrix(rotationMatrixFromVector(x, y, z))
+
+/**
+ * The camera's PITCH from gravity alone — `asin(g_z / |g|)`, positive looking DOWN.
+ *
+ * The identity `attitude.pitch_deg` is documented to satisfy, and now the source of it.
+ * No fusion with the magnetometer, so no 180° branch to be on the wrong side of: there is
+ * exactly one down, and it determines the tilt of the optical axis completely. Always
+ * well conditioned, unlike [gravityRollDeg] — the vertical component of gravity needs no
+ * in-plane direction to exist.
+ */
+fun gravityPitchDeg(ax: Float, ay: Float, az: Float): Float? {
+    val g = sqrt(ax * ax + ay * ay + az * az)
+    if (g < 1e-3f) return null
+    return Math.toDegrees(asin((az / g).coerceIn(-1f, 1f)).toDouble()).toFloat()
+}
