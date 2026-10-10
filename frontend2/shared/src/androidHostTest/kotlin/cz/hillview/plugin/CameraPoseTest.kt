@@ -292,7 +292,11 @@ class CameraPoseTest {
         val vx = cz.second * uz - cz.third * uy
         val vy = cz.third * ux - cz.first * uz
         val vz = cz.first * uy - cz.second * ux
-        val r = rad(imageRollDeg)
+        // NEGATED, because rotating screen-up by +r about the lens comes back out of
+        // `atan2(r6, r7)` as -r. Caught by the branch test, which is the first one whose
+        // assertion depends on the roll's SIGN rather than its magnitude — every earlier
+        // case used abs() or a symmetric +-90 pair and so could not see it.
+        val r = rad(-imageRollDeg)
         val dy = Triple(
             ux * cos(r) + vx * sin(r),
             uy * cos(r) + vy * sin(r),
@@ -406,6 +410,132 @@ class CameraPoseTest {
             val rollFromGravity = Math.toDegrees(atan2(gx, gy).toDouble()).toFloat()
             assertEquals(pitchFromGravity, p.pitchDeg, 0.02f)
             assertEquals(rollFromGravity, p.imageRollDeg, 0.02f)
+        }
+    }
+
+    // --- the 180-degree branch ambiguity the original code already fixed ---
+
+    /**
+     * THE FLIP, as measured: held steady in level landscape, this HAL alternates between
+     * `roll +90.4 / bearing 274.4` and `roll -93.3 / bearing 95.0` within two seconds.
+     * The gravity-based orientation class says 270 throughout, and over 729 landscape
+     * captures 270 means a POSITIVE image roll — so the negative-roll samples are the
+     * wrong branch and their azimuth is 180° out.
+     *
+     * `abs(roll) > 90` cannot see this, which is why the original's key does not port:
+     * both branches read |roll| > 90 in this convention.
+     */
+    @Test
+    fun theWrongBranchIsTheOneWhoseRollSignDisagreesWithGravity() {
+        val good = poseFor(azimuthDeg = 274.4f, elevationDeg = 10f, imageRollDeg = 90.4f)!!
+        val flipped = poseFor(azimuthDeg = 95.0f, elevationDeg = 10f, imageRollDeg = -93.3f)!!
+        assertTrue(!good.onWrongAttitudeBranch(expectedRollSign = 1))
+        assertTrue(flipped.onWrongAttitudeBranch(expectedRollSign = 1))
+        // ...and correcting the flipped one lands back on the good one — heading AND roll,
+        // because the flip takes both. 4° on the roll is hand-held noise between the two
+        // real samples these numbers come from.
+        val fixed = flipped.withBranchCorrected()
+        assertTrue(
+            degreesClose(good.bearingDeg, fixed.bearingDeg, 1.5f),
+            "corrected ${fixed.bearingDeg}, wanted ${good.bearingDeg}",
+        )
+        assertTrue(
+            degreesClose(good.imageRollDeg, fixed.imageRollDeg, 4.5f),
+            "roll corrected to ${fixed.imageRollDeg}, wanted ${good.imageRollDeg}",
+        )
+        // The pitch is NOT part of the flip and must survive untouched.
+        assertEquals(flipped.pitchDeg, fixed.pitchDeg, 0.001f)
+        // And the corrected pose is no longer on the wrong branch, by its own test.
+        assertTrue(!fixed.onWrongAttitudeBranch(expectedRollSign = 1))
+        // The other landscape expects the other sign, symmetrically.
+        assertTrue(good.onWrongAttitudeBranch(expectedRollSign = -1))
+        assertTrue(!flipped.onWrongAttitudeBranch(expectedRollSign = -1))
+    }
+
+    /** With no orientation class to lean on it declines rather than guessing. */
+    @Test
+    fun withNoOrientationClassTheBranchTestDeclines() {
+        val p = poseFor(azimuthDeg = 95f, elevationDeg = 10f, imageRollDeg = -93f)!!
+        assertTrue(!p.onWrongAttitudeBranch(expectedRollSign = 0))
+        // ...and portrait is never on the landscape branch at all.
+        val portrait = poseFor(azimuthDeg = 95f, elevationDeg = 10f, imageRollDeg = 2f)!!
+        assertTrue(!portrait.onWrongAttitudeBranch(expectedRollSign = 1))
+    }
+
+    /**
+     * THE TWO CORRECTIONS COMMUTE, so the order is not load-bearing — worth pinning
+     * because I claimed the opposite while writing them and the test said no.
+     *
+     * `-(a + 180) = -a - 180 == -a + 180 (mod 360) = 180 - a`: negate-then-offset and
+     * offset-then-negate are the same map. Which also means the original's combined
+     * effect really was the single reflection `180 - a`, as the first analysis said
+     * before I talked myself out of it.
+     */
+    @Test
+    fun theTwoCorrectionsCommute() {
+        for (az in listOf(0f, 50f, 124.6f, 274.4f, 359f)) {
+            val p = poseFor(azimuthDeg = az, elevationDeg = 10f, imageRollDeg = -93f)!!
+            val branchThenMirror = p.withBranchCorrected().withMirroredAzimuth().bearingDeg
+            val mirrorThenBranch = p.withMirroredAzimuth().withBranchCorrected().bearingDeg
+            assertTrue(
+                degreesClose(branchThenMirror, mirrorThenBranch, 0.01f),
+                "at $az: $branchThenMirror vs $mirrorThenBranch",
+            )
+            assertTrue(degreesClose(180f - az, branchThenMirror, 0.5f), "expected 180 - a at $az")
+        }
+    }
+
+    // --- the measured device quirk ---
+
+    /**
+     * THE REGION, exactly as measured: landscape AND the lens above the horizon. Not
+     * portrait with the lens up (29 prod pairs say that is fine), and not landscape with
+     * the lens level or below.
+     */
+    @Test
+    fun theMirroredRegionIsLandscapeAndAboveTheHorizonOnly() {
+        fun region(elev: Float, roll: Float) =
+            poseFor(azimuthDeg = 30f, elevationDeg = elev, imageRollDeg = roll)!!
+                .inMirroredAzimuthRegion()
+        assertTrue(region(elev = 20f, roll = 90f), "landscape, lens up")
+        assertTrue(region(elev = 5f, roll = -90f), "landscape the other way, lens up")
+        assertTrue(!region(elev = -20f, roll = 90f), "landscape but lens DOWN")
+        assertTrue(!region(elev = 20f, roll = 0f), "portrait, lens up — prod says fine")
+        assertTrue(!region(elev = 20f, roll = 40f), "mid-roll is unmeasured, so untouched")
+    }
+
+    /**
+     * The correction is a reflection about north–south, and it must leave pitch and
+     * image roll alone — the mirror is in the horizontal frame only, which is why those
+     * two agreed with gravity even while the bearing was wrong.
+     */
+    @Test
+    fun mirroringTouchesOnlyTheAzimuths() {
+        val p = poseFor(azimuthDeg = 124.6f, elevationDeg = 10f, imageRollDeg = 90f)!!
+        val m = p.withMirroredAzimuth()
+        assertEquals(360f - 124.6f, m.bearingDeg, 0.1f)
+        assertEquals(p.pitchDeg, m.pitchDeg, 0.001f)
+        assertEquals(p.imageRollDeg, m.imageRollDeg, 0.001f)
+        assertEquals(p.horizontalLength, m.horizontalLength, 0.001f)
+        // Applying it twice is the identity, as a reflection must be.
+        assertTrue(degreesClose(p.bearingDeg, m.withMirroredAzimuth().bearingDeg, 0.01f))
+    }
+
+    /**
+     * THE NUMBERS FROM THE PHONE. Two horizon crossings where the pitch barely moved, so
+     * the smooth part is negligible: the HAL's new bearing was the negation of the old to
+     * within 2°. This asserts the correction reproduces that, which is the whole claim.
+     */
+    @Test
+    fun theCorrectionReproducesTheMeasuredCrossings() {
+        for ((before, after) in listOf(124.6f to 234.0f, 167.8f to 189.9f)) {
+            val mirrored = poseFor(azimuthDeg = after, elevationDeg = 10f, imageRollDeg = 90f)!!
+            assertTrue(mirrored.inMirroredAzimuthRegion())
+            val fixed = mirrored.withMirroredAzimuth().bearingDeg
+            assertTrue(
+                degreesClose(before, fixed, 2.5f),
+                "correcting $after gave $fixed, expected about $before",
+            )
         }
     }
 

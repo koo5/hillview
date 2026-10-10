@@ -245,8 +245,36 @@ class EnhancedSensorService(
     private val MAX_FILTER_GAP_MS = 1_000L
 
     // Device orientation tracking
-    /** See the frame-probe in handleRotationVector — temporary. */
+    /**
+     * Which sign the image roll SHOULD have, from the gravity-based orientation class:
+     * +1 for LANDSCAPE_RIGHT, -1 for LANDSCAPE_LEFT, 0 when the class does not say.
+     *
+     * This puts `deviceOrientation` back in the heading path, which the vector rewrite
+     * took out — but for a different job. It is not remapping anything; it is breaking a
+     * 180° tie, and it can do that because it comes from gravity rather than from the
+     * fused attitude that is doing the flipping.
+     */
+    private fun expectedLandscapeRollSign(): Int =
+        when (DeviceOrientation.toDegrees(deviceOrientation)) {
+            270 -> 1
+            90 -> -1
+            else -> 0
+        }
+
+    /**
+     * Whether this device is one that mirrors its azimuth — the pref the Armor-22
+     * workaround has always used, read once per sample because it is a live toggle.
+     */
+    private val mirrorAzimuthWhenAffected: Boolean
+        get() = context
+            .getSharedPreferences("hillview_compass_prefs", Context.MODE_PRIVATE)
+            .getBoolean("landscape_armor22_workaround", false)
+
+    /** See the frame-probe in handleRotationVector — temporary, all four. */
     private var lastReversalProbeMs = 0L
+    private var lastProbeBearing = Float.NaN
+    private var gyroYawDeg = 0f
+    private var lastGyroYawAtMs = 0L
 
     private var deviceOrientation = DeviceOrientation.PORTRAIT
 
@@ -586,6 +614,18 @@ class EnhancedSensorService(
                     Log.d(TAG, "  ✓ Registered MAGNETOMETER")
                 } ?: Log.w(TAG, "  ❌ MAGNETOMETER not available")
 
+                // FOR THE FRAME PROBE, and this mode did not use it before. The
+                // gyroscope measures the true angular rate whatever the fusion believes,
+                // so it is the one reference that can say which of the two is wrong when
+                // the fused heading turns the wrong way. Cheap here: during capture the
+                // IMU window already runs this sensor at SENSOR_DELAY_FASTEST, so the
+                // hardware is on and the HAL multiplexes another listener for nearly
+                // nothing. Remove with the probe.
+                gyroscopeSensor?.let {
+                    registerSensor(it)
+                    Log.d(TAG, "  ✓ Registered GYROSCOPE (frame probe)")
+                }
+
                 rotationVectorSensor?.let {
                     Log.d(TAG, "🔄 Registering TYPE_ROTATION_VECTOR sensor for UPRIGHT mode")
                     registerSensor(it)
@@ -847,7 +887,38 @@ class EnhancedSensorService(
         // a vector transform has no quantized orientation class to key on, which is the
         // entire point. See CameraPose for the measurements that retired the old path
         // and [legacyOrientationFromRemappedMatrix] for what it did.
-        val lens = cameraPoseFromRotationMatrix(rotationMatrix)
+        val rawLens = cameraPoseFromRotationMatrix(rotationMatrix)
+        // THE DEVICE QUIRK, applied where it was measured and nowhere else. The pref is
+        // the one the Armor-22 workaround already used; what changed is the KEY. The old
+        // code negated past 90° of roll and also added 180° unconditionally; the pair
+        // happened to come out right in a level landscape hold and wrong elsewhere. See
+        // CameraPose.inMirroredAzimuthRegion for the two datasets that settled it.
+        // TWO corrections, in the order the original applied them — the branch fix first,
+        // then the device mirror. The order happens NOT to matter: the two commute,
+        // because -(a+180) and -a+180 are the same angle. Kept in the original's order
+        // anyway, since matching it costs nothing and makes the two readable side by
+        // side; a test pins the commutation so nobody has to re-derive it.
+        //
+        // What is different from the original is that they are now keyed INDEPENDENTLY.
+        // There both hung off `abs(roll) > 90`, which in that convention happened to
+        // mean "landscape" and "wrong branch" at once. Here the branch fix keys on the
+        // roll's SIGN against the gravity-based orientation class, and the mirror on
+        // landscape-plus-lens-above-horizon, because the measurements say those are two
+        // different conditions.
+        val branched = if (rawLens != null &&
+            rawLens.onWrongAttitudeBranch(expectedLandscapeRollSign())
+        ) {
+            rawLens.withBranchCorrected()
+        } else {
+            rawLens
+        }
+        val lens = if (branched != null && mirrorAzimuthWhenAffected &&
+            branched.inMirroredAzimuthRegion()
+        ) {
+            branched.withMirroredAzimuth()
+        } else {
+            branched
+        }
         if (lens == null) {
             // All zeros until the first usable sample. Publishing would assert a level
             // camera facing due north, which is a plausible lie rather than an absence.
@@ -864,6 +935,26 @@ class EnhancedSensorService(
         val heading = lens.pointingBearingDeg
         val pitch = lens.pitchDeg
         val roll = lens.imageRollDeg
+
+        // THE INDEPENDENT REFERENCE. World up in device coordinates is the matrix's
+        // third row, so the gyro's component along it is the true yaw rate — positive is
+        // counter-clockwise about up, which is a DECREASING compass bearing, hence the
+        // negation. Integrated across every sample between probe emissions so it can be
+        // compared with what the fused heading did over the same interval.
+        //
+        // Opposite signs mean the fusion is turning the wrong way, and the gyroscope
+        // says so without any procedure from whoever is holding the phone — which is the
+        // point, because two structural explanations have already been wrong and the
+        // boundary is what needs measuring rather than guessing.
+        gyroscopeData?.let { g ->
+            val yawRate = g[0] * rotationMatrix[6] + g[1] * rotationMatrix[7] +
+                g[2] * rotationMatrix[8]
+            val dtMs = (currentTime - lastGyroYawAtMs).coerceIn(0L, 200L)
+            if (lastGyroYawAtMs != 0L) {
+                gyroYawDeg += -Math.toDegrees(yawRate.toDouble()).toFloat() * dtMs / 1000f
+            }
+            lastGyroYawAtMs = currentTime
+        }
         if (!lens.bearingIsDefined()) {
             // Within ~3° of straight up or down, where a bearing does not EXIST — the
             // horizontal projection it comes from has almost no length. The pose is
@@ -891,18 +982,41 @@ class EnhancedSensorService(
         // reversal can be watched directly in world coordinates while the phone turns.
         //
         // Delete this once the question is answered.
-        if (abs(roll) > 60f && pitch < -10f &&
-            currentTime - lastReversalProbeMs > REVERSAL_PROBE_PERIOD_MS
-        ) {
+        // WIDENED to every posture, 2026-10-10. The landscape sweep showed all three
+        // device axes yawing -405° while the phone turned +405° clockwise, with
+        // det(R) = +1 throughout — so the matrix is a proper rotation that reports the
+        // HEADING mirrored, and no choice of axis can undo that. A world frame with East
+        // negated explains every observation at once: the up component is untouched (so
+        // pitch still matches gravity), world-up in device coords is untouched (so the
+        // image roll is fine), and only the bearing reverses.
+        //
+        // If that is right it is GLOBAL, so portrait must reverse too — and portrait is
+        // reported as working. One sweep in portrait settles which, so the posture gate
+        // is gone and the roll is logged for segmenting afterwards.
+        if (currentTime - lastReversalProbeMs > REVERSAL_PROBE_PERIOD_MS) {
+            // What the fused heading DID against what the gyroscope says it should
+            // have: agreeing signs mean the fusion is sound in this posture, opposite
+            // signs are the reversal — per posture, per sample, no procedure.
+            val fusedDelta = if (lastProbeBearing.isNaN()) 0f
+                else signedDegreeDelta(lastProbeBearing, heading)
+            val verdict = when {
+                lastProbeBearing.isNaN() || abs(gyroYawDeg) < 5f -> "idle"
+                fusedDelta * gyroYawDeg < 0f -> "REVERSED"
+                else -> "agrees"
+            }
+            lastProbeBearing = heading
             lastReversalProbeMs = currentTime
             EventLog.record(
                 "frame-probe",
-                "bearing ${"%.1f".format(heading)} pitch ${"%.1f".format(pitch)} " +
+                "$verdict fused ${"%+.1f".format(fusedDelta)} gyro " +
+                    "${"%+.1f".format(gyroYawDeg)} · " +
+                    "bearing ${"%.1f".format(heading)} pitch ${"%.1f".format(pitch)} " +
                     "roll ${"%.1f".format(roll)} det ${"%.4f".format(lens.determinant)} " +
                     "lens e/n/u ${"%.3f".format(lens.lensEast)}/" +
                     "${"%.3f".format(lens.lensNorth)}/${"%.3f".format(lens.lensUp)} " +
                     "rv ${event.values.take(4).joinToString(",") { "%.4f".format(it) }}",
             )
+            gyroYawDeg = 0f
         }
 
         // Apply magnetic declination to convert from magnetic north to true north

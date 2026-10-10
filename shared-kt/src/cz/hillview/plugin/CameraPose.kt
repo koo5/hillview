@@ -249,6 +249,121 @@ fun cameraPoseFromRotationMatrix(r: FloatArray): CameraPose? {
     )
 }
 
+/**
+ * Beyond this much image roll the device counts as being held in landscape, for the
+ * purposes of [MIRRORED_AZIMUTH_PHONES] below.
+ *
+ * 60° is a measured split rather than a chosen one: every pair in the prod data at
+ * |roll| > 60 with the lens above the horizon had a mirrored azimuth, and every pair
+ * under it did not. WHAT IS NOT MEASURED is the band between — around 40° of roll,
+ * which is the same zone the mid-roll bug lived in. A capture held there gets the
+ * uncorrected azimuth, which is the conservative choice: the correction is a device
+ * quirk and applying it where it has not been observed would be inventing one.
+ */
+const val LANDSCAPE_ROLL_DEG = 60f
+
+/**
+ * Is this pose on the WRONG BRANCH of the attitude's 180° ambiguity?
+ *
+ * THE ORIGINAL CODE ALREADY FIXED THIS and I deleted it, calling it an artifact of the
+ * Euler path. It was not:
+ *
+ *     if (abs(roll) > 90) { azimuth += 180 }      // unconditional, above the `// magic`
+ *
+ * Held in level landscape the device's +Y axis is horizontal, so `r7 ~ 0` and the
+ * attitude has a 180° ambiguity that this HAL resolves inconsistently — flipping the
+ * azimuth AND the image roll together, several times a second, while the phone is still.
+ * Measured: `roll +90.4 / bearing 274.4` alternating with `roll -93.3 / bearing 95.0`
+ * within two seconds of each other.
+ *
+ * `getOrientation` reported those two branches as roll ~ -177 versus ~ +2.7, so
+ * `abs(roll) > 90` split them cleanly. This file's `atan2(r6, r7)` reports them as
+ * +90 versus -93 — the same ambiguity, now carried in the SIGN, which `abs()` discards.
+ * Hence the sign test here, and hence why the original's key cannot simply be copied.
+ *
+ * [expectedRollSign] comes from the gravity-based orientation class, NOT from the fused
+ * attitude — which is the whole point: it held a stable 270 through every flip. Over 729
+ * landscape captures, `device_rotation_deg` 270 means a positive image roll (639 against
+ * 9) and 90 means negative (79 against 2); those 11 exceptions are the flips themselves.
+ *
+ * Pass 0 where the class does not say (portrait, flat, unknown) and this declines rather
+ * than guessing.
+ */
+fun CameraPose.onWrongAttitudeBranch(expectedRollSign: Int): Boolean =
+    expectedRollSign != 0 && abs(imageRollDeg) > LANDSCAPE_ROLL_DEG &&
+        (if (imageRollDeg > 0f) 1 else -1) != expectedRollSign
+
+/**
+ * This pose with the 180° branch error taken out — of the azimuths AND of the image roll.
+ *
+ * THE ROLL GOES WITH IT, which the first version of this missed. The flip is reported
+ * live in the capture overlay (user, 2026-10-10: "roll flips in overlay"), so it is in
+ * the published attitude and not an artifact of the at-exposure lookup. Measured on the
+ * two branches of one steady hold: `roll +90.4 / bearing 274.4` against
+ * `roll -93.3 / bearing 95.0`, and `-93.3 + 180 = 86.7` lands on the good branch's
+ * +90.4 inside hand-held noise. So the flip is `(azimuth += 180, imageRoll += 180)`.
+ *
+ * PITCH IS NOT TOUCHED, measured: it read ~-10° on both branches. Which is consistent
+ * with everything else here — the ambiguity lives in the horizontal frame and in the
+ * image's rotation, never in how far the lens is tilted, and that is why pitch has
+ * agreed with gravity throughout.
+ *
+ * [horizontalLength] needs no correction either: the fallback weight uses
+ * `|cos(imageRoll)|`, and `cos(r + 180) = -cos(r)` has the same magnitude.
+ *
+ * Consequence for the archive: landscape captures taken on the wrong branch — about 11
+ * of 729 in the prod sample — carry a `roll_deg` that is 180° out as well as a mirrored
+ * bearing. Both are recoverable, by the same +180.
+ */
+fun CameraPose.withBranchCorrected(): CameraPose = copy(
+    bearingDeg = (bearingDeg + 180f) % 360f,
+    deviceBearingDeg = (deviceBearingDeg + 180f) % 360f,
+    pointingBearingDeg = (pointingBearingDeg + 180f) % 360f,
+    imageRollDeg = signedDegreeDelta(0f, imageRollDeg + 180f),
+)
+
+/**
+ * Does this pose fall in the region where a known-affected device mirrors its azimuth?
+ *
+ * MEASURED, 2026-10-10, on an Armor 22. Held in landscape with the lens ABOVE the
+ * horizon, this HAL returns `-a` where it should return `a` — a reflection about the
+ * north–south axis. Two independent datasets say so:
+ *
+ *  - WHILE TURNING: the fused heading's change against the gyroscope's yaw about
+ *    gravity, over 9 pairs in that posture, gave a ratio of −1.05 (median). A negated
+ *    azimuth gives exactly −1; nothing else does. 29 portrait pairs gave +1.
+ *  - WHILE TILTING, with the gyro confirming no yaw at all: crossing the horizon in
+ *    landscape jumped the bearing +109.4° and −97.1°, while every pair that stayed on
+ *    one side moved ≤13°. On the two crossings where the pitch barely moved, the new
+ *    bearing was the NEGATION of the old to within 2° (124.6 → 234.0 against −a =
+ *    235.4; 167.8 → 189.9 against 192.2). `180 − a` and `a + 180` both miss by over
+ *    100°.
+ *
+ * THE KEY IS THE PITCH SIGN, and that was tested against the alternative. Correcting on
+ * `pitch < 0` makes the tilt sweep continuous — worst step 15.7° against 109.4°
+ * uncorrected — while correcting on `|roll| > 90`, which is what the original workaround
+ * used, makes it WORSE (113.2°, four large steps). The two coincide at a perfect
+ * landscape hold, because a level landscape phone has its +Y axis and its lens both
+ * horizontal so `r7` and `r8` cross zero together; across a real sweep they part.
+ *
+ * NO HYSTERESIS, deliberately. The HAL flips state at the horizon and so does this, so
+ * the correction cancels the flip exactly. Smoothing it would desynchronise the two and
+ * leave a band where a perfectly good azimuth gets mirrored.
+ */
+fun CameraPose.inMirroredAzimuthRegion(): Boolean =
+    abs(imageRollDeg) > LANDSCAPE_ROLL_DEG && pitchDeg < 0f
+
+/**
+ * This pose with every azimuth reflected about north–south — the inverse of what the
+ * affected HAL did to it. Pitch and image roll are untouched: the mirror is in the
+ * horizontal frame only, which is why they agreed with gravity all along.
+ */
+fun CameraPose.withMirroredAzimuth(): CameraPose = copy(
+    bearingDeg = (360f - bearingDeg) % 360f,
+    deviceBearingDeg = (360f - deviceBearingDeg) % 360f,
+    pointingBearingDeg = (360f - pointingBearingDeg) % 360f,
+)
+
 /** Whether [CameraPose.bearingDeg] is worth publishing — see [BEARING_CONDITION_FLOOR]. */
 fun CameraPose.bearingIsDefined(): Boolean = horizontalLength >= BEARING_CONDITION_FLOOR
 
