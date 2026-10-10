@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cz.hillview.map.BearingMode
 import kotlinx.coroutines.delay
@@ -255,11 +256,24 @@ private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?)
     }
 }
 
+/**
+ * One readout line: monospace, so the fixed-width slots above line up, and SEMI-BOLD,
+ * because this text sits over a camera preview that can be anything from white sky to
+ * dark ground and the backdrop behind it is a user-adjustable tint that goes all the way
+ * to none (see `opacityLevel` 0).
+ *
+ * A heavier weight does NOT cost the alignment: the bold face of a monospaced family is
+ * monospaced too, with the same advance width. That is an assumption about the platform's
+ * font rather than about our code, so it is pinned by a render test comparing the drawn
+ * width of two equal-length readouts — if `FontFamily.Monospace` or this weight ever
+ * resolved to something proportional, every pad() above would quietly become decorative.
+ */
 @Composable
 private fun MonoText(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
         fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.SemiBold,
         style = MaterialTheme.typography.bodySmall,
         color = Color.Black.copy(alpha = 0.85f),
         modifier = modifier,

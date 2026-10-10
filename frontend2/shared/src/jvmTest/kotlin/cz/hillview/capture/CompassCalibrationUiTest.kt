@@ -2,11 +2,13 @@ package cz.hillview.capture
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runComposeUiTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /** The calibration sheet, exercised on the desktop like the map controls. */
@@ -81,6 +83,47 @@ class CameraOverlayUiTest {
             )
         }
         onNodeWithText("↕  -5.6°   ⟳   +0.8°").assertIsDisplayed()
+    }
+
+    /**
+     * THE SLOTS ARE REAL ON SCREEN, not just in the string.
+     *
+     * Every readout is padded to a fixed character count, which only buys stable layout
+     * if the font is actually monospaced AT THE WEIGHT WE ASK FOR. That is an assumption
+     * about the platform's font, not about our code, and if it ever stopped holding —
+     * `FontFamily.Monospace` resolving to something proportional, or a bolder face with a
+     * different advance — every pad() would silently become decoration and the numbers
+     * would go back to shuffling sideways. So: two attitude readouts of the same
+     * character length, utterly different digits, must DRAW the same width.
+     */
+    @Test
+    fun equalLengthReadoutsDrawTheSameWidth() = runComposeUiTest {
+        fun widthOf(pitch: Float, roll: Float): Float {
+            var w = 0f
+            setContent {
+                CameraOverlayUi(
+                    state = CaptureState(
+                        ready = false,
+                        pitchDeg = pitch,
+                        imageRollDeg = roll,
+                        fixLatitude = 50.115044,
+                        fixLongitude = 14.500907,
+                    ),
+                    bearingMode = cz.hillview.map.BearingMode.Walking,
+                    overridePosition = null,
+                    opacityLevel = 3,
+                    onCycleOpacity = {},
+                )
+            }
+            val b = onNodeWithTag("attitude-readout").getUnclippedBoundsInRoot()
+            w = (b.right - b.left).value
+            return w
+        }
+        // "-4.4" / "-92.4" against "+88.8" / "+111.1": every digit differs, several are
+        // the widest and narrowest glyphs in the face, and the padded length is equal.
+        val a = widthOf(-4.4f, -92.4f)
+        val b = widthOf(88.8f, 111.1f)
+        assertEquals(a, b, 0.5f, "attitude readout drew $a then $b — the font is not monospaced")
     }
 
     /** Landscape: the roll is what moves, and it reads ±90 rather than a residual. */
