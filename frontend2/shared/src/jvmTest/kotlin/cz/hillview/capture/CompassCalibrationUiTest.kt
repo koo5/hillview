@@ -80,7 +80,7 @@ class CameraOverlayUiTest {
                 onCycleOpacity = {},
             )
         }
-        onNodeWithText("↕ -5.6°  ⟳ 0.8°").assertIsDisplayed()
+        onNodeWithText("↕  -5.6°   ⟳   +0.8°").assertIsDisplayed()
     }
 
     /** Landscape: the roll is what moves, and it reads ±90 rather than a residual. */
@@ -101,7 +101,7 @@ class CameraOverlayUiTest {
                 onCycleOpacity = {},
             )
         }
-        onNodeWithText("↕ -4.4°  ⟳ -92.4°").assertIsDisplayed()
+        onNodeWithText("↕  -4.4°   ⟳  -92.4°").assertIsDisplayed()
     }
 
     /**
@@ -145,10 +145,14 @@ class CameraOverlayUiTest {
                 onCycleOpacity = {},
             )
         }
-        onNodeWithText("🧭 5.4°").assertIsDisplayed()
-        onNodeWithText("📍 50.115044°, 14.500907°").assertIsDisplayed()
-        onNodeWithText("⛰️ 320.5m").assertIsDisplayed()
-        onNodeWithText("🎯 ±8m").assertIsDisplayed()
+        // EVERY NUMBER IN ITS OWN FIXED SLOT, right-aligned — the strings carry the
+        // padding deliberately. Monospace plus a worst-case width means no readout moves
+        // sideways as a value grows a digit, which is what makes them readable while the
+        // phone is being rotated. Asserting the exact text is what keeps it that way.
+        onNodeWithText("🧭   5.4°").assertIsDisplayed()
+        onNodeWithText("📍  50.115044°,   14.500907°").assertIsDisplayed()
+        onNodeWithText("⛰️   320.5m").assertIsDisplayed()
+        onNodeWithText("🎯 ±  8m").assertIsDisplayed()
     }
 
     @Test
@@ -209,7 +213,7 @@ class CameraOverlayUiTest {
                 onCycleOpacity = {},
             )
         }
-        onNodeWithText("📍 49.897330°, 14.500907°").assertIsDisplayed()
+        onNodeWithText("📍  49.897330°,   14.500907°").assertIsDisplayed()
         onNodeWithText("(map position)").assertIsDisplayed()
     }
 
@@ -230,7 +234,7 @@ class CameraOverlayUiTest {
                 onCycleOpacity = {},
             )
         }
-        onNodeWithText("📍 49.897330°, 14.500907°").assertIsDisplayed()
+        onNodeWithText("📍  49.897330°,   14.500907°").assertIsDisplayed()
         onNodeWithText("(map position — no GPS fix)").assertIsDisplayed()
         onNodeWithTag("map-position-note", useUnmergedTree = true).assertExists()
     }

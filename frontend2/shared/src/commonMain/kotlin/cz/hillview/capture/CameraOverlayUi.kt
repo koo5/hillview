@@ -204,10 +204,10 @@ private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?)
 
     Row {
         state.bearingDeg?.let { bearing ->
-            MonoText("🧭 ${oneDp(bearing.toDouble())}°")
+            MonoText("🧭 ${pad(oneDp(bearing.toDouble()), W_BEARING)}°")
             androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
         }
-        MonoText("📍 ${sixDp(lat)}°, ${sixDp(lon)}°")
+        MonoText("📍 ${pad(sixDp(lat), W_LAT)}°, ${pad(sixDp(lon), W_LON)}°")
     }
     // The other two axes of the attitude, beside the bearing rather than in it: at phone
     // width the bearing row already carries the position. ↕ is the optical axis's tilt,
@@ -216,12 +216,16 @@ private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?)
     if (state.pitchDeg != null || state.imageRollDeg != null) {
         MonoText(
             listOfNotNull(
-                state.pitchDeg?.let { "↕ ${oneDp(it.toDouble())}°" },
+                state.pitchDeg?.let { "↕ ${pad(signedOneDp(it.toDouble()), W_PITCH)}°" },
                 state.imageRollDeg?.let { roll ->
-                    // A ✱ marks the 180° branch correction FIRING on this sample. A flip
-                    // the eye catches then has a stated cause instead of being a jump.
-                    "⟳ ${oneDp(roll.toDouble())}°" +
-                        if (state.branchCorrected == true) "✱" else ""
+                    // A ✱ marks the 180° branch correction FIRING on this sample, so a
+                    // flip the eye catches has a stated cause instead of being a jump.
+                    // Its space is reserved either way — the marker appearing must not
+                    // shove the number beside it sideways — and it goes BEFORE the glyph
+                    // rather than after the value, so no readout ends in whitespace that
+                    // a later trim could silently eat.
+                    (if (state.branchCorrected == true) "✱" else " ") +
+                        "⟳ ${pad(signedOneDp(roll.toDouble()), W_ROLL)}°"
                 },
                 // GRAVITY'S OWN ANSWER for the same angle, which is unambiguous where the
                 // fused one is not — see CaptureState.gravityRollDeg. Shown only when it
@@ -229,14 +233,16 @@ private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?)
                 // the readout is not three numbers wide at phone width.
                 state.gravityRollDeg?.takeIf { g ->
                     state.imageRollDeg?.let { r -> !degreesWithin(r, g, 10f) } ?: false
-                }?.let { "g ${oneDp(it.toDouble())}°" },
+                }?.let { "g ${pad(signedOneDp(it.toDouble()), W_ROLL)}°" },
             ).joinToString("  "),
             Modifier.testTag("attitude-readout"),
         )
     }
     if (overridePosition == null) {
-        state.fixAltitude?.let { MonoText("⛰️ ${oneDp(it)}m") }
-        state.fixAccuracyM?.let { MonoText("🎯 ±${it.toInt()}m") }
+        state.fixAltitude?.let { MonoText("⛰️ ${pad(oneDp(it), W_ALT)}m") }
+        state.fixAccuracyM?.let {
+            MonoText("🎯 ±${pad(it.toInt().toString(), W_ACCURACY)}m")
+        }
     } else {
         // A map position has no altitude and no accuracy to show — it is
         // where the user (or the map) says they are, not a measurement. With
@@ -273,6 +279,40 @@ internal fun degreesWithin(a: Float, b: Float, toleranceDeg: Float): Boolean {
 
 private fun sixDp(v: Double): String = fmtDecimals(v, 6)
 private fun oneDp(v: Double): String = fmtDecimals(v, 1)
+
+/**
+ * EVERY NUMBER RESERVES ITS OWN SPACE — right-aligned into a fixed character count.
+ *
+ * The font is monospace, so a character is a fixed width and padding is exact. Without
+ * this the readouts reflow on every sample: a roll crossing -99.9 to -100.0 widens by a
+ * character and shoves everything after it sideways, which is unreadable precisely when
+ * it matters most — watching values move while rotating the phone to isolate an axis
+ * (user, 2026-10-10). The widths below are each field's WORST CASE, so nothing ever
+ * moves and nothing is ever clipped.
+ */
+internal fun pad(text: String, width: Int): String =
+    if (text.length >= width) text else " ".repeat(width - text.length) + text
+
+/**
+ * One decimal with the sign ALWAYS shown, so the field is a constant width and "+" reads
+ * as the direction rather than as the absence of "-". Used for the two axes where the
+ * sign is the information: pitch (down positive) and the image roll.
+ */
+internal fun signedOneDp(v: Double): String {
+    val body = fmtDecimals(if (v < 0) -v else v, 1)
+    return (if (v < 0) "-" else "+") + body
+}
+
+// Worst cases: a bearing reaches 360.0, latitude -90.123456, longitude -180.123456,
+// pitch -90.0, roll -180.0, altitude -9999.9 (and 8848.9 the other way), accuracy
+// three digits of metres.
+internal const val W_BEARING = 5
+internal const val W_LAT = 10
+internal const val W_LON = 11
+internal const val W_PITCH = 5
+internal const val W_ROLL = 6
+internal const val W_ALT = 7
+internal const val W_ACCURACY = 3
 
 /** toFixed(n), without java.lang.String.format (this is commonMain). */
 internal fun fmtDecimals(v: Double, decimals: Int): String {
