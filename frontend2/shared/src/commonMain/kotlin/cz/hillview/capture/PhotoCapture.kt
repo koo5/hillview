@@ -549,6 +549,30 @@ data class CaptureState(
      */
     val pitchDeg: Float? = null,
     val imageRollDeg: Float? = null,
+    /**
+     * THE SAME ROLL, OUT OF GRAVITY — `atan2(g_x, g_y)`, the identity [imageRollDeg] is
+     * meant to satisfy by construction.
+     *
+     * Shown beside it rather than instead of it, because the two have different failure
+     * modes and seeing both is the diagnosis. [imageRollDeg] comes from the HAL's fused
+     * attitude: smooth, gyro-stabilised, and subject to a 180° branch ambiguity this
+     * device demonstrably gets wrong. This one comes from the accelerometer: unambiguous
+     * — there is only one down — but noisier under hand movement (measured sd 1.7-2.8°,
+     * worst sample 6° off, hand-held at 57° below the horizon).
+     *
+     * So a disagreement of ~180° is the HAL on the wrong branch, a disagreement of a
+     * couple of degrees is the accelerometer being shaken, and if the fused number jumps
+     * while this one runs smoothly the fault is downstream of the sensor — in our own
+     * correction. That last case is why this is on screen: it cannot be read off a
+     * captured frame, because a capture happens when the phone is already still.
+     */
+    val gravityRollDeg: Float? = null,
+    /**
+     * Whether the 180° branch correction is firing RIGHT NOW — see
+     * `CameraPose.onWrongAttitudeBranch`. Marked in the readout so a flip the eye sees
+     * can be attributed, instead of being a jump with no stated cause.
+     */
+    val branchCorrected: Boolean? = null,
     val lastPhoto: CapturedPhoto? = null,
     val errorMessage: String? = null,
     /** A video recording is in progress — the shutter stops it. */

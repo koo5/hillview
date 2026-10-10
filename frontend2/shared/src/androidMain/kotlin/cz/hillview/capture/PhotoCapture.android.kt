@@ -534,11 +534,24 @@ private class AndroidPhotoCapture(
                 state = state.copy(
                     pitchDeg = it.pitch.toFloat(),
                     imageRollDeg = it.roll.toFloat(),
+                    branchCorrected = it.branchCorrected,
                 )
             }
         }
 
     @Volatile override var stampMotion: cz.hillview.map.DeviceMotionSample? = null
+        set(value) {
+            field = value
+            // Gravity's own answer for the image roll, mirrored the same way and for the
+            // same reason — the overlay must not reach for a sensor of its own. It is the
+            // INDEPENDENT number beside the fused one; see CaptureState.gravityRollDeg.
+            val g = value?.gravity
+            if (g != null && g.size >= 2) {
+                state = state.copy(
+                    gravityRollDeg = cz.hillview.plugin.gravityRollDeg(g[0], g[1]),
+                )
+            }
+        }
 
     @Volatile override var compassLandscapeWorkaround: Boolean = false
 

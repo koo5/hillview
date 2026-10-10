@@ -217,7 +217,19 @@ private fun LocationRows(state: CaptureState, overridePosition: ManualLocation?)
         MonoText(
             listOfNotNull(
                 state.pitchDeg?.let { "↕ ${oneDp(it.toDouble())}°" },
-                state.imageRollDeg?.let { "⟳ ${oneDp(it.toDouble())}°" },
+                state.imageRollDeg?.let { roll ->
+                    // A ✱ marks the 180° branch correction FIRING on this sample. A flip
+                    // the eye catches then has a stated cause instead of being a jump.
+                    "⟳ ${oneDp(roll.toDouble())}°" +
+                        if (state.branchCorrected == true) "✱" else ""
+                },
+                // GRAVITY'S OWN ANSWER for the same angle, which is unambiguous where the
+                // fused one is not — see CaptureState.gravityRollDeg. Shown only when it
+                // actually disagrees, so the ordinary case stays one number per axis and
+                // the readout is not three numbers wide at phone width.
+                state.gravityRollDeg?.takeIf { g ->
+                    state.imageRollDeg?.let { r -> !degreesWithin(r, g, 10f) } ?: false
+                }?.let { "g ${oneDp(it.toDouble())}°" },
             ).joinToString("  "),
             Modifier.testTag("attitude-readout"),
         )
@@ -246,6 +258,17 @@ private fun MonoText(text: String, modifier: Modifier = Modifier) {
         color = Color.Black.copy(alpha = 0.85f),
         modifier = modifier,
     )
+}
+
+/**
+ * Within [toleranceDeg] on the circle. Local rather than borrowed from `CameraPose`,
+ * which is Android-only source while this file is common.
+ */
+internal fun degreesWithin(a: Float, b: Float, toleranceDeg: Float): Boolean {
+    var d = (b - a) % 360f
+    if (d > 180f) d -= 360f
+    if (d <= -180f) d += 360f
+    return (if (d < 0f) -d else d) <= toleranceDeg
 }
 
 private fun sixDp(v: Double): String = fmtDecimals(v, 6)
