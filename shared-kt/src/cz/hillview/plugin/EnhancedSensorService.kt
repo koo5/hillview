@@ -254,6 +254,11 @@ class EnhancedSensorService(
      * 180° tie, and it can do that because it comes from gravity rather than from the
      * fused attitude that is doing the flipping.
      */
+    // SUPERSEDED 2026-10-10, kept beside the detector it feeds
+    // (CameraPose.onWrongAttitudeBranchByOrientationClass) because the 729-capture
+    // measurement behind the sign table is real. The branch test now asks gravity, which
+    // has no "unknown" state to mistake for portrait — see that function for why.
+    @Suppress("unused")
     private fun expectedLandscapeRollSign(): Int =
         when (DeviceOrientation.toDegrees(deviceOrientation)) {
             270 -> 1
@@ -626,6 +631,18 @@ class EnhancedSensorService(
                     Log.d(TAG, "  ✓ Registered GYROSCOPE (frame probe)")
                 }
 
+                // THE INDEPENDENT REFERENCE FOR THE 180° BRANCH TEST, and this mode did
+                // not register it before. Gravity is a different stream from the fused
+                // rotation vector, so it is the one thing that can say the fused
+                // attitude is on the wrong branch — see CameraPose.onWrongAttitudeBranch
+                // for why the gravity-based ORIENTATION CLASS could not do that job.
+                // Cheap for the same reason as the gyroscope above: during capture the
+                // IMU window already runs this sensor, so the hardware is on.
+                accelerometerSensor?.let {
+                    registerSensor(it)
+                    Log.d(TAG, "  ✓ Registered ACCELEROMETER (branch reference)")
+                } ?: Log.w(TAG, "  ❌ ACCELEROMETER not available — branch test declines")
+
                 rotationVectorSensor?.let {
                     Log.d(TAG, "🔄 Registering TYPE_ROTATION_VECTOR sensor for UPRIGHT mode")
                     registerSensor(it)
@@ -911,8 +928,22 @@ class EnhancedSensorService(
         // afterwards from the roll sign is exactly the archaeology that cost two
         // sessions here: by the time a heading reaches an upload, a corrected sample and
         // one that never needed correcting look identical.
+        // GRAVITY decides, not the quantized orientation class. The class reports
+        // ORIENTATION_UNKNOWN as FLAT_UP as 0, which is also PORTRAIT, so pitched down it
+        // flickered this correction on and off and the reported roll jumped 180° and back
+        // while the phone moved smoothly (user, 2026-10-10: rotating portrait → landscape
+        // below the horizon read 0, −10, … +110, +90 — which is −70+180, −80+180,
+        // −90+180). Gravity has no unknown state and no buckets.
+        val gravityConditioning = gravityRollConditioning(
+            accelerometerData[0], accelerometerData[1], accelerometerData[2],
+        )
+        val gravityRoll = if (gravityConditioning >= GRAVITY_ROLL_FLOOR) {
+            gravityRollDeg(accelerometerData[0], accelerometerData[1])
+        } else {
+            null
+        }
         val onWrongBranch = rawLens != null &&
-            rawLens.onWrongAttitudeBranch(expectedLandscapeRollSign())
+            rawLens.onWrongAttitudeBranch(gravityRoll, gravityConditioning)
         val branched = if (rawLens != null && onWrongBranch) {
             rawLens.withBranchCorrected()
         } else {

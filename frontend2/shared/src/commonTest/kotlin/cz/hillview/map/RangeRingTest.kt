@@ -2,12 +2,11 @@ package cz.hillview.map
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 /**
  * The one circle's rule (user, 2026-10-10): the circle is the exact range
- * threshold and "the bearing arrow should end right inside it" — so nothing
- * drawn may cross the line, at any screen density.
+ * threshold, so nothing drawn may cover the line — and the arrowhead's base
+ * "sits flush on the threshold", as in the original. At any screen density.
  */
 class RangeRingTest {
 
@@ -17,28 +16,25 @@ class RangeRingTest {
     private fun threshold(density: Float) = 70f * density
 
     @Test
-    fun theArrowEndsJustInsideTheLine() {
+    fun theArrowheadRestsOnTheLineFromOutside() {
         for (d in densities) {
             val r = threshold(d)
-            val lineInnerEdge = r - RANGE_THRESHOLD_LINE_DP / 2f * d
-            val tip = arrowTipRadiusPx(r, d)
-            assertTrue(tip < lineInnerEdge, "density $d: tip $tip reaches the line at $lineInnerEdge")
-            assertTrue(
-                lineInnerEdge - tip <= 2f * d,
-                "density $d: tip $tip stops ${(lineInnerEdge - tip) / d} dp short — not RIGHT inside",
+            val lineOuterEdge = r + RANGE_THRESHOLD_LINE_DP / 2f * d
+            assertEquals(lineOuterEdge, arrowHeadBaseRadiusPx(r, d), 1e-3f, "density $d: the base is ON the line")
+            assertEquals(
+                ARROW_HEAD_DP * d, arrowTipRadiusPx(r, d) - arrowHeadBaseRadiusPx(r, d), 1e-3f,
+                "density $d: the tip is one head length out, pointing away from the range",
             )
         }
     }
 
     @Test
-    fun theHoldHugsTheLineFromOutsideAtEveryWidth() {
+    fun theHoldHugsTheLineFromInside() {
         for (d in densities) {
             val r = threshold(d)
-            val lineOuterEdge = r + RANGE_THRESHOLD_LINE_DP / 2f * d
-            for (strokeDp in listOf(3f, BEARING_HOLD_ARMED_DP)) {
-                val innerEdge = bearingHoldRadiusPx(r, strokeDp, d) - strokeDp / 2f * d
-                assertEquals(lineOuterEdge, innerEdge, 1e-3f, "density $d, stroke $strokeDp dp")
-            }
+            val lineInnerEdge = r - RANGE_THRESHOLD_LINE_DP / 2f * d
+            val outerEdge = bearingHoldRadiusPx(r, d) + BEARING_HOLD_DP / 2f * d
+            assertEquals(lineInnerEdge, outerEdge, 1e-3f, "density $d")
         }
     }
 }

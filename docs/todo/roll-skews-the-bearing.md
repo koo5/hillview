@@ -51,6 +51,45 @@ The "universal logic" the user asks about is only findable once we know which of
 those three it is: a HAL skew wants a calibration or a raw-sensor path, a
 conditioning bug wants new constants, an overlay bug wants neither.
 
+## 2026-10-10, before any sweep: one cause found and fixed
+
+The user reported the ROLL READOUT itself non-monotonic — rotating portrait →
+landscape below the horizon it read 0, −10, then jumped to +110 and came down to
++90 — and wrong whenever the camera looked below the horizon.
+
+That is `−70+180`, `−80+180`, `−90+180`: the 180° branch correction firing on a
+healthy attitude. Two code facts made it:
+
+- `OrientationEventListener` returns `ORIENTATION_UNKNOWN` when the phone is near
+  flat, which pitched down IS. `fromDegrees` maps that to `FLAT_UP` and
+  `toDegrees(FLAT_UP)` is **0** — the same value as `PORTRAIT`. So the class said
+  "portrait" for "I don't know", `expectedLandscapeRollSign()` flickered between
+  ±1 and 0 as the phone tilted, and the correction flickered with it.
+- The `abs(roll) > LANDSCAPE_ROLL_DEG` gate put a step at exactly 60°, which is
+  where the jump appeared.
+
+The detector now asks GRAVITY instead: `atan2(g_x, g_y)`, the identity `roll_deg`
+is documented to satisfy, from the accelerometer — a different stream from the
+fused rotation vector and therefore able to judge it. On 100 consecutive prod
+captures, 94 rows agree with gravity to within 15° and 6 are 173–175° off, with
+nothing in between, so the 90° threshold sits in a 160°-wide empty band. The old
+sign table scored 6/6 with no false positives on those same rows, so what was
+wrong with it was its INPUT, not its logic — it is kept as
+`onWrongAttitudeBranchByOrientationClass` with that written down.
+
+What this buys beyond the fix: the test is continuous (no 45° buckets, so nothing
+to flicker), needs no step in the roll, and works at every roll and pitch the
+conditioning allows — including mid-roll around 40° and pitched steeply down,
+both of which the old gate could not reach. `GRAVITY_ROLL_FLOOR` declines within
+~15° of flat, where gravity has no in-plane direction, rather than guessing.
+
+**NOT phone-verified.** The mechanism explains the report exactly and the maths is
+pinned by a 3 000-pose sweep asserting a self-consistent attitude is never called
+wrong-branch, but nobody has rotated a phone with this build yet. If the roll is
+still non-monotonic, the remaining suspect is the HAL's own fused roll, and
+`attitude.branch_corrected` on a captured frame now says whether our correction
+was involved at all.
+
 ## The measurement that would settle it
 
 Two sweeps, and from 2026-10-10 the photos carry everything needed to read them —

@@ -288,10 +288,97 @@ const val LANDSCAPE_ROLL_DEG = 60f
  *
  * Pass 0 where the class does not say (portrait, flat, unknown) and this declines rather
  * than guessing.
+ *
+ * SUPERSEDED 2026-10-10 by [onWrongAttitudeBranch] below, which asks GRAVITY instead.
+ * Kept because the 729-capture measurement above is real and because the two can be
+ * compared on stored frames. What is wrong with it is not the sign table — that scored
+ * 6 true positives, 0 false positives and 0 misses against gravity on 100 real captures
+ * — but its INPUT:
+ *
+ *  - `OrientationEventListener` returns ORIENTATION_UNKNOWN when the phone is near
+ *    flat, `fromDegrees` maps that to FLAT_UP and `toDegrees` turns FLAT_UP into 0,
+ *    which is indistinguishable from PORTRAIT. So pitched steeply down — where the
+ *    user reported the roll "completely fucked" — the class flickers between a
+ *    landscape bucket and 0, this correction flickers with it, and the reported roll
+ *    jumps 180° and back while the phone moves smoothly.
+ *  - The class is quantized into 45° buckets, so it cannot say anything during a
+ *    rotation, which is where the flicker is most visible.
+ *  - `abs(imageRollDeg) > LANDSCAPE_ROLL_DEG` puts a step at exactly 60°. Measured by
+ *    the user rotating portrait → landscape below the horizon: the readout ran 0, −10,
+ *    … then jumped to +110 and came down to +90 — which is −70+180, −80+180, −90+180.
  */
-fun CameraPose.onWrongAttitudeBranch(expectedRollSign: Int): Boolean =
+internal fun CameraPose.onWrongAttitudeBranchByOrientationClass(expectedRollSign: Int): Boolean =
     expectedRollSign != 0 && abs(imageRollDeg) > LANDSCAPE_ROLL_DEG &&
         (if (imageRollDeg > 0f) 1 else -1) != expectedRollSign
+
+/**
+ * How much of gravity lies in the screen's plane, 0..1 — the conditioning of
+ * [gravityRollDeg], exactly as [CameraPose.horizontalLength] is the conditioning of the
+ * bearing. 1 with the phone upright, 0 with it flat, where no in-plane direction exists
+ * and the roll it implies is arbitrary.
+ */
+fun gravityRollConditioning(ax: Float, ay: Float, az: Float): Float {
+    val magnitude = sqrt(ax * ax + ay * ay + az * az)
+    if (magnitude < 1e-3f) return 0f
+    return sqrt(ax * ax + ay * ay) / magnitude
+}
+
+/**
+ * The image roll GRAVITY implies: `atan2(a_x, a_y)` in the device frame.
+ *
+ * This is the identity `attitude.roll_deg` is documented to satisfy by construction, and
+ * measuring it is what exposed the landscape bug the attitude maths was rewritten for.
+ * It comes from the accelerometer, a different stream from the fused rotation vector, so
+ * it is INDEPENDENT of the attitude being checked — which is the whole reason it can
+ * check it.
+ *
+ * A raw accelerometer sample is gravity plus linear acceleration and cannot separate
+ * them, and this file is careful elsewhere not to pretend otherwise. It is sufficient
+ * HERE because the only question asked of it is binary with a 90° margin (see
+ * [onWrongAttitudeBranch]): to move this answer, hand movement would have to produce a
+ * lateral acceleration comparable to g itself.
+ */
+fun gravityRollDeg(ax: Float, ay: Float): Float =
+    Math.toDegrees(atan2(ax, ay).toDouble()).toFloat()
+
+/**
+ * The floor under [gravityRollConditioning] at which the branch test declines.
+ *
+ * 0.26 is ~15° off flat. Below it gravity has no usable in-plane direction, so the test
+ * says nothing rather than guessing — the same discipline as [BEARING_CONDITION_FLOOR],
+ * and the opposite of the orientation class's habit of reporting 0 for "I do not know".
+ */
+const val GRAVITY_ROLL_FLOOR = 0.26f
+
+/**
+ * Is this pose on the WRONG 180° attitude branch — judged against gravity?
+ *
+ * The fault is the HAL's, described in full above: held with the device's +Y axis near
+ * horizontal the attitude has a 180° ambiguity, and this one resolves it inconsistently,
+ * flipping the azimuth and the image roll together while the phone is still. What is new
+ * here is the DETECTOR. Gravity is unambiguous — there is only one down — so the matrix
+ * disagreeing with it by about 180° is the fault itself rather than a proxy for it.
+ *
+ * Measured on 100 consecutive captures: 94 rows agree with gravity to within 15° and 6
+ * are 173–175° off. There is nothing in between, so the 90° threshold sits in a 160°-wide
+ * empty band and its exact value does not matter.
+ *
+ * Three properties the orientation-class version could not have, and they are the point:
+ * it is continuous (no 45° buckets, so no flicker during a rotation), it needs no step in
+ * the roll (no jump at 60°), and it works at EVERY roll and pitch the conditioning allows
+ * — including mid-roll around 40°, and including pitched steeply down, where the class
+ * reports "unknown" as "portrait".
+ *
+ * Declines — returns false — when gravity is too flat to say, or when no sample has
+ * arrived. Declining means the pose is published as the HAL gave it, which is the honest
+ * failure: a 180° correction applied on a guess is worse than an uncorrected reading.
+ */
+fun CameraPose.onWrongAttitudeBranch(
+    gravityRollDeg: Float?,
+    gravityConditioning: Float,
+): Boolean =
+    gravityRollDeg != null && gravityConditioning >= GRAVITY_ROLL_FLOOR &&
+        abs(signedDegreeDelta(imageRollDeg, gravityRollDeg)) > 90f
 
 /**
  * This pose with the 180° branch error taken out — of the azimuths AND of the image roll.

@@ -44,10 +44,11 @@ import kotlin.math.sin
  * arrow's tip, 21 dp outside the green one: one circle that said what it
  * meant and another that did something.
  *
- * **The arrow ends just inside the range threshold** (user, 2026-10-10: "the
- * bearing arrow should end right inside it"), where the original runs it out
- * to `range × 1.3`, past the circle — see [arrowTipRadiusPx]. The hold is
- * drawn just OUTSIDE it ([bearingHoldRadiusPx]), so neither covers the line.
+ * **The arrowhead's base sits flush on the range threshold**, the head
+ * pointing out of it, as in the original (user, 2026-10-10: "in the
+ * original, the arrow tip's base sits flush on the threshold, lets copy
+ * that") — see [arrowHeadBaseRadiusPx]. The hold is drawn just INSIDE the
+ * line ([bearingHoldRadiusPx]), so neither covers it.
  *
  * Landing on the ring is not enough to move anything: the arrow has to be
  * HELD — but only while something is being recorded. See [requireHold] and
@@ -59,7 +60,7 @@ class BearingArrowOverlay : Overlay() {
     /**
      * Radius of the range THRESHOLD, in device pixels — the one circle, a
      * thin line, and what a finger grabs. The rest is placed from it: the
-     * hold just outside, the arrow's tip just inside (RangeRing.kt). Zero
+     * hold just inside, the arrowhead resting on it outside (RangeRing.kt). Zero
      * until the map has been laid out, and nothing is drawn or grabbed until
      * then.
      */
@@ -139,7 +140,7 @@ class BearingArrowOverlay : Overlay() {
         color = Color.argb(128, 250, 0, 0)
     }
 
-    /** The hold, drawn closing on the finger; solid once it is served. */
+    /** The hold, drawn closing on the finger; a closed ring once it is served. */
     private val arm = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -174,9 +175,11 @@ class BearingArrowOverlay : Overlay() {
         // The hold, drawn along the range ring and closing on the FINGER from
         // both sides: it starts as a stub under the thumb and meets itself
         // behind the map exactly when manual bearing is granted, and then
-        // widens outward into a solid blue ring for as long as it is the
-        // handle. Hugging the threshold from OUTSIDE, so the line stays
-        // readable through all of it (bearingHoldRadiusPx). Centred on the
+        // stays a closed ring, the same width, for as long as it is the
+        // handle — closing IS the signal (BEARING_HOLD_DP says why it no
+        // longer thickens). Hugging the threshold from INSIDE, so the line and the
+        // arrowhead resting on it stay readable through all of it
+        // (bearingHoldRadiusPx). Centred on the
         // finger and not on the arrow, because with the whole ring grabbable
         // the finger is where the answer is coming from.
         //
@@ -207,10 +210,9 @@ class BearingArrowOverlay : Overlay() {
             drawArrow(canvas, cx, cy, fingerAngle, density, ghostLine, ghost)
         }
 
-        val holdDp = if (arming.armed) BEARING_HOLD_ARMED_DP else 3f
-        arm.strokeWidth = holdDp * density
+        arm.strokeWidth = BEARING_HOLD_DP * density
         val sweep = 360f * progress
-        val hold = bearingHoldRadiusPx(ringRadiusPx, holdDp, density)
+        val hold = bearingHoldRadiusPx(ringRadiusPx, density)
         canvas.drawArc(
             RectF(cx - hold, cy - hold, cx + hold, cy + hold),
             (fingerAngle - 90.0 - sweep / 2.0).toFloat(),
@@ -237,7 +239,7 @@ class BearingArrowOverlay : Overlay() {
         val tipX = cx + (sin(rad) * tipRadiusPx).toFloat()
         val tipY = cy - (cos(rad) * tipRadiusPx).toFloat()
 
-        val head = 11f * density
+        val head = ARROW_HEAD_DP * density
         val backX = tipX - (sin(rad) * head).toFloat()
         val backY = tipY + (cos(rad) * head).toFloat()
         // The shaft stops at the head's back, not at the tip: its round cap

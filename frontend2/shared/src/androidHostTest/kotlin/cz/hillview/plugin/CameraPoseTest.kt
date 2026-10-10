@@ -429,8 +429,8 @@ class CameraPoseTest {
     fun theWrongBranchIsTheOneWhoseRollSignDisagreesWithGravity() {
         val good = poseFor(azimuthDeg = 274.4f, elevationDeg = 10f, imageRollDeg = 90.4f)!!
         val flipped = poseFor(azimuthDeg = 95.0f, elevationDeg = 10f, imageRollDeg = -93.3f)!!
-        assertTrue(!good.onWrongAttitudeBranch(expectedRollSign = 1))
-        assertTrue(flipped.onWrongAttitudeBranch(expectedRollSign = 1))
+        assertTrue(!good.onWrongAttitudeBranchByOrientationClass(expectedRollSign = 1))
+        assertTrue(flipped.onWrongAttitudeBranchByOrientationClass(expectedRollSign = 1))
         // ...and correcting the flipped one lands back on the good one — heading AND roll,
         // because the flip takes both. 4° on the roll is hand-held noise between the two
         // real samples these numbers come from.
@@ -446,20 +446,94 @@ class CameraPoseTest {
         // The pitch is NOT part of the flip and must survive untouched.
         assertEquals(flipped.pitchDeg, fixed.pitchDeg, 0.001f)
         // And the corrected pose is no longer on the wrong branch, by its own test.
-        assertTrue(!fixed.onWrongAttitudeBranch(expectedRollSign = 1))
+        assertTrue(!fixed.onWrongAttitudeBranchByOrientationClass(expectedRollSign = 1))
         // The other landscape expects the other sign, symmetrically.
-        assertTrue(good.onWrongAttitudeBranch(expectedRollSign = -1))
-        assertTrue(!flipped.onWrongAttitudeBranch(expectedRollSign = -1))
+        assertTrue(good.onWrongAttitudeBranchByOrientationClass(expectedRollSign = -1))
+        assertTrue(!flipped.onWrongAttitudeBranchByOrientationClass(expectedRollSign = -1))
     }
 
-    /** With no orientation class to lean on it declines rather than guessing. */
+    /**
+     * THE DETECTOR IN USE: gravity, not the orientation class.
+     *
+     * `poseFor` builds an attitude that is self-consistent by construction, so the
+     * gravity its own roll implies agrees with it, and the test must stay silent across
+     * the whole sphere. That is the regression: the class-based version flickered on and
+     * off as the quantized class changed, reporting 180° jumps on a perfectly healthy
+     * attitude (user, 2026-10-10, rotating portrait → landscape below the horizon).
+     */
+    @Test
+    fun aSelfConsistentAttitudeIsNeverCalledWrongBranch() {
+        var checked = 0
+        for (az in 0 until 360 step 30) {
+            for (el in -80..80 step 20) {
+                for (roll in -170..180 step 10) {
+                    val p = poseFor(az.toFloat(), el.toFloat(), roll.toFloat()) ?: continue
+                    // Gravity for THIS pose: the roll it implies, with full conditioning
+                    // (the phone is not flat anywhere in this sweep's pitch range).
+                    assertTrue(
+                        !p.onWrongAttitudeBranch(p.imageRollDeg, 1f),
+                        "az $az el $el roll $roll wrongly called wrong-branch",
+                    )
+                    checked++
+                }
+            }
+        }
+        assertTrue(checked > 3_000, "swept only $checked poses")
+    }
+
+    /** A 180°-flipped matrix is caught at EVERY roll, including the two the old gate missed. */
+    @Test
+    fun theFlippedBranchIsCaughtAtEveryRollIncludingPortraitAndMidRoll() {
+        // The measured pair: the matrix says -93.3 while gravity says +92.6 (a real row,
+        // 174.1° apart; the 100-capture sample had 94 within 15° and 6 at 173-175°).
+        val flipped = poseFor(azimuthDeg = 95.0f, elevationDeg = 10f, imageRollDeg = -93.3f)!!
+        assertTrue(flipped.onWrongAttitudeBranch(92.6f, 1f))
+        // Mid-roll, which `abs(roll) > 60` could not reach...
+        val mid = poseFor(azimuthDeg = 95f, elevationDeg = 10f, imageRollDeg = -140f)!!
+        assertTrue(mid.onWrongAttitudeBranch(40f, 1f))
+        // ...and portrait, where the orientation class offered no sign at all.
+        val portrait = poseFor(azimuthDeg = 95f, elevationDeg = 10f, imageRollDeg = 178f)!!
+        assertTrue(portrait.onWrongAttitudeBranch(-2f, 1f))
+        assertTrue(!portrait.onWrongAttitudeBranch(178f, 1f))
+    }
+
+    /**
+     * Flat, where gravity has no in-plane direction: it declines instead of guessing.
+     * A 180° correction applied on a guess is worse than an uncorrected reading, and this
+     * is exactly where the orientation class used to answer "portrait" for "I don't know".
+     */
+    @Test
+    fun withGravityTooFlatTheBranchTestDeclines() {
+        val p = poseFor(azimuthDeg = 95f, elevationDeg = 10f, imageRollDeg = -93f)!!
+        assertTrue(!p.onWrongAttitudeBranch(90f, GRAVITY_ROLL_FLOOR - 0.01f))
+        assertTrue(p.onWrongAttitudeBranch(90f, GRAVITY_ROLL_FLOOR))
+        // No sample at all declines too.
+        assertTrue(!p.onWrongAttitudeBranch(null, 1f))
+    }
+
+    /** The conditioning is gravity's in-plane share: 1 upright, 0 flat. */
+    @Test
+    fun theGravityConditioningIsTheInPlaneShare() {
+        assertEquals(1f, gravityRollConditioning(0f, 9.81f, 0f), 0.001f)
+        assertEquals(0f, gravityRollConditioning(0f, 0f, 9.81f), 0.001f)
+        assertEquals(0f, gravityRollConditioning(0f, 0f, 0f), 0.001f)
+        // 45° off flat: half the magnitude in plane.
+        val h = 9.81f / kotlin.math.sqrt(2f)
+        assertEquals(0.707f, gravityRollConditioning(0f, h, h), 0.01f)
+        // And the roll it implies matches the convention roll_deg = atan2(g_x, g_y).
+        assertEquals(0f, gravityRollDeg(0f, 9.81f), 0.01f)
+        assertEquals(90f, gravityRollDeg(9.81f, 0f), 0.01f)
+        assertEquals(-90f, gravityRollDeg(-9.81f, 0f), 0.01f)
+    }
+
+    /** With no orientation class to lean on the SUPERSEDED detector declines. */
     @Test
     fun withNoOrientationClassTheBranchTestDeclines() {
         val p = poseFor(azimuthDeg = 95f, elevationDeg = 10f, imageRollDeg = -93f)!!
-        assertTrue(!p.onWrongAttitudeBranch(expectedRollSign = 0))
+        assertTrue(!p.onWrongAttitudeBranchByOrientationClass(expectedRollSign = 0))
         // ...and portrait is never on the landscape branch at all.
         val portrait = poseFor(azimuthDeg = 95f, elevationDeg = 10f, imageRollDeg = 2f)!!
-        assertTrue(!portrait.onWrongAttitudeBranch(expectedRollSign = 1))
+        assertTrue(!portrait.onWrongAttitudeBranchByOrientationClass(expectedRollSign = 1))
     }
 
     /**

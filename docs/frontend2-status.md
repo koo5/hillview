@@ -572,11 +572,11 @@ candidate explanations.
     ring and, once armed, widens to its full 8.8 dp stroke
     (`RANGE_RING_STROKE_DP`) — the dashed green circle goes solid blue for as
     long as it is the handle. *(Superseded the same day: the hold now hugs
-    the line from outside — see the next bullet.)*
+    the line from inside — see the next bullet.)*
   - **The arrow did not move**: its tip stays at 1.3× the ring, the
     original's `range × 1.3`, now derived inside the overlay
     (`ARROW_TIP_SCALE`) rather than passed in. *(Superseded the same day:
-    the tip now ends just inside the ring — see the next bullet.)*
+    the head now rests ON the line, measured from it — see the next bullet.)*
   - **The grab band moved in with the ring**: ±36 dp around 70 dp in the
     recording activities (34–106 dp from centre, was 55–127), ±18 dp in the
     viewer (52–88, was 73–109). The viewer's band is now exactly the
@@ -600,16 +600,28 @@ candidate explanations.
     Geometry and its reasoning live in one place, `RangeRing.kt` (commonMain),
     which `RANGE_RING_STROKE_DP` moved into and then left: nothing draws an
     8.8 dp ring any more.
-  - **The arrow's tip ends 1.5 dp inside the line's inner edge**
-    (`arrowTipRadiusPx`), where the original runs it out to `range × 1.3` —
-    an arrow past the circle said the range went further than it does.
-    The shaft now stops at the head's back: its round cap stuck 1.5 dp past
-    the point, so the arrow visibly ended beyond where it was placed.
-  - **The hold arc hugs the line from outside** (`bearingHoldRadiusPx`): its
-    inner edge sits on the line's outer edge at both widths, 3 dp charging
-    and 6 dp armed (`BEARING_HOLD_ARMED_DP`, was 8.8 to cover the band), so
-    it widens outward and never hides the threshold or the tip. The grab
-    zone is still centred on the line.
+  - **The arrowhead's base sits flush on the line, the head pointing out**
+    (`arrowHeadBaseRadiusPx`: the base on the line's outer edge, the tip one
+    `ARROW_HEAD_DP` beyond). That is the ORIGINAL's placement, copied (user:
+    "my bad about the arrow, in the original, the arrow tip's base sits
+    flush on the threshold, lets copy that") after a first pass the same
+    day had put the tip just INSIDE the line on the first request. The
+    original's line ends at `range × 1.3` = 91 px and its SVG marker is
+    anchored 27 px back (`refX 9` × stroke 3), so its base is at 64 px — the
+    inner edge of its dashed band (65.6) within two pixels. Its head is
+    bigger (30 × 36 px, red-outlined) than ours (11 × 11 dp); only the place
+    is copied. The shaft stops at the head's base: its round cap used to
+    stick 1.5 dp past the point.
+  - **The hold arc hugs the line from INSIDE** (`bearingHoldRadiusPx`): its
+    outer edge sits on the line's inner edge, so it covers neither the line
+    nor the head resting on it. The grab zone is still centred on the line.
+  - **The hold no longer thickens when it is served** (user: "its not clear
+    why the blue circle thickens once the hold period finishes"). It had
+    since 2026-09-11 (3 → 5 dp, a "served" signal nobody could read), then
+    8.8 that morning to cover the dashed band, then 6; the band was its
+    last reason. Now one width, `BEARING_HOLD_DP` = 3 dp, throughout:
+    the ring CLOSING says it, with the buzz and the arrow jumping to the
+    finger.
   - **The range in the state now matches the line to under a pixel.** The
     ring was drawn at a float radius and measured at its truncation, from
     the centre's exact position to a point on the rounded pixel grid (half a
@@ -618,8 +630,42 @@ candidate explanations.
     same grid, and the read-back fires past a thousandth. What is left is
     osmdroid's earth radius (6378137 m) against the culler's (6371000 m),
     0.11% — about 0.08 dp.
-  - Tests: `RangeRingTest` (tip inside the line, and right inside; the hold's
-    inner edge on the line at both widths, at four densities).
+  - Tests: `RangeRingTest` (the head's base on the line's outer edge and its
+    tip a head length out; the hold's outer edge on the line's inner edge at
+    both widths; at four densities).
+
+- **A GPS accuracy disc round the crosshair** (user: "gps accuracy circle
+  with semi-opaque fill"). An ADDITION — the original declares
+  `accuracyCircle` (Map.svelte:123) and never draws one.
+  - `GpsAccuracyOverlay`: the last fix's `accuracyM` as a disc in ground
+    metres (so it scales with zoom, unlike the range ring), `#4285F4` at
+    25% with a 1 dp rim at 60%. Shown exactly when the crosshair is
+    (tracking ACTIVE or BACKGROUND); null, zero or NaN accuracy draws nothing.
+  - **The bottom layer**, under the range ring and the markers: a disc tens
+    of metres wide drawn on top would tint every marker in it and the range
+    line. The crosshair stays above the markers (2026-09-19); the disc is
+    why the two are separate overlays.
+  - Radius measured off the projection — the pixel distance to a point that
+    many metres east of the fix — so Mercator's latitude stretch and map
+    rotation stay out of it. `GpsAccuracyOverlayTest` (androidDeviceTest)
+    renders it to a bitmap and checks the edge against osmdroid's own
+    `metersToPixels`, which the overlay does not use.
+
+- **The photo marker's cross was 7 dp off its photo — fixed** (user: "are
+  the crossess in photo markers meant to signify their exact locations?").
+  They are: in the original the whole marker is nudged 7 px along its
+  bearing to fan out piles, and the cross counter-translates by the same
+  amount to stay on the coordinate (`optimizedMarkers.ts:181`;
+  docs/tauri-map-ui-contract.md, "What a photo marker is"). The port applied
+  the nudge to the marker's one screen point and drew the cross there, so
+  since the rose was suppressed (`rosesEnabled = false`) every cross sat
+  7 dp AHEAD of where its photo was taken, in the direction it looks. Now
+  `Placed` carries both points, body and true, and the cross takes the
+  true one. Hit testing and the reported anchors still use the body.
+  `PhotoMarkerCrossTest` (androidDeviceTest) renders a marker and finds the
+  cross's arm through the true point; it fails on the old code (plain fill
+  there). A rose's cross is still its members' average — unchanged, and
+  the rose is off.
 
 - **Holding the shutter: the button's side cancels again, and the bottom
   rung reaches off the pane** (user: "sliding to the right side should mean

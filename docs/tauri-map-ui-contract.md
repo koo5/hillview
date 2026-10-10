@@ -46,6 +46,12 @@ Two separate absolutely-positioned clusters over the Leaflet map
    `$app.activity === 'terrain'`. Gets `fullCircleHitArea` when
    `$bearingMode === 'car' && $gpsOrientationEnabled`.
 
+**frontend2 adds** a GPS accuracy disc (user, 2026-10-10: "gps accuracy
+circle with semi-opaque fill"): the last fix's horizontal accuracy in ground
+metres, translucent `#4285F4` with a thin rim, as the BOTTOM layer — under
+the range circle and the markers, which the GPS crosshair itself draws over.
+The original declares `accuracyCircle` (Map.svelte:123) and never draws it.
+
 ## Compass button (top-right, `CompassButton.svelte`)
 
 The richest control on the screen.
@@ -447,11 +453,12 @@ merge; phone-in-hand review drove this pass.
   travelled in car mode, jump-to-angle otherwise. And since 2026-10-10 the
   ring is the RANGE ring, as the original's car-mode ring is: frontend2
   had drawn and grabbed a second, blue ring at the arrow's tip radius, and
-  the user asked for the two circles to be one. The arrow's tip does NOT
-  stay at `range × 1.3`: it ends just inside the range line (user,
-  2026-10-10: "the bearing arrow should end right inside it"), and the hold
-  arc is drawn just outside it, so nothing covers the threshold
-  (`arrowTipRadiusPx`, `bearingHoldRadiusPx`).
+  the user asked for the two circles to be one. The arrowhead keeps the
+  original's PLACE — its base flush on the range circle, the head pointing
+  out (here `range × 1.3` with a marker anchored 27 px back lands the base
+  at 64 px, the inner edge of the dashed band) — measured in frontend2 from
+  the solid range line instead (`arrowHeadBaseRadiusPx`), with the hold arc
+  just inside the line so neither covers it (`bearingHoldRadiusPx`).
 
 frontend2 divergences (deliberate): osmdroid's fling is disabled — its
 glide is essentially unbounded where Leaflet's inertia is short and

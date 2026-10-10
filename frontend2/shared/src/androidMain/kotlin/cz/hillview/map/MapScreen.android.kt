@@ -309,6 +309,7 @@ actual fun MapScreen(
     markerOverlay.onDrawn = { markerPositions = it }
     val rangeOverlay = remember { RangeCircleOverlay() }
     val gpsOverlay = remember { GpsMarkerOverlay() }
+    val accuracyOverlay = remember { GpsAccuracyOverlay() }
     val arrowOverlay = remember { BearingArrowOverlay() }
     // Arrow drag: walking sets the bearing outright, car adjusts the mount
     // offset by the angle travelled. Neither happens on contact — the arrow
@@ -412,6 +413,9 @@ actual fun MapScreen(
                 // markers so it stays visible in a pile of them (user,
                 // 2026-09-19: "needs to draw over photo markers, not under");
                 // it takes no touches, so the markers' taps are unaffected.
+                // Its accuracy disc is the opposite: the very bottom, so it
+                // tints the tiles and not the markers or the range line.
+                if (accuracyOverlay !in view.overlays) view.overlays.add(accuracyOverlay)
                 if (rangeOverlay !in view.overlays) view.overlays.add(rangeOverlay)
                 if (markerOverlay !in view.overlays) view.overlays.add(markerOverlay)
                 if (gpsOverlay !in view.overlays) view.overlays.add(gpsOverlay)
@@ -458,6 +462,9 @@ actual fun MapScreen(
                 // ACTIVE and BACKGROUND alike, as the original keeps it —
                 // "keep the pulsing GPS marker alive in BACKGROUND too".
                 gpsOverlay.visible = locationTracking != LocationTracking.Off
+                accuracyOverlay.position = lastFix
+                accuracyOverlay.accuracyM = lastFixState?.accuracyM
+                accuracyOverlay.visible = gpsOverlay.visible
                 arrowOverlay.bearingDeg = bearing.bearing
                 // Not Compose state: written from inside the update block,
                 // where a state write would recompose and re-enter it. The
@@ -465,7 +472,7 @@ actual fun MapScreen(
                 arrowStamp[0] = System.currentTimeMillis()
                 arrowStamp[1] = bearing.bearing.toRawBits()
                 // The SAME ring the range overlay draws: the arrow grabs it,
-                // draws its hold just outside it and ends just inside it.
+                // draws its hold just inside it and rests its head on it.
                 arrowOverlay.ringRadiusPx = ringPx
                 // The ring is grabbable in every mode; this decides only
                 // what a drag MEANS — car mode adjusts the mount offset by
