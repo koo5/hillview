@@ -406,10 +406,32 @@ class GpsMarkerOverlay : Overlay() {
     }
 }
 
+/**
+ * The range ring's stroke, in dp — Leaflet's `weight 8.8` (CSS pixels, i.e.
+ * dp here). Shared with [BearingArrowOverlay], whose hold is drawn ON this
+ * ring and covers it once served.
+ */
+const val RANGE_RING_STROKE_DP = 8.8f
+
+/**
+ * The one circle on the map: the range, and the bearing handle as well.
+ *
+ * There used to be two, concentric and 21 dp apart: this one, which said
+ * what the circle MEANS, and a faint blue ring at the arrow's tip radius,
+ * which was what actually answered a finger (user, 2026-10-10: "This should
+ * be unified into one circle somehow"). [BearingArrowOverlay] now grabs THIS
+ * ring and draws its hold on it, so what the circle says and what it does
+ * are the same line.
+ *
+ * Centred on the VIEW, as the arrow and its touch handling are, and not on
+ * the spatial centre projected back to pixels. At rest those are one point,
+ * but the spatial centre arrives here a recomposition after a pan has
+ * already moved the map, so the ring would trail the handle by a frame —
+ * and one circle cannot be in two places.
+ */
 class RangeCircleOverlay : Overlay() {
     /** Screen radius in device pixels (70dp worth). */
     var radiusPx: Float = 0f
-    var centre: GeoPoint? = null
     var visible: Boolean = true
 
     private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -423,18 +445,17 @@ class RangeCircleOverlay : Overlay() {
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow || !visible) return
-        val c = centre ?: return
         if (radiusPx <= 0f) return
         val density = mapView.context.resources.displayMetrics.density
-        val point = android.graphics.Point()
-        mapView.projection.toPixels(c, point)
+        val cx = mapView.width / 2f
+        val cy = mapView.height / 2f
 
-        canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), radiusPx, inner)
+        canvas.drawCircle(cx, cy, radiusPx, inner)
         // Leaflet weight/dash are CSS pixels, i.e. dp here.
-        ring.strokeWidth = 8.8f * density
+        ring.strokeWidth = RANGE_RING_STROKE_DP * density
         ring.pathEffect = android.graphics.DashPathEffect(
             floatArrayOf(5f * density, 15f * density), 0f,
         )
-        canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), radiusPx, ring)
+        canvas.drawCircle(cx, cy, radiusPx, ring)
     }
 }

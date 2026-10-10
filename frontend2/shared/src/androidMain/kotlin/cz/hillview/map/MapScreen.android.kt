@@ -150,7 +150,6 @@ actual fun MapScreen(
         // any spam.
         markerSource.refresh()
     }
-    var arrowTipPx by remember { mutableStateOf(120f) }
     // The front photo: what the gallery would show and the marker drawn as
     // selected. Recomputed from bearing + range, or set by tapping.
     var selectedPhotoId by remember { mutableStateOf<String?>(null) }
@@ -436,7 +435,6 @@ actual fun MapScreen(
                     val b = p.fromPixels(a.x + ringPx.toInt(), a.y)
                     centre.distanceToAsDouble(b)
                 }.takeIf { it > 0 } ?: spatial.range
-                rangeOverlay.centre = centre
                 rangeOverlay.radiusPx = ringPx
                 // Read the circle's ground meaning back into the one state,
                 // so the viewer's ring culls against what the circle SHOWS.
@@ -448,15 +446,15 @@ actual fun MapScreen(
                 // ACTIVE and BACKGROUND alike, as the original keeps it —
                 // "keep the pulsing GPS marker alive in BACKGROUND too".
                 gpsOverlay.visible = locationTracking != LocationTracking.Off
-                // Tip at 1.3x the ring, as in the original — just outside it.
-                arrowTipPx = ringPx * 1.3f
                 arrowOverlay.bearingDeg = bearing.bearing
                 // Not Compose state: written from inside the update block,
                 // where a state write would recompose and re-enter it. The
                 // readout's own half-second tick is what reads it.
                 arrowStamp[0] = System.currentTimeMillis()
                 arrowStamp[1] = bearing.bearing.toRawBits()
-                arrowOverlay.tipRadiusPx = arrowTipPx
+                // The SAME ring the range overlay draws: the arrow grabs it
+                // and draws its hold on it, and places its own tip from it.
+                arrowOverlay.ringRadiusPx = ringPx
                 // The ring is grabbable in every mode; this decides only
                 // what a drag MEANS — car mode adjusts the mount offset by
                 // the angle travelled, everything else points the arrow.

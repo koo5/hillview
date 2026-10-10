@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,14 +31,20 @@ import androidx.compose.ui.unit.dp
  * useful interval depends on how fast you are moving and 2 s versus 10 s is
  * a coarse way to say that.
  *
- * The rungs are NOT evenly spaced in time, deliberately. Even seconds are
- * the working range, so they get a rung each; below one second the useful
- * differences are proportional rather than absolute, so the stops thin out.
+ * The rungs are NOT evenly spaced in time, deliberately. Every second up
+ * to 3 gets its own rung; above and below that, the useful differences are
+ * proportional rather than absolute, so the stops thin out both ways —
+ * 4, 6, 8, 10, 20, 30 above (user, 2026-10-10: "video 30 20 10 8 6 4 3
+ * (the lower rest would stay as it is)"), 0.75 to 0.2 below. Until then
+ * every whole second to 15 had a rung of its own, which made twenty thin
+ * bands of which the upper half differed by little.
  * The top rung is VIDEO, which is where "even less than zero interval"
  * belongs. There is no rung for getting out: the bottom one read
  * "cancel" (and, before 2026-09-06, wrongly "single") until 2026-09-18,
- * when the user asked for it to go — the button's own side of the pane
- * is a capture now (see [CaptureZone]), and the way out is off the pane.
+ * when the user asked for it to go. The way out is the button's own side
+ * of the pane (see [CancelZone]), and the bottom rung is the fastest
+ * interval however far below the ladder the finger slides
+ * ([overLadderAt]).
  */
 internal sealed interface LadderRung {
     /** What the ladder band and the shutter both show. */
@@ -52,11 +60,13 @@ internal sealed interface LadderRung {
 }
 
 /**
- * Same physical track, finer grain: 15 s is the longest useful spacing (the
- * original's slow mode is 10 s) — a 60 s ceiling made every useful value
- * crowd the bottom centimetre of the scale.
+ * The whole-second rungs. The ceiling has moved twice: a 60 s top with a
+ * rung per second crowded every useful value into the bottom centimetre of
+ * the scale, so it came down to 15; since 2026-10-10 the rungs above 3 s
+ * thin out instead, which buys 30 s back for six bands rather than fifteen
+ * (the original's slow mode is 10 s).
  */
-internal const val INTERVAL_MAX_SEC = 15
+private val WHOLE_SECONDS = listOf(1, 2, 3, 4, 6, 8, 10, 20, 30)
 
 /**
  * The sub-second rungs (user-raised, 2026-09-06: "can we try to support
@@ -76,7 +86,7 @@ private val SUB_SECOND_MS = listOf(200, 300, 500, 750)
 /** The rungs, bottom (index 0) to top. */
 internal val INTERVAL_LADDER: List<LadderRung> = buildList {
     SUB_SECOND_MS.forEach { add(LadderRung.Every(it)) }
-    (1..INTERVAL_MAX_SEC).forEach { add(LadderRung.Every(it * 1000)) }
+    WHOLE_SECONDS.forEach { add(LadderRung.Every(it * 1000)) }
     add(LadderRung.Video)
 }
 
@@ -128,9 +138,11 @@ private val BandLabel = Color(0x8CFFFFFF)
 private val HoverBand = Color(0x33FFFFFF)
 private val RunBand = Color(0x664CAF50)
 private val VideoBand = Color(0x66FF5252)
-// The shutter's own blue, at the ladder's wash strength.
-private val CaptureBand = Color(0x662196F3)
+// A shade, not a colour: releasing here does nothing, and the zone goes
+// darker rather than promising something.
+private val CancelBand = Color(0x66000000)
 private val PointerLine = Color(0xE6FFFFFF)
+private val ValueShade = Color(0x99000000)
 
 internal fun ladderBandColor(rung: LadderRung, selected: Boolean, armed: Boolean): Color = when {
     !selected -> Color.Transparent
@@ -140,36 +152,56 @@ internal fun ladderBandColor(rung: LadderRung, selected: Boolean, armed: Boolean
 }
 
 /**
- * The other half of the catch zone: everything right of the ladder — the
- * button's own side of the pane. Releasing here takes ONE photo, so the
- * long press ends the way a tap would; the zone says so, the way the
- * ladder's bands say what they do.
+ * Whether a held shutter released at [x] lands on the ladder: everything
+ * left of the button's left edge ([buttonLeft]), at ANY height, on the pane
+ * or off it. Everything else is the way out.
  *
- * Until 2026-09-18 this side meant "cancel" (the original's
- * release-over-nothing, DualCaptureButton.svelte) and the ladder's bottom
- * rung said the same word. Both went at the user's request ("remove it
- * from the bottom and make the right side of the pane show that it means
- * capture") — a stated divergence from the original. The way out is now
- * off the pane: a release on the map does nothing.
+ * Height does not enter into it, and neither do the pane's bounds — which
+ * is the fix. Until 2026-10-10 the ladder ended at the pane, and leaving
+ * the pane cancelled. In portrait the pane sits ABOVE the map with the
+ * shutter at its foot, so the bottom rung was a band level with the thumb
+ * and a slide down-left onto it overshot onto the map and cancelled
+ * instead (user: "sliding to the bottom left should mean starting at the
+ * lowest interval, not cancel"). Below the ladder is now the bottom rung,
+ * as [rungIndexAt] already clamps it.
+ */
+internal fun overLadderAt(x: Float, buttonLeft: Float): Boolean = x < buttonLeft
+
+/**
+ * The other half of the catch zone: everything right of the ladder — the
+ * button's own side of the pane, the button included. Releasing here does
+ * NOTHING: it is the way out of the long press, and it is where the thumb
+ * already is when the ladder opens, so letting go without sliding anywhere
+ * changes nothing.
+ *
+ * History, since this side has meant three things. The original's
+ * release-over-nothing cancelled (DualCaptureButton.svelte). From
+ * 2026-09-18 it took ONE photo (user: "make the right side of the pane
+ * show that it means capture"), and the way out moved off the pane — onto
+ * the map, which in portrait is exactly where a slide to the bottom rung
+ * overshoots. On 2026-10-10 the user put the cancel back here ("sliding to
+ * the right side should mean basically cancel of the gesture") and the
+ * ladder took the off-pane bottom ([overLadderAt]). A long press can no
+ * longer end in a single photo; a tap is how one is taken.
  */
 @Composable
-internal fun CaptureZone(armed: Boolean, modifier: Modifier = Modifier) {
+internal fun CancelZone(armed: Boolean, modifier: Modifier = Modifier) {
     Box(
         modifier
-            .background(if (armed) CaptureBand else BandWash)
-            .testTag("capture-single-zone")
+            .background(if (armed) CancelBand else BandWash)
+            .testTag("capture-cancel-zone")
             .semantics {
-                stateDescription = (if (armed) "armed " else "hover ") + "capture"
+                stateDescription = (if (armed) "armed " else "hover ") + "cancel"
             },
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("📷", style = MaterialTheme.typography.titleMedium)
+            Text("✕", style = MaterialTheme.typography.titleMedium, color = Color.White)
             Text(
-                "capture",
-                style = MaterialTheme.typography.titleSmall,
+                "cancel",
+                style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
-                modifier = Modifier.testTag("capture-single-zone-label"),
+                modifier = Modifier.testTag("capture-cancel-zone-label"),
             )
         }
     }
@@ -190,8 +222,10 @@ internal fun CaptureZone(armed: Boolean, modifier: Modifier = Modifier) {
  * where the gesture is landing right now ([pointerFraction], drawn as a line
  * across the whole zone), which span that is ([hoverIndex], filled), and
  * what that span means (the label, inside the fill). Every other rung
- * carries a small label too when there is room, so the scale can be aimed at
- * before the finger gets there.
+ * carries a label too when there is room, so the scale can be aimed at
+ * before the finger gets there. Until the finger IS there ([armed] false),
+ * the zone also names itself — "⏱ interval" — and the pointed-at rung's
+ * label waits at the edge with the others.
  */
 @Composable
 internal fun IntervalLadder(
@@ -213,8 +247,16 @@ internal fun IntervalLadder(
     ) {
         // A label per rung only while they can be read; the ladder is as
         // tall as the pane, and a short pane in landscape leaves bands too
-        // thin for a line of text.
-        val roomForEveryLabel = maxHeight / rungs.size >= 14.dp
+        // thin for a line of text. As large as the band allows (user,
+        // 2026-10-10: "the interval value readouts could be bigger font
+        // everywhere") — it was labelSmall at any height.
+        val band = maxHeight / rungs.size
+        val everyLabelStyle = when {
+            band >= 24.dp -> MaterialTheme.typography.titleMedium
+            band >= 18.dp -> MaterialTheme.typography.labelLarge
+            band >= 14.dp -> MaterialTheme.typography.labelSmall
+            else -> null
+        }
         Column(Modifier.fillMaxSize()) {
             for (index in rungs.indices.reversed()) {
                 val rung = rungs[index]
@@ -233,17 +275,25 @@ internal fun IntervalLadder(
                             .background(BandLine),
                     )
                     when {
+                        // Armed: drawn after the bands instead (below), since
+                        // the value is bigger than its band and the bands
+                        // under it would paint over the overflow.
+                        selected && armed -> Unit
+                        // Only pointed at: where the other labels are, in
+                        // white. The middle of the zone belongs to its name
+                        // until the finger is on it.
                         selected -> Text(
                             rung.label,
-                            style = MaterialTheme.typography.titleSmall,
+                            style = everyLabelStyle ?: MaterialTheme.typography.labelLarge,
                             color = Color.White,
                             modifier = Modifier
-                                .align(Alignment.Center)
+                                .align(Alignment.CenterStart)
+                                .padding(start = 8.dp)
                                 .testTag("capture-interval-value"),
                         )
-                        roomForEveryLabel -> Text(
+                        everyLabelStyle != null -> Text(
                             rung.label,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = everyLabelStyle,
                             color = BandLabel,
                             modifier = Modifier
                                 .align(Alignment.CenterStart)
@@ -251,6 +301,21 @@ internal fun IntervalLadder(
                         )
                     }
                 }
+            }
+        }
+        // The zone's name while the finger is not on it (user, 2026-10-10:
+        // "the whole left side should maybe also say 'interval' when the
+        // finger is not over it") — the twin of CancelZone's "✕ cancel",
+        // so both halves say what they are before either is chosen.
+        if (!armed) {
+            Column(
+                Modifier
+                    .align(Alignment.Center)
+                    .testTag("capture-interval-title"),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("⏱", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                Text("interval", style = MaterialTheme.typography.titleMedium, color = Color.White)
             }
         }
         // Where the finger is, to the pixel — the band says what will
@@ -266,6 +331,29 @@ internal fun IntervalLadder(
                     .background(PointerLine)
                     .testTag("capture-interval-pointer"),
             )
+        }
+        // The armed value, big, centred on its band and allowed to spill
+        // past it — over the pointer line too, on a shade, because this is
+        // the one readout the release is about to act on.
+        if (armed) {
+            Box(
+                Modifier
+                    .offset(y = maxHeight - band * (hover + 1))
+                    .fillMaxWidth()
+                    .height(band),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    rungs[hover].label,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White,
+                    modifier = Modifier
+                        .wrapContentHeight(unbounded = true)
+                        .background(ValueShade, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp)
+                        .testTag("capture-interval-value"),
+                )
+            }
         }
     }
 }

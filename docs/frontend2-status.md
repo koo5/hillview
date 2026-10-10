@@ -508,6 +508,99 @@ writes only past a 1° dead-band, so a still phone's elected age is
 legitimately minutes old, and only a FRESH raw age beside a large drift means
 the chain stopped. See `GeoDebugText.kt`.
 
+## 2026-10-10 — one circle on the map; the shutter's way out moves back
+
+- **The map has one circle** (user: "we have the blue bearing adjustment
+  circle and the green dashed range circle? This should be unified into one
+  circle somehow"). There were two concentric rings 21 dp apart: the green
+  dashed range ring at 70 dp, which says what the circle MEANS, and the
+  faint blue handle ring `BearingArrowOverlay` drew at the arrow's tip
+  radius (1.3×, 91 dp), which was what actually answered a finger (drawn
+  since 2026-09-10 so the handle would be visible at all).
+  - **The range ring is the handle now.** The overlay draws no ring of its
+    own; it grabs at `ringRadiusPx` (the range ring's radius, set from the
+    same `ringPx` the range overlay draws), and the hold arc closes ON that
+    ring and, once armed, widens to its full 8.8 dp stroke
+    (`RANGE_RING_STROKE_DP`) — the dashed green circle goes solid blue for as
+    long as it is the handle.
+  - **The arrow did not move**: its tip stays at 1.3× the ring, the
+    original's `range × 1.3`, now derived inside the overlay
+    (`ARROW_TIP_SCALE`) rather than passed in.
+  - **The grab band moved in with the ring**: ±36 dp around 70 dp in the
+    recording activities (34–106 dp from centre, was 55–127), ±18 dp in the
+    viewer (52–88, was 73–109). The viewer's band is now exactly the
+    original's car-mode ring hit area: a 36 px stroke on the range circle.
+  - **The range ring is centred on the VIEW**, like the arrow and its touch
+    handling, instead of on the spatial centre projected back to pixels —
+    which arrives a recomposition after a pan has moved the map, so the
+    ring could trail the handle by a frame. `RangeCircleOverlay.centre` is
+    gone.
+  - `bearingRingGrabbed`'s radius parameter is `ringRadiusPx` now; tests
+    renamed with it. Map tests green, APK assembles.
+
+- **Holding the shutter: the button's side cancels again, and the bottom
+  rung reaches off the pane** (user: "sliding to the right side should mean
+  basically cancel of the gesture, while sliding to the bottom left should
+  mean starting at the lowest interval, not cancel").
+  - **The bug in the second half.** The ladder ended at the pane, and
+    leaving the pane was the cancel (2026-09-18). In portrait the capture
+    pane sits ABOVE the map with the shutter at its foot, so the bottom
+    rung (0.2 s) is a band level with the thumb — and a slide down-left
+    onto it overshot onto the map and cancelled.
+  - **The split is now the button's left edge, and nothing else**
+    (`overLadderAt`): left of it is the ladder at ANY height, on the pane or
+    off it, and `rungIndexAt` already clamps below the ladder to the bottom
+    rung; the button and everything right of it is `CancelZone` ("✕ cancel",
+    shaded when armed), where a release does nothing — which is also what
+    letting go without sliding does.
+  - **This undoes the 2026-09-18 capture zone**: a long press can no longer
+    end in a single photo; a tap takes one. `armedCapture` is gone —
+    `armedIndex == null` while the ladder is open IS the cancel. The verdict
+    line is "release: cancel" there, as before.
+  - Tests: `theBottomLeftOffThePaneIsTheFastestRunNotACancel`,
+    `theButtonsSideIsTheWayOut`; the zone's render test now asserts
+    "cancel".
+  - NOT device-verified, neither change.
+
+- **The interval ladder, second pass** (user, same day: "it should be
+  something like video 30 20 10 8 6 4 3 (the lower rest would stay as it
+  is). should give each rung a little more vertical height. And the whole
+  left side should maybe also say "interval" when the finger is not over
+  it. And the interval value readouts could be bigger font everywhere. and
+  the whole interval overlay could also be trigerred by an explicit button
+  next to the camera settings button").
+  - **Rungs**: 0.2 / 0.3 / 0.5 / 0.75 / 1 / 2 / 3 / 4 / 6 / 8 / 10 / 20 /
+    30 s, then VIDEO — 14 bands where there were 20 (1…15 s one per
+    second), so each is 43 % taller. `INTERVAL_MAX_SEC` is gone;
+    `WHOLE_SECONDS` lists them. `intervalIndex` is rememberSaveable only,
+    so no stored value shifts.
+  - **"⏱ interval"** names the ladder's half while no finger is on it, the
+    twin of "✕ cancel"; the pointed-at rung's label then waits at the edge
+    in white, with the others.
+  - **Bigger readouts**: rung labels step with the band height (titleMedium
+    ≥ 24 dp, labelLarge ≥ 18, labelSmall ≥ 14 — it was labelSmall at any
+    height); the armed value is headlineSmall on a shade, drawn AFTER the
+    bands and allowed to spill past its own — inside its band it was cut
+    off by the bands painted after it (caught in a jvm render to PNG). The
+    shutter's own interval label and the verdict line went labelSmall →
+    labelLarge.
+  - **The ⏱ button**, beside 📷: opens the ladder PINNED (`ladderPinned`,
+    separate from the held gesture's `ladderVisible`). Touching it is the
+    held gesture from there on — the finger reading and the release are
+    now ONE pair of functions, `followLadderFinger` / `releaseLadder`,
+    spliced verbatim out of the held loop, so the two ways in cannot drift.
+    Release on a rung starts it (gate and in-flight shot checked AT the
+    release, since no press opened it); release on the button's side, a
+    second ⏱ tap, or any shutter press closes it. ⏱ is drawn after the
+    ladder, not in 📷's column: on the overlay that spot is the bottom
+    rung, and a second tap meant to close would have started a 0.2 s run.
+    Hidden while a held gesture owns the ladder; disabled while a run or a
+    recording is going. The cancel side shades only with a finger down
+    (`pointerFraction != null`), and the verdict reads "tap an interval"
+    until one is.
+  - Tests: ladder test pins the new rungs; render tests for the zone's name
+    showing while unarmed and gone once armed. NOT device-verified.
+
 ## 2026-09-17 — the photo index, on an emulator at last
 
 The index had been written, sharded, tuned and documented without ever being

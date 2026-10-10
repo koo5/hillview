@@ -52,6 +52,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import cz.hillview.upload.PendingUpload
 import cz.hillview.upload.UploadPipeline
@@ -474,11 +475,21 @@ fun CaptureScreen(
     // fact the screen could not show — and a run kept starting, or not, by
     // surprise (user-raised: "i keep missing it").
     var ladderVisible by remember { mutableStateOf(false) }
+    // The same ladder opened by the ⏱ button instead of a held shutter
+    // (user, 2026-10-10: "the whole interval overlay could also be
+    // triggered by an explicit button next to the camera settings
+    // button"). It stays up with no finger on it; touching it is the held
+    // gesture from there on — press, slide, release on a rung to start,
+    // on the button's side to close. Separate from ladderVisible, which
+    // the held gesture owns and clears in its own finally.
+    var ladderPinned by remember { mutableStateOf(false) }
+    // The 📷 selector's right edge in root px, for placing ⏱ beside it.
+    var cameraButtonRight by remember { mutableStateOf<Float?>(null) }
+    // Null while the ladder is open = the finger is on the button's side
+    // (CancelZone), the one release that does nothing. There used to be a
+    // third answer, armedCapture — that side took one photo, and the cancel
+    // lived off the pane (2026-09-18 → 2026-10-10).
     var armedIndex by remember { mutableStateOf<Int?>(null) }
-    // The finger is on the button's side of the pane: releasing takes one
-    // photo (CaptureZone). Neither this nor armedIndex = off the pane, the
-    // one release that does nothing.
-    var armedCapture by remember { mutableStateOf(false) }
     // Where the finger is on the scale RIGHT NOW, whether or not it is over
     // the catch zone yet: the rung it is level with, and the exact fraction
     // for the pointer line. Separate from armedIndex because "what I am
@@ -518,6 +529,57 @@ fun CaptureScreen(
     }
     val ladderBounds = paneBounds?.let {
         Rect(it.left, it.top + ladderTopInsetPx, it.right, it.bottom)
+    }
+
+    // One reading of the finger for both ways the ladder opens — a held
+    // shutter and the ⏱ button — so the two cannot drift apart. [pos] is in
+    // root coordinates, [buttonLeft] the shutter's left edge; the answer is
+    // whether a release there would land on the ladder.
+    fun followLadderFinger(pos: Offset, buttonLeft: Float): Boolean {
+        val overLadder: Boolean
+        // The screen is the catch zone, in two
+        // halves split at the button's left
+        // edge: left of it the ladder, the
+        // button's own side the way out — a
+        // mid-gesture thumb is not a precision
+        // instrument. NOT bounded by the pane:
+        // in portrait the map is right under
+        // the shutter, and a slide to the
+        // bottom rung that overshot onto it
+        // used to cancel (see overLadderAt).
+        overLadder = overLadderAt(pos.x, buttonLeft)
+        // The ladder spans the pane, so the pane
+        // is the scale. Height is read whatever
+        // the finger's x is: the ladder shows
+        // where the gesture is landing even
+        // while the thumb is still on the
+        // button, so the target is visible
+        // BEFORE the slide left commits to it.
+        val zone = ladderBounds
+        if (zone != null && zone.height > 0f) {
+            hoverIndex = rungIndexAt(pos.y, zone.top, zone.bottom)
+            pointerFraction =
+                ladderFractionAt(pos.y, zone.top, zone.bottom)
+            if (overLadder) intervalIndex = hoverIndex
+        }
+        armedIndex = if (overLadder) intervalIndex else null
+        return overLadder
+    }
+
+    // What a release does, given what followLadderFinger last answered.
+    fun releaseLadder(overLadder: Boolean) {
+        // Released on the ladder: the top
+        // rung starts a recording, any
+        // interval rung starts a run. On
+        // the button's side: nothing.
+        val rung = INTERVAL_LADDER.getOrNull(intervalIndex)
+        when {
+            overLadder && rung is LadderRung.Video -> {
+                videoEngaged = engageSportsIfAuto()
+                capture.startVideo()
+            }
+            overLadder && rung is LadderRung.Every -> repeating = true
+        }
     }
 
     // The capture pane IS the camera stream — the original's camera-content
@@ -829,6 +891,9 @@ fun CaptureScreen(
                     onClick = { showResolutionMenu = !showResolutionMenu },
                     modifier = Modifier
                         .background(LightGlass, CircleShape)
+                        // Where the ⏱ button goes: beside this one, but
+                        // drawn later (see there), so it cannot share a Row.
+                        .onGloballyPositioned { cameraButtonRight = it.boundsInRoot().right }
                         .testTag("camera-selector-button"),
                 ) { Text("📷", style = MaterialTheme.typography.titleMedium) }
             }
@@ -1028,7 +1093,7 @@ fun CaptureScreen(
         }
 
         // The catch zone, drawn as what it IS: the gesture accepts any point
-        // left of the button (pos.x < circle.left) — the ladder is not a
+        // left of the button (overLadderAt) — the ladder is not a
         // thin track to aim at. Nothing said so, and precision-aiming at a
         // line was the real reason arming kept being missed (user-caught:
         // "i kept trying to target the track exactly").
@@ -1039,7 +1104,7 @@ fun CaptureScreen(
         // the gesture both, where the old rotated slider drew one scale
         // beside the button and read another.
         val circle = circleBounds
-        if (ladderVisible && circle != null) {
+        if ((ladderVisible || ladderPinned) && circle != null) {
             val zoneWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
                 (circle.left - paneOrigin.x).coerceAtLeast(0f).toDp()
             }
@@ -1053,19 +1118,112 @@ fun CaptureScreen(
                     .padding(top = ladderTopInset)
                     .width(zoneWidth),
             )
-            // The rest of the pane, the button's side: one capture. Drawn
+            // The rest of the pane, the button's side: the way out. Drawn
             // for the same reason the ladder is — the hit-box, at its size.
-            val captureWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
+            val cancelWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
                 ((paneBounds?.right ?: circle.right) - circle.left).coerceAtLeast(0f).toDp()
             }
-            CaptureZone(
-                armed = armedCapture,
+            CancelZone(
+                // Armed only with a finger to release: a pinned ladder
+                // nobody is touching cancels nothing yet. (pointerFraction
+                // is set exactly while a finger is on the scale.)
+                armed = armedIndex == null && pointerFraction != null,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
                     .padding(top = ladderTopInset)
-                    .width(captureWidth),
+                    .width(cancelWidth),
             )
+            if (ladderPinned) {
+                // The pinned ladder takes its own touches: a press anywhere
+                // on the pane is the held gesture from there on, read by
+                // the same followLadderFinger — release on a rung starts
+                // it, on the button's side closes. Drawn after the zones
+                // and before the shutter and the ⏱ button, which keep
+                // their own taps (a shutter press un-pins; see there).
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .testTag("capture-interval-overlay")
+                        .pointerInput(ladderBounds) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown()
+                                down.consume()
+                                val buttonLeft = circleBounds?.left ?: return@awaitEachGesture
+                                var overLadder =
+                                    followLadderFinger(paneOrigin + down.position, buttonLeft)
+                                try {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id }
+                                            ?: event.changes.first()
+                                        overLadder =
+                                            followLadderFinger(paneOrigin + change.position, buttonLeft)
+                                        change.consume()
+                                        if (event.changes.none { it.pressed }) {
+                                            ladderPinned = false
+                                            // The held gesture checks these
+                                            // before its ladder opens; this
+                                            // one opened on a button, so
+                                            // they are asked at the release.
+                                            when {
+                                                !overLadder -> Unit
+                                                !shutterEnabled(capture.state.ready) ->
+                                                    ignoredPress = "camera not ready"
+                                                capture.state.capturing ->
+                                                    ignoredPress = "previous shot still in flight"
+                                                else -> releaseLadder(overLadder)
+                                            }
+                                            break
+                                        }
+                                    }
+                                } finally {
+                                    armedIndex = null
+                                    pointerFraction = null
+                                }
+                            }
+                        },
+                )
+            }
+        }
+
+        // The ⏱ button: the ladder without the hold (user, 2026-10-10).
+        // Beside the 📷 selector, but drawn HERE, after the ladder: on a
+        // pinned overlay that spot is the bottom rung, so a second tap meant
+        // to close it would otherwise start a 0.2 s run. Hidden while a held
+        // gesture owns the ladder, where it would sit on the bottom rung's
+        // value; disabled while a run or a recording is going, which the
+        // shutter stops.
+        if (!ladderVisible) {
+            val timerStart = cameraButtonRight
+                ?.takeIf { state.availableResolutions.isNotEmpty() }
+                ?.let {
+                    with(androidx.compose.ui.platform.LocalDensity.current) {
+                        (it - paneOrigin.x).toDp()
+                    } + 4.dp
+                }
+                ?: 8.dp
+            TextButton(
+                onClick = {
+                    ladderPinned = !ladderPinned
+                    if (ladderPinned) {
+                        showResolutionMenu = false
+                        showShutterMenu = false
+                        // Open pointing at the last run's rung: with no
+                        // finger to read, that is the best guess at the
+                        // next one.
+                        hoverIndex = intervalIndex
+                    }
+                },
+                enabled = ladderPinned ||
+                    (shutterEnabled(state.ready) && !repeating && !state.recording),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = timerStart, bottom = 6.dp)
+                    .background(if (ladderPinned) Color(0xCC4CAF50) else LightGlass, CircleShape)
+                    .semantics { selected = ladderPinned }
+                    .testTag("capture-interval-button"),
+            ) { Text("⏱", style = MaterialTheme.typography.titleMedium) }
         }
 
         // Bottom-centre stack over the video: hints and gate escapes above
@@ -1130,11 +1288,11 @@ fun CaptureScreen(
             // 300 ms (the original's "shorter timeout for quicker
             // response") unfolds the interval ladder over the pane beside
             // the still-held thumb; sliding onto it picks a rung live;
-            // RELEASING there starts the repeating run. Releasing back on
-            // the button's side of the pane takes one photo (CaptureZone —
-            // a divergence, user-asked 2026-09-18: the original's
-            // release-over-nothing cancelled); releasing off the pane is
-            // the cancel. A tap stops a running run. The graded ladder is
+            // RELEASING there starts the repeating run — anywhere left of
+            // the button, below the pane included, which is the bottom
+            // rung. Releasing back on the button's side is the cancel
+            // (CancelZone; it took one photo from 2026-09-18 to
+            // 2026-10-10). A tap stops a running run. The graded ladder is
             // this port's take on the original's fixed slow/fast pair.
             var clusterOrigin by remember { mutableStateOf(Offset.Zero) }
             // Camera readiness is the only gate (see shutterEnabled). The
@@ -1176,6 +1334,10 @@ fun CaptureScreen(
                             if (!circle.contains(clusterOrigin + down.position)) {
                                 return@awaitEachGesture
                             }
+                            // A press on the shutter takes over from a
+                            // ladder the ⏱ button pinned: a tap is a photo,
+                            // a hold opens the ladder the held way.
+                            ladderPinned = false
                             // STOPPING comes before the gate, deliberately.
                             // The location gate exists to withhold a capture
                             // that would have no position; it has no business
@@ -1264,47 +1426,10 @@ fun CaptureScreen(
                                     val change = event.changes.firstOrNull { it.id == down.id }
                                         ?: event.changes.first()
                                     val pos = clusterOrigin + change.position
-                                    // The pane is the catch zone, in two
-                                    // halves: left of the button the
-                                    // ladder, right of it (the button's
-                                    // own side) one capture — a mid-gesture
-                                    // thumb is not a precision instrument.
-                                    // Off the pane, on the map, is the way
-                                    // out: the one release that does nothing.
-                                    val inPane = paneBounds?.contains(pos) ?: true
-                                    overLadder = inPane && pos.x < circle.left
-                                    val overCapture = inPane && !overLadder
-                                    // The ladder spans the pane, so the pane
-                                    // is the scale. Height is read whatever
-                                    // the finger's x is: the ladder shows
-                                    // where the gesture is landing even
-                                    // while the thumb is still on the
-                                    // button, so the target is visible
-                                    // BEFORE the slide left commits to it.
-                                    val zone = ladderBounds
-                                    if (zone != null && zone.height > 0f) {
-                                        hoverIndex = rungIndexAt(pos.y, zone.top, zone.bottom)
-                                        pointerFraction =
-                                            ladderFractionAt(pos.y, zone.top, zone.bottom)
-                                        if (overLadder) intervalIndex = hoverIndex
-                                    }
-                                    armedIndex = if (overLadder) intervalIndex else null
-                                    armedCapture = overCapture
+                                    overLadder = followLadderFinger(pos, circle.left)
                                     change.consume()
                                     if (event.changes.none { it.pressed }) {
-                                        // Released on the ladder: the top
-                                        // rung starts a recording, any
-                                        // interval rung starts a run. On
-                                        // the button's side: one photo.
-                                        val rung = INTERVAL_LADDER.getOrNull(intervalIndex)
-                                        when {
-                                            overLadder && rung is LadderRung.Video -> {
-                                                videoEngaged = engageSportsIfAuto()
-                                                capture.startVideo()
-                                            }
-                                            overLadder && rung is LadderRung.Every -> repeating = true
-                                            overCapture -> capture.capture()
-                                        }
+                                        releaseLadder(overLadder)
                                         break
                                     }
                                 }
@@ -1313,7 +1438,6 @@ fun CaptureScreen(
                                 // finger does, run or no run.
                                 ladderVisible = false
                                 armedIndex = null
-                                armedCapture = false
                                 pointerFraction = null
                             }
                           } catch (e: kotlinx.coroutines.CancellationException) {
@@ -1323,7 +1447,6 @@ fun CaptureScreen(
                             // press gets a live handler either way.
                             ladderVisible = false
                             armedIndex = null
-                            armedCapture = false
                             pointerFraction = null
                             ignoredPress = "shutter error: ${e.message ?: e::class.simpleName}"
                           }
@@ -1409,7 +1532,7 @@ fun CaptureScreen(
                                 )
                                 armedRung is LadderRung.Every -> Text(
                                     armedRung.label,
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelLarge,
                                     color = Color.White,
                                 )
                                 repeating -> Text(
@@ -1427,22 +1550,22 @@ fun CaptureScreen(
                     // common splits — the original cause of "i keep missing
                     // it"); the ladder itself now names the rung too, in
                     // the band it is highlighting.
-                    if (ladderVisible) {
+                    if (ladderVisible || ladderPinned) {
                         Text(
                             text = when {
                                 armedRung is LadderRung.Video -> "release: record"
                                 armedRung is LadderRung.Every ->
                                     "release: start ${armedRung.label} run"
-                                armedCapture -> "release: capture"
-                                // Off the pane: the one release that
-                                // does nothing.
+                                // Pinned by ⏱ and nobody touching it yet.
+                                pointerFraction == null -> "tap an interval"
+                                // The button's side: the one release
+                                // that does nothing.
                                 else -> "release: cancel"
                             },
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelLarge,
                             color = when {
                                 armedRung is LadderRung.Video -> Color(0xFFFF5252)
                                 armedRung is LadderRung.Every -> Color(0xFF69F0AE)
-                                armedCapture -> Color(0xFF90CAF9)
                                 else -> Color(0xB3FFFFFF)
                             },
                             modifier = Modifier

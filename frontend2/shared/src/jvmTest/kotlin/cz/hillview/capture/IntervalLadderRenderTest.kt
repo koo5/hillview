@@ -73,14 +73,14 @@ class IntervalLadderRenderTest {
 
     /** The button's side of the pane says what releasing there does. */
     @Test
-    fun theCaptureZoneNamesItselfAndItsArmedState() = runComposeUiTest {
+    fun theCancelZoneNamesItselfAndItsArmedState() = runComposeUiTest {
         setContent {
-            CaptureZone(armed = true, modifier = Modifier.size(width = 160.dp, height = 600.dp))
+            CancelZone(armed = true, modifier = Modifier.size(width = 160.dp, height = 600.dp))
         }
-        onNodeWithTag("capture-single-zone-label").assertTextEquals("capture")
+        onNodeWithTag("capture-cancel-zone-label").assertTextEquals("cancel")
         assertEquals(
-            "armed capture",
-            onNodeWithTag("capture-single-zone")
+            "armed cancel",
+            onNodeWithTag("capture-cancel-zone")
                 .fetchSemanticsNode()
                 .config[SemanticsProperties.StateDescription],
         )
@@ -90,6 +90,21 @@ class IntervalLadderRenderTest {
     fun pointingAtARungIsNotTheSameAsArmingIt() = runComposeUiTest {
         ladder(armed = false)
         assertEquals("hover 2s", state())
+    }
+
+    /** The ladder's half says what it is until the finger is on it. */
+    @Test
+    fun theLadderNamesItselfUntilAFingerIsOnIt() = runComposeUiTest {
+        ladder(armed = false)
+        onNodeWithTag("capture-interval-title").assertExists()
+        // ...and the pointed-at rung is still named, at the edge.
+        onNodeWithTag("capture-interval-value").assertTextEquals("2s")
+    }
+
+    @Test
+    fun anArmedLadderShowsTheValueNotItsName() = runComposeUiTest {
+        ladder(armed = true)
+        onNodeWithTag("capture-interval-title").assertDoesNotExist()
     }
 
     @Test

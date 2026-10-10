@@ -29,13 +29,22 @@ import kotlin.math.sin
  * — so here the overlay claims a touch only once it has earned one, and
  * returns false otherwise so the map and the marker overlay get it.
  *
- * **Grab zone: the whole ring**, at the arrow's tip radius, in every mode
- * (user-asked, 2026-09-10: "it has to be the whole circle, i cant chase the
- * arrow around"). It used to be the arrow line itself outside car mode,
- * which meant finding a moving target before you could set a heading. What
- * the ring does once grabbed still differs by mode — see [mountOffsetDrag] —
- * and so does how WIDE it is: [RING_GRAB_DP] where a hold has to be served
- * and the band is otherwise free, [RING_GRAB_NO_HOLD_DP] where it is not.
+ * **Grab zone: the whole ring**, in every mode (user-asked, 2026-09-10: "it
+ * has to be the whole circle, i cant chase the arrow around"). It used to be
+ * the arrow line itself outside car mode, which meant finding a moving
+ * target before you could set a heading. What the ring does once grabbed
+ * still differs by mode — see [mountOffsetDrag] — and so does how WIDE it
+ * is: [RING_GRAB_DP] where a hold has to be served and the band is otherwise
+ * free, [RING_GRAB_NO_HOLD_DP] where it is not.
+ *
+ * **The ring is the range ring** — the green dashed circle [RangeCircleOverlay]
+ * draws — and this overlay draws no circle of its own (user, 2026-10-10: the
+ * blue bearing circle and the green range circle "should be unified into one
+ * circle somehow"). It used to grab, and draw, a second ring out at the
+ * arrow's tip, 21 dp outside the green one: one circle that said what it
+ * meant and another that did something. The arrow keeps its tip where the
+ * original puts it, just past the ring ([ARROW_TIP_SCALE]); only the handle
+ * moved in.
  *
  * Landing on the ring is not enough to move anything: the arrow has to be
  * HELD — but only while something is being recorded. See [requireHold] and
@@ -43,7 +52,16 @@ import kotlin.math.sin
  */
 class BearingArrowOverlay : Overlay() {
     var bearingDeg: Double = 141.0
-    var tipRadiusPx: Float = 0f
+
+    /**
+     * Radius of the range ring, in device pixels — the one circle, which is
+     * what a finger grabs and what the hold is drawn on. Zero until the map
+     * has been laid out, and nothing is drawn or grabbed until then.
+     */
+    var ringRadiusPx: Float = 0f
+
+    /** Tip at 1.3x the ring, as in the original — just outside it. */
+    private val tipRadiusPx: Float get() = ringRadiusPx * ARROW_TIP_SCALE
 
     /**
      * Car mode with GPS orientation on: a drag reports the angle TRAVELLED,
@@ -110,16 +128,10 @@ class BearingArrowOverlay : Overlay() {
         color = arrowBlue
     }
 
-    /**
-     * The handle, drawn all the way round because all the way round is what
-     * responds. It used to appear only in car mode, so in every other mode
-     * the one control that can override the compass was invisible — the
-     * other half of "hard to pinpoint" (user, 2026-09-10).
-     */
-    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = Color.argb(56, 4, 5, 250)
-    }
+    // No handle ring of its own. One was drawn here, at the tip radius, so the
+    // control that can override the compass would be visible at all (user,
+    // 2026-09-10: "hard to pinpoint"). The handle is the range ring now, which
+    // was always visible — see the class note.
     private val centreRim = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = Color.argb(128, 250, 0, 0)
@@ -144,13 +156,10 @@ class BearingArrowOverlay : Overlay() {
     }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
-        if (shadow || tipRadiusPx <= 0f) return
+        if (shadow || ringRadiusPx <= 0f) return
         val density = mapView.context.resources.displayMetrics.density
         val cx = mapView.width / 2f
         val cy = mapView.height / 2f
-
-        ring.strokeWidth = 4f * density
-        canvas.drawCircle(cx, cy, tipRadiusPx, ring)
 
         // The arrow points at a true-north bearing while the map itself may
         // be rotated, so draw relative to the map's orientation.
@@ -160,11 +169,13 @@ class BearingArrowOverlay : Overlay() {
         centreRim.strokeWidth = 1.5f * density
         canvas.drawCircle(cx, cy, 4f * density, centreRim)
 
-        // The hold, drawn as a ring closing on the FINGER from both sides: it
-        // starts as a stub under the thumb and meets itself behind the map
-        // exactly when manual bearing is granted. Centred on the finger and
-        // not on the arrow, because with the whole ring grabbable the finger
-        // is where the answer is coming from.
+        // The hold, drawn ON the range ring and closing on the FINGER from
+        // both sides: it starts as a stub under the thumb and meets itself
+        // behind the map exactly when manual bearing is granted, and then
+        // widens to cover the ring's own stroke — the dashed green circle
+        // goes solid blue for as long as it is the handle. Centred on the
+        // finger and not on the arrow, because with the whole ring grabbable
+        // the finger is where the answer is coming from.
         //
         // DRAWING ONLY. The moment of arming is decided by a posted callback
         // instead (see armRunnable), because arming stands compass tracking
@@ -193,10 +204,10 @@ class BearingArrowOverlay : Overlay() {
             drawArrow(canvas, cx, cy, fingerAngle, density, ghostLine, ghost)
         }
 
-        arm.strokeWidth = (if (arming.armed) 5f else 3f) * density
+        arm.strokeWidth = (if (arming.armed) RANGE_RING_STROKE_DP else 3f) * density
         val sweep = 360f * progress
         canvas.drawArc(
-            RectF(cx - tipRadiusPx, cy - tipRadiusPx, cx + tipRadiusPx, cy + tipRadiusPx),
+            RectF(cx - ringRadiusPx, cy - ringRadiusPx, cx + ringRadiusPx, cy + ringRadiusPx),
             (fingerAngle - 90.0 - sweep / 2.0).toFloat(),
             sweep,
             false,
@@ -254,7 +265,7 @@ class BearingArrowOverlay : Overlay() {
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 val grabDp = if (requireHold) RING_GRAB_DP else RING_GRAB_NO_HOLD_DP
-                if (!bearingRingGrabbed(e.x - cx, e.y - cy, tipRadiusPx, grabDp * density)) {
+                if (!bearingRingGrabbed(e.x - cx, e.y - cy, ringRadiusPx, grabDp * density)) {
                     return false
                 }
                 arming.press(System.currentTimeMillis())
@@ -350,6 +361,13 @@ class BearingArrowOverlay : Overlay() {
     }
 
     private companion object {
+        /**
+         * Where the arrow's tip sits, as a multiple of the ring's radius: the
+         * original's `range × 1.3`, which puts the head just past the circle
+         * it turns on.
+         */
+        const val ARROW_TIP_SCALE = 1.3f
+
         /**
          * How far either side of the ring still counts as the ring, in dp.
          * Generous on purpose: it is aimed at mid-gesture, at arm's length,

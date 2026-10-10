@@ -440,7 +440,11 @@ merge; phone-in-hand review drove this pass.
   than taken on contact — see `ArrowArming`. Landing on the ring moves
   nothing and consumes nothing, so panning and marker taps across it are
   unchanged. What a drag MEANS is still the original's split: angle
-  travelled in car mode, jump-to-angle otherwise.
+  travelled in car mode, jump-to-angle otherwise. And since 2026-10-10 the
+  ring is the RANGE ring, as the original's car-mode ring is: frontend2
+  had drawn and grabbed a second, blue ring at the arrow's tip radius, and
+  the user asked for the two circles to be one. The arrow's tip stays at
+  `range × 1.3`.
 
 frontend2 divergences (deliberate): osmdroid's fling is disabled — its
 glide is essentially unbounded where Leaflet's inertia is short and
