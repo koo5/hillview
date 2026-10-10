@@ -3,6 +3,7 @@ package cz.hillview.plugin
 import kotlin.math.abs
 import kotlin.math.asin
 import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.sqrt
 
 /**
@@ -105,10 +106,14 @@ data class CameraPose(
      * nothing is hidden and the four-list tax is not paid for a derived value.
      */
     val bearingReference: String
-        get() = when (cameraWeight(horizontalLength)) {
-            1f -> "camera"
-            0f -> "device"
-            else -> "blend"
+        get() {
+            val w = cameraWeight(horizontalLength)
+            val fallback = (1f - w) * abs(cos(Math.toRadians(imageRollDeg.toDouble())).toFloat())
+            return when {
+                w >= 1f || fallback <= 0f -> "camera"
+                w <= 0f -> "device"
+                else -> "blend"
+            }
         }
 }
 
@@ -167,15 +172,31 @@ fun cameraPoseFromRotationMatrix(r: FloatArray): CameraPose? {
     // Blend as VECTORS, each normalised first so the weight is the only thing deciding;
     // adding the raw projections would weight by conditioning twice. A term whose axis
     // is vertical contributes nothing and is skipped rather than dividing by ~zero.
+    //
+    // THE FALLBACK IS SCALED BY HOW CO-DIRECTIONAL IT ACTUALLY IS, which is the
+    // correction to a wrong assumption: that the top edge is usable whenever the lens
+    // degenerates. It is — in PORTRAIT, where tilting the phone forward swings both the
+    // lens and the top edge toward the same horizontal direction. In LANDSCAPE the top
+    // edge points 90° away from the lens and stays there, so any fallback weight at all
+    // drags the bearing toward that 90°. Measured on the phone as "landscape still jumps
+    // by about 90 degrees" (user, 2026-10-10), and reproducible on paper: at 60° of lens
+    // tilt the old weighting gave 40.7° of error, at 75° a full 90°.
+    //
+    // |cos(imageRoll)| is exactly that co-directionality: 1 upright, 0 in landscape. So
+    // the fallback contributes only to the extent that the top edge points where the
+    // lens does, and in landscape it contributes nothing — leaving a vertical lens with
+    // no bearing, which is the honest answer rather than a confident wrong one.
+    val rollRad = atan2(r[6], r[7])
+    val fallbackWeight = (1f - w) * abs(cos(rollRad))
     var blendEast = 0f
     var blendNorth = 0f
     if (w > 0f && horizontal > 1e-6f) {
         blendEast += w * east / horizontal
         blendNorth += w * north / horizontal
     }
-    if (w < 1f && devHorizontal > 1e-6f) {
-        blendEast += (1f - w) * devEast / devHorizontal
-        blendNorth += (1f - w) * devNorth / devHorizontal
+    if (fallbackWeight > 0f && devHorizontal > 1e-6f) {
+        blendEast += fallbackWeight * devEast / devHorizontal
+        blendNorth += fallbackWeight * devNorth / devHorizontal
     }
     fun deg(e: Float, n: Float) =
         ((Math.toDegrees(atan2(e, n).toDouble()).toFloat() % 360f) + 360f) % 360f
@@ -186,13 +207,20 @@ fun cameraPoseFromRotationMatrix(r: FloatArray): CameraPose? {
         pitchDeg = -Math.toDegrees(asin(upUnit).toDouble()).toFloat(),
         // World up expressed in DEVICE coordinates is the matrix's third ROW; its x and
         // y are how far the horizon is rotated within the image.
-        imageRollDeg = Math.toDegrees(atan2(r[6], r[7]).toDouble()).toFloat(),
+        imageRollDeg = Math.toDegrees(rollRad.toDouble()).toFloat(),
         horizontalLength = hc,
         deviceBearingDeg = deg(devEast, devNorth),
         deviceHorizontalLength = devHorizontal,
-        // Both axes vertical is impossible for an orthogonal pair, so this only guards
-        // a matrix that is not a rotation; the camera bearing then stands.
-        pointingBearingDeg = if (blendEast == 0f && blendNorth == 0f) {
+        // A MAGNITUDE test, not a test against exact zero, and the difference is a bug
+        // this had: `cos(90°)` in Float is −4.4e-8 rather than 0, so in landscape with
+        // the lens vertical the blend became a vector of length ~1e-8 pointing at the top
+        // edge — and `atan2` does not care how long its arguments are. It returned the
+        // full 90° error the co-directional weighting was added to remove.
+        //
+        // The weights sum to at most 1 over unit vectors, so a length this small means no
+        // term contributed anything. The camera bearing then stands, ill-conditioned and
+        // saying so through [CameraPose.horizontalLength], which beats a confident lie.
+        pointingBearingDeg = if (sqrt(blendEast * blendEast + blendNorth * blendNorth) < 1e-3f) {
             deg(east, north)
         } else {
             deg(blendEast, blendNorth)

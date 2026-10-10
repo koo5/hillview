@@ -184,6 +184,64 @@ class CameraPoseTest {
         assertEquals(0f, p.pointingBearingDeg, 0.01f, "yet the published bearing is the lens's")
     }
 
+    /**
+     * THE REGRESSION, as a test. The fallback was weighted by the camera's conditioning
+     * alone, on the assumption that the top edge is usable whenever the lens degenerates.
+     * True in portrait, where tilting forward swings both toward the same direction;
+     * false in LANDSCAPE, where the top edge sits 90° from the lens and stays there. So
+     * any fallback weight dragged the bearing toward that 90°: 40.7° of error at 60° of
+     * lens tilt, a full 90° past 75°. The phone said so within a day — "landscape still
+     * jumps by about 90 degrees".
+     *
+     * `everyShootingPostureIsPureCamera` did not catch it because it swept pitch −40..+40,
+     * where hc ≥ cos(40°) = 0.766 is above the 0.707 floor and the weight is always 1.
+     * This sweeps THROUGH the band, which is the only place the bug lives.
+     */
+    @Test
+    fun theFallbackNeverDragsALandscapeBearingSideways() {
+        for (pitch in listOf(46f, 50f, 60f, 70f, 75f, 80f, 89f)) {
+            for (sign in listOf(1f, -1f)) {
+                for (roll in listOf(90f, -90f)) {
+                    val p = poseFor(azimuthDeg = 0f, elevationDeg = -pitch * sign, imageRollDeg = roll)
+                        ?: continue
+                    assertTrue(
+                        degreesClose(0f, p.bearingDeg, 0.1f),
+                        "the camera term itself moved at pitch ${pitch * sign} roll $roll",
+                    )
+                    assertTrue(
+                        degreesClose(0f, p.pointingBearingDeg, 1f),
+                        "pitch ${pitch * sign} roll $roll published " +
+                            "${p.pointingBearingDeg} — the top edge leaked in",
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * ...while PORTRAIT keeps the fallback, which is the whole reason it exists: a phone
+     * on a desk has no lens bearing and the map still wants one. Here the top edge is
+     * co-directional with the lens, so handing over to it is continuous rather than a
+     * 90° step.
+     */
+    @Test
+    fun portraitStillHandsOverToTheTopEdgeAsTheLensGoesVertical() {
+        var last = 0f
+        for (pitch in listOf(40f, 50f, 60f, 70f, 80f, 88f)) {
+            val p = poseFor(azimuthDeg = 0f, elevationDeg = -pitch, imageRollDeg = 0f)!!
+            assertTrue(
+                degreesClose(0f, p.pointingBearingDeg, 1f),
+                "portrait at pitch $pitch published ${p.pointingBearingDeg}",
+            )
+            last = p.pointingBearingDeg
+        }
+        // And flat-out, where the lens has nothing left: still the top edge's direction.
+        val flat = pose(matrix(dx = east, dy = north, dz = up))
+        assertEquals("device", flat.bearingReference)
+        assertEquals(0f, flat.pointingBearingDeg, 0.01f)
+        assertEquals(0f, last, 1f)
+    }
+
     /** Every shooting posture is pure camera — the fallback must not leak into photos. */
     @Test
     fun everyShootingPostureIsPureCamera() {
