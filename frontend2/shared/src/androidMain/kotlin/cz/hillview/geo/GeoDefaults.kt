@@ -1,8 +1,15 @@
 package cz.hillview.geo
 
+import cz.hillview.external.ExternalImuSettings
+
 /**
  * Starting values for each activity's [GeoConfig] — deliberately HERE, next
  * to the call sites that start the engine, and not inside the engine itself.
+ *
+ * BEFORE CHANGING A FLAG HERE: docs/imu-sampling-design.md has the couplings.
+ * The merge across claims is `any { }` for the booleans and `min` for the rates,
+ * so a value set here is a FLOOR that another live claim can raise — which is why
+ * a toggle wired to one config does nothing while another claimant disagrees.
  *
  * The engine is told what to run and never decides; these are the defaults a
  * user control replaces. The GPS-interval slider and the eco sub-flags are
@@ -32,6 +39,9 @@ fun captureGeoConfig(gpsIntervalMs: Long = GPS_INTERVAL_DEFAULT_MS) = GeoConfig(
     sensors = true,
     sensorDelayUs = SENSOR_DELAY_NORMAL_US,
     locationIntervalMs = gpsIntervalMs,
+    // The window around each exposure — motion blur, shake, rolling shutter.
+    // Only the activities that PRODUCE photos pay for it.
+    imu = true,
 )
 
 /**
@@ -39,10 +49,43 @@ fun captureGeoConfig(gpsIntervalMs: Long = GPS_INTERVAL_DEFAULT_MS) = GeoConfig(
  * taken in another app are stamped from this record afterwards. Same rates
  * as capture; the difference is that it keeps running with the screen off.
  */
-fun externalCameraConfig(gpsIntervalMs: Long = GPS_INTERVAL_DEFAULT_MS) = GeoConfig(
+fun externalCameraConfig(
+    gpsIntervalMs: Long = GPS_INTERVAL_DEFAULT_MS,
+    /**
+     * Continuous inertial logging, from `ExternalImuSettings`. A PARAMETER and
+     * not a read inside this function, because both claimants must pass the same
+     * value: `GeoEngine.mergedConfig` resolves this with `any { }`, so one
+     * claimant still saying true would quietly override the other's false.
+     */
+    imuContinuous: Boolean = ExternalImuSettings.DEFAULT_CONTINUOUS,
+) = GeoConfig(
     sensors = true,
     sensorDelayUs = SENSOR_DELAY_NORMAL_US,
     locationIntervalMs = gpsIntervalMs,
+    // FOLLOWS the toggle, and must: in this mode nothing fires a shutter, so the
+    // continuous flush below is the ring's ONLY consumer. Left at `true` with the
+    // flush off, the accelerometer and gyroscope would stay registered at
+    // SENSOR_DELAY_FASTEST filling a buffer nobody ever reads — the whole battery
+    // cost of the feature with none of the data. Switching it off has to mean the
+    // sensors stop, not just the writing.
+    //
+    // A capture claim, if one is also live, still sets this through
+    // `mergedConfig`'s `any { it.imu }`, so nothing is lost for app photos.
+    //
+    // WHAT THIS REPLACED, because the reasoning matters more than the line: it was
+    // `imu = true`, justified as "photos are taken in this mode too — by another
+    // app, stamped from this record afterwards — so the window is worth keeping
+    // here as well". That contradicted the very next comment, which says nothing
+    // here fires a shutter. Both cannot hold: a photo taken by ANOTHER app does
+    // not trigger our window, so no window was ever built in this mode and the
+    // flag's stated purpose was never real. Its only actual function was feeding
+    // the ring for the continuous flush — which is what it now says.
+    imu = imuContinuous,
+    // And CONTINUOUSLY, at full rate: nothing here fires a shutter to trigger a
+    // window, so without this the one mode a whole drive might be spent in
+    // records no inertial data at all. See GeoConfig.imuContinuous for what it
+    // costs and why it is not decimated.
+    imuContinuous = imuContinuous,
     // The sentence above, made true: until 2026-08-19 the sensor service's
     // own lifecycle observer paused the sensors the moment the system camera
     // app came to the front — exactly when this mode needs them. The engine

@@ -128,3 +128,16 @@ const val OUTBOX_KIND_RATING = "rating"
  * that it happened.
  */
 const val OUTBOX_KIND_DELETE = "delete"
+
+/**
+ * In a delete wish's payload: remove the local row too, once the server has
+ * confirmed.
+ *
+ * It rides in the wish rather than being a second wish because it is the
+ * same decision — "this photo should not exist" — and because the local row
+ * is what the wish is ATTACHED to. Forgetting the row first would cascade
+ * the wish away and leave the photo published; the wish carrying its own
+ * cleanup is what lets "Delete" mean delete, in the right order, without the
+ * UI having to sequence two asynchronous things.
+ */
+const val DELETE_FORGET_LOCALLY = "forget_locally"

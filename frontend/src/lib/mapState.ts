@@ -118,9 +118,13 @@ export function setHunterMode(value: boolean) {
 // When a URL with a photo param loads, we remember the photo UID here.
 // Once the photo appears in photosInRange, we set hunterMode based on its featured status.
 let urlRequestedPhotoUid: string | null = null;
+let urlRequestedPhotoBearing: number | undefined;
 
-export function setUrlRequestedPhoto(uid: string) {
+export function setUrlRequestedPhoto(uid: string, bearing?: number) {
 	urlRequestedPhotoUid = uid;
+	urlRequestedPhotoBearing = bearing;
+	updateBearing(bearing ?? get(bearingState).bearing, 'url', uid);
+	resolveUrlRequestedPhoto(get(photosInRange));
 }
 
 // Update anyFeatured/anyFiltered when photosInRange changes
@@ -129,8 +133,8 @@ photosInRange.subscribe(photos => {
 	anyFiltered.set(photos.some(p => p.filtered === true));
 });
 
-// Auto-set hunterMode when URL-requested photo appears in range
-photosInRange.subscribe(photos => {
+// Resolve the requested photo once it arrives, including its heading when the URL omitted one.
+function resolveUrlRequestedPhoto(photos: PhotoData[]) {
 	if (!urlRequestedPhotoUid) return;
 	const photo = photos.find(p => p.uid === urlRequestedPhotoUid);
 	if (photo) {
@@ -139,9 +143,15 @@ photosInRange.subscribe(photos => {
 			console.log(`🢄URL photo ${photo.uid}: featured=${photo.featured}, setting hunterMode override=${shouldBeHunterMode}`);
 			hunterModeOverride.set(shouldBeHunterMode);
 		}
-		urlRequestedPhotoUid = null; // one-shot
+		urlRequestedPhotoUid = null; // one-shot, before writing reactive state
+		const current = get(bearingState);
+		// Do not overwrite an explicit heading or a user turn made while the photo loaded.
+		if (urlRequestedPhotoBearing === undefined && current.source === 'url' && current.photoUid === photo.uid) {
+			updateBearing(photo.has_bearing === false ? current.bearing : photo.bearing, 'url', photo.uid);
+		}
 	}
-});
+}
+photosInRange.subscribe(resolveUrlRequestedPhoto);
 
 // Photos eligible for navigation: exclude filtered, and when featured exist exclude non-featured
 export const navigablePhotos = derived(

@@ -1,8 +1,5 @@
 FROM python:3.12-slim
 
-RUN mkdir -p /tmp
-RUN chmod a=rwx,o+t /tmp
-
 # System dependencies. Two groups: shared libs the wheels dlopen (opencv,
 # torch), and the CLIs the worker shells out to (exiftool, vips, identify/
 # convert, dcraw, `free` from procps). --no-install-recommends keeps
@@ -15,7 +12,9 @@ RUN chmod a=rwx,o+t /tmp
 # installs from a wheel (pyvips builds in ABI mode either way -- there was
 # never a libvips-dev here), nothing in worker/ references gdal/geos/proj/
 # jpegoptim, and the ops tools are an `apt-get install` away in a console.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Repair /tmp in the same layer as apt so _apt can create signature files.
+RUN mkdir -p /tmp && chmod 1777 /tmp \
+    && apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
@@ -96,12 +95,11 @@ RUN    sed -i "s/<policy domain=\"resource\" name=\"memory\" value=\"[^\"]*\"/<p
     && sed -i "s/<policy domain=\"resource\" name=\"area\" value=\"[^\"]*\"/<policy domain=\"resource\" name=\"area\" value=\"${MAGICK_AREA_LIMIT}\"/" /etc/ImageMagick-7/policy.xml
 
 
-RUN chmod a=rwx,o+t /tmp
-
 # busybox: the in-VM hard-exit tool. On x86 Firecracker only *reboot* exits the
 # VM (poweroff/halt/sysrq-o dead-spin it) — `busybox reboot -f` from a root
 # `fly ssh console` is the manual escape hatch for a sick-but-sshable machine.
-RUN apt-get update && apt-get install -y busybox && rm -rf /var/lib/apt/lists/*
+RUN chmod 1777 /tmp \
+    && apt-get update && apt-get install -y busybox && rm -rf /var/lib/apt/lists/*
 
 RUN chmod +x /app/worker/start*.sh
 

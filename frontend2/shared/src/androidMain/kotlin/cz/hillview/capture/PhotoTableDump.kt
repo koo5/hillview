@@ -28,6 +28,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import cz.hillview.plugin.hvTag
 
 /**
  * The photos table, written out beside the photos so they survive the app.
@@ -56,7 +57,7 @@ import java.util.TimeZone
  */
 object PhotoTableDump {
 
-    private const val TAG = "hv-PhotoTableDump"
+    private val TAG = hvTag("PhotoTableDump")
     private const val PREFS = "hillview_photo_dump"
     private const val PREF_HASHES = "last_shard_hashes"
     private const val PREF_SHARDS = "last_shard_count"
@@ -582,7 +583,12 @@ internal fun photoTableCsv(rows: List<PhotoEntity>): String {
         out.cell(row.exposureJson)
         out.cell(row.stampRefinedAt?.toString())
         out.cell(row.license)
-        out.cell(row.altLocationJson, last = true)
+        out.cell(row.altLocationJson)
+        out.cell(row.attitudeJson)
+        out.cell(row.fixJson)
+        out.cell(row.lensJson)
+        out.cell(row.inertialJson)
+        out.cell(row.captureTimingJson, last = true)
     }
     return out.toString()
 }
@@ -607,7 +613,8 @@ internal val PHOTO_DUMP_COLUMNS = listOf(
     "uploadStatus", "uploadedAt", "retryCount", "lastUploadAttempt", "uploadError",
     "fileHash", "serverPhotoId", "deleted", "version", "anonymizationOverride",
     "bearingSource", "locationSource", "locationAgeMs", "exposureJson",
-    "stampRefinedAt", "license", "altLocationJson",
+    "stampRefinedAt", "license", "altLocationJson", "attitudeJson",
+    "fixJson", "lensJson", "inertialJson", "captureTimingJson",
 )
 
 private fun isoUtc(epochMs: Long): String {

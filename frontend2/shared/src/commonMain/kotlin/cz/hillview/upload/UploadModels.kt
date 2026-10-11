@@ -119,6 +119,40 @@ data class PendingUpload(
     /** The other position stream, as JSON — see altLocationFor. */
     val altLocationJson: String? = null,
     /**
+     * What the device measured at the shutter — see
+     * [cz.hillview.capture.attitudeProvenanceJson]. Opaque here, exactly
+     * like [altLocationJson]: it only travels.
+     */
+    val attitudeJson: String? = null,
+    /** What the receiver said about its own fix — see [cz.hillview.capture.fixProvenanceJson]. */
+    val fixJson: String? = null,
+    /** The camera's calibration and settings — see [cz.hillview.capture.lensProvenanceJson]. */
+    val lensJson: String? = null,
+    /** How the phone was moving — see [cz.hillview.capture.inertialProvenanceJson]. */
+    val inertialJson: String? = null,
+    /** What `captured_at` means — see [cz.hillview.capture.captureTimingJson]. */
+    val captureTimingJson: String? = null,
+    /**
+     * The same thing unserialized, because the deferred IMU-window rewrite REBUILDS the
+     * inertial object and has to know which instant its ages are measured against.
+     *
+     * Carrying only the JSON was a real bug: the rewrite constructed a bare
+     * SensorSnapshot, `poseReferenceMs()` fell through to the press while the motion
+     * sample had been looked up at the EXPOSURE, and every uploaded photo reported an
+     * inertial age of almost exactly minus the press→exposure gap. Two separate fixes
+     * failed to move that number because neither touched this path.
+     */
+    val captureTiming: cz.hillview.capture.CaptureTiming? = null,
+    /**
+     * The gravity / linear-acceleration sample itself, kept so the deferred IMU
+     * window can rebuild [inertialJson] without losing it.
+     *
+     * The window completes three seconds after the shutter and then rewrites
+     * that field; without the sample here, the rewrite would drop the point
+     * reading the shutter DID have.
+     */
+    val motionSample: cz.hillview.map.DeviceMotionSample? = null,
+    /**
      * The licence in force AT CAPTURE. Snapshotted rather than read at
      * upload time: a licence is a statement about this photo, made when it
      * was taken, so changing the setting later must not relicense a queue.

@@ -24,8 +24,10 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import cz.hillview.map.toDeviceAttitude
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-GeoEngine"
+private val TAG = hvTag("GeoEngine")
 
 // Liveness watchdog. A REGISTERED sensor listener in the foreground delivers
 // raw events at tens of Hz without pause, so seconds of silence mean the
@@ -91,11 +93,169 @@ data class GeoConfig(
      * without a foreground service, and hands it back on return).
      */
     val sensorsInBackground: Boolean = false,
+    /**
+     * Keep a high-rate accelerometer + gyroscope ring buffer, so a capture can
+     * persist the window around its exposure.
+     *
+     * OFF for map viewing, deliberately. This is the one stream registered at
+     * SENSOR_DELAY_FASTEST, because a window has to describe a shutter and 10 Hz
+     * cannot; nothing about looking at a map needs that, and the battery cost
+     * belongs only to the activities that produce photos.
+     */
+    val imu: Boolean = false,
+    /**
+     * Persist EVERY sample, not just the windows around this app's own shutters.
+     *
+     * For the external-camera activity, where another app takes the photos and
+     * nothing here fires a shutter to trigger a window — so without this that
+     * mode records no inertial data at all, which is the one mode a whole drive
+     * might be spent in.
+     *
+     * FULL RATE, not decimated (user, 2026-09-26: "i totally want non-decimate,
+     * full-frequency sampling for external camera activity, there are
+     * experiments that we will run on the samples, such as shutter detection").
+     * That is the right call for that purpose and it is worth being explicit
+     * about the price: a mechanical shutter is a transient a few milliseconds
+     * long, so 50 or 100 Hz would alias it away entirely and the experiment
+     * could not run at all. At a few hundred hertz across two sensors this is
+     * on the order of 100 MB of CSV an hour, which is why it is a user-visible
+     * toggle and not a silent default.
+     */
+    val imuContinuous: Boolean = false,
 ) {
     companion object {
         val Off = GeoConfig(sensors = false, sensorDelayUs = 0, locationIntervalMs = 0)
     }
 }
+
+/**
+ * ±ms around the exposure the IMU window covers — see GeoEngine.persistImuWindow.
+ *
+ * THREE seconds each way (user, 2026-09-26), not the half-second it started at.
+ * The reason is not the exposure, which a tenth of a second covers: it is that
+ * interval capture at a few seconds a shot then produces windows that BUTT
+ * AGAINST each other, and with the overlap trimmed (see `imuHighWaterMs`) they
+ * concatenate into one continuous inertial record of the whole shoot. That is a
+ * different and much more valuable artifact than a bag of per-photo snippets.
+ *
+ * It also means a window is only COMPLETE three seconds after the shutter, so
+ * the capture path cannot persist it inline — see the deferred call, which
+ * follows the StampRefiner's existing "wait for the window to close, then read"
+ * pattern and fits inside the upload hold it already takes.
+ */
+/**
+ * The fastest IMU period that needs NO permission: 200 Hz, the ceiling Android 12
+ * set for an app without HIGH_SAMPLING_RATE_SENSORS. The fallback rate when
+ * FASTEST is refused — still enough to describe a hand-held wobble, not enough to
+ * resolve a 1/60 s shutter, which is the experiment that wanted full rate.
+ */
+const val IMU_UNPRIVILEGED_PERIOD_US = 5_000
+
+const val IMU_WINDOW_HALF_MS = 3_000L
+
+/**
+ * How long the sensors may hold samples in their hardware FIFO before waking the
+ * application processor — `maxReportLatencyUs` on `registerListener`.
+ *
+ * This is the one large battery lever available. At FASTEST across two sensors the
+ * callback rate is close to a thousand a second, and every one of those was an AP
+ * wakeup; with a FIFO they arrive in bursts and the processor sleeps between them.
+ *
+ * GENEROUS, and the reason is the tiling. A first version derived
+ * [IMU_SETTLE_MARGIN_MS] from this on the theory that a sample still in the FIFO
+ * when a window is read is a sample lost from that window. It is not lost from the
+ * STREAM: consecutive captures tile, so whatever arrives after photo N's read is
+ * past the high-water mark and gets claimed by photo N+1 (user, 2026-09-26: "a
+ * second missing off a 3-second tail doesnt really matter, if it makes it into the
+ * next photo"). Only the very last capture of a session can actually lose a tail,
+ * and a truncated end of a whole series was already accepted.
+ *
+ * So the budget answers to power, not to the window, and the read FLUSHES anyway —
+ * which makes even the re-attribution rare rather than routine.
+ *
+ * A budget larger than the FIFO is not a mistake: the platform delivers as soon as
+ * the buffer fills, so this is a ceiling rather than a promise. The registration
+ * logs `fifoMaxEventCount` so the actual depth is visible instead of assumed — the
+ * Armor 22 reports 4 500 with 3 000 reserved per sensor, which at ~400 Hz each is
+ * about 5.6 s of both streams together.
+ *
+ * WHY 2 s AND NOT MORE, measured rather than guessed. The saving is almost entirely
+ * in the first step: unbatched is ~800 wakeups a second, 1 s makes it 1, and 2 s
+ * makes it 0.5. Everything past that is rounding.
+ *
+ * What it trades against is the INLINE pre-shutter summary, which reads the ring
+ * synchronously and so covers only `IMU_WINDOW_HALF_MS - budget` of its window: 2 s
+ * at a 1 s budget, 1 s at 2 s, and NOTHING at 3 s or beyond. That summary is the
+ * only motion a photo has if the process dies before the deferred pass rewrites it,
+ * so a budget at or above the half-window silently removes a crash floor to save
+ * 0.2 wakeups a second. 2 s is the last value that keeps the floor while taking
+ * essentially all of the saving.
+ *
+ * AND THE IMU IS NO LONGER WHAT WAKES THE CPU. Four sensors run UNBATCHED at
+ * `sensorDelayUs` — rotation vector, magnetometer, gravity, linear acceleration —
+ * which at capture's 30 ms is about 132 wakeups a second no matter what this
+ * constant says. Squeezing this further is not where the remaining battery is; see
+ * docs/imu-sampling-design.md.
+ */
+const val IMU_BATCH_LATENCY_MS = 2_000L
+
+/**
+ * How long after a window closes it is safe to read.
+ *
+ * Covers the FLUSH round-trip and handler scheduling — NOT the batch latency. It
+ * was briefly derived from [IMU_BATCH_LATENCY_MS], which coupled the upload hold
+ * (and so every photo's time-to-upload) to a power setting for no benefit: the
+ * flush drains the FIFO before the read, and anything that still slips through
+ * lands on the next capture rather than being lost.
+ */
+const val IMU_SETTLE_MARGIN_MS = 150L
+
+/**
+ * How often the sensor clock is re-anchored to the wall clock. See
+ * `GeoEngine.imuWallClockFor`.
+ */
+const val IMU_CLOCK_RESYNC_MS = 10_000L
+
+/**
+ * How often continuous mode drains the ring to the table.
+ *
+ * A row per sample at a few hundred hertz would be a write every two
+ * milliseconds; batching a second at a time turns that into one insert of a few
+ * hundred rows, which is what SQLite is good at. The ring holds far more than a
+ * second, so nothing is lost between drains.
+ */
+const val IMU_FLUSH_PERIOD_MS = 1_000L
+
+/** m/s², for turning a raw accelerometer magnitude into a gravity-free deviation. */
+const val STANDARD_GRAVITY = 9.80665
+
+/**
+ * What the IMU window around one shutter contained — the summary that travels
+ * in the upload's `motion` object, so a server-side reader gets the quality
+ * signal without needing the CSV the samples themselves go to.
+ */
+data class ImuWindowSummary(
+    val sampleCount: Int,
+    val startMs: Long,
+    val endMs: Long,
+    /** Peak raw accelerometer magnitude, m/s². INCLUDES gravity (~9.81 at rest). */
+    val accelPeakMps2: Double? = null,
+    /**
+     * Peak |magnitude − g|, m/s² — the gravity-free shake signal, derived from
+     * the raw accelerometer rather than needing the linear-acceleration sensor.
+     * Near zero for a still phone however it is oriented.
+     */
+    val accelPeakDeviationMps2: Double? = null,
+    /** Peak angular rate, rad/s. The rotation-blur signal, and gravity-free by nature. */
+    val gyroPeakRadS: Double? = null,
+    /**
+     * How many of [sampleCount] this capture actually wrote to the table — the
+     * rest a neighbouring photo's window had already stored. See
+     * `GeoEngine.imuHighWaterMs`; with interval capture this is roughly the
+     * interval's worth rather than the window's.
+     */
+    val storedCount: Int = 0,
+)
 
 /**
  * The ONE owner of position and heading hardware — the CMP analog of the
@@ -228,6 +388,29 @@ class GeoEngine private constructor(private val context: Context) {
     private val _carBearing = MutableSharedFlow<Double>(replay = 1, extraBufferCapacity = 8)
     val carBearing: SharedFlow<Double> = _carBearing.asSharedFlow()
 
+    /**
+     * Gravity and linear acceleration, latest sample — the INERTIAL half of
+     * how the phone was held.
+     *
+     * Its own registration, because [EnhancedSensorService] does not register
+     * either sensor in the mode this app runs (UPRIGHT_ROTATION_VECTOR takes
+     * the magnetometer and the rotation vector), and because the engine is the
+     * one place allowed to open a sensor at all.
+     *
+     * Why both, when pitch and roll exist: `TYPE_GRAVITY` is an unambiguous
+     * "down" in the device frame, where the published pitch and roll come out
+     * of a matrix ALREADY remapped for the quantized device pose and are
+     * therefore residuals within a quadrant. Gravity constrains two rotation
+     * degrees of freedom on its own, which is what a reconstruction wants.
+     * `TYPE_LINEAR_ACCELERATION` is the same stream with gravity removed, so
+     * its magnitude is how hard the phone was actually being moved — the cheap
+     * per-frame motion-blur signal, and the thing a single raw accelerometer
+     * sample can never give, because one such sample conflates the two
+     * inseparably.
+     */
+    private val _motion = MutableStateFlow<cz.hillview.map.DeviceMotionSample?>(null)
+    val motion: StateFlow<cz.hillview.map.DeviceMotionSample?> = _motion.asStateFlow()
+
     /** True while the fix stream is meant to be running (permission-gated). */
     private val _locationActive = MutableStateFlow(false)
     val locationActive: StateFlow<Boolean> = _locationActive.asStateFlow()
@@ -288,6 +471,8 @@ class GeoEngine private constructor(private val context: Context) {
             sensorDelayUs = wantSensors.minOfOrNull { it.sensorDelayUs } ?: 0,
             locationIntervalMs = intervals.minOrNull() ?: 0L,
             sensorsInBackground = claims.values.any { it.sensorsInBackground },
+            imu = claims.values.any { it.imu },
+            imuContinuous = claims.values.any { it.imuContinuous },
         )
     }
 
@@ -310,6 +495,10 @@ class GeoEngine private constructor(private val context: Context) {
         )
         val previous = active
         active = config
+
+        // The IMU ring follows the claim: an activity that stops asking for
+        // it releases the fastest registration the app makes.
+        if (!config.imu) stopImuSensors() else if (sensorService != null) startImuSensors()
 
         // Sensors: the rate is fixed at registration, so a change is a
         // restart; whether they run RIGHT NOW also depends on foreground.
@@ -527,7 +716,585 @@ class GeoEngine private constructor(private val context: Context) {
     // times did we register today" is the first number anyone would want.
     @Volatile private var sensorStarts = 0
 
+    /**
+     * Gravity and linear acceleration, registered and published as one sample.
+     *
+     * Both arrive on their own callbacks, so the latest of each is held and the
+     * pair is published whenever either moves — with the timestamp of the
+     * sample that triggered it, so staleness is measurable rather than assumed.
+     */
+    private val motionListener = object : android.hardware.SensorEventListener {
+        // The vectors and the assembly live in MotionSampleAssembler, which exists
+        // because building the sample inline lost `gravity` and `linearAcceleration`
+        // in a rewrite and compiled anyway — both are nullable with defaults. ~2 800
+        // photos shipped an inertial age dating a reading that was not there.
+        private val pair = MotionSampleAssembler()
+
+        override fun onSensorChanged(event: android.hardware.SensorEvent) {
+            when (event.sensor.type) {
+                android.hardware.Sensor.TYPE_GRAVITY ->
+                    pair.gravity(event.values[0], event.values[1], event.values[2])
+                android.hardware.Sensor.TYPE_LINEAR_ACCELERATION ->
+                    pair.linear(event.values[0], event.values[1], event.values[2])
+                else -> return
+            }
+            _motion.value = pair.sampleAt(
+                // BOTH clocks describe the EVENT, not the callback, and that matters
+                // because the two are ~300 ms apart here: these sensors batch, so
+                // System.currentTimeMillis() at delivery is a third of a second after
+                // the sample it is stamping. Mixing them is a bug this code had for one
+                // evening — the ring matched on the event time while `age_ms` was
+                // computed from the callback time, and 20 uploaded photos reported
+                // inertial ages of -311 ms for samples that were within 1 ms of the
+                // exposure. imuWallClockFor is the same mapping the IMU payload uses.
+                atMs = imuWallClockFor(event.timestamp),
+                elapsedNs = event.timestamp,
+            ).also { motionRing.add(it) }
+        }
+
+        override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
+
+        fun reset() = pair.reset()
+    }
+
+    @Volatile private var motionRegistered = false
+
+    private fun startMotionSensors() {
+        if (motionRegistered) return
+        val manager = context.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+            ?: return
+        // Absent on some devices, and absence is not an error: the fields stay
+        // null and the stamp says nothing rather than guessing.
+        val wanted = listOfNotNull(
+            manager.getDefaultSensor(android.hardware.Sensor.TYPE_GRAVITY),
+            manager.getDefaultSensor(android.hardware.Sensor.TYPE_LINEAR_ACCELERATION),
+        )
+        if (wanted.isEmpty()) {
+            Log.w(TAG, "no gravity / linear-acceleration sensor on this device")
+            return
+        }
+        wanted.forEach { manager.registerListener(motionListener, it, active.sensorDelayUs, handler) }
+        motionRegistered = true
+        Log.i(TAG, "motion sensors registered (${wanted.joinToString { it.name }})")
+    }
+
+    private fun stopMotionSensors() {
+        if (!motionRegistered) return
+        (context.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager)
+            ?.unregisterListener(motionListener)
+        motionRegistered = false
+        motionListener.reset()
+        // Nothing is measuring it any more, so stop claiming a value: a stale
+        // gravity vector under a fresh shutter is the `0f` mistake again.
+        _motion.value = null
+        Log.i(TAG, "motion sensors unregistered")
+    }
+
+    // Sized so the DEFERRED read still finds the whole window: 6 s of it plus a
+    // settle margin, two sensors, at a SENSOR_DELAY_FASTEST rate that reaches a
+    // few hundred hertz on a fast phone — call it 1 000 samples a second, so
+    // 16 000 slots is about sixteen seconds of headroom. ~450 KB of primitive
+    // arrays. A buffer that wrapped mid-window would silently return half of
+    // one, which is the failure that looks like data rather than an error.
+    private val imuRing = ImuRing(capacity = 16_000)
+
+    /**
+     * The last few seconds of attitude and motion, so a capture can ask what the device
+     * was doing at the instant it EXPOSED rather than when the button went down — the
+     * two are 250 ms–1.2 s apart and the gap cannot be calibrated away.
+     *
+     * Here rather than in the capture for the same reason [imuRing] is here: fed at the
+     * source on the sensor thread, nothing conflates. The first version was fed from the
+     * capture's stamp setters, through two StateFlows and a collector on the composition's
+     * dispatcher, and twenty uploaded photos measured the cost — attitude hits ±88 ms from
+     * the exposure, a 33 Hz stream arriving as about 9 Hz.
+     *
+     * ASKED, never observed: one lookup per capture, like persistImuWindow.
+     */
+    private val attitudeRing = SampleRing<cz.hillview.map.DeviceAttitude>(
+        AT_EXPOSURE_RING_WINDOW_NS, AT_EXPOSURE_RING_MAX_SAMPLES,
+    ) { it.elapsedNs }
+    private val motionRing = SampleRing<cz.hillview.map.DeviceMotionSample>(
+        AT_EXPOSURE_RING_WINDOW_NS, AT_EXPOSURE_RING_MAX_SAMPLES,
+    ) { it.elapsedNs }
+
+    /**
+     * What the device's orientation was at [elapsedNs] (an `elapsedRealtimeNanos` value,
+     * e.g. a frame's SENSOR_TIMESTAMP), or null when nothing was recorded near it.
+     *
+     * Null is the useful answer: the caller then keeps whatever it stamped at the press
+     * and SAYS so, which is better than a sample from an unrelated moment.
+     */
+    fun attitudeAt(elapsedNs: Long): cz.hillview.map.DeviceAttitude? =
+        attitudeRing.nearest(elapsedNs, AT_EXPOSURE_TOLERANCE_NS)
+            .also { if (it == null) explainMiss("attitude", attitudeRing, elapsedNs) }
+
+    /** The gravity / linear-acceleration reading at [elapsedNs]. See [attitudeAt]. */
+    fun motionAt(elapsedNs: Long): cz.hillview.map.DeviceMotionSample? =
+        motionRing.nearest(elapsedNs, AT_EXPOSURE_TOLERANCE_NS)
+            .also { if (it == null) explainMiss("inertial", motionRing, elapsedNs) }
+
+    /**
+     * Say WHY a lookup declined, because the last time one did quietly it took a batch
+     * of uploaded photos and a correlation against `exposure_to_jpeg_ms` to work out
+     * that the ring was 1/29th of its documented length.
+     *
+     * The two candidate causes are distinguishable from these numbers alone: a ring
+     * whose span is shorter than the lookup is behind means the history ran out, while
+     * a long span with the exposure inside it means the stream itself had a gap. Rare
+     * by construction — this only runs when a capture has already missed.
+     */
+    private fun <T> explainMiss(which: String, ring: SampleRing<T>, elapsedNs: Long) {
+        val behindMs = (android.os.SystemClock.elapsedRealtimeNanos() - elapsedNs) / 1_000_000
+        Log.w(
+            TAG,
+            "$which lookup declined: exposure was ${behindMs}ms ago, ring holds " +
+                "${ring.spanNs / 1_000_000}ms in ${ring.size} samples" +
+                (if (ring.capped) " (CAPPED — raise AT_EXPOSURE_RING_MAX_SAMPLES)" else ""),
+        )
+    }
+
+    /**
+     * The newest sample already persisted, so consecutive windows do not store
+     * the same samples twice (user, 2026-09-26: "take note of the last sample
+     * stored with last photo, so the next photo does not overlap it
+     * unnecessarily").
+     *
+     * With interval capture the windows overlap heavily — a 2 s interval and a
+     * ±3 s window means 4 s of every 6 s is shared with a neighbour. Trimmed,
+     * the photos' windows tile the session instead of repeating it, and what
+     * reaches the workbench is one trajectory rather than N overlapping copies
+     * of most of it.
+     *
+     * The SUMMARY is still computed over the whole window: what a frame was
+     * doing does not depend on which of its samples a neighbour happened to
+     * store first.
+     */
+    @Volatile private var imuHighWaterMs: Long = 0L
+
+    /** How many sensors are registered, so a flush knows how many completions to expect. */
+    private var imuSensorCount = 0
+
+    // The sensor clock anchored to the wall clock. Re-taken every
+    // IMU_CLOCK_RESYNC_MS; see imuWallClockFor.
+    @Volatile private var clockSyncWallMs = 0L
+    @Volatile private var clockSyncElapsedNanos = 0L
+
+    /**
+     * The wall-clock millisecond of a sample, derived from the sample's OWN
+     * `SensorEvent.timestamp` rather than read at delivery.
+     *
+     * This is what makes batching possible at all, and it is the change that
+     * would have been easiest to miss. `System.currentTimeMillis()` at callback
+     * time was correct only while every sample was delivered immediately: with a
+     * FIFO, forty samples arrive in one burst and would all have been stamped
+     * with the same millisecond, collapsing 200 ms of motion onto a single
+     * instant. Every downstream number — the window bounds, the `dt_us` deltas,
+     * the high-water mark — is built on this column.
+     *
+     * It is also strictly more accurate WITHOUT batching, which is the tell that
+     * the old way was wrong rather than merely incompatible: delivery time
+     * includes scheduler jitter, while the sensor's own timestamp does not.
+     *
+     * The anchor is re-taken periodically so a long session does not accumulate
+     * drift between the two clocks, and because the wall clock can step (an NTP
+     * correction) while the monotonic one cannot.
+     */
+    private fun imuWallClockFor(eventNanos: Long): Long {
+        val nowElapsed = android.os.SystemClock.elapsedRealtimeNanos()
+        if (clockSyncWallMs == 0L ||
+            nowElapsed - clockSyncElapsedNanos > IMU_CLOCK_RESYNC_MS * 1_000_000
+        ) {
+            clockSyncWallMs = System.currentTimeMillis()
+            clockSyncElapsedNanos = nowElapsed
+        }
+        return clockSyncWallMs + (eventNanos - clockSyncElapsedNanos) / 1_000_000
+    }
+
+    private val imuListener = object : android.hardware.SensorEventListener2 {
+        override fun onFlushCompleted(sensor: android.hardware.Sensor?) {
+            onImuFlushCompleted()
+        }
+
+        override fun onSensorChanged(event: android.hardware.SensorEvent) {
+            val kind = when (event.sensor.type) {
+                android.hardware.Sensor.TYPE_ACCELEROMETER -> ImuRing.KIND_ACCEL
+                android.hardware.Sensor.TYPE_GYROSCOPE -> ImuRing.KIND_GYRO
+                else -> return
+            }
+            val atMs = imuWallClockFor(event.timestamp)
+            imuRing.add(
+                atMs, event.timestamp, kind,
+                event.values[0], event.values[1], event.values[2],
+            )
+            // Continuous mode (external camera): every sample to the table, at
+            // full rate. Batched through the ring rather than inserted one at a
+            // time — a row per sample at a few hundred hertz would be a write
+            // per 2 ms, and SQLite would spend the session in transaction
+            // overhead.
+            if (active.imuContinuous && atMs - lastContinuousFlushMs >= IMU_FLUSH_PERIOD_MS) {
+                lastContinuousFlushMs = atMs
+                flushContinuousImu(atMs)
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
+    }
+
+    @Volatile private var imuRegistered = false
+    @Volatile private var lastContinuousFlushMs = 0L
+
+    /**
+     * Drain everything not yet stored, up to [upToMs]. Continuous mode only.
+     *
+     * Shares [imuHighWaterMs] with the per-capture path on purpose: whichever
+     * wrote a sample first, it is written ONCE, so a session that is partly
+     * external and partly capture does not double-store its overlap.
+     */
+    private fun flushContinuousImu(upToMs: Long) {
+        val fresh = imuRing.window(imuHighWaterMs + 1, upToMs)
+        if (fresh.isEmpty()) return
+        geoTracking.storeImuSamples(fresh)
+        // MAX, not last: with FIFO batching the ring's insertion order is no
+        // longer time order — two sensors deliver their bursts one after the
+        // other, so the final element can pre-date earlier ones. A high-water mark
+        // taken from `last()` would go BACKWARDS and re-store samples it had
+        // already written.
+        imuHighWaterMs = fresh.maxOf { it.timestamp }
+    }
+
+    private fun startImuSensors() {
+        if (imuRegistered || !active.imu) return
+        val manager = context.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+            ?: return
+        val wanted = listOfNotNull(
+            manager.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER),
+            manager.getDefaultSensor(android.hardware.Sensor.TYPE_GYROSCOPE),
+        )
+        if (wanted.isEmpty()) {
+            Log.w(TAG, "no accelerometer / gyroscope — no IMU windows on this device")
+            return
+        }
+        // FASTEST, unlike the other registrations: the point of a window is the
+        // shape of the signal across an exposure, and 10 Hz cannot describe a
+        // 1/60 s shutter. This is the one stream whose rate is set by what it is
+        // FOR rather than by the activity's power budget — which is exactly why
+        // it is behind GeoConfig.imu and off for map viewing.
+        //
+        // FASTEST is 0 µs, and since Android 12 a rate above 200 Hz needs the
+        // NORMAL permission HIGH_SAMPLING_RATE_SENSORS (declared in the app
+        // manifest). Without it registerListener THROWS rather than clamping —
+        // which took the whole app down on startup the first time this reached a
+        // real phone, because this runs from applyConfig on the main thread.
+        //
+        // So it is guarded, and the guard is not only about that permission: no
+        // sensor this engine opens for a NICE-TO-HAVE may be able to kill the
+        // process. An OEM that refuses a rate, a sensor that vanishes under a
+        // policy, a permission a future release renames — each one costs the
+        // user their app for a signal they did not ask for. Degrade to the
+        // fastest rate that needs no permission and say so.
+        val rate = registerImu(manager, wanted, android.hardware.SensorManager.SENSOR_DELAY_FASTEST)
+            ?: registerImu(manager, wanted, IMU_UNPRIVILEGED_PERIOD_US)
+            ?: run {
+                Log.w(TAG, "could not register the IMU at any rate — no windows this session")
+                manager.unregisterListener(imuListener)
+                return
+            }
+        imuRegistered = true
+        // The FIFO depth is the whole question for batching: a latency budget on a
+        // sensor with fifoMaxEventCount == 0 saves nothing, and reading "batching
+        // 200ms" in a log without it would be a false comfort.
+        Log.i(
+            TAG,
+            "IMU ring registered at ${if (rate == 0) "FASTEST" else "${rate}µs"}, " +
+                "batching ${IMU_BATCH_LATENCY_MS}ms (" +
+                wanted.joinToString { s ->
+                    "${s.name} fifo=${s.fifoMaxEventCount}/${s.fifoReservedEventCount}"
+                } + ")",
+        )
+    }
+
+    /**
+     * Register every IMU sensor at one rate, or report failure without leaving
+     * half of them attached.
+     *
+     * Returns the rate on success and null if any registration was refused or
+     * rejected, having unregistered whatever had already been accepted — a
+     * partial registration would silently produce a window with an accelerometer
+     * and no gyroscope, which reads as "this device has no gyroscope".
+     */
+    private fun registerImu(
+        manager: android.hardware.SensorManager,
+        wanted: List<android.hardware.Sensor>,
+        rateUs: Int,
+    ): Int? = try {
+        // FIVE arguments: the fourth is maxReportLatencyUs, which lets a sensor
+        // with a hardware FIFO buffer samples and wake the application processor
+        // in bursts. The four-argument form was ~1 000 wakeups a second at this
+        // rate. Devices with no FIFO ignore it and behave exactly as before, which
+        // is why the capability is logged rather than assumed.
+        val latencyUs = (IMU_BATCH_LATENCY_MS * 1_000).toInt()
+        if (wanted.all { manager.registerListener(imuListener, it, rateUs, latencyUs, handler) }) {
+            imuSensorCount = wanted.size
+            rateUs
+        } else {
+            Log.w(TAG, "IMU registration refused at ${rateUs}µs")
+            manager.unregisterListener(imuListener)
+            null
+        }
+    } catch (e: SecurityException) {
+        // The documented one: HIGH_SAMPLING_RATE_SENSORS missing for a rate
+        // above 200 Hz.
+        Log.w(TAG, "IMU registration at ${rateUs}µs not permitted: ${e.message}")
+        manager.unregisterListener(imuListener)
+        null
+    } catch (e: RuntimeException) {
+        Log.w(TAG, "IMU registration at ${rateUs}µs failed: ${e.message}")
+        manager.unregisterListener(imuListener)
+        null
+    }
+
+    private fun stopImuSensors() {
+        if (!imuRegistered) return
+        (context.getSystemService(Context.SENSOR_SERVICE) as? android.hardware.SensorManager)
+            ?.unregisterListener(imuListener)
+        imuRegistered = false
+        imuSensorCount = 0
+        imuRing.clear()
+        // Logged because "off" is a CLAIM about power, and a claim about power
+        // has to be checkable from a log. The registration has always logged;
+        // without its counterpart, a device trace showed `imu=false` in the
+        // merged config and nothing at all about the sensors actually stopping —
+        // which is the only thing the external toggle and leaving the capture
+        // pane are supposed to achieve.
+        Log.i(TAG, "IMU ring unregistered (sensors stopped, ring cleared)")
+    }
+
+    /**
+     * Persist the IMU window [fromMs]..[toMs] and return what it contained.
+     *
+     * Returns null when the window is empty, which is the honest answer on a
+     * device with no gyroscope, in an activity that did not ask for the IMU, or
+     * for a capture taken before the buffer had filled.
+     *
+     * A method rather than a flow: a few-hundred-hertz buffer is not
+     * user-facing state and has no business passing through recomposition.
+     */
+    fun persistImuWindow(fromMs: Long, toMs: Long, forCaptureAtMs: Long? = null): ImuWindowSummary? {
+        val samples = imuRing.window(fromMs, toMs)
+        if (samples.isEmpty()) return null
+        // Store only what a neighbour has not already stored; summarise ALL of
+        // it. See imuHighWaterMs.
+        val fresh = samples.filter { it.timestamp > imuHighWaterMs }
+        if (fresh.isNotEmpty()) {
+            // Record WHICH samples this capture is responsible for, as DATA.
+            // Deriving it does not work: the window a photo asks for and the
+            // samples it actually adds are different things, so two consecutive
+            // captures' nominal ranges overlap by seconds. One row per capture
+            // rather than an owner column on every sample — see ImuClaimEntity
+            // for the arithmetic behind that choice. Written in the SAME call as
+            // the samples so a reader cannot see the claim before the rows.
+            geoTracking.storeImuSamples(
+                fresh,
+                forCaptureAtMs?.let {
+                    cz.hillview.plugin.ImuClaimEntity(
+                        capturedAtMs = it,
+                        // min/max, not first/last: batched bursts interleave,
+                        // so insertion order is not time order.
+                        fromMs = fresh.minOf { it.timestamp },
+                        toMs = fresh.maxOf { it.timestamp },
+                        sampleCount = fresh.size,
+                    )
+                },
+            )
+            imuHighWaterMs = fresh.maxOf { it.timestamp }
+        }
+        return summariseRingSamples(samples, storedCount = fresh.size)
+    }
+
+    /** READ-ONLY: what the ring holds for a window, storing nothing. */
+    private fun summariseImuRingWindow(fromMs: Long, toMs: Long): ImuWindowSummary? =
+        summariseRingSamples(imuRing.window(fromMs, toMs), storedCount = 0)
+
+    /**
+     * The peaks and bounds of a window. Shared by the storing and the read-only
+     * paths so the two cannot disagree about what "peak" meant.
+     */
+    private fun summariseRingSamples(
+        samples: List<cz.hillview.plugin.ImuSampleEntity>,
+        storedCount: Int,
+    ): ImuWindowSummary? {
+        if (samples.isEmpty()) return null
+        val accel = samples.filter { it.kind == "accel" }
+        val gyro = samples.filter { it.kind == "gyro" }
+        fun magnitude(s: cz.hillview.plugin.ImuSampleEntity) =
+            kotlin.math.sqrt(
+                (s.x.toDouble() * s.x + s.y.toDouble() * s.y + s.z.toDouble() * s.z),
+            )
+        val accelMagnitudes = accel.map(::magnitude)
+        return ImuWindowSummary(
+            sampleCount = samples.size,
+            // min/max for the same reason as the claim above.
+            startMs = samples.minOf { it.timestamp },
+            endMs = samples.maxOf { it.timestamp },
+            storedCount = storedCount,
+            // Raw accelerometer INCLUDES gravity, so this sits near 9.81 on a
+            // still phone. Reported as-is, and the deviation below is the
+            // gravity-free shake signal derived from it.
+            accelPeakMps2 = accelMagnitudes.maxOrNull(),
+            accelPeakDeviationMps2 = accelMagnitudes
+                .maxOfOrNull { kotlin.math.abs(it - STANDARD_GRAVITY) },
+            gyroPeakRadS = gyro.map(::magnitude).maxOrNull(),
+        )
+    }
+
+    // Outstanding flush, if a deferred read is waiting for the FIFO to drain.
+    // Touched only on the engine's handler thread and in onFlushCompleted, which
+    // the platform delivers on that same handler (it is the one passed to
+    // registerListener).
+    private var flushPending = 0
+    private var afterFlush: (() -> Unit)? = null
+
+    /**
+     * Drain the sensors' FIFOs, then run [action] — or run it anyway if the flush
+     * cannot be requested or never completes.
+     *
+     * This is what makes batching safe rather than merely cheap. A window read at
+     * `shutter + half + settle` would otherwise be missing whatever was still
+     * buffered, and [IMU_SETTLE_MARGIN_MS] alone only makes that unlikely.
+     * `SensorManager.flush` makes it deterministic: the samples are in the ring
+     * before the read, not probably in it.
+     *
+     * The timeout is not belt-and-braces. `flush` returning true does not promise
+     * `onFlushCompleted` ever arrives — a sensor that stops delivering, or a
+     * process backgrounded at the wrong moment, would otherwise strand the
+     * window forever, and a window that never lands is worse than one read
+     * slightly early.
+     */
+    private fun flushImuThen(action: () -> Unit) {
+        val manager = context.getSystemService(Context.SENSOR_SERVICE)
+            as? android.hardware.SensorManager
+        if (!imuRegistered || manager == null || !manager.flush(imuListener)) {
+            action()
+            return
+        }
+        // One completion per registered sensor.
+        flushPending = imuSensorCount
+        afterFlush = action
+        handler.postDelayed({
+            if (afterFlush != null) {
+                Log.w(TAG, "IMU flush did not complete in ${IMU_BATCH_LATENCY_MS * 2}ms — reading anyway")
+                runAfterFlush()
+            }
+        }, IMU_BATCH_LATENCY_MS * 2)
+    }
+
+    private fun onImuFlushCompleted() {
+        if (afterFlush == null) return
+        flushPending--
+        if (flushPending <= 0) runAfterFlush()
+    }
+
+    private fun runAfterFlush() {
+        val action = afterFlush ?: return
+        afterFlush = null
+        flushPending = 0
+        action()
+    }
+
+    /**
+     * Persist the SYMMETRIC window around an exposure, once its later half has
+     * happened, and hand the summary back.
+     *
+     * Deferred because half the window is in the future at the shutter. Two
+     * things settled which half matters, and they point the same way:
+     *
+     *  - **The press is not the exposure.** `capturedAtMs` is when the button
+     *    went down; the camera starts exposing measurably later (the capture
+     *    path logs `press→exp`, and in Quality mode the 3A lock can make that
+     *    approach a second). A window ending at the press therefore contains
+     *    none of the exposure — which is the wrong half for motion blur, and
+     *    useless for detecting a shutter in the signal.
+     *  - **With butt-to-butt trimming the two are nearly the same anyway**
+     *    (user's own reasoning, 2026-09-26): in an interval run below 6 s the
+     *    previous photo's window has already claimed everything before this
+     *    shutter, so each photo stores post-shutter samples regardless, and only
+     *    an interval over 6 s yields a genuinely symmetric window per photo.
+     *    Which is a reason not to fear the deferral, not a reason to skip it.
+     *
+     * The wait needs no machinery of its own: the ring holds well over six
+     * seconds, so the later half is simply still there when this runs.
+     */
+    fun persistImuWindowAround(
+        centreAtMs: Long,
+        halfWidthMs: Long = IMU_WINDOW_HALF_MS,
+        onReady: (ImuWindowSummary?) -> Unit = {},
+    ) {
+        val readAt = centreAtMs + halfWidthMs + IMU_SETTLE_MARGIN_MS
+        val delayMs = (readAt - System.currentTimeMillis()).coerceAtLeast(0)
+        handler.postDelayed(
+            {
+                // FLUSH, then read: with batching the window's tail may still be
+                // in the sensors' FIFOs when this fires.
+                flushImuThen {
+                    onReady(
+                        persistImuWindow(
+                            centreAtMs - halfWidthMs, centreAtMs + halfWidthMs, centreAtMs,
+                        ),
+                    )
+                }
+            },
+            delayMs,
+        )
+    }
+
+    /**
+     * The window a SHUTTER can have INLINE: the [IMU_WINDOW_HALF_MS] before the
+     * exposure, and nothing after it.
+     *
+     * The symmetric ±window this constant describes cannot be taken inline,
+     * because half of it has not happened yet. Taking the past half and calling
+     * it the window would be a silent half-measurement, so the asymmetry is in
+     * the name and in what the summary reports.
+     *
+     * The symmetric version wants the deferred read the StampRefiner already
+     * does for the compass (delay until the window closes, then read) and the
+     * continuous persistence that makes the future half available to it — see
+     * docs/recon-capture-metadata.md, "the deferred window".
+     */
+    fun persistImuWindowBeforeShutter(centreAtMs: Long): ImuWindowSummary? =
+        summariseImuWindowBefore(centreAtMs)
+
+    /**
+     * READ-ONLY summary of the [IMU_WINDOW_HALF_MS] before an exposure.
+     *
+     * It used to STORE that half too, as a floor against the process dying
+     * before the deferred write. That cost more than it bought: two storing
+     * bursts per photo, interleaved with the neighbours' (photo 2's inline write
+     * lands before photo 1's deferred one), so a capture's contribution was two
+     * disjoint ranges with other captures' rows between them — which no single
+     * range can describe, and the derived attribution silently overlapped by
+     * seconds. With the write removed there is exactly ONE burst per capture, it
+     * is contiguous, and successive bursts tile.
+     *
+     * WITH BATCHING this summary can lag: it reads the ring synchronously and up
+     * to [IMU_BATCH_LATENCY_MS] of the most recent samples may still be in the
+     * sensors' FIFOs. Harmless, because it is a summary and it is REPLACED — the
+     * deferred pass flushes, reads the full window and rewrites `motionJson`. The
+     * transient only shows if the process dies before that.
+     *
+     * What is lost: if the app dies inside the ~3.15 s after a shutter, that
+     * photo has no samples. It still has this summary, written to the row at
+     * insert, so the peak acceleration and angular rate survive — the shape of
+     * the signal is what goes missing, and only for the last shot before a
+     * crash.
+     */
+    fun summariseImuWindowBefore(centreAtMs: Long): ImuWindowSummary? =
+        summariseImuRingWindow(centreAtMs - IMU_WINDOW_HALF_MS, centreAtMs)
+
     private fun startSensors() {
+        startMotionSensors()
+        startImuSensors()
         if (sensorService != null) return
         sensorsStartedAtMs = SystemClock.elapsedRealtime()
         sensorStarts++
@@ -543,6 +1310,12 @@ class GeoEngine private constructor(private val context: Context) {
             // activity switch tore the registration down and rebuilt an
             // identical one, and the relaxed map-only rate never ran.
             sensorDelayUs = active.sensorDelayUs,
+            // The at-exposure ring is fed from the UNCAPPED tap. The published stream
+            // below is rate-limited per mode (200 ms in UPRIGHT), which is right for the
+            // compass and the bearings rows and wrong for a photo: at 200 ms the nearest
+            // sample to an exposure is up to 100 ms away, which is what 32 uploaded
+            // photos measured. Same thread as the callback, so this stays an append.
+            onRawSample = { raw -> attitudeRing.add(raw.toDeviceAttitude()) },
         ) { data ->
             // One sample, fanned out — the plugin's shape exactly.
             geoTracking.storeOrientationSensorData(data)
@@ -551,6 +1324,8 @@ class GeoEngine private constructor(private val context: Context) {
     }
 
     private fun stopSensors() {
+        stopMotionSensors()
+        stopImuSensors()
         sensorService?.let {
             try {
                 // destroy, not stop: stop is a pause that leaves the
@@ -627,4 +1402,12 @@ private fun PreciseLocationData.toLocation(): Location =
         altitude?.let { alt -> it.altitude = alt }
         speed?.let { s -> it.speed = s }
         bearing?.let { b -> it.bearing = b }
+        // The three ERROR BARS the platform gives and this conversion used to
+        // drop on the floor (2026-09-26). PreciseLocationData has carried them
+        // since it was written; Location has setters for all three; nobody
+        // connected the two, so vertical/speed/bearing accuracy died here — one
+        // hop before the one state, which had no fields for them either.
+        altitudeAccuracy?.let { a -> it.verticalAccuracyMeters = a }
+        speedAccuracy?.let { a -> it.speedAccuracyMetersPerSecond = a }
+        bearingAccuracy?.let { a -> it.bearingAccuracyDegrees = a }
     }

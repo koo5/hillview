@@ -11,7 +11,13 @@ export type ExifRange = [number, number];
 
 export interface PhotoExif {
 	focal_length?: number;        // mm
-	focal_length_35mm?: number;   // mm, 35mm-equivalent
+	focal_length_35mm?: number;   // mm, 35mm-equivalent — the CAMERA's own tag
+	// mm, 35mm-equivalent COMPUTED by exiftool (focal length x its guess at the
+	// crop factor), which is not in the file at all. Served as its own field
+	// since 2026-09-26: it used to be collapsed into the one above with an
+	// `or`, so a reader could not tell a manufacturer's statement from a
+	// derivation, and where both existed the disagreement was lost.
+	focal_length_35mm_computed?: number;
 	f_number?: number;            // aperture, e.g. 2.8
 	iso?: number;
 	exposure_time?: number;       // seconds, e.g. 0.004
@@ -107,14 +113,59 @@ function withMixed(s: string, mixed?: boolean): string {
 	return mixed ? s + MIXED_SUFFIX : s;
 }
 
+/**
+ * `24 mm (36 mm eq.)` — and `5.58 mm (~26 mm eq.)` when the equivalent was
+ * COMPUTED rather than stated by the camera.
+ *
+ * Both values are shown, never silently swapped for each other. Phones write 0
+ * in the camera's own tag (every Ulefone Armor 22 upload does) and carry the
+ * real equivalent only in exiftool's composite, so a display that used the
+ * camera tag alone would lose the equivalent on most of this corpus — which is
+ * what the old server-side `or` was compensating for, at the cost of hiding
+ * which value you were looking at. The `~` is that distinction, made visible.
+ *
+ * When the camera stated one AND exiftool computed a different one, the
+ * camera's is shown and both are in the `title` (see focalLengthTitle): a
+ * compact line should not carry two numbers for one property, but neither
+ * should it discard the one it did not pick.
+ */
 export function formatFocalLength(exif: PhotoExif): string | null {
 	if (exif.focal_length == null) return null;
 	const base = `${exif.focal_length} mm`;
-	// Include the 35mm-equivalent when it meaningfully differs (crop sensors).
+	// The camera's own statement wins the line when it has one.
 	if (exif.focal_length_35mm != null && exif.focal_length_35mm !== exif.focal_length) {
 		return `${base} (${exif.focal_length_35mm} mm eq.)`;
 	}
+	// Derived, and marked as derived.
+	if (exif.focal_length_35mm_computed != null &&
+		exif.focal_length_35mm_computed !== exif.focal_length) {
+		return `${base} (~${round1(exif.focal_length_35mm_computed)} mm eq.)`;
+	}
 	return base;
+}
+
+/** One decimal at most — exiftool's composite carries float noise (68.4587…). */
+function round1(v: number): number {
+	return Math.round(v * 10) / 10;
+}
+
+/**
+ * The full story behind [formatFocalLength]'s one line, for a `title`: every
+ * value the server had, each said to be what it is. Null when the line already
+ * tells the whole truth.
+ */
+export function focalLengthTitle(exif: PhotoExif): string | null {
+	const stated = exif.focal_length_35mm;
+	const computed = exif.focal_length_35mm_computed;
+	if (stated == null && computed == null) return null;
+	const parts: string[] = [];
+	if (stated != null) parts.push(`${stated} mm eq. reported by the camera`);
+	if (computed != null) {
+		parts.push(`${round1(computed)} mm eq. computed from the sensor size`);
+	}
+	// Nothing to add when there is only one value and the line already shows it.
+	if (parts.length < 2) return null;
+	return parts.join('; ');
 }
 
 export function formatAperture(f?: number, range?: ExifRange, mixed?: boolean): string | null {

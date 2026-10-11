@@ -111,6 +111,16 @@ interface PhotoOutboxDao {
     @Query("SELECT * FROM photo_outbox WHERE userId = :userId AND photoId = :photoId")
     fun forPhoto(userId: String, photoId: String): List<PhotoOutboxEntity>
 
+    /**
+     * The same, for a whole page of photos in one query.
+     *
+     * A list screen asking per row turns one query into fifty on the thread
+     * that draws it, which is the shape that makes a list stutter under
+     * exactly the person who has the most photos.
+     */
+    @Query("SELECT * FROM photo_outbox WHERE userId = :userId AND photoId IN (:photoIds)")
+    fun forPhotos(userId: String, photoIds: List<String>): List<PhotoOutboxEntity>
+
     @Query("SELECT COUNT(*) FROM photo_outbox WHERE userId = :userId AND syncedRevision < revision")
     fun pendingCount(userId: String): Int
 

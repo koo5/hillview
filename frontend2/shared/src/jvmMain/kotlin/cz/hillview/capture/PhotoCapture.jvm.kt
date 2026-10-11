@@ -24,6 +24,9 @@ private class DesktopPhotoCapture : PhotoCapture {
     override var focusInfinity: Boolean = false
     override var stampBearing: StampBearing? = null
     override var stampFix: cz.hillview.map.FixState? = null
+    override var stampAttitude: cz.hillview.map.DeviceAttitude? = null
+    override var stampMotion: cz.hillview.map.DeviceMotionSample? = null
+    override var compassLandscapeWorkaround: Boolean = false
 
     override fun selectResolution(resolution: CaptureResolution?) {}
 

@@ -43,5 +43,28 @@ data class BearingEntity(
     // Null until the election plumbing lands.
     val electedSourceId: Int? = null,
     val pitch: Float? = null,
-    val roll: Float? = null
+    val roll: Float? = null,
+    /**
+     * What the sensor that produced this sample said about ITSELF
+     * (`SensorEvent.accuracy`), 0..3; null when nothing rated it.
+     *
+     * [accuracyLevel] above is the bare MAGNETOMETER's latched calibration,
+     * which the default fusion (TYPE_ROTATION_VECTOR) depends on only
+     * indirectly — and which rates the heading, not the pitch and roll that
+     * come from gravity and the gyro. This is the emitting sensor's own
+     * per-sample rating. Both are kept because they disagree, and which one
+     * is low says whether the magnetic field or the fusion was the trouble.
+     *
+     * A COLUMN and not a JSON blob, unlike `photos.attitudeJson`: this table
+     * takes a row at sensor rate (5-20 Hz), where a JSON cell would repeat
+     * its key names on every row and force a parse per row on the CSV that
+     * `pics` reads column-wise. The photos blob is one row per photo and
+     * open-ended provenance; a sensor sample is a fixed shape of scalars,
+     * which is what columns are for.
+     *
+     * Null for hand-set bearings (no sensor produced them) and for the
+     * Madgwick and complementary filters, which compose several raw sensors
+     * and have no single rating to pass on.
+     */
+    val fusedSensorAccuracy: Int? = null
 )

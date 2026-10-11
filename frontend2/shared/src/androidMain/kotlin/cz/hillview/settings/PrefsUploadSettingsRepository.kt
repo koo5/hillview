@@ -37,6 +37,7 @@ class PrefsUploadSettingsRepository(
                 else defaults.hideFromGallery,
             autoUploadPromptEnabled = prefs.getBoolean("auto_upload_prompt_enabled", true),
             writeExif = prefs.getBoolean("write_exif", false),
+            exactCaptureTime = prefs.getBoolean("exact_capture_time", false),
         ).also(::persist)
     )
     override val settings: StateFlow<UploadSettings> = _settings.asStateFlow()
@@ -74,6 +75,7 @@ class PrefsUploadSettingsRepository(
             .putBoolean("hide_from_gallery", s.hideFromGallery)
             .putBoolean("auto_upload_prompt_enabled", s.autoUploadPromptEnabled)
             .putBoolean("write_exif", s.writeExif)
+            .putBoolean("exact_capture_time", s.exactCaptureTime)
             .apply()
     }
 }

@@ -76,8 +76,9 @@ import org.json.JSONObject
 import java.io.File
 import kotlin.coroutines.resume
 import kotlin.math.roundToLong
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-ClockVideoRecorder"
+private val TAG = hvTag("ClockVideoRecorder")
 
 @Composable
 actual fun rememberClockVideoRecorder(): ClockVideoRecorder {

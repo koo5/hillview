@@ -23,7 +23,7 @@ class PhotoStatusSyncWorker(
 ) : CoroutineWorker(context, params) {
 
     companion object {
-        private const val TAG = "hv-StatusSync"
+        private val TAG = hvTag("StatusSync")
         const val WORK_NAME = "photo_status_sync"
     }
 

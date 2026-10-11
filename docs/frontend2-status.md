@@ -1312,6 +1312,202 @@ invisible on exactly the machines that expose it.**
   proved to still fire by adding a listener under `androidMain` and
   watching the build go red.
 
+## 2026-09-26 — roll, and everything else the phone knew and dropped
+
+**Roll never left the device.** The sensor stack has computed it since the
+beginning; `BearingState` had no field for it, so the photo stamp could not
+carry it and no column anywhere in the chain existed to receive it. Two
+other values were in the same position: the MAGNETIC heading (carried in
+the capture snapshot since the beginning and dropped by every writer, since
+the EXIF tags take true north by convention) and the quantized device pose.
+
+**The shape.** One `attitude` object, not a column each — the `alt_location`
+precedent: nothing on the device queries it, it only travels, and the set
+will grow. Named `attitude` and not `orientation` because EXIF already has
+an Orientation tag meaning the display rotation (user-caught).
+
+    DeviceAttitude (one state) -> SensorSnapshot.attitude
+      -> attitudeProvenanceJson -> PendingUpload.attitudeJson
+      -> PhotoEntity.attitudeJson (Room v24) -> upload metadata `attitude`
+      -> BrowserMetadata.attitude -> PROVENANCE_KEYS -> UserComment
+      -> _attitude() -> GET /photos/public/{uid}
+
+- **`DeviceAttitude` is a new record in the one state**, the orientation
+  side's twin of `lastFix`: written on EVERY compass sample by the
+  allowlisted writer adapter, in BOTH bearing modes, elected or not. It had
+  to go in the state — `OneStateArchitectureTest` forbids the shortcut of
+  reading the engine from the tracking sink, and rightly.
+- **No field duplicates a column, for a reason worth knowing** (user asked
+  for the audit): `bearing` and `pitch` are the ELECTED answer and are
+  DEAD-BANDED — the bearing state only updates past 1° — while the attitude
+  is written past no gate. So even when the compass is elected these are the
+  instantaneous reading and the columns are the last one that cleared the
+  band.
+- **The fake `0f` is gone.** A manual bearing row reached the tracking table
+  with pitch and roll invented as `0f` (a level phone, recorded as
+  measurement) and magneticHeading set to a copy of the hand-set bearing (a
+  compass agreeing exactly with the hand that overrode it). New
+  `GeoTrackingManager.storeBearingNamed` takes them nullable; the funnel
+  passes the live attitude when fresh (`ATTITUDE_MAX_AGE_MS`, 2 s) and null
+  otherwise.
+- **Two accuracies, both kept.** `magnetometer_calibration` is the bare
+  magnetometer's LATCHED status and rates the HEADING only (pitch and roll
+  come from gravity and the gyro). `fused_sensor_accuracy` is what the
+  sensor that produced the sample said about ITSELF — read and discarded in
+  a commented-out log line until now. Disagreement is informative:
+  magnetometer low + fusion high is a gyro on a stale field; the reverse is
+  a fusion that has not settled.
+- **Every key names what it measures**, not the API that produced it
+  (user): `heading_true_deg`, `heading_magnetic_deg`, `pitch_deg`,
+  `roll_deg`, `magnetometer_calibration`, `fused_sensor_accuracy`,
+  `fusion`, `age_ms`, `device_rotation_deg`, `landscape_azimuth_negation`.
+  That last one records whether the Armor-22 toggle was ENABLED; it only
+  fires past 90° of roll, so `roll_deg` beside it says whether it applied.
+- **`roll_deg` is NOT the camera's rotation about its optical axis.** The
+  rotation matrix is remapped for the quantized pose FIRST, so it is the
+  residual within that quadrant; absolute rotation needs
+  `device_rotation_deg` too. Both travel for exactly that reason.
+- **PUBLIC, on other people's photos** (user: "the whole of hillview is
+  about sharing photos with location and orientation, and we dont want to
+  limit 3d recon options to own photos"). `GET /photos/public/{uid}` serves
+  it beside `location_accuracy_m`; the owner endpoint gets the same key so
+  one client path reads both. Precedent was already set — `bearing` has
+  always been public and `pitch` is in the map listing — and none of it
+  narrows WHERE a photo was taken. NOT added to the bulk marker listing,
+  which stays lean.
+- **`_attitude()` is a typed projection, not a pass-through.** The
+  UserComment is client-written, so serving it verbatim would put arbitrary
+  JSON of arbitrary size in a public response. Known keys only, expected
+  types only, `fusion` length-capped, `bool` rejected where a number is
+  expected (it is an `int` subclass in Python, so `True` would have become a
+  rotation of 1°), non-finite floats dropped.
+- Room 23 → 24, both apps exporting an identical schema
+  (identityHash `bf40b7e5a5f7da33151ad51abc7dafc5`). The CSV photo dump
+  gains `attitudeJson` on the END, per the appended-column rule.
+- Tests: 375 jvm (11 new, pinning the wire shape), 34 worker unit (2 new —
+  the existing "every provenance key can get through" tripwire caught the
+  door for free), 27 new API unit tests for the projection including
+  hostile input. `test_curate_exif.py::test_dslr_without_35mm_tag` fails
+  before and after this change — pre-existing, unrelated.
+- **The bearings table gained the column too**
+  (`BearingEntity.fusedSensorAccuracy`, GeoTrackingDatabase 1 → 2). A COLUMN and not an "extra" JSON cell, asked and
+  answered: this table takes a row at 5-20 Hz, where JSON would repeat its key
+  names on every row and force a parse per row on a CSV that `pics` reads
+  column-wise; and the value set is a closed shape of scalars, unlike the
+  photos blob, which is one row per photo and open-ended. The CSV header gains
+  `fusedSensorAccuracy` on the END — verified safe: `pics` resolves every column by
+  name (`gps_log.get_column_index`), reads a missing one as None, and sniffs
+  the file type from the header's PREFIX.
+  - The old comment "no migrations, and none coming" is gone. It was a claim
+    about what the SPLIT cost, not a prohibition, and disposable data makes a
+    migration CHEAP rather than unnecessary: a one-line ALTER TABLE keeps the
+    session in progress where a destructive fallback would discard the tail no
+    dump has reached.
+  - **One value, ONE name** (user: "sensorAccuracy sounds uninformative
+    though. like, what sensor"). It was `sensorAccuracy` in shared-kt and
+    `fusedSensorAccuracy` / `fused_sensor_accuracy` everywhere downstream —
+    three spellings of one number. Unified on the informative one, which is
+    also accurate: a non-null value only ever comes from a FUSED virtual
+    rotation-vector sensor, since the hand-rolled filters compose raw sensors
+    and nothing rates their result.
+  - `pics` does not yet READ the new column — its loader lists the names it
+    resolves, so that is a one-line addition there whenever it is wanted.
+- **NOT phone-verified.** Nothing in this entry has been on a real device, and
+  the emulator cannot settle sensor-fusion questions (its rotation vector is
+  synthesized).
+
+## 2026-09-26 — everything the phone knows at the shutter
+
+Plan and full record: **docs/recon-capture-metadata.md**. Driven by one
+requirement — the phone should store every bit it has, raw and processed,
+because the SfM bench can use all of it and a dropped value is unrecoverable.
+
+Roll (2026-09-22) turned out to be a PATTERN, not a one-off: values the
+platform hands us, captured at one layer, dropped at the next. Three more
+instances closed here.
+
+- **Five provenance objects, 42 fields, agreeing app → worker → API**, checked
+  mechanically rather than by eye: `attitude` (10), `fix` (7), `lens` (14),
+  `motion` (5, incl. the nested `imu_window` of 7). All served publicly, on
+  other people's photos.
+- **`lens` is the big one.** Nothing had read a single calibration key. Factory
+  intrinsics + distortion + physical sensor size + pixel array from
+  `CameraCharacteristics`; per-frame focal length, aperture, focus distance,
+  rolling-shutter skew and dynamic intrinsics off the `TotalCaptureResult` the
+  3A callback was ALREADY receiving — no new stream. `intrinsics_available`
+  records whether the device publishes a calibration at all, because "this
+  phone does not" and "this app did not look" are different claims.
+- **`zoom_ratio` was the most consequential single gap.** Pinch-to-zoom has
+  existed as long as the camera has, the UI prints "2.0×", and the stamp
+  recorded nothing — so every zoomed photo had silently wrong intrinsics.
+- **A third drop site, found on the way:** `GeoEngine`'s
+  `PreciseLocationData` → `Location` conversion lost vertical, speed and
+  bearing accuracy. `Location` has setters for all three; nobody connected
+  them; `FixState` had no fields for them either.
+- **The IMU window** (`ImuRing` → `imu_samples` table → `hillview_imu_*.csv`):
+  a memory ring at `SENSOR_DELAY_FASTEST` behind `GeoConfig.imu`, so only the
+  activities that produce photos pay; ±500 ms around each exposure is
+  persisted, and a summary travels with the photo. Rows scale with PHOTOS
+  (~100/shot) not session length (~720k for two hours) — continuous logging was
+  considered and rejected on that arithmetic. Why raw samples at all: a single
+  sample cannot describe an EXPOSURE, and motion blur is an integral.
+- **The two focal lengths stopped pretending to be one** (user: "why dont we
+  just store and display them both, since we dont understand them"). The
+  camera's `FocalLengthIn35mmFormat` tag and exiftool's COMPUTED
+  `FocalLength35efl` composite were collapsed with an `or`; they are now
+  `focal_length_35mm` and `focal_length_35mm_computed`, and the web app shows a
+  computed one as `~26 mm eq.` with both in the title. This also settles
+  `test_dslr_without_35mm_tag` honestly instead of by editing the assertion.
+- **Schemas:** PhotoDatabase 23 → 25, GeoTrackingDatabase 1 → 3. Both apps
+  identical at every version.
+- **`ImuRing` is `internal` in its own file**, not private inside the engine,
+  because its wraparound and per-millisecond sequencing are real logic and were
+  briefly untestable. 11 host tests.
+- **`OneStateArchitectureTest`'s allowlist entry for PhotoCapture was
+  widened and spelled out** — it now also calls `persistImuWindow`. The test's
+  own comment says an entry that understates a file is how a violation hides in
+  plain sight.
+- **Tests:** 396 jvm, 403 android-host, 295 API, 111 worker, 12 frontend.
+- **NOT phone-verified, and mostly not verifiable on the emulator** (synthetic
+  camera, synthesized rotation vector). `pics` reads neither the new bearings
+  column nor the IMU CSV yet — additive, safe, waiting for a consumer.
+- **The raw samples stop at the device.** The server gets the per-photo
+  `motion.imu_window` SUMMARY and nothing else. (Written here as "the samples
+  reach a workstation as `hillview_imu_<ms>.csv`" — corrected later the same day:
+  nothing looks an APP photo up in the tracking dumps. That export exists for
+  external camera frames, which is why it lands in `a22geo/`.)
+  Getting them to the server is **Phase 5** in docs/recon-capture-metadata.md:
+  a top-level `imu_samples` metadata field (deliberately NOT in the UserComment
+  provenance — it is a bulk artifact, not provenance), gzipped through the
+  existing `POST /photos/upload-file` bulk path the renditions and DZI tiles
+  already use, a `photos.imu_samples_url` column, and — the step most likely to
+  be forgotten — the DELETION sweep, which leaks a file per deleted photo if it
+  is not taught the new column.
+
+## 2026-09-22
+
+- **"Press ignored: previous shot still in flight", permanently** (field
+  report: only leaving and re-entering the capture activity cleared it).
+  The controller's flag was fine; the SHUTTER GESTURE held a stale copy of
+  it. `CaptureScreen` reads `val state = capture.state` once per
+  composition, and the shutter's `pointerInput` closes over that value,
+  restarting only when one of its keys (gateOpen, repeating,
+  state.recording) changes. Stopping a run sets `repeating = false` — a
+  key — so the handler restarts; if the run's last shot was still in
+  flight at that instant, the new lambda captured `capturing = true` and
+  kept it forever, because every later press returned at the guard before
+  anything could change a key. Also reachable by a camera rebind
+  (resolution / JPEG quality / still mode) or a recording edge landing
+  mid-shot.
+  - **Fix:** the guards read the CONTROLLER live — `capture.state.capturing`,
+    `.recording`, `.ready`. A key would be the wrong cure: `capturing`
+    toggles per shot, and restarting `pointerInput` cancels the gesture in
+    progress, including the press meant to stop a run.
+  - **Third of its kind** in this file (the run loop's launch-time guard;
+    recording becoming a key). The rule: anything a gesture lambda reads
+    from a controller must be read THROUGH the controller, not from the
+    composition's snapshot.
+
 ## 2026-09-19
 
 - **The GPS fix dot draws over the photo markers** (overlay order in
@@ -1787,3 +1983,1020 @@ Still parked:
   the backlog doc; on API 30+ hidden-public satisfies both needs).
 - Tauri Play release: user will run a release and see whether the
   targetSdk-36 pass already succeeds (deadline 2026-08-31).
+
+## 2026-09-26 — the raw window reaches the server
+
+Phase 5 of **docs/recon-capture-metadata.md**, built and verified end to end.
+The samples had stopped at the device: reachable only as a tracking CSV pulled
+off the phone by hand, and only with auto-export on. The server got the summary
+and nothing else. The user's requirement was that the 6 s window travel with the
+photo, and now it does.
+
+- **A second pipe, beside the provenance one.** `imu_samples` is a top-level
+  metadata field, DECLARED in `BrowserMetadata` and deliberately absent from
+  `PROVENANCE_KEYS` — the only key of which that is true. The worker gzips it
+  onto the same road the renditions and DZI pyramids take (`_get_size_url`), and
+  `photos.imu_samples_url` keeps a URL. `exif_data` is read wholesale on every
+  photo detail request; a time series in there would be paid for by every reader
+  of every photo, forever.
+- **Columnar, delta-encoded, inspectable.** One object per sensor, `dt_us` with
+  n-1 gaps from the MONOTONIC clock (the wall clock can step under NTP), rounded
+  to each sensor's real resolution. Measured: a 2 s trimmed window is 40 KB of
+  JSON, 13 KB gzipped — 0.3 % of the JPEG. Not base64-packed: about the same size
+  after gzip and unreadable when a pipeline misbehaves.
+- **A bug the earlier day's tests could not see: `stored_count` was 0 on every
+  photo.** The capture path computed it; the pipeline's deferred rewrite of
+  `motionJson` rebuilt the window record without it and let it default. That is
+  the one number a server needs to concatenate a run without double-counting.
+  The fix needed a bound nobody had identified — `storedFromMs`, where a photo's
+  claim on the sample stream begins — which turned out to be the thing that makes
+  the on-device trim actually reach the wire: without it each photo's payload
+  would still carry its whole ±3 s window and the same samples would travel three
+  times in an interval run.
+- **DECISION: the payload is held on the photo row** (`PhotoEntity.imuSamplesJson`,
+  v26), not re-read from the tracking table at send time. That table is cleared
+  five minutes back on every dump while an upload can retry hours later on a
+  phone that had no network. Costs tens of kilobytes a row; buys the guarantee.
+  There is no pruning after upload yet — see "Still open" in the plan.
+- **DECISION: the delete sweep changed shape rather than gaining a parameter.**
+  Every caller built `[photo.sizes for photo in photos]`, and once a second
+  artifact column exists nothing about that line looks wrong. So the unit became
+  an artifact record (`photo_artifacts`) and `delete_photo_files_for_sizes`
+  became `delete_photo_files_for_artifacts` — a rename cannot be silently
+  skipped. New artifact columns go in `_PHOTO_ARTIFACT_URL_COLUMNS`.
+- **Verified against the live stack**, not only in units:
+  `backend/tests/integration/test_imu_samples_artifact.py` (5 tests) drives the
+  real secure upload and asserts the round-trip through the storage pool, the URL
+  on both the owner and public endpoints, absence staying absent, a malformed
+  payload dropped WITHOUT failing the photo, and that the samples never enter the
+  UserComment. Alembic `036_photo_imu_samples_url` is applied to dev.
+
+## 2026-09-26 — attribution becomes data, and a race becomes a condition
+
+Follow-up to Phase 5, and a correction to it. Two bugs in what had just been
+committed, both found by tracing what a phone would actually produce rather than
+by a failing test.
+
+**The payloads overlapped.** Attribution was DERIVED: each photo claimed
+`[first sample it stored, capturedAt + 3 s]`. That looks right and is not — a
+capture stored in two bursts (an inline pre-shutter write and a deferred
+post-shutter one) and the bursts interleave ACROSS photos, since photo 2's inline
+write lands before photo 1's deferred one. Traced on a 2 s interval run, two
+consecutive photos' ranges overlapped by three seconds: 44 sample-slots for 32
+distinct samples. The on-device trim was saving phone storage and nothing else.
+
+Fixed two ways. The pre-shutter call is now **read-only**
+(`summariseImuWindowBefore`), so each capture stores exactly ONE contiguous burst.
+And what that burst holds is recorded as a row — **`imu_claims`**, one line per
+photo: `capturedAtMs, fromMs, toMs, sampleCount`. GeoTrackingDatabase v3 → v4.
+
+**DECISION: a claim per photo, not an owner column per sample.** Stamping every
+sample was the first instinct; the user refused it on bytes and was right. Six
+bytes per row is ~33 KB per photo in the tracking database and ~14 more characters
+per row in the CSV dump — tens of megabytes an hour at continuous rates. A claim
+is ~24 bytes per photo for exactly the same answer, about a thousandth of the
+cost. `ImuAttributionTest` (5 tests) is the regression test the derived scheme
+would have failed; it also pins that an unowned continuous flush is not inherited
+by the next capture.
+
+**The window's later half arrived by luck.** The upload pass waited out the SAME
+deadline as the engine's deferred write — `capturedAt + half + settle`, one on the
+engine's Handler and one on `Dispatchers.IO`, with no ordering between them — and
+then read the table. Now it waits for the claim row to EXIST, and the claim is
+written in the same coroutine as the samples and after them, so its presence
+proves they landed. A race became a condition.
+
+Cost of the read-only pre-shutter call: if the app dies inside the ~3.15 s after a
+shutter, that photo has no samples. It keeps the summary, so peak acceleration and
+angular rate survive — the shape of the signal is what is lost, for the last shot
+before a crash only.
+
+Also: `stored_from_ms` was added and then removed again. With a claim table the
+wire needs only the count, and the payload's own `t0_ms` says where it starts. And
+the dump now writes `hillview_imu_claims_<ms>.csv` beside the samples.
+
+**Removed, same day.** ("what is dumping the claims table good for?", then: nobody
+looks up an app photo in the dumps at all — the pipeline reconciles them with
+EXTERNAL photos.) Both are right, and together they leave the export with no
+consumer: claims describe app-photo attribution, `pics` reads the dumps for
+external frames, and an app photo carries everything in its own upload. The
+reconciliation the export was kept for turned out to be doable entirely
+server-side — `motion.imu_window.stored_count` and the payload both arrive, so
+they can be checked against each other with nothing from the phone. That is now an
+assertion in `test_imu_samples_artifact.py` instead of a CSV, which is strictly
+better: automated rather than manual, and it runs on every integration pass.
+
+The original overclaim, for the record:
+the justification above was wrong, and the code comment repeating it has been
+fixed. Every photo carries `capturedAt`, so slicing the samples CSV by
+`capturedAt ± IMU_WINDOW_HALF_MS` gives that photo's window with no claim
+involved. Claims solve a WIRE problem — keeping one sample out of three
+consecutive photos' payloads — and offline the whole stream is in one file, so
+there is no duplication to avoid. What the dumped claims are actually good for is
+RECONCILIATION: checking that the per-photo payload the server received matches
+what the phone attributed to that exposure. Diagnostic, worth its few dozen bytes
+while the upload path is being verified on real hardware, and a candidate for
+deletion afterwards rather than a permanent part of the export.
+
+Verified: 399 jvmTest, 421 androidHostTest, 296 API unit, 145 worker unit, 5
+end-to-end, `:androidApp:assembleDebug`. GeoTrackingDatabase v4 identityHash
+matches across both apps, and both databases' full migration chains were validated
+against the exported schemas on real SQLite (`PhotoDatabaseMigrationTest` is an
+androidDeviceTest and had never run, so 25→26 was unchecked until this).
+
+## 2026-09-26 — the phone crash: FASTEST needs a permission
+
+First run on a real phone, and the app died on startup:
+
+```
+java.lang.SecurityException: To use the sampling rate of 0 microseconds, app
+needs to declare the normal permission HIGH_SAMPLING_RATE_SENSORS.
+    at cz.hillview.geo.GeoEngine.startImuSensors(GeoEngine.kt:814)
+```
+
+`SENSOR_DELAY_FASTEST` is 0 µs, and since Android 12 any rate above 200 Hz needs
+`HIGH_SAMPLING_RATE_SENSORS` — a NORMAL permission, granted at install with no
+prompt. `registerListener` does not clamp the rate, it THROWS, and
+`startImuSensors` runs from `applyConfig` on the main thread, so the whole process
+went down. Nothing in the host test suites could see it: it needs real hardware,
+and the emulator's synthesized sensors never exercised the path.
+
+Two fixes, because the permission alone is not enough.
+
+- **Declared the permission** in `frontend2/androidApp/src/main/AndroidManifest.xml`.
+  This is the intended answer: the high rate is the point of the window — the
+  shape of the signal across a 1/60 s shutter, which 200 Hz cannot describe.
+- **Guarded the registration.** No sensor this engine opens for a nice-to-have
+  may be able to kill the process. `registerImu` tries FASTEST, falls back to
+  `IMU_UNPRIVILEGED_PERIOD_US` (200 Hz, the ceiling that needs no permission),
+  and gives up with a log if both are refused — catching `SecurityException` and
+  `RuntimeException`, and unregistering partial success so a window can never come
+  back with an accelerometer and no gyroscope while reading as "this device has no
+  gyroscope".
+
+Audited every other `registerListener` while here: the engine's other rates are
+30 ms and 100 ms (33 Hz / 10 Hz), well under the threshold, and
+`EnhancedSensorService` already logs a refusal. `startMotionSensors` registers at
+`active.sensorDelayUs`, which `mergedConfig` can compute as 0 — but
+`sensorsWanted()` gates on `active.sensors`, which is only true when a claim
+supplied a real rate, so 0 is unreachable. Both IMU configs set `sensors = true`,
+so that same gate does not strand the IMU either.
+
+## 2026-09-26 — the window was landing after the upload had left
+
+The crash fix worked (`IMU ring registered at FASTEST (ACCELEROMETER, GYROSCOPE)`)
+and the claim machinery worked — `owns 4776 (claim 1790442825945..1790442831944)`,
+and `Dumped 1 IMU claims`. But the upload that followed carried
+`"imu_window":{"sample_count":2388,…,"stored_count":0}` and **no `imu_samples` key
+at all**: the capture-time pre-shutter summary, not the deferred rewrite.
+
+`uploadHoldUntil` had ONE holder. It was set to `now + UPLOAD_HOLD_MS` only
+`if (eligible)` — eligibility being the stamp refiner's, nothing to do with the
+IMU — and the refiner cleared it to 0 the moment IT finished. So:
+
+- a photo the refiner did not want had **no hold at all**, and its window, written
+  ~3.15 s after the shutter, could never reach an upload;
+- a photo it did want got freed when the refiner finished, which is earlier than
+  the window's deadline, so the row was claimed and re-read before the window
+  landed.
+
+The drain's re-read-after-claim is correct and stays; what was missing is that the
+row was claimable too early. Now the hold is the LATER of the two deadlines, and
+`clearUploadHold` became `releaseUploadHold(photoId, notBefore)` — floor-aware,
+because a hold with two holders cannot be released by whichever finishes first.
+The refiner is handed the IMU floor and releases to it rather than to 0.
+
+`IMU_UPLOAD_HOLD_MS` is derived, not picked: the window's later half + the
+engine's settle margin + the worst-case claim wait + a second for two database
+writes. Changing the window changes it. For a refiner-eligible photo this is
+strictly FASTER than before (the row frees at ~9 s instead of waiting out the 60 s
+refiner hold when the refiner finishes early); for one the refiner ignored it is
+9 s instead of 0.
+
+Also seen in the log, not an error: `Method exceeds compiler instruction limit:
+17574 in CaptureScreen`. ART declining to optimize one very large composable and
+falling back to the interpreter for it. A performance note about a method that has
+grown too big, worth splitting, and unrelated to correctness.
+
+**Superseded the same day** — see the next entry. The deadline-only version of
+this fix was still a timeout, and the user said so: "this all still seems like a
+race condition waiting to happen." They were right twice over.
+
+## 2026-09-26 — the upload hold gets named holders
+
+The previous entry's fix was a longer timeout wearing a dependency's clothes, and
+the user called it: *"idk, this all still seems like a race condition waiting to
+happen."* It was. The pass started polling for the claim at T+3150, could wait 5 s
+for it, and the hold expired at T+9150 — leaving ~850 ms for two database writes.
+On a busy device the upload still left first, silently. Tuning that margin makes
+the race rarer, not absent.
+
+The second attempt kept one deadline and had each holder release down to the
+OTHER's, which is sound arithmetic while the two deadlines differ. **They were
+equal** (both `UPLOAD_HOLD_MS`), so neither release lowered anything and every
+photo would have waited the full minute. `UploadHoldTest` failed on exactly that
+case before the code shipped — the first time in this whole stretch of work that a
+test, rather than a phone or a hand-trace, caught the bug.
+
+So the holders are NAMED. `photos.uploadHoldReasons` (v27) is a bitmask —
+`UPLOAD_HOLD_REFINER`, `UPLOAD_HOLD_IMU_WINDOW` — each holder clears its own bit
+with `releaseUploadHold(photoId, bit)`, and the drain's selection became
+`(uploadHoldReasons = 0 OR uploadHoldUntil <= :now)`. The row goes as soon as the
+last holder is done, in either order, with no waiting. `uploadHoldUntil` is now
+**crash recovery only**: the escape hatch for a holder that died mid-enrichment.
+
+Two holders cannot be encoded in one deadline. That is the whole lesson, and it
+took two wrong answers to get there.
+
+`UploadHoldTest` (9 tests) pins it: neither holder frees the row alone, either
+order frees it immediately once both are done, a holder clears only its own bit, a
+repeated release is idempotent, a photo the refiner ignores is still held for its
+window, a row nobody owes is claimable at once, and a dead holder still gets freed
+by the deadline.
+
+Verified: 399 jvmTest, 430 androidHostTest, `:androidApp:assembleDebug`,
+PhotoDatabase v27 identityHash matching across both apps, and the 26→27 migration
+validated against the exported schemas on real SQLite.
+
+## 2026-09-26 — `motion` becomes `inertial`, and `attitude` stays
+
+Asked before deploying whether the attitude/motion split makes sense and whether
+`attitude` is the right key. Full reasoning in
+**docs/recon-capture-metadata.md**; the short version:
+
+- **`attitude` stays.** It is the A in AHRS and `MadgwickAHRS.kt` is already in
+  this tree, so it is house vocabulary. The alternative, `orientation`, collides
+  with the `orientation_code` key the same metadata already carries — the EXIF
+  `Orientation` tag, about how to rotate an image for display. That collision is
+  why the object was renamed away from `orientation` originally.
+- **The split stays, but `motion` was misnamed.** Its flagship field is `gravity`,
+  which a still phone reports at full strength. An object called "motion" whose
+  most important value is largest at zero motion misleads every reader once.
+  Renamed to `inertial`, which covers gravity, linear acceleration and the
+  window's angular rates honestly.
+- **Rejected: moving `gravity` into `attitude`.** Tempting, since gravity
+  constrains two rotation degrees of freedom. But every provenance object carries
+  one sensor family, one `age_ms` and one trust story, and gravity's timestamp is
+  not the fused attitude's — a merged object would have two ages and no way to
+  attribute either. Separation also keeps the independence visible: gravity is the
+  accelerometer's opinion about down, `attitude.pitch_deg` is the fusion's, and
+  comparing them checks the fusion.
+
+Mechanically: `motionJson` → `inertialJson` (PhotoDatabase **v28**, an
+`ALTER TABLE … RENAME COLUMN`), `motionProvenanceJson` → `inertialProvenanceJson`,
+the metadata key, `BrowserMetadata.inertial`, `PROVENANCE_KEYS`, the API's
+`_INERTIAL_FIELDS`/`_inertial`, and both detail responses. Hardware-facing names
+keep Android's vocabulary deliberately — `DeviceMotionSample`,
+`startMotionSensors`, `GeoEngine._motion` are named for the sensor family
+(`TYPE_GRAVITY`/`TYPE_LINEAR_ACCELERATION`), which is legitimate at the hardware
+boundary; the rule that names describe what is MEASURED applies to the wire.
+
+Verified: 401 jvmTest, 430 androidHostTest, 296 API unit, 145 worker unit, 6
+end-to-end, `:androidApp:assembleDebug`. v28 identityHash matches both apps and
+27→28 was validated against the exported schemas on real SQLite.
+
+## 2026-09-26 — the continuous-IMU switch, and what the phone said about lenses
+
+**`lens.intrinsics_available` was already answered** by the log from the real
+device, and filed as unanswered by me — the user caught it. It is **false**: no
+factory `LENS_INTRINSIC_CALIBRATION`, no `LENS_DISTORTION`,
+`focus_distance_calibration` `uncalibrated`.
+
+That vindicates having captured sensor geometry separately from the calibration.
+`focal_length_mm` 5.58 with `sensor_physical_size_mm` [7.39, 5.55] and
+`sensor_pixel_array` [4624, 3472] derive a pinhole model, and it is
+self-consistent to **0.02 %** — fx 3491.5 px against fy 3490.8 px, square pixels,
+which is the check that the three numbers are real rather than placeholders. So a
+solver gets a usable focal prior on a phone that publishes no calibration at all,
+and `intrinsics_available: false` does the job it exists for: distinguishing "this
+device publishes none" from "this app did not look". `rolling_shutter_skew_ns` is
+also a measured 31.1 ms now, not a hypothetical.
+
+**The continuous-IMU toggle** (`ExternalImuSettings`, prefs-backed, default ON).
+
+The interesting part is not the switch, it is that `imuContinuous` has **two
+claimants** — the activity binding and `ExternalCameraService` — and
+`GeoEngine.mergedConfig` resolves it with `any { it.imuContinuous }`. So a switch
+that only told one of them would appear to do nothing: the other's stale `true`
+wins. Both now track the same `StateFlow` and re-claim when it moves, and
+`externalCameraConfig` takes the flag as a PARAMETER rather than reading prefs
+itself, so the two cannot drift apart silently.
+
+Prefs-backed for the reason `CompassSettings` is: the service can be restarted by
+the system without the UI, and the answer has to survive that. Default ON because
+that is what the mode is for — an external camera's frames are not ours to
+bracket, so there is no shutter to build a window around. Off is a storage
+decision, and the UI says the number, because "continuously" sounds free until
+you read "roughly 100 MB of CSV an hour".
+
+Placed directly under the "Recorded: N heading rows · N location rows" line,
+because that is the readout of what it controls. An earlier note here said "above
+the buttons that start a session, a decision to make before recording" — that was
+wrong on both counts: the buttons below it are *Open camera app*, *Float over
+camera* and *Export CSVs now*, none of which start anything, and there IS no start
+button. `MainScreen` calls `setRunning(activity == "external")`, so the session is
+already running when the pane appears and the header already reads "● recording".
+Which is exactly why the switch has to act LIVE, and why the `any { }` merge trap
+above was the whole problem rather than a detail.
+
+`ContinuousImuToggle` is an expect/actual (the setting is Android prefs read by a
+foreground service, invisible to commonMain), no-op on desktop, same convention as
+`pipSupported()`.
+
+401 jvmTest, 430 androidHostTest, `:androidApp:assembleDebug`.
+
+## 2026-09-26 — the emulator finds three things the host tests could not
+
+`androidDeviceTest` had **never been run** in this work — 376 tests sitting there,
+and `PhotoDatabaseMigrationTest` is the only thing that validates a migration
+against real SQLite. Booting the local AVD found three real defects within minutes.
+
+**1. The whole-chain test had gone stale by five versions.**
+`theWholeChainRunsAndMatchesTheEntities` validated 14 → **23** while the database
+went to 28, so it kept passing without ever checking `attitudeJson`, the
+fix/lens/inertial trio, `imuSamplesJson`, `uploadHoldReasons` or the rename. A
+hardcoded target in the test whose whole job is catching drift is the one place
+drift hides. Both databases now expose `PHOTO_DB_VERSION` / `GEO_DB_VERSION`, used
+by the `@Database` annotation AND by the test, so it cannot fall behind again.
+
+**2. A rewritten migration, which would have broken every fresh install.**
+Targeting 28 immediately failed: `no such column: "motionJson"`. The blanket
+`motionJson` → `inertialJson` rename had swept up `MIGRATION_24_25`'s SQL, so a
+fresh chain created the column already named `inertialJson` and then v28's RENAME
+found nothing. It still worked on a device that had the ORIGINAL v25 — which is
+exactly why the hand-written 27→28 sqlite3 check passed: it started at 27. A
+migration is history and must not be edited; restored, with the reason at the line.
+
+**3. My upload-hold change silently voided bare-deadline holds.**
+`UploadClaimRaceTest` asserts that a row with a future `uploadHoldUntil` is
+invisible to the drain. Making the holder bits authoritative
+(`reasons = 0 OR deadline <= now`) broke that for every hold set as a deadline with
+no bits — including the stale ones `StartupReconciler` exists to clear. The obvious
+patch, `AND`, was worse: a holder that DIED would wedge the row forever, since its
+bit never clears.
+
+The rule that satisfies all three cases is simpler than either: **the deadline
+alone decides, exactly as before the bits existed, and the bits only decide when
+the deadline is zeroed.** The last holder to release clears it; a dead holder
+leaves it standing and the deadline frees the row. The selection predicate is back
+to the `uploadHoldUntil <= :now` it always was, so nothing outside this mechanism
+had to learn anything.
+
+Also added `GeoTrackingDatabaseMigrationTest` — that database went to v4
+(`fusedSensorAccuracy`, `imu_samples`, `imu_claims`) with no device test at all. Its
+first version failed too, because my INSERT guessed the v1 column names; reading
+`schemas/…/1.json` showed the heading is `trueHeading` and there is no `elected`
+yet.
+
+401 jvmTest, 431 androidHostTest, **376 connectedAndroidDeviceTest**, 296 API unit,
+`:androidApp:assembleDebug`.
+
+## 2026-09-26 — the sampling design, written down before the next control lands
+
+**docs/imu-sampling-design.md.** Written because three user-facing controls are
+foreseeable — a window-length setting, a fast-mode toggle in the CAPTURE activity,
+and battery work generally — and each lands on couplings that are not visible from
+the call site. Two of them already cost a fix today.
+
+The headline for anyone adding a control: **the claim merge is `any { }` for the
+booleans and `min` for the rates.** A value in `GeoDefaults` is a FLOOR another
+live claim can raise, so a toggle wired to one config does nothing while a second
+claimant disagrees. That is exactly how the external toggle's first version was
+defeated, and why `externalCameraConfig` takes the flag as a parameter instead of
+reading the setting itself. A capture-side toggle has to be the same shape and
+cannot honestly promise "off".
+
+Also documented: every constant and what it is pinned to. `ImuRing(16_000)` is
+`2 × IMU_WINDOW_HALF_MS + margin` at ~1 kHz, so **lengthening the window without
+growing the ring silently returns half a window** — which looks like data rather
+than an error. The payload caps in two languages are pinned to the same capacity.
+
+**The unused battery lever, flagged prominently: hardware FIFO batching.**
+`registerListener` has a five-argument form taking `maxReportLatencyUs`; we pass
+the four-argument one, so at 400 Hz every sample is a wakeup instead of a burst of
+forty. It is likely the largest available saving and the design is already
+compatible — samples carry their own timestamps and the ring assumes nothing about
+callback spacing. What to check first is whether the device even has a FIFO
+(`getFifoMaxEventCount`, or `dumpsys sensorservice`), and note the interaction: the
+latency budget must stay well under `IMU_SETTLE_MARGIN_MS` or the window's tail is
+still in the FIFO when it is read.
+
+**Cleanups while there.** The payload cap said "per SENSOR" in the worker while the
+app bounded the TOTAL — a factor-of-two disagreement in the permissive direction,
+so 16 000 accelerometer plus 16 000 gyroscope rows would have passed a door the
+producer can never reach. Now one number, checked as a total, with a per-array
+bound kept to fail fast. Two comments still named `stored_from_ms`, removed earlier
+today.
+
+## 2026-09-26 — FIFO batching, and the three things it forced
+
+`maxReportLatencyUs` is now passed (`IMU_BATCH_LATENCY_MS`, 1 s), so a sensor with
+a hardware FIFO buffers samples and wakes the application processor in bursts
+instead of ~1 000 times a second. Full reasoning in
+**docs/imu-sampling-design.md**; what matters here is that it was not a one-line
+change.
+
+**The wall clock had to move off delivery time.** Every sample's `timestamp` was
+`System.currentTimeMillis()` read in the callback — fine while samples arrive
+singly, fatal with a FIFO, where forty arrive together and would all have carried
+one millisecond. That flattens the timeline the window bounds, the `dt_us` deltas
+and the high-water mark all rest on. `imuWallClockFor` derives each sample's wall
+clock from its own `SensorEvent.timestamp`. It is strictly more accurate without
+batching too, which is the tell the old way was wrong rather than merely
+incompatible.
+
+**Six places assumed insertion order was time order.** Two sensors' bursts
+interleave, so the last element added can pre-date most of the batch:
+`fresh.last().timestamp` as a high-water mark would have gone BACKWARDS and
+re-stored samples already written. All `minOf`/`maxOf` now, with a test that fails
+against the old form.
+
+**The read flushes.** `SensorManager.flush` before the deferred persist, awaiting
+`onFlushCompleted` (the listener is a `SensorEventListener2` now) with a timeout,
+because `flush` returning true does not promise the callback arrives.
+
+**The settle margin did NOT grow, and that is the user's correction.** The first
+version derived it from the latency, assuming a sample still in the FIFO is lost.
+It is not lost from the stream — captures tile, so it lands on the NEXT photo
+("a second missing off a 3-second tail doesnt really matter, if it makes it into
+the next photo"). So the latency answers to power, the margin stays 150 ms, and the
+upload hold is not coupled to a battery setting.
+
+### Measured on a device
+
+    IMU ring registered at FASTEST, batching 1000ms (…fifo=0/0, …fifo=0/0)
+    IMU window: 500 samples …564676..…567169 (2493ms span), stored=189
+
+FASTEST and batching coexist, and the timeline holds rather than collapsing — the
+regression the clock change exists to prevent. **`fifo=0/0`: the emulator has no
+FIFO**, so this proves the registration and the clock, NOT any power saving and not
+a real burst. That needs hardware with a non-zero `fifo=`.
+
+Two findings from reading the log rather than the green result:
+
+- **The morning's fallback works.** Before the fix below the run logged
+  `IMU registration at 0µs not permitted` and degraded to 200 Hz instead of
+  crashing.
+- **The test APK is its own package** (`cz.hillview.shared.test`) and inherits none
+  of the app's permissions — so every IMU device test had been silently running at
+  the fallback rate, a device suite exercising a configuration the product never
+  ships. `shared/src/androidDeviceTest/AndroidManifest.xml` now declares it.
+
+401 jvmTest, 433 androidHostTest, 378 connectedAndroidDeviceTest,
+`:androidApp:assembleDebug`.
+
+## 2026-09-26 — batching measured on hardware: a 4500-event FIFO
+
+    IMU ring registered at FASTEST, batching 1000ms
+      (ACCELEROMETER fifo=4500/3000, GYROSCOPE fifo=4500/3000)
+
+The question only a device could answer, answered. The Armor 22 has a 4 500-event
+FIFO with **3 000 reserved per sensor**, so batching is real here rather than
+accepted-and-ignored. At the measured ~400 Hz per sensor a 1 s budget needs 400
+events — 13 % of reserved, and the reserved depth could hold 7.5 s. **The IMU
+stream's AP wakeups drop from roughly 800 a second to about one.**
+
+So `IMU_BATCH_LATENCY_MS = 1000` is conservative, limited by taste rather than
+hardware. Raising it costs only tail re-attribution, which the tiling absorbs.
+
+Also confirmed in the same trace: `lens facts: intrinsics=ABSENT ...
+physMm=7.39x5.55 pixels=4624x3472 focusCal=uncalibrated` — matching the
+`dumpsys media.camera` dump exactly, from a completely different code path.
+
+**An observability gap the trace exposed.** Leaving the capture pane produced
+`imu=false` in the merged config and then *nothing at all* about the sensors
+actually stopping, because `stopImuSensors` was silent while its registration
+counterpart had always logged. "Off" is a claim about power, and a claim about
+power has to be checkable from a log — especially since it is the entire point of
+the external toggle. Both stop paths log now (`stopMotionSensors` was asymmetric
+too).
+
+Not yet exercised on hardware: the window and the payload, because that trace took
+no photo. `IMU window for <id>: …` and an `imu_samples` key in the upload metadata
+are still unconfirmed on a device.
+
+## 2026-09-26 — batch budget to 2 s, and where the battery actually is
+
+Raised `IMU_BATCH_LATENCY_MS` 1 s → **2 s** for the long interval sessions, and
+stopped there for a measured reason rather than a cautious one.
+
+| budget | IMU wakeups/s | inline pre-shutter cover |
+|---|---|---|
+| unbatched | ~800 | 3.0 s |
+| 1 s | 1.0 | 2.0 s |
+| **2 s** | **0.5** | **1.0 s** |
+| 3 s | 0.3 | **0 — crash floor gone** |
+
+The saving is all in the first step. And a budget at or above `IMU_WINDOW_HALF_MS`
+empties the inline pre-shutter summary — the only motion a photo keeps if the
+process dies before the deferred pass rewrites it — in exchange for 0.2 wakeups a
+second. 2 s is the last value that keeps the floor while taking essentially all of
+the saving. The Armor 22's FIFO would allow ~5.6 s; the window is what limits this,
+not the hardware.
+
+**The honest total, which is the part worth knowing** ("otoh, there's a lot more
+that the app still does anyway" — quite): four sensors run UNBATCHED at
+`sensorDelayUs` — rotation vector, magnetometer, gravity, linear acceleration —
+which at capture's 30 ms is ~132 wakeups a second regardless of this constant. So
+batching took 932/s to 133/s, and the last 0.5 is noise.
+
+The two levers that would actually move an interval session:
+
+- **The GPS interval setting is a no-op** (`GPS_INTERVAL_SETTING_LIVE = false`), so
+  every activity asks for a fix every second. An interval capture every ten seconds
+  is requesting ten times the fixes it uses, and the receiver costs far more than a
+  sensor callback. The control exists and is hidden only because the value never
+  reaches `PreciseLocationService` — scoped work, not research, and the biggest
+  cheap win available.
+- **Gravity and linear acceleration are sampled at 33 Hz to be read once per
+  shutter.** The other half of the 132/s floor, with a real trade: batching them
+  grows `inertial.age_ms`, and a stale gravity vector during a pan is meaningfully
+  wrong.
+
+And the largest term is probably neither — the camera preview runs for the whole
+session.
+
+## 2026-09-26 — battery work parked, not started
+
+**docs/todo/frontend2-battery-work.md.** Batching changed enough logic for one
+sitting, so the rest is written down instead of built: the GPS interval no-op (the
+cheapest real win), slowing gravity/linear-acceleration, duty-cycling the IMU around
+scheduled shutters, and measuring the preview — which is probably the largest term
+and the least explored.
+
+Each item carries what to WATCH rather than just what to do, because two of them
+have non-obvious traps. Duty-cycling saves `interval - 2×half`, so it is worth
+nothing below a 6 s interval. And a sparser GPS stream widens the bracket
+`StampRefiner` interpolates from, which is a quality trade rather than a free win.
+
+Also recorded as explicitly not worth doing: decimating the IMU rate (it costs the
+feature the window exists for) and raising the batch budget further (0.2 wakeups a
+second against the inline crash floor).
+
+The analysis stays in docs/imu-sampling-design.md and is cross-linked rather than
+copied — three places already had versions of the field-count table earlier today,
+which is how they drift.
+
+## 2026-09-26 — the external pane finally shows the inertial data, and that the dump may be off
+
+Asked why the external-camera pane shows no stats about the fast IMU data or the
+dumps. Because nobody added them — and looking turned up something worse than a
+missing readout.
+
+**`ImuDao.count()` existed from the start and nothing called it.** The pane's
+"Recorded:" line had heading rows and location rows and no inertial samples, so the
+one mode built around continuous inertial logging gave no evidence of any happening.
+As of today it also has a SWITCH for that logging, and a toggle with no feedback is
+a toggle you cannot trust. The line now reads
+`… · N inertial samples (R/s)`, the rate derived from the existing once-a-second
+poll — which is also the cheapest way to see on-device whether FASTEST took (a few
+hundred) or the fallback did (a few tens), with no cable.
+
+**And `auto_export` defaults to FALSE.** The tracking tables are cleared five
+minutes back on every dump, and the dump only WRITES a file when auto-export is on.
+So with it off, continuous logging fills a table that is then thrown away — the
+samples never reach a file, and nothing anywhere said so. This is the mode where it
+matters most, because an external camera's frames have no other route to a motion
+record at all. The pane now says so in error colour, with what to do about it.
+
+Counts moved from `Pair<Int, Int>` to a named `TrackingCounts`, because a third
+number in a pair is where readouts start getting mixed up.
+
+No engine logic touched — a readout and a warning.
+
+## 2026-09-26 — the dump had a race, and continuous logging opened it
+
+A device trace caught `dumpAndClear` failing:
+`Couldn't read row 5825, col 0 from CursorWindow`, out of
+`ImuDao_Impl.getAllSamples`. The thread ids tell the whole story:
+
+    25325  23:49:41.634  Dumped 1653 bearings   -> ..._1790459381317.csv
+    25325  23:49:41.807  Dumped 321 locations   -> ..._1790459381317.csv
+    25328  23:49:43.411  Dumped 257769 IMU      -> ..._1790459378082.csv
+    25328  23:49:43.538  Geo tracking tables CLEARED
+    25325  23:49:44.084  FAILED reading imu_samples at row 5825
+
+**Two concurrent dumps**, 3.2 s apart by their own filename stamps. One cleared the
+tables while the other was mid-iteration, and the row it wanted was gone.
+
+`dumpAndClear` had **no serialization at all**, and five callers each launch their
+own coroutine: app start, the export button, capture teardown, and the external
+service's crash-safety timer. Latent for as long as this dumped only bearings and
+locations — a couple of thousand rows finish in milliseconds and never overlap.
+Continuous inertial logging made a dump 257 769 rows and seconds long, and the
+window opened.
+
+**Fixed:** a `Mutex`. A user pressing "Export CSVs now" WAITS, because their action
+must not be silently dropped; an opportunistic dump SKIPS, because queueing it
+behind the running one would only re-export rows that one just cleared.
+
+**And a second bug found while reading it: the clear ran even when the dump had
+failed.** It sat in its own `try` outside the dump's, so an export that threw still
+took the data with it. In this trace nothing was lost because the other thread had
+already written those rows, but a single failing dump would have deleted five
+minutes of samples that reached no file. The clear is now skipped on failure.
+
+**Parked, not fixed** (item 5 in docs/todo/frontend2-battery-work.md): the dump
+loads the whole table — ~13 MB of entities and a ~28 MB String at the observed
+row count, which is the steady state. It has not OOMed, but those seconds are what
+made the race reachable.
+
+## 2026-09-26 — dump stats, because "seconds-long" needs a number
+
+A seconds-long dump is a risk, not just a slowness: **the clear is part of the
+dump**, so a dump slower than the interval that triggers it gets skipped by the new
+mutex — and the clear is skipped with it, so the tables grow without bound. That
+failure is completely silent without a duration to look at.
+
+So `dumpAndClear` is timed now. Every dump logs
+`Dump took Nms for R rows (X rows/s), 300s until the next one`, and publishes
+`GeoTrackingManager.lastDump` (a `DumpStats`), which the external pane shows as
+`Last export: R rows in Nms (X rows/s)` — or, when it failed,
+`Last export FAILED after Nms — rows were kept, not cleared`.
+
+The headroom condition, stated plainly: the external service dumps every **5
+minutes**, so the dump has 300 s of room. Nothing observed comes close, but it is
+now measurable instead of assumed.
+
+**And working that out turned up a real waste.** `getAllSamples()` has no lower
+bound while the clear keeps the last five minutes — and the dump interval is *also*
+five minutes. So each dump re-exports the previous dump's retained tail: **every
+sample lands in two files, and every dump is twice the size it needs to be.** True
+of bearings and locations too, and always has been; at 1 653 rows nobody noticed. At
+240 000 it is the cheapest available halving of the dump's cost.
+
+Parked with the fix shape in docs/todo/frontend2-battery-work.md rather than done —
+the retention window cannot simply shrink, because those five minutes are what let a
+capture's deferred window still be read.
+
+## 2026-09-28 — the exposure instant, and every sensor snapshot moved onto it
+
+**What a photo now records about WHEN it was taken.** `capture_timing`, inside the
+UserComment, on every capture:
+
+| field | meaning |
+|---|---|
+| `captured_at_source` | what `captured_at` is — `"press"` today, always emitted |
+| `press_to_exposure_ms` | measured, not assumed |
+| `exposure_to_jpeg_ms` | to the file landing, same definition on both save paths |
+| `exposure_elapsed_ns` | the exposure on `elapsedRealtimeNanos` — **the same clock as `imu_samples.t0_ns`** |
+| `exposure_wall_ms` | the same instant in wall time |
+| `exposure_source` | `"sensor_timestamp"`, or ABSENT when it was not measured |
+| `pose_referenced_to` | `"exposure"` or `"press"` — which instant the attitude/inertial VALUES came from. Not the age reference: that is `exposure_wall_ms` whenever it is present |
+| `still_mode` | the capture mode |
+| `build` | the APK's `BuildInfo.label()` — **in the wrong object, see below** |
+| `refined_to` | written LATER by `StampRefiner`: the instant it interpolated the position and bearing to |
+| `refined_position` / `refined_bearing` | present only when that stream was actually replaced |
+
+**Proven on hardware, not asserted.** The exposure lands on ONE IMU sample: residuals
++336 µs and −207 µs against a 2 512 µs sample period, through the frame's
+`SENSOR_TIMESTAMP`, a clock bridge, the upload and the artifact's `t0_ns + cumsum(dt_us)`.
+Attitude and inertial readings are looked up AT that instant — `|age|` 0.6 ms and 0.5 ms
+median, from 50 ms and 315 ms before.
+
+**It needs no server deploy.** `capture_timing` was pre-declared in `BrowserMetadata`
+and `PROVENANCE_KEYS` before anything sent it, precisely so the app could iterate alone.
+Prod already has alembic 036 + API + worker.
+
+### Reading the build stamp — it cost an hour, twice
+
+The stamp's third field is `GIT_COMMIT_TIME`, **not a build time** (the clock is avoided
+deliberately: a config-time timestamp would freeze into the configuration cache and lie).
+So `sha · time` says only "built from a tree whose HEAD was that commit", and **two builds
+made between the same pair of commits share the sha**, differing only in the dirty hash.
+
+The dirty hash is the discriminator and is reproducible:
+
+```bash
+(git status --porcelain; git diff HEAD) | sha1sum | cut -c1-8
+```
+
+Reconstruct a candidate tree in a worktree, hash it, compare. That settled which of two
+builds a phone had run when age distributions could not.
+
+### DONE — position at the exposure
+
+`StampRefiner` now interpolates to the exposure. `SharedStackUploadPipeline` passes
+`upload.captureTiming?.exposureWallMs` when the capture measured one and names which
+instant it passed; the refiner records the answer into the photo's `capture_timing` as
+`refined_to`, plus `refined_position` / `refined_bearing` when that stream actually
+moved. Nested keys, so no worker deploy.
+
+Position needed no ring, unlike attitude and inertial. A ~1 Hz receiver has no sample
+AT the exposure to look up — the honest at-exposure position is an interpolation across
+the bracketing fixes, which is what the refiner already computed. Only its target was
+wrong, and that was the most misleading of the four timing errors precisely because the
+machinery was good: interpolation makes a value more PRECISE, and a refinement step
+advertises that the stamp has been corrected to match the photo.
+
+`location_age_ms` is measured from the exposure now. Exact addition, not a
+re-measurement — the press-time age and the press→exposure gap are both distances from
+the same fix instant.
+
+**And ungating the age reference fixed a bug nobody had reported.** `poseReferenceMs()`
+returned the exposure only when `pose_referenced_to == "exposure"`, i.e. only when BOTH
+rings answered. With the rings empty, the press-time attitude reported ~25 ms when it was
+~340 ms stale with respect to its frame. In the MIXED case — one stream found, the other
+not — the found sample was at-exposure while the reference fell back to the press, so its
+`age_ms` came out negative by the whole gap. Ages are now measured against
+`exposure_wall_ms` whenever it is present, and `pose_referenced_to` means only which
+stream answered. No new field: the presence of `exposure_wall_ms` IS the reference.
+
+### DONE — the skew fields made honest
+
+Option (a), and deliberately only that. `lens.rolling_shutter_skew_ns` →
+`preview_rolling_shutter_skew_ns`, with `frame_values_source: "preview"` and an `age_ms`
+for the rest of the per-shot half.
+
+Exactly one key renamed, because the defects differ: the other per-shot values are
+STALE, and the age now says how stale. Skew is a DIFFERENT number — readout time scales
+with the lines read, and preview and still run different sensor modes — so it is not a
+fresher version of the still's. The unqualified name is reserved for the still's own
+value if a route to it appears.
+
+The `age_ms` needed the preview values timestamped, so the preview capture callback
+bridges each result's own `SENSOR_TIMESTAMP` to wall ms — the same conversion as the
+still path, one hop shorter because the destination is wall rather than
+`elapsedRealtime`. NOT the callback's arrival time: the still's equivalent dispatch was
+104 ms late with ±16 of jitter, so a dispatch-derived age would swap an old guess for a
+fresh one. No HAL timestamp → no age emitted.
+
+Server side: two lines in the API's `_LENS_FIELDS` allowlist (`age_ms` and the two new
+string/int keys), the old key kept declared for rows written before today. That is an
+API deploy, not a worker one, and only affects PUBLIC visibility — the owner endpoint
+ships `exif_data` wholesale and sees everything immediately.
+
+### MEASURED ON PROD, and it forced a third ring
+
+23 captures on build `0444561a`: `refined_to: "exposure"` and both refined flags 23/23,
+`location_age_ms` 431–1340 (median 905) where the same photos would have said 143–987,
+attitude |mean| 0.9 and inertial |mean| 1.3 (worst −8, from 128). The old skew key is
+absent on all 23. The phone was standing still — `fix.speed_mps` mean 0.102 — so this
+batch proves the plumbing, not the payoff: 336 ms of retargeting is ~3 cm at that speed.
+
+**`lens.age_ms` came back 399–470 ms, and quantized.** Divided by the 66.65 ms preview
+period: 5.986 … 7.052 — exactly 6 or 7 whole frames, mean residual **0.99 ms**, worst
+4.10 ms. Two consequences, the second unsuspected:
+
+1. those are real frame timestamps, not dispatch times — a queued callback could not
+   land on the frame grid;
+2. **the still's exposure is phase-locked to the preview cadence to within ~1 ms.** The
+   press arrives at a random phase and the still waits for a slot, which is a mechanism
+   for the 288–381 ms press→exposure spread that nothing had proposed.
+
+And the magnitude is the point: the per-shot lens values were **older than
+press→exposure itself**, where the attitude's press-time staleness was ~50 ms. Six to
+seven frames, because a capture RESULT arrives well after the frame it describes — so
+the press-time latch is never "the frame before the press", as this file's own comment
+had assumed.
+
+So the lens got a ring: `lensRing`, keyed by each preview result's own
+`SENSOR_TIMESTAMP` bridged onto `elapsedRealtimeNanos`, looked up at the exposure. Half
+a preview period at worst, ~33 ms, against 399–470. It lives in
+`PhotoCapture.android.kt` and not in `GeoEngine` — the camera is that file's hardware
+and the callback already runs on the camera thread, so there is nothing conflating in
+the path, which is the only reason the attitude ring had to move.
+`frame_values_referenced_to` says which a photo got. It still does NOT produce the
+still's values; nothing does.
+
+### The walking batch paid off — and found the rings were 29x shorter than documented
+
+43 captures at 1.27 m/s mean. Retargeting 336 ms moves the stamp **0.43 m** there,
+against 3 cm standing, which answers whether refining to the exposure matters.
+
+But 12 of 70 photos fell back to the press, and `exposure_to_jpeg_ms` separates the two
+groups cleanly: **275 ms** mean on the photos that hit, **914 ms** on the ones that
+missed. On the photos where the motion ring returned a later sample,
+`exposure_to_jpeg_ms + inertial.age_ms` gives the ring's implied span: **268 ms, stdev
+17** over 20 photos. A stream with gaps would scatter; that constant is a fixed-capacity
+ring running out. 256 samples / 0.268 s = **956 samples/s**, i.e. ~478 Hz from each of
+gravity and linear acceleration.
+
+`AT_EXPOSURE_RING_CAPACITY = 256` said *"At 33 Hz this is ~7.7 s"*. It was 0.27 s.
+
+**The cause is our own IMU stream.** `registerListener`'s rate is a hint, and this
+process registers accelerometer at `SENSOR_DELAY_FASTEST` for the IMU window; gravity
+and linear acceleration are derived from it, so a fast client raised the rate of samples
+another part of the app had sized a buffer for at 33 Hz. A count is a PROXY for a
+duration, and the proxy changed meaning silently when an unrelated feature touched a
+shared sensor.
+
+`SampleRing` is now bounded by TIME — 8 s, about 4x the worst `exposure_to_jpeg`
+measured — with the count kept only as a memory backstop that raises a `capped` flag,
+and `GeoEngine` logging the ring's real span whenever a lookup declines. Memory is
+stated at the constant (~2.3 MB for the motion ring at 1 kHz) rather than left to be
+discovered. The same 30x rate change now costs memory and nothing else.
+
+This qualifies the "attitude 0.6 ms, inertial 0.5 ms median" result above: it was
+measured where saves took 275 ms, and degraded under load. The mixed case also fired in
+the wild three times and reported correctly thanks to the ungating — `09:35:21` carries
+`att = -148` beside `inr = +503`, which would have read −457 under the old gate.
+
+### Confirmed on hardware — and the still turns out to CONSUME a preview slot
+
+| | `lens.age_ms` | `inertial.age_ms` | press fallbacks |
+|---|---|---|---|
+| `0444561a` press latch, count rings | 399–470 | −31 … −165 | **12 / 70** |
+| `68b59ece` + lens ring | **±66** | −41, −92 | 0 / 12 |
+| `da6a8994` + time-bounded rings | ±66 | **0 … +2** | **0 / 14** |
+
+The time-bounded rings are demonstrated by a paired comparison, not just by the absence
+of failures: on `0444561a` saves of 435/439/447 ms gave inertial ages of −165/−164/−162
+(the ring's oldest survivor); on `da6a8994` saves of 395 and 458 ms give **+1 and +1**.
+The >500 ms saves that caused all twelve fallbacks were not reproduced in this batch, so
+that half remains an inference from the 8 s window.
+
+**And my prediction of ±33 ms for the lens was wrong.** It is 66–67 ms on every capture,
+never less, sign split evenly — exactly one preview period. The only shape that produces
+that floor is the still taking a slot OUT of the preview grid rather than joining it:
+the frame that would have been at the exposure IS the still, so the survivors are one
+period either side and equidistant. That also sharpens the earlier reading of the
+preview's 251 ms pause across a capture — the still is scheduled into the cadence, in
+place of a frame.
+
+66 ms is therefore the floor for this route, not a tuning problem: closing it means
+averaging the bracketing frames (which invents a number and needs its own label) or the
+still's own capture result, which CameraX does not offer.
+
+### The IMU arrays tile exactly — and a photo's array is not its own
+
+86 photos from one interval run, every artifact fetched and compared against the next:
+
+```
+gap between consecutive owned windows: 2.513 ms   (78 of 79 boundaries)
+sample period:                         2.5133 ms
+overlaps: 0   lost: 0   duplicated: 0
+23 310 accel samples, 59.80 s continuous
+```
+
+One sample period between slices is the exact result the `imuHighWaterMs` trim exists
+for. The only larger gap, 4812.9 ms, is the pause between two bursts.
+
+**But a photo's own array contains its own exposure in 1 case out of 86.** The slice
+starts a median 2071 ms AFTER the exposure, which sits four photos back in the run — a
+direct consequence of the claim rule at a 0.75 s interval, and something
+`recon-capture-metadata.md` had predicted in words. The summary is still centred on the
+exposure; it is the payload that tiles. So: **rolling-shutter compensation and blur
+analysis cannot be done from a single photo** — the run must be reassembled first.
+
+**Nothing identified which artifact covers an instant — now the window does.**
+`inertial.imu_window.stored_from_ms` / `stored_to_ms` are the slice this photo owns,
+written by the deferred rewrite because the claim is the only place it is known. Claims
+tile and do not overlap, so exactly one photo owns any instant and a consumer finds the
+right artifact by containment, from a photo list, fetching nothing.
+
+**A `capture_run_id` was built first and then removed the same day.** It grouped photos
+whose windows tile — which answers the question indirectly and drags in a threshold, a
+heuristic, and questions about app restarts and multiple devices. The per-photo bounds
+have none of those, because there is nothing to scope. Grouping photos into SEQUENCES is
+a genuinely different question; it is not one this project needs yet, so it is not being
+answered badly in the meantime.
+
+`docs/todo/position-track-artifact.md` holds the rest: why the OTHER sensor streams do
+not want arrays (gravity and linear acceleration are derived from accel; fused attitude
+is worse than gyro for this; lens wants one value for the frame) and why position does.
+
+### `inertial.gravity` was null for a day — found by reading the uploaded data
+
+`d4993b5a` rewrote `motionListener.onSensorChanged` to stamp both clocks from the event
+instead of the callback, and the new argument list lost `gravity = gravity` and
+`linearAcceleration = linear`. Both are nullable with defaults on `DeviceMotionSample`,
+so it compiled. ~2 800 photos carried `inertial.age_ms` of ~1 ms — a sample WAS found at
+the exposure — dating a reading that was not there.
+
+Confirmed in the code and against prod before fixing. The sibling attitude ring, fed by
+the same commit, is intact.
+
+**The same shape as `stored_count`**: the serializer was never wrong, the call site
+dropped the value, and the tests covered the serializer. The ring tests could not catch
+it either — they construct samples carrying gravity themselves, so they round-trip a
+vector the real listener never supplied.
+
+Two guards now: `MotionSampleAssembler` (a unit with a host test asserting that what the
+callback latched is what the sample carries), and the serializer refusing to emit
+`age_ms` for a sample with no vectors. The existing `onlyAge` guard did not fire because
+`imu_window` kept the object non-empty.
+
+Impact is low for reconstruction — the raw accelerometer is in `imu_samples`, so gravity
+is recoverable as the mean acceleration near the exposure — but a metadata-only consumer
+lost the documented per-photo "down" for those photos. Not backfillable from the app.
+
+### STILL NOT DONE, after this
+
+- **The still's own lens values.** Focus distance, intrinsics, distortion and skew are
+  the preview's however close to the exposure we sample. That needs a route to the
+  still's `TotalCaptureResult`, which CameraX does not offer.
+- **The IMU window's TAIL is still press-bounded.** The summary is now centred on the
+  exposure (2026-09-28) — `sample_count` and the three peaks are read over
+  `exposure ± 3 s` instead of `press ± 3 s`, which removes up to 1.76 s of pre-press
+  history from the peaks in Quality mode. Only the summary moved: the claim key and the
+  read deadline stay on the press, because the engine wrote both under that name and two
+  timers disagreeing about which instant they mean is a bug this window has already had.
+
+  What it cannot fix: the engine persists `press ± 3 s`, so at the read nothing exists
+  past `press + 3 s` — those samples belong to the next capture and arrive later. So the
+  leading edge is now correct and the trailing edge is where it was. It stays honest
+  because `summariseImuWindow` reports the first and last sample it actually FOUND, so
+  `window_start_ms`/`window_end_ms` always describe what was really summarised.
+  Widening the tail means widening what the engine persists: free in storage, since the
+  trim tiles, but it moves the claim timing, which is the expensive half.
+
+  And today's tiling result narrowed what a full re-centre would buy: in a run the
+  windows tile, so the union is continuous whatever the centres are — shifting every
+  centre just shifts every seam. The remaining case is an ISOLATED capture, which has
+  only its own window.
+- **`captured_at` itself is still the press**, and says so. Moving it has a filename, a
+  DB column and the pics join behind it.
+
+## 2026-09-26 — STATE OF PLAY at end of day
+
+24 commits. Read this entry first if you are picking the work back up; the entries
+above are the narrative, this is the position.
+
+### Where the three docs live
+
+- **docs/recon-capture-metadata.md** — the contract. What every provenance field
+  means, the four-list rule (app serializer / `BrowserMetadata` / `PROVENANCE_KEYS`
+  / typed projection), Phases 0–5, and the decisions with their rejected
+  alternatives.
+- **docs/imu-sampling-design.md** — the mechanism. When the sensors run, what each
+  constant is pinned to, and what breaks if the window length or a toggle changes.
+- **docs/todo/frontend2-battery-work.md** — five parked items, scoped and measured,
+  deliberately unstarted.
+
+### Built and verified LOCALLY; nothing deployed
+
+Phases 0–5 are complete. The samples reach the server as a gzipped columnar
+artifact at `photos.imu_samples_url`, verified end to end by
+`backend/tests/integration/test_imu_samples_artifact.py` (6 tests) against the local
+stack — including that the payload never enters the UserComment.
+
+**Deployment order matters: alembic `036` → API → worker.** `photo.imu_samples_url`
+against a table without the column is a hard failure; the reverse order is safe only
+because an old API ignores unknown fields.
+
+**The prod worker is unchanged**, so `inertial` and `imu_samples` are both dropped
+silently at pydantic's door. That is why the phone shows no server-side effect and
+why no error appears anywhere — the documented behaviour, not a fault.
+
+### Confirmed on the real phone
+
+- The startup crash is fixed (`HIGH_SAMPLING_RATE_SENSORS`), and the fallback is
+  demonstrated working.
+- **FIFO batching is real here: `fifo=4500/3000`.** ~800 IMU wakeups a second → ~0.5.
+- `lens.intrinsics_available` is **false**, cross-checked against
+  `dumpsys media.camera`; the derived pinhole (fx 3491.5, fy 3490.8) is
+  self-consistent to 0.02 %.
+- Claims, tiling and the dumps all work; a dump of 257 769 rows completed.
+
+### CONFIRMED on hardware 2026-09-27 — the last open test passed
+
+**A capture producing a payload.** Four captures on the Armor 22, audited read-only
+against the local stack end to end (`/shared/imu/`, records + public responses +
+fetched artifacts):
+
+| capture | summary count | artifact = `stored_count` | span | gzip |
+|---|---:|---:|---:|---:|
+| 08:49:00.906 | 4 774 | 4 774 | 5.995 s | 30 713 B |
+| 08:49:02.796 | 4 776 | **1 504** | 1.887 s | 10 336 B |
+| 08:49:04.479 | 4 776 | **1 340** | 1.681 s | 10 070 B |
+| 09:00:20.633 | 4 776 | 4 776 | 5.998 s | 28 023 B |
+
+**The tiling is the result worth having.** Three captures ~1.9 s apart share one
+overlapping ±3 s window, and the burst ships **7 618 samples instead of 14 326** —
+each artifact carries only its own tail, with disjoint monotonic ranges, and
+`stored_count` matches the artifact exactly every time. That is `imu_claims` doing
+the job it replaced derived attribution for. The fourth capture, 676 s later, gets a
+full window of its own.
+
+Also confirmed on the way: `inertial` present and `motion` absent; `attitude`, `fix`,
+`lens` and `inertial` in the public response equal the stored UserComment; no
+`imu_samples` anywhere in a UserComment; every `imu_samples_url` fetched 200 with
+valid gzip, unauthenticated; ~398 Hz per sensor with no internal gaps.
+
+**And it found a real bug** — the payload's `dt_us` drifted ~1.2 ms over a 6 s
+window because each gap was truncated independently, under a comment claiming that
+could not happen. Fixed, with a regression test at the device's real 2 512.5 us
+cadence (every prior test used whole microseconds, which is why none caught it). See
+docs/imu-sampling-design.md.
+
+**One limitation it documented rather than a failure:** every stamp describes the
+button press, not the exposure, which starts 546–2 014 ms later (1 881 ms measured
+live in `quality` mode). Pulling that thread found three more — preview-fed lens
+values, ages measured to the wrong instant, and a stamp refiner polishing toward
+the press — and the answer is one timestamp rather than two. Planned in
+**docs/todo/captured-at-is-the-exposure.md**; not built, and it opens with an
+experiment.
+
+The pane will also now show inertial counts, a live rate, the last export's cost, and
+a red warning if auto-export is off.
+
+### Tooling
+
+`ast-grep` is installed and cooloff-clean. **kotlin-lsp is blocked until
+2026-09-27** — JetBrains' standalone builds expire, and the only unexpired one was
+12 days old against the 14-day cooloff. Recipe and both traps are in
+STRUCTURAL_TOOLS.md.
+
+`androidDeviceTest` had never been run in this work and found three real defects in
+minutes; it is worth running for anything touching migrations or the upload hold.

@@ -11,6 +11,110 @@ import androidx.compose.ui.Modifier
  * What the sensors said at the moment of capture; burned into the photo's
  * EXIF, which is the contract with the backend parser and the pics pipeline.
  */
+/**
+ * How this capture's instants related to each other — the one object that says what
+ * `captured_at` actually IS.
+ *
+ * It exists because the answer is "the button press", and the press is 332–426 ms
+ * before the exposure in Latency mode and ~1213 ms in Quality (measured 2026-09-27,
+ * 13 captures). That gap cannot be calibrated away: it varies by ±47 ms WITHIN one
+ * interval run at fixed settings, so only a per-capture measurement describes it.
+ * Until the exposure instant itself is reachable — see
+ * docs/todo/captured-at-is-the-exposure.md — the honest move is to say which instant
+ * we mean and how far the other ones were.
+ *
+ * Secondary, and the reason it ships now: these numbers reach the server inside the
+ * `capture_timing` provenance object, so the press→exposure behaviour can be studied
+ * from uploaded photos instead of from an attached cable.
+ */
+@kotlinx.serialization.Serializable
+data class CaptureTiming(
+    /** What `captured_at` is. "press" today; never silently something else. */
+    val capturedAtSource: String,
+    /** Press → CameraX's onCaptureStarted. Null when that callback never fired. */
+    val pressToExposureMs: Long? = null,
+    /** onCaptureStarted → the JPEG landing. */
+    val exposureToJpegMs: Long? = null,
+    /** "quality" / "latency" / "zsl": the gap depends strongly on it. */
+    val stillMode: String? = null,
+
+    /**
+     * The exposure itself, on `elapsedRealtimeNanos` — the SAME clock as
+     * `imu_samples.t0_ns`, so a consumer can locate the shutter inside the inertial
+     * window by subtraction, with no wall-clock quantization in the way.
+     *
+     * Present only when the capture owned its file write; the frame's own
+     * SENSOR_TIMESTAMP is the only source, and it arrives on an uptime base that is
+     * bridged onto this one at the moment of capture (they were 2.016 DAYS apart on
+     * the device this was measured on).
+     */
+    val exposureElapsedNs: Long? = null,
+
+    /** The same instant as wall-clock ms, so it can be compared to `captured_at`. */
+    val exposureWallMs: Long? = null,
+
+    /**
+     * Which build took this photo — `BuildInfo.label()`, e.g.
+     * `0.1.0 · d4993b5a · 2026-09-28T00:16:00+00:00`.
+     *
+     * Here because an autoupload can glitch and a phone can be a build behind, and then
+     * every number in this object describes code nobody can identify afterwards. That is
+     * not hypothetical: two rounds of analysis on 2026-09-28 argued from age
+     * distributions about which APK was running, and the version screen settled it in one
+     * line.
+     *
+     * IT IS IN THE WRONG OBJECT and should move. `capture_timing` is about when the
+     * shutter opened, not about the software; the right home is a top-level `app` object.
+     * It lives here because a top-level key needs `BrowserMetadata` plus
+     * `PROVENANCE_KEYS` and therefore a worker deploy, while a nested one needs nothing —
+     * and having the build recorded NOW is worth more than having it in the right place
+     * later. Move it when the metadata rehaul lands
+     * (docs/todo/metadata-structure-sanitization.md).
+     */
+    val build: String? = null,
+
+    /**
+     * Which instant the POSE objects describe — "exposure" when the attitude and
+     * inertial readings were looked up at the exposure, "press" when they are the
+     * press-time stamp because no sample was within tolerance.
+     *
+     * Separate from [exposureSource] because the two can disagree: knowing when the
+     * frame was exposed does not guarantee a sample from that moment, and a reader
+     * deserves to know which of the two it got.
+     *
+     * MEANING NARROWED 2026-09-28. It used to name the instant every `age_ms` was
+     * measured against as well, which conflated "where the values came from" with
+     * "what they are dated against" and made both wrong whenever the lookup half
+     * failed — see [SensorSnapshot.poseReferenceMs]. Ages are now measured against
+     * `exposure_wall_ms` whenever it is present, and this field says only which
+     * stream answered. A reader wanting the age reference reads the presence of
+     * `exposure_wall_ms`; it needs no field of its own.
+     *
+     * It also covers only the POSE pair. The position is not looked up — there is no
+     * fix at the exposure to look up — it is interpolated there by `StampRefiner`,
+     * which reports that separately (see the note under [exposureSource]).
+     */
+    val poseReferencedTo: String? = null,
+
+    /**
+     * How the exposure instant was obtained — "sensor_timestamp", or absent when it
+     * was not obtained at all. Never inferred: a dispatch-derived estimate would be
+     * ~104 ms late and jitter by ±16, and calling that the exposure is the pretending
+     * this whole object exists to stop.
+     */
+    val exposureSource: String? = null,
+
+
+    // THREE MORE KEYS REACH THE SERVER IN THIS OBJECT AND ARE NOT FIELDS HERE:
+    // `refined_to`, `refined_position` and `refined_bearing`, added to the serialized
+    // JSON by StampRefiner.recordRefinement. They cannot be fields, because they are
+    // not known at the shutter — the refiner runs seconds later, after the fix that
+    // brackets the exposure from the far side has arrived, and writes them into the
+    // photo row it is already updating. Listed here so the object's full shape is
+    // documented in one place: anyone reading `capture_timing` from the server will
+    // see them, and grepping this data class alone would say they do not exist.
+)
+
 data class SensorSnapshot(
     val latitude: Double? = null,
     val longitude: Double? = null,
@@ -64,6 +168,234 @@ data class SensorSnapshot(
     val exposure: ExposureStamp? = null,
     /** The other position stream, when there was one — see [altLocationFor]. */
     val altLocation: AltLocation? = null,
+    /**
+     * What the DEVICE was measuring at the shutter, as opposed to what the
+     * photo is stamped as FACING.
+     *
+     * [trueBearingDeg] and [pitchDeg] above are the ELECTED answer, which a
+     * manual claim, a car course or a turned-to photo can own — and those
+     * sources measure no tilt, so they write null and the record loses how
+     * the phone was actually held. This is the other half, and it is the
+     * only route roll has ever had off the device: the sensor stack has
+     * computed it since the beginning, and nothing downstream had a field
+     * for it (user, 2026-09-22: "the phone should store every bit of info
+     * it has, both raw and processed").
+     *
+     * Null when the compass had nothing fresh to say at the shutter. It
+     * travels in the upload's `attitude` provenance, never as a column:
+     * nothing queries it, the SfM bench reads it.
+     */
+    val attitude: cz.hillview.map.DeviceAttitude? = null,
+    /**
+     * Was the Armor-22 landscape heading workaround in force?
+     *
+     * It NEGATES the azimuth past 90° of roll (EnhancedSensorService), so a
+     * heading recorded under it and one recorded without are not the same
+     * measurement. Nothing downstream could tell them apart, which makes
+     * every landscape bearing in the archive ambiguous after the fact.
+     */
+    val compassLandscapeWorkaround: Boolean? = null,
+    /**
+     * The receiver's fix as it stood at the shutter — kept for its QUALITY
+     * fields, which nothing else carries.
+     *
+     * Present whether or not the fix won the election: it describes the
+     * receiver at that moment, and a photo that recorded the map centre was
+     * still taken somewhere the receiver had an opinion about. Where the fix
+     * LOST, `altLocation` carries its position; this carries how good it was.
+     *
+     * The position itself is already in [latitude]/[longitude]/[altitude]/
+     * [accuracyM] above, so the serializer emits only what is not there.
+     */
+    val fix: cz.hillview.map.FixState? = null,
+    /** The camera's own calibration and settings at the shutter — see [LensStamp]. */
+    val lens: LensStamp? = null,
+    /** How the phone was MOVING at the shutter — see [cz.hillview.map.DeviceMotionSample]. */
+    val motion: cz.hillview.map.DeviceMotionSample? = null,
+    /**
+     * What the IMU window around this exposure contained — the summary of the
+     * raw samples, which themselves go to the tracking database and travel by
+     * CSV. Null when no window was captured: a device without a gyroscope, an
+     * activity that did not ask for the IMU, or a shot before the ring filled.
+     *
+     * Typed as the fields rather than the platform class so commonMain can
+     * serialize it; the Android side fills it from `ImuWindowSummary`.
+     */
+    val imuWindow: ImuWindow? = null,
+    /**
+     * What `captured_at` means and how far the exposure was from it — see
+     * [CaptureTiming].
+     *
+     * The ONE field here that is not filled at the press, because two of its three
+     * numbers do not exist yet: the snapshot is copied with it at the save, once
+     * onCaptureStarted and the JPEG have both happened.
+     */
+    val captureTiming: CaptureTiming? = null,
+)
+
+/** See [SensorSnapshot.imuWindow]. Mirrors the engine's `ImuWindowSummary`. */
+data class ImuWindow(
+    val sampleCount: Int,
+    val startMs: Long,
+    val endMs: Long,
+    /** Peak raw accelerometer magnitude, m/s² — INCLUDES gravity (~9.81 at rest). */
+    val accelPeakMps2: Double? = null,
+    /** Peak |magnitude − g|: the gravity-free shake signal. Near zero when still. */
+    val accelPeakDeviationMps2: Double? = null,
+    /** Peak angular rate, rad/s — the rotation-blur signal. */
+    val gyroPeakRadS: Double? = null,
+    /**
+     * How many of [sampleCount] this capture actually WROTE; the rest a
+     * neighbouring photo's window had already stored. Interval capture makes
+     * consecutive windows overlap heavily, and trimmed they tile the session
+     * instead of repeating it.
+     */
+    val storedCount: Int = 0,
+    /**
+     * The SLICE THIS PHOTO OWNS, wall ms — the claimed range whose samples are in its
+     * artifact, as opposed to [startMs]/[endMs], which are the full ±3 s window this
+     * capture had context from and which its neighbours mostly stored.
+     *
+     * This is the field that makes the artifact findable. A photo's own array does NOT
+     * contain its own exposure — measured 2026-09-28, 1 case in 86, because the claims
+     * tile the session rather than centring on their photo and at a 0.75 s interval a
+     * photo's exposure was stored four captures earlier. So "give me the inertial
+     * samples at this exposure" is a question about SOMEONE ELSE'S artifact, and
+     * without these two numbers the only way to find which one was to download
+     * candidates and read their `t0_ns` — downloading in order to decide whether to
+     * download.
+     *
+     * Claims tile and do not overlap, so containment is unambiguous: exactly one photo
+     * owns any given instant. `stored_from_ms` existed once and was removed on the
+     * argument that "the payload's own `t0_ms` says where it starts", which is true and
+     * beside the point — it says so only after the fetch.
+     *
+     * Deliberately the CLAIMED range, not the extent of the samples actually found in
+     * it. Attribution has to be a partition of time; [storedCount] beside it says how
+     * many samples turned up, and a short count against a wide range is a real fact
+     * about the recording (sensors not running), not a rounding of these bounds.
+     */
+    val storedFromMs: Long? = null,
+    val storedToMs: Long? = null,
+)
+
+/**
+ * What the CAMERA knew about itself at the shutter.
+ *
+ * The largest single gap for reconstruction, and until 2026-09-26 the app read
+ * none of it: a solver was left to recover focal length and distortion from the
+ * images, when the manufacturer had written its own calibration into
+ * `CameraCharacteristics` and the HAL reports the per-frame values on every
+ * capture result the app was already receiving (see the 3A callback in
+ * `buildPreviewUseCase` — same stream, nothing new bound).
+ *
+ * Split by LIFETIME, because the two halves are trustworthy in different ways:
+ * the per-camera half is factory calibration that cannot change, the per-shot
+ * half tracks focus and zoom and is only true of this frame.
+ *
+ * And the per-shot half is a PREVIEW frame's, not the still's — stated in the
+ * provenance as `frame_values_source: "preview"` with an `age_ms` beside it, because
+ * the difference is measurable and was measured: focus moved from 7.0279527 to
+ * 6.9795275 diopters DURING one press→exposure window (2026-09-27). Read
+ * [previewRollingShutterSkewNs] for why exactly one of these fields is renamed rather
+ * than merely dated.
+ */
+data class LensStamp(
+    // --- per shot, from the capture result ---
+    /** Actual focal length in mm, as the HAL reports it for this frame. */
+    val focalLengthMm: Float? = null,
+    val apertureFStop: Float? = null,
+    /**
+     * Focus distance in DIOPTRES (1/metres), the platform's unit: 0.0 IS
+     * infinity, and larger means closer. Not metres, and not convertible
+     * without the calibration below saying how to read it.
+     */
+    val focusDistanceDiopters: Float? = null,
+    /** How `LENS_FOCUS_DISTANCE` should be read — CALIBRATED / APPROXIMATE / UNCALIBRATED. */
+    val focusDistanceCalibration: String? = null,
+    /** The user pinned focus at infinity (the app's ∞ toggle) — intent, not measurement. */
+    val focusInfinityRequested: Boolean? = null,
+    /**
+     * Digital zoom in force, 1.0 = none. The effective focal length and the
+     * crop both scale with it, so a frame shot at 2× whose intrinsics are read
+     * as the 1× ones is simply wrong — and the app has had pinch-to-zoom, and
+     * printed "2.0×" on screen, while recording nothing.
+     */
+    val zoomRatio: Float? = null,
+    /**
+     * Readout skew top-to-bottom, ns — of a PREVIEW frame, which is why the name says
+     * so. Rolling shutter, which matters in car mode.
+     *
+     * Renamed 2026-09-28. Every field in this "per shot" half comes from the preview
+     * repeating request (`setSessionCaptureCallback` is on the PREVIEW builder; the
+     * still's `TotalCaptureResult` is not handed out by CameraX and the 2026-09-27
+     * experiment proved an `ImageCapture.Builder` callback sees the preview stream
+     * too). For most of them that is STALENESS, and [frameValuesAtMs] reports exactly
+     * how much. Skew is the one with a PHYSICAL reason to differ: readout time scales
+     * with the lines read, and preview and still run different sensor modes and
+     * resolutions — this device previews at a fraction of a 4624×3472 array. So the
+     * still's value is not merely a fresher version of this one, and a key called
+     * `rolling_shutter_skew_ns` would be read as the photo's own readout time by
+     * anyone modelling rolling-shutter distortion. 31.1 ms is ~4 cm of translation at
+     * walking pace, so the difference is not cosmetic for reconstruction.
+     *
+     * When a route to the still's own result appears, THAT gets the unqualified name
+     * and this one keeps its own.
+     */
+    val previewRollingShutterSkewNs: Long? = null,
+    /**
+     * When the preview frame these per-shot values came from was EXPOSED — its own
+     * `SENSOR_TIMESTAMP`, bridged onto `elapsedRealtimeNanos` and expressed as wall ms
+     * so it can be subtracted from the reference instant like every other `age_ms`.
+     *
+     * Null when the HAL reported no timestamp, and then no age is emitted rather than
+     * a dispatch-derived guess — the callback's own arrival time would fold in a
+     * queueing delay that was measured at ~104 ms ± 16 for the still's equivalent.
+     */
+    val frameValuesAtMs: Long? = null,
+    /**
+     * Which instant the per-shot half was looked up at — `"exposure"` when a ring of
+     * preview results answered for the frame's own moment, `"press"` when it is the
+     * latch the shutter read.
+     *
+     * SEPARATE from the source, and the separation is the lesson from ungating
+     * [SensorSnapshot.poseReferenceMs]: "which stream these came from" and "which
+     * instant they describe" are two facts, and one field carrying both is what made
+     * the pose ages wrong in two directions at once. The stream is still the preview
+     * either way — this says only how close to the frame it got.
+     *
+     * Why it is worth a field at all: measured on build `0444561a`, the press-time
+     * latch was 399–470 ms from the exposure, where the at-exposure lookup can be
+     * half a preview period. A reader deciding whether to trust
+     * `focus_distance_diopters` for this frame needs to know which it has, and
+     * `age_ms` alone only implies it.
+     */
+    val frameValuesReferencedTo: String? = null,
+    /**
+     * fx, fy, cx, cy, skew for THIS frame, in pixels of the pre-correction
+     * active array. The HAL may vary it with focus and zoom, which is why it is
+     * read per frame and not only from the characteristics.
+     */
+    val intrinsics: List<Float>? = null,
+    /** Radial and tangential distortion for this frame, the platform's 5-coefficient form. */
+    val distortion: List<Float>? = null,
+    // --- per camera, from the characteristics at bind ---
+    /** Factory intrinsics, when the device publishes any. See [intrinsicsAvailable]. */
+    val cameraIntrinsics: List<Float>? = null,
+    val cameraDistortion: List<Float>? = null,
+    /** Physical sensor size in mm (w, h) — with the pixel array, the true pixel pitch. */
+    val sensorPhysicalSizeMm: List<Float>? = null,
+    /** Active array in pixels (w, h). */
+    val sensorPixelArray: List<Int>? = null,
+    /**
+     * Whether this device publishes a lens calibration AT ALL.
+     *
+     * Many phones do not, and the absence has to be a recorded FACT rather
+     * than something a reader infers from a missing key — "this device does not
+     * calibrate its lenses" and "this app version did not look" are different
+     * claims about a photo, and only one of them is the phone's fault.
+     */
+    val intrinsicsAvailable: Boolean? = null,
 )
 
 data class CapturedPhoto(
@@ -612,6 +944,359 @@ fun altLocationJson(a: AltLocation): String {
 }
 
 /**
+ * What the device measured at the shutter, as the upload's `attitude`
+ * provenance object.
+ *
+ * ONE object rather than a column each, for the reason `alt_location` is one:
+ * nothing on the device queries it, it only travels, and the set of things
+ * worth recording about a pose will grow. Named `attitude`, not
+ * `orientation`, because EXIF already has an Orientation tag and it means
+ * something else entirely — the 1/3/6/8 display rotation CameraX writes.
+ *
+ * **Why none of this duplicates a column.** The photo's `bearing` and `pitch`
+ * are the ELECTED answer, and they are dead-banded: the bearing state only
+ * updates when the heading moves more than 1° (MapSensorController), and a
+ * manual claim or a car course can own it outright and reports no tilt at
+ * all. Every field below is read from the sample itself, on every sample,
+ * past no gate — so even when the compass IS elected these are the
+ * instantaneous reading and the columns are the last one that cleared the
+ * dead-band. When a hand-set bearing is elected, this is the only record that
+ * the device was measuring anything.
+ *
+ * Field by field, and what else holds it (user asked for exactly this audit,
+ * 2026-09-22):
+ *  - `heading_true_deg` — the compass's own declination-corrected heading. The
+ *    `bearing` column is the elected, dead-banded cousin; `bearing_source`
+ *    says whether that one came from here at all.
+ *  - `heading_magnetic_deg` — the same reading uncorrected. Stored NOWHERE else: the
+ *    snapshot has carried it since the beginning and every writer dropped it
+ *    (the EXIF tags take true north, by ecosystem convention). Its difference
+ *    from `true_deg` is the declination the device applied.
+ *  - `pitch_deg` — tilt. Same relationship to the `pitch` column as above.
+ *  - `roll_deg` — stored nowhere else, and never left the device before this.
+ *    NOT the camera's rotation about its optical axis: the rotation matrix is
+ *    remapped for `device_rotation_deg` FIRST, so this is the residual tilt
+ *    within that quadrant and the absolute rotation needs both.
+ *  - `magnetometer_calibration` — the magnetometer's calibration status
+ *    (0 unreliable,
+ *    1 low, 2 medium, 3 high), and it qualifies the HEADING ONLY. Pitch and
+ *    roll come from gravity and the gyro, which magnetometer calibration does
+ *    not touch, so a 0 here says nothing against them. Three further caveats,
+ *    because this field invites over-reading:
+ *      * it is NOT the accuracy of the sample the heading came from. The
+ *        default fusion is `TYPE_ROTATION_VECTOR`, which reports its own
+ *        accuracy; `EnhancedSensorService` reads that and discards it, and
+ *        registers the bare magnetometer alongside purely so its
+ *        `onAccuracyChanged` fires. This value is a deliberate proxy.
+ *      * it is LATCHED, not per-sample: Android reports only on change, so
+ *        the last value is carried onto every later sample indefinitely and
+ *        has no age of its own.
+ *      * absent means Android never reported it — which is also what a bare
+ *        `MODE_ROTATION_VECTOR` run would give, since that mode registers no
+ *        magnetometer. (Android's own -1 doubles as NO_CONTACT, so the two
+ *        are indistinguishable here; both read as absent, which is honest.)
+ *    No column anywhere holds it. Not to be confused with
+ *    `location_accuracy_m`, the GPS error radius.
+ *  - `fused_sensor_accuracy` — what the sensor that produced the sample said
+ *    about ITSELF (`SensorEvent.accuracy`), which is the rating that actually
+ *    belongs to this reading. Per-sample, unlike the latched magnetometer
+ *    status, and the two can disagree: magnetometer low with fusion high is a
+ *    gyro carrying a stale field, the reverse is a fusion that has not settled.
+ *    Read and thrown away (a commented-out log line) until 2026-09-22. Absent
+ *    from the Madgwick and complementary paths, which compose several raw
+ *    sensors and have no single rating to give.
+ *  - `fusion` — which filter produced the sample (rotation-vector, Madgwick,
+ *    complementary). They disagree, and `bearing_source` is too coarse to
+ *    say which was running.
+ *  - `age_ms` — how stale the reading was at the shutter, measured like
+ *    `location_age_ms` beside it.
+ *  - `device_rotation_deg` — the quantized pose. The EXIF Orientation tag is
+ *    NOT this: CameraX derives that from the pose combined with the camera's
+ *    sensorOrientation and lens facing, so it cannot be inverted back.
+ *  - `landscape_azimuth_negation` — whether the Armor-22 toggle was ENABLED.
+ *    It negates the azimuth, but only past 90° of roll, so this being true
+ *    does not mean it fired on this sample — `roll_deg` beside it is what
+ *    tells you. Named for what it does rather than for the phone it was added
+ *    for, and recorded always, true or false: absence would be ambiguous.
+ *
+ * The tracking table holds all of this at sensor rate too — but that table
+ * only leaves the phone as a manual CSV export, so for an uploaded photo this
+ * is the shutter's row of it, pinned to the frame it describes.
+ */
+fun attitudeProvenanceJson(s: SensorSnapshot): String? {
+    val a = s.attitude
+    if (a == null && s.deviceRotationDeg == null && s.compassLandscapeWorkaround == null) return null
+    val fields = buildList {
+        a?.let {
+            add("\"heading_true_deg\":${it.trueDeg}")
+            add("\"heading_magnetic_deg\":${it.magneticDeg}")
+            add("\"pitch_deg\":${it.pitch}")
+            add("\"roll_deg\":${it.roll}")
+            it.magnetometerCalibration?.let { add("\"magnetometer_calibration\":$it") }
+            it.fusedSensorAccuracy?.let { add("\"fused_sensor_accuracy\":$it") }
+            it.detail?.let { d -> add("\"fusion\":\"$d\"") }
+            add("\"age_ms\":${s.poseReferenceMs() - it.ts}")
+        }
+        s.deviceRotationDeg?.let { add("\"device_rotation_deg\":$it") }
+        s.compassLandscapeWorkaround?.let { add("\"landscape_azimuth_negation\":$it") }
+    }
+    return if (fields.isEmpty()) null else fields.joinToString(",", prefix = "{", postfix = "}")
+}
+
+/**
+ * How the phone was MOVING at the shutter, as the upload's `motion` provenance
+ * object.
+ *
+ *  - `gravity` — (x, y, z) m/s² in the device frame. An unambiguous "down",
+ *    where `attitude.roll_deg` is a residual within the quantized device pose.
+ *    Two rotation degrees of freedom with no fusion and no magnetometer in the
+ *    way, which is why a reconstruction wants it even though pitch and roll
+ *    are already recorded.
+ *  - `linear_acceleration` — the same stream with gravity removed, (x, y, z).
+ *  - `linear_acceleration_magnitude` — its length, precomputed because it is
+ *    the number anything sorting frames by motion blur actually uses.
+ *  - `age_ms` — how stale the reading was at the shutter, measured like
+ *    `attitude.age_ms` and `location_age_ms`.
+ *
+ * A single RAW accelerometer sample is deliberately not here: it is gravity
+ * plus linear acceleration and one sample cannot separate them, so it is
+ * strictly worse than either field above. The honest use for raw inertial data
+ * is a time SERIES across the exposure, which lives in the tracking database
+ * and travels by CSV — see docs/recon-capture-metadata.md.
+ */
+/**
+ * The instant every `age_ms` in the provenance is measured against.
+ *
+ * The exposure when the pose was actually looked up there, the press otherwise. Without
+ * this, replacing the attitude with a sample taken at the exposure would make
+ * `age_ms` — defined as "how stale the reading was at the shutter" — come out NEGATIVE,
+ * because the sample is later than the press. One definition, so the attitude, the
+ * inertial reading and anything added later cannot disagree about what they are stale
+ * relative to.
+ */
+/*
+ * CONTRACT NOTE. With `pose_referenced_to: "exposure"` the provenance's `age_ms` fields
+ * become SIGNED offsets from the exposure rather than non-negative ages from the press:
+ * the lookup takes the nearest sample on either side, so about half of them land after
+ * the shutter and report a negative number, bounded by AT_EXPOSURE_TOLERANCE_NS. Nothing
+ * downstream needs changing — a staleness filter reading a negative offset as "fresh" is
+ * right — but a reader expecting a non-negative age deserves to have been told.
+ */
+/*
+ * UNGATED ON PURPOSE, 2026-09-28 — it used to return the exposure only when
+ * `poseReferencedTo == "exposure"`, i.e. only when BOTH rings answered. That gate made
+ * two cases lie in opposite directions:
+ *
+ *  - rings empty: the attitude is the press-time stamp, and measuring it against the
+ *    press reported ~25 ms when the reading was really ~340 ms stale with respect to
+ *    its own frame. That is item 1 of docs/todo/captured-at-is-the-exposure.md, still
+ *    intact for exactly the captures where the lookup failed.
+ *  - MIXED (attitude found, motion not, or the reverse): `poseReferencedTo` fell back to
+ *    "press" while the attitude object held an at-exposure sample, so its `age_ms` came
+ *    out NEGATIVE by the whole press→exposure gap.
+ *
+ * The instant the exposure was measured is a fact about the capture, not about whether a
+ * lookup succeeded. So: when it is known, every age is measured against it, and
+ * `pose_referenced_to` goes back to meaning only what it says — where the pose VALUES
+ * came from.
+ */
+fun SensorSnapshot.poseReferenceMs(): Long =
+    captureTiming?.exposureWallMs ?: capturedAtMs
+
+/**
+ * `capture_timing` — see [CaptureTiming]. Always emits `captured_at_source`, because a
+ * timing object that does not say which instant `captured_at` names would be the very
+ * ambiguity it exists to remove.
+ */
+fun captureTimingJson(s: SensorSnapshot): String? {
+    val t = s.captureTiming ?: return null
+    val fields = buildList {
+        add("\"captured_at_source\":\"${t.capturedAtSource}\"")
+        t.pressToExposureMs?.let { add("\"press_to_exposure_ms\":$it") }
+        t.exposureToJpegMs?.let { add("\"exposure_to_jpeg_ms\":$it") }
+        t.stillMode?.let { add("\"still_mode\":\"$it\"") }
+        t.exposureElapsedNs?.let { add("\"exposure_elapsed_ns\":$it") }
+        t.exposureWallMs?.let { add("\"exposure_wall_ms\":$it") }
+        t.exposureSource?.let { add("\"exposure_source\":\"$it\"") }
+        t.poseReferencedTo?.let { add("\"pose_referenced_to\":\"$it\"") }
+        // The only field in this object built from strings that did not come from an
+        // enum or a number, so it is the only one worth guarding: a version or a dirty
+        // hash carrying a quote would otherwise produce a payload the worker drops
+        // whole. Sanitised rather than escaped — the label is generated, so anything
+        // exotic in it is a bug to see, not text to preserve.
+        t.build?.takeIf { it.isNotBlank() }
+            ?.map { c -> if (c == '"' || c == '\\') ' ' else c }
+            ?.joinToString("")
+            ?.let { add("\"build\":\"$it\"") }
+    }
+    return fields.joinToString(",", prefix = "{", postfix = "}")
+}
+
+fun inertialProvenanceJson(s: SensorSnapshot): String? {
+    fun floats(v: List<Float>?) = v?.joinToString(",", prefix = "[", postfix = "]")
+    val fields = buildList {
+        s.motion?.let { m ->
+            floats(m.gravity)?.let { add("\"gravity\":$it") }
+            m.linearAcceleration?.let { a ->
+                floats(a)?.let { add("\"linear_acceleration\":$it") }
+                val mag = kotlin.math.sqrt(a.fold(0.0) { acc, v -> acc + v.toDouble() * v })
+                add("\"linear_acceleration_magnitude\":$mag")
+            }
+            // Age of the GRAVITY reading, not of the window — the window carries
+            // its own bounds. ONLY when there is a reading to date: a sample that
+            // carries no vectors has nothing whose freshness could be described, and
+            // an `age_ms` beside two nulls reads as "we measured this 1 ms from the
+            // exposure" when nothing was measured at all. That shipped for a day
+            // (~2 800 photos) after a rewrite dropped the vectors at the call site,
+            // and this is the second guard: the assembly has a test now, and the
+            // serializer will no longer put a timestamp on an empty reading.
+            if (m.gravity != null || m.linearAcceleration != null) {
+                add("\"age_ms\":${s.poseReferenceMs() - m.atMs}")
+            }
+        }
+        // The window stands on its own: a device with no gravity sensor can
+        // still have an accelerometer and a gyroscope.
+        s.imuWindow?.let { add("\"imu_window\":${imuWindowJson(it)}") }
+    }
+    // An age with nothing to date describes nothing.
+    val onlyAge = fields.size == 1 && fields.single().startsWith("\"age_ms\"")
+    return if (fields.isEmpty() || onlyAge) null
+    else fields.joinToString(",", prefix = "{", postfix = "}")
+}
+
+/**
+ * What the IMU window around the exposure contained, as the `imu_window` half
+ * of the `motion` provenance — everything a reader needs to judge the frame
+ * WITHOUT opening the samples.
+ *
+ * The samples travel with the photo now (Phase 5: `imu_samples`, a gzipped
+ * artifact at `photos.imu_samples_url`), so this is a summary beside them rather
+ * than a pointer to them. It earns its place by being cheap: a reader deciding
+ * whether a frame was steady enough to use should not have to fetch and decode
+ * tens of kilobytes to find out.
+ *
+ *  - `sample_count`, `window_start_ms`, `window_end_ms` — what span this
+ *    summary describes. NOT a lookup key into the tracking CSVs: nothing looks
+ *    an app photo up in those (see `GeoTrackingManager`'s dump — the export
+ *    exists for EXTERNAL camera frames, which have no other route).
+ *  - `accel_peak_mps2` — peak RAW accelerometer magnitude, gravity included, so
+ *    it sits near 9.81 on a still phone. Reported unaltered because it is what
+ *    the sensor said.
+ *  - `accel_peak_deviation_mps2` — peak |magnitude − g|, which IS the shake
+ *    signal and needs no linear-acceleration sensor to compute. Near zero for a
+ *    still phone at any orientation, which `accel_peak_mps2` is not.
+ *  - `gyro_peak_rad_s` — peak angular rate. Gravity-free by nature, and the one
+ *    that catches a rotation about the optical axis, which translation-only
+ *    measures miss entirely.
+ *
+ * Null when no window was captured, which is a fact about the capture and not a
+ * gap: a device with no gyroscope, or a map-only activity that never asked.
+ */
+fun imuWindowJson(w: ImuWindow): String {
+    val fields = buildList {
+        add("\"sample_count\":${w.sampleCount}")
+        add("\"window_start_ms\":${w.startMs}")
+        add("\"window_end_ms\":${w.endMs}")
+        add("\"stored_count\":${w.storedCount}")
+        // The claimed slice, so a consumer can tell which photo's artifact covers an
+        // instant WITHOUT fetching any of them. See ImuWindow.storedFromMs.
+        w.storedFromMs?.let { add("\"stored_from_ms\":$it") }
+        w.storedToMs?.let { add("\"stored_to_ms\":$it") }
+        w.accelPeakMps2?.let { add("\"accel_peak_mps2\":$it") }
+        w.accelPeakDeviationMps2?.let { add("\"accel_peak_deviation_mps2\":$it") }
+        w.gyroPeakRadS?.let { add("\"gyro_peak_rad_s\":$it") }
+    }
+    return fields.joinToString(",", prefix = "{", postfix = "}")
+}
+
+/**
+ * The camera's calibration and settings, as the upload's `lens` provenance
+ * object. See [LensStamp] for what each field means.
+ *
+ * Numbers are emitted as the platform gave them — no rounding. A reconstruction
+ * consuming intrinsics wants the value, not a tidy one, and the places this
+ * project does round (a display string, an error bar) round for a reader.
+ */
+fun lensProvenanceJson(s: SensorSnapshot): String? {
+    val l = s.lens ?: return null
+    fun floats(v: List<Float>?) = v?.joinToString(",", prefix = "[", postfix = "]")
+    fun ints(v: List<Int>?) = v?.joinToString(",", prefix = "[", postfix = "]")
+    val fields = buildList {
+        l.focalLengthMm?.let { add("\"focal_length_mm\":$it") }
+        l.apertureFStop?.let { add("\"aperture_f_stop\":$it") }
+        l.focusDistanceDiopters?.let { add("\"focus_distance_diopters\":$it") }
+        l.focusDistanceCalibration?.let { add("\"focus_distance_calibration\":\"$it\"") }
+        l.focusInfinityRequested?.let { add("\"focus_infinity_requested\":$it") }
+        l.zoomRatio?.let { add("\"zoom_ratio\":$it") }
+        l.previewRollingShutterSkewNs?.let { add("\"preview_rolling_shutter_skew_ns\":$it") }
+        floats(l.intrinsics)?.let { add("\"intrinsics\":$it") }
+        floats(l.distortion)?.let { add("\"distortion\":$it") }
+        // Which stream the per-shot half above came from, and how far it was from the
+        // frame this photo IS. Emitted together, and only when there is something for
+        // them to qualify: a lens object carrying nothing but factory calibration has
+        // no frame behind it to describe. See LensStamp.previewRollingShutterSkewNs.
+        if (
+            l.focalLengthMm != null || l.apertureFStop != null ||
+            l.focusDistanceDiopters != null || l.previewRollingShutterSkewNs != null ||
+            l.intrinsics != null || l.distortion != null
+        ) {
+            add("\"frame_values_source\":\"preview\"")
+            l.frameValuesReferencedTo?.let { add("\"frame_values_referenced_to\":\"$it\"") }
+            l.frameValuesAtMs?.let { add("\"age_ms\":${s.poseReferenceMs() - it}") }
+        }
+        floats(l.cameraIntrinsics)?.let { add("\"camera_intrinsics\":$it") }
+        floats(l.cameraDistortion)?.let { add("\"camera_distortion\":$it") }
+        floats(l.sensorPhysicalSizeMm)?.let { add("\"sensor_physical_size_mm\":$it") }
+        ints(l.sensorPixelArray)?.let { add("\"sensor_pixel_array\":$it") }
+        l.intrinsicsAvailable?.let { add("\"intrinsics_available\":$it") }
+    }
+    return if (fields.isEmpty()) null else fields.joinToString(",", prefix = "{", postfix = "}")
+}
+
+/**
+ * What the RECEIVER said about its own fix, as the upload's `fix` provenance
+ * object — the error bars and the motion, which no column carries.
+ *
+ * Deliberately NOT the position: latitude, longitude, altitude and the
+ * horizontal accuracy are already columns and already in every response, so
+ * repeating them here would be the duplication this object exists to avoid.
+ * What is here is everything `FixState` used to discard:
+ *
+ *  - `altitude_accuracy_m` — the VERTICAL error bar. A photo could say its
+ *    position was good to 4 m and nothing whatever about its height, which
+ *    matters because altitude is part of a camera centre.
+ *  - `speed_mps` / `speed_accuracy_mps` — motion at the shutter. A frame shot
+ *    at 20 m/s is a different reconstruction candidate from a standing one,
+ *    and this is the cheap version of that signal (the expensive one is the
+ *    IMU window).
+ *  - `course_deg` / `course_accuracy_deg` — the receiver's DIRECTION OF
+ *    TRAVEL, which is not a heading: a phone pointed out of a car window has a
+ *    course down the road and a heading across it. Car mode composes this into
+ *    the bearing; raw, it is also the check on that composition.
+ *  - `provider` — "gps" / "network" / "fused". With the fused client this
+ *    usually reads "fused" and so discriminates less than it looks, but a
+ *    "network" fix is useless for reconstruction and nothing else says so.
+ *
+ * `elected` is the one judgement here: whether this fix is what the photo
+ * actually recorded. Without it a reader cannot tell a quality report about
+ * the recorded position from one about a position that lost.
+ */
+fun fixProvenanceJson(s: SensorSnapshot): String? {
+    val f = s.fix ?: return null
+    val fields = buildList {
+        f.altitudeAccuracyM?.let { add("\"altitude_accuracy_m\":$it") }
+        f.speedMps?.let { add("\"speed_mps\":$it") }
+        f.speedAccuracyMps?.let { add("\"speed_accuracy_mps\":$it") }
+        f.courseDeg?.let { add("\"course_deg\":$it") }
+        f.courseAccuracyDeg?.let { add("\"course_accuracy_deg\":$it") }
+        f.provider?.let { add("\"provider\":\"$it\"") }
+        add("\"elected\":${s.locationSource == "gps"}")
+    }
+    // `elected` alone says nothing worth a row of its own.
+    return if (fields.size <= 1) null else fields.joinToString(",", prefix = "{", postfix = "}")
+}
+
+/**
  * Which stream rides along as the alternative — the swap rule.
  *
  * Two streams exist: the receiver's fix and the map's centre. One is
@@ -821,6 +1506,31 @@ interface PhotoCapture {
      * capture stamps and the pill shows (see [StampBearing]).
      */
     var stampBearing: StampBearing?
+
+    /**
+     * The one state's attitude record, pushed live by the capture screen —
+     * what the DEVICE measured, beside [stampBearing]'s what-it-faces.
+     * Same shape and same rule as [stampFix]: the pane reads no sensor of
+     * its own, this is where the reading comes from. See
+     * [SensorSnapshot.attitude].
+     */
+    var stampAttitude: cz.hillview.map.DeviceAttitude?
+
+    /**
+     * The one state's inertial record, pushed live by the capture screen —
+     * gravity and linear acceleration. Same rule as [stampAttitude]: the pane
+     * reads no sensor of its own.
+     */
+    var stampMotion: cz.hillview.map.DeviceMotionSample?
+
+    /**
+     * Whether the Armor-22 landscape heading workaround is on, mirrored from
+     * the compass settings by the screen (the same way
+     * [manualLocationElected] is mirrored from the session). It changes what
+     * a heading MEANS, so it travels with the heading — see
+     * [SensorSnapshot.compassLandscapeWorkaround].
+     */
+    var compassLandscapeWorkaround: Boolean
 
     /**
      * Pin focus at infinity — the vista shot this app exists for. A tap

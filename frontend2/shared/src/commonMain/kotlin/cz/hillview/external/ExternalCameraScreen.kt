@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import cz.hillview.settings.exportGeoTrackingNow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import cz.hillview.settings.geoAutoExportEnabled
 
 /**
  * What the platform provides to the external-camera pane. Android backs
@@ -39,9 +40,36 @@ interface ExternalCameraController {
     val notice: StateFlow<String?>
     fun setRunning(on: Boolean)
     fun openSystemCamera()
-    /** (bearings rows, locations rows) currently in the tracking tables. */
-    suspend fun tableCounts(): Pair<Int, Int>
+    /** What the tracking tables currently hold. */
+    suspend fun tableCounts(): TrackingCounts
+
+    /**
+     * How long the last export took, and how many rows — or null if none has run.
+     *
+     * The pane shows it because "can the dump keep up?" is otherwise unanswerable
+     * on the device. The clear is part of the dump, so a dump slower than the
+     * interval that triggers it gets skipped, the clear with it, and the tables grow
+     * without bound. A duration is the only warning of that.
+     */
+    suspend fun lastDump(): DumpInfo?
 }
+
+/** [ExternalCameraController.lastDump]. */
+data class DumpInfo(val rows: Int, val durationMs: Long, val ok: Boolean)
+
+/**
+ * Row counts for the external pane's readout.
+ *
+ * The IMU count is the one this mode most needs and the one it did not have: the
+ * pane offers a switch for continuous inertial logging and, until this, showed no
+ * evidence of it doing anything. A toggle with no feedback is a toggle you cannot
+ * trust.
+ */
+data class TrackingCounts(
+    val bearings: Int = 0,
+    val locations: Int = 0,
+    val imuSamples: Int = 0,
+)
 
 @Composable
 expect fun rememberExternalCameraController(): ExternalCameraController
@@ -69,15 +97,28 @@ fun ExternalCameraPane(
     val notice by controller.notice.collectAsState()
     val spatial by stateHolder.spatial.collectAsState()
     val bearing by stateHolder.bearing.collectAsState()
-    var counts by remember { mutableStateOf(0 to 0) }
+    var counts by remember { mutableStateOf(TrackingCounts()) }
 
     // Recording is started and stopped by the ACTIVITY (MainScreen), not
     // here: this pane is not composed in float mode — which is precisely
     // when recording must keep going — so its composition is the wrong
     // lifetime to hang it on. The pane only displays.
+    // Polled once a second, which also gives the IMU rate for free: the difference
+    // between two counts is samples per second, and that is the number that says
+    // whether FASTEST actually took (a few hundred) or the fallback did (a few
+    // tens) — visible on the device without a cable.
+    var imuRate by remember { mutableStateOf(0) }
+    var lastDumpInfo by remember { mutableStateOf<DumpInfo?>(null) }
     LaunchedEffect(Unit) {
         while (true) {
-            counts = controller.tableCounts()
+            lastDumpInfo = controller.lastDump()
+            val next = controller.tableCounts()
+            // Only when the table GREW: a dump clears it, and a negative delta is
+            // the export having run, not a rate.
+            if (next.imuSamples > counts.imuSamples) {
+                imuRate = next.imuSamples - counts.imuSamples
+            }
+            counts = next
             delay(1_000)
         }
     }
@@ -134,10 +175,53 @@ fun ExternalCameraPane(
         )
 
         Text(
-            "Recorded: ${counts.first} heading rows · ${counts.second} location rows",
+            "Recorded: ${counts.bearings} heading rows · ${counts.locations} location rows" +
+                " · ${counts.imuSamples} inertial samples" +
+                if (imuRate > 0) " (${imuRate}/s)" else "",
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.testTag("external-camera-counts"),
         )
+
+        // THE POINT OF SAYING THIS HERE. The tracking tables are cleared five
+        // minutes back on every dump, and the dump only WRITES a file when
+        // auto-export is on. With it off, continuous logging fills a table that is
+        // then thrown away — the samples never reach a file and nothing else
+        // anywhere says so. This mode is the one where that matters, because an
+        // external camera's frames have no other route to a motion record.
+        lastDumpInfo?.let { d ->
+            val rate = if (d.durationMs > 0) d.rows * 1000L / d.durationMs else 0
+            Text(
+                if (d.ok) {
+                    "Last export: ${d.rows} rows in ${d.durationMs}ms ($rate rows/s)"
+                } else {
+                    "Last export FAILED after ${d.durationMs}ms — rows were kept, not cleared"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (d.ok) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("external-camera-dump-stats"),
+            )
+        }
+
+        if (!geoAutoExportEnabled()) {
+            Text(
+                "Auto-export is OFF — these rows are cleared every few minutes and " +
+                    "never written to a file. Turn it on in settings, or use " +
+                    "\"Export CSVs now\" before leaving.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("external-camera-export-warning"),
+            )
+        }
+
+        // Directly under the row counts, because that is the readout of the thing
+        // it controls. NOT "before you start recording": there is no start
+        // button — MainScreen calls setRunning(activity == "external"), so the
+        // session is already running by the time this pane is on screen and the
+        // header already says "● recording". Which is precisely why flipping this
+        // has to take effect live, and why both claimants of `imuContinuous`
+        // re-claim on change (see ExternalImuSettings).
+        ContinuousImuToggle()
 
         Row(
             verticalAlignment = Alignment.CenterVertically,

@@ -16,7 +16,7 @@ import android.util.Log
  */
 class CullingGrid(private val bounds: Bounds) {
     companion object {
-        private const val TAG = "hv-CullingGrid"
+        private val TAG = hvTag("CullingGrid")
         // Off like AngularRangeCuller's: the culler runs on every marker
         // publish now, and unguarded Log calls also keep it out of host tests.
         private const val doLog = false

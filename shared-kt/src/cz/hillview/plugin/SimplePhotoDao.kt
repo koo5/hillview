@@ -201,8 +201,60 @@ interface SimplePhotoDao {
 
     // The refiner's hold released early (completion or defeat) — without
     // this the row waits out its deadline before the drain may take it.
-    @Query("UPDATE photos SET uploadHoldUntil = 0 WHERE id = :photoId")
-    fun clearUploadHold(photoId: String)
+    //
+    // FLOOR-AWARE, because the hold has more than one holder. The stamp refiner
+    // and the deferred IMU window both enrich a row after it exists, and their
+    // deadlines differ; a plain `= 0` let whichever finished FIRST free the row
+    // out from under the other, which is how the IMU window ended up missing
+    // from uploads. `notBefore` is the other holders' latest deadline: pass 0
+    // only when nothing else is still filling this row.
+    // Clears this holder's bit, and DROPS THE DEADLINE once no holder is left.
+    //
+    // The selection predicate stays exactly what it always was —
+    // `uploadHoldUntil <= :now`. The bits are bookkeeping that decides WHEN the
+    // deadline gets zeroed, never a second gate. Two wrong turns got here:
+    //
+    //   - releasing to 0 on the first finisher freed the row while the other
+    //     holder was still filling it (the IMU payload missed its upload);
+    //   - making the bits authoritative, `reasons = 0 OR deadline <= now`,
+    //     silently voided every hold set as a bare DEADLINE with no bits, which
+    //     UploadClaimRaceTest caught on a device;
+    //   - and `reasons = 0 AND deadline <= now` let a holder that DIED wedge the
+    //     row forever, since its bit never clears.
+    //
+    // One gate, with the bits deciding when it opens, satisfies all three: held
+    // while the deadline stands, freed the moment the last holder is done, and
+    // freed by the deadline alone if a holder never comes back.
+    @Query(
+        "UPDATE photos SET uploadHoldReasons = uploadHoldReasons & ~:bit, " +
+            "uploadHoldUntil = CASE WHEN (uploadHoldReasons & ~:bit) = 0 " +
+            "THEN 0 ELSE uploadHoldUntil END " +
+            "WHERE id = :photoId",
+    )
+    fun releaseUploadHold(photoId: String, bit: Int)
+
+    /**
+     * The IMU window's summary, written AFTER the row exists.
+     *
+     * A ±window around an exposure is only complete once its later half has
+     * happened, so it cannot be known at the shutter — the same reason the
+     * StampRefiner updates a row rather than computing everything up front.
+     * See GeoEngine.persistImuWindowAround and
+     * docs/recon-capture-metadata.md.
+     */
+    @Query("UPDATE photos SET inertialJson = :inertialJson WHERE id = :photoId")
+    fun updateInertialJson(photoId: String, inertialJson: String?)
+
+    @Query("SELECT inertialJson FROM photos WHERE id = :photoId")
+    fun getInertialJson(photoId: String): String?
+
+    /**
+     * The raw window, written by the same deferred pass that finalises
+     * `inertialJson` — the samples only exist to be read once the later half of
+     * the window has happened. See PhotoEntity.imuSamplesJson.
+     */
+    @Query("UPDATE photos SET imuSamplesJson = :imuSamplesJson WHERE id = :photoId")
+    fun updateImuSamplesJson(photoId: String, imuSamplesJson: String?)
 
     /**
      * Every hold, dropped. Called at app start: a refiner that was mid-flight
@@ -211,7 +263,10 @@ interface SimplePhotoDao {
      * backstop instead of a tight one — a real crash recovers on the next
      * launch rather than by waiting the deadline out.
      */
-    @Query("UPDATE photos SET uploadHoldUntil = 0 WHERE uploadHoldUntil > 0")
+    @Query(
+        "UPDATE photos SET uploadHoldUntil = 0, uploadHoldReasons = 0 " +
+            "WHERE uploadHoldUntil > 0 OR uploadHoldReasons != 0",
+    )
     fun clearAllUploadHolds(): Int
 
     /**
@@ -262,10 +317,16 @@ interface SimplePhotoDao {
     // the local row must keep telling the same story; a photo the upload
     // won keeps its at-the-time stamp, by design. Returns rows updated
     // (0 = lost the race or already gone).
+    // captureTimingJson rides along because the refinement is a FACT ABOUT THE
+    // PHOTO that only this write knows — which instant the position and bearing
+    // were interpolated to, and which of the two actually moved. The caller
+    // passes the row's existing value back when it has nothing to add, so this
+    // column is never cleared by a refinement. No schema change and no
+    // migration: the column arrived with v29.
     @Query("""
         UPDATE photos SET latitude = :latitude, longitude = :longitude,
             altitude = :altitude, bearing = :bearing, accuracy = :accuracy,
-            stampRefinedAt = :refinedAt
+            stampRefinedAt = :refinedAt, captureTimingJson = :captureTimingJson
         WHERE id = :photoId AND uploadStatus = 'pending' AND deleted = 0
     """)
     fun applyRefinedStamp(
@@ -276,6 +337,7 @@ interface SimplePhotoDao {
         bearing: Double,
         accuracy: Double,
         refinedAt: Long,
+        captureTimingJson: String?,
     ): Int
 
     // Changing a licence is only meaningful before the photo goes out; the

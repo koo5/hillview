@@ -24,8 +24,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-ExternalCamera"
+private val TAG = hvTag("ExternalCamera")
 
 /**
  * The external-camera mode's engine: sensors and GPS run CONTINUOUSLY into
@@ -92,7 +93,20 @@ class ExternalCameraService : Service() {
 		// sensor and location services, which is how this pane came to show
 		// a compass reading that was not the app's.)
 		val engine = GeoEngine.get(this)
-		engine.configure(externalCameraConfig(), cz.hillview.geo.OWNER_EXTERNAL_SERVICE)
+		// Re-claims whenever the continuous-IMU switch moves. Both claimants have
+		// to track it: mergedConfig takes `any { it.imuContinuous }`, so a stale
+		// `true` here would override the UI's `false` and the switch would look
+		// broken. load() first, so the very first claim is the STORED answer and
+		// not the default.
+		ExternalImuSettings.load(this)
+		scope.launch {
+			ExternalImuSettings.continuous.collect { continuous ->
+				engine.configure(
+					externalCameraConfig(imuContinuous = continuous),
+					cz.hillview.geo.OWNER_EXTERNAL_SERVICE,
+				)
+			}
+		}
 		scope.launch {
 			engine.location.collect { fix ->
 				fix ?: return@collect

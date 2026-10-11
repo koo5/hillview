@@ -12,7 +12,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import cz.hillview.plugin.hvTag
 
 /**
  * Capture → the shared-kt upload stack (see /shared-kt/README.md): registers
@@ -23,7 +25,7 @@ import kotlinx.coroutines.withContext
  * windows, wifi-only, foreground promotion, status sync). Stats come
  * straight from the shared DB's upload-status counts.
  */
-private const val TAG = "hv-SharedStackUpload"
+private val TAG = hvTag("SharedStackUpload")
 
 class SharedStackUploadPipeline(
     private val context: Context,
@@ -38,6 +40,207 @@ class SharedStackUploadPipeline(
     override val stats: StateFlow<QueueStats> = _stats.asStateFlow()
 
     private val uploadLogic by lazy { PhotoUploadLogic(context) }
+
+    /**
+     * Attach the IMU window's summary to a photo, once the window has closed.
+     *
+     * Reads the TRACKING TABLE, not the engine. That is the point: a ±3 s window
+     * is incomplete at the shutter, so someone has to look later — but the
+     * looking must not become a second line to the hardware. The capture path
+     * (which owns the engine, and is the allowlisted place to) asks the engine to
+     * PERSIST the window; this reads what landed. `OneStateArchitectureTest`
+     * rejected the version where this file called `GeoEngine.get` directly, and
+     * was right to: this is neither the hardware boundary, a writer adapter, nor
+     * a diagnostic.
+     *
+     * Best-effort throughout. A photo with no window is a fact about the device
+     * or the activity — no gyroscope, or an activity that never asked — and
+     * never an error.
+     */
+    /**
+     * How long to wait for the engine's deferred write to record its claim.
+     *
+     * Generous because missing it costs the payload and the wait costs nothing
+     * but a coroutine: the write is scheduled on the engine's Handler for the
+     * same instant this pass wakes, so in practice the first poll finds it. A
+     * timeout means the process was busy, the activity went away, or the IMU was
+     * never running — all of which produce a summary and no payload, which is
+     * the honest outcome rather than an error.
+     */
+    private val IMU_CLAIM_WAIT_MS = 5_000L
+    private val IMU_CLAIM_POLL_MS = 100L
+
+    /**
+     * CRASH RECOVERY ONLY — not the expected path, and deliberately far longer
+     * than the work it covers. The row is normally freed by each holder clearing
+     * its bit in `uploadHoldReasons`, not by this expiring.
+     *
+     * The first version of this was a derived deadline: window half + settle
+     * margin + claim wait + a second for two writes, about 9 s. That is a
+     * TIMEOUT dressed up as a dependency — the pass can start polling at
+     * T+3150, wait up to 5 s for the claim, and then have ~850 ms to finish two
+     * database writes before the row goes. On a busy device the upload leaves
+     * first and nothing says so. Tuning that margin is the wrong move: it makes
+     * the race rarer, not absent.
+     *
+     * So the normal path is now an explicit RELEASE by the pass that finishes
+     * the work ([releaseImuHold]), and this deadline exists solely so a photo
+     * cannot be wedged forever by a process that died mid-window or an IMU that
+     * never started. Long, because nothing waits on it when things work.
+     */
+    private val IMU_UPLOAD_HOLD_MS = cz.hillview.plugin.StampRefiner.UPLOAD_HOLD_MS
+
+    /**
+     * Clear THIS holder's bit. The row becomes uploadable when no holder's bit
+     * remains — the stamp refiner clears its own, independently.
+     *
+     * An earlier attempt encoded the two holders in the deadline alone, each
+     * releasing down to the other's. That is correct only while the two deadlines
+     * DIFFER: when they are equal, neither release lowers anything and the row
+     * waits out the full hold. They were equal. `UploadHoldTest` caught it, which
+     * is why the holders are named now instead of inferred from arithmetic.
+     */
+    private fun releaseImuHold(photoId: String) {
+        try {
+            PhotoDatabase.getDatabase(context).photoDao()
+                .releaseUploadHold(photoId, cz.hillview.plugin.UPLOAD_HOLD_IMU_WINDOW)
+            // The hold made the drain skip this row; without a poke it would wait
+            // for the next trigger. Same reasoning as the refiner's.
+            cz.hillview.plugin.PhotoUploadManager(context).startAutomaticUpload("imu-window")
+        } catch (e: Exception) {
+            Log.w(TAG, "IMU hold release for $photoId failed (deadline will free it): ${e.message}")
+        }
+    }
+
+    private fun scheduleImuWindow(photoId: String, upload: cz.hillview.upload.PendingUpload) {
+        val capturedAt = upload.capturedAtMs ?: return
+        val half = cz.hillview.geo.IMU_WINDOW_HALF_MS
+        // WHAT THE SUMMARY DESCRIBES: the frame, so it is centred on the exposure
+        // whenever the capture measured one.
+        //
+        // `sample_count` and the three peaks were computed over `press ± 3 s`, which on
+        // prod is −4.76 s / +1.24 s around the FRAME in Quality mode: 79 % of the
+        // history summarised as "near this photo" preceded the shutter. That is the one
+        // press-anchored number that reaches consumers who never open the artifact.
+        //
+        // ONLY the summary moves. The claim key and the read deadline stay on the press
+        // because the engine wrote both under that name, and two timers that disagree
+        // about which instant they mean is the bug that already made the post-shutter
+        // half of this window present or absent by luck.
+        //
+        // THE TRAILING EDGE IS STILL SHORT, and this cannot fix it. The engine persists
+        // `press ± 3 s`, so at the read there is nothing past `press + 3 s` — samples
+        // after that belong to the next capture's window and arrive later. So this buys
+        // a correct LEADING edge (no more 1.76 s of pre-press history in the peaks) and
+        // leaves the tail where it was. Honest either way: `summariseImuWindow` reports
+        // the FIRST AND LAST SAMPLE it actually found, not the range asked for, so
+        // `window_start_ms`/`window_end_ms` always describe what was really summarised.
+        // Widening the tail means widening what the engine persists — free in storage,
+        // since the trim tiles, but it moves the claim timing and that is the expensive
+        // half.
+        val summaryAt = upload.captureTiming?.exposureWallMs ?: capturedAt
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val db = cz.hillview.plugin.GeoTrackingDatabase.getDatabase(context)
+                // WAIT FOR THE CLAIM, not for a clock. This used to sit out the
+                // same deadline the engine's deferred write uses
+                // (capturedAt + half + settle) and then read the table — two
+                // timers, one on the engine's Handler and one here on
+                // Dispatchers.IO, with NO ordering between them. So the
+                // post-shutter half of the window was present or absent by luck.
+                // The claim row is written in the same coroutine as the samples
+                // and after them, so its existence proves they landed.
+                val readAt = capturedAt + half + cz.hillview.geo.IMU_SETTLE_MARGIN_MS
+                kotlinx.coroutines.delay((readAt - System.currentTimeMillis()).coerceAtLeast(0))
+                var claim = db.imuClaimDao().get(capturedAt)
+                var waited = 0L
+                while (claim == null && waited < IMU_CLAIM_WAIT_MS) {
+                    kotlinx.coroutines.delay(IMU_CLAIM_POLL_MS)
+                    waited += IMU_CLAIM_POLL_MS
+                    claim = db.imuClaimDao().get(capturedAt)
+                }
+                // The FULL window around the EXPOSURE, whoever stored it: the
+                // context number, so a reader can tell "the frame sat in 6 s of
+                // quiet" from "we only kept 2 s of it". Centred on the frame
+                // rather than the button since 2026-09-28 — see summaryAt.
+                val samples = db.imuDao().getInWindow(summaryAt - half, summaryAt + half)
+                val stats = cz.hillview.plugin.summariseImuWindow(samples) ?: return@launch
+                // What this photo OWNS: exactly the range it claimed. Attribution
+                // is data now — derived from the claim, not inferred from a
+                // high-water mark and a nominal window, which overlapped between
+                // consecutive captures by seconds.
+                val owned = claim?.let { c -> db.imuDao().getInWindow(c.fromMs, c.toMs) } ?: emptyList()
+                if (claim == null) {
+                    Log.w(TAG, "no IMU claim for $photoId after ${waited}ms — window summary only, no payload")
+                }
+                val json = cz.hillview.capture.inertialProvenanceJson(
+                    cz.hillview.capture.SensorSnapshot(
+                        capturedAtMs = capturedAt,
+                        // Which instant the ages are measured against. Without it this
+                        // rebuild silently reverted to the press while the motion sample
+                        // below had been taken at the exposure, so every photo reported
+                        // an inertial age of almost exactly minus the press→exposure gap.
+                        captureTiming = upload.captureTiming,
+                        // The point reading the SHUTTER had, carried through so
+                        // this rewrite does not drop it.
+                        motion = upload.motionSample,
+                        imuWindow = cz.hillview.capture.ImuWindow(
+                            sampleCount = stats.sampleCount,
+                            startMs = stats.startMs,
+                            endMs = stats.endMs,
+                            accelPeakMps2 = stats.accelPeakMps2,
+                            accelPeakDeviationMps2 = stats.accelPeakDeviationMps2,
+                            gyroPeakRadS = stats.gyroPeakRadS,
+                            storedCount = owned.size,
+                            // WHICH SLICE THIS PHOTO OWNS, from the claim itself — the
+                            // only place it is known, and the reason this rewrite is
+                            // where it gets written rather than the capture path. It
+                            // is what lets a consumer find the artifact holding a given
+                            // exposure without fetching candidates to look inside them:
+                            // a photo's own array holds its own exposure in 1 case out
+                            // of 86, so that lookup is always about someone else's.
+                            //
+                            // Null together with the payload when no claim arrived —
+                            // absent, never 0, because a bound of 0 would claim the
+                            // epoch and match every containment test ever run.
+                            storedFromMs = claim?.fromMs,
+                            storedToMs = claim?.toMs,
+                        ),
+                    ),
+                )
+                val dao = PhotoDatabase.getDatabase(context).photoDao()
+                dao.updateInertialJson(photoId, json)
+                // The raw samples themselves — only the OWNED range, so
+                // consecutive photos in a run tile rather than each carrying the
+                // same six seconds. Capped at the ring's capacity: a payload
+                // larger than the buffer that produced it did not come from here.
+                dao.updateImuSamplesJson(
+                    photoId,
+                    if (owned.size > cz.hillview.plugin.IMU_PAYLOAD_MAX_SAMPLES) {
+                        Log.w(TAG, "IMU payload for $photoId is ${owned.size} samples, over the cap — dropped")
+                        null
+                    } else {
+                        cz.hillview.plugin.imuSamplesPayloadJson(owned)
+                    },
+                )
+                Log.i(
+                    TAG,
+                    "IMU window for $photoId: ${stats.sampleCount} samples " +
+                        "${stats.startMs}..${stats.endMs}, owns ${owned.size} " +
+                        "(claim ${claim?.fromMs}..${claim?.toMs})",
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "could not attach the IMU window to $photoId: ${e.message}")
+            } finally {
+                // EVERY exit path releases: the payload written, the claim never
+                // found, an exception, a device with no gyroscope. A pass that
+                // returned without releasing would leave the photo waiting out
+                // the crash-recovery deadline for nothing, which is how a
+                // correctness fix turns into a stall.
+                releaseImuHold(photoId)
+            }
+        }
+    }
 
     // The stamp refiner: interpolates a fresh row's location/bearing once
     // the bracketing tracking data lands, updates the row in place, and the
@@ -86,6 +289,16 @@ class SharedStackUploadPipeline(
                 val eligible = cz.hillview.plugin.StampRefiner.isEligible(
                     upload.locationSource, upload.bearingSource,
                 )
+                // TWO holders, named rather than inferred: each clears its own bit
+                // when it finishes and the row goes when none are left. The
+                // deadline below is only the escape hatch for a holder that dies.
+                //
+                // The IMU window is claimed whenever there is a shutter time to
+                // anchor it to — scheduleImuWindow gives up on exactly that
+                // condition, so a row can never be left holding a bit nobody will
+                // clear.
+                val holdReasons = (if (eligible) cz.hillview.plugin.UPLOAD_HOLD_REFINER else 0) or
+                    (if (upload.capturedAtMs != null) cz.hillview.plugin.UPLOAD_HOLD_IMU_WINDOW else 0)
                 val photoId = uploadLogic.registerCapturedPhoto(
                     id = null,
                     filename = upload.filename,
@@ -118,18 +331,58 @@ class SharedStackUploadPipeline(
                     license = upload.license,
                     pitch = upload.pitchDeg,
                     altLocationJson = upload.altLocationJson,
-                    uploadHoldUntil = if (eligible) {
-                        System.currentTimeMillis() + cz.hillview.plugin.StampRefiner.UPLOAD_HOLD_MS
-                    } else 0,
+                    attitudeJson = upload.attitudeJson,
+                    fixJson = upload.fixJson,
+                    lensJson = upload.lensJson,
+                    inertialJson = upload.inertialJson,
+                    captureTimingJson = upload.captureTimingJson,
+                    // TWO holders, so the later deadline wins. The refiner's
+                    // hold was the only one, and it was conditional on the
+                    // refiner being ELIGIBLE — which meant a photo it did not
+                    // want had no hold at all, and its IMU window (written ~3 s
+                    // later) could never reach an upload. Even when it was
+                    // eligible, the refiner finishes first and used to free the
+                    // row while the window was still pending.
+                    uploadHoldUntil = if (holdReasons != 0) {
+                        System.currentTimeMillis() + IMU_UPLOAD_HOLD_MS
+                    } else 0L,
+                    uploadHoldReasons = holdReasons,
                 )
                 if (eligible) {
+                    // AIMED AT THE EXPOSURE, not at the press. The refiner interpolates
+                    // between the fixes bracketing an instant, and until now that
+                    // instant was the button — "the worst of the four" lies in
+                    // docs/todo/captured-at-is-the-exposure.md, because refining to the
+                    // press makes the position more PRECISE about a moment 270 ms
+                    // (latency) to 1.1 s (quality) before the frame existed, while the
+                    // existence of a refinement step advertises that it was corrected
+                    // to match the photo.
+                    //
+                    // This is also the whole of "position at the exposure": GPS is ~1 Hz,
+                    // so unlike attitude and inertial there is no sample at the exposure
+                    // to look up, and an interpolation across the bracket is strictly
+                    // better than picking the nearer fix. The mechanism already existed;
+                    // only its target was wrong.
+                    val exposureMs = upload.captureTiming?.exposureWallMs
                     refiner.refineAsync(
                         photoId,
-                        upload.capturedAtMs ?: System.currentTimeMillis(),
+                        exposureMs ?: upload.capturedAtMs ?: System.currentTimeMillis(),
                         upload.locationSource,
                         upload.bearingSource,
+                        // Never asserted: with exactCaptureTime off, or on a path that
+                        // could not read the frame's timestamp, this stays the press and
+                        // the photo says so.
+                        refinedTo = if (exposureMs != null) "exposure" else "press",
                     )
                 }
+                // The IMU window around this exposure, once its later half has
+                // happened. Scheduled here because this is the first moment the
+                // photo HAS an id, and completed by an update to the row — the
+                // same shape as the StampRefiner, which also cannot know
+                // everything at the shutter. See GeoEngine.persistImuWindowAround
+                // for why the symmetric window cannot be taken inline.
+                scheduleImuWindow(photoId, upload)
+
                 PhotoUploadManager(context).startAutomaticUpload("capture")
                 // After the insert, never before: a refresh that raced the
                 // row would query the database and find nothing, which is

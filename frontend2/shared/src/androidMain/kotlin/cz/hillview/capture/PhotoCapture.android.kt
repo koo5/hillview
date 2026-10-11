@@ -63,6 +63,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.common.util.concurrent.ListenableFuture
+import cz.hillview.map.freshAt
 import cz.hillview.core.permissions.PermissionGatePane
 import cz.hillview.core.permissions.rememberPermissionsState
 import cz.hillview.plugin.DeviceOrientation
@@ -85,8 +86,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.IOException
 import kotlin.coroutines.resume
+import cz.hillview.plugin.hvTag
 
-private const val TAG = "hv-PhotoCapture"
+private val TAG = hvTag("PhotoCapture")
 
 // The metering window prepareExposure opens between interval shots. The
 // frame minimum is there so a single mid-convergence frame cannot be
@@ -185,7 +187,10 @@ actual fun rememberPhotoCapture(): PhotoCapture {
  * written into the JPEG's EXIF. Battery discipline: camera and sensors run
  * only while the capture screen is open — release() tears everything down.
  */
-@OptIn(ExperimentalCamera2Interop::class)
+// androidx.annotation.OptIn, NOT kotlin.OptIn: ExperimentalCamera2Interop is an
+// androidx @RequiresOptIn marker, and Kotlin's @OptIn has no effect on one — the
+// class-level opt-in was inert while only the per-function one below worked.
+@androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
 private class AndroidPhotoCapture(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner,
@@ -424,6 +429,106 @@ private class AndroidPhotoCapture(
             }
         }
 
+    // Pushed by the screen from the one state, like stampFix. No state
+    // mirror: nothing in the UI reads the attitude, only the shutter does.
+    /** Factory lens calibration for the bound camera — constants, read once. */
+    private data class CameraLensFacts(
+        val intrinsics: List<Float>? = null,
+        val distortion: List<Float>? = null,
+        val physicalSizeMm: List<Float>? = null,
+        val pixelArray: List<Int>? = null,
+        val focusDistanceCalibration: String? = null,
+    )
+
+    @Volatile private var cameraLens: CameraLensFacts? = null
+
+    /**
+     * The lens values from the LAST capture result — focus, zoom and the
+     * dynamic intrinsics, which track focus and zoom and so are only true of
+     * the frame they came from.
+     *
+     * Latched off the same session capture callback that already harvests 3A,
+     * so this costs no new stream. Read at the shutter, which means it is at
+     * most one preview frame old.
+     */
+    private data class FrameLensFacts(
+        val focalLengthMm: Float? = null,
+        val apertureFStop: Float? = null,
+        val focusDistanceDiopters: Float? = null,
+        val rollingShutterSkewNs: Long? = null,
+        val intrinsics: List<Float>? = null,
+        val distortion: List<Float>? = null,
+        /**
+         * When this frame was EXPOSED, wall ms — the result's own SENSOR_TIMESTAMP
+         * through the same clock bridge the still path uses, not the moment this
+         * callback ran. Null when the HAL reported no timestamp; the provenance then
+         * emits no age rather than a dispatch-derived one.
+         */
+        val atMs: Long? = null,
+        /**
+         * The same instant on `elapsedRealtimeNanos`, which is what [lensRing] looks
+         * frames up by — the still's `exposureElapsedNs` is on that clock, and going
+         * through wall milliseconds to compare them would throw away the resolution
+         * the comparison exists for. 0 when the HAL reported no timestamp, which is
+         * the value `SampleRing` refuses.
+         */
+        val atElapsedNs: Long = 0L,
+    )
+
+    @Volatile private var frameLens: FrameLensFacts? = null
+
+    /**
+     * The preview frames' lens values, kept so the SAVE can ask what the camera's
+     * settings were at the exposure rather than at the press.
+     *
+     * MEASURED, not assumed: on build `0444561a` (23 captures, 2026-09-28) the
+     * press-time latch was **399–470 ms older than the frame the photo is of** — larger
+     * than press→exposure itself, and `focus_distance_diopters` is exactly the value
+     * 3A was moving during that window. Dividing those ages by the 66.65 ms preview
+     * period gives 5.986–7.052, i.e. a whole number of frames with a mean residual of
+     * 0.99 ms: the latch is 6–7 preview frames behind, because a capture RESULT arrives
+     * some way after its own frame was exposed.
+     *
+     * WHAT IT ACHIEVES, and the floor it hits. Measured on the build that shipped it:
+     * `lens.age_ms` went from 399-470 ms to **66-67 ms — one whole preview period,
+     * never less**, with the sign split about evenly between the frame before and the
+     * frame after. That is a 6-7x improvement and then a hard stop, and the stop is
+     * informative: I had predicted "half a period at worst" on the grounds that the
+     * exposure is phase-locked to the preview grid, so a frame would sit essentially
+     * ON it. The still does not JOIN that grid — it CONSUMES a slot. The preview frame
+     * that would have been at the exposure is the still itself, so the survivors are
+     * one period either side and equidistant, which is why the sign is a coin flip.
+     *
+     * So 66 ms is the floor for this route, not a tuning problem. Closing it further
+     * would mean averaging the two bracketing frames — which invents a third number
+     * and would need its own label — or the still's own result, which CameraX does not
+     * hand out (see [LensStamp.previewRollingShutterSkewNs]).
+     *
+     * It does NOT produce the still's own values either way.
+     *
+     * Here rather than in GeoEngine, unlike the attitude and motion rings: the camera is
+     * this file's hardware, the callback that fills this already runs on the camera
+     * thread, and nothing conflating stands between the two. The engine holds those
+     * other rings because their feed used to pass through StateFlows and the
+     * composition's dispatcher, which is not a problem this one has.
+     */
+    private val lensRing = cz.hillview.geo.SampleRing<FrameLensFacts>(
+        windowNs = cz.hillview.geo.AT_EXPOSURE_RING_WINDOW_NS,
+        maxSamples = cz.hillview.geo.AT_EXPOSURE_RING_MAX_SAMPLES,
+    ) { it.atElapsedNs }
+
+    // The at-exposure history lives in GeoEngine, not here. It was here first, fed from
+    // these setters, and that put two conflating StateFlows and the composition's
+    // dispatcher between the sensor and the ring — measurably: attitude hits ±88 ms from
+    // the exposure, a 33 Hz stream arriving as ~9 Hz. The engine feeds it on the sensor
+    // thread instead, and this file ASKS once per capture (engine.attitudeAt), which is
+    // the same arrangement persistImuWindow already has.
+    @Volatile override var stampAttitude: cz.hillview.map.DeviceAttitude? = null
+
+    @Volatile override var stampMotion: cz.hillview.map.DeviceMotionSample? = null
+
+    @Volatile override var compassLandscapeWorkaround: Boolean = false
+
     @Volatile override var stampFix: cz.hillview.map.FixState? = null
         set(value) {
             field = value
@@ -571,6 +676,44 @@ private class AndroidPhotoCapture(
                 },
             )
             .setJpegQuality(quality.coerceIn(1, 100))
+        // DIAGNOSTIC, and the last cheap option before owning the file write.
+        // camera2's onCaptureStarted carries the frame's exact SENSOR_TIMESTAMP as a
+        // parameter; CameraX's same-named callback has none and discards it. If the
+        // STILL's request reaches this callback we get the true exposure instant AND
+        // a direct measurement of how far our main-thread reading lags it. The
+        // completed-result run of 2026-09-27 says only the REPEATING request arrives
+        // here, so the expected answer is no — but "measured no" is worth six lines
+        // before recommending a change to the save path on a presumption.
+        //
+        // Logs only within 3 s of a press, so it cannot spam: no flag to leak, and
+        // the window auto-expires.
+        Camera2Interop.Extender(captureBuilder).setSessionCaptureCallback(
+            object : android.hardware.camera2.CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureStarted(
+                    session: android.hardware.camera2.CameraCaptureSession,
+                    request: CaptureRequest,
+                    timestamp: Long,
+                    frameNumber: Long,
+                ) {
+                    val started = captureStartMs
+                    if (started == 0L || SystemClock.elapsedRealtime() - started > 3_000) return
+                    // Same bridge as before, read back-to-back: this HAL's
+                    // timestampSource is UNKNOWN, so `timestamp` is uptime-based.
+                    val bridged = timestamp + (SystemClock.elapsedRealtimeNanos() - System.nanoTime())
+                    val sincePrev = if (lastStartedTsNs != 0L) {
+                        "${(timestamp - lastStartedTsNs) / 1_000_000.0}ms since prev"
+                    } else {
+                        "first"
+                    }
+                    lastStartedTsNs = timestamp
+                    Log.i(
+                        TAG,
+                        "cam2 started: frame=$frameNumber ts=$timestamp " +
+                            "bridged_ms=${bridged / 1_000_000} ($sincePrev)",
+                    )
+                }
+            },
+        )
         pinnedResolution?.let { r ->
             // Three fences, because the default selector quietly prefers
             // 4:3: an aspect strategy derived from the request, a bounding
@@ -698,6 +841,50 @@ private class AndroidPhotoCapture(
         val minFocusDistance = info.getCameraCharacteristic(
             CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE,
         )
+
+        // The lens CALIBRATION — factory values that cannot change, so read
+        // once here rather than per frame. Nothing read any of this before
+        // 2026-09-26; a reconstruction was left to recover from the images what
+        // the manufacturer had already written down.
+        //
+        // LENS_INTRINSIC_CALIBRATION is absent on many phones. Its absence is
+        // recorded as a FACT (intrinsicsAvailable) because "this device does not
+        // publish a calibration" and "this app did not look" are different
+        // claims and only one is the phone's fault.
+        val camIntrinsics = info.getCameraCharacteristic(
+            CameraCharacteristics.LENS_INTRINSIC_CALIBRATION,
+        )?.toList()
+        val camDistortion = info.getCameraCharacteristic(
+            CameraCharacteristics.LENS_DISTORTION,
+        )?.toList()
+        val physicalSize = info.getCameraCharacteristic(
+            CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE,
+        )
+        val pixelArray = info.getCameraCharacteristic(
+            CameraCharacteristics.SENSOR_INFO_PIXEL_ARRAY_SIZE,
+        )
+        // How LENS_FOCUS_DISTANCE may be READ — a dioptre value from an
+        // UNCALIBRATED lens is an ordering, not a distance.
+        val focusCalibration = when (
+            info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_FOCUS_DISTANCE_CALIBRATION)
+        ) {
+            CameraMetadata.LENS_INFO_FOCUS_DISTANCE_CALIBRATION_CALIBRATED -> "calibrated"
+            CameraMetadata.LENS_INFO_FOCUS_DISTANCE_CALIBRATION_APPROXIMATE -> "approximate"
+            CameraMetadata.LENS_INFO_FOCUS_DISTANCE_CALIBRATION_UNCALIBRATED -> "uncalibrated"
+            else -> null
+        }
+        cameraLens = CameraLensFacts(
+            intrinsics = camIntrinsics,
+            distortion = camDistortion,
+            physicalSizeMm = physicalSize?.let { listOf(it.width, it.height) },
+            pixelArray = pixelArray?.let { listOf(it.width, it.height) },
+            focusDistanceCalibration = focusCalibration,
+        )
+        Log.i(
+            TAG,
+            "lens facts: intrinsics=${camIntrinsics ?: "ABSENT"} distortion=${camDistortion != null} " +
+                "physMm=$physicalSize pixels=$pixelArray focusCal=$focusCalibration",
+        )
         val manualFocus =
             afModes?.contains(CameraMetadata.CONTROL_AF_MODE_OFF) == true &&
                 (minFocusDistance ?: 0f) > 0f
@@ -761,6 +948,45 @@ private class AndroidPhotoCapture(
                     // The 3A picture as the HAL reports it, every frame,
                     // so the shutter press can log what CameraX's capture
                     // pipeline is about to wait on (see StillCaptureMode).
+                    // The LENS, off the same result as 3A — no new stream.
+                    //
+                    // These are a PREVIEW frame's values, which is the whole reason the
+                    // frame's own instant is carried with them: the shutter reads this
+                    // latch at the press, and the exposure is 270 ms (latency) to 1.1 s
+                    // (quality) later. Without a timestamp there is no way to say how
+                    // stale they were; with one it is a number on every photo.
+                    //
+                    // THE SAME CLOCK BRIDGE as the still path, one hop shorter because
+                    // the destination here is the wall clock rather than
+                    // elapsedRealtime: SENSOR_TIMESTAMP is on the uptime base
+                    // (timestampSource UNKNOWN), System.nanoTime() is that same base,
+                    // so the frame's AGE is a monotonic subtraction and only the anchor
+                    // is wall. Read back to back, which is what keeps it exact.
+                    // (Substituting the still path's two-step bridge gives this
+                    // identical expression — it is the same conversion, not a second
+                    // one.)
+                    val elapsedNowNs = SystemClock.elapsedRealtimeNanos()
+                    val monoNowNs = System.nanoTime()
+                    val wallNowMs = System.currentTimeMillis()
+                    val frameTs = result.get(CaptureResult.SENSOR_TIMESTAMP)
+                    val frameAtMs = frameTs?.let { wallNowMs - (monoNowNs - it) / 1_000_000 }
+                    val facts = FrameLensFacts(
+                        focalLengthMm = result.get(CaptureResult.LENS_FOCAL_LENGTH),
+                        apertureFStop = result.get(CaptureResult.LENS_APERTURE),
+                        focusDistanceDiopters = result.get(CaptureResult.LENS_FOCUS_DISTANCE),
+                        rollingShutterSkewNs =
+                            result.get(CaptureResult.SENSOR_ROLLING_SHUTTER_SKEW),
+                        intrinsics =
+                            result.get(CaptureResult.LENS_INTRINSIC_CALIBRATION)?.toList(),
+                        distortion = result.get(CaptureResult.LENS_DISTORTION)?.toList(),
+                        atMs = frameAtMs,
+                        // The elapsedRealtime leg of the bridge, for the ring. Zero
+                        // without a HAL timestamp, which is what makes SampleRing
+                        // refuse the entry rather than keep one that can never match.
+                        atElapsedNs = frameTs?.plus(elapsedNowNs - monoNowNs) ?: 0L,
+                    )
+                    frameLens = facts
+                    lensRing.add(facts)
                     last3A = ThreeAState(
                         afMode = result.get(CaptureResult.CONTROL_AF_MODE),
                         afState = result.get(CaptureResult.CONTROL_AF_STATE),
@@ -1418,7 +1644,11 @@ private class AndroidPhotoCapture(
     // plus inter-shot cadence. Feeds the copyable Stats dialog.
     @Volatile private var captureStartMs = 0L
     @Volatile private var captureExposedAtMs = 0L
+
+    /** Previous camera2 onCaptureStarted timestamp — cadence, for the diagnostic above. */
+    @Volatile private var lastStartedTsNs = 0L
     @Volatile private var lastShotAtMs = 0L
+
 
     /**
      * The shutter's voice plays at onCaptureStarted — the actual exposure —
@@ -1534,6 +1764,207 @@ private class AndroidPhotoCapture(
     }
 
     /**
+     * Capture into memory and write the file ourselves, so the photo can record the
+     * instant it was EXPOSED.
+     *
+     * The only reason this path exists: `ImageProxy.imageInfo.timestamp` is the frame's
+     * own SENSOR_TIMESTAMP, and CameraX offers it nowhere else. Everything else was
+     * tried — a session capture callback sees only the preview stream, the camera's own
+     * EXIF timestamp lands ~243 ms after the exposure, and `onCaptureStarted` is a
+     * main-thread dispatch that runs ~104 ms late with ±16 ms of jitter.
+     *
+     * Equivalent to the CameraX save in what it produces (bytes in the same folder,
+     * indexed the same way, the same row and upload) and different in three ways: the
+     * timestamp, a chain fallback that cannot lose the frame because the frame is in
+     * hand, and no EXIF (the caller only routes here when EXIF writing is off).
+     */
+    private fun takePictureInMemory(
+        capture: ImageCapture,
+        chain: List<StorageMode>,
+        filename: String,
+        hideFromGallery: Boolean,
+        snapshot: SensorSnapshot,
+        watchdog: Job,
+        mode: StorageMode,
+    ) {
+        capture.takePicture(
+            ContextCompat.getMainExecutor(context),
+            object : ImageCapture.OnImageCapturedCallback() {
+                override fun onCaptureStarted() {
+                    // Kept for the tone and for comparison, NOT as the timestamp: this
+                    // reading is the one measured to be ~104 ms late.
+                    val now = SystemClock.elapsedRealtime()
+                    captureExposedAtMs = now
+                    CaptureStatsLog.record(
+                        "press→exposure", now - captureStartMs, System.currentTimeMillis(),
+                    )
+                    playCaptureToneOnce(snapshot, "exposure")
+                }
+
+                override fun onCaptureSuccess(image: androidx.camera.core.ImageProxy) {
+                    watchdog.cancel()
+                    val shotAt = SystemClock.elapsedRealtime()
+                    val wall = System.currentTimeMillis()
+                    val bytes: ByteArray
+                    val exposureElapsedNs: Long
+                    // Read at ENTRY, beside `wall` above, so the wall-clock conversion
+                    // below cannot absorb the duration of the file write.
+                    var elapsedNsAtEntry = 0L
+                    try {
+                        // THE CLOCK BRIDGE, read back-to-back inside the callback. This
+                        // HAL reports timestampSource UNKNOWN, so the frame's timestamp
+                        // is on uptime's base while every sample, bearing and location
+                        // row uses elapsedRealtimeNanos — and on the device this was
+                        // measured on the two were 2.016 DAYS apart. Reading the pair
+                        // here rather than at startup is what keeps it exact: they
+                        // diverge across deep sleep, never while awake.
+                        elapsedNsAtEntry = SystemClock.elapsedRealtimeNanos()
+                        val monoNs = System.nanoTime()
+                        exposureElapsedNs = image.imageInfo.timestamp + (elapsedNsAtEntry - monoNs)
+                        val buf = image.planes[0].buffer
+                        bytes = ByteArray(buf.remaining()).also { buf.get(it) }
+                    } finally {
+                        image.close()
+                    }
+
+                    val saved = PhotoStorage.writeBytesToChain(
+                        context, chain, filename, hideFromGallery, bytes,
+                    )
+                    if (saved == null) {
+                        Log.e(TAG, "every storage target refused the bytes")
+                        state = state.copy(
+                            capturing = false, errorMessage = "could not save photo anywhere",
+                        )
+                        return
+                    }
+
+                    // Wall clock for the same instant, so it can be compared with
+                    // captured_at. Both terms come from the callback's ENTRY — `wall`
+                    // and `elapsedNsAtEntry` are microseconds apart — so the file write
+                    // that happened in between cannot bias it.
+                    val exposureWallMs = wall - (elapsedNsAtEntry - exposureElapsedNs) / 1_000_000
+
+                    // `shotAt` is the ImageProxy HANDOVER; the CameraX path's equivalent
+                    // instant is onImageSaved, i.e. after the file exists. Recording both
+                    // under "exposure→jpeg" would put two different measurements under
+                    // one name, which is the mistake this whole thread is about — so the
+                    // handover gets its own name and the comparable figure is taken
+                    // after our write.
+                    val savedAt = SystemClock.elapsedRealtime()
+                    CaptureStatsLog.record("shutter→jpeg", savedAt - captureStartMs, wall)
+                    if (captureExposedAtMs != 0L) {
+                        CaptureStatsLog.record("exposure→bytes", shotAt - captureExposedAtMs, wall)
+                        CaptureStatsLog.record("exposure→jpeg", savedAt - captureExposedAtMs, wall)
+                    }
+                    if (lastShotAtMs != 0L) {
+                        CaptureStatsLog.record("cadence", savedAt - lastShotAtMs, wall)
+                    }
+                    lastShotAtMs = savedAt
+                    // The exact figure, and the one the log should show, because it is
+                    // the whole point of this path: press→exposure with no dispatch in
+                    // it. Negative is impossible; a ZSL device would make it so, and
+                    // then this number is the thing that reveals it.
+                    val pressToExpMs = exposureWallMs - snapshot.capturedAtMs
+                    Log.i(
+                        TAG,
+                        "saved $filename (own write, ${saved.mode.key}): " +
+                            "press→exposure ${pressToExpMs}ms EXACT, " +
+                            "exposure→bytes ${shotAt - captureExposedAtMs}ms, " +
+                            "exposure→jpeg ${savedAt - captureExposedAtMs}ms, " +
+                            "dispatch was ${captureExposedAtMs -
+                                exposureElapsedNs / 1_000_000}ms late, ${bytes.size} bytes",
+                    )
+                    playCaptureToneOnce(snapshot, "save")
+                    if (!hideFromGallery) saved.file?.let { PhotoStorage.indexInGallery(context, it) }
+
+                    // THE POINT OF THE RING. The stamp was read at the press; these are
+                    // the same streams as the device saw them when the shutter was
+                    // actually open. Null means the ring had nothing within tolerance,
+                    // and then the press-time value stands — visibly, via
+                    // pose_referenced_to below, rather than by silent substitution.
+                    val attitudeAtExposure = engine.attitudeAt(exposureElapsedNs)
+                    val motionAtExposure = engine.motionAt(exposureElapsedNs)
+                    // The lens is the THIRD ring, and the one with the most to gain:
+                    // its press-time latch measured 399–470 ms from the frame, where
+                    // the attitude's was 50 ms. Still a preview frame either way — the
+                    // still's own result is not on offer — but the nearest one rather
+                    // than one seven frames and a shutter lag ago.
+                    val lensAtExposure = lensStampAt(exposureElapsedNs)
+                    state = state.copy(
+                        capturing = false,
+                        lastPhoto = CapturedPhoto(
+                            saved.locator, filename,
+                            snapshot.copy(
+                                attitude = attitudeAtExposure ?: snapshot.attitude,
+                                motion = motionAtExposure ?: snapshot.motion,
+                                lens = lensAtExposure ?: snapshot.lens,
+                                // THE THIRD STREAM, and the one with no ring to look
+                                // into: GPS arrives at ~1 Hz, so there is no fix "at"
+                                // the exposure to swap in — the honest at-exposure
+                                // position is an INTERPOLATION between the fixes
+                                // bracketing it, which is exactly what StampRefiner
+                                // does and why it is now aimed here (see
+                                // SharedStackUploadPipeline).
+                                //
+                                // What this line fixes is the AGE. It was measured at
+                                // the press, in snapshotSensors, from the fix's own
+                                // elapsedRealtimeNanos — so it under-reported the
+                                // staleness relative to the frame by the whole
+                                // press→exposure gap, the same way attitude.age_ms
+                                // read 25 ms when it meant 337. Both terms are
+                                // distances from one fix instant, so the correction is
+                                // exact addition, not a re-measurement: a re-read now
+                                // would time from the SAVE, which is later still.
+                                locationAgeMs = snapshot.locationAgeMs?.plus(pressToExpMs),
+                                captureTiming = CaptureTiming(
+                                    // captured_at is still the press: moving it is a
+                                    // separate decision with a filename, a DB column
+                                    // and the pics join behind it. What changes here is
+                                    // that the exposure is now RECORDED beside it.
+                                    capturedAtSource = "press",
+                                    pressToExposureMs = pressToExpMs,
+                                    exposureToJpegMs = savedAt - captureExposedAtMs,
+                                    stillMode = this@AndroidPhotoCapture.stillMode.key,
+                                    build = cz.hillview.BuildInfo.label(),
+                                    exposureElapsedNs = exposureElapsedNs,
+                                    exposureWallMs = exposureWallMs,
+                                    exposureSource = "sensor_timestamp",
+                                    // Only claim the exposure when BOTH streams answered
+                                    // for it: a record half from one instant and half
+                                    // from another is the ambiguity this field exists to
+                                    // remove.
+                                    poseReferencedTo = if (
+                                        attitudeAtExposure != null && motionAtExposure != null
+                                    ) {
+                                        "exposure"
+                                    } else {
+                                        "press"
+                                    },
+                                ),
+                            ),
+                        ),
+                    )
+                    cz.hillview.plugin.EventLog.record(
+                        "capture",
+                        "$filename (${saved.mode.key}, own write, " +
+                            (snapshot.locationSource ?: "no position") +
+                            ") press→exposure ${pressToExpMs}ms exact",
+                    )
+                }
+
+                override fun onError(exception: ImageCaptureException) {
+                    watchdog.cancel()
+                    Log.e(TAG, "in-memory capture failed", exception)
+                    state = state.copy(
+                        capturing = false,
+                        errorMessage = "capture failed: ${exception.message}",
+                    )
+                }
+            },
+        )
+    }
+
+    /**
      * Walk the storage chain: the first target that both prepares and saves
      * wins. Mirrors device_photos.rs — a target blocked by scoped storage (a
      * direct DCIM write on API 29+) degrades to the next instead of losing
@@ -1547,6 +1978,7 @@ private class AndroidPhotoCapture(
         writeExif: Boolean,
         snapshot: SensorSnapshot,
         watchdog: Job,
+        settings: cz.hillview.settings.UploadSettings = uploadSettings.settings.value,
     ) {
         val mode = chain.firstOrNull()
         if (mode == null) {
@@ -1564,15 +1996,45 @@ private class AndroidPhotoCapture(
         }
         val (options, file) = prepared
 
+        // OWN THE WRITE, when the settings allow it and the user asked: the frame's
+        // own SENSOR_TIMESTAMP is the only source of the instant the photo was
+        // EXPOSED, and CameraX surrenders it only through the in-memory overload.
+        // Proved reachable 2026-09-28 — 104 ms before the main-thread callback that
+        // reports it, and that callback jitters by +-16, so no correction could
+        // substitute. See docs/todo/captured-at-is-the-exposure.md.
+        //
+        // Narrow on purpose. It declines rather than degrades:
+        //  - writeExif on  -> the ordinary path, because EXIF still needs a file to
+        //    save into and doing it here would be the same two passes with more code;
+        //  - no file target -> the ordinary path, because MediaStore from bytes needs
+        //    an insert, an openOutputStream and IS_PENDING, which this does not do yet.
+        // Either way the photo is saved exactly as before; only the exact timestamp is
+        // missing, and `capture_timing.exposure_source` says so by being absent.
+        if (settings.exactCaptureTime && !writeExif && PhotoStorage.chainHasFileTarget(chain)) {
+            takePictureInMemory(capture, chain, filename, hideFromGallery, snapshot, watchdog, mode)
+            return
+        } else if (settings.exactCaptureTime) {
+            Log.i(
+                TAG,
+                "exact capture time declined: " +
+                    (if (writeExif) "EXIF writing is on" else "no file target in $chain"),
+            )
+        }
+
         capture.takePicture(
             options,
             ContextCompat.getMainExecutor(context),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onCaptureStarted() {
-                    // The camera has started exposing the still: the
-                    // moment the photo is OF. Press→here is CameraX's
-                    // pre-capture work (3A lock in Quality mode, request
-                    // submission); here→saved is the HAL + JPEG + write.
+                    // CameraX says the still's capture has started. NOT the moment
+                    // the photo is OF, which this comment used to claim: the reading
+                    // below is taken on the MAIN executor (see takePicture's second
+                    // argument), so it carries main-thread queueing delay of an
+                    // unmeasured size, and camera2's own onCaptureStarted — which
+                    // does carry the exact SENSOR_TIMESTAMP — hands CameraX that
+                    // value and CameraX drops it (its override has no parameters).
+                    // Press→here is CameraX's pre-capture work (3A lock in Quality
+                    // mode, request submission); here→saved is the HAL + JPEG + write.
                     val now = SystemClock.elapsedRealtime()
                     captureExposedAtMs = now
                     val lag = now - captureStartMs
@@ -1597,7 +2059,17 @@ private class AndroidPhotoCapture(
                     } else {
                         "press→jpeg ${shotAt - captureStartMs}ms (no onCaptureStarted)"
                     }
-                    Log.i(TAG, "saved: $timing")
+                    // The FILENAME, because capturedAtMs is its stem: that is what
+                    // lets one log line be matched to one JPEG when an interval run
+                    // produces twenty of them, instead of re-deriving the press from
+                    // the previous line's logcat stamp minus its lag.
+                    Log.i(TAG, "saved hillview_photo_${snapshot.capturedAtMs}.jpg: $timing")
+                    // Captured as LOCALS here, where both instants are known and
+                    // still belong to THIS capture: captureStartMs is @Volatile and a
+                    // fast interval run can start the next press before this
+                    // capture's finalize coroutine reaches CapturedPhoto below.
+                    val pressToExpMs = if (exposedAt != 0L) exposedAt - captureStartMs else null
+                    val expToJpegMs = if (exposedAt != 0L) shotAt - exposedAt else null
                     if (lastShotAtMs != 0L) {
                         CaptureStatsLog.record("cadence", shotAt - lastShotAtMs, wall)
                     }
@@ -1653,7 +2125,27 @@ private class AndroidPhotoCapture(
                             // the final bytes.)
                             kotlinx.coroutines.withContext(Dispatchers.Main) {
                                 state = state.copy(
-                                    lastPhoto = CapturedPhoto(locator, filename, snapshot),
+                                    lastPhoto = CapturedPhoto(
+                                        locator, filename,
+                                        // The timing joins the snapshot only here: the
+                                        // press-time copy could not have known it, and
+                                        // this is the object the row is built from.
+                                        snapshot.copy(
+                                            captureTiming = CaptureTiming(
+                                                capturedAtSource = "press",
+                                                pressToExposureMs = pressToExpMs,
+                                                exposureToJpegMs = expToJpegMs,
+                                                // The CAPTURE mode, not the
+                                                // storage target: `mode` here is
+                                                // the StorageMode, and passing it
+                                                // sent "public_folder" to the
+                                                // server as a still mode until the
+                                                // uploaded data said so.
+                                                stillMode = stillMode.key,
+                                                build = cz.hillview.BuildInfo.label(),
+                                            ),
+                                        ),
+                                    ),
                                 )
                             }
                             CaptureStatsLog.record(
@@ -1742,6 +2234,18 @@ private class AndroidPhotoCapture(
         // offset included. Raw compass only as a fallback before the
         // screen pushes the first value.
         val stamp = stampBearing
+        // The SYMMETRIC IMU window, persisted once its later half has HAPPENED —
+        // fire and forget. The engine writes the samples; the upload path reads
+        // them back out of the tracking table to summarise, because it must not
+        // reach the engine itself (OneStateArchitectureTest rejected that, and
+        // was right: it is neither the hardware boundary nor a writer adapter).
+        //
+        // The press is NOT the exposure. This file measures press→exp itself,
+        // and Quality mode's 3A lock can make it approach a second, so a window
+        // ending at the press would contain none of the frame it describes —
+        // which is the wrong half for motion blur and useless for finding a
+        // shutter in the signal.
+        engine.persistImuWindowAround(capturedAtMs)
         return SensorSnapshot(
             latitude = position?.latitude,
             longitude = position?.longitude,
@@ -1761,6 +2265,95 @@ private class AndroidPhotoCapture(
             deviceRotationDeg = DeviceOrientation.toDegrees(pose),
             exposure = exposure,
             altLocation = alt,
+            // What the DEVICE measured, only if it measured it near enough to
+            // NOW to describe this shutter. The same freshness rule the
+            // tracking row uses, and for the same reason: a stale attitude
+            // under a fresh timestamp is a lie that reads like a measurement.
+            attitude = stampAttitude.freshAt(capturedAtMs),
+            compassLandscapeWorkaround = compassLandscapeWorkaround,
+            // The receiver's own quality report, whether or not its fix won the
+            // election — see SensorSnapshot.fix.
+            fix = stampFix,
+            lens = lensStampNow(),
+            // Same freshness rule as the attitude: a stale gravity vector under
+            // a fresh shutter is the invented-`0f` mistake in another costume.
+            motion = stampMotion?.takeIf { capturedAtMs - it.atMs in 0..cz.hillview.map.ATTITUDE_MAX_AGE_MS },
+            // The ONE place the IMU window is asked for. The engine holds the
+            // ring in memory (it is the only actor allowed to open a sensor) and
+            // persists the slice around this exposure; what comes back is the
+            // summary that travels with the photo. Not a flow, deliberately: a
+            // 100 Hz buffer is not user-facing state.
+            // The before-half, inline, as a FLOOR: what a photo carries even if
+            // the deferred symmetric read never runs (process death, a row
+            // already gone). Scheduled just above this constructor.
+            imuWindow = engine.persistImuWindowBeforeShutter(capturedAtMs)?.let {
+                ImuWindow(
+                    sampleCount = it.sampleCount,
+                    startMs = it.startMs,
+                    endMs = it.endMs,
+                    accelPeakMps2 = it.accelPeakMps2,
+                    accelPeakDeviationMps2 = it.accelPeakDeviationMps2,
+                    gyroPeakRadS = it.gyroPeakRadS,
+                    storedCount = it.storedCount,
+                )
+            },
+        )
+    }
+
+    /**
+     * The camera's calibration and settings as of the LAST preview frame, joined to the
+     * two things only the APP knows: the zoom it asked for and whether the user pinned
+     * focus at infinity.
+     *
+     * Read at the press, so the frame it describes is 6–7 preview frames behind — and
+     * then the exposure is a further ~300 ms away. [lensStampAt] is the version that
+     * asks the ring instead; this one is what a capture keeps when there is no exposure
+     * instant to ask about.
+     */
+    private fun lensStampNow(): LensStamp? = lensStampFrom(frameLens, "press")
+
+    /**
+     * The same, for the preview frame nearest [exposureElapsedNs] — the lens half of
+     * "every sensor snapshot at the exposure".
+     *
+     * Null when the ring holds nothing within tolerance, and then the caller keeps the
+     * press-time stamp, visibly: `frame_values_referenced_to` says which one it got.
+     */
+    private fun lensStampAt(exposureElapsedNs: Long): LensStamp? =
+        lensRing.nearest(exposureElapsedNs, cz.hillview.geo.AT_EXPOSURE_TOLERANCE_NS)
+            ?.let { lensStampFrom(it, "exposure") }
+
+    /**
+     * Null only when nothing at all is known — no camera bound and no frame yet.
+     */
+    private fun lensStampFrom(frame: FrameLensFacts?, referencedTo: String): LensStamp? {
+        val cam = cameraLens
+        if (cam == null && frame == null) return null
+        return LensStamp(
+            focalLengthMm = frame?.focalLengthMm,
+            apertureFStop = frame?.apertureFStop,
+            focusDistanceDiopters = frame?.focusDistanceDiopters,
+            focusDistanceCalibration = cam?.focusDistanceCalibration,
+            // INTENT, beside the measurement above: what the user asked for is
+            // not always what the lens did.
+            focusInfinityRequested = focusInfinity,
+            zoomRatio = zoomRatio,
+            previewRollingShutterSkewNs = frame?.rollingShutterSkewNs,
+            frameValuesAtMs = frame?.atMs,
+            // Only claimed when there IS a frame to have referenced: with no preview
+            // result at all the rest of this half is absent and the word would qualify
+            // nothing.
+            frameValuesReferencedTo = frame?.let { referencedTo },
+            intrinsics = frame?.intrinsics,
+            distortion = frame?.distortion,
+            cameraIntrinsics = cam?.intrinsics,
+            cameraDistortion = cam?.distortion,
+            sensorPhysicalSizeMm = cam?.physicalSizeMm,
+            sensorPixelArray = cam?.pixelArray,
+            // Recorded even when false, and only once a camera has bound: the
+            // question "does this phone publish a calibration" has an answer
+            // then, and did not before.
+            intrinsicsAvailable = cam?.let { it.intrinsics != null },
         )
     }
 
