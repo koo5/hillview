@@ -168,6 +168,19 @@ data class OrientationSensorData(
 	 */
 	val fieldMagnitudeUt: Float? = null,
 	val fieldDipDeg: Float? = null,
+	/**
+	 * WHAT THE FUSED MATRIX SAID about the two axes it no longer provides.
+	 *
+	 * [pitch] and [roll] come from gravity since 2026-10-10, which is what makes these
+	 * worth recording: the published value can no longer report the fused attitude's
+	 * misbehaviour, and that misbehaviour is what is under investigation. Two faults are
+	 * known — a 180° branch ambiguity, and a dynamic OVERSHOOT (a 0→90° sweep reported as
+	 * 0→100→90, consistent with the gyro over-reading by about a tenth and the reference
+	 * then pulling it back). Neither can reach the published axes now, so neither would be
+	 * visible without this.
+	 */
+	val matrixPitchDeg: Float? = null,
+	val matrixRollDeg: Float? = null,
 )
 
 

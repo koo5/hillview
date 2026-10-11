@@ -590,6 +590,17 @@ data class CaptureState(
      */
     val gravityRollDeg: Float? = null,
     /**
+     * WHAT THE FUSED MATRIX SAYS the roll is — the SUSPECT, not the reference.
+     *
+     * This replaced [gravityRollDeg]'s role in the readout when the published roll became
+     * gravity's (`c9c06964`): comparing the published value against gravity stopped being
+     * informative the moment it WAS gravity, so the comparison was inverted to point at
+     * the fused attitude instead. Two of its faults are known — the 180° branch, and a
+     * dynamic overshoot where a 0→90° sweep reports 0→100→90 — and neither can reach the
+     * published axes any more, so neither would be visible without this.
+     */
+    val matrixRollDeg: Float? = null,
+    /**
      * Whether the 180° branch correction is firing RIGHT NOW — see
      * `CameraPose.onWrongAttitudeBranch`. Marked in the readout so a flip the eye sees
      * can be attributed, instead of being a jump with no stated cause.
@@ -1231,6 +1242,13 @@ fun altLocationJson(a: AltLocation): String {
  *  - `azimuth_mirrored` — whether the landscape-above-horizon mirror was
  *    undone. False means "not affected" OR "not enabled";
  *    `landscape_azimuth_negation` above is what tells those apart.
+ *  - `matrix_pitch_deg`, `matrix_roll_deg` — what the FUSED MATRIX said about the
+ *    two axes `pitch_deg` and `roll_deg` stopped coming from in v3. Recorded because
+ *    the published values can no longer report the fused attitude misbehaving, and
+ *    two of its faults are known: the 180° branch above, and a dynamic OVERSHOOT —
+ *    a 0→90° roll sweep reported as 0→100→90, which is what a gyro over-reading by
+ *    about a tenth looks like while the reference pulls it back. Subtracting these
+ *    from the published pair is the measurement; without them a frame cannot make it.
  *
  * The tracking table holds all of this at sensor rate too — but that table
  * only leaves the phone as a manual CSV export, so for an uploaded photo this
@@ -1260,6 +1278,8 @@ fun attitudeProvenanceJson(s: SensorSnapshot): String? {
             it.deviceBearingDeg?.let { b -> add("\"device_bearing_deg\":$b") }
             it.branchCorrected?.let { b -> add("\"branch_corrected\":$b") }
             it.azimuthMirrored?.let { b -> add("\"azimuth_mirrored\":$b") }
+            it.matrixPitchDeg?.let { v -> add("\"matrix_pitch_deg\":$v") }
+            it.matrixRollDeg?.let { v -> add("\"matrix_roll_deg\":$v") }
         }
         s.deviceRotationDeg?.let { add("\"device_rotation_deg\":$it") }
         s.compassLandscapeWorkaround?.let { add("\"landscape_azimuth_negation\":$it") }

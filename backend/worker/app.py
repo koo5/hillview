@@ -796,6 +796,10 @@ class BrowserMetadata(BaseModel):
 	#   landscape_azimuth_negation - whether the Armor-22 toggle was ENABLED.
 	#     azimuth_mirrored below says whether it actually fired; for rows older
 	#     than 2026-10-10, roll_deg is what has to be used to guess at that.
+	#   matrix_pitch_deg, matrix_roll_deg - what the FUSED matrix said about the two
+	#     axes pitch_deg/roll_deg stopped coming from in metadata_version 3, where they
+	#     became gravity's. The pair's difference measures the fusion's error, which the
+	#     published values alone can no longer show.
 	#   rotation_vector, matrix_determinant, bearing_reference,
 	#     bearing_conditioning, camera_bearing_deg, device_bearing_deg,
 	#     branch_corrected, azimuth_mirrored - HOW the angles were arrived at:

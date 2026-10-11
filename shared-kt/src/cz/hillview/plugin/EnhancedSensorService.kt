@@ -1600,6 +1600,10 @@ class EnhancedSensorService(
             // measured whatever the fusion mode, and it is recorded precisely because it
             // cannot be recomputed from any sensor series afterwards.
             deviceRotationDeg = DeviceOrientation.toDegrees(deviceOrientation),
+            // The matrix's own answer for the two axes gravity now provides, so its
+            // faults stay visible after it stopped being the published source.
+            matrixPitchDeg = pose?.pitchDeg,
+            matrixRollDeg = pose?.imageRollDeg,
             // Whether the compass can be trusted at this spot at all. Computed here
             // because this is where the accelerometer and the magnetometer are both
             // already in hand, and gated on the magnetometer having reported: an

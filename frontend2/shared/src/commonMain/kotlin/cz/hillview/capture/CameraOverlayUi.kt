@@ -234,13 +234,19 @@ private fun LocationRows(
                     (if (state.branchCorrected == true) "✱" else " ") +
                         "⟳ ${pad(signedOneDp(roll.toDouble()), W_ROLL)}°"
                 },
-                // GRAVITY'S OWN ANSWER for the same angle, which is unambiguous where the
-                // fused one is not — see CaptureState.gravityRollDeg. Shown only when it
-                // actually disagrees, so the ordinary case stays one number per axis and
-                // the readout is not three numbers wide at phone width.
-                state.gravityRollDeg?.takeIf { g ->
-                    state.imageRollDeg?.let { r -> !degreesWithin(r, g, 10f) } ?: false
-                }?.let { "g ${pad(signedOneDp(it.toDouble()), W_ROLL)}°" },
+                // WHAT THE FUSED MATRIX SAYS, when it disagrees with the published roll by
+                // more than 10°. The published value is gravity's now, so this is the
+                // SUSPECT rather than the reference — the inversion of what this slot
+                // held before, and for the obvious reason: comparing the published number
+                // against gravity stopped saying anything once it became gravity.
+                //
+                // `m -100.3` beside `⟳  -90.0` is the overshoot caught in the act. ~180
+                // apart is the branch. Absent means the fusion agrees and there is
+                // nothing to report, which keeps the row one number per axis in ordinary
+                // use.
+                state.matrixRollDeg?.takeIf { m ->
+                    state.imageRollDeg?.let { r -> !degreesWithin(r, m, 10f) } ?: false
+                }?.let { "m ${pad(signedOneDp(it.toDouble()), W_ROLL)}°" },
             ).joinToString("  "),
             Modifier.testTag("attitude-readout"),
         )

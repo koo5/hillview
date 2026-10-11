@@ -57,6 +57,8 @@ class AttitudeProvenanceTest {
         deviceBearingDeg = 158.4,
         branchCorrected = branchCorrected,
         azimuthMirrored = false,
+        matrixPitchDeg = 4.5,
+        matrixRollDeg = -1.9,
     )
 
     private fun snapshot(
@@ -94,6 +96,8 @@ class AttitudeProvenanceTest {
             "\"device_bearing_deg\":158.4",
             "\"branch_corrected\":false",
             "\"azimuth_mirrored\":false",
+            "\"matrix_pitch_deg\":4.5",
+            "\"matrix_roll_deg\":-1.9",
         ).forEach { assertTrue(it in json, "missing $it in $json") }
         assertTrue(json.startsWith("{") && json.endsWith("}"), json)
     }
@@ -151,6 +155,7 @@ class AttitudeProvenanceTest {
             "rotation_vector", "matrix_determinant", "bearing_reference",
             "bearing_conditioning", "camera_bearing_deg", "device_bearing_deg",
             "branch_corrected", "azimuth_mirrored",
+            "matrix_pitch_deg", "matrix_roll_deg",
         ).forEach { assertFalse(it in json, "$it should be absent from $json") }
         // ...and the angles it DOES measure are still there.
         assertTrue("\"roll_deg\":-1.5" in json, json)
@@ -265,5 +270,32 @@ class AttitudeProvenanceTest {
     @Test
     fun noReadingAtAllIsNotFresh() {
         assertNull(null.freshAt(shutterAt))
+    }
+
+    /**
+     * THE MEASUREMENT THE PAIR EXISTS FOR. `pitch_deg`/`roll_deg` are gravity's from
+     * metadata_version 3, so the fused attitude's error is the DIFFERENCE between them
+     * and the matrix pair — and a frame carrying only the published values cannot show
+     * it. The case is the overshoot the user watched: a 0→90° roll sweep reported by the
+     * fusion as 0→100→90, caught at the top.
+     */
+    @Test
+    fun theMatrixPairIsWhatMakesTheFusionsErrorMeasurable() {
+        val json = attitudeProvenanceJson(
+            snapshot(
+                DeviceAttitude(
+                    trueDeg = 68.5, magneticDeg = 64.25,
+                    // Gravity says the phone really is at 90 of roll...
+                    pitch = 0.0, roll = 90.0,
+                    // ...while the fused matrix has run ahead to 100.
+                    matrixPitchDeg = 0.4, matrixRollDeg = 100.3,
+                    ts = shutterAt,
+                ),
+            ),
+        )!!
+        assertTrue("\"roll_deg\":90.0" in json, json)
+        assertTrue("\"matrix_roll_deg\":100.3" in json, json)
+        // 10.3 degrees apart, which is the whole finding. Nothing in the object asserts
+        // which is right — that is the reader's job, and both are present to let them.
     }
 }

@@ -537,6 +537,7 @@ private class AndroidPhotoCapture(
                     branchCorrected = it.branchCorrected,
                     fieldMagnitudeUt = it.fieldMagnitudeUt?.toFloat(),
                     fieldDipDeg = it.fieldDipDeg?.toFloat(),
+                    matrixRollDeg = it.matrixRollDeg?.toFloat(),
                     fieldLooksClean = it.fieldMagnitudeUt?.let { b ->
                         cz.hillview.plugin.fieldLooksUndisturbed(
                             b.toFloat(),

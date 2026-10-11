@@ -36,4 +36,6 @@ internal fun OrientationSensorData.toDeviceAttitude(): DeviceAttitude = DeviceAt
     azimuthMirrored = azimuthMirrored,
     fieldMagnitudeUt = fieldMagnitudeUt?.toDouble(),
     fieldDipDeg = fieldDipDeg?.toDouble(),
+    matrixPitchDeg = matrixPitchDeg?.toDouble(),
+    matrixRollDeg = matrixRollDeg?.toDouble(),
 )

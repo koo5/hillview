@@ -65,6 +65,9 @@ FULL = {
 	'device_bearing_deg': 158.4,
 	'branch_corrected': False,
 	'azimuth_mirrored': False,
+	# What the fused matrix said about the two axes that became gravity's in v3.
+	'matrix_pitch_deg': 4.5,
+	'matrix_roll_deg': -1.9,
 }
 
 
@@ -199,3 +202,20 @@ def test_integers_stay_integers_and_floats_stay_floats():
 	assert isinstance(out['magnetometer_calibration'], int)
 	assert out['roll_deg'] == 3.0
 	assert isinstance(out['roll_deg'], float)
+
+
+def test_the_matrix_pair_makes_the_fusions_error_measurable():
+	"""pitch_deg/roll_deg are gravity's from metadata_version 3, so the fused
+	attitude's error is the DIFFERENCE between them and the matrix pair. A response
+	carrying only the published values cannot show it. The case here is the measured
+	overshoot: gravity says 90 degrees of roll while the fusion has run ahead to 100."""
+	out = _attitude(exif({'roll_deg': 90.0, 'matrix_roll_deg': 100.3}))
+	assert out == {'roll_deg': 90.0, 'matrix_roll_deg': 100.3}
+
+
+def test_the_matrix_pair_is_absent_not_defaulted():
+	"""Every photo before 2026-10-11 has neither, and a 0.0 would read as "the fusion
+	agreed exactly" rather than "nobody recorded it"."""
+	out = _attitude(exif({'roll_deg': -1.5}))
+	assert 'matrix_roll_deg' not in out
+	assert 'matrix_pitch_deg' not in out

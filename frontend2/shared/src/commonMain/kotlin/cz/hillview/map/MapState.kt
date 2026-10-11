@@ -259,6 +259,13 @@ data class DeviceAttitude(
      */
     val fieldMagnitudeUt: Double? = null,
     val fieldDipDeg: Double? = null,
+    /**
+     * What the FUSED MATRIX said about pitch and roll — which [pitch] and [roll] no
+     * longer come from. Kept because the published values can no longer show the fused
+     * attitude misbehaving, and that is the thing being measured.
+     */
+    val matrixPitchDeg: Double? = null,
+    val matrixRollDeg: Double? = null,
     /** Wall-clock ms of the sample. */
     val ts: Long,
 

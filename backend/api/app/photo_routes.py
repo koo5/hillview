@@ -1724,6 +1724,12 @@ _ATTITUDE_FIELDS: dict = {
 	'device_bearing_deg': float,
 	'branch_corrected': bool,
 	'azimuth_mirrored': bool,
+	# What the fused matrix said about the two axes pitch_deg/roll_deg stopped coming
+	# from in metadata_version 3 (they come from gravity now). Published for the same
+	# reason as the rest: the pair's DIFFERENCE is the measurement of the fusion's
+	# error, and a reader with only the published values cannot make it.
+	'matrix_pitch_deg': float,
+	'matrix_roll_deg': float,
 }
 
 # What the RECEIVER said about its own fix — error bars and motion, never the

@@ -90,6 +90,38 @@ still non-monotonic, the remaining suspect is the HAL's own fused roll, and
 `attitude.branch_corrected` on a captured frame now says whether our correction
 was involved at all.
 
+## 2026-10-11 — the second fault is an OVERSHOOT, not a flip
+
+Watched directly, with the published roll and the fused one side by side: a real
+0→90° roll sweep is reported by the fusion as **0 → 100 → 90**. Roughly 10° of
+overshoot that then settles — a different fault from the 180° branch, and the
+earlier "flips sign four times" was a looser description of something in the
+same family or a separate event; it has never been reproduced with both numbers
+on screen.
+
+The mechanism fits a fused attitude exactly. It integrates the gyro and relaxes
+toward its references, so a gyro over-reading by about a tenth turns a 90° sweep
+into 100° and the reference then pulls it back over the filter's time constant.
+Overshoot, then convergence. The reason it reaches the ROLL is that the rotation
+vector must also maintain HEADING, which has no instantaneous reference — the
+magnetometer is slow and noisy — so its gyro integration is load-bearing and its
+error leaks into all three axes. `TYPE_GRAVITY` carries no such burden: the
+accelerometer gives it down at every instant and the gyro only smooths.
+
+Which is why the published pitch and roll are gravity's from `c9c06964`. Neither
+known fault can reach them now — not the branch, not the overshoot.
+
+**The fused attitude is still wrong, and is still what the BEARING comes from.**
+Nothing above helps the azimuth: it needs the magnetometer, and therefore needs
+the fusion. If the gyro over-reads by a tenth, the heading overshoots a turn by
+the same proportion and settles, which is worth measuring on the azimuth sweeps
+specifically — a turn to a known bearing, stopped, and watched for a second.
+
+`attitude.matrix_pitch_deg` / `matrix_roll_deg` now travel on every frame beside
+the published pair, so the fusion's error is a subtraction rather than a session.
+The overlay shows the matrix's roll as `m` whenever it disagrees by more than
+10°, which is the overshoot caught in the act.
+
 ## The measurement that would settle it
 
 Two sweeps, and from 2026-10-10 the photos carry everything needed to read them —
