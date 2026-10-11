@@ -856,6 +856,18 @@ class EnhancedSensorService(
 
 		logEvent(event)
 
+        // COUNTED AT THE DOOR, not inside the branches. The first version counted in the
+        // `when` arms, which answered "did this arm run" while reading as "did the sensor
+        // deliver" — and the arms it was in turned out to be commented out, so it reported
+        // zeros for sensors that were arriving perfectly well. Delivery and dispatch are
+        // two different questions; this one is delivery.
+        when (event.sensor.type) {
+            Sensor.TYPE_ROTATION_VECTOR -> rvEvents++
+            Sensor.TYPE_ACCELEROMETER -> accelEvents++
+            Sensor.TYPE_GRAVITY -> gravityEvents++
+            Sensor.TYPE_GYROSCOPE -> gyroEvents++
+        }
+
 
         when (event.sensor.type) {
             Sensor.TYPE_ROTATION_VECTOR -> {
@@ -870,13 +882,7 @@ class EnhancedSensorService(
                 Log.v(TAG, "🔍🧭 Received TYPE_GEOMAGNETIC_ROTATION_VECTOR data")
                 handleRotationVector(event, "TYPE_GEOMAGNETIC_ROTATION_VECTOR")
             }
-            Sensor.TYPE_GRAVITY -> {
-                gravityEvents++
-                gravityData = event.values.clone()
-                hasGravity = true
-            }
             Sensor.TYPE_ACCELEROMETER -> {
-                accelEvents++
                 accelerometerData = event.values.clone()
                 hasAccelerometer = true
                 if (currentMode == MODE_MADGWICK_AHRS) {
@@ -886,7 +892,6 @@ class EnhancedSensorService(
                 }
             }
             Sensor.TYPE_GYROSCOPE -> {
-                gyroEvents++
                 gyroscopeData = event.values.clone()
                 hasGyroscope = true
                 if (currentMode == MODE_MADGWICK_AHRS) {
@@ -904,6 +909,58 @@ class EnhancedSensorService(
                     updateComplementaryFilter()
                 }
             }*/
+
+            // THE ONLY LIVE ARM OF THIS `when` WAS TYPE_ROTATION_VECTOR.
+            //
+            // Everything else sat inside the comment that opens above at
+            // TYPE_GAME_ROTATION_VECTOR and closes on the line above this one — so
+            // `accelerometerData`, `gravityData`, `gyroscopeData` and `magnetometerData`
+            // were never written, and `hasAccelerometer` / `hasGravity` /
+            // `hasMagnetometer` were never set. Registration succeeded, samples arrived,
+            // and the dispatcher dropped every one of them.
+            //
+            // What that silently disabled: the gravity-keyed 180° branch test (which
+            // therefore never once fired), the gravity-sourced pitch and roll of
+            // metadata_version 3, the gyroscope rate cross-check, the magnetic field
+            // check, and both hand-rolled filters, which compose exactly these streams.
+            // `magnetometer_calibration` kept arriving on photos throughout, because
+            // onAccuracyChanged is a different method — which is most of why nothing
+            // looked wrong from outside.
+            //
+            // Found 2026-10-11 from a roll trace reading `src -  cond 0.00  gyro +0.0`
+            // beside `accel=ok grav=ok gyro=ok`: accepted and silent, which is exactly
+            // what a dropped dispatch looks like from the outside.
+            Sensor.TYPE_GRAVITY -> {
+                gravityData = event.values.clone()
+                hasGravity = true
+            }
+            Sensor.TYPE_ACCELEROMETER -> {
+                accelerometerData = event.values.clone()
+                hasAccelerometer = true
+                if (currentMode == MODE_MADGWICK_AHRS) {
+                    updateMadgwick()
+                } else if (currentMode == MODE_COMPLEMENTARY_FILTER) {
+                    updateComplementaryFilter()
+                }
+            }
+            Sensor.TYPE_GYROSCOPE -> {
+                gyroscopeData = event.values.clone()
+                hasGyroscope = true
+                if (currentMode == MODE_MADGWICK_AHRS) {
+                    updateMadgwick()
+                } else if (currentMode == MODE_COMPLEMENTARY_FILTER) {
+                    updateComplementaryFilter()
+                }
+            }
+            Sensor.TYPE_MAGNETIC_FIELD -> {
+                magnetometerData = event.values.clone()
+                hasMagnetometer = true
+                if (currentMode == MODE_MADGWICK_AHRS) {
+                    updateMadgwick()
+                } else if (currentMode == MODE_COMPLEMENTARY_FILTER) {
+                    updateComplementaryFilter()
+                }
+            }
         }
     }
 
