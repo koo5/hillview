@@ -565,6 +565,38 @@ class EnhancedSensorService(
         Log.i(TAG, "🔍🚀 Starting enhanced sensor service")
         Log.i(TAG, "🔍📋 Mode: ${MODE_NAMES[mode]} (code: $mode)")
 
+        // GRAVITY IS NOT A DIAGNOSTIC ANY MORE, so it cannot be registered per-mode.
+        //
+        // Since 2026-10-10 the PUBLISHED pitch and roll come from it, and the branch test
+        // judges the fused matrix against it. Both were added inside the
+        // MODE_UPRIGHT_ROTATION_VECTOR branch, and MODE_ROTATION_VECTOR registers only
+        // the rotation vector — so in that mode `gravityVector()` returned null, the roll
+        // fell through to the raw fused matrix, the branch test declined, and the gyro
+        // cross-check integrated nothing. Every correction and comparison built over two
+        // days was silently inert, and the roll trace said so in one glance: `src -`,
+        // `cond 0.00`, `brnch 0`, `gyro +0.0`, with pub == mat == raw on every line
+        // (2026-10-11).
+        //
+        // So they are registered HERE, once, before the mode chooses anything. A sensor
+        // the published attitude depends on is not optional, and registering the same
+        // listener twice is harmless — the HAL keeps the faster rate.
+        accelerometerSensor?.let { registerSensor(it) }
+            ?: Log.w(TAG, "  ❌ no ACCELEROMETER — gravity falls back to nothing")
+        sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY)?.let { registerSensor(it) }
+            ?: Log.i(TAG, "  no TYPE_GRAVITY — gravity comes from the raw accelerometer")
+        gyroscopeSensor?.let { registerSensor(it) }
+            ?: Log.i(TAG, "  no GYROSCOPE — the rate cross-check stays silent")
+
+        // ...and SAY so where it can be read without a cable. The failure above was
+        // invisible for two days because what got registered only ever reached logcat.
+        EventLog.record(
+            "sensors",
+            "${MODE_NAMES[mode]}: rv=${rotationVectorSensor != null} " +
+                "accel=${accelerometerSensor != null} " +
+                "grav=${sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY) != null} " +
+                "gyro=${gyroscopeSensor != null} mag=${magnetometerSensor != null}",
+        )
+
 
         when (mode) {
             MODE_ROTATION_VECTOR -> {
@@ -642,38 +674,10 @@ class EnhancedSensorService(
                     Log.d(TAG, "  ✓ Registered MAGNETOMETER")
                 } ?: Log.w(TAG, "  ❌ MAGNETOMETER not available")
 
-                // FOR THE FRAME PROBE, and this mode did not use it before. The
-                // gyroscope measures the true angular rate whatever the fusion believes,
-                // so it is the one reference that can say which of the two is wrong when
-                // the fused heading turns the wrong way. Cheap here: during capture the
-                // IMU window already runs this sensor at SENSOR_DELAY_FASTEST, so the
-                // hardware is on and the HAL multiplexes another listener for nearly
-                // nothing. Remove with the probe.
-                gyroscopeSensor?.let {
-                    registerSensor(it)
-                    Log.d(TAG, "  ✓ Registered GYROSCOPE (frame probe)")
-                }
-
-                // THE INDEPENDENT REFERENCE FOR THE 180° BRANCH TEST, and this mode did
-                // not register it before. Gravity is a different stream from the fused
-                // rotation vector, so it is the one thing that can say the fused
-                // attitude is on the wrong branch — see CameraPose.onWrongAttitudeBranch
-                // for why the gravity-based ORIENTATION CLASS could not do that job.
-                // Cheap for the same reason as the gyroscope above: during capture the
-                // IMU window already runs this sensor, so the hardware is on.
-                accelerometerSensor?.let {
-                    registerSensor(it)
-                    Log.d(TAG, "  ✓ Registered ACCELEROMETER (branch reference)")
-                } ?: Log.w(TAG, "  ❌ ACCELEROMETER not available — branch test declines")
-
-                // DOWN, gyro-stabilised and with no magnetometer in it — the source of
-                // the published pitch and roll since 2026-10-10, and the reference the
-                // branch test compares the fused matrix against. Composite, so it may be
-                // absent; gravityVector() falls back to the raw accelerometer.
-                sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY)?.let {
-                    registerSensor(it)
-                    Log.d(TAG, "  ✓ Registered GRAVITY")
-                } ?: Log.i(TAG, "  no TYPE_GRAVITY — falling back to the raw accelerometer")
+                // The accelerometer, gravity and the gyroscope are registered ABOVE,
+                // before the mode switch, because the published pitch and roll depend on
+                // them in every mode — see the note there for what it cost to have them
+                // here.
 
                 rotationVectorSensor?.let {
                     Log.d(TAG, "🔄 Registering TYPE_ROTATION_VECTOR sensor for UPRIGHT mode")
