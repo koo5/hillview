@@ -295,6 +295,11 @@ class EnhancedSensorService(
 
     /** See the frame-probe in handleRotationVector — temporary, all four. */
     private var lastReversalProbeMs = 0L
+
+    /**
+     * The last roll this logged, for the roll trace below. NaN until the first line.
+     */
+    private var lastTracedRoll = Float.NaN
     private var lastProbeBearing = Float.NaN
     private var gyroYawDeg = 0f
     private var lastGyroYawAtMs = 0L
@@ -1038,6 +1043,37 @@ class EnhancedSensorService(
         // which is −60+180 and −90+180). A number that wanders is honest about its own
         // conditioning; a number that is occasionally reversed is not.
         val roll = gravityRoll ?: lens.imageRollDeg
+
+        // THE ROLL TRACE — every 5° OF MOVEMENT rather than every N milliseconds.
+        //
+        // A time-based probe is the wrong instrument for this: at one line every two
+        // seconds a rotation is three samples, and the question is what happens BETWEEN
+        // the endpoints. Triggered by change instead, a 90° sweep leaves ~18 lines and a
+        // phone sitting still leaves none — so the Event log can be read and pasted
+        // without a cable, which is how both earlier attitude faults were actually
+        // measured.
+        //
+        // Every number that could explain a jump, on one line: what was published, what
+        // gravity says, what the fused matrix says, WHICH gravity source answered
+        // (TYPE_GRAVITY or the raw accelerometer fallback — if the composite sensor is
+        // silent the whole premise changes), how well conditioned gravity's answer was,
+        // and the pitch, since a roll that only misbehaves at some tilts would show here.
+        //
+        // Delete with the frame probe once the roll is understood.
+        if (lastTracedRoll.isNaN() || abs(signedDegreeDelta(lastTracedRoll, roll)) >= 5f) {
+            lastTracedRoll = roll
+            EventLog.record(
+                "roll",
+                "pub ${"%.1f".format(roll)}  " +
+                    "grav ${gravityRoll?.let { "%.1f".format(it) } ?: "—"}  " +
+                    "mat ${"%.1f".format(lens.imageRollDeg)}  " +
+                    "raw ${"%.1f".format(rawLens?.imageRollDeg ?: Float.NaN)}  " +
+                    "src ${if (hasGravity) "G" else if (hasAccelerometer) "A" else "-"}  " +
+                    "cond ${"%.2f".format(gravityConditioning)}  " +
+                    "pitch ${"%.1f".format(pitch)}  " +
+                    "brnch ${if (onWrongBranch) 1 else 0}",
+            )
+        }
 
         // THE INDEPENDENT REFERENCE. World up in device coordinates is the matrix's
         // third row, so the gyro's component along it is the true yaw rate — positive is
