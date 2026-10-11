@@ -10,37 +10,126 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
-@contextmanager
-def file_lock(lock_path: Path):
-	"""Cross-process file lock using fcntl."""
+def lock_path_for(json_path: Path) -> Path:
+	"""The lock file guarding a sessions JSON file."""
+	return json_path.parent / f"{json_path.name}.lock"
+
+
+def acquire_file_lock(lock_path: Path, blocking: bool = True):
+	"""
+	Take the cross-process flock on lock_path.
+
+	Returns the open lock file (pass it to release_file_lock). With
+	blocking=False returns None immediately if another process holds it.
+
+	The kernel drops an flock when its holder dies, which is what lets the
+	analyzer use "is the file locked" as "is someone still working on this
+	photo" — on a local filesystem only; do not rely on flock over NFS.
+
+	Note flock is per open file description: a second acquire of the same path
+	from the same process (a fresh fd) blocks against the first. Callers that
+	already hold the lock must not re-take it (see load_sessions(lock=False)).
+	"""
 	lock_path.parent.mkdir(parents=True, exist_ok=True)
 	lock_file = open(lock_path, 'w')
 	try:
-		fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-		yield
-	finally:
-		fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+		fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+	except BlockingIOError:
 		lock_file.close()
+		if blocking:
+			raise
+		return None
+	return lock_file
 
 
-def load_sessions(json_path: Path) -> list[dict]:
-	"""Load sessions from a JSON file with locking."""
+def release_file_lock(lock_file) -> None:
+	fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+	lock_file.close()
+
+
+@contextmanager
+def file_lock(lock_path: Path, blocking: bool = True):
+	"""Cross-process file lock using fcntl. Yields True once held; with blocking=False yields False instead of waiting."""
+	lock_file = acquire_file_lock(lock_path, blocking)
+	try:
+		yield lock_file is not None
+	finally:
+		if lock_file is not None:
+			release_file_lock(lock_file)
+
+
+def load_sessions(json_path: Path, *, lock: bool = True) -> list[dict]:
+	"""Load sessions from a JSON file with locking. lock=False when the caller already holds file_lock() for this file."""
 	if not json_path.exists():
 		return []
 
-	lock_path = json_path.parent / f"{json_path.name}.lock"
-	with file_lock(lock_path):
+	if not lock:
+		with open(json_path, "r") as f:
+			return json.load(f)
+
+	with file_lock(lock_path_for(json_path)):
 		with open(json_path, "r") as f:
 			return json.load(f)
 
 
-def save_sessions(json_path: Path, sessions: list[dict]):
-	"""Save sessions to a JSON file with locking."""
+def save_sessions(json_path: Path, sessions: list[dict], *, lock: bool = True):
+	"""Save sessions to a JSON file with locking. lock=False when the caller already holds file_lock() for this file."""
 	json_path.parent.mkdir(parents=True, exist_ok=True)
-	lock_path = json_path.parent / f"{json_path.name}.lock"
-	with file_lock(lock_path):
+
+	if not lock:
 		with open(json_path, "w") as f:
 			json.dump(sessions, f, indent=2)
+		return
+
+	with file_lock(lock_path_for(json_path)):
+		with open(json_path, "w") as f:
+			json.dump(sessions, f, indent=2)
+
+
+def _session_matches(
+	session: dict,
+	model: str,
+	prompt_text: str,
+	temperature: float,
+	max_tokens: int,
+	verbose: bool = False,
+	label: str = ""
+) -> bool:
+	"""True if the session was run with exactly these parameters (model, temperature, max_tokens, full prompt text)."""
+	meta = session.get("metadata", {})
+	req = session.get("request", {})
+
+	# Check model
+	if meta.get("model") != model:
+		if verbose:
+			print(f"  Session {label}: different model ({meta.get('model')} != {model})")
+		return False
+
+	# Check temperature
+	if req.get("temperature") != temperature:
+		if verbose:
+			print(f"  Session {label}: different temperature")
+		return False
+
+	# Check max_tokens
+	if req.get("max_tokens") != max_tokens:
+		if verbose:
+			print(f"  Session {label}: different max_tokens")
+		return False
+
+	# Check full prompt text
+	entry_prompt = ""
+	try:
+		entry_prompt = req.get("messages", [{}])[0].get("content", [{}])[0].get("text", "")
+	except (IndexError, TypeError):
+		pass
+
+	if entry_prompt != prompt_text:
+		if verbose:
+			print(f"  Session {label}: different prompt")
+		return False
+
+	return True
 
 
 def find_duplicate(
@@ -74,45 +163,31 @@ def find_duplicate(
 				print(f"  Session {i}: skipping (parse_error)")
 			continue
 
-		meta = session.get("metadata", {})
-		req = session.get("request", {})
-
-		# Check model
-		if meta.get("model") != model:
+		if _session_matches(session, model, prompt_text, temperature, max_tokens, verbose=verbose, label=str(i)):
 			if verbose:
-				print(f"  Session {i}: different model ({meta.get('model')} != {model})")
-			continue
-
-		# Check temperature
-		if req.get("temperature") != temperature:
-			if verbose:
-				print(f"  Session {i}: different temperature")
-			continue
-
-		# Check max_tokens
-		if req.get("max_tokens") != max_tokens:
-			if verbose:
-				print(f"  Session {i}: different max_tokens")
-			continue
-
-		# Check full prompt text
-		entry_prompt = ""
-		try:
-			entry_prompt = req.get("messages", [{}])[0].get("content", [{}])[0].get("text", "")
-		except (IndexError, TypeError):
-			pass
-
-		if entry_prompt != prompt_text:
-			if verbose:
-				print(f"  Session {i}: different prompt")
-			continue
-
-		if verbose:
-			print(f"  Session {i}: DUPLICATE FOUND")
-		return session
+				print(f"  Session {i}: DUPLICATE FOUND")
+			return session
 
 	return None
 
+
+def count_failed_attempts(
+	sessions: list[dict],
+	model: str,
+	prompt_text: str,
+	temperature: float,
+	max_tokens: int
+) -> int:
+	"""
+	How many times this exact configuration (same match as find_duplicate) has
+	produced unparseable output for this photo. The sessions file is the record
+	of attempts; the analyzer uses this count to back off and eventually give up.
+	"""
+	return sum(
+		1 for session in sessions
+		if session.get("result", {}).get("parse_error")
+		and _session_matches(session, model, prompt_text, temperature, max_tokens)
+	)
 
 CATEGORY_DEFAULTS = {
 	"kilometers": 100000,
