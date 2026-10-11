@@ -219,6 +219,18 @@ class EnhancedSensorService(
     private var accelerometerData = FloatArray(3)
     private var gravityData = FloatArray(3)
     private var hasGravity = false
+
+    /**
+     * How many samples of each kind have ARRIVED. The sensors line below reports what
+     * registration returned; these report what the HAL then did about it, and the two
+     * together separate "refused" from "accepted and silent" — which is the distinction
+     * my first attempt at this diagnostic could not make, because it logged whether the
+     * sensor EXISTED. Existence was never the question.
+     */
+    private var rvEvents = 0
+    private var accelEvents = 0
+    private var gravityEvents = 0
+    private var gyroEvents = 0
     private var gyroscopeData = FloatArray(3)
     private var magnetometerData = FloatArray(3)
     private var hasAccelerometer = false
@@ -517,12 +529,14 @@ class EnhancedSensorService(
      * The four-arg overload with a null handler is documented as equivalent to
      * the three-arg one (main looper), so the default path is unchanged.
      */
-    private fun registerSensor(sensor: Sensor) {
+    /** @return whether `registerListener` ACCEPTED it — see the sensors line in startSensorInternal. */
+    private fun registerSensor(sensor: Sensor): Boolean {
         val ok = sensorManager.registerListener(this, sensor, sensorDelayUs, callbackHandler)
         // registerListener REFUSING is silent otherwise — and a refused
         // re-registration on foreground return is a compass that looks
         // healthy and never moves again.
         if (!ok) Log.w(TAG, "⚠️ registerListener refused for ${sensor.name} (type ${sensor.type})")
+        return ok
     }
 
     private fun startSensorInternal(mode: Int = MODE_UPRIGHT_ROTATION_VECTOR) {
@@ -580,21 +594,25 @@ class EnhancedSensorService(
         // So they are registered HERE, once, before the mode chooses anything. A sensor
         // the published attitude depends on is not optional, and registering the same
         // listener twice is harmless — the HAL keeps the faster rate.
-        accelerometerSensor?.let { registerSensor(it) }
-            ?: Log.w(TAG, "  ❌ no ACCELEROMETER — gravity falls back to nothing")
-        sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY)?.let { registerSensor(it) }
-            ?: Log.i(TAG, "  no TYPE_GRAVITY — gravity comes from the raw accelerometer")
-        gyroscopeSensor?.let { registerSensor(it) }
-            ?: Log.i(TAG, "  no GYROSCOPE — the rate cross-check stays silent")
+        fun outcome(sensor: Sensor?): String = when {
+            sensor == null -> "absent"
+            registerSensor(sensor) -> "ok"
+            else -> "REFUSED"
+        }
+        val accelState = outcome(accelerometerSensor)
+        val gravityState = outcome(sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY))
+        val gyroState = outcome(gyroscopeSensor)
 
         // ...and SAY so where it can be read without a cable. The failure above was
         // invisible for two days because what got registered only ever reached logcat.
+        //
+        // REGISTRATION OUTCOMES, not sensor existence. The first version of this line
+        // reported `!= null` and so said "accel=true grav=true gyro=true" while not one
+        // of their samples was arriving — a diagnostic answering a question nobody had
+        // asked. Existence was never in doubt; the IMU window reads both at 400 Hz.
         EventLog.record(
             "sensors",
-            "${MODE_NAMES[mode]}: rv=${rotationVectorSensor != null} " +
-                "accel=${accelerometerSensor != null} " +
-                "grav=${sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY) != null} " +
-                "gyro=${gyroscopeSensor != null} mag=${magnetometerSensor != null}",
+            "${MODE_NAMES[mode]}: accel=$accelState grav=$gravityState gyro=$gyroState",
         )
 
 
@@ -853,10 +871,12 @@ class EnhancedSensorService(
                 handleRotationVector(event, "TYPE_GEOMAGNETIC_ROTATION_VECTOR")
             }
             Sensor.TYPE_GRAVITY -> {
+                gravityEvents++
                 gravityData = event.values.clone()
                 hasGravity = true
             }
             Sensor.TYPE_ACCELEROMETER -> {
+                accelEvents++
                 accelerometerData = event.values.clone()
                 hasAccelerometer = true
                 if (currentMode == MODE_MADGWICK_AHRS) {
@@ -866,6 +886,7 @@ class EnhancedSensorService(
                 }
             }
             Sensor.TYPE_GYROSCOPE -> {
+                gyroEvents++
                 gyroscopeData = event.values.clone()
                 hasGyroscope = true
                 if (currentMode == MODE_MADGWICK_AHRS) {
@@ -1075,7 +1096,10 @@ class EnhancedSensorService(
                     "src ${if (hasGravity) "G" else if (hasAccelerometer) "A" else "-"}  " +
                     "cond ${"%.2f".format(gravityConditioning)}  " +
                     "pitch ${"%.1f".format(pitch)}  " +
-                    "brnch ${if (onWrongBranch) 1 else 0}",
+                    "brnch ${if (onWrongBranch) 1 else 0}  " +
+                    // rv/accel/gravity/gyro samples SEEN so far. Zeros beside an "ok"
+                    // registration mean the HAL accepted a listener and then sent nothing.
+                    "n $rvEvents/$accelEvents/$gravityEvents/$gyroEvents",
             )
         }
 
