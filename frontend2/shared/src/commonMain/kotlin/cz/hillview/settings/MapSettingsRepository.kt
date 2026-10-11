@@ -78,13 +78,17 @@ data class MapSettings(
      */
     val showViewfinderCentre: Boolean = true,
     /**
-     * The magnetic field readout on the capture pill — see `MagneticField.kt`.
+     * The hunting readouts on the capture pill: the magnetic field (see
+     * `MagneticField.kt`) and the fused matrix's roll beside the published one.
      *
-     * OFF by default, unlike the centre mark: it answers a question that is only asked
-     * while choosing a spot to measure an azimuth from, and it would be two numbers of
-     * noise to anyone taking photographs.
+     * OFF by default, unlike the centre mark — these answer questions only asked while
+     * measuring the sensors themselves, and would be noise to anyone taking photographs.
+     *
+     * One switch rather than two because they are one activity. It was `showFieldCheck`
+     * for a few hours; the stored key keeps that name so a phone that already has it set
+     * does not lose the setting.
      */
-    val showFieldCheck: Boolean = false,
+    val showDiagnostics: Boolean = false,
     /**
      * The Main page's activity — "view" or "capture" — persisted so the
      * mode survives restarts, as the Tauri appSettings.activity does.

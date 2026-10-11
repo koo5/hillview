@@ -63,8 +63,8 @@ fun CameraOverlayUi(
      * compass that is not running would be advice about the wrong problem.
      */
     suppressHint: Boolean = false,
-    /** Show the magnetic field readout — MapSettings.showFieldCheck. */
-    fieldCheck: Boolean = false,
+    /** Show the hunting readouts — MapSettings.showDiagnostics. */
+    diagnostics: Boolean = false,
 ) {
     // The post-open hint: 4 s from the camera coming ready, as the
     // original fires doCalibrationHint right after the stream starts.
@@ -112,7 +112,7 @@ fun CameraOverlayUi(
         Column(Modifier.padding(start = 18.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)) {
             when {
                 showHint && !suppressHint -> HintContent(bearingMode)
-                else -> LocationRows(state, overridePosition, fieldCheck)
+                else -> LocationRows(state, overridePosition, diagnostics)
             }
             statusText?.let { MonoText(it, Modifier.testTag("capture-status")) }
             uploadsText?.let { MonoText(it, Modifier.testTag("capture-upload-stats")) }
@@ -166,7 +166,7 @@ private fun HintContent(bearingMode: BearingMode) {
 private fun LocationRows(
     state: CaptureState,
     overridePosition: ManualLocation?,
-    fieldCheck: Boolean,
+    diagnostics: Boolean,
 ) {
     // The effective capture position — the honesty note in the contract:
     // Tauri shows its pairing position (map state); here that is the
@@ -234,19 +234,18 @@ private fun LocationRows(
                     (if (state.branchCorrected == true) "✱" else " ") +
                         "⟳ ${pad(signedOneDp(roll.toDouble()), W_ROLL)}°"
                 },
-                // WHAT THE FUSED MATRIX SAYS, when it disagrees with the published roll by
-                // more than 10°. The published value is gravity's now, so this is the
-                // SUSPECT rather than the reference — the inversion of what this slot
-                // held before, and for the obvious reason: comparing the published number
-                // against gravity stopped saying anything once it became gravity.
+                // WHAT THE FUSED MATRIX SAYS — the SUSPECT, since the published roll is
+                // gravity's now. UNCONDITIONAL while diagnostics are on, which is the
+                // correction of a mistake: it used to appear only on a disagreement of
+                // more than 10°, and "no alternative number ever shows in the overlay"
+                // (user, 2026-10-11) is what that produced — a comparison that hides
+                // itself is no instrument at all, and it hid during the very event it was
+                // added to explain.
                 //
-                // `m -100.3` beside `⟳  -90.0` is the overshoot caught in the act. ~180
-                // apart is the branch. Absent means the fusion agrees and there is
-                // nothing to report, which keeps the row one number per axis in ordinary
-                // use.
-                state.matrixRollDeg?.takeIf { m ->
-                    state.imageRollDeg?.let { r -> !degreesWithin(r, m, 10f) } ?: false
-                }?.let { "m ${pad(signedOneDp(it.toDouble()), W_ROLL)}°" },
+                // `m -100.3` beside `⟳  -90.0` is the overshoot caught in the act; ~180
+                // apart is the branch; equal means the fusion is behaving.
+                state.matrixRollDeg?.takeIf { diagnostics }
+                    ?.let { "m ${pad(signedOneDp(it.toDouble()), W_ROLL)}°" },
             ).joinToString("  "),
             Modifier.testTag("attitude-readout"),
         )
@@ -257,7 +256,7 @@ private fun LocationRows(
     // is a geometric invariant and CANNOT move under rotation. A ✓ is only a screening
     // test against Prague's 49 µT at 66°; it cannot see the few degrees of disturbance
     // that would still spoil a careful azimuth. See MagneticField.kt.
-    if (fieldCheck && state.fieldMagnitudeUt != null) {
+    if (diagnostics && state.fieldMagnitudeUt != null) {
         MonoText(
             "🧲 ${pad(oneDp(state.fieldMagnitudeUt.toDouble()), W_FIELD)}µT  " +
                 "dip ${pad(state.fieldDipDeg?.let { signedOneDp(it.toDouble()) } ?: "—", W_DIP)}°" +

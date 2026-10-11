@@ -2,6 +2,8 @@ package cz.hillview.capture
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -124,6 +126,63 @@ class CameraOverlayUiTest {
         val a = widthOf(-4.4f, -92.4f)
         val b = widthOf(88.8f, 111.1f)
         assertEquals(a, b, 0.5f, "attitude readout drew $a then $b — the font is not monospaced")
+    }
+
+    /**
+     * THE COMPARISON MUST NOT HIDE ITSELF.
+     *
+     * The matrix's roll appeared only on a disagreement of more than 10°, and the result
+     * was "no alternative number ever shows in the overlay" — a comparison invisible
+     * during the very event it exists to explain. It is unconditional under the
+     * diagnostics switch now, and this pins both halves: present when asked for even
+     * when the two AGREE, absent when not asked for even when they disagree wildly.
+     */
+    @Test
+    fun theMatrixRollShowsWheneverDiagnosticsAreOnEvenWhenItAgrees() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(
+                    ready = false,
+                    pitchDeg = 0f,
+                    imageRollDeg = 45f,
+                    // Agreeing to a tenth of a degree — the old rule would have hidden it.
+                    matrixRollDeg = 45.1f,
+                    fixLatitude = 50.1,
+                    fixLongitude = 14.5,
+                ),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+                diagnostics = true,
+            )
+        }
+        onNodeWithTag("attitude-readout").assertTextContains("m  +45.1°", substring = true)
+    }
+
+    @Test
+    fun theMatrixRollStaysOutOfTheWayWhenDiagnosticsAreOff() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(
+                    ready = false,
+                    pitchDeg = 0f,
+                    imageRollDeg = 45f,
+                    // Wildly disagreeing, and still not shown: someone taking photographs
+                    // has no use for a second roll, and every frame records the pair
+                    // anyway.
+                    matrixRollDeg = -134f,
+                    fixLatitude = 50.1,
+                    fixLongitude = 14.5,
+                ),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+                diagnostics = false,
+            )
+        }
+        onNodeWithTag("attitude-readout").assertTextEquals("↕  +0.0°   ⟳  +45.0°")
     }
 
     /** Landscape: the roll is what moves, and it reads ±90 rather than a residual. */
