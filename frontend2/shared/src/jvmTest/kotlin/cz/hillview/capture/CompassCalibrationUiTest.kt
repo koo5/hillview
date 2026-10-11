@@ -160,6 +160,34 @@ class CameraOverlayUiTest {
         onNodeWithTag("attitude-readout").assertTextContains("m  +45.1°", substring = true)
     }
 
+    /**
+     * A REVERSAL IS NOT A PREFERENCE. The one report that could not be acted on was a
+     * 180° jump watched with diagnostics off and no second number beside it, so a gross
+     * disagreement surfaces itself whatever the setting. It cannot fire while the fusion
+     * is healthy, which is what keeps it out of ordinary use.
+     */
+    @Test
+    fun aGrossDisagreementShowsItselfWithoutBeingAskedFor() = runComposeUiTest {
+        setContent {
+            CameraOverlayUi(
+                state = CaptureState(
+                    ready = false,
+                    pitchDeg = 0f,
+                    imageRollDeg = -90f,
+                    matrixRollDeg = 90f,          // the branch, 180 away
+                    fixLatitude = 50.1,
+                    fixLongitude = 14.5,
+                ),
+                bearingMode = cz.hillview.map.BearingMode.Walking,
+                overridePosition = null,
+                opacityLevel = 3,
+                onCycleOpacity = {},
+                diagnostics = false,
+            )
+        }
+        onNodeWithTag("attitude-readout").assertTextContains("m  +90.0°", substring = true)
+    }
+
     @Test
     fun theMatrixRollStaysOutOfTheWayWhenDiagnosticsAreOff() = runComposeUiTest {
         setContent {
@@ -168,10 +196,11 @@ class CameraOverlayUiTest {
                     ready = false,
                     pitchDeg = 0f,
                     imageRollDeg = 45f,
-                    // Wildly disagreeing, and still not shown: someone taking photographs
-                    // has no use for a second roll, and every frame records the pair
-                    // anyway.
-                    matrixRollDeg = -134f,
+                    // Mildly disagreeing — the overshoot's scale — and not shown:
+                    // someone taking photographs has no use for a second roll, and every
+                    // frame records the pair anyway. A GROSS disagreement does surface
+                    // itself; that is the test above.
+                    matrixRollDeg = 55f,
                     fixLatitude = 50.1,
                     fixLongitude = 14.5,
                 ),

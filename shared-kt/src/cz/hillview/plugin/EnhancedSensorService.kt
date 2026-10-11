@@ -969,12 +969,21 @@ class EnhancedSensorService(
         val gravityConditioning = down?.let {
             gravityRollConditioning(it[0], it[1], it[2])
         } ?: 0f
-        val gravityRoll = if (down != null && gravityConditioning >= GRAVITY_ROLL_FLOOR) {
-            gravityRollDeg(down[0], down[1])
-        } else {
-            null
-        }
-        val onWrongBranch = rawLens != null &&
+        // THE FLOOR GATES THE BRANCH TEST, NOT THE ROLL. Two different stakes: a wrong
+        // branch DECISION is a 180° error, so it must decline when gravity is too flat to
+        // judge; but a noisy roll is only noisy. atan2 of a small in-plane gravity vector
+        // wanders, and it is never 180° out, because there is one down and no second
+        // attitude fitting it.
+        //
+        // These were one value until 2026-10-11 and that was the bug: below the floor the
+        // published roll fell back to the fused matrix, which CAN be 180° out, and the
+        // correction that would have fixed it had declined on the same condition. So the
+        // one regime where a branch error was most likely was the one where it was
+        // neither corrected nor detectable — and the roll jumped 180° as the SOURCE
+        // switched mid-rotation.
+        val gravityRoll = down?.let { gravityRollDeg(it[0], it[1]) }
+        val branchJudgeable = down != null && gravityConditioning >= GRAVITY_ROLL_FLOOR
+        val onWrongBranch = rawLens != null && branchJudgeable &&
             rawLens.onWrongAttitudeBranch(gravityRoll, gravityConditioning)
         val branched = if (rawLens != null && onWrongBranch) {
             rawLens.withBranchCorrected()
@@ -1020,11 +1029,15 @@ class EnhancedSensorService(
         // The matrix keeps the bearing, and keeps BOTH correction decisions, which still
         // compare it against gravity. What changes is only which number is published.
         val pitch = down?.let { gravityPitchDeg(it[0], it[1], it[2]) } ?: lens.pitchDeg
-        // Roll needs gravity's IN-PLANE direction, which does not exist with the phone
-        // flat — the rotation about a vertical optical axis is an azimuth, and gravity
-        // cannot see azimuths. There the fused matrix answers, exactly as the bearing
-        // falls back to the device's top edge when the lens goes vertical.
-        val roll = if (gravityRoll != null) gravityRoll else lens.imageRollDeg
+        // NO FALLBACK TO THE MATRIX. Near flat, gravity's in-plane direction is small and
+        // the roll it gives is noisy — the rotation about a vertical optical axis is
+        // really an azimuth, and gravity cannot see azimuths. But the alternative was
+        // worse than noise: the matrix there is a magnetometer-derived number that can be
+        // a full 180° out, and handing it over mid-rotation is what made the published
+        // roll jump (user, 2026-10-11: portrait → left landscape read 0, −30, 120, 90 —
+        // which is −60+180 and −90+180). A number that wanders is honest about its own
+        // conditioning; a number that is occasionally reversed is not.
+        val roll = gravityRoll ?: lens.imageRollDeg
 
         // THE INDEPENDENT REFERENCE. World up in device coordinates is the matrix's
         // third row, so the gyro's component along it is the true yaw rate — positive is

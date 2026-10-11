@@ -244,8 +244,14 @@ private fun LocationRows(
                 //
                 // `m -100.3` beside `⟳  -90.0` is the overshoot caught in the act; ~180
                 // apart is the branch; equal means the fusion is behaving.
-                state.matrixRollDeg?.takeIf { diagnostics }
-                    ?.let { "m ${pad(signedOneDp(it.toDouble()), W_ROLL)}°" },
+                // ...and ALSO without being asked, when the two are grossly apart. A
+                // reversal is not a preference setting: the one report I could not act on
+                // was a 180° jump watched with diagnostics off and nothing beside it, so
+                // a disagreement that large now surfaces itself. It cannot fire while the
+                // fusion is healthy, so ordinary use never sees it.
+                state.matrixRollDeg?.takeIf { m ->
+                    diagnostics || state.imageRollDeg?.let { r -> !degreesWithin(r, m, 90f) } == true
+                }?.let { "m ${pad(signedOneDp(it.toDouble()), W_ROLL)}°" },
             ).joinToString("  "),
             Modifier.testTag("attitude-readout"),
         )
