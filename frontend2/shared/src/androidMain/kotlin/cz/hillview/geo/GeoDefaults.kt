@@ -95,7 +95,8 @@ fun externalCameraConfig(
 )
 
 /**
- * Map viewing with follow-me or the compass arrow on: nobody is stamping
+ * Map viewing with follow-me, or the arrow in car mode (the walking compass
+ * alone is [compassOnlyGeoConfig]): nobody is stamping
  * anything, so this trades resolution for power — half the fix rate, a
  * third of the sensor rate. Still smooth for an arrow the eye is watching.
  */
@@ -103,4 +104,29 @@ fun mapOnlyGeoConfig() = GeoConfig(
     sensors = true,
     sensorDelayUs = SENSOR_DELAY_RELAXED_US,
     locationIntervalMs = 2_000L,
+)
+
+/**
+ * How old the position the compass's declination comes from may get. What
+ * declination really depends on is how FAR you have gone, which cannot be
+ * known without a fix — so this caps it with time. Here it moves a few tenths
+ * of a degree per 100 km, so 30 minutes of walking (~2.5 km) is worth about a
+ * hundredth of a degree and 30 minutes of motorway about 0.2°, both well under
+ * what the compass itself can tell. Over time alone it drifts 0.1–0.2° a
+ * year. (User, 2026-10-11: "30 minutes?")
+ */
+const val DECLINATION_FIX_MAX_AGE_MS = 30 * 60_000L
+
+/**
+ * The walking compass with nothing else on: the sensors as for map viewing,
+ * and no fix stream — only a position for declination, kept younger than
+ * [DECLINATION_FIX_MAX_AGE_MS] (see GeoEngine's declination one-shots). Car
+ * mode is NOT this: its heading is the GPS course, so it takes
+ * [mapOnlyGeoConfig].
+ */
+fun compassOnlyGeoConfig() = GeoConfig(
+    sensors = true,
+    sensorDelayUs = SENSOR_DELAY_RELAXED_US,
+    locationIntervalMs = 0L,
+    declinationFixMaxAgeMs = DECLINATION_FIX_MAX_AGE_MS,
 )

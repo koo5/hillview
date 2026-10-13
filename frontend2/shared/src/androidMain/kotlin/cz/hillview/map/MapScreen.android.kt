@@ -106,7 +106,10 @@ actual fun MapScreen(
     // readout has to be able to see it.
     val trackingPhase by session.bearingPhase.collectAsState()
     val locationTracking by session.locationTracking.collectAsState()
-    var locationFlash by remember { mutableStateOf(false) }
+    // Fixes counted for the button's flash. A count, not the flag it used
+    // to be: the flag could stick lit for good — see rememberFixFlash.
+    var flashFixes by remember { mutableStateOf(0L) }
+    val locationFlash = rememberFixFlash(flashFixes)
     // The last fix is a RECORD in the one state now (MapStateHolder.lastFix,
     // 2026-09-09), not a copy held here. In BACKGROUND tracking the fix
     // callback deliberately stops writing spatial state (exploring must not
@@ -246,7 +249,12 @@ actual fun MapScreen(
     // fix. Runs for the life of this always-mounted pane.
     LaunchedEffect(Unit) {
         controller.observeFixes { fix ->
-            locationFlash = true
+            // The flash only while tracking, as in the original ("only OFF
+            // skips entirely", Map.svelte:1124). The fix stream also runs with
+            // tracking off — for capture, the external camera, or the compass
+            // alone (BindGeoToActivity) — and flashing then made an OFF
+            // button blink as though it were on.
+            if (session.locationTracking.value != LocationTracking.Off) flashFixes++
             state.updateFix(fix)
         }
     }
@@ -263,9 +271,12 @@ actual fun MapScreen(
             }
         }
     }
-    LaunchedEffect(locationFlash) {
-        if (locationFlash) { delay(100); locationFlash = false }
-    }
+    // The flag's clear used to live here, keyed on the flag itself:
+    //   LaunchedEffect(locationFlash) {
+    //       if (locationFlash) { delay(100); locationFlash = false }
+    //   }
+    // It stuck lit whenever a fix re-set the flag between the clear and the
+    // next frame. rememberFixFlash above keys on the fix count instead.
     // The location button is the stronger control: using it while the
     // prompt is up answers it.
     LaunchedEffect(locationTracking) {
@@ -479,6 +490,22 @@ actual fun MapScreen(
                 // the angle travelled, everything else points the arrow.
                 arrowOverlay.mountOffsetDrag =
                     mapSettings.bearingMode == BearingMode.Car && trackingWanted
+                // The direction of travel that offset is set against, shown
+                // while it is being dragged (user, 2026-10-12; not in the
+                // original). DERIVED — the arrow with the offset taken back
+                // out — rather than the engine's course read on the side, so
+                // it comes from the one state, and the angle between the two
+                // arrows is the offset exactly, dead-band and all. Only once
+                // car mode has written a heading (phase Active): before that
+                // the arrow is whatever the compass last left it at, and
+                // taking an offset out of it gives a direction nobody
+                // travelled.
+                arrowOverlay.travelBearingDeg =
+                    if (arrowOverlay.mountOffsetDrag && trackingPhase == TrackingPhase.Active) {
+                        normalizeBearing(bearing.bearing - controller.mountOffsetDeg())
+                    } else {
+                        null
+                    }
                 // The hold in front of manual bearing is there to protect a
                 // heading that is about to be RECORDED (ArrowArming). In the
                 // viewer nothing is being recorded and turning the bearing IS
@@ -1145,6 +1172,9 @@ private class MapSensorController(private val context: Context) {
     fun adjustMountOffset(deltaDeg: Double) {
         geoTracking.setMountOffset(geoTracking.getMountOffset() + deltaDeg)
     }
+
+    /** The offset car mode composes into its heading — a setting, not a sample. */
+    fun mountOffsetDeg(): Double = geoTracking.getMountOffset()
 
     fun release() {
         stopBearing()

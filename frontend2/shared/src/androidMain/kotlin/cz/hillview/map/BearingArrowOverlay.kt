@@ -78,6 +78,18 @@ class BearingArrowOverlay : Overlay() {
      */
     var mountOffsetDrag: Boolean = false
 
+    /**
+     * Car mode's direction of travel — the GPS course BEFORE the mount offset
+     * is added — in true-north degrees, or null where there is none to show.
+     *
+     * Drawn only while the ring is held for a mount-offset drag, as a second,
+     * smaller arrow to turn the big one against: the angle between the two IS
+     * the offset being set (user, 2026-10-12: "a second small arrow would show
+     * up to indicate the base direction of travel"). An addition — the
+     * original shows only the composed arrow while you drag.
+     */
+    var travelBearingDeg: Double? = null
+
     /** Manual bearing has just been granted: stand the compass down, once. */
     var onArmed: (() -> Unit)? = null
     var onBearing: ((Double) -> Unit)? = null
@@ -158,11 +170,43 @@ class BearingArrowOverlay : Overlay() {
         color = arrowBlue
     }
 
+    /**
+     * The direction of travel ([travelBearingDeg]): dark rather than blue, so
+     * it cannot be read as a second heading, and so its head still shows where
+     * it lies along the blue shaft — which is what a zero offset looks like.
+     */
+    private val travelGrey = Color.argb(190, 50, 50, 50)
+    private val travelLine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        color = travelGrey
+    }
+    private val travelFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = travelGrey
+    }
+
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
         if (shadow || ringRadiusPx <= 0f) return
         val density = mapView.context.resources.displayMetrics.density
         val cx = mapView.width / 2f
         val cy = mapView.height / 2f
+        val now = System.currentTimeMillis()
+
+        // Under the arrow, so where the two agree the blue shaft stays whole
+        // and the travel head sits on it.
+        val travel = travelBearingDeg
+        val travelAlpha = travelArrowAlpha(now)
+        if (travel != null && travelAlpha > 0) {
+            travelLine.alpha = travelAlpha
+            travelFill.alpha = travelAlpha
+            drawArrow(
+                canvas, cx, cy, travel - mapView.mapOrientation, density, travelLine, travelFill,
+                tipRadiusPx = ringRadiusPx * TRAVEL_ARROW_LENGTH,
+                headPx = TRAVEL_ARROW_HEAD_DP * density,
+                strokePx = TRAVEL_ARROW_STROKE_DP * density,
+            )
+        }
 
         // The arrow points at a true-north bearing while the map itself may
         // be rotated, so draw relative to the map's orientation.
@@ -192,7 +236,6 @@ class BearingArrowOverlay : Overlay() {
         // is already following the finger, which is its own feedback, and a
         // closing arc would promise a wait that is not happening.
         if (!requireHold || !arming.pressing) return
-        val now = System.currentTimeMillis()
         val progress = arming.progress(now)
         if (progress <= 0f) return
 
@@ -225,6 +268,19 @@ class BearingArrowOverlay : Overlay() {
         if (!arming.armed) mapView.postInvalidateOnAnimation()
     }
 
+    /**
+     * How opaque the travel arrow is right now; 0 is not drawn. Only under a
+     * mount-offset drag with a course to show. It comes in with the hold, as
+     * the ghost does, so a brush past the ring shows no more of it than of the
+     * hold arc; with no hold to serve it appears on the first movement, which
+     * is where that drag begins.
+     */
+    private fun travelArrowAlpha(now: Long): Int {
+        if (!mountOffsetDrag || travelBearingDeg == null || !arming.pressing) return 0
+        if (!requireHold && !arming.armed) return 0
+        return (Color.alpha(travelGrey) * arming.progress(now)).toInt()
+    }
+
     private fun drawArrow(
         canvas: Canvas,
         cx: Float,
@@ -233,19 +289,21 @@ class BearingArrowOverlay : Overlay() {
         density: Float,
         stroke: Paint,
         solid: Paint,
+        tipRadiusPx: Float = arrowTipRadiusPx(ringRadiusPx, density),
+        headPx: Float = ARROW_HEAD_DP * density,
+        strokePx: Float = 3f * density,
     ) {
         val rad = Math.toRadians(angleDeg)
-        val tipRadiusPx = arrowTipRadiusPx(ringRadiusPx, density)
         val tipX = cx + (sin(rad) * tipRadiusPx).toFloat()
         val tipY = cy - (cos(rad) * tipRadiusPx).toFloat()
 
-        val head = ARROW_HEAD_DP * density
+        val head = headPx
         val backX = tipX - (sin(rad) * head).toFloat()
         val backY = tipY + (cos(rad) * head).toFloat()
         // The shaft stops at the head's back, not at the tip: its round cap
         // stuck out 1.5 dp past the point, so the arrow visibly ended beyond
         // where it was placed — and where it ends is now the point.
-        stroke.strokeWidth = 3f * density
+        stroke.strokeWidth = strokePx
         canvas.drawLine(cx, cy, backX, backY, stroke)
         val px = cos(rad).toFloat() * head * 0.5f
         val py = sin(rad).toFloat() * head * 0.5f
@@ -388,5 +446,14 @@ class BearingArrowOverlay : Overlay() {
          * stroke, which is 18 either side of the line.
          */
         const val RING_GRAB_NO_HOLD_DP = 18f
+
+        /**
+         * The travel arrow's tip, as a fraction of the threshold radius: well
+         * inside the ring, clear of the hold drawn just inside it, and short
+         * enough to read as the lesser of the two arrows.
+         */
+        const val TRAVEL_ARROW_LENGTH = 0.6f
+        const val TRAVEL_ARROW_HEAD_DP = 8f
+        const val TRAVEL_ARROW_STROKE_DP = 2f
     }
 }

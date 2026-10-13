@@ -12,4 +12,15 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+    <!--
+      DeclinationFixDeviceTest: the engine's declination one-shot is a real fused
+      request, which needs these (granted at runtime by the test), and the engine
+      asks only while the app is in the foreground, which needs an activity to
+      have started. A bare ComponentActivity is enough for that.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <application>
+        <activity android:name="androidx.activity.ComponentActivity" android:exported="false" />
+    </application>
 </manifest>

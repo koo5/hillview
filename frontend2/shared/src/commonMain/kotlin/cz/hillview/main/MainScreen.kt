@@ -134,8 +134,7 @@ fun MainScreen(
     val locationTracking by session.locationTracking.collectAsState()
     cz.hillview.geo.BindGeoToActivity(
         activity = activity,
-        mapWantsTracking = bearingWanted ||
-            locationTracking != cz.hillview.map.LocationTracking.Off,
+        mapNeeds = cz.hillview.geo.mapGeoNeed(locationTracking, bearingWanted, mapSettings.bearingMode),
         gpsIntervalMs = mapSettings.gpsIntervalMs,
     )
 

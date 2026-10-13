@@ -667,6 +667,91 @@ candidate explanations.
   there). A rose's cross is still its members' average — unchanged, and
   the rose is off.
 
+- **The location button could stick green for good — fixed** (2026-10-11,
+  user: "it stays green no matter how many times i click it, but the blue
+  map range circle shows and hides, so, something is toggling"). Tracking
+  WAS toggling; the per-fix flash fill was hiding it.
+  - **The bug.** The fix callback set a `locationFlash` flag and a
+    `LaunchedEffect(locationFlash)` cleared it 100 ms later. When the clear
+    landed and the next fix set the flag again before a frame recomposed,
+    the composition saw `true` twice running, the effect was not restarted,
+    and nothing ever cleared it again — the green fill then covered every
+    state until the app restarted. While nothing draws (app in the
+    background, fix stream still running) that window is seconds wide.
+  - **The fix.** `rememberFixFlash(fixes)` (`FixFlash.kt`) keys the effect on
+    a fix COUNT, which cannot repeat, so every fix restarts the 100 ms — the
+    original's clearTimeout + setTimeout (`Map.svelte:1135`).
+  - **And it no longer flashes while OFF**, as the original ("only OFF skips
+    entirely", `Map.svelte:1124`). The fix stream runs with tracking off for
+    capture, the external camera, or the compass alone, so an off button
+    used to blink as though it were on.
+  - `FixFlashTest` (jvmTest) walks a second fix through every millisecond
+    offset from the first, and fires 50 with no frame between them. The old
+    wiring, driven by the same scan, stuck at a 102 ms gap. NOT verified on
+    the phone.
+
+- **The walking compass alone no longer runs GPS — one fused request per
+  30 minutes, for declination** (2026-10-11, user: "gps should possibly turn
+  on for compass declination, but that should become some logic that just
+  ensures that the oldest fix is no older than some reasonable value, wdyt,
+  30 minutes?"; "it could be probably implemented by some one-shot coarse
+  location android api request"; "everything goes properly through the
+  engine").
+  - **Before:** any compass arrow claimed `mapOnlyGeoConfig`, a fix every 2 s,
+    when all the walking compass needs from a position is its declination.
+  - **Now:** `mapGeoNeed` (commonMain) says what the map needs. Follow-me
+    and the CAR-mode arrow (its heading is the GPS course) still need fixes
+    → `mapOnlyGeoConfig`. The walking arrow alone → `compassOnlyGeoConfig`:
+    no stream, `declinationFixMaxAgeMs` = 30 min (`GeoDefaults`, with the
+    numbers: a few tenths of a degree per 100 km here).
+  - **The engine** meets that with one fused `getCurrentLocation` at a time —
+    balanced power (no GNSS), `maxUpdateAge` = the limit, so the platform
+    answers from its cache when that is young enough, 30 s to try — and asks
+    again when the answer reaches the limit (5 min after a miss, never
+    sooner than a minute). Foreground only, like the sensors. The answer
+    feeds the sensor stack's declination and NOTHING else: not the tracking
+    table, not the one state's fix — a balanced, possibly cached position is
+    good enough for declination and not good enough to be a record.
+  - **Every sensor registration is now seeded** from the engine's newest
+    position (last fix or last one-shot), so a restart or a return from the
+    background starts at the right declination rather than at 0°.
+  - Capture and the external camera keep the full stream whatever tracking
+    says (user: "it needs to be on in capture/extcam mode even when tracking
+    is off, as the alternative location track").
+  - **Left alone:** `EnhancedSensorService` (shared-kt) still reads the
+    platform's last known location once when it starts (line ~400). The
+    engine's seed overrides it straight away; removing it would touch the
+    Tauri app too.
+  - Tests: `MapGeoNeedTest` (commonTest), `DeclinationFixTest` (host: the
+    schedule and the configs), `DeclinationFixDeviceTest` (emulator, real
+    fused provider: a fix comes back, the stream stays off — the first
+    answer took ~30 s on a loaded emulator, the second 11 s). NOT verified on
+    the phone.
+
+- **Car mode: the direction of travel shows while the mount offset is
+  dragged** (2026-10-12, user: "when the bearing circle is pressed and we're
+  adjusting the bearing offset, if a second small arrow would show up to
+  indicate the base direction of travel"). An ADDITION — the original shows
+  only the composed arrow while you drag.
+  - A dark grey arrow, shorter (tip at 0.6× the ring) and thinner than the
+    blue one, drawn under it. The angle between the two IS the offset; at
+    zero its head sits on the blue shaft. It comes in with the hold, like
+    the hold arc; where there is no hold (the viewer) it appears on the first
+    movement, so a tap through the ring to a marker shows nothing. It goes
+    when the finger lifts.
+  - **Derived, not read from the engine**: `bearing − mountOffset`, in the
+    map's update block — the one state's arrow with the setting taken back
+    out, so it cannot disagree with the arrow it is shown against. Only
+    once car mode has written a heading (`TrackingPhase.Active`): before
+    that the arrow is the compass's last value and no direction was
+    travelled.
+  - `TravelArrowTest` (androidDeviceTest, real touches into a real MapView,
+    rendered to a bitmap): shown mid-drag and not blue, gone on release,
+    nothing on an unmoved no-hold press, fades in with the hold, nothing
+    outside a mount-offset drag or with no course. Passed on the emulator,
+    with `MapGestureTest`. NOT verified on the phone, and never with a real
+    course: the emulator renders only the overlay.
+
 - **Holding the shutter: the button's side cancels again, and the bottom
   rung reaches off the pane** (user: "sliding to the right side should mean
   basically cancel of the gesture, while sliding to the bottom left should
